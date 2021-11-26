@@ -11,10 +11,10 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	componentbaseconfig "k8s.io/component-base/config"
 	"k8s.io/klog/v2"
-	aggregatorclientset "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
+	//aggregatorclientset "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 
 	crdclientset "antrea.io/antrea/pkg/client/clientset/versioned"
-	legacycrdclientset "antrea.io/antrea/pkg/legacyclient/clientset/versioned"
+	//legacycrdclientset "antrea.io/antrea/pkg/legacyclient/clientset/versioned"
 )
 
 // CreateClients creates kube clients from the given config.

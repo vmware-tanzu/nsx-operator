@@ -10,9 +10,9 @@ import (
 	"flag"
 	"os"
 
+	"github.com/nsx-operator/pkg/log"
+	"github.com/nsx-operator/pkg/util"
 	"github.com/spf13/cobra"
-	"pkg/log"
-	"pkg/util"
 	"k8s.io/klog"
 )
 

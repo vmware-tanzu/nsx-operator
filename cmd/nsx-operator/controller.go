@@ -6,21 +6,23 @@ package main
 
 import (
 	"fmt"
+	componentbaseconfig "k8s.io/component-base/config"
+	//"fmt"
 	"time"
 
-	uuid "github.com/satori/go.uuid"
+	//uuid "github.com/satori/go.uuid"
 	"k8s.io/client-go/informers"
-	componentbaseconfig "k8s.io/component-base/config"
+	//componentbaseconfig "k8s.io/component-base/config"
 
-	"pkg/context"
-	"pkg/controller"
-	"pkg/k8s"
-	"pkg/log"
-	"pkg/nsx"
-	"pkg/nsx/store"
-	"pkg/signals"
-	"pkg/util"
-	thirdpartystore "third_party/store"
+	"github.com/nsx-operator/pkg/context"
+	//"github.com/nsx-operator/pkg/controller"
+	"github.com/nsx-operator/pkg/k8s"
+	"github.com/nsx-operator/pkg/log"
+	//"github.com/nsx-operator/pkg/nsx"
+	//"github.com/nsx-operator/pkg/nsx/store"
+	"github.com/nsx-operator/pkg/signals"
+	"github.com/nsx-operator/pkg/util"
+	//thirdpartystore "github.com/nsx-operator/third_party/store"
 )
 
 const (
@@ -45,7 +47,8 @@ func run(c *util.NSXOperatorConfig) error {
 
 	var clientConnection componentbaseconfig.ClientConnectionConfiguration
 	// TODO initialize client connection
-	client, crdClient, apiExtensionClient, err = k8s.CreateClients(clientConnection, "")
+	kubeclient, crdClient, apiExtensionClient, err := k8s.CreateClients(clientConnection, "")
+	print(crdClient, apiExtensionClient)
 	if err != nil {
 		// Enhance log and error reporting
 		return fmt.Errorf("failed to create clientset: %v", err)
@@ -61,7 +64,7 @@ func run(c *util.NSXOperatorConfig) error {
 	//nodeInformer := informerFactory.Core().V1().Nodes()
 
 	// TODO Add feature gate for CRD
-	crdInformerFactory := crdinformers.NewSharedInformerFactory(crdClient, informerDefaultResync)
+	//crdInformerFactory := crdinformers.NewSharedInformerFactory(crdClient, informerDefaultResync)
 	//vnetInformer := crdInformerFactory.Vmware().V1alpha1().VirtualNetworks()
 
 	// TODO Declare NSX stores

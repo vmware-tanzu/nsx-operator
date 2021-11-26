@@ -6,7 +6,7 @@ package context
 
 import (
 	"context"
-	"pkg/util"
+	"github.com/nsx-operator/pkg/util"
 )
 
 type ClusterContext struct {

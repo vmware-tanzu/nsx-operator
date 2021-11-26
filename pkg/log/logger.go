@@ -7,10 +7,10 @@ package log
 import (
 	"github.com/go-logr/logr"
 	"github.com/spf13/pflag"
-	"k8s.io/klog"
-	"k8s.io/klog/klogr"
+	"k8s.io/klog/v2"
+	"k8s.io/klog/v2/klogr"
 
-	"pkg/context"
+	"github.com/nsx-operator/pkg/context"
 )
 
 const (
