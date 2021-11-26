@@ -45,7 +45,7 @@ func run(c *util.NSXOperatorConfig) error {
 
 	// Initialize K8s native client and K8s CRD client
 
-	var clientConnection componentbaseconfig.ClientConnectionConfiguration
+	clientConnection := componentbaseconfig.ClientConnectionConfiguration{Kubeconfig: c.K8sConfig.KubeConfigFile}
 	// TODO initialize client connection
 	kubeclient, crdClient, apiExtensionClient, err := k8s.CreateClients(clientConnection, "")
 	print(crdClient, apiExtensionClient)
