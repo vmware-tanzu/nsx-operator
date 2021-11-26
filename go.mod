@@ -7,7 +7,6 @@ require (
 	github.com/deckarep/golang-set v1.7.1
 	github.com/go-logr/logr v1.2.0
 	github.com/golang/mock v1.6.0
-	github.com/satori/go.uuid v1.2.0
 	github.com/spf13/cobra v1.2.1
 	github.com/spf13/pflag v1.0.5
 	gopkg.in/ini.v1 v1.64.0
@@ -18,7 +17,6 @@ require (
 	k8s.io/component-base v0.22.4
 	k8s.io/klog v1.0.0
 	k8s.io/klog/v2 v2.30.0
-	k8s.io/kube-aggregator v0.22.4
 )
 
 require (

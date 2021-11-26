@@ -5,7 +5,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	ctx "github.com/nsx-operator/pkg/context"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	componentbaseconfig "k8s.io/component-base/config"
 	//"fmt"
 	"time"
@@ -14,7 +17,6 @@ import (
 	"k8s.io/client-go/informers"
 	//componentbaseconfig "k8s.io/component-base/config"
 
-	"github.com/nsx-operator/pkg/context"
 	//"github.com/nsx-operator/pkg/controller"
 	"github.com/nsx-operator/pkg/k8s"
 	"github.com/nsx-operator/pkg/log"
@@ -35,7 +37,7 @@ const (
 func run(c *util.NSXOperatorConfig) error {
 	// Create cluster context with cluster info and NCP config
 	clusterUUID := string(c.CoeConfig.Cluster)
-	ctx := context.ClusterContext{
+	ctx := ctx.ClusterContext{
 		Config:        c,
 		ClusterName: c.CoeConfig.Cluster,
 		ClusterID:   clusterUUID,
@@ -49,6 +51,18 @@ func run(c *util.NSXOperatorConfig) error {
 	// TODO initialize client connection
 	kubeclient, crdClient, apiExtensionClient, err := k8s.CreateClients(clientConnection, "")
 	print(crdClient, apiExtensionClient)
+	options := metav1.ListOptions{
+		LabelSelector: "app=<APPNAME>",
+	}
+	podList, _ := kubeclient.CoreV1().Pods("nsx-system").List(context.TODO(), options)
+
+
+	// List() returns a pointer to slice, derefernce it, before iterating
+	for _, podInfo := range (*podList).Items {
+		fmt.Printf("pods-name=%v\n", podInfo.Name)
+		fmt.Printf("pods-status=%v\n", podInfo.Status.Phase)
+		fmt.Printf("pods-condition=%v\n", podInfo.Status.Conditions)
+	}
 	if err != nil {
 		// Enhance log and error reporting
 		return fmt.Errorf("failed to create clientset: %v", err)
