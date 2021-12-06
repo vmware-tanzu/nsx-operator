@@ -26,7 +26,7 @@ type NSXOperatorConfig struct {
 }
 
 type CoeConfig struct {
-	Cluster  string `ini:"cluster"`
+	Cluster string `ini:"cluster"`
 }
 
 type NsxConfig struct {
@@ -111,4 +111,3 @@ func NewNSXOpertorConfig() *NSXOperatorConfig {
 func Validate(*NSXOperatorConfig) error {
 	return nil
 }
-

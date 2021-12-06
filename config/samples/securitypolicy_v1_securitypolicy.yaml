@@ -1,0 +1,9 @@
+apiVersion: securitypolicy.github.com/v1
+kind: SecurityPolicy
+metadata:
+  name: securitypolicy-sample
+spec:
+  # TODO(user): Add fields here
+  foo: foo
+status:
+  status: true

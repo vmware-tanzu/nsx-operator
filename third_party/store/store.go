@@ -235,4 +235,3 @@ func NewStore(indexers cache.Indexers) NSXStore {
 		indices:  cache.Indices{},
 	}
 }
-

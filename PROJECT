@@ -1,0 +1,16 @@
+domain: github.com
+layout:
+- go.kubebuilder.io/v3
+projectName: demo
+repo: github.com/nsx-operator
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: github.com
+  group: securitypolicy
+  kind: SecurityPolicy
+  path: github.com/nsx-operator/api/v1
+  version: v1
+version: "3"
