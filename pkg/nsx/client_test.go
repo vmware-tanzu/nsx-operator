@@ -1,4 +1,5 @@
-// Copyright (c) 2021 VMware, Inc. All rights reserved. VMware Confidential.
+/* Copyright © 2020 VMware, Inc. All Rights Reserved.
+   SPDX-License-Identifier: Apache-2.0 */
 
 package nsx
 

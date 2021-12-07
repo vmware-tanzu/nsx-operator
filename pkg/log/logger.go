@@ -10,7 +10,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/klogr"
 
-	"github.com/nsx-operator/pkg/context"
+	"github.com/vmware-tanzu/nsx-operator/pkg/context"
 )
 
 const (

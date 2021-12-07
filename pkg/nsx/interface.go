@@ -2,7 +2,7 @@
 
    SPDX-License-Identifier: Apache-2.0 */
 
-package nsxapi
+package nsx
 
 import "k8s.io/client-go/rest"
 

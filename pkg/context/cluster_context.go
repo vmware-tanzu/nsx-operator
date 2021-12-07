@@ -6,7 +6,7 @@ package context
 
 import (
 	"context"
-	"github.com/nsx-operator/pkg/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 type ClusterContext struct {

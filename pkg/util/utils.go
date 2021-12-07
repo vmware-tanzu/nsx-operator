@@ -11,7 +11,7 @@ import (
 
 	"k8s.io/client-go/util/workqueue"
 
-	"github.com/nsx-operator/pkg/util/locerrors"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util/locerrors"
 )
 
 // The OnError function re-enqueue the object key based on predefined retry rate
