@@ -66,7 +66,7 @@ func NewCluster(config *Config) (*Cluster, error) {
 		cluster = &Cluster{endpoints: eps, transport: transport, client: client, noBalancerClient: noBClient, config: config}
 		transport.setEndpoints(eps)
 		transport.setCluster(cluster)
-		go cluster.createAuthSessions()
+		cluster.createAuthSessions()
 		for _, ep := range cluster.endpoints {
 			ep.setUserPassword(config.Username, config.Password)
 			ep.setup()
