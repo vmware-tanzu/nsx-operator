@@ -28,10 +28,9 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
 		print(err, "Unable to fetch object")
 	} else {
-		print("Geeting from Kubebuilder to", obj.Spec.Foo)
+		print("Geeting from Kubebuilder to", obj.Spec.Priority)
 	}
 
-	obj.Status.Status = "Running"
 	if err := r.Status().Update(ctx, obj); err != nil {
 		print(err, "unable to update status")
 	}
