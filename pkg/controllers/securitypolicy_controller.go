@@ -5,13 +5,14 @@ package controllers
 
 import (
 	"context"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	securitypolicyv1 "github.com/vmware-tanzu/nsx-operator/api/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 )
 
 // SecurityPolicyReconciler reconciles a SecurityPolicy object
@@ -24,7 +25,7 @@ type SecurityPolicyReconciler struct {
 func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
-	obj := &securitypolicyv1.SecurityPolicy{}
+	obj := &v1alpha1.SecurityPolicy{}
 	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
 		print(err, "Unable to fetch object")
 	} else {
@@ -44,6 +45,6 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 // SetupWithManager sets up the controller with the Manager.
 func (r *SecurityPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&securitypolicyv1.SecurityPolicy{}).
+		For(&v1alpha1.SecurityPolicy{}).
 		Complete(r)
 }

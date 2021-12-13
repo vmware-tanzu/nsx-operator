@@ -12,7 +12,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
-	"github.com/vmware-tanzu/nsx-operator/third_party/retry"
+	"github.com/vmware-tanzu/nsx-operator/pkg/third_party/retry"
 )
 
 // Transport is used in http.Client to replace default implement.
