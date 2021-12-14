@@ -1,0 +1,44 @@
+apiVersion: nsx.vmware.com/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: egress-policy-1
+  namespace: ns-1
+spec:
+  appliedTo:
+    - vmSelector:
+        matchLabels:
+          user: internal
+    - podSelector:
+        matchLabels:
+          env: dev
+  rules:
+    - direction: out
+      action: allow
+      ports:
+        - protocol: UDP
+          port: 53
+    - direction: out
+      action: drop
+
+---
+
+apiVersion: nsx.vmware.com/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: ingress-policy-1
+  namespace: ns-1
+spec:
+  appliedTo:
+    - vmSelector:
+        matchLabels:
+          role: db
+  rules:
+    - direction: in
+      action: allow
+      sources:
+        - podSelector:
+            matchLabels:
+              role: frontend
+      ports:
+        - protocol: TCP
+          port: 8000

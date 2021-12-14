@@ -1,6 +1,8 @@
 /* Copyright © 2021 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
+//+kubebuilder:object:generate=true
+//+groupName=nsx.vmware.com
 package v1alpha1
 
 import (
