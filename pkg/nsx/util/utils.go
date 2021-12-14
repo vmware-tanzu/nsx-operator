@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -231,4 +232,17 @@ func httpErrortoNSXError(detail *ErrorDetail) error {
 	err := &GeneralManagerError{}
 	err.setDetail(detail)
 	return err
+}
+
+func UpdateHttpRequestAuth(tokenProvider auth.TokenProvider, request *http.Request) error {
+	token, err := tokenProvider.GetToken(false)
+	if err != nil {
+		log.Errorf("Retrieving JSON Web Token eror: %v", err)
+		return err
+	}
+	bearerToken := tokenProvider.HeaderValue(token)
+	request.Header.Add("Authorization", bearerToken)
+	request.Header.Add("Accept", "application/json")
+	request.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	return nil
 }

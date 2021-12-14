@@ -95,30 +95,32 @@ func handleRoundTripError(err error, ep *Endpoint) error {
 }
 
 func (t *Transport) updateAuthInfo(r *http.Request, ep *Endpoint) {
-	if ep.XSRFToken() != "" {
-		if r.Header.Get("Authorization") != "" {
-			r.Header.Del("Authorization")
+	if t.tokenProvider != nil {
+		token, err := t.tokenProvider.GetToken(false)
+		if err != nil {
+			log.Error(err, "Update authentication info failed for endpoint", ep.Host())
+			return
 		}
-		r.Header.Add("X-Xsrf-Token", ep.XSRFToken())
-		url := &url.URL{Host: ep.Host()}
-		ep.Lock()
-		cookies := ep.client.Jar.Cookies(url)
-		ep.Unlock()
-		for _, cookie := range cookies {
-			if cookie == nil {
-				log.Error(errors.New("cookie is nil"), "failed to update authentication info")
-			}
-			r.Header.Set("Cookie", cookie.String())
-		}
+		bearerToken := t.tokenProvider.HeaderValue(token)
+		r.Header.Add("Authorization", bearerToken)
+		r.Header.Add("Accept", "application/json")
+		r.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	} else {
-		if t.tokenProvider != nil {
-			token, err := t.tokenProvider.GetToken(false)
-			if err != nil {
-				log.Error(err, "failed to retrieve JSON Web Token for updating authentication info", "endpoint", ep.Host())
-				return
+		if ep.XSRFToken() != "" {
+			if r.Header.Get("Authorization") != "" {
+				r.Header.Del("Authorization")
 			}
-			bearerToken := t.tokenProvider.HeaderValue(token)
-			r.Header.Add("Authorization", bearerToken)
+			r.Header.Add("X-Xsrf-Token", ep.XSRFToken())
+			url := &url.URL{Host: ep.Host()}
+			ep.Lock()
+			cookies := ep.client.Jar.Cookies(url)
+			ep.Unlock()
+			for _, cookie := range cookies {
+				if cookie == nil {
+					log.Error(errors.New("Cookie is nil."), "Update authentication info failed")
+				}
+				r.Header.Set("Cookie", cookie.String())
+			}
 		}
 	}
 }

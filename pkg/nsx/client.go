@@ -18,6 +18,7 @@ type NSXClient struct {
 
 func GetClient() *NSXClient {
 	cf, _ := config.NewNSXOperatorConfigFromFile()
+	
 	c := NewConfig(strings.Join(cf.NsxApiManagers, ","), cf.NsxApiUser, cf.NsxApiPassword, "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil)
 	cluster, _ := NewCluster(c)
 	connector, _ := cluster.NewRestConnector()

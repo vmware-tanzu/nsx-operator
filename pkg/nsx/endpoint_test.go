@@ -112,7 +112,7 @@ func TestCreateAuthSession(t *testing.T) {
 	client := cluster.createHTTPClient(tr, 30)
 	noBClient := cluster.createNoBalancerClient(90, 90)
 	rl := ratelimiter.NewFixRateLimiter(10)
-	ep, err := NewEndpoint("10.0.0.1", &client, &noBClient, rl)
+	ep, err := NewEndpoint("10.0.0.1", &client, &noBClient, rl, nil)
 	assert.Nil(err, fmt.Sprintf("Endpoint create failed due to %v", err))
 
 	certProvider := createNcpPovider()
@@ -169,7 +169,7 @@ func TestKeepAlive(t *testing.T) {
 	client := cluster.createHTTPClient(tr, 30)
 	noBClient := cluster.createNoBalancerClient(90, 90)
 	rl := ratelimiter.NewFixRateLimiter(10)
-	ep, err := NewEndpoint(ts.URL[len("http://"):], &client, &noBClient, rl)
+	ep, err := NewEndpoint(ts.URL[len("http://"):], &client, &noBClient, rl, nil)
 
 	assert.Nil(err, fmt.Sprintf("Endpoint create failed due to %v", err))
 	ep.setStatus(UP)
