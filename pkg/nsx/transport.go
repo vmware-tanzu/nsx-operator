@@ -4,7 +4,7 @@
 package nsx
 
 import (
-	"fmt"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -37,7 +37,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 		func() error {
 			ep, err := t.selectEndpoint()
 			if err != nil {
-				log.Error("No endpoint is avaiable")
+				log.Error(err, "endpoint is unavailable")
 				return err
 			}
 			ep.increaseConnNumber()
@@ -54,12 +54,12 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			}
 			transTime := time.Since(start) - waitTime
 			ep.adjustRate(waitTime, resp.StatusCode)
-			log.Debug(fmt.Sprintf("HTTP request: %v, response: %v, Took: %s", r, resp, transTime))
+			log.V(4).Info("HTTP got response", "response", resp, "transTime", transTime)
 			if err = util.InitErrorFromResponse(ep.Host(), resp); err == nil {
 				ep.setAliveTime(start.Add(transTime))
 				return nil
 			}
-			log.Debug(fmt.Sprintf("Request failed due to: %v", err))
+			log.V(4).Info("request failed", "error", err.Error())
 
 			// refresh token here
 			if util.ShouldRegenerate(err) {
@@ -72,7 +72,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			} else if util.ShouldRetry(err) {
 				return true
 			} else {
-				log.Debug(fmt.Sprintf("Error [%v] is configrated as not retriable", err))
+				log.V(4).Info("error is configrated as not retriable", "error", err.Error())
 				return false
 			}
 		}), retry.LastErrorOnly(true),
@@ -82,7 +82,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func handleRoundTripError(err error, ep *Endpoint) error {
-	log.Warning(fmt.Sprintf("Request failed due to: %v", err))
+	log.Error(err, "request failed")
 	errString := err.Error()
 	if strings.HasSuffix(errString, "connection refused") {
 		ep.setStatus(DOWN)
@@ -106,7 +106,7 @@ func (t *Transport) updateAuthInfo(r *http.Request, ep *Endpoint) {
 		ep.Unlock()
 		for _, cookie := range cookies {
 			if cookie == nil {
-				log.Warning("Cookie is nil.")
+				log.Error(errors.New("cookie is nil"), "failed to update authentication info")
 			}
 			r.Header.Set("Cookie", cookie.String())
 		}
@@ -114,7 +114,7 @@ func (t *Transport) updateAuthInfo(r *http.Request, ep *Endpoint) {
 		if t.tokenProvider != nil {
 			token, err := t.tokenProvider.GetToken(false)
 			if err != nil {
-				log.Error(fmt.Sprintf("Update authentication info failed for endpoint %s due to error in retrieving JSON Web Token: %s", ep.Host(), err))
+				log.Error(err, "failed to retrieve JSON Web Token for updating authentication info", "endpoint", ep.Host())
 				return
 			}
 			bearerToken := t.tokenProvider.HeaderValue(token)
@@ -148,7 +148,7 @@ func (t *Transport) selectEndpoint() (*Endpoint, error) {
 		for _, i := range t.endpoints {
 			eps = append(eps, i.Host())
 		}
-		log.Error(fmt.Sprintf("All endpoints down for cluster: %v", eps))
+		log.Error(errors.New("all endpoints down for cluster"), "select endpoint failed")
 		id := strings.Join(eps, ",")
 		return nil, util.CreateServiceClusterUnavailable(id)
 	}

@@ -41,7 +41,7 @@ func TestClient(t *testing.T) {
 	fwClient := domains.NewSecurityPoliciesClient(connector)
 	result, err := fwClient.List(domainIDParam, nil, nil, nil, nil, nil, nil, nil)
 	assert.True(t, err == nil, fmt.Sprintf("Get security policy failed due to %v ", err))
-	log.Debug("Security policy count ", *result.ResultCount)
+	log.V(4).Info("get security policy", "resultCount", *result.ResultCount)
 }
 
 func TestQuery(t *testing.T) {
@@ -55,13 +55,13 @@ func TestQuery(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		response, err := queryClient.List(url.QueryEscape(queryParam), nil, nil, nil, nil, nil)
 		assert.True(t, err == nil, fmt.Sprintf("Query segment failed due to %v ", err))
-		log.Debug("response number is ", *response.ResultCount)
+		log.V(4).Info("query segment", "resultCount", *response.ResultCount)
 	}
 	for i := 0; i < 20; i++ {
 		go func() {
 			response, err := queryClient.List(url.QueryEscape(queryParam), nil, nil, nil, nil, nil)
 			assert.True(t, err == nil, fmt.Sprintf("Query segment failed due to %v ", err))
-			log.Debug("response number is ", *response.ResultCount)
+			log.V(4).Info("query segment", "resultCount", *response.ResultCount)
 		}()
 		time.Sleep(time.Microsecond)
 	}
