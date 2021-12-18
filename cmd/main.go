@@ -19,6 +19,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+	"github.com/vmware-tanzu/nsx-operator/pkg/services"
 )
 
 var (
@@ -54,11 +55,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controllers.SecurityPolicyReconciler{
+	securityReconcile := &controllers.SecurityPolicyReconciler{
 		Client:    mgr.GetClient(),
 		Scheme:    mgr.GetScheme(),
 		NSXClient: nsx.GetClient(),
-	}).SetupWithManager(mgr); err != nil {
+	}
+
+	if err = services.InitializeSecurityPolicy(securityReconcile); err != nil {
+		setupLog.Error(err, "unable to init securitypolicy store", "controller", "SecurityPolicy")
+		os.Exit(1)
+	}
+
+	if err = securityReconcile.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityPolicy")
 		os.Exit(1)
 	}

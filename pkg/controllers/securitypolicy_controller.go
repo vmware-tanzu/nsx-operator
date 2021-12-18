@@ -7,19 +7,24 @@ import (
 	"context"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 )
 
 // SecurityPolicyReconciler reconciles a SecurityPolicy object
 type SecurityPolicyReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-	*nsx.NSXClient
+	Scheme              *runtime.Scheme
+	NSXClient           *nsx.Client
+	GroupStore          cache.Indexer
+	SecurityPolicyStore cache.Indexer
+	RuleStore           cache.Indexer
 }
 
 func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -35,9 +40,6 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err := r.Status().Update(ctx, obj); err != nil {
 		print(err, "unable to update status")
 	}
-
-	queryParam := "Segment"
-	r.QueryClient.List(queryParam, nil, nil, nil, nil, nil)
 
 	return ctrl.Result{}, nil
 }

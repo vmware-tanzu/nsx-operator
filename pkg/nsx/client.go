@@ -4,23 +4,45 @@
 package nsx
 
 import (
-	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"strings"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 )
 
-type NSXClient struct {
-	//TODO Init various client
-	QueryClient search.QueryClient
+type Client struct {
+	NsxConfig      *config.NSXOperatorConfig
+	RestConnector  *client.RestConnector
+	QueryClient    search.QueryClient
+	GroupClient    domains.GroupsClient
+	SecurityClient domains.SecurityPoliciesClient
+	RuleClient     security_policies.RulesClient
 }
 
-func GetClient() *NSXClient {
+func restConnector(c *Cluster) *client.RestConnector{
+	connector, _ := c.NewRestConnector()
+	return connector
+}
+
+func GetClient() *Client {
 	cf, _ := config.NewNSXOperatorConfigFromFile()
 	c := NewConfig(strings.Join(cf.NsxApiManagers, ","), cf.NsxApiUser, cf.NsxApiPassword, "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil)
 	cluster, _ := NewCluster(c)
-	connector, _ := cluster.NewRestConnector()
-	queryClient := search.NewQueryClient(connector)
-	return &NSXClient{QueryClient: queryClient}
+	queryClient := search.NewQueryClient(restConnector(cluster))
+	groupClient := domains.NewGroupsClient(restConnector(cluster))
+	securityClient := domains.NewSecurityPoliciesClient(restConnector(cluster))
+	ruleClient := security_policies.NewRulesClient(restConnector(cluster))
+	return &Client{
+		NsxConfig:      cf,
+		RestConnector:  restConnector(cluster),
+		QueryClient:    queryClient,
+		GroupClient:    groupClient,
+		SecurityClient: securityClient,
+		RuleClient:     ruleClient,
+	}
 }
