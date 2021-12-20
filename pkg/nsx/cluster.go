@@ -10,12 +10,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/security"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/core"
 	policyclient "github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/security"
 )
 
 // ClusterHealth indicates cluster status.
@@ -42,12 +43,12 @@ type Cluster struct {
 
 var (
 	jarCache = NewJar()
-	log      = logger.GetInstance()
+	log      = logf.Log.WithName("nsx").WithName("cluster")
 )
 
 // NewCluster creates a cluster based on nsx Config.
 func NewCluster(config *Config) (*Cluster, error) {
-	log.Info("Creating cluster")
+	log.Info("creating cluster")
 	cluster := &Cluster{}
 	cluster.config = config
 	cluster.transport = cluster.createTransport(config.TokenProvider, time.Duration(config.ConnIdleTimeout))
@@ -57,7 +58,7 @@ func NewCluster(config *Config) (*Cluster, error) {
 	r := ratelimiter.NewRateLimiter(config.APIRateMode)
 	eps, err := cluster.createEndpoints(config.APIManagers, &cluster.client, &cluster.noBalancerClient, r)
 	if err != nil {
-		log.Error("Creating cluster error:", err)
+		log.Error(err, "creating cluster failed")
 		return nil, err
 	}
 	cluster.endpoints = eps

@@ -94,7 +94,7 @@ func parseURL(u string) (string, string, error) {
 	}
 	ur, err := url.Parse(u)
 	if err != nil {
-		log.Error(fmt.Sprintf("Endpoint url %v format error %s", u, err))
+		log.Error(err, "endpoint url format is invalid", "url", u)
 		return "", "", err
 	}
 	return ur.Host, ur.Scheme, nil
@@ -110,7 +110,7 @@ func (ep *Endpoint) keepAlive() error {
 	if ep.XSRFToken() != "" {
 		req, err = http.NewRequest("GET", fmt.Sprintf(healthURL, ep.Scheme(), ep.Host()), nil)
 		if err != nil {
-			log.Warning("KeepAlive create request error :", err)
+			log.Error(err, "keepalive request creation failed")
 			return err
 		}
 		req.Header.Add("X-Xsrf-Token", ep.xXSRFToken)
@@ -118,28 +118,28 @@ func (ep *Endpoint) keepAlive() error {
 		ep.RLock()
 		for _, cookie := range ep.client.Jar.Cookies(u) {
 			if cookie == nil {
-				log.Warning("Cookie is nil")
+				log.Error(errors.New("cookie is nil"), "keepalive request creation failed")
 			} else {
 				req.Header.Set("Cookie", cookie.String())
 			}
 		}
 		ep.RUnlock()
 	} else {
-		log.Debug("Token is invalid, using user/password to keep alive")
+		log.V(4).Info("token is invalid, using user/password to keep alive")
 		req, err = http.NewRequest("GET", fmt.Sprintf(healthURL, ep.Scheme(), ep.Host()), nil)
 		req.SetBasicAuth(ep.user, ep.password)
 		if err != nil {
-			log.Warning("KeepAlive create request error :", err)
+			log.Error(err, "keepalive request creation failed")
 			return err
 		}
 	}
 	resp, err := ep.noBalancerClient.Do(req)
 	if err != nil {
-		log.Warning(fmt.Sprintf("Failed to validate API cluster endpoint %s due to: %v", ep.Host(), err))
+		log.Error(err, "failed to validate API cluster", "endpoint", ep.Host())
 		return err
 	}
 	body, err := ioutil.ReadAll(resp.Body)
-	log.Debug(fmt.Sprintf("http request is %v , resp body is %s", req, string(body)))
+	log.V(4).Info("received HTTP response", "request", req, "response", string(body))
 	defer resp.Body.Close()
 	if err = util.InitErrorFromResponse(ep.Host(), resp); err == nil {
 		var a epHealthy
@@ -147,23 +147,23 @@ func (ep *Endpoint) keepAlive() error {
 			ep.setStatus(UP)
 			return nil
 		}
-		log.Warning(fmt.Sprintf("Failed to validate API cluster endpoint %s due to: %v, %v", ep.Host(), err, a))
+		log.Error(err, "failed to validate API cluster", "endpoint", ep.Host(), "healthy", a)
 		return err
 	}
 
 	if util.ShouldRegenerate(err) {
-		log.Warning(fmt.Sprintf("Failed to validate API cluster endpoint %s due to an exception that calls for regeneration", ep.Host()))
+		log.Error(err, "failed to validate API cluster due to an exception that calls for regeneration", "endpoint", ep.Host())
 		// TODO, should we regenerate the token here ?
 		ep.setXSRFToken("")
 		ep.setStatus(DOWN)
 		return err
 	} else if util.ShouldRetry(err) {
-		log.Info("Error is retriable, endpoint stays up")
+		log.Info("error is retriable, endpoint stays up")
 		ep.setStatus(UP)
 	} else {
 		ep.setStatus(DOWN)
 	}
-	log.Warning(fmt.Sprintf("Failed to validate API cluster endpoint %s due to: %s", ep.Host(), err))
+	log.Error(err, "failed to validate API cluster", "endpoint", ep.Host())
 	return err
 }
 
@@ -185,7 +185,7 @@ func (ep *Endpoint) KeepAlive() {
 		inter := ep.nextInterval()
 		select {
 		case <-ep.stop:
-			log.Info("KeepAlive stopped by cluster")
+			log.Info("keepalive stopped by cluster")
 			return
 		case <-time.After(time.Second * time.Duration(inter)):
 		}
@@ -193,19 +193,19 @@ func (ep *Endpoint) KeepAlive() {
 }
 
 func (ep *Endpoint) setup() {
-	log.Debug("Begin to setup endpoint")
+	log.V(4).Info("begin to setup endpoint")
 	err := ep.keepAlive()
 	if err != nil {
-		log.Warning("Fail to setup endpoint: ", err)
+		log.Error(err, "setup endpoint failed")
 	} else {
-		log.Debug("successfully to setup endpoint: ")
+		log.V(4).Info("setup endpoint successfully")
 	}
 }
 
 func (ep *Endpoint) setStatus(s EndpointStatus) {
 	ep.Lock()
 	if ep.status != s {
-		log.Info(fmt.Sprintf("Endpoint %s changing from state %s to %s", ep.Host(), ep.status, s))
+		log.Info("endpoint status is changing", "endpoing", ep.Host(), "oldStatus", ep.status, "newStatus", s)
 		ep.status = s
 	}
 	ep.Unlock()
@@ -267,7 +267,7 @@ func (ep *Endpoint) ConnNumber() int {
 
 func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, tokenProvider auth.TokenProvider, username string, password string, jar *Jar) error {
 	if certProvider != nil {
-		log.Debug("Skipping session create with client certificate auth")
+		log.V(4).Info("skipping session creation with client certificate auth")
 		return nil
 	}
 	u := &url.URL{Host: ep.Host(), Scheme: ep.Scheme()}
@@ -276,12 +276,12 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 	if tokenProvider != nil {
 		token, err := tokenProvider.GetToken(true)
 		if err != nil {
-			log.Error(fmt.Sprintf("Session create failed for endpoint %s due to error in retrieving JSON Web Token: %s", ep.Host(), err))
+			log.Error(err, "failed to retrieve JSON Web Token for session creation", "endpoint", ep.Host())
 			return err
 		}
 		req, err = http.NewRequest("POST", fmt.Sprintf("%s://%s/api/session/create", u.Scheme, u.Host), nil)
 		if err != nil {
-			log.Error(fmt.Sprintf("Session create for %s failed due to creating request error : %s", ep.Host(), err))
+			log.Error(err, "failed to new request for session creation failed", "endpoint", ep.Host())
 			return err
 		}
 		bearerToken := tokenProvider.HeaderValue(token)
@@ -292,7 +292,7 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 		postValues.Add("j_password", password)
 		req, err = http.NewRequest("POST", fmt.Sprintf("%s://%s/api/session/create", u.Scheme, u.Host), strings.NewReader(postValues.Encode()))
 		if err != nil {
-			log.Error(fmt.Sprintf("Session create for %s failed due to creating request error : %s", ep.Host(), err))
+			log.Error(err, "failed to generate request for session creation", "endpoint", ep.Host())
 			return err
 		}
 	}
@@ -300,26 +300,26 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
-	log.Debug(fmt.Sprintf("createAuth session: ep is %v, req is %v", ep, req))
+	log.V(4).Info("creating session", "endpoint", ep, "request", req)
 	resp, err := ep.noBalancerClient.Do(req)
 	if err != nil {
-		log.Warning(fmt.Sprintf("Session created failed for endpoint %s with error : %s", u.Host, err))
+		log.Error(err, "session creation failed", "endpoint", u.Host)
 		return err
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	defer resp.Body.Close()
-	if err != nil {
-		log.Warning(fmt.Sprintf("Session created failed for endpoint %s with response %d, error message: %s, local NSX time: %s", u.Host, resp.StatusCode, err, resp.Header["Date"]))
-		return err
-	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		log.Warning(fmt.Sprintf("Session created failed for endpoint %s with response %d, resp body: %s, local NSX time: %s", u.Host, resp.StatusCode, body, resp.Header["Date"]))
-		return fmt.Errorf("Session create failed for response error %d", resp.StatusCode)
+		err = fmt.Errorf("unexpected status code %d", resp.StatusCode)
+	}
+	if err != nil {
+		log.Error(err, "session creation failed", "endpoint", u.Host, "statusCode", resp.StatusCode, "headerDate", resp.Header["Date"], "body", body)
+		return err
 	}
 	tokens, ok := resp.Header["X-Xsrf-Token"]
 	if !ok {
-		log.Warning(fmt.Sprintf("Session created failed for endpoint %s body has no token, body : %s, local NSX time: %s", u.Host, body, resp.Header["Date"]))
-		return errors.New("Session create failed for response body no token")
+		err = errors.New("no token in response")
+		log.Error(err, "session creation failed", "endpoint", u.Host, "statusCode", resp.StatusCode, "headerDate", resp.Header["Date"], "body", body)
+		return err
 	}
 	ep.setXSRFToken(tokens[0])
 	jar.SetCookies(u, resp.Cookies())
@@ -328,6 +328,6 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 	ep.client.Jar = jar
 	ep.Unlock()
 	ep.setStatus(UP)
-	log.Info("Session create succeeded for endpoint ", u.Host)
+	log.Info("session creation succeeded", "endpoint", u.Host)
 	return nil
 }

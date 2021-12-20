@@ -5,18 +5,17 @@ package ratelimiter
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/logger"
 	"golang.org/x/time/rate"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // APIReduceRateCodes is http status code set which will trigger rate limiter adjust.
 var (
 	APIReduceRateCodes = [2]int{429, 503}
-	log                = logger.GetInstance()
+	log                = logf.Log.WithName("nsx").WithName("ratelimiter")
 )
 
 const (
@@ -129,7 +128,7 @@ func (limiter *FixRateLimiter) Wait() {
 	defer cancel()
 	err := limiter.l.WaitN(ctx, 1)
 	if err != nil {
-		log.Debug(fmt.Sprintf("Wait for token timeout: %s", err.Error()))
+		log.V(4).Info("wait for token timeout", "error", err.Error())
 		return
 	}
 }
@@ -154,7 +153,7 @@ func (limiter *AIMDRateLimter) Wait() {
 	defer cancel()
 	err := limiter.l.WaitN(ctx, 1)
 	if err != nil {
-		log.Debug(fmt.Sprintf("Wait for token timeout: %s", err.Error()))
+		log.V(4).Info("wait for token timeout", "error", err.Error())
 		return
 	}
 }
@@ -182,13 +181,13 @@ func (limiter *AIMDRateLimter) AdjustRate(waitTime time.Duration, statusCode int
 			if r < limiter.max {
 				r++
 				limiter.l.SetLimit(rate.Limit(r))
-				log.Debug(fmt.Sprintf("Increasing API rate limit to %d with HTTP status code %d", r, statusCode))
+				log.V(4).Info("increasing API rate limit", "rateLimit", r, "statusCode", statusCode)
 			}
 		} else if limiter.neg > 0 {
 			if r > 1 {
 				r = r / 2
 				limiter.l.SetLimit(rate.Limit(r))
-				log.Debug(fmt.Sprintf("Decreasing API rate limit to %d due to HTTP status code %d", r, statusCode))
+				log.V(4).Info("decreasing API rate limit", "rateLimit", r, "statusCode", statusCode)
 			}
 		}
 		limiter.lastAdjuctRate = now

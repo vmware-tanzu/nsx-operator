@@ -13,11 +13,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/logger"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 var (
-	log = logger.GetInstance()
+	log = logf.Log.WithName("nsx").WithName("utils")
 )
 
 // ErrorDetail is error detail which info extracted from http.Reponse.Body.
@@ -116,7 +116,7 @@ func extractHTTPDetail(host string, resp *http.Response) (ErrorDetail, error) {
 	ed := ErrorDetail{StatusCode: resp.StatusCode}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Debug(fmt.Sprintf("Extract HTTP detail error %v", err))
+		log.Error(err, "failed to extract HTTP detail")
 		return ed, CreateGeneralManagerError(host, "extract http", err.Error())
 	}
 	resp.Body = ioutil.NopCloser(bytes.NewReader(body))
@@ -126,12 +126,12 @@ func extractHTTPDetail(host string, resp *http.Response) (ErrorDetail, error) {
 func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorDetail, error) {
 	ec := ErrorDetail{StatusCode: statusCode}
 	if len(body) == 0 {
-		log.Debug(fmt.Sprintf("Extract HTTP detail quit since body len is 0 %v", ec))
+		log.V(4).Info("aborting HTTP detail extraction since body len is 0")
 		return ec, nil
 	}
 	var res responseBody
 	if err := json.Unmarshal(body, &res); err != nil {
-		log.Debug(fmt.Sprintf("ExtractHTTPDetail failed to decode response body, error :[%s], body: [%s]", err, string(body)))
+		log.Error(err, "failed to decode response body for extracting HTTP detail")
 		return ec, CreateGeneralManagerError(host, "decode body", err.Error())
 	}
 

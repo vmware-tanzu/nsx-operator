@@ -128,7 +128,7 @@ func TestRoundTripRetry(t *testing.T) {
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	_, err = tr.RoundTrip(req)
-	log.Debug("error type is ", err)
+	log.V(4).Info("", "errorType", err)
 	_, ok := err.(*util.CannotConnectToServer)
 	assert.True(ok, fmt.Sprintf("Wrong error type %v", err))
 }
