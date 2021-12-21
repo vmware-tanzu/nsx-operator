@@ -56,7 +56,7 @@ func NewCluster(config *Config) (*Cluster, error) {
 	cluster.noBalancerClient = cluster.createNoBalancerClient(time.Duration(config.HTTPTimeout), time.Duration(config.ConnIdleTimeout))
 
 	r := ratelimiter.NewRateLimiter(config.APIRateMode)
-	eps, err := cluster.createEndpoints(config.APIManagers, &cluster.client, &cluster.noBalancerClient, r)
+	eps, err := cluster.createEndpoints(config.APIManagers, &cluster.client, &cluster.noBalancerClient, r, config.TokenProvider)
 	if err != nil {
 		log.Error(err, "creating cluster failed")
 		return nil, err
@@ -119,10 +119,10 @@ func (cluster *Cluster) createNoBalancerClient(timeout, idle time.Duration) http
 	return noBClient
 }
 
-func (cluster *Cluster) createEndpoints(apiManagers []string, client *http.Client, noBClient *http.Client, r ratelimiter.RateLimiter) ([]*Endpoint, error) {
+func (cluster *Cluster) createEndpoints(apiManagers []string, client *http.Client, noBClient *http.Client, r ratelimiter.RateLimiter, tokenProvider auth.TokenProvider) ([]*Endpoint, error) {
 	eps := make([]*Endpoint, len(apiManagers))
 	for i := range eps {
-		ep, err := NewEndpoint(apiManagers[i], client, noBClient, r)
+		ep, err := NewEndpoint(apiManagers[i], client, noBClient, r, tokenProvider)
 		if err != nil {
 			return nil, err
 		}
