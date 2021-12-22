@@ -125,7 +125,7 @@ func (ep *Endpoint) keepAlive() error {
 		}
 		ep.RUnlock()
 	} else {
-		log.V(4).Info("token is invalid, using user/password to keep alive")
+		log.V(1).Info("token is invalid, using user/password to keep alive")
 		req, err = http.NewRequest("GET", fmt.Sprintf(healthURL, ep.Scheme(), ep.Host()), nil)
 		req.SetBasicAuth(ep.user, ep.password)
 		if err != nil {
@@ -139,7 +139,7 @@ func (ep *Endpoint) keepAlive() error {
 		return err
 	}
 	body, err := ioutil.ReadAll(resp.Body)
-	log.V(4).Info("received HTTP response", "request", req, "response", string(body))
+	log.V(1).Info("received HTTP response", "request", req, "response", string(body))
 	defer resp.Body.Close()
 	if err = util.InitErrorFromResponse(ep.Host(), resp); err == nil {
 		var a epHealthy
@@ -193,12 +193,12 @@ func (ep *Endpoint) KeepAlive() {
 }
 
 func (ep *Endpoint) setup() {
-	log.V(4).Info("begin to setup endpoint")
+	log.V(1).Info("begin to setup endpoint")
 	err := ep.keepAlive()
 	if err != nil {
 		log.Error(err, "setup endpoint failed")
 	} else {
-		log.V(4).Info("setup endpoint successfully")
+		log.V(1).Info("setup endpoint successfully")
 	}
 }
 
@@ -267,7 +267,7 @@ func (ep *Endpoint) ConnNumber() int {
 
 func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, tokenProvider auth.TokenProvider, username string, password string, jar *Jar) error {
 	if certProvider != nil {
-		log.V(4).Info("skipping session creation with client certificate auth")
+		log.V(1).Info("skipping session creation with client certificate auth")
 		return nil
 	}
 	u := &url.URL{Host: ep.Host(), Scheme: ep.Scheme()}
@@ -300,7 +300,7 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
-	log.V(4).Info("creating session", "endpoint", ep, "request", req)
+	log.V(1).Info("creating session", "endpoint", ep, "request", req)
 	resp, err := ep.noBalancerClient.Do(req)
 	if err != nil {
 		log.Error(err, "session creation failed", "endpoint", u.Host)
