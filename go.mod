@@ -38,6 +38,7 @@ require (
 	github.com/go-logr/logr v0.4.0 // indirect
 	github.com/go-logr/zapr v0.4.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/go-cmp v0.5.5 // indirect
@@ -57,6 +58,7 @@ require (
 	github.com/prometheus/common v0.26.0 // indirect
 	github.com/prometheus/procfs v0.6.0 // indirect
 	github.com/stretchr/objx v0.1.1 // indirect
+	github.com/vmware/govmomi v0.27.2
 	github.com/vmware/vsphere-automation-sdk-go/lib v0.4.0 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect

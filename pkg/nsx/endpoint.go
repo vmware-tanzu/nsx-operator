@@ -45,8 +45,9 @@ type Endpoint struct {
 	stop             chan bool
 	printKeepAlive   int32
 	// Used in keepAlive only when token is not avaiable.
-	user     string
-	password string
+	user          string
+	password      string
+	tokenProvider auth.TokenProvider
 	sync.RWMutex
 	provider
 }
@@ -73,7 +74,7 @@ const (
 )
 
 // NewEndpoint creates an endpoint.
-func NewEndpoint(url string, client *http.Client, noBClient *http.Client, r ratelimiter.RateLimiter) (*Endpoint, error) {
+func NewEndpoint(url string, client *http.Client, noBClient *http.Client, r ratelimiter.RateLimiter, tokenProvider auth.TokenProvider) (*Endpoint, error) {
 	host, scheme, err := parseURL(url)
 	if err != nil {
 		return &Endpoint{}, err
@@ -81,7 +82,7 @@ func NewEndpoint(url string, client *http.Client, noBClient *http.Client, r rate
 	addr := new(address)
 	addr.host = host
 	addr.scheme = scheme
-	ep := Endpoint{client: client, noBalancerClient: noBClient, keepaliveperiod: ratelimiter.KeepAlivePeriod, ratelimiter: r, status: DOWN}
+	ep := Endpoint{client: client, noBalancerClient: noBClient, keepaliveperiod: ratelimiter.KeepAlivePeriod, ratelimiter: r, status: DOWN, tokenProvider: tokenProvider}
 	ep.provider = addr
 	ep.stop = make(chan bool)
 	return &ep, nil
@@ -105,25 +106,13 @@ type epHealthy struct {
 }
 
 func (ep *Endpoint) keepAlive() error {
-	var req *http.Request
-	var err error
-	if ep.XSRFToken() != "" {
-		req, err = http.NewRequest("GET", fmt.Sprintf(healthURL, ep.Scheme(), ep.Host()), nil)
+	req, err := http.NewRequest("GET", fmt.Sprintf(healthURL, ep.Scheme(), ep.Host()), nil)
+	if ep.tokenProvider != nil {
+		err = UpdateHttpRequestAuth(ep.tokenProvider, req)
 		if err != nil {
 			log.Error(err, "keepalive request creation failed")
 			return err
 		}
-		req.Header.Add("X-Xsrf-Token", ep.xXSRFToken)
-		u := &url.URL{Host: ep.Host()}
-		ep.RLock()
-		for _, cookie := range ep.client.Jar.Cookies(u) {
-			if cookie == nil {
-				log.Error(errors.New("cookie is nil"), "keepalive request creation failed")
-			} else {
-				req.Header.Set("Cookie", cookie.String())
-			}
-		}
-		ep.RUnlock()
 	} else {
 		log.V(1).Info("token is invalid, using user/password to keep alive")
 		req, err = http.NewRequest("GET", fmt.Sprintf(healthURL, ep.Scheme(), ep.Host()), nil)
@@ -274,18 +263,13 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 	var req *http.Request
 	var err error
 	if tokenProvider != nil {
-		token, err := tokenProvider.GetToken(true)
+		_, err := tokenProvider.GetToken(true)
 		if err != nil {
 			log.Error(err, "failed to retrieve JSON Web Token for session creation", "endpoint", ep.Host())
 			return err
 		}
-		req, err = http.NewRequest("POST", fmt.Sprintf("%s://%s/api/session/create", u.Scheme, u.Host), nil)
-		if err != nil {
-			log.Error(err, "failed to new request for session creation failed", "endpoint", ep.Host())
-			return err
-		}
-		bearerToken := tokenProvider.HeaderValue(token)
-		req.Header.Add("Authorization", bearerToken)
+		log.V(1).Info("Skipping session create with JWT based auth")
+		return nil
 	} else {
 		postValues := url.Values{}
 		postValues.Add("j_username", username)
@@ -329,5 +313,18 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 	ep.Unlock()
 	ep.setStatus(UP)
 	log.Info("session creation succeeded", "endpoint", u.Host)
+	return nil
+}
+
+func UpdateHttpRequestAuth(tokenProvider auth.TokenProvider, request *http.Request) error {
+	token, err := tokenProvider.GetToken(false)
+	if err != nil {
+		log.Error(err, "retrieving JSON Web Token eror")
+		return err
+	}
+	bearerToken := tokenProvider.HeaderValue(token)
+	request.Header.Add("Authorization", bearerToken)
+	request.Header.Add("Accept", "application/json")
+	request.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	return nil
 }

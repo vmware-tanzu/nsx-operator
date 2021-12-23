@@ -5,11 +5,12 @@ package nsx
 
 import (
 	"fmt"
-	"net/url"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth/jwt"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra"
@@ -45,27 +46,37 @@ func TestClient(t *testing.T) {
 }
 
 func TestQuery(t *testing.T) {
-	host := "10.191.254.13, 10.191.248.221, 10.191.249.48 "
-	config := NewConfig(host, "admin", "Admin!23Admin", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil)
+	host := "10.161.65.224"
+	vcConfig := config.VcConfig{}
+	vcConfig.VcEndPoint = "10.161.72.156"
+	vcConfig.SsoDomain = "vsphere.local"
+	vcConfig.HttpsPort = 443
+	provider, err := jwt.NewTokenProvider(&vcConfig, nil)
+	if err != nil {
+		log.Error(err, "Create token provider err %v")
+	}
+	config := NewConfig(host, "admin", "Admin!23Admin", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, provider, nil)
 	cluster, _ := NewCluster(config)
 
 	connector, _ := cluster.NewRestConnector()
+	//search.NewDslClient()
 	queryClient := search.NewQueryClient(connector)
-	queryParam := "Segment"
-	for i := 0; i < 4; i++ {
-		response, err := queryClient.List(url.QueryEscape(queryParam), nil, nil, nil, nil, nil)
+	queryParam := "resource_type:Group AND tags.scope:ncp\\/project"
+	for i := 0; i < 1; i++ {
+		response, err := queryClient.List(queryParam, nil, nil, nil, nil, nil)
 		assert.True(t, err == nil, fmt.Sprintf("Query segment failed due to %v ", err))
 		log.V(1).Info("query segment", "resultCount", *response.ResultCount)
 	}
 	for i := 0; i < 20; i++ {
 		go func() {
-			response, err := queryClient.List(url.QueryEscape(queryParam), nil, nil, nil, nil, nil)
+			response, err := queryClient.List(queryParam, nil, nil, nil, nil, nil)
 			assert.True(t, err == nil, fmt.Sprintf("Query segment failed due to %v ", err))
 			log.V(1).Info("query segment", "resultCount", *response.ResultCount)
 		}()
 		time.Sleep(time.Microsecond)
 	}
 	time.Sleep(time.Second * 3)
+
 }
 
 func createRule(domainIDParam string, groupName string, serviceName string, cluster *Cluster) error {
@@ -91,7 +102,6 @@ func createGroup(domainID string, groupName string, cluster *Cluster) error {
 	connector, _ := cluster.NewRestConnector()
 	groupClient := domains.NewGroupsClient(connector)
 	groupParam := model.Group{}
-
 	fields := make(map[string]data.DataValue)
 	fields["member_type"] = data.NewStringValue("VirtualMachine")
 	fields["value"] = data.NewStringValue("webvm")
