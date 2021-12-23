@@ -54,12 +54,12 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			}
 			transTime := time.Since(start) - waitTime
 			ep.adjustRate(waitTime, resp.StatusCode)
-			log.V(4).Info("HTTP got response", "response", resp, "transTime", transTime)
+			log.V(1).Info("HTTP got response", "response", resp, "transTime", transTime)
 			if err = util.InitErrorFromResponse(ep.Host(), resp); err == nil {
 				ep.setAliveTime(start.Add(transTime))
 				return nil
 			}
-			log.V(4).Info("request failed", "error", err.Error())
+			log.V(1).Info("request failed", "error", err.Error())
 
 			// refresh token here
 			if util.ShouldRegenerate(err) {
@@ -72,7 +72,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			} else if util.ShouldRetry(err) {
 				return true
 			} else {
-				log.V(4).Info("error is configrated as not retriable", "error", err.Error())
+				log.V(1).Info("error is configrated as not retriable", "error", err.Error())
 				return false
 			}
 		}), retry.LastErrorOnly(true),

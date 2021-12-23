@@ -126,7 +126,7 @@ func extractHTTPDetail(host string, resp *http.Response) (ErrorDetail, error) {
 func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorDetail, error) {
 	ec := ErrorDetail{StatusCode: statusCode}
 	if len(body) == 0 {
-		log.V(4).Info("aborting HTTP detail extraction since body len is 0")
+		log.V(1).Info("aborting HTTP detail extraction since body len is 0")
 		return ec, nil
 	}
 	var res responseBody
