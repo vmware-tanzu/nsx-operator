@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -34,7 +33,7 @@ func (provider *JWTTokenProvider) HeaderValue(token string) string {
 	return "Bearer " + token
 }
 
-func NewTokenProvider(vcConfig *config.VcConfig, caCert []byte) (auth.TokenProvider, error) {
+func NewTokenProvider(vcEndpoint string, port int, ssoDomain string, caCert []byte) (auth.TokenProvider, error) {
 	f, err := ioutil.ReadFile(VC_SVCACCOUNT_USER_PATH)
 	if err != nil {
 		log.Error(err, "failed to read user name")
@@ -49,7 +48,7 @@ func NewTokenProvider(vcConfig *config.VcConfig, caCert []byte) (auth.TokenProvi
 	}
 	password := strings.TrimRight(string(f), "\n\r")
 
-	tesClient, err := NewTESClient(vcConfig.VcEndPoint, vcConfig.HttpsPort, vcConfig.SsoDomain, username, password, nil, true)
+	tesClient, err := NewTESClient(vcEndpoint, port, ssoDomain, username, password, nil, true)
 	if err != nil {
 		log.Error(err, "failed to create tes client")
 		return nil, err

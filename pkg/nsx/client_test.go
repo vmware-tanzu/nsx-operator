@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth/jwt"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
@@ -47,11 +46,7 @@ func TestClient(t *testing.T) {
 
 func TestQuery(t *testing.T) {
 	host := "10.161.65.224"
-	vcConfig := config.VcConfig{}
-	vcConfig.VcEndPoint = "10.161.72.156"
-	vcConfig.SsoDomain = "vsphere.local"
-	vcConfig.HttpsPort = 443
-	provider, err := jwt.NewTokenProvider(&vcConfig, nil)
+	provider, err := jwt.NewTokenProvider("10.161.72.156", 443, "vsphere.local", nil)
 	if err != nil {
 		log.Error(err, "Create token provider err %v")
 	}
