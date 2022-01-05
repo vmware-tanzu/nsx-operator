@@ -10,11 +10,16 @@ import (
 	"k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services"
+)
+
+var (
+	log = logf.Log.WithName("controller").WithName("securitypolicy")
 )
 
 // SecurityPolicyReconciler reconciles a SecurityPolicy object
@@ -28,17 +33,18 @@ type SecurityPolicyReconciler struct {
 }
 
 func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
 
 	obj := &v1alpha1.SecurityPolicy{}
 	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
-		print(err, "Unable to fetch object")
-	} else {
-		print("Geeting from Kubebuilder to", obj.Spec.Priority)
+		log.Error(err, "unable to fetch object")
+		return ctrl.Result{}, err
 	}
 
-	if err := r.Status().Update(ctx, obj); err != nil {
-		print(err, "unable to update status")
+	log.Info("reconciling securitypolicy CR", "securitypolicy", req.NamespacedName)
+
+	if err := services.CreateOrUpdateSecurityPolicy(obj, r.NSXClient.SecurityClient, r.NSXClient.GroupClient); err != nil {
+		log.Error(err, "failed to create or update security policy", "securitypolicy", req.NamespacedName)
+		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil

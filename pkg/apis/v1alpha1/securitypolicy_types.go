@@ -28,13 +28,13 @@ type RuleDirection string
 
 const (
 	// RuleDirectionIn specifies that the direction of traffic must be ingress, equivalent to "Ingress".
-	RuleDirectionIn = "In"
+	RuleDirectionIn RuleDirection = "In"
 	// RuleDirectionIngress specifies that the direction of traffic must be ingress, equivalent to "In".
-	RuleDirectionIngress = "Ingress"
+	RuleDirectionIngress RuleDirection = "Ingress"
 	// RuleDirectionOut specifies that the direction of traffic must be egress, equivalent to "Egress".
-	RuleDirectionOut = "Out"
+	RuleDirectionOut RuleDirection = "Out"
 	// RuleDirectionEgress specifies that the direction of traffic must be egress, equivalent to "Out".
-	RuleDirectionEgress = "Egress"
+	RuleDirectionEgress RuleDirection = "Egress"
 )
 
 // SecurityPolicySpec defines the desired state of SecurityPolicy.
