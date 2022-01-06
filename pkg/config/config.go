@@ -4,9 +4,21 @@
 package config
 
 import (
+	"crypto/tls"
+	"encoding/json"
+	"errors"
 	"flag"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth/jwt"
 	ini "gopkg.in/ini.v1"
-	"k8s.io/klog"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 //TODO replace to yaml
@@ -16,6 +28,8 @@ const (
 
 var (
 	configFilePath = ""
+	log            = logf.Log.WithName("config")
+	minVersion     = [3]int64{3, 2, 0}
 )
 
 //TODO delete unnecessary config
@@ -24,7 +38,7 @@ type NSXOperatorConfig struct {
 	*CoeConfig
 	*NsxConfig
 	*K8sConfig
-	*VcConfig
+	*VCConfig
 }
 
 type CoeConfig struct {
@@ -51,10 +65,18 @@ type K8sConfig struct {
 	KubeConfigFile     string `ini:"kubeconfig"`
 }
 
-type VcConfig struct {
-	VcEndPoint string `ini:"vc_endpoint"`
+type VCConfig struct {
+	VCEndPoint string `ini:"vc_endpoint"`
 	SsoDomain  string `ini:"sso_domain"`
 	HttpsPort  int    `ini:"https_port"`
+}
+
+type Validate interface {
+	validate() error
+}
+
+type NsxVersion struct {
+	NodeVersion string `json:"node_version"`
 }
 
 func AddFlags() {
@@ -67,32 +89,37 @@ func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
 	cfg := ini.Empty()
 	err := ini.ReflectFrom(cfg, nsxOperatorConfig)
 	if err != nil {
-		klog.Errorf("Failed to load default NSX Operator configuration")
+		log.Error(err, "failed to load default NSX Operator configuration")
 		return nil, err
 	}
 	cfg, err = ini.Load(configFilePath)
 	if err != nil {
-		klog.Errorf("Failed to load NSX Operator configuration from file")
+		log.Error(err, "failed to load NSX Operator configuration from file")
 		return nil, err
 	}
 	err = cfg.Section("coe").MapTo(nsxOperatorConfig.CoeConfig)
 	if err != nil {
-		klog.Errorf("Failed to parse coe section from NSX Operator config, please check the configuration")
+		log.Error(err, "failed to parse coe section from NSX Operator config, please check the configuration")
 		return nil, err
 	}
 	err = cfg.Section("nsx_v3").MapTo(nsxOperatorConfig.NsxConfig)
 	if err != nil {
-		klog.Errorf("Failed to parse nsx section from NSX Operator config, please check the configuration")
+		log.Error(err, "failed to parse nsx section from NSX Operator config, please check the configuration")
 		return nil, err
 	}
 	err = cfg.Section("k8s").MapTo(nsxOperatorConfig.K8sConfig)
 	if err != nil {
-		klog.Errorf("Failed to parse k8s section from NSX Operator config, please check the configuration")
+		log.Error(err, "failed to parse k8s section from NSX Operator config, please check the configuration")
 		return nil, err
 	}
-	err = cfg.Section("vc").MapTo(nsxOperatorConfig.VcConfig)
+	err = cfg.Section("vc").MapTo(nsxOperatorConfig.VCConfig)
 	if err != nil {
-		klog.Errorf("Failed to parse vc section from NSX Operator config, please check the configuration")
+		log.Error(err, "failed to parse vc section from NSX Operator config, please check the configuration")
+		return nil, err
+	}
+
+	if err := nsxOperatorConfig.validate(); err != nil {
+		log.Error(err, "failed to validate NSX Operator config, please check the configuration")
 		return nil, err
 	}
 
@@ -106,11 +133,159 @@ func NewNSXOpertorConfig() *NSXOperatorConfig {
 		},
 		&NsxConfig{},
 		&K8sConfig{},
-		&VcConfig{},
+		&VCConfig{},
 	}
 	return defaultNSXOperatorConfig
 }
 
-func Validate(*NSXOperatorConfig) error {
+func (operatorConfig *NSXOperatorConfig) validate() error {
+	if err := operatorConfig.CoeConfig.validate(); err != nil {
+		return err
+	}
+	if err := operatorConfig.NsxConfig.validate(); err != nil {
+		return err
+	}
+	if err := operatorConfig.VCConfig.validate(); err != nil {
+		return err
+	}
+
+	return operatorConfig.validateVersion()
+}
+
+func (operatorConfig *NSXOperatorConfig) validateVersion() error {
+	nsxVersion := &NsxVersion{}
+	host := operatorConfig.NsxApiManagers[0]
+	tokenProvider, _ := jwt.NewTokenProvider(operatorConfig.VCEndPoint, operatorConfig.HttpsPort, operatorConfig.SsoDomain, nil)
+	if err := nsxVersion.getVersion(host, operatorConfig.NsxApiUser, operatorConfig.NsxApiPassword, tokenProvider); err != nil {
+		return err
+	}
+	if err := nsxVersion.validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (vcConfig *VCConfig) validate() error {
+	if len(vcConfig.VCEndPoint) == 0 {
+		err := errors.New("Invalid field " + "VcEndPoint")
+		log.Error(err, "validate VcConfig failed", "VcEndPoint", vcConfig.VCEndPoint)
+		return err
+	}
+
+	if len(vcConfig.SsoDomain) == 0 {
+		err := errors.New("Invalid field " + "SsoDomain")
+		log.Error(err, "validate VcConfig failed", "SsoDomain", vcConfig.SsoDomain)
+		return err
+	}
+
+	if vcConfig.HttpsPort == 0 {
+		err := errors.New("Invalid field " + "HttpsPort")
+		log.Error(err, "validate VcConfig failed", "HttpsPort", vcConfig.HttpsPort)
+		return err
+	}
+	return nil
+}
+
+func (nsxConfig *NsxConfig) validate() error {
+	if len(nsxConfig.NsxApiManagers) == 0 {
+		err := errors.New("Invalid field " + "NsxApiManagers")
+		log.Error(err, "validate NsxConfig failed", "NsxApiManagers", nsxConfig.NsxApiManagers)
+		return err
+	}
+	return nil
+}
+
+func (coeConfig *CoeConfig) validate() error {
+	if len(coeConfig.Cluster) == 0 {
+		err := errors.New("Invalid field " + "Cluster")
+		log.Error(err, "validate coeConfig failed")
+		return err
+	}
+	return nil
+}
+
+func (nsxVersion *NsxVersion) validate() error {
+	if !nsxVersion.featureSupported() {
+		version := fmt.Sprintf("%d:%d:%d", minVersion[0], minVersion[1], minVersion[2])
+		err := errors.New("nsxt version " + nsxVersion.NodeVersion + " is old this feature needs version " + version)
+		log.Error(err, "validate NsxVersion failed")
+		return err
+	}
+	return nil
+}
+
+func (nsxVersion *NsxVersion) featureSupported() bool {
+	// only compared major.minor.patch
+	// NodeVersion should have at least three sections
+	// each section only have digital value
+	buff := strings.Split(nsxVersion.NodeVersion, ".")
+	sections := make([]int64, len(buff))
+	for i, str := range buff {
+		val, err := strconv.ParseInt(str, 10, 64)
+		if err != nil {
+			log.Error(err, "parse version error")
+			return false
+		}
+		sections[i] = val
+	}
+
+	for i := 0; i < 3; i++ {
+		if sections[i] > minVersion[i] {
+			return true
+		}
+		if sections[i] < minVersion[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (nsxVersion *NsxVersion) getVersion(host string, userName string, password string, tokenProvider auth.TokenProvider) error {
+	tlsConfig := tls.Config{InsecureSkipVerify: true}
+	tlsConfig.BuildNameToCertificate()
+	tr := &http.Transport{
+		TLSClientConfig: &tlsConfig,
+		IdleConnTimeout: 60 * time.Second,
+	}
+	client := http.Client{
+		Transport: tr,
+		Timeout:   60 * time.Second,
+	}
+	if !strings.HasPrefix(host, "http") {
+		host = "https://" + host
+	}
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/v1/node/version", host), nil)
+	if err != nil {
+		log.Error(err, "failed to create http request")
+		return err
+	}
+	if tokenProvider != nil {
+		token, err := tokenProvider.GetToken(false)
+		if err != nil {
+			log.Error(err, "retrieving JSON Web Token eror")
+			return err
+		}
+		bearerToken := tokenProvider.HeaderValue(token)
+		req.Header.Add("Authorization", bearerToken)
+		req.Header.Add("Accept", "application/json")
+		req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	} else {
+		req.SetBasicAuth(userName, password)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Error(err, "failed to get nsx version")
+		return err
+	}
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil || body == nil {
+		log.Error(err, "failed to read response body")
+		return err
+	}
+
+	if err := json.Unmarshal(body, nsxVersion); err != nil {
+		log.Error(err, "failed to convert HTTP response to NsxVersion")
+		return err
+	}
 	return nil
 }

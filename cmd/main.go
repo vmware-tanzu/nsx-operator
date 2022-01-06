@@ -54,11 +54,15 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
-
+	cf, err := config.NewNSXOperatorConfigFromFile()
+	if err != nil {
+		setupLog.Error(err, "unable to load configuration")
+		os.Exit(1)
+	}
 	securityReconcile := &controllers.SecurityPolicyReconciler{
 		Client:    mgr.GetClient(),
 		Scheme:    mgr.GetScheme(),
-		NSXClient: nsx.GetClient(),
+		NSXClient: nsx.GetClient(cf),
 	}
 
 	if err = services.InitializeSecurityPolicy(securityReconcile); err != nil {

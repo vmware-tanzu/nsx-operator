@@ -31,13 +31,10 @@ func restConnector(c *Cluster) *client.RestConnector {
 	return connector
 }
 
-func GetClient() *Client {
-
+func GetClient(cf *config.NSXOperatorConfig) *Client {
 	// Set log level for vsphere-automation-sdk-go
 	logger := logrus.New()
 	vspherelog.SetLogger(logger)
-
-	cf, _ := config.NewNSXOperatorConfigFromFile()
 	c := NewConfig(strings.Join(cf.NsxApiManagers, ","), cf.NsxApiUser, cf.NsxApiPassword, "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil)
 	cluster, _ := NewCluster(c)
 	queryClient := search.NewQueryClient(restConnector(cluster))
