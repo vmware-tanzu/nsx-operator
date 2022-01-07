@@ -27,6 +27,7 @@ var (
 	tagScopeSecurityPolicyCRName = util.TagScopeSecurityPolicyCRName
 	tagScopeSecurityPolicyCRUID  = util.TagScopeSecurityPolicyCRUID
 	tagScopeRuleID               = util.TagScopeRuleID
+	tagScopeSelectorHash         = util.TagScopeSelectorHash
 	spName                       = "ns1-spA"
 	spGroupName                  = "ns1-spA-scope"
 	spID                         = "sp_uidA"
@@ -42,6 +43,7 @@ var (
 	tagValueNS                   = "ns1"
 	tagValuePolicyCRName         = "spA"
 	tagValuePolicyCRUID          = "uidA"
+	tagValuePodSelectorHash      = "6fb11ac7a06285f0ed64a85310de99cf5bf423d0"
 
 	spWithPodSelector = v1alpha1.SecurityPolicy{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "spA", UID: "uidA"},
@@ -203,17 +205,29 @@ func TestBuildTargetTags(t *testing.T) {
 	tests := []struct {
 		name         string
 		inputPolicy  *v1alpha1.SecurityPolicy
+		inputTargets *[]v1alpha1.SecurityPolicyTarget
 		inputIndex   int
 		expectedTags []model.Tag
 	}{
 		{
 			name:        "policy-target-tags-with-pod-selector",
 			inputPolicy: &spWithPodSelector,
-			inputIndex:  0,
+			inputTargets: &[]v1alpha1.SecurityPolicyTarget{
+				{
+					VMSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{"VM_selector_1": "VM_value_1"},
+					},
+				},
+			},
+			inputIndex: 0,
 			expectedTags: []model.Tag{
 				{
 					Scope: &tagScopeGroupType,
 					Tag:   &tagValueScope,
+				},
+				{
+					Scope: &tagScopeSelectorHash,
+					Tag:   &tagValuePodSelectorHash,
 				},
 				{
 					Scope: &tagScopeCluster,
@@ -240,7 +254,7 @@ func TestBuildTargetTags(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expectedTags, buildTargetTags(tt.inputPolicy, tt.inputIndex))
+			assert.Equal(t, tt.expectedTags, buildTargetTags(tt.inputPolicy, tt.inputTargets, tt.inputIndex))
 		})
 	}
 }

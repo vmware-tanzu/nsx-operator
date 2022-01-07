@@ -4,8 +4,10 @@
 package services
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -72,10 +74,10 @@ func buildPolicyGroup(obj *v1alpha1.SecurityPolicy) (*model.Group, string, error
 	policyGroupName := fmt.Sprintf("%s-%s-scope", obj.ObjectMeta.Namespace, obj.ObjectMeta.Name)
 	policyGroup.DisplayName = &policyGroupName
 
-	targetTags := buildTargetTags(obj, -1)
+	appliedTo := obj.Spec.AppliedTo
+	targetTags := buildTargetTags(obj, &appliedTo, -1)
 	policyGroup.Tags = targetTags
 
-	appliedTo := obj.Spec.AppliedTo
 	for i, target := range appliedTo {
 		updateTargetExpressions(obj, &target, &policyGroup, i)
 	}
@@ -84,15 +86,27 @@ func buildPolicyGroup(obj *v1alpha1.SecurityPolicy) (*model.Group, string, error
 	return &policyGroup, policyGroupPath, nil
 }
 
-func buildTargetTags(obj *v1alpha1.SecurityPolicy, idx int) []model.Tag {
+func buildTargetTags(obj *v1alpha1.SecurityPolicy, targets *[]v1alpha1.SecurityPolicyTarget, idx int) []model.Tag {
 	basicTags := buildBasicTags(obj)
 	tagScopeGroupType := util.TagScopeGroupType
 	tagScopeRuleID := util.TagScopeRuleID
 	tagValueScope := "scope"
+	tagScopeSelectorHash := util.TagScopeSelectorHash
+	sort.Slice(*targets, func(i, j int) bool {
+		k1, _ := json.Marshal((*targets)[i])
+		k2, _ := json.Marshal((*targets)[j])
+		return string(k1) < string(k2)
+	})
+	serializedBytes, _ := json.Marshal(*targets)
+	groupHash := util.Sha1(string(serializedBytes))
 	var targetTags = []model.Tag{
 		model.Tag{
 			Scope: &tagScopeGroupType,
 			Tag:   &tagValueScope,
+		},
+		model.Tag{
+			Scope: &tagScopeSelectorHash,
+			Tag:   &groupHash,
 		},
 	}
 	for _, tag := range basicTags {
@@ -221,7 +235,7 @@ func addOperatorIfNeeded(expressions *data.ListValue, op string) {
 }
 
 func updatePortExpressions(matchLabels map[string]string, expressions *data.ListValue) {
-	for k, v := range matchLabels {
+	for k, v := range *util.NormalizeLabels(&matchLabels) {
 		addOperatorIfNeeded(expressions, "AND")
 		expression := buildExpression(
 			"Condition", "SegmentPort",
@@ -312,13 +326,14 @@ func buildRuleID(obj *v1alpha1.SecurityPolicy, idx int) string {
 
 func buildRuleAppliedGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, idx int) (*model.Group, string, error) {
 	var ruleAppliedGroupName string
+	appliedTo := rule.AppliedTo
 	ruleAppliedGroupID := fmt.Sprintf("sp_%s_%d_scope", obj.UID, idx)
 	if len(rule.Name) > 0 {
 		ruleAppliedGroupName = fmt.Sprintf("%s-scope", rule.Name)
 	} else {
 		ruleAppliedGroupName = fmt.Sprintf("%s-%d-scope", obj.ObjectMeta.Name, idx)
 	}
-	targetTags := buildTargetTags(obj, idx)
+	targetTags := buildTargetTags(obj, &appliedTo, idx)
 	ruleAppliedGroupPath := fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(), ruleAppliedGroupID)
 	ruleAppliedGroup := model.Group{
 		Id:          &ruleAppliedGroupID,
@@ -326,7 +341,6 @@ func buildRuleAppliedGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.Security
 		Tags:        targetTags,
 	}
 
-	appliedTo := rule.AppliedTo
 	for i, target := range appliedTo {
 		updateTargetExpressions(obj, &target, &ruleAppliedGroup, i)
 
@@ -336,6 +350,7 @@ func buildRuleAppliedGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.Security
 
 func buildRuleSrcGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, idx int) (*model.Group, string, error) {
 	var ruleSrcGroupName string
+	sources := rule.Sources
 	ruleSrcGroupID := fmt.Sprintf("sp_%s_%d_src", obj.UID, idx)
 	if len(rule.Name) > 0 {
 		ruleSrcGroupName = fmt.Sprintf("%s-src", rule.Name)
@@ -343,13 +358,12 @@ func buildRuleSrcGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPoli
 		ruleSrcGroupName = fmt.Sprintf("%s-%d-src", obj.ObjectMeta.Name, idx)
 	}
 	ruleSrcGroupPath := fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(), ruleSrcGroupID)
-	peerTags := buildPeerTags(obj, idx)
+	peerTags := buildPeerTags(obj, &sources, idx)
 	ruleSrcGroup := model.Group{
 		Id:          &ruleSrcGroupID,
 		DisplayName: &ruleSrcGroupName,
 		Tags:        peerTags,
 	}
-	sources := rule.Sources
 	for i, peer := range sources {
 		updatePeerExpressions(obj, &peer, &ruleSrcGroup, i)
 	}
@@ -395,7 +409,7 @@ func updatePeerExpressions(obj *v1alpha1.SecurityPolicy, peer *v1alpha1.Security
 }
 
 func updateSegmentSelectorExpressions(matchLabels map[string]string, expressions *data.ListValue) {
-	for k, v := range matchLabels {
+	for k, v := range *util.NormalizeLabels(&matchLabels) {
 		addOperatorIfNeeded(expressions, "AND")
 		expression := buildExpression(
 			"Condition", "Segment",
@@ -409,6 +423,7 @@ func updateSegmentSelectorExpressions(matchLabels map[string]string, expressions
 // TODO: merge buildRuleSrcGroup and buildRuleDstGroup
 func buildRuleDstGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, idx int) (*model.Group, string, error) {
 	var ruleDstGroupName string
+	destinations := rule.Destinations
 	ruleDstGroupID := fmt.Sprintf("sp_%s_%d_dst", obj.UID, idx)
 	if len(rule.Name) > 0 {
 		ruleDstGroupName = fmt.Sprintf("%s-dst", rule.Name)
@@ -416,13 +431,12 @@ func buildRuleDstGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPoli
 		ruleDstGroupName = fmt.Sprintf("%s-%d-dst", obj.ObjectMeta.Name, idx)
 	}
 	ruleDstGroupPath := fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(), ruleDstGroupID)
-	peerTags := buildPeerTags(obj, idx)
+	peerTags := buildPeerTags(obj, &destinations, idx)
 	ruleDstGroup := model.Group{
 		Id:          &ruleDstGroupID,
 		DisplayName: &ruleDstGroupName,
 		Tags:        peerTags,
 	}
-	destinations := rule.Destinations
 	for i, peer := range destinations {
 		updatePeerExpressions(obj, &peer, &ruleDstGroup, i)
 	}
@@ -504,12 +518,21 @@ func getDomain() string {
 	return getCluster()
 }
 
-func buildPeerTags(obj *v1alpha1.SecurityPolicy, idx int) []model.Tag {
+func buildPeerTags(obj *v1alpha1.SecurityPolicy, peers *[]v1alpha1.SecurityPolicyPeer, idx int) []model.Tag {
 	basicTags := buildBasicTags(obj)
 	ruleID := buildRuleID(obj, idx)
 	tagScopeGroupType := util.TagScopeGroupType
 	tagScopeRuleID := util.TagScopeRuleID
+	tagScopeSelectorHash := util.TagScopeSelectorHash
 	tagValueScope := "scope"
+	// TODO: abstract sort func for both peers and targets
+	sort.Slice(*peers, func(i, j int) bool {
+		k1, _ := json.Marshal((*peers)[i])
+		k2, _ := json.Marshal((*peers)[j])
+		return string(k1) < string(k2)
+	})
+	serializedBytes, _ := json.Marshal(*peers)
+	groupHash := util.Sha1(string(serializedBytes))
 	var peerTags = []model.Tag{
 		model.Tag{
 			Scope: &tagScopeGroupType,
@@ -519,7 +542,10 @@ func buildPeerTags(obj *v1alpha1.SecurityPolicy, idx int) []model.Tag {
 			Scope: &tagScopeRuleID,
 			Tag:   &ruleID,
 		},
-		// TODO: add selector hash
+		model.Tag{
+			Scope: &tagScopeSelectorHash,
+			Tag:   &groupHash,
+		},
 	}
 	for _, tag := range basicTags {
 		peerTags = append(peerTags, tag)

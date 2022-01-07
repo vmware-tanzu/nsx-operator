@@ -4,8 +4,11 @@
 package util
 
 import (
+	"crypto/sha1"
 	"errors"
+	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"k8s.io/client-go/util/workqueue"
@@ -49,4 +52,38 @@ func OnError(queue workqueue.RateLimitingInterface, key string, err error) {
 	} else {
 		queue.AddRateLimited(key)
 	}
+}
+
+func NormalizeLabels(matchLabels *map[string]string) *map[string]string {
+	newLabels := make(map[string]string)
+	for k, v := range *matchLabels {
+		newLabels[NormalizeLabelKey(k)] = NormalizeName(v)
+	}
+	return &newLabels
+}
+
+func NormalizeLabelKey(key string) string {
+	if len(key) <= MaxTagLength {
+		return key
+	}
+	splitted := strings.Split(key, "/")
+	key = splitted[len(splitted)-1]
+	return NormalizeName(key)
+}
+
+func NormalizeName(name string) string {
+	if len(name) <= MaxTagLength {
+		return name
+	}
+	hashString := Sha1(name)
+	nameLength := MaxTagLength - HashLength - 1
+	newName := fmt.Sprintf("%s-%s", name[:nameLength], hashString[:HashLength])
+	return newName
+}
+
+func Sha1(data string) string {
+	h := sha1.New()
+	h.Write([]byte(data))
+	sum := h.Sum(nil)
+	return fmt.Sprintf("%x", sum)
 }
