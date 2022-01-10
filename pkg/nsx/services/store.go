@@ -22,15 +22,27 @@ var (
 	pageSize int64 = 10 // TODO consider a appropriate page size
 )
 
-func securityPolicyCRUIDScopeIndexFunc(obj interface{}) ([]string, error) {
+func objectCRUIDScopeIndexFunc(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
-	v, _ := obj.(model.SecurityPolicy)
-	for _, tag := range v.Tags {
+	switch v := obj.(type) {
+	case model.SecurityPolicy:
+		res = appendTag(v.Tags, res)
+	case model.Group:
+		res = appendTag(v.Tags, res)
+	case model.Rule:
+		res = appendTag(v.Tags, res)
+	default:
+	}
+	return res, nil
+}
+
+func appendTag(v []model.Tag, res []string) []string {
+	for _, tag := range v {
 		if *tag.Scope == util.TagScopeSecurityPolicyCRUID {
 			res = append(res, *tag.Tag)
 		}
 	}
-	return res, nil
+	return res
 }
 
 func namespaceIndexFunc(obj interface{}) ([]string, error) {

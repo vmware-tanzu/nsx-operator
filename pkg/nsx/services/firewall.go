@@ -8,8 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	"k8s.io/client-go/tools/cache"
-
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -17,6 +15,9 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/cache"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -39,9 +40,9 @@ func InitializeSecurityPolicy(NSXClient *nsx.Client) (*SecurityPolicyService, er
 
 	wg.Add(3)
 	service := &SecurityPolicyService{NSXClient: NSXClient}
-	service.GroupStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeNamespace: namespaceIndexFunc, util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
-	service.SecurityPolicyStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
-	service.RuleStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
+	service.GroupStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeNamespace: namespaceIndexFunc, util.TagScopeSecurityPolicyCRUID: objectCRUIDScopeIndexFunc})
+	service.SecurityPolicyStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: objectCRUIDScopeIndexFunc})
+	service.RuleStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: objectCRUIDScopeIndexFunc})
 
 	go queryGroup(service, &wg, fatalErrors)
 	go querySecurityPolicy(service, &wg, fatalErrors)
@@ -591,4 +592,80 @@ func buildPeerTags(obj *v1alpha1.SecurityPolicy, peers *[]v1alpha1.SecurityPolic
 		peerTags = append(peerTags, tag)
 	}
 	return peerTags
+}
+
+func deleteGroups(groupsClient domains.GroupsClient, nsxGroups *[]model.Group) error {
+	failIfSubtreeExistsParam := false
+	forceParam := false
+	for _, group := range *nsxGroups {
+		err := groupsClient.Delete(getDomain(), *group.Id, &failIfSubtreeExistsParam, &forceParam)
+		if err != nil {
+			log.Error(err, "failed to delete group", "group", group)
+			return err
+		}
+	}
+	return nil
+}
+
+func (service *SecurityPolicyService) DeleteSecurityPolicy(key types.UID) error {
+	groupsClient := service.NSXClient.GroupClient
+	policiesClient := service.NSXClient.SecurityClient
+
+	policy, err := service.SecurityPolicyStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(key))
+	if err != nil {
+		log.Error(err, "failed to find SecurityPolicy", "ID", key)
+		return err
+	}
+	nsxSecurityPolicy := policy[0].(model.SecurityPolicy)
+	err = policiesClient.Delete(getDomain(), *nsxSecurityPolicy.Id)
+	if err != nil {
+		log.Error(err, "failed to delete security policy", "nsxSecurityPolicy", nsxSecurityPolicy)
+		return err
+	}
+	service.SecurityPolicyStore.Delete(nsxSecurityPolicy)
+
+	rules, err := service.SecurityPolicyStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(key))
+	if err != nil {
+		log.Error(err, "failed to find Rules", "ID", key)
+		return err
+	}
+	for _, rule := range rules {
+		service.RuleStore.Delete(rule.(model.Rule))
+	}
+
+	groups, err := service.GroupStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(key))
+	if err != nil {
+		log.Error(err, "failed to find Group", "ID", string(key))
+		return err
+	}
+
+	var nsxGroups []model.Group
+	for _, group := range groups {
+		nsxGroups = append(nsxGroups, group.(model.Group))
+	}
+	err = deleteGroups(groupsClient, &nsxGroups)
+	if err != nil {
+		log.Error(err, "failed to delete groups", "nsxSecurityPolicy.Id", string(key))
+		return err
+	}
+	for _, group := range nsxGroups {
+		service.GroupStore.Delete(group)
+	}
+
+	log.Info("successfully deleted nsxSecurityPolicy", "nsxSecurityPolicy", nsxSecurityPolicy)
+	return nil
+}
+
+func (service *SecurityPolicyService) ListSecurityPolicy() (sets.String, error) {
+	groups := service.GroupStore.ListIndexFuncValues(util.TagScopeSecurityPolicyCRUID)
+	groupSet := sets.NewString()
+	for _, group := range groups {
+		groupSet.Insert(group)
+	}
+	securityPolicies := service.SecurityPolicyStore.ListIndexFuncValues(util.TagScopeSecurityPolicyCRUID)
+	policySet := sets.NewString()
+	for _, policy := range securityPolicies {
+		policySet.Insert(policy)
+	}
+	return groupSet.Union(policySet), nil
 }
