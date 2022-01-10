@@ -4,12 +4,15 @@
 package util
 
 const (
+	HashLength                   int    = 8
+	MaxTagLength                 int    = 256
 	TagScopeCluster              string = "nsx-op/cluster"
 	TagScopeNamespace            string = "nsx-op/namespace"
 	TagScopeSecurityPolicyCRName string = "nsx-op/security_policy_cr_name"
 	TagScopeSecurityPolicyCRUID  string = "nsx-op/security_policy_cr_uid"
 	TagScopeRuleID               string = "nsx-op/rule_id"
 	TagScopeGroupType            string = "nsx-op/group_type"
+	TagScopeSelectorHash         string = "nsx-op/selector_hash"
 	TagScopeNCPCluster           string = "ncp/cluster"
 	TagScopeNCPProject           string = "ncp/project"
 	TagScopeNCPVIFProject        string = "ncp/vif_project"
