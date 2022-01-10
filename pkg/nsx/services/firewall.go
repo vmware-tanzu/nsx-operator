@@ -1,6 +1,3 @@
-/* Copyright © 2021 VMware, Inc. All Rights Reserved.
-   SPDX-License-Identifier: Apache-2.0 */
-
 package services
 
 import (
@@ -9,20 +6,62 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+type SecurityPolicyService struct {
+	NSXClient           *nsx.Client
+	GroupStore          cache.Indexer
+	SecurityPolicyStore cache.Indexer
+	RuleStore           cache.Indexer
+}
 
 var (
 	log = logf.Log.WithName("service").WithName("firewall")
 )
+
+// InitializeSecurityPolicy sync NSX resources
+func InitializeSecurityPolicy(NSXClient *nsx.Client) (*SecurityPolicyService, error) {
+	wg := sync.WaitGroup{}
+	wgDone := make(chan bool)
+	fatalErrors := make(chan error)
+
+	wg.Add(3)
+	service := &SecurityPolicyService{NSXClient: NSXClient}
+	service.GroupStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeNamespace: namespaceIndexFunc, util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
+	service.SecurityPolicyStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
+	service.RuleStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
+
+	go queryGroup(service, &wg, fatalErrors)
+	go querySecurityPolicy(service, &wg, fatalErrors)
+	go queryRule(service, &wg, fatalErrors)
+
+	go func() {
+		wg.Wait()
+		close(wgDone)
+	}()
+
+	select {
+	case <-wgDone:
+		break
+	case err := <-fatalErrors:
+		close(fatalErrors)
+		return service, err
+	}
+
+	return service, nil
+}
 
 func buildSecurityPolicy(obj *v1alpha1.SecurityPolicy) (*model.SecurityPolicy, *[]model.Group, error) {
 	var nsxRules []model.Rule
@@ -480,8 +519,9 @@ func createOrUpdateGroups(groupsClient domains.GroupsClient, nsxGroups *[]model.
 	return nil
 }
 
-func CreateOrUpdateSecurityPolicy(obj *v1alpha1.SecurityPolicy, policiesClient domains.SecurityPoliciesClient, groupsClient domains.GroupsClient) error {
-
+func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1.SecurityPolicy) error {
+	policiesClient := service.NSXClient.SecurityClient
+	groupsClient := service.NSXClient.GroupClient
 	nsxSecurityPolicy, nsxGroups, err := buildSecurityPolicy(obj)
 	if err != nil {
 		log.Error(err, "failed to build SecurityPolicy")

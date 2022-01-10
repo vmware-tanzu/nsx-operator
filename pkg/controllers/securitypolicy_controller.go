@@ -7,13 +7,11 @@ import (
 	"context"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services"
 )
@@ -25,11 +23,8 @@ var (
 // SecurityPolicyReconciler reconciles a SecurityPolicy object
 type SecurityPolicyReconciler struct {
 	client.Client
-	Scheme              *runtime.Scheme
-	NSXClient           *nsx.Client
-	GroupStore          cache.Indexer
-	SecurityPolicyStore cache.Indexer
-	RuleStore           cache.Indexer
+	Scheme  *runtime.Scheme
+	Service *services.SecurityPolicyService
 }
 
 func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -42,7 +37,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	log.Info("reconciling securitypolicy CR", "securitypolicy", req.NamespacedName)
 
-	if err := services.CreateOrUpdateSecurityPolicy(obj, r.NSXClient.SecurityClient, r.NSXClient.GroupClient); err != nil {
+	if err := r.Service.CreateOrUpdateSecurityPolicy(obj); err != nil {
 		log.Error(err, "failed to create or update security policy", "securitypolicy", req.NamespacedName)
 		return ctrl.Result{}, err
 	}

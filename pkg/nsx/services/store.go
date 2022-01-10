@@ -8,7 +8,6 @@ import (
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/controllers"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -57,21 +56,21 @@ func keyFunc(obj interface{}) (string, error) {
 	return "", nil
 }
 
-func queryTagCondition(r *controllers.SecurityPolicyReconciler) string {
+func queryTagCondition(service *SecurityPolicyService) string {
 	return fmt.Sprintf("tags.scope:%s AND tags.tag:%s",
-		strings.Replace(util.TagScopeCluster, "/", "\\/", -1), r.NSXClient.NsxConfig.Cluster)
+		strings.Replace(util.TagScopeCluster, "/", "\\/", -1), service.NSXClient.NsxConfig.Cluster)
 }
 
-func queryGroup(r *controllers.SecurityPolicyReconciler, wg *sync.WaitGroup, fatalErrors chan error) {
+func queryGroup(service *SecurityPolicyService, wg *sync.WaitGroup, fatalErrors chan error) {
 	defer wg.Done()
-	queryParam := fmt.Sprintf("%s:%s", resourceType, resourceTypeGroup) + " AND " + queryTagCondition(r)
+	queryParam := fmt.Sprintf("%s:%s", resourceType, resourceTypeGroup) + " AND " + queryTagCondition(service)
 	var cursor *string = nil
 	for {
-		response, err := r.NSXClient.QueryClient.List(queryParam, cursor, nil, nil, nil, nil)
+		response, err := service.NSXClient.QueryClient.List(queryParam, cursor, nil, nil, nil, nil)
 		if err != nil {
 			fatalErrors <- err
 		}
-		typeConverter := r.NSXClient.RestConnector.TypeConverter()
+		typeConverter := service.NSXClient.RestConnector.TypeConverter()
 		for _, g := range response.Results {
 			a, err := typeConverter.ConvertToGolang(g, model.GroupBindingType())
 			if err != nil {
@@ -80,7 +79,7 @@ func queryGroup(r *controllers.SecurityPolicyReconciler, wg *sync.WaitGroup, fat
 				}
 			}
 			c, _ := a.(model.Group)
-			r.GroupStore.Add(c)
+			service.GroupStore.Add(c)
 		}
 		cursor = response.Cursor
 		if cursor == nil {
@@ -93,16 +92,16 @@ func queryGroup(r *controllers.SecurityPolicyReconciler, wg *sync.WaitGroup, fat
 	}
 }
 
-func querySecurityPolicy(r *controllers.SecurityPolicyReconciler, wg *sync.WaitGroup, fatalErrors chan error) {
+func querySecurityPolicy(service *SecurityPolicyService, wg *sync.WaitGroup, fatalErrors chan error) {
 	defer wg.Done()
-	queryParam := fmt.Sprintf("%s:%s", resourceType, resourceTypeSecurityPolicy) + " AND " + queryTagCondition(r)
+	queryParam := fmt.Sprintf("%s:%s", resourceType, resourceTypeSecurityPolicy) + " AND " + queryTagCondition(service)
 	var cursor *string = nil
 	for {
-		response, err := r.NSXClient.QueryClient.List(queryParam, cursor, nil, nil, nil, nil)
+		response, err := service.NSXClient.QueryClient.List(queryParam, cursor, nil, nil, nil, nil)
 		if err != nil {
 			fatalErrors <- err
 		}
-		typeConverter := r.NSXClient.RestConnector.TypeConverter()
+		typeConverter := service.NSXClient.RestConnector.TypeConverter()
 		for _, g := range response.Results {
 			a, err := typeConverter.ConvertToGolang(g, model.SecurityPolicyBindingType())
 			if err != nil {
@@ -111,7 +110,7 @@ func querySecurityPolicy(r *controllers.SecurityPolicyReconciler, wg *sync.WaitG
 				}
 			}
 			c, _ := a.(model.SecurityPolicy)
-			r.SecurityPolicyStore.Add(c)
+			service.SecurityPolicyStore.Add(c)
 		}
 		cursor = response.Cursor
 		if cursor == nil {
@@ -124,16 +123,16 @@ func querySecurityPolicy(r *controllers.SecurityPolicyReconciler, wg *sync.WaitG
 	}
 }
 
-func queryRule(r *controllers.SecurityPolicyReconciler, wg *sync.WaitGroup, fatalErrors chan error) {
+func queryRule(service *SecurityPolicyService, wg *sync.WaitGroup, fatalErrors chan error) {
 	defer wg.Done()
-	queryParam := fmt.Sprintf("%s:%s", resourceType, resourceTypeRule) + " AND " + queryTagCondition(r)
+	queryParam := fmt.Sprintf("%s:%s", resourceType, resourceTypeRule) + " AND " + queryTagCondition(service)
 	var cursor *string = nil
 	for {
-		response, err := r.NSXClient.QueryClient.List(queryParam, cursor, nil, nil, nil, nil)
+		response, err := service.NSXClient.QueryClient.List(queryParam, cursor, nil, nil, nil, nil)
 		if err != nil {
 			fatalErrors <- err
 		}
-		typeConverter := r.NSXClient.RestConnector.TypeConverter()
+		typeConverter := service.NSXClient.RestConnector.TypeConverter()
 		for _, g := range response.Results {
 			a, err := typeConverter.ConvertToGolang(g, model.RuleBindingType())
 			if err != nil {
@@ -142,7 +141,7 @@ func queryRule(r *controllers.SecurityPolicyReconciler, wg *sync.WaitGroup, fata
 				}
 			}
 			c, _ := a.(model.Rule)
-			r.RuleStore.Add(c)
+			service.RuleStore.Add(c)
 		}
 		cursor = response.Cursor
 		if cursor == nil {

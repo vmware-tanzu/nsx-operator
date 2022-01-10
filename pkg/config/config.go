@@ -145,9 +145,7 @@ func (operatorConfig *NSXOperatorConfig) validate() error {
 	if err := operatorConfig.NsxConfig.validate(); err != nil {
 		return err
 	}
-	if err := operatorConfig.VCConfig.validate(); err != nil {
-		return err
-	}
+	// TODO, verify if user&pwd, cert, jwt has any of them provided
 
 	return operatorConfig.validateVersion()
 }
