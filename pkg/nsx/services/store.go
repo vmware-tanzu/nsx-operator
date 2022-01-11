@@ -23,11 +23,29 @@ var (
 )
 
 func securityPolicyCRUIDScopeIndexFunc(obj interface{}) ([]string, error) {
+	// TODO: simplify this function
 	res := make([]string, 0, 5)
-	v, _ := obj.(model.SecurityPolicy)
-	for _, tag := range v.Tags {
-		if *tag.Scope == util.TagScopeSecurityPolicyCRUID {
-			res = append(res, *tag.Tag)
+	switch obj.(type) {
+	case model.Group:
+		v, _ := obj.(model.Group)
+		for _, tag := range v.Tags {
+			if *tag.Scope == util.TagScopeSecurityPolicyCRUID {
+				res = append(res, *tag.Tag)
+			}
+		}
+	case model.SecurityPolicy:
+		v, _ := obj.(model.SecurityPolicy)
+		for _, tag := range v.Tags {
+			if *tag.Scope == util.TagScopeSecurityPolicyCRUID {
+				res = append(res, *tag.Tag)
+			}
+		}
+	case model.Rule:
+		v, _ := obj.(model.Rule)
+		for _, tag := range v.Tags {
+			if *tag.Scope == util.TagScopeSecurityPolicyCRUID {
+				res = append(res, *tag.Tag)
+			}
 		}
 	}
 	return res, nil
@@ -47,11 +65,11 @@ func namespaceIndexFunc(obj interface{}) ([]string, error) {
 func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
 	case model.Group:
-		return *v.UniqueId, nil
+		return *v.Id, nil
 	case model.SecurityPolicy:
-		return *v.UniqueId, nil
+		return *v.Id, nil
 	case model.Rule:
-		return *v.UniqueId, nil
+		return *v.Id, nil
 	}
 	return "", nil
 }
