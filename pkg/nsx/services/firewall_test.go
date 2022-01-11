@@ -31,6 +31,7 @@ var (
 	spName                       = "ns1-spA"
 	spGroupName                  = "ns1-spA-scope"
 	spID                         = "sp_uidA"
+	spID2                        = "sp_uidB"
 	spGroupID                    = "sp_uidA_scope"
 	seq0                         = int64(0)
 	ruleNameWithPodSelector      = "rule-with-pod-selector"
@@ -44,6 +45,7 @@ var (
 	tagValuePolicyCRName         = "spA"
 	tagValuePolicyCRUID          = "uidA"
 	tagValuePodSelectorHash      = "6fb11ac7a06285f0ed64a85310de99cf5bf423d0"
+	timeStamp                    = int64(1641892699021)
 
 	spWithPodSelector = v1alpha1.SecurityPolicy{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "spA", UID: "uidA"},
@@ -128,7 +130,7 @@ func TestBuildSecurityPolicy(t *testing.T) {
 						Id:                &ruleID0,
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxDirectionIn,
-						Scope:             []string{"ANY"},
+						Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_scope"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
@@ -154,7 +156,7 @@ func TestBuildSecurityPolicy(t *testing.T) {
 						Id:                &ruleID0,
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxDirectionIn,
-						Scope:             []string{"ANY"},
+						Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_scope"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
@@ -255,6 +257,52 @@ func TestBuildTargetTags(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.expectedTags, buildTargetTags(tt.inputPolicy, tt.inputTargets, tt.inputIndex))
+		})
+	}
+}
+
+func TestSecurityPolicyEqual(t *testing.T) {
+	tests := []struct {
+		name           string
+		inputPolicy1   *model.SecurityPolicy
+		inputPolicy2   *model.SecurityPolicy
+		expectedResult bool
+	}{
+		{
+			name: "security-policy-without-addtional-properties-true",
+			inputPolicy1: &model.SecurityPolicy{
+				Id: &spID,
+			},
+			inputPolicy2: &model.SecurityPolicy{
+				Id: &spID,
+			},
+			expectedResult: true,
+		},
+		{
+			name: "security-policy-without-addtional-properties-false",
+			inputPolicy1: &model.SecurityPolicy{
+				Id: &spID,
+			},
+			inputPolicy2: &model.SecurityPolicy{
+				Id: &spID2,
+			},
+			expectedResult: false,
+		},
+		{
+			name: "security-policy-with-addtional-properties",
+			inputPolicy1: &model.SecurityPolicy{
+				Id:               &spID,
+				LastModifiedTime: &timeStamp,
+			},
+			inputPolicy2: &model.SecurityPolicy{
+				Id: &spID,
+			},
+			expectedResult: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedResult, securityPolicyEqual(tt.inputPolicy1, tt.inputPolicy2))
 		})
 	}
 }
