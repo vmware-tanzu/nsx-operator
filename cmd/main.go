@@ -76,7 +76,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+	if err := mgr.AddHealthzCheck("healthz", nsxClient.NSXChecker); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
 	}

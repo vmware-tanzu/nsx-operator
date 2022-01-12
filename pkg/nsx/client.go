@@ -4,6 +4,8 @@
 package nsx
 
 import (
+	"errors"
+	"net/http"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -12,10 +14,17 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 )
+
+var typeToString = map[ClusterHealth]string{
+	RED:    "RED",
+	ORANGE: "ORANGE",
+	GREEN:  "GREEN",
+}
 
 type Client struct {
 	NsxConfig      *config.NSXOperatorConfig
@@ -24,6 +33,7 @@ type Client struct {
 	GroupClient    domains.GroupsClient
 	SecurityClient domains.SecurityPoliciesClient
 	RuleClient     security_policies.RulesClient
+	NSXChecker     healthz.Checker
 }
 
 func restConnector(c *Cluster) *client.RestConnector {
@@ -41,6 +51,14 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	groupClient := domains.NewGroupsClient(restConnector(cluster))
 	securityClient := domains.NewSecurityPoliciesClient(restConnector(cluster))
 	ruleClient := security_policies.NewRulesClient(restConnector(cluster))
+	nsxChecker := func(req *http.Request) error {
+		health := cluster.Health()
+		if GREEN == health {
+			return nil
+		} else {
+			return errors.New("NSX Current Status is " + typeToString[health])
+		}
+	}
 	return &Client{
 		NsxConfig:      cf,
 		RestConnector:  restConnector(cluster),
@@ -48,5 +66,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		GroupClient:    groupClient,
 		SecurityClient: securityClient,
 		RuleClient:     ruleClient,
+		NSXChecker:     nsxChecker,
 	}
 }
