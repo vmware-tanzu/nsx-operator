@@ -76,6 +76,10 @@ docker-build: test ## Build docker image with the manager.
 docker-push: ## Push docker image with the manager.
 	docker push ${IMG}
 
+.PHONY: photon
+photon:
+	docker build -t github.com/vmware-tanzu/nsx-operator -f build/image/photon/Dockerfile .
+
 ##@ Deployment
 
 ifndef ignore-not-found
