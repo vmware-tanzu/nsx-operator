@@ -4,6 +4,7 @@
 package nsx
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -114,9 +115,9 @@ func (ep *Endpoint) keepAlive() error {
 			return err
 		}
 	} else {
-		log.V(1).Info("token is invalid, using user/password to keep alive")
-		req, err = http.NewRequest("GET", fmt.Sprintf(healthURL, ep.Scheme(), ep.Host()), nil)
+		log.V(1).Info("no token provider, using user/password to keep alive")
 		req.SetBasicAuth(ep.user, ep.password)
+		req.Header.Add("X-Xsrf-Token", ep.XSRFToken())
 		if err != nil {
 			log.Error(err, "keepalive request creation failed")
 			return err
@@ -128,17 +129,23 @@ func (ep *Endpoint) keepAlive() error {
 		return err
 	}
 	body, err := ioutil.ReadAll(resp.Body)
-	log.V(1).Info("received HTTP response", "request", req, "response", string(body))
+	if err != nil {
+		log.Error(err, "failed to read response", "endpoint", ep.Host())
+		return err
+	}
+	log.V(1).Info("received HTTP response", "response", string(body))
 	defer resp.Body.Close()
-	if err = util.InitErrorFromResponse(ep.Host(), resp); err == nil {
+	if resp.StatusCode == http.StatusOK {
 		var a epHealthy
-		if err = json.Unmarshal(body, &a); err == nil && a.Healthy == true {
+		if err = json.Unmarshal(body, &a); err == nil && a.Healthy {
 			ep.setStatus(UP)
 			return nil
 		}
 		log.Error(err, "failed to validate API cluster", "endpoint", ep.Host(), "healthy", a)
 		return err
 	}
+	resp.Body = ioutil.NopCloser(bytes.NewReader(body))
+	err = util.InitErrorFromResponse(ep.Host(), resp)
 
 	if util.ShouldRegenerate(err) {
 		log.Error(err, "failed to validate API cluster due to an exception that calls for regeneration", "endpoint", ep.Host())
@@ -259,9 +266,6 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 		log.V(1).Info("skipping session creation with client certificate auth")
 		return nil
 	}
-	u := &url.URL{Host: ep.Host(), Scheme: ep.Scheme()}
-	var req *http.Request
-	var err error
 	if tokenProvider != nil {
 		_, err := tokenProvider.GetToken(true)
 		if err != nil {
@@ -270,21 +274,22 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 		}
 		log.V(1).Info("Skipping session create with JWT based auth")
 		return nil
-	} else {
-		postValues := url.Values{}
-		postValues.Add("j_username", username)
-		postValues.Add("j_password", password)
-		req, err = http.NewRequest("POST", fmt.Sprintf("%s://%s/api/session/create", u.Scheme, u.Host), strings.NewReader(postValues.Encode()))
-		if err != nil {
-			log.Error(err, "failed to generate request for session creation", "endpoint", ep.Host())
-			return err
-		}
+	}
+
+	u := &url.URL{Host: ep.Host(), Scheme: ep.Scheme()}
+	postValues := url.Values{}
+	postValues.Add("j_username", username)
+	postValues.Add("j_password", password)
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s://%s/api/session/create", u.Scheme, u.Host), strings.NewReader(postValues.Encode()))
+	if err != nil {
+		log.Error(err, "failed to generate request for session creation", "endpoint", ep.Host())
+		return err
 	}
 
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
-	log.V(1).Info("creating session", "endpoint", ep, "request", req)
+	log.V(1).Info("creating auth session", "endpoint", ep, "request header", req.Header)
 	resp, err := ep.noBalancerClient.Do(req)
 	if err != nil {
 		log.Error(err, "session creation failed", "endpoint", u.Host)

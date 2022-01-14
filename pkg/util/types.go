@@ -3,6 +3,8 @@
 
 package util
 
+import "time"
+
 const (
 	HashLength                   int    = 8
 	MaxTagLength                 int    = 256
@@ -18,4 +20,7 @@ const (
 	TagScopeNCPVIFProject        string = "ncp/vif_project"
 	TagScopeNCPPod               string = "ncp/pod"
 	TagScopeNCPVNETInterface     string = "ncp/vnet_interface"
+
+	GCInterval    = 60 * time.Second
+	FinalizerName = "securitypolicy.nsx.vmware.com/finalizer"
 )

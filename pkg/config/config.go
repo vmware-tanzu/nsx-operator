@@ -153,7 +153,12 @@ func (operatorConfig *NSXOperatorConfig) validate() error {
 func (operatorConfig *NSXOperatorConfig) validateVersion() error {
 	nsxVersion := &NsxVersion{}
 	host := operatorConfig.NsxApiManagers[0]
-	tokenProvider, _ := jwt.NewTokenProvider(operatorConfig.VCEndPoint, operatorConfig.HttpsPort, operatorConfig.SsoDomain, nil)
+	var tokenProvider auth.TokenProvider
+	if err := operatorConfig.VCConfig.validate(); err == nil {
+		tokenProvider, _ = jwt.NewTokenProvider(operatorConfig.VCEndPoint, operatorConfig.HttpsPort, operatorConfig.SsoDomain, nil)
+	} else {
+		tokenProvider = nil
+	}
 	if err := nsxVersion.getVersion(host, operatorConfig.NsxApiUser, operatorConfig.NsxApiPassword, tokenProvider); err != nil {
 		return err
 	}
@@ -165,13 +170,13 @@ func (operatorConfig *NSXOperatorConfig) validateVersion() error {
 
 func (vcConfig *VCConfig) validate() error {
 	if len(vcConfig.VCEndPoint) == 0 {
-		err := errors.New("Invalid field " + "VcEndPoint")
+		err := errors.New("invalid field " + "VcEndPoint")
 		log.Error(err, "validate VcConfig failed", "VcEndPoint", vcConfig.VCEndPoint)
 		return err
 	}
 
 	if len(vcConfig.SsoDomain) == 0 {
-		err := errors.New("Invalid field " + "SsoDomain")
+		err := errors.New("invalid field " + "SsoDomain")
 		log.Error(err, "validate VcConfig failed", "SsoDomain", vcConfig.SsoDomain)
 		return err
 	}
