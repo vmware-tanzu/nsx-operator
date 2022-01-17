@@ -81,7 +81,9 @@ func buildSecurityPolicy(obj *v1alpha1.SecurityPolicy) (*model.SecurityPolicy, *
 
 	policyGroup, policyGroupPath, _ := buildPolicyGroup(obj)
 	nsxSecurityPolicy.Scope = []string{policyGroupPath}
-	nsxGroups = append(nsxGroups, *policyGroup)
+	if policyGroup != nil {
+		nsxGroups = append(nsxGroups, *policyGroup)
+	}
 
 	rules := obj.Spec.Rules
 
@@ -106,7 +108,7 @@ func buildSecurityPolicy(obj *v1alpha1.SecurityPolicy) (*model.SecurityPolicy, *
 func buildPolicyGroup(obj *v1alpha1.SecurityPolicy) (*model.Group, string, error) {
 	policyGroup := model.Group{}
 
-	policyGroupID := fmt.Sprintf("sp_%s_scope", obj.UID)
+	policyGroupID := buildPolicyGroupID(obj)
 	policyGroup.Id = &policyGroupID
 
 	// TODO: have a common function to generate ID and Name with parameters like prefix, suffix
@@ -116,12 +118,15 @@ func buildPolicyGroup(obj *v1alpha1.SecurityPolicy) (*model.Group, string, error
 	appliedTo := obj.Spec.AppliedTo
 	targetTags := buildTargetTags(obj, &appliedTo, -1)
 	policyGroup.Tags = targetTags
+	if len(appliedTo) == 0 {
+		return nil, "ANY", nil
+	}
 
 	for i, target := range appliedTo {
 		updateTargetExpressions(obj, &target, &policyGroup, i)
 	}
 
-	policyGroupPath := fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(), policyGroupID)
+	policyGroupPath := buildPolicyGroupPath(obj)
 	return &policyGroup, policyGroupPath, nil
 }
 
@@ -285,6 +290,15 @@ func updatePortExpressions(matchLabels map[string]string, expressions *data.List
 	}
 }
 
+func buildPolicyGroupID(obj *v1alpha1.SecurityPolicy) string {
+	return fmt.Sprintf("sp_%s_scope", obj.UID)
+}
+
+func buildPolicyGroupPath(obj *v1alpha1.SecurityPolicy) string {
+	policyGroupID := buildPolicyGroupID(obj)
+	return fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(), policyGroupID)
+}
+
 func buildRuleAndGroups(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, idx int) (*model.Rule, *[]model.Group, error) {
 	var direction string
 	sequenceNumber := int64(idx)
@@ -302,13 +316,14 @@ func buildRuleAndGroups(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPol
 	} else {
 		nsxRuleName = fmt.Sprintf("%s-%d", obj.ObjectMeta.Name, idx)
 	}
-	ruleAction := strings.ToUpper(string(*rule.Action))
-	if ruleAction != "ALLOW" && ruleAction != "DROP" && ruleAction != "REJECT" {
+	ruleAction := toUpper(*rule.Action)
+	if ruleAction != toUpper(v1alpha1.RuleActionAllow) && ruleAction != toUpper(v1alpha1.RuleActionDrop) && ruleAction != toUpper(v1alpha1.RuleActionReject) {
 		return nil, nil, errors.New("invalid rule action")
 	}
-	if *rule.Direction == v1alpha1.RuleDirectionIngress || *rule.Direction == v1alpha1.RuleDirectionIn {
+	ruleDirection := toUpper(*rule.Direction)
+	if ruleDirection == toUpper(v1alpha1.RuleDirectionIngress) || ruleDirection == toUpper(v1alpha1.RuleDirectionIn) {
 		direction = "IN"
-	} else if *rule.Direction == v1alpha1.RuleDirectionEgress || *rule.Direction == v1alpha1.RuleDirectionOut {
+	} else if ruleDirection == toUpper(v1alpha1.RuleDirectionEgress) || ruleDirection == toUpper(v1alpha1.RuleDirectionOut) {
 		direction = "OUT"
 	} else {
 		return nil, nil, errors.New("invalide rule direction")
@@ -323,14 +338,6 @@ func buildRuleAndGroups(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPol
 		Services:       []string{"ANY"},
 		Tags:           buildBasicTags(obj),
 	}
-
-	if len(rule.AppliedTo) > 0 {
-		nsxRuleAppliedGroup, nsxRuleAppliedGroupPath, _ = buildRuleAppliedGroup(obj, rule, idx)
-		ruleGroups = append(ruleGroups, *nsxRuleAppliedGroup)
-	} else {
-		nsxRuleAppliedGroupPath = "ANY"
-	}
-	nsxRule.Scope = []string{nsxRuleAppliedGroupPath}
 
 	if direction == "IN" {
 		if len(rule.Sources) > 0 {
@@ -354,9 +361,28 @@ func buildRuleAndGroups(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPol
 	ruleServiceEntries := buildRuleServiceEntries(&rule.Ports)
 	nsxRule.ServiceEntries = *ruleServiceEntries
 
+	if len(rule.AppliedTo) > 0 {
+		nsxRuleAppliedGroup, nsxRuleAppliedGroupPath, _ = buildRuleAppliedGroup(obj, rule, idx)
+		ruleGroups = append(ruleGroups, *nsxRuleAppliedGroup)
+	} else {
+		if nsxRuleSrcGroupPath == "ANY" && nsxRuleDstGroupPath == "ANY" {
+			// NSX-T manager will report error if all of the rule's scope/src/dst are "ANY"
+			// TODO: raise an accurate error if both policy appliedTo and rule appliedTo are empty
+			nsxRuleAppliedGroupPath = buildPolicyGroupPath(obj)
+		} else {
+			nsxRuleAppliedGroupPath = "ANY"
+		}
+	}
+	nsxRule.Scope = []string{nsxRuleAppliedGroupPath}
+
 	log.V(1).Info("built rule and groups", "nsxRuleAppliedGroup", nsxRuleAppliedGroup, "nsxRuleSrcGroup", nsxRuleSrcGroup, "nsxRuleDstGroup", nsxRuleDstGroup, "action", *nsxRule.Action, "direction", *nsxRule.Direction)
 
 	return &nsxRule, &ruleGroups, nil
+}
+
+func toUpper(obj interface{}) string {
+	str := fmt.Sprintf("%s", obj)
+	return strings.ToUpper(str)
 }
 
 func buildRuleID(obj *v1alpha1.SecurityPolicy, idx int) string {
@@ -508,13 +534,14 @@ func buildRuleServiceEntries(rulePorts *[]v1alpha1.SecurityPolicyPort) *[]*data.
 	return &ruleServiceEntries
 }
 
-func createOrUpdateGroups(groupsClient domains.GroupsClient, nsxGroups *[]model.Group) error {
+func (service *SecurityPolicyService) createOrUpdateGroups(groupsClient domains.GroupsClient, nsxGroups *[]model.Group) error {
 	for _, group := range *nsxGroups {
 		err := groupsClient.Patch(getDomain(), *group.Id, group)
 		if err != nil {
 			log.Error(err, "failed to patch group", "group", group)
 			return err
 		}
+		service.GroupStore.Add(group)
 	}
 	return nil
 }
@@ -533,19 +560,126 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 		log.Info("SecurityPolicy %s has empty policy-level appliedTo")
 	}
 
-	err = createOrUpdateGroups(groupsClient, nsxGroups)
+	indexResults, err := service.GroupStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(obj.UID))
 	if err != nil {
-		log.Error(err, "failed to create or update groups", "nsxSecurityPolicy.Id", nsxSecurityPolicy.Id)
+		log.Error(err, "failed to get groups by security policy UID", "SecurityPolicyCR.UID", obj.UID)
 		return err
+	}
+	existingGroups := []model.Group{}
+	for _, group := range indexResults {
+		existingGroups = append(existingGroups, group.(model.Group))
 	}
 
-	err = policiesClient.Patch(getDomain(), *nsxSecurityPolicy.Id, *nsxSecurityPolicy)
+	if groupsEqual(existingGroups, *nsxGroups) {
+		log.Info("groups not changed, skipping", "nsxSecurityPolicy.Id", nsxSecurityPolicy.Id)
+	} else {
+		err = service.createOrUpdateGroups(groupsClient, nsxGroups)
+		if err != nil {
+			log.Error(err, "failed to create or update groups", "nsxSecurityPolicy.Id", nsxSecurityPolicy.Id)
+			return err
+		}
+	}
+
+	existingSecurityPolicy := model.SecurityPolicy{}
+	res, ok, _ := service.SecurityPolicyStore.GetByKey(string(*nsxSecurityPolicy.Id))
+	if ok {
+		existingSecurityPolicy = res.(model.SecurityPolicy)
+	}
+	indexResults, err = service.RuleStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(obj.UID))
 	if err != nil {
-		log.Error(err, "failed to patch security policy", "nsxSecurityPolicy", nsxSecurityPolicy)
+		log.Error(err, "failed to get rules by security policy UID", "SecurityPolicyCR.UID", obj.UID)
 		return err
 	}
-	log.Info("successfully created or updated nsxSecurityPolicy", "nsxSecurityPolicy", nsxSecurityPolicy)
+	existingRules := []model.Rule{}
+	for _, rule := range indexResults {
+		existingRules = append(existingRules, rule.(model.Rule))
+	}
+	if securityPolicyEqual(&existingSecurityPolicy, nsxSecurityPolicy) && rulesEqual(existingRules, nsxSecurityPolicy.Rules) {
+		log.Info("security policy not changed, skipping", "nsxSecurityPolicy.Id", nsxSecurityPolicy.Id)
+	} else {
+		err = policiesClient.Patch(getDomain(), *nsxSecurityPolicy.Id, *nsxSecurityPolicy)
+		if err != nil {
+			log.Error(err, "failed to patch security policy", "nsxSecurityPolicy", nsxSecurityPolicy)
+			return err
+		}
+		service.SecurityPolicyStore.Add(*nsxSecurityPolicy)
+		for _, rule := range nsxSecurityPolicy.Rules {
+			service.RuleStore.Add(rule)
+		}
+		log.Info("successfully created or updated nsxSecurityPolicy", "nsxSecurityPolicy", nsxSecurityPolicy)
+	}
 	return nil
+}
+
+func securityPolicyEqual(sp1 *model.SecurityPolicy, sp2 *model.SecurityPolicy) bool {
+	v1, _ := json.Marshal(simplifySecurityPolicy(sp1))
+	v2, _ := json.Marshal(simplifySecurityPolicy(sp2))
+	return string(v1) == string(v2)
+}
+
+func rulesEqual(rules1 []model.Rule, rules2 []model.Rule) bool {
+	if len(rules1) != len(rules2) {
+		return false
+	}
+	for i := 0; i < len(rules1); i++ {
+		v1, _ := json.Marshal(simplifyRule(&rules1[i]))
+		v2, _ := json.Marshal(simplifyRule(&rules2[i]))
+		if string(v1) != string(v2) {
+			return false
+		}
+	}
+	return true
+}
+
+func groupsEqual(groups1 []model.Group, groups2 []model.Group) bool {
+	if len(groups1) != len(groups2) {
+		return false
+	}
+	for i := 0; i < len(groups1); i++ {
+		v1, _ := json.Marshal(simplifyGroup(&groups1[i]))
+		v2, _ := json.Marshal(simplifyGroup(&groups2[i]))
+		if string(v1) != string(v2) {
+			return false
+		}
+	}
+	return true
+}
+
+// simplifySecurityPolicy is used for abstract the key properties from model.SecurityPolicy, so that
+// some unnecessary properties like "CreateTime" can be ignored then we can compare the existing one
+// and disired one to determin whther the NSX-T resource should be updated.
+func simplifySecurityPolicy(sp *model.SecurityPolicy) *model.SecurityPolicy {
+	return &model.SecurityPolicy{
+		Id:             sp.Id,
+		DisplayName:    sp.DisplayName,
+		SequenceNumber: sp.SequenceNumber,
+		Scope:          sp.Scope,
+		Tags:           sp.Tags,
+	}
+}
+
+func simplifyRule(rule *model.Rule) *model.Rule {
+	return &model.Rule{
+		DisplayName:       rule.DisplayName,
+		Id:                rule.Id,
+		Tags:              rule.Tags,
+		Direction:         rule.Direction,
+		Scope:             rule.Scope,
+		SequenceNumber:    rule.SequenceNumber,
+		Action:            rule.Action,
+		Services:          rule.Services,
+		ServiceEntries:    rule.ServiceEntries,
+		DestinationGroups: rule.DestinationGroups,
+		SourceGroups:      rule.SourceGroups,
+	}
+}
+
+func simplifyGroup(group *model.Group) *model.Group {
+	return &model.Group{
+		Id:          group.Id,
+		DisplayName: group.Id,
+		Tags:        group.Tags,
+	}
 }
 
 func getCluster() string {
