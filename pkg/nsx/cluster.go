@@ -4,9 +4,13 @@
 package nsx
 
 import (
+	"crypto/sha256"
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -89,14 +93,47 @@ func (cluster *Cluster) NewRestConnector() (*policyclient.RestConnector, *Header
 }
 
 func (cluster *Cluster) createTransport(tokenProvider auth.TokenProvider, idle time.Duration) *Transport {
-	// TODO: support the case if InsecureSkipVerify is false
-	tlsConfig := tls.Config{InsecureSkipVerify: true}
+	dial := func(network, addr string) (net.Conn, error) {
+		log.V(1).Info("createTransport remote addr", "addr", addr)
+		config := &tls.Config{
+			InsecureSkipVerify: true,
+			VerifyConnection: func(cs tls.ConnectionState) error {
+				fingerprint := calcFingerprint(cs.PeerCertificates[0].Raw)
+				if strings.Compare(fingerprint, "thumbprint") == 0 {
+					return nil
+				} else {
+					log.V(1).Info("server certificate(s) didn't match trusted fingerprint")
+					return errors.New("server certificate(s) didn't match trusted fingerprint")
+				}
+			},
+		}
+		conn, err := tls.Dial(network, addr, config)
+		if err != nil {
+			log.Info("Unable to connect to %s: %s", addr, err)
+			return nil, err
+
+		}
+		return conn, nil
+	}
+
 	tr := &http.Transport{
-		TLSClientConfig: &tlsConfig,
+		DialTLS:         dial,
 		IdleConnTimeout: idle * time.Second,
 	}
 	return &Transport{Base: tr, tokenProvider: tokenProvider}
 }
+
+func calcFingerprint(der []byte) string {
+	hash := sha256.Sum256(der)
+	hex := make([]byte, len(hash)*2)
+	for i, data := range hash {
+		buf := []byte(fmt.Sprintf("%02x", data))
+		hex[i*2] = buf[0]
+		hex[i*2+1] = buf[1]
+	}
+	return string(hex)
+}
+
 func (cluster *Cluster) createHTTPClient(tr *Transport, timeout time.Duration) http.Client {
 	return http.Client{
 		Transport: tr,
