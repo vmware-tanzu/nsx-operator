@@ -144,7 +144,7 @@ func TestCreateAuthSession(t *testing.T) {
 	err = ep.createAuthSession(nil, nil, "admin", "password", jar)
 	mockObj.AssertCalled(t, "Host")
 	mockObj.AssertCalled(t, "Scheme")
-	assert.Equal(err.Error(), "session creation failed for response error 403", "Auth should be failed")
+	assert.Equal(err.Error(), "session creation failed, unexpected status code 403", "Auth should be failed")
 
 	err = ep.createAuthSession(nil, nil, "admin", "password", jar)
 	assert.Equal(err.Error(), "no token in response", "Auth should be failed")
