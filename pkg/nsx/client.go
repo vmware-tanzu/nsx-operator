@@ -4,6 +4,8 @@
 package nsx
 
 import (
+	"errors"
+	"net/http"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -24,6 +26,21 @@ type Client struct {
 	GroupClient    domains.GroupsClient
 	SecurityClient domains.SecurityPoliciesClient
 	RuleClient     security_policies.RulesClient
+	NSXChecker     NSXHealthChecker
+}
+
+type NSXHealthChecker struct {
+	cluster *Cluster
+}
+
+func (ck *NSXHealthChecker) CheckNSXHealth(req *http.Request) error {
+	health := ck.cluster.Health()
+	if GREEN == health || ORANGE == health {
+		return nil
+	} else {
+		log.V(1).Info("NSX cluster status is down: ", " Current status: ", health)
+		return errors.New("NSX Current Status is down")
+	}
 }
 
 func restConnector(c *Cluster) *client.RestConnector {
@@ -41,6 +58,9 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	groupClient := domains.NewGroupsClient(restConnector(cluster))
 	securityClient := domains.NewSecurityPoliciesClient(restConnector(cluster))
 	ruleClient := security_policies.NewRulesClient(restConnector(cluster))
+	nsxChecker := &NSXHealthChecker{
+		cluster: cluster,
+	}
 	return &Client{
 		NsxConfig:      cf,
 		RestConnector:  restConnector(cluster),
@@ -48,5 +68,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		GroupClient:    groupClient,
 		SecurityClient: securityClient,
 		RuleClient:     ruleClient,
+		NSXChecker:     *nsxChecker,
 	}
 }

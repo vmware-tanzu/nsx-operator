@@ -33,7 +33,7 @@ func init() {
 
 func main() {
 	var probeAddr string
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8088", "The address the probe endpoint binds to.")
+	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8383", "The address the probe endpoint binds to.")
 	config.AddFlags()
 	opts := zap.Options{
 		Development: true,
@@ -76,7 +76,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+	if err := mgr.AddHealthzCheck("healthz", nsxClient.NSXChecker.CheckNSXHealth); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
 	}
