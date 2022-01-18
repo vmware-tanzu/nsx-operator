@@ -141,6 +141,7 @@ func (ep *Endpoint) keepAlive() error {
 			ep.setStatus(UP)
 			return nil
 		}
+		ep.setStatus(DOWN)
 		log.Error(err, "failed to validate API cluster", "endpoint", ep.Host(), "healthy", a)
 		return err
 	}
@@ -298,7 +299,7 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 	body, err := ioutil.ReadAll(resp.Body)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		err = fmt.Errorf("unexpected status code %d", resp.StatusCode)
+		err = fmt.Errorf("session creation failed, unexpected status code %d", resp.StatusCode)
 	}
 	if err != nil {
 		log.Error(err, "session creation failed", "endpoint", u.Host, "statusCode", resp.StatusCode, "headerDate", resp.Header["Date"], "body", body)
