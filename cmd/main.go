@@ -71,7 +71,7 @@ func main() {
 		securityReconcile.Service = service
 	}
 
-	if err = securityReconcile.SetupWithManager(mgr); err != nil {
+	if err = securityReconcile.Start(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityPolicy")
 		os.Exit(1)
 	}

@@ -91,7 +91,6 @@ func (cluster *Cluster) NewRestConnector() (*policyclient.RestConnector, *Header
 func (cluster *Cluster) createTransport(tokenProvider auth.TokenProvider, idle time.Duration) *Transport {
 	// TODO: support the case if InsecureSkipVerify is false
 	tlsConfig := tls.Config{InsecureSkipVerify: true}
-	tlsConfig.BuildNameToCertificate()
 	tr := &http.Transport{
 		TLSClientConfig: &tlsConfig,
 		IdleConnTimeout: idle * time.Second,
@@ -107,7 +106,6 @@ func (cluster *Cluster) createHTTPClient(tr *Transport, timeout time.Duration) h
 
 func (cluster *Cluster) createNoBalancerClient(timeout, idle time.Duration) http.Client {
 	tlsConfig := tls.Config{InsecureSkipVerify: true}
-	tlsConfig.BuildNameToCertificate()
 	transport := &http.Transport{
 		TLSClientConfig: &tlsConfig,
 		IdleConnTimeout: idle * time.Second,
