@@ -13,6 +13,7 @@ import (
 
 	"k8s.io/client-go/util/workqueue"
 
+	mapset "github.com/deckarep/golang-set"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util/locerrors"
 )
 
@@ -86,4 +87,18 @@ func Sha1(data string) string {
 	h.Write([]byte(data))
 	sum := h.Sum(nil)
 	return fmt.Sprintf("%x", sum)
+}
+
+func RemoveDuplicateStr(strSlice []string) []string {
+	stringSet := mapset.NewSet()
+
+	for _, d := range strSlice {
+		stringSet.Add(d)
+	}
+	resultStr := make([]string, len(stringSet.ToSlice()))
+	for i, v := range stringSet.ToSlice() {
+		resultStr[i] = v.(string)
+	}
+
+	return resultStr
 }

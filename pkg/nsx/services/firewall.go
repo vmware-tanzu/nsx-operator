@@ -15,10 +15,23 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+)
+
+const (
+	MaxCriteriaExpressions      int = 5
+	MaxMixedCriteriaExpressions int = 15
+	MaxCriteria                 int = 5
+	MaxTotalCriteriaExpressions int = 35
+	MaxMatchExpressionInOp      int = 1
+	MaxMatchExpressionIn        int = 1
+	MaxMatchExpressionInValues  int = 5
+	ClusterTagCount             int = 1
+	ProjectTagCount             int = 1
 )
 
 type SecurityPolicyService struct {
@@ -82,7 +95,12 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 	policyPriority := int64(obj.Spec.Priority)
 	nsxSecurityPolicy.SequenceNumber = &policyPriority
 
-	policyGroup, policyGroupPath, _ := service.buildPolicyGroup(obj)
+	policyGroup, policyGroupPath, err := service.buildPolicyGroup(obj)
+	if err != nil {
+		log.Error(err, "failed to build policy group")
+		return nil, nil, err
+	}
+
 	nsxSecurityPolicy.Scope = []string{policyGroupPath}
 	if policyGroup != nil {
 		nsxGroups = append(nsxGroups, *policyGroup)
@@ -125,8 +143,31 @@ func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPol
 		return nil, "ANY", nil
 	}
 
+	targetGroupCount, targetGroupTotalExprCount := 0, 0
+	criteriaCount, totalExprCount := 0, 0
+	var err error = nil
+	var errorMsg string = ""
 	for i, target := range appliedTo {
-		service.updateTargetExpressions(obj, &target, &policyGroup, i)
+		criteriaCount, totalExprCount, err = service.updateTargetExpressions(obj, &target, &policyGroup, i)
+		if err == nil {
+			targetGroupCount += criteriaCount
+			targetGroupTotalExprCount += totalExprCount
+		} else {
+			return nil, "", err
+		}
+	}
+	log.V(1).Info("build policy target group criteria", "total criteria", targetGroupCount, "total expressions of criteria", targetGroupTotalExprCount)
+
+	if targetGroupCount > MaxCriteria {
+		errorMsg = fmt.Sprintf("total counts of policy target group criteria %d exceed NSX limit of %d", targetGroupCount, MaxCriteria)
+	} else if targetGroupTotalExprCount > MaxTotalCriteriaExpressions {
+		errorMsg = fmt.Sprintf("total expression counts in policy target group criteria %d exceed NSX limit of %d", targetGroupTotalExprCount, MaxTotalCriteriaExpressions)
+	}
+
+	if len(errorMsg) != 0 {
+		err = errors.New(errorMsg)
+		log.Error(err, "validate policy group criteria nsx limit failed")
+		return nil, "", err
 	}
 
 	policyGroupPath := service.buildPolicyGroupPath(obj)
@@ -201,45 +242,90 @@ func (service *SecurityPolicyService) buildBasicTags(obj *v1alpha1.SecurityPolic
 	return tags
 }
 
-func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.SecurityPolicy, target *v1alpha1.SecurityPolicyTarget, group *model.Group, idx int) {
+func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.SecurityPolicy, target *v1alpha1.SecurityPolicyTarget, group *model.Group, idx int) (int, int, error) {
+	var err error = nil
+	var tagValueExpression *data.StructValue = nil
+	var memberType string = "SegmentPort"
+	var matchLabels map[string]string
+	var matchExpressions *[]metav1.LabelSelectorRequirement = nil
+	var mergedMatchExpressions *[]metav1.LabelSelectorRequirement = nil
+	var opInValueCount, totalCriteriaCount, totalExprCount = 0, 0, 0
+	var matchLabelsCount, matchExpressionsCount = 0, 0
+
+	if target.PodSelector != nil && target.VMSelector != nil {
+		errorMsg := "PodSelector and VMSelector are not allowed to set in one group"
+		err = errors.New(errorMsg)
+		log.Error(err, "build selector expressions failed")
+		return 0, 0, err
+	}
+
 	service.appendOperatorIfNeeded(&group.Expression, "OR")
-	expressions := data.NewListValue()
-	expressionFrame := data.NewStructValue(
-		"",
-		map[string]data.DataValue{
-			"expressions":   expressions,
-			"resource_type": data.NewStringValue("NestedExpression"),
-		},
-	)
-	group.Expression = append(group.Expression, expressionFrame)
+	expressions := service.buildGroupExpression(&group.Expression)
 
 	clusterExpression := service.buildExpression(
-		"Condition", "SegmentPort",
+		"Condition", memberType,
 		fmt.Sprintf("%s|%s", util.TagScopeNCPCluster, service.getCluster()),
-		"Tag", "EQUALS",
+		"Tag", "EQUALS", "EQUALS",
 	)
 	expressions.Add(clusterExpression)
+
 	if target.PodSelector != nil {
 		service.addOperatorIfNeeded(expressions, "AND")
 		// TODO: consider to use project_uid instead of project
 		nsExpression := service.buildExpression(
-			"Condition", "SegmentPort",
+			"Condition", memberType,
 			fmt.Sprintf("%s|%s", util.TagScopeNCPProject, obj.ObjectMeta.Namespace),
-			"Tag", "EQUALS",
+			"Tag", "EQUALS", "EQUALS",
 		)
 		expressions.Add(nsExpression)
-		service.updatePortExpressions(target.PodSelector.MatchLabels, expressions)
+
+		tagValueExpression = nsExpression
+		matchLabels = target.PodSelector.MatchLabels
+		matchExpressions = &target.PodSelector.MatchExpressions
 	}
 	if target.VMSelector != nil {
 		service.addOperatorIfNeeded(expressions, "AND")
 		nsExpression := service.buildExpression(
 			"Condition", "SegmentPort",
 			fmt.Sprintf("%s|%s", util.TagScopeNCPVIFProject, obj.ObjectMeta.Namespace),
-			"Tag", "EQUALS",
+			"Tag", "EQUALS", "EQUALS",
 		)
 		expressions.Add(nsExpression)
-		service.updatePortExpressions(target.VMSelector.MatchLabels, expressions)
+
+		tagValueExpression = nsExpression
+		matchLabels = target.VMSelector.MatchLabels
+		matchExpressions = &target.VMSelector.MatchExpressions
 	}
+	if target.PodSelector != nil || target.VMSelector != nil {
+		service.updateExpressionsMatchLables(matchLabels, memberType, expressions)
+		matchLabelsCount = len(matchLabels)
+		// PodSelector or VMSelector has two more built-in labels
+		matchLabelsCount += ClusterTagCount + ProjectTagCount
+
+		if matchExpressions != nil {
+			mergedMatchExpressions = service.mergeSelectorMatchExpression(*matchExpressions)
+			matchExpressionsCount = len(*mergedMatchExpressions)
+			opInValueCount, err = service.validateSelectorOpIn(*mergedMatchExpressions)
+
+			if err != nil {
+				log.Error(err, "validate operator 'IN' in label selector matchExpressions failed")
+				return 0, 0, err
+			}
+			err = service.updateExpressionsMatchExpression(*mergedMatchExpressions, matchLabels,
+				&group.Expression, clusterExpression, tagValueExpression, memberType, expressions)
+			if err != nil {
+				log.Error(err, "build label selector matchExpressions failed")
+				return 0, 0, err
+			}
+		}
+
+		totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, memberType)
+		if err != nil {
+			log.Error(err, "validate label selector matchExpressions failed")
+			return 0, 0, err
+		}
+	}
+	return totalCriteriaCount, totalExprCount, nil
 }
 
 func (service *SecurityPolicyService) appendOperatorIfNeeded(policyExpression *[]*data.StructValue, op string) {
@@ -260,17 +346,46 @@ func (service *SecurityPolicyService) buildConjOperator(op string) *data.StructV
 	return operator
 }
 
-func (service *SecurityPolicyService) buildExpression(resource_type, member_type, value, key, operator string) *data.StructValue {
-	expression := data.NewStructValue(
+func (service *SecurityPolicyService) buildGroupExpression(policyExpression *[]*data.StructValue) *data.ListValue {
+	expressions := data.NewListValue()
+	expressionFrame := data.NewStructValue(
 		"",
 		map[string]data.DataValue{
-			"resource_type": data.NewStringValue(resource_type),
-			"member_type":   data.NewStringValue(member_type),
-			"value":         data.NewStringValue(value),
-			"key":           data.NewStringValue(key),
-			"operator":      data.NewStringValue(operator),
+			"expressions":   expressions,
+			"resource_type": data.NewStringValue("NestedExpression"),
 		},
 	)
+	*policyExpression = append(*policyExpression, expressionFrame)
+	return expressions
+}
+
+func (service *SecurityPolicyService) buildExpression(resource_type, member_type, value, key, operator, scope_op string) *data.StructValue {
+	var expression *data.StructValue
+	if scope_op == "NOTEQUALS" {
+		// when scope_op is "NOTEQUALS", the tag operator and value field will not be used
+		expression = data.NewStructValue(
+			"",
+			map[string]data.DataValue{
+				"resource_type":  data.NewStringValue(resource_type),
+				"member_type":    data.NewStringValue(member_type),
+				"value":          data.NewStringValue(value),
+				"key":            data.NewStringValue(key),
+				"scope_operator": data.NewStringValue(scope_op),
+			},
+		)
+	} else {
+		expression = data.NewStructValue(
+			"",
+			map[string]data.DataValue{
+				"resource_type":  data.NewStringValue(resource_type),
+				"member_type":    data.NewStringValue(member_type),
+				"value":          data.NewStringValue(value),
+				"key":            data.NewStringValue(key),
+				"operator":       data.NewStringValue(operator),
+				"scope_operator": data.NewStringValue(scope_op),
+			},
+		)
+	}
 	return expression
 }
 
@@ -281,16 +396,318 @@ func (service *SecurityPolicyService) addOperatorIfNeeded(expressions *data.List
 	}
 }
 
-func (service *SecurityPolicyService) updatePortExpressions(matchLabels map[string]string, expressions *data.ListValue) {
+func (service *SecurityPolicyService) updateExpressionsMatchLables(matchLabels map[string]string, memberType string, expressions *data.ListValue) {
 	for k, v := range *util.NormalizeLabels(&matchLabels) {
 		service.addOperatorIfNeeded(expressions, "AND")
 		expression := service.buildExpression(
-			"Condition", "SegmentPort",
+			"Condition", memberType,
 			fmt.Sprintf("%s|%s", k, v),
-			"Tag", "EQUALS",
+			"Tag", "EQUALS", "EQUALS",
 		)
 		expressions.Add(expression)
 	}
+}
+
+// NSX understand the multiple values w.r.t a key in a joined string manner
+// this function iterates over input matchExpressions LabelSelectorRequirement
+// with same operator and Key, and merges them into one and values to a joined string
+// e.g.
+// - {key: k1, operator: NotIn, values: [a1, a2, a3]}
+// - {key: k1, operator: NotIn, values: [a2, a3, a4]}
+//  => {key: k1, operator: NotIn, values: [a1, a2, a3, a4]}
+func (service *SecurityPolicyService) mergeSelectorMatchExpression(matchExpressions []metav1.LabelSelectorRequirement) *[]metav1.LabelSelectorRequirement {
+	mergedMatchExpressions := make([]metav1.LabelSelectorRequirement, 0)
+	var meregedSelector metav1.LabelSelectorRequirement
+	var labelSelectorMap = map[metav1.LabelSelectorOperator]map[string][]string{}
+
+	for _, d := range matchExpressions {
+		_, exists := labelSelectorMap[d.Operator]
+		if !exists {
+			labelSelectorMap[d.Operator] = map[string][]string{}
+		}
+		_, exists = labelSelectorMap[d.Operator][d.Key]
+		labelSelectorMap[d.Operator][d.Key] = append(labelSelectorMap[d.Operator][d.Key], d.Values...)
+
+		if exists {
+			labelSelectorMap[d.Operator][d.Key] = util.RemoveDuplicateStr(labelSelectorMap[d.Operator][d.Key])
+		}
+	}
+
+	for key, value := range labelSelectorMap {
+		for subKey, subValue := range value {
+			meregedSelector.Values = subValue
+			meregedSelector.Operator = key
+			meregedSelector.Key = subKey
+			mergedMatchExpressions = append(mergedMatchExpressions, meregedSelector)
+		}
+	}
+
+	return &mergedMatchExpressions
+}
+
+// Todo, refactor code when NSX support 'In' LabelSelector.
+// Given NSX currently doesn't support 'In' LabelSelector, to keep design simple,
+// only allow just one 'In' LabelSelector in matchExpressions with at most of five values in it.
+func (service *SecurityPolicyService) validateSelectorOpIn(matchExpressions []metav1.LabelSelectorRequirement) (int, error) {
+	var mexprInOpCount = 0
+	var mexprInValueCount = 0
+	var err error = nil
+	var errorMsg string = ""
+
+	for _, expr := range matchExpressions {
+		if expr.Operator == metav1.LabelSelectorOpIn {
+			mexprInOpCount++
+			mexprInValueCount += len(expr.Values)
+		}
+	}
+	if mexprInOpCount > MaxMatchExpressionInOp {
+		errorMsg = fmt.Sprintf("count of operator 'IN' expressions %d exceed limit of %d",
+			mexprInOpCount, MaxMatchExpressionIn)
+	} else if mexprInValueCount > MaxMatchExpressionInValues {
+		errorMsg = fmt.Sprintf("count of values list for operator 'IN' expressions %d exceed limit of %d",
+			mexprInValueCount, MaxMatchExpressionInValues)
+	}
+
+	if len(errorMsg) != 0 {
+		err = errors.New(errorMsg)
+	}
+	return mexprInValueCount, err
+}
+
+func (service *SecurityPolicyService) validateSelectorExpressions(matchLabelsCount int,
+	matchExpressionsCount int, opInValueCount int, memberType string) (int, int, error) {
+	var err error = nil
+	var errorMsg string = ""
+	var totalExprCount = 0
+	var totoalCriteria = 0
+
+	// Check total count of expressions from LabelSelectors in one group criteria
+	if matchExpressionsCount != 0 {
+		totalExprCount = matchLabelsCount + matchExpressionsCount
+	} else {
+		totalExprCount = matchLabelsCount
+	}
+
+	if memberType == "SegmentPort" && totalExprCount > MaxCriteriaExpressions {
+		errorMsg = fmt.Sprintf("total count of labelSelectors expressions %d exceed NSX limit of %d in one criteria based on same member type",
+			totalExprCount, MaxCriteriaExpressions)
+	} else if memberType == "Segment" && totalExprCount > MaxMixedCriteriaExpressions {
+		// Since cluster is set as default "SegmentPort" memberType, So, group with "Segment" member is always treated as a mixed criteria
+		errorMsg = fmt.Sprintf("total count of labelSelectors expressions %d exceed NSX limit of %d in one criteria inside a mixed member type",
+			totalExprCount, MaxMixedCriteriaExpressions)
+	}
+
+	if len(errorMsg) != 0 {
+		err = errors.New(errorMsg)
+		return 0, 0, err
+	}
+
+	// Compute total expression counts of final produced criteria
+	if matchLabelsCount != 0 || matchExpressionsCount != 0 {
+		if opInValueCount != 0 {
+			totoalCriteria = opInValueCount
+			totalExprCount *= opInValueCount
+		} else {
+			// matchExpressions will be 'AND' with matchLabels(if present) to produce 1 criteria.
+			totoalCriteria = 1
+		}
+	}
+	return totoalCriteria, totalExprCount, err
+}
+
+// Todo, refactor code when NSX support 'In' LabelSelector.
+func (service *SecurityPolicyService) matchExpressionOpInExist(matchExpressions []metav1.LabelSelectorRequirement) (bool, int) {
+	var opeartorInIndex = -1
+	var isFound = false
+	for i := 0; i < len(matchExpressions); i++ {
+		// find Opetator IN
+		if matchExpressions[i].Operator == metav1.LabelSelectorOpIn {
+			opeartorInIndex = i
+			isFound = true
+			break
+		}
+	}
+	return isFound, opeartorInIndex
+}
+
+// Todo, refactor code when NSX support 'In' LabelSelector.
+// Currently NSX only supports "EQUALS" but not "IN". So, we have to make each value to be AND with other expressions
+// and finally produce a union set to translate from K8s "IN" to NSX "EQUALS".
+// e.g. - {key: k1, operator: NotIn, values: [a1,a2]}
+//      - {key: k2, operator: In, values: [a3,a4]}
+// The above two expressions will be translated to:
+// => {k1 NotIn [a1,a2]} AND {k2 EQUALS a3} OR {k1 NotIn [a1,a2]} AND {k2 EQUALS a4}
+func (service *SecurityPolicyService) updateExpressionsMatchExpression(matchExpressions []metav1.LabelSelectorRequirement, matchLabels map[string]string,
+	policyExpression *[]*data.StructValue, clusterExpression *data.StructValue, tagValueExpression *data.StructValue,
+	memberType string, expressions *data.ListValue) error {
+	var err error = nil
+	var found, opInIdx = service.matchExpressionOpInExist(matchExpressions)
+	if !found {
+		err = service.buildExpressionsMatchExpression(matchExpressions, memberType, expressions)
+	} else {
+		var expr = matchExpressions[opInIdx]
+		for i := 0; i < len(expr.Values); i++ {
+			if i != 0 {
+				service.appendOperatorIfNeeded(policyExpression, "OR")
+				expressions = service.buildGroupExpression(policyExpression)
+
+				if clusterExpression != nil {
+					expressions.Add(clusterExpression)
+				}
+				if tagValueExpression != nil {
+					if clusterExpression != nil {
+						service.addOperatorIfNeeded(expressions, "AND")
+					}
+					expressions.Add(tagValueExpression)
+				}
+				service.updateExpressionsMatchLables(matchLabels, memberType, expressions)
+			}
+
+			service.addOperatorIfNeeded(expressions, "AND")
+			expression := service.buildExpression(
+				"Condition", memberType,
+				fmt.Sprintf("%s|%s", expr.Key, expr.Values[i]),
+				"Tag", "EQUALS", "EQUALS",
+			)
+			expressions.Add(expression)
+			err = service.buildExpressionsMatchExpression(matchExpressions, memberType, expressions)
+			if err != nil {
+				break
+			}
+		}
+	}
+	return err
+}
+
+// Todo, refactor code when NSX support 'In' LabelSelector.
+// Support Pod/VM Selector mixed with NamespaceSelector
+func (service *SecurityPolicyService) updateMixedExpressionsMatchExpression(nsMatchExpressions []metav1.LabelSelectorRequirement, nsMatchLabels map[string]string,
+	matchExpressions []metav1.LabelSelectorRequirement, matchLabels map[string]string,
+	policyExpression *[]*data.StructValue, clusterExpression *data.StructValue, tagValueExpression *data.StructValue, expressions *data.ListValue) error {
+	var err error = nil
+	var opInIdx = 0
+	var found bool = false
+	var opInMatchExpressions []metav1.LabelSelectorRequirement = nil
+	var memberType = ""
+
+	nsFound, opInIdx1 := service.matchExpressionOpInExist(nsMatchExpressions)
+	portFound, opInIdx2 := service.matchExpressionOpInExist(matchExpressions)
+
+	if nsFound {
+		opInIdx = opInIdx1
+		memberType = "Segment"
+		opInMatchExpressions = nsMatchExpressions
+		found = true
+	} else if portFound {
+		opInIdx = opInIdx2
+		memberType = "SegmentPort"
+		opInMatchExpressions = matchExpressions
+		found = true
+	}
+
+	if !found {
+		err = service.buildExpressionsMatchExpression(matchExpressions, "SegmentPort", expressions)
+		if err == nil {
+			err = service.buildExpressionsMatchExpression(nsMatchExpressions, "Segment", expressions)
+		}
+	} else {
+		var expr = opInMatchExpressions[opInIdx]
+		for i := 0; i < len(expr.Values); i++ {
+			if i != 0 {
+				service.appendOperatorIfNeeded(policyExpression, "OR")
+				expressions = service.buildGroupExpression(policyExpression)
+
+				if clusterExpression != nil {
+					expressions.Add(clusterExpression)
+				}
+				if tagValueExpression != nil {
+					if clusterExpression != nil {
+						service.addOperatorIfNeeded(expressions, "AND")
+					}
+					expressions.Add(tagValueExpression)
+				}
+
+				service.updateExpressionsMatchLables(matchLabels, "SegmentPort", expressions)
+				service.updateExpressionsMatchLables(nsMatchLabels, "Segment", expressions)
+			}
+
+			if nsFound {
+				err = service.buildExpressionsMatchExpression(matchExpressions, "SegmentPort", expressions)
+				if err != nil {
+					break
+				}
+			} else {
+				err = service.buildExpressionsMatchExpression(nsMatchExpressions, "Segment", expressions)
+				if err != nil {
+					break
+				}
+			}
+
+			service.addOperatorIfNeeded(expressions, "AND")
+			expression := service.buildExpression(
+				"Condition", memberType,
+				fmt.Sprintf("%s|%s", expr.Key, expr.Values[i]),
+				"Tag", "EQUALS", "EQUALS",
+			)
+			expressions.Add(expression)
+
+			err = service.buildExpressionsMatchExpression(opInMatchExpressions, memberType, expressions)
+			if err != nil {
+				break
+			}
+		}
+	}
+	return err
+}
+
+func (service *SecurityPolicyService) buildExpressionsMatchExpression(matchExpressions []metav1.LabelSelectorRequirement,
+	memberType string, expressions *data.ListValue) error {
+	var err error = nil
+	var errorMsg string = ""
+
+	for _, expr := range matchExpressions {
+		switch expr.Operator {
+		case metav1.LabelSelectorOpIn:
+			continue
+
+		case metav1.LabelSelectorOpNotIn:
+			service.addOperatorIfNeeded(expressions, "AND")
+			joinValues := strings.Join(expr.Values[:], ",")
+
+			expression := service.buildExpression(
+				"Condition", memberType,
+				fmt.Sprintf("%s|%s", expr.Key, joinValues),
+				"Tag", "NOTIN", "EQUALS",
+			)
+			expressions.Add(expression)
+
+		case metav1.LabelSelectorOpExists:
+			service.addOperatorIfNeeded(expressions, "AND")
+			expression := service.buildExpression(
+				"Condition", memberType,
+				fmt.Sprintf("%s|", expr.Key),
+				"Tag", "EQUALS", "EQUALS",
+			)
+			expressions.Add(expression)
+
+		case metav1.LabelSelectorOpDoesNotExist:
+			service.addOperatorIfNeeded(expressions, "AND")
+			expression := service.buildExpression(
+				"Condition", memberType,
+				fmt.Sprintf("%s|", expr.Key),
+				"Tag", "", "NOTEQUALS",
+			)
+			expressions.Add(expression)
+
+		default:
+			errorMsg = fmt.Sprintf("invalid operator %s in matchExpressions", expr.Operator)
+		}
+	}
+
+	if len(errorMsg) != 0 {
+		err = errors.New(errorMsg)
+	}
+	return err
 }
 
 func (service *SecurityPolicyService) buildPolicyGroupID(obj *v1alpha1.SecurityPolicy) string {
@@ -314,6 +731,7 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 	var nsxRuleAppliedGroupPath string
 	var nsxRuleDstGroupPath string
 	var nsxRuleSrcGroupPath string
+	var err error = nil
 	if len(rule.Name) > 0 {
 		nsxRuleName = rule.Name
 	} else {
@@ -329,7 +747,7 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 	} else if ruleDirection == toUpper(v1alpha1.RuleDirectionEgress) || ruleDirection == toUpper(v1alpha1.RuleDirectionOut) {
 		direction = "OUT"
 	} else {
-		return nil, nil, errors.New("invalide rule direction")
+		return nil, nil, errors.New("invalid rule direction")
 	}
 
 	nsxRule := model.Rule{
@@ -344,16 +762,26 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 
 	if direction == "IN" {
 		if len(rule.Sources) > 0 {
-			nsxRuleSrcGroup, nsxRuleSrcGroupPath, _ = service.buildRuleSrcGroup(obj, rule, idx)
-			ruleGroups = append(ruleGroups, *nsxRuleSrcGroup)
+			nsxRuleSrcGroup, nsxRuleSrcGroupPath, err = service.buildRuleSrcGroup(obj, rule, idx)
+			if err == nil {
+				ruleGroups = append(ruleGroups, *nsxRuleSrcGroup)
+			} else {
+				log.Error(err, "failed to build rule source groups")
+				return nil, nil, err
+			}
 		} else {
 			nsxRuleSrcGroupPath = "ANY"
 		}
 		nsxRuleDstGroupPath = "ANY"
 	} else if direction == "OUT" {
 		if len(rule.Destinations) > 0 {
-			nsxRuleDstGroup, nsxRuleDstGroupPath, _ = service.buildRuleDstGroup(obj, rule, idx)
-			ruleGroups = append(ruleGroups, *nsxRuleDstGroup)
+			nsxRuleDstGroup, nsxRuleDstGroupPath, err = service.buildRuleDstGroup(obj, rule, idx)
+			if err == nil {
+				ruleGroups = append(ruleGroups, *nsxRuleDstGroup)
+			} else {
+				log.Error(err, "failed to build rule destination groups")
+				return nil, nil, err
+			}
 		} else {
 			nsxRuleDstGroupPath = "ANY"
 		}
@@ -365,8 +793,13 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 	nsxRule.ServiceEntries = *ruleServiceEntries
 
 	if len(rule.AppliedTo) > 0 {
-		nsxRuleAppliedGroup, nsxRuleAppliedGroupPath, _ = service.buildRuleAppliedGroup(obj, rule, idx)
-		ruleGroups = append(ruleGroups, *nsxRuleAppliedGroup)
+		nsxRuleAppliedGroup, nsxRuleAppliedGroupPath, err = service.buildRuleAppliedGroup(obj, rule, idx)
+		if err == nil {
+			ruleGroups = append(ruleGroups, *nsxRuleAppliedGroup)
+		} else {
+			log.Error(err, "failed to build rule applied groups")
+			return nil, nil, err
+		}
 	} else {
 		if nsxRuleSrcGroupPath == "ANY" && nsxRuleDstGroupPath == "ANY" {
 			// NSX-T manager will report error if all of the rule's scope/src/dst are "ANY"
@@ -409,10 +842,33 @@ func (service *SecurityPolicyService) buildRuleAppliedGroup(obj *v1alpha1.Securi
 		Tags:        targetTags,
 	}
 
+	ruleGroupCount, ruleGroupTotalExprCount := 0, 0
+	criteriaCount, totalExprCount := 0, 0
+	var err error = nil
+	var errorMsg string = ""
 	for i, target := range appliedTo {
-		service.updateTargetExpressions(obj, &target, &ruleAppliedGroup, i)
-
+		criteriaCount, totalExprCount, err = service.updateTargetExpressions(obj, &target, &ruleAppliedGroup, i)
+		if err == nil {
+			ruleGroupCount += criteriaCount
+			ruleGroupTotalExprCount += totalExprCount
+		} else {
+			return nil, "", err
+		}
 	}
+	log.V(1).Info("build rule applied group criteria", "total criteria", ruleGroupCount, "total expressions of criteria", ruleGroupTotalExprCount)
+
+	if ruleGroupCount > MaxCriteria {
+		errorMsg = fmt.Sprintf("total counts of rule applied group criteria %d exceed NSX limit of %d", ruleGroupCount, MaxCriteria)
+	} else if ruleGroupTotalExprCount > MaxTotalCriteriaExpressions {
+		errorMsg = fmt.Sprintf("total expression counts in rule applied group criteria %d exceed NSX limit of %d", ruleGroupTotalExprCount, MaxTotalCriteriaExpressions)
+	}
+
+	if len(errorMsg) != 0 {
+		err = errors.New(errorMsg)
+		log.Error(err, "validate rule applied group criteria nsx limit failed")
+		return nil, "", err
+	}
+
 	return &ruleAppliedGroup, ruleAppliedGroupPath, nil
 }
 
@@ -432,13 +888,49 @@ func (service *SecurityPolicyService) buildRuleSrcGroup(obj *v1alpha1.SecurityPo
 		DisplayName: &ruleSrcGroupName,
 		Tags:        peerTags,
 	}
+
+	ruleSrcGroupCount, ruleSrcGroupTotalExprCount := 0, 0
+	criteriaCount, totalExprCount := 0, 0
+	var err error = nil
+	var errorMsg string = ""
 	for i, peer := range sources {
-		service.updatePeerExpressions(obj, &peer, &ruleSrcGroup, i)
+		criteriaCount, totalExprCount, err = service.updatePeerExpressions(obj, &peer, &ruleSrcGroup, i)
+		if err == nil {
+			ruleSrcGroupCount += criteriaCount
+			ruleSrcGroupTotalExprCount += totalExprCount
+		} else {
+			return nil, "", err
+		}
 	}
-	return &ruleSrcGroup, ruleSrcGroupPath, nil
+	log.V(1).Info("build rule source group criteria", "total criteria", ruleSrcGroupCount, "total expressions of criteria", ruleSrcGroupTotalExprCount)
+
+	if ruleSrcGroupCount > MaxCriteria {
+		errorMsg = fmt.Sprintf("total counts of rule source group criteria %d exceed NSX limit of %d", ruleSrcGroupCount, MaxCriteria)
+	} else if ruleSrcGroupTotalExprCount > MaxTotalCriteriaExpressions {
+		errorMsg = fmt.Sprintf("total expression counts in source group criteria %d exceed NSX limit of %d", ruleSrcGroupTotalExprCount, MaxTotalCriteriaExpressions)
+	}
+
+	if len(errorMsg) != 0 {
+		err = errors.New(errorMsg)
+		log.Error(err, "validate rule source group criteria nsx limit failed")
+		return nil, "", err
+	}
+
+	return &ruleSrcGroup, ruleSrcGroupPath, err
 }
 
-func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.SecurityPolicy, peer *v1alpha1.SecurityPolicyPeer, group *model.Group, idx int) {
+func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.SecurityPolicy, peer *v1alpha1.SecurityPolicyPeer, group *model.Group, idx int) (int, int, error) {
+	var err error = nil
+	var errorMsg string = ""
+	var tagValueExpression *data.StructValue = nil
+	var memberType string
+	var matchLabels map[string]string
+	var matchExpressions *[]metav1.LabelSelectorRequirement = nil
+	var mergedMatchExpressions *[]metav1.LabelSelectorRequirement = nil
+	var opInValueCount, totalCriteriaCount, totalExprCount = 0, 0, 0
+	var matchLabelsCount, matchExpressionsCount = 0, 0
+	var mixedCriteria bool = false
+
 	if len(peer.IPBlocks) > 0 {
 		addresses := data.NewListValue()
 		for _, block := range peer.IPBlocks {
@@ -457,56 +949,152 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 	}
 
 	if peer.PodSelector == nil && peer.VMSelector == nil && peer.NamespaceSelector == nil {
-		return
+		return 0, 0, nil
+	} else if peer.PodSelector != nil && peer.VMSelector != nil && peer.NamespaceSelector == nil {
+		errorMsg = "PodSelector and VMSelector are not allowed to set in one group"
+	} else if peer.PodSelector != nil && peer.VMSelector != nil && peer.NamespaceSelector != nil {
+		errorMsg = "PodSelector, VMSelector and NamespaceSelector are not allowed to set in one group"
+	}
+
+	if len(errorMsg) != 0 {
+		err = errors.New(errorMsg)
+		log.Error(err, "build selector expressions failed")
+		return 0, 0, err
 	}
 
 	service.appendOperatorIfNeeded(&group.Expression, "OR")
-	expressions := data.NewListValue()
-	expressionFrame := data.NewStructValue(
-		"",
-		map[string]data.DataValue{
-			"expressions":   expressions,
-			"resource_type": data.NewStringValue("NestedExpression"),
-		},
-	)
-	group.Expression = append(group.Expression, expressionFrame)
+	expressions := service.buildGroupExpression(&group.Expression)
 
 	clusterExpression := service.buildExpression(
 		"Condition", "SegmentPort",
 		fmt.Sprintf("%s|%s", util.TagScopeNCPCluster, service.getCluster()),
-		"Tag", "EQUALS",
+		"Tag", "EQUALS", "EQUALS",
 	)
 	expressions.Add(clusterExpression)
 
 	if peer.PodSelector != nil {
+		memberType = "SegmentPort"
 		service.addOperatorIfNeeded(expressions, "AND")
 		podExpression := service.buildExpression(
-			"Condition", "SegmentPort", util.TagScopeNCPPod, "Tag", "EQUALS")
+			"Condition", memberType, util.TagScopeNCPPod, "Tag", "EQUALS", "EQUALS")
 		expressions.Add(podExpression)
-		service.updatePortExpressions(peer.PodSelector.MatchLabels, expressions)
+
+		if peer.NamespaceSelector == nil {
+			mixedCriteria = false
+		} else {
+			mixedCriteria = true
+		}
+
+		tagValueExpression = podExpression
+		matchLabels = peer.PodSelector.MatchLabels
+		matchExpressions = &peer.PodSelector.MatchExpressions
+		matchLabelsCount = len(matchLabels)
+		// PodSelector has two more built-in labels
+		matchLabelsCount += ClusterTagCount + ProjectTagCount
 	}
 	if peer.VMSelector != nil {
+		memberType = "SegmentPort"
 		service.addOperatorIfNeeded(expressions, "AND")
 		vmExpression := service.buildExpression(
-			"Condition", "SegmentPort", util.TagScopeNCPVNETInterface, "Tag", "EQUALS")
+			"Condition", memberType, util.TagScopeNCPVNETInterface, "Tag", "EQUALS", "EQUALS")
 		expressions.Add(vmExpression)
-		service.updatePortExpressions(peer.VMSelector.MatchLabels, expressions)
+
+		if peer.NamespaceSelector == nil {
+			mixedCriteria = false
+		} else {
+			mixedCriteria = true
+		}
+
+		tagValueExpression = vmExpression
+		matchLabels = peer.VMSelector.MatchLabels
+		matchExpressions = &peer.VMSelector.MatchExpressions
+		matchLabelsCount = len(matchLabels)
+		// VMSelector has two more built-in labels
+		matchLabelsCount += ClusterTagCount + ProjectTagCount
 	}
 	if peer.NamespaceSelector != nil {
-		service.updateSegmentSelectorExpressions(peer.NamespaceSelector.MatchLabels, expressions)
-	}
-}
+		if !mixedCriteria {
+			tagValueExpression = nil
+			memberType = "Segment"
+			matchLabels = peer.NamespaceSelector.MatchLabels
+			matchExpressions = &peer.NamespaceSelector.MatchExpressions
+			matchLabelsCount = len(matchLabels)
+			// NamespaceSelector has one more built-in labels
+			matchLabelsCount += ClusterTagCount
+		} else { // Handle PodSelector or VMSelector mixed with NamespaceSelector
+			memberType = "Segment"
+			nsMatchLabels := peer.NamespaceSelector.MatchLabels
+			nsMatchExpressions := &peer.NamespaceSelector.MatchExpressions
 
-func (service *SecurityPolicyService) updateSegmentSelectorExpressions(matchLabels map[string]string, expressions *data.ListValue) {
-	for k, v := range *util.NormalizeLabels(&matchLabels) {
-		service.addOperatorIfNeeded(expressions, "AND")
-		expression := service.buildExpression(
-			"Condition", "Segment",
-			fmt.Sprintf("%s|%s", k, v),
-			"Tag", "EQUALS",
-		)
-		expressions.Add(expression)
+			// Validate expressions for POD/VM Selectors
+			mergedMatchExpressions = service.mergeSelectorMatchExpression(*matchExpressions)
+			opInValueCount, err = service.validateSelectorOpIn(*mergedMatchExpressions)
+
+			nsMergedMatchExpressions := service.mergeSelectorMatchExpression(*nsMatchExpressions)
+			nsOpInValCount, opErr := service.validateSelectorOpIn(*nsMergedMatchExpressions)
+
+			if err != nil || opErr != nil {
+				log.Error(err, "validate Operator 'IN' in label selector matchExpressions failed")
+				return 0, 0, err
+			}
+
+			if opInValueCount > 0 && nsOpInValCount > 0 {
+				// Opeartor 'IN' is set in both Pod/VM selector and NamespaceSelector
+				errorMsg = "opeartor 'IN' is set in both Pod/VM selector and NamespaceSelector"
+				err = errors.New(errorMsg)
+				log.Error(err, "validate operator 'IN' in label selector matchExpressions failed")
+				return 0, 0, err
+			}
+
+			matchLabelsCount += len(nsMatchLabels)
+			matchExpressionsCount = len(*mergedMatchExpressions) + len(*nsMergedMatchExpressions)
+			opInValueCount += nsOpInValCount
+
+			service.updateExpressionsMatchLables(matchLabels, "SegmentPort", expressions)
+			service.updateExpressionsMatchLables(nsMatchLabels, memberType, expressions)
+
+			// NamespaceSelector AND with PodSelector or VMSelector expressions to produce final expressions
+			err = service.updateMixedExpressionsMatchExpression(*nsMergedMatchExpressions, nsMatchLabels,
+				*matchExpressions, matchLabels, &group.Expression, clusterExpression, tagValueExpression, expressions)
+
+			if err != nil {
+				log.Error(err, "build label selector matchExpressions failed")
+				return 0, 0, err
+			}
+		}
 	}
+
+	if peer.PodSelector != nil || peer.VMSelector != nil || peer.NamespaceSelector != nil {
+		if !mixedCriteria {
+			service.updateExpressionsMatchLables(matchLabels, memberType, expressions)
+
+			if matchExpressions != nil {
+				mergedMatchExpressions = service.mergeSelectorMatchExpression(*matchExpressions)
+				matchExpressionsCount = len(*mergedMatchExpressions)
+				opInValueCount, err = service.validateSelectorOpIn(*mergedMatchExpressions)
+
+				if err != nil {
+					log.Error(err, "validate operator 'IN' in label selector matchExpressions failed")
+					return 0, 0, err
+				}
+
+				err = service.updateExpressionsMatchExpression(*mergedMatchExpressions, matchLabels,
+					&group.Expression, clusterExpression, tagValueExpression, memberType, expressions)
+				if err != nil {
+					log.Error(err, "build label selector matchExpressions failed")
+					return 0, 0, err
+				}
+			}
+		}
+
+		totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, memberType)
+		if err != nil {
+			log.Error(err, "validate label selector matchExpressions failed")
+			return 0, 0, err
+		}
+	}
+
+	return totalCriteriaCount, totalExprCount, nil
 }
 
 // TODO: merge buildRuleSrcGroup and buildRuleDstGroup
@@ -526,10 +1114,34 @@ func (service *SecurityPolicyService) buildRuleDstGroup(obj *v1alpha1.SecurityPo
 		DisplayName: &ruleDstGroupName,
 		Tags:        peerTags,
 	}
+
+	ruleDstGroupCount, ruleDstGroupTotalExprCount := 0, 0
+	criteriaCount, totalExprCount := 0, 0
+	var err error = nil
+	var errorMsg string = ""
 	for i, peer := range destinations {
-		service.updatePeerExpressions(obj, &peer, &ruleDstGroup, i)
+		criteriaCount, totalExprCount, err = service.updatePeerExpressions(obj, &peer, &ruleDstGroup, i)
+		if err == nil {
+			ruleDstGroupCount += criteriaCount
+			ruleDstGroupTotalExprCount += totalExprCount
+		} else {
+			return nil, "", err
+		}
 	}
-	return &ruleDstGroup, ruleDstGroupPath, nil
+	log.V(1).Info("build rule destination group criteria", "total criteria", ruleDstGroupCount, "total expressions of criteria", ruleDstGroupTotalExprCount)
+
+	if ruleDstGroupCount > MaxCriteria {
+		errorMsg = fmt.Sprintf("total counts of rule destination group criteria %d exceed NSX limit of %d", ruleDstGroupCount, MaxCriteria)
+	} else if ruleDstGroupTotalExprCount > MaxTotalCriteriaExpressions {
+		errorMsg = fmt.Sprintf("total expression counts in rule destination group criteria %d exceed NSX limit of %d", ruleDstGroupTotalExprCount, MaxTotalCriteriaExpressions)
+	}
+
+	if len(errorMsg) != 0 {
+		err = errors.New(errorMsg)
+		log.Error(err, "validate rule destination group criteria nsx limit failed")
+		return nil, "", err
+	}
+	return &ruleDstGroup, ruleDstGroupPath, err
 }
 
 func (service *SecurityPolicyService) buildRuleServiceEntries(rulePorts *[]v1alpha1.SecurityPolicyPort) *[]*data.StructValue {
@@ -581,7 +1193,7 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 
 	if len(nsxSecurityPolicy.Scope) == 0 {
 		// warning
-		log.Info("SecurityPolicy %s has empty policy-level appliedTo")
+		log.Info("SecurityPolicy has empty policy-level appliedTo")
 	}
 
 	indexResults, err := service.GroupStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(obj.UID))
