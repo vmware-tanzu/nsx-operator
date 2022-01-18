@@ -26,7 +26,8 @@ func TestNewCluster(t *testing.T) {
 	defer ts.Close()
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
-	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil)
+	thumbprint := []string{"123"}
+	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	_, err := NewCluster(config)
 	assert.True(t, err == nil, fmt.Sprintf("Created cluster failed %v", err))
 }

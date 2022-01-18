@@ -20,7 +20,7 @@ var host string = "10.180.127.117,10.180.119.135,10.180.114.111"
 
 func TestGroup(t *testing.T) {
 	domainIDParam := "default"
-	config := nsx.NewConfig(host, "admin", "Admin!23Admin", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil)
+	config := nsx.NewConfig(host, "admin", "Admin!23Admin", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config)
 	connector, _ := cluster.NewRestConnector()
 	groupClient := domains.NewGroupsClient(connector)
@@ -31,7 +31,7 @@ func TestGroup(t *testing.T) {
 
 func TestSecurityPolicy(t *testing.T) {
 	domainIDParam := "default"
-	config := nsx.NewConfig(host, "admin", "Admin!23Admin", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil)
+	config := nsx.NewConfig(host, "admin", "Admin!23Admin", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config)
 	connector, _ := cluster.NewRestConnector()
 	securityClient := domains.NewSecurityPoliciesClient(connector)
@@ -42,7 +42,7 @@ func TestSecurityPolicy(t *testing.T) {
 
 func TestRule(t *testing.T) {
 	domainIDParam := "default"
-	config := nsx.NewConfig(host, "admin", "Admin!23Admin", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil)
+	config := nsx.NewConfig(host, "admin", "Admin!23Admin", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config)
 	connector, _ := cluster.NewRestConnector()
 	securityClient := domains.NewSecurityPoliciesClient(connector)
@@ -56,7 +56,7 @@ func TestRule(t *testing.T) {
 }
 
 func TestQuery(t *testing.T) {
-	config := nsx.NewConfig(host, "admin", "Admin!23Admin", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil)
+	config := nsx.NewConfig(host, "admin", "Admin!23Admin", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config)
 	connector, _ := cluster.NewRestConnector()
 	queryClient := search.NewQueryClient(connector)

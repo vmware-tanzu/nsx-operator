@@ -37,7 +37,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	log.Info("reconciling securitypolicy CR", "securitypolicy", req.NamespacedName)
 
 	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
-		log.Error(err, "unable to fetch security policy CR")
+		log.Error(err, "unable to fetch security policy CR", "req", req.NamespacedName)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 

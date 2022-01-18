@@ -182,7 +182,7 @@ func (vcConfig *VCConfig) validate() error {
 	}
 
 	if vcConfig.HttpsPort == 0 {
-		err := errors.New("Invalid field " + "HttpsPort")
+		err := errors.New("invalid field " + "HttpsPort")
 		log.Error(err, "validate VcConfig failed", "HttpsPort", vcConfig.HttpsPort)
 		return err
 	}
@@ -190,9 +190,24 @@ func (vcConfig *VCConfig) validate() error {
 }
 
 func (nsxConfig *NsxConfig) validate() error {
-	if len(nsxConfig.NsxApiManagers) == 0 {
-		err := errors.New("Invalid field " + "NsxApiManagers")
+	mCount := len(nsxConfig.NsxApiManagers)
+	if mCount == 0 {
+		err := errors.New("invalid field " + "NsxApiManagers")
 		log.Error(err, "validate NsxConfig failed", "NsxApiManagers", nsxConfig.NsxApiManagers)
+		return err
+	}
+	tpCount := len(nsxConfig.Thumbprint)
+	if tpCount == 0 {
+		log.V(1).Info("no thumbprint provided")
+		return nil
+	}
+	if tpCount == 1 {
+		log.V(1).Info("all endpoints share one thumbprint")
+		return nil
+	}
+	if tpCount > 1 && tpCount != mCount {
+		err := errors.New("thumbprint count not match manager count")
+		log.Error(err, "validate NsxConfig failed", "thumbprint count", tpCount, "manager count", mCount)
 		return err
 	}
 	return nil
@@ -200,7 +215,7 @@ func (nsxConfig *NsxConfig) validate() error {
 
 func (coeConfig *CoeConfig) validate() error {
 	if len(coeConfig.Cluster) == 0 {
-		err := errors.New("Invalid field " + "Cluster")
+		err := errors.New("invalid field " + "Cluster")
 		log.Error(err, "validate coeConfig failed")
 		return err
 	}
@@ -245,7 +260,6 @@ func (nsxVersion *NsxVersion) featureSupported() bool {
 
 func (nsxVersion *NsxVersion) getVersion(host string, userName string, password string, tokenProvider auth.TokenProvider) error {
 	tlsConfig := tls.Config{InsecureSkipVerify: true}
-	tlsConfig.BuildNameToCertificate()
 	tr := &http.Transport{
 		TLSClientConfig: &tlsConfig,
 		IdleConnTimeout: 60 * time.Second,
