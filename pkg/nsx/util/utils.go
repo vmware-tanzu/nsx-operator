@@ -119,7 +119,7 @@ func extractHTTPDetail(host string, resp *http.Response) (ErrorDetail, error) {
 		log.Error(err, "failed to extract HTTP detail")
 		return ed, CreateGeneralManagerError(host, "extract http", err.Error())
 	}
-	log.V(1).Info("extract http body", "response body", body)
+	//TODO, log some fields of response
 	resp.Body = ioutil.NopCloser(bytes.NewReader(body))
 	return extractHTTPDetailFromBody(host, resp.StatusCode, body)
 }

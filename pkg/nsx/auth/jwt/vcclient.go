@@ -198,7 +198,7 @@ func (client *VCClient) HandleRequest(urlPath string, data []byte, responseData 
 		if err != nil {
 			return err
 		}
-		log.V(1).Info("HTTP request: %v, response %v", request, response)
+		log.V(1).Info("HTTP request", "request", request.URL, "response status", response.StatusCode)
 		if response.StatusCode == http.StatusUnauthorized {
 			if err = client.getorRenewVAPISession(); err != nil {
 				log.Error(err, "failed to renew VAPI session")
@@ -275,7 +275,7 @@ func createCertificate(userName string) (*tls.Certificate, error) {
 
 func handleHTTPResponse(response *http.Response, result interface{}) error {
 	if response.StatusCode >= 300 {
-		err := errors.New("Received HTTP Error")
+		err := errors.New("received HTTP Error")
 		log.Error(err, "handle http response", "status", response.StatusCode, "requestUrl", response.Request.URL, "response", response)
 		return err
 	}
@@ -292,7 +292,5 @@ func handleHTTPResponse(response *http.Response, result interface{}) error {
 		log.Error(err, "Error converting HTTP response to result", "result type", result)
 		return err
 	}
-	log.V(1).Info("response body", result)
-
 	return nil
 }
