@@ -64,7 +64,7 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}
 	nsxClient := nsx.GetClient(cf)
-	if service, err := services.InitializeSecurityPolicy(nsxClient); err != nil {
+	if service, err := services.InitializeSecurityPolicy(nsxClient, cf); err != nil {
 		setupLog.Error(err, "unable to init securitypolicy service", "controller", "SecurityPolicy")
 		os.Exit(1)
 	} else {

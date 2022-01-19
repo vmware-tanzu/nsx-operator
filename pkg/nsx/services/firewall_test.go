@@ -50,6 +50,14 @@ var (
 	tagValuePodSelectorHash      = "6fb11ac7a06285f0ed64a85310de99cf5bf423d0"
 	timeStamp                    = int64(1641892699021)
 
+	service = &SecurityPolicyService{
+		NSXConfig: &config.NSXOperatorConfig{
+			CoeConfig: &config.CoeConfig{
+				Cluster: "k8scl-one",
+			},
+		},
+	}
+
 	spWithPodSelector = v1alpha1.SecurityPolicy{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "spA", UID: "uidA"},
 		Spec: v1alpha1.SecurityPolicySpec{
@@ -109,8 +117,7 @@ var (
 )
 
 func TestGetCluster(t *testing.T) {
-	config.AddFlags()
-	assert.Equal(t, "k8scl-one", getCluster())
+	assert.Equal(t, "k8scl-one", service.getCluster())
 }
 
 func TestBuildSecurityPolicy(t *testing.T) {
@@ -174,7 +181,7 @@ func TestBuildSecurityPolicy(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observedPolicy, _, _ := buildSecurityPolicy(tt.inputPolicy)
+			observedPolicy, _, _ := service.buildSecurityPolicy(tt.inputPolicy)
 			assert.Equal(t, tt.expectedPolicy, observedPolicy)
 		})
 	}
@@ -198,7 +205,7 @@ func TestBuildPolicyGroup(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observedGroup, observedGroupPath, _ := buildPolicyGroup(tt.inputPolicy)
+			observedGroup, observedGroupPath, _ := service.buildPolicyGroup(tt.inputPolicy)
 			assert.Equal(t, tt.expectedPolicyGroupID, observedGroup.Id)
 			assert.Equal(t, tt.expectedPolicyGroupName, observedGroup.DisplayName)
 			assert.Equal(t, tt.expectedPolicyGroupPath, observedGroupPath)
@@ -259,7 +266,7 @@ func TestBuildTargetTags(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expectedTags, buildTargetTags(tt.inputPolicy, tt.inputTargets, tt.inputIndex))
+			assert.Equal(t, tt.expectedTags, service.buildTargetTags(tt.inputPolicy, tt.inputTargets, tt.inputIndex))
 		})
 	}
 }
@@ -305,7 +312,7 @@ func TestSecurityPolicyEqual(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expectedResult, securityPolicyEqual(tt.inputPolicy1, tt.inputPolicy2))
+			assert.Equal(t, tt.expectedResult, service.securityPolicyEqual(tt.inputPolicy1, tt.inputPolicy2))
 		},
 		)
 	}
