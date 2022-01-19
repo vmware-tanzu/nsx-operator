@@ -20,15 +20,15 @@ import (
 )
 
 // ClusterHealth indicates cluster status.
-type ClusterHealth int32
+type ClusterHealth string
 
 const (
 	// RED means all endpoints status are DOWN.
-	RED ClusterHealth = iota
+	RED ClusterHealth = "RED"
 	// ORANGE means not all endpoints status are UP.
-	ORANGE
+	ORANGE ClusterHealth = "ORANGE"
 	// GREEN means endpoints status are UP.
-	GREEN
+	GREEN ClusterHealth = "GREEN"
 )
 
 // Cluster consists of endpoint and provides http.Client used to send http requests.
