@@ -123,6 +123,7 @@ func (ep *Endpoint) keepAlive() error {
 			return err
 		}
 	}
+	req.Header.Add("x-xsrf-token", ep.XSRFToken())
 	resp, err := ep.noBalancerClient.Do(req)
 	if err != nil {
 		log.Error(err, "failed to validate API cluster", "endpoint", ep.Host())

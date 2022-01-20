@@ -71,7 +71,7 @@ func keyFunc(obj interface{}) (string, error) {
 
 func queryTagCondition(service *SecurityPolicyService) string {
 	return fmt.Sprintf("tags.scope:%s AND tags.tag:%s",
-		strings.Replace(util.TagScopeCluster, "/", "\\/", -1), service.NSXClient.NsxConfig.Cluster)
+		strings.Replace(util.TagScopeCluster, "/", "\\/", -1), strings.Replace(service.NSXClient.NsxConfig.Cluster, ":", "\\:", -1))
 }
 
 func queryGroup(service *SecurityPolicyService, wg *sync.WaitGroup, fatalErrors chan error) {
