@@ -14,9 +14,15 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/cluster"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
+)
+
+var (
+	log = logf.Log.WithName("nsx")
 )
 
 type Client struct {
@@ -30,12 +36,12 @@ type Client struct {
 }
 
 type NSXHealthChecker struct {
-	cluster *Cluster
+	cluster *cluster.Cluster
 }
 
 func (ck *NSXHealthChecker) CheckNSXHealth(req *http.Request) error {
 	health := ck.cluster.Health()
-	if GREEN == health || ORANGE == health {
+	if cluster.GREEN == health || cluster.ORANGE == health {
 		return nil
 	} else {
 		log.V(1).Info("NSX cluster status is down: ", " Current status: ", health)
@@ -43,7 +49,7 @@ func (ck *NSXHealthChecker) CheckNSXHealth(req *http.Request) error {
 	}
 }
 
-func restConnector(c *Cluster) *client.RestConnector {
+func restConnector(c *cluster.Cluster) *client.RestConnector {
 	connector, _ := c.NewRestConnector()
 	return connector
 }
@@ -52,8 +58,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	// Set log level for vsphere-automation-sdk-go
 	logger := logrus.New()
 	vspherelog.SetLogger(logger)
-	c := NewConfig(strings.Join(cf.NsxApiManagers, ","), cf.NsxApiUser, cf.NsxApiPassword, "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, cf.Thumbprint)
-	cluster, _ := NewCluster(c)
+	c := cluster.NewConfig(strings.Join(cf.NsxApiManagers, ","), cf.NsxApiUser, cf.NsxApiPassword, "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, cf.Thumbprint)
+	cluster, _ := cluster.NewCluster(c)
 	queryClient := search.NewQueryClient(restConnector(cluster))
 	groupClient := domains.NewGroupsClient(restConnector(cluster))
 	securityClient := domains.NewSecurityPoliciesClient(restConnector(cluster))

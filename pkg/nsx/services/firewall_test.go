@@ -42,7 +42,7 @@ var (
 	ruleID0                      = "sp_uidA_0"
 	nsxDirectionIn               = "IN"
 	nsxActionAllow               = "ALLOW"
-	cluster                      = "k8scl-one"
+	clusterName                  = "k8scl-one"
 	tagValueScope                = "scope"
 	tagValueNS                   = "ns1"
 	tagValuePolicyCRName         = "spA"
@@ -99,7 +99,7 @@ var (
 	basicTags = []model.Tag{
 		{
 			Scope: &tagScopeCluster,
-			Tag:   &cluster,
+			Tag:   &clusterName,
 		},
 		{
 			Scope: &tagScopeNamespace,
@@ -243,7 +243,7 @@ func TestBuildTargetTags(t *testing.T) {
 				},
 				{
 					Scope: &tagScopeCluster,
-					Tag:   &cluster,
+					Tag:   &clusterName,
 				},
 				{
 					Scope: &tagScopeNamespace,

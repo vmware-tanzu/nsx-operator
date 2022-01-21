@@ -1,4 +1,4 @@
-package nsx
+package cluster
 
 import (
 	"fmt"

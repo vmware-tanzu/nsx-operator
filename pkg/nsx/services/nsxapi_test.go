@@ -12,7 +12,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/cluster"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 )
 
@@ -20,8 +20,8 @@ var host string = "10.180.127.117,10.180.119.135,10.180.114.111"
 
 func TestGroup(t *testing.T) {
 	domainIDParam := "default"
-	config := nsx.NewConfig(host, "admin", "Admin!23Admin", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
-	cluster, _ := nsx.NewCluster(config)
+	config := cluster.NewConfig(host, "admin", "Admin!23Admin", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	cluster, _ := cluster.NewCluster(config)
 	connector, _ := cluster.NewRestConnector()
 	groupClient := domains.NewGroupsClient(connector)
 	result, _ := groupClient.List(domainIDParam, nil, nil, nil, nil, nil, nil, nil)
@@ -31,8 +31,8 @@ func TestGroup(t *testing.T) {
 
 func TestSecurityPolicy(t *testing.T) {
 	domainIDParam := "default"
-	config := nsx.NewConfig(host, "admin", "Admin!23Admin", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
-	cluster, _ := nsx.NewCluster(config)
+	config := cluster.NewConfig(host, "admin", "Admin!23Admin", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	cluster, _ := cluster.NewCluster(config)
 	connector, _ := cluster.NewRestConnector()
 	securityClient := domains.NewSecurityPoliciesClient(connector)
 	result, _ := securityClient.List(domainIDParam, nil, nil, nil, nil, nil, nil, nil)
@@ -42,8 +42,8 @@ func TestSecurityPolicy(t *testing.T) {
 
 func TestRule(t *testing.T) {
 	domainIDParam := "default"
-	config := nsx.NewConfig(host, "admin", "Admin!23Admin", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
-	cluster, _ := nsx.NewCluster(config)
+	config := cluster.NewConfig(host, "admin", "Admin!23Admin", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	cluster, _ := cluster.NewCluster(config)
 	connector, _ := cluster.NewRestConnector()
 	securityClient := domains.NewSecurityPoliciesClient(connector)
 	ruleClient := security_policies.NewRulesClient(connector)
@@ -56,8 +56,8 @@ func TestRule(t *testing.T) {
 }
 
 func TestQuery(t *testing.T) {
-	config := nsx.NewConfig(host, "admin", "Admin!23Admin", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
-	cluster, _ := nsx.NewCluster(config)
+	config := cluster.NewConfig(host, "admin", "Admin!23Admin", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	cluster, _ := cluster.NewCluster(config)
 	connector, _ := cluster.NewRestConnector()
 	queryClient := search.NewQueryClient(connector)
 	queryParam := "resource_type:Group AND tags.tag:k8scl-one"
