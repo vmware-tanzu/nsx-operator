@@ -5,8 +5,11 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -50,8 +53,10 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 		if err := r.Service.CreateOrUpdateSecurityPolicy(obj); err != nil {
 			log.Error(err, "failed to create or update security policy CR", "securitypolicy", req.NamespacedName)
+			r.setSecurityPolicyReadyStatusFalse(&ctx, obj, &err)
 			return ctrl.Result{}, err
 		}
+		r.setSecurityPolicyReadyStatusTrue(&ctx, obj)
 	} else {
 		if containsString(obj.GetFinalizers(), util.FinalizerName) {
 			if err := r.Service.DeleteSecurityPolicy(obj.UID); err != nil {
@@ -66,6 +71,70 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusTrue(ctx *context.Context, sec_policy *v1alpha1.SecurityPolicy) {
+	newConditions := []v1alpha1.SecurityPolicyCondition{
+		{
+			Type:    v1alpha1.SecurityPolicyReady,
+			Status:  v1.ConditionTrue,
+			Message: "NSX Security Policy has been successfully created/updated",
+			Reason:  "NSX API returned 200 response code for PATCH",
+		},
+	}
+	r.updateSecurityPolicyStatusConditions(ctx, sec_policy, newConditions)
+}
+
+func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusFalse(ctx *context.Context, sec_policy *v1alpha1.SecurityPolicy, err *error) {
+	newConditions := []v1alpha1.SecurityPolicyCondition{
+		{
+			Type:    v1alpha1.SecurityPolicyReady,
+			Status:  v1.ConditionFalse,
+			Message: "NSX Security Policy could not be created/updated",
+			Reason:  fmt.Sprintf("Error occurred while processing the Security Policy CR. Please check the config and try again. Error: %v", *err),
+		},
+	}
+	r.updateSecurityPolicyStatusConditions(ctx, sec_policy, newConditions)
+}
+
+func (r *SecurityPolicyReconciler) updateSecurityPolicyStatusConditions(ctx *context.Context, sec_policy *v1alpha1.SecurityPolicy, newConditions []v1alpha1.SecurityPolicyCondition) {
+	conditionsUpdated := false
+	for i := range newConditions {
+		if r.mergeSecurityPolicyStatusCondition(ctx, sec_policy, &newConditions[i]) {
+			conditionsUpdated = true
+		}
+	}
+	if conditionsUpdated {
+		r.Client.Status().Update(*ctx, sec_policy)
+		log.V(1).Info("Updated Security Policy CRD", "Name", sec_policy.Name, "Namespace", sec_policy.Namespace, "New Conditions", newConditions)
+	}
+}
+
+func (r *SecurityPolicyReconciler) mergeSecurityPolicyStatusCondition(ctx *context.Context, sec_policy *v1alpha1.SecurityPolicy, newCondition *v1alpha1.SecurityPolicyCondition) bool {
+	matchedCondition := getExistingConditionOfType(newCondition.Type, sec_policy.Status.Conditions)
+
+	if reflect.DeepEqual(matchedCondition, newCondition) {
+		log.V(2).Info("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+		return false
+	}
+
+	if matchedCondition != nil {
+		matchedCondition.Reason = newCondition.Reason
+		matchedCondition.Message = newCondition.Message
+		matchedCondition.Status = newCondition.Status
+	} else {
+		sec_policy.Status.Conditions = append(sec_policy.Status.Conditions, *newCondition)
+	}
+	return true
+}
+
+func getExistingConditionOfType(conditionType v1alpha1.SecurityPolicyStatusCondition, existingConditions []v1alpha1.SecurityPolicyCondition) *v1alpha1.SecurityPolicyCondition {
+	for i := range existingConditions {
+		if existingConditions[i].Type == conditionType {
+			return &existingConditions[i]
+		}
+	}
+	return nil
 }
 
 func containsString(source []string, target string) bool {
