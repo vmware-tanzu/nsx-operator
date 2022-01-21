@@ -92,9 +92,9 @@ func (m *mockObject) Scheme() string {
 
 var (
 	result = []string{`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":403}`,
-		`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":200}`,
-		`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":200}`,
-		`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":200}`,
+		`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":403}`,
+		`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":403}`,
+		`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":403}`,
 	}
 	status = []int{
 		http.StatusForbidden,

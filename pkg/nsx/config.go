@@ -26,7 +26,7 @@ type Config struct {
 	CAFile string
 	// Specify a Thumbprint string to use in verifying the NSX Manager server certificate. This option is ignored
 	// if "Insecure" is set to True or "CAFile" is defined.
-	Thumbprint string
+	Thumbprint []string
 	// Maximum concurrent connections to each NSX manager.
 	ConcurrentConnections int
 	// If True, the client will retry requests failed on "Too many requests" error.
@@ -58,7 +58,7 @@ type Config struct {
 }
 
 // NewConfig creates a nsx configuration. It provides default values for those items not in function parameters.
-func NewConfig(apiManagers, username, password, caFile string, concurrentConnections, retries, httpTimeout, connIdleTimeout int, insecure, allowOverwriteHeader, allowPassThrough bool, apiRateMode ratelimiter.Type, tokenProvider auth.TokenProvider, clientCertProvider auth.ClientCertProvider) *Config {
+func NewConfig(apiManagers, username, password, caFile string, concurrentConnections, retries, httpTimeout, connIdleTimeout int, insecure, allowOverwriteHeader, allowPassThrough bool, apiRateMode ratelimiter.Type, tokenProvider auth.TokenProvider, clientCertProvider auth.ClientCertProvider, thumbprint []string) *Config {
 	apis := strings.Split(apiManagers, ",")
 	for i, v := range apis {
 		apis[i] = strings.TrimSpace(v)
@@ -78,5 +78,6 @@ func NewConfig(apiManagers, username, password, caFile string, concurrentConnect
 		TokenProvider:         tokenProvider,
 		ClientCertProvider:    clientCertProvider,
 		CAFile:                caFile,
+		Thumbprint:            thumbprint,
 	}
 }

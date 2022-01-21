@@ -27,7 +27,7 @@ func TestRoundTripConnectionRefused(t *testing.T) {
 	}))
 	defer ts.Close()
 	a := "127.0.0.1"
-	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil)
+	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster := &Cluster{}
 	tr := cluster.createTransport(config.TokenProvider, idleConnTimeout)
 	client := cluster.createHTTPClient(tr, idleConnTimeout)
@@ -51,7 +51,7 @@ func TestRoundTripDecodeBodyFailed(t *testing.T) {
 	defer ts.Close()
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
-	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil)
+	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster := &Cluster{}
 	tr := cluster.createTransport(config.TokenProvider, timeout)
 	client := cluster.createHTTPClient(tr, 30)
@@ -85,7 +85,7 @@ func TestRoundTripAuthFailed(t *testing.T) {
 	defer ts.Close()
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
-	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil)
+	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, err := NewCluster(config)
 	assert.Nil(err, fmt.Sprintf("Create cluster error %v", err))
 	cluster.endpoints[0], _ = NewEndpoint(ts.URL, &cluster.client, &cluster.noBalancerClient, cluster.endpoints[0].ratelimiter, nil)
@@ -118,13 +118,13 @@ func TestRoundTripRetry(t *testing.T) {
 	defer ts.Close()
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
-	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil)
+	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, err := NewCluster(config)
 	assert.Nil(err, fmt.Sprintf("Create cluster error %v", err))
 	cluster.endpoints[0], _ = NewEndpoint(ts.URL, &cluster.client, &cluster.noBalancerClient, cluster.endpoints[0].ratelimiter, nil)
 	cluster.endpoints[0].keepAlive()
 	tr := cluster.transport
-	req, err := http.NewRequest("GET", ts.URL, nil)
+	req, _ := http.NewRequest("GET", ts.URL, nil)
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	_, err = tr.RoundTrip(req)
@@ -136,7 +136,7 @@ func TestRoundTripRetry(t *testing.T) {
 func TestSelectEndpoint(t *testing.T) {
 	assert := assert.New(t)
 	a := "127.0.0.1, 127.0.0.2, 127.0.0.3"
-	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil)
+	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster := &Cluster{}
 	tr := cluster.createTransport(config.TokenProvider, idleConnTimeout)
 	client := cluster.createHTTPClient(tr, timeout)

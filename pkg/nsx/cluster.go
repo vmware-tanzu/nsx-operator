@@ -4,9 +4,13 @@
 package nsx
 
 import (
+	"crypto/sha256"
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -89,14 +93,65 @@ func (cluster *Cluster) NewRestConnector() (*policyclient.RestConnector, *Header
 }
 
 func (cluster *Cluster) createTransport(tokenProvider auth.TokenProvider, idle time.Duration) *Transport {
-	// TODO: support the case if InsecureSkipVerify is false
-	tlsConfig := tls.Config{InsecureSkipVerify: true}
+	dial := func(network, addr string) (net.Conn, error) {
+		host := strings.Split(addr, ":")[0]
+		var thumbprint string
+		tpCount := len(cluster.config.Thumbprint)
+		if tpCount == 1 {
+			thumbprint = cluster.config.Thumbprint[0]
+		}
+		if tpCount > 1 {
+			for index, ep := range cluster.endpoints {
+				if ep.Host() == host {
+					thumbprint = cluster.config.Thumbprint[index]
+					break
+				}
+			}
+		}
+		config := &tls.Config{
+			InsecureSkipVerify: true,
+			VerifyConnection: func(cs tls.ConnectionState) error {
+				// not check thumbprint if no thumbprint config
+				if tpCount > 0 {
+					fingerprint := calcFingerprint(cs.PeerCertificates[0].Raw)
+					if strings.Compare(fingerprint, thumbprint) == 0 {
+						return nil
+					} else {
+						err := errors.New("server certificate didn't match trusted fingerprint")
+						log.Error(err, "verify thumbprint", "address", addr, "server thumbprint", fingerprint, "local thumbprint", thumbprint)
+						return err
+					}
+				}
+				return nil
+			},
+		}
+		conn, err := tls.Dial(network, addr, config)
+		if err != nil {
+			log.Error(err, "transport connect to", "addr", addr)
+			return nil, err
+
+		}
+		return conn, nil
+	}
+
 	tr := &http.Transport{
-		TLSClientConfig: &tlsConfig,
+		DialTLS:         dial,
 		IdleConnTimeout: idle * time.Second,
 	}
 	return &Transport{Base: tr, tokenProvider: tokenProvider}
 }
+
+func calcFingerprint(der []byte) string {
+	hash := sha256.Sum256(der)
+	hex := make([]byte, len(hash)*2)
+	for i, data := range hash {
+		buf := []byte(fmt.Sprintf("%02x", data))
+		hex[i*2] = buf[0]
+		hex[i*2+1] = buf[1]
+	}
+	return string(hex)
+}
+
 func (cluster *Cluster) createHTTPClient(tr *Transport, timeout time.Duration) http.Client {
 	return http.Client{
 		Transport: tr,
