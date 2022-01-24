@@ -135,6 +135,8 @@ spec:
                 type: array
               priority:
                 description: Priority defines the order of policy enforcement.
+                maximum: 1000
+                minimum: 0
                 type: integer
               rules:
                 description: Rules is a list of policy rules.
