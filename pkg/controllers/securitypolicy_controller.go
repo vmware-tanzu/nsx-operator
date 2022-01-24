@@ -50,6 +50,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			if err := r.Client.Update(ctx, obj); err != nil {
 				return ctrl.Result{}, err
 			}
+			log.V(1).Info("added finalizer on securitypolicy CR", "securitypolicy", req.NamespacedName)
 		}
 		if err := r.Service.CreateOrUpdateSecurityPolicy(obj); err != nil {
 			log.Error(err, "failed to create or update security policy CR", "securitypolicy", req.NamespacedName)
@@ -62,11 +63,14 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			if err := r.Service.DeleteSecurityPolicy(obj.UID); err != nil {
 				return ctrl.Result{}, err
 			}
-
 			controllerutil.RemoveFinalizer(obj, util.FinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				return ctrl.Result{}, err
 			}
+			log.V(1).Info("removed finalizer on securitypolicy CR", "securitypolicy", req.NamespacedName)
+		} else {
+			// only print a message because it's not a normal case
+			log.Info("securitypolicy CR is being deleted but its finalizers cannot be recognized", "securitypolicy", req.NamespacedName)
 		}
 	}
 
