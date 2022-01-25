@@ -52,7 +52,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	// Set log level for vsphere-automation-sdk-go
 	logger := logrus.New()
 	vspherelog.SetLogger(logger)
-	c := NewConfig(strings.Join(cf.NsxApiManagers, ","), cf.NsxApiUser, cf.NsxApiPassword, "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, cf.Thumbprint)
+	c := NewConfig(strings.Join(cf.NsxApiManagers, ","), cf.NsxApiUser, cf.NsxApiPassword, "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, cf.GetTokenProvider(), nil, cf.Thumbprint)
 	cluster, _ := NewCluster(c)
 	queryClient := search.NewQueryClient(restConnector(cluster))
 	groupClient := domains.NewGroupsClient(restConnector(cluster))
