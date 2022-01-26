@@ -439,6 +439,27 @@ func (service *SecurityPolicyService) buildRuleSrcGroup(obj *v1alpha1.SecurityPo
 }
 
 func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.SecurityPolicy, peer *v1alpha1.SecurityPolicyPeer, group *model.Group, idx int) {
+	if len(peer.IPBlocks) > 0 {
+		addresses := data.NewListValue()
+		for _, block := range peer.IPBlocks {
+			addresses.Add(data.NewStringValue(block.CIDR))
+		}
+		service.appendOperatorIfNeeded(&group.Expression, "OR")
+
+		blockExpression := data.NewStructValue(
+			"",
+			map[string]data.DataValue{
+				"resource_type": data.NewStringValue("IPAddressExpression"),
+				"ip_addresses":  addresses,
+			},
+		)
+		group.Expression = append(group.Expression, blockExpression)
+	}
+
+	if peer.PodSelector == nil && peer.VMSelector == nil && peer.NamespaceSelector == nil {
+		return
+	}
+
 	service.appendOperatorIfNeeded(&group.Expression, "OR")
 	expressions := data.NewListValue()
 	expressionFrame := data.NewStructValue(
