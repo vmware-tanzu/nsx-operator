@@ -75,6 +75,6 @@ func (client *TESClient) ExchangeJWT(samlToken string, useOldAudience bool) (str
 		log.Error(tesErr, "failed to exchange JWT")
 		return "", errors.New(msg)
 	}
-
+	log.V(1).Info("exchanged JWT")
 	return res.Value["access_token"].(string), nil
 }

@@ -30,6 +30,7 @@ var (
 	configFilePath = ""
 	log            = logf.Log.WithName("config")
 	minVersion     = [3]int64{3, 2, 0}
+	tokenProvider  auth.TokenProvider
 )
 
 //TODO delete unnecessary config
@@ -150,10 +151,13 @@ func (operatorConfig *NSXOperatorConfig) validate() error {
 	return operatorConfig.validateVersion()
 }
 
+func (operatorConfig *NSXOperatorConfig) GetTokenProvider() auth.TokenProvider {
+	return tokenProvider
+}
+
 func (operatorConfig *NSXOperatorConfig) validateVersion() error {
 	nsxVersion := &NsxVersion{}
 	host := operatorConfig.NsxApiManagers[0]
-	var tokenProvider auth.TokenProvider
 	if err := operatorConfig.VCConfig.validate(); err == nil {
 		tokenProvider, _ = jwt.NewTokenProvider(operatorConfig.VCEndPoint, operatorConfig.HttpsPort, operatorConfig.SsoDomain, nil)
 	} else {

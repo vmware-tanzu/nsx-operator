@@ -4,7 +4,7 @@
 package nsx
 
 import (
-	"crypto/sha256"
+	"crypto/sha1"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -142,14 +142,15 @@ func (cluster *Cluster) createTransport(tokenProvider auth.TokenProvider, idle t
 }
 
 func calcFingerprint(der []byte) string {
-	hash := sha256.Sum256(der)
-	hex := make([]byte, len(hash)*2)
+	hash := sha1.Sum(der)
+	hex := make([]byte, len(hash)*3)
 	for i, data := range hash {
-		buf := []byte(fmt.Sprintf("%02x", data))
-		hex[i*2] = buf[0]
-		hex[i*2+1] = buf[1]
+		buf := []byte(fmt.Sprintf("%02X", data))
+		hex[i*3] = buf[0]
+		hex[i*3+1] = buf[1]
+		hex[i*3+2] = byte(':')
 	}
-	return string(hex)
+	return string(hex[:len(hex)-1])
 }
 
 func (cluster *Cluster) createHTTPClient(tr *Transport, timeout time.Duration) http.Client {
