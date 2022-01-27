@@ -6,7 +6,6 @@ package util
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -46,24 +45,6 @@ func TestHttpErrortoNSXError(t *testing.T) {
 
 }
 
-func TestExtractHTTPDetail(t *testing.T) {
-	handler := func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, "hello, world")
-	}
-	req := httptest.NewRequest("GET", "http://example.com/foo", nil)
-	w := httptest.NewRecorder()
-	handler(w, req)
-	resp := w.Result()
-	_, err := extractHTTPDetail("10.0.0.1", resp)
-	if err != nil {
-		if _, ok := err.(ManagerError); !ok {
-			t.Errorf("Extract wrong error type : %v", err)
-		}
-	}
-	assert.NotNil(t, err, "Extract wrong error type")
-
-}
-
 func TestInitErrorFromResponse(t *testing.T) {
 	assert := assert.New(t)
 	result := `{
@@ -100,9 +81,8 @@ func TestInitErrorFromResponse(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler(w, req)
 	resp := w.Result()
-	err := InitErrorFromResponse("10.0.0.1", resp)
-	body, err := ioutil.ReadAll(resp.Body)
-	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	err := InitErrorFromResponse("10.0.0.1", resp.StatusCode, body)
 
 	assert.Equal(err, nil, "Read resp body error")
 	assert.Equal(string(body), result, "Read resp body error")
