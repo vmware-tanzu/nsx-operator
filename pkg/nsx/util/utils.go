@@ -4,10 +4,8 @@
 package util
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -98,11 +96,8 @@ func ShouldRegenerate(err error) bool {
 }
 
 // InitErrorFromResponse returns error based on http.Response
-func InitErrorFromResponse(host string, resp *http.Response) error {
-	if resp == nil {
-		return nil
-	}
-	detail, err := extractHTTPDetail(host, resp)
+func InitErrorFromResponse(host string, statusCode int, body []byte) error {
+	detail, err := extractHTTPDetailFromBody(host, statusCode, body)
 	if err != nil {
 		return err
 	}
@@ -112,22 +107,10 @@ func InitErrorFromResponse(host string, resp *http.Response) error {
 	return httpErrortoNSXError(&detail)
 }
 
-func extractHTTPDetail(host string, resp *http.Response) (ErrorDetail, error) {
-	ed := ErrorDetail{StatusCode: resp.StatusCode}
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		log.Error(err, "failed to extract HTTP detail")
-		return ed, CreateGeneralManagerError(host, "extract http", err.Error())
-	}
-	//TODO, log some fields of response
-	resp.Body = ioutil.NopCloser(bytes.NewReader(body))
-	return extractHTTPDetailFromBody(host, resp.StatusCode, body)
-}
-
 func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorDetail, error) {
 	ec := ErrorDetail{StatusCode: statusCode}
 	if len(body) == 0 {
-		log.V(1).Info("aborting HTTP detail extraction since body len is 0")
+		log.V(1).Info("body length is 0")
 		return ec, nil
 	}
 	var res responseBody
@@ -137,6 +120,7 @@ func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorD
 	}
 
 	ec.ErrorCode = res.ErrorCode
+	log.V(1).Info("http response", "status code", statusCode, "body", res)
 	var msg []string
 	for _, a := range res.RelatedErr {
 		ec.RelatedErrorCodes = append(ec.RelatedErrorCodes, a.ErrorCode)

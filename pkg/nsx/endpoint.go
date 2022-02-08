@@ -147,7 +147,7 @@ func (ep *Endpoint) keepAlive() error {
 		return err
 	}
 	resp.Body = ioutil.NopCloser(bytes.NewReader(body))
-	err = util.InitErrorFromResponse(ep.Host(), resp)
+	err = util.InitErrorFromResponse(ep.Host(), resp.StatusCode, body)
 
 	if util.ShouldRegenerate(err) {
 		log.Error(err, "failed to validate API cluster due to an exception that calls for regeneration", "endpoint", ep.Host())

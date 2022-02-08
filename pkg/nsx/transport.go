@@ -4,7 +4,9 @@
 package nsx
 
 import (
+	"bytes"
 	"errors"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
@@ -33,7 +35,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 	var resp *http.Response
 	var resul error
 
-	err1 := retry.Do(
+	retry.Do(
 		func() error {
 			ep, err := t.selectEndpoint()
 			if err != nil {
@@ -54,14 +56,24 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			}
 			transTime := time.Since(start) - waitTime
 			ep.adjustRate(waitTime, resp.StatusCode)
-			log.V(1).Info("RoundTrip got response", "request", r.URL, "method", r.Method, "transTime", transTime)
-			if err = util.InitErrorFromResponse(ep.Host(), resp); err == nil {
+			log.V(1).Info("RoundTrip request", "request", r.URL, "method", r.Method, "transTime", transTime)
+			if resp == nil {
+				return nil
+			}
+
+			body, err := ioutil.ReadAll(resp.Body)
+			resp.Body.Close()
+			resp.Body = ioutil.NopCloser(bytes.NewReader(body))
+
+			if err != nil {
+				log.Error(err, "failed to extract HTTP body")
+				return util.CreateGeneralManagerError(ep.Host(), "extract http", err.Error())
+			}
+
+			if err = util.InitErrorFromResponse(ep.Host(), resp.StatusCode, body); err == nil {
 				ep.setAliveTime(start.Add(transTime))
 				return nil
 			}
-			log.V(1).Info("request failed", "error", err.Error())
-
-			// refresh token here
 			if util.ShouldRegenerate(err) {
 				ep.createAuthSession(t.config.ClientCertProvider, t.config.TokenProvider, t.config.Username, t.config.Password, jarCache)
 			}
@@ -78,7 +90,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 		}), retry.LastErrorOnly(true),
 	)
 
-	return resp, err1
+	return resp, resul
 }
 
 func handleRoundTripError(err error, ep *Endpoint) error {
@@ -117,7 +129,7 @@ func (t *Transport) updateAuthInfo(r *http.Request, ep *Endpoint) {
 			ep.Unlock()
 			for _, cookie := range cookies {
 				if cookie == nil {
-					log.Error(errors.New("Cookie is nil."), "Update authentication info failed")
+					log.Error(errors.New("cookie is nil."), "Update authentication info failed")
 				}
 				r.Header.Set("Cookie", cookie.String())
 			}

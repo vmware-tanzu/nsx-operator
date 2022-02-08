@@ -13,91 +13,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
 	timeout         = time.Duration(20)
 	idleConnTimeout = time.Duration(20)
 )
-
-func TestRoundTripConnectionRefused(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "hello")
-	}))
-	defer ts.Close()
-	a := "127.0.0.1"
-	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
-	cluster := &Cluster{}
-	tr := cluster.createTransport(config.TokenProvider, idleConnTimeout)
-	client := cluster.createHTTPClient(tr, idleConnTimeout)
-	noBClient := cluster.createNoBalancerClient(timeout, idleConnTimeout)
-	r := ratelimiter.NewRateLimiter(config.APIRateMode)
-	eps, _ := cluster.createEndpoints(config.APIManagers, &client, &noBClient, r, nil)
-	eps[0].status = UP
-	tr.endpoints = eps
-	req, err := http.NewRequest("GET", ts.URL, nil)
-	resp, err := tr.RoundTrip(req)
-	assert.NotNil(t, err, "Should report error")
-	_, ok := err.(*util.ServiceClusterUnavailable)
-	assert.True(t, ok, fmt.Sprintf("Return wrong error type %v", err))
-	assert.Nil(t, resp, "Resp should be nil")
-}
-
-func TestRoundTripDecodeBodyFailed(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "hello")
-	}))
-	defer ts.Close()
-	index := strings.Index(ts.URL, "//")
-	a := ts.URL[index+2:]
-	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
-	cluster := &Cluster{}
-	tr := cluster.createTransport(config.TokenProvider, timeout)
-	client := cluster.createHTTPClient(tr, 30)
-	noBClient := cluster.createNoBalancerClient(30, 20)
-	r := ratelimiter.NewRateLimiter(config.APIRateMode)
-	eps, _ := cluster.createEndpoints(config.APIManagers, &client, &noBClient, r, nil)
-	eps[0].status = UP
-	tr.endpoints = eps
-	req, err := http.NewRequest("GET", ts.URL, nil)
-	_, err = tr.RoundTrip(req)
-	_, ok := err.(util.ManagerError)
-	assert.True(t, ok, fmt.Sprintf("Return wrong error type %v", err))
-}
-
-func TestRoundTripAuthFailed(t *testing.T) {
-	assert := assert.New(t)
-	result := `{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked","error_code":403}`
-	healthresult := `{
-		"healthy" : true,
-		"components_health" : "POLICY:UP, SEARCH:UP, MANAGER:UP, NODE_MGMT:UP, UI:UP"
-	}`
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Index(r.URL.Path, "reverse-proxy/node/health") > 1 {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(healthresult))
-		} else {
-			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte(result))
-		}
-	}))
-	defer ts.Close()
-	index := strings.Index(ts.URL, "//")
-	a := ts.URL[index+2:]
-	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
-	cluster, err := NewCluster(config)
-	assert.Nil(err, fmt.Sprintf("Create cluster error %v", err))
-	cluster.endpoints[0], _ = NewEndpoint(ts.URL, &cluster.client, &cluster.noBalancerClient, cluster.endpoints[0].ratelimiter, nil)
-	cluster.endpoints[0].keepAlive()
-	tr := cluster.transport
-	req, err := http.NewRequest("GET", ts.URL, nil)
-	req.Header.Add("Accept", "application/json")
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	_, err = tr.RoundTrip(req)
-	_, ok := err.(*util.InvalidCredentials)
-	assert.True(ok, fmt.Sprintf("Wrong error type %v", err))
-}
 
 func TestRoundTripRetry(t *testing.T) {
 	assert := assert.New(t)
@@ -128,9 +49,7 @@ func TestRoundTripRetry(t *testing.T) {
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	_, err = tr.RoundTrip(req)
-	log.V(1).Info("", "errorType", err)
-	_, ok := err.(*util.CannotConnectToServer)
-	assert.True(ok, fmt.Sprintf("Wrong error type %v", err))
+	assert.Equal(err, nil)
 }
 
 func TestSelectEndpoint(t *testing.T) {
