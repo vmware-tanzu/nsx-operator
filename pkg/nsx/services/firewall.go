@@ -13,6 +13,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/data/serializers/cleanjson"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
@@ -535,15 +536,18 @@ func (service *SecurityPolicyService) buildRuleDstGroup(obj *v1alpha1.SecurityPo
 func (service *SecurityPolicyService) buildRuleServiceEntries(rulePorts *[]v1alpha1.SecurityPolicyPort) *[]*data.StructValue {
 	ruleServiceEntries := []*data.StructValue{}
 	for _, port := range *rulePorts {
+		var portRange string
+		startPort := port.Port.IntValue()
 		sourcePorts := data.NewListValue()
-		sourcePorts.Add(data.NewIntegerValue(int64(port.Port.IntValue())))
 		destinationPorts := data.NewListValue()
 		// In case that the destination_port in NSX-T is 0.
-		endPort := int64(port.EndPort)
+		endPort := port.EndPort
 		if endPort == 0 {
-			endPort = int64(port.Port.IntValue())
+			portRange = fmt.Sprint(startPort)
+		} else {
+			portRange = fmt.Sprintf("%d-%d", startPort, endPort)
 		}
-		destinationPorts.Add(data.NewIntegerValue(endPort))
+		destinationPorts.Add(data.NewStringValue(string(portRange)))
 		serviceEntry := data.NewStructValue(
 			"",
 			map[string]data.DataValue{
@@ -551,6 +555,9 @@ func (service *SecurityPolicyService) buildRuleServiceEntries(rulePorts *[]v1alp
 				"destination_ports": destinationPorts,
 				"l4_protocol":       data.NewStringValue(string(port.Protocol)),
 				"resource_type":     data.NewStringValue("L4PortSetServiceEntry"),
+				// adding the following default values to make it easy when compare the existing object from store and the new built object
+				"marked_for_delete": data.NewBooleanValue(false),
+				"overridden":        data.NewBooleanValue(false),
 			},
 		)
 		ruleServiceEntries = append(ruleServiceEntries, serviceEntry)
@@ -646,9 +653,12 @@ func (service *SecurityPolicyService) rulesEqual(rules1 []model.Rule, rules2 []m
 		return false
 	}
 	for i := 0; i < len(rules1); i++ {
-		v1, _ := json.Marshal(service.simplifyRule(&rules1[i]))
-		v2, _ := json.Marshal(service.simplifyRule(&rules2[i]))
-		if string(v1) != string(v2) {
+		r1, _ := service.simplifyRule(&rules1[i]).GetDataValue__()
+		r2, _ := service.simplifyRule(&rules2[i]).GetDataValue__()
+		var dataValueToJSONEncoder = cleanjson.NewDataValueToJsonEncoder()
+		s1, _ := dataValueToJSONEncoder.Encode(r1)
+		s2, _ := dataValueToJSONEncoder.Encode(r2)
+		if s1 != s2 {
 			return false
 		}
 	}
@@ -671,7 +681,7 @@ func (service *SecurityPolicyService) groupsEqual(groups1 []model.Group, groups2
 
 // simplifySecurityPolicy is used for abstract the key properties from model.SecurityPolicy, so that
 // some unnecessary properties like "CreateTime" can be ignored then we can compare the existing one
-// and disired one to determin whther the NSX-T resource should be updated.
+// and disired one to determine whether the NSX-T resource should be updated.
 func (service *SecurityPolicyService) simplifySecurityPolicy(sp *model.SecurityPolicy) *model.SecurityPolicy {
 	return &model.SecurityPolicy{
 		Id:             sp.Id,
