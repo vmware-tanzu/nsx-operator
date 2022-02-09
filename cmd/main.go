@@ -33,7 +33,7 @@ func init() {
 
 func main() {
 	var probeAddr string
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8383", "The address the probe endpoint binds to.")
+	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8384", "The address the probe endpoint binds to.")
 	config.AddFlags()
 	opts := zap.Options{
 		Development: true,
