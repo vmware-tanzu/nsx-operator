@@ -40,6 +40,8 @@ const (
 // SecurityPolicySpec defines the desired state of SecurityPolicy.
 type SecurityPolicySpec struct {
 	// Priority defines the order of policy enforcement.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1000
 	Priority int `json:"priority,omitempty"`
 	// AppliedTo is a list of policy targets to apply rules.
 	// Policy level 'Applied To' will take precedence over rule level.
