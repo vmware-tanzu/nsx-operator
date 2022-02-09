@@ -116,7 +116,6 @@ func (t *Transport) updateAuthInfo(r *http.Request, ep *Endpoint) {
 		bearerToken := t.tokenProvider.HeaderValue(token)
 		r.Header.Add("Authorization", bearerToken)
 		r.Header.Add("Accept", "application/json")
-		r.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	} else {
 		if ep.XSRFToken() != "" {
 			if r.Header.Get("Authorization") != "" {
