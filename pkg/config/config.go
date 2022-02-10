@@ -289,7 +289,6 @@ func (nsxVersion *NsxVersion) getVersion(host string, userName string, password 
 		bearerToken := tokenProvider.HeaderValue(token)
 		req.Header.Add("Authorization", bearerToken)
 		req.Header.Add("Accept", "application/json")
-		req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	} else {
 		req.SetBasicAuth(userName, password)
 	}
