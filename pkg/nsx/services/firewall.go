@@ -24,7 +24,8 @@ import (
 )
 
 const (
-	MaxCriteriaExpressions      int = 5
+	// TODO: in the latest code all criterion are mixed so MaxCriteriaExpressions is not needed anymore
+	MaxCriteriaExpressions      int = 15
 	MaxMixedCriteriaExpressions int = 15
 	MaxCriteria                 int = 5
 	MaxTotalCriteriaExpressions int = 35
@@ -263,8 +264,10 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 	service.appendOperatorIfNeeded(&group.Expression, "OR")
 	expressions := service.buildGroupExpression(&group.Expression)
 
+	// set member type to Segment to ensure the certieria is mixed becuase the following conditions
+	// must have condition whose memberType=SegmentPort
 	clusterExpression := service.buildExpression(
-		"Condition", memberType,
+		"Condition", "Segment",
 		fmt.Sprintf("%s|%s", util.TagScopeNCPCluster, service.getCluster()),
 		"Tag", "EQUALS", "EQUALS",
 	)
@@ -967,10 +970,19 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 	expressions := service.buildGroupExpression(&group.Expression)
 
 	clusterExpression := service.buildExpression(
-		"Condition", "SegmentPort",
+		"Condition", "Segment",
 		fmt.Sprintf("%s|%s", util.TagScopeNCPCluster, service.getCluster()),
 		"Tag", "EQUALS", "EQUALS",
 	)
+	if peer.NamespaceSelector != nil && peer.NamespaceSelector.Size() > 0 {
+		// set member type to SegmentPort to ensure the certieria is mixed becuase the following conditions
+		// must have condition whose memberType=Segment when NamespaceSelector isn't empty
+		clusterExpression = service.buildExpression(
+			"Condition", "SegmentPort",
+			fmt.Sprintf("%s|%s", util.TagScopeNCPCluster, service.getCluster()),
+			"Tag", "EQUALS", "EQUALS",
+		)
+	}
 	expressions.Add(clusterExpression)
 
 	if peer.PodSelector != nil {
