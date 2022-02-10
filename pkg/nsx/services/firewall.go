@@ -977,15 +977,19 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		memberType = "SegmentPort"
 		service.addOperatorIfNeeded(expressions, "AND")
 		podExpression := service.buildExpression(
-			"Condition", memberType, util.TagScopeNCPPod, "Tag", "EQUALS", "EQUALS")
-		expressions.Add(podExpression)
+			"Condition", memberType, fmt.Sprintf("%s|", util.TagScopeNCPPod), "Tag", "EQUALS", "EQUALS")
 
 		if peer.NamespaceSelector == nil {
+			podExpression = service.buildExpression(
+				"Condition", memberType,
+				fmt.Sprintf("%s|%s", util.TagScopeNCPProject, obj.ObjectMeta.Namespace),
+				"Tag", "EQUALS", "EQUALS")
 			mixedCriteria = false
 		} else {
 			mixedCriteria = true
 		}
 
+		expressions.Add(podExpression)
 		tagValueExpression = podExpression
 		matchLabels = peer.PodSelector.MatchLabels
 		matchExpressions = &peer.PodSelector.MatchExpressions
@@ -997,15 +1001,19 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		memberType = "SegmentPort"
 		service.addOperatorIfNeeded(expressions, "AND")
 		vmExpression := service.buildExpression(
-			"Condition", memberType, util.TagScopeNCPVNETInterface, "Tag", "EQUALS", "EQUALS")
-		expressions.Add(vmExpression)
+			"Condition", memberType, fmt.Sprintf("%s|", util.TagScopeNCPVNETInterface), "Tag", "EQUALS", "EQUALS")
 
 		if peer.NamespaceSelector == nil {
+			vmExpression = service.buildExpression(
+				"Condition", memberType,
+				fmt.Sprintf("%s|%s", util.TagScopeNCPVIFProject, obj.ObjectMeta.Namespace),
+				"Tag", "EQUALS", "EQUALS")
 			mixedCriteria = false
 		} else {
 			mixedCriteria = true
 		}
 
+		expressions.Add(vmExpression)
 		tagValueExpression = vmExpression
 		matchLabels = peer.VMSelector.MatchLabels
 		matchExpressions = &peer.VMSelector.MatchExpressions
