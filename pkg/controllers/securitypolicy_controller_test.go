@@ -10,6 +10,9 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -98,4 +101,42 @@ func TestSecurityPolicyController_updateSecurityPolicyStatusConditions(t *testin
 	if !reflect.DeepEqual(dummySP.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
 	}
+}
+
+func TestSecurityPolicyController_isCRRequestedInSystemNamespace(t *testing.T) {
+	r := NewFakeSecurityPolicyReconciler()
+	ctx := context.TODO()
+	dummyNs := &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "dummy"}}
+	r.Client.Create(ctx, dummyNs)
+	req := &controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
+
+	isCRInSysNs, err := r.isCRRequestedInSystemNamespace(&ctx, req)
+
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	if isCRInSysNs {
+		t.Fatalf("Non-system namespace identied as a system namespace")
+	}
+	r.Client.Delete(ctx, dummyNs)
+
+	sysNs := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "sys-ns",
+			Namespace:   "sys-ns",
+			Annotations: map[string]string{"vmware-system-shared-t1": "true"},
+		},
+	}
+	r.Client.Create(ctx, sysNs)
+	req = &controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "sys-ns", Name: "dummy"}}
+
+	isCRInSysNs, err = r.isCRRequestedInSystemNamespace(&ctx, req)
+
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	if !isCRInSysNs {
+		t.Fatalf("System namespace not identied as a system namespace")
+	}
+	r.Client.Delete(ctx, sysNs)
 }
