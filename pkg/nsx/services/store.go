@@ -6,8 +6,11 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
+	util2 "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -19,7 +22,7 @@ const (
 )
 
 var (
-	pageSize int64 = 10 // TODO consider a appropriate page size
+	PageSize int64 = 1000
 )
 
 func securityPolicyCRUIDScopeIndexFunc(obj interface{}) ([]string, error) {
@@ -78,8 +81,14 @@ func queryGroup(service *SecurityPolicyService, wg *sync.WaitGroup, fatalErrors 
 	defer wg.Done()
 	queryParam := fmt.Sprintf("%s:%s", resourceType, resourceTypeGroup) + " AND " + queryTagCondition(service)
 	var cursor *string = nil
+	pageSize := PageSize
 	for {
-		response, err := service.NSXClient.QueryClient.List(queryParam, cursor, nil, nil, nil, nil)
+		response, err := service.NSXClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
+		err = transError(err)
+		if _, ok := err.(util2.PageMaxError); ok == true {
+			decrementPageSize(&pageSize)
+			continue
+		}
 		if err != nil {
 			fatalErrors <- err
 		}
@@ -109,8 +118,14 @@ func querySecurityPolicy(service *SecurityPolicyService, wg *sync.WaitGroup, fat
 	defer wg.Done()
 	queryParam := fmt.Sprintf("%s:%s", resourceType, resourceTypeSecurityPolicy) + " AND " + queryTagCondition(service)
 	var cursor *string = nil
+	pageSize := PageSize
 	for {
-		response, err := service.NSXClient.QueryClient.List(queryParam, cursor, nil, nil, nil, nil)
+		response, err := service.NSXClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
+		err = transError(err)
+		if _, ok := err.(util2.PageMaxError); ok == true {
+			decrementPageSize(&pageSize)
+			continue
+		}
 		if err != nil {
 			fatalErrors <- err
 		}
@@ -140,8 +155,14 @@ func queryRule(service *SecurityPolicyService, wg *sync.WaitGroup, fatalErrors c
 	defer wg.Done()
 	queryParam := fmt.Sprintf("%s:%s", resourceType, resourceTypeRule) + " AND " + queryTagCondition(service)
 	var cursor *string = nil
+	pageSize := PageSize
 	for {
-		response, err := service.NSXClient.QueryClient.List(queryParam, cursor, nil, nil, nil, nil)
+		response, err := service.NSXClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
+		err = transError(err)
+		if _, ok := err.(util2.PageMaxError); ok == true {
+			decrementPageSize(&pageSize)
+			continue
+		}
 		if err != nil {
 			fatalErrors <- err
 		}
@@ -165,4 +186,34 @@ func queryRule(service *SecurityPolicyService, wg *sync.WaitGroup, fatalErrors c
 			break
 		}
 	}
+}
+
+func decrementPageSize(pageSize *int64) {
+	*pageSize -= 100
+	if int(*pageSize) <= 0 {
+		*pageSize = 10
+	}
+}
+
+func transError(err error) error {
+	var typeConverter = bindings.NewTypeConverter()
+	typeConverter.SetMode(bindings.REST)
+	switch err.(type) {
+	case errors.ServiceUnavailable:
+		vapiError, _ := err.(errors.ServiceUnavailable)
+		if vapiError.Data == nil {
+			return err
+		}
+		data, errs := typeConverter.ConvertToGolang(vapiError.Data, model.ApiErrorBindingType())
+		if len(errs) > 0 {
+			return err
+		}
+		apiError := data.(model.ApiError)
+		if *apiError.ErrorCode == int64(60576) {
+			return util2.PageMaxError{Desc: "page max overflow"}
+		}
+	default:
+		return err
+	}
+	return err
 }

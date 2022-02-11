@@ -550,3 +550,12 @@ func CreateConnectionError(host string) *ConnectionError {
 	nsxErr.msg = m
 	return nsxErr
 }
+
+// PageMaxError For client usage
+type PageMaxError struct {
+	Desc string
+}
+
+func (err PageMaxError) Error() string {
+	return err.Desc
+}
