@@ -24,8 +24,7 @@ import (
 )
 
 const (
-	// TODO: in the latest code all criterion are mixed so MaxCriteriaExpressions is not needed anymore
-	MaxCriteriaExpressions      int = 15
+	MaxCriteriaExpressions      int = 5
 	MaxMixedCriteriaExpressions int = 15
 	MaxCriteria                 int = 5
 	MaxTotalCriteriaExpressions int = 35
@@ -264,8 +263,8 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 	service.appendOperatorIfNeeded(&group.Expression, "OR")
 	expressions := service.buildGroupExpression(&group.Expression)
 
-	// set member type to Segment to ensure the certieria is mixed becuase the following conditions
-	// must have condition whose memberType=SegmentPort
+	// Setting cluster member type to "Segment" for PodSelector and VMSelector ensure the certieria is mixed
+	// becuase the following conditions must have condition whose memberType=SegmentPort
 	clusterExpression := service.buildExpression(
 		"Condition", "Segment",
 		fmt.Sprintf("%s|%s", util.TagScopeNCPCluster, service.getCluster()),
@@ -290,7 +289,7 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 	if target.VMSelector != nil {
 		service.addOperatorIfNeeded(expressions, "AND")
 		nsExpression := service.buildExpression(
-			"Condition", "SegmentPort",
+			"Condition", memberType,
 			fmt.Sprintf("%s|%s", util.TagScopeNCPVIFProject, obj.ObjectMeta.Namespace),
 			"Tag", "EQUALS", "EQUALS",
 		)
@@ -323,7 +322,8 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 			}
 		}
 
-		totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, memberType)
+		// Since cluster is set as default "Segment" memberType, So the final produced group criteria is always treated as a mixed criteria
+		totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, true)
 		if err != nil {
 			log.Error(err, "validate label selector matchExpressions failed")
 			return 0, 0, err
@@ -479,7 +479,7 @@ func (service *SecurityPolicyService) validateSelectorOpIn(matchExpressions []me
 }
 
 func (service *SecurityPolicyService) validateSelectorExpressions(matchLabelsCount int,
-	matchExpressionsCount int, opInValueCount int, memberType string) (int, int, error) {
+	matchExpressionsCount int, opInValueCount int, mixedCriteria bool) (int, int, error) {
 	var err error = nil
 	var errorMsg string = ""
 	var totalExprCount = 0
@@ -492,11 +492,10 @@ func (service *SecurityPolicyService) validateSelectorExpressions(matchLabelsCou
 		totalExprCount = matchLabelsCount
 	}
 
-	if memberType == "SegmentPort" && totalExprCount > MaxCriteriaExpressions {
+	if !mixedCriteria && totalExprCount > MaxCriteriaExpressions {
 		errorMsg = fmt.Sprintf("total count of labelSelectors expressions %d exceed NSX limit of %d in one criteria based on same member type",
 			totalExprCount, MaxCriteriaExpressions)
-	} else if memberType == "Segment" && totalExprCount > MaxMixedCriteriaExpressions {
-		// Since cluster is set as default "SegmentPort" memberType, So, group with "Segment" member is always treated as a mixed criteria
+	} else if mixedCriteria && totalExprCount > MaxMixedCriteriaExpressions {
 		errorMsg = fmt.Sprintf("total count of labelSelectors expressions %d exceed NSX limit of %d in one criteria inside a mixed member type",
 			totalExprCount, MaxMixedCriteriaExpressions)
 	}
@@ -933,7 +932,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 	var mergedMatchExpressions *[]metav1.LabelSelectorRequirement = nil
 	var opInValueCount, totalCriteriaCount, totalExprCount = 0, 0, 0
 	var matchLabelsCount, matchExpressionsCount = 0, 0
-	var mixedCriteria bool = false
+	var mixedNsSelector bool = false
 
 	if len(peer.IPBlocks) > 0 {
 		addresses := data.NewListValue()
@@ -969,20 +968,19 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 	service.appendOperatorIfNeeded(&group.Expression, "OR")
 	expressions := service.buildGroupExpression(&group.Expression)
 
+	// Setting cluster member type to "Segment" for PodSelector and VMSelector ensure the certieria is mixed
+	// becuase the following conditions must have condition whose memberType=SegmentPort
+	clusterMemberType := "Segment"
+	// Setting cluster member type to "SegmentPort" for NamespaceSelector ensure the certieria is mixed
+	// becuase the following conditions must have condition whose memberType=Segment when NamespaceSelector isn't empty
+	if peer.PodSelector == nil && peer.VMSelector == nil && peer.NamespaceSelector != nil && peer.NamespaceSelector.Size() > 0 {
+		clusterMemberType = "SegmentPort"
+	}
 	clusterExpression := service.buildExpression(
-		"Condition", "Segment",
+		"Condition", clusterMemberType,
 		fmt.Sprintf("%s|%s", util.TagScopeNCPCluster, service.getCluster()),
 		"Tag", "EQUALS", "EQUALS",
 	)
-	if peer.NamespaceSelector != nil && peer.NamespaceSelector.Size() > 0 {
-		// set member type to SegmentPort to ensure the certieria is mixed becuase the following conditions
-		// must have condition whose memberType=Segment when NamespaceSelector isn't empty
-		clusterExpression = service.buildExpression(
-			"Condition", "SegmentPort",
-			fmt.Sprintf("%s|%s", util.TagScopeNCPCluster, service.getCluster()),
-			"Tag", "EQUALS", "EQUALS",
-		)
-	}
 	expressions.Add(clusterExpression)
 
 	if peer.PodSelector != nil {
@@ -996,9 +994,9 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 				"Condition", memberType,
 				fmt.Sprintf("%s|%s", util.TagScopeNCPProject, obj.ObjectMeta.Namespace),
 				"Tag", "EQUALS", "EQUALS")
-			mixedCriteria = false
+			mixedNsSelector = false
 		} else {
-			mixedCriteria = true
+			mixedNsSelector = true
 		}
 
 		expressions.Add(podExpression)
@@ -1020,9 +1018,9 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 				"Condition", memberType,
 				fmt.Sprintf("%s|%s", util.TagScopeNCPVIFProject, obj.ObjectMeta.Namespace),
 				"Tag", "EQUALS", "EQUALS")
-			mixedCriteria = false
+			mixedNsSelector = false
 		} else {
-			mixedCriteria = true
+			mixedNsSelector = true
 		}
 
 		expressions.Add(vmExpression)
@@ -1034,7 +1032,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		matchLabelsCount += ClusterTagCount + ProjectTagCount
 	}
 	if peer.NamespaceSelector != nil {
-		if !mixedCriteria {
+		if !mixedNsSelector {
 			tagValueExpression = nil
 			memberType = "Segment"
 			matchLabels = peer.NamespaceSelector.MatchLabels
@@ -1086,7 +1084,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 	}
 
 	if peer.PodSelector != nil || peer.VMSelector != nil || peer.NamespaceSelector != nil {
-		if !mixedCriteria {
+		if !mixedNsSelector {
 			service.updateExpressionsMatchLables(matchLabels, memberType, expressions)
 
 			if matchExpressions != nil {
@@ -1108,7 +1106,8 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 			}
 		}
 
-		totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, memberType)
+		// Since cluster is set as "Segment" or "SegmentPort" memberType, So the final produced group criteria is always treated as a mixed criteria
+		totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, true)
 		if err != nil {
 			log.Error(err, "validate label selector matchExpressions failed")
 			return 0, 0, err
