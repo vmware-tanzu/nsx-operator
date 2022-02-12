@@ -5,8 +5,10 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -26,6 +28,10 @@ import (
 
 var (
 	log = logf.Log.WithName("controller").WithName("securitypolicy")
+)
+
+const (
+	WCP_SYSTEM_RESOURCE = "vmware-system-shared-t1"
 )
 
 // SecurityPolicyReconciler reconciles a SecurityPolicy object
@@ -52,6 +58,15 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 			log.V(1).Info("added finalizer on securitypolicy CR", "securitypolicy", req.NamespacedName)
 		}
+
+		if isCRInSysNs, err := r.isCRRequestedInSystemNamespace(&ctx, &req); err != nil {
+			return ctrl.Result{}, err
+		} else if isCRInSysNs {
+			err = errors.New("Security Policy CR cannot be created in System Namespace")
+			log.Error(err, "failed to create security policy CR", "securitypolicy", req.NamespacedName)
+			return ctrl.Result{}, err
+		}
+
 		if err := r.Service.CreateOrUpdateSecurityPolicy(obj); err != nil {
 			log.Error(err, "failed to create or update security policy CR", "securitypolicy", req.NamespacedName)
 			r.setSecurityPolicyReadyStatusFalse(&ctx, obj, &err)
@@ -75,6 +90,21 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *SecurityPolicyReconciler) isCRRequestedInSystemNamespace(ctx *context.Context, req *ctrl.Request) (bool, error) {
+	nsObj := &v1.Namespace{}
+
+	if err := r.Client.Get(*ctx, types.NamespacedName{Namespace: req.Namespace, Name: req.Namespace}, nsObj); err != nil {
+		log.Error(err, "unable to fetch namespace associated with security policy CR", "req", req.NamespacedName)
+		return false, client.IgnoreNotFound(err)
+	}
+
+	if isSysNs, ok := nsObj.Annotations[WCP_SYSTEM_RESOURCE]; ok && strings.ToLower(isSysNs) == "true" {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusTrue(ctx *context.Context, sec_policy *v1alpha1.SecurityPolicy) {
