@@ -8,15 +8,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -47,7 +48,7 @@ var (
 	tagValueNS                   = "ns1"
 	tagValuePolicyCRName         = "spA"
 	tagValuePolicyCRUID          = "uidA"
-	tagValuePodSelectorHash      = "6fb11ac7a06285f0ed64a85310de99cf5bf423d0"
+	tagValuePodSelectorHash      = "a42321575d78a6c340c6963c7a82c86c7217f847"
 	timeStamp                    = int64(1641892699021)
 
 	service = &SecurityPolicyService{
@@ -63,7 +64,35 @@ var (
 		Spec: v1alpha1.SecurityPolicySpec{
 			AppliedTo: []v1alpha1.SecurityPolicyTarget{
 				{
-					PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"pod_selector_1": "pod_value_1"}},
+					PodSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{"pod_selector_1": "pod_value_1"},
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Key:      "k1",
+								Operator: metav1.LabelSelectorOpIn,
+								Values: []string{
+									"a1",
+									"a2",
+								},
+							},
+							{
+								Key:      "k2",
+								Operator: metav1.LabelSelectorOpNotIn,
+								Values: []string{
+									"a2",
+									"a3",
+								},
+							},
+							{
+								Key:      "k2",
+								Operator: metav1.LabelSelectorOpNotIn,
+								Values: []string{
+									"a3",
+									"a4",
+								},
+							},
+						},
+					},
 				},
 			},
 			Rules: []v1alpha1.SecurityPolicyRule{
@@ -82,7 +111,19 @@ var (
 		Spec: v1alpha1.SecurityPolicySpec{
 			AppliedTo: []v1alpha1.SecurityPolicyTarget{
 				{
-					VMSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"VM_selector_1": "VM_value_1"}},
+					VMSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{"VM_selector_1": "VM_value_1"},
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Key:      "k3",
+								Operator: metav1.LabelSelectorOpDoesNotExist,
+							},
+							{
+								Key:      "k4",
+								Operator: metav1.LabelSelectorOpExists,
+							},
+						},
+					},
 				},
 			},
 			Rules: []v1alpha1.SecurityPolicyRule{
@@ -228,6 +269,16 @@ func TestBuildTargetTags(t *testing.T) {
 				{
 					VMSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{"VM_selector_1": "VM_value_1"},
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Key:      "k1",
+								Operator: metav1.LabelSelectorOpIn,
+								Values: []string{
+									"a1",
+									"a2",
+								},
+							},
+						},
 					},
 				},
 			},
@@ -387,4 +438,281 @@ func TestListSecurityPolicy(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMergeSelectorMatchExpression(t *testing.T) {
+	matchExpressions := []metav1.LabelSelectorRequirement{
+		{
+			Key:      "k1",
+			Operator: metav1.LabelSelectorOpIn,
+			Values: []string{
+				"a1",
+				"a2",
+			},
+		},
+		{
+			Key:      "k1",
+			Operator: metav1.LabelSelectorOpIn,
+			Values: []string{
+				"a2",
+				"a3",
+			},
+		},
+	}
+
+	// Case: the same key and the same operator will merge Values list
+	mergedMatchExpressions := service.mergeSelectorMatchExpression(matchExpressions)
+	assert.Equal(t, 1, len(*mergedMatchExpressions))
+	assert.Equal(t, metav1.LabelSelectorOpIn, (*mergedMatchExpressions)[0].Operator)
+	assert.Equal(t, "k1", (*mergedMatchExpressions)[0].Key)
+	assert.Equal(t, 3, len((*mergedMatchExpressions)[0].Values))
+
+	// Case: the same key with different operator will not merge
+	matchExpressions = []metav1.LabelSelectorRequirement{
+		{
+			Key:      "k1",
+			Operator: metav1.LabelSelectorOpNotIn,
+			Values: []string{
+				"a1",
+				"a2",
+			},
+		},
+		{
+			Key:      "k1",
+			Operator: metav1.LabelSelectorOpIn,
+			Values: []string{
+				"a2",
+				"a3",
+			},
+		},
+	}
+	mergedMatchExpressions = service.mergeSelectorMatchExpression(matchExpressions)
+	assert.Equal(t, 2, len(*mergedMatchExpressions))
+	assert.Equal(t, "k1", (*mergedMatchExpressions)[0].Key)
+	assert.Equal(t, "k1", (*mergedMatchExpressions)[1].Key)
+	assert.Equal(t, 2, len((*mergedMatchExpressions)[0].Values))
+	assert.Equal(t, 2, len((*mergedMatchExpressions)[1].Values))
+}
+
+func TestUpdateExpressionsMatchExpression(t *testing.T) {
+	group := model.Group{}
+	expressions := service.buildGroupExpression(&group.Expression)
+	memberType := "SegmentPort"
+	matchLabels := map[string]string{"VM_selector_1": "VM_value_1"}
+
+	mergedExpressions := []metav1.LabelSelectorRequirement{
+		{
+			Key:      "k1",
+			Operator: metav1.LabelSelectorOpIn,
+			Values: []string{
+				"a1",
+				"a2",
+			},
+		},
+		{
+			Key:      "k2",
+			Operator: metav1.LabelSelectorOpNotIn,
+			Values: []string{
+				"a2",
+				"a3",
+			},
+		},
+		{
+			Key:      "k3",
+			Operator: metav1.LabelSelectorOpExists,
+		},
+		{
+			Key:      "k4",
+			Operator: metav1.LabelSelectorOpDoesNotExist,
+		},
+	}
+
+	// Case: normal function
+	err := service.updateExpressionsMatchExpression(mergedExpressions, matchLabels,
+		&group.Expression, nil, nil, memberType, expressions)
+	assert.Equal(t, nil, err)
+
+	// Case: Unsupported Operator
+	mergedExpressions[0].Operator = "DoesExist"
+	group = model.Group{}
+	err = service.updateExpressionsMatchExpression(mergedExpressions, matchLabels,
+		&group.Expression, nil, nil, memberType, expressions)
+	assert.NotEqual(t, nil, err)
+}
+
+func TestValidateSelectorExpressions(t *testing.T) {
+	matchLabelsCount := 2
+	matchExpressionsCount := 3
+	opInValueCount := 0
+
+	// Case: without Operator IN for the same member type
+	totalCriteriaCount, totalExprCount, err := service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, false)
+	assert.Equal(t, nil, err)
+	assert.Equal(t, 1, totalCriteriaCount)
+	assert.Equal(t, 5, totalExprCount)
+
+	// Case: with Operator IN for the same member type
+	opInValueCount = 2
+	totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, false)
+	assert.Equal(t, nil, err)
+	assert.Equal(t, 2, totalCriteriaCount)
+	assert.Equal(t, 10, totalExprCount)
+
+	// Case: total count of expressions exceed NSX limit '5' in one criteria based on same member type
+	matchLabelsCount = 3
+	_, _, err = service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, false)
+	assert.NotEqual(t, nil, err)
+
+	// Case: with Operator IN for mixed criteria
+	matchExpressionsCount = 12
+	totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, true)
+	assert.Equal(t, nil, err)
+	assert.Equal(t, 2, totalCriteriaCount)
+	assert.Equal(t, 30, totalExprCount)
+
+	// Case: total count of expressions exceed NSX limit '15' in one criteria mixed criteria
+	matchExpressionsCount = 13
+	_, _, err = service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, true)
+	assert.NotEqual(t, nil, err)
+}
+
+func TestValidateSelectorOpIn(t *testing.T) {
+	matchExpressions := []metav1.LabelSelectorRequirement{
+		{
+			Key:      "k1",
+			Operator: metav1.LabelSelectorOpIn,
+			Values: []string{
+				"a1",
+				"a2",
+			},
+		},
+		{
+			Key:      "k2",
+			Operator: metav1.LabelSelectorOpNotIn,
+			Values: []string{
+				"a2",
+				"a3",
+			},
+		},
+		{
+			Key:      "k3",
+			Operator: metav1.LabelSelectorOpExists,
+		},
+		{
+			Key:      "k4",
+			Operator: metav1.LabelSelectorOpDoesNotExist,
+		},
+	}
+
+	// Case: normal function
+	opInValueCount, err := service.validateSelectorOpIn(matchExpressions)
+	assert.Equal(t, nil, err)
+	assert.Equal(t, 2, opInValueCount)
+
+	// Case: count of Operator 'IN' exceed limit '1'
+	matchExpressions[1].Operator = metav1.LabelSelectorOpIn
+	opInValueCount, err = service.validateSelectorOpIn(matchExpressions)
+	assert.NotEqual(t, nil, err)
+	assert.Equal(t, 4, opInValueCount)
+
+	// Case: count of values list for operator 'IN' expressions exceed limit '5'
+	matchExpressions[0].Values = []string{
+		"a1",
+		"a2",
+		"a3",
+		"a4",
+		"a5",
+		"a6",
+	}
+	matchExpressions[1].Operator = metav1.LabelSelectorOpNotIn
+	opInValueCount, err = service.validateSelectorOpIn(matchExpressions)
+	assert.NotEqual(t, nil, err)
+	assert.Equal(t, 6, opInValueCount)
+}
+
+func TestUpdateMixedExpressionsMatchExpression(t *testing.T) {
+	group := model.Group{}
+	expressions := service.buildGroupExpression(&group.Expression)
+	nsMatchLabels := map[string]string{"ns_selector_1": "ns_1"}
+	matchLabels := map[string]string{"pod_selector_1": "pod_value_1"}
+
+	matchExpressions := []metav1.LabelSelectorRequirement{
+		{
+			Key:      "k1",
+			Operator: metav1.LabelSelectorOpIn,
+			Values: []string{
+				"a1",
+				"a2",
+			},
+		},
+		{
+			Key:      "k2",
+			Operator: metav1.LabelSelectorOpNotIn,
+			Values: []string{
+				"a2",
+				"a3",
+			},
+		},
+		{
+			Key:      "k3",
+			Operator: metav1.LabelSelectorOpExists,
+		},
+		{
+			Key:      "k4",
+			Operator: metav1.LabelSelectorOpDoesNotExist,
+		},
+	}
+
+	nsMergedMatchExpressions := []metav1.LabelSelectorRequirement{
+		{
+			Key:      "k2",
+			Operator: metav1.LabelSelectorOpNotIn,
+			Values: []string{
+				"a2",
+				"a3",
+			},
+		},
+		{
+			Key:      "k3",
+			Operator: metav1.LabelSelectorOpExists,
+		},
+		{
+			Key:      "k4",
+			Operator: metav1.LabelSelectorOpDoesNotExist,
+		},
+	}
+
+	// Case: normal function with Operator 'IN'
+	err := service.updateMixedExpressionsMatchExpression(nsMergedMatchExpressions, nsMatchLabels,
+		matchExpressions, matchLabels, &group.Expression, nil, nil, expressions)
+	assert.Equal(t, nil, err)
+
+	// Case: normal function without Operator 'IN'
+	matchExpressions[0].Operator = metav1.LabelSelectorOpNotIn
+	group = model.Group{}
+	err = service.updateMixedExpressionsMatchExpression(nsMergedMatchExpressions, nsMatchLabels,
+		matchExpressions, matchLabels, &group.Expression, nil, nil, expressions)
+	assert.Equal(t, nil, err)
+
+	// Case: with more than one Operator 'IN'
+	matchExpressions[0].Operator = metav1.LabelSelectorOpIn
+	nsMergedMatchExpressions[0].Operator = metav1.LabelSelectorOpIn
+	group = model.Group{}
+	err = service.updateMixedExpressionsMatchExpression(nsMergedMatchExpressions, nsMatchLabels,
+		matchExpressions, matchLabels, &group.Expression, nil, nil, expressions)
+	assert.NotEqual(t, nil, err)
+
+	// Case: Operator 'IN' and unsupported Operator
+	nsMergedMatchExpressions[0].Operator = "DoesExist"
+	group = model.Group{}
+	err = service.updateMixedExpressionsMatchExpression(nsMergedMatchExpressions, nsMatchLabels,
+		matchExpressions, matchLabels, &group.Expression, nil, nil, expressions)
+	assert.NotEqual(t, nil, err)
+
+	// Case: without Operator 'IN' and unsupported Operator
+	matchExpressions[0].Operator = metav1.LabelSelectorOpNotIn
+	group = model.Group{}
+	err = service.updateMixedExpressionsMatchExpression(nsMergedMatchExpressions, nsMatchLabels,
+		matchExpressions, matchLabels, &group.Expression, nil, nil, expressions)
+	assert.NotEqual(t, nil, err)
 }

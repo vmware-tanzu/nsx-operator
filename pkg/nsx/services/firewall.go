@@ -483,7 +483,7 @@ func (service *SecurityPolicyService) validateSelectorExpressions(matchLabelsCou
 	var err error = nil
 	var errorMsg string = ""
 	var totalExprCount = 0
-	var totoalCriteria = 0
+	var totalCriteria = 0
 
 	// Check total count of expressions from LabelSelectors in one group criteria
 	if matchExpressionsCount != 0 {
@@ -508,29 +508,29 @@ func (service *SecurityPolicyService) validateSelectorExpressions(matchLabelsCou
 	// Compute total expression counts of final produced criteria
 	if matchLabelsCount != 0 || matchExpressionsCount != 0 {
 		if opInValueCount != 0 {
-			totoalCriteria = opInValueCount
+			totalCriteria = opInValueCount
 			totalExprCount *= opInValueCount
 		} else {
 			// matchExpressions will be 'AND' with matchLabels(if present) to produce 1 criteria.
-			totoalCriteria = 1
+			totalCriteria = 1
 		}
 	}
-	return totoalCriteria, totalExprCount, err
+	return totalCriteria, totalExprCount, err
 }
 
 // Todo, refactor code when NSX support 'In' LabelSelector.
 func (service *SecurityPolicyService) matchExpressionOpInExist(matchExpressions []metav1.LabelSelectorRequirement) (bool, int) {
-	var opeartorInIndex = -1
+	var operatorInIndex = -1
 	var isFound = false
 	for i := 0; i < len(matchExpressions); i++ {
-		// find Opetator IN
+		// find Operator IN
 		if matchExpressions[i].Operator == metav1.LabelSelectorOpIn {
-			opeartorInIndex = i
+			operatorInIndex = i
 			isFound = true
 			break
 		}
 	}
-	return isFound, opeartorInIndex
+	return isFound, operatorInIndex
 }
 
 // Todo, refactor code when NSX support 'In' LabelSelector.
@@ -589,26 +589,29 @@ func (service *SecurityPolicyService) updateMixedExpressionsMatchExpression(nsMa
 	policyExpression *[]*data.StructValue, clusterExpression *data.StructValue, tagValueExpression *data.StructValue, expressions *data.ListValue) error {
 	var err error = nil
 	var opInIdx = 0
-	var found bool = false
 	var opInMatchExpressions []metav1.LabelSelectorRequirement = nil
 	var memberType = ""
 
 	nsFound, opInIdx1 := service.matchExpressionOpInExist(nsMatchExpressions)
 	portFound, opInIdx2 := service.matchExpressionOpInExist(matchExpressions)
 
+	if nsFound && portFound {
+		errorMsg := "operator 'IN' is set in both Pod/VM selector and NamespaceSelector"
+		err = errors.New(errorMsg)
+		return err
+	}
+
 	if nsFound {
 		opInIdx = opInIdx1
 		memberType = "Segment"
 		opInMatchExpressions = nsMatchExpressions
-		found = true
 	} else if portFound {
 		opInIdx = opInIdx2
 		memberType = "SegmentPort"
 		opInMatchExpressions = matchExpressions
-		found = true
 	}
 
-	if !found {
+	if !nsFound && !portFound {
 		err = service.buildExpressionsMatchExpression(matchExpressions, "SegmentPort", expressions)
 		if err == nil {
 			err = service.buildExpressionsMatchExpression(nsMatchExpressions, "Segment", expressions)
@@ -636,14 +639,11 @@ func (service *SecurityPolicyService) updateMixedExpressionsMatchExpression(nsMa
 
 			if nsFound {
 				err = service.buildExpressionsMatchExpression(matchExpressions, "SegmentPort", expressions)
-				if err != nil {
-					break
-				}
 			} else {
 				err = service.buildExpressionsMatchExpression(nsMatchExpressions, "Segment", expressions)
-				if err != nil {
-					break
-				}
+			}
+			if err != nil {
+				break
 			}
 
 			service.addOperatorIfNeeded(expressions, "AND")
@@ -1058,8 +1058,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 			}
 
 			if opInValueCount > 0 && nsOpInValCount > 0 {
-				// Opeartor 'IN' is set in both Pod/VM selector and NamespaceSelector
-				errorMsg = "opeartor 'IN' is set in both Pod/VM selector and NamespaceSelector"
+				errorMsg = "operator 'IN' is set in both Pod/VM selector and NamespaceSelector"
 				err = errors.New(errorMsg)
 				log.Error(err, "validate operator 'IN' in label selector matchExpressions failed")
 				return 0, 0, err

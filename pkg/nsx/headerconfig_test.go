@@ -43,3 +43,11 @@ func TestHeaderConfig(t *testing.T) {
 	client.Patch("test-tier1-id", tier1)
 	assert.True(partial)
 }
+
+func TestCreateHeaderConfig(t *testing.T) {
+	cfg := CreateHeaderConfig(true, true, true)
+	assert.NotNil(t, cfg)
+	cfg.SetXAllowOverrite(false)
+	cfg.SetConfigXallowOverwrite(false)
+	cfg.SetNSXEnablePartialPatch(false)
+}
