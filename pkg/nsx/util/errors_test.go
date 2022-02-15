@@ -9,11 +9,7 @@ import (
 
 func TestExcept(t *testing.T) {
 	notFound := CreateResourceNotFound("192.168.1.1", "ippool")
-	assert.True(t, 0 == notFound.ErrorCode)
-	// notFound should be a ManagerError
-	var managerErr ManagerError = notFound
-	assert.True(t, managerErr != nil)
-	managerErr.managerError()
+	assert.Equal(t, 0, notFound.ErrorCode)
 }
 
 func TestCreateFunc(t *testing.T) {
@@ -67,6 +63,7 @@ func TestCreateFunc(t *testing.T) {
 		for i := 0; i < typ.NumIn(); i++ {
 			in = append(in, reflect.ValueOf("go"))
 		}
-		val.Call(in)
+		values := val.Call(in)
+		assert.NotEqual(t, values[0], nil)
 	}
 }
