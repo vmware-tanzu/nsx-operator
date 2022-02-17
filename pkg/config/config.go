@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -227,6 +228,13 @@ func (coeConfig *CoeConfig) validate() error {
 }
 
 func (nsxVersion *NsxVersion) validate() error {
+	re, _ := regexp.Compile(`^([\d]+).([\d]+).([\d]+)`)
+	result := re.Find([]byte(nsxVersion.NodeVersion))
+	if len(result) < 1 {
+		err := errors.New("error version format")
+		log.Error(err, "version", nsxVersion.NodeVersion)
+		return err
+	}
 	if !nsxVersion.featureSupported() {
 		version := fmt.Sprintf("%d:%d:%d", minVersion[0], minVersion[1], minVersion[2])
 		err := errors.New("nsxt version " + nsxVersion.NodeVersion + " is old this feature needs version " + version)

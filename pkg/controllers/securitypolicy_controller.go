@@ -193,15 +193,21 @@ func (r *SecurityPolicyReconciler) Start(mgr ctrl.Manager) error {
 		return err
 	}
 
-	go r.GarbageCollector()
+	go r.GarbageCollector(make(chan bool), util.GCInterval)
 	return nil
 }
 
-func (r *SecurityPolicyReconciler) GarbageCollector() {
+// GarbageCollector collect securitypolicy which has been removed from crd.
+// cancel is used to break the loop during UT
+func (r *SecurityPolicyReconciler) GarbageCollector(cancel chan bool, timeout time.Duration) {
 	ctx := context.Background()
 	log.V(1).Info("garbage collector started")
 	for {
-		time.Sleep(util.GCInterval)
+		select {
+		case <-cancel:
+			return
+		case <-time.After(timeout):
+		}
 		nsxPolicySet := r.Service.ListSecurityPolicy()
 		if len(nsxPolicySet) == 0 {
 			continue

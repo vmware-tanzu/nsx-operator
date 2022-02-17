@@ -75,3 +75,56 @@ func TestWait(t *testing.T) {
 	assert.False(re > 0, fmt.Sprintf("Too much token %d.\n", re))
 
 }
+
+func TestRateLimiter_NewFixRateLimiter(t *testing.T) {
+	limiter := NewFixRateLimiter(120)
+	assert.Equal(t, limiter.rate(), MAXRATELIMIT)
+
+	limiter = NewFixRateLimiter(80)
+	assert.Equal(t, limiter.rate(), 80)
+
+	limiter = NewFixRateLimiter(0)
+	l, ok := limiter.(*FixRateLimiter)
+	assert.Equal(t, ok, true)
+	assert.Equal(t, limiter.rate(), 0)
+	assert.Equal(t, l.disable, true)
+}
+
+func TestRateLimiter_NewAIMDRateLimiter(t *testing.T) {
+	limiter := NewAIMDRateLimiter(120, 1.0)
+	assert.Equal(t, limiter.rate(), 1)
+
+	limiter = NewAIMDRateLimiter(80, 1.0)
+	assert.Equal(t, limiter.rate(), 1)
+
+	limiter = NewAIMDRateLimiter(0, 1.0)
+	l, ok := limiter.(*AIMDRateLimter)
+	assert.Equal(t, ok, true)
+	assert.Equal(t, limiter.rate(), 0)
+	assert.Equal(t, l.disable, true)
+}
+
+func TestRateLimiter_FixRateLimiterWait(t *testing.T) {
+	// disable rate limiter
+	limiter := NewFixRateLimiter(0)
+	before := time.Now()
+	limiter.Wait()
+	after := time.Now()
+	d := after.Sub(before)
+	assert.True(t, d < time.Millisecond)
+
+	// enable rate limiter, the first token
+	limiter = NewFixRateLimiter(10)
+	before = time.Now()
+	limiter.Wait()
+	after = time.Now()
+	d = after.Sub(before)
+	assert.True(t, d < time.Millisecond)
+
+	// enable rate limiter, the second token
+	before = time.Now()
+	limiter.Wait()
+	after = time.Now()
+	d = after.Sub(before)
+	assert.True(t, d > time.Millisecond*10)
+}
