@@ -203,7 +203,7 @@ func (ep *Endpoint) setup() {
 func (ep *Endpoint) setStatus(s EndpointStatus) {
 	ep.Lock()
 	if ep.status != s {
-		log.Info("endpoint status is changing", "endpoing", ep.Host(), "oldStatus", ep.status, "newStatus", s)
+		log.Info("endpoint status is changing", "endpoint", ep.Host(), "oldStatus", ep.status, "newStatus", s)
 		ep.status = s
 	}
 	ep.Unlock()
