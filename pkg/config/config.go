@@ -236,7 +236,7 @@ func (nsxVersion *NsxVersion) validate() error {
 		return err
 	}
 	if !nsxVersion.featureSupported() {
-		version := fmt.Sprintf("%d:%d:%d", minVersion[0], minVersion[1], minVersion[2])
+		version := fmt.Sprintf("%d.%d.%d", minVersion[0], minVersion[1], minVersion[2])
 		err := errors.New("nsxt version " + nsxVersion.NodeVersion + " is old this feature needs version " + version)
 		log.Error(err, "validate NsxVersion failed")
 		return err
@@ -303,6 +303,11 @@ func (nsxVersion *NsxVersion) getVersion(host string, userName string, password 
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Error(err, "failed to get nsx version")
+		return err
+	}
+	if !(resp.StatusCode == 200 || resp.StatusCode == 201) {
+		err := errors.New("get version failed")
+		log.Error(err, "get nsx version", "status code", resp.StatusCode)
 		return err
 	}
 	body, err := ioutil.ReadAll(resp.Body)

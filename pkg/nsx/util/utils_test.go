@@ -114,3 +114,26 @@ func TestShouldRegenerate(t *testing.T) {
 	err1 := &InvalidCredentials{}
 	assert.True(ShouldRegenerate(err1), "It's a regenerate error")
 }
+
+func TestUtil_InitErrorFromResponse(t *testing.T) {
+	body := `{"httpStatus": "BAD_REQUEST", "error_code": 8327, "module_name": "common-services", "error_message": "Principal attempts to delete or modify an object of type nsx$LrPortEcResourceAllocation it doesn't own. (createUser=nsx_policy, allowOverwrite=null)"}`
+	statusCode := 400
+	err := InitErrorFromResponse("10.0.0.1", statusCode, []byte(body))
+	assert.NotEqual(t, err, nil)
+	_, ok := err.(*NsxOverlapVlan)
+	assert.Equal(t, ok, true)
+}
+
+func TestUtil_setDetail(t *testing.T) {
+	nsxerr := CreateCannotConnectToServer()
+	detail := ErrorDetail{ErrorCode: 287,
+		StatusCode:         400,
+		RelatedErrorCodes:  []int{123, 222},
+		RelatedStatusCodes: []string{"error1", "erro2"},
+		Details:            "connect to serve fail",
+	}
+	nsxerr.setDetail(&detail)
+	assert.Equal(t, nsxerr.ErrorCode, 287)
+	assert.Equal(t, nsxerr.StatusCode, 400)
+	assert.Equal(t, nsxerr.RelatedErrorCodes, []int{123, 222})
+}

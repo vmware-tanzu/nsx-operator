@@ -9,6 +9,7 @@ import (
 
 type NsxError interface {
 	setDetail(detail *ErrorDetail)
+	Error() string
 }
 
 type nsxErrorImpl struct {
@@ -20,16 +21,27 @@ type GeneralNsxError struct {
 	nsxErrorImpl
 }
 
-func (impl nsxErrorImpl) setDetail(detail *ErrorDetail) {
+func (impl *nsxErrorImpl) setDetail(detail *ErrorDetail) {
 	impl.ErrorDetail = *detail
+	if len(detail.RelatedErrorCodes) > 0 {
+		impl.ErrorDetail.RelatedErrorCodes = []int{}
+		for index, _ := range detail.RelatedErrorCodes {
+			impl.ErrorDetail.RelatedErrorCodes = append(impl.ErrorDetail.RelatedErrorCodes, detail.RelatedErrorCodes[index])
+		}
+	}
+	if len(detail.RelatedStatusCodes) > 0 {
+		impl.ErrorDetail.RelatedStatusCodes = []string{}
+		for index, _ := range detail.RelatedStatusCodes {
+			impl.ErrorDetail.RelatedStatusCodes = append(impl.ErrorDetail.RelatedStatusCodes, detail.RelatedStatusCodes[index])
+		}
+	}
 }
 
-func (impl nsxErrorImpl) Error() string {
+func (impl *nsxErrorImpl) Error() string {
+	if impl.ErrorDetail.StatusCode != 0 {
+		return impl.msg + impl.ErrorDetail.Error()
+	}
 	return impl.msg
-}
-
-func createNsxLibException() *nsxErrorImpl {
-	return &nsxErrorImpl{msg: "An unknown exception occurred."}
 }
 
 // ObjectAlreadyExists means object already exsists on the backend
@@ -187,17 +199,6 @@ func CreateRealizationErrorStateError(resourceType string, resourceID string, er
 	return nsxErr
 }
 
-func (e *RealizationErrorStateError) Error() string {
-	if e.detail != nil {
-		e.msg += e.detail.Error()
-	}
-	return e.msg
-}
-
-func (e *RealizationErrorStateError) setDetail(detail *ErrorDetail) {
-	e.detail = detail
-}
-
 type RealizationTimeoutError struct {
 	msg    string `parent:"RealizationError"`
 	detail *ErrorDetail
@@ -209,17 +210,6 @@ func CreateRealizationTimeoutError(resourceType string, resourceID string, attem
 	return nsxErr
 }
 
-func (e *RealizationTimeoutError) Error() string {
-	if e.detail != nil {
-		e.msg += e.detail.Error()
-	}
-	return e.msg
-}
-
-func (e *RealizationTimeoutError) setDetail(detail *ErrorDetail) {
-	e.detail = detail
-}
-
 type DetailedRealizationTimeoutError struct {
 	msg    string `parent:"RealizationError"`
 	detail *ErrorDetail
@@ -229,17 +219,6 @@ func CreateDetailedRealizationTimeoutError(resourceType string, resourceID strin
 	m := fmt.Sprintf("%s ID %s was not realized to %s for %s %s after %s attempts with %s seconds sleep", resourceType, resourceID, realizedType, relatedType, relatedID, attempts, sleep)
 	nsxErr := &DetailedRealizationTimeoutError{msg: m}
 	return nsxErr
-}
-
-func (e *DetailedRealizationTimeoutError) Error() string {
-	if e.detail != nil {
-		e.msg += e.detail.Error()
-	}
-	return e.msg
-}
-
-func (e *DetailedRealizationTimeoutError) setDetail(detail *ErrorDetail) {
-	e.detail = detail
 }
 
 type StaleRevision struct {

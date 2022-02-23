@@ -96,10 +96,10 @@ func ShouldRegenerate(err error) bool {
 }
 
 // InitErrorFromResponse returns error based on http.Response
-func InitErrorFromResponse(host string, statusCode int, body []byte) error {
+func InitErrorFromResponse(host string, statusCode int, body []byte) NsxError {
 	detail, err := extractHTTPDetailFromBody(host, statusCode, body)
 	if err != nil {
-		return err
+		return CreateGeneralManagerError(host, "decode body", err.Error())
 	}
 	if detail.ErrorCode == 0 || detail.StatusCode == http.StatusOK {
 		return nil
@@ -121,7 +121,7 @@ func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorD
 
 	ec.ErrorCode = res.ErrorCode
 	log.V(1).Info("http response", "status code", statusCode, "body", res)
-	var msg []string
+	msg := []string{res.ErrorMsg}
 	for _, a := range res.RelatedErr {
 		ec.RelatedErrorCodes = append(ec.RelatedErrorCodes, a.ErrorCode)
 		ec.RelatedStatusCodes = append(ec.RelatedStatusCodes, a.HTTPStatus)
@@ -132,7 +132,7 @@ func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorD
 	return ec, nil
 }
 
-type errmap map[string]error
+type errmap map[string]NsxError
 
 var (
 	errorTable = map[string]errmap{
@@ -162,7 +162,7 @@ var (
 			"505": &InvalidLicense{}},
 	}
 
-	errorTable1 = map[string]error{
+	errorTable1 = map[string]NsxError{
 		"409"://http.StatusConflict
 		&StaleRevision{},
 		"412"://http.StatusPreconditionFailed
@@ -174,7 +174,7 @@ var (
 	}
 )
 
-func httpErrortoNSXError(detail *ErrorDetail) error {
+func httpErrortoNSXError(detail *ErrorDetail) NsxError {
 	statusCode := detail.StatusCode
 	errorCode := detail.ErrorCode
 	relatedErrorCode := detail.RelatedErrorCodes
@@ -182,35 +182,25 @@ func httpErrortoNSXError(detail *ErrorDetail) error {
 	if e, ok := errorTable[strconv.Itoa(statusCode)]; ok {
 		if errorCode > 0 {
 			if e1, ok := e[strconv.Itoa(errorCode)]; ok {
-				if e2, ok := e1.(NsxError); ok {
-					e2.setDetail(detail)
-
-				}
+				e1.setDetail(detail)
 				return e1
 			}
 		}
 		if len(relatedErrorCode) > 0 {
 			for _, i := range relatedErrorCode {
 				if e1, ok := e[strconv.Itoa(i)]; ok {
-					if e2, ok := e1.(NsxError); ok {
-						e2.setDetail(detail)
-
-					}
+					e1.setDetail(detail)
 					return e1
 				}
 			}
 		}
 		if e1, ok := e["default"]; ok {
-			if e2, ok := e1.(NsxError); ok {
-				e2.setDetail(detail)
-			}
+			e1.setDetail(detail)
 			return e1
 		}
 	}
 	if e, ok := errorTable1[strconv.Itoa(statusCode)]; ok {
-		if e2, ok := e.(NsxError); ok {
-			e2.setDetail(detail)
-		}
+		e.setDetail(detail)
 		return e
 	}
 	err := &GeneralManagerError{}
