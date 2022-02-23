@@ -4,10 +4,15 @@
 package util
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -86,7 +91,6 @@ func TestInitErrorFromResponse(t *testing.T) {
 
 	assert.Equal(err, nil, "Read resp body error")
 	assert.Equal(string(body), result, "Read resp body error")
-
 }
 
 func TestShouldGroundPoint(t *testing.T) {
@@ -122,6 +126,29 @@ func TestUtil_InitErrorFromResponse(t *testing.T) {
 	assert.NotEqual(t, err, nil)
 	_, ok := err.(*NsxOverlapVlan)
 	assert.Equal(t, ok, true)
+	result := ShouldRegenerate(err)
+	assert.Equal(t, result, false)
+
+	body = `{"httpStatus": "BAD_REQUEST", "error_code": 98, "module_name": "common-services", "error_message": "Principal attempts to delete or modify an object of type nsx$LrPortEcResourceAllocation it doesn't own. (createUser=nsx_policy, allowOverwrite=null)"}`
+	statusCode = 403
+	err = InitErrorFromResponse("10.0.0.1", statusCode, []byte(body))
+	assert.NotEqual(t, err, nil)
+	_, ok = err.(*BadXSRFToken)
+	assert.Equal(t, ok, true)
+	result = ShouldRegenerate(err)
+	assert.Equal(t, result, true)
+
+	body = `{"httpStatus": "BAD_REQUEST", "error_code": 98, "module_name": "common-services", "error_message": "Principal attempts to delete or modify an object of type nsx$LrPortEcResourceAllocation it doesn't own. (createUser=nsx_policy, allowOverwrite=null)"}`
+	statusCode = 500
+	err = InitErrorFromResponse("10.0.0.1", statusCode, []byte(body))
+	assert.NotEqual(t, err, nil)
+	_, ok = err.(*CannotConnectToServer)
+	assert.Equal(t, ok, true)
+	result = ShouldRegenerate(err)
+	assert.Equal(t, result, false)
+	result = ShouldRetry(err)
+	assert.Equal(t, result, true)
+
 }
 
 func TestUtil_setDetail(t *testing.T) {
@@ -136,4 +163,33 @@ func TestUtil_setDetail(t *testing.T) {
 	assert.Equal(t, nsxerr.ErrorCode, 287)
 	assert.Equal(t, nsxerr.StatusCode, 400)
 	assert.Equal(t, nsxerr.RelatedErrorCodes, []int{123, 222})
+}
+
+func TestVCClient_handleHTTPResponse(t *testing.T) {
+	response := &http.Response{}
+	response.Request = &http.Request{}
+	response.Request.URL = &url.URL{Host: "10.0.0.1"}
+	response.StatusCode = 301
+	var sessionData map[string]string
+
+	// http status code > 300
+	err, _ := HandleHTTPResponse(response, &sessionData, false)
+	expect := errors.New("received HTTP Error")
+	assert.Equal(t, err, expect)
+
+	// result interface is null
+	response.StatusCode = 200
+	err, _ = HandleHTTPResponse(response, nil, false)
+	assert.Equal(t, err, nil)
+
+	// 	response.StatusCode = 200， body content correct
+	response.Body = ioutil.NopCloser(bytes.NewReader([]byte(`{"value": "hello"}`)))
+	err, _ = HandleHTTPResponse(response, &sessionData, false)
+	assert.Equal(t, err, nil)
+
+	// 	response.StatusCode = 200， body content invalid
+	response.Body = ioutil.NopCloser(bytes.NewReader([]byte(`{"value": 4}`)))
+	err, _ = HandleHTTPResponse(response, &sessionData, false)
+	_, ok := err.(*json.UnmarshalTypeError)
+	assert.Equal(t, ok, true)
 }

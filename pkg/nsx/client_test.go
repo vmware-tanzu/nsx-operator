@@ -26,8 +26,7 @@ func TestNSXHealthChecker_CheckNSXHealth(t *testing.T) {
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(cluster), "Health", func(_ *Cluster) ClusterHealth {
 		return RED
 	})
-	defer patches.Reset()
-
+	patches.Reset()
 	type fields struct {
 		cluster *Cluster
 	}
@@ -48,7 +47,6 @@ func TestNSXHealthChecker_CheckNSXHealth(t *testing.T) {
 		patches.ApplyMethod(reflect.TypeOf(cluster), "Health", func(_ *Cluster) ClusterHealth {
 			return res[idx]
 		})
-		defer patches.Reset()
 		t.Run(tt.name, func(t *testing.T) {
 			ck := &NSXHealthChecker{
 				cluster: tt.fields.cluster,
@@ -57,13 +55,34 @@ func TestNSXHealthChecker_CheckNSXHealth(t *testing.T) {
 				t.Errorf("NSXHealthChecker.CheckNSXHealth() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+		patches.Reset()
 	}
+
 }
 
 func TestGetClient(t *testing.T) {
 	cf := config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{NsxApiUser: "1", NsxApiPassword: "1"}}
+	cf.VCConfig = &config.VCConfig{}
 	client := GetClient(&cf)
-	assert.True(t, IsInstanceOf(client, &Client{}))
+	assert.True(t, client == nil)
+
+	cluster := &Cluster{}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
+		nsxVersion := &NsxVersion{NodeVersion: "3.1.1"}
+		return nsxVersion, nil
+	})
+
+	client = GetClient(&cf)
+	patches.Reset()
+	assert.True(t, client == nil)
+
+	patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
+		nsxVersion := &NsxVersion{NodeVersion: "3.2.1"}
+		return nsxVersion, nil
+	})
+	client = GetClient(&cf)
+	patches.Reset()
+	assert.True(t, client != nil)
 }
 
 func IsInstanceOf(objectPtr, typePtr interface{}) bool {

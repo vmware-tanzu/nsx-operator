@@ -15,6 +15,7 @@ require (
 	github.com/vmware/vsphere-automation-sdk-go/runtime v0.4.0
 	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.6.0
 	golang.org/x/time v0.0.0-20220210224613-90d013bbcef8
+	golang.org/x/tools v0.1.6-0.20210820212750-d4cc65f0b2ff
 	gopkg.in/ini.v1 v1.66.4
 	k8s.io/api v0.23.4
 	k8s.io/apimachinery v0.23.4

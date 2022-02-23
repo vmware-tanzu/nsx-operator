@@ -4,6 +4,7 @@
 package nsx
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -109,7 +110,7 @@ func TestCluster_createTransport(t *testing.T) {
 	thumbprint := []string{"123"}
 	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	c, _ := NewCluster(config)
-	assert.NotNil(t, c.createTransport(nil, 10))
+	assert.NotNil(t, c.createTransport(10))
 }
 
 func Test_calcFingerprint(t *testing.T) {
@@ -132,36 +133,93 @@ func Test_calcFingerprint(t *testing.T) {
 	}
 }
 
-func TestCluster_createSecurity(t *testing.T) {
-	result := `{
-		"healthy" : true,
-		"components_health" : "POLICY:UP, SEARCH:UP, MANAGER:UP, NODE_MGMT:UP, UI:UP"
-	  }`
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(result))
-	}))
-	defer ts.Close()
-	index := strings.Index(ts.URL, "//")
-	a := ts.URL[index+2:]
-	thumbprint := []string{"123"}
-	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
-	c, _ := NewCluster(config)
-	assert.NotNil(t, c.createSecurity("username", "password"))
-}
-
 func TestCluster_Health(t *testing.T) {
-	a := "127.0.0.1, 127.0.0.2, 127.0.0.3"
-	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster := &Cluster{}
-	tr := cluster.createTransport(config.TokenProvider, idleConnTimeout)
-	client := cluster.createHTTPClient(tr, timeout)
-	noBClient := cluster.createNoBalancerClient(timeout, idleConnTimeout)
-	r := ratelimiter.NewRateLimiter(config.APIRateMode)
-	eps, _ := cluster.createEndpoints(config.APIManagers, &client, &noBClient, r, nil)
+	addr := &address{host: "10.0.0.1", scheme: "https"}
+	addr1 := &address{host: "10.0.0.2", scheme: "https"}
+	addr2 := &address{host: "10.0.0.3", scheme: "https"}
+	eps := []*Endpoint{&Endpoint{status: DOWN}, &Endpoint{status: DOWN}, &Endpoint{status: DOWN}}
+	eps[0].provider = addr
+	eps[1].provider = addr1
+	eps[2].provider = addr2
 	cluster.endpoints = eps
 	for _, ep := range cluster.endpoints {
-		ep.status = UP
+		ep.setStatus(UP)
 	}
-	assert.NotNil(t, cluster.Health())
+	health := cluster.Health()
+	assert.Equal(t, health, GREEN)
+
+	eps[0].setStatus(DOWN)
+	health = cluster.Health()
+	assert.Equal(t, health, ORANGE)
+
+	for _, ep := range cluster.endpoints {
+		ep.setStatus(DOWN)
+	}
+	health = cluster.Health()
+	assert.Equal(t, health, RED)
+}
+
+func TestCluster_enableFeature(t *testing.T) {
+	miniVersion := [3]int64{3, 2, 0}
+	nsxVersion := &NsxVersion{}
+	nsxVersion.NodeVersion = "3.1.3.3.0.18844962"
+	assert.False(t, nsxVersion.featureSupported(miniVersion))
+	nsxVersion.NodeVersion = "3.2.0.3.0.18844962"
+	assert.True(t, nsxVersion.featureSupported(miniVersion))
+	nsxVersion.NodeVersion = "3.11.0.3.0.18844962"
+	assert.True(t, nsxVersion.featureSupported(miniVersion))
+	nsxVersion.NodeVersion = "4.1.0"
+	assert.True(t, nsxVersion.featureSupported(miniVersion))
+	nsxVersion.NodeVersion = "3.2.0"
+	assert.True(t, nsxVersion.featureSupported(miniVersion))
+}
+
+func TestCluster_validate(t *testing.T) {
+	miniVersion := [3]int64{3, 2, 0}
+	nsxVersion := &NsxVersion{}
+	nsxVersion.NodeVersion = "12"
+	expect := errors.New("error version format")
+	err := nsxVersion.Validate(miniVersion)
+	assert.Equal(t, err, expect)
+
+	nsxVersion.NodeVersion = "12.3"
+	err = nsxVersion.Validate(miniVersion)
+	assert.Equal(t, err, expect)
+
+	nsxVersion.NodeVersion = "3.2.3.3.0.18844962"
+	err = nsxVersion.Validate(miniVersion)
+	assert.Equal(t, err, nil)
+
+	nsxVersion.NodeVersion = "3.2.3"
+	err = nsxVersion.Validate(miniVersion)
+	assert.Equal(t, err, nil)
+}
+
+func TestCluster_getVersion(t *testing.T) {
+	resVersion := `{
+                    "node_version": "3.1.3.3.0.18844962",
+                    "product_version": "3.1.3.3.0.18844959"
+                    }`
+	resHealth := `{
+					"healthy" : true,
+					"components_health" : "MANAGER:UP, SEARCH:UP, UI:UP, NODE_MGMT:UP"
+					}`
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if strings.Contains(r.URL.Path, "reverse-proxy/node/health") {
+			w.Write(([]byte(resHealth)))
+		} else {
+			w.Write([]byte(resVersion))
+		}
+	}))
+	defer ts.Close()
+	thumbprint := []string{"123"}
+	index := strings.Index(ts.URL, "//")
+	a := ts.URL[index+2:]
+	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	cluster, _ := NewCluster(config)
+	nsxVersion, err := cluster.GetVersion()
+	assert.True(t, err == nil)
+	assert.Equal(t, nsxVersion.NodeVersion, "3.1.3.3.0.18844962")
 }

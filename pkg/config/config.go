@@ -4,17 +4,8 @@
 package config
 
 import (
-	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"flag"
-	"fmt"
-	"io/ioutil"
-	"net/http"
-	"regexp"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth/jwt"
@@ -30,7 +21,6 @@ const (
 var (
 	configFilePath = ""
 	log            = logf.Log.WithName("config")
-	minVersion     = [3]int64{3, 2, 0}
 	tokenProvider  auth.TokenProvider
 )
 
@@ -148,27 +138,20 @@ func (operatorConfig *NSXOperatorConfig) validate() error {
 		return err
 	}
 	// TODO, verify if user&pwd, cert, jwt has any of them provided
-
-	return operatorConfig.validateVersion()
+	return nil
 }
 
+// it's not thread safe
 func (operatorConfig *NSXOperatorConfig) GetTokenProvider() auth.TokenProvider {
+	if tokenProvider == nil {
+		operatorConfig.createTokenProvider()
+	}
 	return tokenProvider
 }
 
-func (operatorConfig *NSXOperatorConfig) validateVersion() error {
-	nsxVersion := &NsxVersion{}
-	host := operatorConfig.NsxApiManagers[0]
+func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
 	if err := operatorConfig.VCConfig.validate(); err == nil {
 		tokenProvider, _ = jwt.NewTokenProvider(operatorConfig.VCEndPoint, operatorConfig.HttpsPort, operatorConfig.SsoDomain, nil)
-	} else {
-		tokenProvider = nil
-	}
-	if err := nsxVersion.getVersion(host, operatorConfig.NsxApiUser, operatorConfig.NsxApiPassword, tokenProvider); err != nil {
-		return err
-	}
-	if err := nsxVersion.validate(); err != nil {
-		return err
 	}
 	return nil
 }
@@ -176,19 +159,19 @@ func (operatorConfig *NSXOperatorConfig) validateVersion() error {
 func (vcConfig *VCConfig) validate() error {
 	if len(vcConfig.VCEndPoint) == 0 {
 		err := errors.New("invalid field " + "VcEndPoint")
-		log.Error(err, "validate VcConfig failed", "VcEndPoint", vcConfig.VCEndPoint)
+		log.Info("validate VcConfig failed", "VcEndPoint", vcConfig.VCEndPoint)
 		return err
 	}
 
 	if len(vcConfig.SsoDomain) == 0 {
 		err := errors.New("invalid field " + "SsoDomain")
-		log.Error(err, "validate VcConfig failed", "SsoDomain", vcConfig.SsoDomain)
+		log.Info("validate VcConfig failed", "SsoDomain", vcConfig.SsoDomain)
 		return err
 	}
 
 	if vcConfig.HttpsPort == 0 {
 		err := errors.New("invalid field " + "HttpsPort")
-		log.Error(err, "validate VcConfig failed", "HttpsPort", vcConfig.HttpsPort)
+		log.Info("validate VcConfig failed", "HttpsPort", vcConfig.HttpsPort)
 		return err
 	}
 	return nil
@@ -222,102 +205,6 @@ func (coeConfig *CoeConfig) validate() error {
 	if len(coeConfig.Cluster) == 0 {
 		err := errors.New("invalid field " + "Cluster")
 		log.Error(err, "validate coeConfig failed")
-		return err
-	}
-	return nil
-}
-
-func (nsxVersion *NsxVersion) validate() error {
-	re, _ := regexp.Compile(`^([\d]+).([\d]+).([\d]+)`)
-	result := re.Find([]byte(nsxVersion.NodeVersion))
-	if len(result) < 1 {
-		err := errors.New("error version format")
-		log.Error(err, "version", nsxVersion.NodeVersion)
-		return err
-	}
-	if !nsxVersion.featureSupported() {
-		version := fmt.Sprintf("%d.%d.%d", minVersion[0], minVersion[1], minVersion[2])
-		err := errors.New("nsxt version " + nsxVersion.NodeVersion + " is old this feature needs version " + version)
-		log.Error(err, "validate NsxVersion failed")
-		return err
-	}
-	return nil
-}
-
-func (nsxVersion *NsxVersion) featureSupported() bool {
-	// only compared major.minor.patch
-	// NodeVersion should have at least three sections
-	// each section only have digital value
-	buff := strings.Split(nsxVersion.NodeVersion, ".")
-	sections := make([]int64, len(buff))
-	for i, str := range buff {
-		val, err := strconv.ParseInt(str, 10, 64)
-		if err != nil {
-			log.Error(err, "parse version error")
-			return false
-		}
-		sections[i] = val
-	}
-
-	for i := 0; i < 3; i++ {
-		if sections[i] > minVersion[i] {
-			return true
-		}
-		if sections[i] < minVersion[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func (nsxVersion *NsxVersion) getVersion(host string, userName string, password string, tokenProvider auth.TokenProvider) error {
-	tlsConfig := tls.Config{InsecureSkipVerify: true}
-	tr := &http.Transport{
-		TLSClientConfig: &tlsConfig,
-		IdleConnTimeout: 60 * time.Second,
-	}
-	client := http.Client{
-		Transport: tr,
-		Timeout:   60 * time.Second,
-	}
-	if !strings.HasPrefix(host, "http") {
-		host = "https://" + host
-	}
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/v1/node/version", host), nil)
-	if err != nil {
-		log.Error(err, "failed to create http request")
-		return err
-	}
-	if tokenProvider != nil {
-		token, err := tokenProvider.GetToken(false)
-		if err != nil {
-			log.Error(err, "retrieving JSON Web Token eror")
-			return err
-		}
-		bearerToken := tokenProvider.HeaderValue(token)
-		req.Header.Add("Authorization", bearerToken)
-		req.Header.Add("Accept", "application/json")
-	} else {
-		req.SetBasicAuth(userName, password)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Error(err, "failed to get nsx version")
-		return err
-	}
-	if !(resp.StatusCode == 200 || resp.StatusCode == 201) {
-		err := errors.New("get version failed")
-		log.Error(err, "get nsx version", "status code", resp.StatusCode)
-		return err
-	}
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil || body == nil {
-		log.Error(err, "failed to read response body")
-		return err
-	}
-
-	if err := json.Unmarshal(body, nsxVersion); err != nil {
-		log.Error(err, "failed to convert HTTP response to NsxVersion")
 		return err
 	}
 	return nil

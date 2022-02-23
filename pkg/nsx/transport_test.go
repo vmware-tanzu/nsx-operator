@@ -31,13 +31,27 @@ func TestRoundTripRetry(t *testing.T) {
 		"healthy" : true,
 		"components_health" : "POLICY:UP, SEARCH:UP, MANAGER:UP, NODE_MGMT:UP, UI:UP"
 	}`
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+	statusCode := 403
+	time := 0
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Index(r.URL.Path, "reverse-proxy/node/health") > 1 || strings.Index(r.URL.Path, "api/session/create") > 1 {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(healthresult))
 		} else {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(result))
+			time += 1
+			if time == 2 {
+				w.WriteHeader(statusCode)
+				w.Write([]byte(result))
+			} else {
+				if time > 3 {
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(healthresult))
+				} else {
+					w.WriteHeader(http.StatusInternalServerError)
+					w.Write([]byte(result))
+				}
+			}
 		}
 	}))
 	defer ts.Close()
@@ -61,7 +75,7 @@ func TestSelectEndpoint(t *testing.T) {
 	a := "127.0.0.1, 127.0.0.2, 127.0.0.3"
 	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster := &Cluster{}
-	tr := cluster.createTransport(config.TokenProvider, idleConnTimeout)
+	tr := cluster.createTransport(idleConnTimeout)
 	client := cluster.createHTTPClient(tr, timeout)
 	noBClient := cluster.createNoBalancerClient(timeout, idleConnTimeout)
 	r := ratelimiter.NewRateLimiter(config.APIRateMode)
@@ -118,10 +132,9 @@ func TestTransport_RoundTrip(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tr := &Transport{
-				Base:          tt.fields.Base,
-				endpoints:     tt.fields.endpoints,
-				tokenProvider: tt.fields.tokenProvider,
-				config:        tt.fields.config,
+				Base:      tt.fields.Base,
+				endpoints: tt.fields.endpoints,
+				config:    tt.fields.config,
 			}
 			got, err := tr.RoundTrip(tt.args.r)
 			if (err != nil) != tt.wantErr {
@@ -139,7 +152,7 @@ func Test_handleRoundTripError(t *testing.T) {
 	a := "127.0.0.1, 127.0.0.2, 127.0.0.3"
 	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster := &Cluster{}
-	tr := cluster.createTransport(config.TokenProvider, idleConnTimeout)
+	tr := cluster.createTransport(idleConnTimeout)
 	client := cluster.createHTTPClient(tr, timeout)
 	noBClient := cluster.createNoBalancerClient(timeout, idleConnTimeout)
 	r := ratelimiter.NewRateLimiter(config.APIRateMode)
@@ -151,37 +164,6 @@ func Test_handleRoundTripError(t *testing.T) {
 	assert.NotNil(t, handleRoundTripError(err, eps[1]))
 	err = errors.New("others")
 	assert.NotNil(t, handleRoundTripError(err, eps[2]))
-}
-
-func TestTransport_updateAuthInfo(t *testing.T) {
-	type fields struct {
-		Base          http.RoundTripper
-		endpoints     []*Endpoint
-		tokenProvider auth.TokenProvider
-		config        *Config
-	}
-	type args struct {
-		r  *http.Request
-		ep *Endpoint
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tr := &Transport{
-				Base:          tt.fields.Base,
-				endpoints:     tt.fields.endpoints,
-				tokenProvider: tt.fields.tokenProvider,
-				config:        tt.fields.config,
-			}
-			tr.updateAuthInfo(tt.args.r, tt.args.ep)
-		})
-	}
 }
 
 func TestTransport_base(t *testing.T) {
@@ -201,10 +183,9 @@ func TestTransport_base(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tr := &Transport{
-				Base:          tt.fields.Base,
-				endpoints:     tt.fields.endpoints,
-				tokenProvider: tt.fields.tokenProvider,
-				config:        tt.fields.config,
+				Base:      tt.fields.Base,
+				endpoints: tt.fields.endpoints,
+				config:    tt.fields.config,
 			}
 			if got := tr.base(); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Transport.base() = %v, want %v", got, tt.want)
@@ -231,10 +212,9 @@ func TestTransport_selectEndpoint(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tr := &Transport{
-				Base:          tt.fields.Base,
-				endpoints:     tt.fields.endpoints,
-				tokenProvider: tt.fields.tokenProvider,
-				config:        tt.fields.config,
+				Base:      tt.fields.Base,
+				endpoints: tt.fields.endpoints,
+				config:    tt.fields.config,
 			}
 			got, err := tr.selectEndpoint()
 			if (err != nil) != tt.wantErr {
