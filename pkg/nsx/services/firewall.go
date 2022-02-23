@@ -478,6 +478,20 @@ func (service *SecurityPolicyService) validateSelectorOpIn(matchExpressions []me
 	return mexprInValueCount, err
 }
 
+func (service *SecurityPolicyService) validateNsSelectorOpNotIn(nsMatchExpressions []metav1.LabelSelectorRequirement) error {
+	var err error = nil
+	var errorMsg string = ""
+
+	for _, expr := range nsMatchExpressions {
+		if expr.Operator == metav1.LabelSelectorOpNotIn {
+			errorMsg = "operator 'NotIn' for NamespaceSelector is not supported in NSX-T since its member type is Segment"
+			err = errors.New(errorMsg)
+			break
+		}
+	}
+	return err
+}
+
 func (service *SecurityPolicyService) validateSelectorExpressions(matchLabelsCount int,
 	matchExpressionsCount int, opInValueCount int, mixedCriteria bool) (int, int, error) {
 	var err error = nil
@@ -1035,7 +1049,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 	if peer.NamespaceSelector != nil {
 		if !mixedNsSelector {
 			if peer.NamespaceSelector.Size() == 0 {
-				// Since expressions list in model.Group must follow criteria from NSXT:
+				// Since expressions list in model.Group must follow criteria from NSX-T:
 				// 1. A non-empty expression list, must be of odd size
 				// 2. An expression list size is equal to or greater than 3
 				// 3. In a list, with indices starting from 0, all non-conjunction expressions must be at even indices
@@ -1061,6 +1075,12 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 			memberType = "Segment"
 			nsMatchLabels := peer.NamespaceSelector.MatchLabels
 			nsMatchExpressions := &peer.NamespaceSelector.MatchExpressions
+
+			err = service.validateNsSelectorOpNotIn(*nsMatchExpressions)
+			if err != nil {
+				log.Error(err, "validate operator 'NotIn' for NamespaceSelector failed")
+				return 0, 0, err
+			}
 
 			// Validate expressions for POD/VM Selectors
 			mergedMatchExpressions = service.mergeSelectorMatchExpression(*matchExpressions)
@@ -1104,6 +1124,14 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 			service.updateExpressionsMatchLables(matchLabels, memberType, expressions)
 
 			if matchExpressions != nil {
+				if peer.NamespaceSelector != nil {
+					err = service.validateNsSelectorOpNotIn(*matchExpressions)
+					if err != nil {
+						log.Error(err, "validate operator 'NotIn' for NamespaceSelector failed")
+						return 0, 0, err
+					}
+				}
+
 				mergedMatchExpressions = service.mergeSelectorMatchExpression(*matchExpressions)
 				matchExpressionsCount = len(*mergedMatchExpressions)
 				opInValueCount, err = service.validateSelectorOpIn(*mergedMatchExpressions)

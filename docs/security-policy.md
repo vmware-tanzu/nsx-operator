@@ -39,6 +39,10 @@ spec:
     - vmSelector:
         matchLabels:
           role: db
+        matchExpressions:
+          - {key: k1, operator: In, values: [a1,a2]}
+          - {key: k2, operator: NotIn, values: [a3,a4]}
+ 
   rules:
     - direction: in
       action: allow
@@ -46,9 +50,15 @@ spec:
         - namespaceSelector:
             matchLabels:
               role: control
+            matchExpressions:
+              - {key: k3, operator: Exists}
+
         - podSelector:
             matchLabels:
               role: frontend
+            matchExpressions:
+            - {key: k4, operator: DoesNotExist}
+
       ports:
         - protocol: TCP
           port: 8000
@@ -61,6 +71,12 @@ spec:
       ports:
         - protocol: UDP
           port: 53
+
+      appliedTo:
+        - vmSelector:
+            matchLabels:
+              user: internal
+
     - direction: in
       action: drop
     - direction: out
@@ -110,3 +126,18 @@ particular Namespaces.
 
 **status**: shows CR realization state. If there is any error during realization,
 nsx-operator will also update status with error message.
+
+## Note:
+There are certain limitations for generating SecurityPolicy CR NSGroup Criteria, including:
+policy 'appliedTo' group, sources group, destinations group and rule level 'appliedTo' group.
+Limitations of SecurityPolicy CR:
+1. NSX-T version >= 3.2.0 (for mixed criterion)
+2. Max criteria in one NSGroup: 5
+3. Max conditions with the mixed member type in single criterion: 15
+4. Total of 35 conditions in one NSGroup criteria.
+5. Operator 'NotIn' in matchexpression for namespaceSelector is not supported, since its member type is segment
+6. In one NSGroup group, supports only one 'In' with at most of five values in MatchExpressions,
+   given NSX-T does not support 'In' in NSGroup condition, so we use a workaround to support 'In' with limited counts.
+7. Max IP elements in one security policy: 4000
+8. Priority range of SecurityPolicy CR is [0, 1000].
+9. Do not support named port.
