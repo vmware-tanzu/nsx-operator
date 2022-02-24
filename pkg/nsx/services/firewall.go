@@ -976,6 +976,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 	if peer.PodSelector == nil && peer.VMSelector == nil && peer.NamespaceSelector != nil && peer.NamespaceSelector.Size() > 0 {
 		clusterMemberType = "SegmentPort"
 	}
+
 	clusterExpression := service.buildExpression(
 		"Condition", clusterMemberType,
 		fmt.Sprintf("%s|%s", util.TagScopeNCPCluster, service.getCluster()),
@@ -1033,13 +1034,29 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 	}
 	if peer.NamespaceSelector != nil {
 		if !mixedNsSelector {
-			tagValueExpression = nil
-			memberType = "Segment"
-			matchLabels = peer.NamespaceSelector.MatchLabels
-			matchExpressions = &peer.NamespaceSelector.MatchExpressions
-			matchLabelsCount = len(matchLabels)
-			// NamespaceSelector has one more built-in labels
-			matchLabelsCount += ClusterTagCount
+			if peer.NamespaceSelector.Size() == 0 {
+				// Since expressions list in model.Group must follow criteria from NSXT:
+				// 1. A non-empty expression list, must be of odd size
+				// 2. An expression list size is equal to or greater than 3
+				// 3. In a list, with indices starting from 0, all non-conjunction expressions must be at even indices
+				// Hence, add one more SegmentPort member condition to meet the criteria aforementioned
+				service.addOperatorIfNeeded(expressions, "AND")
+				clusterSegPortExpression := service.buildExpression(
+					"Condition", "SegmentPort",
+					fmt.Sprintf("%s|%s", util.TagScopeNCPCluster, service.getCluster()),
+					"Tag", "EQUALS", "EQUALS",
+				)
+				expressions.Add(clusterSegPortExpression)
+				matchLabelsCount = ClusterTagCount + 1
+				matchExpressionsCount = 0
+			} else {
+				tagValueExpression = nil
+				memberType = "Segment"
+				matchLabels = peer.NamespaceSelector.MatchLabels
+				matchExpressions = &peer.NamespaceSelector.MatchExpressions
+				// NamespaceSelector has one more built-in labels
+				matchLabelsCount = len(matchLabels) + ClusterTagCount
+			}
 		} else { // Handle PodSelector or VMSelector mixed with NamespaceSelector
 			memberType = "Segment"
 			nsMatchLabels := peer.NamespaceSelector.MatchLabels

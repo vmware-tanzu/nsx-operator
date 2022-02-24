@@ -93,22 +93,32 @@ func (cluster *Cluster) NewRestConnector() (*policyclient.RestConnector, *Header
 	return connector, header
 }
 
-func (cluster *Cluster) createTransport(tokenProvider auth.TokenProvider, idle time.Duration) *Transport {
-	dial := func(network, addr string) (net.Conn, error) {
-		host := strings.Split(addr, ":")[0]
-		var thumbprint string
-		tpCount := len(cluster.config.Thumbprint)
-		if tpCount == 1 {
-			thumbprint = cluster.config.Thumbprint[0]
-		}
-		if tpCount > 1 {
-			for index, ep := range cluster.endpoints {
-				if ep.Host() == host {
-					thumbprint = cluster.config.Thumbprint[index]
-					break
-				}
+func (cluster *Cluster) getThumbprint(addr string) string {
+	host := addr[:strings.Index(addr, ":")]
+	var thumbprint string
+	tpCount := len(cluster.config.Thumbprint)
+	if tpCount == 1 {
+		thumbprint = cluster.config.Thumbprint[0]
+	}
+	if tpCount > 1 {
+		for index, ep := range cluster.endpoints {
+			epHost := ep.Host()
+			if pos := strings.Index(ep.Host(), ":"); pos > 0 {
+				epHost = epHost[:pos]
+			}
+			if epHost == host {
+				thumbprint = cluster.config.Thumbprint[index]
+				break
 			}
 		}
+	}
+	return thumbprint
+}
+
+func (cluster *Cluster) createTransport(tokenProvider auth.TokenProvider, idle time.Duration) *Transport {
+	dial := func(network, addr string) (net.Conn, error) {
+		thumbprint := cluster.getThumbprint(addr)
+		tpCount := len(cluster.config.Thumbprint)
 		config := &tls.Config{
 			InsecureSkipVerify: true,
 			VerifyConnection: func(cs tls.ConnectionState) error {
