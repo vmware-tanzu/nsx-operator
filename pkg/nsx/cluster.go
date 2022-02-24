@@ -17,10 +17,11 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/security"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/core"
 	policyclient "github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 )
 
 // ClusterHealth indicates cluster status.

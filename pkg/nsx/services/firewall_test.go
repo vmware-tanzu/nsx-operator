@@ -8,15 +8,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -69,7 +70,7 @@ var (
 							{
 								Key:      "k1",
 								Operator: metav1.LabelSelectorOpIn,
-								Values:   []string{
+								Values: []string{
 									"a1",
 									"a2",
 								},
@@ -77,7 +78,7 @@ var (
 							{
 								Key:      "k2",
 								Operator: metav1.LabelSelectorOpNotIn,
-								Values:   []string{
+								Values: []string{
 									"a2",
 									"a3",
 								},
@@ -85,7 +86,7 @@ var (
 							{
 								Key:      "k2",
 								Operator: metav1.LabelSelectorOpNotIn,
-								Values:   []string{
+								Values: []string{
 									"a3",
 									"a4",
 								},
@@ -272,7 +273,7 @@ func TestBuildTargetTags(t *testing.T) {
 							{
 								Key:      "k1",
 								Operator: metav1.LabelSelectorOpIn,
-								Values:   []string{
+								Values: []string{
 									"a1",
 									"a2",
 								},
@@ -444,7 +445,7 @@ func TestMergeSelectorMatchExpression(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values:   []string{
+			Values: []string{
 				"a1",
 				"a2",
 			},
@@ -452,7 +453,7 @@ func TestMergeSelectorMatchExpression(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values:   []string{
+			Values: []string{
 				"a2",
 				"a3",
 			},
@@ -471,7 +472,7 @@ func TestMergeSelectorMatchExpression(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpNotIn,
-			Values:   []string{
+			Values: []string{
 				"a1",
 				"a2",
 			},
@@ -479,7 +480,7 @@ func TestMergeSelectorMatchExpression(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values:   []string{
+			Values: []string{
 				"a2",
 				"a3",
 			},
@@ -503,7 +504,7 @@ func TestUpdateExpressionsMatchExpression(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values:   []string{
+			Values: []string{
 				"a1",
 				"a2",
 			},
@@ -511,7 +512,7 @@ func TestUpdateExpressionsMatchExpression(t *testing.T) {
 		{
 			Key:      "k2",
 			Operator: metav1.LabelSelectorOpNotIn,
-			Values:   []string{
+			Values: []string{
 				"a2",
 				"a3",
 			},
@@ -580,7 +581,7 @@ func TestValidateSelectorOpIn(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values:   []string{
+			Values: []string{
 				"a1",
 				"a2",
 			},
@@ -588,7 +589,7 @@ func TestValidateSelectorOpIn(t *testing.T) {
 		{
 			Key:      "k2",
 			Operator: metav1.LabelSelectorOpNotIn,
-			Values:   []string{
+			Values: []string{
 				"a2",
 				"a3",
 			},
@@ -639,7 +640,7 @@ func TestUpdateMixedExpressionsMatchExpression(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values:   []string{
+			Values: []string{
 				"a1",
 				"a2",
 			},
@@ -647,7 +648,7 @@ func TestUpdateMixedExpressionsMatchExpression(t *testing.T) {
 		{
 			Key:      "k2",
 			Operator: metav1.LabelSelectorOpNotIn,
-			Values:   []string{
+			Values: []string{
 				"a2",
 				"a3",
 			},
@@ -666,7 +667,7 @@ func TestUpdateMixedExpressionsMatchExpression(t *testing.T) {
 		{
 			Key:      "k2",
 			Operator: metav1.LabelSelectorOpNotIn,
-			Values:   []string{
+			Values: []string{
 				"a2",
 				"a3",
 			},
