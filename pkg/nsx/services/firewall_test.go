@@ -10,7 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
@@ -21,8 +23,10 @@ import (
 )
 
 var (
-	allowAction = v1alpha1.RuleActionAllow
-	directionIn = v1alpha1.RuleDirectionIn
+	allowAction  = v1alpha1.RuleActionAllow
+	allowDrop    = v1alpha1.RuleActionDrop
+	directionIn  = v1alpha1.RuleDirectionIn
+	directionOut = v1alpha1.RuleDirectionOut
 
 	tagScopeGroupType = util.TagScopeGroupType
 
@@ -38,18 +42,77 @@ var (
 	spID2                        = "sp_uidB"
 	spGroupID                    = "sp_uidA_scope"
 	seq0                         = int64(0)
+	seq1                         = int64(1)
+	seq2                         = int64(2)
 	ruleNameWithPodSelector      = "rule-with-pod-selector"
 	ruleNameWithVMSelector       = "rule-with-VM-selector"
+	ruleNameWithNsSelector       = "rule-with-ns-selector"
+	ruleNameWithIpBlock          = "rule-with-ip-block"
+	cidr                         = "192.168.1.1/24"
 	ruleID0                      = "sp_uidA_0"
+	ruleID1                      = "sp_uidA_1"
+	ruleID2                      = "sp_uidA_2"
 	nsxDirectionIn               = "IN"
 	nsxActionAllow               = "ALLOW"
+	nsxDirectionOut              = "OUT"
+	nsxActionDrop                = "DROP"
 	cluster                      = "k8scl-one"
 	tagValueScope                = "scope"
 	tagValueNS                   = "ns1"
 	tagValuePolicyCRName         = "spA"
 	tagValuePolicyCRUID          = "uidA"
 	tagValuePodSelectorHash      = "a42321575d78a6c340c6963c7a82c86c7217f847"
+	tagValueRuleSrcHash          = "52ec44a8f417d08f05720333292c24acfb108dab"
 	timeStamp                    = int64(1641892699021)
+
+	podSelectorMatchExpression = []metav1.LabelSelectorRequirement{
+		{
+			Key:      "k1",
+			Operator: metav1.LabelSelectorOpIn,
+			Values:   []string{
+				"a1",
+				"a2",
+			},
+		},
+		{
+			Key:      "k2",
+			Operator: metav1.LabelSelectorOpNotIn,
+			Values:   []string{
+				"a2",
+				"a3",
+			},
+		},
+		{
+			Key:      "k2",
+			Operator: metav1.LabelSelectorOpNotIn,
+			Values:   []string{
+				"a3",
+				"a4",
+			},
+		},
+	}
+
+	vmSelectorMatchExpression = []metav1.LabelSelectorRequirement{
+		{
+			Key:      "k3",
+			Operator: metav1.LabelSelectorOpDoesNotExist,
+		},
+		{
+			Key:      "k4",
+			Operator: metav1.LabelSelectorOpExists,
+		},
+	}
+
+	nsSelectorMatchExpression = []metav1.LabelSelectorRequirement{
+		{
+			Key:      "k5",
+			Operator: metav1.LabelSelectorOpDoesNotExist,
+		},
+		{
+			Key:      "k6",
+			Operator: metav1.LabelSelectorOpExists,
+		},
+	}
 
 	service = &SecurityPolicyService{
 		NSXConfig: &config.NSXOperatorConfig{
@@ -65,33 +128,8 @@ var (
 			AppliedTo: []v1alpha1.SecurityPolicyTarget{
 				{
 					PodSelector: &metav1.LabelSelector{
-						MatchLabels: map[string]string{"pod_selector_1": "pod_value_1"},
-						MatchExpressions: []metav1.LabelSelectorRequirement{
-							{
-								Key:      "k1",
-								Operator: metav1.LabelSelectorOpIn,
-								Values: []string{
-									"a1",
-									"a2",
-								},
-							},
-							{
-								Key:      "k2",
-								Operator: metav1.LabelSelectorOpNotIn,
-								Values: []string{
-									"a2",
-									"a3",
-								},
-							},
-							{
-								Key:      "k2",
-								Operator: metav1.LabelSelectorOpNotIn,
-								Values: []string{
-									"a3",
-									"a4",
-								},
-							},
-						},
+						MatchLabels:      map[string]string{"pod_selector_1": "pod_value_1"},
+						MatchExpressions: podSelectorMatchExpression,
 					},
 				},
 			},
@@ -100,6 +138,45 @@ var (
 					Action:    &allowAction,
 					Direction: &directionIn,
 					Name:      "rule-with-pod-selector",
+					AppliedTo: []v1alpha1.SecurityPolicyTarget{
+						{
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels:      map[string]string{"pod_selector_1": "pod_value_1"},
+								MatchExpressions: podSelectorMatchExpression,
+							},
+						},
+					},
+					Sources: []v1alpha1.SecurityPolicyPeer{
+						{
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels:      map[string]string{"pod_selector_1": "pod_value_1"},
+								MatchExpressions: podSelectorMatchExpression,
+							},
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels:      map[string]string{"ns1": "spA"},
+								MatchExpressions: nsSelectorMatchExpression,
+							},
+						},
+					},
+				},
+				{
+					Action:    &allowAction,
+					Direction: &directionIn,
+					Name:      "rule-with-ns-selector",
+					Ports: []v1alpha1.SecurityPolicyPort{
+						{
+							Protocol: corev1.ProtocolUDP,
+							Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 53},
+						},
+					},
+					Sources: []v1alpha1.SecurityPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels:      map[string]string{"ns1": "spA"},
+								MatchExpressions: nsSelectorMatchExpression,
+							},
+						},
+					},
 				},
 			},
 			Priority: 0,
@@ -112,25 +189,56 @@ var (
 			AppliedTo: []v1alpha1.SecurityPolicyTarget{
 				{
 					VMSelector: &metav1.LabelSelector{
-						MatchLabels: map[string]string{"VM_selector_1": "VM_value_1"},
-						MatchExpressions: []metav1.LabelSelectorRequirement{
-							{
-								Key:      "k3",
-								Operator: metav1.LabelSelectorOpDoesNotExist,
-							},
-							{
-								Key:      "k4",
-								Operator: metav1.LabelSelectorOpExists,
-							},
-						},
+						MatchLabels:      map[string]string{"VM_selector_1": "VM_value_1"},
+						MatchExpressions: vmSelectorMatchExpression,
 					},
 				},
 			},
 			Rules: []v1alpha1.SecurityPolicyRule{
 				{
-					Action:    &allowAction,
-					Direction: &directionIn,
+					Action:    &allowDrop,
+					Direction: &directionOut,
 					Name:      "rule-with-VM-selector",
+					AppliedTo: []v1alpha1.SecurityPolicyTarget{
+						{
+							VMSelector: &metav1.LabelSelector{
+								MatchLabels:      map[string]string{"VM_selector_1": "VM_value_1"},
+								MatchExpressions: vmSelectorMatchExpression,
+							},
+						},
+					},
+					Destinations: []v1alpha1.SecurityPolicyPeer{
+						{
+							VMSelector: &metav1.LabelSelector{
+								MatchLabels:      map[string]string{"VM_selector_1": "VM_value_1"},
+								MatchExpressions: vmSelectorMatchExpression,
+							},
+						},
+					},
+				},
+				{
+					Action:       &allowDrop,
+					Direction:    &directionOut,
+					Name:         "rule-with-ns-selector",
+					Destinations: []v1alpha1.SecurityPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{},
+							},
+						},
+					},
+				},
+				{
+					Action:       &allowDrop,
+					Direction:    &directionOut,
+					Name:         "rule-with-ip-block",
+					Destinations: []v1alpha1.SecurityPolicyPeer{
+						{
+							IPBlocks: []v1alpha1.IPBlock{
+								{CIDR: cidr},
+							},
+						},
+					},
 				},
 			},
 			Priority: 0,
@@ -162,6 +270,20 @@ func TestGetCluster(t *testing.T) {
 }
 
 func TestBuildSecurityPolicy(t *testing.T) {
+	destinationPorts := data.NewListValue()
+	destinationPorts.Add(data.NewStringValue("53"))
+	serviceEntry := data.NewStructValue(
+		"",
+		map[string]data.DataValue{
+			"source_ports":      data.NewListValue(),
+			"destination_ports": destinationPorts,
+			"l4_protocol":       data.NewStringValue("UDP"),
+			"resource_type":     data.NewStringValue("L4PortSetServiceEntry"),
+			"marked_for_delete": data.NewBooleanValue(false),
+			"overridden":        data.NewBooleanValue(false),
+		},
+	)
+
 	tests := []struct {
 		name           string
 		inputPolicy    *v1alpha1.SecurityPolicy
@@ -181,12 +303,25 @@ func TestBuildSecurityPolicy(t *testing.T) {
 						Id:                &ruleID0,
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxDirectionIn,
-						Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_scope"},
+						Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_scope"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"ANY"},
+						SourceGroups:      []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_src"},
 						Action:            &nsxActionAllow,
 						ServiceEntries:    []*data.StructValue{},
+						Tags:              basicTags,
+					},
+					{
+						DisplayName:       &ruleNameWithNsSelector,
+						Id:                &ruleID1,
+						DestinationGroups: []string{"ANY"},
+						Direction:         &nsxDirectionIn,
+						Scope:             []string{"ANY"},
+						SequenceNumber:    &seq1,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"/infra/domains/k8scl-one/groups/sp_uidA_1_src"},
+						Action:            &nsxActionAllow,
+						ServiceEntries:    []*data.StructValue{serviceEntry},
 						Tags:              basicTags,
 					},
 				},
@@ -205,13 +340,40 @@ func TestBuildSecurityPolicy(t *testing.T) {
 					{
 						DisplayName:       &ruleNameWithVMSelector,
 						Id:                &ruleID0,
-						DestinationGroups: []string{"ANY"},
-						Direction:         &nsxDirectionIn,
-						Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_scope"},
+						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_dst"},
+						Direction:         &nsxDirectionOut,
+						Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_scope"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
-						Action:            &nsxActionAllow,
+						Action:            &nsxActionDrop,
+						ServiceEntries:    []*data.StructValue{},
+						Tags:              basicTags,
+					},
+					{
+						DisplayName:       &ruleNameWithNsSelector,
+						Id:                &ruleID1,
+						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidA_1_dst"},
+						Direction:         &nsxDirectionOut,
+						Scope:             []string{"ANY"},
+						SequenceNumber:    &seq1,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"ANY"},
+						Action:            &nsxActionDrop,
+						ServiceEntries:    []*data.StructValue{},
+						Tags:              basicTags,
+					},
+
+					{
+						DisplayName:       &ruleNameWithIpBlock,
+						Id:                &ruleID2,
+						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidA_2_dst"},
+						Direction:         &nsxDirectionOut,
+						Scope:             []string{"ANY"},
+						SequenceNumber:    &seq2,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"ANY"},
+						Action:            &nsxActionDrop,
 						ServiceEntries:    []*data.StructValue{},
 						Tags:              basicTags,
 					},
@@ -268,12 +430,12 @@ func TestBuildTargetTags(t *testing.T) {
 			inputTargets: &[]v1alpha1.SecurityPolicyTarget{
 				{
 					VMSelector: &metav1.LabelSelector{
-						MatchLabels: map[string]string{"VM_selector_1": "VM_value_1"},
+						MatchLabels:       map[string]string{"VM_selector_1": "VM_value_1"},
 						MatchExpressions: []metav1.LabelSelectorRequirement{
 							{
 								Key:      "k1",
 								Operator: metav1.LabelSelectorOpIn,
-								Values: []string{
+								Values:   []string{
 									"a1",
 									"a2",
 								},
@@ -322,6 +484,56 @@ func TestBuildTargetTags(t *testing.T) {
 	}
 }
 
+func TestBuildPeerTags(t *testing.T) {
+	tests := []struct {
+		name         string
+		inputPolicy  *v1alpha1.SecurityPolicy
+		inputIndex   int
+		expectedTags []model.Tag
+	}{
+		{
+			name:         "policy-src-peer-tags-with-pod-selector",
+			inputPolicy:  &spWithPodSelector,
+			inputIndex:   0,
+			expectedTags: []model.Tag{
+				{
+					Scope: &tagScopeGroupType,
+					Tag:   &tagValueScope,
+				},
+				{
+					Scope: &tagScopeRuleID,
+					Tag:   &ruleID0,
+				},
+				{
+					Scope: &tagScopeSelectorHash,
+					Tag:   &tagValueRuleSrcHash,
+				},
+				{
+					Scope: &tagScopeCluster,
+					Tag:   &cluster,
+				},
+				{
+					Scope: &tagScopeNamespace,
+					Tag:   &tagValueNS,
+				},
+				{
+					Scope: &tagScopeSecurityPolicyCRName,
+					Tag:   &tagValuePolicyCRName,
+				},
+				{
+					Scope: &tagScopeSecurityPolicyCRUID,
+					Tag:   &tagValuePolicyCRUID,
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedTags, service.buildPeerTags(tt.inputPolicy, &tt.inputPolicy.Spec.Rules[0].Sources, tt.inputIndex))
+		})
+	}
+}
+
 func TestSecurityPolicyEqual(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -330,7 +542,7 @@ func TestSecurityPolicyEqual(t *testing.T) {
 		expectedResult bool
 	}{
 		{
-			name: "security-policy-without-addtional-properties-true",
+			name: "security-policy-without-additional-properties-true",
 			inputPolicy1: &model.SecurityPolicy{
 				Id: &spID,
 			},
@@ -340,7 +552,7 @@ func TestSecurityPolicyEqual(t *testing.T) {
 			expectedResult: true,
 		},
 		{
-			name: "security-policy-without-addtional-properties-false",
+			name: "security-policy-without-additional-properties-false",
 			inputPolicy1: &model.SecurityPolicy{
 				Id: &spID,
 			},
@@ -350,7 +562,7 @@ func TestSecurityPolicyEqual(t *testing.T) {
 			expectedResult: false,
 		},
 		{
-			name: "security-policy-with-addtional-properties",
+			name: "security-policy-with-additional-properties",
 			inputPolicy1: &model.SecurityPolicy{
 				Id:               &spID,
 				LastModifiedTime: &timeStamp,
@@ -364,6 +576,125 @@ func TestSecurityPolicyEqual(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.expectedResult, service.securityPolicyEqual(tt.inputPolicy1, tt.inputPolicy2))
+		},
+		)
+	}
+}
+
+func TestRulesEqual(t *testing.T) {
+	tests := []struct {
+		name           string
+		inputRule1     []model.Rule
+		inputRule2     []model.Rule
+		expectedResult bool
+	}{
+		{
+			name: "rule-without-additional-properties-true",
+			inputRule1: []model.Rule{
+				{
+					Id: &ruleID0,
+				},
+			},
+			inputRule2: []model.Rule{
+				{
+					Id: &ruleID0,
+				},
+			},
+			expectedResult: true,
+		},
+		{
+			name: "rule-without-additional-properties-false",
+			inputRule1: []model.Rule{
+				{
+					Id: &ruleID0,
+				},
+			},
+			inputRule2: []model.Rule{
+				{
+					Id: &ruleID1,
+				},
+			},
+			expectedResult: false,
+		},
+		{
+			name: "rule-with-additional-properties",
+			inputRule1: []model.Rule{
+				{
+					Id:               &ruleID0,
+					LastModifiedTime: &timeStamp,
+				},
+			},
+			inputRule2: []model.Rule{
+				{
+					Id: &ruleID0,
+				},
+			},
+			expectedResult: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedResult, service.rulesEqual(tt.inputRule1, tt.inputRule2))
+		},
+		)
+	}
+}
+
+func TestGroupsEqual(t *testing.T) {
+	spNewGroupID := "spNewGroupID"
+	tests := []struct {
+		name           string
+		inputGroup1    []model.Group
+		inputGroup2    []model.Group
+		expectedResult bool
+	}{
+		{
+			name: "group-without-additional-properties-true",
+			inputGroup1: []model.Group{
+				{
+					Id: &spGroupID,
+				},
+			},
+			inputGroup2: []model.Group{
+				{
+					Id: &spGroupID,
+				},
+			},
+			expectedResult: true,
+		},
+		{
+			name: "group-without-additional-properties-false",
+			inputGroup1: []model.Group{
+				{
+					Id: &spGroupID,
+				},
+			},
+			inputGroup2: []model.Group{
+				{
+					Id: &spNewGroupID,
+				},
+			},
+			expectedResult: false,
+		},
+		{
+			name: "group-with-additional-properties",
+			inputGroup1: []model.Group{
+				{
+					Id:               &spGroupID,
+					LastModifiedTime: &timeStamp,
+				},
+			},
+			inputGroup2: []model.Group{
+				{
+					Id: &spGroupID,
+				},
+			},
+			expectedResult: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedResult, service.groupsEqual(tt.inputGroup1, tt.inputGroup2))
 		},
 		)
 	}
@@ -445,7 +776,7 @@ func TestMergeSelectorMatchExpression(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values: []string{
+			Values:   []string{
 				"a1",
 				"a2",
 			},
@@ -453,7 +784,7 @@ func TestMergeSelectorMatchExpression(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values: []string{
+			Values:   []string{
 				"a2",
 				"a3",
 			},
@@ -472,7 +803,7 @@ func TestMergeSelectorMatchExpression(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpNotIn,
-			Values: []string{
+			Values:   []string{
 				"a1",
 				"a2",
 			},
@@ -480,7 +811,7 @@ func TestMergeSelectorMatchExpression(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values: []string{
+			Values:   []string{
 				"a2",
 				"a3",
 			},
@@ -504,7 +835,7 @@ func TestUpdateExpressionsMatchExpression(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values: []string{
+			Values:   []string{
 				"a1",
 				"a2",
 			},
@@ -512,7 +843,7 @@ func TestUpdateExpressionsMatchExpression(t *testing.T) {
 		{
 			Key:      "k2",
 			Operator: metav1.LabelSelectorOpNotIn,
-			Values: []string{
+			Values:   []string{
 				"a2",
 				"a3",
 			},
@@ -581,7 +912,7 @@ func TestValidateSelectorOpIn(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values: []string{
+			Values:   []string{
 				"a1",
 				"a2",
 			},
@@ -589,7 +920,7 @@ func TestValidateSelectorOpIn(t *testing.T) {
 		{
 			Key:      "k2",
 			Operator: metav1.LabelSelectorOpNotIn,
-			Values: []string{
+			Values:   []string{
 				"a2",
 				"a3",
 			},
@@ -640,7 +971,7 @@ func TestUpdateMixedExpressionsMatchExpression(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values: []string{
+			Values:   []string{
 				"a1",
 				"a2",
 			},
@@ -648,7 +979,7 @@ func TestUpdateMixedExpressionsMatchExpression(t *testing.T) {
 		{
 			Key:      "k2",
 			Operator: metav1.LabelSelectorOpNotIn,
-			Values: []string{
+			Values:   []string{
 				"a2",
 				"a3",
 			},
@@ -667,7 +998,7 @@ func TestUpdateMixedExpressionsMatchExpression(t *testing.T) {
 		{
 			Key:      "k2",
 			Operator: metav1.LabelSelectorOpNotIn,
-			Values: []string{
+			Values:   []string{
 				"a2",
 				"a3",
 			},
