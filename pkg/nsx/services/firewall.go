@@ -308,10 +308,10 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 		if matchExpressions != nil {
 			mergedMatchExpressions = service.mergeSelectorMatchExpression(*matchExpressions)
 			matchExpressionsCount = len(*mergedMatchExpressions)
-			opInValueCount, err = service.validateSelectorOpIn(*mergedMatchExpressions)
+			opInValueCount, err = service.validateSelectorOpIn(*mergedMatchExpressions, matchLabels)
 
 			if err != nil {
-				log.Error(err, "validate operator 'IN' in label selector matchExpressions failed")
+				log.Error(err, "validate operator 'In' in label selector matchExpressions failed")
 				return 0, 0, err
 			}
 			err = service.updateExpressionsMatchExpression(*mergedMatchExpressions, matchLabels,
@@ -452,24 +452,41 @@ func (service *SecurityPolicyService) mergeSelectorMatchExpression(matchExpressi
 // Todo, refactor code when NSX support 'In' LabelSelector.
 // Given NSX currently doesn't support 'In' LabelSelector, to keep design simple,
 // only allow just one 'In' LabelSelector in matchExpressions with at most of five values in it.
-func (service *SecurityPolicyService) validateSelectorOpIn(matchExpressions []metav1.LabelSelectorRequirement) (int, error) {
+func (service *SecurityPolicyService) validateSelectorOpIn(matchExpressions []metav1.LabelSelectorRequirement,
+	matchLabels map[string]string) (int, error) {
 	var mexprInOpCount = 0
 	var mexprInValueCount = 0
 	var err error = nil
 	var errorMsg string = ""
+	var exists bool = false
+	var opInIndex int
 
-	for _, expr := range matchExpressions {
+	for i, expr := range matchExpressions {
 		if expr.Operator == metav1.LabelSelectorOpIn {
+			_, exists = matchLabels[expr.Key]
+			if exists {
+				opInIndex = i
+			}
 			mexprInOpCount++
 			mexprInValueCount += len(expr.Values)
 		}
 	}
 	if mexprInOpCount > MaxMatchExpressionInOp {
-		errorMsg = fmt.Sprintf("count of operator 'IN' expressions %d exceed limit of %d",
+		errorMsg = fmt.Sprintf("count of operator 'In' expressions %d exceed limit of %d",
 			mexprInOpCount, MaxMatchExpressionIn)
 	} else if mexprInValueCount > MaxMatchExpressionInValues {
-		errorMsg = fmt.Sprintf("count of values list for operator 'IN' expressions %d exceed limit of %d",
+		errorMsg = fmt.Sprintf("count of values list for operator 'In' expressions %d exceed limit of %d",
 			mexprInValueCount, MaxMatchExpressionInValues)
+	} else if exists {
+		// matchLabels can only be duplicated with matchExpressions operator 'In' expression
+		// Since only operator 'In' is equivalent to key-value condition
+		for _, value := range matchExpressions[opInIndex].Values {
+			if matchLabels[matchExpressions[opInIndex].Key] == value {
+				errorMsg = fmt.Sprintf("duplicate expression - %s:%s specified in both matchLabels and matchExpressions operator 'In'",
+					matchExpressions[opInIndex].Key, value)
+				break
+			}
+		}
 	}
 
 	if len(errorMsg) != 0 {
@@ -537,7 +554,7 @@ func (service *SecurityPolicyService) matchExpressionOpInExist(matchExpressions 
 	var operatorInIndex = -1
 	var isFound = false
 	for i := 0; i < len(matchExpressions); i++ {
-		// find Operator IN
+		// find operator 'In'
 		if matchExpressions[i].Operator == metav1.LabelSelectorOpIn {
 			operatorInIndex = i
 			isFound = true
@@ -548,8 +565,8 @@ func (service *SecurityPolicyService) matchExpressionOpInExist(matchExpressions 
 }
 
 // Todo, refactor code when NSX support 'In' LabelSelector.
-// Currently NSX only supports "EQUALS" but not "IN". So, we have to make each value to be AND with other expressions
-// and finally produce a union set to translate from K8s "IN" to NSX "EQUALS".
+// Currently NSX only supports 'EQUALS' not 'In'. So, we have to make each value to be AND with other expressions
+// and finally produce a union set to translate from K8s 'In' to NSX EQUALS'.
 // e.g. - {key: k1, operator: NotIn, values: [a1,a2]}
 //      - {key: k2, operator: In, values: [a3,a4]}
 // The above two expressions will be translated to:
@@ -610,7 +627,7 @@ func (service *SecurityPolicyService) updateMixedExpressionsMatchExpression(nsMa
 	portFound, opInIdx2 := service.matchExpressionOpInExist(matchExpressions)
 
 	if nsFound && portFound {
-		errorMsg := "operator 'IN' is set in both Pod/VM selector and NamespaceSelector"
+		errorMsg := "operator 'In' is set in both Pod/VM selector and NamespaceSelector"
 		err = errors.New(errorMsg)
 		return err
 	}
@@ -1084,20 +1101,20 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 
 			// Validate expressions for POD/VM Selectors
 			mergedMatchExpressions = service.mergeSelectorMatchExpression(*matchExpressions)
-			opInValueCount, err = service.validateSelectorOpIn(*mergedMatchExpressions)
+			opInValueCount, err = service.validateSelectorOpIn(*mergedMatchExpressions, matchLabels)
 
 			nsMergedMatchExpressions := service.mergeSelectorMatchExpression(*nsMatchExpressions)
-			nsOpInValCount, opErr := service.validateSelectorOpIn(*nsMergedMatchExpressions)
+			nsOpInValCount, opErr := service.validateSelectorOpIn(*nsMergedMatchExpressions, nsMatchLabels)
 
 			if err != nil || opErr != nil {
-				log.Error(err, "validate Operator 'IN' in label selector matchExpressions failed")
+				log.Error(err, "validate operator 'In' in label selector matchExpressions failed")
 				return 0, 0, err
 			}
 
 			if opInValueCount > 0 && nsOpInValCount > 0 {
-				errorMsg = "operator 'IN' is set in both Pod/VM selector and NamespaceSelector"
+				errorMsg = "operator 'In' is set in both Pod/VM selector and NamespaceSelector"
 				err = errors.New(errorMsg)
-				log.Error(err, "validate operator 'IN' in label selector matchExpressions failed")
+				log.Error(err, "validate operator 'In' in label selector matchExpressions failed")
 				return 0, 0, err
 			}
 
@@ -1134,10 +1151,10 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 
 				mergedMatchExpressions = service.mergeSelectorMatchExpression(*matchExpressions)
 				matchExpressionsCount = len(*mergedMatchExpressions)
-				opInValueCount, err = service.validateSelectorOpIn(*mergedMatchExpressions)
+				opInValueCount, err = service.validateSelectorOpIn(*mergedMatchExpressions, matchLabels)
 
 				if err != nil {
-					log.Error(err, "validate operator 'IN' in label selector matchExpressions failed")
+					log.Error(err, "validate operator 'In' in label selector matchExpressions failed")
 					return 0, 0, err
 				}
 
