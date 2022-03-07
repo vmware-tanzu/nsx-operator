@@ -4,11 +4,7 @@
 package jwt
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -73,35 +69,6 @@ func TestVCClient_NewVCClient(t *testing.T) {
 	_, err = NewVCClient(host, port, ssoDomain, userName, password, nil, true)
 	assert.True(t, strings.Contains(err.Error(), "unexpected session data"))
 
-}
-
-func TestVCClient_handleHTTPResponse(t *testing.T) {
-	response := &http.Response{}
-	response.Request = &http.Request{}
-	response.Request.URL = &url.URL{Host: "10.0.0.1"}
-	response.StatusCode = 301
-	var sessionData map[string]string
-
-	// http status code > 300
-	err := handleHTTPResponse(response, &sessionData)
-	expect := errors.New("received HTTP Error")
-	assert.Equal(t, err, expect)
-
-	// result interface is null
-	response.StatusCode = 200
-	err = handleHTTPResponse(response, nil)
-	assert.Equal(t, err, nil)
-
-	// 	response.StatusCode = 200， body content correct
-	response.Body = ioutil.NopCloser(bytes.NewReader([]byte(`{"value": "hello"}`)))
-	err = handleHTTPResponse(response, &sessionData)
-	assert.Equal(t, err, nil)
-
-	// 	response.StatusCode = 200， body content invalid
-	response.Body = ioutil.NopCloser(bytes.NewReader([]byte(`{"value": 4}`)))
-	err = handleHTTPResponse(response, &sessionData)
-	_, ok := err.(*json.UnmarshalTypeError)
-	assert.Equal(t, ok, true)
 }
 
 func TestVCClient_createHttpClient(t *testing.T) {

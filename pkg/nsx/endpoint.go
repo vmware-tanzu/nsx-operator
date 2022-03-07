@@ -4,8 +4,6 @@
 package nsx
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -108,47 +106,27 @@ type epHealthy struct {
 
 func (ep *Endpoint) keepAlive() error {
 	req, err := http.NewRequest("GET", fmt.Sprintf(healthURL, ep.Scheme(), ep.Host()), nil)
-	if ep.tokenProvider != nil {
-		err = UpdateHttpRequestAuth(ep.tokenProvider, req)
-		if err != nil {
-			log.Error(err, "keepalive request creation failed")
-			return err
-		}
-	} else {
-		log.V(1).Info("no token provider, using user/password to keep alive")
-		req.SetBasicAuth(ep.user, ep.password)
-		req.Header.Add("X-Xsrf-Token", ep.XSRFToken())
-		if err != nil {
-			log.Error(err, "keepalive request creation failed")
-			return err
-		}
+	if err != nil {
+		log.Error(err, "create keep alive request error")
 	}
-	req.Header.Add("x-xsrf-token", ep.XSRFToken())
+	err = ep.UpdateHttpRequestAuth(req)
+	if err != nil {
+		log.Error(err, "keep alive update auth error")
+	}
+
 	resp, err := ep.noBalancerClient.Do(req)
 	if err != nil {
 		log.Error(err, "failed to validate API cluster", "endpoint", ep.Host())
 		return err
 	}
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		log.Error(err, "failed to read response", "endpoint", ep.Host())
-		return err
+	var a epHealthy
+	err, body := util.HandleHTTPResponse(resp, &a, true)
+	if err == nil && a.Healthy {
+		ep.setStatus(UP)
+		return nil
 	}
-	log.V(1).Info("received HTTP response", "response", string(body))
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusOK {
-		var a epHealthy
-		if err = json.Unmarshal(body, &a); err == nil && a.Healthy {
-			ep.setStatus(UP)
-			return nil
-		}
-		ep.setStatus(DOWN)
-		log.Error(err, "failed to validate API cluster", "endpoint", ep.Host(), "healthy", a)
-		return err
-	}
-	resp.Body = ioutil.NopCloser(bytes.NewReader(body))
+	log.V(1).Info("keepAlive", "body", body)
 	err = util.InitErrorFromResponse(ep.Host(), resp.StatusCode, body)
-
 	if util.ShouldRegenerate(err) {
 		log.Error(err, "failed to validate API cluster due to an exception that calls for regeneration", "endpoint", ep.Host())
 		// TODO, should we regenerate the token here ?
@@ -269,11 +247,6 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 		return nil
 	}
 	if tokenProvider != nil {
-		_, err := tokenProvider.GetToken(true)
-		if err != nil {
-			log.Error(err, "failed to retrieve JSON Web Token for session creation", "endpoint", ep.Host())
-			return err
-		}
 		log.V(1).Info("Skipping session create with JWT based auth")
 		return nil
 	}
@@ -291,7 +264,7 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
-	log.V(1).Info("creating auth session", "endpoint", ep, "request header", req.Header)
+	log.V(1).Info("creating auth session", "endpoint", ep.Host(), "request header", req.Header)
 	resp, err := ep.noBalancerClient.Do(req)
 	if err != nil {
 		log.Error(err, "session creation failed", "endpoint", u.Host)
@@ -323,15 +296,38 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 	return nil
 }
 
-func UpdateHttpRequestAuth(tokenProvider auth.TokenProvider, request *http.Request) error {
-	token, err := tokenProvider.GetToken(false)
-	if err != nil {
-		log.Error(err, "retrieving JSON Web Token eror")
-		return err
+func (ep *Endpoint) UpdateHttpRequestAuth(request *http.Request) error {
+	if ep.tokenProvider != nil {
+		token, err := ep.tokenProvider.GetToken(false)
+		if err != nil {
+			log.Error(err, "retrieving JSON Web Token eror")
+			return err
+		}
+		bearerToken := ep.tokenProvider.HeaderValue(token)
+		request.Header.Add("Authorization", bearerToken)
+		request.Header.Add("Accept", "application/json")
+	} else {
+		xsrfToken := ep.XSRFToken()
+		if len(xsrfToken) > 0 {
+			log.V(1).Info("update cookie")
+			if request.Header.Get("Authorization") != "" {
+				request.Header.Del("Authorization")
+			}
+			request.Header.Add("X-Xsrf-Token", ep.XSRFToken())
+			url := &url.URL{Host: ep.Host()}
+			ep.Lock()
+			cookies := ep.client.Jar.Cookies(url)
+			ep.Unlock()
+			for _, cookie := range cookies {
+				if cookie == nil {
+					log.Error(errors.New("cookie is nil"), "update authentication info failed")
+				}
+				request.Header.Set("Cookie", cookie.String())
+			}
+		} else {
+			log.V(1).Info("update user/password")
+			request.SetBasicAuth(ep.user, ep.password)
+		}
 	}
-	bearerToken := tokenProvider.HeaderValue(token)
-	request.Header.Add("Authorization", bearerToken)
-	request.Header.Add("Accept", "application/json")
-	request.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	return nil
 }

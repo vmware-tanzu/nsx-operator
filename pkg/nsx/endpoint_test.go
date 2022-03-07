@@ -109,7 +109,7 @@ func TestCreateAuthSession(t *testing.T) {
 	assert := assert.New(t)
 	jar := NewJar()
 	cluster := &Cluster{}
-	tr := cluster.createTransport(nil, 10)
+	tr := cluster.createTransport(10)
 	client := cluster.createHTTPClient(tr, 30)
 	noBClient := cluster.createNoBalancerClient(90, 90)
 	rl := ratelimiter.NewFixRateLimiter(10)
@@ -166,7 +166,7 @@ func TestKeepAlive(t *testing.T) {
 	}))
 	defer ts.Close()
 	cluster := &Cluster{}
-	tr := cluster.createTransport(nil, 10)
+	tr := cluster.createTransport(10)
 	client := cluster.createHTTPClient(tr, 30)
 	noBClient := cluster.createNoBalancerClient(90, 90)
 	rl := ratelimiter.NewFixRateLimiter(10)

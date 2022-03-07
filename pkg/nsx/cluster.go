@@ -10,18 +10,19 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/security"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/core"
-	policyclient "github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+
+	policyclient "github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
 )
 
 // ClusterHealth indicates cluster status.
@@ -45,10 +46,14 @@ type Cluster struct {
 	noBalancerClient http.Client
 	sync.Mutex
 }
+type NsxVersion struct {
+	NodeVersion string `json:"node_version"`
+}
 
 var (
-	jarCache = NewJar()
-	log      = logf.Log.WithName("nsx").WithName("cluster")
+	jarCache   = NewJar()
+	nsxVersion = &NsxVersion{}
+	log        = logf.Log.WithName("nsx").WithName("cluster")
 )
 
 // NewCluster creates a cluster based on nsx Config.
@@ -56,7 +61,7 @@ func NewCluster(config *Config) (*Cluster, error) {
 	log.Info("creating cluster")
 	cluster := &Cluster{}
 	cluster.config = config
-	cluster.transport = cluster.createTransport(config.TokenProvider, time.Duration(config.ConnIdleTimeout))
+	cluster.transport = cluster.createTransport(time.Duration(config.ConnIdleTimeout))
 	cluster.client = cluster.createHTTPClient(cluster.transport, time.Duration(config.HTTPTimeout))
 	cluster.noBalancerClient = cluster.createNoBalancerClient(time.Duration(config.HTTPTimeout), time.Duration(config.ConnIdleTimeout))
 
@@ -115,7 +120,7 @@ func (cluster *Cluster) getThumbprint(addr string) string {
 	return thumbprint
 }
 
-func (cluster *Cluster) createTransport(tokenProvider auth.TokenProvider, idle time.Duration) *Transport {
+func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
 	dial := func(network, addr string) (net.Conn, error) {
 		thumbprint := cluster.getThumbprint(addr)
 		tpCount := len(cluster.config.Thumbprint)
@@ -149,7 +154,7 @@ func (cluster *Cluster) createTransport(tokenProvider auth.TokenProvider, idle t
 		DialTLS:         dial,
 		IdleConnTimeout: idle * time.Second,
 	}
-	return &Transport{Base: tr, tokenProvider: tokenProvider}
+	return &Transport{Base: tr}
 }
 
 func calcFingerprint(der []byte) string {
@@ -196,14 +201,6 @@ func (cluster *Cluster) createEndpoints(apiManagers []string, client *http.Clien
 	return eps, nil
 }
 
-func (cluster *Cluster) createSecurity(user string, password string) core.SecurityContext {
-	securityCtx := core.NewSecurityContextImpl()
-	securityCtx.SetProperty(security.AUTHENTICATION_SCHEME_ID, security.USER_PASSWORD_SCHEME_ID)
-	securityCtx.SetProperty(security.USER_KEY, user)
-	securityCtx.SetProperty(security.PASSWORD_KEY, password)
-	return securityCtx
-}
-
 func (cluster *Cluster) createAuthSessions() {
 	for _, ep := range cluster.endpoints {
 		ep.createAuthSession(cluster.config.ClientCertProvider, cluster.config.TokenProvider, cluster.config.Username, cluster.config.Password, jarCache)
@@ -215,7 +212,7 @@ func (cluster *Cluster) Health() ClusterHealth {
 	down := 0
 	up := 0
 	for _, ep := range cluster.endpoints {
-		if ep.status == UP {
+		if ep.Status() == UP {
 			up++
 		} else {
 			down++
@@ -229,4 +226,72 @@ func (cluster *Cluster) Health() ClusterHealth {
 		return GREEN
 	}
 	return ORANGE
+}
+
+func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
+	if len(nsxVersion.NodeVersion) > 0 {
+		return nsxVersion, nil
+	}
+	ep := cluster.endpoints[0]
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s://%s/api/v1/node/version", ep.Scheme(), ep.Host()), nil)
+	if err != nil {
+		log.Error(err, "failed to create http request")
+		return nil, err
+	}
+	err = ep.UpdateHttpRequestAuth(req)
+	if err != nil {
+		log.Error(err, "keep alive update auth error")
+		return nil, err
+	}
+
+	resp, err := ep.noBalancerClient.Do(req)
+	if err != nil {
+		log.Error(err, "failed to get nsx version")
+		return nil, err
+	}
+	err, _ = util.HandleHTTPResponse(resp, nsxVersion, true)
+	return nsxVersion, err
+}
+
+func (nsxVersion *NsxVersion) Validate(minVersion [3]int64) error {
+	re, _ := regexp.Compile(`^([\d]+).([\d]+).([\d]+)`)
+	result := re.Find([]byte(nsxVersion.NodeVersion))
+	if len(result) < 1 {
+		err := errors.New("error version format")
+		log.Error(err, "check version", "version", nsxVersion.NodeVersion)
+		return err
+	}
+	if !nsxVersion.featureSupported(minVersion) {
+		version := fmt.Sprintf("%d:%d:%d", minVersion[0], minVersion[1], minVersion[2])
+		err := errors.New("nsxt version " + nsxVersion.NodeVersion + " is old this feature needs version " + version)
+		log.Error(err, "validate NsxVersion failed")
+		return err
+	}
+	return nil
+}
+
+func (nsxVersion *NsxVersion) featureSupported(minVersion [3]int64) bool {
+	// only compared major.minor.patch
+	// NodeVersion should have at least three sections
+	// each section only have digital value
+	buff := strings.Split(nsxVersion.NodeVersion, ".")
+	sections := make([]int64, len(buff))
+	for i, str := range buff {
+		val, err := strconv.ParseInt(str, 10, 64)
+		if err != nil {
+			log.Error(err, "parse version error")
+			return false
+		}
+		sections[i] = val
+	}
+
+	for i := 0; i < 3; i++ {
+		if sections[i] > minVersion[i] {
+			return true
+		}
+		if sections[i] < minVersion[i] {
+			return false
+		}
+	}
+	return true
 }

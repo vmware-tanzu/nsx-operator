@@ -11,17 +11,16 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math/big"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware/govmomi/sts"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
@@ -83,7 +82,7 @@ func (vcClient *VCClient) createVAPISession() (string, error) {
 	}
 	response, err := vcClient.httpClient.Do(request)
 	var sessionData map[string]string
-	err = handleHTTPResponse(response, &sessionData)
+	err, _ = util.HandleHTTPResponse(response, &sessionData, false)
 	if err != nil {
 		return "", err
 	}
@@ -206,7 +205,7 @@ func (client *VCClient) HandleRequest(urlPath string, data []byte, responseData 
 			}
 			continue
 		}
-		err = handleHTTPResponse(response, responseData)
+		err, _ = util.HandleHTTPResponse(response, responseData, false)
 		return err
 	}
 	return nil
@@ -271,26 +270,4 @@ func createCertificate(userName string) (*tls.Certificate, error) {
 	}
 
 	return &certificate, nil
-}
-
-func handleHTTPResponse(response *http.Response, result interface{}) error {
-	if response.StatusCode >= 300 {
-		err := errors.New("received HTTP Error")
-		log.Error(err, "handle http response", "status", response.StatusCode, "requestUrl", response.Request.URL, "response", response)
-		return err
-	}
-	if result == nil {
-		return nil
-	}
-
-	body, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-		return err
-	}
-
-	if err := json.Unmarshal(body, result); err != nil {
-		log.Error(err, "Error converting HTTP response to result", "result type", result)
-		return err
-	}
-	return nil
 }

@@ -29,6 +29,10 @@ type Client struct {
 	NSXChecker     NSXHealthChecker
 }
 
+var (
+	minVersion = [3]int64{3, 2, 0}
+)
+
 type NSXHealthChecker struct {
 	cluster *Cluster
 }
@@ -54,6 +58,16 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	vspherelog.SetLogger(logger)
 	c := NewConfig(strings.Join(cf.NsxApiManagers, ","), cf.NsxApiUser, cf.NsxApiPassword, "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, cf.GetTokenProvider(), nil, cf.Thumbprint)
 	cluster, _ := NewCluster(c)
+	nsxVersion, err := cluster.GetVersion()
+	if err != nil {
+		log.Error(err, "get version error")
+		return nil
+	}
+	err = nsxVersion.Validate(minVersion)
+	if err != nil {
+		log.Error(err, "validate version error")
+		return nil
+	}
 	queryClient := search.NewQueryClient(restConnector(cluster))
 	groupClient := domains.NewGroupsClient(restConnector(cluster))
 	securityClient := domains.NewSecurityPoliciesClient(restConnector(cluster))

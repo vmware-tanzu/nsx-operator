@@ -5,7 +5,9 @@ package util
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -64,6 +66,9 @@ var (
 )
 
 func catagory(err error, cata string) bool {
+	if err == nil {
+		return false
+	}
 	table := catagoryTable[cata]
 	for _, e := range table {
 		fn := strings.Split(reflect.TypeOf(err).String(), ".")
@@ -206,4 +211,29 @@ func httpErrortoNSXError(detail *ErrorDetail) NsxError {
 	err := &GeneralManagerError{}
 	err.setDetail(detail)
 	return err
+}
+
+func HandleHTTPResponse(response *http.Response, result interface{}, debug bool) (error, []byte) {
+	if !(response.StatusCode == http.StatusOK || response.StatusCode == http.StatusAccepted) {
+		err := errors.New("received HTTP Error")
+		log.Error(err, "handle http response", "status", response.StatusCode, "requestUrl", response.Request.URL, "response", response)
+		return err, nil
+	}
+	if result == nil {
+		return nil, nil
+	}
+
+	body, err := ioutil.ReadAll(response.Body)
+	defer response.Body.Close()
+	if err != nil || body == nil {
+		return err, body
+	}
+	if debug {
+		log.V(1).Info("received HTTP response", "response", string(body))
+	}
+	if err := json.Unmarshal(body, result); err != nil {
+		log.Error(err, "Error converting HTTP response to result", "result type", result)
+		return err, body
+	}
+	return nil, body
 }

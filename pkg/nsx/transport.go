@@ -8,11 +8,9 @@ import (
 	"errors"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/third_party/retry"
 )
@@ -20,10 +18,9 @@ import (
 // Transport is used in http.Client to replace default implement.
 // It selects the endpoint before sending HTTP reqeust and  it will retry the request based on HTTP response.
 type Transport struct {
-	Base          http.RoundTripper
-	endpoints     []*Endpoint
-	tokenProvider auth.TokenProvider
-	config        *Config
+	Base      http.RoundTripper
+	endpoints []*Endpoint
+	config    *Config
 }
 
 // RoundTrip is the core of the transport. It accepts a request,
@@ -46,7 +43,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			defer ep.decreaseConnNumber()
 
 			r.URL.Host = ep.Host()
-			t.updateAuthInfo(r, ep)
+			ep.UpdateHttpRequestAuth(r)
 			start := time.Now()
 			ep.wait()
 			waitTime := time.Since(start)
@@ -103,36 +100,6 @@ func handleRoundTripError(err error, ep *Endpoint) error {
 		return util.CreateTimeout(ep.Host())
 	} else {
 		return util.CreateGeneralManagerError(ep.Host(), "RoundTrip", err.Error())
-	}
-}
-
-func (t *Transport) updateAuthInfo(r *http.Request, ep *Endpoint) {
-	if t.tokenProvider != nil {
-		token, err := t.tokenProvider.GetToken(false)
-		if err != nil {
-			log.Error(err, "Update authentication info failed for endpoint", ep.Host())
-			return
-		}
-		bearerToken := t.tokenProvider.HeaderValue(token)
-		r.Header.Add("Authorization", bearerToken)
-		r.Header.Add("Accept", "application/json")
-	} else {
-		if ep.XSRFToken() != "" {
-			if r.Header.Get("Authorization") != "" {
-				r.Header.Del("Authorization")
-			}
-			r.Header.Add("X-Xsrf-Token", ep.XSRFToken())
-			url := &url.URL{Host: ep.Host()}
-			ep.Lock()
-			cookies := ep.client.Jar.Cookies(url)
-			ep.Unlock()
-			for _, cookie := range cookies {
-				if cookie == nil {
-					log.Error(errors.New("cookie is nil."), "Update authentication info failed")
-				}
-				r.Header.Set("Cookie", cookie.String())
-			}
-		}
 	}
 }
 
