@@ -961,6 +961,36 @@ func TestValidateSelectorOpIn(t *testing.T) {
 	assert.Equal(t, 6, opInValueCount)
 }
 
+func TestValidateNsSelectorOpNotIn(t *testing.T) {
+	matchExpressions := []metav1.LabelSelectorRequirement{
+		{
+			Key:      "k1",
+			Operator: metav1.LabelSelectorOpIn,
+			Values:   []string{
+				"a1",
+				"a2",
+			},
+		},
+		{
+			Key:      "k3",
+			Operator: metav1.LabelSelectorOpExists,
+		},
+		{
+			Key:      "k4",
+			Operator: metav1.LabelSelectorOpDoesNotExist,
+		},
+	}
+
+	// Case: No Operator 'NotIn'
+	err := service.validateNsSelectorOpNotIn(matchExpressions)
+	assert.Equal(t, nil, err)
+
+	// Case: With Operator 'NotIn'
+	matchExpressions[0].Operator = metav1.LabelSelectorOpNotIn
+	err = service.validateNsSelectorOpNotIn(matchExpressions)
+	assert.NotEqual(t, nil, err)
+}
+
 func TestUpdateMixedExpressionsMatchExpression(t *testing.T) {
 	group := model.Group{}
 	expressions := service.buildGroupExpression(&group.Expression)
