@@ -908,6 +908,7 @@ func TestValidateSelectorExpressions(t *testing.T) {
 }
 
 func TestValidateSelectorOpIn(t *testing.T) {
+	var matchLabels map[string]string
 	matchExpressions := []metav1.LabelSelectorRequirement{
 		{
 			Key:      "k1",
@@ -936,13 +937,13 @@ func TestValidateSelectorOpIn(t *testing.T) {
 	}
 
 	// Case: normal function
-	opInValueCount, err := service.validateSelectorOpIn(matchExpressions)
+	opInValueCount, err := service.validateSelectorOpIn(matchExpressions, matchLabels)
 	assert.Equal(t, nil, err)
 	assert.Equal(t, 2, opInValueCount)
 
 	// Case: count of Operator 'IN' exceed limit '1'
 	matchExpressions[1].Operator = metav1.LabelSelectorOpIn
-	opInValueCount, err = service.validateSelectorOpIn(matchExpressions)
+	opInValueCount, err = service.validateSelectorOpIn(matchExpressions, matchLabels)
 	assert.NotEqual(t, nil, err)
 	assert.Equal(t, 4, opInValueCount)
 
@@ -956,9 +957,24 @@ func TestValidateSelectorOpIn(t *testing.T) {
 		"a6",
 	}
 	matchExpressions[1].Operator = metav1.LabelSelectorOpNotIn
-	opInValueCount, err = service.validateSelectorOpIn(matchExpressions)
+	opInValueCount, err = service.validateSelectorOpIn(matchExpressions, matchLabels)
 	assert.NotEqual(t, nil, err)
 	assert.Equal(t, 6, opInValueCount)
+
+	// Case: matchLabels has duplication expression with matchexpression operator 'In'
+	matchLabels = make(map[string]string)
+	matchLabels["k1"] = "a5"
+	matchExpressions[0].Values = []string{
+		"a1",
+		"a2",
+		"a3",
+		"a4",
+		"a5",
+	}
+	matchExpressions[1].Operator = metav1.LabelSelectorOpNotIn
+	opInValueCount, err = service.validateSelectorOpIn(matchExpressions, matchLabels)
+	assert.NotEqual(t, nil, err)
+	assert.Equal(t, 5, opInValueCount)
 }
 
 func TestValidateNsSelectorOpNotIn(t *testing.T) {
