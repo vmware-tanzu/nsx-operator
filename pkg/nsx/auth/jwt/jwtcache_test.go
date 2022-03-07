@@ -4,7 +4,10 @@
 package jwt
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -12,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/govmomi/sts"
 )
@@ -30,7 +34,8 @@ func TestJwtcache_NewJWTCache(t *testing.T) {
 func TestJwtcache_GetJWT(t *testing.T) {
 	tesClient := &TESClient{}
 	freshInterval := 10 * time.Second
-	result := `{"value": {"access_token": "eyJraWQiOiI3RDVDQTMwNzYxNEM2MTE5NDkxNTNBRTc1QjY2NTFCODJDMzZDRjkxIiwiYWxnIjoiUlMyNTYifQ.eyJzdWIiOiJBZG1pbmlzdHJhdG9yQHZzcGhlcmUubG9jYWwiLCJhdWQiOiJ2bXdhcmUtdGVzOnZjOm5zeGQtdjI6bnN4IiwibnN4LXJvbGUiOlsiZW50ZXJwcmlzZV9hZG1pbiIsInZzcGhlcmVfcmVhZF9vbmx5IiwidnNwaGVyZV9hZG1pbiJdLCJkb21haW4iOiJ2c3BoZXJlLmxvY2FsIiwiaXNzIjoiaHR0cHM6XC9cL3NjMi0xMC0xODYtNjItMTkxLmVuZy52bXdhcmUuY29tXC9vcGVuaWRjb25uZWN0XC92c3BoZXJlLmxvY2FsIiwiZXhwIjoxNjQ1MTI1Mjk1LCJpYXQiOjE2NDUwODkyOTUsImp0aSI6ImI3MDBjNmY1LTFkNzQtNDY3OC04Y2U5LWYyMTA0MGM1MjVmMSIsInVzZXJuYW1lIjoiQWRtaW5pc3RyYXRvciJ9.ZOCflteorXRfaXwzPqsxQAzvOoISgJVzSTRhlNE-ZT87UYdvvnelCbBK7fRlgT7FldFzUN0kJo3evdRZe6_hKAucyTQdfLrSSjAEEeGnj9wvOTut57T2rlv6t_BfYI3mp08vciw-fPkXwbabfCtuyK43HLoiMbzF_VJV-yzOROxYICs6RVdInVPL9NjOCQvaEp0hf14SfHcknYcmQMMODFvySyO9d5w_ReIHYPf5KA_6KMj_AgNLlQjHJ_7T7wTA_ag-LFyjkC34zBUHoyr24vAK48kLB2Sunrj0knanCxrd55xF7mBBakqpO2k-SdGpyeF9eRO807ztgA7jF9-8HA"}}`
+	token, _ := createToken("sectoid")
+	result := fmt.Sprintf(`{"value": {"access_token": "%s"}}`, token)
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(result))
@@ -52,12 +57,31 @@ func TestJwtcache_GetJWT(t *testing.T) {
 	tesClient.VCClient.signer = &sts.Signer{}
 	tesClient.VCClient.signer.Token = "this is a saml token"
 	_, err := cache.GetJWT(false)
-	assert.Equal(t, err, nil)
+	assert.Nil(t, err)
+}
+
+type TestClaims struct {
+	*jwt.StandardClaims
+	aud      string
+	username string
+	domain   string
+}
+
+func createToken(user string) (string, error) {
+	t := jwt.New(jwt.GetSigningMethod("RS256"))
+	t.Claims = &TestClaims{
+		&jwt.StandardClaims{
+			ExpiresAt: time.Now().Add(time.Minute * 1).Unix(),
+		},
+		"vmware-tes:vc:nsxd-v2:nsx",
+		user, "vsphere.local"}
+	signKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	return t.SignedString(signKey)
 }
 
 func TestJwtcache_GetJWTExpire(t *testing.T) {
-	token1 := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IlRhbyBUYW8iLCJpYXQiOjE1MTYyMzkwMjIsImV4cCI6MTk3ODAwMDAwfQ.mmGvAbZYBoByhnhmazlhvXYqhG2-fcwt5_bKbAf-B9U"
+	token1, _ := createToken("sectoid")
 	cache := &JWTCache{}
 	_, err := cache.getJWTExpire(token1)
-	assert.Equal(t, err, nil)
+	assert.Nil(t, err)
 }
