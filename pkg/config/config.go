@@ -6,6 +6,7 @@ package config
 import (
 	"errors"
 	"flag"
+	"io/ioutil"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth/jwt"
@@ -16,6 +17,7 @@ import (
 //TODO replace to yaml
 const (
 	nsxOperatorDefaultConf = "/etc/nsx-operator/nsxop.ini"
+	vcHostCACertPath       = "/etc/vmware/wcp/tls/vmca.pem"
 )
 
 var (
@@ -45,7 +47,7 @@ type NsxConfig struct {
 	NsxApiManagers       []string `ini:"nsx_api_managers"`
 	CaFile               []string `ini:"ca_file"`
 	Thumbprint           []string `ini:"thumbprint"`
-	Insecure             bool     `ini:"inseure"`
+	Insecure             bool     `ini:"insecure"`
 	SingleTierSrTopology bool     `ini:"single_tier_sr_topology"`
 }
 
@@ -150,8 +152,20 @@ func (operatorConfig *NSXOperatorConfig) GetTokenProvider() auth.TokenProvider {
 }
 
 func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
+	log.V(1).Info("try to load VC host CA")
+	var vcCaCert []byte
+	var err error
+	if !operatorConfig.Insecure {
+		vcCaCert, err = ioutil.ReadFile(vcHostCACertPath)
+		// If operatorConfig.VCInsecure is false, tls will the CA to verify the server
+		// certificate. If loading CA failed, tls will use the CA on local host
+		if err != nil {
+			log.Info("fail to load CA cert from file", "error", err)
+		}
+	}
+
 	if err := operatorConfig.VCConfig.validate(); err == nil {
-		tokenProvider, _ = jwt.NewTokenProvider(operatorConfig.VCEndPoint, operatorConfig.HttpsPort, operatorConfig.SsoDomain, nil)
+		tokenProvider, _ = jwt.NewTokenProvider(operatorConfig.VCEndPoint, operatorConfig.HttpsPort, operatorConfig.SsoDomain, vcCaCert, operatorConfig.Insecure)
 	}
 	return nil
 }

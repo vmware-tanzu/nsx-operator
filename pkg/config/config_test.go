@@ -74,3 +74,13 @@ func TestConfig_NewNSXOperatorConfigFromFile(t *testing.T) {
 	_, err = NewNSXOperatorConfigFromFile()
 	assert.Equal(t, err, nil)
 }
+
+func TestConfig_GetTokenProvider(t *testing.T) {
+	vcConfig := &VCConfig{}
+	vcConfig.VCEndPoint = "127.0.0.1"
+	vcConfig.SsoDomain = "vsphere@local"
+	vcConfig.HttpsPort = 443
+	nsxConfig := &NSXOperatorConfig{VCConfig: vcConfig, NsxConfig: &NsxConfig{}}
+	tokenProvider := nsxConfig.GetTokenProvider()
+	assert.Nil(t, tokenProvider)
+}

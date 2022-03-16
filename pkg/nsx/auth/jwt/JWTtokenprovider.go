@@ -33,7 +33,7 @@ func (provider *JWTTokenProvider) HeaderValue(token string) string {
 	return "Bearer " + token
 }
 
-func NewTokenProvider(vcEndpoint string, port int, ssoDomain string, caCert []byte) (auth.TokenProvider, error) {
+func NewTokenProvider(vcEndpoint string, port int, ssoDomain string, caCert []byte, insecure bool) (auth.TokenProvider, error) {
 	f, err := ioutil.ReadFile(VC_SVCACCOUNT_USER_PATH)
 	if err != nil {
 		log.Error(err, "failed to read user name")
@@ -48,7 +48,7 @@ func NewTokenProvider(vcEndpoint string, port int, ssoDomain string, caCert []by
 	}
 	password := strings.TrimRight(string(f), "\n\r")
 
-	tesClient, err := NewTESClient(vcEndpoint, port, ssoDomain, username, password, nil, true)
+	tesClient, err := NewTESClient(vcEndpoint, port, ssoDomain, username, password, caCert, insecure)
 	if err != nil {
 		log.Error(err, "failed to create tes client")
 		return nil, err
