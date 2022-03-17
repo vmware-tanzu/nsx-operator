@@ -835,9 +835,14 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 			return nil, nil, err
 		}
 	} else {
-		if nsxRuleSrcGroupPath == "ANY" && nsxRuleDstGroupPath == "ANY" {
-			// NSX-T manager will report error if all of the rule's scope/src/dst are "ANY"
-			// TODO: raise an accurate error if both policy appliedTo and rule appliedTo are empty
+		if len(obj.Spec.AppliedTo) == 0 {
+			err = errors.New("appliedTo needs to be set in either spec or rules")
+			log.Error(err, "error while validating appliedTo field")
+			return nil, nil, err
+		} else if nsxRuleSrcGroupPath == "ANY" && nsxRuleDstGroupPath == "ANY" {
+			// NSX-T manager will report error if all of the rule's scope/src/dst are "ANY".
+			// So if the rule's scope is empty while policy's not, the rule's scope also
+			// will be set to the policy's scope to avoid this case.
 			nsxRuleAppliedGroupPath = service.buildPolicyGroupPath(obj)
 		} else {
 			nsxRuleAppliedGroupPath = "ANY"
