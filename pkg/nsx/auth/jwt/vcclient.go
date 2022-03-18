@@ -47,6 +47,7 @@ func createHttpClient(insecureSkipVerify bool, caCertPem []byte) *http.Client {
 		TLSClientConfig: tlsConfig,
 	}
 	if len(caCertPem) > 0 {
+		log.V(1).Info("append CA cert")
 		clientCertPool := x509.NewCertPool()
 		clientCertPool.AppendCertsFromPEM(caCertPem)
 		tlsConfig.RootCAs = clientCertPool
@@ -76,11 +77,14 @@ func NewVCClient(hostname string, port int, ssoDomain string, userName, password
 // createVAPISession creates a VAPI session using the specified STS signer and sets it on the vcClient.
 func (vcClient *VCClient) createVAPISession() (string, error) {
 	log.Info("creating new vapi session for vcClient")
-	request, err := vcClient.prepareRequest(http.MethodPost, "/com/vmware/cis/session", nil)
+	request, err := vcClient.prepareRequest(http.MethodPost, "com/vmware/cis/session", nil)
 	if err != nil {
 		return "", err
 	}
 	response, err := vcClient.httpClient.Do(request)
+	if err != nil {
+		return "", err
+	}
 	var sessionData map[string]string
 	err, _ = util.HandleHTTPResponse(response, &sessionData, false)
 	if err != nil {
