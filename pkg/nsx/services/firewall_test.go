@@ -69,7 +69,7 @@ var (
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values:   []string{
+			Values: []string{
 				"a1",
 				"a2",
 			},
@@ -77,7 +77,7 @@ var (
 		{
 			Key:      "k2",
 			Operator: metav1.LabelSelectorOpNotIn,
-			Values:   []string{
+			Values: []string{
 				"a2",
 				"a3",
 			},
@@ -85,7 +85,7 @@ var (
 		{
 			Key:      "k2",
 			Operator: metav1.LabelSelectorOpNotIn,
-			Values:   []string{
+			Values: []string{
 				"a3",
 				"a4",
 			},
@@ -217,9 +217,9 @@ var (
 					},
 				},
 				{
-					Action:       &allowDrop,
-					Direction:    &directionOut,
-					Name:         "rule-with-ns-selector",
+					Action:    &allowDrop,
+					Direction: &directionOut,
+					Name:      "rule-with-ns-selector",
 					Destinations: []v1alpha1.SecurityPolicyPeer{
 						{
 							NamespaceSelector: &metav1.LabelSelector{
@@ -229,9 +229,9 @@ var (
 					},
 				},
 				{
-					Action:       &allowDrop,
-					Direction:    &directionOut,
-					Name:         "rule-with-ip-block",
+					Action:    &allowDrop,
+					Direction: &directionOut,
+					Name:      "rule-with-ip-block",
 					Destinations: []v1alpha1.SecurityPolicyPeer{
 						{
 							IPBlocks: []v1alpha1.IPBlock{
@@ -430,12 +430,12 @@ func TestBuildTargetTags(t *testing.T) {
 			inputTargets: &[]v1alpha1.SecurityPolicyTarget{
 				{
 					VMSelector: &metav1.LabelSelector{
-						MatchLabels:       map[string]string{"VM_selector_1": "VM_value_1"},
+						MatchLabels: map[string]string{"VM_selector_1": "VM_value_1"},
 						MatchExpressions: []metav1.LabelSelectorRequirement{
 							{
 								Key:      "k1",
 								Operator: metav1.LabelSelectorOpIn,
-								Values:   []string{
+								Values: []string{
 									"a1",
 									"a2",
 								},
@@ -492,9 +492,9 @@ func TestBuildPeerTags(t *testing.T) {
 		expectedTags []model.Tag
 	}{
 		{
-			name:         "policy-src-peer-tags-with-pod-selector",
-			inputPolicy:  &spWithPodSelector,
-			inputIndex:   0,
+			name:        "policy-src-peer-tags-with-pod-selector",
+			inputPolicy: &spWithPodSelector,
+			inputIndex:  0,
 			expectedTags: []model.Tag{
 				{
 					Scope: &tagScopeGroupType,
@@ -776,7 +776,7 @@ func TestMergeSelectorMatchExpression(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values:   []string{
+			Values: []string{
 				"a1",
 				"a2",
 			},
@@ -784,7 +784,7 @@ func TestMergeSelectorMatchExpression(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values:   []string{
+			Values: []string{
 				"a2",
 				"a3",
 			},
@@ -803,7 +803,7 @@ func TestMergeSelectorMatchExpression(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpNotIn,
-			Values:   []string{
+			Values: []string{
 				"a1",
 				"a2",
 			},
@@ -811,7 +811,7 @@ func TestMergeSelectorMatchExpression(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values:   []string{
+			Values: []string{
 				"a2",
 				"a3",
 			},
@@ -835,7 +835,7 @@ func TestUpdateExpressionsMatchExpression(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values:   []string{
+			Values: []string{
 				"a1",
 				"a2",
 			},
@@ -843,7 +843,7 @@ func TestUpdateExpressionsMatchExpression(t *testing.T) {
 		{
 			Key:      "k2",
 			Operator: metav1.LabelSelectorOpNotIn,
-			Values:   []string{
+			Values: []string{
 				"a2",
 				"a3",
 			},
@@ -913,7 +913,7 @@ func TestValidateSelectorOpIn(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values:   []string{
+			Values: []string{
 				"a1",
 				"a2",
 			},
@@ -921,7 +921,7 @@ func TestValidateSelectorOpIn(t *testing.T) {
 		{
 			Key:      "k2",
 			Operator: metav1.LabelSelectorOpNotIn,
-			Values:   []string{
+			Values: []string{
 				"a2",
 				"a3",
 			},
@@ -982,7 +982,7 @@ func TestValidateNsSelectorOpNotIn(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values:   []string{
+			Values: []string{
 				"a1",
 				"a2",
 			},
@@ -1017,7 +1017,7 @@ func TestUpdateMixedExpressionsMatchExpression(t *testing.T) {
 		{
 			Key:      "k1",
 			Operator: metav1.LabelSelectorOpIn,
-			Values:   []string{
+			Values: []string{
 				"a1",
 				"a2",
 			},
@@ -1025,7 +1025,7 @@ func TestUpdateMixedExpressionsMatchExpression(t *testing.T) {
 		{
 			Key:      "k2",
 			Operator: metav1.LabelSelectorOpNotIn,
-			Values:   []string{
+			Values: []string{
 				"a2",
 				"a3",
 			},
@@ -1044,7 +1044,7 @@ func TestUpdateMixedExpressionsMatchExpression(t *testing.T) {
 		{
 			Key:      "k2",
 			Operator: metav1.LabelSelectorOpNotIn,
-			Values:   []string{
+			Values: []string{
 				"a2",
 				"a3",
 			},
