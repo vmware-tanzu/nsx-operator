@@ -7,6 +7,7 @@ import (
 	"flag"
 	"os"
 
+	zapu "go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -35,13 +36,25 @@ func main() {
 	var probeAddr string
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8384", "The address the probe endpoint binds to.")
 	config.AddFlags()
-	opts := zap.Options{
-		Development: true,
-	}
-	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
+	cf, err := config.NewNSXOperatorConfigFromFile()
+	if err != nil {
+		os.Exit(1)
+	}
+
+	zpLevel := zapu.InfoLevel
+	if cf.Debug == true {
+		zpLevel = zapu.DebugLevel
+	}
+
+	opts := zap.Options{
+		Development: true,
+		Level:       zapu.NewAtomicLevelAt(zpLevel),
+	}
+	opts.BindFlags(flag.CommandLine)
 	logf.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
 	setupLog := ctrl.Log.WithName("setup")
 	setupLog.Info("starting NSX Operator")
 
@@ -52,11 +65,6 @@ func main() {
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
-		os.Exit(1)
-	}
-	cf, err := config.NewNSXOperatorConfigFromFile()
-	if err != nil {
-		setupLog.Error(err, "unable to load configuration")
 		os.Exit(1)
 	}
 	securityReconcile := &controllers.SecurityPolicyReconciler{

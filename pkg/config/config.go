@@ -8,10 +8,11 @@ import (
 	"flag"
 	"io/ioutil"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth/jwt"
 	ini "gopkg.in/ini.v1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth/jwt"
 )
 
 //TODO replace to yaml
@@ -29,10 +30,15 @@ var (
 //TODO delete unnecessary config
 
 type NSXOperatorConfig struct {
+	*DefaultConfig
 	*CoeConfig
 	*NsxConfig
 	*K8sConfig
 	*VCConfig
+}
+
+type DefaultConfig struct {
+	Debug bool `ini:"debug"`
 }
 
 type CoeConfig struct {
@@ -83,37 +89,34 @@ func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
 	cfg := ini.Empty()
 	err := ini.ReflectFrom(cfg, nsxOperatorConfig)
 	if err != nil {
-		log.Error(err, "failed to load default NSX Operator configuration")
 		return nil, err
 	}
 	cfg, err = ini.Load(configFilePath)
 	if err != nil {
-		log.Error(err, "failed to load NSX Operator configuration from file")
+		return nil, err
+	}
+	err = cfg.Section("DEFAULT").MapTo(nsxOperatorConfig.DefaultConfig)
+	if err != nil {
 		return nil, err
 	}
 	err = cfg.Section("coe").MapTo(nsxOperatorConfig.CoeConfig)
 	if err != nil {
-		log.Error(err, "failed to parse coe section from NSX Operator config, please check the configuration")
 		return nil, err
 	}
 	err = cfg.Section("nsx_v3").MapTo(nsxOperatorConfig.NsxConfig)
 	if err != nil {
-		log.Error(err, "failed to parse nsx section from NSX Operator config, please check the configuration")
 		return nil, err
 	}
 	err = cfg.Section("k8s").MapTo(nsxOperatorConfig.K8sConfig)
 	if err != nil {
-		log.Error(err, "failed to parse k8s section from NSX Operator config, please check the configuration")
 		return nil, err
 	}
 	err = cfg.Section("vc").MapTo(nsxOperatorConfig.VCConfig)
 	if err != nil {
-		log.Error(err, "failed to parse vc section from NSX Operator config, please check the configuration")
 		return nil, err
 	}
 
 	if err := nsxOperatorConfig.validate(); err != nil {
-		log.Error(err, "failed to validate NSX Operator config, please check the configuration")
 		return nil, err
 	}
 
@@ -122,6 +125,7 @@ func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
 
 func NewNSXOpertorConfig() *NSXOperatorConfig {
 	defaultNSXOperatorConfig := &NSXOperatorConfig{
+		&DefaultConfig{},
 		&CoeConfig{
 			"",
 		},
