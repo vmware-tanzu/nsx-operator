@@ -55,6 +55,7 @@ type NsxConfig struct {
 	Thumbprint           []string `ini:"thumbprint"`
 	Insecure             bool     `ini:"insecure"`
 	SingleTierSrTopology bool     `ini:"single_tier_sr_topology"`
+	EnforcementPoint     string   `ini:"enforcement_point"`
 }
 
 type K8sConfig struct {
@@ -62,6 +63,7 @@ type K8sConfig struct {
 	EnableNCPEvent     bool   `ini:"enable_ncp_event"`
 	EnableVNetCRD      bool   `ini:"enable_vnet_crd"`
 	EnableRestore      bool   `ini:"enable_restore"`
+	EnablePromMetrics  bool   `ini:"enable_prometheus_metrics"`
 	KubeConfigFile     string `ini:"kubeconfig"`
 }
 
