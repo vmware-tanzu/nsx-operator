@@ -11,10 +11,17 @@ import (
 )
 
 const (
-	MetricNamespace = "nsx"
-	MetricSubsystem = "operator"
-	HealthKey       = "health_status"
-	ScrapeTimeout   = 30
+	MetricNamespace                 = "nsx"
+	MetricSubsystem                 = "operator"
+	HealthKey                       = "health_status"
+	ControllerSyncTotalKey          = "controller_sync_total"
+	ControllerUpdateTotalKey        = "controller_update_total"
+	ControllerUpdateSuccessTotalKey = "controller_update_success_total"
+	ControllerUpdateFailTotalKey    = "controller_update_fail_total"
+	ControllerDeleteTotalKey        = "controller_delete_total"
+	ControllerDeleteSuccessTotalKey = "controller_delete_success_total"
+	ControllerDeleteFailTotalKey    = "controller_delete_fail_total"
+	ScrapeTimeout                   = 30
 )
 
 var (
@@ -30,14 +37,68 @@ var (
 			Help:      "Last health status for NSX-Operator. 1 for 'status' label with current status.",
 		},
 	)
-
-	rpcDurations = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "rpc_durations_seconds",
-			Help:       "RPC latency distributions.",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+	ControllerSyncTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: MetricNamespace,
+			Subsystem: MetricSubsystem,
+			Name:      ControllerSyncTotalKey,
+			Help:      "Total number K8s create, update and delete events syncronized by NSX Operator",
 		},
-		[]string{"service"},
+		[]string{"res_type"},
+	)
+	ControllerUpdateTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: MetricNamespace,
+			Subsystem: MetricSubsystem,
+			Name:      ControllerUpdateTotalKey,
+			Help:      "Total number K8s create, update events syncronized by NSX Operator",
+		},
+		[]string{"res_type"},
+	)
+	ControllerUpdateSuccessTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: MetricNamespace,
+			Subsystem: MetricSubsystem,
+			Name:      ControllerUpdateSuccessTotalKey,
+			Help:      "Total number K8s create, update events that are successfully syncronized by NSX Operator",
+		},
+		[]string{"res_type"},
+	)
+	ControllerUpdateFailTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: MetricNamespace,
+			Subsystem: MetricSubsystem,
+			Name:      ControllerUpdateFailTotalKey,
+			Help:      "Total number K8s create, update events that are failed to be syncronized by NSX Operator",
+		},
+		[]string{"res_type"},
+	)
+	ControllerDeleteTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: MetricNamespace,
+			Subsystem: MetricSubsystem,
+			Name:      ControllerDeleteTotalKey,
+			Help:      "Total number of K8s delete events syncronized by NSX Operator",
+		},
+		[]string{"res_type"},
+	)
+	ControllerDeleteSuccessTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: MetricNamespace,
+			Subsystem: MetricSubsystem,
+			Name:      ControllerDeleteSuccessTotalKey,
+			Help:      "Total number of K8s delete events that are successfully syncronized by NSX Operator",
+		},
+		[]string{"res_type"},
+	)
+	ControllerDeleteFailTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: MetricNamespace,
+			Subsystem: MetricSubsystem,
+			Name:      ControllerDeleteFailTotalKey,
+			Help:      "Total number of K8s delete events that are failed to be syncronized by NSX Operator",
+		},
+		[]string{"res_type"},
 	)
 )
 
@@ -53,7 +114,16 @@ func Register(m ...prometheus.Collector) {
 // Initialize Prometheus metrics collection.
 func InitializePrometheusMetrics() {
 	log.Info("Initializing prometheus metrics")
-	Register(NSXOperatorHealthStats, rpcDurations)
+	Register(
+		NSXOperatorHealthStats,
+		ControllerSyncTotal,
+		ControllerUpdateTotal,
+		ControllerUpdateSuccessTotal,
+		ControllerUpdateFailTotal,
+		ControllerDeleteTotal,
+		ControllerDeleteSuccessTotal,
+		ControllerDeleteFailTotal,
+	)
 }
 
 func AreMetricsExposed(cf *config.NSXOperatorConfig) bool {
@@ -61,4 +131,10 @@ func AreMetricsExposed(cf *config.NSXOperatorConfig) bool {
 		return true
 	}
 	return false
+}
+
+func CounterInc(cf *config.NSXOperatorConfig, counter *prometheus.CounterVec, res_type string) {
+	if AreMetricsExposed(cf) {
+		counter.WithLabelValues(res_type).Inc()
+	}
 }
