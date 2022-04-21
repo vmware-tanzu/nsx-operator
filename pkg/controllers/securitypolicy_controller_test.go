@@ -13,12 +13,6 @@ import (
 	gomonkey "github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
-	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -27,6 +21,13 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func NewFakeSecurityPolicyReconciler() *SecurityPolicyReconciler {
@@ -183,8 +184,13 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
 	err = errors.New("Update failed")
 	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(err)
+
+	patches := gomonkey.ApplyFunc(updateFail,
+		func(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
+		})
+	defer patches.Reset()
 	_, ret := r.Reconcile(ctx, req)
-	assert.Equal(t, err, ret)
+	assert.Equal(t, nil, ret)
 
 	//  DeletionTimestamp.IsZero = false, Finalizers doesn't include util.FinalizerName
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object) error {
@@ -227,7 +233,7 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 			},
 		},
 	}
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicy", func(_ *services.SecurityPolicyService) sets.String {
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *services.SecurityPolicyService) sets.String {
 		a := sets.NewString()
 		a.Insert("1234")
 		a.Insert("2345")
@@ -264,7 +270,7 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has same item as k8s cache
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicy", func(_ *services.SecurityPolicyService) sets.String {
+	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *services.SecurityPolicyService) sets.String {
 		a := sets.NewString()
 		a.Insert("1234")
 		return a
@@ -288,7 +294,7 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has no item
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicy", func(_ *services.SecurityPolicyService) sets.String {
+	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *services.SecurityPolicyService) sets.String {
 		a := sets.NewString()
 		return a
 	})
@@ -302,22 +308,6 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 		cancel <- true
 	}()
 	r.GarbageCollector(cancel, time.Second)
-}
-
-func Test_containsString(t *testing.T) {
-	target := "hello"
-	source := []string{"hello", "world"}
-	assert.True(t, containsString(source, target))
-
-	target = "go home"
-	assert.False(t, containsString(source, target))
-
-	source = []string{}
-	assert.False(t, containsString(source, target))
-
-	target = ""
-	source = []string{"hello", "world"}
-	assert.False(t, containsString(source, target))
 }
 
 func TestSecurityPolicyReconciler_Start(t *testing.T) {

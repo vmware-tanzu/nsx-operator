@@ -22,7 +22,7 @@ NSX-T Distributed Firewall rules, then update CR status with realized state.
 SecurityPolicy is Namespaced scope CRD, admins could apply CR within a namespace to
 configure security of workloads which are attached to NSX-T networking.
 Compared with standard K8s NetworkPolicies, SecurityPolicy CRD adds `VMSelector` to
-select VMs, it also introduces some rule syntaxes including Drop and Reject actions,
+select VMs, it also introduces some rule syntax including Drop and Reject actions,
 priority, rule level selectors(`appliedTo`). 
 
 An example of SecurityPolicy CR:
@@ -140,4 +140,3 @@ Limitations of SecurityPolicy CR:
    given NSX-T does not support 'In' in NSGroup condition, so we use a workaround to support 'In' with limited counts.
 7. Max IP elements in one security policy: 4000
 8. Priority range of SecurityPolicy CR is [0, 1000].
-9. Do not support named port.

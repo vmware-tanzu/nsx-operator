@@ -158,7 +158,7 @@ func (operatorConfig *NSXOperatorConfig) GetTokenProvider() auth.TokenProvider {
 }
 
 func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
-	log.V(1).Info("try to load VC host CA")
+	log.V(2).Info("try to load VC host CA")
 	var vcCaCert []byte
 	var err error
 	if !operatorConfig.Insecure {
@@ -179,7 +179,7 @@ func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
 func (vcConfig *VCConfig) validate() error {
 	if len(vcConfig.VCEndPoint) == 0 {
 		err := errors.New("invalid field " + "VcEndPoint")
-		log.Info("validate VcConfig failed", "VcEndPoint", vcConfig.VCEndPoint)
+		log.V(2).Info("validate VcConfig failed", "VcEndPoint", vcConfig.VCEndPoint)
 		return err
 	}
 

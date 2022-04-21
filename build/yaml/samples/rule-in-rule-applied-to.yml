@@ -1,0 +1,65 @@
+#  test: kubectl exec -ti client -n client -- curl web ip
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client
+  labels:
+    role: client
+  namespace: client
+spec:
+  containers:
+    - name: client-container
+      image: "harbor-repo.vmware.com/dockerhub-proxy-cache/library/photon:3.0-20210507"
+      command: [ "/bin/bash" ]
+      args: [ "-c", "while true; do echo hello, world!; sleep 60; done" ]
+  restartPolicy: Never
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tcp-deployment
+  namespace: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      role: web
+  template:
+    metadata:
+      labels:
+        role: web
+    spec:
+      hostname: web-deployment
+      containers:
+        - name: web-container
+          image: "harbor-repo.vmware.com/dockerhub-proxy-cache/humanux/http_https_echo:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+              name: web-port
+---
+apiVersion: nsx.vmware.com/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: named-port-policy
+  namespace: web
+spec:
+  priority: 10
+  appliedTo:
+    - podSelector:
+        matchLabels:
+          role: web
+  rules:
+    - direction: in
+      appliedTo:
+        - podSelector:
+            matchLabels:
+              role: web
+      action: allow
+      ports:
+        - protocol: TCP
+          port: web-port
+    - direction: in
+      action: drop
+    - direction: out
+      action: drop
