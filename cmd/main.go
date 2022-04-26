@@ -6,6 +6,7 @@ package main
 import (
 	"flag"
 	"os"
+	"time"
 
 	zapu "go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -19,12 +20,14 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers"
+	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services"
 )
 
 var (
-	scheme = runtime.NewScheme()
+	scheme   = runtime.NewScheme()
+	setupLog = ctrl.Log.WithName("setup")
 )
 
 func init() {
@@ -33,8 +36,9 @@ func init() {
 }
 
 func main() {
-	var probeAddr string
+	var probeAddr, metricsAddr string
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8384", "The address the probe endpoint binds to.")
+	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8093", "The address the metrics endpoint binds to.")
 	config.AddFlags()
 	flag.Parse()
 
@@ -55,12 +59,15 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	logf.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	setupLog := ctrl.Log.WithName("setup")
 	setupLog.Info("starting NSX Operator")
+	if metrics.AreMetricsExposed(cf) {
+		metrics.InitializePrometheusMetrics()
+	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		HealthProbeBindAddress: probeAddr,
+		MetricsBindAddress:     metricsAddr,
 		LeaderElectionID:       "nsx-operator",
 	})
 	if err != nil {
@@ -88,6 +95,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	if metrics.AreMetricsExposed(cf) {
+		go updateHealthMetricsPeriodically(nsxClient)
+	}
+
 	if err := mgr.AddHealthzCheck("healthz", nsxClient.NSXChecker.CheckNSXHealth); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
@@ -101,5 +112,28 @@ func main() {
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
+	}
+}
+
+// Function for fetching nsx health status and feeding it to the prometheus metric.
+func getHealthStatus(nsxClient *nsx.Client) error {
+	status := 1
+	if err := nsxClient.NSXChecker.CheckNSXHealth(nil); err != nil {
+		status = 0
+	}
+	// Record the new health status in metric.
+	metrics.NSXOperatorHealthStats.Set(float64(status))
+	return nil
+}
+
+// Periodically fetches health info.
+func updateHealthMetricsPeriodically(nsxClient *nsx.Client) {
+	for {
+		if err := getHealthStatus(nsxClient); err != nil {
+			setupLog.Error(err, "Failed to fetch health info")
+		}
+		select {
+		case <-time.After(metrics.ScrapeTimeout):
+		}
 	}
 }
