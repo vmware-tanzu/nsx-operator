@@ -21,6 +21,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
@@ -32,6 +33,7 @@ var (
 
 const (
 	WCP_SYSTEM_RESOURCE = "vmware-system-shared-t1"
+	METRIC_RES_TYPE     = "securitypolicy"
 )
 
 // SecurityPolicyReconciler reconciles a SecurityPolicy object
@@ -44,6 +46,7 @@ type SecurityPolicyReconciler struct {
 func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	obj := &v1alpha1.SecurityPolicy{}
 	log.Info("reconciling securitypolicy CR", "securitypolicy", req.NamespacedName)
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, METRIC_RES_TYPE)
 
 	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
 		log.Error(err, "unable to fetch security policy CR", "req", req.NamespacedName)
@@ -51,38 +54,48 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
+		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, METRIC_RES_TYPE)
 		if !controllerutil.ContainsFinalizer(obj, util.FinalizerName) {
 			controllerutil.AddFinalizer(obj, util.FinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
+				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, METRIC_RES_TYPE)
 				return ctrl.Result{}, err
 			}
 			log.V(1).Info("added finalizer on securitypolicy CR", "securitypolicy", req.NamespacedName)
 		}
 
 		if isCRInSysNs, err := r.isCRRequestedInSystemNamespace(&ctx, &req); err != nil {
+			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, METRIC_RES_TYPE)
 			return ctrl.Result{}, err
 		} else if isCRInSysNs {
 			err = errors.New("Security Policy CR cannot be created in System Namespace")
 			log.Error(err, "failed to create security policy CR", "securitypolicy", req.NamespacedName)
+			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, METRIC_RES_TYPE)
 			return ctrl.Result{}, err
 		}
 
 		if err := r.Service.CreateOrUpdateSecurityPolicy(obj); err != nil {
 			log.Error(err, "failed to create or update security policy CR", "securitypolicy", req.NamespacedName)
 			r.setSecurityPolicyReadyStatusFalse(&ctx, obj, &err)
+			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, METRIC_RES_TYPE)
 			return ctrl.Result{}, err
 		}
 		r.setSecurityPolicyReadyStatusTrue(&ctx, obj)
+		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, METRIC_RES_TYPE)
 	} else {
 		if containsString(obj.GetFinalizers(), util.FinalizerName) {
+			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, METRIC_RES_TYPE)
 			if err := r.Service.DeleteSecurityPolicy(obj.UID); err != nil {
+				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, METRIC_RES_TYPE)
 				return ctrl.Result{}, err
 			}
 			controllerutil.RemoveFinalizer(obj, util.FinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
+				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, METRIC_RES_TYPE)
 				return ctrl.Result{}, err
 			}
 			log.V(1).Info("removed finalizer on securitypolicy CR", "securitypolicy", req.NamespacedName)
+			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, METRIC_RES_TYPE)
 		} else {
 			// only print a message because it's not a normal case
 			log.Info("securitypolicy CR is being deleted but its finalizers cannot be recognized", "securitypolicy", req.NamespacedName)
@@ -229,7 +242,13 @@ func (r *SecurityPolicyReconciler) GarbageCollector(cancel chan bool, timeout ti
 				continue
 			}
 			log.V(1).Info("GC collected SecurityPolicy CR", "UID", elem)
-			r.Service.DeleteSecurityPolicy(types.UID(elem))
+			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, METRIC_RES_TYPE)
+			err = r.Service.DeleteSecurityPolicy(types.UID(elem))
+			if err != nil {
+				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, METRIC_RES_TYPE)
+			} else {
+				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, METRIC_RES_TYPE)
+			}
 		}
 	}
 }

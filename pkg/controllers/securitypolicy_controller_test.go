@@ -14,6 +14,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services"
@@ -156,7 +157,13 @@ func TestSecurityPolicyController_isCRRequestedInSystemNamespace(t *testing.T) {
 func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
-	service := &services.SecurityPolicyService{}
+	service := &services.SecurityPolicyService{
+		NSXConfig: &config.NSXOperatorConfig{
+			NsxConfig: &config.NsxConfig{
+				EnforcementPoint: "vmc-enforcementpoint",
+			},
+		},
+	}
 	r := &SecurityPolicyReconciler{
 		Client:  k8sClient,
 		Scheme:  nil,
@@ -213,7 +220,13 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 
 func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 	// gc collect item "2345", local store has more item than k8s cache
-	service := &services.SecurityPolicyService{}
+	service := &services.SecurityPolicyService{
+		NSXConfig: &config.NSXOperatorConfig{
+			NsxConfig: &config.NsxConfig{
+				EnforcementPoint: "vmc-enforcementpoint",
+			},
+		},
+	}
 	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicy", func(_ *services.SecurityPolicyService) sets.String {
 		a := sets.NewString()
 		a.Insert("1234")
