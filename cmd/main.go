@@ -4,13 +4,17 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 	"time"
 
 	zapu "go.uber.org/zap"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -105,6 +109,24 @@ func main() {
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
+		os.Exit(1)
+	}
+
+	setupLog.Info("rendering manifests")
+	client := mgr.GetClient()
+	decoder := serializer.NewCodecFactory(clientgoscheme.Scheme).UniversalDecoder()
+	prometheusService := &v1.Service{}
+	svcYaml, err := os.Open("/manifests/prometheus/service.yaml")
+	if err != nil {
+		setupLog.Error(err, "unable to retrieve prometheus service yaml", prometheusService.GetName())
+		os.Exit(1)
+	}
+	data := yaml.NewYAMLOrJSONDecoder(svcYaml, 4096)
+	if err := runtime.DecodeInto(decoder, data, prometheusService); err != nil {
+		setupLog.Error(err, "unable to retrieve prometheus service", prometheusService.GetName())
+	}
+	if err := client.Update(context.TODO(), prometheusService); err != nil {
+		setupLog.Error(err, "unable to apply prometheus service", prometheusService.GetName())
 		os.Exit(1)
 	}
 
