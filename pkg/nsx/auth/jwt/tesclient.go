@@ -71,7 +71,7 @@ func (client *TESClient) ExchangeJWT(samlToken string, useOldAudience bool) (str
 	}
 	tesErr := client.HandleRequest("/vcenter/tokenservice/token-exchange", body, &res)
 	if tesErr != nil {
-		msg := fmt.Sprintf("Failed to exchange JWT due to error :%v", tesErr)
+		msg := fmt.Sprintf("failed to exchange JWT due to error :%v", tesErr)
 		log.Error(tesErr, "failed to exchange JWT")
 		return "", errors.New(msg)
 	}

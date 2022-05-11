@@ -18,6 +18,8 @@ import (
 	"github.com/golang-jwt/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/govmomi/sts"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 func TestJwtcache_NewJWTCache(t *testing.T) {
@@ -58,6 +60,39 @@ func TestJwtcache_GetJWT(t *testing.T) {
 	tesClient.VCClient.signer.Token = "this is a saml token"
 	_, err := cache.GetJWT(false)
 	assert.Nil(t, err)
+}
+
+func TestJwtcache_GetJWTFailed(t *testing.T) {
+	opts := zap.Options{
+		Development: true,
+	}
+	logf.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	tesClient := &TESClient{}
+	freshInterval := 10 * time.Second
+	token, _ := createToken("sectoid")
+	result := fmt.Sprintf(`{"value": {"access_token": "%s"}}`, token)
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(result))
+	}))
+	defer ts.Close()
+	index := strings.Index(ts.URL, "//")
+	a := ts.URL[index+2:]
+
+	cache := NewJWTCache(tesClient, freshInterval)
+	cache.tesClient = tesClient
+	config := &tls.Config{InsecureSkipVerify: true}
+	tr := &http.Transport{
+		TLSClientConfig: config,
+	}
+	httpClient := &http.Client{Transport: tr}
+	tesClient.VCClient = &VCClient{url: &url.URL{Scheme: "https", Host: a}}
+	tesClient.VCClient.httpClient = httpClient
+
+	tesClient.VCClient.signer = &sts.Signer{}
+	tesClient.VCClient.signer.Token = "this is a saml token"
+	_, err := cache.GetJWT(false)
+	assert.NotNil(t, err)
 }
 
 type TestClaims struct {

@@ -46,7 +46,7 @@ func (cache *JWTCache) GetJWT(refreshToken bool) (string, error) {
 	}
 	jwt, err := cache.refreshJWT()
 	if err != nil || jwt == "" {
-		log.V(1).Info("Refresh JWT error", err)
+		log.V(1).Info("get JWT", "Refresh JWT error", err)
 		return "", err
 	}
 	exp, err := cache.getJWTExpire(jwt)
