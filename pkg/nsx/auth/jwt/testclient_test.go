@@ -22,5 +22,5 @@ func TestTESClient_ExchangeJWT(t *testing.T) {
 	tesClient.VCClient.url = &url.URL{Scheme: "https", Host: "127.0.0.1"}
 
 	_, err := tesClient.ExchangeJWT("hello", false)
-	assert.True(t, strings.Contains(err.Error(), "Failed to exchange JWT due to"))
+	assert.True(t, strings.Contains(err.Error(), "failed to exchange JWT due to"))
 }
