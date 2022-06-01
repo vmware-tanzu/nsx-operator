@@ -82,5 +82,5 @@ func TestConfig_GetTokenProvider(t *testing.T) {
 	vcConfig.HttpsPort = 443
 	nsxConfig := &NSXOperatorConfig{VCConfig: vcConfig, NsxConfig: &NsxConfig{}}
 	tokenProvider := nsxConfig.GetTokenProvider()
-	assert.Nil(t, tokenProvider)
+	assert.NotNil(t, tokenProvider)
 }

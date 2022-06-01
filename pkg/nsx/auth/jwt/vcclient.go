@@ -14,9 +14,11 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"math/big"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,11 +68,7 @@ func NewVCClient(hostname string, port int, ssoDomain string, userName, password
 		httpClient: httpClient,
 		ssoDomain:  ssoDomain,
 	}
-
-	err := vcClient.getorRenewVAPISession()
-	if err != nil {
-		return nil, err
-	}
+	// remove vcClient.getorRenewVAPISession here, defer to cache.refreshJWT
 	return vcClient, nil
 }
 
@@ -116,6 +114,31 @@ func (vcClient *VCClient) getorRenewVAPISession() error {
 	vcClient.sessionMutex.Lock()
 	vcClient.session = session
 	vcClient.sessionMutex.Unlock()
+	return nil
+}
+
+func (vcClient *VCClient) reloadUsernamePass() error {
+	f, err := ioutil.ReadFile(VC_SVCACCOUNT_USER_PATH)
+	if err != nil {
+		log.Error(err, "failed to read user name")
+		return err
+	}
+	username := strings.TrimRight(string(f), "\n\r")
+
+	f, err = ioutil.ReadFile(VC_SVCACCOUNT_PWD_PATH)
+	if err != nil {
+		log.Error(err, "failed to read password")
+		return err
+	}
+	password := strings.TrimRight(string(f), "\n\r")
+	tmppass, _ := vcClient.url.User.Password()
+	if username != vcClient.url.User.Username() ||
+		password != tmppass {
+		log.Info("VC credentials updated")
+		vcClient.url.User = url.UserPassword(username, password)
+	} else {
+		log.Info("VC credentials not changed")
+	}
 	return nil
 }
 
@@ -190,29 +213,18 @@ func (vcClient *VCClient) createVimClient(ctx context.Context, vimSdkURL string)
 
 // HandleRequest sends a POST request
 func (client *VCClient) HandleRequest(urlPath string, data []byte, responseData interface{}) error {
-	// reew vAPISession if status code is '401'
-	for i := 0; i < 3; i++ {
-		request, err := client.prepareRequest(http.MethodPost, urlPath, data)
-		if err != nil {
-			return err
-		}
-
-		response, err := client.httpClient.Do(request)
-		if err != nil {
-			return err
-		}
-		log.V(1).Info("HTTP request", "request", request.URL, "response status", response.StatusCode)
-		if response.StatusCode == http.StatusUnauthorized {
-			if err = client.getorRenewVAPISession(); err != nil {
-				log.Error(err, "failed to renew VAPI session")
-				return err
-			}
-			continue
-		}
-		err, _ = util.HandleHTTPResponse(response, responseData, false)
+	request, err := client.prepareRequest(http.MethodPost, urlPath, data)
+	if err != nil {
 		return err
 	}
-	return nil
+
+	response, err := client.httpClient.Do(request)
+	if err != nil {
+		return err
+	}
+	log.V(1).Info("HTTP request", "request", request.URL, "response status", response.StatusCode)
+	err, _ = util.HandleHTTPResponse(response, responseData, false)
+	return err
 }
 
 func (client *VCClient) prepareRequest(method string, urlPath string, data []byte) (*http.Request, error) {

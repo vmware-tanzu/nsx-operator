@@ -72,7 +72,11 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 				return nil
 			}
 			if util.ShouldRegenerate(err) {
-				ep.createAuthSession(t.config.ClientCertProvider, t.config.TokenProvider, t.config.Username, t.config.Password, jarCache)
+				if t.config.TokenProvider != nil {
+					t.config.TokenProvider.GetToken(true)
+				} else {
+					ep.createAuthSession(t.config.ClientCertProvider, t.config.TokenProvider, t.config.Username, t.config.Password, jarCache)
+				}
 			}
 			return err
 		}, retry.RetryIf(func(err error) bool {

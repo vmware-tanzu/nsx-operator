@@ -47,10 +47,13 @@ func (cache *JWTCache) GetJWT(refreshToken bool) (string, error) {
 	jwt, err := cache.refreshJWT()
 	if err != nil || jwt == "" {
 		log.V(1).Info("get JWT", "Refresh JWT error", err)
+		cache.tesClient.signer = nil
 		return "", err
 	}
 	exp, err := cache.getJWTExpire(jwt)
 	if err != nil {
+		log.Info("get JWT", "get JWT expire", err)
+		cache.expire = exp
 		return "", err
 	}
 	if cache.jwt == "" || cache.expire.Before(exp) {
@@ -61,6 +64,16 @@ func (cache *JWTCache) GetJWT(refreshToken bool) (string, error) {
 }
 
 func (cache *JWTCache) refreshJWT() (string, error) {
+	if cache.tesClient.signer == nil {
+		if err := cache.tesClient.reloadUsernamePass(); err != nil {
+			log.Error(err, "JWT cache failed to refresh JWT ")
+			return "", err
+		}
+		if err := cache.tesClient.getorRenewVAPISession(); err != nil {
+			log.Error(err, "JWT cache failed to refresh JWT ")
+			return "", err
+		}
+	}
 	if jwt, err := cache.tesClient.ExchangeJWT(cache.tesClient.signer.Token, false); err != nil {
 		log.Error(err, "JWT cache failed to refresh JWT ")
 		return "", err
