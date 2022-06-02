@@ -4,16 +4,20 @@
 package nsx
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth/jwt"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 )
 
@@ -96,9 +100,11 @@ var (
 		`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":403}`,
 		`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":403}`,
 		`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":403}`,
+		`{"module_name":"common-services","error_message":"User account locked","error_code":401}`,
 	}
 	status = []int{
 		http.StatusForbidden,
+		http.StatusOK,
 		http.StatusOK,
 		http.StatusOK,
 		http.StatusOK,
@@ -201,4 +207,14 @@ func TestKeepAlive(t *testing.T) {
 	ep.KeepAlive()
 	waitTime := time.Since(start)
 	assert.True(waitTime/time.Second <= 2, "keepalive should stop within 2 seconds")
+
+	// ep.KeepAlive will break after 10 times retry
+	ep.tokenProvider = &jwt.JWTTokenProvider{}
+	ep.lockWait = time.Millisecond * 300
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(ep.tokenProvider), "GetToken", func(_ *jwt.JWTTokenProvider, refreshToken bool) (string, error) {
+		return "", errors.New("The account of the user trying to authenticate is locked. :: User account locked")
+	})
+	defer patch.Reset()
+	ep.KeepAlive()
+	assert.Equal(ep.Status(), DOWN)
 }

@@ -13,7 +13,7 @@ import (
 
 func TestTESClient_NewTESClient(t *testing.T) {
 	_, err := NewTESClient("10.0.0.1", 433, "vsphere.local", "admin", "admin", []byte{}, true)
-	assert.NotEqual(t, err, nil)
+	assert.Equal(t, err, nil)
 }
 
 func TestTESClient_ExchangeJWT(t *testing.T) {

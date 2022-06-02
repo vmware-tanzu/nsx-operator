@@ -4,8 +4,6 @@
 package jwt
 
 import (
-	"io/ioutil"
-	"strings"
 	"time"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
@@ -34,21 +32,8 @@ func (provider *JWTTokenProvider) HeaderValue(token string) string {
 }
 
 func NewTokenProvider(vcEndpoint string, port int, ssoDomain string, caCert []byte, insecure bool) (auth.TokenProvider, error) {
-	f, err := ioutil.ReadFile(VC_SVCACCOUNT_USER_PATH)
-	if err != nil {
-		log.Error(err, "failed to read user name")
-		return nil, err
-	}
-	username := strings.TrimRight(string(f), "\n\r")
-
-	f, err = ioutil.ReadFile(VC_SVCACCOUNT_PWD_PATH)
-	if err != nil {
-		log.Error(err, "failed to read password")
-		return nil, err
-	}
-	password := strings.TrimRight(string(f), "\n\r")
-
-	tesClient, err := NewTESClient(vcEndpoint, port, ssoDomain, username, password, caCert, insecure)
+	// not load username/password, not create vapi session, defer them to cache.refreshJWT
+	tesClient, err := NewTESClient(vcEndpoint, port, ssoDomain, "", "", caCert, insecure)
 	if err != nil {
 		log.Error(err, "failed to create tes client")
 		return nil, err

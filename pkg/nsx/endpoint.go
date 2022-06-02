@@ -17,6 +17,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/third_party/retry"
 )
 
 // EndpointStatus is endpoint status.
@@ -42,8 +43,8 @@ type Endpoint struct {
 	keepaliveperiod  int
 	connnumber       int32
 	stop             chan bool
-	printKeepAlive   int32
-	// Used in keepAlive only when token is not avaiable.
+	// Used when JWT token is not avaiable, default value is 120s
+	lockWait      time.Duration
 	user          string
 	password      string
 	tokenProvider auth.TokenProvider
@@ -84,6 +85,7 @@ func NewEndpoint(url string, client *http.Client, noBClient *http.Client, r rate
 	ep := Endpoint{client: client, noBalancerClient: noBClient, keepaliveperiod: ratelimiter.KeepAlivePeriod, ratelimiter: r, status: DOWN, tokenProvider: tokenProvider}
 	ep.provider = addr
 	ep.stop = make(chan bool)
+	ep.lockWait = 120 * time.Second
 	return &ep, nil
 }
 
@@ -108,10 +110,13 @@ func (ep *Endpoint) keepAlive() error {
 	req, err := http.NewRequest("GET", fmt.Sprintf(healthURL, ep.Scheme(), ep.Host()), nil)
 	if err != nil {
 		log.Error(err, "create keep alive request error")
+		return err
 	}
 	err = ep.UpdateHttpRequestAuth(req)
 	if err != nil {
 		log.Error(err, "keep alive update auth error")
+		ep.setStatus(DOWN)
+		return err
 	}
 
 	resp, err := ep.noBalancerClient.Do(req)
@@ -297,8 +302,19 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 }
 
 func (ep *Endpoint) UpdateHttpRequestAuth(request *http.Request) error {
+	// retry if GetToken failed, wait for 120s to avoid user lock
+	// try 10 times
 	if ep.tokenProvider != nil {
-		token, err := ep.tokenProvider.GetToken(false)
+		var token string
+		err := retry.Do(
+			func() error {
+				var err error
+				token, err = ep.tokenProvider.GetToken(false)
+				return err
+			}, retry.RetryIf(func(err error) bool {
+				return err != nil
+			}), retry.LastErrorOnly(true), retry.Delay(ep.lockWait), retry.MaxDelay(ep.lockWait),
+		)
 		if err != nil {
 			log.Error(err, "retrieving JSON Web Token eror")
 			return err

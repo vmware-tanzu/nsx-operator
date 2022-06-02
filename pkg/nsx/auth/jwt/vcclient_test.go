@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -64,10 +65,13 @@ func TestVCClient_NewVCClient(t *testing.T) {
 	assert.Equal(t, err, nil)
 	assert.NotEqual(t, vcClient, nil)
 
+	err = vcClient.getorRenewVAPISession()
+	assert.Nil(t, err)
+
 	// bad session data
 	offset += 1
 	_, err = NewVCClient(host, port, ssoDomain, userName, password, nil, true)
-	assert.True(t, strings.Contains(err.Error(), "unexpected session data"))
+	assert.Equal(t, err, nil)
 
 }
 
@@ -79,4 +83,57 @@ func TestVCClient_createHttpClient(t *testing.T) {
 	// invalid cert
 	client = createHttpClient(false, []byte{1, 2})
 	assert.NotEqual(t, client, nil)
+}
+
+func TestVCClient_getorRenewVAPISession(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	}))
+	defer ts.Close()
+
+	index := strings.Index(ts.URL, "//")
+	hostURL := ts.URL[index+2:]
+
+	buf := strings.Split(hostURL, ":")
+	host := buf[0]
+	port, _ := strconv.Atoi(buf[1])
+	userName := "admin"
+	password := "admin"
+	ssoDomain := "vsphere.local"
+	vcClient, err := NewVCClient(host, port, ssoDomain, userName, password, nil, true)
+	assert.Equal(t, err, nil)
+	assert.NotEqual(t, vcClient, nil)
+
+	err = vcClient.getorRenewVAPISession()
+	assert.NotNil(t, err)
+}
+
+func TestVCClient_reloadUsernamePass(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	}))
+	defer ts.Close()
+
+	index := strings.Index(ts.URL, "//")
+	hostURL := ts.URL[index+2:]
+
+	buf := strings.Split(hostURL, ":")
+	host := buf[0]
+	port, _ := strconv.Atoi(buf[1])
+	userName := "admin"
+	password := "admin"
+	ssoDomain := "vsphere.local"
+	vcClient, _ := NewVCClient(host, port, ssoDomain, userName, password, nil, true)
+	err := vcClient.reloadUsernamePass()
+	assert.NotNil(t, err)
+
+	patch := gomonkey.ApplyFunc(os.ReadFile, func(filename string) ([]byte, error) {
+		return []byte{}, nil
+	})
+	defer patch.Reset()
+	err = vcClient.reloadUsernamePass()
+	assert.Nil(t, err)
+
 }
