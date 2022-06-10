@@ -538,3 +538,27 @@ type PageMaxError struct {
 func (err PageMaxError) Error() string {
 	return err.Desc
 }
+
+type PodIPNotFound struct {
+	Desc string
+}
+
+func (err PodIPNotFound) Error() string {
+	return err.Desc
+}
+
+type PodNotRunning struct {
+	Desc string
+}
+
+func (err PodNotRunning) Error() string {
+	return err.Desc
+}
+
+type NoFilteredPod struct {
+	Desc string
+}
+
+func (err NoFilteredPod) Error() string {
+	return err.Desc
+}

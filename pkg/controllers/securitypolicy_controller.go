@@ -8,15 +8,17 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"runtime"
 	"strings"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -27,20 +29,41 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
-var (
-	log = logf.Log.WithName("controller").WithName("securitypolicy")
-)
-
 const (
 	WCP_SYSTEM_RESOURCE = "vmware-system-shared-t1"
 	METRIC_RES_TYPE     = "securitypolicy"
 )
 
-// SecurityPolicyReconciler reconciles a SecurityPolicy object
+var (
+	log           = logf.Log.WithName("controller").WithName("securitypolicy")
+	resultNormal  = ctrl.Result{}
+	resultRequeue = ctrl.Result{Requeue: true}
+)
+
+// SecurityPolicyReconciler SecurityPolicyReconcile reconciles a SecurityPolicy object
 type SecurityPolicyReconciler struct {
 	Client  client.Client
-	Scheme  *runtime.Scheme
+	Scheme  *apimachineryruntime.Scheme
 	Service *services.SecurityPolicyService
+}
+
+func updateFail(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
+	r.setSecurityPolicyReadyStatusFalse(c, o, e)
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, METRIC_RES_TYPE)
+}
+
+func deleteFail(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
+	r.setSecurityPolicyReadyStatusFalse(c, o, e)
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, METRIC_RES_TYPE)
+}
+
+func updateSuccess(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy) {
+	r.setSecurityPolicyReadyStatusTrue(c, o)
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, METRIC_RES_TYPE)
+}
+
+func deleteSuccess(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy) {
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, METRIC_RES_TYPE)
 }
 
 func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -49,8 +72,8 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, METRIC_RES_TYPE)
 
 	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
-		log.Error(err, "unable to fetch security policy CR", "req", req.NamespacedName)
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		log.V(1).Info("fetch securitypolicy CR", "req", req.NamespacedName)
+		return resultNormal, client.IgnoreNotFound(err)
 	}
 
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -58,51 +81,56 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if !controllerutil.ContainsFinalizer(obj, util.FinalizerName) {
 			controllerutil.AddFinalizer(obj, util.FinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
-				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, METRIC_RES_TYPE)
-				return ctrl.Result{}, err
+				log.Error(err, "add finalizer", "securitypolicy", req.NamespacedName)
+				updateFail(r, &ctx, obj, &err)
+				return resultRequeue, err
 			}
 			log.V(1).Info("added finalizer on securitypolicy CR", "securitypolicy", req.NamespacedName)
 		}
 
 		if isCRInSysNs, err := r.isCRRequestedInSystemNamespace(&ctx, &req); err != nil {
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, METRIC_RES_TYPE)
-			return ctrl.Result{}, err
+			err = errors.New("fetch namespace associated with security policy CR failed")
+			log.Error(err, "would retry exponentially", "securitypolicy", req.NamespacedName)
+			updateFail(r, &ctx, obj, &err)
+			return resultRequeue, err
 		} else if isCRInSysNs {
-			err = errors.New("Security Policy CR cannot be created in System Namespace")
-			log.Error(err, "failed to create security policy CR", "securitypolicy", req.NamespacedName)
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, METRIC_RES_TYPE)
-			return ctrl.Result{}, err
+			err = errors.New("security Policy CR cannot be created in System Namespace")
+			log.Error(err, "", "securitypolicy", req.NamespacedName)
+			updateFail(r, &ctx, obj, &err)
+			return resultNormal, err
 		}
 
-		if err := r.Service.CreateOrUpdateSecurityPolicy(obj); err != nil {
-			log.Error(err, "failed to create or update security policy CR", "securitypolicy", req.NamespacedName)
-			r.setSecurityPolicyReadyStatusFalse(&ctx, obj, &err)
+		if err := r.Service.OperateSecurityPolicy(obj); err != nil {
+			log.Error(err, "operate failed, would retry exponentially", "securitypolicy", req.NamespacedName)
+			updateFail(r, &ctx, obj, &err)
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, METRIC_RES_TYPE)
-			return ctrl.Result{}, err
+			return resultRequeue, err
 		}
-		r.setSecurityPolicyReadyStatusTrue(&ctx, obj)
+		updateSuccess(r, &ctx, obj)
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, METRIC_RES_TYPE)
 	} else {
-		if containsString(obj.GetFinalizers(), util.FinalizerName) {
+		if controllerutil.ContainsFinalizer(obj, util.FinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, METRIC_RES_TYPE)
 			if err := r.Service.DeleteSecurityPolicy(obj.UID); err != nil {
-				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, METRIC_RES_TYPE)
-				return ctrl.Result{}, err
+				log.Error(err, "delete failed, would retry exponentially", "securitypolicy", req.NamespacedName)
+				deleteFail(r, &ctx, obj, &err)
+				return resultRequeue, err
 			}
 			controllerutil.RemoveFinalizer(obj, util.FinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
-				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, METRIC_RES_TYPE)
-				return ctrl.Result{}, err
+				log.Error(err, "delete failed, would retry exponentially", "securitypolicy", req.NamespacedName)
+				deleteFail(r, &ctx, obj, &err)
+				return resultRequeue, err
 			}
-			log.V(1).Info("removed finalizer on securitypolicy CR", "securitypolicy", req.NamespacedName)
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, METRIC_RES_TYPE)
+			log.V(1).Info("removed finalizer", "securitypolicy", req.NamespacedName)
+			deleteSuccess(r, &ctx, obj)
 		} else {
 			// only print a message because it's not a normal case
-			log.Info("securitypolicy CR is being deleted but its finalizers cannot be recognized", "securitypolicy", req.NamespacedName)
+			log.Info("finalizers cannot be recognized", "securitypolicy", req.NamespacedName)
 		}
 	}
 
-	return ctrl.Result{}, nil
+	return resultNormal, nil
 }
 
 func (r *SecurityPolicyReconciler) isCRRequestedInSystemNamespace(ctx *context.Context, req *ctrl.Request) (bool, error) {
@@ -184,18 +212,13 @@ func getExistingConditionOfType(conditionType v1alpha1.SecurityPolicyStatusCondi
 	return nil
 }
 
-func containsString(source []string, target string) bool {
-	for _, item := range source {
-		if item == target {
-			return true
-		}
-	}
-	return false
-}
-
 func (r *SecurityPolicyReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.SecurityPolicy{}).
+		WithOptions(
+			controller.Options{
+				MaxConcurrentReconciles: runtime.NumCPU(),
+			}).
 		Complete(r)
 }
 
@@ -214,14 +237,14 @@ func (r *SecurityPolicyReconciler) Start(mgr ctrl.Manager) error {
 // cancel is used to break the loop during UT
 func (r *SecurityPolicyReconciler) GarbageCollector(cancel chan bool, timeout time.Duration) {
 	ctx := context.Background()
-	log.V(1).Info("garbage collector started")
+	log.Info("garbage collector started")
 	for {
 		select {
 		case <-cancel:
 			return
 		case <-time.After(timeout):
 		}
-		nsxPolicySet := r.Service.ListSecurityPolicy()
+		nsxPolicySet := r.Service.ListSecurityPolicyID()
 		if len(nsxPolicySet) == 0 {
 			continue
 		}
