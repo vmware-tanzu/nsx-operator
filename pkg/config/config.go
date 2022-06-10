@@ -158,7 +158,7 @@ func (operatorConfig *NSXOperatorConfig) GetTokenProvider() auth.TokenProvider {
 }
 
 func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
-	log.V(1).Info("try to load VC host CA")
+	log.V(2).Info("try to load VC host CA")
 	var vcCaCert []byte
 	var err error
 	if !operatorConfig.Insecure {

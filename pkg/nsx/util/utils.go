@@ -125,7 +125,7 @@ func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorD
 	}
 
 	ec.ErrorCode = res.ErrorCode
-	log.V(1).Info("http response", "status code", statusCode, "body", res)
+	log.V(2).Info("http response", "status code", statusCode, "body", res)
 	msg := []string{res.ErrorMsg}
 	for _, a := range res.RelatedErr {
 		ec.RelatedErrorCodes = append(ec.RelatedErrorCodes, a.ErrorCode)
@@ -229,7 +229,7 @@ func HandleHTTPResponse(response *http.Response, result interface{}, debug bool)
 		return err, body
 	}
 	if debug {
-		log.V(1).Info("received HTTP response", "response", string(body))
+		log.V(2).Info("received HTTP response", "response", string(body))
 	}
 	if err := json.Unmarshal(body, result); err != nil {
 		log.Error(err, "Error converting HTTP response to result", "result type", result)
