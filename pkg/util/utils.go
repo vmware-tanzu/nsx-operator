@@ -58,3 +58,8 @@ func RemoveDuplicateStr(strSlice []string) []string {
 
 	return resultStr
 }
+
+func ToUpper(obj interface{}) string {
+	str := fmt.Sprintf("%s", obj)
+	return strings.ToUpper(str)
+}
