@@ -17,10 +17,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
@@ -52,6 +54,14 @@ func updateFail(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.Sec
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, METRIC_RES_TYPE)
 }
 
+func k8sClient(mgr ctrl.Manager) client.Client {
+	var c client.Client
+	if mgr != nil {
+		c = mgr.GetClient()
+	}
+	return c
+}
+
 func deleteFail(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
 	r.setSecurityPolicyReadyStatusFalse(c, o, e)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, METRIC_RES_TYPE)
@@ -62,7 +72,7 @@ func updateSuccess(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, METRIC_RES_TYPE)
 }
 
-func deleteSuccess(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy) {
+func deleteSuccess(r *SecurityPolicyReconciler, _ *context.Context, _ *v1alpha1.SecurityPolicy) {
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, METRIC_RES_TYPE)
 }
 
@@ -110,7 +120,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if controllerutil.ContainsFinalizer(obj, util.FinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, METRIC_RES_TYPE)
 			if err := r.Service.DeleteSecurityPolicy(obj.UID); err != nil {
-				log.Error(err, "delete failed, would retry exponentially", "securitypolicy", req.NamespacedName)
+				log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 				deleteFail(r, &ctx, obj, &err)
 				return resultRequeue, err
 			}
@@ -183,7 +193,7 @@ func (r *SecurityPolicyReconciler) updateSecurityPolicyStatusConditions(ctx *con
 	}
 }
 
-func (r *SecurityPolicyReconciler) mergeSecurityPolicyStatusCondition(ctx *context.Context, sec_policy *v1alpha1.SecurityPolicy, newCondition *v1alpha1.SecurityPolicyCondition) bool {
+func (r *SecurityPolicyReconciler) mergeSecurityPolicyStatusCondition(_ *context.Context, sec_policy *v1alpha1.SecurityPolicy, newCondition *v1alpha1.SecurityPolicyCondition) bool {
 	matchedCondition := getExistingConditionOfType(newCondition.Type, sec_policy.Status.Conditions)
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {
@@ -217,6 +227,16 @@ func (r *SecurityPolicyReconciler) setupWithManager(mgr ctrl.Manager) error {
 			controller.Options{
 				MaxConcurrentReconciles: runtime.NumCPU(),
 			}).
+		Watches(
+			&source.Kind{Type: &v1.Namespace{}},
+			&EnqueueRequestForNamespace{Client: k8sClient(mgr)},
+			builder.WithPredicates(PredicateFuncsNs),
+		).
+		Watches(
+			&source.Kind{Type: &v1.Pod{}},
+			&EnqueueRequestForPod{Client: k8sClient(mgr)},
+			builder.WithPredicates(PredicateFuncsPod),
+		).
 		Complete(r)
 }
 

@@ -39,8 +39,9 @@ func init() {
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8093", "The address the metrics endpoint binds to.")
 	config.AddFlags()
 	flag.Parse()
+	var err error
 
-	cf, err := config.NewNSXOperatorConfigFromFile()
+	cf, err = config.NewNSXOperatorConfigFromFile()
 	if err != nil {
 		os.Exit(1)
 	}
@@ -61,7 +62,7 @@ func main() {
 		LeaderElectionID:       "nsx-operator",
 	})
 	if err != nil {
-		log.Error(err, "unable to start manager")
+		log.Error(err, "failed to init manager")
 		os.Exit(1)
 	}
 	securityReconcile := &controllers.SecurityPolicyReconciler{
@@ -77,6 +78,7 @@ func main() {
 		log.Error(err, "unable to initialize securitypolicy service", "controller", "SecurityPolicy")
 		os.Exit(1)
 	} else {
+		service.Client = mgr.GetClient()
 		securityReconcile.Service = service
 	}
 
@@ -100,7 +102,7 @@ func main() {
 
 	log.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		log.Error(err, "problem running manager")
+		log.Error(err, "failed to start manager")
 		os.Exit(1)
 	}
 }
@@ -120,7 +122,7 @@ func getHealthStatus(nsxClient *nsx.Client) error {
 func updateHealthMetricsPeriodically(nsxClient *nsx.Client) {
 	for {
 		if err := getHealthStatus(nsxClient); err != nil {
-			log.Error(err, "Failed to fetch health info")
+			log.Error(err, "failed to fetch health info")
 		}
 		select {
 		case <-time.After(metrics.ScrapeTimeout):

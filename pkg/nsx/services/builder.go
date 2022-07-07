@@ -44,14 +44,20 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 
 	for ruleIdx, rule := range obj.Spec.Rules {
 		// A rule containing named port may expand to multiple rules if the name maps to multiple port numbers.
-		nsxRule, ruleGroups, err := service.buildRuleAndGroups(obj, &rule, ruleIdx)
+		expandRules, ruleGroups, err := service.buildRuleAndGroups(obj, &rule, ruleIdx)
 		if err != nil {
 			log.Error(err, "failed to build rule and groups", "rule", rule, "ruleIndex", ruleIdx)
 			return nil, nil, err
 		}
-		nsxRules = append(nsxRules, *nsxRule)
-		for _, ruleGroup := range *ruleGroups {
-			nsxGroups = append(nsxGroups, ruleGroup)
+		for _, nsxRule := range expandRules {
+			if nsxRule != nil {
+				nsxRules = append(nsxRules, *nsxRule)
+			}
+		}
+		for _, ruleGroup := range ruleGroups {
+			if ruleGroup != nil {
+				nsxGroups = append(nsxGroups, *ruleGroup)
+			}
 		}
 	}
 	nsxSecurityPolicy.Rules = nsxRules
@@ -286,188 +292,136 @@ func (service *SecurityPolicyService) buildPolicyGroupID(obj *v1alpha1.SecurityP
 	return fmt.Sprintf("sp_%s_scope", obj.UID)
 }
 
+func (service *SecurityPolicyService) buildRuleInGroup(obj *v1alpha1.SecurityPolicy,
+	rule *v1alpha1.SecurityPolicyRule, nsxRule *model.Rule, ruleIdx int) (*model.Group, string, string, error) {
+	var nsxRuleSrcGroup *model.Group
+	var nsxRuleSrcGroupPath string
+	var nsxRuleDstGroupPath string
+	var err error
+	if len(rule.Sources) > 0 {
+		nsxRuleSrcGroup, nsxRuleSrcGroupPath, err = service.buildRuleSrcGroup(obj, rule, ruleIdx)
+		if err != nil {
+			return nil, "", "", err
+		}
+	} else {
+		nsxRuleSrcGroupPath = "ANY"
+	}
+
+	if len(nsxRule.DestinationGroups) > 0 {
+		nsxRuleDstGroupPath = nsxRule.DestinationGroups[0]
+	} else {
+		nsxRuleDstGroupPath = "ANY"
+	}
+	return nsxRuleSrcGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, nil
+}
+
+func (service *SecurityPolicyService) buildRuleOutGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
+	nsxRule *model.Rule, ruleIdx int) (*model.Group, string, string, error) {
+	var nsxRuleDstGroup *model.Group
+	var nsxRuleSrcGroupPath string
+	var nsxRuleDstGroupPath string
+	var err error
+	if len(nsxRule.DestinationGroups) > 0 {
+		nsxRuleDstGroupPath = nsxRule.DestinationGroups[0]
+	} else {
+		if len(rule.Destinations) > 0 {
+			nsxRuleDstGroup, nsxRuleDstGroupPath, err = service.buildRuleDstGroup(obj, rule, ruleIdx)
+			if err != nil {
+				return nil, "", "", err
+			}
+		} else {
+			nsxRuleDstGroupPath = "ANY"
+		}
+	}
+	nsxRuleSrcGroupPath = "ANY"
+	return nsxRuleDstGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, nil
+}
+
+func (service *SecurityPolicyService) buildRuleAppliedToGroup(
+	obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
+	ruleIdx int, nsxRuleSrcGroupPath string, nsxRuleDstGroupPath string) (*model.Group, string, error) {
+	var nsxRuleAppliedGroup *model.Group
+	var nsxRuleAppliedGroupPath string
+	var err error
+	if len(rule.AppliedTo) > 0 {
+		nsxRuleAppliedGroup, nsxRuleAppliedGroupPath, err = service.buildRuleAppliedGroupByRule(obj, rule, ruleIdx)
+		if err != nil {
+			return nil, "", err
+		}
+	} else {
+		nsxRuleAppliedGroupPath, err = service.buildRuleAppliedGroupByPolicy(obj,
+			nsxRuleSrcGroupPath, nsxRuleDstGroupPath)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	return nsxRuleAppliedGroup, nsxRuleAppliedGroupPath, nil
+}
+
 func (service *SecurityPolicyService) buildPolicyGroupPath(obj *v1alpha1.SecurityPolicy) string {
 	policyGroupID := service.buildPolicyGroupID(obj)
 	return fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), policyGroupID)
 }
 
 func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityPolicy,
-	rule *v1alpha1.SecurityPolicyRule, ruleIdx int) (*model.Rule, *[]model.Group, error) {
-	sequenceNumber := int64(ruleIdx)
-	nsxRuleID := service.buildRuleID(obj, ruleIdx)
-	var nsxRuleName string
-	var ruleGroups []model.Group
+	rule *v1alpha1.SecurityPolicyRule, ruleIdx int) ([]*model.Rule, []*model.Group, error) {
+
+	var ruleGroups []*model.Group
 	var nsxRuleAppliedGroup *model.Group
 	var nsxRuleSrcGroup *model.Group
 	var nsxRuleDstGroup *model.Group
 	var nsxRuleAppliedGroupPath string
 	var nsxRuleDstGroupPath string
 	var nsxRuleSrcGroupPath string
-	var err error = nil
+	var err error
 
-	direction, err := getRuleDirection(rule)
-	if err != nil {
-		return nil, nil, err
-	}
-	ruleAction, err := getRuleAction(rule)
+	ruleDirection, err := getRuleDirection(rule)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if len(rule.Name) > 0 {
-		nsxRuleName = rule.Name
-	} else {
-		nsxRuleName = fmt.Sprintf("%s-%d", obj.ObjectMeta.Name, ruleIdx)
+	// Since a named port may map to multiple port numbers, then it would return multiple rules.
+	// We use the destination port number of service entry to group the rules.
+	ipSetGroups, nsxRules, err := service.expandRule(obj, rule, ruleIdx)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, g := range ipSetGroups {
+		ruleGroups = append(ruleGroups, g)
 	}
 
-	nsxRule := model.Rule{
-		Id:             &nsxRuleID,
-		DisplayName:    &nsxRuleName,
-		Direction:      &direction,
-		SequenceNumber: &sequenceNumber,
-		Action:         &ruleAction,
-		Services:       []string{"ANY"},
-		Tags:           service.buildBasicTags(obj),
-	}
-
-	if direction == "IN" {
-		if len(rule.Sources) > 0 {
-			nsxRuleSrcGroup, nsxRuleSrcGroupPath, err = service.buildRuleSrcGroup(obj, rule, ruleIdx)
-			if err == nil {
-				ruleGroups = append(ruleGroups, *nsxRuleSrcGroup)
-			} else {
-				log.Error(err, "failed to build rule source groups")
+	for _, nsxRule := range nsxRules {
+		if ruleDirection == "IN" {
+			nsxRuleSrcGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, err =
+				service.buildRuleInGroup(obj, rule, nsxRule, ruleIdx)
+			if err != nil {
 				return nil, nil, err
 			}
-		} else {
-			nsxRuleSrcGroupPath = "ANY"
-		}
-		nsxRuleDstGroupPath = "ANY"
-	} else if direction == "OUT" {
-		if len(rule.Destinations) > 0 {
-			nsxRuleDstGroup, nsxRuleDstGroupPath, err = service.buildRuleDstGroup(obj, rule, ruleIdx)
-			if err == nil {
-				ruleGroups = append(ruleGroups, *nsxRuleDstGroup)
-			} else {
-				log.Error(err, "failed to build rule destination groups")
+			ruleGroups = append(ruleGroups, nsxRuleSrcGroup)
+		} else if ruleDirection == "OUT" {
+			nsxRuleDstGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, err =
+				service.buildRuleOutGroup(obj, rule, nsxRule, ruleIdx)
+			if err != nil {
 				return nil, nil, err
 			}
-		} else {
-			nsxRuleDstGroupPath = "ANY"
+			ruleGroups = append(ruleGroups, nsxRuleDstGroup)
 		}
-		nsxRuleSrcGroupPath = "ANY"
-	}
-	nsxRule.SourceGroups = []string{nsxRuleSrcGroupPath}
-	nsxRule.DestinationGroups = []string{nsxRuleDstGroupPath}
-	ruleServiceEntries := service.buildRuleServiceEntries(&rule.Ports)
-	nsxRule.ServiceEntries = *ruleServiceEntries
+		nsxRule.SourceGroups = []string{nsxRuleSrcGroupPath}
+		nsxRule.DestinationGroups = []string{nsxRuleDstGroupPath}
 
-	if len(rule.AppliedTo) > 0 {
-		nsxRuleAppliedGroup, nsxRuleAppliedGroupPath, err = service.buildRuleAppliedGroup(obj, rule, ruleIdx)
-		if err == nil {
-			ruleGroups = append(ruleGroups, *nsxRuleAppliedGroup)
-		} else {
-			log.Error(err, "failed to build rule applied groups")
+		nsxRuleAppliedGroup, nsxRuleAppliedGroupPath, err =
+			service.buildRuleAppliedToGroup(obj, rule, ruleIdx, nsxRuleSrcGroupPath, nsxRuleDstGroupPath)
+		if err != nil {
 			return nil, nil, err
 		}
-	} else {
-		if len(obj.Spec.AppliedTo) == 0 {
-			err = errors.New("appliedTo needs to be set in either spec or rules")
-			log.Error(err, "error while validating appliedTo field")
-			return nil, nil, err
-		} else if nsxRuleSrcGroupPath == "ANY" && nsxRuleDstGroupPath == "ANY" {
-			// NSX-T manager will report error if all the rule's scope/src/dst are "ANY".
-			// So if the rule's scope is empty while policy's not, the rule's scope also
-			// will be set to the policy's scope to avoid this case.
-			nsxRuleAppliedGroupPath = service.buildPolicyGroupPath(obj)
-		} else {
-			nsxRuleAppliedGroupPath = "ANY"
-		}
+		ruleGroups = append(ruleGroups, nsxRuleAppliedGroup)
+		nsxRule.Scope = []string{nsxRuleAppliedGroupPath}
+
+		log.V(2).Info("built rule and groups", "nsxRuleAppliedGroup", nsxRuleAppliedGroup,
+			"~", nsxRuleSrcGroup, "nsxRuleDstGroup", nsxRuleDstGroup,
+			"action", *nsxRule.Action, "direction", *nsxRule.Direction)
 	}
-	nsxRule.Scope = []string{nsxRuleAppliedGroupPath}
-
-	log.V(1).Info("built rule and groups", "nsxRuleAppliedGroup", nsxRuleAppliedGroup, "nsxRuleSrcGroup", nsxRuleSrcGroup, "nsxRuleDstGroup", nsxRuleDstGroup, "action", *nsxRule.Action, "direction", *nsxRule.Direction)
-
-	return &nsxRule, &ruleGroups, nil
-}
-
-func (service *SecurityPolicyService) buildRuleServiceEntries(rulePorts *[]v1alpha1.SecurityPolicyPort) *[]*data.StructValue {
-	ruleServiceEntries := []*data.StructValue{}
-	for _, port := range *rulePorts {
-		var portRange string
-		startPort := port.Port.IntValue()
-		sourcePorts := data.NewListValue()
-		destinationPorts := data.NewListValue()
-		// In case that the destination_port in NSX-T is 0.
-		endPort := port.EndPort
-		if endPort == 0 {
-			portRange = fmt.Sprint(startPort)
-		} else {
-			portRange = fmt.Sprintf("%d-%d", startPort, endPort)
-		}
-		destinationPorts.Add(data.NewStringValue(portRange))
-		serviceEntry := data.NewStructValue(
-			"",
-			map[string]data.DataValue{
-				"source_ports":      sourcePorts,
-				"destination_ports": destinationPorts,
-				"l4_protocol":       data.NewStringValue(string(port.Protocol)),
-				"resource_type":     data.NewStringValue("L4PortSetServiceEntry"),
-				// adding the following default values to make it easy when compare the existing object from store and the new built object
-				"marked_for_delete": data.NewBooleanValue(false),
-				"overridden":        data.NewBooleanValue(false),
-			},
-		)
-		ruleServiceEntries = append(ruleServiceEntries, serviceEntry)
-	}
-	return &ruleServiceEntries
-}
-
-func (service *SecurityPolicyService) buildRuleAppliedGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, idx int) (*model.Group, string, error) {
-	var ruleAppliedGroupName string
-	appliedTo := rule.AppliedTo
-	ruleAppliedGroupID := fmt.Sprintf("sp_%s_%d_scope", obj.UID, idx)
-	if len(rule.Name) > 0 {
-		ruleAppliedGroupName = fmt.Sprintf("%s-scope", rule.Name)
-	} else {
-		ruleAppliedGroupName = fmt.Sprintf("%s-%d-scope", obj.ObjectMeta.Name, idx)
-	}
-	targetTags := service.buildTargetTags(obj, &appliedTo, idx)
-	ruleAppliedGroupPath := fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), ruleAppliedGroupID)
-	ruleAppliedGroup := model.Group{
-		Id:          &ruleAppliedGroupID,
-		DisplayName: &ruleAppliedGroupName,
-		Tags:        targetTags,
-	}
-
-	ruleGroupCount, ruleGroupTotalExprCount := 0, 0
-	criteriaCount, totalExprCount := 0, 0
-	var err error = nil
-	var errorMsg = ""
-	for i, target := range appliedTo {
-		criteriaCount, totalExprCount, err = service.updateTargetExpressions(obj, &target, &ruleAppliedGroup, i)
-		if err == nil {
-			ruleGroupCount += criteriaCount
-			ruleGroupTotalExprCount += totalExprCount
-		} else {
-			return nil, "", err
-		}
-	}
-	log.V(1).Info("build rule applied group criteria", "total criteria", ruleGroupCount, "total expressions of criteria", ruleGroupTotalExprCount)
-
-	if ruleGroupCount > MaxCriteria {
-		errorMsg = fmt.Sprintf("total counts of rule applied group criteria %d exceed NSX limit of %d", ruleGroupCount, MaxCriteria)
-	} else if ruleGroupTotalExprCount > MaxTotalCriteriaExpressions {
-		errorMsg = fmt.Sprintf("total expression counts in rule applied group criteria %d exceed NSX limit of %d", ruleGroupTotalExprCount, MaxTotalCriteriaExpressions)
-	}
-
-	if len(errorMsg) != 0 {
-		err = errors.New(errorMsg)
-		log.Error(err, "validate rule applied group criteria nsx limit failed")
-		return nil, "", err
-	}
-
-	return &ruleAppliedGroup, ruleAppliedGroupPath, nil
+	return nsxRules, ruleGroups, nil
 }
 
 func (service *SecurityPolicyService) buildRuleID(obj *v1alpha1.SecurityPolicy, idx int) string {
@@ -637,6 +591,68 @@ func (service *SecurityPolicyService) buildRuleDstGroup(obj *v1alpha1.SecurityPo
 		return nil, "", err
 	}
 	return &ruleDstGroup, ruleDstGroupPath, err
+}
+
+func (service *SecurityPolicyService) buildEntry(port v1alpha1.SecurityPolicyPort,
+	portIP util.Address) *data.StructValue {
+	var portRange string
+	sourcePorts := data.NewListValue()
+	destinationPorts := data.NewListValue()
+
+	// In case that the destination_port in NSX-T is 0.
+	endPort := port.EndPort
+	if endPort == 0 {
+		portRange = fmt.Sprint(portIP.Port)
+	} else {
+		portRange = fmt.Sprintf("%d-%d", portIP.Port, endPort)
+	}
+	destinationPorts.Add(data.NewStringValue(portRange))
+
+	serviceEntry := data.NewStructValue(
+		"",
+		map[string]data.DataValue{
+			"source_ports":      sourcePorts,
+			"destination_ports": destinationPorts,
+			"l4_protocol":       data.NewStringValue(string(port.Protocol)),
+			"resource_type":     data.NewStringValue("L4PortSetServiceEntry"),
+			// Adding the following default values to make it easy when compare the
+			// existing object from store and the new built object
+			"marked_for_delete": data.NewBooleanValue(false),
+			"overridden":        data.NewBooleanValue(false),
+		},
+	)
+	log.V(2).Info("built service entry", "serviceEntry", serviceEntry)
+	return serviceEntry
+}
+
+func (service *SecurityPolicyService) buildRuleBasicInfo(obj *v1alpha1.SecurityPolicy,
+	rule *v1alpha1.SecurityPolicyRule, ruleIdx int, portIdx int, dupPortIdx int) (*model.Rule, error) {
+	nsxRuleID := service.buildRuleID(obj, ruleIdx)
+	nsxRuleName := service.buildRuleName(obj, rule, ruleIdx)
+	ruleAction, err := getRuleAction(rule)
+	if err != nil {
+		return nil, err
+	}
+	ruleDirection, err := getRuleDirection(rule)
+	if err != nil {
+		return nil, err
+	}
+	sequence := int64(ruleIdx)
+	rID := fmt.Sprintf("%s_%d_%d", nsxRuleID, portIdx, dupPortIdx)
+	rName := fmt.Sprintf("%s-%d-%d", nsxRuleName, portIdx, dupPortIdx)
+
+	nsxRule := model.Rule{
+		Id:             &rID,
+		DisplayName:    &rName,
+		Direction:      &ruleDirection,
+		SequenceNumber: &sequence,
+		Action:         &ruleAction,
+		Services:       []string{"ANY"},
+		ServiceEntries: []*data.StructValue{},
+		Tags:           service.buildBasicTags(obj),
+	}
+	log.V(1).Info("built rule basic info", "nsxRule", nsxRule)
+	return &nsxRule, nil
 }
 
 func (service *SecurityPolicyService) buildPeerTags(obj *v1alpha1.SecurityPolicy, peers *[]v1alpha1.SecurityPolicyPeer, idx int) []model.Tag {
