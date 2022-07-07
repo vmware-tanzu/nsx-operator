@@ -179,7 +179,7 @@ func (ep *Endpoint) setup() {
 	if err != nil {
 		log.Error(err, "setup endpoint failed")
 	} else {
-		log.Info("setup endpoint successfully")
+		log.Info("succeeded to setup endpoint")
 	}
 }
 

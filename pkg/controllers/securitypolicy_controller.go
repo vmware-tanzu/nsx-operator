@@ -72,7 +72,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, METRIC_RES_TYPE)
 
 	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
-		log.V(1).Info("fetch securitypolicy CR", "req", req.NamespacedName)
+		log.Error(err, "unable to fetch security policy CR", "req", req.NamespacedName)
 		return resultNormal, client.IgnoreNotFound(err)
 	}
 
@@ -103,11 +103,9 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if err := r.Service.OperateSecurityPolicy(obj); err != nil {
 			log.Error(err, "operate failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 			updateFail(r, &ctx, obj, &err)
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, METRIC_RES_TYPE)
 			return resultRequeue, err
 		}
 		updateSuccess(r, &ctx, obj)
-		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, METRIC_RES_TYPE)
 	} else {
 		if controllerutil.ContainsFinalizer(obj, util.FinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, METRIC_RES_TYPE)
@@ -118,7 +116,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 			controllerutil.RemoveFinalizer(obj, util.FinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
-				log.Error(err, "delete failed, would retry exponentially", "securitypolicy", req.NamespacedName)
+				log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 				deleteFail(r, &ctx, obj, &err)
 				return resultRequeue, err
 			}

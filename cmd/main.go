@@ -62,7 +62,7 @@ func main() {
 		LeaderElectionID:       "nsx-operator",
 	})
 	if err != nil {
-		log.Error(err, "unable to start manager")
+		log.Error(err, "failed to init manager")
 		os.Exit(1)
 	}
 	securityReconcile := &controllers.SecurityPolicyReconciler{
@@ -101,7 +101,7 @@ func main() {
 
 	log.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		log.Error(err, "problem running manager")
+		log.Error(err, "failed to start manager")
 		os.Exit(1)
 	}
 }
@@ -121,7 +121,7 @@ func getHealthStatus(nsxClient *nsx.Client) error {
 func updateHealthMetricsPeriodically(nsxClient *nsx.Client) {
 	for {
 		if err := getHealthStatus(nsxClient); err != nil {
-			log.Error(err, "Failed to fetch health info")
+			log.Error(err, "failed to fetch health info")
 		}
 		select {
 		case <-time.After(metrics.ScrapeTimeout):
