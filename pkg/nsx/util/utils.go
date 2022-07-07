@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -18,13 +19,21 @@ import (
 
 var log = logf.Log.WithName("nsx").WithName("utils")
 
-// ErrorDetail is error detail which info extracted from http.Reponse.Body.
+// ErrorDetail is error detail which info extracted from http.Response.Body.
 type ErrorDetail struct {
 	StatusCode         int
 	ErrorCode          int
 	RelatedErrorCodes  []int
 	RelatedStatusCodes []string
 	Details            string
+}
+
+// PortAddress is used when named port is specified.
+type PortAddress struct {
+	// Port is the port number.
+	Port int `json:"port"`
+	// IPs is a list of IPs associated to port number.
+	IPs []string `json:"ips"`
 }
 
 func (e *ErrorDetail) Error() string {
@@ -238,8 +247,27 @@ func HandleHTTPResponse(response *http.Response, result interface{}, debug bool)
 		log.V(2).Info("received HTTP response", "response", string(body))
 	}
 	if err := json.Unmarshal(body, result); err != nil {
-		log.Error(err, "Error converting HTTP response to result", "result type", result)
+		log.Error(err, "error converting HTTP response to result", "result type", result)
 		return err, body
 	}
 	return nil, body
+}
+
+func MergeAddressByPort(portAddressOriginal []PortAddress) []PortAddress {
+	var portAddress []PortAddress
+	var sortKeys []int
+	mappedPorts := make(map[int][]string)
+	for _, pa := range portAddressOriginal {
+		if _, ok := mappedPorts[pa.Port]; !ok {
+			sortKeys = append(sortKeys, pa.Port)
+			mappedPorts[pa.Port] = pa.IPs
+		} else {
+			mappedPorts[pa.Port] = append(mappedPorts[pa.Port], pa.IPs...)
+		}
+	}
+	sort.Ints(sortKeys)
+	for _, key := range sortKeys {
+		portAddress = append(portAddress, PortAddress{Port: key, IPs: mappedPorts[key]})
+	}
+	return portAddress
 }
