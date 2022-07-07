@@ -7,6 +7,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
@@ -28,6 +29,7 @@ const (
 )
 
 type SecurityPolicyService struct {
+	Client              client.Client
 	NSXClient           *nsx.Client
 	NSXConfig           *config.NSXOperatorConfig
 	GroupStore          cache.Indexer
@@ -35,9 +37,7 @@ type SecurityPolicyService struct {
 	RuleStore           cache.Indexer
 }
 
-var (
-	log = logf.Log.WithName("service").WithName("firewall")
-)
+var log = logf.Log.WithName("service").WithName("firewall")
 
 // InitializeSecurityPolicy sync NSX resources
 func InitializeSecurityPolicy(NSXClient *nsx.Client, cf *config.NSXOperatorConfig) (*SecurityPolicyService, error) {
@@ -50,6 +50,7 @@ func InitializeSecurityPolicy(NSXClient *nsx.Client, cf *config.NSXOperatorConfi
 	service.GroupStore = cache.NewIndexer(keyFunc, cache.Indexers{
 		util.TagScopeNamespace:           namespaceIndexFunc,
 		util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc,
+		util.TagScopeRuleID:              ruleCRUIDScopeIndexFunc,
 	})
 	service.SecurityPolicyStore = cache.NewIndexer(keyFunc, cache.Indexers{
 		util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc,
@@ -90,30 +91,48 @@ func (service *SecurityPolicyService) OperateSecurityPolicy(obj *v1alpha1.Securi
 		return err
 	}
 
-	if GroupsEqual(existingGroups, *nsxGroups) {
-		log.Info("groups not changed, skip", "nsxSecurityPolicy.Id", nsxSecurityPolicy.Id)
+	// Caution! createOrUpdate can't delete the legacy groups.
+	// So we have to delete the legacy groups firstly by groupClient.
+	groupEqual, legacyGroups := GroupsEqual(existingGroups, *nsxGroups)
+	if groupEqual {
+		log.Info("NSGroups are not changed, skip updating them", "nsxSecurityPolicy.Id", nsxSecurityPolicy.Id)
 	} else {
 		err = service.createOrUpdateGroups(*nsxGroups)
 		if err != nil {
 			return err
 		}
 	}
-	// Caution! Patch can't delete the legacy rules.
-	// So we have to delete the legacy rules manually by rulesClient.
+	// Caution! createOrUpdate can't delete the legacy rules.
+	// So we have to delete the legacy rules firstly by rulesClient.
 	spEqual := SecurityPolicyEqual(existingSecurityPolicy, nsxSecurityPolicy)
 	ruleEqual, legacyRules := RulesEqual(existingRules, nsxSecurityPolicy.Rules)
 	if spEqual && ruleEqual {
-		log.Info("security policy and rules not changed, skip", "nsxSecurityPolicy.Id", nsxSecurityPolicy.Id)
+		log.Info("security policy and rules are not changed, skip updating them", "nsxSecurityPolicy.Id", nsxSecurityPolicy.Id)
 	} else {
 		err := service.createOrUpdateSecurityPolicy(nsxSecurityPolicy)
 		if err != nil {
 			return err
 		}
-		err = service.updateOrDeleteRules(nsxSecurityPolicy, legacyRules)
+		err = service.AddRulesToStore(nsxSecurityPolicy)
 		if err != nil {
 			return err
 		}
 		log.Info("successfully operate", "nsxSecurityPolicy", nsxSecurityPolicy)
+	}
+
+	if len(legacyRules) > 0 {
+		err := service.DeleteRules(nsxSecurityPolicy, legacyRules)
+		if err != nil {
+			return err
+		}
+	}
+
+	// The reason why delete legacy groups at last is that some rules may have reference to the legacy groups.
+	if len(legacyGroups) > 0 {
+		err := service.DeleteGroups(legacyGroups)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -125,10 +144,12 @@ func (service *SecurityPolicyService) createOrUpdateGroups(nsxGroups []model.Gro
 			return err
 		}
 		err = service.GroupStore.Add(group)
+		log.V(2).Info("add group to store", "group", group.Id)
 		if err != nil {
 			return err
 		}
 	}
+	log.Info("successfully create or update group", "groups", nsxGroups)
 	return nil
 }
 
@@ -144,24 +165,45 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(sp *model.Sec
 	return nil
 }
 
-func (service *SecurityPolicyService) updateOrDeleteRules(sp *model.SecurityPolicy, legacyRules []model.Rule) error {
-	for _, rule := range sp.Rules {
-		err := service.RuleStore.Add(rule)
+func (service *SecurityPolicyService) DeleteRules(sp *model.SecurityPolicy, legacyRules []model.Rule) error {
+	// Delete legacy rules
+	for _, rule := range legacyRules {
+		err := service.NSXClient.RuleClient.Delete(getDomain(service), *sp.Id, *rule.Id)
+		if err != nil {
+			return err
+		}
+		err = service.RuleStore.Delete(rule)
+		log.V(1).Info("delete rule from store", "rule", rule)
 		if err != nil {
 			return err
 		}
 	}
+	return nil
+}
 
-	// Delete legacy rules
-	for _, rule := range legacyRules {
-		err := service.RuleStore.Delete(rule)
+func (service *SecurityPolicyService) AddRulesToStore(sp *model.SecurityPolicy) error {
+	for _, rule := range sp.Rules {
+		err := service.RuleStore.Add(rule)
+		log.V(1).Info("add rule to store", "rule", rule)
 		if err != nil {
 			return err
 		}
-		err = service.NSXClient.RuleClient.Delete(getDomain(service), *sp.Id, *rule.Id)
+	}
+	return nil
+}
+
+func (service *SecurityPolicyService) DeleteGroups(legacyGroups []model.Group) error {
+	// Delete legacy groups
+	for _, group := range legacyGroups {
+		err := service.deleteGroup(service.NSXClient.GroupClient, &group)
 		if err != nil {
 			return err
 		}
+		err = service.GroupStore.Delete(group)
+		if err != nil {
+			return err
+		}
+		log.Info("successfully delete group", "group", group)
 	}
 	return nil
 }

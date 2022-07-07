@@ -24,9 +24,7 @@ const (
 	ScrapeTimeout                   = 30
 )
 
-var (
-	log = logf.Log.WithName("metrics")
-)
+var log = logf.Log.WithName("metrics")
 
 var (
 	NSXOperatorHealthStats = prometheus.NewGauge(
@@ -113,7 +111,7 @@ func Register(m ...prometheus.Collector) {
 
 // Initialize Prometheus metrics collection.
 func InitializePrometheusMetrics() {
-	log.Info("Initializing prometheus metrics")
+	log.Info("initializing prometheus metrics")
 	Register(
 		NSXOperatorHealthStats,
 		ControllerSyncTotal,
