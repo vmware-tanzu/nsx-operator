@@ -7,6 +7,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
@@ -28,6 +29,7 @@ const (
 )
 
 type SecurityPolicyService struct {
+	Client              client.Client
 	NSXClient           *nsx.Client
 	NSXConfig           *config.NSXOperatorConfig
 	GroupStore          cache.Indexer
@@ -105,11 +107,11 @@ func (service *SecurityPolicyService) OperateSecurityPolicy(obj *v1alpha1.Securi
 	if spEqual && ruleEqual {
 		log.Info("security policy and rules not changed, skip", "nsxSecurityPolicy.Id", nsxSecurityPolicy.Id)
 	} else {
-		err := service.createOrUpdateSecurityPolicy(nsxSecurityPolicy)
+		err = service.updateOrDeleteRules(nsxSecurityPolicy, legacyRules)
 		if err != nil {
 			return err
 		}
-		err = service.updateOrDeleteRules(nsxSecurityPolicy, legacyRules)
+		err := service.createOrUpdateSecurityPolicy(nsxSecurityPolicy)
 		if err != nil {
 			return err
 		}

@@ -78,6 +78,7 @@ func main() {
 		log.Error(err, "unable to initialize securitypolicy service", "controller", "SecurityPolicy")
 		os.Exit(1)
 	} else {
+		service.Client = mgr.GetClient()
 		securityReconcile.Service = service
 	}
 
