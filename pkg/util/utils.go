@@ -4,12 +4,21 @@
 package util
 
 import (
+	"context"
 	"crypto/sha1"
 	"fmt"
 	"strings"
 
 	mapset "github.com/deckarep/golang-set"
+	"k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+const wcpSystemResource = "vmware-system-shared-t1"
+
+var log = logf.Log.WithName("pkg").WithName("utils")
 
 func NormalizeLabels(matchLabels *map[string]string) *map[string]string {
 	newLabels := make(map[string]string)
@@ -62,4 +71,41 @@ func RemoveDuplicateStr(strSlice []string) []string {
 func ToUpper(obj interface{}) string {
 	str := fmt.Sprintf("%s", obj)
 	return strings.ToUpper(str)
+}
+
+func IsSystemNamespace(c client.Client, ns string, obj *v1.Namespace) (bool, error) {
+	nsObj := &v1.Namespace{}
+	if obj != nil {
+		nsObj = obj
+	} else if err := c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: ns}, nsObj); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	if isSysNs, ok := nsObj.Annotations[wcpSystemResource]; ok && strings.ToLower(isSysNs) == "true" {
+		return true, nil
+	}
+	return false, nil
+}
+
+// CheckPodHasNamedPort checks if the pod has a named port, it filters the pod events
+// we don't want give concern.
+func CheckPodHasNamedPort(pod v1.Pod, reason string) bool {
+	for _, container := range pod.Spec.Containers {
+		for _, port := range container.Ports {
+			if port.Name != "" {
+				log.V(1).Info(fmt.Sprintf("%s pod %s has a named port %s", reason, pod.Name, port.Name))
+				return true
+			}
+		}
+	}
+	log.V(1).Info(fmt.Sprintf("%s pod %s has no named port", reason, pod.Name))
+	return false
+}
+
+func Contains(s []string, str string) bool {
+	for _, v := range s {
+		if v == str {
+			return true
+		}
+	}
+	return false
 }

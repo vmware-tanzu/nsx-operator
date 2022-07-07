@@ -4,11 +4,16 @@
 package util
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestSha1(t *testing.T) {
@@ -60,6 +65,147 @@ func TestNormalizeLabels(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.expectedLabels, NormalizeLabels(tt.inputLabels))
+		})
+	}
+}
+
+func TestUtil_IsNsInSystemNamespace(t *testing.T) {
+	client := fake.NewClientBuilder().Build()
+	ctx := context.TODO()
+	dummyNs := &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "dummy"}}
+	client.Create(ctx, dummyNs)
+	ns := types.NamespacedName{Namespace: "dummy", Name: "dummy"}
+
+	isCRInSysNs, err := IsSystemNamespace(client, ns.Namespace, nil)
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	if isCRInSysNs {
+		t.Fatalf("Non-system namespace identied as a system namespace")
+	}
+	client.Delete(ctx, dummyNs)
+
+	sysNs := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "sys-ns",
+			Namespace:   "sys-ns",
+			Annotations: map[string]string{"vmware-system-shared-t1": "true"},
+		},
+	}
+	client.Create(ctx, sysNs)
+	ns = types.NamespacedName{Namespace: "sys-ns", Name: "dummy"}
+
+	isCRInSysNs, err = IsSystemNamespace(client, ns.Namespace, nil)
+
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	if !isCRInSysNs {
+		t.Fatalf("System namespace not identied as a system namespace")
+	}
+	client.Delete(ctx, sysNs)
+}
+
+func Test_CheckPodHasNamedPort(t *testing.T) {
+	pod := v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pod",
+			Namespace: "test-namespace",
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Ports: []v1.ContainerPort{
+						{Name: "test-port", ContainerPort: 8080},
+					},
+				},
+			},
+		},
+	}
+	pod3 := v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pod-3",
+			Namespace: "test",
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Ports: []v1.ContainerPort{},
+				},
+			},
+		},
+	}
+	type args struct {
+		pod *v1.Pod
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{"1", args{&pod}, true},
+		{"3", args{&pod3}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, CheckPodHasNamedPort(*tt.args.pod, ""), "checkPodHasNamedPort(%v)", tt.args.pod)
+		})
+	}
+}
+
+func TestToUpper(t *testing.T) {
+	type args struct {
+		obj interface{}
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{"1", args{"test"}, "TEST"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, ToUpper(tt.args.obj), "ToUpper(%v)", tt.args.obj)
+		})
+	}
+}
+
+func TestContains(t *testing.T) {
+	type args struct {
+		s   []string
+		str string
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{"1", args{[]string{"test", "test2"}, "test"}, true},
+		{"2", args{[]string{"test2", "test3"}, "test"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, Contains(tt.args.s, tt.args.str), "Contains(%v, %v)", tt.args.s, tt.args.str)
+			assert.Equal(t, tt.want, Contains(tt.args.s, tt.args.str), "Contains(%v, %v)", tt.args.s, tt.args.str)
+		})
+	}
+}
+
+func TestRemoveDuplicateStr(t *testing.T) {
+	type args struct {
+		strSlice []string
+	}
+	tests := []struct {
+		name string
+		args args
+		want []string
+	}{
+		{"1", args{[]string{"test", "test", "test"}}, []string{"test"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, RemoveDuplicateStr(tt.args.strSlice), "RemoveDuplicateStr(%v)", tt.args.strSlice)
 		})
 	}
 }
