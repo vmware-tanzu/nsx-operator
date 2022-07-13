@@ -9,7 +9,9 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	util2 "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -74,7 +76,8 @@ func keyFunc(obj interface{}) (string, error) {
 
 func queryTagCondition(service *SecurityPolicyService) string {
 	return fmt.Sprintf("tags.scope:%s AND tags.tag:%s",
-		strings.Replace(util.TagScopeCluster, "/", "\\/", -1), strings.Replace(service.NSXClient.NsxConfig.Cluster, ":", "\\:", -1))
+		strings.Replace(util.TagScopeCluster, "/", "\\/", -1),
+		strings.Replace(service.NSXClient.NsxConfig.Cluster, ":", "\\:", -1))
 }
 
 func queryGroup(service *SecurityPolicyService, wg *sync.WaitGroup, fatalErrors chan error) {
@@ -101,7 +104,10 @@ func queryGroup(service *SecurityPolicyService, wg *sync.WaitGroup, fatalErrors 
 				}
 			}
 			c, _ := a.(model.Group)
-			service.GroupStore.Add(c)
+			err2 := service.GroupStore.Add(c)
+			if err2 != nil {
+				fatalErrors <- err2
+			}
 		}
 		cursor = response.Cursor
 		if cursor == nil {
@@ -138,7 +144,10 @@ func querySecurityPolicy(service *SecurityPolicyService, wg *sync.WaitGroup, fat
 				}
 			}
 			c, _ := a.(model.SecurityPolicy)
-			service.SecurityPolicyStore.Add(c)
+			err2 := service.SecurityPolicyStore.Add(c)
+			if err2 != nil {
+				fatalErrors <- err2
+			}
 		}
 		cursor = response.Cursor
 		if cursor == nil {
@@ -175,7 +184,10 @@ func queryRule(service *SecurityPolicyService, wg *sync.WaitGroup, fatalErrors c
 				}
 			}
 			c, _ := a.(model.Rule)
-			service.RuleStore.Add(c)
+			err2 := service.RuleStore.Add(c)
+			if err2 != nil {
+				fatalErrors <- err2
+			}
 		}
 		cursor = response.Cursor
 		if cursor == nil {
@@ -200,11 +212,11 @@ func transError(err error) error {
 	typeConverter.SetMode(bindings.REST)
 	switch err.(type) {
 	case errors.ServiceUnavailable:
-		vapiError, _ := err.(errors.ServiceUnavailable)
-		if vapiError.Data == nil {
+		vApiError, _ := err.(errors.ServiceUnavailable)
+		if vApiError.Data == nil {
 			return err
 		}
-		data, errs := typeConverter.ConvertToGolang(vapiError.Data, model.ApiErrorBindingType())
+		data, errs := typeConverter.ConvertToGolang(vApiError.Data, model.ApiErrorBindingType())
 		if len(errs) > 0 {
 			return err
 		}
@@ -216,4 +228,47 @@ func transError(err error) error {
 		return err
 	}
 	return err
+}
+
+func getAll(service *SecurityPolicyService, obj *v1alpha1.SecurityPolicy,
+	nsxSecurityPolicy *model.SecurityPolicy) ([]model.Group, *model.SecurityPolicy, []model.Rule, error) {
+	indexResults, err := service.GroupStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(obj.UID))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	var existingGroups []model.Group
+	for _, group := range indexResults {
+		existingGroups = append(existingGroups, group.(model.Group))
+	}
+	existingSecurityPolicy := model.SecurityPolicy{}
+	res, ok, err := service.SecurityPolicyStore.GetByKey(*nsxSecurityPolicy.Id)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if ok {
+		existingSecurityPolicy = res.(model.SecurityPolicy)
+	}
+	indexResults, err = service.RuleStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(obj.UID))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	var existingRules []model.Rule
+	for _, rule := range indexResults {
+		existingRules = append(existingRules, rule.(model.Rule))
+	}
+	return existingGroups, &existingSecurityPolicy, existingRules, nil
+}
+
+func (service *SecurityPolicyService) ListSecurityPolicyID() sets.String {
+	groups := service.GroupStore.ListIndexFuncValues(util.TagScopeSecurityPolicyCRUID)
+	groupSet := sets.NewString()
+	for _, group := range groups {
+		groupSet.Insert(group)
+	}
+	securityPolicies := service.SecurityPolicyStore.ListIndexFuncValues(util.TagScopeSecurityPolicyCRUID)
+	policySet := sets.NewString()
+	for _, policy := range securityPolicies {
+		policySet.Insert(policy)
+	}
+	return groupSet.Union(policySet)
 }

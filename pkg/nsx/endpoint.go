@@ -130,7 +130,7 @@ func (ep *Endpoint) keepAlive() error {
 		ep.setStatus(UP)
 		return nil
 	}
-	log.V(1).Info("keepAlive", "body", body)
+	log.V(2).Info("keepAlive", "body", body)
 	err = util.InitErrorFromResponse(ep.Host(), resp.StatusCode, body)
 	if util.ShouldRegenerate(err) {
 		log.Error(err, "failed to validate API cluster due to an exception that calls for regeneration", "endpoint", ep.Host())
@@ -174,12 +174,12 @@ func (ep *Endpoint) KeepAlive() {
 }
 
 func (ep *Endpoint) setup() {
-	log.V(1).Info("begin to setup endpoint")
+	log.V(2).Info("begin to setup endpoint")
 	err := ep.keepAlive()
 	if err != nil {
 		log.Error(err, "setup endpoint failed")
 	} else {
-		log.V(1).Info("setup endpoint successfully")
+		log.Info("succeeded to setup endpoint")
 	}
 }
 
@@ -248,11 +248,11 @@ func (ep *Endpoint) ConnNumber() int {
 
 func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, tokenProvider auth.TokenProvider, username string, password string, jar *Jar) error {
 	if certProvider != nil {
-		log.V(1).Info("skipping session creation with client certificate auth")
+		log.V(2).Info("skipping session creation with client certificate auth")
 		return nil
 	}
 	if tokenProvider != nil {
-		log.V(1).Info("Skipping session create with JWT based auth")
+		log.V(2).Info("Skipping session create with JWT based auth")
 		return nil
 	}
 
@@ -269,7 +269,7 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
-	log.V(1).Info("creating auth session", "endpoint", ep.Host(), "request header", req.Header)
+	log.V(2).Info("creating auth session", "endpoint", ep.Host(), "request header", req.Header)
 	resp, err := ep.noBalancerClient.Do(req)
 	if err != nil {
 		log.Error(err, "session creation failed", "endpoint", u.Host)
@@ -325,7 +325,7 @@ func (ep *Endpoint) UpdateHttpRequestAuth(request *http.Request) error {
 	} else {
 		xsrfToken := ep.XSRFToken()
 		if len(xsrfToken) > 0 {
-			log.V(1).Info("update cookie")
+			log.V(2).Info("update cookie")
 			if request.Header.Get("Authorization") != "" {
 				request.Header.Del("Authorization")
 			}
@@ -341,7 +341,7 @@ func (ep *Endpoint) UpdateHttpRequestAuth(request *http.Request) error {
 				request.Header.Set("Cookie", cookie.String())
 			}
 		} else {
-			log.V(1).Info("update user/password")
+			log.V(2).Info("update user/password")
 			request.SetBasicAuth(ep.user, ep.password)
 		}
 	}

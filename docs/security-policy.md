@@ -13,17 +13,16 @@ and Pods are attached to NSX-T segments, each workload has segment port on NSX-T
 Labels on VMs and Pods are tagged on their segment ports.
 In the first version, nsx-operator leverages Tags added by NSX Container Plugin(NCP)
 on NSX-T segment ports, nsx-operator needs to work together with NCP on Supervisor
-cluster of vSphere with Kubernetes. 
+cluster of vSphere with Kubernetes.
 nsx-operator will reconcile SecurityPolicy CRs, call NSX-T API to create
 NSX-T Distributed Firewall rules, then update CR status with realized state.
 
 ## CRD Design
 
-SecurityPolicy is Namespaced scope CRD, admins could apply CR within a namespace to
-configure security of workloads which are attached to NSX-T networking.
-Compared with standard K8s NetworkPolicies, SecurityPolicy CRD adds `VMSelector` to
-select VMs, it also introduces some rule syntaxes including Drop and Reject actions,
-priority, rule level selectors(`appliedTo`). 
+SecurityPolicy is Namespaced scope CRD, admins could apply CR within a namespace to configure security of workloads
+which are attached to NSX-T networking. Compared with standard K8s NetworkPolicies, SecurityPolicy CRD adds `vmSelector`
+to select VMs, it also introduces some rule syntax including Drop and Reject actions, priority, rule level
+selectors(`appliedTo`).
 
 An example of SecurityPolicy CR:
 
@@ -95,7 +94,7 @@ to access through TCP with port 8000. The second rule allows the selected VMs to
 access Pods with label "role: dns" through UDP with port 53. The third and forth
 rules are to drop any other ingress and egress traffic to/from the selected VMs.
 
-Below are explainations for the fields:
+Below are explanations for the fields:
 
 **spec**: defines all the configurations for a SecurityPolicy CR.
 
@@ -135,7 +134,7 @@ Limitations of SecurityPolicy CR:
 2. Max criteria in one NSGroup: 5
 3. Max conditions with the mixed member type in single criterion: 15
 4. Total of 35 conditions in one NSGroup criteria.
-5. Operator 'NotIn' in matchexpression for namespaceSelector is not supported, since its member type is segment
+5. Operator 'NotIn' in matchExpressions for namespaceSelector is not supported, since its member type is segment
 6. In one NSGroup group, supports only one 'In' with at most of five values in MatchExpressions,
    given NSX-T does not support 'In' in NSGroup condition, so we use a workaround to support 'In' with limited counts.
 7. Max IP elements in one security policy: 4000
