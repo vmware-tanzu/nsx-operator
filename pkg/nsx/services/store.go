@@ -1,12 +1,13 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"sync"
 
-	"github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
+	errors2 "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -23,9 +24,7 @@ const (
 	resourceTypeRule           = "rule"
 )
 
-var (
-	PageSize int64 = 1000
-)
+var PageSize int64 = 1000
 
 func securityPolicyCRUIDScopeIndexFunc(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
@@ -76,8 +75,8 @@ func keyFunc(obj interface{}) (string, error) {
 
 func queryTagCondition(service *SecurityPolicyService) string {
 	return fmt.Sprintf("tags.scope:%s AND tags.tag:%s",
-		strings.Replace(util.TagScopeCluster, "/", "\\/", -1),
-		strings.Replace(service.NSXClient.NsxConfig.Cluster, ":", "\\:", -1))
+		strings.ReplaceAll(util.TagScopeCluster, "/", "\\/"),
+		strings.ReplaceAll(service.NSXClient.NsxConfig.Cluster, ":", "\\:"))
 }
 
 func queryGroup(service *SecurityPolicyService, wg *sync.WaitGroup, fatalErrors chan error) {
@@ -88,7 +87,7 @@ func queryGroup(service *SecurityPolicyService, wg *sync.WaitGroup, fatalErrors 
 	for {
 		response, err := service.NSXClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
 		err = transError(err)
-		if _, ok := err.(util2.PageMaxError); ok == true {
+		if errors.As(err, &util2.PageMaxError{}) {
 			decrementPageSize(&pageSize)
 			continue
 		}
@@ -98,10 +97,8 @@ func queryGroup(service *SecurityPolicyService, wg *sync.WaitGroup, fatalErrors 
 		typeConverter := service.NSXClient.RestConnector.TypeConverter()
 		for _, g := range response.Results {
 			a, err := typeConverter.ConvertToGolang(g, model.GroupBindingType())
-			if err != nil {
-				for _, e := range err {
-					fatalErrors <- e
-				}
+			for _, e := range err {
+				fatalErrors <- e
 			}
 			c, _ := a.(model.Group)
 			err2 := service.GroupStore.Add(c)
@@ -128,7 +125,7 @@ func querySecurityPolicy(service *SecurityPolicyService, wg *sync.WaitGroup, fat
 	for {
 		response, err := service.NSXClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
 		err = transError(err)
-		if _, ok := err.(util2.PageMaxError); ok == true {
+		if errors.As(err, &util2.PageMaxError{}) {
 			decrementPageSize(&pageSize)
 			continue
 		}
@@ -138,10 +135,8 @@ func querySecurityPolicy(service *SecurityPolicyService, wg *sync.WaitGroup, fat
 		typeConverter := service.NSXClient.RestConnector.TypeConverter()
 		for _, g := range response.Results {
 			a, err := typeConverter.ConvertToGolang(g, model.SecurityPolicyBindingType())
-			if err != nil {
-				for _, e := range err {
-					fatalErrors <- e
-				}
+			for _, e := range err {
+				fatalErrors <- e
 			}
 			c, _ := a.(model.SecurityPolicy)
 			err2 := service.SecurityPolicyStore.Add(c)
@@ -168,7 +163,7 @@ func queryRule(service *SecurityPolicyService, wg *sync.WaitGroup, fatalErrors c
 	for {
 		response, err := service.NSXClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
 		err = transError(err)
-		if _, ok := err.(util2.PageMaxError); ok == true {
+		if errors.As(err, &util2.PageMaxError{}) {
 			decrementPageSize(&pageSize)
 			continue
 		}
@@ -178,10 +173,8 @@ func queryRule(service *SecurityPolicyService, wg *sync.WaitGroup, fatalErrors c
 		typeConverter := service.NSXClient.RestConnector.TypeConverter()
 		for _, g := range response.Results {
 			a, err := typeConverter.ConvertToGolang(g, model.RuleBindingType())
-			if err != nil {
-				for _, e := range err {
-					fatalErrors <- e
-				}
+			for _, e := range err {
+				fatalErrors <- e
 			}
 			c, _ := a.(model.Rule)
 			err2 := service.RuleStore.Add(c)
@@ -208,15 +201,14 @@ func decrementPageSize(pageSize *int64) {
 }
 
 func transError(err error) error {
-	var typeConverter = bindings.NewTypeConverter()
+	typeConverter := bindings.NewTypeConverter()
 	typeConverter.SetMode(bindings.REST)
-	switch err.(type) {
-	case errors.ServiceUnavailable:
-		vApiError, _ := err.(errors.ServiceUnavailable)
-		if vApiError.Data == nil {
+	if errors.As(err, &errors2.ServiceUnavailable{}) {
+		vAPIError, _ := err.(errors2.ServiceUnavailable)
+		if vAPIError.Data == nil {
 			return err
 		}
-		data, errs := typeConverter.ConvertToGolang(vApiError.Data, model.ApiErrorBindingType())
+		data, errs := typeConverter.ConvertToGolang(vAPIError.Data, model.ApiErrorBindingType())
 		if len(errs) > 0 {
 			return err
 		}
@@ -224,14 +216,14 @@ func transError(err error) error {
 		if *apiError.ErrorCode == int64(60576) {
 			return util2.PageMaxError{Desc: "page max overflow"}
 		}
-	default:
 		return err
 	}
 	return err
 }
 
 func getAll(service *SecurityPolicyService, obj *v1alpha1.SecurityPolicy,
-	nsxSecurityPolicy *model.SecurityPolicy) ([]model.Group, *model.SecurityPolicy, []model.Rule, error) {
+	nsxSecurityPolicy *model.SecurityPolicy,
+) ([]model.Group, *model.SecurityPolicy, []model.Rule, error) {
 	indexResults, err := service.GroupStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(obj.UID))
 	if err != nil {
 		return nil, nil, nil, err

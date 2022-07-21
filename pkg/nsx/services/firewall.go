@@ -37,18 +37,16 @@ type SecurityPolicyService struct {
 	RuleStore           cache.Indexer
 }
 
-var (
-	log = logf.Log.WithName("service").WithName("firewall")
-)
+var log = logf.Log.WithName("service").WithName("firewall")
 
 // InitializeSecurityPolicy sync NSX resources
-func InitializeSecurityPolicy(NSXClient *nsx.Client, cf *config.NSXOperatorConfig) (*SecurityPolicyService, error) {
+func InitializeSecurityPolicy(nsxClient *nsx.Client, cf *config.NSXOperatorConfig) (*SecurityPolicyService, error) {
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
 
 	wg.Add(3)
-	service := &SecurityPolicyService{NSXClient: NSXClient}
+	service := &SecurityPolicyService{NSXClient: nsxClient}
 	service.GroupStore = cache.NewIndexer(keyFunc, cache.Indexers{
 		util.TagScopeNamespace:           namespaceIndexFunc,
 		util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc,
@@ -107,11 +105,11 @@ func (service *SecurityPolicyService) OperateSecurityPolicy(obj *v1alpha1.Securi
 	if spEqual && ruleEqual {
 		log.Info("security policy and rules not changed, skip", "nsxSecurityPolicy.Id", nsxSecurityPolicy.Id)
 	} else {
-		err = service.updateOrDeleteRules(nsxSecurityPolicy, legacyRules)
+		err := service.updateOrDeleteRules(nsxSecurityPolicy, legacyRules)
 		if err != nil {
 			return err
 		}
-		err := service.createOrUpdateSecurityPolicy(nsxSecurityPolicy)
+		err = service.createOrUpdateSecurityPolicy(nsxSecurityPolicy)
 		if err != nil {
 			return err
 		}
@@ -174,16 +172,16 @@ func (service *SecurityPolicyService) deleteGroup(groupsClient domains.GroupsCli
 	return groupsClient.Delete(getDomain(service), *nsxGroup.Id, &failIfSubtreeExistsParam, &forceParam)
 }
 
-func (service *SecurityPolicyService) DeleteSecurityPolicy(UID types.UID) error {
+func (service *SecurityPolicyService) DeleteSecurityPolicy(uID types.UID) error {
 	groupsClient := service.NSXClient.GroupClient
 	policiesClient := service.NSXClient.SecurityClient
 
-	policy, err := service.SecurityPolicyStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(UID))
+	policy, err := service.SecurityPolicyStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(uID))
 	if err != nil {
 		return err
 	}
 	if len(policy) == 0 {
-		log.V(1).Info("no NSX SecurityPolicy is found", "UID", string(UID))
+		log.V(1).Info("no NSX SecurityPolicy is found", "uID", string(uID))
 		return nil
 	}
 	nsxSecurityPolicy := policy[0].(model.SecurityPolicy)
@@ -194,7 +192,7 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(UID types.UID) error 
 		return err
 	}
 
-	rules, err := service.SecurityPolicyStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(UID))
+	rules, err := service.SecurityPolicyStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(uID))
 	if err != nil {
 		return err
 	}
@@ -205,12 +203,12 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(UID types.UID) error 
 		}
 	}
 
-	groups, err := service.GroupStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(UID))
+	groups, err := service.GroupStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(uID))
 	if err != nil {
 		return err
 	}
 	if len(groups) == 0 {
-		log.V(1).Info("no NSX Group is found", "UID", string(UID))
+		log.V(1).Info("no NSX Group is found", "uID", string(uID))
 		return nil
 	}
 	for _, group := range groups {

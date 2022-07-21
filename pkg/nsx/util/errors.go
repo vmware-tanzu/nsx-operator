@@ -25,13 +25,13 @@ func (impl *nsxErrorImpl) setDetail(detail *ErrorDetail) {
 	impl.ErrorDetail = *detail
 	if len(detail.RelatedErrorCodes) > 0 {
 		impl.ErrorDetail.RelatedErrorCodes = []int{}
-		for index, _ := range detail.RelatedErrorCodes {
+		for index := range detail.RelatedErrorCodes {
 			impl.ErrorDetail.RelatedErrorCodes = append(impl.ErrorDetail.RelatedErrorCodes, detail.RelatedErrorCodes[index])
 		}
 	}
 	if len(detail.RelatedStatusCodes) > 0 {
 		impl.ErrorDetail.RelatedStatusCodes = []string{}
-		for index, _ := range detail.RelatedStatusCodes {
+		for index := range detail.RelatedStatusCodes {
 			impl.ErrorDetail.RelatedStatusCodes = append(impl.ErrorDetail.RelatedStatusCodes, detail.RelatedStatusCodes[index])
 		}
 	}

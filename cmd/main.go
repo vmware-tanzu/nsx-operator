@@ -45,7 +45,7 @@ func init() {
 	if err != nil {
 		os.Exit(1)
 	}
-	logf.SetLogger(logger.ZapLogger(cf))
+	logf.SetLogger(logger.ZapLogger())
 	log = logf.Log.WithName("main")
 	if metrics.AreMetricsExposed(cf) {
 		metrics.InitializePrometheusMetrics()

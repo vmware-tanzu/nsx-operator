@@ -187,14 +187,13 @@ func Test_queryTagCondition(t *testing.T) {
 	}
 }
 
-type fakeQueryClient struct {
-}
+type fakeQueryClient struct{}
 
 func (qIface *fakeQueryClient) List(queryParam string, cursorParam *string, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.SearchResponse, error) {
 	cursor := "2"
 	resultCount := int64(2)
 	return model.SearchResponse{
-		Results: []*data.StructValue{&data.StructValue{}},
+		Results: []*data.StructValue{{}},
 		Cursor:  &cursor, ResultCount: &resultCount,
 	}, nil
 }

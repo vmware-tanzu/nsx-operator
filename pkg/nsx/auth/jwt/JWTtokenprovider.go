@@ -6,8 +6,9 @@ package jwt
 import (
 	"time"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 )
 
 const (
@@ -15,9 +16,7 @@ const (
 	VC_SVCACCOUNT_PWD_PATH  = "/etc/nsx-ujo/vc/password"
 )
 
-var (
-	log = logf.Log.WithName("nsx").WithName("jwt")
-)
+var log = logf.Log.WithName("nsx").WithName("jwt")
 
 type JWTTokenProvider struct {
 	cache *JWTCache

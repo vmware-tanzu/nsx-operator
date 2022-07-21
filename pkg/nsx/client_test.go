@@ -57,7 +57,6 @@ func TestNSXHealthChecker_CheckNSXHealth(t *testing.T) {
 		})
 		patches.Reset()
 	}
-
 }
 
 func TestGetClient(t *testing.T) {

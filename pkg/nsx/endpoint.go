@@ -65,6 +65,7 @@ type address struct {
 func (addr *address) Scheme() string {
 	return addr.scheme
 }
+
 func (addr *address) Host() string {
 	return addr.host
 }

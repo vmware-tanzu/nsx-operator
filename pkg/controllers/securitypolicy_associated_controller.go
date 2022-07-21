@@ -59,7 +59,7 @@ func (e *EnqueueRequestForNamespace) Update(updateEvent event.UpdateEvent, l wor
 
 	shouldReconcile := false
 	for _, pod := range podList.Items {
-		if checkPod(&pod, "update") {
+		if checkPod(pod, "update") {
 			shouldReconcile = true
 			break
 		}
@@ -123,7 +123,7 @@ func (e *EnqueueRequestForPod) Raw(evt interface{}, q workqueue.RateLimitingInte
 }
 
 func getAllPodPortNames(pods []v1.Pod) sets.String {
-	var podPortNames = sets.NewString()
+	podPortNames := sets.NewString()
 	for _, pod := range pods {
 		for _, container := range pod.Spec.Containers {
 			for _, port := range container.Ports {
@@ -172,33 +172,33 @@ func reconcileSecurityPolicy(client client.Client, pods []v1.Pod, q workqueue.Ra
 
 var PredicateFuncsPod = predicate.Funcs{
 	CreateFunc: func(e event.CreateEvent) bool {
-		if _, ok := e.Object.(*v1.Pod); ok {
-			return checkPod(e.Object.(*v1.Pod), "create")
+		if p, ok := e.Object.(*v1.Pod); ok {
+			return checkPod(*p, "create")
 		}
 		return false
 	},
 	UpdateFunc: func(e event.UpdateEvent) bool {
-		if _, ok := e.ObjectOld.(*v1.Pod); ok {
-			if checkPod(e.ObjectOld.(*v1.Pod), "update") {
+		if p, ok := e.ObjectOld.(*v1.Pod); ok {
+			if checkPod(*p, "update") {
 				return true
 			}
 		}
-		if _, ok := e.ObjectNew.(*v1.Pod); ok {
-			if checkPod(e.ObjectNew.(*v1.Pod), "update") {
+		if p, ok := e.ObjectNew.(*v1.Pod); ok {
+			if checkPod(*p, "update") {
 				return true
 			}
 		}
 		return false
 	},
 	DeleteFunc: func(e event.DeleteEvent) bool {
-		if _, ok := e.Object.(*v1.Pod); ok {
-			return checkPod(e.Object.(*v1.Pod), "delete")
+		if p, ok := e.Object.(*v1.Pod); ok {
+			return checkPod(*p, "delete")
 		}
 		return false
 	},
 }
 
-func checkPod(pod *v1.Pod, reason string) bool {
+func checkPod(pod v1.Pod, reason string) bool {
 	for _, ns := range ignoreNs {
 		if strings.HasPrefix(pod.Namespace, ns) {
 			return false

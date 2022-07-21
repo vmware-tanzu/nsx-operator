@@ -394,7 +394,7 @@ func TestValidateSelectorExpressions(t *testing.T) {
 	assert.Equal(t, 2, totalCriteriaCount)
 	assert.Equal(t, 10, totalExprCount)
 
-	// Case: total count of expressions exceed NSX limit '5' in one criteria based on same member type
+	// Case: total count of expressions exceed NSX limit '5' in one criterion based on same member type
 	matchLabelsCount = 3
 	_, _, err = service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, false)
 	assert.NotEqual(t, nil, err)
@@ -406,7 +406,7 @@ func TestValidateSelectorExpressions(t *testing.T) {
 	assert.Equal(t, 2, totalCriteriaCount)
 	assert.Equal(t, 30, totalExprCount)
 
-	// Case: total count of expressions exceed NSX limit '15' in one criteria mixed criteria
+	// Case: total count of expressions exceed NSX limit '15' in one criterion mixed criteria
 	matchExpressionsCount = 13
 	_, _, err = service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, true)
 	assert.NotEqual(t, nil, err)

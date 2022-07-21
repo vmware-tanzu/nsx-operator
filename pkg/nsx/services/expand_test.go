@@ -68,7 +68,7 @@ func TestSecurityPolicyService_buildRuleIPGroup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			service := &SecurityPolicyService{}
-			assert.Equalf(t, tt.want, service.buildRuleIPGroup(tt.args.obj, tt.args.ips), "buildRuleIPGroup(%v, %v)",
+			assert.Equalf(t, tt.want, service.buildRuleIPSetGroup(tt.args.obj, tt.args.ips), "buildRuleIPSetGroup(%v, %v)",
 				tt.args.obj, tt.args.ips)
 		})
 	}

@@ -139,4 +139,4 @@ Limitations of SecurityPolicy CR:
    given NSX-T does not support 'In' in NSGroup condition, so we use a workaround to support 'In' with limited counts.
 7. Max IP elements in one security policy: 4000
 8. Priority range of SecurityPolicy CR is [0, 1000].
-9. Support named port.
+9. Support named port. Check build/yaml/samples/named-port-sample/*.yaml for use case.

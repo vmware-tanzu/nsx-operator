@@ -12,10 +12,13 @@ var validRuleActions = []string{
 	util.ToUpper(v1alpha1.RuleActionDrop),
 	util.ToUpper(v1alpha1.RuleActionReject),
 }
-var ruleDirectionIngress = util.ToUpper(v1alpha1.RuleDirectionIngress)
-var ruleDirectionIn = util.ToUpper(v1alpha1.RuleDirectionIn)
-var ruleDirectionEgress = util.ToUpper(v1alpha1.RuleDirectionEgress)
-var ruleDirectionOut = util.ToUpper(v1alpha1.RuleDirectionOut)
+
+var (
+	ruleDirectionIngress = util.ToUpper(v1alpha1.RuleDirectionIngress)
+	ruleDirectionIn      = util.ToUpper(v1alpha1.RuleDirectionIn)
+	ruleDirectionEgress  = util.ToUpper(v1alpha1.RuleDirectionEgress)
+	ruleDirectionOut     = util.ToUpper(v1alpha1.RuleDirectionOut)
+)
 
 func getRuleAction(rule *v1alpha1.SecurityPolicyRule) (string, error) {
 	ruleAction := util.ToUpper(*rule.Action)

@@ -22,10 +22,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware/govmomi/sts"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 // VCClient tracks a client session token.
@@ -236,7 +237,6 @@ func (client *VCClient) prepareRequest(method string, urlPath string, data []byt
 	req.Header.Set("Content-Type", "application/json")
 	if client.signer != nil {
 		client.signer.SignRequest(req)
-
 	} else if client.session != "" {
 		req.Header.Set("vmware-api-session-id", client.session)
 	} else {

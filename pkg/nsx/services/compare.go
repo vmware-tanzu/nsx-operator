@@ -21,7 +21,7 @@ func SecurityPolicyEqual(existingSecurityPolicy *model.SecurityPolicy, securityP
 func RulesEqual(existingRules []model.Rule, rules []model.Rule) (bool, []model.Rule) {
 	// sort the rules by id, otherwise expandRule may return different results, only the sequence of the
 	// rule is different, so sort by port number, and it avoids the needless updates.
-	var sortRules = func(rules []model.Rule) {
+	sortRules := func(rules []model.Rule) {
 		sort.Slice(rules, func(i, j int) bool {
 			return *(rules[i].Id) > *(rules[j].Id)
 		})
@@ -49,22 +49,45 @@ func RulesEqual(existingRules []model.Rule, rules []model.Rule) (bool, []model.R
 func RulesEqualDetail(existingRules []model.Rule, rules []model.Rule) bool {
 	isEqual := true
 	for i := 0; i < len(rules); i++ {
-		r1, _ := simplifyRule(&existingRules[i]).GetDataValue__()
-		r2, _ := simplifyRule(&rules[i]).GetDataValue__()
-		var dataValueToJSONEncoder = cleanjson.NewDataValueToJsonEncoder()
-		s1, _ := dataValueToJSONEncoder.Encode(r1)
-		s2, _ := dataValueToJSONEncoder.Encode(r2)
-		if s1 != s2 {
-			log.Info("", "nsx rule", s1, "k8s rule", s2)
+		// if we use dataValueToJSONEncoder to marshal the whole rule, it will lose the "ServiceEntries" property,
+		// it shows that the result is "service_entries":[]" or even nothing, so everytime it shows not equal and
+		// operate nsx-t repeatedly, perhaps the sdk failed to marshal the nested property which is a list of
+		// *data.StructValue. We suppose *data.ListValue is the right way to do it.
+		// however, the ServiceEntries which model.Rule contains is []*data.StructValue, rather than *data.ListValue,
+		// we don't know why sdk design like this, We leave it for follow-up observation.
+		// now we fix this problem by comparing them separately.
+		r1, _ := json.Marshal(simplifyRule(&existingRules[i]))
+		r2, _ := json.Marshal(simplifyRule(&rules[i]))
+		if string(r1) != string(r2) {
+			log.Info("rule diff", "nsx rule", simplifyRule(&existingRules[i]), "k8s rule", simplifyRule(&rules[i]))
 			isEqual = false
 			break
+		}
+
+		se1 := existingRules[i].ServiceEntries
+		se2 := rules[i].ServiceEntries
+		if len(se1) != len(se2) {
+			log.Info("service entry len diff", "nsx service entry len", len(se1), "k8s service entry len", len(se2))
+			isEqual = false
+			break
+		}
+
+		dataValueToJSONEncoder := cleanjson.NewDataValueToJsonEncoder()
+		for i := 0; i < len(se1); i++ {
+			je1, _ := dataValueToJSONEncoder.Encode(se1[i])
+			je2, _ := dataValueToJSONEncoder.Encode(se2[i])
+			if je1 != je2 {
+				log.Info("service entry diff", "nsx service entry", je1, "k8s service entry", je2)
+				isEqual = false
+				break
+			}
 		}
 	}
 	return isEqual
 }
 
 func GroupsEqual(existingGroups []model.Group, groups []model.Group) bool {
-	var sortGroups = func(groups []model.Group) {
+	sortGroups := func(groups []model.Group) {
 		sort.Slice(groups, func(i, j int) bool {
 			return *(groups[i].Id) > *(groups[j].Id)
 		})
@@ -79,6 +102,7 @@ func GroupsEqual(existingGroups []model.Group, groups []model.Group) bool {
 		g1, _ := json.Marshal(simplifyGroup(&existingGroups[i]))
 		g2, _ := json.Marshal(simplifyGroup(&groups[i]))
 		if string(g1) != string(g2) {
+			log.Info("group diff", "nsx group", simplifyGroup(&existingGroups[i]), "k8s group", simplifyGroup(&groups[i]))
 			return false
 		}
 	}
@@ -108,7 +132,6 @@ func simplifyRule(rule *model.Rule) *model.Rule {
 		SequenceNumber:    rule.SequenceNumber,
 		Action:            rule.Action,
 		Services:          rule.Services,
-		ServiceEntries:    rule.ServiceEntries,
 		DestinationGroups: rule.DestinationGroups,
 		SourceGroups:      rule.SourceGroups,
 	}
