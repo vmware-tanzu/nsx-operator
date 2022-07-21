@@ -29,9 +29,7 @@ type Client struct {
 	NSXChecker     NSXHealthChecker
 }
 
-var (
-	minVersion = [3]int64{3, 2, 0}
-)
+var minVersion = [3]int64{3, 2, 0}
 
 type NSXHealthChecker struct {
 	cluster *Cluster
@@ -56,7 +54,23 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	// Set log level for vsphere-automation-sdk-go
 	logger := logrus.New()
 	vspherelog.SetLogger(logger)
-	c := NewConfig(strings.Join(cf.NsxApiManagers, ","), cf.NsxApiUser, cf.NsxApiPassword, "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, cf.GetTokenProvider(), nil, cf.Thumbprint)
+	c := NewConfig(
+		strings.Join(cf.NsxAPIManagers, ","),
+		cf.NsxAPIUser,
+		cf.NsxAPIPassword,
+		"",
+		10,
+		3,
+		20,
+		20,
+		true,
+		true,
+		true,
+		ratelimiter.AIMD,
+		cf.GetTokenProvider(),
+		nil,
+		cf.Thumbprint,
+	)
 	cluster, _ := NewCluster(c)
 	nsxVersion, err := cluster.GetVersion()
 	if err != nil {

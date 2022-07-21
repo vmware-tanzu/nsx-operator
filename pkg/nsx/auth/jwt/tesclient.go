@@ -29,8 +29,23 @@ type TESClient struct {
 }
 
 // NewTESClient creates a TESClient object.
-func NewTESClient(hostname string, port int, ssoDomain string, username, password string, caCertPem []byte, insecureSkipVerify bool) (*TESClient, error) {
-	client, err := NewVCClient(hostname, port, ssoDomain, username, password, caCertPem, insecureSkipVerify)
+func NewTESClient(
+	hostname string,
+	port int,
+	ssoDomain string,
+	username, password string,
+	caCertPem []byte,
+	insecureSkipVerify bool,
+) (*TESClient, error) {
+	client, err := NewVCClient(
+		hostname,
+		port,
+		ssoDomain,
+		username,
+		password,
+		caCertPem,
+		insecureSkipVerify,
+	)
 	if err != nil {
 		log.Error(err, "new TESClient failed")
 		return nil, err

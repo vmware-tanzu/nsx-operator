@@ -114,9 +114,21 @@ func NewAIMDRateLimiter(max int, period float64) RateLimiter {
 	}
 	limiter := rate.NewLimiter(1, 1)
 	if max == 0 {
-		return &AIMDRateLimter{l: limiter, max: m, disable: true, period: period, lastAdjuctRate: time.Now()}
+		return &AIMDRateLimter{
+			l:              limiter,
+			max:            m,
+			disable:        true,
+			period:         period,
+			lastAdjuctRate: time.Now(),
+		}
 	}
-	return &AIMDRateLimter{l: limiter, max: m, disable: false, period: period, lastAdjuctRate: time.Now()}
+	return &AIMDRateLimter{
+		l:              limiter,
+		max:            m,
+		disable:        false,
+		period:         period,
+		lastAdjuctRate: time.Now(),
+	}
 }
 
 // Wait blocks the caller until a token is gained.

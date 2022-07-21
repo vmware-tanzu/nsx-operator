@@ -38,7 +38,10 @@ func TestNewConfig(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewConfig(tt.args.apiManagers, tt.args.username, tt.args.password, tt.args.caFile, tt.args.concurrentConnections, tt.args.retries, tt.args.httpTimeout, tt.args.connIdleTimeout, tt.args.insecure, tt.args.allowOverwriteHeader, tt.args.allowPassThrough, tt.args.apiRateMode, tt.args.tokenProvider, tt.args.clientCertProvider, tt.args.thumbprint); !reflect.DeepEqual(got, tt.want) {
+			if got := NewConfig(tt.args.apiManagers, tt.args.username, tt.args.password, tt.args.caFile, tt.args.concurrentConnections, tt.args.retries, tt.args.httpTimeout, tt.args.connIdleTimeout, tt.args.insecure, tt.args.allowOverwriteHeader, tt.args.allowPassThrough, tt.args.apiRateMode, tt.args.tokenProvider, tt.args.clientCertProvider, tt.args.thumbprint); !reflect.DeepEqual(
+				got,
+				tt.want,
+			) {
 				t.Errorf("NewConfig() = %v, want %v", got, tt.want)
 			}
 		})

@@ -47,20 +47,31 @@ func TestVCClient_NewVCClient(t *testing.T) {
 	password := "admin"
 	ssoDomain := "vsphere.local"
 
-	patch := gomonkey.ApplyFunc(vim25.NewClient, func(ctx context.Context, rt soap.RoundTripper) (*vim25.Client, error) {
-		client := &vim25.Client{}
-		return client, nil
-	})
+	patch := gomonkey.ApplyFunc(
+		vim25.NewClient,
+		func(ctx context.Context, rt soap.RoundTripper) (*vim25.Client, error) {
+			client := &vim25.Client{}
+			return client, nil
+		},
+	)
 	defer patch.Reset()
 	soapClient := soap.NewClient(&url.URL{}, false)
-	patch.ApplyMethod(reflect.TypeOf(soapClient), "NewServiceClient", func(_ *soap.Client, path string, namespace string) *soap.Client {
-		return soapClient
-	})
+	patch.ApplyMethod(
+		reflect.TypeOf(soapClient),
+		"NewServiceClient",
+		func(_ *soap.Client, path string, namespace string) *soap.Client {
+			return soapClient
+		},
+	)
 	stsClient := &sts.Client{}
-	patch.ApplyMethod(reflect.TypeOf(stsClient), "Issue", func(_ *sts.Client, ctx context.Context, req sts.TokenRequest) (*sts.Signer, error) {
-		singer := &sts.Signer{}
-		return singer, nil
-	})
+	patch.ApplyMethod(
+		reflect.TypeOf(stsClient),
+		"Issue",
+		func(_ *sts.Client, ctx context.Context, req sts.TokenRequest) (*sts.Signer, error) {
+			singer := &sts.Signer{}
+			return singer, nil
+		},
+	)
 	vcClient, err := NewVCClient(host, port, ssoDomain, userName, password, nil, true)
 	assert.Equal(t, err, nil)
 	assert.NotEqual(t, vcClient, nil)
@@ -72,7 +83,6 @@ func TestVCClient_NewVCClient(t *testing.T) {
 	offset += 1
 	_, err = NewVCClient(host, port, ssoDomain, userName, password, nil, true)
 	assert.Equal(t, err, nil)
-
 }
 
 func TestVCClient_createHttpClient(t *testing.T) {
@@ -135,5 +145,4 @@ func TestVCClient_reloadUsernamePass(t *testing.T) {
 	defer patch.Reset()
 	err = vcClient.reloadUsernamePass()
 	assert.Nil(t, err)
-
 }

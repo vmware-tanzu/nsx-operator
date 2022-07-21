@@ -14,7 +14,6 @@ func TestJWTTokenprovider_NewTokenProvider(t *testing.T) {
 	_, err := NewTokenProvider("127.0.0.1", 443, "vsphere.local", []byte{}, false)
 	_, ok := err.(*url.Error)
 	assert.Equal(t, ok, false)
-
 }
 
 func TestJWTTokenprovider_HeaderValue(t *testing.T) {

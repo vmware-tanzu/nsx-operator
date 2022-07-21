@@ -58,7 +58,15 @@ type Config struct {
 }
 
 // NewConfig creates a nsx configuration. It provides default values for those items not in function parameters.
-func NewConfig(apiManagers, username, password, caFile string, concurrentConnections, retries, httpTimeout, connIdleTimeout int, insecure, allowOverwriteHeader, allowPassThrough bool, apiRateMode ratelimiter.Type, tokenProvider auth.TokenProvider, clientCertProvider auth.ClientCertProvider, thumbprint []string) *Config {
+func NewConfig(
+	apiManagers, username, password, caFile string,
+	concurrentConnections, retries, httpTimeout, connIdleTimeout int,
+	insecure, allowOverwriteHeader, allowPassThrough bool,
+	apiRateMode ratelimiter.Type,
+	tokenProvider auth.TokenProvider,
+	clientCertProvider auth.ClientCertProvider,
+	thumbprint []string,
+) *Config {
 	apis := strings.Split(apiManagers, ",")
 	for i, v := range apis {
 		apis[i] = strings.TrimSpace(v)

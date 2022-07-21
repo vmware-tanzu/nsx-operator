@@ -28,7 +28,6 @@ func TestHeaderConfig(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(result))
-
 	}))
 	defer ts.Close()
 	httpClient := http.Client{

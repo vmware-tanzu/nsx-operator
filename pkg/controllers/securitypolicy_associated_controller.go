@@ -35,19 +35,31 @@ type EnqueueRequestForNamespace struct {
 	Client client.Client
 }
 
-func (e *EnqueueRequestForNamespace) Create(_ event.CreateEvent, _ workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForNamespace) Create(
+	_ event.CreateEvent,
+	_ workqueue.RateLimitingInterface,
+) {
 	log.V(1).Info("namespace create event, do nothing")
 }
 
-func (e *EnqueueRequestForNamespace) Delete(_ event.DeleteEvent, _ workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForNamespace) Delete(
+	_ event.DeleteEvent,
+	_ workqueue.RateLimitingInterface,
+) {
 	log.V(1).Info("namespace delete event, do nothing")
 }
 
-func (e *EnqueueRequestForNamespace) Generic(_ event.GenericEvent, _ workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForNamespace) Generic(
+	_ event.GenericEvent,
+	_ workqueue.RateLimitingInterface,
+) {
 	log.V(1).Info("namespace generic event, do nothing")
 }
 
-func (e *EnqueueRequestForNamespace) Update(updateEvent event.UpdateEvent, l workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForNamespace) Update(
+	updateEvent event.UpdateEvent,
+	l workqueue.RateLimitingInterface,
+) {
 	obj := updateEvent.ObjectNew.(*v1.Namespace)
 
 	podList := &v1.PodList{}
@@ -59,7 +71,7 @@ func (e *EnqueueRequestForNamespace) Update(updateEvent event.UpdateEvent, l wor
 
 	shouldReconcile := false
 	for _, pod := range podList.Items {
-		if checkPod(&pod, "update") {
+		if checkPod(pod, "update") {
 			shouldReconcile = true
 			break
 		}
@@ -79,19 +91,31 @@ type EnqueueRequestForPod struct {
 	Client client.Client
 }
 
-func (e *EnqueueRequestForPod) Create(createEvent event.CreateEvent, l workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForPod) Create(
+	createEvent event.CreateEvent,
+	l workqueue.RateLimitingInterface,
+) {
 	e.Raw(createEvent, l)
 }
 
-func (e *EnqueueRequestForPod) Update(updateEvent event.UpdateEvent, l workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForPod) Update(
+	updateEvent event.UpdateEvent,
+	l workqueue.RateLimitingInterface,
+) {
 	e.Raw(updateEvent, l)
 }
 
-func (e *EnqueueRequestForPod) Delete(deleteEvent event.DeleteEvent, l workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForPod) Delete(
+	deleteEvent event.DeleteEvent,
+	l workqueue.RateLimitingInterface,
+) {
 	e.Raw(deleteEvent, l)
 }
 
-func (e *EnqueueRequestForPod) Generic(genericEvent event.GenericEvent, l workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForPod) Generic(
+	genericEvent event.GenericEvent,
+	l workqueue.RateLimitingInterface,
+) {
 	e.Raw(genericEvent, l)
 }
 
@@ -123,7 +147,7 @@ func (e *EnqueueRequestForPod) Raw(evt interface{}, q workqueue.RateLimitingInte
 }
 
 func getAllPodPortNames(pods []v1.Pod) sets.String {
-	var podPortNames = sets.NewString()
+	podPortNames := sets.NewString()
 	for _, pod := range pods {
 		for _, container := range pod.Spec.Containers {
 			for _, port := range container.Ports {
@@ -136,7 +160,11 @@ func getAllPodPortNames(pods []v1.Pod) sets.String {
 	return podPortNames
 }
 
-func reconcileSecurityPolicy(client client.Client, pods []v1.Pod, q workqueue.RateLimitingInterface) error {
+func reconcileSecurityPolicy(
+	client client.Client,
+	pods []v1.Pod,
+	q workqueue.RateLimitingInterface,
+) error {
 	podPortNames := getAllPodPortNames(pods)
 	log.V(1).Info("pod named port", "podPortNames", podPortNames)
 	spList := &v1alpha1.SecurityPolicyList{}
@@ -158,7 +186,13 @@ func reconcileSecurityPolicy(client client.Client, pods []v1.Pod, q workqueue.Ra
 			}
 		}
 		if shouldReconcile {
-			log.Info("reconcile it", "namespace", securityPolicy.Namespace, "name", securityPolicy.Name)
+			log.Info(
+				"reconcile it",
+				"namespace",
+				securityPolicy.Namespace,
+				"name",
+				securityPolicy.Name,
+			)
 			q.Add(reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      securityPolicy.Name,
@@ -172,33 +206,33 @@ func reconcileSecurityPolicy(client client.Client, pods []v1.Pod, q workqueue.Ra
 
 var PredicateFuncsPod = predicate.Funcs{
 	CreateFunc: func(e event.CreateEvent) bool {
-		if _, ok := e.Object.(*v1.Pod); ok {
-			return checkPod(e.Object.(*v1.Pod), "create")
+		if p, ok := e.Object.(*v1.Pod); ok {
+			return checkPod(*p, "create")
 		}
 		return false
 	},
 	UpdateFunc: func(e event.UpdateEvent) bool {
-		if _, ok := e.ObjectOld.(*v1.Pod); ok {
-			if checkPod(e.ObjectOld.(*v1.Pod), "update") {
+		if p, ok := e.ObjectOld.(*v1.Pod); ok {
+			if checkPod(*p, "update") {
 				return true
 			}
 		}
-		if _, ok := e.ObjectNew.(*v1.Pod); ok {
-			if checkPod(e.ObjectNew.(*v1.Pod), "update") {
+		if p, ok := e.ObjectNew.(*v1.Pod); ok {
+			if checkPod(*p, "update") {
 				return true
 			}
 		}
 		return false
 	},
 	DeleteFunc: func(e event.DeleteEvent) bool {
-		if _, ok := e.Object.(*v1.Pod); ok {
-			return checkPod(e.Object.(*v1.Pod), "delete")
+		if p, ok := e.Object.(*v1.Pod); ok {
+			return checkPod(*p, "delete")
 		}
 		return false
 	},
 }
 
-func checkPod(pod *v1.Pod, reason string) bool {
+func checkPod(pod v1.Pod, reason string) bool {
 	for _, ns := range ignoreNs {
 		if strings.HasPrefix(pod.Namespace, ns) {
 			return false
@@ -207,8 +241,21 @@ func checkPod(pod *v1.Pod, reason string) bool {
 	for _, container := range pod.Spec.Containers {
 		for _, port := range container.Ports {
 			if port.Name != "" {
-				log.Info("receive pod event", "reason", reason, "namespace", pod.Namespace, "name", pod.Name, "port",
-					port.Name, "portNumber", port.ContainerPort, "protocol", port.Protocol)
+				log.Info(
+					"receive pod event",
+					"reason",
+					reason,
+					"namespace",
+					pod.Namespace,
+					"name",
+					pod.Name,
+					"port",
+					port.Name,
+					"portNumber",
+					port.ContainerPort,
+					"protocol",
+					port.Protocol,
+				)
 				return true
 			}
 		}

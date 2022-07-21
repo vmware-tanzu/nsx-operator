@@ -8,14 +8,14 @@ import (
 	"flag"
 	"io/ioutil"
 
-	ini "gopkg.in/ini.v1"
+	"gopkg.in/ini.v1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth/jwt"
 )
 
-//TODO replace to yaml
+// TODO replace to yaml.
 const (
 	nsxOperatorDefaultConf = "/etc/nsx-operator/nsxop.ini"
 	vcHostCACertPath       = "/etc/vmware/wcp/tls/vmca.pem"
@@ -27,7 +27,7 @@ var (
 	tokenProvider  auth.TokenProvider
 )
 
-//TODO delete unnecessary config
+// TODO delete unnecessary config
 
 type NSXOperatorConfig struct {
 	*DefaultConfig
@@ -46,11 +46,11 @@ type CoeConfig struct {
 }
 
 type NsxConfig struct {
-	NsxApiUser           string   `ini:"nsx_api_user"`
-	NsxApiPassword       string   `ini:"nsx_api_password"`
-	NsxApiCertFile       string   `ini:"nsx_api_cert_file"`
-	NsxApiPrivateKeyFile string   `ini:"nsx_api_private_key_file"`
-	NsxApiManagers       []string `ini:"nsx_api_managers"`
+	NsxAPIUser           string   `ini:"nsx_api_user"`
+	NsxAPIPassword       string   `ini:"nsx_api_password"`
+	NsxAPICertFile       string   `ini:"nsx_api_cert_file"`
+	NsxAPIPrivateKeyFile string   `ini:"nsx_api_private_key_file"`
+	NsxAPIManagers       []string `ini:"nsx_api_managers"`
 	CaFile               []string `ini:"ca_file"`
 	Thumbprint           []string `ini:"thumbprint"`
 	Insecure             bool     `ini:"insecure"`
@@ -70,7 +70,7 @@ type K8sConfig struct {
 type VCConfig struct {
 	VCEndPoint string `ini:"vc_endpoint"`
 	SsoDomain  string `ini:"sso_domain"`
-	HttpsPort  int    `ini:"https_port"`
+	HTTPSPort  int    `ini:"https_port"`
 }
 
 type Validate interface {
@@ -82,11 +82,16 @@ type NsxVersion struct {
 }
 
 func AddFlags() {
-	flag.StringVar(&configFilePath, "nsxconfig", nsxOperatorDefaultConf, "NSX Operator configuration file path")
+	flag.StringVar(
+		&configFilePath,
+		"nsxconfig",
+		nsxOperatorDefaultConf,
+		"NSX Operator configuration file path",
+	)
 }
 
 func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
-	nsxOperatorConfig := NewNSXOpertorConfig()
+	nsxOperatorConfig := NewNSXOperatorConfig()
 
 	cfg := ini.Empty()
 	err := ini.ReflectFrom(cfg, nsxOperatorConfig)
@@ -125,7 +130,7 @@ func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
 	return nsxOperatorConfig, nil
 }
 
-func NewNSXOpertorConfig() *NSXOperatorConfig {
+func NewNSXOperatorConfig() *NSXOperatorConfig {
 	defaultNSXOperatorConfig := &NSXOperatorConfig{
 		&DefaultConfig{},
 		&CoeConfig{
@@ -149,10 +154,13 @@ func (operatorConfig *NSXOperatorConfig) validate() error {
 	return nil
 }
 
-// it's not thread safe
+// GetTokenProvider it's not thread safe.
 func (operatorConfig *NSXOperatorConfig) GetTokenProvider() auth.TokenProvider {
 	if tokenProvider == nil {
-		operatorConfig.createTokenProvider()
+		err := operatorConfig.createTokenProvider()
+		if err != nil {
+			return nil
+		}
 	}
 	return tokenProvider
 }
@@ -171,7 +179,13 @@ func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
 	}
 
 	if err := operatorConfig.VCConfig.validate(); err == nil {
-		tokenProvider, _ = jwt.NewTokenProvider(operatorConfig.VCEndPoint, operatorConfig.HttpsPort, operatorConfig.SsoDomain, vcCaCert, operatorConfig.Insecure)
+		tokenProvider, _ = jwt.NewTokenProvider(
+			operatorConfig.VCEndPoint,
+			operatorConfig.HTTPSPort,
+			operatorConfig.SsoDomain,
+			vcCaCert,
+			operatorConfig.Insecure,
+		)
 	}
 	return nil
 }
@@ -189,19 +203,19 @@ func (vcConfig *VCConfig) validate() error {
 		return err
 	}
 
-	if vcConfig.HttpsPort == 0 {
+	if vcConfig.HTTPSPort == 0 {
 		err := errors.New("invalid field " + "HttpsPort")
-		log.Info("validate VcConfig failed", "HttpsPort", vcConfig.HttpsPort)
+		log.Info("validate VcConfig failed", "HttpsPort", vcConfig.HTTPSPort)
 		return err
 	}
 	return nil
 }
 
 func (nsxConfig *NsxConfig) validate() error {
-	mCount := len(nsxConfig.NsxApiManagers)
+	mCount := len(nsxConfig.NsxAPIManagers)
 	if mCount == 0 {
 		err := errors.New("invalid field " + "NsxApiManagers")
-		log.Error(err, "validate NsxConfig failed", "NsxApiManagers", nsxConfig.NsxApiManagers)
+		log.Error(err, "validate NsxConfig failed", "NsxApiManagers", nsxConfig.NsxAPIManagers)
 		return err
 	}
 	tpCount := len(nsxConfig.Thumbprint)
@@ -215,7 +229,14 @@ func (nsxConfig *NsxConfig) validate() error {
 	}
 	if tpCount > 1 && tpCount != mCount {
 		err := errors.New("thumbprint count not match manager count")
-		log.Error(err, "validate NsxConfig failed", "thumbprint count", tpCount, "manager count", mCount)
+		log.Error(
+			err,
+			"validate NsxConfig failed",
+			"thumbprint count",
+			tpCount,
+			"manager count",
+			mCount,
+		)
 		return err
 	}
 	return nil

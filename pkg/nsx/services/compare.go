@@ -8,20 +8,24 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 )
 
-func SecurityPolicyEqual(existingSecurityPolicy *model.SecurityPolicy, securityPolicy *model.SecurityPolicy) bool {
+func SecurityPolicyEqual(
+	existingSecurityPolicy *model.SecurityPolicy,
+	securityPolicy *model.SecurityPolicy,
+) bool {
 	s1, _ := json.Marshal(simplifySecurityPolicy(existingSecurityPolicy))
 	s2, _ := json.Marshal(simplifySecurityPolicy(securityPolicy))
 	if string(s1) == string(s2) {
 		return true
 	}
-	log.Info("security policy diff", "nsx sp", s1, "k8s sp", s2)
+	log.Info("security policy diff", "nsx sp", simplifySecurityPolicy(existingSecurityPolicy),
+		"k8s sp", simplifySecurityPolicy(securityPolicy))
 	return false
 }
 
 func RulesEqual(existingRules []model.Rule, rules []model.Rule) (bool, []model.Rule) {
 	// sort the rules by id, otherwise expandRule may return different results, only the sequence of the
 	// rule is different, so sort by port number, and it avoids the needless updates.
-	var sortRules = func(rules []model.Rule) {
+	sortRules := func(rules []model.Rule) {
 		sort.Slice(rules, func(i, j int) bool {
 			return *(rules[i].Id) > *(rules[j].Id)
 		})
@@ -29,7 +33,7 @@ func RulesEqual(existingRules []model.Rule, rules []model.Rule) (bool, []model.R
 	sortRules(existingRules)
 	sortRules(rules)
 
-	isEqual := true
+	var isEqual bool
 	// legacyRules means the rules that are not in the new rules, we should destroy them.
 	var legacyRules []model.Rule
 
@@ -51,11 +55,17 @@ func RulesEqualDetail(existingRules []model.Rule, rules []model.Rule) bool {
 	for i := 0; i < len(rules); i++ {
 		r1, _ := simplifyRule(&existingRules[i]).GetDataValue__()
 		r2, _ := simplifyRule(&rules[i]).GetDataValue__()
-		var dataValueToJSONEncoder = cleanjson.NewDataValueToJsonEncoder()
+		dataValueToJSONEncoder := cleanjson.NewDataValueToJsonEncoder()
 		s1, _ := dataValueToJSONEncoder.Encode(r1)
 		s2, _ := dataValueToJSONEncoder.Encode(r2)
 		if s1 != s2 {
-			log.Info("", "nsx rule", s1, "k8s rule", s2)
+			log.Info(
+				"rule diff",
+				"nsx rule",
+				simplifyRule(&existingRules[i]),
+				"k8s rule",
+				simplifyRule(&rules[i]),
+			)
 			isEqual = false
 			break
 		}
@@ -64,7 +74,7 @@ func RulesEqualDetail(existingRules []model.Rule, rules []model.Rule) bool {
 }
 
 func GroupsEqual(existingGroups []model.Group, groups []model.Group) bool {
-	var sortGroups = func(groups []model.Group) {
+	sortGroups := func(groups []model.Group) {
 		sort.Slice(groups, func(i, j int) bool {
 			return *(groups[i].Id) > *(groups[j].Id)
 		})
@@ -79,6 +89,13 @@ func GroupsEqual(existingGroups []model.Group, groups []model.Group) bool {
 		g1, _ := json.Marshal(simplifyGroup(&existingGroups[i]))
 		g2, _ := json.Marshal(simplifyGroup(&groups[i]))
 		if string(g1) != string(g2) {
+			log.Info(
+				"group diff",
+				"nsx group",
+				simplifyGroup(&existingGroups[i]),
+				"k8s group",
+				simplifyGroup(&groups[i]),
+			)
 			return false
 		}
 	}
@@ -108,7 +125,6 @@ func simplifyRule(rule *model.Rule) *model.Rule {
 		SequenceNumber:    rule.SequenceNumber,
 		Action:            rule.Action,
 		Services:          rule.Services,
-		ServiceEntries:    rule.ServiceEntries,
 		DestinationGroups: rule.DestinationGroups,
 		SourceGroups:      rule.SourceGroups,
 	}

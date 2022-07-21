@@ -45,13 +45,17 @@ func TestBuildSecurityPolicy(t *testing.T) {
 						Id:                &ruleIDPort0,
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxDirectionIn,
-						Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_scope"},
-						SequenceNumber:    &seq0,
-						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_src"},
-						Action:            &nsxActionAllow,
-						ServiceEntries:    []*data.StructValue{},
-						Tags:              basicTags,
+						Scope: []string{
+							"/infra/domains/k8scl-one/groups/sp_uidA_0_scope",
+						},
+						SequenceNumber: &seq0,
+						Services:       []string{"ANY"},
+						SourceGroups: []string{
+							"/infra/domains/k8scl-one/groups/sp_uidA_0_src",
+						},
+						Action:         &nsxActionAllow,
+						ServiceEntries: []*data.StructValue{},
+						Tags:           basicTags,
 					},
 					{
 						DisplayName:       &ruleNameWithNsSelector,
@@ -61,10 +65,12 @@ func TestBuildSecurityPolicy(t *testing.T) {
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq1,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/infra/domains/k8scl-one/groups/sp_uidA_1_src"},
-						Action:            &nsxActionAllow,
-						ServiceEntries:    []*data.StructValue{serviceEntry},
-						Tags:              basicTags,
+						SourceGroups: []string{
+							"/infra/domains/k8scl-one/groups/sp_uidA_1_src",
+						},
+						Action:         &nsxActionAllow,
+						ServiceEntries: []*data.StructValue{serviceEntry},
+						Tags:           basicTags,
 					},
 				},
 				Tags: basicTags,
@@ -80,44 +86,52 @@ func TestBuildSecurityPolicy(t *testing.T) {
 				SequenceNumber: &seq0,
 				Rules: []model.Rule{
 					{
-						DisplayName:       &ruleNameWithVMSelector,
-						Id:                &ruleIDPort0,
-						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_dst"},
-						Direction:         &nsxDirectionOut,
-						Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_scope"},
-						SequenceNumber:    &seq0,
-						Services:          []string{"ANY"},
-						SourceGroups:      []string{"ANY"},
-						Action:            &nsxActionDrop,
-						ServiceEntries:    []*data.StructValue{},
-						Tags:              basicTags,
+						DisplayName: &ruleNameWithVMSelector,
+						Id:          &ruleIDPort0,
+						DestinationGroups: []string{
+							"/infra/domains/k8scl-one/groups/sp_uidA_0_dst",
+						},
+						Direction: &nsxDirectionOut,
+						Scope: []string{
+							"/infra/domains/k8scl-one/groups/sp_uidA_0_scope",
+						},
+						SequenceNumber: &seq0,
+						Services:       []string{"ANY"},
+						SourceGroups:   []string{"ANY"},
+						Action:         &nsxActionDrop,
+						ServiceEntries: []*data.StructValue{},
+						Tags:           basicTags,
 					},
 					{
-						DisplayName:       &ruleNameWithNsSelector,
-						Id:                &ruleIDPort1,
-						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidA_1_dst"},
-						Direction:         &nsxDirectionOut,
-						Scope:             []string{"ANY"},
-						SequenceNumber:    &seq1,
-						Services:          []string{"ANY"},
-						SourceGroups:      []string{"ANY"},
-						Action:            &nsxActionDrop,
-						ServiceEntries:    []*data.StructValue{},
-						Tags:              basicTags,
+						DisplayName: &ruleNameWithNsSelector,
+						Id:          &ruleIDPort1,
+						DestinationGroups: []string{
+							"/infra/domains/k8scl-one/groups/sp_uidA_1_dst",
+						},
+						Direction:      &nsxDirectionOut,
+						Scope:          []string{"ANY"},
+						SequenceNumber: &seq1,
+						Services:       []string{"ANY"},
+						SourceGroups:   []string{"ANY"},
+						Action:         &nsxActionDrop,
+						ServiceEntries: []*data.StructValue{},
+						Tags:           basicTags,
 					},
 
 					{
-						DisplayName:       &ruleNameWithIpBlock,
-						Id:                &ruleIDPort2,
-						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidA_2_dst"},
-						Direction:         &nsxDirectionOut,
-						Scope:             []string{"ANY"},
-						SequenceNumber:    &seq2,
-						Services:          []string{"ANY"},
-						SourceGroups:      []string{"ANY"},
-						Action:            &nsxActionDrop,
-						ServiceEntries:    []*data.StructValue{},
-						Tags:              basicTags,
+						DisplayName: &ruleNameWithIPBlock,
+						Id:          &ruleIDPort2,
+						DestinationGroups: []string{
+							"/infra/domains/k8scl-one/groups/sp_uidA_2_dst",
+						},
+						Direction:      &nsxDirectionOut,
+						Scope:          []string{"ANY"},
+						SequenceNumber: &seq2,
+						Services:       []string{"ANY"},
+						SourceGroups:   []string{"ANY"},
+						Action:         &nsxActionDrop,
+						ServiceEntries: []*data.StructValue{},
+						Tags:           basicTags,
 					},
 				},
 				Tags: basicTags,
@@ -221,7 +235,11 @@ func TestBuildTargetTags(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expectedTags, service.buildTargetTags(tt.inputPolicy, tt.inputTargets, tt.inputIndex))
+			assert.Equal(
+				t,
+				tt.expectedTags,
+				service.buildTargetTags(tt.inputPolicy, tt.inputTargets, tt.inputIndex),
+			)
 		})
 	}
 }
@@ -271,7 +289,15 @@ func TestBuildPeerTags(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expectedTags, service.buildPeerTags(tt.inputPolicy, &tt.inputPolicy.Spec.Rules[0].Sources, tt.inputIndex))
+			assert.Equal(
+				t,
+				tt.expectedTags,
+				service.buildPeerTags(
+					tt.inputPolicy,
+					&tt.inputPolicy.Spec.Rules[0].Sources,
+					tt.inputIndex,
+				),
+			)
 		})
 	}
 }
@@ -382,33 +408,58 @@ func TestValidateSelectorExpressions(t *testing.T) {
 	opInValueCount := 0
 
 	// Case: without Operator IN for the same member type
-	totalCriteriaCount, totalExprCount, err := service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, false)
+	totalCriteriaCount, totalExprCount, err := service.validateSelectorExpressions(
+		matchLabelsCount,
+		matchExpressionsCount,
+		opInValueCount,
+		false,
+	)
 	assert.Equal(t, nil, err)
 	assert.Equal(t, 1, totalCriteriaCount)
 	assert.Equal(t, 5, totalExprCount)
 
 	// Case: with Operator IN for the same member type
 	opInValueCount = 2
-	totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, false)
+	totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(
+		matchLabelsCount,
+		matchExpressionsCount,
+		opInValueCount,
+		false,
+	)
 	assert.Equal(t, nil, err)
 	assert.Equal(t, 2, totalCriteriaCount)
 	assert.Equal(t, 10, totalExprCount)
 
-	// Case: total count of expressions exceed NSX limit '5' in one criteria based on same member type
+	// Case: total count of expressions exceed NSX limit '5' in one criterion based on same member type
 	matchLabelsCount = 3
-	_, _, err = service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, false)
+	_, _, err = service.validateSelectorExpressions(
+		matchLabelsCount,
+		matchExpressionsCount,
+		opInValueCount,
+		false,
+	)
 	assert.NotEqual(t, nil, err)
 
 	// Case: with Operator IN for mixed criteria
 	matchExpressionsCount = 12
-	totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, true)
+	totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(
+		matchLabelsCount,
+		matchExpressionsCount,
+		opInValueCount,
+		true,
+	)
 	assert.Equal(t, nil, err)
 	assert.Equal(t, 2, totalCriteriaCount)
 	assert.Equal(t, 30, totalExprCount)
 
-	// Case: total count of expressions exceed NSX limit '15' in one criteria mixed criteria
+	// Case: total count of expressions exceed NSX limit '15' in one criterion mixed criteria
 	matchExpressionsCount = 13
-	_, _, err = service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, true)
+	_, _, err = service.validateSelectorExpressions(
+		matchLabelsCount,
+		matchExpressionsCount,
+		opInValueCount,
+		true,
+	)
 	assert.NotEqual(t, nil, err)
 }
 

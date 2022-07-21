@@ -6,8 +6,9 @@ package jwt
 import (
 	"time"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 )
 
 const (
@@ -15,9 +16,7 @@ const (
 	VC_SVCACCOUNT_PWD_PATH  = "/etc/nsx-ujo/vc/password"
 )
 
-var (
-	log = logf.Log.WithName("nsx").WithName("jwt")
-)
+var log = logf.Log.WithName("nsx").WithName("jwt")
 
 type JWTTokenProvider struct {
 	cache *JWTCache
@@ -31,7 +30,13 @@ func (provider *JWTTokenProvider) HeaderValue(token string) string {
 	return "Bearer " + token
 }
 
-func NewTokenProvider(vcEndpoint string, port int, ssoDomain string, caCert []byte, insecure bool) (auth.TokenProvider, error) {
+func NewTokenProvider(
+	vcEndpoint string,
+	port int,
+	ssoDomain string,
+	caCert []byte,
+	insecure bool,
+) (auth.TokenProvider, error) {
 	// not load username/password, not create vapi session, defer them to cache.refreshJWT
 	tesClient, err := NewTESClient(vcEndpoint, port, ssoDomain, "", "", caCert, insecure)
 	if err != nil {

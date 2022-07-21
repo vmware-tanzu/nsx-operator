@@ -27,7 +27,7 @@ func TestConfig_VCConfig(t *testing.T) {
 	err = vcConfig.validate()
 	assert.Equal(t, err, expect)
 
-	vcConfig.HttpsPort = 443
+	vcConfig.HTTPSPort = 443
 	err = vcConfig.validate()
 	assert.Equal(t, err, nil)
 }
@@ -41,7 +41,6 @@ func TestConfig_CoeConfig(t *testing.T) {
 	coeConfig.Cluster = "10.0.0.1"
 	err = coeConfig.validate()
 	assert.Equal(t, err, nil)
-
 }
 
 func TestConfig_NsxConfig(t *testing.T) {
@@ -50,7 +49,7 @@ func TestConfig_NsxConfig(t *testing.T) {
 	err := nsxConfig.validate()
 	assert.Equal(t, err, expect)
 
-	nsxConfig.NsxApiManagers = []string{"10.0.0.1"}
+	nsxConfig.NsxAPIManagers = []string{"10.0.0.1"}
 	err = nsxConfig.validate()
 	assert.Equal(t, err, nil)
 
@@ -79,7 +78,7 @@ func TestConfig_GetTokenProvider(t *testing.T) {
 	vcConfig := &VCConfig{}
 	vcConfig.VCEndPoint = "127.0.0.1"
 	vcConfig.SsoDomain = "vsphere@local"
-	vcConfig.HttpsPort = 443
+	vcConfig.HTTPSPort = 443
 	nsxConfig := &NSXOperatorConfig{VCConfig: vcConfig, NsxConfig: &NsxConfig{}}
 	tokenProvider := nsxConfig.GetTokenProvider()
 	assert.NotNil(t, tokenProvider)

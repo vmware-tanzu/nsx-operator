@@ -60,18 +60,8 @@ func RemoveDuplicateStr(strSlice []string) []string {
 	return resultStr
 }
 
-func MergeMaps(maps ...map[string]string) map[string]string {
-	result := make(map[string]string)
-	for _, m := range maps {
-		for k, v := range m {
-			result[k] = v
-		}
-	}
-	return result
-}
-
-func MergeAddressByPort(ipPorts []Address) []Address {
-	var portIPs []Address
+func MergeAddressByPort(ipPorts []PortAddress) []PortAddress {
+	var portIPs []PortAddress
 	var sortKeys []int
 	mappedPorts := make(map[int][]string)
 	for _, ipPort := range ipPorts {
@@ -84,7 +74,7 @@ func MergeAddressByPort(ipPorts []Address) []Address {
 	}
 	sort.Ints(sortKeys)
 	for _, key := range sortKeys {
-		portIPs = append(portIPs, Address{Port: key, IPs: mappedPorts[key]})
+		portIPs = append(portIPs, PortAddress{Port: key, IPs: mappedPorts[key]})
 	}
 	return portIPs
 }
@@ -92,4 +82,11 @@ func MergeAddressByPort(ipPorts []Address) []Address {
 func ToUpper(obj interface{}) string {
 	str := fmt.Sprintf("%s", obj)
 	return strings.ToUpper(str)
+}
+
+func LeftAlignString(str string, width int) string {
+	if len(str) > width {
+		return str[:width]
+	}
+	return str + strings.Repeat(" ", width-len(str))
 }

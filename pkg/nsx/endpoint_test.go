@@ -77,6 +77,7 @@ type ncpCertProvider struct{}
 func (cert *ncpCertProvider) FileName() string {
 	return "certProvider"
 }
+
 func createNcpPovider() auth.ClientCertProvider {
 	return &ncpCertProvider{}
 }
@@ -90,13 +91,15 @@ func (m *mockObject) Host() string {
 	args := m.Called()
 	return args.String(0)
 }
+
 func (m *mockObject) Scheme() string {
 	args := m.Called()
 	return args.String(0)
 }
 
 var (
-	result = []string{`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":403}`,
+	result = []string{
+		`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":403}`,
 		`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":403}`,
 		`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":403}`,
 		`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":403}`,
@@ -151,16 +154,19 @@ func TestCreateAuthSession(t *testing.T) {
 	err = ep.createAuthSession(nil, nil, "admin", "password", jar)
 	mockObj.AssertCalled(t, "Host")
 	mockObj.AssertCalled(t, "Scheme")
-	assert.Equal(err.Error(), "session creation failed, unexpected status code 403", "Auth should be failed")
+	assert.Equal(
+		err.Error(),
+		"session creation failed, unexpected status code 403",
+		"Auth should be failed",
+	)
 
 	err = ep.createAuthSession(nil, nil, "admin", "password", jar)
 	assert.Equal(err.Error(), "no token in response", "Auth should be failed")
-
 }
 
 func TestKeepAlive(t *testing.T) {
 	assert := assert.New(t)
-	//mock http server
+	// mock http server
 	index := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(status[index])
@@ -211,9 +217,15 @@ func TestKeepAlive(t *testing.T) {
 	// ep.KeepAlive will break after 10 times retry
 	ep.tokenProvider = &jwt.JWTTokenProvider{}
 	ep.lockWait = time.Millisecond * 300
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(ep.tokenProvider), "GetToken", func(_ *jwt.JWTTokenProvider, refreshToken bool) (string, error) {
-		return "", errors.New("The account of the user trying to authenticate is locked. :: User account locked")
-	})
+	patch := gomonkey.ApplyMethod(
+		reflect.TypeOf(ep.tokenProvider),
+		"GetToken",
+		func(_ *jwt.JWTTokenProvider, refreshToken bool) (string, error) {
+			return "", errors.New(
+				"The account of the user trying to authenticate is locked. :: User account locked",
+			)
+		},
+	)
 	defer patch.Reset()
 	ep.KeepAlive()
 	assert.Equal(ep.Status(), DOWN)

@@ -25,13 +25,32 @@ func TestNewCluster(t *testing.T) {
 	  }`
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(result))
+		_, err := w.Write([]byte(result))
+		if err != nil {
+			t.Errorf("error writing response: %v", err)
+		}
 	}))
 	defer ts.Close()
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
 	thumbprint := []string{"123"}
-	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(
+		a,
+		"admin",
+		"passw0rd",
+		"",
+		10,
+		3,
+		20,
+		20,
+		true,
+		true,
+		true,
+		ratelimiter.AIMD,
+		nil,
+		nil,
+		thumbprint,
+	)
 	_, err := NewCluster(config)
 	assert.True(t, err == nil, fmt.Sprintf("Created cluster failed %v", err))
 }
@@ -59,7 +78,7 @@ func TestCluster_getThumbprint(t *testing.T) {
 	tb = cluster.getThumbprint(host)
 	assert.Equal(t, tb, "123")
 
-	//two api server, two thumbprint
+	// two api server, two thumbprint
 	thumbprint = []string{"123", "234"}
 	cluster.config.Thumbprint = thumbprint
 	tb = cluster.getThumbprint("127.0.0.1:443")
@@ -67,7 +86,7 @@ func TestCluster_getThumbprint(t *testing.T) {
 	tb = cluster.getThumbprint("127.0.0.2:443")
 	assert.Equal(t, tb, "234")
 
-	//two api server no port, two thumbprint
+	// two api server no port, two thumbprint
 	cluster.endpoints[0].provider = &address{host: "127.0.0.1"}
 	cluster.endpoints[1].provider = &address{host: "127.0.0.2"}
 	tb = cluster.getThumbprint("127.0.0.1:443")
@@ -83,13 +102,32 @@ func TestCluster_NewRestConnector(t *testing.T) {
 	  }`
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(result))
+		_, err := w.Write([]byte(result))
+		if err != nil {
+			t.Errorf("error writing response: %v", err)
+		}
 	}))
 	defer ts.Close()
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
 	thumbprint := []string{"123"}
-	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(
+		a,
+		"admin",
+		"passw0rd",
+		"",
+		10,
+		3,
+		20,
+		20,
+		true,
+		true,
+		true,
+		ratelimiter.AIMD,
+		nil,
+		nil,
+		thumbprint,
+	)
 	c, _ := NewCluster(config)
 	con, _ := c.NewRestConnector()
 	assert.NotNil(t, con)
@@ -102,13 +140,32 @@ func TestCluster_createTransport(t *testing.T) {
 	  }`
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(result))
+		_, err := w.Write([]byte(result))
+		if err != nil {
+			t.Errorf("error writing response: %v", err)
+		}
 	}))
 	defer ts.Close()
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
 	thumbprint := []string{"123"}
-	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(
+		a,
+		"admin",
+		"passw0rd",
+		"",
+		10,
+		3,
+		20,
+		20,
+		true,
+		true,
+		true,
+		ratelimiter.AIMD,
+		nil,
+		nil,
+		thumbprint,
+	)
 	c, _ := NewCluster(config)
 	assert.NotNil(t, c.createTransport(10))
 }
@@ -122,7 +179,11 @@ func Test_calcFingerprint(t *testing.T) {
 		args args
 		want string
 	}{
-		{"1", args{der: []byte("It is byte.")}, "5C:1D:AE:31:3A:EA:74:74:FE:69:BA:9F:0B:1D:86:5E:39:97:43:4F"},
+		{
+			"1",
+			args{der: []byte("It is byte.")},
+			"5C:1D:AE:31:3A:EA:74:74:FE:69:BA:9F:0B:1D:86:5E:39:97:43:4F",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -138,7 +199,7 @@ func TestCluster_Health(t *testing.T) {
 	addr := &address{host: "10.0.0.1", scheme: "https"}
 	addr1 := &address{host: "10.0.0.2", scheme: "https"}
 	addr2 := &address{host: "10.0.0.3", scheme: "https"}
-	eps := []*Endpoint{&Endpoint{status: DOWN}, &Endpoint{status: DOWN}, &Endpoint{status: DOWN}}
+	eps := []*Endpoint{{status: DOWN}, {status: DOWN}, {status: DOWN}}
 	eps[0].provider = addr
 	eps[1].provider = addr1
 	eps[2].provider = addr2
@@ -208,16 +269,38 @@ func TestCluster_getVersion(t *testing.T) {
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		if strings.Contains(r.URL.Path, "reverse-proxy/node/health") {
-			w.Write(([]byte(resHealth)))
+			_, err := w.Write([]byte(resHealth))
+			if err != nil {
+				t.Errorf("error writing response: %v", err)
+			}
 		} else {
-			w.Write([]byte(resVersion))
+			_, err := w.Write([]byte(resVersion))
+			if err != nil {
+				t.Errorf("error writing response: %v", err)
+			}
 		}
 	}))
 	defer ts.Close()
 	thumbprint := []string{"123"}
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
-	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(
+		a,
+		"admin",
+		"passw0rd",
+		"",
+		10,
+		3,
+		20,
+		20,
+		true,
+		true,
+		true,
+		ratelimiter.AIMD,
+		nil,
+		nil,
+		thumbprint,
+	)
 	cluster, _ := NewCluster(config)
 	nsxVersion, err := cluster.GetVersion()
 	assert.True(t, err == nil)

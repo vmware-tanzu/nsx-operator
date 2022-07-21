@@ -31,9 +31,9 @@ const (
 	RuleDirectionIn RuleDirection = "In"
 	// RuleDirectionIngress specifies that the direction of traffic must be ingress, equivalent to "In".
 	RuleDirectionIngress RuleDirection = "Ingress"
-	// RuleDirectionOut specifies that the direction of traffic must be egress, equivalent to "Egress".
+	// RuleDirectionOut specifies that the direction of traffic must be egresses, equivalent to "Egress".
 	RuleDirectionOut RuleDirection = "Out"
-	// RuleDirectionEgress specifies that the direction of traffic must be egress, equivalent to "Out".
+	// RuleDirectionEgress specifies that the direction of traffic must be egresses, equivalent to "Out".
 	RuleDirectionEgress RuleDirection = "Egress"
 )
 
@@ -121,7 +121,7 @@ type SecurityPolicyCondition struct {
 	Status corev1.ConditionStatus `json:"status"`
 	// Reason shows a brief reason of condition.
 	Reason string `json:"reason,omitempty"`
-	// Message shows a human readable message about the condition.
+	// Message shows a human-readable message about the condition.
 	Message string `json:"message,omitempty"`
 }
 
@@ -129,9 +129,9 @@ type SecurityPolicyCondition struct {
 type SecurityPolicyStatusCondition string
 
 const (
-	// Ready indicates whether NSX Operator was able to successfully make
+	// SecurityPolicyReady Ready indicates whether NSX Operator was able to successfully make
 	// a PATCH call to create/update Security Policy on NSX associated
-	// with the user created Security Policy CR
+	// with the user created Security Policy CR.
 	SecurityPolicyReady SecurityPolicyStatusCondition = "Ready"
 )
 

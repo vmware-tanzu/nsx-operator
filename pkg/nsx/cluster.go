@@ -249,7 +249,7 @@ func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 		log.Error(err, "failed to get nsx version")
 		return nil, err
 	}
-	err, _ = util.HandleHTTPResponse(resp, nsxVersion, true)
+	_, err = util.HandleHTTPResponse(resp, nsxVersion, true)
 	return nsxVersion, err
 }
 

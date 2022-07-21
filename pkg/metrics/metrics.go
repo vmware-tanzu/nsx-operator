@@ -24,9 +24,7 @@ const (
 	ScrapeTimeout                   = 30
 )
 
-var (
-	log = logf.Log.WithName("metrics")
-)
+var log = logf.Log.WithName("metrics")
 
 var (
 	NSXOperatorHealthStats = prometheus.NewGauge(
@@ -42,7 +40,7 @@ var (
 			Namespace: MetricNamespace,
 			Subsystem: MetricSubsystem,
 			Name:      ControllerSyncTotalKey,
-			Help:      "Total number K8s create, update and delete events syncronized by NSX Operator",
+			Help:      "Total number K8s create, update and delete events synchronized by NSX Operator",
 		},
 		[]string{"res_type"},
 	)
@@ -51,7 +49,7 @@ var (
 			Namespace: MetricNamespace,
 			Subsystem: MetricSubsystem,
 			Name:      ControllerUpdateTotalKey,
-			Help:      "Total number K8s create, update events syncronized by NSX Operator",
+			Help:      "Total number K8s create, update events synchronized by NSX Operator",
 		},
 		[]string{"res_type"},
 	)
@@ -60,7 +58,7 @@ var (
 			Namespace: MetricNamespace,
 			Subsystem: MetricSubsystem,
 			Name:      ControllerUpdateSuccessTotalKey,
-			Help:      "Total number K8s create, update events that are successfully syncronized by NSX Operator",
+			Help:      "Total number K8s create, update events that are successfully synchronized by NSX Operator",
 		},
 		[]string{"res_type"},
 	)
@@ -69,7 +67,7 @@ var (
 			Namespace: MetricNamespace,
 			Subsystem: MetricSubsystem,
 			Name:      ControllerUpdateFailTotalKey,
-			Help:      "Total number K8s create, update events that are failed to be syncronized by NSX Operator",
+			Help:      "Total number K8s create, update events that are failed to be synchronized by NSX Operator",
 		},
 		[]string{"res_type"},
 	)
@@ -78,7 +76,7 @@ var (
 			Namespace: MetricNamespace,
 			Subsystem: MetricSubsystem,
 			Name:      ControllerDeleteTotalKey,
-			Help:      "Total number of K8s delete events syncronized by NSX Operator",
+			Help:      "Total number of K8s delete events synchronized by NSX Operator",
 		},
 		[]string{"res_type"},
 	)
@@ -87,7 +85,7 @@ var (
 			Namespace: MetricNamespace,
 			Subsystem: MetricSubsystem,
 			Name:      ControllerDeleteSuccessTotalKey,
-			Help:      "Total number of K8s delete events that are successfully syncronized by NSX Operator",
+			Help:      "Total number of K8s delete events that are successfully synchronized by NSX Operator",
 		},
 		[]string{"res_type"},
 	)
@@ -96,7 +94,7 @@ var (
 			Namespace: MetricNamespace,
 			Subsystem: MetricSubsystem,
 			Name:      ControllerDeleteFailTotalKey,
-			Help:      "Total number of K8s delete events that are failed to be syncronized by NSX Operator",
+			Help:      "Total number of K8s delete events that are failed to be synchronized by NSX Operator",
 		},
 		[]string{"res_type"},
 	)
@@ -111,7 +109,7 @@ func Register(m ...prometheus.Collector) {
 	})
 }
 
-// Initialize Prometheus metrics collection.
+// InitializePrometheusMetrics Initialize Prometheus metrics collection.
 func InitializePrometheusMetrics() {
 	log.Info("Initializing prometheus metrics")
 	Register(
@@ -127,14 +125,11 @@ func InitializePrometheusMetrics() {
 }
 
 func AreMetricsExposed(cf *config.NSXOperatorConfig) bool {
-	if cf.EnforcementPoint == "vmc-enforcementpoint" {
-		return true
-	}
-	return false
+	return cf.EnforcementPoint == "vmc-enforcementpoint"
 }
 
-func CounterInc(cf *config.NSXOperatorConfig, counter *prometheus.CounterVec, res_type string) {
+func CounterInc(cf *config.NSXOperatorConfig, counter *prometheus.CounterVec, restype string) {
 	if AreMetricsExposed(cf) {
-		counter.WithLabelValues(res_type).Inc()
+		counter.WithLabelValues(restype).Inc()
 	}
 }

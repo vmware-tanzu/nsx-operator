@@ -1,0 +1,110 @@
+# first  kubectl label ns db2 role=db
+
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  namespace: db
+  labels:
+    role: db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      role: db
+  template:
+    metadata:
+      labels:
+        role: db
+        k1: a1
+        k2: a2
+    spec:
+      containers:
+        - image: "harbor-repo.vmware.com/dockerhub-proxy-cache/gophernet/netcat:latest"
+          command: ["nc", "-l", "-p", "3306"]
+          name: mysql
+          ports:
+            - containerPort: 3306
+              name: mysql-port
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  namespace: db2
+  labels:
+    role: db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      role: db
+  template:
+    metadata:
+      labels:
+        role: db
+    spec:
+      containers:
+        - image: "harbor-repo.vmware.com/dockerhub-proxy-cache/gophernet/netcat:latest"
+          command: ["nc", "-l", "-p", "1234"]
+          name: mysql
+          ports:
+            - containerPort: 1234
+              name: mysql-port
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tcp-deployment
+  namespace: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      role: web
+  template:
+    metadata:
+      labels:
+        role: web
+    spec:
+      hostname: web-deployment
+      containers:
+        - name: web-container
+          image: "harbor-repo.vmware.com/dockerhub-proxy-cache/gophernet/netcat:latest"
+          command: ["nc", "-l", "-p", "4321"]
+          imagePullPolicy: IfNotPresent
+---
+apiVersion: nsx.vmware.com/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: named-port-policy
+  namespace: web
+spec:
+  priority: 10
+  appliedTo:
+    - podSelector:
+        matchLabels:
+          role: web
+  rules:
+    - direction: out
+      action: allow
+      appliedTo:
+        - podSelector:
+            matchLabels:
+              role: web
+      destinations:
+        - podSelector:
+            matchLabels:
+              role: db
+            matchExpressions:
+              - {key: k1, operator: In, values: [a1,a2]}
+              - {key: k2, operator: NotIn, values: [a3,a4]}
+        - namespaceSelector:
+            matchLabels:
+              role: db
+      ports:
+        - protocol: TCP
+          port: mysql-port

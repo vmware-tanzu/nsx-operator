@@ -19,7 +19,11 @@ func TestNormalizeName(t *testing.T) {
 	shortName := strings.Repeat("a", 256)
 	assert.Equal(t, NormalizeName(shortName), shortName)
 	longName := strings.Repeat("a", 257)
-	assert.Equal(t, NormalizeName(longName), fmt.Sprintf("%s-%s", strings.Repeat("a", 256-HashLength-1), "0c103888"))
+	assert.Equal(
+		t,
+		NormalizeName(longName),
+		fmt.Sprintf("%s-%s", strings.Repeat("a", 256-HashLength-1), "0c103888"),
+	)
 }
 
 func TestNormalizeLabelKey(t *testing.T) {

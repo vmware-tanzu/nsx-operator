@@ -18,7 +18,11 @@ type HeaderConfig struct {
 }
 
 // CreateHeaderConfig creates HeaderConfig.
-func CreateHeaderConfig(xAllowOverwrite bool, nsxEnablePartialPatch bool, configXallowOverwrite bool) *HeaderConfig {
+func CreateHeaderConfig(
+	xAllowOverwrite bool,
+	nsxEnablePartialPatch bool,
+	configXallowOverwrite bool,
+) *HeaderConfig {
 	header := &HeaderConfig{
 		xAllowOverwrite:       xAllowOverwrite,
 		nsxEnablePartialPatch: nsxEnablePartialPatch,

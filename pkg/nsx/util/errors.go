@@ -25,14 +25,20 @@ func (impl *nsxErrorImpl) setDetail(detail *ErrorDetail) {
 	impl.ErrorDetail = *detail
 	if len(detail.RelatedErrorCodes) > 0 {
 		impl.ErrorDetail.RelatedErrorCodes = []int{}
-		for index, _ := range detail.RelatedErrorCodes {
-			impl.ErrorDetail.RelatedErrorCodes = append(impl.ErrorDetail.RelatedErrorCodes, detail.RelatedErrorCodes[index])
+		for index := range detail.RelatedErrorCodes {
+			impl.ErrorDetail.RelatedErrorCodes = append(
+				impl.ErrorDetail.RelatedErrorCodes,
+				detail.RelatedErrorCodes[index],
+			)
 		}
 	}
 	if len(detail.RelatedStatusCodes) > 0 {
 		impl.ErrorDetail.RelatedStatusCodes = []string{}
-		for index, _ := range detail.RelatedStatusCodes {
-			impl.ErrorDetail.RelatedStatusCodes = append(impl.ErrorDetail.RelatedStatusCodes, detail.RelatedStatusCodes[index])
+		for index := range detail.RelatedStatusCodes {
+			impl.ErrorDetail.RelatedStatusCodes = append(
+				impl.ErrorDetail.RelatedStatusCodes,
+				detail.RelatedStatusCodes[index],
+			)
 		}
 	}
 }
@@ -44,7 +50,7 @@ func (impl *nsxErrorImpl) Error() string {
 	return impl.msg
 }
 
-// ObjectAlreadyExists means object already exsists on the backend
+// ObjectAlreadyExists means object already exists on the backend.
 type ObjectAlreadyExists struct {
 	nsxErrorImpl
 }
@@ -125,14 +131,23 @@ type GeneralManagerError struct {
 	managerErrorImpl
 }
 
-func CreateGeneralManagerError(manager string, operation string, details string) *GeneralManagerError {
-	m := fmt.Sprintf("Unexpected error from backend manager (%s) for %s%s", manager, operation, details)
+func CreateGeneralManagerError(
+	manager string,
+	operation string,
+	details string,
+) *GeneralManagerError {
+	m := fmt.Sprintf(
+		"Unexpected error from backend manager (%s) for %s%s",
+		manager,
+		operation,
+		details,
+	)
 	nsxErr := &GeneralManagerError{}
 	nsxErr.msg = m
 	return nsxErr
 }
 
-// ResourceNotFound indicates resource not found by backend
+// ResourceNotFound indicates resource not found by backend.
 type ResourceNotFound struct {
 	managerErrorImpl
 }
@@ -149,7 +164,11 @@ type MultipleResourcesFound struct {
 }
 
 func CreateMultipleResourcesFound(manager string, operation string) *MultipleResourcesFound {
-	m := fmt.Sprintf("Multiple resources are found on backend (%s) for %s, where only one is expected", manager, operation)
+	m := fmt.Sprintf(
+		"Multiple resources are found on backend (%s) for %s, where only one is expected",
+		manager,
+		operation,
+	)
 	nsxErr := &MultipleResourcesFound{}
 	nsxErr.msg = m
 	return nsxErr
@@ -159,7 +178,11 @@ type BackendResourceNotFound struct {
 	managerErrorImpl
 }
 
-func CreateBackendResourceNotFound(details string, manager string, operation string) BackendResourceNotFound {
+func CreateBackendResourceNotFound(
+	details string,
+	manager string,
+	operation string,
+) BackendResourceNotFound {
 	m := fmt.Sprintf("%s On backend (%s) with Operation: %s", details, manager, operation)
 	nsxErr := BackendResourceNotFound{}
 	nsxErr.msg = m
@@ -189,34 +212,66 @@ func CreateRealizationError(operation string, argVal string, argName string) *Re
 }
 
 type RealizationErrorStateError struct {
-	msg    string `parent:"RealizationError"`
-	detail *ErrorDetail
+	msg string `parent:"RealizationError"`
+	_   *ErrorDetail
 }
 
-func CreateRealizationErrorStateError(resourceType string, resourceID string, error string) *RealizationErrorStateError {
+func CreateRealizationErrorStateError(
+	resourceType string,
+	resourceID string,
+	error string,
+) *RealizationErrorStateError {
 	m := fmt.Sprintf("%s ID %s is in ERROR state: %s", resourceType, resourceID, error)
 	nsxErr := &RealizationErrorStateError{msg: m}
 	return nsxErr
 }
 
 type RealizationTimeoutError struct {
-	msg    string `parent:"RealizationError"`
-	detail *ErrorDetail
+	msg string `parent:"RealizationError"`
+	_   *ErrorDetail
 }
 
-func CreateRealizationTimeoutError(resourceType string, resourceID string, attempts string, sleep string) *RealizationTimeoutError {
-	m := fmt.Sprintf("%s ID %s was not realized after %s attempts with %s seconds sleep", resourceType, resourceID, attempts, sleep)
+func CreateRealizationTimeoutError(
+	resourceType string,
+	resourceID string,
+	attempts string,
+	sleep string,
+) *RealizationTimeoutError {
+	m := fmt.Sprintf(
+		"%s ID %s was not realized after %s attempts with %s seconds sleep",
+		resourceType,
+		resourceID,
+		attempts,
+		sleep,
+	)
 	nsxErr := &RealizationTimeoutError{msg: m}
 	return nsxErr
 }
 
 type DetailedRealizationTimeoutError struct {
-	msg    string `parent:"RealizationError"`
-	detail *ErrorDetail
+	msg string `parent:"RealizationError"`
+	_   *ErrorDetail
 }
 
-func CreateDetailedRealizationTimeoutError(resourceType string, resourceID string, realizedType string, relatedType string, relatedID string, attempts string, sleep string) *DetailedRealizationTimeoutError {
-	m := fmt.Sprintf("%s ID %s was not realized to %s for %s %s after %s attempts with %s seconds sleep", resourceType, resourceID, realizedType, relatedType, relatedID, attempts, sleep)
+func CreateDetailedRealizationTimeoutError(
+	resourceType string,
+	resourceID string,
+	realizedType string,
+	relatedType string,
+	relatedID string,
+	attempts string,
+	sleep string,
+) *DetailedRealizationTimeoutError {
+	m := fmt.Sprintf(
+		"%s ID %s was not realized to %s for %s %s after %s attempts with %s seconds sleep",
+		resourceType,
+		resourceID,
+		realizedType,
+		relatedType,
+		relatedID,
+		attempts,
+		sleep,
+	)
 	nsxErr := &DetailedRealizationTimeoutError{msg: m}
 	return nsxErr
 }
@@ -225,8 +280,25 @@ type StaleRevision struct {
 	managerErrorImpl
 }
 
-func CreateStaleRevision(resourceType string, resourceID string, realizedType string, relatedType string, relatedID string, attempts string, sleep string) *StaleRevision {
-	m := fmt.Sprintf("%s ID %s was not realized to %s for %s %s after %s attempts with %s seconds sleep", resourceType, resourceID, realizedType, relatedType, relatedID, attempts, sleep)
+func CreateStaleRevision(
+	resourceType string,
+	resourceID string,
+	realizedType string,
+	relatedType string,
+	relatedID string,
+	attempts string,
+	sleep string,
+) *StaleRevision {
+	m := fmt.Sprintf(
+		"%s ID %s was not realized to %s for %s %s after %s attempts with %s seconds sleep",
+		resourceType,
+		resourceID,
+		realizedType,
+		relatedType,
+		relatedID,
+		attempts,
+		sleep,
+	)
 	nsxErr := &StaleRevision{}
 	nsxErr.msg = m
 	return nsxErr
@@ -239,8 +311,8 @@ type ServerBusy interface {
 
 type ServerBusyImpl struct {
 	managerErrorImpl
-	msg    string
-	detail *ErrorDetail
+	_ string
+	_ *ErrorDetail
 }
 
 func (ServerBusyImpl) serverBusy() {}
@@ -249,8 +321,25 @@ type GeneralServerBusy struct {
 	ServerBusyImpl
 }
 
-func CreateGeneralServerBusy(resourceType string, resourceID string, realizedType string, relatedType string, relatedID string, attempts string, sleep string) *GeneralServerBusy {
-	m := fmt.Sprintf("%s ID %s was not realized to %s for %s %s after %s attempts with %s seconds sleep", resourceType, resourceID, realizedType, relatedType, relatedID, attempts, sleep)
+func CreateGeneralServerBusy(
+	resourceType string,
+	resourceID string,
+	realizedType string,
+	relatedType string,
+	relatedID string,
+	attempts string,
+	sleep string,
+) *GeneralServerBusy {
+	m := fmt.Sprintf(
+		"%s ID %s was not realized to %s for %s %s after %s attempts with %s seconds sleep",
+		resourceType,
+		resourceID,
+		realizedType,
+		relatedType,
+		relatedID,
+		attempts,
+		sleep,
+	)
 	nsxErr := &GeneralServerBusy{}
 	nsxErr.msg = m
 	return nsxErr
@@ -260,8 +349,25 @@ type TooManyRequests struct {
 	ServerBusyImpl
 }
 
-func CreateTooManyRequests(resourceType string, resourceID string, realizedType string, relatedType string, relatedID string, attempts string, sleep string) *TooManyRequests {
-	m := fmt.Sprintf("%s ID %s was not realized to %s for %s %s after %s attempts with %s seconds sleep", resourceType, resourceID, realizedType, relatedType, relatedID, attempts, sleep)
+func CreateTooManyRequests(
+	resourceType string,
+	resourceID string,
+	realizedType string,
+	relatedType string,
+	relatedID string,
+	attempts string,
+	sleep string,
+) *TooManyRequests {
+	m := fmt.Sprintf(
+		"%s ID %s was not realized to %s for %s %s after %s attempts with %s seconds sleep",
+		resourceType,
+		resourceID,
+		realizedType,
+		relatedType,
+		relatedID,
+		attempts,
+		sleep,
+	)
 	nsxErr := &TooManyRequests{}
 	nsxErr.msg = m
 	return nsxErr
@@ -271,8 +377,25 @@ type ServiceUnavailable struct {
 	ServerBusyImpl
 }
 
-func CreateServiceUnavailable(resourceType string, resourceID string, realizedType string, relatedType string, relatedID string, attempts string, sleep string) *ServiceUnavailable {
-	m := fmt.Sprintf("%s ID %s was not realized to %s for %s %s after %s attempts with %s seconds sleep", resourceType, resourceID, realizedType, relatedType, relatedID, attempts, sleep)
+func CreateServiceUnavailable(
+	resourceType string,
+	resourceID string,
+	realizedType string,
+	relatedType string,
+	relatedID string,
+	attempts string,
+	sleep string,
+) *ServiceUnavailable {
+	m := fmt.Sprintf(
+		"%s ID %s was not realized to %s for %s %s after %s attempts with %s seconds sleep",
+		resourceType,
+		resourceID,
+		realizedType,
+		relatedType,
+		relatedID,
+		attempts,
+		sleep,
+	)
 	nsxErr := &ServiceUnavailable{}
 	nsxErr.msg = m
 	return nsxErr
@@ -336,7 +459,10 @@ type ServiceClusterUnavailable struct {
 }
 
 func CreateServiceClusterUnavailable(clusterID string) *ServiceClusterUnavailable {
-	m := fmt.Sprintf("Service cluster: '%s' is unavailable. Please, check NSX setup and/or configuration", clusterID)
+	m := fmt.Sprintf(
+		"Service cluster: '%s' is unavailable. Please, check NSX setup and/or configuration",
+		clusterID,
+	)
 	nsxErr := &ServiceClusterUnavailable{}
 	nsxErr.msg = m
 	return nsxErr
@@ -346,8 +472,8 @@ type NSGroupMemberNotFound struct {
 	managerErrorImpl
 }
 
-func CreateNSGroupMemberNotFound(nsgroupID string, memberID string) *NSGroupMemberNotFound {
-	m := fmt.Sprintf("Could not find NSGroup %s member %s for removal.", nsgroupID, memberID)
+func CreateNSGroupMemberNotFound(nsGroupID string, memberID string) *NSGroupMemberNotFound {
+	m := fmt.Sprintf("Could not find NSGroup %s member %s for removal.", nsGroupID, memberID)
 	nsxErr := &NSGroupMemberNotFound{}
 	nsxErr.msg = m
 	return nsxErr
@@ -357,8 +483,11 @@ type NSGroupIsFull struct {
 	managerErrorImpl
 }
 
-func CreateNSGroupIsFull(nsgroupID string) *NSGroupIsFull {
-	m := fmt.Sprintf("NSGroup %s contains has reached its maximum capacity, unable to add additional members.", nsgroupID)
+func CreateNSGroupIsFull(nsGroupID string) *NSGroupIsFull {
+	m := fmt.Sprintf(
+		"NSGroup %s contains has reached its maximum capacity, unable to add additional members.",
+		nsGroupID,
+	)
 	nsxErr := &NSGroupIsFull{}
 	nsxErr.msg = m
 	return nsxErr
@@ -369,7 +498,10 @@ type SecurityGroupMaximumCapacityReached struct {
 }
 
 func CreateSecurityGroupMaximumCapacityReached(sgID string) *SecurityGroupMaximumCapacityReached {
-	m := fmt.Sprintf("Security Group %s has reached its maximum capacity, no more ports can be associated with this security-group.", sgID)
+	m := fmt.Sprintf(
+		"Security Group %s has reached its maximum capacity, no more ports can be associated with this security-group.",
+		sgID,
+	)
 	nsxErr := &SecurityGroupMaximumCapacityReached{}
 	nsxErr.msg = m
 	return nsxErr
@@ -447,12 +579,12 @@ func CreateNsxPendingDelete() *NsxPendingDelete {
 	return nsxErr
 }
 
-type NsxSegemntWithVM struct {
+type NsxSegmentWithVM struct {
 	managerErrorImpl
 }
 
-func CreateNsxSegemntWithVM() *NsxSegemntWithVM {
-	nsxErr := &NsxSegemntWithVM{}
+func CreateNsxSegmentWithVM() *NsxSegmentWithVM {
+	nsxErr := &NsxSegmentWithVM{}
 	nsxErr.msg = "Cannot delete segment as it still has VMs or VIFs attached"
 	return nsxErr
 }
@@ -530,7 +662,7 @@ func CreateConnectionError(host string) *ConnectionError {
 	return nsxErr
 }
 
-// PageMaxError For client usage
+// PageMaxError For client usage.
 type PageMaxError struct {
 	Desc string
 }

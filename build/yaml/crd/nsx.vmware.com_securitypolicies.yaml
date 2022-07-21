@@ -616,7 +616,7 @@ spec:
                   description: SecurityPolicyCondition defines the condition of policy.
                   properties:
                     message:
-                      description: Message shows a human readable message about the
+                      description: Message shows a human-readable message about the
                         condition.
                       type: string
                     reason:

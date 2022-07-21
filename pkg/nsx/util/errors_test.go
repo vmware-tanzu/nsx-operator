@@ -8,7 +8,7 @@ import (
 )
 
 func TestExcept(t *testing.T) {
-	notFound := CreateResourceNotFound("192.168.1.1", "ippool")
+	notFound := CreateResourceNotFound("192.168.1.1", "pool")
 	assert.Equal(t, 0, notFound.ErrorCode)
 }
 
@@ -47,7 +47,7 @@ func TestCreateFunc(t *testing.T) {
 		"CreateNsxSearchTimeout":                    CreateNsxSearchTimeout,
 		"CreateNsxSearchOutOfSync":                  CreateNsxSearchOutOfSync,
 		"CreateNsxPendingDelete":                    CreateNsxPendingDelete,
-		"CreateNsxSegemntWithVM":                    CreateNsxSegemntWithVM,
+		"CreateNsxSegmentWithVM":                    CreateNsxSegmentWithVM,
 		"CreateNsxOverlapAddresses":                 CreateNsxOverlapAddresses,
 		"CreateNsxOverlapVlan":                      CreateNsxOverlapVlan,
 		"CreateAPITransactionAborted":               CreateAPITransactionAborted,

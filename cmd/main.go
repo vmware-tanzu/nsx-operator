@@ -35,8 +35,18 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8384", "The address the probe endpoint binds to.")
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8093", "The address the metrics endpoint binds to.")
+	flag.StringVar(
+		&probeAddr,
+		"health-probe-bind-address",
+		":8384",
+		"The address the probe endpoint binds to.",
+	)
+	flag.StringVar(
+		&metricsAddr,
+		"metrics-bind-address",
+		":8093",
+		"The address the metrics endpoint binds to.",
+	)
 	config.AddFlags()
 	flag.Parse()
 	var err error
@@ -45,7 +55,7 @@ func init() {
 	if err != nil {
 		os.Exit(1)
 	}
-	logf.SetLogger(logger.ZapLogger(cf))
+	logf.SetLogger(logger.ZapLogger())
 	log = logf.Log.WithName("main")
 	if metrics.AreMetricsExposed(cf) {
 		metrics.InitializePrometheusMetrics()
@@ -75,7 +85,12 @@ func main() {
 		os.Exit(1)
 	}
 	if service, err := services.InitializeSecurityPolicy(nsxClient, cf); err != nil {
-		log.Error(err, "unable to initialize securitypolicy service", "controller", "SecurityPolicy")
+		log.Error(
+			err,
+			"unable to initialize securitypolicy service",
+			"controller",
+			"SecurityPolicy",
+		)
 		os.Exit(1)
 	} else {
 		service.Client = mgr.GetClient()
@@ -124,8 +139,6 @@ func updateHealthMetricsPeriodically(nsxClient *nsx.Client) {
 		if err := getHealthStatus(nsxClient); err != nil {
 			log.Error(err, "failed to fetch health info")
 		}
-		select {
-		case <-time.After(metrics.ScrapeTimeout):
-		}
+		time.Sleep(metrics.ScrapeTimeout)
 	}
 }

@@ -25,17 +25,8 @@ const (
 	FinalizerName = "securitypolicy.nsx.vmware.com/finalizer"
 )
 
-// PortIPs This is used when named port is specified.
-// It means the port number is associated with the IPs.
-type PortIPs struct {
-	// Port is the port number.
-	Port int `json:"port"`
-	// IPs is a list of IPs.
-	IPs []string `json:"ipBlocks,omitempty"`
-}
-
-// Address is used when named port is specified.
-type Address struct {
+// PortAddress is used when named port is specified.
+type PortAddress struct {
 	// Port is the port number.
 	Port int `json:"port"`
 	// IPs is a list of IPs.

@@ -103,7 +103,7 @@ var (
 func Do(retryableFunc RetryableFunc, opts ...Option) error {
 	var n uint
 
-	//default
+	// default
 	config := &Config{
 		attempts:      DefaultAttempts,
 		delay:         DefaultDelay,
@@ -119,7 +119,7 @@ func Do(retryableFunc RetryableFunc, opts ...Option) error {
 		count:         DefaultCount,
 	}
 
-	//apply opts
+	// apply opts
 	for _, opt := range opts {
 		opt(config)
 	}

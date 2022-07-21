@@ -18,9 +18,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestHttpErrortoNSXError(t *testing.T) {
-	assert := assert.New(t)
-	testdatas := []ErrorDetail{
+func TestHttpErrorToNSXError(t *testing.T) {
+	ass := assert.New(t)
+	testData := []ErrorDetail{
 		{404, 202, []int{}, []string{}, ""},
 		{404, 0, []int{}, []string{}, ""},
 		{409, 202, []int{}, []string{}, ""},
@@ -28,32 +28,31 @@ func TestHttpErrortoNSXError(t *testing.T) {
 		{505, 0, []int{}, []string{}, ""},
 	}
 
-	err := httpErrortoNSXError(&testdatas[0])
+	err := httpErrorToNSXError(&testData[0])
 	e, ok := err.(*BackendResourceNotFound)
-	assert.True(ok, fmt.Sprintf("Transform error : %v", e))
+	ass.True(ok, fmt.Sprintf("Transform error : %v", e))
 
-	err = httpErrortoNSXError(&testdatas[1])
+	err = httpErrorToNSXError(&testData[1])
 	e1, ok := err.(*ResourceNotFound)
-	assert.True(ok, fmt.Sprintf("Transform error : %v", e1))
+	ass.True(ok, fmt.Sprintf("Transform error : %v", e1))
 
-	err = httpErrortoNSXError(&testdatas[2])
+	err = httpErrorToNSXError(&testData[2])
 	e2, ok := err.(*StaleRevision)
-	assert.True(ok, fmt.Sprintf("Transform error : %v", e2))
+	ass.True(ok, fmt.Sprintf("Transform error : %v", e2))
 
-	err = httpErrortoNSXError(&testdatas[3])
+	err = httpErrorToNSXError(&testData[3])
 	e3, ok := err.(*ClientCertificateNotTrusted)
-	assert.True(ok, fmt.Sprintf("Transform error : %v", e3))
+	ass.True(ok, fmt.Sprintf("Transform error : %v", e3))
 
-	err = httpErrortoNSXError(&testdatas[4])
+	err = httpErrorToNSXError(&testData[4])
 	e4, ok := err.(ManagerError)
-	assert.True(ok, fmt.Sprintf("Transform error : %v", e4))
-
+	ass.True(ok, fmt.Sprintf("Transform error : %v", e4))
 }
 
 func TestInitErrorFromResponse(t *testing.T) {
-	assert := assert.New(t)
+	ass := assert.New(t)
 	result := `{
-		"failover_mode" : "NON_PREEMPTIVE",
+		"fail_mode" : "NON_PREEMPTIVE",
 		"enable_standby_relocation" : false,
 		"route_advertisement_types" : [ "TIER1_IPSEC_LOCAL_ENDPOINT" ],
 		"force_whitelisting" : false,
@@ -81,7 +80,10 @@ func TestInitErrorFromResponse(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "http://example.com/foo", nil)
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, result)
+		_, e := io.WriteString(w, result)
+		if e != nil {
+			t.Errorf("Failed to write response: %v", e)
+		}
 	}
 	w := httptest.NewRecorder()
 	handler(w, req)
@@ -89,8 +91,8 @@ func TestInitErrorFromResponse(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	err := InitErrorFromResponse("10.0.0.1", resp.StatusCode, body)
 
-	assert.Equal(err, nil, "Read resp body error")
-	assert.Equal(string(body), result, "Read resp body error")
+	ass.Equal(err, nil, "Read resp body error")
+	ass.Equal(string(body), result, "Read resp body error")
 }
 
 func TestShouldGroundPoint(t *testing.T) {
@@ -102,21 +104,21 @@ func TestShouldGroundPoint(t *testing.T) {
 }
 
 func TestShouldRetry(t *testing.T) {
-	assert := assert.New(t)
+	ass := assert.New(t)
 	err := CreateServiceClusterUnavailable("127.0.0.1")
-	assert.False(ShouldRetry(err), "It's not a retry error")
+	ass.False(ShouldRetry(err), "It's not a retry error")
 
 	err1 := &APITransactionAborted{}
-	assert.True(ShouldRetry(err1), "It's a retry error")
+	ass.True(ShouldRetry(err1), "It's a retry error")
 }
 
 func TestShouldRegenerate(t *testing.T) {
-	assert := assert.New(t)
+	ass := assert.New(t)
 	err := CreateServiceClusterUnavailable("127.0.0.1")
-	assert.False(ShouldRegenerate(err), "It's not a regenerate error")
+	ass.False(ShouldRegenerate(err), "It's not a regenerate error")
 
 	err1 := &InvalidCredentials{}
-	assert.True(ShouldRegenerate(err1), "It's a regenerate error")
+	ass.True(ShouldRegenerate(err1), "It's a regenerate error")
 }
 
 func TestUtil_InitErrorFromResponse(t *testing.T) {
@@ -148,21 +150,21 @@ func TestUtil_InitErrorFromResponse(t *testing.T) {
 	assert.Equal(t, result, false)
 	result = ShouldRetry(err)
 	assert.Equal(t, result, true)
-
 }
 
 func TestUtil_setDetail(t *testing.T) {
-	nsxerr := CreateCannotConnectToServer()
-	detail := ErrorDetail{ErrorCode: 287,
+	nsxErr := CreateCannotConnectToServer()
+	detail := ErrorDetail{
+		ErrorCode:          287,
 		StatusCode:         400,
 		RelatedErrorCodes:  []int{123, 222},
-		RelatedStatusCodes: []string{"error1", "erro2"},
+		RelatedStatusCodes: []string{"error1", "error2"},
 		Details:            "connect to serve fail",
 	}
-	nsxerr.setDetail(&detail)
-	assert.Equal(t, nsxerr.ErrorCode, 287)
-	assert.Equal(t, nsxerr.StatusCode, 400)
-	assert.Equal(t, nsxerr.RelatedErrorCodes, []int{123, 222})
+	nsxErr.setDetail(&detail)
+	assert.Equal(t, nsxErr.ErrorCode, 287)
+	assert.Equal(t, nsxErr.StatusCode, 400)
+	assert.Equal(t, nsxErr.RelatedErrorCodes, []int{123, 222})
 }
 
 func TestVCClient_handleHTTPResponse(t *testing.T) {
@@ -173,23 +175,23 @@ func TestVCClient_handleHTTPResponse(t *testing.T) {
 	var sessionData map[string]string
 
 	// http status code > 300
-	err, _ := HandleHTTPResponse(response, &sessionData, false)
+	_, err := HandleHTTPResponse(response, &sessionData, false)
 	expect := errors.New("received HTTP Error")
 	assert.Equal(t, err, expect)
 
 	// result interface is null
 	response.StatusCode = 200
-	err, _ = HandleHTTPResponse(response, nil, false)
+	_, err = HandleHTTPResponse(response, nil, false)
 	assert.Equal(t, err, nil)
 
 	// 	response.StatusCode = 200， body content correct
 	response.Body = ioutil.NopCloser(bytes.NewReader([]byte(`{"value": "hello"}`)))
-	err, _ = HandleHTTPResponse(response, &sessionData, false)
+	_, err = HandleHTTPResponse(response, &sessionData, false)
 	assert.Equal(t, err, nil)
 
 	// 	response.StatusCode = 200， body content invalid
 	response.Body = ioutil.NopCloser(bytes.NewReader([]byte(`{"value": 4}`)))
-	err, _ = HandleHTTPResponse(response, &sessionData, false)
+	_, err = HandleHTTPResponse(response, &sessionData, false)
 	_, ok := err.(*json.UnmarshalTypeError)
 	assert.Equal(t, ok, true)
 }

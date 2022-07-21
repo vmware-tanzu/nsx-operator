@@ -10,21 +10,21 @@ import (
 	"testing"
 	"time"
 
-	gomonkey "github.com/agiledragon/gomonkey/v2"
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	controllerruntime "sigs.k8s.io/controller-runtime"
+	controller_runtime "sigs.k8s.io/controller-runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller_runtime/client"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
@@ -121,18 +121,25 @@ func TestSecurityPolicyController_isCRRequestedInSystemNamespace(t *testing.T) {
 	r := NewFakeSecurityPolicyReconciler()
 	ctx := context.TODO()
 	dummyNs := &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "dummy"}}
-	r.Client.Create(ctx, dummyNs)
-	req := &controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
+	err := r.Client.Create(ctx, dummyNs)
+	if err != nil {
+		return
+	}
+	req := &controller_runtime.Request{
+		NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"},
+	}
 
 	isCRInSysNs, err := r.isCRRequestedInSystemNamespace(&ctx, req)
-
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
 	if isCRInSysNs {
 		t.Fatalf("Non-system namespace identied as a system namespace")
 	}
-	r.Client.Delete(ctx, dummyNs)
+	err = r.Client.Delete(ctx, dummyNs)
+	if err != nil {
+		return
+	}
 
 	sysNs := &v1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
@@ -141,7 +148,10 @@ func TestSecurityPolicyController_isCRRequestedInSystemNamespace(t *testing.T) {
 			Annotations: map[string]string{"vmware-system-shared-t1": "true"},
 		},
 	}
-	r.Client.Create(ctx, sysNs)
+	err = r.Client.Create(ctx, sysNs)
+	if err != nil {
+		return
+	}
 	req = &ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "sys-ns", Name: "dummy"}}
 
 	isCRInSysNs, err = r.isCRRequestedInSystemNamespace(&ctx, req)
@@ -152,7 +162,10 @@ func TestSecurityPolicyController_isCRRequestedInSystemNamespace(t *testing.T) {
 	if !isCRInSysNs {
 		t.Fatalf("System namespace not identied as a system namespace")
 	}
-	r.Client.Delete(ctx, sysNs)
+	err = r.Client.Delete(ctx, sysNs)
+	if err != nil {
+		return
+	}
 }
 
 func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
@@ -182,43 +195,59 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	// DeletionTimestamp.IsZero = ture, client update failed
 	sp := &v1alpha1.SecurityPolicy{}
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
-	err = errors.New("Update failed")
+	err = errors.New("update failed")
 	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(err)
 
-	patches := gomonkey.ApplyFunc(updateFail,
+	patches := gomonkey.ApplyFunc(
+		updateFail,
 		func(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
-		})
+		},
+	)
 	defer patches.Reset()
 	_, ret := r.Reconcile(ctx, req)
 	assert.Equal(t, err, ret)
 
 	//  DeletionTimestamp.IsZero = false, Finalizers doesn't include util.FinalizerName
-	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object) error {
-		v1sp := obj.(*v1alpha1.SecurityPolicy)
-		time := metav1.Now()
-		v1sp.ObjectMeta.DeletionTimestamp = &time
-		return nil
-	})
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *services.SecurityPolicyService, UID types.UID) error {
-		assert.FailNow(t, "should not be called")
-		return nil
-	})
+	k8sClient.EXPECT().
+		Get(ctx, gomock.Any(), sp).
+		Return(nil).
+		Do(func(_ context.Context, _ client.ObjectKey, obj client.Object) error {
+			v1sp := obj.(*v1alpha1.SecurityPolicy)
+			t := metav1.Now()
+			v1sp.ObjectMeta.DeletionTimestamp = &t
+			return nil
+		})
+	patch := gomonkey.ApplyMethod(
+		reflect.TypeOf(service),
+		"DeleteSecurityPolicy",
+		func(_ *services.SecurityPolicyService, UID types.UID) error {
+			assert.FailNow(t, "should not be called")
+			return nil
+		},
+	)
 	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(nil)
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, ret, nil)
 	patch.Reset()
 
 	//  DeletionTimestamp.IsZero = false, Finalizers include util.FinalizerName
-	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object) error {
-		v1sp := obj.(*v1alpha1.SecurityPolicy)
-		time := metav1.Now()
-		v1sp.ObjectMeta.DeletionTimestamp = &time
-		v1sp.Finalizers = []string{util.FinalizerName}
-		return nil
-	})
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *services.SecurityPolicyService, UID types.UID) error {
-		return nil
-	})
+	k8sClient.EXPECT().
+		Get(ctx, gomock.Any(), sp).
+		Return(nil).
+		Do(func(_ context.Context, _ client.ObjectKey, obj client.Object) error {
+			v1sp := obj.(*v1alpha1.SecurityPolicy)
+			t := metav1.Now()
+			v1sp.ObjectMeta.DeletionTimestamp = &t
+			v1sp.Finalizers = []string{util.FinalizerName}
+			return nil
+		})
+	patch = gomonkey.ApplyMethod(
+		reflect.TypeOf(service),
+		"DeleteSecurityPolicy",
+		func(_ *services.SecurityPolicyService, UID types.UID) error {
+			return nil
+		},
+	)
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, ret, nil)
 	patch.Reset()
@@ -233,16 +262,24 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 			},
 		},
 	}
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *services.SecurityPolicyService) sets.String {
-		a := sets.NewString()
-		a.Insert("1234")
-		a.Insert("2345")
-		return a
-	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *services.SecurityPolicyService, UID types.UID) error {
-		assert.Equal(t, string(UID), "2345")
-		return nil
-	})
+	patch := gomonkey.ApplyMethod(
+		reflect.TypeOf(service),
+		"ListSecurityPolicyID",
+		func(_ *services.SecurityPolicyService) sets.String {
+			a := sets.NewString()
+			a.Insert("1234")
+			a.Insert("2345")
+			return a
+		},
+	)
+	patch.ApplyMethod(
+		reflect.TypeOf(service),
+		"DeleteSecurityPolicy",
+		func(_ *services.SecurityPolicyService, UID types.UID) error {
+			assert.Equal(t, string(UID), "2345")
+			return nil
+		},
+	)
 	cancel := make(chan bool)
 	defer patch.Reset()
 	mockCtl := gomock.NewController(t)
@@ -255,13 +292,16 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 	}
 	ctx := context.Background()
 	policyList := &v1alpha1.SecurityPolicyList{}
-	k8sClient.EXPECT().List(ctx, policyList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		a := list.(*v1alpha1.SecurityPolicyList)
-		a.Items = append(a.Items, v1alpha1.SecurityPolicy{})
-		a.Items[0].ObjectMeta = metav1.ObjectMeta{}
-		a.Items[0].UID = "1234"
-		return nil
-	})
+	k8sClient.EXPECT().
+		List(ctx, policyList).
+		Return(nil).
+		Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+			a := list.(*v1alpha1.SecurityPolicyList)
+			a.Items = append(a.Items, v1alpha1.SecurityPolicy{})
+			a.Items[0].ObjectMeta = metav1.ObjectMeta{}
+			a.Items[0].UID = "1234"
+			return nil
+		})
 	go func() {
 		time.Sleep(1 * time.Second)
 		cancel <- true
@@ -270,22 +310,33 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has same item as k8s cache
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *services.SecurityPolicyService) sets.String {
-		a := sets.NewString()
-		a.Insert("1234")
-		return a
-	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *services.SecurityPolicyService, UID types.UID) error {
-		assert.FailNow(t, "should not be called")
-		return nil
-	})
-	k8sClient.EXPECT().List(gomock.Any(), policyList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		a := list.(*v1alpha1.SecurityPolicyList)
-		a.Items = append(a.Items, v1alpha1.SecurityPolicy{})
-		a.Items[0].ObjectMeta = metav1.ObjectMeta{}
-		a.Items[0].UID = "1234"
-		return nil
-	})
+	patch.ApplyMethod(
+		reflect.TypeOf(service),
+		"ListSecurityPolicyID",
+		func(_ *services.SecurityPolicyService) sets.String {
+			a := sets.NewString()
+			a.Insert("1234")
+			return a
+		},
+	)
+	patch.ApplyMethod(
+		reflect.TypeOf(service),
+		"DeleteSecurityPolicy",
+		func(_ *services.SecurityPolicyService, UID types.UID) error {
+			assert.FailNow(t, "should not be called")
+			return nil
+		},
+	)
+	k8sClient.EXPECT().
+		List(gomock.Any(), policyList).
+		Return(nil).
+		Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+			a := list.(*v1alpha1.SecurityPolicyList)
+			a.Items = append(a.Items, v1alpha1.SecurityPolicy{})
+			a.Items[0].ObjectMeta = metav1.ObjectMeta{}
+			a.Items[0].UID = "1234"
+			return nil
+		})
 	go func() {
 		time.Sleep(1 * time.Second)
 		cancel <- true
@@ -294,14 +345,22 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has no item
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *services.SecurityPolicyService) sets.String {
-		a := sets.NewString()
-		return a
-	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *services.SecurityPolicyService, UID types.UID) error {
-		assert.FailNow(t, "should not be called")
-		return nil
-	})
+	patch.ApplyMethod(
+		reflect.TypeOf(service),
+		"ListSecurityPolicyID",
+		func(_ *services.SecurityPolicyService) sets.String {
+			a := sets.NewString()
+			return a
+		},
+	)
+	patch.ApplyMethod(
+		reflect.TypeOf(service),
+		"DeleteSecurityPolicy",
+		func(_ *services.SecurityPolicyService, UID types.UID) error {
+			assert.FailNow(t, "should not be called")
+			return nil
+		},
+	)
 	k8sClient.EXPECT().List(ctx, policyList).Return(nil).Times(0)
 	go func() {
 		time.Sleep(1 * time.Second)

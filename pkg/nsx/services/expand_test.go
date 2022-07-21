@@ -10,7 +10,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v12 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -68,8 +68,14 @@ func TestSecurityPolicyService_buildRuleIPGroup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			service := &SecurityPolicyService{}
-			assert.Equalf(t, tt.want, service.buildRuleIPGroup(tt.args.obj, tt.args.ips), "buildRuleIPGroup(%v, %v)",
-				tt.args.obj, tt.args.ips)
+			assert.Equalf(
+				t,
+				tt.want,
+				service.buildRuleIPSetGroup(tt.args.obj, tt.args.ips),
+				"buildRuleIPSetGroup(%v, %v)",
+				tt.args.obj,
+				tt.args.ips,
+			)
 		})
 	}
 }
@@ -204,9 +210,30 @@ func TestSecurityPolicyService_getPodSelector(t *testing.T) {
 		want1   []string
 		wantErr assert.ErrorAssertionFunc
 	}{
-		{"1", fields{}, args{&sp, &rule}, &client.ListOptions{LabelSelector: labelSelector}, []string{}, nil},
-		{"2", fields{}, args{&sp, &rule2}, &client.ListOptions{LabelSelector: labelSelector2}, []string{}, nil},
-		{"3", fields{}, args{&sp, &rule3}, &client.ListOptions{LabelSelector: labelSelector}, []string{"ns1", "ns2"}, nil},
+		{
+			"1",
+			fields{},
+			args{&sp, &rule},
+			&client.ListOptions{LabelSelector: labelSelector},
+			[]string{},
+			nil,
+		},
+		{
+			"2",
+			fields{},
+			args{&sp, &rule2},
+			&client.ListOptions{LabelSelector: labelSelector2},
+			[]string{},
+			nil,
+		},
+		{
+			"3",
+			fields{},
+			args{&sp, &rule3},
+			&client.ListOptions{LabelSelector: labelSelector},
+			[]string{"ns1", "ns2"},
+			nil,
+		},
 		{"4", fields{}, args{&sp, &rule4}, nil, nil, nil},
 	}
 	for _, tt := range tests {

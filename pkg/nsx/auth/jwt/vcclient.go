@@ -22,10 +22,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware/govmomi/sts"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 // VCClient tracks a client session token.
@@ -58,7 +59,14 @@ func createHttpClient(insecureSkipVerify bool, caCertPem []byte) *http.Client {
 }
 
 // NewVCClient creates a new logged in VC client with vapi session.
-func NewVCClient(hostname string, port int, ssoDomain string, userName, password string, caCertPem []byte, insecureSkipVerify bool) (*VCClient, error) {
+func NewVCClient(
+	hostname string,
+	port int,
+	ssoDomain string,
+	userName, password string,
+	caCertPem []byte,
+	insecureSkipVerify bool,
+) (*VCClient, error) {
 	httpClient := createHttpClient(insecureSkipVerify, caCertPem)
 	baseurl := fmt.Sprintf("https://%s:%d/rest", hostname, port)
 	vcurl, _ := url.Parse(baseurl)
@@ -84,7 +92,7 @@ func (vcClient *VCClient) createVAPISession() (string, error) {
 		return "", err
 	}
 	var sessionData map[string]string
-	err, _ = util.HandleHTTPResponse(response, &sessionData, false)
+	_, err = util.HandleHTTPResponse(response, &sessionData, false)
 	if err != nil {
 		return "", err
 	}
@@ -197,7 +205,10 @@ func (vcClient *VCClient) createSCClient(vimClient *vim25.Client) *soap.Client {
 	return vimClient.Client.NewServiceClient(url, "oasis:names:tc:SAML:2.0:assertion")
 }
 
-func (vcClient *VCClient) createVimClient(ctx context.Context, vimSdkURL string) (*vim25.Client, error) {
+func (vcClient *VCClient) createVimClient(
+	ctx context.Context,
+	vimSdkURL string,
+) (*vim25.Client, error) {
 	log.V(1).Info("creating vmomi client")
 	vcURL, err := url.Parse(vimSdkURL)
 	if err != nil {
@@ -223,11 +234,15 @@ func (client *VCClient) HandleRequest(urlPath string, data []byte, responseData 
 		return err
 	}
 	log.V(1).Info("HTTP request", "request", request.URL, "response status", response.StatusCode)
-	err, _ = util.HandleHTTPResponse(response, responseData, false)
+	_, err = util.HandleHTTPResponse(response, responseData, false)
 	return err
 }
 
-func (client *VCClient) prepareRequest(method string, urlPath string, data []byte) (*http.Request, error) {
+func (client *VCClient) prepareRequest(
+	method string,
+	urlPath string,
+	data []byte,
+) (*http.Request, error) {
 	url := fmt.Sprintf("%s://%s/rest/%s", client.url.Scheme, client.url.Host, urlPath)
 	req, err := http.NewRequest(method, url, bytes.NewBuffer(data))
 	if err != nil {
@@ -236,7 +251,6 @@ func (client *VCClient) prepareRequest(method string, urlPath string, data []byt
 	req.Header.Set("Content-Type", "application/json")
 	if client.signer != nil {
 		client.signer.SignRequest(req)
-
 	} else if client.session != "" {
 		req.Header.Set("vmware-api-session-id", client.session)
 	} else {
@@ -260,7 +274,8 @@ func createCertificate(userName string) (*tls.Certificate, error) {
 	currentTime := time.Now()
 	notBeforeTime := currentTime.Add(-6 * time.Minute).UTC()
 	notAfterTime := currentTime.Add(60 * time.Minute).UTC()
-	log.V(1).Info("generating certificate", "user", userName, "notBefore", notBeforeTime, "notAfter", notAfterTime)
+	log.V(1).
+		Info("generating certificate", "user", userName, "notBefore", notBeforeTime, "notAfter", notAfterTime)
 	certTemplate := x509.Certificate{
 		SerialNumber:          serialNumber,
 		Subject:               pkix.Name{CommonName: userName},
@@ -271,14 +286,22 @@ func createCertificate(userName string) (*tls.Certificate, error) {
 		BasicConstraintsValid: true,
 	}
 
-	certBytes, err := x509.CreateCertificate(rand.Reader, &certTemplate, &certTemplate, &privKey.PublicKey, privKey)
+	certBytes, err := x509.CreateCertificate(
+		rand.Reader,
+		&certTemplate,
+		&certTemplate,
+		&privKey.PublicKey,
+		privKey,
+	)
 	if err != nil {
 		log.Error(err, "failed to generate certificate")
 		return nil, err
 	}
 
 	cert := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certBytes})
-	privateKey := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privKey)})
+	privateKey := pem.EncodeToMemory(
+		&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privKey)},
+	)
 	certificate, err := tls.X509KeyPair([]byte(cert), []byte(privateKey))
 	if err != nil {
 		log.Error(err, "failed to process service account keypair")

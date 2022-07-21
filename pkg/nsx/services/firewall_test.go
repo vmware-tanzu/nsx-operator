@@ -39,11 +39,10 @@ var (
 	ruleNameWithPodSelector      = "rule-with-pod-selector-0-0"
 	ruleNameWithVMSelector       = "rule-with-VM-selector-0-0"
 	ruleNameWithNsSelector       = "rule-with-ns-selector-0-0"
-	ruleNameWithIpBlock          = "rule-with-ip-block-0-0"
+	ruleNameWithIPBlock          = "rule-with-ip-block-0-0"
 	cidr                         = "192.168.1.1/24"
 	ruleID0                      = "sp_uidA_0"
 	ruleID1                      = "sp_uidA_1"
-	ruleID2                      = "sp_uidA_2"
 	ruleIDPort0                  = "sp_uidA_0_0_0"
 	ruleIDPort1                  = "sp_uidA_1_0_0"
 	ruleIDPort2                  = "sp_uidA_2_0_0"
@@ -136,7 +135,9 @@ var (
 					AppliedTo: []v1alpha1.SecurityPolicyTarget{
 						{
 							PodSelector: &metav1.LabelSelector{
-								MatchLabels:      map[string]string{"pod_selector_1": "pod_value_1"},
+								MatchLabels: map[string]string{
+									"pod_selector_1": "pod_value_1",
+								},
 								MatchExpressions: podSelectorMatchExpression,
 							},
 						},
@@ -144,7 +145,9 @@ var (
 					Sources: []v1alpha1.SecurityPolicyPeer{
 						{
 							PodSelector: &metav1.LabelSelector{
-								MatchLabels:      map[string]string{"pod_selector_1": "pod_value_1"},
+								MatchLabels: map[string]string{
+									"pod_selector_1": "pod_value_1",
+								},
 								MatchExpressions: podSelectorMatchExpression,
 							},
 							NamespaceSelector: &metav1.LabelSelector{

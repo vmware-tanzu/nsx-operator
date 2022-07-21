@@ -18,11 +18,13 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
-// When a rule contains named port, we should consider whether the rule should expand to
+// When a rule contains named port, we should consider whether the rule should be expanded to
 // multiple rules if the port name maps to conflicted port numbers.
-func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
-	ruleIdx int) ([]*model.Group, []*model.Rule, error) {
-
+func (service *SecurityPolicyService) expandRule(
+	obj *v1alpha1.SecurityPolicy,
+	rule *v1alpha1.SecurityPolicyRule,
+	ruleIdx int,
+) ([]*model.Group, []*model.Rule, error) {
 	var nsxRules []*model.Rule
 	var nsxGroups []*model.Group
 
@@ -44,16 +46,20 @@ func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, r
 	return nsxGroups, nsxRules, nil
 }
 
-func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
-	ruleIdx int, port v1alpha1.SecurityPolicyPort, portIdx int) ([]*model.Group, []*model.Rule, error) {
-
+func (service *SecurityPolicyService) expandRuleByPort(
+	obj *v1alpha1.SecurityPolicy,
+	rule *v1alpha1.SecurityPolicyRule,
+	ruleIdx int,
+	port v1alpha1.SecurityPolicyPort,
+	portIdx int,
+) ([]*model.Group, []*model.Rule, error) {
 	var err error
-	var startPort []util.Address
+	var startPort []util.PortAddress
 	var nsxGroups []*model.Group
 	var nsxRules []*model.Rule
 
 	if port.Port.Type == intstr.Int {
-		startPort = append(startPort, util.Address{Port: port.Port.IntValue()})
+		startPort = append(startPort, util.PortAddress{Port: port.Port.IntValue()})
 	} else {
 		startPort, err = service.resolveNamedPort(obj, rule, port)
 		if err != nil {
@@ -62,7 +68,15 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 	}
 
 	for dupPortIdx, portIP := range startPort {
-		gs, r, err := service.expandRuleByService(obj, rule, ruleIdx, port, portIdx, portIP, dupPortIdx)
+		gs, r, err := service.expandRuleByService(
+			obj,
+			rule,
+			ruleIdx,
+			port,
+			portIdx,
+			portIP,
+			dupPortIdx,
+		)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -74,8 +88,8 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 
 func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.SecurityPolicy,
 	rule *v1alpha1.SecurityPolicyRule, ruleIdx int, port v1alpha1.SecurityPolicyPort,
-	portIdx int, portIP util.Address, dupPortIdx int) ([]*model.Group, *model.Rule, error) {
-
+	portIdx int, portIP util.PortAddress, dupPortIdx int,
+) ([]*model.Group, *model.Rule, error) {
 	var nsxGroups []*model.Group
 
 	nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, portIdx, dupPortIdx)
@@ -84,13 +98,17 @@ func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.Security
 	}
 
 	var ruleServiceEntries []*data.StructValue
-	serviceEntry := service.buildEntry(port, portIP)
+	serviceEntry := service.buildRuleServiceEntries(port, portIP)
 	ruleServiceEntries = append(ruleServiceEntries, serviceEntry)
 	nsxRule.ServiceEntries = ruleServiceEntries
 
 	if len(portIP.IPs) > 0 {
-		ruleIPSetGroup := service.buildRuleIPGroup(nsxRule, portIP.IPs)
-		groupPath := fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), *ruleIPSetGroup.Id)
+		ruleIPSetGroup := service.buildRuleIPSetGroup(nsxRule, portIP.IPs)
+		groupPath := fmt.Sprintf(
+			"/infra/domains/%s/groups/%s",
+			getDomain(service),
+			*ruleIPSetGroup.Id,
+		)
 		nsxRule.DestinationGroups = []string{groupPath}
 		log.V(2).Info("built ruleIPSetGroup", "ruleIPSetGroup", ruleIPSetGroup)
 		nsxGroups = append(nsxGroups, ruleIPSetGroup)
@@ -101,10 +119,12 @@ func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.Security
 
 // Resolve a named port to port number by rule and policy selector.
 // e.g. "http" -> [{"80":['1.1.1.1', '2.2.2.2']}, {"443":['3.3.3.3']}]
-func (service *SecurityPolicyService) resolveNamedPort(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
-	spPort v1alpha1.SecurityPolicyPort) ([]util.Address, error) {
-
-	var address []util.Address
+func (service *SecurityPolicyService) resolveNamedPort(
+	obj *v1alpha1.SecurityPolicy,
+	rule *v1alpha1.SecurityPolicyRule,
+	spPort v1alpha1.SecurityPolicyPort,
+) ([]util.PortAddress, error) {
+	var address []util.PortAddress
 
 	podSelector, namespaces, err := service.getPodSelector(obj, rule)
 	if err != nil {
@@ -123,10 +143,8 @@ func (service *SecurityPolicyService) resolveNamedPort(obj *v1alpha1.SecurityPol
 			return nil, err
 		}
 		for _, pod := range podsList.Items {
-			addr, err := service.resolvePodPort(&pod, &spPort)
-			switch err.(type) {
-			default:
-			case util2.PodIPNotFound, util2.PodNotRunning:
+			addr, err := service.resolvePodPort(pod, &spPort)
+			if errors.As(err, &util2.PodIPNotFound{}) || errors.As(err, &util2.PodNotRunning{}) {
 				return nil, err
 			}
 			address = append(address, addr...)
@@ -135,16 +153,20 @@ func (service *SecurityPolicyService) resolveNamedPort(obj *v1alpha1.SecurityPol
 
 	if len(address) == 0 {
 		return nil, util2.NoFilteredPod{
-			Desc: "no pod has the corresponding named port, perhaps pod has not been created yet",
+			Desc: "no pod has the corresponding named port, please check the pod selector or labels of CR",
 		}
 	}
 	return util.MergeAddressByPort(address), nil
 }
 
 // Check port name and protocol, only when the pod is really running, and it does have effective ip.
-func (service *SecurityPolicyService) resolvePodPort(pod *v1.Pod, spPort *v1alpha1.SecurityPolicyPort) (
-	[]util.Address, error) {
-	var addr []util.Address
+func (service *SecurityPolicyService) resolvePodPort(
+	pod v1.Pod,
+	spPort *v1alpha1.SecurityPolicyPort,
+) (
+	[]util.PortAddress, error,
+) {
+	var addr []util.PortAddress
 	for _, container := range pod.Spec.Containers {
 		for _, port := range container.Ports {
 			log.V(2).Info("resolvePodPort", "namespace", pod.Namespace, "pod_name", pod.Name,
@@ -159,7 +181,10 @@ func (service *SecurityPolicyService) resolvePodPort(pod *v1.Pod, spPort *v1alph
 					errMsg := fmt.Sprintf("pod %s/%s ip not initialized", pod.Namespace, pod.Name)
 					return nil, util2.PodIPNotFound{Desc: errMsg}
 				}
-				addr = append(addr, util.Address{Port: int(port.ContainerPort), IPs: []string{pod.Status.PodIP}})
+				addr = append(
+					addr,
+					util.PortAddress{Port: int(port.ContainerPort), IPs: []string{pod.Status.PodIP}},
+				)
 			}
 		}
 	}
@@ -167,13 +192,16 @@ func (service *SecurityPolicyService) resolvePodPort(pod *v1.Pod, spPort *v1alph
 }
 
 // Build an ip set group for NSX.
-func (service *SecurityPolicyService) buildRuleIPGroup(obj *model.Rule, ips []string) *model.Group {
-	ipGroup := model.Group{}
+func (service *SecurityPolicyService) buildRuleIPSetGroup(
+	obj *model.Rule,
+	ips []string,
+) *model.Group {
+	ipSetGroup := model.Group{}
 
-	policyGroupID := fmt.Sprintf("%s_ipset", *obj.Id)
-	ipGroup.Id = &policyGroupID
-	policyGroupName := fmt.Sprintf("%s-ipset", *obj.DisplayName)
-	ipGroup.DisplayName = &policyGroupName
+	ipSetGroupID := fmt.Sprintf("%s_ipset", *obj.Id)
+	ipSetGroup.Id = &ipSetGroupID
+	ipSetGroupName := fmt.Sprintf("%s-ipset", *obj.DisplayName)
+	ipSetGroup.DisplayName = &ipSetGroupName
 
 	addresses := data.NewListValue()
 	for _, ip := range ips {
@@ -187,15 +215,15 @@ func (service *SecurityPolicyService) buildRuleIPGroup(obj *model.Rule, ips []st
 			"ip_addresses":  addresses,
 		},
 	)
-	ipGroup.Expression = append(ipGroup.Expression, blockExpression)
-	return &ipGroup
+	ipSetGroup.Expression = append(ipSetGroup.Expression, blockExpression)
+	return &ipSetGroup
 }
 
 // Different direction rule decides different target of the traffic, we should carefully get
 // the destination pod selector and namespaces.
 func (service *SecurityPolicyService) getPodSelector(obj *v1alpha1.SecurityPolicy,
-	rule *v1alpha1.SecurityPolicyRule) (*client.ListOptions, []string, error) {
-
+	rule *v1alpha1.SecurityPolicyRule,
+) (*client.ListOptions, []string, error) {
 	// Port means the target of traffic, so we should select the pod by rule direction,
 	// as for IN direction, we judge by rule's or policy's AppliedTo,
 	// as for OUT direction, then by rule's destinations.
@@ -209,9 +237,8 @@ func (service *SecurityPolicyService) getPodSelector(obj *v1alpha1.SecurityPolic
 	}
 
 	if ruleDirection == "IN" {
-		if len(rule.AppliedTo) > 0 {
-			for _, target := range rule.AppliedTo {
-				// We only consider named port for PodSelector, not VMSelector
+		if len(obj.Spec.AppliedTo) > 0 {
+			for _, target := range obj.Spec.AppliedTo {
 				if target.PodSelector != nil {
 					labelSelector, err = meta1.LabelSelectorAsSelector(target.PodSelector)
 					if err != nil {
@@ -219,14 +246,13 @@ func (service *SecurityPolicyService) getPodSelector(obj *v1alpha1.SecurityPolic
 					}
 				}
 			}
-		} else {
-			if len(obj.Spec.AppliedTo) > 0 {
-				for _, target := range obj.Spec.AppliedTo {
-					if target.PodSelector != nil {
-						labelSelector, err = meta1.LabelSelectorAsSelector(target.PodSelector)
-						if err != nil {
-							return nil, nil, err
-						}
+		} else if len(rule.AppliedTo) > 0 {
+			for _, target := range rule.AppliedTo {
+				// We only consider named port for PodSelector, not VMSelector
+				if target.PodSelector != nil {
+					labelSelector, err = meta1.LabelSelectorAsSelector(target.PodSelector)
+					if err != nil {
+						return nil, nil, err
 					}
 				}
 			}
@@ -260,7 +286,9 @@ func (service *SecurityPolicyService) getPodSelector(obj *v1alpha1.SecurityPolic
 }
 
 // ResolveNamespace Get namespace name when the rule has namespace selector.
-func (service *SecurityPolicyService) ResolveNamespace(lbs *meta1.LabelSelector) (*v1.NamespaceList, error) {
+func (service *SecurityPolicyService) ResolveNamespace(
+	lbs *meta1.LabelSelector,
+) (*v1.NamespaceList, error) {
 	ctx := context.Background()
 	nsList := &v1.NamespaceList{}
 	nsOptions := &client.ListOptions{}

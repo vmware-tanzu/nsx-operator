@@ -18,14 +18,34 @@ import (
 
 func TestNSXHealthChecker_CheckNSXHealth(t *testing.T) {
 	host := "1.1.1.1"
-	config := NewConfig(host, "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	config := NewConfig(
+		host,
+		"1",
+		"1",
+		"",
+		10,
+		3,
+		20,
+		20,
+		true,
+		true,
+		true,
+		ratelimiter.AIMD,
+		nil,
+		nil,
+		[]string{},
+	)
 	cluster, _ := NewCluster(config)
 	req := &http.Request{}
 
 	res := []ClusterHealth{GREEN, RED, ORANGE}
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(cluster), "Health", func(_ *Cluster) ClusterHealth {
-		return RED
-	})
+	patches := gomonkey.ApplyMethod(
+		reflect.TypeOf(cluster),
+		"Health",
+		func(_ *Cluster) ClusterHealth {
+			return RED
+		},
+	)
 	patches.Reset()
 	type fields struct {
 		cluster *Cluster
@@ -52,34 +72,47 @@ func TestNSXHealthChecker_CheckNSXHealth(t *testing.T) {
 				cluster: tt.fields.cluster,
 			}
 			if err := ck.CheckNSXHealth(tt.args.req); (err != nil) != tt.wantErr {
-				t.Errorf("NSXHealthChecker.CheckNSXHealth() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf(
+					"NSXHealthChecker.CheckNSXHealth() error = %v, wantErr %v",
+					err,
+					tt.wantErr,
+				)
 			}
 		})
 		patches.Reset()
 	}
-
 }
 
 func TestGetClient(t *testing.T) {
-	cf := config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{NsxApiUser: "1", NsxApiPassword: "1"}}
+	cf := config.NSXOperatorConfig{
+		NsxConfig: &config.NsxConfig{NsxAPIUser: "1", NsxAPIPassword: "1"},
+	}
 	cf.VCConfig = &config.VCConfig{}
 	client := GetClient(&cf)
 	assert.True(t, client == nil)
 
 	cluster := &Cluster{}
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
-		nsxVersion := &NsxVersion{NodeVersion: "3.1.1"}
-		return nsxVersion, nil
-	})
+	patches := gomonkey.ApplyMethod(
+		reflect.TypeOf(cluster),
+		"GetVersion",
+		func(_ *Cluster) (*NsxVersion, error) {
+			nsxVersion := &NsxVersion{NodeVersion: "3.1.1"}
+			return nsxVersion, nil
+		},
+	)
 
 	client = GetClient(&cf)
 	patches.Reset()
 	assert.True(t, client == nil)
 
-	patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
-		nsxVersion := &NsxVersion{NodeVersion: "3.2.1"}
-		return nsxVersion, nil
-	})
+	patches = gomonkey.ApplyMethod(
+		reflect.TypeOf(cluster),
+		"GetVersion",
+		func(_ *Cluster) (*NsxVersion, error) {
+			nsxVersion := &NsxVersion{NodeVersion: "3.2.1"}
+			return nsxVersion, nil
+		},
+	)
 	client = GetClient(&cf)
 	patches.Reset()
 	assert.True(t, client != nil)

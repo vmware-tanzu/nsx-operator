@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller_runtime/client"
 )
 
 func Test_checkPod(t *testing.T) {
@@ -78,7 +78,7 @@ func Test_checkPod(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, checkPod(tt.args.pod, ""), "checkPod(%v)", tt.args.pod)
+			assert.Equalf(t, tt.want, checkPod(*tt.args.pod, ""), "checkPod(%v)", tt.args.pod)
 		})
 	}
 }
@@ -112,7 +112,13 @@ func Test_getAllPodPortNames(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, getAllPodPortNames(tt.args.pods), "getAllPodPortNames(%v)", tt.args.pods)
+			assert.Equalf(
+				t,
+				tt.want,
+				getAllPodPortNames(tt.args.pods),
+				"getAllPodPortNames(%v)",
+				tt.args.pods,
+			)
 		})
 	}
 }
@@ -165,7 +171,8 @@ func TestEnqueueRequestForPod_Raw1(t *testing.T) {
 		{"1", fields{}, args{evt, nil}},
 	}
 	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(client client.Client, pods []v1.Pod,
-		q workqueue.RateLimitingInterface) error {
+		q workqueue.RateLimitingInterface,
+	) error {
 		return nil
 	})
 	defer patches.Reset()
@@ -200,7 +207,8 @@ func TestEnqueueRequestForPod_Create(t *testing.T) {
 		{"1", fields{}, args{evt, nil}},
 	}
 	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(client client.Client, pods []v1.Pod,
-		q workqueue.RateLimitingInterface) error {
+		q workqueue.RateLimitingInterface,
+	) error {
 		return nil
 	})
 	defer patches.Reset()
@@ -240,7 +248,8 @@ func TestEnqueueRequestForPod_Update(t *testing.T) {
 		{"1", fields{}, args{evt, nil}},
 	}
 	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(client client.Client, pods []v1.Pod,
-		q workqueue.RateLimitingInterface) error {
+		q workqueue.RateLimitingInterface,
+	) error {
 		return nil
 	})
 	defer patches.Reset()
@@ -275,7 +284,8 @@ func TestEnqueueRequestForPod_Delete(t *testing.T) {
 		{"1", fields{}, args{evt, nil}},
 	}
 	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(client client.Client, pods []v1.Pod,
-		q workqueue.RateLimitingInterface) error {
+		q workqueue.RateLimitingInterface,
+	) error {
 		return nil
 	})
 	defer patches.Reset()
@@ -310,7 +320,8 @@ func TestEnqueueRequestForPod_Generic(t *testing.T) {
 		{"1", fields{}, args{evt, nil}},
 	}
 	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(client client.Client, pods []v1.Pod,
-		q workqueue.RateLimitingInterface) error {
+		q workqueue.RateLimitingInterface,
+	) error {
 		return nil
 	})
 	defer patches.Reset()
@@ -456,12 +467,16 @@ func TestReconcileSecurityPolicy(t *testing.T) {
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	ctx := context.Background()
 	policyList := &v1alpha1.SecurityPolicyList{}
-	k8sClient.EXPECT().List(ctx, policyList).Return(nil).Do(func(_ context.Context, list client.ObjectList,
-		_ ...client.ListOption) error {
-		a := list.(*v1alpha1.SecurityPolicyList)
-		a.Items = spList.Items
-		return nil
-	})
+	k8sClient.EXPECT().
+		List(ctx, policyList).
+		Return(nil).
+		Do(func(_ context.Context, list client.ObjectList,
+			_ ...client.ListOption,
+		) error {
+			a := list.(*v1alpha1.SecurityPolicyList)
+			a.Items = spList.Items
+			return nil
+		})
 
 	mockQueue := mock_client.NewMockInterface(mockCtl)
 
@@ -479,8 +494,16 @@ func TestReconcileSecurityPolicy(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.wantErr(t, reconcileSecurityPolicy(tt.args.client, tt.args.pods, tt.args.q),
-				fmt.Sprintf("reconcileSecurityPolicy(%v, %v, %v)", tt.args.client, tt.args.pods, tt.args.q))
+			tt.wantErr(
+				t,
+				reconcileSecurityPolicy(tt.args.client, tt.args.pods, tt.args.q),
+				fmt.Sprintf(
+					"reconcileSecurityPolicy(%v, %v, %v)",
+					tt.args.client,
+					tt.args.pods,
+					tt.args.q,
+				),
+			)
 		})
 	}
 }
@@ -488,7 +511,7 @@ func TestReconcileSecurityPolicy(t *testing.T) {
 func TestEnqueueRequestForNamespace_Update(t *testing.T) {
 	podList := v1.PodList{
 		Items: []v1.Pod{
-			v1.Pod{
+			{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-pod",
 					Namespace: "test-namespace",
@@ -511,15 +534,20 @@ func TestEnqueueRequestForNamespace_Update(t *testing.T) {
 	ctx := context.Background()
 	pList := &v1.PodList{}
 	ops := client.ListOption(client.InNamespace("test-ns-new"))
-	k8sClient.EXPECT().List(ctx, pList, ops).Return(nil).Do(func(_ context.Context, list client.ObjectList,
-		o ...client.ListOption) error {
-		log.V(1).Info("Listing pods", "options", o)
-		a := list.(*v1.PodList)
-		a.Items = podList.Items
-		return nil
-	})
+	k8sClient.EXPECT().
+		List(ctx, pList, ops).
+		Return(nil).
+		Do(func(_ context.Context, list client.ObjectList,
+			o ...client.ListOption,
+		) error {
+			log.V(1).Info("Listing pods", "options", o)
+			a := list.(*v1.PodList)
+			a.Items = podList.Items
+			return nil
+		})
 	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(client client.Client, pods []v1.Pod,
-		q workqueue.RateLimitingInterface) error {
+		q workqueue.RateLimitingInterface,
+	) error {
 		return nil
 	})
 	defer patches.Reset()
