@@ -109,7 +109,8 @@ func createToken(user string) (string, error) {
 			ExpiresAt: time.Now().Add(time.Minute * 1).Unix(),
 		},
 		"vmware-tes:vc:nsxd-v2:nsx",
-		user, "vsphere.local"}
+		user, "vsphere.local",
+	}
 	signKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 	return t.SignedString(signKey)
 }

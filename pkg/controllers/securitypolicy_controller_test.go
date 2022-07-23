@@ -125,7 +125,6 @@ func TestSecurityPolicyController_isCRRequestedInSystemNamespace(t *testing.T) {
 	req := &controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
 
 	isCRInSysNs, err := r.isCRRequestedInSystemNamespace(&ctx, req)
-
 	if err != nil {
 		t.Fatalf(err.Error())
 	}

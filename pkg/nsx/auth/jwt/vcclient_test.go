@@ -72,7 +72,6 @@ func TestVCClient_NewVCClient(t *testing.T) {
 	offset += 1
 	_, err = NewVCClient(host, port, ssoDomain, userName, password, nil, true)
 	assert.Equal(t, err, nil)
-
 }
 
 func TestVCClient_createHttpClient(t *testing.T) {
@@ -135,5 +134,4 @@ func TestVCClient_reloadUsernamePass(t *testing.T) {
 	defer patch.Reset()
 	err = vcClient.reloadUsernamePass()
 	assert.Nil(t, err)
-
 }

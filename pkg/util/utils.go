@@ -6,6 +6,7 @@ package util
 import (
 	"crypto/sha1"
 	"fmt"
+	"sort"
 	"strings"
 
 	mapset "github.com/deckarep/golang-set"
@@ -59,7 +60,33 @@ func RemoveDuplicateStr(strSlice []string) []string {
 	return resultStr
 }
 
+func MergeAddressByPort(ipPorts []Address) []Address {
+	var portIPs []Address
+	var sortKeys []int
+	mappedPorts := make(map[int][]string)
+	for _, ipPort := range ipPorts {
+		if _, ok := mappedPorts[ipPort.Port]; !ok {
+			sortKeys = append(sortKeys, ipPort.Port)
+			mappedPorts[ipPort.Port] = ipPort.IPs
+		} else {
+			mappedPorts[ipPort.Port] = append(mappedPorts[ipPort.Port], ipPort.IPs...)
+		}
+	}
+	sort.Ints(sortKeys)
+	for _, key := range sortKeys {
+		portIPs = append(portIPs, Address{Port: key, IPs: mappedPorts[key]})
+	}
+	return portIPs
+}
+
 func ToUpper(obj interface{}) string {
 	str := fmt.Sprintf("%s", obj)
 	return strings.ToUpper(str)
+}
+
+func LeftAlignString(str string, width int) string {
+	if len(str) > width {
+		return str[:width]
+	}
+	return str + strings.Repeat(" ", width-len(str))
 }

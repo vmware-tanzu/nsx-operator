@@ -41,7 +41,6 @@ func TestConfig_CoeConfig(t *testing.T) {
 	coeConfig.Cluster = "10.0.0.1"
 	err = coeConfig.validate()
 	assert.Equal(t, err, nil)
-
 }
 
 func TestConfig_NsxConfig(t *testing.T) {

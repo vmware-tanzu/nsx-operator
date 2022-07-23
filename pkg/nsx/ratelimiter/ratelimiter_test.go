@@ -73,7 +73,6 @@ func TestWait(t *testing.T) {
 	cancel <- 1
 	re := <-done
 	assert.False(re > 0, fmt.Sprintf("Too much token %d.\n", re))
-
 }
 
 func TestRateLimiter_NewFixRateLimiter(t *testing.T) {

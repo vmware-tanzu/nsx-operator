@@ -16,9 +16,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-var (
-	log = logf.Log.WithName("nsx").WithName("utils")
-)
+var log = logf.Log.WithName("nsx").WithName("utils")
 
 // ErrorDetail is error detail which info extracted from http.Reponse.Body.
 type ErrorDetail struct {
@@ -141,12 +139,15 @@ type errmap map[string]NsxError
 
 var (
 	errorTable = map[string]errmap{
-		"404": //http.StatusNotFound
-		{"202": &BackendResourceNotFound{},
+		"404": // http.StatusNotFound
+		{
+			"202":     &BackendResourceNotFound{},
 			"500090":  &StaleRevision{},
-			"default": &ResourceNotFound{}},
-		"400": //http.StatusBadRequest
-		{"60508": &NsxIndexingInProgress{},
+			"default": &ResourceNotFound{},
+		},
+		"400": // http.StatusBadRequest
+		{
+			"60508":  &NsxIndexingInProgress{},
 			"60514":  &NsxSearchTimeout{},
 			"60515":  &NsxSearchOutOfSync{},
 			"8327":   &NsxOverlapVlan{},
@@ -156,25 +157,30 @@ var (
 			"500105": &NsxOverlapAddresses{},
 			"500232": &StaleRevision{},
 			"503040": &NsxSegemntWithVM{},
-			"100148": &StaleRevision{}},
-		"500": //http.StatusInternalServerError
-		{"98": &CannotConnectToServer{},
+			"100148": &StaleRevision{},
+		},
+		"500": // http.StatusInternalServerError
+		{
+			"98":  &CannotConnectToServer{},
 			"99":  &ClientCertificateNotTrusted{},
-			"607": &APITransactionAborted{}},
-		"403": //http.StatusForbidden
-		{"98": &BadXSRFToken{},
+			"607": &APITransactionAborted{},
+		},
+		"403": // http.StatusForbidden
+		{
+			"98":  &BadXSRFToken{},
 			"403": &InvalidCredentials{},
-			"505": &InvalidLicense{}},
+			"505": &InvalidLicense{},
+		},
 	}
 
 	errorTable1 = map[string]NsxError{
-		"409"://http.StatusConflict
+		"409":// http.StatusConflict
 		&StaleRevision{},
-		"412"://http.StatusPreconditionFailed
+		"412":// http.StatusPreconditionFailed
 		&StaleRevision{},
-		"429"://http.statusTooManyRequests
+		"429":// http.statusTooManyRequests
 		&TooManyRequests{},
-		"503"://http.StatusServiceUnavailable
+		"503":// http.StatusServiceUnavailable
 		&ServiceUnavailable{},
 	}
 )

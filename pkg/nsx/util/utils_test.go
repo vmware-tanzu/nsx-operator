@@ -47,7 +47,6 @@ func TestHttpErrortoNSXError(t *testing.T) {
 	err = httpErrortoNSXError(&testdatas[4])
 	e4, ok := err.(ManagerError)
 	assert.True(ok, fmt.Sprintf("Transform error : %v", e4))
-
 }
 
 func TestInitErrorFromResponse(t *testing.T) {
@@ -148,12 +147,12 @@ func TestUtil_InitErrorFromResponse(t *testing.T) {
 	assert.Equal(t, result, false)
 	result = ShouldRetry(err)
 	assert.Equal(t, result, true)
-
 }
 
 func TestUtil_setDetail(t *testing.T) {
 	nsxerr := CreateCannotConnectToServer()
-	detail := ErrorDetail{ErrorCode: 287,
+	detail := ErrorDetail{
+		ErrorCode:          287,
 		StatusCode:         400,
 		RelatedErrorCodes:  []int{123, 222},
 		RelatedStatusCodes: []string{"error1", "erro2"},

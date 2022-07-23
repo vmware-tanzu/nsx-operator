@@ -42,7 +42,7 @@ func TestBuildSecurityPolicy(t *testing.T) {
 				Rules: []model.Rule{
 					{
 						DisplayName:       &ruleNameWithPodSelector,
-						Id:                &ruleID0,
+						Id:                &ruleIDPort0,
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxDirectionIn,
 						Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_scope"},
@@ -55,7 +55,7 @@ func TestBuildSecurityPolicy(t *testing.T) {
 					},
 					{
 						DisplayName:       &ruleNameWithNsSelector,
-						Id:                &ruleID1,
+						Id:                &ruleIDPort1,
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxDirectionIn,
 						Scope:             []string{"ANY"},
@@ -81,7 +81,7 @@ func TestBuildSecurityPolicy(t *testing.T) {
 				Rules: []model.Rule{
 					{
 						DisplayName:       &ruleNameWithVMSelector,
-						Id:                &ruleID0,
+						Id:                &ruleIDPort0,
 						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_dst"},
 						Direction:         &nsxDirectionOut,
 						Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_scope"},
@@ -94,7 +94,7 @@ func TestBuildSecurityPolicy(t *testing.T) {
 					},
 					{
 						DisplayName:       &ruleNameWithNsSelector,
-						Id:                &ruleID1,
+						Id:                &ruleIDPort1,
 						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidA_1_dst"},
 						Direction:         &nsxDirectionOut,
 						Scope:             []string{"ANY"},
@@ -108,7 +108,7 @@ func TestBuildSecurityPolicy(t *testing.T) {
 
 					{
 						DisplayName:       &ruleNameWithIpBlock,
-						Id:                &ruleID2,
+						Id:                &ruleIDPort2,
 						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidA_2_dst"},
 						Direction:         &nsxDirectionOut,
 						Scope:             []string{"ANY"},
@@ -466,7 +466,7 @@ func TestValidateSelectorOpIn(t *testing.T) {
 	assert.NotEqual(t, nil, err)
 	assert.Equal(t, 6, opInValueCount)
 
-	// Case: matchLabels has duplication expression with match-expression operator 'In'
+	// Case: matchLabels has duplication expression with matchexpression operator 'In'
 	matchLabels = make(map[string]string)
 	matchLabels["k1"] = "a5"
 	matchExpressions[0].Values = []string{

@@ -29,9 +29,7 @@ type Client struct {
 	NSXChecker     NSXHealthChecker
 }
 
-var (
-	minVersion = [3]int64{3, 2, 0}
-)
+var minVersion = [3]int64{3, 2, 0}
 
 type NSXHealthChecker struct {
 	cluster *Cluster

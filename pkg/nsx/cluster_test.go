@@ -59,7 +59,7 @@ func TestCluster_getThumbprint(t *testing.T) {
 	tb = cluster.getThumbprint(host)
 	assert.Equal(t, tb, "123")
 
-	//two api server, two thumbprint
+	// two api server, two thumbprint
 	thumbprint = []string{"123", "234"}
 	cluster.config.Thumbprint = thumbprint
 	tb = cluster.getThumbprint("127.0.0.1:443")
@@ -67,7 +67,7 @@ func TestCluster_getThumbprint(t *testing.T) {
 	tb = cluster.getThumbprint("127.0.0.2:443")
 	assert.Equal(t, tb, "234")
 
-	//two api server no port, two thumbprint
+	// two api server no port, two thumbprint
 	cluster.endpoints[0].provider = &address{host: "127.0.0.1"}
 	cluster.endpoints[1].provider = &address{host: "127.0.0.2"}
 	tb = cluster.getThumbprint("127.0.0.1:443")
@@ -138,7 +138,7 @@ func TestCluster_Health(t *testing.T) {
 	addr := &address{host: "10.0.0.1", scheme: "https"}
 	addr1 := &address{host: "10.0.0.2", scheme: "https"}
 	addr2 := &address{host: "10.0.0.3", scheme: "https"}
-	eps := []*Endpoint{&Endpoint{status: DOWN}, &Endpoint{status: DOWN}, &Endpoint{status: DOWN}}
+	eps := []*Endpoint{{status: DOWN}, {status: DOWN}, {status: DOWN}}
 	eps[0].provider = addr
 	eps[1].provider = addr1
 	eps[2].provider = addr2

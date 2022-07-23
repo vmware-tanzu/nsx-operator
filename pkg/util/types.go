@@ -24,3 +24,11 @@ const (
 	GCInterval    = 60 * time.Second
 	FinalizerName = "securitypolicy.nsx.vmware.com/finalizer"
 )
+
+// Address is used when named port is specified.
+type Address struct {
+	// Port is the port number.
+	Port int `json:"port"`
+	// IPs is a list of IPs.
+	IPs []string `json:"ips"`
+}

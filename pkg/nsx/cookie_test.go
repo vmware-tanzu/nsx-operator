@@ -33,6 +33,6 @@ func TestNewJar(t *testing.T) {
 func TestJar_Cookies(t *testing.T) {
 	url2 := &url.URL{Host: "test"}
 	j := NewJar()
-	j.SetCookies(url2, []*http.Cookie{&http.Cookie{}})
+	j.SetCookies(url2, []*http.Cookie{{}})
 	assert.NotNil(t, j.Cookies(url2))
 }

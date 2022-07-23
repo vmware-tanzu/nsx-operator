@@ -77,6 +77,7 @@ type ncpCertProvider struct{}
 func (cert *ncpCertProvider) FileName() string {
 	return "certProvider"
 }
+
 func createNcpPovider() auth.ClientCertProvider {
 	return &ncpCertProvider{}
 }
@@ -90,13 +91,15 @@ func (m *mockObject) Host() string {
 	args := m.Called()
 	return args.String(0)
 }
+
 func (m *mockObject) Scheme() string {
 	args := m.Called()
 	return args.String(0)
 }
 
 var (
-	result = []string{`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":403}`,
+	result = []string{
+		`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":403}`,
 		`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":403}`,
 		`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":403}`,
 		`{"module_name":"common-services","error_message":"The credentials were incorrect or the account specified has been locked.","error_code":403}`,
@@ -155,12 +158,11 @@ func TestCreateAuthSession(t *testing.T) {
 
 	err = ep.createAuthSession(nil, nil, "admin", "password", jar)
 	assert.Equal(err.Error(), "no token in response", "Auth should be failed")
-
 }
 
 func TestKeepAlive(t *testing.T) {
 	assert := assert.New(t)
-	//mock http server
+	// mock http server
 	index := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(status[index])
