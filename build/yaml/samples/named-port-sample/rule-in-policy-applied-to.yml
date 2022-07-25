@@ -2,13 +2,13 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: client
+  name: client-0
   labels:
     role: client
   namespace: client
 spec:
   containers:
-    - name: client-container
+    - name: client-container-0
       image: "harbor-repo.vmware.com/dockerhub-proxy-cache/library/photon:3.0-20210507"
       command: [ "/bin/bash" ]
       args: [ "-c", "while true; do echo hello, world!; sleep 60; done" ]
@@ -17,7 +17,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: tcp-deployment
+  name: tcp-deployment-0
   namespace: web
 spec:
   replicas: 2
@@ -31,17 +31,17 @@ spec:
     spec:
       hostname: web-deployment
       containers:
-        - name: web-container
+        - name: web-container-0
           image: "harbor-repo.vmware.com/dockerhub-proxy-cache/humanux/http_https_echo:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
-              name: web-port
+              name: web-port-0
 ---
 apiVersion: nsx.vmware.com/v1alpha1
 kind: SecurityPolicy
 metadata:
-  name: named-port-policy
+  name: named-port-policy-0
   namespace: web
 spec:
   priority: 10
@@ -54,7 +54,7 @@ spec:
       action: allow
       ports:
         - protocol: TCP
-          port: web-port
+          port: web-port-0
     - direction: in
       action: drop
     - direction: out

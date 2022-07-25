@@ -60,23 +60,23 @@ func RemoveDuplicateStr(strSlice []string) []string {
 	return resultStr
 }
 
-func MergeAddressByPort(ipPorts []PortAddress) []PortAddress {
-	var portIPs []PortAddress
+func MergeAddressByPort(portAddressOriginal []PortAddress) []PortAddress {
+	var portAddress []PortAddress
 	var sortKeys []int
 	mappedPorts := make(map[int][]string)
-	for _, ipPort := range ipPorts {
-		if _, ok := mappedPorts[ipPort.Port]; !ok {
-			sortKeys = append(sortKeys, ipPort.Port)
-			mappedPorts[ipPort.Port] = ipPort.IPs
+	for _, pa := range portAddressOriginal {
+		if _, ok := mappedPorts[pa.Port]; !ok {
+			sortKeys = append(sortKeys, pa.Port)
+			mappedPorts[pa.Port] = pa.IPs
 		} else {
-			mappedPorts[ipPort.Port] = append(mappedPorts[ipPort.Port], ipPort.IPs...)
+			mappedPorts[pa.Port] = append(mappedPorts[pa.Port], pa.IPs...)
 		}
 	}
 	sort.Ints(sortKeys)
 	for _, key := range sortKeys {
-		portIPs = append(portIPs, PortAddress{Port: key, IPs: mappedPorts[key]})
+		portAddress = append(portAddress, PortAddress{Port: key, IPs: mappedPorts[key]})
 	}
-	return portIPs
+	return portAddress
 }
 
 func ToUpper(obj interface{}) string {

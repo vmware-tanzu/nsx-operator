@@ -8,7 +8,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mysql
+  name: mysql-6
   namespace: db
   labels:
     role: db
@@ -25,15 +25,15 @@ spec:
       containers:
         - image: "harbor-repo.vmware.com/dockerhub-proxy-cache/gophernet/netcat:latest"
           command: ["nc", "-l", "-p", "3306"]
-          name: mysql
+          name: mysql-6
           ports:
             - containerPort: 3306
-              name: mysql-port
+              name: mysql-port-6
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mysql
+  name: mysql-6
   namespace: db2
   labels:
     role: db
@@ -50,16 +50,16 @@ spec:
       containers:
         - image: "harbor-repo.vmware.com/dockerhub-proxy-cache/gophernet/netcat:latest"
           command: ["nc", "-l", "-p", "1234"]
-          name: mysql2
+          name: mysql-6
           ports:
             - containerPort: 1234
-              name: mysql-port
+              name: mysql-port-6
 ---
 
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: tcp-deployment
+  name: tcp-deployment-6
   namespace: web
 spec:
   replicas: 2
@@ -75,13 +75,13 @@ spec:
       containers:
         - image: "harbor-repo.vmware.com/dockerhub-proxy-cache/gophernet/netcat:latest"
           command: ["nc", "-l", "-p", "4321"]
-          name: web
+          name: web-6
           imagePullPolicy: IfNotPresent
 ---
 apiVersion: nsx.vmware.com/v1alpha1
 kind: SecurityPolicy
 metadata:
-  name: named-port-policy
+  name: named-port-policy-6
   namespace: web
 spec:
   priority: 10
@@ -105,4 +105,4 @@ spec:
               role: db
       ports:
         - protocol: TCP
-          port: mysql-port
+          port: mysql-port-6

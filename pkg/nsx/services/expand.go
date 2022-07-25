@@ -58,6 +58,8 @@ func (service *SecurityPolicyService) expandRuleByPort(
 	var nsxGroups []*model.Group
 	var nsxRules []*model.Rule
 
+	// Use PortAddress to handle normal port and named port, if it only contains int value Port,
+	// then it is a normal port. If it contains a list of IPs, it is a named port.
 	if port.Port.Type == intstr.Int {
 		startPort = append(startPort, util.PortAddress{Port: port.Port.IntValue()})
 	} else {
@@ -67,15 +69,15 @@ func (service *SecurityPolicyService) expandRuleByPort(
 		}
 	}
 
-	for dupPortIdx, portIP := range startPort {
+	for portAddressIdx, portAddress := range startPort {
 		gs, r, err := service.expandRuleByService(
 			obj,
 			rule,
 			ruleIdx,
 			port,
 			portIdx,
-			portIP,
-			dupPortIdx,
+			portAddress,
+			portAddressIdx,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -88,22 +90,23 @@ func (service *SecurityPolicyService) expandRuleByPort(
 
 func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.SecurityPolicy,
 	rule *v1alpha1.SecurityPolicyRule, ruleIdx int, port v1alpha1.SecurityPolicyPort,
-	portIdx int, portIP util.PortAddress, dupPortIdx int,
+	portIdx int, portAddress util.PortAddress, portAddressIdx int,
 ) ([]*model.Group, *model.Rule, error) {
 	var nsxGroups []*model.Group
 
-	nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, portIdx, dupPortIdx)
+	nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, portIdx, portAddressIdx)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	var ruleServiceEntries []*data.StructValue
-	serviceEntry := service.buildRuleServiceEntries(port, portIP)
+	serviceEntry := service.buildRuleServiceEntries(port, portAddress)
 	ruleServiceEntries = append(ruleServiceEntries, serviceEntry)
 	nsxRule.ServiceEntries = ruleServiceEntries
 
-	if len(portIP.IPs) > 0 {
-		ruleIPSetGroup := service.buildRuleIPSetGroup(nsxRule, portIP.IPs)
+	// If portAddress contains a list of IPs, we should build an ip set group for the rule.
+	if len(portAddress.IPs) > 0 {
+		ruleIPSetGroup := service.buildRuleIPSetGroup(nsxRule, portAddress.IPs)
 		groupPath := fmt.Sprintf(
 			"/infra/domains/%s/groups/%s",
 			getDomain(service),

@@ -65,13 +65,13 @@ func (e *EnqueueRequestForNamespace) Update(
 	podList := &v1.PodList{}
 	err := e.Client.List(context.Background(), podList, client.InNamespace(obj.Name))
 	if err != nil {
-		log.Error(err, "Failed to list pod list CR")
+		log.Error(err, "failed to list pod in namespace", "namespace", obj.Name)
 		return
 	}
 
 	shouldReconcile := false
 	for _, pod := range podList.Items {
-		if checkPod(pod, "update") {
+		if checkPodHasNamedPort(pod, "update") {
 			shouldReconcile = true
 			break
 		}
@@ -170,7 +170,7 @@ func reconcileSecurityPolicy(
 	spList := &v1alpha1.SecurityPolicyList{}
 	err := client.List(context.Background(), spList)
 	if err != nil {
-		log.Error(err, "list security-policy failed")
+		log.Error(err, "failed to list security policy")
 		return err
 	}
 
@@ -207,18 +207,18 @@ func reconcileSecurityPolicy(
 var PredicateFuncsPod = predicate.Funcs{
 	CreateFunc: func(e event.CreateEvent) bool {
 		if p, ok := e.Object.(*v1.Pod); ok {
-			return checkPod(*p, "create")
+			return checkPodHasNamedPort(*p, "create")
 		}
 		return false
 	},
 	UpdateFunc: func(e event.UpdateEvent) bool {
 		if p, ok := e.ObjectOld.(*v1.Pod); ok {
-			if checkPod(*p, "update") {
+			if checkPodHasNamedPort(*p, "update") {
 				return true
 			}
 		}
 		if p, ok := e.ObjectNew.(*v1.Pod); ok {
-			if checkPod(*p, "update") {
+			if checkPodHasNamedPort(*p, "update") {
 				return true
 			}
 		}
@@ -226,13 +226,13 @@ var PredicateFuncsPod = predicate.Funcs{
 	},
 	DeleteFunc: func(e event.DeleteEvent) bool {
 		if p, ok := e.Object.(*v1.Pod); ok {
-			return checkPod(*p, "delete")
+			return checkPodHasNamedPort(*p, "delete")
 		}
 		return false
 	},
 }
 
-func checkPod(pod v1.Pod, reason string) bool {
+func checkPodHasNamedPort(pod v1.Pod, reason string) bool {
 	for _, ns := range ignoreNs {
 		if strings.HasPrefix(pod.Namespace, ns) {
 			return false

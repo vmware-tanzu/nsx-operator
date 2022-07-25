@@ -78,7 +78,7 @@ func Test_checkPod(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, checkPod(*tt.args.pod, ""), "checkPod(%v)", tt.args.pod)
+			assert.Equalf(t, tt.want, checkPodHasNamedPort(*tt.args.pod, ""), "checkPodHasNamedPort(%v)", tt.args.pod)
 		})
 	}
 }

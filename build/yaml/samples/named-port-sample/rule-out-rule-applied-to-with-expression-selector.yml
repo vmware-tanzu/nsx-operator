@@ -5,7 +5,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mysql
+  name: mysql-7
   namespace: db
   labels:
     role: db
@@ -24,15 +24,15 @@ spec:
       containers:
         - image: "harbor-repo.vmware.com/dockerhub-proxy-cache/gophernet/netcat:latest"
           command: ["nc", "-l", "-p", "3306"]
-          name: mysql
+          name: mysql-7
           ports:
             - containerPort: 3306
-              name: mysql-port
+              name: mysql-port-7
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mysql
+  name: mysql-7
   namespace: db2
   labels:
     role: db
@@ -49,16 +49,16 @@ spec:
       containers:
         - image: "harbor-repo.vmware.com/dockerhub-proxy-cache/gophernet/netcat:latest"
           command: ["nc", "-l", "-p", "1234"]
-          name: mysql
+          name: mysql-7
           ports:
             - containerPort: 1234
-              name: mysql-port
+              name: mysql-port-7
 ---
 
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: tcp-deployment
+  name: tcp-deployment-7
   namespace: web
 spec:
   replicas: 2
@@ -72,7 +72,7 @@ spec:
     spec:
       hostname: web-deployment
       containers:
-        - name: web-container
+        - name: web-container-7
           image: "harbor-repo.vmware.com/dockerhub-proxy-cache/gophernet/netcat:latest"
           command: ["nc", "-l", "-p", "4321"]
           imagePullPolicy: IfNotPresent
@@ -80,7 +80,7 @@ spec:
 apiVersion: nsx.vmware.com/v1alpha1
 kind: SecurityPolicy
 metadata:
-  name: named-port-policy
+  name: named-port-policy-7
   namespace: web
 spec:
   priority: 10
@@ -107,4 +107,4 @@ spec:
               role: db
       ports:
         - protocol: TCP
-          port: mysql-port
+          port: mysql-port-7

@@ -208,7 +208,7 @@ func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusFalse(
 			Status:  v1.ConditionFalse,
 			Message: "NSX Security Policy could not be created/updated",
 			Reason: fmt.Sprintf(
-				"Error occurred while processing the Security Policy CR. Please check the config and try again. Error: %v",
+				"error occurred while processing the Security Policy CR. Error: %v",
 				*err,
 			),
 		},
@@ -243,7 +243,7 @@ func (r *SecurityPolicyReconciler) mergeSecurityPolicyStatusCondition(
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {
 		log.V(2).
-			Info("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+			Info("conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return false
 	}
 

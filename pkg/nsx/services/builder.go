@@ -391,7 +391,7 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 }
 
 func (service *SecurityPolicyService) buildRuleServiceEntries(port v1alpha1.SecurityPolicyPort,
-	portIP util.PortAddress,
+	portAddress util.PortAddress,
 ) *data.StructValue {
 	var portRange string
 	sourcePorts := data.NewListValue()
@@ -400,9 +400,9 @@ func (service *SecurityPolicyService) buildRuleServiceEntries(port v1alpha1.Secu
 	// In case that the destination_port in NSX-T is 0.
 	endPort := port.EndPort
 	if endPort == 0 {
-		portRange = fmt.Sprint(portIP.Port)
+		portRange = fmt.Sprint(portAddress.Port)
 	} else {
-		portRange = fmt.Sprintf("%d-%d", portIP.Port, endPort)
+		portRange = fmt.Sprintf("%d-%d", portAddress.Port, endPort)
 	}
 	destinationPorts.Add(data.NewStringValue(portRange))
 
