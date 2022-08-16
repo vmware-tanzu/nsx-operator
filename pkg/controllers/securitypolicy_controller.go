@@ -20,7 +20,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
@@ -213,6 +215,12 @@ func getExistingConditionOfType(conditionType v1alpha1.SecurityPolicyStatusCondi
 func (r *SecurityPolicyReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.SecurityPolicy{}).
+		WithEventFilter(predicate.Funcs{
+			DeleteFunc: func(e event.DeleteEvent) bool {
+				// Suppress Delete events to avoid filtering them out in the Reconcile function
+				return false
+			},
+		}).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: runtime.NumCPU(),
