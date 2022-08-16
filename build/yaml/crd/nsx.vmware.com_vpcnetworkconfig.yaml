@@ -1,0 +1,124 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.7.0
+  creationTimestamp: null
+  labels:
+    app: nsx-operator
+  name: vpcnetworkconfigurations.nsx.vmware.com
+spec:
+  group: nsx.vmware.com
+  names:
+    kind: VPCNetworkConfiguration
+    listKind: VPCNetworkConfigurationList
+    plural: vpcnetworkconfigurations
+    singular: vpcnetworkconfiguration
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: VPCNetworkConfiguration is the Schema for the vpcnetworkconfigurations API.
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: VPCNetworkConfigurationSpec defines the desired state of VPCNetworkConfiguration.
+            properties:
+              appliedToNamespaces:
+                description: Namespaces to be applied
+                type: array
+                items:
+                  type: string
+              tier0Gateway:
+                description: Tier0 gateway or Tier0 VRF path
+                type: string
+              edgeClusterPaths:
+                description: Edge cluster paths on which the networking elements will be created
+                type: array
+                items:
+                  type: string
+              subnetPrefixLength:
+                description: Subnet prefix length 
+                type: integer       
+              nsxProject:
+                description: NSX Project for the namespace
+                type: string
+              publicIPV4Pools:
+                description: IP Block paths used for public ip pools
+                type: array
+                maxItems: 5
+                minItems: 1
+                items:
+                  type: string
+              privateCIDRs:
+                description: Private CIDRs
+                type: array
+                maxItems: 5
+                minItems: 0
+                items:
+                  type: string
+                  format: cidr
+              ingressCIDRs:
+                description: Ingress CIDRs used to allocate LB VIPs
+                type: array
+                items:
+                  type: string
+                  format: cidr  
+              defaultSubnetType:
+                description: Subnet type for the auto-created SubnetSet for PodVM and VMs.
+                type: string
+                enum: ['public', 'private']
+            required:
+            - tier0Gateway
+            - edgeClusterPath         
+            type: object
+          status:
+            description: VPCNetworkConfigurationStatus defines the observed state of VPCNetworkConfiguration.
+            properties:
+              conditions:
+                description: Conditions describes current state of VPCNetworkConfiguration.
+                items:
+                  description: VPCNetworkConfigurationCondition defines the condition of VPCNetworkConfiguration.
+                  properties:
+                    message:
+                      description: Message shows a human readable message about the
+                        condition.
+                      type: string
+                    reason:
+                      description: Reason shows a brief reason of condition.
+                      type: string
+                    status:
+                      description: Status shows the status of condition, one of True
+                        or False.
+                      type: string
+                    type:
+                      description: Type defines the type of condition.
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+            required:
+            - conditions
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

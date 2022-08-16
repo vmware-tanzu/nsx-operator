@@ -1,0 +1,21 @@
+apiVersion: nsx.vmware.com/v1alpha1
+kind: VPCNetworkConfiguration
+metadata:
+  name: vpc-network-config1
+  namespace: ns-1
+spec:
+  appliedToNamespaces:
+    - ns-1
+  tier0Gateway: /infra/tier-0s/t0
+  edgeClusterPaths:
+    - /infra/sites/default/enforcement-points/default/edge-clusters/2d9df59f-6dc6-4911-8865-21fadc23d4da
+  subnetPrefixLength: 28
+  nsxProject: proj-1
+  publicIPV4Pools:
+    - /infra/ip-blocks/block1
+  privateCIDRs:
+    - 172.26.0.0/16
+    - 172.36.0.0/16
+  ingressCIDRs:
+    - 192.168.0.0/16
+  defaultSubnetType: public
