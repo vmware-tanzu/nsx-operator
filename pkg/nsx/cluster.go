@@ -253,7 +253,7 @@ func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 	return nsxVersion, err
 }
 
-func (nsxVersion *NsxVersion) Validate(minVersion [3]int64) error {
+func (nsxVersion *NsxVersion) Validate() error {
 	re, _ := regexp.Compile(`^([\d]+).([\d]+).([\d]+)`)
 	result := re.Find([]byte(nsxVersion.NodeVersion))
 	if len(result) < 1 {
@@ -261,12 +261,7 @@ func (nsxVersion *NsxVersion) Validate(minVersion [3]int64) error {
 		log.Error(err, "check version", "version", nsxVersion.NodeVersion)
 		return err
 	}
-	if !nsxVersion.featureSupported(minVersion) {
-		version := fmt.Sprintf("%d:%d:%d", minVersion[0], minVersion[1], minVersion[2])
-		err := errors.New("nsxt version " + nsxVersion.NodeVersion + " is old this feature needs version " + version)
-		log.Error(err, "validate NsxVersion failed")
-		return err
-	}
+
 	return nil
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
@@ -124,7 +125,6 @@ func TestSecurityPolicyController_isCRRequestedInSystemNamespace(t *testing.T) {
 	req := &controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
 
 	isCRInSysNs, err := r.isCRRequestedInSystemNamespace(&ctx, req)
-
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
@@ -158,6 +158,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	service := &services.SecurityPolicyService{
+		NSXClient: &nsx.Client{},
 		NSXConfig: &config.NSXOperatorConfig{
 			NsxConfig: &config.NsxConfig{
 				EnforcementPoint: "vmc-enforcementpoint",
@@ -178,6 +179,11 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	_, err := r.Reconcile(ctx, req)
 	assert.Equal(t, err, errNotFound)
 
+	checkNsxVersionPatch := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client) bool {
+		return true
+	})
+	defer checkNsxVersionPatch.Reset()
+
 	// DeletionTimestamp.IsZero = ture, client update failed
 	sp := &v1alpha1.SecurityPolicy{}
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
@@ -185,6 +191,11 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(err)
 	_, ret := r.Reconcile(ctx, req)
 	assert.Equal(t, err, ret)
+
+	patches := gomonkey.ApplyFunc(updateFail,
+		func(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
+		})
+	defer patches.Reset()
 
 	//  DeletionTimestamp.IsZero = false, Finalizers doesn't include util.FinalizerName
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object) error {
