@@ -28,7 +28,8 @@ import (
 )
 
 var (
-	log = logf.Log.WithName("controller").WithName("securitypolicy")
+	log                     = logf.Log.WithName("controller").WithName("securitypolicy")
+	resultRequeueAfter5mins = ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Minute}
 )
 
 const (
@@ -43,6 +44,11 @@ type SecurityPolicyReconciler struct {
 	Service *services.SecurityPolicyService
 }
 
+func updateFail(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
+	r.setSecurityPolicyReadyStatusFalse(c, o, e)
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, METRIC_RES_TYPE)
+}
+
 func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	obj := &v1alpha1.SecurityPolicy{}
 	log.Info("reconciling securitypolicy CR", "securitypolicy", req.NamespacedName)
@@ -51,6 +57,15 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
 		log.Error(err, "unable to fetch security policy CR", "req", req.NamespacedName)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Since securitypolicy service can only be activated from nsx 3.2.0 onwards,
+	// So need to check nsx version before starting securitypolicy Reconcile
+	if !r.Service.NSXClient.NSXCheckVersion() {
+		err := errors.New("NSX version check failed")
+		log.Error(err, "SecurityPolicy feature is not supported")
+		updateFail(r, &ctx, obj, &err)
+		return resultRequeueAfter5mins, nil
 	}
 
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
