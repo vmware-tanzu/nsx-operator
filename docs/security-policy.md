@@ -38,10 +38,6 @@ spec:
     - vmSelector:
         matchLabels:
           role: db
-        matchExpressions:
-          - {key: k1, operator: In, values: [a1,a2]}
-          - {key: k2, operator: NotIn, values: [a3,a4]}
- 
   rules:
     - direction: in
       action: allow
@@ -49,15 +45,9 @@ spec:
         - namespaceSelector:
             matchLabels:
               role: control
-            matchExpressions:
-              - {key: k3, operator: Exists}
-
         - podSelector:
             matchLabels:
               role: frontend
-            matchExpressions:
-            - {key: k4, operator: DoesNotExist}
-
       ports:
         - protocol: TCP
           port: 8000
@@ -70,12 +60,10 @@ spec:
       ports:
         - protocol: UDP
           port: 53
-
       appliedTo:
         - vmSelector:
             matchLabels:
               user: internal
-
     - direction: in
       action: drop
     - direction: out
@@ -116,27 +104,206 @@ order in the list, rules in the front have higher priority than rules in the end
 **direction**: is the direction of the rule, including 'In' or 'Ingress', 'Out'
 or 'Egress'.
 
+**ports**: define protocol, specific port or port range. `ports.port` will be treated
+as destination port. More details refer to section `Targeting a range of Ports`
+
 **sources** and **destinations**: defines a list of peers where the traffic is from/to.
 It could be `podSelector`, `vmSelector`, `namespaceSelector` and `ipBlocks`.
 `podSelector` and `namespaceSelector` in the same entry select particular Pods within
 particular Namespaces.
 `vmSelector` and `namespaceSelector` in the same entry select particular VMs within
 particular Namespaces.
+More details refer to section `Behavior of sources and destinations selectors`
 
 **status**: shows CR realization state. If there is any error during realization,
 nsx-operator will also update status with error message.
 
-## Note:
-There are certain limitations for generating SecurityPolicy CR NSGroup Criteria, including:
-policy 'appliedTo' group, sources group, destinations group and rule level 'appliedTo' group.
+## Behavior of sources and destinations selectors
+
+There are 6 kinds of selectors that can be specified in an `ingress` `sources` section
+or `egress` `destinations` section:
+
+**podSelector**: This selects particular Pods in the same namespace as the SecurityPolicy
+as ingress sources or egress destinations.
+
+**namespaceSelector**: This selects particular namespaces for which all Pods and
+VMs as ingress sources or egress destinations.
+
+**namespaceSelector and podSelector**: A single `sources`/`destinations` entry that
+specifies both `namespaceSelector` and `podSelector` selects particular Pods within
+particular namespaces. Be careful to use correct YAML syntax; this policy:
+
+```
+  ...
+  rules:
+    - direction: in
+      action: allow
+      sources:
+        - namespaceSelector:
+            matchLabels:
+              user: alice
+          podSelector:
+            matchLabels:
+              role: client
+  ...
+```
+contains a single `sources` element allowing connections from Pods with the label
+`role=client` in namespaces with the label `user=alice`. But this policy:
+
+```
+  ...
+  rules:
+    - direction: in
+      action: allow
+      sources:
+        - namespaceSelector:
+            matchLabels:
+              user: alice
+        - podSelector:
+            matchLabels:
+              role: client
+  ...
+```
+contains two elements in the sources array, and allows connections from Pods in
+the current Namespace with the label `role=client`, or from any Pod in the namespaces
+with the label `user=alice`.
+
+**vmSelector**: This selects particular VirtualMachines in the same namespace as
+the SecurityPolicy as ingress sources or egress destinations. E.g.
+
+```
+  ...
+  rules:
+    - direction: in
+      action: allow
+      sources:
+        - vmSelector:
+            matchLabels:
+              role: client
+  ...
+```
+allows connections from VirtualMachines with the label `role=client` in the current
+namespace.
+
+**namespaceSelector and vmSelector**: A single `sources`/`destinations` entry that
+specifies both `namespaceSelector` and `vmSelector` selects particular VirtualMachines
+within particular namespaces. E.g.
+
+```
+  ...
+  rules:
+    - direction: in
+      action: allow
+      sources:
+        - namespaceSelector:
+            matchLabels:
+              user: alice
+          vmSelector:
+            matchLabels:
+              role: client
+  ...
+```
+contains a single `sources` element allowing connections from VirtualMachines with
+the label `role=client` in namespaces with the label `user=alice`.
+
+**ipBlocks**: This selects particular IP CIDR ranges to allow as ingress sources
+or egress destinations. E.g.
+
+```
+...
+  rules:
+    - direction: ingress
+      action: allow
+      sources:
+        - ipBlocks:
+            - cidr: 192.168.0.0/24
+...
+```
+
+Particularly, it can be used for single IP by suffix `/32`. E.g.
+
+```
+...
+  rules:
+    - direction: ingress
+      action: allow
+      sources:
+        - ipBlocks:
+            - cidr: 100.64.232.1/32
+...
+```
+
+## Targeting a range of Ports
+
+When writing a SecurityPolicy, you can target a range of ports instead of a single
+port. E.g.
+
+```
+...
+  rules:
+    - direction: in
+      action: allow
+      sources:
+        - podSelector:
+            matchLabels:
+              role: ui
+      ports:
+        - protocol: TCP
+          port: 22
+          endPort: 100
+...
+```
+allows the Pods with label `role=ui` in the current namespace to the target port
+between the range 22 and 100 over TCP.
+
+## Policy priority and rule priority
+
+The `spec.priority` in SecurityPolicy defines the order of policy enforcement within
+a cluster. If different SecurityPolicies have the same priority, in NSX side, it's
+not deterministic which policy will work at first, so we don't suggest the customer
+set the same priority for different SecurityPolicies.
+
+In the same policy, the higher rule has the higher priority. E.g. in the policy:
+
+```
+...
+  rules:
+    - direction: in
+      action: allow
+      sources:
+        - podSelector:
+            matchLabels:
+              role: client
+    - direction: in
+      action: drop
+      sources:
+        - podSelector: {}
+    - direction: out
+      action: drop
+      destinations:
+        - podSelector: {}
+...
+```
+There're 3 rules in the array, rule[0] allows connections from Pods with the label
+`role=client`, rule[1] drops ingress connections for all Pods, rule[2] drops egress
+connections for all Pods. The traffic matching order is: rule[0] > rule[1] > rule[2],
+for a connection from Pods with the label `role=client`, it will be allowed and
+won't be dropped because the rule[0] will work.
+
+## Note
+There are certain limitations for generating SecurityPolicy CR NSGroup Criteria,
+including: policy 'appliedTo' group, sources group, destinations group and rule
+level 'appliedTo' group.
 Limitations of SecurityPolicy CR:
 1. NSX-T version >= 3.2.0 (for mixed criterion)
 2. Max criteria in one NSGroup: 5
 3. Max conditions with the mixed member type in single criterion: 15
 4. Total of 35 conditions in one NSGroup criteria.
-5. Operator 'NotIn' in matchExpressions for namespaceSelector is not supported, since its member type is segment
+5. Operator 'NotIn' in matchExpressions for namespaceSelector is not supported,
+   since its member type is segment
 6. In one NSGroup group, supports only one 'In' with at most of five values in MatchExpressions,
-   given NSX-T does not support 'In' in NSGroup condition, so we use a workaround to support 'In' with limited counts.
+   given NSX-T does not support 'In' in NSGroup condition, so we use a workaround
+   to support 'In' with limited counts.
 7. Max IP elements in one security policy: 4000
 8. Priority range of SecurityPolicy CR is [0, 1000].
 9. Do not support named port.
