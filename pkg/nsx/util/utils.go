@@ -69,14 +69,14 @@ var (
 	groundTriggers     = []string{"ConnectionError", "Timeout"}
 	retriables         = []string{"APITransactionAborted", "CannotConnectToServer", "ServerBusy"}
 	regenerateTriggers = []string{"InvalidCredentials", "ClientCertificateNotTrusted", "BadXSRFToken"}
-	catagoryTable      = map[string][]string{"groundTriggers": groundTriggers, "retriables": retriables, "regenerateTriggers": regenerateTriggers}
+	categoryTable      = map[string][]string{"groundTriggers": groundTriggers, "retriables": retriables, "regenerateTriggers": regenerateTriggers}
 )
 
-func catagory(err error, cata string) bool {
+func category(err error, cate string) bool {
 	if err == nil {
 		return false
 	}
-	table := catagoryTable[cata]
+	table := categoryTable[cate]
 	for _, e := range table {
 		fn := strings.Split(reflect.TypeOf(err).String(), ".")
 		var name string
@@ -94,17 +94,17 @@ func catagory(err error, cata string) bool {
 
 // ShouldGroundPoint checks if it's a error which grounds an endpoint.
 func ShouldGroundPoint(err error) bool {
-	return catagory(err, "groundTriggers")
+	return category(err, "groundTriggers")
 }
 
 // ShouldRetry checks if it's a retriable error.
 func ShouldRetry(err error) bool {
-	return catagory(err, "retriables")
+	return category(err, "retriables")
 }
 
 // ShouldRegenerate check if it's a error should regenerate pool.
 func ShouldRegenerate(err error) bool {
-	return catagory(err, "regenerateTriggers")
+	return category(err, "regenerateTriggers")
 }
 
 // InitErrorFromResponse returns error based on http.Response
@@ -165,7 +165,7 @@ var (
 			"500087": &StaleRevision{},
 			"500105": &NsxOverlapAddresses{},
 			"500232": &StaleRevision{},
-			"503040": &NsxSegemntWithVM{},
+			"503040": &NsxSegmentWithVM{},
 			"100148": &StaleRevision{},
 		},
 		"500": // http.StatusInternalServerError
