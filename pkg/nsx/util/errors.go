@@ -447,12 +447,12 @@ func CreateNsxPendingDelete() *NsxPendingDelete {
 	return nsxErr
 }
 
-type NsxSegemntWithVM struct {
+type NsxSegmentWithVM struct {
 	managerErrorImpl
 }
 
-func CreateNsxSegemntWithVM() *NsxSegemntWithVM {
-	nsxErr := &NsxSegemntWithVM{}
+func CreateNsxSegmentWithVM() *NsxSegmentWithVM {
+	nsxErr := &NsxSegmentWithVM{}
 	nsxErr.msg = "Cannot delete segment as it still has VMs or VIFs attached"
 	return nsxErr
 }
