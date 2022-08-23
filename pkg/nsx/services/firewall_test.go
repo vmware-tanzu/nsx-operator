@@ -634,7 +634,8 @@ func TestRulesEqual(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expectedResult, service.rulesEqual(tt.inputRule1, tt.inputRule2))
+			e, _ := service.rulesEqual(tt.inputRule1, tt.inputRule2)
+			assert.Equal(t, tt.expectedResult, e)
 		},
 		)
 	}
@@ -694,7 +695,8 @@ func TestGroupsEqual(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expectedResult, service.groupsEqual(tt.inputGroup1, tt.inputGroup2))
+			isEqual, _ := service.groupsEqual(tt.inputGroup1, tt.inputGroup2)
+			assert.Equal(t, tt.expectedResult, isEqual)
 		},
 		)
 	}

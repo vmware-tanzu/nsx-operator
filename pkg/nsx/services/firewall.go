@@ -8,10 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data/serializers/cleanjson"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
@@ -21,6 +17,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 const (
@@ -1262,6 +1263,45 @@ func (service *SecurityPolicyService) buildRuleServiceEntries(rulePorts *[]v1alp
 	return &ruleServiceEntries
 }
 
+func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(sp *model.SecurityPolicy) error {
+	err := service.NSXClient.SecurityClient.Patch(service.getDomain(), *sp.Id, *sp)
+	if err != nil {
+		return err
+	}
+	err = service.SecurityPolicyStore.Add(*sp)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (service *SecurityPolicyService) DeleteRules(sp *model.SecurityPolicy, legacyRules []model.Rule) error {
+	// Delete legacy rules
+	for _, rule := range legacyRules {
+		err := service.NSXClient.RuleClient.Delete(service.getDomain(), *sp.Id, *rule.Id)
+		if err != nil {
+			return err
+		}
+		err = service.RuleStore.Delete(rule)
+		log.V(1).Info("delete rule from store", "rule", rule)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (service *SecurityPolicyService) AddRulesToStore(sp *model.SecurityPolicy) error {
+	for _, rule := range sp.Rules {
+		err := service.RuleStore.Add(rule)
+		log.V(1).Info("add rule to store", "rule", rule)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (service *SecurityPolicyService) createOrUpdateGroups(groupsClient domains.GroupsClient, nsxGroups *[]model.Group) error {
 	for _, group := range *nsxGroups {
 		err := groupsClient.Patch(service.getDomain(), *group.Id, group)
@@ -1275,7 +1315,6 @@ func (service *SecurityPolicyService) createOrUpdateGroups(groupsClient domains.
 }
 
 func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1.SecurityPolicy) error {
-	policiesClient := service.NSXClient.SecurityClient
 	groupsClient := service.NSXClient.GroupClient
 	nsxSecurityPolicy, nsxGroups, err := service.buildSecurityPolicy(obj)
 	if err != nil {
@@ -1298,8 +1337,11 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 		existingGroups = append(existingGroups, group.(model.Group))
 	}
 
-	if service.groupsEqual(existingGroups, *nsxGroups) {
-		log.Info("groups not changed, skipping", "nsxSecurityPolicy.Id", nsxSecurityPolicy.Id)
+	// Caution! createOrUpdate can't delete the legacy groups.
+	// So we have to delete the legacy groups firstly by groupClient.
+	groupEqual, legacyGroups := service.groupsEqual(existingGroups, *nsxGroups)
+	if groupEqual {
+		log.Info("NSGroups are not changed, skip updating them", "nsxSecurityPolicy.Id", nsxSecurityPolicy.Id)
 	} else {
 		err = service.createOrUpdateGroups(groupsClient, nsxGroups)
 		if err != nil {
@@ -1322,19 +1364,37 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 	for _, rule := range indexResults {
 		existingRules = append(existingRules, rule.(model.Rule))
 	}
-	if service.securityPolicyEqual(&existingSecurityPolicy, nsxSecurityPolicy) && service.rulesEqual(existingRules, nsxSecurityPolicy.Rules) {
-		log.Info("security policy not changed, skipping", "nsxSecurityPolicy.Id", nsxSecurityPolicy.Id)
+	// Caution! createOrUpdate can't delete the legacy rules.
+	// So we have to delete the legacy rules firstly by rulesClient.
+	spEqual := service.securityPolicyEqual(&existingSecurityPolicy, nsxSecurityPolicy)
+	ruleEqual, legacyRules := service.rulesEqual(existingRules, nsxSecurityPolicy.Rules)
+	if spEqual && ruleEqual {
+		log.Info("security policy and rules not changed, skip updating them", "nsxSecurityPolicy.Id", nsxSecurityPolicy.Id)
 	} else {
-		err = policiesClient.Patch(service.getDomain(), *nsxSecurityPolicy.Id, *nsxSecurityPolicy)
+		err = service.createOrUpdateSecurityPolicy(nsxSecurityPolicy)
 		if err != nil {
-			log.Error(err, "failed to patch security policy", "nsxSecurityPolicy", nsxSecurityPolicy)
 			return err
 		}
-		service.SecurityPolicyStore.Add(*nsxSecurityPolicy)
-		for _, rule := range nsxSecurityPolicy.Rules {
-			service.RuleStore.Add(rule)
+		err = service.AddRulesToStore(nsxSecurityPolicy)
+		if err != nil {
+			return err
 		}
 		log.Info("successfully created or updated nsxSecurityPolicy", "nsxSecurityPolicy", nsxSecurityPolicy)
+	}
+
+	if len(legacyRules) > 0 {
+		err := service.DeleteRules(nsxSecurityPolicy, legacyRules)
+		if err != nil {
+			return err
+		}
+	}
+
+	// The reason why delete legacy groups at last is that some rules may have reference to the legacy groups.
+	if len(legacyGroups) > 0 {
+		err := service.DeleteGroups(legacyGroups)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1342,38 +1402,104 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 func (service *SecurityPolicyService) securityPolicyEqual(sp1 *model.SecurityPolicy, sp2 *model.SecurityPolicy) bool {
 	v1, _ := json.Marshal(service.simplifySecurityPolicy(sp1))
 	v2, _ := json.Marshal(service.simplifySecurityPolicy(sp2))
-	return string(v1) == string(v2)
+	if string(v1) == string(v2) {
+		return true
+	}
+	log.Info("security policies differ", "current NSX security policy", service.simplifySecurityPolicy(sp1),
+		"desired NSX security policy", service.simplifySecurityPolicy(sp2))
+	return false
 }
 
-func (service *SecurityPolicyService) rulesEqual(rules1 []model.Rule, rules2 []model.Rule) bool {
-	if len(rules1) != len(rules2) {
-		return false
+func (service *SecurityPolicyService) rulesEqual(existingRules []model.Rule, rules []model.Rule) (bool, []model.Rule) {
+	// sort the rules by id, otherwise expandRule may return different results, only the sequence of the
+	// rule is different, so sort by ID in ascending order, and it avoids the needless updates.
+	sortRules := func(rules []model.Rule) {
+		sort.Slice(rules, func(i, j int) bool {
+			return *(rules[i].Id) < *(rules[j].Id)
+		})
 	}
-	for i := 0; i < len(rules1); i++ {
-		r1, _ := service.simplifyRule(&rules1[i]).GetDataValue__()
-		r2, _ := service.simplifyRule(&rules2[i]).GetDataValue__()
+	sortRules(existingRules)
+	sortRules(rules)
+
+	isEqual := true
+	// legacyRules means the rules that are not in the new rules, we should destroy them.
+	var legacyRules []model.Rule
+	var newRuleIds []string
+	for _, rule := range rules {
+		newRuleIds = append(newRuleIds, *rule.Id)
+	}
+
+	for _, existingRule := range existingRules {
+		if !util.Contains(newRuleIds, *existingRule.Id) {
+			isEqual = false
+			legacyRules = append(legacyRules, existingRule)
+		}
+	}
+
+	if !isEqual || len(existingRules) != len(rules) {
+		return false, legacyRules
+	}
+
+	isEqual = service.RulesEqualDetail(existingRules, rules)
+	return isEqual, legacyRules
+}
+
+func (service *SecurityPolicyService) RulesEqualDetail(existingRules []model.Rule, rules []model.Rule) bool {
+	isEqual := true
+	for i := 0; i < len(rules); i++ {
+		r1, _ := service.simplifyRule(&existingRules[i]).GetDataValue__()
+		r2, _ := service.simplifyRule(&rules[i]).GetDataValue__()
 		var dataValueToJSONEncoder = cleanjson.NewDataValueToJsonEncoder()
 		s1, _ := dataValueToJSONEncoder.Encode(r1)
 		s2, _ := dataValueToJSONEncoder.Encode(r2)
 		if s1 != s2 {
-			return false
+			log.Info("rules differ", "current NSX rule", s1, "desired NSX rule", s2)
+			isEqual = false
+			break
 		}
 	}
-	return true
+	return isEqual
 }
 
-func (service *SecurityPolicyService) groupsEqual(groups1 []model.Group, groups2 []model.Group) bool {
-	if len(groups1) != len(groups2) {
-		return false
+func (service *SecurityPolicyService) groupsEqual(existingGroups []model.Group, groups []model.Group) (bool, []model.Group) {
+	sortGroups := func(groups []model.Group) {
+		sort.Slice(groups, func(i, j int) bool {
+			return *(groups[i].Id) < *(groups[j].Id)
+		})
 	}
-	for i := 0; i < len(groups1); i++ {
-		v1, _ := json.Marshal(service.simplifyGroup(&groups1[i]))
-		v2, _ := json.Marshal(service.simplifyGroup(&groups2[i]))
-		if string(v1) != string(v2) {
-			return false
+
+	sortGroups(existingGroups)
+	sortGroups(groups)
+
+	isEqual := true
+	// legacyGroups means the groups that are deserted, we should destroy them.
+	var legacyGroups []model.Group
+	var newGroupIds []string
+	for _, group := range groups {
+		newGroupIds = append(newGroupIds, *group.Id)
+	}
+
+	for _, existingGroup := range existingGroups {
+		if !util.Contains(newGroupIds, *existingGroup.Id) {
+			isEqual = false
+			legacyGroups = append(legacyGroups, existingGroup)
 		}
 	}
-	return true
+
+	if !isEqual || len(existingGroups) != len(groups) {
+		return false, legacyGroups
+	}
+
+	for i := 0; i < len(groups); i++ {
+		g1, _ := json.Marshal(service.simplifyGroup(&existingGroups[i]))
+		g2, _ := json.Marshal(service.simplifyGroup(&groups[i]))
+		if string(g1) != string(g2) {
+			log.Info("groups differ", "current NSX group", service.simplifyGroup(&existingGroups[i]), "desired NSX group",
+				service.simplifyGroup(&groups[i]))
+			return false, legacyGroups
+		}
+	}
+	return true, legacyGroups
 }
 
 // simplifySecurityPolicy is used for abstract the key properties from model.SecurityPolicy, so that
@@ -1454,6 +1580,22 @@ func (service *SecurityPolicyService) buildPeerTags(obj *v1alpha1.SecurityPolicy
 		peerTags = append(peerTags, tag)
 	}
 	return peerTags
+}
+
+func (service *SecurityPolicyService) DeleteGroups(legacyGroups []model.Group) error {
+	// Delete legacy groups
+	for _, group := range legacyGroups {
+		err := service.deleteGroup(service.NSXClient.GroupClient, &group)
+		if err != nil {
+			return err
+		}
+		err = service.GroupStore.Delete(group)
+		if err != nil {
+			return err
+		}
+		log.Info("successfully delete group", "group", group)
+	}
+	return nil
 }
 
 func (service *SecurityPolicyService) deleteGroup(groupsClient domains.GroupsClient, nsxGroup *model.Group) error {
