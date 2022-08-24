@@ -1,0 +1,7 @@
+apiVersion: nsx.vmware.com/v1alpha1
+kind: SubnetSet
+metadata:
+  name: subnetset-sample
+spec:
+  accessMode: private
+  ipv4SubnetSize: 64
