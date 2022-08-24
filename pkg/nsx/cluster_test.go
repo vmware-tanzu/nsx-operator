@@ -161,18 +161,25 @@ func TestCluster_Health(t *testing.T) {
 }
 
 func TestCluster_enableFeature(t *testing.T) {
-	miniVersion := [3]int64{3, 2, 0}
+	// Test case for enabling feature SecurityPolicy
 	nsxVersion := &NsxVersion{}
 	nsxVersion.NodeVersion = "3.1.3.3.0.18844962"
-	assert.False(t, nsxVersion.featureSupported(miniVersion))
+	assert.False(t, nsxVersion.featureSupported(FeatureSecurityPolicy))
 	nsxVersion.NodeVersion = "3.2.0.3.0.18844962"
-	assert.True(t, nsxVersion.featureSupported(miniVersion))
+	assert.True(t, nsxVersion.featureSupported(FeatureSecurityPolicy))
 	nsxVersion.NodeVersion = "3.11.0.3.0.18844962"
-	assert.True(t, nsxVersion.featureSupported(miniVersion))
+	assert.True(t, nsxVersion.featureSupported(FeatureSecurityPolicy))
 	nsxVersion.NodeVersion = "4.1.0"
-	assert.True(t, nsxVersion.featureSupported(miniVersion))
+	assert.True(t, nsxVersion.featureSupported(FeatureSecurityPolicy))
 	nsxVersion.NodeVersion = "3.2.0"
-	assert.True(t, nsxVersion.featureSupported(miniVersion))
+	assert.True(t, nsxVersion.featureSupported(FeatureSecurityPolicy))
+
+	// Test case for invalid feature
+	feature := "notSecurityPolicy"
+	nsxVersion.NodeVersion = "3.1.3.3.0.18844962"
+	assert.False(t, nsxVersion.featureSupported(feature))
+	nsxVersion.NodeVersion = "3.2.0"
+	assert.False(t, nsxVersion.featureSupported(feature))
 }
 
 func TestCluster_validate(t *testing.T) {

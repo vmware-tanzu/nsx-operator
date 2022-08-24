@@ -61,9 +61,8 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Since securitypolicy service can only be activated from nsx 3.2.0 onwards,
 	// So need to check nsx version before starting securitypolicy Reconcile
-	if !r.Service.NSXClient.NSXCheckVersion() {
-		err := errors.New("NSX version check failed")
-		log.Error(err, "SecurityPolicy feature is not supported")
+	if !r.Service.NSXClient.NSXCheckVersionForSecurityPolicy() {
+		err := errors.New("NSX version check failed, SecurityPolicy feature is not supported")
 		updateFail(r, &ctx, obj, &err)
 		return resultRequeueAfter5mins, nil
 	}
