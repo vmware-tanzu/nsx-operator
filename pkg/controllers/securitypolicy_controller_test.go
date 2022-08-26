@@ -179,7 +179,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	_, err := r.Reconcile(ctx, req)
 	assert.Equal(t, err, errNotFound)
 
-	checkNsxVersionPatch := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client) bool {
+	checkNsxVersionPatch := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersionForSecurityPolicy", func(_ *nsx.Client) bool {
 		return true
 	})
 	defer checkNsxVersionPatch.Reset()

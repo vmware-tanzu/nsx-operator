@@ -19,6 +19,10 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 )
 
+const (
+	FeatureSecurityPolicy string = "SECURITY_POLICY"
+)
+
 type Client struct {
 	NsxConfig      *config.NSXOperatorConfig
 	RestConnector  *client.RestConnector
@@ -30,15 +34,15 @@ type Client struct {
 	NSXVerChecker  NSXVersionChecker
 }
 
-var minVersion = [3]int64{3, 2, 0}
+var nsx320Version = [3]int64{3, 2, 0}
 
 type NSXHealthChecker struct {
 	cluster *Cluster
 }
 
 type NSXVersionChecker struct {
-	cluster          *Cluster
-	versionSupported bool
+	cluster                 *Cluster
+	securityPolicySupported bool
 }
 
 func (ck *NSXHealthChecker) CheckNSXHealth(req *http.Request) error {
@@ -71,8 +75,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		cluster: cluster,
 	}
 	nsxVersionChecker := &NSXVersionChecker{
-		cluster:          cluster,
-		versionSupported: false,
+		cluster:                 cluster,
+		securityPolicySupported: false,
 	}
 
 	nsxClient := &Client{
@@ -86,16 +90,16 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		NSXVerChecker:  *nsxVersionChecker,
 	}
 
-	if !nsxClient.NSXCheckVersion() {
+	if !nsxClient.NSXCheckVersionForSecurityPolicy() {
 		err := errors.New("NSX version check failed")
-		log.Error(err, "Securitypolicy feature is not supported", "current version", nsxVersion.NodeVersion, "required version", minVersion)
+		log.Error(err, "Securitypolicy feature is not supported", "current version", nsxVersion.NodeVersion, "required version", nsx320Version)
 	}
 
 	return nsxClient
 }
 
-func (client *Client) NSXCheckVersion() bool {
-	if client.NSXVerChecker.versionSupported {
+func (client *Client) NSXCheckVersionForSecurityPolicy() bool {
+	if client.NSXVerChecker.securityPolicySupported {
 		return true
 	}
 
@@ -110,9 +114,11 @@ func (client *Client) NSXCheckVersion() bool {
 		return false
 	}
 
-	if !nsxVersion.featureSupported(minVersion) {
+	if !nsxVersion.featureSupported(FeatureSecurityPolicy) {
+		err = errors.New("NSX version check failed")
+		log.Error(err, "Securitypolicy feature is not supported", "current version", nsxVersion.NodeVersion, "required version", nsx320Version)
 		return false
 	}
-	client.NSXVerChecker.versionSupported = true
+	client.NSXVerChecker.securityPolicySupported = true
 	return true
 }
