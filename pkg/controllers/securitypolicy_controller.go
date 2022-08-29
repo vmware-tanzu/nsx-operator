@@ -37,9 +37,10 @@ const (
 )
 
 var (
-	log           = logf.Log.WithName("controller").WithName("securitypolicy")
-	resultNormal  = ctrl.Result{}
-	resultRequeue = ctrl.Result{Requeue: true}
+	log                     = logf.Log.WithName("controller").WithName("securitypolicy")
+	resultNormal            = ctrl.Result{}
+	resultRequeue           = ctrl.Result{Requeue: true}
+	resultRequeueAfter5mins = ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Minute}
 )
 
 // SecurityPolicyReconciler SecurityPolicyReconcile reconciles a SecurityPolicy object
@@ -78,6 +79,15 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return resultNormal, client.IgnoreNotFound(err)
 	}
 
+	// Since SecurityPolicy service can only be activated from NSX 3.2.0 onwards,
+	// So need to check NSX version before starting SecurityPolicy reconcile
+	if !r.Service.NSXClient.NSXCheckVersionForSecurityPolicy() {
+		err := errors.New("NSX version check failed, SecurityPolicy feature is not supported")
+		updateFail(r, &ctx, obj, &err)
+		// if NSX version check fails, it will be put back to reconcile queue and be reconciled after 5 minutes
+		return resultRequeueAfter5mins, nil
+	}
+
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, METRIC_RES_TYPE)
 		if !controllerutil.ContainsFinalizer(obj, util.FinalizerName) {
@@ -99,7 +109,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			err = errors.New("security Policy CR cannot be created in System Namespace")
 			log.Error(err, "", "securitypolicy", req.NamespacedName)
 			updateFail(r, &ctx, obj, &err)
-			return resultNormal, err
+			return resultNormal, nil
 		}
 
 		if err := r.Service.OperateSecurityPolicy(obj); err != nil {

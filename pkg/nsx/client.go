@@ -19,6 +19,10 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 )
 
+const (
+	FeatureSecurityPolicy string = "SECURITY_POLICY"
+)
+
 type Client struct {
 	NsxConfig      *config.NSXOperatorConfig
 	RestConnector  *client.RestConnector
@@ -27,14 +31,18 @@ type Client struct {
 	SecurityClient domains.SecurityPoliciesClient
 	RuleClient     security_policies.RulesClient
 	NSXChecker     NSXHealthChecker
+	NSXVerChecker  NSXVersionChecker
 }
 
-var (
-	minVersion = [3]int64{3, 2, 0}
-)
+var nsx320Version = [3]int64{3, 2, 0}
 
 type NSXHealthChecker struct {
 	cluster *Cluster
+}
+
+type NSXVersionChecker struct {
+	cluster                 *Cluster
+	securityPolicySupported bool
 }
 
 func (ck *NSXHealthChecker) CheckNSXHealth(req *http.Request) error {
@@ -58,16 +66,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	vspherelog.SetLogger(logger)
 	c := NewConfig(strings.Join(cf.NsxApiManagers, ","), cf.NsxApiUser, cf.NsxApiPassword, "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, cf.GetTokenProvider(), nil, cf.Thumbprint)
 	cluster, _ := NewCluster(c)
-	nsxVersion, err := cluster.GetVersion()
-	if err != nil {
-		log.Error(err, "get version error")
-		return nil
-	}
-	err = nsxVersion.Validate(minVersion)
-	if err != nil {
-		log.Error(err, "validate version error")
-		return nil
-	}
+
 	queryClient := search.NewQueryClient(restConnector(cluster))
 	groupClient := domains.NewGroupsClient(restConnector(cluster))
 	securityClient := domains.NewSecurityPoliciesClient(restConnector(cluster))
@@ -75,7 +74,12 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
 	}
-	return &Client{
+	nsxVersionChecker := &NSXVersionChecker{
+		cluster:                 cluster,
+		securityPolicySupported: false,
+	}
+
+	nsxClient := &Client{
 		NsxConfig:      cf,
 		RestConnector:  restConnector(cluster),
 		QueryClient:    queryClient,
@@ -83,5 +87,39 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		SecurityClient: securityClient,
 		RuleClient:     ruleClient,
 		NSXChecker:     *nsxChecker,
+		NSXVerChecker:  *nsxVersionChecker,
 	}
+	// NSX version check will be restarted during SecurityPolicy reconcile
+	// So, it's unnecessary to exit even if failed in the first time
+	if !nsxClient.NSXCheckVersionForSecurityPolicy() {
+		err := errors.New("SecurityPolicy feature support check failed")
+		log.Error(err, "initial NSX version check for SecurityPolicy got error")
+	}
+
+	return nsxClient
+}
+
+func (client *Client) NSXCheckVersionForSecurityPolicy() bool {
+	if client.NSXVerChecker.securityPolicySupported {
+		return true
+	}
+
+	nsxVersion, err := client.NSXVerChecker.cluster.GetVersion()
+	if err != nil {
+		log.Error(err, "get version error")
+		return false
+	}
+	err = nsxVersion.Validate()
+	if err != nil {
+		log.Error(err, "validate version error")
+		return false
+	}
+
+	if !nsxVersion.featureSupported(FeatureSecurityPolicy) {
+		err = errors.New("NSX version check failed")
+		log.Error(err, "SecurityPolicy feature is not supported", "current version", nsxVersion.NodeVersion, "required version", nsx320Version)
+		return false
+	}
+	client.NSXVerChecker.securityPolicySupported = true
+	return true
 }

@@ -229,9 +229,6 @@ func (cluster *Cluster) Health() ClusterHealth {
 }
 
 func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
-	if len(nsxVersion.NodeVersion) > 0 {
-		return nsxVersion, nil
-	}
 	ep := cluster.endpoints[0]
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s://%s/api/v1/node/version", ep.Scheme(), ep.Host()), nil)
 	if err != nil {
@@ -253,7 +250,7 @@ func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 	return nsxVersion, err
 }
 
-func (nsxVersion *NsxVersion) Validate(minVersion [3]int64) error {
+func (nsxVersion *NsxVersion) Validate() error {
 	re, _ := regexp.Compile(`^([\d]+).([\d]+).([\d]+)`)
 	result := re.Find([]byte(nsxVersion.NodeVersion))
 	if len(result) < 1 {
@@ -261,37 +258,41 @@ func (nsxVersion *NsxVersion) Validate(minVersion [3]int64) error {
 		log.Error(err, "check version", "version", nsxVersion.NodeVersion)
 		return err
 	}
-	if !nsxVersion.featureSupported(minVersion) {
-		version := fmt.Sprintf("%d:%d:%d", minVersion[0], minVersion[1], minVersion[2])
-		err := errors.New("nsxt version " + nsxVersion.NodeVersion + " is old this feature needs version " + version)
-		log.Error(err, "validate NsxVersion failed")
-		return err
-	}
+
 	return nil
 }
 
-func (nsxVersion *NsxVersion) featureSupported(minVersion [3]int64) bool {
-	// only compared major.minor.patch
-	// NodeVersion should have at least three sections
-	// each section only have digital value
-	buff := strings.Split(nsxVersion.NodeVersion, ".")
-	sections := make([]int64, len(buff))
-	for i, str := range buff {
-		val, err := strconv.ParseInt(str, 10, 64)
-		if err != nil {
-			log.Error(err, "parse version error")
-			return false
-		}
-		sections[i] = val
+func (nsxVersion *NsxVersion) featureSupported(feature string) bool {
+	var minVersion [3]int64
+	validFeature := false
+	if feature == FeatureSecurityPolicy {
+		minVersion = nsx320Version
+		validFeature = true
 	}
+	if validFeature {
+		// only compared major.minor.patch
+		// NodeVersion should have at least three sections
+		// each section only have digital value
+		buff := strings.Split(nsxVersion.NodeVersion, ".")
+		sections := make([]int64, len(buff))
+		for i, str := range buff {
+			val, err := strconv.ParseInt(str, 10, 64)
+			if err != nil {
+				log.Error(err, "parse version error")
+				return false
+			}
+			sections[i] = val
+		}
 
-	for i := 0; i < 3; i++ {
-		if sections[i] > minVersion[i] {
-			return true
+		for i := 0; i < 3; i++ {
+			if sections[i] > minVersion[i] {
+				return true
+			}
+			if sections[i] < minVersion[i] {
+				return false
+			}
 		}
-		if sections[i] < minVersion[i] {
-			return false
-		}
+		return true
 	}
-	return true
+	return false
 }
