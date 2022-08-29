@@ -25,6 +25,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
@@ -125,7 +126,6 @@ func TestSecurityPolicyController_isCRRequestedInSystemNamespace(t *testing.T) {
 	req := &controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
 
 	isCRInSysNs, err := r.isCRRequestedInSystemNamespace(&ctx, req)
-
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
@@ -159,6 +159,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	service := &services.SecurityPolicyService{
+		NSXClient: &nsx.Client{},
 		NSXConfig: &config.NSXOperatorConfig{
 			NsxConfig: &config.NsxConfig{
 				EnforcementPoint: "vmc-enforcementpoint",
@@ -179,17 +180,32 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	_, err := r.Reconcile(ctx, req)
 	assert.Equal(t, err, errNotFound)
 
-	// DeletionTimestamp.IsZero = ture, client update failed
+	// NSX version check failed case
 	sp := &v1alpha1.SecurityPolicy{}
+	checkNsxVersionPatch := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersionForSecurityPolicy", func(_ *nsx.Client) bool {
+		return false
+	})
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
-	err = errors.New("Update failed")
-	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(err)
-
 	patches := gomonkey.ApplyFunc(updateFail,
 		func(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
 		})
 	defer patches.Reset()
-	_, ret := r.Reconcile(ctx, req)
+	result, ret := r.Reconcile(ctx, req)
+	resultRequeueAfter5mins := ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Minute}
+	assert.Equal(t, nil, ret)
+	assert.Equal(t, resultRequeueAfter5mins, result)
+
+	checkNsxVersionPatch.Reset()
+	checkNsxVersionPatch = gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersionForSecurityPolicy", func(_ *nsx.Client) bool {
+		return true
+	})
+	defer checkNsxVersionPatch.Reset()
+
+	// DeletionTimestamp.IsZero = ture, client update failed
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
+	err = errors.New("Update failed")
+	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(err)
+	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, err, ret)
 
 	//  DeletionTimestamp.IsZero = false, Finalizers doesn't include util.FinalizerName
