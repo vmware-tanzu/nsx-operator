@@ -89,10 +89,11 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		NSXChecker:     *nsxChecker,
 		NSXVerChecker:  *nsxVersionChecker,
 	}
-
+	// NSX version check will be restarted during SecurityPolicy reconcile
+	// So, it's unnecessary to exit even if failed in the first time
 	if !nsxClient.NSXCheckVersionForSecurityPolicy() {
-		err := errors.New("NSX version check failed")
-		log.Error(err, "Securitypolicy feature is not supported", "current version", nsxVersion.NodeVersion, "required version", nsx320Version)
+		err := errors.New("SecurityPolicy feature support check failed")
+		log.Error(err, "initial NSX version check for SecurityPolicy got error")
 	}
 
 	return nsxClient
@@ -116,7 +117,7 @@ func (client *Client) NSXCheckVersionForSecurityPolicy() bool {
 
 	if !nsxVersion.featureSupported(FeatureSecurityPolicy) {
 		err = errors.New("NSX version check failed")
-		log.Error(err, "Securitypolicy feature is not supported", "current version", nsxVersion.NodeVersion, "required version", nsx320Version)
+		log.Error(err, "SecurityPolicy feature is not supported", "current version", nsxVersion.NodeVersion, "required version", nsx320Version)
 		return false
 	}
 	client.NSXVerChecker.securityPolicySupported = true
