@@ -1,0 +1,134 @@
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.7.0
+  creationTimestamp: null
+  name: vpcs.nsx.vmware.com
+spec:
+  group: nsx.vmware.com
+  names:
+    kind: VPC
+    listKind: VPCList
+    plural: vpcs
+    singular: vpc
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: VPC is the Schema for the VPC API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: VPCSpec defines VPC configuration
+            type: object
+          status:
+            description: VPCStatus defines the observed state of VPC
+            properties:
+              cidrsUsage:
+                properties:
+                  privateCIDRsUsage:
+                    properties:
+                      allocated:
+                        description: Allocated IPs in the IP Block (including IPs
+                          used by other VPCs).
+                        type: integer
+                      total:
+                        description: Total IP number in the IP Block.
+                        type: integer
+                      used:
+                        description: Used IP for the VPC in the IP Block (IPs used
+                          only in current VPC).
+                        type: integer
+                    required:
+                    - allocated
+                    - total
+                    - used
+                    type: object
+                  publicCIDRsUsage:
+                    properties:
+                      allocated:
+                        description: Allocated IPs in the IP Block (including IPs
+                          used by other VPCs).
+                        type: integer
+                      total:
+                        description: Total IP number in the IP Block.
+                        type: integer
+                      used:
+                        description: Used IP for the VPC in the IP Block (IPs used
+                          only in current VPC).
+                        type: integer
+                    required:
+                    - allocated
+                    - total
+                    - used
+                    type: object
+                required:
+                - privateCIDRsUsage
+                - publicCIDRsUsage
+                type: object
+              conditions:
+                items:
+                  description: Condition defines condition of custom resource.
+                  properties:
+                    lastTransitionTime:
+                      description: Last time the condition transitioned from one status
+                        to another. This should be when the underlying condition changed.
+                        If that is not known, then using the time when the API field
+                        changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: Message shows a human-readable message about condition.
+                      type: string
+                    reason:
+                      description: Reason shows a brief reason of condition.
+                      type: string
+                    status:
+                      description: Status of the condition, one of True, False, Unknown.
+                      type: string
+                    type:
+                      description: Type defines condition type.
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+              defaultSNATIP:
+                description: Default SNAT IP for private Subnets
+                type: string
+              nsxResourcePath:
+                description: NSX VPC Policy API resource path.
+                type: string
+            required:
+            - cidrsUsage
+            - conditions
+            - defaultSNATIP
+            - nsxResourcePath
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
