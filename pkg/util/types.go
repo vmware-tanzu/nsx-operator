@@ -24,3 +24,9 @@ const (
 	GCInterval    = 60 * time.Second
 	FinalizerName = "securitypolicy.nsx.vmware.com/finalizer"
 )
+
+var (
+	ResourceTypeSecurityPolicy string = "SecurityPolicy"
+	ResourceTypeGroup          string = "Group"
+	ResourceTypeRule           string = "Rule"
+)

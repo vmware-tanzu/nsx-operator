@@ -63,3 +63,40 @@ func TestNormalizeLabels(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoveDuplicateStr(t *testing.T) {
+	type args struct {
+		strSlice []string
+	}
+	tests := []struct {
+		name string
+		args args
+		want []string
+	}{
+		{"1", args{[]string{"test", "test", "test"}}, []string{"test"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, RemoveDuplicateStr(tt.args.strSlice), "RemoveDuplicateStr(%v)", tt.args.strSlice)
+		})
+	}
+}
+
+func TestToUpper(t *testing.T) {
+	type args struct {
+		obj interface{}
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{"1", args{"test"}, "TEST"},
+		{"2", args{"Tes1"}, "TES1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, ToUpper(tt.args.obj), "ToUpper(%v)", tt.args.obj)
+		})
+	}
+}

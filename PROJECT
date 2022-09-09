@@ -1,0 +1,23 @@
+domain: nsx.vmware.com
+layout:
+- go.kubebuilder.io/v3
+projectName: nsx-operator
+repo: github.com/vmware-tanzu/nsx-operator
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: nsx.vmware.com
+  kind: VPCNetworkConfiguration
+  path: github.com/vmware-tanzu/nsx-operator/pkg/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: nsx.vmware.com
+  kind: SecurityPolicy
+  path: github.com/vmware-tanzu/nsx-operator/pkg/api/v1alpha1
+  version: v1alpha1
+version: "3"
