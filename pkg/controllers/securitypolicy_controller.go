@@ -112,7 +112,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			return resultNormal, nil
 		}
 
-		if err := r.Service.OperateSecurityPolicy(obj); err != nil {
+		if err := r.Service.CreateOrUpdateSecurityPolicy(obj); err != nil {
 			log.Error(err, "operate failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 			updateFail(r, &ctx, obj, &err)
 			return resultRequeue, err

@@ -15,6 +15,18 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
+const (
+	MaxCriteriaExpressions      int = 5
+	MaxMixedCriteriaExpressions int = 15
+	MaxCriteria                 int = 5
+	MaxTotalCriteriaExpressions int = 35
+	MaxMatchExpressionInOp      int = 1
+	MaxMatchExpressionIn        int = 1
+	MaxMatchExpressionInValues  int = 5
+	ClusterTagCount             int = 1
+	ProjectTagCount             int = 1
+)
+
 func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.SecurityPolicy) (*model.SecurityPolicy,
 	*[]model.Group, error) {
 	var nsxRules []model.Rule
