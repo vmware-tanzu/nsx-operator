@@ -2,85 +2,103 @@ package services
 
 import (
 	"encoding/json"
-	"sort"
 
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data/serializers/cleanjson"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 )
 
-func SecurityPolicyEqual(existingSecurityPolicy *model.SecurityPolicy, securityPolicy *model.SecurityPolicy) bool {
-	s1, _ := json.Marshal(simplifySecurityPolicy(existingSecurityPolicy))
-	s2, _ := json.Marshal(simplifySecurityPolicy(securityPolicy))
-	if string(s1) == string(s2) {
-		return true
+func (service *SecurityPolicyService) securityPolicyCompare(sp1 *model.SecurityPolicy, sp2 *model.SecurityPolicy) *model.SecurityPolicy {
+	v1, _ := json.Marshal(service.simplifySecurityPolicy(sp1))
+	v2, _ := json.Marshal(service.simplifySecurityPolicy(sp2))
+	if string(v1) == string(v2) {
+		return nil
 	}
-	log.Info("security policy diff", "nsx sp", s1, "k8s sp", s2)
-	return false
+	log.V(1).Info("security policies differ", "current NSX security policy", service.simplifySecurityPolicy(sp1),
+		"desired NSX security policy", service.simplifySecurityPolicy(sp2))
+	return sp2
 }
 
-func RulesEqual(existingRules []model.Rule, rules []model.Rule) (bool, []model.Rule) {
-	// sort the rules by id, otherwise expandRule may return different results, only the sequence of the
-	// rule is different, so sort by port number, and it avoids the needless updates.
-	var sortRules = func(rules []model.Rule) {
-		sort.Slice(rules, func(i, j int) bool {
-			return *(rules[i].Id) > *(rules[j].Id)
-		})
+func (service *SecurityPolicyService) rulesCompare(existingRules []model.Rule, rules []model.Rule) ([]model.Rule, []model.Rule) {
+	staleRules := make([]model.Rule, 0)
+	changedRules := make([]model.Rule, 0)
+
+	rulesMap := make(map[string]model.Rule)
+	for _, rule := range rules {
+		rulesMap[*rule.Id] = rule
 	}
-	sortRules(existingRules)
-	sortRules(rules)
+	existingRulesMap := make(map[string]model.Rule)
+	for _, rule := range existingRules {
+		existingRulesMap[*rule.Id] = rule
+	}
 
-	isEqual := true
-	// legacyRules means the rules that are not in the new rules, we should destroy them.
-	var legacyRules []model.Rule
-
-	diffIndex := len(existingRules) - len(rules)
-	if diffIndex != 0 {
-		isEqual = false
-		if diffIndex > 0 {
-			legacyRules = append(legacyRules, existingRules[diffIndex:]...)
+	for ruleId, rule := range rulesMap {
+		if existingRule, ok := existingRulesMap[ruleId]; ok {
+			if service.ruleCompareDetail(existingRule, rule) {
+				continue
+			}
 		}
-		return isEqual, legacyRules
+		changedRules = append(changedRules, rule)
 	}
-
-	isEqual = RulesEqualDetail(existingRules, rules)
-	return isEqual, legacyRules
-}
-
-func RulesEqualDetail(existingRules []model.Rule, rules []model.Rule) bool {
-	isEqual := true
-	for i := 0; i < len(rules); i++ {
-		r1, _ := simplifyRule(&existingRules[i]).GetDataValue__()
-		r2, _ := simplifyRule(&rules[i]).GetDataValue__()
-		var dataValueToJSONEncoder = cleanjson.NewDataValueToJsonEncoder()
-		s1, _ := dataValueToJSONEncoder.Encode(r1)
-		s2, _ := dataValueToJSONEncoder.Encode(r2)
-		if s1 != s2 {
-			log.Info("", "nsx rule", s1, "k8s rule", s2)
-			isEqual = false
-			break
+	for ruleId, existingRule := range existingRulesMap {
+		if _, ok := rulesMap[ruleId]; !ok {
+			staleRules = append(staleRules, existingRule)
 		}
 	}
-	return isEqual
+	log.V(1).Info("rules differ", "stale rules", staleRules, "changed rules", changedRules)
+	return changedRules, staleRules
 }
 
-func GroupsEqual(existingGroups []model.Group, groups []model.Group) bool {
-	var sortGroups = func(groups []model.Group) {
-		sort.Slice(groups, func(i, j int) bool {
-			return *(groups[i].Id) > *(groups[j].Id)
-		})
+func (service *SecurityPolicyService) ruleCompareDetail(existingRule model.Rule, rule model.Rule) bool {
+	r1, _ := service.simplifyRule(&existingRule).GetDataValue__()
+	r2, _ := service.simplifyRule(&rule).GetDataValue__()
+	var dataValueToJSONEncoder = cleanjson.NewDataValueToJsonEncoder()
+	s1, _ := dataValueToJSONEncoder.Encode(r1)
+	s2, _ := dataValueToJSONEncoder.Encode(r2)
+	if s1 != s2 {
+		log.Info("rules differ", "current NSX rule", s1, "desired NSX rule", s2)
+		return false
+	}
+	return true
+}
+
+func (service *SecurityPolicyService) groupsCompare(existingGroups []model.Group, groups []model.Group) ([]model.Group, []model.Group) {
+	staleGroups := make([]model.Group, 0)
+	changedGroups := make([]model.Group, 0)
+
+	groupsMap := make(map[string]model.Group)
+	for _, group := range groups {
+		groupsMap[*group.Id] = group
+	}
+	existingGroupsMap := make(map[string]model.Group)
+	for _, group := range existingGroups {
+		existingGroupsMap[*group.Id] = group
 	}
 	sortGroups(existingGroups)
 	sortGroups(groups)
 
-	if len(existingGroups) != len(groups) {
-		return false
-	}
-	for i := 0; i < len(existingGroups); i++ {
-		g1, _ := json.Marshal(simplifyGroup(&existingGroups[i]))
-		g2, _ := json.Marshal(simplifyGroup(&groups[i]))
-		if string(g1) != string(g2) {
-			return false
+	for groupId, group := range groupsMap {
+		if existingGroup, ok := existingGroupsMap[groupId]; ok {
+			if service.groupCompareDetail(existingGroup, group) {
+				continue
+			}
 		}
+		changedGroups = append(changedGroups, group)
+	}
+	for groupId, existingGroup := range existingGroupsMap {
+		if _, ok := groupsMap[groupId]; !ok {
+			staleGroups = append(staleGroups, existingGroup)
+		}
+	}
+	log.V(1).Info("groups differ", "stale groups", staleGroups, "changed groups", changedGroups)
+	return changedGroups, staleGroups
+}
+
+func (service *SecurityPolicyService) groupCompareDetail(existingGroup model.Group, group model.Group) bool {
+	g1, _ := json.Marshal(service.simplifyGroup(&existingGroup))
+	g2, _ := json.Marshal(service.simplifyGroup(&group))
+	if string(g1) != string(g2) {
+		log.V(1).Info("groups differ", "current NSX group", service.simplifyGroup(&existingGroup), "desired NSX group", service.simplifyGroup(&group))
+		return false
 	}
 	return true
 }
@@ -88,7 +106,7 @@ func GroupsEqual(existingGroups []model.Group, groups []model.Group) bool {
 // simplifySecurityPolicy is used for abstract the key properties from model.SecurityPolicy, so that
 // some unnecessary properties like "CreateTime" can be ignored then we can compare the existing one
 // and desired one to determine whether the NSX-T resource should be updated.
-func simplifySecurityPolicy(sp *model.SecurityPolicy) *model.SecurityPolicy {
+func (service *SecurityPolicyService) simplifySecurityPolicy(sp *model.SecurityPolicy) *model.SecurityPolicy {
 	return &model.SecurityPolicy{
 		Id:             sp.Id,
 		DisplayName:    sp.DisplayName,
@@ -98,7 +116,7 @@ func simplifySecurityPolicy(sp *model.SecurityPolicy) *model.SecurityPolicy {
 	}
 }
 
-func simplifyRule(rule *model.Rule) *model.Rule {
+func (service *SecurityPolicyService) simplifyRule(rule *model.Rule) *model.Rule {
 	return &model.Rule{
 		DisplayName:       rule.DisplayName,
 		Id:                rule.Id,
@@ -114,7 +132,7 @@ func simplifyRule(rule *model.Rule) *model.Rule {
 	}
 }
 
-func simplifyGroup(group *model.Group) *model.Group {
+func (service *SecurityPolicyService) simplifyGroup(group *model.Group) *model.Group {
 	return &model.Group{
 		Id:          group.Id,
 		DisplayName: group.Id,
