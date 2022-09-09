@@ -306,4 +306,8 @@ Limitations of SecurityPolicy CR:
    to support 'In' with limited counts.
 7. Max IP elements in one security policy: 4000
 8. Priority range of SecurityPolicy CR is [0, 1000].
+<<<<<<< HEAD
 9. Support named port for Pod, but not for VM.
+=======
+9. Do not support named port.
+>>>>>>> fbfd66b (Fix bug which can't delete legacy rules and groups)
