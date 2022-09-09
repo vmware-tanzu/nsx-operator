@@ -90,9 +90,8 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 
 		if err := r.Service.CreateOrUpdateSecurityPolicy(obj); err != nil {
-			log.Error(err, "failed to create or update security policy CR", "securitypolicy", req.NamespacedName)
-			r.setSecurityPolicyReadyStatusFalse(&ctx, obj, &err)
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, METRIC_RES_TYPE)
+			log.Error(err, "operate failed, would retry exponentially", "securitypolicy", req.NamespacedName)
+			updateFail(r, &ctx, obj, &err)
 			return ctrl.Result{}, err
 		}
 		r.setSecurityPolicyReadyStatusTrue(&ctx, obj)
