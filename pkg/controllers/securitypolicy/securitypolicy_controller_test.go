@@ -48,9 +48,9 @@ func TestSecurityPolicyController_updateSecurityPolicyStatusConditions(t *testin
 	dummySP := &v1alpha1.SecurityPolicy{}
 
 	// Case: Security Policy CRD creation fails
-	newConditions := []v1alpha1.SecurityPolicyCondition{
+	newConditions := []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.SecurityPolicyReady,
+			Type:    v1alpha1.Ready,
 			Status:  v1.ConditionFalse,
 			Message: "NSX Security Policy could not be created/updated",
 			Reason:  "Error occurred while processing the Security Policy CRD. Please check the config and try again",
@@ -63,9 +63,9 @@ func TestSecurityPolicyController_updateSecurityPolicyStatusConditions(t *testin
 	}
 
 	// Case: No change in Conditions
-	dummyConditions := []v1alpha1.SecurityPolicyCondition{
+	dummyConditions := []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.SecurityPolicyReady,
+			Type:    v1alpha1.Ready,
 			Status:  v1.ConditionFalse,
 			Message: "NSX Security Policy could not be created/updated",
 			Reason:  "Error occurred while processing the Security Policy CRD. Please check the config and try again",
@@ -73,9 +73,9 @@ func TestSecurityPolicyController_updateSecurityPolicyStatusConditions(t *testin
 	}
 	dummySP.Status.Conditions = dummyConditions
 
-	newConditions = []v1alpha1.SecurityPolicyCondition{
+	newConditions = []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.SecurityPolicyReady,
+			Type:    v1alpha1.Ready,
 			Status:  v1.ConditionFalse,
 			Message: "NSX Security Policy could not be created/updated",
 			Reason:  "Error occurred while processing the Security Policy CRD. Please check the config and try again",
@@ -89,9 +89,9 @@ func TestSecurityPolicyController_updateSecurityPolicyStatusConditions(t *testin
 	}
 
 	// Case: SP CRD Creation succeeds after failure
-	newConditions = []v1alpha1.SecurityPolicyCondition{
+	newConditions = []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.SecurityPolicyReady,
+			Type:    v1alpha1.Ready,
 			Status:  v1.ConditionTrue,
 			Message: "NSX Security Policy has been successfully created/updated",
 			Reason:  "NSX API returned 200 response code for PATCH",
@@ -105,9 +105,9 @@ func TestSecurityPolicyController_updateSecurityPolicyStatusConditions(t *testin
 	}
 
 	// Case: SP CRD Update failed
-	newConditions = []v1alpha1.SecurityPolicyCondition{
+	newConditions = []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.SecurityPolicyReady,
+			Type:    v1alpha1.Ready,
 			Status:  v1.ConditionFalse,
 			Message: "NSX Security Policy could not be created/updated",
 			Reason:  "Error occurred while processing the Security Policy CRD. Please check the config and try again",
