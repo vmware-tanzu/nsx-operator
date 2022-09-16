@@ -159,9 +159,9 @@ func (r *SecurityPolicyReconciler) isCRRequestedInSystemNamespace(ctx *context.C
 }
 
 func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusTrue(ctx *context.Context, sec_policy *v1alpha1.SecurityPolicy) {
-	newConditions := []v1alpha1.SecurityPolicyCondition{
+	newConditions := []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.SecurityPolicyReady,
+			Type:    v1alpha1.Ready,
 			Status:  v1.ConditionTrue,
 			Message: "NSX Security Policy has been successfully created/updated",
 			Reason:  "NSX API returned 200 response code for PATCH",
@@ -171,9 +171,9 @@ func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusTrue(ctx *context
 }
 
 func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusFalse(ctx *context.Context, sec_policy *v1alpha1.SecurityPolicy, err *error) {
-	newConditions := []v1alpha1.SecurityPolicyCondition{
+	newConditions := []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.SecurityPolicyReady,
+			Type:    v1alpha1.Ready,
 			Status:  v1.ConditionFalse,
 			Message: "NSX Security Policy could not be created/updated",
 			Reason:  fmt.Sprintf("Error occurred while processing the Security Policy CR. Please check the config and try again. Error: %v", *err),
@@ -182,7 +182,7 @@ func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusFalse(ctx *contex
 	r.updateSecurityPolicyStatusConditions(ctx, sec_policy, newConditions)
 }
 
-func (r *SecurityPolicyReconciler) updateSecurityPolicyStatusConditions(ctx *context.Context, sec_policy *v1alpha1.SecurityPolicy, newConditions []v1alpha1.SecurityPolicyCondition) {
+func (r *SecurityPolicyReconciler) updateSecurityPolicyStatusConditions(ctx *context.Context, sec_policy *v1alpha1.SecurityPolicy, newConditions []v1alpha1.Condition) {
 	conditionsUpdated := false
 	for i := range newConditions {
 		if r.mergeSecurityPolicyStatusCondition(ctx, sec_policy, &newConditions[i]) {
@@ -195,7 +195,7 @@ func (r *SecurityPolicyReconciler) updateSecurityPolicyStatusConditions(ctx *con
 	}
 }
 
-func (r *SecurityPolicyReconciler) mergeSecurityPolicyStatusCondition(ctx *context.Context, sec_policy *v1alpha1.SecurityPolicy, newCondition *v1alpha1.SecurityPolicyCondition) bool {
+func (r *SecurityPolicyReconciler) mergeSecurityPolicyStatusCondition(ctx *context.Context, sec_policy *v1alpha1.SecurityPolicy, newCondition *v1alpha1.Condition) bool {
 	matchedCondition := getExistingConditionOfType(newCondition.Type, sec_policy.Status.Conditions)
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {
@@ -213,7 +213,7 @@ func (r *SecurityPolicyReconciler) mergeSecurityPolicyStatusCondition(ctx *conte
 	return true
 }
 
-func getExistingConditionOfType(conditionType v1alpha1.SecurityPolicyStatusCondition, existingConditions []v1alpha1.SecurityPolicyCondition) *v1alpha1.SecurityPolicyCondition {
+func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingConditions []v1alpha1.Condition) *v1alpha1.Condition {
 	for i := range existingConditions {
 		if existingConditions[i].Type == conditionType {
 			return &existingConditions[i]
