@@ -8,61 +8,53 @@ import (
 	"os"
 	"time"
 
-	zapu "go.uber.org/zap"
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers"
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services"
 )
 
 var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
+	scheme                 = runtime.NewScheme()
+	probeAddr, metricsAddr string
+	log                    logr.Logger
+	cf                     *config.NSXOperatorConfig
 )
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
-}
 
-func main() {
-	var probeAddr, metricsAddr string
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8384", "The address the probe endpoint binds to.")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8093", "The address the metrics endpoint binds to.")
 	config.AddFlags()
 	flag.Parse()
+	var err error
 
-	cf, err := config.NewNSXOperatorConfigFromFile()
+	cf, err = config.NewNSXOperatorConfigFromFile()
 	if err != nil {
 		os.Exit(1)
 	}
-
-	zpLevel := zapu.InfoLevel
-	if cf.Debug == true {
-		zpLevel = zapu.DebugLevel
-	}
-
-	opts := zap.Options{
-		Development: true,
-		Level:       zapu.NewAtomicLevelAt(zpLevel),
-	}
-	opts.BindFlags(flag.CommandLine)
-	logf.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
-
-	setupLog.Info("starting NSX Operator")
+	logf.SetLogger(logger.ZapLogger(cf))
+	log = logf.Log.WithName("main")
 	if metrics.AreMetricsExposed(cf) {
 		metrics.InitializePrometheusMetrics()
 	}
+}
+
+func main() {
+	log.Info("starting NSX Operator")
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -71,7 +63,7 @@ func main() {
 		LeaderElectionID:       "nsx-operator",
 	})
 	if err != nil {
-		setupLog.Error(err, "unable to start manager")
+		log.Error(err, "failed to init manager")
 		os.Exit(1)
 	}
 	securityReconcile := &controllers.SecurityPolicyReconciler{
@@ -80,18 +72,18 @@ func main() {
 	}
 	nsxClient := nsx.GetClient(cf)
 	if nsxClient == nil {
-		setupLog.Error(err, "unable to get nsx client")
+		log.Error(err, "unable to get nsx client")
 		os.Exit(1)
 	}
 	if service, err := services.InitializeSecurityPolicy(nsxClient, cf); err != nil {
-		setupLog.Error(err, "unable to init securitypolicy service", "controller", "SecurityPolicy")
+		log.Error(err, "unable to initialize securitypolicy service", "controller", "SecurityPolicy")
 		os.Exit(1)
 	} else {
 		securityReconcile.Service = service
 	}
 
 	if err = securityReconcile.Start(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "SecurityPolicy")
+		log.Error(err, "unable to create controller", "controller", "SecurityPolicy")
 		os.Exit(1)
 	}
 
@@ -100,17 +92,17 @@ func main() {
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", nsxClient.NSXChecker.CheckNSXHealth); err != nil {
-		setupLog.Error(err, "unable to set up health check")
+		log.Error(err, "unable to set up health check")
 		os.Exit(1)
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
+		log.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
 
-	setupLog.Info("starting manager")
+	log.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "problem running manager")
+		log.Error(err, "failed to start manager")
 		os.Exit(1)
 	}
 }
@@ -130,7 +122,7 @@ func getHealthStatus(nsxClient *nsx.Client) error {
 func updateHealthMetricsPeriodically(nsxClient *nsx.Client) {
 	for {
 		if err := getHealthStatus(nsxClient); err != nil {
-			setupLog.Error(err, "Failed to fetch health info")
+			log.Error(err, "failed to fetch health info")
 		}
 		select {
 		case <-time.After(metrics.ScrapeTimeout):
