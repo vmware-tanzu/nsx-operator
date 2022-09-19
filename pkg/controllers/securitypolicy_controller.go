@@ -228,14 +228,14 @@ func (r *SecurityPolicyReconciler) Start(mgr ctrl.Manager) error {
 // cancel is used to break the loop during UT
 func (r *SecurityPolicyReconciler) GarbageCollector(cancel chan bool, timeout time.Duration) {
 	ctx := context.Background()
-	log.V(1).Info("garbage collector started")
+	log.Info("garbage collector started")
 	for {
 		select {
 		case <-cancel:
 			return
 		case <-time.After(timeout):
 		}
-		nsxPolicySet := r.Service.ListSecurityPolicy()
+		nsxPolicySet := r.Service.ListSecurityPolicyID()
 		if len(nsxPolicySet) == 0 {
 			continue
 		}

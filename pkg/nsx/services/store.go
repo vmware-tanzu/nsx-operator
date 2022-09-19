@@ -76,7 +76,8 @@ func keyFunc(obj interface{}) (string, error) {
 
 func queryTagCondition(service *SecurityPolicyService) string {
 	return fmt.Sprintf("tags.scope:%s AND tags.tag:%s",
-		strings.Replace(util.TagScopeCluster, "/", "\\/", -1), strings.Replace(service.NSXClient.NsxConfig.Cluster, ":", "\\:", -1))
+		strings.Replace(util.TagScopeCluster, "/", "\\/", -1),
+		strings.Replace(service.NSXClient.NsxConfig.Cluster, ":", "\\:", -1))
 }
 
 func queryGroup(service *SecurityPolicyService, wg *sync.WaitGroup, fatalErrors chan error) {
@@ -102,7 +103,10 @@ func queryGroup(service *SecurityPolicyService, wg *sync.WaitGroup, fatalErrors 
 				}
 			}
 			c, _ := a.(model.Group)
-			service.GroupStore.Add(c)
+			err2 := service.GroupStore.Add(c)
+			if err2 != nil {
+				fatalErrors <- err2
+			}
 		}
 		cursor = response.Cursor
 		if cursor == nil {
@@ -138,7 +142,10 @@ func querySecurityPolicy(service *SecurityPolicyService, wg *sync.WaitGroup, fat
 				}
 			}
 			c, _ := a.(model.SecurityPolicy)
-			service.SecurityPolicyStore.Add(c)
+			err2 := service.SecurityPolicyStore.Add(c)
+			if err2 != nil {
+				fatalErrors <- err2
+			}
 		}
 		cursor = response.Cursor
 		if cursor == nil {
@@ -174,7 +181,10 @@ func queryRule(service *SecurityPolicyService, wg *sync.WaitGroup, fatalErrors c
 				}
 			}
 			c, _ := a.(model.Rule)
-			service.RuleStore.Add(c)
+			err2 := service.RuleStore.Add(c)
+			if err2 != nil {
+				fatalErrors <- err2
+			}
 		}
 		cursor = response.Cursor
 		if cursor == nil {

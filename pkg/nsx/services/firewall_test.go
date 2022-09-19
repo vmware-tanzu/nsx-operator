@@ -263,7 +263,7 @@ var (
 	}
 )
 
-func TestListSecurityPolicy(t *testing.T) {
+func TestListSecurityPolicyID(t *testing.T) {
 	groupStore := cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
 	policyStore := cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
 	ruleStore := cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
@@ -326,9 +326,9 @@ func TestListSecurityPolicy(t *testing.T) {
 				SecurityPolicyStore: tt.fields.SecurityPolicyStore,
 				RuleStore:           tt.fields.RuleStore,
 			}
-			got := service.ListSecurityPolicy()
+			got := service.ListSecurityPolicyID()
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("SecurityPolicyService.ListSecurityPolicy() = %v, want %v", got, tt.want)
+				t.Errorf("SecurityPolicyService.ListSecurityPolicyID() = %v, want %v", got, tt.want)
 			}
 		})
 	}

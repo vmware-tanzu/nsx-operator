@@ -89,7 +89,6 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 	} else {
 		finalSecurityPolicy = changedSecurityPolicy
 	}
-	service.SecurityPolicyStore.Delete(nsxSecurityPolicy)
 
 	finalRules := make([]model.Rule, 0)
 	for i := len(staleRules) - 1; i >= 0; i-- { // Don't use range, it would copy the element
@@ -100,7 +99,7 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 	finalSecurityPolicy.Rules = finalRules
 
 	finalGroups := make([]model.Group, 0)
-	for i := len(staleRules) - 1; i >= 0; i-- { // Don't use range, it would copy the element
+	for i := len(staleGroups) - 1; i >= 0; i-- { // Don't use range, it would copy the element
 		staleGroups[i].MarkedForDelete = &MarkedForDelete // InfraClient need this field to delete the group
 	}
 	finalGroups = append(finalGroups, staleGroups...)
@@ -115,7 +114,6 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 	}
 	err = service.NSXClient.InfraClient.Patch(*infraSecurityPolicy, &EnforceRevisionCheckParam)
 	if err != nil {
-		log.Error(err, "failed to find NSX Rules from store", "UID", string(obj.UID))
 		return err
 	}
 
@@ -156,16 +154,29 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}) erro
 			return err
 		}
 	case types.UID:
-		// We can delete the security policy directly by its ID,
-		// It's related resources will be deleted automatically,
-		// So don't worry we have no nsxGroups and nsxRules.
 		indexResults, err := service.SecurityPolicyStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(sp))
 		if err != nil {
 			log.Error(err, "failed to get security policy", "UID", string(sp))
 			return err
 		}
+		if len(indexResults) == 0 {
+			log.Info("did not get security policy with index", "UID", string(sp))
+			return nil
+		}
 		t := indexResults[0].(model.SecurityPolicy)
 		nsxSecurityPolicy = &t
+
+		indexResults, err = service.GroupStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(sp))
+		if err != nil {
+			log.Error(err, "failed to get groups", "UID", string(sp))
+			return err
+		}
+		if len(indexResults) == 0 {
+			log.Info("did not get groups with index", "UID", string(sp))
+		}
+		for _, group := range indexResults {
+			*nsxGroups = append(*nsxGroups, group.(model.Group))
+		}
 	}
 
 	nsxSecurityPolicy.MarkedForDelete = &MarkedForDelete
@@ -204,7 +215,7 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}) erro
 	return nil
 }
 
-func (service *SecurityPolicyService) ListSecurityPolicy() sets.String {
+func (service *SecurityPolicyService) ListSecurityPolicyID() sets.String {
 	groups := service.GroupStore.ListIndexFuncValues(util.TagScopeSecurityPolicyCRUID)
 	groupSet := sets.NewString()
 	for _, group := range groups {

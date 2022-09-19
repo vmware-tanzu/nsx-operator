@@ -239,7 +239,7 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 			},
 		},
 	}
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicy", func(_ *services.SecurityPolicyService) sets.String {
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *services.SecurityPolicyService) sets.String {
 		a := sets.NewString()
 		a.Insert("1234")
 		a.Insert("2345")
@@ -275,7 +275,7 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has same item as k8s cache
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicy", func(_ *services.SecurityPolicyService) sets.String {
+	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *services.SecurityPolicyService) sets.String {
 		a := sets.NewString()
 		a.Insert("1234")
 		return a
@@ -299,7 +299,7 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has no item
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicy", func(_ *services.SecurityPolicyService) sets.String {
+	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *services.SecurityPolicyService) sets.String {
 		a := sets.NewString()
 		return a
 	})
