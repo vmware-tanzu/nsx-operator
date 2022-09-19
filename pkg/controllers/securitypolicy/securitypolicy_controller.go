@@ -32,6 +32,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services"
+	util2 "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -124,6 +125,11 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 
 		if err := r.Service.CreateOrUpdateSecurityPolicy(obj); err != nil {
+			if errors.As(err, &util2.RestrictionError{}) {
+				log.Error(err, err.Error(), "securitypolicy", req.NamespacedName)
+				updateFail(r, &ctx, obj, &err)
+				return resultNormal, nil
+			}
 			log.Error(err, "operate failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 			updateFail(r, &ctx, obj, &err)
 			return resultRequeue, err

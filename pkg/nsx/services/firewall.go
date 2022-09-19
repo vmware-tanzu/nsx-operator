@@ -1,6 +1,8 @@
 package services
 
 import (
+	"sync"
+
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
@@ -13,18 +15,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
-)
-
-const (
-	MaxCriteriaExpressions      int = 5
-	MaxMixedCriteriaExpressions int = 15
-	MaxCriteria                 int = 5
-	MaxTotalCriteriaExpressions int = 35
-	MaxMatchExpressionInOp      int = 1
-	MaxMatchExpressionIn        int = 1
-	MaxMatchExpressionInValues  int = 5
-	ClusterTagCount             int = 1
-	ProjectTagCount             int = 1
 )
 
 var (
@@ -46,6 +36,39 @@ type SecurityPolicyService struct {
 	GroupStore          cache.Indexer
 	SecurityPolicyStore cache.Indexer
 	RuleStore           cache.Indexer
+}
+
+// InitializeSecurityPolicy sync NSX resources
+func InitializeSecurityPolicy(NSXClient *nsx.Client, cf *config.NSXOperatorConfig) (*SecurityPolicyService, error) {
+	wg := sync.WaitGroup{}
+	wgDone := make(chan bool)
+	fatalErrors := make(chan error)
+
+	wg.Add(3)
+	service := &SecurityPolicyService{NSXClient: NSXClient}
+	service.GroupStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeNamespace: namespaceIndexFunc, util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
+	service.SecurityPolicyStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
+	service.RuleStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
+	service.NSXConfig = cf
+
+	go queryGroup(service, &wg, fatalErrors)
+	go querySecurityPolicy(service, &wg, fatalErrors)
+	go queryRule(service, &wg, fatalErrors)
+	go func() {
+
+		wg.Wait()
+		close(wgDone)
+	}()
+
+	select {
+	case <-wgDone:
+		break
+	case err := <-fatalErrors:
+		close(fatalErrors)
+		return service, err
+	}
+
+	return service, nil
 }
 
 func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1.SecurityPolicy) error {
@@ -112,7 +135,7 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 	finalSecurityPolicy.Rules = finalRules
 
 	finalGroups := make([]model.Group, 0)
-	for i := len(staleRules) - 1; i >= 0; i-- { // Don't use range, it would copy the element
+	for i := len(staleGroups) - 1; i >= 0; i-- { // Don't use range, it would copy the element
 		staleGroups[i].MarkedForDelete = &MarkedForDelete // InfraClient need this field to delete the group
 	}
 	finalGroups = append(finalGroups, staleGroups...)
@@ -130,7 +153,7 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 		return err
 	}
 
-	// The method Operate*CR* knows how to deal with CR, if there is MarkedForDelete, then delete it from store,
+	// The steps below know how to deal with CR, if there is MarkedForDelete, then delete it from store,
 	// otherwise add or update it to store.
 	if changedSecurityPolicy != nil {
 		err = service.OperateSecurityStore(&finalSecurityPolicyCopy)
@@ -167,16 +190,29 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}) erro
 			return err
 		}
 	case types.UID:
-		// We can delete the security policy directly by its ID,
-		// It's related resources will be deleted automatically,
-		// So don't worry we have no nsxGroups and nsxRules.
 		indexResults, err := service.SecurityPolicyStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(sp))
 		if err != nil {
 			log.Error(err, "failed to get security policy", "UID", string(sp))
 			return err
 		}
+		if len(indexResults) == 0 {
+			log.Info("did not get security policy with index", "UID", string(sp))
+			return nil
+		}
 		t := indexResults[0].(model.SecurityPolicy)
 		nsxSecurityPolicy = &t
+
+		indexResults, err = service.GroupStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(sp))
+		if err != nil {
+			log.Error(err, "failed to get groups", "UID", string(sp))
+			return err
+		}
+		if len(indexResults) == 0 {
+			log.Info("did not get groups with index", "UID", string(sp))
+		}
+		for _, group := range indexResults {
+			*nsxGroups = append(*nsxGroups, group.(model.Group))
+		}
 	}
 
 	nsxSecurityPolicy.MarkedForDelete = &MarkedForDelete
@@ -194,8 +230,7 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}) erro
 	if error != nil {
 		return error
 	}
-	enforceRevisionCheckParam := false
-	err := service.NSXClient.InfraClient.Patch(*infraSecurityPolicy, &enforceRevisionCheckParam)
+	err := service.NSXClient.InfraClient.Patch(*infraSecurityPolicy, &EnforceRevisionCheckParam)
 	if err != nil {
 		return err
 	}
