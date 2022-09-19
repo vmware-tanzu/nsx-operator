@@ -16,13 +16,12 @@ import (
 	"sync"
 	"time"
 
+	policyclient "github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
-
-	policyclient "github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
 )
 
 // ClusterHealth indicates cluster status.
@@ -262,17 +261,21 @@ func (nsxVersion *NsxVersion) Validate() error {
 	return nil
 }
 
-func (nsxVersion *NsxVersion) featureSupported(feature string) bool {
+func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 	var minVersion [3]int64
 	validFeature := false
 	switch feature {
-	case FeatureSecurityPolicy:
+	case SecurityPolicy:
 		minVersion = nsx320Version
 		validFeature = true
-	case FeatureNSXServiceAccount:
+	case ServiceAccount:
+		minVersion = nsx401Version
+		validFeature = true
+	case StaticRoute:
 		minVersion = nsx401Version
 		validFeature = true
 	}
+
 	if validFeature {
 		// only compared major.minor.patch
 		// NodeVersion should have at least three sections
