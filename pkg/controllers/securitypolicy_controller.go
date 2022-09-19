@@ -12,7 +12,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -40,7 +40,7 @@ const (
 // SecurityPolicyReconciler reconciles a SecurityPolicy object
 type SecurityPolicyReconciler struct {
 	Client  client.Client
-	Scheme  *runtime.Scheme
+	Scheme  *apimachineryruntime.Scheme
 	Service *services.SecurityPolicyService
 }
 
