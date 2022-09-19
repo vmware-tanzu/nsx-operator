@@ -153,16 +153,29 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}) erro
 			return err
 		}
 	case types.UID:
-		// We can delete the security policy directly by its ID,
-		// It's related resources will be deleted automatically,
-		// So don't worry we have no nsxGroups and nsxRules.
 		indexResults, err := service.SecurityPolicyStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(sp))
 		if err != nil {
 			log.Error(err, "failed to get security policy", "UID", string(sp))
 			return err
 		}
+		if len(indexResults) == 0 {
+			log.Info("did not get security policy with index", "UID", string(sp))
+			return nil
+		}
 		t := indexResults[0].(model.SecurityPolicy)
 		nsxSecurityPolicy = &t
+
+		indexResults, err = service.GroupStore.ByIndex(util.TagScopeSecurityPolicyCRUID, string(sp))
+		if err != nil {
+			log.Error(err, "failed to get groups", "UID", string(sp))
+			return err
+		}
+		if len(indexResults) == 0 {
+			log.Info("did not get groups with index", "UID", string(sp))
+		}
+		for _, group := range indexResults {
+			*nsxGroups = append(*nsxGroups, group.(model.Group))
+		}
 	}
 
 	nsxSecurityPolicy.MarkedForDelete = &MarkedForDelete
