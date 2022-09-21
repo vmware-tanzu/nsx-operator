@@ -110,30 +110,8 @@ type SecurityPolicyPort struct {
 // SecurityPolicyStatus defines the observed state of SecurityPolicy.
 type SecurityPolicyStatus struct {
 	// Conditions describes current state of security policy.
-	Conditions []SecurityPolicyCondition `json:"conditions"`
+	Conditions []Condition `json:"conditions"`
 }
-
-// SecurityPolicyCondition defines the condition of policy.
-type SecurityPolicyCondition struct {
-	// Type defines the type of condition.
-	Type SecurityPolicyStatusCondition `json:"type"`
-	// Status shows the status of condition, one of True or False.
-	Status corev1.ConditionStatus `json:"status"`
-	// Reason shows a brief reason of condition.
-	Reason string `json:"reason,omitempty"`
-	// Message shows a human readable message about the condition.
-	Message string `json:"message,omitempty"`
-}
-
-// SecurityPolicyStatusCondition is an aspect of operator state.
-type SecurityPolicyStatusCondition string
-
-const (
-	// Ready indicates whether NSX Operator was able to successfully make
-	// a PATCH call to create/update Security Policy on NSX associated
-	// with the user created Security Policy CR
-	SecurityPolicyReady SecurityPolicyStatusCondition = "Ready"
-)
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
