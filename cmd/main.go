@@ -18,11 +18,12 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
+	securitypolicycontrollers "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 )
 
 var (
@@ -52,6 +53,24 @@ func init() {
 	}
 }
 
+func StartSecurityPolicyController(mgr ctrl.Manager, service common.Service) {
+	securityReconcile := &securitypolicycontrollers.Reconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+	if securityService, err := securitypolicy.InitializeSecurityPolicy(service); err != nil {
+		log.Error(err, "failed to initialize securitypolicy service", "controller", "SecurityPolicy")
+		os.Exit(1)
+	} else {
+		securityService.Client = mgr.GetClient()
+		securityReconcile.Service = securityService
+	}
+	if err := securityReconcile.Start(mgr); err != nil {
+		log.Error(err, "failed to create controller", "controller", "SecurityPolicy")
+		os.Exit(1)
+	}
+}
+
 func main() {
 	log.Info("starting NSX Operator")
 
@@ -65,27 +84,22 @@ func main() {
 		log.Error(err, "failed to init manager")
 		os.Exit(1)
 	}
-	securityReconcile := &securitypolicy.SecurityPolicyReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}
+
+	// nsxClient is used to interact with NSX API.
 	nsxClient := nsx.GetClient(cf)
 	if nsxClient == nil {
 		log.Error(err, "failed to get nsx client")
 		os.Exit(1)
 	}
-	if service, err := services.InitializeSecurityPolicy(nsxClient, cf); err != nil {
-		log.Error(err, "failed to initialize securitypolicy service", "controller", "SecurityPolicy")
-		os.Exit(1)
-	} else {
-		service.Client = mgr.GetClient()
-		securityReconcile.Service = service
+
+	//  Embed the common service to sub-services.
+	var service = common.Service{
+		NSXConfig: cf,
+		NSXClient: nsxClient,
 	}
 
-	if err = securityReconcile.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "SecurityPolicy")
-		os.Exit(1)
-	}
+	// Start the security policy controller.
+	StartSecurityPolicyController(mgr, service)
 
 	if metrics.AreMetricsExposed(cf) {
 		go updateHealthMetricsPeriodically(nsxClient)

@@ -30,12 +30,13 @@ import (
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
-func NewFakeSecurityPolicyReconciler() *SecurityPolicyReconciler {
-	return &SecurityPolicyReconciler{
+func NewFakeSecurityPolicyReconciler() *Reconciler {
+	return &Reconciler{
 		Client:  fake.NewClientBuilder().Build(),
 		Scheme:  fake.NewClientBuilder().Build().Scheme(),
 		Service: nil,
@@ -124,15 +125,16 @@ func TestSecurityPolicyController_updateSecurityPolicyStatusConditions(t *testin
 func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
-	service := &services.SecurityPolicyService{
-		NSXClient: &nsx.Client{},
-		NSXConfig: &config.NSXOperatorConfig{
-			NsxConfig: &config.NsxConfig{
-				EnforcementPoint: "vmc-enforcementpoint",
+	service := &securitypolicy.Service{
+		Service: common.Service{NSXClient: &nsx.Client{},
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+				},
 			},
 		},
 	}
-	r := &SecurityPolicyReconciler{
+	r := &Reconciler{
 		Client:  k8sClient,
 		Scheme:  nil,
 		Service: service,
@@ -153,7 +155,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	})
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
 	patches := gomonkey.ApplyFunc(updateFail,
-		func(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
+		func(r *Reconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
 		})
 	defer patches.Reset()
 	result, ret := r.Reconcile(ctx, req)
@@ -169,7 +171,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 
 	// DeletionTimestamp.IsZero = ture, client update failed
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
-	err = errors.New("Update failed")
+	err = errors.New("update failed")
 	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(err)
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, err, ret)
@@ -181,7 +183,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		v1sp.ObjectMeta.DeletionTimestamp = &time
 		return nil
 	})
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *services.SecurityPolicyService, UID types.UID) error {
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.Service, UID types.UID) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
@@ -198,7 +200,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		v1sp.Finalizers = []string{util.FinalizerName}
 		return nil
 	})
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *services.SecurityPolicyService, UID types.UID) error {
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.Service, UID types.UID) error {
 		return nil
 	})
 	_, ret = r.Reconcile(ctx, req)
@@ -208,20 +210,22 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 
 func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 	// gc collect item "2345", local store has more item than k8s cache
-	service := &services.SecurityPolicyService{
-		NSXConfig: &config.NSXOperatorConfig{
-			NsxConfig: &config.NsxConfig{
-				EnforcementPoint: "vmc-enforcementpoint",
+	service := &securitypolicy.Service{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+				},
 			},
 		},
 	}
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *services.SecurityPolicyService) sets.String {
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *securitypolicy.Service) sets.String {
 		a := sets.NewString()
 		a.Insert("1234")
 		a.Insert("2345")
 		return a
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *services.SecurityPolicyService, UID types.UID) error {
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.Service, UID types.UID) error {
 		assert.Equal(t, string(UID), "2345")
 		return nil
 	})
@@ -230,7 +234,7 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
 
-	r := &SecurityPolicyReconciler{
+	r := &Reconciler{
 		Client:  k8sClient,
 		Scheme:  nil,
 		Service: service,
@@ -252,12 +256,12 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has same item as k8s cache
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *services.SecurityPolicyService) sets.String {
+	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *securitypolicy.Service) sets.String {
 		a := sets.NewString()
 		a.Insert("1234")
 		return a
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *services.SecurityPolicyService, UID types.UID) error {
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.Service, UID types.UID) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
@@ -276,11 +280,11 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has no item
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *services.SecurityPolicyService) sets.String {
+	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *securitypolicy.Service) sets.String {
 		a := sets.NewString()
 		return a
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *services.SecurityPolicyService, UID types.UID) error {
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.Service, UID types.UID) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
@@ -295,9 +299,9 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 func TestSecurityPolicyReconciler_Start(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
-	service := &services.SecurityPolicyService{}
+	service := &securitypolicy.Service{}
 	var mgr controllerruntime.Manager
-	r := &SecurityPolicyReconciler{
+	r := &Reconciler{
 		Client:  k8sClient,
 		Scheme:  nil,
 		Service: service,

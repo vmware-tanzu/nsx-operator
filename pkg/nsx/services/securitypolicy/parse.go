@@ -1,4 +1,4 @@
-package services
+package securitypolicy
 
 import (
 	"errors"
@@ -35,12 +35,4 @@ func getRuleDirection(rule *v1alpha1.SecurityPolicyRule) (string, error) {
 		return "OUT", nil
 	}
 	return "", errors.New("invalid rule direction")
-}
-
-func getCluster(service *SecurityPolicyService) string {
-	return service.NSXConfig.Cluster
-}
-
-func getDomain(service *SecurityPolicyService) string {
-	return getCluster(service)
 }

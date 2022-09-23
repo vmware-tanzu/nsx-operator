@@ -1,4 +1,4 @@
-package services
+package securitypolicy
 
 import (
 	"fmt"
@@ -57,9 +57,9 @@ func TestSecurityPolicyService_buildRuleIPGroup(t *testing.T) {
 		Tags:        []model.Tag{{Scope: nil, Tag: nil}},
 	}
 
-	var s *SecurityPolicyService
+	var s *Service
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(s), "BuildPeerTags",
-		func(s *SecurityPolicyService, v *v1alpha1.SecurityPolicy, p *[]v1alpha1.SecurityPolicyPeer, i int) []model.Tag {
+		func(s *Service, v *v1alpha1.SecurityPolicy, p *[]v1alpha1.SecurityPolicyPeer, i int) []model.Tag {
 			peerTags := []model.Tag{
 				{Scope: nil, Tag: nil},
 			}
@@ -80,7 +80,7 @@ func TestSecurityPolicyService_buildRuleIPGroup(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := &SecurityPolicyService{}
+			service := &Service{}
 			assert.Equalf(t, tt.want, service.buildRuleIPSetGroup(sp, &r, tt.args.obj, tt.args.ips, 0), "buildRuleIPSetGroup(%v, %v)",
 				tt.args.obj, tt.args.ips)
 		})
@@ -177,9 +177,9 @@ func TestSecurityPolicyService_getPodSelectors(t *testing.T) {
 
 	labelSelector, _ := v1.LabelSelectorAsSelector(podSelector)
 	labelSelector2, _ := v1.LabelSelectorAsSelector(podSelector2)
-	var s *SecurityPolicyService
+	var s *Service
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(s), "ResolveNamespace",
-		func(s *SecurityPolicyService, _ *v1.LabelSelector) (*v12.NamespaceList, error) {
+		func(s *Service, _ *v1.LabelSelector) (*v12.NamespaceList, error) {
 			ns := v12.NamespaceList{
 				Items: []v12.Namespace{
 					{
@@ -215,7 +215,7 @@ func TestSecurityPolicyService_getPodSelectors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := &SecurityPolicyService{}
+			service := &Service{}
 			got, _ := service.getPodSelectors(tt.args.obj, tt.args.rule)
 			assert.Equalf(t, tt.want, got[0], "getPodSelector(%v, %v)", tt.args.obj, tt.args.rule)
 		})

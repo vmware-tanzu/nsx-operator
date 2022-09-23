@@ -1,4 +1,4 @@
-package services
+package securitypolicy
 
 import (
 	"context"
@@ -20,7 +20,7 @@ import (
 
 // When a rule contains named port, we should consider whether the rule should be expanded to
 // multiple rules if the port name maps to conflicted port numbers.
-func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
+func (service *Service) expandRule(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
 	ruleIdx int) ([]*model.Group, []*model.Rule, error) {
 	var nsxRules []*model.Rule
 	var nsxGroups []*model.Group
@@ -43,7 +43,7 @@ func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, r
 	return nsxGroups, nsxRules, nil
 }
 
-func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
+func (service *Service) expandRuleByPort(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
 	ruleIdx int, port v1alpha1.SecurityPolicyPort, portIdx int) ([]*model.Group, []*model.Rule, error) {
 	var err error
 	var startPort []util2.PortAddress
@@ -92,7 +92,7 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 	return nsxGroups, nsxRules, nil
 }
 
-func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int,
+func (service *Service) expandRuleByService(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int,
 	port v1alpha1.SecurityPolicyPort, portIdx int, portAddress util2.PortAddress, portAddressIdx int) ([]*model.Group, *model.Rule, error) {
 	var nsxGroups []*model.Group
 
@@ -111,7 +111,7 @@ func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.Security
 		ruleIPSetGroup := service.buildRuleIPSetGroup(obj, rule, nsxRule, portAddress.IPs, ruleIdx)
 		groupPath := fmt.Sprintf(
 			"/infra/domains/%s/groups/%s",
-			getDomain(service),
+			service.NSXConfig.Cluster,
 			*ruleIPSetGroup.Id,
 		)
 		nsxRule.DestinationGroups = []string{groupPath}
@@ -124,7 +124,7 @@ func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.Security
 
 // Resolve a named port to port number by rule and policy selector.
 // e.g. "http" -> [{"80":['1.1.1.1', '2.2.2.2']}, {"443":['3.3.3.3']}]
-func (service *SecurityPolicyService) resolveNamedPort(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
+func (service *Service) resolveNamedPort(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
 	spPort v1alpha1.SecurityPolicyPort) ([]util2.PortAddress, error) {
 	var portAddress []util2.PortAddress
 
@@ -158,7 +158,7 @@ func (service *SecurityPolicyService) resolveNamedPort(obj *v1alpha1.SecurityPol
 }
 
 // Check port name and protocol, only when the pod is really running, and it does have effective ip.
-func (service *SecurityPolicyService) resolvePodPort(pod v1.Pod, spPort *v1alpha1.SecurityPolicyPort) ([]util2.PortAddress, error) {
+func (service *Service) resolvePodPort(pod v1.Pod, spPort *v1alpha1.SecurityPolicyPort) ([]util2.PortAddress, error) {
 	var addr []util2.PortAddress
 	for _, container := range pod.Spec.Containers {
 		for _, port := range container.Ports {
@@ -185,7 +185,7 @@ func (service *SecurityPolicyService) resolvePodPort(pod v1.Pod, spPort *v1alpha
 }
 
 // Build an ip set group for NSX.
-func (service *SecurityPolicyService) buildRuleIPSetGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleModel *model.Rule,
+func (service *Service) buildRuleIPSetGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleModel *model.Rule,
 	ips []string, ruleIdx int) *model.Group {
 	ipSetGroup := model.Group{}
 
@@ -216,7 +216,7 @@ func (service *SecurityPolicyService) buildRuleIPSetGroup(obj *v1alpha1.Security
 // the destination pod selector and namespaces. Named port only cares about the destination
 // pod selector, so we use policy's AppliedTo or rule's AppliedTo when "IN" direction and
 // rule's DestinationSelector when "OUT" direction.
-func (service *SecurityPolicyService) getPodSelectors(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule) ([]client.ListOptions, error) {
+func (service *Service) getPodSelectors(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule) ([]client.ListOptions, error) {
 	// Port means the target of traffic, so we should select the pod by rule direction,
 	// as for IN direction, we judge by rule's or policy's AppliedTo,
 	// as for OUT direction, then by rule's destinations.
@@ -307,7 +307,7 @@ func (service *SecurityPolicyService) getPodSelectors(obj *v1alpha1.SecurityPoli
 }
 
 // ResolveNamespace Get namespace name when the rule has namespace selector.
-func (service *SecurityPolicyService) ResolveNamespace(lbs *meta1.LabelSelector) (*v1.NamespaceList, error) {
+func (service *Service) ResolveNamespace(lbs *meta1.LabelSelector) (*v1.NamespaceList, error) {
 	ctx := context.Background()
 	nsList := &v1.NamespaceList{}
 	nsOptions := &client.ListOptions{}

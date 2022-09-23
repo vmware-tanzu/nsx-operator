@@ -1,4 +1,4 @@
-package services
+package securitypolicy
 
 import (
 	"encoding/json"
@@ -9,7 +9,7 @@ import (
 	util2 "github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
-func SecurityPolicyEqual(existingSecurityPolicy *model.SecurityPolicy, securityPolicy *model.SecurityPolicy) bool {
+func PolicyEqual(existingSecurityPolicy *model.SecurityPolicy, securityPolicy *model.SecurityPolicy) bool {
 	s1, _ := json.Marshal(simplifySecurityPolicy(existingSecurityPolicy))
 	s2, _ := json.Marshal(simplifySecurityPolicy(securityPolicy))
 	if string(s1) == string(s2) {
