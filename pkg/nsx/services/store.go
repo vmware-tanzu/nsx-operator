@@ -42,6 +42,19 @@ func securityPolicyCRUIDScopeIndexFunc(obj interface{}) ([]string, error) {
 	return res, nil
 }
 
+func ruleCRUIDScopeIndexFunc(obj interface{}) ([]string, error) {
+	res := make([]string, 0, 5)
+	switch v := obj.(type) {
+	case model.Group:
+		for _, tag := range v.Tags {
+			if *tag.Scope == util.TagScopeRuleID {
+				res = append(res, *tag.Tag)
+			}
+		}
+	}
+	return res, nil
+}
+
 func appendTag(v []model.Tag, res []string) []string {
 	for _, tag := range v {
 		if *tag.Scope == util.TagScopeSecurityPolicyCRUID {

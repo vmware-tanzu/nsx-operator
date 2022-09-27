@@ -2,10 +2,11 @@ package services
 
 import (
 	"encoding/json"
-	"sort"
 
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data/serializers/cleanjson"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+
+	util2 "github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func SecurityPolicyEqual(existingSecurityPolicy *model.SecurityPolicy, securityPolicy *model.SecurityPolicy) bool {
@@ -14,32 +15,31 @@ func SecurityPolicyEqual(existingSecurityPolicy *model.SecurityPolicy, securityP
 	if string(s1) == string(s2) {
 		return true
 	}
-	log.Info("security policy diff", "nsx sp", s1, "k8s sp", s2)
+	log.V(1).Info(
+		"security policies differ",
+		"current NSX security policy", simplifySecurityPolicy(existingSecurityPolicy),
+		"desired NSX security policy", simplifySecurityPolicy(securityPolicy),
+	)
 	return false
 }
 
 func RulesEqual(existingRules []model.Rule, rules []model.Rule) (bool, []model.Rule) {
-	// sort the rules by id, otherwise expandRule may return different results, only the sequence of the
-	// rule is different, so sort by port number, and it avoids the needless updates.
-	var sortRules = func(rules []model.Rule) {
-		sort.Slice(rules, func(i, j int) bool {
-			return *(rules[i].Id) > *(rules[j].Id)
-		})
-	}
-	sortRules(existingRules)
-	sortRules(rules)
-
 	isEqual := true
-	// legacyRules means the rules that are not in the new rules, we should destroy them.
 	var legacyRules []model.Rule
+	var newRuleIds []string
+	for _, rule := range rules {
+		newRuleIds = append(newRuleIds, *rule.Id)
+	}
 
-	diffIndex := len(existingRules) - len(rules)
-	if diffIndex != 0 {
-		isEqual = false
-		if diffIndex > 0 {
-			legacyRules = append(legacyRules, existingRules[diffIndex:]...)
+	for _, existingRule := range existingRules {
+		if !util2.Contains(newRuleIds, *existingRule.Id) {
+			isEqual = false
+			legacyRules = append(legacyRules, existingRule)
 		}
-		return isEqual, legacyRules
+	}
+
+	if !isEqual || len(existingRules) != len(rules) {
+		return false, legacyRules
 	}
 
 	isEqual = RulesEqualDetail(existingRules, rules)
@@ -55,7 +55,11 @@ func RulesEqualDetail(existingRules []model.Rule, rules []model.Rule) bool {
 		s1, _ := dataValueToJSONEncoder.Encode(r1)
 		s2, _ := dataValueToJSONEncoder.Encode(r2)
 		if s1 != s2 {
-			log.Info("", "nsx rule", s1, "k8s rule", s2)
+			log.V(1).Info(
+				"rules differ",
+				"current NSX rule", simplifyRule(&existingRules[i]),
+				"desired NSX rule", simplifyRule(&rules[i]),
+			)
 			isEqual = false
 			break
 		}
@@ -63,26 +67,41 @@ func RulesEqualDetail(existingRules []model.Rule, rules []model.Rule) bool {
 	return isEqual
 }
 
-func GroupsEqual(existingGroups []model.Group, groups []model.Group) bool {
-	var sortGroups = func(groups []model.Group) {
-		sort.Slice(groups, func(i, j int) bool {
-			return *(groups[i].Id) > *(groups[j].Id)
-		})
+func GroupsEqual(existingGroups []model.Group, groups []model.Group) (bool, []model.Group) {
+	isEqual := true
+	var legacyGroups []model.Group
+	var newGroupIds []string
+	for _, group := range groups {
+		newGroupIds = append(newGroupIds, *group.Id)
 	}
-	sortGroups(existingGroups)
-	sortGroups(groups)
 
-	if len(existingGroups) != len(groups) {
-		return false
-	}
-	for i := 0; i < len(existingGroups); i++ {
-		g1, _ := json.Marshal(simplifyGroup(&existingGroups[i]))
-		g2, _ := json.Marshal(simplifyGroup(&groups[i]))
-		if string(g1) != string(g2) {
-			return false
+	for _, existingGroup := range existingGroups {
+		if !util2.Contains(newGroupIds, *existingGroup.Id) {
+			isEqual = false
+			legacyGroups = append(legacyGroups, existingGroup)
 		}
 	}
-	return true
+
+	if !isEqual || len(existingGroups) != len(groups) {
+		return false, legacyGroups
+	}
+
+	for i := 0; i < len(groups); i++ {
+		g1, _ := simplifyGroup(&existingGroups[i]).GetDataValue__()
+		g2, _ := simplifyGroup(&groups[i]).GetDataValue__()
+		var dataValueToJSONEncoder = cleanjson.NewDataValueToJsonEncoder()
+		s1, _ := dataValueToJSONEncoder.Encode(g1)
+		s2, _ := dataValueToJSONEncoder.Encode(g2)
+		if s1 != s2 {
+			log.V(1).Info(
+				"groups differ",
+				"current NSX group", simplifyGroup(&existingGroups[i]),
+				"desired NSX group", simplifyGroup(&groups[i]),
+			)
+			return false, legacyGroups
+		}
+	}
+	return true, nil
 }
 
 // simplifySecurityPolicy is used for abstract the key properties from model.SecurityPolicy, so that
@@ -119,5 +138,6 @@ func simplifyGroup(group *model.Group) *model.Group {
 		Id:          group.Id,
 		DisplayName: group.Id,
 		Tags:        group.Tags,
+		Expression:  group.Expression,
 	}
 }

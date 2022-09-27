@@ -41,8 +41,8 @@ func TestBuildSecurityPolicy(t *testing.T) {
 				SequenceNumber: &seq0,
 				Rules: []model.Rule{
 					{
-						DisplayName:       &ruleNameWithPodSelector,
-						Id:                &ruleID0,
+						DisplayName:       &ruleNameWithPodSelector00,
+						Id:                &ruleIDPort000,
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxDirectionIn,
 						Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_scope"},
@@ -50,12 +50,11 @@ func TestBuildSecurityPolicy(t *testing.T) {
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_src"},
 						Action:            &nsxActionAllow,
-						ServiceEntries:    []*data.StructValue{},
 						Tags:              basicTags,
 					},
 					{
-						DisplayName:       &ruleNameWithNsSelector,
-						Id:                &ruleID1,
+						DisplayName:       &ruleNameWithNsSelector00,
+						Id:                &ruleIDPort100,
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxDirectionIn,
 						Scope:             []string{"ANY"},
@@ -80,8 +79,8 @@ func TestBuildSecurityPolicy(t *testing.T) {
 				SequenceNumber: &seq0,
 				Rules: []model.Rule{
 					{
-						DisplayName:       &ruleNameWithVMSelector,
-						Id:                &ruleID0,
+						DisplayName:       &ruleNameWithVMSelector00,
+						Id:                &ruleIDPort000,
 						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_dst"},
 						Direction:         &nsxDirectionOut,
 						Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_scope"},
@@ -89,12 +88,11 @@ func TestBuildSecurityPolicy(t *testing.T) {
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
 						Action:            &nsxActionDrop,
-						ServiceEntries:    []*data.StructValue{},
 						Tags:              basicTags,
 					},
 					{
-						DisplayName:       &ruleNameWithNsSelector,
-						Id:                &ruleID1,
+						DisplayName:       &ruleNameWithNsSelector00,
+						Id:                &ruleIDPort100,
 						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidA_1_dst"},
 						Direction:         &nsxDirectionOut,
 						Scope:             []string{"ANY"},
@@ -102,13 +100,12 @@ func TestBuildSecurityPolicy(t *testing.T) {
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
 						Action:            &nsxActionDrop,
-						ServiceEntries:    []*data.StructValue{},
 						Tags:              basicTags,
 					},
 
 					{
-						DisplayName:       &ruleNameWithIpBlock,
-						Id:                &ruleID2,
+						DisplayName:       &ruleNameWithIpBlock00,
+						Id:                &ruleIDPort200,
 						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidA_2_dst"},
 						Direction:         &nsxDirectionOut,
 						Scope:             []string{"ANY"},
@@ -116,7 +113,6 @@ func TestBuildSecurityPolicy(t *testing.T) {
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
 						Action:            &nsxActionDrop,
-						ServiceEntries:    []*data.StructValue{},
 						Tags:              basicTags,
 					},
 				},
@@ -271,7 +267,7 @@ func TestBuildPeerTags(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expectedTags, service.buildPeerTags(tt.inputPolicy, &tt.inputPolicy.Spec.Rules[0].Sources, tt.inputIndex))
+			assert.Equal(t, tt.expectedTags, service.BuildPeerTags(tt.inputPolicy, &tt.inputPolicy.Spec.Rules[0].Sources, tt.inputIndex))
 		})
 	}
 }
@@ -406,7 +402,7 @@ func TestValidateSelectorExpressions(t *testing.T) {
 	assert.Equal(t, 2, totalCriteriaCount)
 	assert.Equal(t, 30, totalExprCount)
 
-	// Case: total count of expressions exceed NSX limit '15' in one criterion mixed criteria
+	// Case: total count of expressions exceed NSX limit '15' in one criterion with mixed member type
 	matchExpressionsCount = 13
 	_, _, err = service.validateSelectorExpressions(matchLabelsCount, matchExpressionsCount, opInValueCount, true)
 	assert.NotEqual(t, nil, err)
@@ -466,7 +462,7 @@ func TestValidateSelectorOpIn(t *testing.T) {
 	assert.NotEqual(t, nil, err)
 	assert.Equal(t, 6, opInValueCount)
 
-	// Case: matchLabels has duplication expression with match-expression operator 'In'
+	// Case: matchLabels has duplication expression with matchExpressions operator 'In'
 	matchLabels = make(map[string]string)
 	matchLabels["k1"] = "a5"
 	matchExpressions[0].Values = []string{
