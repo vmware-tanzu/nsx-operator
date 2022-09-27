@@ -170,7 +170,8 @@ func TestGroupsEqual(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expectedResult, GroupsEqual(tt.inputGroup1, tt.inputGroup2))
+			isEqual, _ := GroupsEqual(tt.inputGroup1, tt.inputGroup2)
+			assert.Equal(t, tt.expectedResult, isEqual)
 		},
 		)
 	}
