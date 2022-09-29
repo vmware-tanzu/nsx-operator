@@ -19,7 +19,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	"github.com/vmware-tanzu/nsx-operator/pkg/controllers"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -47,7 +47,7 @@ func init() {
 	if err != nil {
 		os.Exit(1)
 	}
-	logf.SetLogger(logger.ZapLogger(cf))
+	logf.SetLogger(logger.ZapLogger())
 	log = logf.Log.WithName("main")
 	if metrics.AreMetricsExposed(cf) {
 		metrics.InitializePrometheusMetrics()
@@ -67,24 +67,25 @@ func main() {
 		log.Error(err, "failed to init manager")
 		os.Exit(1)
 	}
-	securityReconcile := &controllers.SecurityPolicyReconciler{
+	securityReconcile := &securitypolicy.SecurityPolicyReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
 	nsxClient := nsx.GetClient(cf)
 	if nsxClient == nil {
-		log.Error(err, "unable to get nsx client")
+		log.Error(err, "failed to get nsx client")
 		os.Exit(1)
 	}
 	if service, err := services.InitializeSecurityPolicy(nsxClient, cf); err != nil {
-		log.Error(err, "unable to initialize securitypolicy service", "controller", "SecurityPolicy")
+		log.Error(err, "failed to initialize securitypolicy service", "controller", "SecurityPolicy")
 		os.Exit(1)
 	} else {
+		service.Client = mgr.GetClient()
 		securityReconcile.Service = service
 	}
 
 	if err = securityReconcile.Start(mgr); err != nil {
-		log.Error(err, "unable to create controller", "controller", "SecurityPolicy")
+		log.Error(err, "failed to create controller", "controller", "SecurityPolicy")
 		os.Exit(1)
 	}
 
@@ -93,11 +94,11 @@ func main() {
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", nsxClient.NSXChecker.CheckNSXHealth); err != nil {
-		log.Error(err, "unable to set up health check")
+		log.Error(err, "failed to set up health check")
 		os.Exit(1)
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		log.Error(err, "unable to set up ready check")
+		log.Error(err, "failed to set up ready check")
 		os.Exit(1)
 	}
 
