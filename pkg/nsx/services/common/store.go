@@ -31,6 +31,8 @@ type Store interface {
 	// Operate is the method to create, update and delete the resource to the store based
 	// on its tag MarkedForDelete.
 	Operate(obj interface{}) error
+	// IsPolicyAPI returns if it is Policy resource
+	IsPolicyAPI() bool
 }
 
 // ResourceStore is the store for resource, embed it to subclass
@@ -93,6 +95,10 @@ func (resourceStore *ResourceStore) GetByIndex(index string, value string) []int
 	return indexResults
 }
 
+func (resourceStore *ResourceStore) IsPolicyAPI() bool {
+	return true
+}
+
 func TransError(err error) error {
 	switch err.(type) {
 	case vapierrors.ServiceUnavailable:
@@ -126,8 +132,24 @@ func (service *Service) InitializeResourceStore(wg *sync.WaitGroup, fatalErrors 
 	queryParam := resourceParam + " AND " + tagParam
 
 	var cursor *string = nil
+	count := uint64(0)
 	for {
-		response, err := service.NSXClient.QueryClient.List(queryParam, cursor, nil, Int64(PageSize), nil, nil)
+		var results []*data.StructValue
+		var resultCount *int64
+		var err error
+		if store.IsPolicyAPI() {
+			response, searchEerr := service.NSXClient.QueryClient.List(queryParam, cursor, nil, Int64(PageSize), nil, nil)
+			results = response.Results
+			cursor = response.Cursor
+			resultCount = response.ResultCount
+			err = searchEerr
+		} else {
+			response, searchEerr := service.NSXClient.MPQueryClient.List(queryParam, cursor, nil, Int64(PageSize), nil, nil)
+			results = response.Results
+			cursor = response.Cursor
+			resultCount = response.ResultCount
+			err = searchEerr
+		}
 		err = TransError(err)
 		if _, ok := err.(nsxutil.PageMaxError); ok == true {
 			DecrementPageSize(Int64(PageSize))
@@ -136,19 +158,20 @@ func (service *Service) InitializeResourceStore(wg *sync.WaitGroup, fatalErrors 
 		if err != nil {
 			fatalErrors <- err
 		}
-		for _, entity := range response.Results {
+		for _, entity := range results {
 			err = store.TransResourceToStore(entity)
 			if err != nil {
 				fatalErrors <- err
 			}
+			count++
 		}
-		cursor = response.Cursor
 		if cursor == nil {
 			break
 		}
 		c, _ := strconv.Atoi(*cursor)
-		if int64(c) >= *response.ResultCount {
+		if int64(c) >= *resultCount {
 			break
 		}
 	}
+	log.Info("initialized store", "resourceType", resourceTypeValue, "count", count)
 }

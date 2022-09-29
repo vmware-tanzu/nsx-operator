@@ -39,11 +39,13 @@ github.com/TaoZou1/vsphere-automation-sdk-go/runtime v0.5.2 h1:RgDmwSyqCOfMAGTfI
 github.com/TaoZou1/vsphere-automation-sdk-go/runtime v0.5.2/go.mod h1:GqC85noyNzapJN4vIAO9jJ1EKVo3+jCW4/2VTaMvuSg=
 github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt v0.9.3 h1:u7Qr1LRqz98ouREoRE5rZA5O4l8TtMG3NYkrZFYigBc=
 github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt v0.9.3/go.mod h1:9iS9n04yKlWA4AoVU6GpvMcFB7inP1D7kMyZb5RQVdM=
+github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt-mp v0.3.1-0.20221020082725-84e89979deb6 h1:sFObhyzxRrFCQvvZgVbWwAGyxUvhlom14Axv0Cjix90=
+github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt-mp v0.3.1-0.20221020082725-84e89979deb6/go.mod h1:75a9Rt4zCs3FA+pFi5HIMdNvl+5AHUDMCNblLZiErg4=
 github.com/a8m/tree v0.0.0-20210115125333-10a5fd5b637d/go.mod h1:FSdwKX97koS5efgm8WevNf7XS3PqtyFkKDDXrz778cg=
 github.com/agiledragon/gomonkey v2.0.2+incompatible h1:eXKi9/piiC3cjJD1658mEE2o3NjkJ5vDLgYjCQu0Xlw=
 github.com/agiledragon/gomonkey v2.0.2+incompatible/go.mod h1:2NGfXu1a80LLr2cmWXGBDaHEjb1idR6+FVlX5T3D9hw=
-github.com/agiledragon/gomonkey/v2 v2.4.0 h1:YDQJYiSQ8o78dCMXehU1E4F/Kh4jPX+MV+/iK/yfL7s=
-github.com/agiledragon/gomonkey/v2 v2.4.0/go.mod h1:ap1AmDzcVOAz1YpeJ3TCzIgstoaWLA6jbbgxfB4w2iY=
+github.com/agiledragon/gomonkey/v2 v2.9.0 h1:PDiKKybR596O6FHW+RVSG0Z7uGCBNbmbUXh3uCNQ7Hc=
+github.com/agiledragon/gomonkey/v2 v2.9.0/go.mod h1:ap1AmDzcVOAz1YpeJ3TCzIgstoaWLA6jbbgxfB4w2iY=
 github.com/alecthomas/template v0.0.0-20160405071501-a0175ee3bccc/go.mod h1:LOuyumcjzFXgccqObfd/Ljyb9UuFJ6TxHnclSeseNhc=
 github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751/go.mod h1:LOuyumcjzFXgccqObfd/Ljyb9UuFJ6TxHnclSeseNhc=
 github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=
