@@ -90,9 +90,8 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 
 		if err := r.Service.CreateOrUpdateSecurityPolicy(obj); err != nil {
-			log.Error(err, "failed to create or update security policy CR", "securitypolicy", req.NamespacedName)
-			r.setSecurityPolicyReadyStatusFalse(&ctx, obj, &err)
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, METRIC_RES_TYPE)
+			log.Error(err, "operate failed, would retry exponentially", "securitypolicy", req.NamespacedName)
+			updateFail(r, &ctx, obj, &err)
 			return ctrl.Result{}, err
 		}
 		r.setSecurityPolicyReadyStatusTrue(&ctx, obj)
@@ -229,14 +228,14 @@ func (r *SecurityPolicyReconciler) Start(mgr ctrl.Manager) error {
 // cancel is used to break the loop during UT
 func (r *SecurityPolicyReconciler) GarbageCollector(cancel chan bool, timeout time.Duration) {
 	ctx := context.Background()
-	log.V(1).Info("garbage collector started")
+	log.Info("garbage collector started")
 	for {
 		select {
 		case <-cancel:
 			return
 		case <-time.After(timeout):
 		}
-		nsxPolicySet := r.Service.ListSecurityPolicy()
+		nsxPolicySet := r.Service.ListSecurityPolicyID()
 		if len(nsxPolicySet) == 0 {
 			continue
 		}
