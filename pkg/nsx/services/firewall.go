@@ -110,7 +110,7 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 	finalSecurityPolicy.Rules = finalRules
 
 	finalGroups := make([]model.Group, 0)
-	for i := len(staleRules) - 1; i >= 0; i-- { // Don't use range, it would copy the element
+	for i := len(staleGroups) - 1; i >= 0; i-- { // Don't use range, it would copy the element
 		staleGroups[i].MarkedForDelete = &MarkedForDelete // InfraClient need this field to delete the group
 	}
 	finalGroups = append(finalGroups, staleGroups...)

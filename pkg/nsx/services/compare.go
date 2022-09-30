@@ -73,8 +73,6 @@ func (service *SecurityPolicyService) groupsCompare(existingGroups []model.Group
 	for _, group := range existingGroups {
 		existingGroupsMap[*group.Id] = group
 	}
-	sortGroups(existingGroups)
-	sortGroups(groups)
 
 	for groupId, group := range groupsMap {
 		if existingGroup, ok := existingGroupsMap[groupId]; ok {
