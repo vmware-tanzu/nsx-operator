@@ -8,10 +8,7 @@ import (
 
 	"github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"k8s.io/client-go/tools/cache"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	util2 "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -281,37 +278,4 @@ func (service *SecurityPolicyService) OperateGroupStore(gs *[]model.Group) error
 		}
 	}
 	return nil
-}
-
-// InitializeSecurityPolicy sync NSX resources
-func InitializeSecurityPolicy(NSXClient *nsx.Client, cf *config.NSXOperatorConfig) (*SecurityPolicyService, error) {
-	wg := sync.WaitGroup{}
-	wgDone := make(chan bool)
-	fatalErrors := make(chan error)
-
-	wg.Add(3)
-	service := &SecurityPolicyService{NSXClient: NSXClient}
-	service.GroupStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeNamespace: namespaceIndexFunc, util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
-	service.SecurityPolicyStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
-	service.RuleStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
-	service.NSXConfig = cf
-
-	go queryGroup(service, &wg, fatalErrors)
-	go querySecurityPolicy(service, &wg, fatalErrors)
-	go queryRule(service, &wg, fatalErrors)
-	go func() {
-
-		wg.Wait()
-		close(wgDone)
-	}()
-
-	select {
-	case <-wgDone:
-		break
-	case err := <-fatalErrors:
-		close(fatalErrors)
-		return service, err
-	}
-
-	return service, nil
 }

@@ -1,6 +1,8 @@
 package services
 
 import (
+	"sync"
+
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
@@ -32,6 +34,39 @@ type SecurityPolicyService struct {
 	GroupStore          cache.Indexer
 	SecurityPolicyStore cache.Indexer
 	RuleStore           cache.Indexer
+}
+
+// InitializeSecurityPolicy sync NSX resources
+func InitializeSecurityPolicy(NSXClient *nsx.Client, cf *config.NSXOperatorConfig) (*SecurityPolicyService, error) {
+	wg := sync.WaitGroup{}
+	wgDone := make(chan bool)
+	fatalErrors := make(chan error)
+
+	wg.Add(3)
+	service := &SecurityPolicyService{NSXClient: NSXClient}
+	service.GroupStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeNamespace: namespaceIndexFunc, util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
+	service.SecurityPolicyStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
+	service.RuleStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
+	service.NSXConfig = cf
+
+	go queryGroup(service, &wg, fatalErrors)
+	go querySecurityPolicy(service, &wg, fatalErrors)
+	go queryRule(service, &wg, fatalErrors)
+	go func() {
+
+		wg.Wait()
+		close(wgDone)
+	}()
+
+	select {
+	case <-wgDone:
+		break
+	case err := <-fatalErrors:
+		close(fatalErrors)
+		return service, err
+	}
+
+	return service, nil
 }
 
 func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1.SecurityPolicy) error {
@@ -116,7 +151,7 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 		return err
 	}
 
-	// The method Operate*CR* knows how to deal with CR, if there is MarkedForDelete, then delete it from store,
+	// The steps below know how to deal with CR, if there is MarkedForDelete, then delete it from store,
 	// otherwise add or update it to store.
 	if changedSecurityPolicy != nil {
 		err = service.OperateSecurityStore(&finalSecurityPolicyCopy)
@@ -193,8 +228,7 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}) erro
 	if error != nil {
 		return error
 	}
-	enforceRevisionCheckParam := false
-	err := service.NSXClient.InfraClient.Patch(*infraSecurityPolicy, &enforceRevisionCheckParam)
+	err := service.NSXClient.InfraClient.Patch(*infraSecurityPolicy, &EnforceRevisionCheckParam)
 	if err != nil {
 		return err
 	}
