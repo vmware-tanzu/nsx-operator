@@ -1,4 +1,4 @@
-package services
+package securitypolicy
 
 import (
 	"reflect"
@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/agiledragon/gomonkey"
-	"github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -16,154 +15,23 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
-
-func Test_securityPolicyCRUIDScopeIndexFunc(t *testing.T) {
-	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_cr_uid"
-	m := model.Group{
-		Id:   &mId,
-		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-	}
-	s := model.SecurityPolicy{
-		Id:   &mId,
-		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-	}
-	r := model.Rule{
-		Id:   &mId,
-		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-	}
-	type args struct {
-		obj interface{}
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    []string
-		wantErr bool
-	}{
-		{"1", args{obj: m}, []string{"11111"}, false},
-		{"2", args{obj: s}, []string{"11111"}, false},
-		{"3", args{obj: r}, []string{"11111"}, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := securityPolicyCRUIDScopeIndexFunc(tt.args.obj)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("securityPolicyCRUIDScopeIndexFunc() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("securityPolicyCRUIDScopeIndexFunc() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func Test_appendTag(t *testing.T) {
-	mTag, mScope := "11111", "nsx-op/security_policy_cr_uid"
-	mTag2, mScope2 := "11111", "nsx"
-	tags := []model.Tag{{Scope: &mScope, Tag: &mTag}}
-	tags2 := []model.Tag{{Scope: &mScope2, Tag: &mTag2}}
-	res := []string{}
-	res2 := []string{}
-	type args struct {
-		v   []model.Tag
-		res []string
-	}
-	tests := []struct {
-		name string
-		args args
-		want []string
-	}{
-		{"1", args{v: tags, res: res}, []string{"11111"}},
-		{"1", args{v: tags2, res: res2}, []string{}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := appendTag(tt.args.v, tt.args.res); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("appendTag() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func Test_namespaceIndexFunc(t *testing.T) {
-	mId, mTag, mScope := "11111", "11111", "nsx-op/namespace"
-	m := model.Group{
-		Id:   &mId,
-		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-	}
-	type args struct {
-		obj interface{}
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    []string
-		wantErr bool
-	}{
-		{"1", args{obj: m}, []string{"11111"}, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := namespaceIndexFunc(tt.args.obj)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("namespaceIndexFunc() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("namespaceIndexFunc() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func Test_keyFunc(t *testing.T) {
-	Id := "11111"
-	g := model.Group{Id: &Id}
-	s := model.SecurityPolicy{Id: &Id}
-	r := model.Rule{Id: &Id}
-	o := model.UserInfo{}
-	type args struct {
-		obj interface{}
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    string
-		wantErr bool
-	}{
-		{"1", args{obj: g}, Id, false},
-		{"2", args{obj: s}, Id, false},
-		{"3", args{obj: r}, Id, false},
-		{"4", args{obj: o}, "", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := keyFunc(tt.args.obj)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("keyFunc() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("keyFunc() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
 
 func Test_queryTagCondition(t *testing.T) {
 	config2 := nsx.NewConfig("1.1.1.1", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config2)
 	rc, _ := cluster.NewRestConnector()
 	service = &SecurityPolicyService{
-		NSXClient: &nsx.Client{
-			QueryClient:   &fakeQueryClient{},
-			RestConnector: rc,
-			NsxConfig: &config.NSXOperatorConfig{
-				CoeConfig: &config.CoeConfig{
-					Cluster: "k8scl-one:test",
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				QueryClient:   &fakeQueryClient{},
+				RestConnector: rc,
+				NsxConfig: &config.NSXOperatorConfig{
+					CoeConfig: &config.CoeConfig{
+						Cluster: "k8scl-one:test",
+					},
 				},
 			},
 		},
@@ -208,14 +76,15 @@ func Test_queryGroup(t *testing.T) {
 	cluster, _ := nsx.NewCluster(config)
 	rc, _ := cluster.NewRestConnector()
 	service = &SecurityPolicyService{
-		NSXClient: &nsx.Client{
-			QueryClient:   &fakeQueryClient{},
-			RestConnector: rc,
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				QueryClient:   &fakeQueryClient{},
+				RestConnector: rc,
+			},
 		},
 		GroupStore: cache.NewIndexer(keyFunc2,
 			cache.Indexers{
-				util.TagScopeNamespace:           namespaceIndexFunc,
-				util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc,
+				util.TagScopeSecurityPolicyCRUID: common.IndexFunc(util.TagScopeSecurityPolicyCRUID),
 			}),
 	}
 
@@ -249,14 +118,15 @@ func Test_querySecurityPolicy(t *testing.T) {
 	cluster, _ := nsx.NewCluster(config)
 	rc, _ := cluster.NewRestConnector()
 	service = &SecurityPolicyService{
-		NSXClient: &nsx.Client{
-			QueryClient:   &fakeQueryClient{},
-			RestConnector: rc,
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				QueryClient:   &fakeQueryClient{},
+				RestConnector: rc,
+			},
 		},
 		SecurityPolicyStore: cache.NewIndexer(keyFunc2,
 			cache.Indexers{
-				util.TagScopeNamespace:           namespaceIndexFunc,
-				util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc,
+				util.TagScopeSecurityPolicyCRUID: common.IndexFunc(util.TagScopeSecurityPolicyCRUID),
 			}),
 	}
 
@@ -290,14 +160,15 @@ func Test_queryRule(t *testing.T) {
 	cluster, _ := nsx.NewCluster(config)
 	rc, _ := cluster.NewRestConnector()
 	service = &SecurityPolicyService{
-		NSXClient: &nsx.Client{
-			QueryClient:   &fakeQueryClient{},
-			RestConnector: rc,
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				QueryClient:   &fakeQueryClient{},
+				RestConnector: rc,
+			},
 		},
 		RuleStore: cache.NewIndexer(keyFunc2,
 			cache.Indexers{
-				util.TagScopeNamespace:           namespaceIndexFunc,
-				util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc,
+				util.TagScopeSecurityPolicyCRUID: common.IndexFunc(util.TagScopeSecurityPolicyCRUID),
 			}),
 	}
 
@@ -326,64 +197,10 @@ func Test_queryRule(t *testing.T) {
 	queryRule(service, &wg, fatalErrors)
 }
 
-func Test_decrementPageSize(t *testing.T) {
-	p := int64(1000)
-	p1 := int64(100)
-	p2 := int64(0)
-	p3 := int64(-10)
-	type args struct {
-		pageSize *int64
-	}
-	tests := []struct {
-		name string
-		args args
-	}{
-		{"0", args{&p}},
-		{"1", args{&p1}},
-		{"2", args{&p2}},
-		{"3", args{&p3}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			decrementPageSize(tt.args.pageSize)
-		})
-	}
-}
-
-func Test_transError(t *testing.T) {
-	ec := int64(60576)
-	var tc *bindings.TypeConverter
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(tc), "ConvertToGolang",
-		func(_ *bindings.TypeConverter, d data.DataValue, b bindings.BindingType) (interface{}, []error) {
-			apiError := model.ApiError{ErrorCode: &ec}
-			var j interface{} = &apiError
-			return j, nil
-		})
-	defer patches.Reset()
-
-	type args struct {
-		err error
-	}
-	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
-	}{
-		{"1", args{err: errors.ServiceUnavailable{}}, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := transError(tt.args.err); (err != nil) != tt.wantErr {
-				t.Errorf("transError() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}
-
 func TestListSecurityPolicyID(t *testing.T) {
-	groupStore := cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
-	policyStore := cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
-	ruleStore := cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
+	groupStore := cache.NewIndexer(common.KeyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: common.IndexFunc(util.TagScopeSecurityPolicyCRUID)})
+	policyStore := cache.NewIndexer(common.KeyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: common.IndexFunc(util.TagScopeSecurityPolicyCRUID)})
+	ruleStore := cache.NewIndexer(common.KeyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: common.IndexFunc(util.TagScopeSecurityPolicyCRUID)})
 
 	group := model.Group{}
 	scope := "nsx-op/security_policy_cr_uid"
@@ -438,7 +255,7 @@ func TestListSecurityPolicyID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			service := &SecurityPolicyService{
-				NSXClient:           tt.fields.NSXClient,
+				Service:             common.Service{NSXClient: tt.fields.NSXClient},
 				GroupStore:          tt.fields.GroupStore,
 				SecurityPolicyStore: tt.fields.SecurityPolicyStore,
 				RuleStore:           tt.fields.RuleStore,

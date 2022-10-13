@@ -1,4 +1,4 @@
-package services
+package securitypolicy
 
 import (
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 func fakeService() *SecurityPolicyService {
@@ -18,18 +19,20 @@ func fakeService() *SecurityPolicyService {
 	cluster, _ := nsx.NewCluster(c)
 	rc, _ := cluster.NewRestConnector()
 	service = &SecurityPolicyService{
-		NSXClient: &nsx.Client{
-			QueryClient:   &fakeQueryClient{},
-			RestConnector: rc,
-			NsxConfig: &config.NSXOperatorConfig{
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				QueryClient:   &fakeQueryClient{},
+				RestConnector: rc,
+				NsxConfig: &config.NSXOperatorConfig{
+					CoeConfig: &config.CoeConfig{
+						Cluster: "k8scl-one:test",
+					},
+				},
+			},
+			NSXConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "k8scl-one:test",
 				},
-			},
-		},
-		NSXConfig: &config.NSXOperatorConfig{
-			CoeConfig: &config.CoeConfig{
-				Cluster: "k8scl-one:test",
 			},
 		},
 	}

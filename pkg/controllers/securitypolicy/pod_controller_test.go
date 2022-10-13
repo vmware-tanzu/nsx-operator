@@ -12,7 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
-	util2 "github.com/vmware-tanzu/nsx-operator/pkg/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func Test_getAllPodPortNames(t *testing.T) {
@@ -78,7 +78,7 @@ func TestEnqueueRequestForPod_Raw(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	patches2 := gomonkey.ApplyFunc(util2.IsSystemNamespace, func(client client.Client, ns string, obj *v1.Namespace,
+	patches2 := gomonkey.ApplyFunc(util.IsSystemNamespace, func(client client.Client, ns string, obj *v1.Namespace,
 	) (bool, error) {
 		return false, nil
 	})
@@ -121,7 +121,7 @@ func TestEnqueueRequestForPod_Create(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	patches2 := gomonkey.ApplyFunc(util2.IsSystemNamespace, func(client client.Client, ns string, obj *v1.Namespace,
+	patches2 := gomonkey.ApplyFunc(util.IsSystemNamespace, func(client client.Client, ns string, obj *v1.Namespace,
 	) (bool, error) {
 		return false, nil
 	})
@@ -169,7 +169,7 @@ func TestEnqueueRequestForPod_Update(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	patches2 := gomonkey.ApplyFunc(util2.IsSystemNamespace, func(client client.Client, ns string, obj *v1.Namespace,
+	patches2 := gomonkey.ApplyFunc(util.IsSystemNamespace, func(client client.Client, ns string, obj *v1.Namespace,
 	) (bool, error) {
 		return false, nil
 	})
@@ -212,7 +212,7 @@ func TestEnqueueRequestForPod_Delete(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	patches2 := gomonkey.ApplyFunc(util2.IsSystemNamespace, func(client client.Client, ns string, obj *v1.Namespace,
+	patches2 := gomonkey.ApplyFunc(util.IsSystemNamespace, func(client client.Client, ns string, obj *v1.Namespace,
 	) (bool, error) {
 		return false, nil
 	})
@@ -255,7 +255,7 @@ func TestEnqueueRequestForPod_Generic(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	patches2 := gomonkey.ApplyFunc(util2.IsSystemNamespace, func(client client.Client, ns string, obj *v1.Namespace,
+	patches2 := gomonkey.ApplyFunc(util.IsSystemNamespace, func(client client.Client, ns string, obj *v1.Namespace,
 	) (bool, error) {
 		return false, nil
 	})

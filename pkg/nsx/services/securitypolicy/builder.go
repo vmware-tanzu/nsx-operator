@@ -1,4 +1,4 @@
-package services
+package securitypolicy
 
 import (
 	"encoding/json"
@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	util2 "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -397,7 +397,7 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 	return nsxRules, ruleGroups, nil
 }
 
-func (service *SecurityPolicyService) buildRuleServiceEntries(port v1alpha1.SecurityPolicyPort, portAddress util2.PortAddress) *data.StructValue {
+func (service *SecurityPolicyService) buildRuleServiceEntries(port v1alpha1.SecurityPolicyPort, portAddress nsxutil.PortAddress) *data.StructValue {
 	var portRange string
 	sourcePorts := data.NewListValue()
 	destinationPorts := data.NewListValue()
