@@ -124,7 +124,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			return resultNormal, nil
 		}
 
-		if err := r.Service.OperateSecurityPolicy(obj); err != nil {
+		if err := r.Service.CreateOrUpdateSecurityPolicy(obj); err != nil {
 			if errors.As(err, &util2.RestrictionError{}) {
 				log.Error(err, err.Error(), "securitypolicy", req.NamespacedName)
 				updateFail(r, &ctx, obj, &err)
