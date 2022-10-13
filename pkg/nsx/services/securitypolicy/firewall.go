@@ -1,4 +1,4 @@
-package services
+package securitypolicy
 
 import (
 	"sync"
@@ -8,17 +8,15 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
-	log                       = logf.Log.WithName("service").WithName("firewall")
+	log                       = logger.Log
 	MarkedForDelete           = true
 	EnforceRevisionCheckParam = false
 	Converter                 *bindings.TypeConverter
@@ -30,32 +28,28 @@ func init() {
 }
 
 type SecurityPolicyService struct {
-	Client              client.Client
-	NSXClient           *nsx.Client
-	NSXConfig           *config.NSXOperatorConfig
+	common.Service
 	GroupStore          cache.Indexer
 	SecurityPolicyStore cache.Indexer
 	RuleStore           cache.Indexer
 }
 
 // InitializeSecurityPolicy sync NSX resources
-func InitializeSecurityPolicy(NSXClient *nsx.Client, cf *config.NSXOperatorConfig) (*SecurityPolicyService, error) {
+func InitializeSecurityPolicy(service common.Service) (*SecurityPolicyService, error) {
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
 
 	wg.Add(3)
-	service := &SecurityPolicyService{NSXClient: NSXClient}
-	service.GroupStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeNamespace: namespaceIndexFunc, util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
-	service.SecurityPolicyStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
-	service.RuleStore = cache.NewIndexer(keyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: securityPolicyCRUIDScopeIndexFunc})
-	service.NSXConfig = cf
+	securityPolicyService := &SecurityPolicyService{Service: service}
+	securityPolicyService.GroupStore = cache.NewIndexer(common.KeyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: common.IndexFunc(util.TagScopeSecurityPolicyCRUID)})
+	securityPolicyService.SecurityPolicyStore = cache.NewIndexer(common.KeyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: common.IndexFunc(util.TagScopeSecurityPolicyCRUID)})
+	securityPolicyService.RuleStore = cache.NewIndexer(common.KeyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: common.IndexFunc(util.TagScopeSecurityPolicyCRUID)})
 
-	go queryGroup(service, &wg, fatalErrors)
-	go querySecurityPolicy(service, &wg, fatalErrors)
-	go queryRule(service, &wg, fatalErrors)
+	go queryGroup(securityPolicyService, &wg, fatalErrors)
+	go querySecurityPolicy(securityPolicyService, &wg, fatalErrors)
+	go queryRule(securityPolicyService, &wg, fatalErrors)
 	go func() {
-
 		wg.Wait()
 		close(wgDone)
 	}()
@@ -65,10 +59,10 @@ func InitializeSecurityPolicy(NSXClient *nsx.Client, cf *config.NSXOperatorConfi
 		break
 	case err := <-fatalErrors:
 		close(fatalErrors)
-		return service, err
+		return securityPolicyService, err
 	}
 
-	return service, nil
+	return securityPolicyService, nil
 }
 
 func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1.SecurityPolicy) error {
