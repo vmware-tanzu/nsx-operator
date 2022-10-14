@@ -6,7 +6,6 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -40,7 +39,6 @@ func InitializeSecurityPolicy(service common.Service) (*SecurityPolicyService, e
 
 	securityPolicyService := &SecurityPolicyService{Service: service}
 
-	securityPolicyService.securityPolicyStore = &SecurityPolicyStore{ResourceStore: common.ResourceStore{
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc}),
 		BindingType: model.SecurityPolicyBindingType(),
 	}}
@@ -57,28 +55,6 @@ func InitializeSecurityPolicy(service common.Service) (*SecurityPolicyService, e
 	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, securityPolicyService.groupStore)
 	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, securityPolicyService.ruleStore)
 
-	go func() {
-		wg.Wait()
-		close(wgDone)
-	}()
-
-	select {
-	case <-wgDone:
-		break
-	case err := <-fatalErrors:
-		close(fatalErrors)
-		return securityPolicyService, err
-	}
-
-	return securityPolicyService, nil
-}
-
-func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1.SecurityPolicy) error {
-	nsxSecurityPolicy, nsxGroups, err := service.buildSecurityPolicy(obj)
-	if err != nil {
-		log.Error(err, "failed to build SecurityPolicy")
-		return err
-	}
 
 	if len(nsxSecurityPolicy.Scope) == 0 {
 		log.Info("SecurityPolicy has empty policy-level appliedTo")
@@ -158,6 +134,8 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 }
 
 func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}) error {
+	securityPolicyCacheIndexer := service.ResourceCacheMap[ResourceTypeSecurityPolicy]
+	groupCacheIndexer := service.ResourceCacheMap[ResourceTypeGroup]
 	var nsxSecurityPolicy *model.SecurityPolicy
 	g := make([]model.Group, 0)
 	nsxGroups := &g
@@ -222,6 +200,7 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}) erro
 }
 
 func (service *SecurityPolicyService) createOrUpdateGroups(nsxGroups []model.Group) error {
+	groupCacheIndexer := service.ResourceCacheMap[ResourceTypeGroup]
 	for _, group := range nsxGroups {
 		group.MarkedForDelete = nil
 		err := service.NSXClient.GroupClient.Patch(getDomain(service), *group.Id, group)

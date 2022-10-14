@@ -50,6 +50,8 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 	var nsxGroups []*model.Group
 	var nsxRules []*model.Rule
 
+	GroupStore := service.ResourceCacheMap[common.ResourceTypeGroup]
+
 	// Use PortAddress to handle normal port and named port, if it only contains int value Port,
 	// then it is a normal port. If it contains a list of IPs, it is a named port.
 	if port.Port.Type == intstr.Int {
