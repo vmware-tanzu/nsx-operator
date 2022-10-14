@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 func TestGroupsEqual(t *testing.T) {
@@ -73,9 +75,10 @@ func TestGroupsEqual(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e1, e2 := service.groupsCompare(tt.inputGroup1, tt.inputGroup2)
-			assert.Equal(t, tt.expectedResult1, e1)
-			assert.Equal(t, tt.expectedResult2, e2)
+			changed, stale := common.CompareResources(GroupsToComparable(tt.inputGroup1), GroupsToComparable(tt.inputGroup2))
+			changedGroups, staleGroups := ComparableToGroups(changed), ComparableToGroups(stale)
+			assert.Equal(t, tt.expectedResult1, changedGroups)
+			assert.Equal(t, tt.expectedResult2, staleGroups)
 		},
 		)
 	}
@@ -146,9 +149,10 @@ func TestRulesEqual(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e1, e2 := service.rulesCompare(tt.inputRule1, tt.inputRule2)
-			assert.Equal(t, tt.expectedResult1, e1)
-			assert.Equal(t, tt.expectedResult2, e2)
+			changed, stale := common.CompareResources(RulesToComparable(tt.inputRule1), RulesToComparable(tt.inputRule2))
+			changedRules, staleRules := ComparableToRules(changed), ComparableToRules(stale)
+			assert.Equal(t, tt.expectedResult1, changedRules)
+			assert.Equal(t, tt.expectedResult2, staleRules)
 		},
 		)
 	}
@@ -156,10 +160,11 @@ func TestRulesEqual(t *testing.T) {
 
 func TestSecurityPolicyEqual(t *testing.T) {
 	tests := []struct {
-		name           string
-		inputPolicy1   *model.SecurityPolicy
-		inputPolicy2   *model.SecurityPolicy
-		expectedResult *model.SecurityPolicy
+		name            string
+		inputPolicy1    *model.SecurityPolicy
+		inputPolicy2    *model.SecurityPolicy
+		expectedResult  *model.SecurityPolicy
+		expectedResult2 bool
 	}{
 		{
 			name: "security-policy-without-additional-properties-true",
@@ -169,7 +174,10 @@ func TestSecurityPolicyEqual(t *testing.T) {
 			inputPolicy2: &model.SecurityPolicy{
 				Id: &spID,
 			},
-			expectedResult: nil,
+			expectedResult: &model.SecurityPolicy{
+				Id: &spID,
+			},
+			expectedResult2: false,
 		},
 		{
 			name: "security-policy-without-additional-properties-false",
@@ -182,6 +190,7 @@ func TestSecurityPolicyEqual(t *testing.T) {
 			expectedResult: &model.SecurityPolicy{
 				Id: &spID2,
 			},
+			expectedResult2: true,
 		},
 		{
 			name: "security-policy-with-additional-properties",
@@ -192,12 +201,18 @@ func TestSecurityPolicyEqual(t *testing.T) {
 			inputPolicy2: &model.SecurityPolicy{
 				Id: &spID,
 			},
-			expectedResult: nil,
+			expectedResult: &model.SecurityPolicy{
+				Id: &spID,
+			},
+			expectedResult2: false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expectedResult, service.securityPolicyCompare(tt.inputPolicy1, tt.inputPolicy2))
+			isChanged := common.CompareResource(SecurityPolicyToComparable(tt.inputPolicy1), SecurityPolicyToComparable(tt.inputPolicy2))
+			changedSecurityPolicy := tt.inputPolicy2
+			assert.Equal(t, tt.expectedResult2, isChanged)
+			assert.Equal(t, tt.expectedResult, changedSecurityPolicy)
 		},
 		)
 	}

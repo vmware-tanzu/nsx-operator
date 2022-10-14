@@ -104,20 +104,22 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 		existingGroups = append(existingGroups, group.(model.Group))
 	}
 
-	changedSecurityPolicy := service.securityPolicyCompare(&existingSecurityPolicy, nsxSecurityPolicy)
-	changedRules, staleRules := service.rulesCompare(existingRules, nsxSecurityPolicy.Rules)
-	changedGroups, staleGroups := service.groupsCompare(existingGroups, *nsxGroups)
+	isChanged := common.CompareResource(SecurityPolicyToComparable(&existingSecurityPolicy), SecurityPolicyToComparable(nsxSecurityPolicy))
+	changed, stale := common.CompareResources(RulesToComparable(existingRules), RulesToComparable(nsxSecurityPolicy.Rules))
+	changedRules, staleRules := ComparableToRules(changed), ComparableToRules(stale)
+	changed, stale = common.CompareResources(GroupsToComparable(existingGroups), GroupsToComparable(*nsxGroups))
+	changedGroups, staleGroups := ComparableToGroups(changed), ComparableToGroups(stale)
 
-	if changedSecurityPolicy == nil && len(changedRules) == 0 && len(staleRules) == 0 && len(changedGroups) == 0 && len(staleGroups) == 0 {
+	if !isChanged && len(changedRules) == 0 && len(staleRules) == 0 && len(changedGroups) == 0 && len(staleGroups) == 0 {
 		log.Info("security policy, rules and groups are not changed, skip updating them", "nsxSecurityPolicy.Id", nsxSecurityPolicy.Id)
 		return nil
 	}
 
 	var finalSecurityPolicy *model.SecurityPolicy
-	if changedSecurityPolicy == nil {
-		finalSecurityPolicy = &existingSecurityPolicy
+	if isChanged {
+		finalSecurityPolicy = nsxSecurityPolicy
 	} else {
-		finalSecurityPolicy = changedSecurityPolicy
+		finalSecurityPolicy = &existingSecurityPolicy
 	}
 
 	finalRules := make([]model.Rule, 0)
@@ -149,7 +151,7 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 
 	// The steps below know how to deal with CR, if there is MarkedForDelete, then delete it from store,
 	// otherwise add or update it to store.
-	if changedSecurityPolicy != nil {
+	if isChanged {
 		err = service.OperateSecurityStore(&finalSecurityPolicyCopy)
 		if err != nil {
 			return err
