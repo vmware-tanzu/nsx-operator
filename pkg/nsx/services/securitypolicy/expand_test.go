@@ -163,12 +163,12 @@ func TestSecurityPolicyService_getPodSelectors(t *testing.T) {
 		},
 	}
 	type fields struct {
-		Client              client.Client
-		NSXClient           *nsx.Client
-		NSXConfig           *config.NSXOperatorConfig
-		GroupStore          cache.Indexer
-		SecurityPolicyStore cache.Indexer
-		RuleStore           cache.Indexer
+		Client                     client.Client
+		NSXClient                  *nsx.Client
+		NSXConfig                  *config.NSXOperatorConfig
+		GroupCacheIndexer          cache.Indexer
+		SecurityPolicyCacheIndexer cache.Indexer
+		RuleCacheIndexer           cache.Indexer
 	}
 	type args struct {
 		obj  *v1alpha1.SecurityPolicy

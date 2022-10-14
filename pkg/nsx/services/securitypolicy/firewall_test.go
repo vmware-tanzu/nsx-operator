@@ -4,15 +4,20 @@
 package securitypolicy
 
 import (
+	"reflect"
+	"testing"
+
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -21,14 +26,14 @@ var (
 	directionIn  = v1alpha1.RuleDirectionIn
 	directionOut = v1alpha1.RuleDirectionOut
 
-	tagScopeGroupType = util.TagScopeGroupType
+	tagScopeGroupType = common.TagScopeGroupType
 
-	tagScopeCluster              = util.TagScopeCluster
-	tagScopeNamespace            = util.TagScopeNamespace
-	tagScopeSecurityPolicyCRName = util.TagScopeSecurityPolicyCRName
-	tagScopeSecurityPolicyCRUID  = util.TagScopeSecurityPolicyCRUID
-	tagScopeRuleID               = util.TagScopeRuleID
-	tagScopeSelectorHash         = util.TagScopeSelectorHash
+	tagScopeCluster              = common.TagScopeCluster
+	tagScopeNamespace            = common.TagScopeNamespace
+	tagScopeSecurityPolicyCRName = common.TagScopeSecurityPolicyCRName
+	tagScopeSecurityPolicyCRUID  = common.TagScopeSecurityPolicyCRUID
+	tagScopeRuleID               = common.TagScopeRuleID
+	tagScopeSelectorHash         = common.TagScopeSelectorHash
 	spName                       = "ns1-spA"
 	spGroupName                  = "ns1-spA-scope"
 	spID                         = "sp_uidA"
@@ -262,3 +267,75 @@ var (
 		},
 	}
 )
+
+func TestListSecurityPolicyID(t *testing.T) {
+	groupStore := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
+	policyStore := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
+	ruleStore := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
+
+	group := model.Group{}
+	scope := "nsx-op/security_policy_cr_uid"
+	uuid := "111111111"
+	id := "1234"
+	group.Id = &id
+	group.UniqueId = &uuid
+
+	group.Tags = []model.Tag{{Scope: &scope, Tag: &id}}
+	groupStore.Add(group)
+
+	id1 := "4567"
+	uuid1 := "111111112"
+	group1 := model.Group{}
+	group1.Id = &id1
+	group1.UniqueId = &uuid1
+	group1.Tags = []model.Tag{{Scope: &scope, Tag: &id1}}
+	groupStore.Add(group1)
+
+	policy := model.SecurityPolicy{}
+	id2 := "1235"
+	policy.Id = &id2
+	policy.UniqueId = &uuid
+	policy.Tags = []model.Tag{{Scope: &scope, Tag: &id2}}
+	policyStore.Add(policy)
+
+	type fields struct {
+		NSXClient           *nsx.Client
+		GroupStore          cache.Indexer
+		SecurityPolicyStore cache.Indexer
+		RuleStore           cache.Indexer
+	}
+	field := fields{NSXClient: nil, GroupStore: groupStore, SecurityPolicyStore: policyStore, RuleStore: ruleStore}
+
+	tests := []struct {
+		name    string
+		fields  fields
+		want    sets.String
+		wantErr bool
+	}{
+		{
+			name:    "test",
+			fields:  field,
+			wantErr: false,
+		},
+	}
+
+	tests[0].want = sets.NewString()
+	tests[0].want.Insert(id)
+	tests[0].want.Insert(id1)
+	tests[0].want.Insert(id2)
+	service := &SecurityPolicyService{
+		Service: common.Service{NSXClient: nil},
+	}
+	service.ResourceCacheMap = make(map[string]cache.Indexer)
+	service.ResourceCacheMap[ResourceTypeSecurityPolicy] = policyStore
+	service.ResourceCacheMap[ResourceTypeGroup] = groupStore
+	service.ResourceCacheMap[ResourceTypeRule] = ruleStore
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := service.ListSecurityPolicyID()
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("SecurityPolicyService.ListSecurityPolicyID() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

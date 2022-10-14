@@ -32,6 +32,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
+	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
@@ -100,8 +101,8 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResType)
-		if !controllerutil.ContainsFinalizer(obj, util.FinalizerName) {
-			controllerutil.AddFinalizer(obj, util.FinalizerName)
+		if !controllerutil.ContainsFinalizer(obj, servicecommon.FinalizerName) {
+			controllerutil.AddFinalizer(obj, servicecommon.FinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "securitypolicy", req.NamespacedName)
 				updateFail(r, &ctx, obj, &err)
@@ -134,14 +135,14 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 		updateSuccess(r, &ctx, obj)
 	} else {
-		if controllerutil.ContainsFinalizer(obj, util.FinalizerName) {
+		if controllerutil.ContainsFinalizer(obj, servicecommon.FinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
 			if err := r.Service.DeleteSecurityPolicy(obj.UID); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 				deleteFail(r, &ctx, obj, &err)
 				return ResultRequeue, err
 			}
-			controllerutil.RemoveFinalizer(obj, util.FinalizerName)
+			controllerutil.RemoveFinalizer(obj, servicecommon.FinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 				deleteFail(r, &ctx, obj, &err)
@@ -259,7 +260,7 @@ func (r *SecurityPolicyReconciler) Start(mgr ctrl.Manager) error {
 		return err
 	}
 
-	go r.GarbageCollector(make(chan bool), util.GCInterval)
+	go r.GarbageCollector(make(chan bool), servicecommon.GCInterval)
 	return nil
 }
 
