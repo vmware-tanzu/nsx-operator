@@ -14,9 +14,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 const wcpSystemResource = "vmware-system-shared-t1"
+const HashLength int = 8
 
 var log = logf.Log.WithName("pkg").WithName("utils")
 
@@ -29,7 +32,7 @@ func NormalizeLabels(matchLabels *map[string]string) *map[string]string {
 }
 
 func NormalizeLabelKey(key string) string {
-	if len(key) <= MaxTagLength {
+	if len(key) <= common.MaxTagLength {
 		return key
 	}
 	splitted := strings.Split(key, "/")
@@ -38,12 +41,12 @@ func NormalizeLabelKey(key string) string {
 }
 
 func NormalizeName(name string) string {
-	if len(name) <= MaxTagLength {
+	if len(name) <= common.MaxTagLength {
 		return name
 	}
 	hashString := Sha1(name)
-	nameLength := MaxTagLength - HashLength - 1
-	newName := fmt.Sprintf("%s-%s", name[:nameLength], hashString[:HashLength])
+	nameLength := common.MaxTagLength - common.HashLength - 1
+	newName := fmt.Sprintf("%s-%s", name[:nameLength], hashString[:common.HashLength])
 	return newName
 }
 

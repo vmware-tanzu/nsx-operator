@@ -160,11 +160,11 @@ func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPoli
 	serializedBytes, _ := json.Marshal(*targets)
 	targetTags := []model.Tag{
 		{
-			Scope: String(util.TagScopeGroupType),
+			Scope: String(common.TagScopeGroupType),
 			Tag:   String("scope"),
 		},
 		{
-			Scope: String(util.TagScopeSelectorHash),
+			Scope: String(common.TagScopeSelectorHash),
 			Tag:   String(util.Sha1(string(serializedBytes))),
 		},
 	}
@@ -175,7 +175,7 @@ func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPoli
 		// the appliedTo group belongs to a rule, so it needs a tag including the rule id
 		targetTags = append(targetTags,
 			model.Tag{
-				Scope: String(util.TagScopeRuleID),
+				Scope: String(common.TagScopeRuleID),
 				Tag:   String(service.buildRuleID(obj, idx)),
 			},
 		)
@@ -186,20 +186,20 @@ func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPoli
 func (service *SecurityPolicyService) buildBasicTags(obj *v1alpha1.SecurityPolicy) []model.Tag {
 	tags := []model.Tag{
 		{
-			Scope: String(util.TagScopeCluster),
+			Scope: String(common.TagScopeCluster),
 			Tag:   String(getCluster(service)),
 		},
 		{
-			Scope: String(util.TagScopeNamespace),
+			Scope: String(common.TagScopeNamespace),
 			Tag:   String(obj.ObjectMeta.Namespace),
 		},
 		// TODO: get namespace uid
 		{
-			Scope: String(util.TagScopeSecurityPolicyCRName),
+			Scope: String(common.TagScopeSecurityPolicyCRName),
 			Tag:   String(obj.ObjectMeta.Name),
 		},
 		{
-			Scope: String(util.TagScopeSecurityPolicyCRUID),
+			Scope: String(common.TagScopeSecurityPolicyCRUID),
 			Tag:   String(string(obj.UID)),
 		},
 	}
@@ -711,15 +711,15 @@ func (service *SecurityPolicyService) BuildPeerTags(obj *v1alpha1.SecurityPolicy
 	serializedBytes, _ := json.Marshal(*peers)
 	peerTags := []model.Tag{
 		{
-			Scope: String(util.TagScopeGroupType),
+			Scope: String(common.TagScopeGroupType),
 			Tag:   String("scope"),
 		},
 		{
-			Scope: String(util.TagScopeRuleID),
+			Scope: String(common.TagScopeRuleID),
 			Tag:   String(service.buildRuleID(obj, idx)),
 		},
 		{
-			Scope: String(util.TagScopeSelectorHash),
+			Scope: String(common.TagScopeSelectorHash),
 			Tag:   String(util.Sha1(string(serializedBytes))),
 		},
 	}
@@ -753,7 +753,7 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 	// because the following conditions must have condition whose memberType=SegmentPort
 	clusterExpression := service.buildExpression(
 		"Condition", "Segment",
-		fmt.Sprintf("%s|%s", util.TagScopeNCPCluster, getCluster(service)),
+		fmt.Sprintf("%s|%s", common.TagScopeNCPCluster, getCluster(service)),
 		"Tag", "EQUALS", "EQUALS",
 	)
 	expressions.Add(clusterExpression)
@@ -763,7 +763,7 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 		// TODO: consider to use project_uid instead of project
 		nsExpression := service.buildExpression(
 			"Condition", memberType,
-			fmt.Sprintf("%s|%s", util.TagScopeNCPProject, obj.ObjectMeta.Namespace),
+			fmt.Sprintf("%s|%s", common.TagScopeNCPProject, obj.ObjectMeta.Namespace),
 			"Tag", "EQUALS", "EQUALS",
 		)
 		expressions.Add(nsExpression)
@@ -776,7 +776,7 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 		service.addOperatorIfNeeded(expressions, "AND")
 		nsExpression := service.buildExpression(
 			"Condition", memberType,
-			fmt.Sprintf("%s|%s", util.TagScopeNCPVIFProject, obj.ObjectMeta.Namespace),
+			fmt.Sprintf("%s|%s", common.TagScopeNCPVIFProject, obj.ObjectMeta.Namespace),
 			"Tag", "EQUALS", "EQUALS",
 		)
 		expressions.Add(nsExpression)
@@ -1199,7 +1199,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 
 	clusterExpression := service.buildExpression(
 		"Condition", clusterMemberType,
-		fmt.Sprintf("%s|%s", util.TagScopeNCPCluster, getCluster(service)),
+		fmt.Sprintf("%s|%s", common.TagScopeNCPCluster, getCluster(service)),
 		"Tag", "EQUALS", "EQUALS",
 	)
 	expressions.Add(clusterExpression)
@@ -1210,7 +1210,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		podExpression := service.buildExpression(
 			"Condition",
 			memberType,
-			fmt.Sprintf("%s|", util.TagScopeNCPPod),
+			fmt.Sprintf("%s|", common.TagScopeNCPPod),
 			"Tag",
 			"EQUALS",
 			"EQUALS",
@@ -1219,7 +1219,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		if peer.NamespaceSelector == nil {
 			podExpression = service.buildExpression(
 				"Condition", memberType,
-				fmt.Sprintf("%s|%s", util.TagScopeNCPProject, obj.ObjectMeta.Namespace),
+				fmt.Sprintf("%s|%s", common.TagScopeNCPProject, obj.ObjectMeta.Namespace),
 				"Tag", "EQUALS", "EQUALS")
 			mixedNsSelector = false
 		} else {
@@ -1240,7 +1240,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		vmExpression := service.buildExpression(
 			"Condition",
 			memberType,
-			fmt.Sprintf("%s|", util.TagScopeNCPVNETInterface),
+			fmt.Sprintf("%s|", common.TagScopeNCPVNETInterface),
 			"Tag",
 			"EQUALS",
 			"EQUALS",
@@ -1249,7 +1249,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		if peer.NamespaceSelector == nil {
 			vmExpression = service.buildExpression(
 				"Condition", memberType,
-				fmt.Sprintf("%s|%s", util.TagScopeNCPVIFProject, obj.ObjectMeta.Namespace),
+				fmt.Sprintf("%s|%s", common.TagScopeNCPVIFProject, obj.ObjectMeta.Namespace),
 				"Tag", "EQUALS", "EQUALS")
 			mixedNsSelector = false
 		} else {
@@ -1275,7 +1275,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 				service.addOperatorIfNeeded(expressions, "AND")
 				clusterSegPortExpression := service.buildExpression(
 					"Condition", "SegmentPort",
-					fmt.Sprintf("%s|%s", util.TagScopeNCPCluster, getCluster(service)),
+					fmt.Sprintf("%s|%s", common.TagScopeNCPCluster, getCluster(service)),
 					"Tag", "EQUALS", "EQUALS",
 				)
 				expressions.Add(clusterSegPortExpression)
