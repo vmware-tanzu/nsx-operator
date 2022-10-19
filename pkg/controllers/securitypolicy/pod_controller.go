@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	util2 "github.com/vmware-tanzu/nsx-operator/pkg/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 // We should consider the below scenarios:
@@ -61,7 +61,7 @@ func (e *EnqueueRequestForPod) Raw(evt interface{}, q workqueue.RateLimitingInte
 	}
 
 	pod := obj.(*v1.Pod)
-	if isInSysNs, err := util2.IsSystemNamespace(e.Client, pod.Namespace, nil); err != nil {
+	if isInSysNs, err := util.IsSystemNamespace(e.Client, pod.Namespace, nil); err != nil {
 		log.Error(err, "failed to fetch namespace", "namespace", pod.Namespace)
 		return
 	} else if isInSysNs {
@@ -93,7 +93,7 @@ var PredicateFuncsPod = predicate.Funcs{
 	CreateFunc: func(e event.CreateEvent) bool {
 		if p, ok := e.Object.(*v1.Pod); ok {
 			log.V(1).Info("receive pod create event", "namespace", p.Namespace, "name", p.Name)
-			return util2.CheckPodHasNamedPort(*p, "create")
+			return util.CheckPodHasNamedPort(*p, "create")
 		}
 		return false
 	},
@@ -105,7 +105,7 @@ var PredicateFuncsPod = predicate.Funcs{
 			log.V(1).Info("label of pod is not changed, ignore it", "name", oldObj.Name)
 			return false
 		}
-		if util2.CheckPodHasNamedPort(*newObj, "update") {
+		if util.CheckPodHasNamedPort(*newObj, "update") {
 			return true
 		}
 		return false
@@ -113,7 +113,7 @@ var PredicateFuncsPod = predicate.Funcs{
 	DeleteFunc: func(e event.DeleteEvent) bool {
 		if p, ok := e.Object.(*v1.Pod); ok {
 			log.V(1).Info("receive pod create event", "namespace", p.Namespace, "name", p.Name)
-			return util2.CheckPodHasNamedPort(*p, "delete")
+			return util.CheckPodHasNamedPort(*p, "delete")
 		}
 		return false
 	},

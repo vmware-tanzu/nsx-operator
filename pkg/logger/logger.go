@@ -7,6 +7,7 @@ import (
 	"github.com/go-logr/logr"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	zapcr "sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
@@ -14,6 +15,7 @@ const logTmFmtWithMS = "2006-01-02 15:04:05.000"
 
 var (
 	logLevel          int
+	Log               logr.Logger
 	customTimeEncoder = func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 		enc.AppendString(t.Format(logTmFmtWithMS))
 	}
@@ -24,6 +26,8 @@ var (
 
 func init() {
 	flag.IntVar(&logLevel, "log-level", 0, "Use zap-core log system.")
+	logf.SetLogger(ZapLogger())
+	Log = logf.Log.WithName("nsx-operator")
 }
 
 func ZapLogger() logr.Logger {

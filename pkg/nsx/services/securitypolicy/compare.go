@@ -1,4 +1,4 @@
-package services
+package securitypolicy
 
 import (
 	"encoding/json"
@@ -7,15 +7,15 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 )
 
-func (service *SecurityPolicyService) securityPolicyCompare(sp1 *model.SecurityPolicy, sp2 *model.SecurityPolicy) *model.SecurityPolicy {
-	v1, _ := json.Marshal(service.simplifySecurityPolicy(sp1))
-	v2, _ := json.Marshal(service.simplifySecurityPolicy(sp2))
+func (service *SecurityPolicyService) securityPolicyCompare(existingSecurityPolicy *model.SecurityPolicy, securityPolicy *model.SecurityPolicy) *model.SecurityPolicy {
+	v1, _ := json.Marshal(service.simplifySecurityPolicy(existingSecurityPolicy))
+	v2, _ := json.Marshal(service.simplifySecurityPolicy(securityPolicy))
 	if string(v1) == string(v2) {
 		return nil
 	}
-	log.V(1).Info("security policies differ", "current NSX security policy", service.simplifySecurityPolicy(sp1),
-		"desired NSX security policy", service.simplifySecurityPolicy(sp2))
-	return sp2
+	log.V(1).Info("security policies differ", "current NSX security policy", service.simplifySecurityPolicy(existingSecurityPolicy),
+		"desired NSX security policy", service.simplifySecurityPolicy(securityPolicy))
+	return securityPolicy
 }
 
 func (service *SecurityPolicyService) rulesCompare(existingRules []model.Rule, rules []model.Rule) ([]model.Rule, []model.Rule) {

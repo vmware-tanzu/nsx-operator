@@ -1,4 +1,4 @@
-package services
+package securitypolicy
 
 import (
 	"fmt"

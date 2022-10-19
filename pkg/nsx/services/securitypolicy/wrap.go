@@ -1,4 +1,4 @@
-package services
+package securitypolicy
 
 import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
