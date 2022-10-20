@@ -2,6 +2,12 @@ module github.com/vmware-tanzu/nsx-operator
 
 go 1.17
 
+replace (
+	github.com/vmware/vsphere-automation-sdk-go/lib => github.com/TaoZou1/vsphere-automation-sdk-go/lib v0.5.1-0.20221020082725-84e89979deb6
+	github.com/vmware/vsphere-automation-sdk-go/runtime => github.com/TaoZou1/vsphere-automation-sdk-go/runtime v0.5.1-0.20221020082725-84e89979deb6
+	github.com/vmware/vsphere-automation-sdk-go/services/nsxt => github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt v0.9.1-0.20221020082725-84e89979deb6
+)
+
 require (
 	github.com/agiledragon/gomonkey v2.0.2+incompatible
 	github.com/agiledragon/gomonkey/v2 v2.4.0
@@ -13,8 +19,8 @@ require (
 	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.7.0
 	github.com/vmware/govmomi v0.27.4
-	github.com/vmware/vsphere-automation-sdk-go/lib v0.4.0
-	github.com/vmware/vsphere-automation-sdk-go/runtime v0.4.0
+	github.com/vmware/vsphere-automation-sdk-go/lib v0.5.0
+	github.com/vmware/vsphere-automation-sdk-go/runtime v0.5.0
 	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.6.0
 	go.uber.org/zap v1.19.1
 	golang.org/x/time v0.0.0-20220210224613-90d013bbcef8
