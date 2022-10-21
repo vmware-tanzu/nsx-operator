@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	util2 "github.com/vmware-tanzu/nsx-operator/pkg/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 // We should consider the below scenarios:
@@ -38,7 +38,7 @@ func (e *EnqueueRequestForNamespace) Generic(_ event.GenericEvent, _ workqueue.R
 
 func (e *EnqueueRequestForNamespace) Update(updateEvent event.UpdateEvent, l workqueue.RateLimitingInterface) {
 	obj := updateEvent.ObjectNew.(*v1.Namespace)
-	if isInSysNs, err := util2.IsSystemNamespace(nil, "", obj); err != nil {
+	if isInSysNs, err := util.IsSystemNamespace(nil, "", obj); err != nil {
 		log.Error(err, "failed to fetch namespace", "namespace", obj.Name)
 		return
 	} else if isInSysNs {
@@ -55,7 +55,7 @@ func (e *EnqueueRequestForNamespace) Update(updateEvent event.UpdateEvent, l wor
 
 	shouldReconcile := false
 	for _, pod := range podList.Items {
-		if util2.CheckPodHasNamedPort(pod, "update") {
+		if util.CheckPodHasNamedPort(pod, "update") {
 			shouldReconcile = true
 			break
 		}

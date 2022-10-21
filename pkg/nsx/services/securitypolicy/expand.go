@@ -1,4 +1,4 @@
-package services
+package securitypolicy
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	util2 "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -46,23 +46,23 @@ func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, r
 func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
 	ruleIdx int, port v1alpha1.SecurityPolicyPort, portIdx int) ([]*model.Group, []*model.Rule, error) {
 	var err error
-	var startPort []util2.PortAddress
+	var startPort []nsxutil.PortAddress
 	var nsxGroups []*model.Group
 	var nsxRules []*model.Rule
 
 	// Use PortAddress to handle normal port and named port, if it only contains int value Port,
 	// then it is a normal port. If it contains a list of IPs, it is a named port.
 	if port.Port.Type == intstr.Int {
-		startPort = append(startPort, util2.PortAddress{Port: port.Port.IntValue()})
+		startPort = append(startPort, nsxutil.PortAddress{Port: port.Port.IntValue()})
 	} else {
 		// endPort can only be defined if port is also defined. Both ports must be numeric.
 		if port.EndPort != 0 {
-			return nil, nil, util2.RestrictionError{Desc: "endPort can only be defined if port is also numeric."}
+			return nil, nil, nsxutil.RestrictionError{Desc: "endPort can only be defined if port is also numeric."}
 		}
 		startPort, err = service.resolveNamedPort(obj, rule, port)
 		if err != nil {
 			// Update the stale ip set group if stale ips exist
-			if errors.As(err, &util2.NoEffectiveOption{}) {
+			if errors.As(err, &nsxutil.NoEffectiveOption{}) {
 				indexResults, err2 := service.GroupStore.ByIndex(util.TagScopeRuleID, service.buildRuleID(obj, ruleIdx))
 				if err2 != nil {
 					return nil, nil, err2
@@ -93,7 +93,7 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 }
 
 func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int,
-	port v1alpha1.SecurityPolicyPort, portIdx int, portAddress util2.PortAddress, portAddressIdx int) ([]*model.Group, *model.Rule, error) {
+	port v1alpha1.SecurityPolicyPort, portIdx int, portAddress nsxutil.PortAddress, portAddressIdx int) ([]*model.Group, *model.Rule, error) {
 	var nsxGroups []*model.Group
 
 	nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, portIdx, portAddressIdx)
@@ -125,8 +125,8 @@ func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.Security
 // Resolve a named port to port number by rule and policy selector.
 // e.g. "http" -> [{"80":['1.1.1.1', '2.2.2.2']}, {"443":['3.3.3.3']}]
 func (service *SecurityPolicyService) resolveNamedPort(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
-	spPort v1alpha1.SecurityPolicyPort) ([]util2.PortAddress, error) {
-	var portAddress []util2.PortAddress
+	spPort v1alpha1.SecurityPolicyPort) ([]nsxutil.PortAddress, error) {
+	var portAddress []nsxutil.PortAddress
 
 	podSelectors, err := service.getPodSelectors(obj, rule)
 	if err != nil {
@@ -142,7 +142,7 @@ func (service *SecurityPolicyService) resolveNamedPort(obj *v1alpha1.SecurityPol
 		}
 		for _, pod := range podsList.Items {
 			addr, err := service.resolvePodPort(pod, &spPort)
-			if errors.As(err, &util2.PodIPNotFound{}) || errors.As(err, &util2.PodNotRunning{}) {
+			if errors.As(err, &nsxutil.PodIPNotFound{}) || errors.As(err, &nsxutil.PodNotRunning{}) {
 				return nil, err
 			}
 			portAddress = append(portAddress, addr...)
@@ -150,16 +150,16 @@ func (service *SecurityPolicyService) resolveNamedPort(obj *v1alpha1.SecurityPol
 	}
 
 	if len(portAddress) == 0 {
-		return nil, util2.NoFilteredPod{
+		return nil, nsxutil.NoFilteredPod{
 			Desc: "no pod has the corresponding named port, please check the pod selector or labels of CR",
 		}
 	}
-	return util2.MergeAddressByPort(portAddress), nil
+	return nsxutil.MergeAddressByPort(portAddress), nil
 }
 
 // Check port name and protocol, only when the pod is really running, and it does have effective ip.
-func (service *SecurityPolicyService) resolvePodPort(pod v1.Pod, spPort *v1alpha1.SecurityPolicyPort) ([]util2.PortAddress, error) {
-	var addr []util2.PortAddress
+func (service *SecurityPolicyService) resolvePodPort(pod v1.Pod, spPort *v1alpha1.SecurityPolicyPort) ([]nsxutil.PortAddress, error) {
+	var addr []nsxutil.PortAddress
 	for _, container := range pod.Spec.Containers {
 		for _, port := range container.Ports {
 			log.V(2).Info("resolvePodPort", "namespace", pod.Namespace, "pod_name", pod.Name,
@@ -168,15 +168,15 @@ func (service *SecurityPolicyService) resolvePodPort(pod v1.Pod, spPort *v1alpha
 			if port.Name == spPort.Port.String() && port.Protocol == spPort.Protocol {
 				if pod.Status.Phase != "Running" {
 					errMsg := fmt.Sprintf("pod %s/%s is not running", pod.Namespace, pod.Name)
-					return nil, util2.PodNotRunning{Desc: errMsg}
+					return nil, nsxutil.PodNotRunning{Desc: errMsg}
 				}
 				if pod.Status.PodIP == "" {
 					errMsg := fmt.Sprintf("pod %s/%s ip not initialized", pod.Namespace, pod.Name)
-					return nil, util2.PodIPNotFound{Desc: errMsg}
+					return nil, nsxutil.PodIPNotFound{Desc: errMsg}
 				}
 				addr = append(
 					addr,
-					util2.PortAddress{Port: int(port.ContainerPort), IPs: []string{pod.Status.PodIP}},
+					nsxutil.PortAddress{Port: int(port.ContainerPort), IPs: []string{pod.Status.PodIP}},
 				)
 			}
 		}
@@ -299,7 +299,7 @@ func (service *SecurityPolicyService) getPodSelectors(obj *v1alpha1.SecurityPoli
 		}
 	}
 	if len(finalSelectors) == 0 {
-		return nil, util2.NoEffectiveOption{
+		return nil, nsxutil.NoEffectiveOption{
 			Desc: "no effective options filtered by the rule and security policy",
 		}
 	}

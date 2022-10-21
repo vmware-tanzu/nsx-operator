@@ -1,7 +1,7 @@
 /* Copyright © 2021 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
-package services
+package securitypolicy
 
 import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -110,9 +111,11 @@ var (
 	}
 
 	service = &SecurityPolicyService{
-		NSXConfig: &config.NSXOperatorConfig{
-			CoeConfig: &config.CoeConfig{
-				Cluster: "k8scl-one",
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one",
+				},
 			},
 		},
 	}
