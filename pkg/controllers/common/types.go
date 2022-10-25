@@ -9,6 +9,8 @@ import (
 )
 
 const (
+	MetricResTypeSecurityPolicy = "securitypolicy"
+	MetricResTypeIPPool         = "ippool"
 	MetricResTypeSecurityPolicy    = "securitypolicy"
 	MetricResTypeNSXServiceAccount = "nsxserviceaccount"
 )

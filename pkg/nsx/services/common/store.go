@@ -192,3 +192,42 @@ func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors ch
 	}
 	log.Info("initialized store", "resourceType", resourceTypeValue, "count", count)
 }
+
+// InitializeProjectResourceStore is the method to query all the various resources from nsx-t side and
+// save them to the store, we could use it to cache all the resources when process starts.
+func (service *Service) InitializeProjectResourceStore(wg *sync.WaitGroup, fatalErrors chan error, resourceTypeValue string, store Store) {
+	defer wg.Done()
+
+	tagScopeClusterKey := strings.Replace(TagScopeCluster, "/", "\\/", -1)
+	tagScopeClusterValue := strings.Replace(service.NSXClient.NsxConfig.Cluster, ":", "\\:", -1)
+	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
+	resourceParam := fmt.Sprintf("%s:%s", ResourceType, resourceTypeValue)
+	queryParam := resourceParam + " AND " + tagParam
+
+	var cursor *string = nil
+	for {
+		response, err := service.NSXClient.ProjectQueryClient.List("default", "project-1", queryParam, cursor, nil, Int64(PageSize), nil, nil)
+		err = TransError(err)
+		if _, ok := err.(nsxutil.PageMaxError); ok == true {
+			DecrementPageSize(Int64(PageSize))
+			continue
+		}
+		if err != nil {
+			fatalErrors <- err
+		}
+		for _, entity := range response.Results {
+			err = store.TransResourceToStore(entity)
+			if err != nil {
+				fatalErrors <- err
+			}
+		}
+		cursor = response.Cursor
+		if cursor == nil {
+			break
+		}
+		c, _ := strconv.Atoi(*cursor)
+		if int64(c) >= *response.ResultCount {
+			break
+		}
+	}
+}

@@ -7,7 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-
+	
 	"github.com/sirupsen/logrus"
 	vspherelog "github.com/vmware/vsphere-automation-sdk-go/runtime/log"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
@@ -15,10 +15,13 @@ import (
 	mpsearch "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/search"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management/principal_identities"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/ip_pools"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/realized_state"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
-
+	
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 )
@@ -44,8 +47,11 @@ type Client struct {
 	PrincipalIdentitiesClient trust_management.PrincipalIdentitiesClient
 	WithCertificateClient     principal_identities.WithCertificateClient
 
-	NSXChecker    NSXHealthChecker
-	NSXVerChecker NSXVersionChecker
+	NSXChecker     NSXHealthChecker
+	NSXVerChecker  NSXVersionChecker
+	IPPoolClient           infra.IpPoolsClient
+	IPSubnetClient         ip_pools.IpSubnetsClient
+	RealizedEntitiesClient realized_state.RealizedEntitiesClient
 }
 
 var nsx320Version = [3]int64{3, 2, 0}
@@ -95,6 +101,9 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	principalIdentitiesClient := trust_management.NewPrincipalIdentitiesClient(restConnector(cluster))
 	withCertificateClient := principal_identities.NewWithCertificateClient(restConnector(cluster))
 
+	ipPoolClient := infra.NewIpPoolsClient(restConnector(cluster))
+	ipSubnetClient := ip_pools.NewIpSubnetsClient(restConnector(cluster))
+	realizedEntitiesClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
 	}
@@ -121,6 +130,9 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 
 		NSXChecker:     *nsxChecker,
 		NSXVerChecker:  *nsxVersionChecker,
+		IPPoolClient:           ipPoolClient,
+		IPSubnetClient:         ipSubnetClient,
+		RealizedEntitiesClient: realizedEntitiesClient,
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time

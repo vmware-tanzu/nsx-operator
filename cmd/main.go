@@ -16,14 +16,17 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	ippool2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/ippool"
 	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
 	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ippool"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 )
@@ -38,6 +41,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
+	utilruntime.Must(v1alpha2.AddToScheme(scheme))
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8384", "The address the probe endpoint binds to.")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8093", "The address the metrics endpoint binds to.")
 	config.AddFlags()
@@ -92,6 +96,23 @@ func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Ser
 	}
 }
 
+func StartIPPoolController(mgr ctrl.Manager, commonService common.Service) {
+	ippoolReconcile := &ippool2.Reconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+	if ipPoolService, err := ippool.InitializeIPPool(commonService); err != nil {
+		log.Error(err, "failed to initialize ippool commonService", "controller", "IPPool")
+		os.Exit(1)
+	} else {
+		ippoolReconcile.Service = ipPoolService
+	}
+	if err := ippoolReconcile.Start(mgr); err != nil {
+		log.Error(err, "failed to create controller", "controller", "IPPool")
+		os.Exit(1)
+	}
+}
+
 func main() {
 	log.Info("starting NSX Operator")
 
@@ -126,6 +147,9 @@ func main() {
 	if cf.EnableAntreaNSXInterworking {
 		StartNSXServiceAccountController(mgr, commonService)
 	}
+
+	// Start the ip pool controller.
+	StartIPPoolController(mgr, commonService)
 
 	if metrics.AreMetricsExposed(cf) {
 		go updateHealthMetricsPeriodically(nsxClient)
