@@ -20,7 +20,7 @@ import (
 )
 
 func Test_queryTagCondition(t *testing.T) {
-	config2 := nsx.NewConfig("1.1.1.1", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	config2 := nsx.NewConfig("localhost", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config2)
 	rc, _ := cluster.NewRestConnector()
 	service = &SecurityPolicyService{
@@ -72,7 +72,7 @@ func keyFunc2(obj interface{}) (string, error) {
 }
 
 func Test_queryGroup(t *testing.T) {
-	config := nsx.NewConfig("1.1.1.1", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	config := nsx.NewConfig("localhost", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config)
 	rc, _ := cluster.NewRestConnector()
 	service = &SecurityPolicyService{
@@ -114,7 +114,7 @@ func Test_queryGroup(t *testing.T) {
 }
 
 func Test_querySecurityPolicy(t *testing.T) {
-	config := nsx.NewConfig("1.1.1.1", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	config := nsx.NewConfig("localhost", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config)
 	rc, _ := cluster.NewRestConnector()
 	service = &SecurityPolicyService{
@@ -156,7 +156,7 @@ func Test_querySecurityPolicy(t *testing.T) {
 }
 
 func Test_queryRule(t *testing.T) {
-	config := nsx.NewConfig("1.1.1.1", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	config := nsx.NewConfig("localhost", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config)
 	rc, _ := cluster.NewRestConnector()
 	service = &SecurityPolicyService{
