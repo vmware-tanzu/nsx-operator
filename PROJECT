@@ -27,4 +27,12 @@ resources:
   kind: SubnetPort
   path: github.com/vmware-tanzu/nsx-operator/pkg/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: nsx.vmware.com
+  kind: NSXServiceAccount
+  path: github.com/vmware-tanzu/nsx-operator/pkg/api/v1alpha1
+  version: v1alpha1
 version: "3"
