@@ -1,6 +1,7 @@
 package common
 
 import (
+	"github.com/openlyinc/pointy"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -30,3 +31,8 @@ func init() {
 	Converter = bindings.NewTypeConverter()
 	Converter.SetMode(bindings.REST)
 }
+
+var (
+	String = pointy.String // address of string
+	Int64  = pointy.Int64  // address of int64
+)

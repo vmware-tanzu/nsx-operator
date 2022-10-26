@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -26,6 +27,11 @@ const (
 	MaxMatchExpressionInValues  int = 5
 	ClusterTagCount             int = 1
 	ProjectTagCount             int = 1
+)
+
+var (
+	String = common.String
+	Int64  = common.Int64
 )
 
 func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.SecurityPolicy) (*model.SecurityPolicy, *[]model.Group, error) {
@@ -44,15 +50,11 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 	log.V(1).Info("building the model SecurityPolicy from CR SecurityPolicy", "object", *obj)
 	nsxSecurityPolicy := &model.SecurityPolicy{}
 
-	policyID := fmt.Sprintf("sp_%s", obj.UID)
-	nsxSecurityPolicy.Id = &policyID
-
-	policyName := fmt.Sprintf("%s-%s", obj.ObjectMeta.Namespace, obj.ObjectMeta.Name)
-	nsxSecurityPolicy.DisplayName = &policyName
+	nsxSecurityPolicy.Id = String(fmt.Sprintf("sp_%s", obj.UID))
+	nsxSecurityPolicy.DisplayName = String(fmt.Sprintf("%s-%s", obj.ObjectMeta.Namespace, obj.ObjectMeta.Name))
 
 	// TODO: confirm the sequence number: offset
-	policyPriority := int64(obj.Spec.Priority)
-	nsxSecurityPolicy.SequenceNumber = &policyPriority
+	nsxSecurityPolicy.SequenceNumber = Int64(int64(obj.Spec.Priority))
 
 	policyGroup, policyGroupPath, err := service.buildPolicyGroup(obj)
 	if err != nil {
@@ -95,12 +97,10 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPolicy) (*model.Group, string, error) {
 	policyGroup := model.Group{}
 
-	policyGroupID := service.buildPolicyGroupID(obj)
-	policyGroup.Id = &policyGroupID
+	policyGroup.Id = String(service.buildPolicyGroupID(obj))
 
 	// TODO: have a common function to generate ID and Name with parameters like prefix, suffix
-	policyGroupName := fmt.Sprintf("%s-%s-scope", obj.ObjectMeta.Namespace, obj.ObjectMeta.Name)
-	policyGroup.DisplayName = &policyGroupName
+	policyGroup.DisplayName = String(fmt.Sprintf("%s-%s-scope", obj.ObjectMeta.Namespace, obj.ObjectMeta.Name))
 
 	appliedTo := obj.Spec.AppliedTo
 	targetTags := service.buildTargetTags(obj, &appliedTo, -1)
@@ -152,25 +152,20 @@ func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPol
 
 func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPolicy, targets *[]v1alpha1.SecurityPolicyTarget, idx int) []model.Tag {
 	basicTags := service.buildBasicTags(obj)
-	tagScopeGroupType := util.TagScopeGroupType
-	tagScopeRuleID := util.TagScopeRuleID
-	tagValueScope := "scope"
-	tagScopeSelectorHash := util.TagScopeSelectorHash
 	sort.Slice(*targets, func(i, j int) bool {
 		k1, _ := json.Marshal((*targets)[i])
 		k2, _ := json.Marshal((*targets)[j])
 		return string(k1) < string(k2)
 	})
 	serializedBytes, _ := json.Marshal(*targets)
-	groupHash := util.Sha1(string(serializedBytes))
 	targetTags := []model.Tag{
 		{
-			Scope: &tagScopeGroupType,
-			Tag:   &tagValueScope,
+			Scope: String(util.TagScopeGroupType),
+			Tag:   String("scope"),
 		},
 		{
-			Scope: &tagScopeSelectorHash,
-			Tag:   &groupHash,
+			Scope: String(util.TagScopeSelectorHash),
+			Tag:   String(util.Sha1(string(serializedBytes))),
 		},
 	}
 	for _, tag := range basicTags {
@@ -178,11 +173,10 @@ func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPoli
 	}
 	if idx != -1 {
 		// the appliedTo group belongs to a rule, so it needs a tag including the rule id
-		ruleID := service.buildRuleID(obj, idx)
 		targetTags = append(targetTags,
 			model.Tag{
-				Scope: &tagScopeRuleID,
-				Tag:   &ruleID,
+				Scope: String(util.TagScopeRuleID),
+				Tag:   String(service.buildRuleID(obj, idx)),
 			},
 		)
 	}
@@ -190,29 +184,23 @@ func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPoli
 }
 
 func (service *SecurityPolicyService) buildBasicTags(obj *v1alpha1.SecurityPolicy) []model.Tag {
-	uid := string(obj.UID)
-	clusterTag := getCluster(service)
-	tagScopeCluster := util.TagScopeCluster
-	tagScopeNamespace := util.TagScopeNamespace
-	tagScopeSecurityPolicyCRName := util.TagScopeSecurityPolicyCRName
-	tagScopeSecurityPolicyCRUID := util.TagScopeSecurityPolicyCRUID
 	tags := []model.Tag{
 		{
-			Scope: &tagScopeCluster,
-			Tag:   &clusterTag,
+			Scope: String(util.TagScopeCluster),
+			Tag:   String(getCluster(service)),
 		},
 		{
-			Scope: &tagScopeNamespace,
-			Tag:   &obj.ObjectMeta.Namespace,
+			Scope: String(util.TagScopeNamespace),
+			Tag:   String(obj.ObjectMeta.Namespace),
 		},
 		// TODO: get namespace uid
 		{
-			Scope: &tagScopeSecurityPolicyCRName,
-			Tag:   &obj.ObjectMeta.Name,
+			Scope: String(util.TagScopeSecurityPolicyCRName),
+			Tag:   String(obj.ObjectMeta.Name),
 		},
 		{
-			Scope: &tagScopeSecurityPolicyCRUID,
-			Tag:   &uid,
+			Scope: String(util.TagScopeSecurityPolicyCRUID),
+			Tag:   String(string(obj.UID)),
 		},
 	}
 	return tags
@@ -326,8 +314,7 @@ func (service *SecurityPolicyService) buildPolicyGroupID(obj *v1alpha1.SecurityP
 }
 
 func (service *SecurityPolicyService) buildPolicyGroupPath(obj *v1alpha1.SecurityPolicy) string {
-	policyGroupID := service.buildPolicyGroupID(obj)
-	return fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), policyGroupID)
+	return fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), service.buildPolicyGroupID(obj))
 }
 
 func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int) ([]*model.Rule, []*model.Group, error) {
@@ -532,11 +519,7 @@ func (service *SecurityPolicyService) buildRuleAppliedGroupByRule(obj *v1alpha1.
 		ruleAppliedGroupName = fmt.Sprintf("%s-%d-scope", obj.ObjectMeta.Name, idx)
 	}
 	targetTags := service.buildTargetTags(obj, &appliedTo, idx)
-	ruleAppliedGroupPath := fmt.Sprintf(
-		"/infra/domains/%s/groups/%s",
-		getDomain(service),
-		ruleAppliedGroupID,
-	)
+	ruleAppliedGroupPath := fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), ruleAppliedGroupID)
 	ruleAppliedGroup := model.Group{
 		Id:          &ruleAppliedGroupID,
 		DisplayName: &ruleAppliedGroupName,
@@ -590,11 +573,7 @@ func (service *SecurityPolicyService) buildRuleSrcGroup(obj *v1alpha1.SecurityPo
 	} else {
 		ruleSrcGroupName = fmt.Sprintf("%s-%d-src", obj.ObjectMeta.Name, idx)
 	}
-	ruleSrcGroupPath := fmt.Sprintf(
-		"/infra/domains/%s/groups/%s",
-		getDomain(service),
-		ruleSrcGroupID,
-	)
+	ruleSrcGroupPath := fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), ruleSrcGroupID)
 	peerTags := service.BuildPeerTags(obj, &sources, idx)
 	ruleSrcGroup := model.Group{
 		Id:          &ruleSrcGroupID,
@@ -650,11 +629,7 @@ func (service *SecurityPolicyService) buildRuleDstGroup(obj *v1alpha1.SecurityPo
 	} else {
 		ruleDstGroupName = fmt.Sprintf("%s-%d-dst", obj.ObjectMeta.Name, idx)
 	}
-	ruleDstGroupPath := fmt.Sprintf(
-		"/infra/domains/%s/groups/%s",
-		getDomain(service),
-		ruleDstGroupID,
-	)
+	ruleDstGroupPath := fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), ruleDstGroupID)
 	peerTags := service.BuildPeerTags(obj, &destinations, idx)
 	ruleDstGroup := model.Group{
 		Id:          &ruleDstGroupID,
@@ -703,8 +678,6 @@ func (service *SecurityPolicyService) buildRuleDstGroup(obj *v1alpha1.SecurityPo
 // portIdx is the index of rule's ports, portAddressIdx is the index
 // of multiple port number if one named port maps to multiple port numbers.
 func (service *SecurityPolicyService) buildRuleBasicInfo(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int, portIdx int, portAddressIdx int) (*model.Rule, error) {
-	nsxRuleID := service.buildRuleID(obj, ruleIdx)
-	nsxRuleName := service.buildRuleName(obj, rule, ruleIdx)
 	ruleAction, err := getRuleAction(rule)
 	if err != nil {
 		return nil, err
@@ -713,15 +686,12 @@ func (service *SecurityPolicyService) buildRuleBasicInfo(obj *v1alpha1.SecurityP
 	if err != nil {
 		return nil, err
 	}
-	sequence := int64(ruleIdx)
-	rID := fmt.Sprintf("%s_%d_%d", nsxRuleID, portIdx, portAddressIdx)
-	rName := fmt.Sprintf("%s-%d-%d", nsxRuleName, portIdx, portAddressIdx)
 
 	nsxRule := model.Rule{
-		Id:             &rID,
-		DisplayName:    &rName,
+		Id:             String(fmt.Sprintf("%s_%d_%d", service.buildRuleID(obj, ruleIdx), portIdx, portAddressIdx)),
+		DisplayName:    String(fmt.Sprintf("%s-%d-%d", service.buildRuleName(obj, rule, ruleIdx), portIdx, portAddressIdx)),
 		Direction:      &ruleDirection,
-		SequenceNumber: &sequence,
+		SequenceNumber: Int64(int64(ruleIdx)),
 		Action:         &ruleAction,
 		Services:       []string{"ANY"},
 		Tags:           service.buildBasicTags(obj),
@@ -732,11 +702,6 @@ func (service *SecurityPolicyService) buildRuleBasicInfo(obj *v1alpha1.SecurityP
 
 func (service *SecurityPolicyService) BuildPeerTags(obj *v1alpha1.SecurityPolicy, peers *[]v1alpha1.SecurityPolicyPeer, idx int) []model.Tag {
 	basicTags := service.buildBasicTags(obj)
-	ruleID := service.buildRuleID(obj, idx)
-	tagScopeGroupType := util.TagScopeGroupType
-	tagScopeRuleID := util.TagScopeRuleID
-	tagScopeSelectorHash := util.TagScopeSelectorHash
-	tagValueScope := "scope"
 	// TODO: abstract sort func for both peers and targets
 	sort.Slice(*peers, func(i, j int) bool {
 		k1, _ := json.Marshal((*peers)[i])
@@ -744,19 +709,18 @@ func (service *SecurityPolicyService) BuildPeerTags(obj *v1alpha1.SecurityPolicy
 		return string(k1) < string(k2)
 	})
 	serializedBytes, _ := json.Marshal(*peers)
-	groupHash := util.Sha1(string(serializedBytes))
 	peerTags := []model.Tag{
 		{
-			Scope: &tagScopeGroupType,
-			Tag:   &tagValueScope,
+			Scope: String(util.TagScopeGroupType),
+			Tag:   String("scope"),
 		},
 		{
-			Scope: &tagScopeRuleID,
-			Tag:   &ruleID,
+			Scope: String(util.TagScopeRuleID),
+			Tag:   String(service.buildRuleID(obj, idx)),
 		},
 		{
-			Scope: &tagScopeSelectorHash,
-			Tag:   &groupHash,
+			Scope: String(util.TagScopeSelectorHash),
+			Tag:   String(util.Sha1(string(serializedBytes))),
 		},
 	}
 	for _, tag := range basicTags {
