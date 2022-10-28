@@ -4,9 +4,11 @@
 package main
 
 import (
-	"flag"
 	"os"
 	"time"
+
+	"github.com/vmware-tanzu/nsx-operator/flag"
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -17,7 +19,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
-	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -25,19 +26,14 @@ import (
 )
 
 var (
-	scheme                 = runtime.NewScheme()
-	probeAddr, metricsAddr string
-	log                    = logger.Log
-	cf                     *config.NSXOperatorConfig
+	scheme = runtime.NewScheme()
+	log    = logger.Log()
+	cf     *config.NSXOperatorConfig
 )
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8384", "The address the probe endpoint binds to.")
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8093", "The address the metrics endpoint binds to.")
-	config.AddFlags()
-	flag.Parse()
 	var err error
 
 	cf, err = config.NewNSXOperatorConfigFromFile()
@@ -71,8 +67,8 @@ func main() {
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
-		HealthProbeBindAddress: probeAddr,
-		MetricsBindAddress:     metricsAddr,
+		HealthProbeBindAddress: flag.ProbeAddr,
+		MetricsBindAddress:     flag.MetricsAddr,
 		LeaderElectionID:       "nsx-operator",
 	})
 	if err != nil {

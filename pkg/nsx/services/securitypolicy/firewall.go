@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	log                       = logger.Log
+	log                       = logger.Log()
 	MarkedForDelete           = true
 	EnforceRevisionCheckParam = false
 	Converter                 *bindings.TypeConverter

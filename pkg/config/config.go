@@ -5,24 +5,23 @@ package config
 
 import (
 	"errors"
-	"flag"
 	"io/ioutil"
 
 	ini "gopkg.in/ini.v1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/vmware-tanzu/nsx-operator/flag"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth/jwt"
 )
 
 //TODO replace to yaml
 const (
-	nsxOperatorDefaultConf = "/etc/nsx-operator/nsxop.ini"
-	vcHostCACertPath       = "/etc/vmware/wcp/tls/vmca.pem"
+	vcHostCACertPath = "/etc/vmware/wcp/tls/vmca.pem"
 )
 
 var (
-	configFilePath = ""
+	configFilePath = flag.ConfigFilePath
 	log            = logf.Log.WithName("config")
 	tokenProvider  auth.TokenProvider
 )
@@ -79,10 +78,6 @@ type Validate interface {
 
 type NsxVersion struct {
 	NodeVersion string `json:"node_version"`
-}
-
-func AddFlags() {
-	flag.StringVar(&configFilePath, "nsxconfig", nsxOperatorDefaultConf, "NSX Operator configuration file path")
 }
 
 func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {

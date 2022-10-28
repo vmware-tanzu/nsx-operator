@@ -2,7 +2,10 @@ package logger
 
 import (
 	"flag"
+	"sync"
 	"time"
+
+	argflag "github.com/vmware-tanzu/nsx-operator/flag"
 
 	"github.com/go-logr/logr"
 	"go.uber.org/zap"
@@ -14,20 +17,20 @@ import (
 const logTmFmtWithMS = "2006-01-02 15:04:05.000"
 
 var (
-	logLevel          int
-	Log               logr.Logger
 	customTimeEncoder = func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 		enc.AppendString(t.Format(logTmFmtWithMS))
 	}
 	customCallerEncoder = func(caller zapcore.EntryCaller, enc zapcore.PrimitiveArrayEncoder) {
 		enc.AppendString(caller.TrimmedPath())
 	}
+	calcTotalOnce sync.Once
 )
 
-func init() {
-	flag.IntVar(&logLevel, "log-level", 0, "Use zap-core log system.")
-	logf.SetLogger(ZapLogger())
-	Log = logf.Log.WithName("nsx-operator")
+func Log() logr.Logger {
+	calcTotalOnce.Do(func() {
+		logf.SetLogger(ZapLogger())
+	})
+	return logf.Log.WithName("nsx-operator")
 }
 
 func ZapLogger() logr.Logger {
@@ -56,9 +59,9 @@ func ZapLogger() logr.Logger {
 	// In level.go of zapcore, higher levels are more important.
 	// However, in logr.go, a higher verbosity level means a log message is less important.
 	// So we need to reverse the order of the levels.
-	opts.Level = zapcore.Level(-1 * logLevel)
+	opts.Level = zapcore.Level(-1 * argflag.LogLevel)
 	opts.ZapOpts = append(opts.ZapOpts, zap.AddCaller(), zap.AddCallerSkip(0))
-	if logLevel > 0 {
+	if argflag.LogLevel > 0 {
 		opts.StacktraceLevel = zap.ErrorLevel
 	}
 
