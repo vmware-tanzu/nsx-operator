@@ -26,7 +26,6 @@ var (
 
 func init() {
 	flag.IntVar(&logLevel, "log-level", 0, "Use zap-core log system.")
-	logf.SetLogger(ZapLogger())
 	Log = logf.Log.WithName("nsx-operator")
 }
 
