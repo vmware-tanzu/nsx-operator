@@ -54,7 +54,7 @@ type NSXServiceAccountStatus struct {
 	Reason         string                 `json:"reason,omitempty"`
 	VPCPath        string                 `json:"vpcPath,omitempty"`
 	NSXManagers    []string               `json:"nsxManagers,omitempty"`
-	ProxyEndpoints []NSXProxyEndpoint     `json:"proxyEndpoints,omitempty"`
+	ProxyEndpoints NSXProxyEndpoint       `json:"proxyEndpoints,omitempty"`
 	ClusterID      string                 `json:"clusterID,omitempty"`
 	ClusterName    string                 `json:"clusterName,omitempty"`
 	Secrets        []NSXSecret            `json:"secrets,omitempty"`
