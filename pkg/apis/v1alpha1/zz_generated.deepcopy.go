@@ -263,13 +263,7 @@ func (in *NSXServiceAccountStatus) DeepCopyInto(out *NSXServiceAccountStatus) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
-	if in.ProxyEndpoints != nil {
-		in, out := &in.ProxyEndpoints, &out.ProxyEndpoints
-		*out = make([]NSXProxyEndpoint, len(*in))
-		for i := range *in {
-			(*in)[i].DeepCopyInto(&(*out)[i])
-		}
-	}
+	in.ProxyEndpoints.DeepCopyInto(&out.ProxyEndpoints)
 	if in.Secrets != nil {
 		in, out := &in.Secrets, &out.Secrets
 		*out = make([]NSXSecret, len(*in))
