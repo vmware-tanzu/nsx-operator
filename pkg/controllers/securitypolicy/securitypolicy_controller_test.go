@@ -241,7 +241,7 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 	}
 	ctx := context.Background()
 	policyList := &v1alpha1.SecurityPolicyList{}
-	k8sClient.EXPECT().List(ctx, policyList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+	k8sClient.EXPECT().List(gomock.Any(), policyList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 		a := list.(*v1alpha1.SecurityPolicyList)
 		a.Items = append(a.Items, v1alpha1.SecurityPolicy{})
 		a.Items[0].ObjectMeta = metav1.ObjectMeta{}
