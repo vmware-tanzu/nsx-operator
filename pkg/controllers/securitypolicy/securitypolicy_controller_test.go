@@ -32,7 +32,6 @@ import (
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func NewFakeSecurityPolicyReconciler() *SecurityPolicyReconciler {
@@ -198,7 +197,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		v1sp := obj.(*v1alpha1.SecurityPolicy)
 		time := metav1.Now()
 		v1sp.ObjectMeta.DeletionTimestamp = &time
-		v1sp.Finalizers = []string{util.FinalizerName}
+		v1sp.Finalizers = []string{common.FinalizerName}
 		return nil
 	})
 	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}) error {
