@@ -2,6 +2,7 @@ package common
 
 import (
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -9,112 +10,12 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/client-go/tools/cache"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 )
-
-func Test_SecurityPolicyCRUIDScopeIndexFunc(t *testing.T) {
-	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_cr_uid"
-	m := model.Group{
-		Id:   &mId,
-		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-	}
-	s := model.SecurityPolicy{
-		Id:   &mId,
-		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-	}
-	r := model.Rule{
-		Id:   &mId,
-		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-	}
-	type args struct {
-		obj interface{}
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    []string
-		wantErr bool
-	}{
-		{"1", args{obj: m}, []string{"11111"}, false},
-		{"2", args{obj: s}, []string{"11111"}, false},
-		{"3", args{obj: r}, []string{"11111"}, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := CRUIDScopeIndexFunc(util.TagScopeSecurityPolicyCRUID, tt.args.obj)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("securityPolicyCRUIDScopeIndexFunc() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("securityPolicyCRUIDScopeIndexFunc() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func Test_filterTag(t *testing.T) {
-	mTag, mScope := "11111", "nsx-op/security_policy_cr_uid"
-	mTag2, mScope2 := "11111", "nsx"
-	tags := []model.Tag{{Scope: &mScope, Tag: &mTag}}
-	tags2 := []model.Tag{{Scope: &mScope2, Tag: &mTag2}}
-	var res []string
-	var res2 []string
-	type args struct {
-		v   []model.Tag
-		res []string
-	}
-	tests := []struct {
-		name string
-		args args
-		want []string
-	}{
-		{"1", args{v: tags, res: res}, []string{"11111"}},
-		{"1", args{v: tags2, res: res2}, []string{}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := filterTag(util.TagScopeSecurityPolicyCRUID, tt.args.v); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("filterTag() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func Test_KeyFunc(t *testing.T) {
-	Id := "11111"
-	g := model.Group{Id: &Id}
-	s := model.SecurityPolicy{Id: &Id}
-	r := model.Rule{Id: &Id}
-	o := model.UserInfo{}
-	type args struct {
-		obj interface{}
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    string
-		wantErr bool
-	}{
-		{"1", args{obj: g}, Id, false},
-		{"2", args{obj: s}, Id, false},
-		{"3", args{obj: r}, Id, false},
-		{"4", args{obj: o}, "", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := KeyFunc(tt.args.obj)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("keyFunc() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("keyFunc() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
 
 func Test_DecrementPageSize(t *testing.T) {
 	p := int64(1000)
@@ -168,4 +69,119 @@ func Test_transError(t *testing.T) {
 			}
 		})
 	}
+}
+
+type fakeQueryClient struct {
+}
+
+func (_ *fakeQueryClient) List(queryParam string, cursorParam *string, includedFieldsParam *string, pageSizeParam *int64,
+	sortAscendingParam *bool, sortByParam *string) (model.SearchResponse, error) {
+	cursor := "2"
+	resultCount := int64(2)
+	return model.SearchResponse{
+		Results: []*data.StructValue{{}},
+		Cursor:  &cursor, ResultCount: &resultCount,
+	}, nil
+}
+
+func (resourceStore *ResourceStore) CRUDResource(i interface{}) error {
+	sp := i.(*model.SecurityPolicy)
+	for _, rule := range sp.Rules {
+		if rule.MarkedForDelete != nil && *rule.MarkedForDelete {
+			err := resourceStore.Delete(rule)
+			log.V(1).Info("delete rule from store", "rule", rule)
+			if err != nil {
+				return err
+			}
+		} else {
+			err := resourceStore.Add(rule)
+			log.V(1).Info("add rule to store", "rule", rule)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func keyFunc(obj interface{}) (string, error) {
+	switch v := obj.(type) {
+	case model.Rule:
+		return *v.Id, nil
+	default:
+		return "", nil
+	}
+}
+
+func indexFunc(obj interface{}) ([]string, error) {
+	res := make([]string, 0, 5)
+	switch o := obj.(type) {
+	case model.Rule:
+		return filterTag(o.Tags), nil
+	default:
+		return res, nil
+	}
+}
+
+var filterTag = func(v []model.Tag) []string {
+	res := make([]string, 0, 5)
+	for _, tag := range v {
+		if *tag.Scope == TagScopeSecurityPolicyCRUID {
+			res = append(res, *tag.Tag)
+		}
+	}
+	return res
+}
+
+func ruleAssertion(i interface{}) interface{} {
+	return i.(model.Rule)
+}
+
+func Test_InitializeResourceStore(t *testing.T) {
+	config2 := nsx.NewConfig("localhost", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	cluster, _ := nsx.NewCluster(config2)
+	rc, _ := cluster.NewRestConnector()
+
+	service := Service{
+		NSXClient: &nsx.Client{
+			QueryClient:   &fakeQueryClient{},
+			RestConnector: rc,
+			NsxConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		NSXConfig: &config.NSXOperatorConfig{
+			CoeConfig: &config.CoeConfig{
+				Cluster: "k8scl-one:test",
+			},
+		},
+	}
+
+	ruleCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{TagScopeSecurityPolicyCRUID: indexFunc})
+	ruleStore := &ResourceStore{
+		Indexer:           ruleCacheIndexer,
+		BindingType:       model.RuleBindingType(),
+		ResourceAssertion: ruleAssertion,
+	}
+
+	wg := sync.WaitGroup{}
+	fatalErrors := make(chan error)
+	wg.Add(3)
+
+	var tc *bindings.TypeConverter
+	patches2 := gomonkey.ApplyMethod(reflect.TypeOf(tc), "ConvertToGolang",
+		func(_ *bindings.TypeConverter, d data.DataValue, b bindings.BindingType) (interface{}, []error) {
+			mId, mTag, mScope := "11111", "11111", "11111"
+			m := model.Rule{
+				Id:   &mId,
+				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+			}
+			var j interface{} = m
+			return j, nil
+		})
+	defer patches2.Reset()
+
+	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, ruleStore)
 }

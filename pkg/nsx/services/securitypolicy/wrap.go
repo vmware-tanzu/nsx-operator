@@ -4,7 +4,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 // Patch API at infra level can be used in two flavours.
@@ -21,7 +21,7 @@ func (service *SecurityPolicyService) WrapHierarchySecurityPolicy(sp *model.Secu
 	}
 	sp.Rules = nil
 	sp.Children = rulesChildren
-	sp.ResourceType = &util.ResourceTypeSecurityPolicy // InfraClient need this field to identify the resource type
+	sp.ResourceType = &common.ResourceTypeSecurityPolicy // InfraClient need this field to identify the resource type
 
 	securityPolicyChildren, error := service.wrapSecurityPolicy(sp)
 	if error != nil {
@@ -67,7 +67,7 @@ func (service *SecurityPolicyService) wrapResourceReference(children []*data.Str
 		TargetType:   &targetType,
 		Children:     children,
 	}
-	dataValue, errors := Converter.ConvertToVapi(childDomain, model.ChildResourceReferenceBindingType())
+	dataValue, errors := NewConverter().ConvertToVapi(childDomain, model.ChildResourceReferenceBindingType())
 	if len(errors) > 0 {
 		return nil, errors[0]
 	}
@@ -78,14 +78,14 @@ func (service *SecurityPolicyService) wrapResourceReference(children []*data.Str
 func (service *SecurityPolicyService) wrapRules(rules []model.Rule) ([]*data.StructValue, error) {
 	var rulesChildren []*data.StructValue
 	for _, rule := range rules {
-		rule.ResourceType = &util.ResourceTypeRule // InfraClient need this field to identify the resource type
-		childRule := model.ChildRule{              // We need to put child rule's id into upper level, otherwise, NSX-T will not find the child rule
+		rule.ResourceType = &common.ResourceTypeRule // InfraClient need this field to identify the resource type
+		childRule := model.ChildRule{                // We need to put child rule's id into upper level, otherwise, NSX-T will not find the child rule
 			ResourceType:    "ChildRule", // Children are not allowed for rule, so we don't need to wrap ServiceEntry into Children
 			Id:              rule.Id,
 			Rule:            &rule,
 			MarkedForDelete: rule.MarkedForDelete,
 		}
-		dataValue, errors := Converter.ConvertToVapi(childRule, model.ChildRuleBindingType())
+		dataValue, errors := NewConverter().ConvertToVapi(childRule, model.ChildRuleBindingType())
 		if len(errors) > 0 {
 			return nil, errors[0]
 		}
@@ -97,14 +97,14 @@ func (service *SecurityPolicyService) wrapRules(rules []model.Rule) ([]*data.Str
 func (service *SecurityPolicyService) wrapGroups(groups []model.Group) ([]*data.StructValue, error) {
 	var groupsChildren []*data.StructValue
 	for _, group := range groups {
-		group.ResourceType = &util.ResourceTypeGroup // InfraClient need this field to identify the resource type
+		group.ResourceType = &common.ResourceTypeGroup // InfraClient need this field to identify the resource type
 		childGroup := model.ChildGroup{
 			ResourceType:    "ChildGroup",
 			Id:              group.Id,
 			MarkedForDelete: group.MarkedForDelete,
 			Group:           &group,
 		}
-		dataValue, errors := Converter.ConvertToVapi(childGroup, model.ChildGroupBindingType())
+		dataValue, errors := NewConverter().ConvertToVapi(childGroup, model.ChildGroupBindingType())
 		if len(errors) > 0 {
 			return nil, errors[0]
 		}
@@ -121,7 +121,7 @@ func (service *SecurityPolicyService) wrapSecurityPolicy(sp *model.SecurityPolic
 		ResourceType:    "ChildSecurityPolicy",
 		SecurityPolicy:  sp,
 	}
-	dataValue, errors := Converter.ConvertToVapi(childPolicy, model.ChildSecurityPolicyBindingType())
+	dataValue, errors := NewConverter().ConvertToVapi(childPolicy, model.ChildSecurityPolicyBindingType())
 	if len(errors) > 0 {
 		return nil, errors[0]
 	}

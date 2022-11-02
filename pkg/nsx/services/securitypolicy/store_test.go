@@ -1,29 +1,123 @@
 package securitypolicy
 
 import (
+	"fmt"
 	"reflect"
 	"sync"
 	"testing"
 
 	"github.com/agiledragon/gomonkey"
+	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
-func Test_queryTagCondition(t *testing.T) {
+func Test_IndexFunc(t *testing.T) {
+	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_cr_uid"
+	m := model.Group{
+		Id:   &mId,
+		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+	}
+	s := model.SecurityPolicy{
+		Id:   &mId,
+		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+	}
+	r := model.Rule{
+		Id:   &mId,
+		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+	}
+	type args struct {
+		obj interface{}
+	}
+	t.Run("1", func(t *testing.T) {
+		got, _ := indexFunc(s)
+		if !reflect.DeepEqual(got, []string{"11111"}) {
+			t.Errorf("securityPolicyCRUIDScopeIndexFunc() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
+		}
+	})
+	t.Run("2", func(t *testing.T) {
+		got, _ := indexFunc(m)
+		if !reflect.DeepEqual(got, []string{"11111"}) {
+			t.Errorf("securityPolicyCRUIDScopeIndexFunc() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
+		}
+	})
+	t.Run("3", func(t *testing.T) {
+		got, _ := indexFunc(r)
+		if !reflect.DeepEqual(got, []string{"11111"}) {
+			t.Errorf("securityPolicyCRUIDScopeIndexFunc() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
+		}
+	})
+}
+
+func Test_filterTag(t *testing.T) {
+	mTag, mScope := "11111", "nsx-op/security_policy_cr_uid"
+	mTag2, mScope2 := "11111", "nsx"
+	tags := []model.Tag{{Scope: &mScope, Tag: &mTag}}
+	tags2 := []model.Tag{{Scope: &mScope2, Tag: &mTag2}}
+	var res []string
+	var res2 []string
+	type args struct {
+		v   []model.Tag
+		res []string
+	}
+	tests := []struct {
+		name string
+		args args
+		want []string
+	}{
+		{"1", args{v: tags, res: res}, []string{"11111"}},
+		{"1", args{v: tags2, res: res2}, []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := filterTag(tt.args.v); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("filterTag() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_KeyFunc(t *testing.T) {
+	Id := "11111"
+	g := model.Group{Id: &Id}
+	s := model.SecurityPolicy{Id: &Id}
+	r := model.Rule{Id: &Id}
+	type args struct {
+		obj interface{}
+	}
+	t.Run("1", func(t *testing.T) {
+		got, _ := keyFunc(s)
+		if got != "11111" {
+			t.Errorf("keyFunc() = %v, want %v", got, "11111")
+		}
+	})
+	t.Run("2", func(t *testing.T) {
+		got, _ := keyFunc(g)
+		if got != "11111" {
+			t.Errorf("keyFunc() = %v, want %v", got, "11111")
+		}
+	})
+	t.Run("3", func(t *testing.T) {
+		got, _ := keyFunc(r)
+		if got != "11111" {
+			t.Errorf("keyFunc() = %v, want %v", got, "11111")
+		}
+	})
+}
+
+func Test_InitializeRuleStore(t *testing.T) {
 	config2 := nsx.NewConfig("localhost", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config2)
 	rc, _ := cluster.NewRestConnector()
-	service = &SecurityPolicyService{
+
+	service := SecurityPolicyService{
 		Service: common.Service{
 			NSXClient: &nsx.Client{
 				QueryClient:   &fakeQueryClient{},
@@ -34,143 +128,19 @@ func Test_queryTagCondition(t *testing.T) {
 					},
 				},
 			},
-		},
-	}
-	type args struct {
-		service *SecurityPolicyService
-	}
-	tests := []struct {
-		name string
-		args args
-		want string
-	}{
-		{"1", args{service: service}, "tags.scope:nsx-op\\/cluster AND tags.tag:k8scl-one\\:test"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := queryTagCondition(tt.args.service); got != tt.want {
-				t.Errorf("queryTagCondition() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-type fakeQueryClient struct {
-}
-
-func (qIface *fakeQueryClient) List(queryParam string, cursorParam *string, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.SearchResponse, error) {
-	cursor := "2"
-	resultCount := int64(2)
-	return model.SearchResponse{
-		Results: []*data.StructValue{&data.StructValue{}},
-		Cursor:  &cursor, ResultCount: &resultCount,
-	}, nil
-}
-
-func keyFunc2(obj interface{}) (string, error) {
-	return "", nil
-}
-
-func Test_queryGroup(t *testing.T) {
-	config := nsx.NewConfig("localhost", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
-	cluster, _ := nsx.NewCluster(config)
-	rc, _ := cluster.NewRestConnector()
-	service = &SecurityPolicyService{
-		Service: common.Service{
-			NSXClient: &nsx.Client{
-				QueryClient:   &fakeQueryClient{},
-				RestConnector: rc,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
 			},
 		},
-		GroupStore: cache.NewIndexer(keyFunc2,
-			cache.Indexers{
-				util.TagScopeSecurityPolicyCRUID: common.IndexFunc(util.TagScopeSecurityPolicyCRUID),
-			}),
 	}
-
-	wg := sync.WaitGroup{}
-	fatalErrors := make(chan error)
-	wg.Add(3)
-
-	var tc *bindings.TypeConverter
-	patches2 := gomonkey.ApplyMethod(reflect.TypeOf(tc), "ConvertToGolang",
-		func(_ *bindings.TypeConverter, d data.DataValue, b bindings.BindingType) (interface{}, []error) {
-			mId, mTag, mScope := "11111", "11111", "11111"
-			m := model.Group{
-				Id:   &mId,
-				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-			}
-			var j interface{} = &m
-			return j, nil
-		})
-	defer patches2.Reset()
-
-	patches3 := gomonkey.ApplyFunc(queryTagCondition, func(service *SecurityPolicyService) string {
-		return ""
-	})
-	defer patches3.Reset()
-
-	queryGroup(service, &wg, fatalErrors)
-}
-
-func Test_querySecurityPolicy(t *testing.T) {
-	config := nsx.NewConfig("localhost", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
-	cluster, _ := nsx.NewCluster(config)
-	rc, _ := cluster.NewRestConnector()
-	service = &SecurityPolicyService{
-		Service: common.Service{
-			NSXClient: &nsx.Client{
-				QueryClient:   &fakeQueryClient{},
-				RestConnector: rc,
-			},
-		},
-		SecurityPolicyStore: cache.NewIndexer(keyFunc2,
-			cache.Indexers{
-				util.TagScopeSecurityPolicyCRUID: common.IndexFunc(util.TagScopeSecurityPolicyCRUID),
-			}),
-	}
-
-	wg := sync.WaitGroup{}
-	fatalErrors := make(chan error)
-	wg.Add(3)
-
-	var tc *bindings.TypeConverter
-	patches2 := gomonkey.ApplyMethod(reflect.TypeOf(tc), "ConvertToGolang",
-		func(_ *bindings.TypeConverter, d data.DataValue, b bindings.BindingType) (interface{}, []error) {
-			mId, mTag, mScope := "11111", "11111", "11111"
-			m := model.SecurityPolicy{
-				Id:   &mId,
-				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-			}
-			var j interface{} = &m
-			return j, nil
-		})
-	defer patches2.Reset()
-
-	patches3 := gomonkey.ApplyFunc(queryTagCondition, func(service *SecurityPolicyService) string {
-		return ""
-	})
-	defer patches3.Reset()
-
-	querySecurityPolicy(service, &wg, fatalErrors)
-}
-
-func Test_queryRule(t *testing.T) {
-	config := nsx.NewConfig("localhost", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
-	cluster, _ := nsx.NewCluster(config)
-	rc, _ := cluster.NewRestConnector()
-	service = &SecurityPolicyService{
-		Service: common.Service{
-			NSXClient: &nsx.Client{
-				QueryClient:   &fakeQueryClient{},
-				RestConnector: rc,
-			},
-		},
-		RuleStore: cache.NewIndexer(keyFunc2,
-			cache.Indexers{
-				util.TagScopeSecurityPolicyCRUID: common.IndexFunc(util.TagScopeSecurityPolicyCRUID),
-			}),
-	}
+	ruleCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
+	ruleStore = &RuleStore{ResourceStore: common.ResourceStore{
+		Indexer:           ruleCacheIndexer,
+		BindingType:       model.RuleBindingType(),
+		ResourceAssertion: ruleAssertion,
+	}}
 
 	wg := sync.WaitGroup{}
 	fatalErrors := make(chan error)
@@ -184,86 +154,221 @@ func Test_queryRule(t *testing.T) {
 				Id:   &mId,
 				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
 			}
-			var j interface{} = &m
+			var j interface{} = m
 			return j, nil
 		})
 	defer patches2.Reset()
 
-	patches3 := gomonkey.ApplyFunc(queryTagCondition, func(service *SecurityPolicyService) string {
-		return ""
-	})
-	defer patches3.Reset()
-
-	queryRule(service, &wg, fatalErrors)
+	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, ruleStore)
 }
 
-func TestListSecurityPolicyID(t *testing.T) {
-	groupStore := cache.NewIndexer(common.KeyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: common.IndexFunc(util.TagScopeSecurityPolicyCRUID)})
-	policyStore := cache.NewIndexer(common.KeyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: common.IndexFunc(util.TagScopeSecurityPolicyCRUID)})
-	ruleStore := cache.NewIndexer(common.KeyFunc, cache.Indexers{util.TagScopeSecurityPolicyCRUID: common.IndexFunc(util.TagScopeSecurityPolicyCRUID)})
+func Test_InitializeGroupStore(t *testing.T) {
+	config2 := nsx.NewConfig("localhost", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	cluster, _ := nsx.NewCluster(config2)
+	rc, _ := cluster.NewRestConnector()
 
-	group := model.Group{}
-	scope := "nsx-op/security_policy_cr_uid"
-	uuid := "111111111"
-	id := "1234"
-	group.Id = &id
-	group.UniqueId = &uuid
-
-	group.Tags = []model.Tag{{Scope: &scope, Tag: &id}}
-	groupStore.Add(group)
-
-	id1 := "4567"
-	uuid1 := "111111112"
-	group1 := model.Group{}
-	group1.Id = &id1
-	group1.UniqueId = &uuid1
-	group1.Tags = []model.Tag{{Scope: &scope, Tag: &id1}}
-	groupStore.Add(group1)
-
-	policy := model.SecurityPolicy{}
-	id2 := "1235"
-	policy.Id = &id2
-	policy.UniqueId = &uuid
-	policy.Tags = []model.Tag{{Scope: &scope, Tag: &id2}}
-	policyStore.Add(policy)
-
-	type fields struct {
-		NSXClient           *nsx.Client
-		GroupStore          cache.Indexer
-		SecurityPolicyStore cache.Indexer
-		RuleStore           cache.Indexer
-	}
-	field := fields{NSXClient: nil, GroupStore: groupStore, SecurityPolicyStore: policyStore, RuleStore: ruleStore}
-
-	tests := []struct {
-		name    string
-		fields  fields
-		want    sets.String
-		wantErr bool
-	}{
-		{
-			name:    "test",
-			fields:  field,
-			wantErr: false,
+	service := SecurityPolicyService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				QueryClient:   &fakeQueryClient{},
+				RestConnector: rc,
+				NsxConfig: &config.NSXOperatorConfig{
+					CoeConfig: &config.CoeConfig{
+						Cluster: "k8scl-one:test",
+					},
+				},
+			},
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
 		},
 	}
+	groupCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
+	groupStore = &GroupStore{ResourceStore: common.ResourceStore{
+		Indexer:           groupCacheIndexer,
+		BindingType:       model.GroupBindingType(),
+		ResourceAssertion: groupAssertion,
+	}}
 
-	tests[0].want = sets.NewString()
-	tests[0].want.Insert(id)
-	tests[0].want.Insert(id1)
-	tests[0].want.Insert(id2)
+	wg := sync.WaitGroup{}
+	fatalErrors := make(chan error)
+	wg.Add(3)
+
+	var tc *bindings.TypeConverter
+	patches2 := gomonkey.ApplyMethod(reflect.TypeOf(tc), "ConvertToGolang",
+		func(_ *bindings.TypeConverter, d data.DataValue, b bindings.BindingType) (interface{}, []error) {
+			mId, mTag, mScope := "11111", "11111", "11111"
+			m := model.Group{
+				Id:   &mId,
+				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+			}
+			var j interface{} = m
+			return j, nil
+		})
+	defer patches2.Reset()
+
+	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, groupStore)
+}
+
+func Test_InitializeSecurityPolicyStore(t *testing.T) {
+	config2 := nsx.NewConfig("localhost", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	cluster, _ := nsx.NewCluster(config2)
+	rc, _ := cluster.NewRestConnector()
+
+	service := SecurityPolicyService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				QueryClient:   &fakeQueryClient{},
+				RestConnector: rc,
+				NsxConfig: &config.NSXOperatorConfig{
+					CoeConfig: &config.CoeConfig{
+						Cluster: "k8scl-one:test",
+					},
+				},
+			},
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+	}
+	securityPolicyCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
+	securityPolicyStore = &SecurityPolicyStore{ResourceStore: common.ResourceStore{
+		Indexer:           securityPolicyCacheIndexer,
+		BindingType:       model.SecurityPolicyBindingType(),
+		ResourceAssertion: securityPolicyAssertion,
+	}}
+
+	wg := sync.WaitGroup{}
+	fatalErrors := make(chan error)
+	wg.Add(3)
+
+	var tc *bindings.TypeConverter
+	patches2 := gomonkey.ApplyMethod(reflect.TypeOf(tc), "ConvertToGolang",
+		func(_ *bindings.TypeConverter, d data.DataValue, b bindings.BindingType) (interface{}, []error) {
+			mId, mTag, mScope := "11111", "11111", "11111"
+			m := model.SecurityPolicy{
+				Id:   &mId,
+				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+			}
+			var j interface{} = m
+			return j, nil
+		})
+	defer patches2.Reset()
+
+	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSecurityPolicy, securityPolicyStore)
+}
+
+func TestSecurityPolicyStore_CRUDResource(t *testing.T) {
+	securityPolicyCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
+	resourceStore := common.ResourceStore{
+		Indexer:           securityPolicyCacheIndexer,
+		BindingType:       model.SecurityPolicyBindingType(),
+		ResourceAssertion: securityPolicyAssertion,
+	}
+	securityPolicyStore = &SecurityPolicyStore{ResourceStore: resourceStore}
+	type args struct {
+		i interface{}
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{"1", args{i: &model.SecurityPolicy{Id: String("1")}}, assert.NoError},
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := &SecurityPolicyService{
-				Service:             common.Service{NSXClient: tt.fields.NSXClient},
-				GroupStore:          tt.fields.GroupStore,
-				SecurityPolicyStore: tt.fields.SecurityPolicyStore,
-				RuleStore:           tt.fields.RuleStore,
-			}
-			got := service.ListSecurityPolicyID()
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("SecurityPolicyService.ListSecurityPolicyID() = %v, want %v", got, tt.want)
-			}
+			tt.wantErr(t, securityPolicyStore.CRUDResource(tt.args.i), fmt.Sprintf("CRUDResource(%v)", tt.args.i))
+		})
+	}
+}
+
+func TestRuleStore_CRUDResource(t *testing.T) {
+	ruleCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
+	resourceStore := common.ResourceStore{
+		Indexer:           ruleCacheIndexer,
+		BindingType:       model.RuleBindingType(),
+		ResourceAssertion: ruleAssertion,
+	}
+	ruleStore = &RuleStore{ResourceStore: resourceStore}
+	type args struct {
+		i interface{}
+	}
+	sp := model.SecurityPolicy{
+		DisplayName:    &spName,
+		Id:             &spID,
+		Scope:          []string{"/infra/domains/k8scl-one/groups/sp_uidA_scope"},
+		SequenceNumber: &seq0,
+		Rules: []model.Rule{
+			{
+				DisplayName:       &ruleNameWithPodSelector00,
+				Id:                &ruleIDPort000,
+				DestinationGroups: []string{"ANY"},
+				Direction:         &nsxDirectionIn,
+				Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_scope"},
+				SequenceNumber:    &seq0,
+				Services:          []string{"ANY"},
+				SourceGroups:      []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_src"},
+				Action:            &nsxActionAllow,
+				Tags:              basicTags,
+			},
+			{
+				DisplayName:       &ruleNameWithNsSelector00,
+				Id:                &ruleIDPort100,
+				DestinationGroups: []string{"ANY"},
+				Direction:         &nsxDirectionIn,
+				Scope:             []string{"ANY"},
+				SequenceNumber:    &seq1,
+				Services:          []string{"ANY"},
+				SourceGroups:      []string{"/infra/domains/k8scl-one/groups/sp_uidA_1_src"},
+				Action:            &nsxActionAllow,
+				Tags:              basicTags,
+			},
+		},
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{"1", args{i: &sp}, assert.NoError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.wantErr(t, ruleStore.CRUDResource(tt.args.i), fmt.Sprintf("CRUDResource(%v)", tt.args.i))
+		})
+	}
+}
+
+func TestGroupStore_CRUDResource(t *testing.T) {
+	groupCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
+	resourceStore := common.ResourceStore{
+		Indexer:           groupCacheIndexer,
+		BindingType:       model.GroupBindingType(),
+		ResourceAssertion: groupAssertion,
+	}
+	groupStore = &GroupStore{ResourceStore: resourceStore}
+	type fields struct {
+		ResourceStore common.ResourceStore
+	}
+	type args struct {
+		i interface{}
+	}
+	groups := []model.Group{{Id: String("1")}, {Id: String("2")}}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{"1", args{i: &groups}, assert.NoError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.wantErr(t, groupStore.CRUDResource(tt.args.i), fmt.Sprintf("CRUDResource(%v)", tt.args.i))
 		})
 	}
 }
