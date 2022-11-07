@@ -65,10 +65,13 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 		if err != nil {
 			// Update the stale ip set group if stale ips exist
 			if errors.As(err, &nsxutil.NoEffectiveOption{}) {
-				groups := service.groupStore.GetByIndex(common.TagScopeRuleID, service.buildRuleID(obj, ruleIdx))
+				indexResults, err2 := GroupStore.ByIndex(common.TagScopeRuleID, service.buildRuleID(obj, ruleIdx))
+				if err2 != nil {
+					return nil, nil, err2
+				}
 				var ipSetGroup model.Group
-				for _, group := range groups {
-					ipSetGroup = group
+				for _, indexResult := range indexResults {
+					ipSetGroup = indexResult.(model.Group)
 					ipSetGroup.Expression = nil // clear the stale ips
 					err3 := service.createOrUpdateGroups([]model.Group{ipSetGroup})
 					if err3 != nil {

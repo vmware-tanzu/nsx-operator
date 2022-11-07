@@ -36,27 +36,10 @@ const (
 )
 
 var (
-	ResourceType               = "resource_type"
-	ResourceTypeSecurityPolicy = "SecurityPolicy"
-	ResourceTypeGroup          = "Group"
-	ResourceTypeRule           = "Rule"
-)
-
-type Service struct {
-	Client    client.Client
-	NSXClient *nsx.Client
-	NSXConfig *config.NSXOperatorConfig
-}
-
-func NewConverter() *bindings.TypeConverter {
-	converter := bindings.NewTypeConverter()
-	converter.SetMode(bindings.REST)
-	return converter
-}
-
-var (
-	String = pointy.String // address of string
-	Int64  = pointy.Int64  // address of int64
+	ResourceType               string = "resource_type"
+	ResourceTypeSecurityPolicy string = "SecurityPolicy"
+	ResourceTypeGroup          string = "Group"
+	ResourceTypeRule           string = "Rule"
 )
 
 type Service struct {
