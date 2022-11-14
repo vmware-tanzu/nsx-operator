@@ -3,6 +3,7 @@ module github.com/vmware-tanzu/nsx-operator
 go 1.17
 
 replace (
+	github.com/vmware/go-vmware-nsxt => github.com/mengdie-song/go-vmware-nsxt v0.0.0-20220921033217-dbd234470e30 // inventory-keeper includes all commits from github.com/gran-vmv/go-vmware-nsxt v0.0.0-20211206034609-cd7ffaf2c996
 	github.com/vmware/vsphere-automation-sdk-go/lib => github.com/TaoZou1/vsphere-automation-sdk-go/lib v0.5.1-0.20221020082725-84e89979deb6
 	github.com/vmware/vsphere-automation-sdk-go/runtime => github.com/TaoZou1/vsphere-automation-sdk-go/runtime v0.5.1-0.20221020082725-84e89979deb6
 	github.com/vmware/vsphere-automation-sdk-go/services/nsxt => github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt v0.9.1-0.20221020082725-84e89979deb6
@@ -11,21 +12,28 @@ replace (
 require (
 	github.com/agiledragon/gomonkey v2.0.2+incompatible
 	github.com/agiledragon/gomonkey/v2 v2.4.0
+	github.com/coreos/go-semver v0.3.0
 	github.com/deckarep/golang-set v1.8.0
 	github.com/go-logr/logr v1.2.0
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/golang/mock v1.6.0
+	github.com/kevinburke/ssh_config v1.2.0
 	github.com/openlyinc/pointy v1.1.2
+	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.11.0
 	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.7.0
+	github.com/vmware/go-vmware-nsxt v0.0.0-20220328155605-f49a14c1ef5f
 	github.com/vmware/govmomi v0.27.4
 	github.com/vmware/vsphere-automation-sdk-go/lib v0.5.0
 	github.com/vmware/vsphere-automation-sdk-go/runtime v0.5.0
 	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.6.0
 	go.uber.org/zap v1.19.1
+	golang.org/x/crypto v0.0.0-20210817164053-32db794688a5
+	golang.org/x/mod v0.4.2
 	golang.org/x/time v0.0.0-20220210224613-90d013bbcef8
 	gopkg.in/ini.v1 v1.66.4
+	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.23.4
 	k8s.io/apimachinery v0.23.4
 	k8s.io/client-go v0.23.4
@@ -33,6 +41,7 @@ require (
 )
 
 require (
+	github.com/antihax/optional v1.0.0 // indirect
 	github.com/beevik/etree v1.1.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
@@ -51,9 +60,9 @@ require (
 	github.com/imdario/mergo v0.3.12 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369 // indirect
+	github.com/moby/spdystream v0.2.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/common v0.28.0 // indirect
@@ -71,7 +80,6 @@ require (
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/protobuf v1.27.1 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.0 // indirect
 	k8s.io/apiextensions-apiserver v0.23.0 // indirect
 	k8s.io/component-base v0.23.0 // indirect
