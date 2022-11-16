@@ -12,8 +12,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/apparentlymart/go-cidr/cidr"
 	mapset "github.com/deckarep/golang-set"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -161,4 +162,19 @@ func GetSubnetMask(subnetLength int) (string, error) {
 	// Convert the binary representation to dotted-decimal format
 	subnetMask := net.IPv4(byte(subnetBinary>>24), byte(subnetBinary>>16), byte(subnetBinary>>8), byte(subnetBinary))
 	return subnetMask.String(), nil
+}
+
+func CalculateIPFromCIDRs(IPAddresses []string) (int, error) {
+	total := 0
+	for _, addr := range IPAddresses {
+		mask, err := strconv.Atoi(strings.Split(addr, "/")[1])
+		if err != nil {
+			return -1, err
+		}
+		total += int(cidr.AddressCount(&net.IPNet{
+			IP:   net.ParseIP(strings.Split(addr, "/")[0]),
+			Mask: net.CIDRMask(mask, 32),
+		}))
+	}
+	return total, nil
 }

@@ -4,6 +4,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
@@ -19,6 +20,7 @@ var (
 type ServiceMediator struct {
 	*securitypolicy.SecurityPolicyService
 	*vpc.VPCService
+	*subnet.SubnetService
 }
 
 // ListVPCInfo is a common method, extracting the org, the project, and the vpc string from vpc path of the VPC model.

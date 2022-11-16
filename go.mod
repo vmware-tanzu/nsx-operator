@@ -13,11 +13,13 @@ replace (
 require (
 	github.com/agiledragon/gomonkey v2.0.2+incompatible
 	github.com/agiledragon/gomonkey/v2 v2.9.0
+	github.com/apparentlymart/go-cidr v1.1.0
 	github.com/coreos/go-semver v0.3.0
 	github.com/deckarep/golang-set v1.8.0
 	github.com/go-logr/logr v1.2.3
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/golang/mock v1.6.0
+	github.com/google/uuid v1.2.0
 	github.com/kevinburke/ssh_config v1.2.0
 	github.com/openlyinc/pointy v1.1.2
 	github.com/prometheus/client_golang v1.14.0
@@ -26,7 +28,7 @@ require (
 	github.com/vmware/govmomi v0.27.4
 	github.com/vmware/vsphere-automation-sdk-go/lib v0.5.2
 	github.com/vmware/vsphere-automation-sdk-go/runtime v0.5.2
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.6.0
+	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.11.0
 	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp v0.3.0
 	go.uber.org/zap v1.24.0
 	golang.org/x/crypto v0.14.0
@@ -59,7 +61,6 @@ require (
 	github.com/google/gnostic v0.5.7-v3refs // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/google/gofuzz v1.1.0 // indirect
-	github.com/google/uuid v1.2.0 // indirect
 	github.com/imdario/mergo v0.3.6 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
