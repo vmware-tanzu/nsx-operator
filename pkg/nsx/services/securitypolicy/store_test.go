@@ -33,9 +33,6 @@ func Test_IndexFunc(t *testing.T) {
 		Id:   &mId,
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
 	}
-	type args struct {
-		obj interface{}
-	}
 	t.Run("1", func(t *testing.T) {
 		got, _ := indexFunc(s)
 		if !reflect.DeepEqual(got, []string{"11111"}) {
@@ -89,9 +86,6 @@ func Test_KeyFunc(t *testing.T) {
 	g := model.Group{Id: &Id}
 	s := model.SecurityPolicy{Id: &Id}
 	r := model.Rule{Id: &Id}
-	type args struct {
-		obj interface{}
-	}
 	t.Run("1", func(t *testing.T) {
 		got, _ := keyFunc(s)
 		if got != "11111" {
@@ -136,10 +130,9 @@ func Test_InitializeRuleStore(t *testing.T) {
 		},
 	}
 	ruleCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
-	ruleStore = &RuleStore{ResourceStore: common.ResourceStore{
-		Indexer:           ruleCacheIndexer,
-		BindingType:       model.RuleBindingType(),
-		ResourceAssertion: ruleAssertion,
+	ruleStore := &RuleStore{ResourceStore: common.ResourceStore{
+		Indexer:     ruleCacheIndexer,
+		BindingType: model.RuleBindingType(),
 	}}
 
 	wg := sync.WaitGroup{}
@@ -186,10 +179,9 @@ func Test_InitializeGroupStore(t *testing.T) {
 		},
 	}
 	groupCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
-	groupStore = &GroupStore{ResourceStore: common.ResourceStore{
-		Indexer:           groupCacheIndexer,
-		BindingType:       model.GroupBindingType(),
-		ResourceAssertion: groupAssertion,
+	groupStore := &GroupStore{ResourceStore: common.ResourceStore{
+		Indexer:     groupCacheIndexer,
+		BindingType: model.GroupBindingType(),
 	}}
 
 	wg := sync.WaitGroup{}
@@ -236,10 +228,9 @@ func Test_InitializeSecurityPolicyStore(t *testing.T) {
 		},
 	}
 	securityPolicyCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
-	securityPolicyStore = &SecurityPolicyStore{ResourceStore: common.ResourceStore{
-		Indexer:           securityPolicyCacheIndexer,
-		BindingType:       model.SecurityPolicyBindingType(),
-		ResourceAssertion: securityPolicyAssertion,
+	securityPolicyStore := &SecurityPolicyStore{ResourceStore: common.ResourceStore{
+		Indexer:     securityPolicyCacheIndexer,
+		BindingType: model.SecurityPolicyBindingType(),
 	}}
 
 	wg := sync.WaitGroup{}
@@ -262,14 +253,13 @@ func Test_InitializeSecurityPolicyStore(t *testing.T) {
 	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSecurityPolicy, securityPolicyStore)
 }
 
-func TestSecurityPolicyStore_CRUDResource(t *testing.T) {
+func TestSecurityPolicyStore_Operate(t *testing.T) {
 	securityPolicyCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
 	resourceStore := common.ResourceStore{
-		Indexer:           securityPolicyCacheIndexer,
-		BindingType:       model.SecurityPolicyBindingType(),
-		ResourceAssertion: securityPolicyAssertion,
+		Indexer:     securityPolicyCacheIndexer,
+		BindingType: model.SecurityPolicyBindingType(),
 	}
-	securityPolicyStore = &SecurityPolicyStore{ResourceStore: resourceStore}
+	securityPolicyStore := &SecurityPolicyStore{ResourceStore: resourceStore}
 	type args struct {
 		i interface{}
 	}
@@ -282,19 +272,18 @@ func TestSecurityPolicyStore_CRUDResource(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.wantErr(t, securityPolicyStore.CRUDResource(tt.args.i), fmt.Sprintf("CRUDResource(%v)", tt.args.i))
+			tt.wantErr(t, securityPolicyStore.Operate(tt.args.i), fmt.Sprintf("Operate(%v)", tt.args.i))
 		})
 	}
 }
 
-func TestRuleStore_CRUDResource(t *testing.T) {
+func TestRuleStore_Operate(t *testing.T) {
 	ruleCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
 	resourceStore := common.ResourceStore{
-		Indexer:           ruleCacheIndexer,
-		BindingType:       model.RuleBindingType(),
-		ResourceAssertion: ruleAssertion,
+		Indexer:     ruleCacheIndexer,
+		BindingType: model.RuleBindingType(),
 	}
-	ruleStore = &RuleStore{ResourceStore: resourceStore}
+	ruleStore := &RuleStore{ResourceStore: resourceStore}
 	type args struct {
 		i interface{}
 	}
@@ -339,22 +328,18 @@ func TestRuleStore_CRUDResource(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.wantErr(t, ruleStore.CRUDResource(tt.args.i), fmt.Sprintf("CRUDResource(%v)", tt.args.i))
+			tt.wantErr(t, ruleStore.Operate(tt.args.i), fmt.Sprintf("Operate(%v)", tt.args.i))
 		})
 	}
 }
 
-func TestGroupStore_CRUDResource(t *testing.T) {
+func TestGroupStore_Operator(t *testing.T) {
 	groupCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
 	resourceStore := common.ResourceStore{
-		Indexer:           groupCacheIndexer,
-		BindingType:       model.GroupBindingType(),
-		ResourceAssertion: groupAssertion,
+		Indexer:     groupCacheIndexer,
+		BindingType: model.GroupBindingType(),
 	}
-	groupStore = &GroupStore{ResourceStore: resourceStore}
-	type fields struct {
-		ResourceStore common.ResourceStore
-	}
+	groupStore := &GroupStore{ResourceStore: resourceStore}
 	type args struct {
 		i interface{}
 	}
@@ -368,7 +353,7 @@ func TestGroupStore_CRUDResource(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.wantErr(t, groupStore.CRUDResource(tt.args.i), fmt.Sprintf("CRUDResource(%v)", tt.args.i))
+			tt.wantErr(t, groupStore.Operate(tt.args.i), fmt.Sprintf("Operate(%v)", tt.args.i))
 		})
 	}
 }

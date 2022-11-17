@@ -74,8 +74,7 @@ func Test_transError(t *testing.T) {
 type fakeQueryClient struct {
 }
 
-func (_ *fakeQueryClient) List(queryParam string, cursorParam *string, includedFieldsParam *string, pageSizeParam *int64,
-	sortAscendingParam *bool, sortByParam *string) (model.SearchResponse, error) {
+func (_ *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
 	cursor := "2"
 	resultCount := int64(2)
 	return model.SearchResponse{
@@ -84,7 +83,7 @@ func (_ *fakeQueryClient) List(queryParam string, cursorParam *string, includedF
 	}, nil
 }
 
-func (resourceStore *ResourceStore) CRUDResource(i interface{}) error {
+func (resourceStore *ResourceStore) Operate(i interface{}) error {
 	sp := i.(*model.SecurityPolicy)
 	for _, rule := range sp.Rules {
 		if rule.MarkedForDelete != nil && *rule.MarkedForDelete {
@@ -133,10 +132,6 @@ var filterTag = func(v []model.Tag) []string {
 	return res
 }
 
-func ruleAssertion(i interface{}) interface{} {
-	return i.(model.Rule)
-}
-
 func Test_InitializeResourceStore(t *testing.T) {
 	config2 := nsx.NewConfig("localhost", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config2)
@@ -161,9 +156,8 @@ func Test_InitializeResourceStore(t *testing.T) {
 
 	ruleCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{TagScopeSecurityPolicyCRUID: indexFunc})
 	ruleStore := &ResourceStore{
-		Indexer:           ruleCacheIndexer,
-		BindingType:       model.RuleBindingType(),
-		ResourceAssertion: ruleAssertion,
+		Indexer:     ruleCacheIndexer,
+		BindingType: model.RuleBindingType(),
 	}
 
 	wg := sync.WaitGroup{}
