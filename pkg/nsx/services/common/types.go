@@ -8,7 +8,6 @@ import (
 
 	"github.com/openlyinc/pointy"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
-	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -36,17 +35,16 @@ const (
 )
 
 var (
-	ResourceType               string = "resource_type"
-	ResourceTypeSecurityPolicy string = "SecurityPolicy"
-	ResourceTypeGroup          string = "Group"
-	ResourceTypeRule           string = "Rule"
+	ResourceType               = "resource_type"
+	ResourceTypeSecurityPolicy = "SecurityPolicy"
+	ResourceTypeGroup          = "Group"
+	ResourceTypeRule           = "Rule"
 )
 
 type Service struct {
-	Client           client.Client
-	NSXClient        *nsx.Client
-	NSXConfig        *config.NSXOperatorConfig
-	ResourceCacheMap map[string]cache.Indexer // Cache for all resources by resource type
+	Client    client.Client
+	NSXClient *nsx.Client
+	NSXConfig *config.NSXOperatorConfig
 }
 
 func NewConverter() *bindings.TypeConverter {

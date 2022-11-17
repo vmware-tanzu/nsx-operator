@@ -15,33 +15,33 @@ import (
 
 // WrapHierarchySecurityPolicy Wrap the security policy with groups and rules into a hierarchy security policy for InfraClient to patch.
 func (service *SecurityPolicyService) WrapHierarchySecurityPolicy(sp *model.SecurityPolicy, gs []model.Group) (*model.Infra, error) {
-	rulesChildren, error := service.wrapRules(sp.Rules)
-	if error != nil {
-		return nil, error
+	rulesChildren, err := service.wrapRules(sp.Rules)
+	if err != nil {
+		return nil, err
 	}
 	sp.Rules = nil
 	sp.Children = rulesChildren
 	sp.ResourceType = &common.ResourceTypeSecurityPolicy // InfraClient need this field to identify the resource type
 
-	securityPolicyChildren, error := service.wrapSecurityPolicy(sp)
-	if error != nil {
-		return nil, error
+	securityPolicyChildren, err := service.wrapSecurityPolicy(sp)
+	if err != nil {
+		return nil, err
 	}
 	var resourceReferenceChildren []*data.StructValue
 	resourceReferenceChildren = append(resourceReferenceChildren, securityPolicyChildren...)
-	groupsChildren, error := service.wrapGroups(gs)
-	if error != nil {
-		return nil, error
+	groupsChildren, err := service.wrapGroups(gs)
+	if err != nil {
+		return nil, err
 	}
 	resourceReferenceChildren = append(resourceReferenceChildren, groupsChildren...)
 
-	infraChildren, error := service.wrapResourceReference(resourceReferenceChildren)
-	if error != nil {
-		return nil, error
+	infraChildren, err := service.wrapResourceReference(resourceReferenceChildren)
+	if err != nil {
+		return nil, err
 	}
-	infra, error := service.wrapInfra(infraChildren)
-	if error != nil {
-		return nil, error
+	infra, err := service.wrapInfra(infraChildren)
+	if err != nil {
+		return nil, err
 	}
 	return infra, nil
 }
