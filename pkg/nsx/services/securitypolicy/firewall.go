@@ -6,6 +6,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -20,14 +21,13 @@ var (
 	ResourceTypeRule           = common.ResourceTypeRule
 	ResourceTypeGroup          = common.ResourceTypeGroup
 	NewConverter               = common.NewConverter
-	// The following variables are defined as interface, they should be initialized as concrete type
-	securityPolicyStore common.Store
-	groupStore          common.Store
-	ruleStore           common.Store
 )
 
 type SecurityPolicyService struct {
 	common.Service
+	securityPolicyStore *SecurityPolicyStore
+	ruleStore           *RuleStore
+	groupStore          *GroupStore
 }
 
 // InitializeSecurityPolicy sync NSX resources
@@ -40,30 +40,22 @@ func InitializeSecurityPolicy(service common.Service) (*SecurityPolicyService, e
 
 	securityPolicyService := &SecurityPolicyService{Service: service}
 
-	InitializeStore(securityPolicyService)
-	securityPolicyCacheIndexer := securityPolicyService.ResourceCacheMap[ResourceTypeSecurityPolicy]
-	ruleCacheIndexer := securityPolicyService.ResourceCacheMap[ResourceTypeRule]
-	groupCacheIndexer := securityPolicyService.ResourceCacheMap[ResourceTypeGroup]
-
-	securityPolicyStore = &SecurityPolicyStore{ResourceStore: common.ResourceStore{
-		Indexer:           securityPolicyCacheIndexer,
-		BindingType:       model.SecurityPolicyBindingType(),
-		ResourceAssertion: securityPolicyAssertion,
+	securityPolicyService.securityPolicyStore = &SecurityPolicyStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc}),
+		BindingType: model.SecurityPolicyBindingType(),
 	}}
-	groupStore = &GroupStore{ResourceStore: common.ResourceStore{
-		Indexer:           groupCacheIndexer,
-		BindingType:       model.GroupBindingType(),
-		ResourceAssertion: groupAssertion,
+	securityPolicyService.groupStore = &GroupStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc}),
+		BindingType: model.GroupBindingType(),
 	}}
-	ruleStore = &RuleStore{ResourceStore: common.ResourceStore{
-		Indexer:           ruleCacheIndexer,
-		BindingType:       model.RuleBindingType(),
-		ResourceAssertion: ruleAssertion,
+	securityPolicyService.ruleStore = &RuleStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc}),
+		BindingType: model.RuleBindingType(),
 	}}
 
-	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSecurityPolicy, securityPolicyStore)
-	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, groupStore)
-	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, ruleStore)
+	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSecurityPolicy, securityPolicyService.securityPolicyStore)
+	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, securityPolicyService.groupStore)
+	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, securityPolicyService.ruleStore)
 
 	go func() {
 		wg.Wait()
@@ -82,10 +74,6 @@ func InitializeSecurityPolicy(service common.Service) (*SecurityPolicyService, e
 }
 
 func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1.SecurityPolicy) error {
-	securityPolicyCacheIndexer := service.ResourceCacheMap[ResourceTypeSecurityPolicy]
-	ruleCacheIndexer := service.ResourceCacheMap[ResourceTypeRule]
-	groupCacheIndexer := service.ResourceCacheMap[ResourceTypeGroup]
-
 	nsxSecurityPolicy, nsxGroups, err := service.buildSecurityPolicy(obj)
 	if err != nil {
 		log.Error(err, "failed to build SecurityPolicy")
@@ -96,35 +84,11 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 		log.Info("SecurityPolicy has empty policy-level appliedTo")
 	}
 
-	existingSecurityPolicy := model.SecurityPolicy{}
-	res, exists, err := securityPolicyCacheIndexer.GetByKey(*nsxSecurityPolicy.Id)
-	if err != nil {
-		log.Error(err, "failed to get security policy", "SecurityPolicy", nsxSecurityPolicy)
-	} else if exists {
-		existingSecurityPolicy = res.(model.SecurityPolicy)
-	}
+	existingSecurityPolicy := service.securityPolicyStore.GetByKey(*nsxSecurityPolicy.Id)
+	existingRules := service.ruleStore.GetByIndex(common.TagScopeSecurityPolicyCRUID, string(obj.UID))
+	existingGroups := service.groupStore.GetByIndex(common.TagScopeSecurityPolicyCRUID, string(obj.UID))
 
-	indexResults, err := ruleCacheIndexer.ByIndex(common.TagScopeSecurityPolicyCRUID, string(obj.UID))
-	if err != nil {
-		log.Error(err, "failed to get rules by security policy UID", "SecurityPolicyCR.UID", obj.UID)
-		return err
-	}
-	existingRules := make([]model.Rule, 0)
-	for _, rule := range indexResults {
-		existingRules = append(existingRules, rule.(model.Rule))
-	}
-
-	indexResults, err = groupCacheIndexer.ByIndex(common.TagScopeSecurityPolicyCRUID, string(obj.UID))
-	if err != nil {
-		log.Error(err, "failed to get groups by security policy UID", "SecurityPolicyCR.UID", obj.UID)
-		return err
-	}
-	existingGroups := make([]model.Group, 0)
-	for _, group := range indexResults {
-		existingGroups = append(existingGroups, group.(model.Group))
-	}
-
-	isChanged := common.CompareResource(SecurityPolicyToComparable(&existingSecurityPolicy), SecurityPolicyToComparable(nsxSecurityPolicy))
+	isChanged := common.CompareResource(SecurityPolicyToComparable(existingSecurityPolicy), SecurityPolicyToComparable(nsxSecurityPolicy))
 	changed, stale := common.CompareResources(RulesToComparable(existingRules), RulesToComparable(nsxSecurityPolicy.Rules))
 	changedRules, staleRules := ComparableToRules(changed), ComparableToRules(stale)
 	changed, stale = common.CompareResources(GroupsToComparable(existingGroups), GroupsToComparable(*nsxGroups))
@@ -139,7 +103,7 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 	if isChanged {
 		finalSecurityPolicy = nsxSecurityPolicy
 	} else {
-		finalSecurityPolicy = &existingSecurityPolicy
+		finalSecurityPolicy = existingSecurityPolicy
 	}
 
 	finalRules := make([]model.Rule, 0)
@@ -160,9 +124,9 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 	// WrapHighLevelSecurityPolicy will modify the input security policy, so we need to make a copy for the following store update.
 	finalSecurityPolicyCopy := *finalSecurityPolicy
 	finalSecurityPolicyCopy.Rules = finalSecurityPolicy.Rules
-	infraSecurityPolicy, error := service.WrapHierarchySecurityPolicy(finalSecurityPolicy, finalGroups)
-	if error != nil {
-		return error
+	infraSecurityPolicy, err := service.WrapHierarchySecurityPolicy(finalSecurityPolicy, finalGroups)
+	if err != nil {
+		return err
 	}
 	err = service.NSXClient.InfraClient.Patch(*infraSecurityPolicy, &EnforceRevisionCheckParam)
 	if err != nil {
@@ -172,19 +136,19 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 	// The steps below know how to deal with CR, if there is MarkedForDelete, then delete it from store,
 	// otherwise add or update it to store.
 	if isChanged {
-		err = securityPolicyStore.CRUDResource(&finalSecurityPolicyCopy)
+		err = service.securityPolicyStore.Operate(&finalSecurityPolicyCopy)
 		if err != nil {
 			return err
 		}
 	}
 	if !(len(changedRules) == 0 && len(staleRules) == 0) {
-		err = ruleStore.CRUDResource(&finalSecurityPolicyCopy)
+		err = service.ruleStore.Operate(&finalSecurityPolicyCopy)
 		if err != nil {
 			return err
 		}
 	}
 	if !(len(changedGroups) == 0 && len(staleGroups) == 0) {
-		err = groupStore.CRUDResource(&finalGroups)
+		err = service.groupStore.Operate(&finalGroups)
 		if err != nil {
 			return err
 		}
@@ -194,8 +158,6 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 }
 
 func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}) error {
-	securityPolicyCacheIndexer := service.ResourceCacheMap[ResourceTypeSecurityPolicy]
-	groupCacheIndexer := service.ResourceCacheMap[ResourceTypeGroup]
 	var nsxSecurityPolicy *model.SecurityPolicy
 	g := make([]model.Group, 0)
 	nsxGroups := &g
@@ -208,28 +170,19 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}) erro
 			return err
 		}
 	case types.UID:
-		indexResults, err := securityPolicyCacheIndexer.ByIndex(common.TagScopeSecurityPolicyCRUID, string(sp))
-		if err != nil {
-			log.Error(err, "failed to get security policy", "UID", string(sp))
-			return err
-		}
-		if len(indexResults) == 0 {
-			log.Info("did not get security policy with index", "UID", string(sp))
+		securityPolicies := service.securityPolicyStore.GetByIndex(common.TagScopeSecurityPolicyCRUID, string(sp))
+		if len(securityPolicies) == 0 {
+			log.Info("security policy is not found in store, skip deleting it", "securityPolicyUID", sp)
 			return nil
 		}
-		t := indexResults[0].(model.SecurityPolicy)
-		nsxSecurityPolicy = &t
+		nsxSecurityPolicy = &securityPolicies[0]
 
-		indexResults, err = groupCacheIndexer.ByIndex(common.TagScopeSecurityPolicyCRUID, string(sp))
-		if err != nil {
-			log.Error(err, "failed to get groups", "UID", string(sp))
-			return err
-		}
-		if len(indexResults) == 0 {
+		groups := service.groupStore.GetByIndex(common.TagScopeSecurityPolicyCRUID, string(sp))
+		if len(groups) == 0 {
 			log.Info("did not get groups with index", "UID", string(sp))
 		}
-		for _, group := range indexResults {
-			*nsxGroups = append(*nsxGroups, group.(model.Group))
+		for _, group := range groups {
+			*nsxGroups = append(*nsxGroups, group)
 		}
 	}
 
@@ -244,23 +197,23 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}) erro
 	// WrapHighLevelSecurityPolicy will modify the input security policy, so we need to make a copy for the following store update.
 	finalSecurityPolicyCopy := *nsxSecurityPolicy
 	finalSecurityPolicyCopy.Rules = nsxSecurityPolicy.Rules
-	infraSecurityPolicy, error := service.WrapHierarchySecurityPolicy(nsxSecurityPolicy, *nsxGroups)
-	if error != nil {
-		return error
-	}
-	err := service.NSXClient.InfraClient.Patch(*infraSecurityPolicy, &EnforceRevisionCheckParam)
+	infraSecurityPolicy, err := service.WrapHierarchySecurityPolicy(nsxSecurityPolicy, *nsxGroups)
 	if err != nil {
 		return err
 	}
-	err = securityPolicyStore.CRUDResource(nsxSecurityPolicy)
+	err = service.NSXClient.InfraClient.Patch(*infraSecurityPolicy, &EnforceRevisionCheckParam)
 	if err != nil {
 		return err
 	}
-	err = groupStore.CRUDResource(nsxGroups)
+	err = service.securityPolicyStore.Operate(nsxSecurityPolicy)
 	if err != nil {
 		return err
 	}
-	err = ruleStore.CRUDResource(&finalSecurityPolicyCopy)
+	err = service.groupStore.Operate(nsxGroups)
+	if err != nil {
+		return err
+	}
+	err = service.ruleStore.Operate(&finalSecurityPolicyCopy)
 	if err != nil {
 		return err
 	}
@@ -269,13 +222,13 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}) erro
 }
 
 func (service *SecurityPolicyService) createOrUpdateGroups(nsxGroups []model.Group) error {
-	groupCacheIndexer := service.ResourceCacheMap[ResourceTypeGroup]
 	for _, group := range nsxGroups {
+		group.MarkedForDelete = nil
 		err := service.NSXClient.GroupClient.Patch(getDomain(service), *group.Id, group)
 		if err != nil {
 			return err
 		}
-		err = groupCacheIndexer.Add(group)
+		err = service.groupStore.Operate(group)
 		log.V(2).Info("add group to store", "group", group.Id)
 		if err != nil {
 			return err
@@ -286,17 +239,7 @@ func (service *SecurityPolicyService) createOrUpdateGroups(nsxGroups []model.Gro
 }
 
 func (service *SecurityPolicyService) ListSecurityPolicyID() sets.String {
-	securityPolicyCacheIndexer := service.ResourceCacheMap[ResourceTypeSecurityPolicy]
-	groupCacheIndexer := service.ResourceCacheMap[ResourceTypeGroup]
-	groups := groupCacheIndexer.ListIndexFuncValues(common.TagScopeSecurityPolicyCRUID)
-	groupSet := sets.NewString()
-	for _, group := range groups {
-		groupSet.Insert(group)
-	}
-	securityPolicies := securityPolicyCacheIndexer.ListIndexFuncValues(common.TagScopeSecurityPolicyCRUID)
-	policySet := sets.NewString()
-	for _, policy := range securityPolicies {
-		policySet.Insert(policy)
-	}
+	groupSet := service.groupStore.ListIndexFuncValues(common.TagScopeSecurityPolicyCRUID)
+	policySet := service.securityPolicyStore.ListIndexFuncValues(common.TagScopeSecurityPolicyCRUID)
 	return groupSet.Union(policySet)
 }

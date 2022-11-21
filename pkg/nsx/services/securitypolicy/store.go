@@ -4,7 +4,6 @@ import (
 	"errors"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
@@ -64,19 +63,7 @@ type GroupStore struct {
 	common.ResourceStore
 }
 
-func securityPolicyAssertion(i interface{}) interface{} {
-	return i.(model.SecurityPolicy)
-}
-
-func groupAssertion(i interface{}) interface{} {
-	return i.(model.Group)
-}
-
-func ruleAssertion(i interface{}) interface{} {
-	return i.(model.Rule)
-}
-
-func (securityPolicyStore *SecurityPolicyStore) CRUDResource(i interface{}) error {
+func (securityPolicyStore *SecurityPolicyStore) Operate(i interface{}) error {
 	if i == nil {
 		return nil
 	}
@@ -97,7 +84,25 @@ func (securityPolicyStore *SecurityPolicyStore) CRUDResource(i interface{}) erro
 	return nil
 }
 
-func (ruleStore *RuleStore) CRUDResource(i interface{}) error {
+func (securityPolicyStore *SecurityPolicyStore) GetByKey(key string) *model.SecurityPolicy {
+	var securityPolicy model.SecurityPolicy
+	obj := securityPolicyStore.ResourceStore.GetByKey(key)
+	if obj != nil {
+		securityPolicy = obj.(model.SecurityPolicy)
+	}
+	return &securityPolicy
+}
+
+func (securityPolicyStore *SecurityPolicyStore) GetByIndex(key string, value string) []model.SecurityPolicy {
+	securityPolicies := make([]model.SecurityPolicy, 0)
+	objs := securityPolicyStore.ResourceStore.GetByIndex(key, value)
+	for _, securityPolicy := range objs {
+		securityPolicies = append(securityPolicies, securityPolicy.(model.SecurityPolicy))
+	}
+	return securityPolicies
+}
+
+func (ruleStore *RuleStore) Operate(i interface{}) error {
 	sp := i.(*model.SecurityPolicy)
 	for _, rule := range sp.Rules {
 		if rule.MarkedForDelete != nil && *rule.MarkedForDelete {
@@ -117,7 +122,16 @@ func (ruleStore *RuleStore) CRUDResource(i interface{}) error {
 	return nil
 }
 
-func (groupStore *GroupStore) CRUDResource(i interface{}) error {
+func (ruleStore *RuleStore) GetByIndex(key string, value string) []model.Rule {
+	rules := make([]model.Rule, 0)
+	objs := ruleStore.ResourceStore.GetByIndex(key, value)
+	for _, rule := range objs {
+		rules = append(rules, rule.(model.Rule))
+	}
+	return rules
+}
+
+func (groupStore *GroupStore) Operate(i interface{}) error {
 	gs := i.(*[]model.Group)
 	for _, group := range *gs {
 		if group.MarkedForDelete != nil && *group.MarkedForDelete {
@@ -137,9 +151,11 @@ func (groupStore *GroupStore) CRUDResource(i interface{}) error {
 	return nil
 }
 
-func InitializeStore(service *SecurityPolicyService) {
-	service.ResourceCacheMap = make(map[string]cache.Indexer)
-	service.ResourceCacheMap[ResourceTypeSecurityPolicy] = cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
-	service.ResourceCacheMap[ResourceTypeGroup] = cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
-	service.ResourceCacheMap[ResourceTypeRule] = cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
+func (groupStore *GroupStore) GetByIndex(key string, value string) []model.Group {
+	groups := make([]model.Group, 0)
+	objs := groupStore.ResourceStore.GetByIndex(key, value)
+	for _, group := range objs {
+		groups = append(groups, group.(model.Group))
+	}
+	return groups
 }

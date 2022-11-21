@@ -16,7 +16,6 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
@@ -49,7 +48,6 @@ var (
 	cidr                         = "192.168.1.1/24"
 	ruleID0                      = "sp_uidA_0"
 	ruleID1                      = "sp_uidA_1"
-	ruleID2                      = "sp_uidA_2"
 	ruleIDPort000                = "sp_uidA_0_0_0"
 	ruleIDPort100                = "sp_uidA_1_0_0"
 	ruleIDPort200                = "sp_uidA_2_0_0"
@@ -269,9 +267,21 @@ var (
 )
 
 func TestListSecurityPolicyID(t *testing.T) {
-	groupStore := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
-	policyStore := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
-	ruleStore := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
+	service := &SecurityPolicyService{
+		Service: common.Service{NSXClient: nil},
+	}
+	service.securityPolicyStore = &SecurityPolicyStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc}),
+		BindingType: model.SecurityPolicyBindingType(),
+	}}
+	service.groupStore = &GroupStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc}),
+		BindingType: model.GroupBindingType(),
+	}}
+	service.ruleStore = &RuleStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc}),
+		BindingType: model.RuleBindingType(),
+	}}
 
 	group := model.Group{}
 	scope := "nsx-op/security_policy_cr_uid"
@@ -281,7 +291,10 @@ func TestListSecurityPolicyID(t *testing.T) {
 	group.UniqueId = &uuid
 
 	group.Tags = []model.Tag{{Scope: &scope, Tag: &id}}
-	groupStore.Add(group)
+	err := service.groupStore.Add(group)
+	if err != nil {
+		t.Fatalf("Failed to add group to store: %v", err)
+	}
 
 	id1 := "4567"
 	uuid1 := "111111112"
@@ -289,32 +302,28 @@ func TestListSecurityPolicyID(t *testing.T) {
 	group1.Id = &id1
 	group1.UniqueId = &uuid1
 	group1.Tags = []model.Tag{{Scope: &scope, Tag: &id1}}
-	groupStore.Add(group1)
+	err = service.groupStore.Add(group1)
+	if err != nil {
+		t.Fatalf("Failed to add group to store: %v", err)
+	}
 
 	policy := model.SecurityPolicy{}
 	id2 := "1235"
 	policy.Id = &id2
 	policy.UniqueId = &uuid
 	policy.Tags = []model.Tag{{Scope: &scope, Tag: &id2}}
-	policyStore.Add(policy)
-
-	type fields struct {
-		NSXClient           *nsx.Client
-		GroupStore          cache.Indexer
-		SecurityPolicyStore cache.Indexer
-		RuleStore           cache.Indexer
+	err = service.securityPolicyStore.Add(policy)
+	if err != nil {
+		t.Fatalf("Failed to add policy to store: %v", err)
 	}
-	field := fields{NSXClient: nil, GroupStore: groupStore, SecurityPolicyStore: policyStore, RuleStore: ruleStore}
 
 	tests := []struct {
 		name    string
-		fields  fields
 		want    sets.String
 		wantErr bool
 	}{
 		{
 			name:    "test",
-			fields:  field,
 			wantErr: false,
 		},
 	}
@@ -323,13 +332,6 @@ func TestListSecurityPolicyID(t *testing.T) {
 	tests[0].want.Insert(id)
 	tests[0].want.Insert(id1)
 	tests[0].want.Insert(id2)
-	service := &SecurityPolicyService{
-		Service: common.Service{NSXClient: nil},
-	}
-	service.ResourceCacheMap = make(map[string]cache.Indexer)
-	service.ResourceCacheMap[ResourceTypeSecurityPolicy] = policyStore
-	service.ResourceCacheMap[ResourceTypeGroup] = groupStore
-	service.ResourceCacheMap[ResourceTypeRule] = ruleStore
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := service.ListSecurityPolicyID()
