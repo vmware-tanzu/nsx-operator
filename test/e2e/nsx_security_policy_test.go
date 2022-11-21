@@ -30,7 +30,7 @@ func TestSecurityPolicyBasicTraffic(t *testing.T) {
 
 	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy.yaml")
 	_ = applyYAML(nsIsolationPath, ns)
-	err = testData.securityPolicyWaitFor(defaultTimeout, "isolate-policy-1", ns)
+	err = testData.waitForSecurityPolicyReady(defaultTimeout, "isolate-policy-1", ns)
 	assert.Nil(t, err, "Error when waiting for Security Policy 'isolate-policy-1'")
 
 	err = testData.runPingCommandFromTestPod(ns, "busybox", iPs, 4)
