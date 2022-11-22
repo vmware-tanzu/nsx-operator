@@ -50,8 +50,6 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 	var nsxGroups []*model.Group
 	var nsxRules []*model.Rule
 
-	GroupStore := service.ResourceCacheMap[common.ResourceTypeGroup]
-
 	// Use PortAddress to handle normal port and named port, if it only contains int value Port,
 	// then it is a normal port. If it contains a list of IPs, it is a named port.
 	if port.Port.Type == intstr.Int {
@@ -65,13 +63,10 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 		if err != nil {
 			// Update the stale ip set group if stale ips exist
 			if errors.As(err, &nsxutil.NoEffectiveOption{}) {
-				indexResults, err2 := GroupStore.ByIndex(common.TagScopeRuleID, service.buildRuleID(obj, ruleIdx))
-				if err2 != nil {
-					return nil, nil, err2
-				}
+				groups := service.groupStore.GetByIndex(common.TagScopeRuleID, service.buildRuleID(obj, ruleIdx))
 				var ipSetGroup model.Group
-				for _, indexResult := range indexResults {
-					ipSetGroup = indexResult.(model.Group)
+				for _, group := range groups {
+					ipSetGroup = group
 					ipSetGroup.Expression = nil // clear the stale ips
 					err3 := service.createOrUpdateGroups([]model.Group{ipSetGroup})
 					if err3 != nil {

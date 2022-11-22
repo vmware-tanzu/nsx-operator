@@ -8,6 +8,7 @@ import (
 
 	vapierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
@@ -20,23 +21,22 @@ const (
 	PageSize int64 = 1000
 )
 
-type ResourceAssertion func(i interface{}) interface{}
-
 // Store is the interface for store, it should be implemented by subclass
 type Store interface {
 	// TransResourceToStore is the method to transform the resource of type data.StructValue
 	// to specific nsx-t side resource and then add it to the store.
 	TransResourceToStore(obj *data.StructValue) error
-	// CRUDResource is the method to create, update and delete the resource to the store based
+	// ListIndexFuncValues is the method to list all the values of the index
+	ListIndexFuncValues(key string) sets.String
+	// Operate is the method to create, update and delete the resource to the store based
 	// on its tag MarkedForDelete.
-	CRUDResource(obj interface{}) error
+	Operate(obj interface{}) error
 }
 
 // ResourceStore is the store for resource, embed it to subclass
 type ResourceStore struct {
 	cache.Indexer        // the ultimate place to store the resource
 	bindings.BindingType // used by converter to convert the resource
-	ResourceAssertion    // used to assert the resource to specific type
 }
 
 // TransResourceToStore is the method to transform the resource of type data.StructValue
@@ -48,7 +48,7 @@ func (resourceStore *ResourceStore) TransResourceToStore(entity *data.StructValu
 			return e
 		}
 	}
-	err2 := resourceStore.Add(resourceStore.ResourceAssertion(obj))
+	err2 := resourceStore.Add(obj)
 	if err2 != nil {
 		return err2
 	}
@@ -60,6 +60,37 @@ func DecrementPageSize(pageSize *int64) {
 	if int(*pageSize) <= 0 {
 		*pageSize = 10
 	}
+}
+
+func (resourceStore *ResourceStore) ListIndexFuncValues(key string) sets.String {
+	values := sets.NewString()
+	entities := resourceStore.Indexer.ListIndexFuncValues(key)
+	for _, entity := range entities {
+		values.Insert(entity)
+	}
+	return values
+}
+
+// GetByKey is the method to get the resource by key, it is used by the subclass
+// to convert it to the specific type.
+func (resourceStore *ResourceStore) GetByKey(key string) interface{} {
+	res, exists, err := resourceStore.Indexer.GetByKey(key)
+	if err != nil {
+		log.Error(err, "failed to get obj by key", "key", key)
+	} else if exists {
+		return res
+	}
+	return nil
+}
+
+// GetByIndex is the method to get the resource list by index, it is used by the subclass
+// to convert it to the specific type.
+func (resourceStore *ResourceStore) GetByIndex(index string, value string) []interface{} {
+	indexResults, err := resourceStore.Indexer.ByIndex(index, value)
+	if err != nil {
+		log.Error(err, "failed to get obj by index", "index", value)
+	}
+	return indexResults
 }
 
 func TransError(err error) error {
