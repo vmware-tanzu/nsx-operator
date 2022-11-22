@@ -85,6 +85,10 @@ func AddFlags() {
 	flag.StringVar(&configFilePath, "nsxconfig", nsxOperatorDefaultConf, "NSX Operator configuration file path")
 }
 
+func UpdateConfigFilePath(configFile string) {
+	configFilePath = configFile
+}
+
 func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
 	nsxOperatorConfig := NewNSXOpertorConfig()
 
