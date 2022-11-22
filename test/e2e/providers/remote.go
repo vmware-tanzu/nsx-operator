@@ -67,18 +67,15 @@ func convertConfig(inConfig *ssh_config.Config, name string) (string, *ssh.Clien
 }
 
 func getSSHConfig() (*ssh_config.Config, error) {
-	info, err := os.Stat(*sshConfig)
-	if err != nil {
-		return nil, err
-	}
-	if info.IsDir() {
-		return nil, fmt.Errorf("%s is not a file", *sshConfig)
-	}
 	f, err := os.Open(*sshConfig)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
+	stat, _ := f.Stat()
+	if stat.IsDir() {
+		return nil, fmt.Errorf("%s is a directory", *sshConfig)
+	}
 	return ssh_config.Decode(f)
 }
 

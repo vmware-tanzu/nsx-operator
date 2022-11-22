@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/coreos/go-semver/semver"
-	nsxt "github.com/vmware/go-vmware-nsxt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -54,6 +53,7 @@ type TestOptions struct {
 	providerName        string
 	providerConfigPath  string
 	logsExportDir       string
+	operatorConfigPath  string
 	logsExportOnSuccess bool
 	withIPPool          bool
 }
@@ -66,8 +66,7 @@ var provider providers.ProviderInterface
 type TestData struct {
 	kubeConfig         *restclient.Config
 	clientset          clientset.Interface
-	nsxClient          *nsxt.APIClient
-	nsxPolicyClient    *nsxt.APIClient
+	nsxClient          *NSXClient
 	nsxVersion         *semver.Version
 	clusterID          string
 	clusterName        string
@@ -95,6 +94,28 @@ func initProvider() error {
 	} else {
 		return fmt.Errorf("unknown provider '%s'", testOptions.providerName)
 	}
+	return nil
+}
+
+func NewTestData(nsxConfig string) error {
+	testData = &TestData{}
+	err := testData.createClients()
+	if err != nil {
+		return err
+	}
+	err = testData.createNSXClients(nsxConfig)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (data *TestData) createNSXClients(nsxConfig string) error {
+	nsxClient, err := NewNSXClient(nsxConfig)
+	if err != nil {
+		return err
+	}
+	data.nsxClient = nsxClient
 	return nil
 }
 
