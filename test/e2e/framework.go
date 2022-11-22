@@ -30,10 +30,6 @@ import (
 
 const (
 	defaultTimeout = 90 * time.Second
-
-	// nsxOperatorNamespace is the K8s Namespace in which all nsx-operator resources are running.
-	testNamespace        string = "nsx-operator-test"
-	busyboxContainerName string = "busybox"
 )
 
 type ClusterNode struct {
@@ -330,6 +326,27 @@ func (data *TestData) deletePodAndWait(timeout time.Duration, name string, ns st
 
 type PodCondition func(*corev1.Pod) (bool, error)
 
+// waitForSecurityPolicyReady polls the K8s apiServer until the specified SecurityPolicy is in the "True" state (or until
+// the provided timeout expires).
+func (data *TestData) waitForSecurityPolicyReady(timeout time.Duration, name, namespace string) error {
+	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+		cmd := fmt.Sprintf("kubectl get securitypolicy %s -n %s -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}'", name, namespace)
+		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
+		if err != nil || rc != 0 {
+			return false, fmt.Errorf("error when running the following command `%s` on master Node: %v, %s", cmd, err, stdout)
+		} else {
+			if stdout == "True" {
+				return true, nil
+			}
+			return false, nil
+		}
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // podWaitFor polls the K8s apiServer until the specified Pod is found (in the test Namespace) and
 // the condition predicate is met (or until the provided timeout expires).
 func (data *TestData) podWaitFor(timeout time.Duration, name, namespace string, condition PodCondition) (*corev1.Pod, error) {
@@ -434,9 +451,10 @@ func parsePodIPs(podIPStrings sets.String) (*PodIPs, error) {
 // Run the provided command in the specified Container for the give Pod and returns the contents of
 // stdout and stderr as strings. An error either indicates that the command couldn't be run or that
 // the command returned a non-zero error code.
-func (data *TestData) runCommandFromPod(podNamespace string, podName string, containerName string, cmd []string) (stdout string, stderr string, err error) {
+func (data *TestData) runCommandFromPod(namespace string, podName string, containerName string, cmd []string) (stdout string, stderr string, err error) {
+	log.Printf("Running '%s' in Pod '%s/%s' container '%s'", strings.Join(cmd, " "), namespace, podName, containerName)
 	request := data.clientset.CoreV1().RESTClient().Post().
-		Namespace(podNamespace).
+		Namespace(namespace).
 		Resource("pods").
 		Name(podName).
 		SubResource("exec").
@@ -448,38 +466,41 @@ func (data *TestData) runCommandFromPod(podNamespace string, podName string, con
 			Stderr:  true,
 			TTY:     false,
 		}, scheme.ParameterCodec)
-	exec, err := remotecommand.NewSPDYExecutor(data.kubeConfig, "POST", request.URL())
+	exec2, err := remotecommand.NewSPDYExecutor(data.kubeConfig, "POST", request.URL())
 	if err != nil {
 		return "", "", err
 	}
 	var stdoutB, stderrB bytes.Buffer
-	if err := exec.Stream(remotecommand.StreamOptions{
+	if err := exec2.Stream(remotecommand.StreamOptions{
 		Stdout: &stdoutB,
 		Stderr: &stderrB,
 	}); err != nil {
+		log.Printf("Error running command: %v, stdout: %s, stderr: %s", err, stdoutB.String(), stderrB.String())
 		return stdoutB.String(), stderrB.String(), err
 	}
+	log.Printf("Running command, stdout: %s, stderr: %s", stdoutB.String(), stderrB.String())
 	return stdoutB.String(), stderrB.String(), nil
 }
 
-func (data *TestData) runPingCommandFromTestPod(podName string, targetPodIPs *PodIPs, count int) error {
+func (data *TestData) runPingCommandFromTestPod(namespace string, podName string, targetPodIPs *PodIPs, count int) error {
+
 	var cmd []string
 	if targetPodIPs.ipv4 != nil {
 		cmd = []string{"ping", "-c", strconv.Itoa(count), targetPodIPs.ipv4.String()}
-		if _, _, err := data.runCommandFromPod(testNamespace, podName, busyboxContainerName, cmd); err != nil {
+		if _, _, err := data.runCommandFromPod(namespace, podName, podName, cmd); err != nil {
 			return err
 		}
 	}
 	if targetPodIPs.ipv6 != nil {
 		cmd = []string{"ping", "-6", "-c", strconv.Itoa(count), targetPodIPs.ipv6.String()}
-		if _, _, err := data.runCommandFromPod(testNamespace, podName, busyboxContainerName, cmd); err != nil {
+		if _, _, err := data.runCommandFromPod(namespace, podName, podName, cmd); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (data *TestData) runNetcatCommandFromTestPod(podName string, server string, port int) error {
+func (data *TestData) runNetcatCommandFromTestPod(namespace string, podName string, server string, port int) error {
 	// Retrying several times to avoid flakes as the test may involve DNS (coredns) and Service/Endpoints (kube-proxy).
 	cmd := []string{
 		"/bin/sh",
@@ -487,7 +508,7 @@ func (data *TestData) runNetcatCommandFromTestPod(podName string, server string,
 		fmt.Sprintf("for i in $(seq 1 5); do nc -vz -w 4 %s %d && exit 0 || sleep 1; done; exit 1",
 			server, port),
 	}
-	stdout, stderr, err := data.runCommandFromPod(testNamespace, podName, busyboxContainerName, cmd)
+	stdout, stderr, err := data.runCommandFromPod(namespace, podName, podName, cmd)
 	if err == nil {
 		return nil
 	}

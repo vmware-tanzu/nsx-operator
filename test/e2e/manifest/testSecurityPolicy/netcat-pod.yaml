@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nc-pod
+  labels:
+    role: client
+spec:
+  containers:
+    - name: nc
+      image: "harbor-repo.vmware.com/dockerhub-proxy-cache\
+      /gophernet/netcat:latest"
+      command: ["nc", "-l", "-p", "1234"]
