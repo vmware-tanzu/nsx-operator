@@ -1,10 +1,13 @@
 package e2e
 
 import (
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 // TestSecurityPolicyBasicTraffic verifies that the new created pod appears in inventory.
@@ -35,4 +38,20 @@ func TestSecurityPolicyBasicTraffic(t *testing.T) {
 
 	err = testData.runPingCommandFromTestPod(ns, "busybox", iPs, 4)
 	assert.NotNilf(t, err, "Error when running ping command from test Pod 'busybox'")
+
+	tagScopeClusterKey := strings.Replace(common.TagScopeNamespace, "/", "\\/", -1)
+	tagScopeClusterValue := strings.Replace(ns, ":", "\\:", -1)
+	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
+	resourceParam := fmt.Sprintf("%s:%s", common.ResourceType, "SecurityPolicy")
+	queryParam := resourceParam + " AND " + tagParam
+	var cursor *string = nil
+	var pagesize int64 = 500
+	_, err = testData.nsxClient.QueryClient.List(queryParam, cursor, nil, &pagesize, nil, nil)
+	assert.Nil(t, err, "Error when query Security Policy")
+
+	resourceParam = fmt.Sprintf("%s:%s", common.ResourceType, "Rule")
+	queryParam = resourceParam + " AND " + tagParam
+	_, err = testData.nsxClient.QueryClient.List(queryParam, cursor, nil, &pagesize, nil, nil)
+	assert.Nil(t, err, "Error when query Security Policy rule")
+
 }
