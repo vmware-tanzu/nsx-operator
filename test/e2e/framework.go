@@ -24,11 +24,19 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/test/e2e/providers"
 )
 
 const (
 	defaultTimeout = 90 * time.Second
+)
+
+type Status int
+
+const (
+	Ready Status = iota
+	Deleted
 )
 
 type ClusterNode struct {
@@ -349,15 +357,21 @@ type PodCondition func(*corev1.Pod) (bool, error)
 
 // waitForSecurityPolicyReady polls the K8s apiServer until the specified SecurityPolicy is in the "True" state (or until
 // the provided timeout expires).
-func (data *TestData) waitForSecurityPolicyReady(timeout time.Duration, name, namespace string) error {
+func (data *TestData) waitForSecurityPolicyReadyOrDeleted(timeout time.Duration, namespace string, name string, status Status) error {
 	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
 		cmd := fmt.Sprintf("kubectl get securitypolicy %s -n %s -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}'", name, namespace)
 		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
 		if err != nil || rc != 0 {
+			if status == Deleted {
+				return true, nil
+			}
 			return false, fmt.Errorf("error when running the following command `%s` on master Node: %v, %s", cmd, err, stdout)
 		} else {
-			if stdout == "True" {
-				return true, nil
+			if status == Ready {
+				if stdout == "True" {
+					return true, nil
+				}
+				return false, nil
 			}
 			return false, nil
 		}
@@ -503,7 +517,7 @@ func (data *TestData) runCommandFromPod(namespace string, podName string, contai
 	return stdoutB.String(), stderrB.String(), nil
 }
 
-func (data *TestData) runPingCommandFromTestPod(namespace string, podName string, targetPodIPs *PodIPs, count int) error {
+func (data *TestData) runPingCommandFromPod(namespace string, podName string, targetPodIPs *PodIPs, count int) error {
 
 	var cmd []string
 	if targetPodIPs.ipv4 != nil {
@@ -550,4 +564,37 @@ func applyYAML(filename string, ns string) error {
 	outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
 	log.Printf("stdout: %s, stderr: %s", outStr, errStr)
 	return nil
+}
+
+func deleteYAML(filename string, ns string) error {
+	cmd := fmt.Sprintf("kubectl delete -f %s -n %s", filename, ns)
+	var stdout, stderr bytes.Buffer
+	command := exec.Command("bash", "-c", cmd)
+	log.Printf("Deleing YAML file %s", cmd)
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	err := command.Run()
+	if err != nil {
+		return err
+	}
+	outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
+	log.Printf("stdout: %s, stderr: %s", outStr, errStr)
+	return nil
+}
+
+func (data *TestData) checkResourceExist(namespace string, resourceType string, resourceName string) bool {
+	tagScopeClusterKey := strings.Replace(common.TagScopeNamespace, "/", "\\/", -1)
+	tagScopeClusterValue := strings.Replace(namespace, ":", "\\:", -1)
+	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
+	resourceParam := fmt.Sprintf("%s:%s AND display_name:*%s*", common.ResourceType, resourceType, resourceName)
+	queryParam := resourceParam + " AND " + tagParam
+	var cursor *string = nil
+	var pageSize int64 = 500
+	response, err := testData.nsxClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
+	if err != nil || len(response.Results) == 0 {
+		log.Printf("queryParam: %s exists: %t", queryParam, false)
+		return false
+	}
+	log.Printf("queryParam: %s exists: %t", queryParam, true)
+	return true
 }
