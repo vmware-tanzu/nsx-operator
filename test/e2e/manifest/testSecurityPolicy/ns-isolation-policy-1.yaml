@@ -1,0 +1,12 @@
+apiVersion: nsx.vmware.com/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: isolate-policy-1
+spec:
+  priority: 20
+  appliedTo:
+    - podSelector: {}
+    - vmSelector: {}
+  rules:
+    - direction: in
+      action: drop

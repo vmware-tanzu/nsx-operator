@@ -24,11 +24,19 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/test/e2e/providers"
 )
 
 const (
-	defaultTimeout = 90 * time.Second
+	defaultTimeout = 100 * time.Second
+)
+
+type Status int
+
+const (
+	Ready Status = iota
+	Deleted
 )
 
 type ClusterNode struct {
@@ -349,15 +357,22 @@ type PodCondition func(*corev1.Pod) (bool, error)
 
 // waitForSecurityPolicyReady polls the K8s apiServer until the specified SecurityPolicy is in the "True" state (or until
 // the provided timeout expires).
-func (data *TestData) waitForSecurityPolicyReady(timeout time.Duration, name, namespace string) error {
-	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+func (data *TestData) waitForSecurityPolicyReadyOrDeleted(timeout time.Duration, namespace string, name string, status Status) error {
+	err := wait.Poll(1*time.Second, 100*time.Second, func() (bool, error) {
 		cmd := fmt.Sprintf("kubectl get securitypolicy %s -n %s -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}'", name, namespace)
+		log.Printf("%s", cmd)
 		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
 		if err != nil || rc != 0 {
+			if status == Deleted {
+				return true, nil
+			}
 			return false, fmt.Errorf("error when running the following command `%s` on master Node: %v, %s", cmd, err, stdout)
 		} else {
-			if stdout == "True" {
-				return true, nil
+			if status == Ready {
+				if stdout == "True" {
+					return true, nil
+				}
+				return false, nil
 			}
 			return false, nil
 		}
@@ -385,15 +400,6 @@ func (data *TestData) podWaitFor(timeout time.Duration, name, namespace string, 
 		return nil, err
 	}
 	return data.clientset.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
-}
-
-// podWaitForRunning polls the k8s apiServer until the specified Pod is in the "running" state (or
-// until the provided timeout expires).
-func (data *TestData) podWaitForRunning(timeout time.Duration, name, namespace string) error {
-	_, err := data.podWaitFor(timeout, name, namespace, func(pod *corev1.Pod) (bool, error) {
-		return pod.Status.Phase == corev1.PodRunning, nil
-	})
-	return err
 }
 
 // podWaitForIPs polls the K8s apiServer until the specified Pod is in the "running" state (or until
@@ -438,6 +444,68 @@ func (data *TestData) podWaitForIPs(timeout time.Duration, name, namespace strin
 		}
 	}
 	return ips, nil
+}
+
+// deploymentWaitForIPs polls the K8s apiServer until the specified Pod in deployment has an IP address
+func (data *TestData) deploymentWaitForIPs(timeout time.Duration, namespace, deployment string) ([]string, error) {
+	podIPStrings := sets.NewString()
+	opt := metav1.ListOptions{
+		LabelSelector: "deployment=" + deployment,
+	}
+	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+		if pods, err := data.clientset.CoreV1().Pods(namespace).List(context.TODO(), opt); err != nil {
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("error when getting Pod  %v", err)
+		} else {
+			for _, p := range pods.Items {
+				if p.Status.Phase != corev1.PodRunning {
+					return false, nil
+				} else if p.Status.PodIP == "" {
+					return false, nil
+				} else {
+					podIPStrings.Insert(p.Status.PodIP)
+				}
+			}
+			return true, nil
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	return podIPStrings.List(), nil
+}
+
+// deploymentWaitForIPs polls the K8s apiServer until the specified Pod in deployment has an IP address
+func (data *TestData) deploymentWaitForNames(timeout time.Duration, namespace, deployment string) ([]string, error) {
+	var podNames []string
+	opt := metav1.ListOptions{
+		LabelSelector: "deployment=" + deployment,
+	}
+	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+		if pods, err := data.clientset.CoreV1().Pods(namespace).List(context.TODO(), opt); err != nil {
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("error when getting Pod  %v", err)
+		} else {
+			for _, p := range pods.Items {
+				if p.Status.Phase != corev1.PodRunning {
+					return false, nil
+				} else if p.Status.PodIP == "" {
+					return false, fmt.Errorf("pods is running but has no assigned IP, which should never happen")
+				} else {
+					podNames = append(podNames, p.Name)
+				}
+			}
+		}
+		return true, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return podNames, nil
 }
 
 func parsePodIPs(podIPStrings sets.String) (*PodIPs, error) {
@@ -496,15 +564,20 @@ func (data *TestData) runCommandFromPod(namespace string, podName string, contai
 		Stdout: &stdoutB,
 		Stderr: &stderrB,
 	}); err != nil {
-		log.Printf("Error running command: %v, stdout: %s, stderr: %s", err, stdoutB.String(), stderrB.String())
+		log.Printf("Error when running command '%s' in Pod '%s/%s' container '%s': %v", strings.Join(cmd, " "), namespace, podName, containerName, err)
 		return stdoutB.String(), stderrB.String(), err
 	}
-	log.Printf("Running command, stdout: %s, stderr: %s", stdoutB.String(), stderrB.String())
+	outStr, errStr := stdoutB.String(), stderrB.String()
+	if outStr != "" {
+		log.Printf("%s", outStr)
+	}
+	if errStr != "" {
+		log.Printf("%s", errStr)
+	}
 	return stdoutB.String(), stderrB.String(), nil
 }
 
-func (data *TestData) runPingCommandFromTestPod(namespace string, podName string, targetPodIPs *PodIPs, count int) error {
-
+func (data *TestData) runPingCommandFromPod(namespace string, podName string, targetPodIPs *PodIPs, count int) error {
 	var cmd []string
 	if targetPodIPs.ipv4 != nil {
 		cmd = []string{"ping", "-c", strconv.Itoa(count), targetPodIPs.ipv4.String()}
@@ -521,23 +594,25 @@ func (data *TestData) runPingCommandFromTestPod(namespace string, podName string
 	return nil
 }
 
-func (data *TestData) runNetcatCommandFromTestPod(namespace string, podName string, server string, port int) error {
-	// Retrying several times to avoid flakes as the test may involve DNS (coredns) and Service/Endpoints (kube-proxy).
+func (data *TestData) runNetcatCommandFromPod(namespace string, podName string, containerName string, server string, port int) error {
 	cmd := []string{
 		"/bin/sh",
 		"-c",
-		fmt.Sprintf("for i in $(seq 1 5); do nc -vz -w 4 %s %d && exit 0 || sleep 1; done; exit 1",
+		fmt.Sprintf("for i in $(seq 1 5); do nc -w 4 %s %d && exit 0 || sleep 1; done; exit 1",
 			server, port),
 	}
-	stdout, stderr, err := data.runCommandFromPod(namespace, podName, podName, cmd)
-	if err == nil {
-		return nil
+	_, _, err := data.runCommandFromPod(namespace, podName, containerName, cmd)
+	if err != nil {
+		return err
 	}
-	return fmt.Errorf("nc stdout: <%v>, stderr: <%v>, err: <%v>", stdout, stderr, err)
+	return nil
 }
 
 func applyYAML(filename string, ns string) error {
 	cmd := fmt.Sprintf("kubectl apply -f %s -n %s", filename, ns)
+	if ns == "" {
+		cmd = fmt.Sprintf("kubectl apply -f %s", filename)
+	}
 	var stdout, stderr bytes.Buffer
 	command := exec.Command("bash", "-c", cmd)
 	log.Printf("Applying YAML file %s", cmd)
@@ -548,6 +623,85 @@ func applyYAML(filename string, ns string) error {
 		return err
 	}
 	outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
-	log.Printf("stdout: %s, stderr: %s", outStr, errStr)
+	if outStr != "" {
+		log.Printf("%s", outStr)
+	}
+	if errStr != "" {
+		log.Printf("%s", errStr)
+	}
 	return nil
+}
+
+func runCommand(cmd string) (string, error) {
+	err := wait.Poll(1*time.Second, defaultTimeout, func() (bool, error) {
+		var stdout, stderr bytes.Buffer
+		command := exec.Command("bash", "-c", cmd)
+		log.Printf("Running command %s", cmd)
+		command.Stdout = &stdout
+		command.Stderr = &stderr
+		err := command.Run()
+		if err != nil {
+			return false, nil
+		}
+		outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
+		if outStr != "" {
+			log.Printf("%s", outStr)
+		}
+		if errStr != "" {
+			log.Printf("%s", errStr)
+			return false, nil
+		}
+		return true, nil
+	})
+	return "", err
+}
+
+func deleteYAML(filename string, ns string) error {
+	cmd := fmt.Sprintf("kubectl delete -f %s -n %s", filename, ns)
+	if ns == "" {
+		cmd = fmt.Sprintf("kubectl delete -f %s", filename)
+	}
+	var stdout, stderr bytes.Buffer
+	command := exec.Command("bash", "-c", cmd)
+	log.Printf("Deleing YAML file (%s)", cmd)
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	err := command.Run()
+	if err != nil {
+		return nil
+	}
+	outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
+	if outStr != "" {
+		log.Printf("%s", outStr)
+	}
+	if errStr != "" {
+		log.Printf("%s", errStr)
+	}
+	return nil
+}
+
+func (data *TestData) waitForResourceExistOrNot(namespace string, resourceType string, resourceName string, shouldExist bool) error {
+	err := wait.Poll(1*time.Second, defaultTimeout, func() (bool, error) {
+		exist := true
+		tagScopeClusterKey := strings.Replace(common.TagScopeNamespace, "/", "\\/", -1)
+		tagScopeClusterValue := strings.Replace(namespace, ":", "\\:", -1)
+		tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
+		resourceParam := fmt.Sprintf("%s:%s AND display_name:*%s*", common.ResourceType, resourceType, resourceName)
+		queryParam := resourceParam + " AND " + tagParam
+		var cursor *string = nil
+		var pageSize int64 = 500
+		response, err := testData.nsxClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
+		if err != nil {
+			return false, err
+		}
+		if len(response.Results) == 0 {
+			exist = false
+		}
+		log.Printf("QueryParam: %s Result: %t", queryParam, exist)
+		if exist != shouldExist {
+			return false, nil
+		}
+		return true, nil
+	})
+	return err
 }

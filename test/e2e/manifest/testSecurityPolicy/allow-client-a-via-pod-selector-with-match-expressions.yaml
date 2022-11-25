@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client-a
+  labels:
+    k1: a1
+    k2: b1
+    user: internal
+spec:
+  restartPolicy: Never
+  containers:
+  - name: client-a
+    image: "harbor-repo.vmware.com/dockerhub-proxy-cache/humanux/\
+    http_https_echo:latest"
+    command: ["/bin/bash"]
+    args:    ["-c", "while true; do echo hello, world!; sleep 60; done"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client-b
+  labels:
+    k1: a1
+    k2: b4
+    user: internal
+spec:
+  restartPolicy: Never
+  containers:
+    - name: client-b
+      image: "harbor-repo.vmware.com/dockerhub-proxy-cache/humanux/\
+      http_https_echo:latest"
+      command: ["/bin/bash"]
+      args:    ["-c", "while true; do echo hello, world!; sleep 60; done"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-a
+spec:
+  restartPolicy: Never
+  containers:
+    - name: pod-a
+      image: "harbor-repo.vmware.com/dockerhub-proxy-cache/humanux/\
+      http_https_echo:latest"
+      command: ["/bin/bash"]
+      args:    ["-c", "while true; do echo hello, world!; sleep 60; done"]
