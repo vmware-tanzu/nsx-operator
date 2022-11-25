@@ -1,3 +1,6 @@
+// e2e test for nsx-operator, in nsx_operator directory, run command below:
+// e2e=true go test -v github.com/vmware-tanzu/nsx-operator/test/e2e -remote.sshconfig /root/.ssh/config -remote.kubeconfig /root/. kube/config -operator-cfg-path /etc/nsx-ujo/ncp.ini -test.timeout 15m
+// Note: set a reasonable timeout when running e2e tests, otherwise the test will be terminated by the framework.
 package e2e
 
 import (
@@ -46,7 +49,7 @@ func testMain(m *testing.M) int {
 	flag.StringVar(&testOptions.providerName, "provider", "remote", "K8s test cluster provider")
 	flag.StringVar(&testOptions.providerConfigPath, "provider-cfg-path", "", "Optional config file for provider")
 	flag.StringVar(&testOptions.logsExportDir, "logs-export-dir", "", "Export directory for test logs")
-	flag.StringVar(&testOptions.operatorConfigPath, "operator-cfg-path", "/etc/nsx-operator/nsxop.ini", "config file for operator")
+	flag.StringVar(&testOptions.operatorConfigPath, "operator-cfg-path", "/etc/nsx-ujo/ncp.ini", "config file for operator")
 	flag.BoolVar(&testOptions.logsExportOnSuccess, "logs-export-on-success", false, "Export logs even when a test is successful")
 	flag.BoolVar(&testOptions.withIPPool, "ippool", false, "Run tests include IPPool tests")
 	flag.Parse()
