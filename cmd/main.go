@@ -41,11 +41,13 @@ func init() {
 	flag.Parse()
 	var err error
 
+	logf.SetLogger(logger.ZapLogger())
 	cf, err = config.NewNSXOperatorConfigFromFile()
 	if err != nil {
+		log.Error(err, "load config file error")
 		os.Exit(1)
 	}
-	logf.SetLogger(logger.ZapLogger())
+
 	if metrics.AreMetricsExposed(cf) {
 		metrics.InitializePrometheusMetrics()
 	}
