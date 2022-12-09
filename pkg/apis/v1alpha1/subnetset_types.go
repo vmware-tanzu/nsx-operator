@@ -12,12 +12,18 @@ type SubnetSetSpec struct {
 	// Size of Subnet based upon estimated workload count.
 	// Defaults to 64.
 	// +kubebuilder:default:=64
+	// +kubebuilder:validation:Maximum:=65536
+	// +kubebuilder:validation:Minimum:=16
 	IPv4SubnetSize int `json:"ipv4SubnetSize,omitempty"`
 	// Access mode of Subnet, accessible only from within VPC or from outside VPC.
 	// Defaults to private.
 	// +kubebuilder:default:=private
 	// +kubebuilder:validation:Enum=private;public
 	AccessMode AccessMode `json:"accessMode,omitempty"`
+	// Subnet advanced configuration.
+	AdvancedConfig AdvancedConfig `json:"advancedConfig,omitempty"`
+	// DHCPConfig DHCP configuration.
+	DHCPConfig DHCPConfig `json:"DHCPConfig,omitempty"`
 }
 
 // SubnetInfo defines the observed state of a single Subnet of a SubnetSet.
