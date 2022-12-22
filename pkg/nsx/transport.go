@@ -6,7 +6,7 @@ package nsx
 import (
 	"bytes"
 	"errors"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -46,6 +46,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			ep.UpdateHttpRequestAuth(r)
 			start := time.Now()
 			ep.wait()
+			util.DumpHttpRequest(r)
 			waitTime := time.Since(start)
 			if resp, resul = t.base().RoundTrip(r); resul != nil {
 				ep.setStatus(DOWN)
@@ -57,10 +58,9 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			if resp == nil {
 				return nil
 			}
-
-			body, err := ioutil.ReadAll(resp.Body)
+			body, err := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			resp.Body = ioutil.NopCloser(bytes.NewReader(body))
+			resp.Body = io.NopCloser(bytes.NewReader(body))
 
 			if err != nil {
 				log.Error(err, "failed to extract HTTP body")
