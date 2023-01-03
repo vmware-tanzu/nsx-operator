@@ -39,13 +39,12 @@ func init() {
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8093", "The address the metrics endpoint binds to.")
 	config.AddFlags()
 	flag.Parse()
-	var err error
-
-	cf, err = config.NewNSXOperatorConfigFromFile()
+	logf.SetLogger(logger.ZapLogger())
+	cf, err := config.NewNSXOperatorConfigFromFile()
 	if err != nil {
+		log.Error(err, "failed to new operator config from file")
 		os.Exit(1)
 	}
-	logf.SetLogger(logger.ZapLogger())
 	if metrics.AreMetricsExposed(cf) {
 		metrics.InitializePrometheusMetrics()
 	}
