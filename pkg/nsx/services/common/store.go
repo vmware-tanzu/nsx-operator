@@ -2,6 +2,7 @@ package common
 
 import (
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -123,6 +124,17 @@ func TransError(err error) error {
 // InitializeResourceStore is the method to query all the various resources from nsx-t side and
 // save them to the store, we could use it to cache all the resources when process starts.
 func (service *Service) InitializeResourceStore(wg *sync.WaitGroup, fatalErrors chan error, resourceTypeValue string, store Store) {
+	service.InitializeCommonStore(wg, fatalErrors, "", "", resourceTypeValue, store)
+}
+
+// InitializeVPCResourceStore is the method to query all the various VPC resources from nsx-t side and
+// save them to the store, we could use it to cache all the resources when process starts.
+func (service *Service) InitializeVPCResourceStore(wg *sync.WaitGroup, fatalErrors chan error, org string, project string, resourceTypeValue string, store Store) {
+	service.InitializeCommonStore(wg, fatalErrors, org, project, resourceTypeValue, store)
+}
+
+// InitializeCommonStore is the common method used by InitializeResourceStore and InitializeVPCResourceStore
+func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors chan error, org string, project string, resourceTypeValue string, store Store) {
 	defer wg.Done()
 
 	tagScopeClusterKey := strings.Replace(TagScopeCluster, "/", "\\/", -1)
@@ -131,12 +143,21 @@ func (service *Service) InitializeResourceStore(wg *sync.WaitGroup, fatalErrors 
 	resourceParam := fmt.Sprintf("%s:%s", ResourceType, resourceTypeValue)
 	queryParam := resourceParam + " AND " + tagParam
 
+	if org != "" || project != "" {
+		// QueryClient.List() will escape the path, "path:" then will be "path%25%3A" instead of "path:3A",
+		//"path%25%3A" would fail to get response. Hack it here.
+		path := "\\/orgs\\/" + org + "\\/projects\\/" + project + "\\/*"
+		pathUnescape, _ := url.PathUnescape("path%3A")
+		queryParam += " AND " + pathUnescape + path
+	}
+
 	var cursor *string = nil
 	count := uint64(0)
 	for {
+		var err error
+
 		var results []*data.StructValue
 		var resultCount *int64
-		var err error
 		if store.IsPolicyAPI() {
 			response, searchEerr := service.NSXClient.QueryClient.List(queryParam, cursor, nil, Int64(PageSize), nil, nil)
 			results = response.Results
