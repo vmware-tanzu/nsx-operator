@@ -41,12 +41,15 @@ func CompareResources(existing []Comparable, expected []Comparable) (changed []C
 		if e2, ok := existingMap[key]; ok {
 			if isChanged := CompareResource(e2, e); !isChanged {
 				continue
+			} else {
+				log.V(1).Info("resource changed", "existing", e2, "expected", e)
 			}
 		}
 		changed = append(changed, e)
 	}
 	for key, e := range existingMap {
 		if _, ok := expectedMap[key]; !ok {
+			log.V(1).Info("resource stale", "existing", e)
 			stale = append(stale, e)
 		}
 	}

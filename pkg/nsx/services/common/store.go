@@ -123,6 +123,17 @@ func TransError(err error) error {
 // InitializeResourceStore is the method to query all the various resources from nsx-t side and
 // save them to the store, we could use it to cache all the resources when process starts.
 func (service *Service) InitializeResourceStore(wg *sync.WaitGroup, fatalErrors chan error, resourceTypeValue string, store Store) {
+	service.InitializeCommonStore(wg, fatalErrors, "", "", resourceTypeValue, store)
+}
+
+// InitializeVPCResourceStore is the method to query all the various VPC resources from nsx-t side and
+// save them to the store, we could use it to cache all the resources when process starts.
+func (service *Service) InitializeVPCResourceStore(wg *sync.WaitGroup, fatalErrors chan error, org string, project string, resourceTypeValue string, store Store) {
+	service.InitializeCommonStore(wg, fatalErrors, org, project, resourceTypeValue, store)
+}
+
+// InitializeCommonStore is the common method used by InitializeResourceStore and InitializeVPCResourceStore
+func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors chan error, org string, project string, resourceTypeValue string, store Store) {
 	defer wg.Done()
 
 	tagScopeClusterKey := strings.Replace(TagScopeCluster, "/", "\\/", -1)
@@ -130,6 +141,11 @@ func (service *Service) InitializeResourceStore(wg *sync.WaitGroup, fatalErrors 
 	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
 	resourceParam := fmt.Sprintf("%s:%s", ResourceType, resourceTypeValue)
 	queryParam := resourceParam + " AND " + tagParam
+
+	if org != "" || project != "" {
+		path := fmt.Sprintf("path:/orgs/%s/projects/%s/*", org, project)
+		queryParam += " AND " + path
+	}
 
 	var cursor *string = nil
 	count := uint64(0)
@@ -165,6 +181,7 @@ func (service *Service) InitializeResourceStore(wg *sync.WaitGroup, fatalErrors 
 			}
 			count++
 		}
+		cursor = response.Cursor
 		if cursor == nil {
 			break
 		}

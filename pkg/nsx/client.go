@@ -17,8 +17,6 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management/principal_identities"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
-	vpc_search "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/search"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -35,7 +33,6 @@ type Client struct {
 	RestConnector *client.RestConnector
 
 	QueryClient                search.QueryClient
-	VPCQueryClient             vpc_search.QueryClient
 	GroupClient                domains.GroupsClient
 	SecurityClient             domains.SecurityPoliciesClient
 	RuleClient                 security_policies.RulesClient
@@ -91,7 +88,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	securityClient := domains.NewSecurityPoliciesClient(restConnector(cluster))
 	ruleClient := security_policies.NewRulesClient(restConnector(cluster))
 	infraClient := nsx_policy.NewInfraClient(restConnector(cluster))
-	vpcQueryClient := vpc_search.NewQueryClient(restConnector(cluster))
 	clusterControlPlanesClient := enforcement_points.NewClusterControlPlanesClient(restConnector(cluster))
 
 	mpQueryClient := mpsearch.NewQueryClient(restConnector(cluster))
@@ -125,7 +121,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 
 		NSXChecker:     *nsxChecker,
 		NSXVerChecker:  *nsxVersionChecker,
-		VPCQueryClient: vpcQueryClient,
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time
