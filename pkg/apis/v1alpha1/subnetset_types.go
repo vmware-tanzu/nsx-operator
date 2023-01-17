@@ -24,6 +24,8 @@ type SubnetSetSpec struct {
 	AdvancedConfig AdvancedConfig `json:"advancedConfig,omitempty"`
 	// DHCPConfig DHCP configuration.
 	DHCPConfig DHCPConfig `json:"DHCPConfig,omitempty"`
+	// VPC VPC CR name.
+	VPC string `json:"vpc"`
 }
 
 // SubnetInfo defines the observed state of a single Subnet of a SubnetSet.

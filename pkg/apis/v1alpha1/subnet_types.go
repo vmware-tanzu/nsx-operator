@@ -30,6 +30,8 @@ type SubnetSpec struct {
 	AdvancedConfig AdvancedConfig `json:"advancedConfig,omitempty"`
 	// DHCPConfig DHCP configuration.
 	DHCPConfig DHCPConfig `json:"DHCPConfig,omitempty"`
+	// VPC VPC CR name.
+	VPC string `json:"vpc,omitempty"`
 }
 
 // SubnetStatus defines the observed state of Subnet.

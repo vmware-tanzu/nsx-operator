@@ -103,6 +103,9 @@ spec:
                 maximum: 65536
                 minimum: 16
                 type: integer
+              vpc:
+                description: VPC VPC CR name.
+                type: string
             type: object
           status:
             description: SubnetStatus defines the observed state of Subnet.
