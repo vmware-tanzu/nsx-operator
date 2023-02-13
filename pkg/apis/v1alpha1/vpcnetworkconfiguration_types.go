@@ -19,9 +19,6 @@ const (
 // in a Namespace's VPCNetworkConfiguration, the Namespace will use the value
 // in the default VPCNetworkConfiguration.
 type VPCNetworkConfigurationSpec struct {
-	// Namespaces to be applied.
-	// The default VPCNetworkConfiguration will not have AppliedToNamespaces set.
-	AppliedToNamespaces []string `json:"appliedToNamespaces,omitempty"`
 	// PolicyPath of Tier0 or Tier0 VRF gateway.
 	DefaultGatewayPath string `json:"defaultGatewayPath,omitempty"`
 	// Edge cluster path on which the networking elements will be created.
