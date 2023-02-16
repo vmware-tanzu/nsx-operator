@@ -178,3 +178,64 @@ func CalculateIPFromCIDRs(IPAddresses []string) (int, error) {
 	}
 	return total, nil
 }
+
+func If(condition bool, trueVal, falseVal interface{}) interface{} {
+	if condition {
+		return trueVal
+	} else {
+		return falseVal
+	}
+}
+
+func GetMapValues(in interface{}) []string {
+	if in == nil {
+		return make([]string, 0)
+	}
+	switch in.(type) {
+	case map[string]string:
+		ssMap := in.(map[string]string)
+		values := make([]string, 0, len(ssMap))
+		for _, v := range ssMap {
+			values = append(values, v)
+		}
+		return values
+	default:
+		log.Info("Unsupported map format")
+		return nil
+	}
+}
+
+// the changes map contains key/value map that you want to change.
+// if giving empty value for a key in changes map like: "mykey":"", that means removing this annotation from k8s resource
+func UpdateK8sResourceAnnotation(client client.Client, ctx *context.Context, k8sObj client.Object, changes map[string]string) error {
+	needUpdate := false
+	anno := k8sObj.GetAnnotations() // here it may return a nil because ns do not have annotations.
+	newAnno := If(anno == nil, map[string]string{}, anno).(map[string]string)
+	for key, value := range changes {
+		// if value is not none, it means this key/value need to add/update
+		if value != "" {
+			needUpdate = true
+			newAnno[key] = value
+		} else { // if value is empty, then this key/value need to be removed from map
+			_, exist := newAnno[key]
+			if exist {
+				delete(newAnno, key)
+				needUpdate = true
+			} else {
+				log.Info("No need to change ns annotation")
+				needUpdate = false
+			}
+		}
+	}
+	// update k8s object
+	k8sObj.SetAnnotations(newAnno)
+
+	// only send update request when it is needed
+	if needUpdate {
+		err := client.Update(*ctx, k8sObj)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}

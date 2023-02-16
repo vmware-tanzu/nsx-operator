@@ -55,7 +55,7 @@ func TestVPC_GetVPCsByNamespace(t *testing.T) {
 	service := &VPCService{
 		Service: common.Service{NSXClient: nil},
 	}
-	service.vpcStore = vpcStore
+	service.VpcStore = vpcStore
 	type args struct {
 		i interface{}
 		j interface{}
