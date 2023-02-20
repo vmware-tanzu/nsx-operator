@@ -232,7 +232,7 @@ func TestSecurityPolicyNamedPort0(t *testing.T) {
 	ps, err := testData.podWaitForIPs(defaultTimeout, clientA, nsClient)
 	t.Logf("Pods are %v", ps)
 	assert_nil(t, err, "Error when waiting for IP for Pod %s", clientA)
-	psb, err := testData.deploymentWaitForIPs(defaultTimeout, nsWeb, labelWeb)
+	psb, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
 	assert_nil(t, err, "Error when waiting for IP for Pod %s", webA)
 	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
@@ -289,7 +289,7 @@ func TestSecurityPolicyNamedPort1(t *testing.T) {
 	ps, err := testData.podWaitForIPs(defaultTimeout, clientA, nsClient)
 	t.Logf("Pods are %v", ps)
 	assert_nil(t, err, "Error when waiting for IP for Pod %s", clientA)
-	psb, err := testData.deploymentWaitForIPs(defaultTimeout, nsWeb, labelWeb)
+	psb, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
 	assert_nil(t, err, "Error when waiting for IP for Pod %s", webA)
 	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
@@ -346,7 +346,7 @@ func TestSecurityPolicyNamedPort2(t *testing.T) {
 	ps, err := testData.podWaitForIPs(defaultTimeout, clientA, nsClient)
 	t.Logf("Pods are %v", ps)
 	assert_nil(t, err, "Error when waiting for IP for Pod %s", clientA)
-	psb, err := testData.deploymentWaitForIPs(defaultTimeout, nsWeb, labelWeb)
+	psb, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
 	assert_nil(t, err, "Error when waiting for IP for Pod %s", webA)
 	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
@@ -410,11 +410,11 @@ func TestSecurityPolicyNamedPort3(t *testing.T) {
 	defer deleteYAML(podPath, "")
 
 	// Wait for pods
-	ps, err := testData.deploymentWaitForIPs(defaultTimeout, nsDB, labelDB)
+	ps, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsDB, labelDB)
 	t.Logf("Pods are %v", ps)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsDB)
 
-	psb, err := testData.deploymentWaitForNames(defaultTimeout, nsWeb, labelWeb)
+	psb, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsWeb)
 	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
@@ -471,11 +471,11 @@ func TestSecurityPolicyNamedPort4(t *testing.T) {
 	defer deleteYAML(podPath, "")
 
 	// Wait for pods
-	ps, err := testData.deploymentWaitForIPs(defaultTimeout, nsDB, labelDB)
+	ps, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsDB, labelDB)
 	t.Logf("Pods are %v", ps)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsDB)
 
-	psb, err := testData.deploymentWaitForNames(defaultTimeout, nsWeb, labelWeb)
+	_, psb, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsWeb)
 	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
@@ -539,15 +539,15 @@ func TestSecurityPolicyNamedPort5(t *testing.T) {
 	defer deleteYAML(podPath, "")
 
 	// Wait for pods
-	ps, err := testData.deploymentWaitForIPs(defaultTimeout, nsDB, labelDB)
+	ps, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsDB, labelDB)
 	t.Logf("Pods are %v", ps)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsDB)
 
-	ps2, err := testData.deploymentWaitForIPs(defaultTimeout, nsDB2, labelDB2)
+	ps2, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsDB2, labelDB2)
 	t.Logf("Pods are %v", ps2)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsDB2)
 
-	psb, err := testData.deploymentWaitForNames(defaultTimeout, nsWeb, labelWeb)
+	_, psb, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsWeb)
 	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
@@ -635,15 +635,15 @@ func TestSecurityPolicyNamedPort6(t *testing.T) {
 	defer deleteYAML(podPath, "")
 
 	// Wait for pods
-	ps, err := testData.deploymentWaitForIPs(defaultTimeout, nsDB, labelDB)
+	ps, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsDB, labelDB)
 	t.Logf("Pods are %v", ps)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsDB)
 
-	ps2, err := testData.deploymentWaitForIPs(defaultTimeout, nsDB2, labelDB2)
+	ps2, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsDB2, labelDB2)
 	t.Logf("Pods are %v", ps2)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsDB2)
 
-	psb, err := testData.deploymentWaitForNames(defaultTimeout, nsWeb, labelWeb)
+	_, psb, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsWeb)
 	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
@@ -718,15 +718,15 @@ func TestSecurityPolicyNamedPort7(t *testing.T) {
 	defer deleteYAML(podPath, "")
 
 	// Wait for pods
-	ps, err := testData.deploymentWaitForIPs(defaultTimeout, nsDB, labelDB)
+	ps, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsDB, labelDB)
 	t.Logf("Pods are %v", ps)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsDB)
 
-	ps2, err := testData.deploymentWaitForIPs(defaultTimeout, nsDB2, labelDB2)
+	ps2, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsDB2, labelDB2)
 	t.Logf("Pods are %v", ps2)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsDB2)
 
-	psb, err := testData.deploymentWaitForNames(defaultTimeout, nsWeb, labelWeb)
+	_, psb, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsWeb)
 	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
