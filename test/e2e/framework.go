@@ -358,7 +358,7 @@ type PodCondition func(*corev1.Pod) (bool, error)
 // waitForSecurityPolicyReady polls the K8s apiServer until the specified SecurityPolicy is in the "True" state (or until
 // the provided timeout expires).
 func (data *TestData) waitForSecurityPolicyReadyOrDeleted(timeout time.Duration, namespace string, name string, status Status) error {
-	err := wait.Poll(1*time.Second, 100*time.Second, func() (bool, error) {
+	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
 		cmd := fmt.Sprintf("kubectl get securitypolicy %s -n %s -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}'", name, namespace)
 		log.Printf("%s", cmd)
 		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
@@ -446,9 +446,10 @@ func (data *TestData) podWaitForIPs(timeout time.Duration, name, namespace strin
 	return ips, nil
 }
 
-// deploymentWaitForIPs polls the K8s apiServer until the specified Pod in deployment has an IP address
-func (data *TestData) deploymentWaitForIPs(timeout time.Duration, namespace, deployment string) ([]string, error) {
+// deploymentWaitForIPsOrNames polls the K8s apiServer until the specified Pod in deployment has an IP address
+func (data *TestData) deploymentWaitForIPsOrNames(timeout time.Duration, namespace, deployment string) ([]string, []string, error) {
 	podIPStrings := sets.NewString()
+	var podNames []string
 	opt := metav1.ListOptions{
 		LabelSelector: "deployment=" + deployment,
 	}
@@ -466,46 +467,16 @@ func (data *TestData) deploymentWaitForIPs(timeout time.Duration, namespace, dep
 					return false, nil
 				} else {
 					podIPStrings.Insert(p.Status.PodIP)
+					podNames = append(podNames, p.Name)
 				}
 			}
 			return true, nil
 		}
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return podIPStrings.List(), nil
-}
-
-// deploymentWaitForIPs polls the K8s apiServer until the specified Pod in deployment has an IP address
-func (data *TestData) deploymentWaitForNames(timeout time.Duration, namespace, deployment string) ([]string, error) {
-	var podNames []string
-	opt := metav1.ListOptions{
-		LabelSelector: "deployment=" + deployment,
-	}
-	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
-		if pods, err := data.clientset.CoreV1().Pods(namespace).List(context.TODO(), opt); err != nil {
-			if errors.IsNotFound(err) {
-				return false, nil
-			}
-			return false, fmt.Errorf("error when getting Pod  %v", err)
-		} else {
-			for _, p := range pods.Items {
-				if p.Status.Phase != corev1.PodRunning {
-					return false, nil
-				} else if p.Status.PodIP == "" {
-					return false, fmt.Errorf("pods is running but has no assigned IP, which should never happen")
-				} else {
-					podNames = append(podNames, p.Name)
-				}
-			}
-		}
-		return true, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return podNames, nil
+	return podIPStrings.List(), podNames, nil
 }
 
 func parsePodIPs(podIPStrings sets.String) (*PodIPs, error) {
@@ -568,12 +539,7 @@ func (data *TestData) runCommandFromPod(namespace string, podName string, contai
 		return stdoutB.String(), stderrB.String(), err
 	}
 	outStr, errStr := stdoutB.String(), stderrB.String()
-	if outStr != "" {
-		log.Printf("%s", outStr)
-	}
-	if errStr != "" {
-		log.Printf("%s", errStr)
-	}
+	log.Printf("Command '%s' in Pod '%s/%s' container '%s' returned with output: '%s' and error: '%s'", strings.Join(cmd, " "), namespace, podName, containerName, outStr, errStr)
 	return stdoutB.String(), stderrB.String(), nil
 }
 
@@ -615,20 +581,16 @@ func applyYAML(filename string, ns string) error {
 	}
 	var stdout, stderr bytes.Buffer
 	command := exec.Command("bash", "-c", cmd)
-	log.Printf("Applying YAML file %s", cmd)
+	log.Printf("Applying YAML file %s", filename)
 	command.Stdout = &stdout
 	command.Stderr = &stderr
 	err := command.Run()
 	if err != nil {
+		log.Printf("Error when applying YAML file %s: %v", filename, err)
 		return err
 	}
 	outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
-	if outStr != "" {
-		log.Printf("%s", outStr)
-	}
-	if errStr != "" {
-		log.Printf("%s", errStr)
-	}
+	log.Printf("YAML file %s applied with output: '%s' and error: '%s'", cmd, outStr, errStr)
 	return nil
 }
 
@@ -644,11 +606,8 @@ func runCommand(cmd string) (string, error) {
 			return false, nil
 		}
 		outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
-		if outStr != "" {
-			log.Printf("%s", outStr)
-		}
+		log.Printf("Command %s returned with output: '%s' and error: '%s'", cmd, outStr, errStr)
 		if errStr != "" {
-			log.Printf("%s", errStr)
 			return false, nil
 		}
 		return true, nil
@@ -663,20 +622,16 @@ func deleteYAML(filename string, ns string) error {
 	}
 	var stdout, stderr bytes.Buffer
 	command := exec.Command("bash", "-c", cmd)
-	log.Printf("Deleing YAML file (%s)", cmd)
+	log.Printf("Deleting YAML file (%s)", filename)
 	command.Stdout = &stdout
 	command.Stderr = &stderr
 	err := command.Run()
 	if err != nil {
+		log.Printf("Error when deleting YAML file %s: %v", filename, err)
 		return nil
 	}
 	outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
-	if outStr != "" {
-		log.Printf("%s", outStr)
-	}
-	if errStr != "" {
-		log.Printf("%s", errStr)
-	}
+	log.Printf("YAML file %s deleted with output: '%s' and error: '%s'", cmd, outStr, errStr)
 	return nil
 }
 
@@ -692,12 +647,13 @@ func (data *TestData) waitForResourceExistOrNot(namespace string, resourceType s
 		var pageSize int64 = 500
 		response, err := testData.nsxClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
 		if err != nil {
+			log.Printf("Error when querying resource %s/%s: %v", resourceType, resourceName, err)
 			return false, err
 		}
 		if len(response.Results) == 0 {
 			exist = false
 		}
-		log.Printf("QueryParam: %s Result: %t", queryParam, exist)
+		//log.Printf("QueryParam: %s Result: %t", queryParam, exist)
 		if exist != shouldExist {
 			return false, nil
 		}
