@@ -21,8 +21,8 @@ spec:
       jsonPath: .spec.NSXTProject
       name: NSXTProject
       type: string
-    - description: PublicIPv4Blocks assigned to the Namespace
-      jsonPath: .spec.PublicIPv4Blocks
+    - description: ExternalIPv4Blocks assigned to the Namespace
+      jsonPath: .spec.ExternalIPv4Blocks
       name: PublicIPv4Blocks
       type: string
     - description: PrivateIPv4CIDRs assigned to the Namespace
@@ -73,18 +73,26 @@ spec:
                 description: Edge cluster path on which the networking elements will
                   be created.
                 type: string
-              nsxtProject:
-                description: NSX-T Project the Namespace associated with.
-                type: string
-              privateIPv4CIDRs:
-                description: Private IPv4 CIDRs used to allocate private Subnets.
+              externalIPv4Blocks:
+                description: NSX-T IPv4 Block paths used to allocate external Subnets.
                 items:
                   type: string
                 maxItems: 5
                 minItems: 0
                 type: array
-              publicIPv4Blocks:
-                description: NSX-T IPv4 Block paths used to allocate public Subnets.
+              loadBalancerVPCEndpoint:
+                description: Load balancer endpoint configuration.
+                properties:
+                  enabled:
+                    default: false
+                    description: Flag to enable load balancer for vpc.
+                    type: boolean
+                type: object
+              nsxtProject:
+                description: NSX-T Project the Namespace associated with.
+                type: string
+              privateIPv4CIDRs:
+                description: Private IPv4 CIDRs used to allocate private Subnets.
                 items:
                   type: string
                 maxItems: 5
