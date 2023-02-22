@@ -13,6 +13,13 @@ const (
 	AccessModePrivate string = "private"
 )
 
+// Load balancer endpoint configuration.
+type LoadBalancerVPCEndpoint struct {
+	// Flag to enable load balancer for vpc.
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled,omitempty"`
+}
+
 // VPCNetworkConfigurationSpec defines the desired state of VPCNetworkConfiguration.
 // There is a default VPCNetworkConfiguration that applies to Namespaces
 // do not have a VPCNetworkConfiguration assigned. When a field is not set
@@ -25,10 +32,12 @@ type VPCNetworkConfigurationSpec struct {
 	EdgeClusterPath string `json:"edgeClusterPath,omitempty"`
 	// NSX-T Project the Namespace associated with.
 	NSXTProject string `json:"nsxtProject,omitempty"`
-	// NSX-T IPv4 Block paths used to allocate public Subnets.
+	// Load balancer endpoint configuration.
+	LoadBalancerVPCEndpoint LoadBalancerVPCEndpoint `json:"loadBalancerVPCEndpoint,omitempty"`
+	// NSX-T IPv4 Block paths used to allocate external Subnets.
 	// +kubebuilder:validation:MinItems=0
 	// +kubebuilder:validation:MaxItems=5
-	PublicIPv4Blocks []string `json:"publicIPv4Blocks,omitempty"`
+	ExternalIPv4Blocks []string `json:"externalIPv4Blocks,omitempty"`
 	// Private IPv4 CIDRs used to allocate private Subnets.
 	// +kubebuilder:validation:MinItems=0
 	// +kubebuilder:validation:MaxItems=5
@@ -55,7 +64,7 @@ type VPCNetworkConfigurationStatus struct {
 // VPCNetworkConfiguration is the Schema for the vpcnetworkconfigurations API.
 // +kubebuilder:resource:scope="Cluster"
 // +kubebuilder:printcolumn:name="NSXTProject",type=string,JSONPath=`.spec.NSXTProject`,description="NSXTProject the Namespace associated with"
-// +kubebuilder:printcolumn:name="PublicIPv4Blocks",type=string,JSONPath=`.spec.PublicIPv4Blocks`,description="PublicIPv4Blocks assigned to the Namespace"
+// +kubebuilder:printcolumn:name="PublicIPv4Blocks",type=string,JSONPath=`.spec.ExternalIPv4Blocks`,description="ExternalIPv4Blocks assigned to the Namespace"
 // +kubebuilder:printcolumn:name="PrivateIPv4CIDRs",type=string,JSONPath=`.spec.PrivateIPv4CIDRs`,description="PrivateIPv4CIDRs assigned to the Namespace"
 type VPCNetworkConfiguration struct {
 	metav1.TypeMeta   `json:",inline"`
