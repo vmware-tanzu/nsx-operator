@@ -2,8 +2,8 @@
    SPDX-License-Identifier: Apache-2.0 */
 
 // Package v1alpha2 contains API Schema definitions for the  v1alpha2 API group
-//+kubebuilder:object:generate=true
-//+groupName=nsx.vmware.com
+// +kubebuilder:object:generate=true
+// +groupName=nsx.vmware.com
 package v1alpha2
 
 import (

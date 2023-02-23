@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"runtime"
 	"time"
-
+	
 	v1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -19,7 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-
+	
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -110,7 +110,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			}
 			log.V(1).Info("added finalizer on ippool CR", "ippool", req.NamespacedName)
 		}
-
+		
 		subnetCidrUpdated, ipPoolSubnetsUpdated, err := r.Service.CreateOrUpdateIPPool(obj)
 		if err != nil {
 			log.Error(err, "operate failed, would retry exponentially", "ippool", req.NamespacedName)
@@ -118,24 +118,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 		if !r.Service.FullyRealized(obj) {
 			if subnetCidrUpdated || ipPoolSubnetsUpdated {
-				err = r.Client.Status().Update(ctx, obj)
-				if err != nil {
-					updateFail(r, &ctx, obj, &err)
-					return resultRequeue, err
-				}
 				updateSuccess(r, &ctx, obj)
 			}
-			log.Info("put back ippool again, some subnets unrealized", "subnets", r.Service.GetUnrealizedSubnetNames(obj))
+			log.Info("successfully reconcile ippool CR, but put back ippool again, since partial subnets are unrealized", "subnets",
+				r.Service.GetUnrealizedSubnetNames(obj))
 			return resultRequeue, nil
 		} else {
 			if subnetCidrUpdated || ipPoolSubnetsUpdated {
-				err = r.Client.Status().Update(ctx, obj)
-				if err != nil {
-					updateFail(r, &ctx, obj, &err)
-					return resultRequeue, err
-				}
 				updateSuccess(r, &ctx, obj)
-				log.Info("successfully reconcile ippool CR", "ippool", obj)
+				log.Info("successfully reconcile ippool CR and all subnets are fully realized", "ippool", obj)
 			} else {
 				log.Info("full realized already, and resources are not changed, skip updating them", "obj", obj)
 			}
@@ -156,6 +147,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			}
 			log.V(1).Info("removed finalizer on ippool CR", "ippool", req.NamespacedName)
 			deleteSuccess(r, &ctx, obj)
+			log.Info("successfully deleted ippool CR and all subnets", "ippool", obj)
 		} else {
 			// only print a message because it's not a normal case
 			log.Info("ippool CR is being deleted but its finalizers cannot be recognized", "ippool", req.NamespacedName)
@@ -215,14 +207,14 @@ func (r *Reconciler) IPPoolGarbageCollector(cancel chan bool, timeout time.Durat
 			log.Error(err, "failed to list ip pool CR")
 			continue
 		}
-
+		
 		CRIPPoolSet := sets.NewString()
 		for _, ipp := range ipPoolList.Items {
 			CRIPPoolSet.Insert(string(ipp.UID))
 		}
-
+		
 		log.V(2).Info("ippool garbage collector", "nsxIPPoolSet", nsxIPPoolSet, "CRIPPoolSet", CRIPPoolSet)
-
+		
 		for elem := range nsxIPPoolSet {
 			if CRIPPoolSet.Has(elem) {
 				continue

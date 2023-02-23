@@ -78,7 +78,6 @@ func fakeService() *IPPoolService {
 				RestConnector:          rc,
 				RealizedEntitiesClient: &fakeRealizedEntitiesClient{},
 				ProjectInfraClient:     &fakeProjectInfraClient{},
-				ProjectQueryClient:     &fakeProjectQueryClient{},
 				NsxConfig: &config.NSXOperatorConfig{
 					CoeConfig: &config.CoeConfig{
 						Cluster: "k8scl-one:test",

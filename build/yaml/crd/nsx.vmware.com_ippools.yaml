@@ -83,10 +83,10 @@ spec:
                   type: object
                 type: array
               type:
-                default: public
-                description: Type defines the type of this IPPool, public or private.
+                default: external
+                description: Type defines the type of this IPPool, external or private.
                 enum:
-                - public
+                - external
                 - private
                 type: string
             required:

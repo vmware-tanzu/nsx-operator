@@ -2,15 +2,16 @@ package ippool
 
 import (
 	"sync"
-
+	
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
-
+	
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
@@ -32,9 +33,9 @@ func InitializeIPPool(service common.Service) (*IPPoolService, error) {
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
-
+	
 	wg.Add(2)
-
+	
 	ipPoolService := &IPPoolService{Service: service}
 	ipPoolService.ipPoolStore = &IPPoolStore{ResourceStore: common.ResourceStore{
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeIPPoolCRUID: indexFunc}),
@@ -44,15 +45,16 @@ func InitializeIPPool(service common.Service) (*IPPoolService, error) {
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeIPPoolCRUID: indexFunc}),
 		BindingType: model.IpAddressPoolBlockSubnetBindingType(),
 	}}
-
-	go ipPoolService.InitializeProjectResourceStore(&wg, fatalErrors, ResourceTypeIPPool, ipPoolService.ipPoolStore)
-	go ipPoolService.InitializeProjectResourceStore(&wg, fatalErrors, ResourceTypeIPPoolBlockSubnet, ipPoolService.ipPoolBlockSubnetStore)
-
+	
+	// TODO pass in real org and project
+	go ipPoolService.InitializeVPCResourceStore(&wg, fatalErrors, "default", "zx-project-1", ResourceTypeIPPool, ipPoolService.ipPoolStore)
+	go ipPoolService.InitializeVPCResourceStore(&wg, fatalErrors, "default", "zx-project-1", ResourceTypeIPPoolBlockSubnet, ipPoolService.ipPoolBlockSubnetStore)
+	
 	go func() {
 		wg.Wait()
 		close(wgDone)
 	}()
-
+	
 	select {
 	case <-wgDone:
 		break
@@ -60,7 +62,7 @@ func InitializeIPPool(service common.Service) (*IPPoolService, error) {
 		close(fatalErrors)
 		return ipPoolService, err
 	}
-
+	
 	return ipPoolService, nil
 }
 
@@ -83,11 +85,11 @@ func (service *IPPoolService) CreateOrUpdateIPPool(obj *v1alpha2.IPPool) (bool, 
 	if len(finalIPSubnets) > 0 {
 		ipPoolSubnetsUpdated = true
 	}
-
+	
 	if err := service.Operate(nsxIPPool, finalIPSubnets, ipPoolUpdated, ipPoolSubnetsUpdated); err != nil {
 		return false, false, err
 	}
-
+	
 	realizedSubnets, subnetCidrUpdated, e := service.AcquireRealizedSubnetIP(obj)
 	if e != nil {
 		return false, false, e
@@ -104,22 +106,24 @@ func (service *IPPoolService) Operate(nsxIPPool *model.IpAddressPool, nsxIPSubne
 	if err != nil {
 		return err
 	}
-
+	
 	// Get IPPool Type from nsxIPPool
-	IPPoolType := "public"
+	IPPoolType := common.IPPoolTypeExternal
 	for _, tag := range nsxIPPool.Tags {
 		if *tag.Scope == common.TagScopeIPPoolCRType {
 			IPPoolType = *tag.Tag
 			break
 		}
 	}
-
-	// TODO: decide org and project by ns, public or private to do
-	if IPPoolType == "public" {
+	
+	// TODO: decide org and project by ns, external or private to do
+	if IPPoolType == common.IPPoolTypePrivate {
 		// TODO: Get the org name and project name from IPPool's namespace
-		err = service.NSXClient.ProjectInfraClient.Patch("default", "project-1", *infraIPPool, &EnforceRevisionCheckParam)
-	} else if IPPoolType == "private" {
+		err = service.NSXClient.ProjectInfraClient.Patch("default", "zx-project-1", *infraIPPool, &EnforceRevisionCheckParam)
+	} else if IPPoolType == common.IPPoolTypeExternal {
 		err = service.NSXClient.InfraClient.Patch(*infraIPPool, &EnforceRevisionCheckParam)
+	} else {
+		err = util.NoEffectiveOption{Desc: "no effective ippool type"}
 	}
 	if err != nil {
 		return err

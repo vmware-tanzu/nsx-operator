@@ -2,6 +2,7 @@ package common
 
 import (
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -143,16 +144,20 @@ func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors ch
 	queryParam := resourceParam + " AND " + tagParam
 
 	if org != "" || project != "" {
-		path := fmt.Sprintf("path:/orgs/%s/projects/%s/*", org, project)
-		queryParam += " AND " + path
+		// QueryClient.List() will escape the path, "path:" then will be "path%25%3A" instead of "path:3A",
+		//"path%25%3A" would fail to get response. Hack it here.
+		path := "\\/orgs\\/" + org + "\\/projects\\/" + project + "\\/*"
+		pathUnescape, _ := url.PathUnescape("path%3A")
+		queryParam += " AND " + pathUnescape + path
 	}
 
 	var cursor *string = nil
 	count := uint64(0)
 	for {
+		var err error
+
 		var results []*data.StructValue
 		var resultCount *int64
-		var err error
 		if store.IsPolicyAPI() {
 			response, searchEerr := service.NSXClient.QueryClient.List(queryParam, cursor, nil, Int64(PageSize), nil, nil)
 			results = response.Results
@@ -181,7 +186,6 @@ func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors ch
 			}
 			count++
 		}
-		cursor = response.Cursor
 		if cursor == nil {
 			break
 		}
@@ -191,43 +195,4 @@ func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors ch
 		}
 	}
 	log.Info("initialized store", "resourceType", resourceTypeValue, "count", count)
-}
-
-// InitializeProjectResourceStore is the method to query all the various resources from nsx-t side and
-// save them to the store, we could use it to cache all the resources when process starts.
-func (service *Service) InitializeProjectResourceStore(wg *sync.WaitGroup, fatalErrors chan error, resourceTypeValue string, store Store) {
-	defer wg.Done()
-
-	tagScopeClusterKey := strings.Replace(TagScopeCluster, "/", "\\/", -1)
-	tagScopeClusterValue := strings.Replace(service.NSXClient.NsxConfig.Cluster, ":", "\\:", -1)
-	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
-	resourceParam := fmt.Sprintf("%s:%s", ResourceType, resourceTypeValue)
-	queryParam := resourceParam + " AND " + tagParam
-
-	var cursor *string = nil
-	for {
-		response, err := service.NSXClient.ProjectQueryClient.List("default", "project-1", queryParam, cursor, nil, Int64(PageSize), nil, nil)
-		err = TransError(err)
-		if _, ok := err.(nsxutil.PageMaxError); ok == true {
-			DecrementPageSize(Int64(PageSize))
-			continue
-		}
-		if err != nil {
-			fatalErrors <- err
-		}
-		for _, entity := range response.Results {
-			err = store.TransResourceToStore(entity)
-			if err != nil {
-				fatalErrors <- err
-			}
-		}
-		cursor = response.Cursor
-		if cursor == nil {
-			break
-		}
-		c, _ := strconv.Atoi(*cursor)
-		if int64(c) >= *response.ResultCount {
-			break
-		}
-	}
 }

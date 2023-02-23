@@ -7,7 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	
+
 	"github.com/sirupsen/logrus"
 	vspherelog "github.com/vmware/vsphere-automation-sdk-go/runtime/log"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
@@ -20,8 +20,10 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/ip_pools"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/realized_state"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
-	
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 )
@@ -32,14 +34,17 @@ const (
 )
 
 type Client struct {
-	NsxConfig     *config.NSXOperatorConfig
-	RestConnector *client.RestConnector
+	NsxConfig          *config.NSXOperatorConfig
+	RestConnector      *client.RestConnector
+	QueryClient        search.QueryClient
+	GroupClient        domains.GroupsClient
+	SecurityClient     domains.SecurityPoliciesClient
+	RuleClient         security_policies.RulesClient
+	InfraClient        nsx_policy.InfraClient
+	ProjectInfraClient projects.InfraClient
+	NSXChecker         NSXHealthChecker
+	NSXVerChecker      NSXVersionChecker
 
-	QueryClient                search.QueryClient
-	GroupClient                domains.GroupsClient
-	SecurityClient             domains.SecurityPoliciesClient
-	RuleClient                 security_policies.RulesClient
-	InfraClient                nsx_policy.InfraClient
 	ClusterControlPlanesClient enforcement_points.ClusterControlPlanesClient
 
 	MPQueryClient             mpsearch.QueryClient
@@ -47,8 +52,6 @@ type Client struct {
 	PrincipalIdentitiesClient trust_management.PrincipalIdentitiesClient
 	WithCertificateClient     principal_identities.WithCertificateClient
 
-	NSXChecker     NSXHealthChecker
-	NSXVerChecker  NSXVersionChecker
 	IPPoolClient           infra.IpPoolsClient
 	IPSubnetClient         ip_pools.IpSubnetsClient
 	RealizedEntitiesClient realized_state.RealizedEntitiesClient
@@ -101,6 +104,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	principalIdentitiesClient := trust_management.NewPrincipalIdentitiesClient(restConnector(cluster))
 	withCertificateClient := principal_identities.NewWithCertificateClient(restConnector(cluster))
 
+	projectInfraClient := projects.NewInfraClient(restConnector(cluster))
 	ipPoolClient := infra.NewIpPoolsClient(restConnector(cluster))
 	ipSubnetClient := ip_pools.NewIpSubnetsClient(restConnector(cluster))
 	realizedEntitiesClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
@@ -128,8 +132,9 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		PrincipalIdentitiesClient: principalIdentitiesClient,
 		WithCertificateClient:     withCertificateClient,
 
-		NSXChecker:     *nsxChecker,
-		NSXVerChecker:  *nsxVersionChecker,
+		NSXChecker:             *nsxChecker,
+		NSXVerChecker:          *nsxVersionChecker,
+		ProjectInfraClient:     projectInfraClient,
 		IPPoolClient:           ipPoolClient,
 		IPSubnetClient:         ipSubnetClient,
 		RealizedEntitiesClient: realizedEntitiesClient,

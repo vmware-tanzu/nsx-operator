@@ -15,26 +15,27 @@ import (
 )
 
 const (
-	HashLength                   int    = 8
-	MaxTagLength                 int    = 256
-	TagScopeCluster              string = "nsx-op/cluster"
-	TagScopeNamespace            string = "nsx-op/namespace"
-	TagScopeSecurityPolicyCRName string = "nsx-op/security_policy_cr_name"
-	TagScopeSecurityPolicyCRUID  string = "nsx-op/security_policy_cr_uid"
-	TagScopeRuleID               string = "nsx-op/rule_id"
-	TagScopeGroupType            string = "nsx-op/group_type"
-	TagScopeSelectorHash         string = "nsx-op/selector_hash"
-	TagScopeIPPoolCRName         string = "nsx-op/ippool_cr_name"
-	TagScopeIPPoolCRUID          string = "nsx-op/ippool_cr_uid"
-	TagScopeIPPoolCRType         string = "nsx-op/ippool_cr_type"
-	TagScopeIPSubnetName         string = "nsx-op/ipsubnet_cr_name"
-	TagScopeNCPCluster           string = "ncp/cluster"
-	TagScopeNCPProject           string = "ncp/project"
-	TagScopeNCPVIFProject        string = "ncp/vif_project"
-	TagScopeNCPPod               string = "ncp/pod"
-	TagScopeNCPVNETInterface     string = "ncp/vnet_interface"
-	TagScopeVPCCRName            string = "nsx-op/vpc_cr_name"
-	TagScopeVPCCRUID             string = "nsx-op/vpc_cr_uid"
+	HashLength                      int    = 8
+	MaxTagLength                    int    = 256
+	MaxIdLength                     int    = 255
+	TagScopeCluster                 string = "nsx-op/cluster"
+	TagScopeNamespace               string = "nsx-op/namespace"
+	TagScopeSecurityPolicyCRName    string = "nsx-op/security_policy_cr_name"
+	TagScopeSecurityPolicyCRUID     string = "nsx-op/security_policy_cr_uid"
+	TagScopeRuleID                  string = "nsx-op/rule_id"
+	TagScopeGroupType               string = "nsx-op/group_type"
+	TagScopeSelectorHash            string = "nsx-op/selector_hash"
+	TagScopeIPPoolCRName            string = "nsx-op/ippool_cr_name"
+	TagScopeIPPoolCRUID             string = "nsx-op/ippool_cr_uid"
+	TagScopeIPPoolCRType            string = "nsx-op/ippool_cr_type"
+	TagScopeIPSubnetName            string = "nsx-op/ipsubnet_cr_name"
+	TagScopeNCPCluster              string = "ncp/cluster"
+	TagScopeNCPProject              string = "ncp/project"
+	TagScopeNCPVIFProject           string = "ncp/vif_project"
+	TagScopeNCPPod                  string = "ncp/pod"
+	TagScopeNCPVNETInterface        string = "ncp/vnet_interface"
+	TagScopeVPCCRName               string = "nsx-op/vpc_cr_name"
+	TagScopeVPCCRUID                string = "nsx-op/vpc_cr_uid"
 	TagScopeNSXServiceAccountCRName string = "nsx-op/nsx_service_account_name"
 	TagScopeNSXServiceAccountCRUID  string = "nsx-op/nsx_service_account_uid"
 
@@ -43,6 +44,8 @@ const (
 	IPPoolFinalizerName = "ippool.nsx.vmware.com/finalizer"
 
 	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
+	IPPoolTypeExternal             = "external"
+	IPPoolTypePrivate              = "private"
 )
 
 var (

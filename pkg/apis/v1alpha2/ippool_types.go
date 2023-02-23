@@ -32,9 +32,9 @@ type IPPoolList struct {
 
 // IPPoolSpec defines the desired state of IPPool.
 type IPPoolSpec struct {
-	// Type defines the type of this IPPool, public or private.
-	// +kubebuilder:validation:Enum=public;private
-	// +kubebuilder:default=public
+	// Type defines the type of this IPPool, external or private.
+	// +kubebuilder:validation:Enum=external;private
+	// +kubebuilder:default=external
 	Type string `json:"type"`
 	// Subnets defines set of subnets need to be allocated.
 	// +optional
