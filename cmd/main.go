@@ -17,6 +17,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
@@ -63,6 +64,7 @@ func StartSecurityPolicyController(mgr ctrl.Manager, commonService common.Servic
 		os.Exit(1)
 	} else {
 		securityReconcile.Service = securityService
+		commonctl.ServiceMediator.SecurityPolicyService = securityService
 	}
 	if err := securityReconcile.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "SecurityPolicy")
