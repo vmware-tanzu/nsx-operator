@@ -1,57 +1,761 @@
+// This file is for e2e security policy tests, these tests abide by consistent flow.
+// Create namespace -> Create pods -> Create security policy -> Check nsx-t resource existing
+// -> Ping or nc from pod -> Delete security policy -> Check nsx-t resource not existing -> Ping or nc from pod -> Delete pods
+// -> Delete security policy(defer function to avoid garbage residue) -> Delete namespace(all pods in namespace will be deleted)
+// Note that there are some points to consider:
+// 1. Each test run in a separate namespace, and the namespace should be deleted after the test.
+// 2. Deleting a namespace will delete all pods in the namespace, but the security policy will reside,
+//    so basically `defer deleteYAML` should follow `applyYAML`.
+// 3. Self-defined assert function is in order to panic when error occurs, and the remained tests will be skipped.
+// 4. Each test case maintains idempotency, regardless of whether the case ends successfully or quits halfway,
+//    it does not affect the next execution. So we should carefully consider the garbage residue problem.
+// 5. It is designed to run in sequence, parallel execution has not been tested.
+// 6. There is time delay at nsx-t side, so we need to wait for the resource to be ready or deleted.
+
 package e2e
 
 import (
 	"fmt"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
-// TestSecurityPolicyBasicTraffic verifies that the new created pod appears in inventory.
+// TestSecurityPolicyBasicTraffic verifies that the basic traffic of security policy.
+// This is the very basic, blocking all in and out traffic between pods should take effect.
 func TestSecurityPolicyBasicTraffic(t *testing.T) {
 	ns := "test-security-policy-1"
+	busybox := "busybox"
+	ncPod := "nc-pod"
+	securityPolicyName := "isolate-policy-1"
 	setupTest(t, ns)
 	defer teardownTest(t, ns)
 
+	// Create pods
 	busyboxPath, _ := filepath.Abs("./manifest/testSecurityPolicy/busybox.yaml")
 	_ = applyYAML(busyboxPath, ns)
 	netcatPath, _ := filepath.Abs("./manifest/testSecurityPolicy/netcat-pod.yaml")
 	_ = applyYAML(netcatPath, ns)
 
-	ps, err := testData.podWaitForIPs(defaultTimeout, "busybox", ns)
+	// Wait for pods
+	ps, err := testData.podWaitForIPs(defaultTimeout, busybox, ns)
 	t.Logf("Pods are %v", ps)
-	assert.Nil(t, err, "Error when waiting for IP for Pod 'busybox'")
-	iPs, err := testData.podWaitForIPs(defaultTimeout, "nc-pod", ns)
+	assert_nil(t, err, "Error when waiting for IP for Pod %s", busybox)
+	iPs, err := testData.podWaitForIPs(defaultTimeout, ncPod, ns)
 	t.Logf("Pods are %v", iPs)
-	assert.Nil(t, err, "Error when waiting for IP for Pod 'nc-pod'")
+	assert_nil(t, err, "Error when waiting for IP for Pod %s", ncPod)
 
-	err = testData.runPingCommandFromTestPod(ns, "busybox", iPs, 4)
-	assert.Nil(t, err, "Error when running ping command from test Pod 'busybox'")
+	// Ping from pod
+	err = testData.runPingCommandFromPod(ns, busybox, iPs, 4)
+	assert_nil(t, err, "Error when running ping command from test Pod %s", busybox)
 
+	// Create security policy
 	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy.yaml")
 	_ = applyYAML(nsIsolationPath, ns)
-	err = testData.waitForSecurityPolicyReady(defaultTimeout, "isolate-policy-1", ns)
-	assert.Nil(t, err, "Error when waiting for Security Policy 'isolate-policy-1'")
+	defer deleteYAML(nsIsolationPath, ns)
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, ns, securityPolicyName, Ready)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
-	err = testData.runPingCommandFromTestPod(ns, "busybox", iPs, 4)
-	assert.NotNilf(t, err, "Error when running ping command from test Pod 'busybox'")
+	// Check nsx-t resource existing
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, securityPolicyName, true)
+	assert_nil(t, err)
 
-	tagScopeClusterKey := strings.Replace(common.TagScopeNamespace, "/", "\\/", -1)
-	tagScopeClusterValue := strings.Replace(ns, ":", "\\:", -1)
-	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
-	resourceParam := fmt.Sprintf("%s:%s", common.ResourceType, "SecurityPolicy")
-	queryParam := resourceParam + " AND " + tagParam
-	var cursor *string = nil
-	var pagesize int64 = 500
-	_, err = testData.nsxClient.QueryClient.List(queryParam, cursor, nil, &pagesize, nil, nil)
-	assert.Nil(t, err, "Error when query Security Policy")
+	// Ping from pod
+	err = testData.runPingCommandFromPod(ns, busybox, iPs, 4)
+	assert_notnil(t, err, "Error when running ping command from test Pod %s", busybox)
 
-	resourceParam = fmt.Sprintf("%s:%s", common.ResourceType, "Rule")
-	queryParam = resourceParam + " AND " + tagParam
-	_, err = testData.nsxClient.QueryClient.List(queryParam, cursor, nil, &pagesize, nil, nil)
-	assert.Nil(t, err, "Error when query Security Policy rule")
+	// Delete security policy
+	_ = deleteYAML(nsIsolationPath, ns)
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, ns, securityPolicyName, Deleted)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
+	// Check nsx-t resource not existing
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, securityPolicyName, false)
+	assert_nil(t, err)
+
+	// Ping from pod
+	err = testData.runPingCommandFromPod(ns, busybox, iPs, 4)
+	assert_nil(t, err, "Error when running ping command from test Pod %s", busybox)
+}
+
+// TestSecurityPolicyAddDeleteRule verifies that when adding or deleting rule, the security policy will be updated.
+// This is once a bug which is fixed later. When adding or deleting rule of one security policy repeatedly,
+// the nsx-t side should keep consistent.
+func TestSecurityPolicyAddDeleteRule(t *testing.T) {
+	ns := "test-security-policy-2"
+	securityPolicyName := "isolate-policy-1"
+	ruleName0 := "isolate-policy-1-0"
+	ruleName1 := "isolate-policy-1-1"
+	setupTest(t, ns)
+	defer teardownTest(t, ns)
+
+	// Create security policy
+	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy.yaml")
+	_ = applyYAML(nsIsolationPath, ns)
+	defer deleteYAML(nsIsolationPath, ns)
+	err := testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, ns, securityPolicyName, Ready)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource existing
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName0, true)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, true)
+	assert_nil(t, err)
+
+	// Update security policy
+	nsIsolationPath, _ = filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy-1.yaml")
+	_ = applyYAML(nsIsolationPath, ns)
+	defer deleteYAML(nsIsolationPath, ns)
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, ns, securityPolicyName, Ready)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource existing
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName0, true)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, false)
+	assert_nil(t, err)
+
+	// Delete security policy
+	_ = deleteYAML(nsIsolationPath, ns)
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, ns, securityPolicyName, Deleted)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource not existing
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
+	assert_nil(t, err)
+}
+
+// TestSecurityPolicyMatchExpression verifies that the traffic of security policy when match expression applied.
+// This test is to verify the match expression, NotIn/In operator feature of security policy. It should apply
+// to the specified pod.
+func TestSecurityPolicyMatchExpression(t *testing.T) {
+	ns := "test-security-policy-match-expression"
+	securityPolicyName := "expression-policy-1"
+	clientA := "client-a"
+	clientB := "client-b"
+	podA := "pod-a"
+	setupTest(t, ns)
+	defer teardownTest(t, ns)
+
+	// Create pods
+	podPath, _ := filepath.Abs("./manifest/testSecurityPolicy/allow-client-a-via-pod-selector-with-match-expressions.yaml")
+	_ = applyYAML(podPath, ns)
+	defer deleteYAML(podPath, "")
+
+	// Wait for pods
+	ps, err := testData.podWaitForIPs(defaultTimeout, clientA, ns)
+	t.Logf("Pods are %v", ps)
+	assert_nil(t, err, "Error when waiting for IP for Pod %s", clientA)
+	psb, err := testData.podWaitForIPs(defaultTimeout, clientB, ns)
+	t.Logf("Pods are %v", psb)
+	assert_nil(t, err, "Error when waiting for IP for Pod %s", clientB)
+	iPs, err := testData.podWaitForIPs(defaultTimeout, podA, ns)
+	t.Logf("Pods are %v", iPs)
+	assert_nil(t, err, "Error when waiting for IP for Pod %s", podA)
+
+	// Ping from pod
+	err = testData.runPingCommandFromPod(ns, clientA, iPs, 4)
+	assert_nil(t, err, "Error when running ping command from Pod %s", clientA)
+	err = testData.runPingCommandFromPod(ns, clientB, iPs, 4)
+	assert_nil(t, err, "Error when running ping command from Pod %s", clientB)
+
+	// Create security policy
+	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/match-expression.yaml")
+	_ = applyYAML(nsIsolationPath, ns)
+	defer deleteYAML(nsIsolationPath, ns)
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, ns, securityPolicyName, Ready)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource existing
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, securityPolicyName, true)
+	assert_nil(t, err)
+
+	// Ping from pod
+	err = testData.runPingCommandFromPod(ns, clientA, iPs, 4)
+	assert_nil(t, err, "Error when running ping command from Pod %s", clientA)
+	err = testData.runPingCommandFromPod(ns, clientB, iPs, 4)
+	assert.NotNilf(t, err, "Error when running ping command from Pod %s", clientB)
+
+	// Delete security policy
+	_ = deleteYAML(nsIsolationPath, ns)
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, ns, securityPolicyName, Deleted)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource not existing
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, securityPolicyName, false)
+	assert_nil(t, err)
+
+	// Ping from pod
+	err = testData.runPingCommandFromPod(ns, clientA, iPs, 4)
+	assert_nil(t, err, "Error when running ping command from Pod %s", clientA)
+	err = testData.runPingCommandFromPod(ns, clientB, iPs, 4)
+	assert_nil(t, err, "Error when running ping command from Pod %s", clientB)
+}
+
+// TestSecurityPolicyNamedPort0 verifies that the traffic of security policy when named port applied.
+// This test is to verify the named port feature of security policy.
+// When appliedTo is in policy level.
+func TestSecurityPolicyNamedPort0(t *testing.T) {
+	nsClient := "client"
+	nsWeb := "web"
+	securityPolicyName := "named-port-policy"
+	clientA := "client"
+	webA := "web"
+	labelWeb := "tcp-deployment"
+
+	testData.deleteNamespace(nsClient, defaultTimeout)
+	testData.deleteNamespace(nsWeb, defaultTimeout)
+	_ = testData.createNamespace(nsClient)
+	_ = testData.createNamespace(nsWeb)
+	defer testData.deleteNamespace(nsClient, defaultTimeout)
+	defer testData.deleteNamespace(nsWeb, defaultTimeout)
+
+	// Create all
+	podPath, _ := filepath.Abs("./manifest/testSecurityPolicy/rule-in-policy-applied-to.yaml")
+	_ = applyYAML(podPath, "")
+	defer deleteYAML(podPath, "")
+
+	// Wait for pods
+	ps, err := testData.podWaitForIPs(defaultTimeout, clientA, nsClient)
+	t.Logf("Pods are %v", ps)
+	assert_nil(t, err, "Error when waiting for IP for Pod %s", clientA)
+	psb, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
+	t.Logf("Pods are %v", psb)
+	assert_nil(t, err, "Error when waiting for IP for Pod %s", webA)
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource existing
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, securityPolicyName, true)
+	assert_nil(t, err)
+
+	// Nc from pod
+	err = testData.runNetcatCommandFromPod(nsClient, clientA, clientA, psb[0], 80)
+	assert_nil(t, err, "Error when running nc command from Pod %s", clientA)
+	err = testData.runNetcatCommandFromPod(nsClient, clientA, clientA, psb[1], 80)
+	assert_nil(t, err, "Error when running nc command from Pod %s", clientA)
+
+	// Delete all
+	_ = deleteYAML(podPath, "")
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Deleted)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource not existing
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, securityPolicyName, false)
+	assert_nil(t, err)
+}
+
+// TestSecurityPolicyNamedPort1 verifies that the traffic of security policy when named port applied.
+// This test is to verify the named port feature of security policy.
+// When appliedTo is in rule level.
+func TestSecurityPolicyNamedPort1(t *testing.T) {
+	nsClient := "client"
+	nsWeb := "web"
+	securityPolicyName := "named-port-policy"
+	clientA := "client"
+	webA := "web"
+	labelWeb := "tcp-deployment"
+
+	testData.deleteNamespace(nsClient, defaultTimeout)
+	testData.deleteNamespace(nsWeb, defaultTimeout)
+	_ = testData.createNamespace(nsClient)
+	_ = testData.createNamespace(nsWeb)
+	defer testData.deleteNamespace(nsClient, defaultTimeout)
+	defer testData.deleteNamespace(nsWeb, defaultTimeout)
+
+	// Create all
+	podPath, _ := filepath.Abs("./manifest/testSecurityPolicy/rule-in-rule-applied-to.yaml")
+	_ = applyYAML(podPath, "")
+	defer deleteYAML(podPath, "")
+
+	// Wait for pods
+	ps, err := testData.podWaitForIPs(defaultTimeout, clientA, nsClient)
+	t.Logf("Pods are %v", ps)
+	assert_nil(t, err, "Error when waiting for IP for Pod %s", clientA)
+	psb, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
+	t.Logf("Pods are %v", psb)
+	assert_nil(t, err, "Error when waiting for IP for Pod %s", webA)
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource existing
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, securityPolicyName, true)
+	assert_nil(t, err)
+
+	// Nc from pod
+	err = testData.runNetcatCommandFromPod(nsClient, clientA, clientA, psb[0], 80)
+	assert_nil(t, err, "Error when running nc command from Pod %s", clientA)
+	err = testData.runNetcatCommandFromPod(nsClient, clientA, clientA, psb[1], 80)
+	assert_nil(t, err, "Error when running nc command from Pod %s", clientA)
+
+	// Delete all
+	_ = deleteYAML(podPath, "")
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Deleted)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource not existing
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, securityPolicyName, false)
+	assert_nil(t, err)
+}
+
+// TestSecurityPolicyNamedPort2 verifies that the traffic of security policy when named port applied.
+// This test is to verify the named port feature of security policy.
+// When appliedTo is in rule level and there is source selector in rule.
+func TestSecurityPolicyNamedPort2(t *testing.T) {
+	nsClient := "client"
+	nsWeb := "web"
+	securityPolicyName := "named-port-policy"
+	clientA := "client"
+	webA := "web"
+	labelWeb := "tcp-deployment"
+
+	testData.deleteNamespace(nsClient, defaultTimeout)
+	testData.deleteNamespace(nsWeb, defaultTimeout)
+	_ = testData.createNamespace(nsClient)
+	_ = testData.createNamespace(nsWeb)
+	defer testData.deleteNamespace(nsClient, defaultTimeout)
+	defer testData.deleteNamespace(nsWeb, defaultTimeout)
+
+	// Create all
+	podPath, _ := filepath.Abs("./manifest/testSecurityPolicy/rule-in-rule-applied-to-with-src.yaml")
+	_ = applyYAML(podPath, "")
+	defer deleteYAML(podPath, "")
+
+	// Wait for pods
+	ps, err := testData.podWaitForIPs(defaultTimeout, clientA, nsClient)
+	t.Logf("Pods are %v", ps)
+	assert_nil(t, err, "Error when waiting for IP for Pod %s", clientA)
+	psb, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
+	t.Logf("Pods are %v", psb)
+	assert_nil(t, err, "Error when waiting for IP for Pod %s", webA)
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource existing
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, securityPolicyName, true)
+	assert_nil(t, err)
+
+	// Label ns
+	cmd := fmt.Sprintf("kubectl label ns %s %s=%s --overwrite", clientA, "role", "client")
+	_, err = runCommand(cmd)
+	assert_nil(t, err, "Error when running command %s", cmd)
+
+	// Nc from pod
+	err = testData.runNetcatCommandFromPod(nsClient, clientA, clientA, psb[0], 80)
+	assert_nil(t, err, "Error when running nc command from Pod %s", clientA)
+	err = testData.runNetcatCommandFromPod(nsClient, clientA, clientA, psb[1], 80)
+	assert_nil(t, err, "Error when running nc command from Pod %s", clientA)
+
+	// Delete all
+	_ = deleteYAML(podPath, "")
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Deleted)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource not existing
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, securityPolicyName, false)
+	assert_nil(t, err)
+}
+
+// TestSecurityPolicyNamedPort3 verifies that the traffic of security policy when named port applied.
+// This test is to verify the named port feature of security policy.
+// When appliedTo is in policy level and there is destination selector in rule.
+func TestSecurityPolicyNamedPort3(t *testing.T) {
+	nsDB := "db"
+	nsWeb := "web"
+	containerName := "web"
+	securityPolicyName := "named-port-policy"
+	labelWeb := "tcp-deployment"
+	labelDB := "mysql"
+
+	testData.deleteNamespace(nsDB, defaultTimeout)
+	testData.deleteNamespace(nsWeb, defaultTimeout)
+	_ = testData.createNamespace(nsDB)
+	_ = testData.createNamespace(nsWeb)
+	defer testData.deleteNamespace(nsDB, defaultTimeout)
+	defer testData.deleteNamespace(nsWeb, defaultTimeout)
+
+	// Label ns
+	cmd := fmt.Sprintf("kubectl label ns %s %s=%s --overwrite", nsDB, "role", "db")
+	_, err := runCommand(cmd)
+	assert_nil(t, err, "Error when running command %s", cmd)
+
+	// Create all
+	podPath, _ := filepath.Abs("./manifest/testSecurityPolicy/rule-out-policy-applied-to-with-dst.yaml")
+	_ = applyYAML(podPath, "")
+	defer deleteYAML(podPath, "")
+
+	// Wait for pods
+	ps, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsDB, labelDB)
+	t.Logf("Pods are %v", ps)
+	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsDB)
+
+	_, psb, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
+	t.Logf("Pods are %v", psb)
+	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsWeb)
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource existing
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, securityPolicyName, true)
+	assert_nil(t, err)
+
+	// Nc from pod
+	err = testData.runNetcatCommandFromPod(nsWeb, psb[0], containerName, ps[0], 3306)
+	assert_nil(t, err, "Error when running nc command from Pod %s", "web")
+
+	// Delete all
+	_ = deleteYAML(podPath, "")
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Deleted)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource not existing
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, securityPolicyName, false)
+	assert_nil(t, err)
+}
+
+// TestSecurityPolicyNamedPort4 verifies that the traffic of security policy when named port applied.
+// This test is to verify the named port feature of security policy.
+// When appliedTo is in policy level and there is destination selector in rule.
+func TestSecurityPolicyNamedPort4(t *testing.T) {
+	nsDB := "db"
+	nsWeb := "web"
+	containerName := "web"
+	securityPolicyName := "named-port-policy"
+	labelWeb := "tcp-deployment"
+	labelDB := "mysql"
+
+	testData.deleteNamespace(nsDB, defaultTimeout)
+	testData.deleteNamespace(nsWeb, defaultTimeout)
+	_ = testData.createNamespace(nsDB)
+	_ = testData.createNamespace(nsWeb)
+	defer testData.deleteNamespace(nsDB, defaultTimeout)
+	defer testData.deleteNamespace(nsWeb, defaultTimeout)
+
+	// Label ns
+	cmd := fmt.Sprintf("kubectl label ns %s %s=%s --overwrite", nsDB, "role", "db")
+	_, err := runCommand(cmd)
+	assert_nil(t, err, "Error when running command %s", cmd)
+
+	// Create all
+	podPath, _ := filepath.Abs("./manifest/testSecurityPolicy/rule-out-rule-applied-to-with-dst.yaml")
+	_ = applyYAML(podPath, "")
+	defer deleteYAML(podPath, "")
+
+	// Wait for pods
+	ps, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsDB, labelDB)
+	t.Logf("Pods are %v", ps)
+	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsDB)
+
+	_, psb, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
+	t.Logf("Pods are %v", psb)
+	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsWeb)
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource existing
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, securityPolicyName, true)
+	assert_nil(t, err)
+
+	// Nc from pod
+	err = testData.runNetcatCommandFromPod(nsWeb, psb[0], containerName, ps[0], 3306)
+	assert_nil(t, err, "Error when running nc command from Pod %s", "web")
+
+	// Delete all
+	_ = deleteYAML(podPath, "")
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Deleted)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource not existing
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, securityPolicyName, false)
+	assert_nil(t, err)
+}
+
+// TestSecurityPolicyNamedPort5 verifies that the traffic of security policy when named port applied.
+// This test is to verify the named port feature of security policy.
+// When appliedTo is in rule level and there is destination selector which consists of match expression in rule.
+func TestSecurityPolicyNamedPort5(t *testing.T) {
+	nsDB := "db"
+	nsDB2 := "db2"
+	nsWeb := "web"
+	containerName := "web"
+	securityPolicyName := "named-port-policy"
+	ruleName := "named-port-policy-0-0-0"
+	ruleName1 := "named-port-policy-0-0-1"
+	labelWeb := "tcp-deployment"
+	labelDB := "mysql"
+	labelDB2 := "mysql2"
+
+	testData.deleteNamespace(nsDB, defaultTimeout)
+	testData.deleteNamespace(nsDB2, defaultTimeout)
+	testData.deleteNamespace(nsWeb, defaultTimeout)
+	_ = testData.createNamespace(nsDB)
+	_ = testData.createNamespace(nsDB2)
+	_ = testData.createNamespace(nsWeb)
+	defer testData.deleteNamespace(nsDB, defaultTimeout)
+	defer testData.deleteNamespace(nsDB2, defaultTimeout)
+	defer testData.deleteNamespace(nsWeb, defaultTimeout)
+
+	// Label ns
+	cmd := fmt.Sprintf("kubectl label ns %s %s=%s --overwrite", nsDB, "role", "db")
+	_, err := runCommand(cmd)
+	assert_nil(t, err, "Error when running command %s", cmd)
+
+	// Create all
+	podPath, _ := filepath.Abs("./manifest/testSecurityPolicy/rule-out-rule-applied-to-with-expression-selector.yaml")
+	_ = applyYAML(podPath, "")
+	defer deleteYAML(podPath, "")
+
+	// Wait for pods
+	ps, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsDB, labelDB)
+	t.Logf("Pods are %v", ps)
+	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsDB)
+
+	ps2, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsDB2, labelDB2)
+	t.Logf("Pods are %v", ps2)
+	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsDB2)
+
+	_, psb, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
+	t.Logf("Pods are %v", psb)
+	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsWeb)
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource existing
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName, true)
+	assert_nil(t, err)
+
+	// Nc from pod
+	err = testData.runNetcatCommandFromPod(nsWeb, psb[0], containerName, ps2[0], 1234)
+	assert_notnil(t, err, "Error when running nc command from Pod %s", "web")
+	err = testData.runNetcatCommandFromPod(nsWeb, psb[0], containerName, ps[0], 3306)
+	assert_nil(t, err, "Error when running nc command from Pod %s", "web")
+
+	// Label ns
+	cmd = fmt.Sprintf("kubectl label ns %s %s=%s --overwrite", nsDB2, "role", "db")
+	_, err = runCommand(cmd)
+	assert_nil(t, err, "Error when running command %s", cmd)
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName1, true)
+	assert_nil(t, err)
+
+	// Nc from pod
+	err = testData.runNetcatCommandFromPod(nsWeb, psb[0], containerName, ps2[0], 1234)
+	assert_nil(t, err, "Error when running nc command from Pod %s", "web")
+	err = testData.runNetcatCommandFromPod(nsWeb, psb[0], containerName, ps[0], 3306)
+	assert_nil(t, err, "Error when running nc command from Pod %s", "web")
+
+	// Delete all
+	_ = deleteYAML(podPath, "")
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Deleted)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource not existing
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName, false)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName1, false)
+	assert_nil(t, err)
+}
+
+// TestSecurityPolicyNamedPort6 verifies that the traffic of security policy when named port applied.
+// This test is to verify the named port feature of security policy.
+// When appliedTo is in rule level and there is destination selector in rule.
+// If the port number is the same in multiple pods, then there should be only one rule created,
+// and the ip set group consists of multiple ips and the port number is only one.
+func TestSecurityPolicyNamedPort6(t *testing.T) {
+	nsDB := "db"
+	nsDB2 := "db2"
+	nsWeb := "web"
+	containerName := "web"
+	securityPolicyName := "named-port-policy"
+	ruleName := "named-port-policy-0-0-0"
+	ruleName1 := "named-port-policy-0-0-1"
+	labelWeb := "tcp-deployment"
+	labelDB := "mysql"
+	labelDB2 := "mysql2"
+
+	testData.deleteNamespace(nsDB, defaultTimeout)
+	testData.deleteNamespace(nsDB2, defaultTimeout)
+	testData.deleteNamespace(nsWeb, defaultTimeout)
+	_ = testData.createNamespace(nsDB)
+	_ = testData.createNamespace(nsDB2)
+	_ = testData.createNamespace(nsWeb)
+	defer testData.deleteNamespace(nsDB, defaultTimeout)
+	defer testData.deleteNamespace(nsDB2, defaultTimeout)
+	defer testData.deleteNamespace(nsWeb, defaultTimeout)
+
+	// Label ns
+	cmd := fmt.Sprintf("kubectl label ns %s %s=%s --overwrite", nsDB2, "role", "db")
+	_, err := runCommand(cmd)
+	assert_nil(t, err, "Error when running command %s", cmd)
+	cmd = fmt.Sprintf("kubectl label ns %s %s=%s --overwrite", nsDB, "role", "db")
+	_, err = runCommand(cmd)
+	assert_nil(t, err, "Error when running command %s", cmd)
+
+	// Create all
+	podPath, _ := filepath.Abs("./manifest/testSecurityPolicy/rule-out-rule-applied-to-with-dst-with-dup-port.yaml")
+	_ = applyYAML(podPath, "")
+	defer deleteYAML(podPath, "")
+
+	// Wait for pods
+	ps, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsDB, labelDB)
+	t.Logf("Pods are %v", ps)
+	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsDB)
+
+	ps2, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsDB2, labelDB2)
+	t.Logf("Pods are %v", ps2)
+	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsDB2)
+
+	_, psb, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
+	t.Logf("Pods are %v", psb)
+	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsWeb)
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource existing
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName, true)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName1, false)
+	assert_nil(t, err)
+
+	// Nc from pod
+	err = testData.runNetcatCommandFromPod(nsWeb, psb[0], containerName, ps2[0], 3306)
+	assert_nil(t, err, "Error when running nc command from Pod %s", "web")
+	err = testData.runNetcatCommandFromPod(nsWeb, psb[0], containerName, ps[0], 3306)
+	assert_nil(t, err, "Error when running nc command from Pod %s", "web")
+
+	// Delete all
+	_ = deleteYAML(podPath, "")
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Deleted)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource not existing
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName, false)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName1, false)
+	assert_nil(t, err)
+}
+
+// TestSecurityPolicyNamedPort7 verifies that the traffic of security policy when named port applied.
+// This test is to verify the named port feature of security policy.
+// When appliedTo is in rule level and there is destination selector in rule.
+// If the port number is not the same in multiple pods, then there should be multiple rules created,
+// and each rule has an ip set group, and the port number is also different.
+func TestSecurityPolicyNamedPort7(t *testing.T) {
+	nsDB := "db"
+	nsDB2 := "db2"
+	nsWeb := "web"
+	containerName := "web"
+	securityPolicyName := "named-port-policy"
+	ruleName := "named-port-policy-0-0-0"
+	ruleName1 := "named-port-policy-0-0-1"
+	labelWeb := "tcp-deployment"
+	labelDB := "mysql"
+	labelDB2 := "mysql2"
+
+	testData.deleteNamespace(nsDB, defaultTimeout)
+	testData.deleteNamespace(nsDB2, defaultTimeout)
+	testData.deleteNamespace(nsWeb, defaultTimeout)
+	_ = testData.createNamespace(nsDB)
+	_ = testData.createNamespace(nsDB2)
+	_ = testData.createNamespace(nsWeb)
+	defer testData.deleteNamespace(nsDB, defaultTimeout)
+	defer testData.deleteNamespace(nsDB2, defaultTimeout)
+	defer testData.deleteNamespace(nsWeb, defaultTimeout)
+
+	// Label ns
+	cmd := fmt.Sprintf("kubectl label ns %s %s=%s --overwrite", nsDB2, "role", "db")
+	_, err := runCommand(cmd)
+	assert_nil(t, err, "Error when running command %s", cmd)
+	cmd = fmt.Sprintf("kubectl label ns %s %s=%s --overwrite", nsDB, "role", "db")
+	_, err = runCommand(cmd)
+	assert_nil(t, err, "Error when running command %s", cmd)
+
+	// Create all
+	podPath, _ := filepath.Abs("./manifest/testSecurityPolicy/rule-out-rule-applied-to-with-dst-with-dup-port-multi.yaml")
+	_ = applyYAML(podPath, "")
+	defer deleteYAML(podPath, "")
+
+	// Wait for pods
+	ps, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsDB, labelDB)
+	t.Logf("Pods are %v", ps)
+	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsDB)
+
+	ps2, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsDB2, labelDB2)
+	t.Logf("Pods are %v", ps2)
+	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsDB2)
+
+	_, psb, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
+	t.Logf("Pods are %v", psb)
+	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsWeb)
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource existing
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName, true)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName1, true)
+	assert_nil(t, err)
+
+	// Nc from pod
+	err = testData.runNetcatCommandFromPod(nsWeb, psb[0], containerName, ps2[0], 1234)
+	assert_nil(t, err, "Error when running nc command from Pod %s", "web")
+	err = testData.runNetcatCommandFromPod(nsWeb, psb[0], containerName, ps[0], 3306)
+	assert_nil(t, err, "Error when running nc command from Pod %s", "web")
+
+	// Delete all
+	_ = deleteYAML(podPath, "")
+	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Deleted)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+
+	// Check nsx-t resource not existing
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName, false)
+	assert_nil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName1, false)
+	assert_nil(t, err)
 }
