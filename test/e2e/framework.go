@@ -645,7 +645,7 @@ func (data *TestData) waitForResourceExistOrNot(namespace string, resourceType s
 		resourceParam := fmt.Sprintf("%s:%s AND display_name:*%s*", common.ResourceType, resourceType, resourceName)
 		queryParam := resourceParam + " AND " + tagParam
 		var cursor *string = nil
-		var pageSize int64 = 500
+		var pageSize int64 = 200
 		response, err := testData.nsxClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
 		if err != nil {
 			log.Printf("Error when querying resource %s/%s: %v", resourceType, resourceName, err)
