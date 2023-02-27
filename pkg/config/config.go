@@ -15,7 +15,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth/jwt"
 )
 
-//TODO replace to yaml
+// TODO replace to yaml
 const (
 	nsxOperatorDefaultConf = "/etc/nsx-operator/nsxop.ini"
 	vcHostCACertPath       = "/etc/vmware/wcp/tls/vmca.pem"
