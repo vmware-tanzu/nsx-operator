@@ -65,6 +65,8 @@ type K8sConfig struct {
 	EnableRestore      bool   `ini:"enable_restore"`
 	EnablePromMetrics  bool   `ini:"enable_prometheus_metrics"`
 	KubeConfigFile     string `ini:"kubeconfig"`
+	// Controlled by FSS
+	EnableAntreaNSXInterworking bool `ini:"enable_antrea_nsx_interworking"`
 }
 
 type VCConfig struct {

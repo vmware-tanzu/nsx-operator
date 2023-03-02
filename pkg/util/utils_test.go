@@ -209,3 +209,43 @@ func TestRemoveDuplicateStr(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeId(t *testing.T) {
+	type args struct {
+		name string
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{
+			name: "1",
+			args: args{
+				name: "k8scl-one-test",
+			},
+			want: "k8scl-one-test",
+		},
+		{
+			name: "2",
+			args: args{
+				name: "k8scl-one:test",
+			},
+			want: "k8scl-one_test",
+		},
+		{
+			name: "3",
+			args: args{
+				name: "k8scl-one:1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890",
+			},
+			want: "k8scl-one_12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456-e8ad9afc",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := NormalizeId(tt.args.name); got != tt.want {
+				t.Errorf("NormalizeId() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
