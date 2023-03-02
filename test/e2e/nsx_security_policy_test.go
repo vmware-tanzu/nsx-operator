@@ -414,7 +414,7 @@ func TestSecurityPolicyNamedPort3(t *testing.T) {
 	t.Logf("Pods are %v", ps)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsDB)
 
-	psb, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
+	_, psb, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsWeb)
 	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)

@@ -603,6 +603,7 @@ func runCommand(cmd string) (string, error) {
 		command.Stderr = &stderr
 		err := command.Run()
 		if err != nil {
+			log.Printf("Error when running command %s: %v", cmd, err)
 			return false, nil
 		}
 		outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())

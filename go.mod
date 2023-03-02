@@ -7,11 +7,12 @@ replace (
 	github.com/vmware/vsphere-automation-sdk-go/lib => github.com/TaoZou1/vsphere-automation-sdk-go/lib v0.5.2
 	github.com/vmware/vsphere-automation-sdk-go/runtime => github.com/TaoZou1/vsphere-automation-sdk-go/runtime v0.5.2
 	github.com/vmware/vsphere-automation-sdk-go/services/nsxt => github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt v0.9.3
+	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp => github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt-mp v0.3.1-0.20221020082725-84e89979deb6
 )
 
 require (
 	github.com/agiledragon/gomonkey v2.0.2+incompatible
-	github.com/agiledragon/gomonkey/v2 v2.4.0
+	github.com/agiledragon/gomonkey/v2 v2.9.0
 	github.com/coreos/go-semver v0.3.0
 	github.com/deckarep/golang-set v1.8.0
 	github.com/go-logr/logr v1.2.3
@@ -26,6 +27,7 @@ require (
 	github.com/vmware/vsphere-automation-sdk-go/lib v0.5.0
 	github.com/vmware/vsphere-automation-sdk-go/runtime v0.5.0
 	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.6.0
+	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp v0.3.0
 	go.uber.org/zap v1.24.0
 	golang.org/x/crypto v0.5.0
 	golang.org/x/time v0.3.0
