@@ -1,0 +1,16 @@
+apiVersion: nsx.vmware.com/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: expression-policy-1
+  namespace: test-security-policy-match-expression
+spec:
+  appliedTo:
+    - podSelector:
+        matchLabels:
+          user: internal
+        matchExpressions:
+          - {key: k2, operator: NotIn, values: [b1,b2,b3]}
+          - {key: k1, operator: In, values: [a1,a2,a3]}
+  rules:
+    - direction: Out
+      action: drop

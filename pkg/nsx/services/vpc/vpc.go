@@ -55,3 +55,7 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 
 	return VPCService, nil
 }
+
+func (s *VPCService) GetVPCsByNamespace(namespace string) []model.Vpc {
+	return s.vpcStore.GetVPCsByNamespace(namespace)
+}

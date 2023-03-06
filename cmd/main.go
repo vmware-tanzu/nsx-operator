@@ -17,11 +17,14 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
 	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 )
 
@@ -63,9 +66,28 @@ func StartSecurityPolicyController(mgr ctrl.Manager, commonService common.Servic
 		os.Exit(1)
 	} else {
 		securityReconcile.Service = securityService
+		commonctl.ServiceMediator.SecurityPolicyService = securityService
 	}
 	if err := securityReconcile.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "SecurityPolicy")
+		os.Exit(1)
+	}
+}
+
+func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Service) {
+	log.Info("starting NSXServiceAccountController")
+	nsxServiceAccountReconcile := &nsxserviceaccountcontroller.NSXServiceAccountReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+	if nsxServiceAccountService, err := nsxserviceaccount.InitializeNSXServiceAccount(commonService); err != nil {
+		log.Error(err, "failed to initialize service", "controller", "NSXServiceAccount")
+		os.Exit(1)
+	} else {
+		nsxServiceAccountReconcile.Service = nsxServiceAccountService
+	}
+	if err := nsxServiceAccountReconcile.Start(mgr); err != nil {
+		log.Error(err, "failed to create controller", "controller", "NSXServiceAccount")
 		os.Exit(1)
 	}
 }
@@ -100,6 +122,10 @@ func main() {
 
 	// Start the security policy controller.
 	StartSecurityPolicyController(mgr, commonService)
+	// Start the NSXServiceAccount controller.
+	if cf.EnableAntreaNSXInterworking {
+		StartNSXServiceAccountController(mgr, commonService)
+	}
 
 	if metrics.AreMetricsExposed(cf) {
 		go updateHealthMetricsPeriodically(nsxClient)

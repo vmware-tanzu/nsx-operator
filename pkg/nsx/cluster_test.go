@@ -165,14 +165,28 @@ func TestCluster_enableFeature(t *testing.T) {
 	nsxVersion := &NsxVersion{}
 	nsxVersion.NodeVersion = "3.1.3.3.0.18844962"
 	assert.False(t, nsxVersion.featureSupported(FeatureSecurityPolicy))
+	assert.False(t, nsxVersion.featureSupported(FeatureNSXServiceAccount))
 	nsxVersion.NodeVersion = "3.2.0.3.0.18844962"
 	assert.True(t, nsxVersion.featureSupported(FeatureSecurityPolicy))
+	assert.False(t, nsxVersion.featureSupported(FeatureNSXServiceAccount))
 	nsxVersion.NodeVersion = "3.11.0.3.0.18844962"
 	assert.True(t, nsxVersion.featureSupported(FeatureSecurityPolicy))
+	assert.False(t, nsxVersion.featureSupported(FeatureNSXServiceAccount))
+	nsxVersion.NodeVersion = "4.0.0"
+	assert.True(t, nsxVersion.featureSupported(FeatureSecurityPolicy))
+	assert.False(t, nsxVersion.featureSupported(FeatureNSXServiceAccount))
+	nsxVersion.NodeVersion = "4.0.1"
+	assert.True(t, nsxVersion.featureSupported(FeatureSecurityPolicy))
+	assert.True(t, nsxVersion.featureSupported(FeatureNSXServiceAccount))
 	nsxVersion.NodeVersion = "4.1.0"
 	assert.True(t, nsxVersion.featureSupported(FeatureSecurityPolicy))
+	assert.True(t, nsxVersion.featureSupported(FeatureNSXServiceAccount))
 	nsxVersion.NodeVersion = "3.2.0"
 	assert.True(t, nsxVersion.featureSupported(FeatureSecurityPolicy))
+	assert.False(t, nsxVersion.featureSupported(FeatureNSXServiceAccount))
+	nsxVersion.NodeVersion = "4.2.0"
+	assert.True(t, nsxVersion.featureSupported(FeatureSecurityPolicy))
+	assert.True(t, nsxVersion.featureSupported(FeatureNSXServiceAccount))
 
 	// Test case for invalid feature
 	feature := "notSecurityPolicy"

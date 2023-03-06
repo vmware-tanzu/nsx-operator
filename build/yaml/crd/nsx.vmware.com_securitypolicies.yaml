@@ -1,10 +1,9 @@
-
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.7.0
+    controller-gen.kubebuilder.io/version: v0.11.0
   creationTimestamp: null
   name: securitypolicies.nsx.vmware.com
 spec:
@@ -87,6 +86,7 @@ spec:
                             only "value". The requirements are ANDed.
                           type: object
                       type: object
+                      x-kubernetes-map-type: atomic
                     vmSelector:
                       description: VMSelector uses label selector to select VMs.
                       properties:
@@ -131,6 +131,7 @@ spec:
                             only "value". The requirements are ANDed.
                           type: object
                       type: object
+                      x-kubernetes-map-type: atomic
                   type: object
                 type: array
               priority:
@@ -200,6 +201,7 @@ spec:
                                   contains only "value". The requirements are ANDed.
                                 type: object
                             type: object
+                            x-kubernetes-map-type: atomic
                           vmSelector:
                             description: VMSelector uses label selector to select
                               VMs.
@@ -246,6 +248,7 @@ spec:
                                   contains only "value". The requirements are ANDed.
                                 type: object
                             type: object
+                            x-kubernetes-map-type: atomic
                         type: object
                       type: array
                     destinations:
@@ -316,6 +319,7 @@ spec:
                                   contains only "value". The requirements are ANDed.
                                 type: object
                             type: object
+                            x-kubernetes-map-type: atomic
                           podSelector:
                             description: PodSelector uses label selector to select
                               Pods.
@@ -362,6 +366,7 @@ spec:
                                   contains only "value". The requirements are ANDed.
                                 type: object
                             type: object
+                            x-kubernetes-map-type: atomic
                           vmSelector:
                             description: VMSelector uses label selector to select
                               VMs.
@@ -408,6 +413,7 @@ spec:
                                   contains only "value". The requirements are ANDed.
                                 type: object
                             type: object
+                            x-kubernetes-map-type: atomic
                         type: object
                       type: array
                     direction:
@@ -507,6 +513,7 @@ spec:
                                   contains only "value". The requirements are ANDed.
                                 type: object
                             type: object
+                            x-kubernetes-map-type: atomic
                           podSelector:
                             description: PodSelector uses label selector to select
                               Pods.
@@ -553,6 +560,7 @@ spec:
                                   contains only "value". The requirements are ANDed.
                                 type: object
                             type: object
+                            x-kubernetes-map-type: atomic
                           vmSelector:
                             description: VMSelector uses label selector to select
                               VMs.
@@ -599,6 +607,7 @@ spec:
                                   contains only "value". The requirements are ANDed.
                                 type: object
                             type: object
+                            x-kubernetes-map-type: atomic
                         type: object
                       type: array
                   required:
@@ -649,9 +658,3 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []

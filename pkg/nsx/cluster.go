@@ -265,8 +265,12 @@ func (nsxVersion *NsxVersion) Validate() error {
 func (nsxVersion *NsxVersion) featureSupported(feature string) bool {
 	var minVersion [3]int64
 	validFeature := false
-	if feature == FeatureSecurityPolicy {
+	switch feature {
+	case FeatureSecurityPolicy:
 		minVersion = nsx320Version
+		validFeature = true
+	case FeatureNSXServiceAccount:
+		minVersion = nsx401Version
 		validFeature = true
 	}
 	if validFeature {

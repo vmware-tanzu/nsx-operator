@@ -76,6 +76,7 @@ func TestGetClient(t *testing.T) {
 	assert.True(t, client != nil)
 	securityPolicySupported := client.NSXCheckVersionForSecurityPolicy()
 	assert.True(t, securityPolicySupported == false)
+	assert.False(t, client.NSXCheckVersionForNSXServiceAccount())
 
 	patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
 		nsxVersion := &NsxVersion{NodeVersion: "3.2.1"}
@@ -86,6 +87,18 @@ func TestGetClient(t *testing.T) {
 	assert.True(t, client != nil)
 	securityPolicySupported = client.NSXCheckVersionForSecurityPolicy()
 	assert.True(t, securityPolicySupported == true)
+	assert.False(t, client.NSXCheckVersionForNSXServiceAccount())
+
+	patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
+		nsxVersion := &NsxVersion{NodeVersion: "4.1.0"}
+		return nsxVersion, nil
+	})
+	client = GetClient(&cf)
+	patches.Reset()
+	assert.True(t, client != nil)
+	securityPolicySupported = client.NSXCheckVersionForSecurityPolicy()
+	assert.True(t, securityPolicySupported == true)
+	assert.True(t, client.NSXCheckVersionForNSXServiceAccount())
 }
 
 func IsInstanceOf(objectPtr, typePtr interface{}) bool {

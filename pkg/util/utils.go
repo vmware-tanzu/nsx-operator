@@ -50,6 +50,20 @@ func NormalizeName(name string) string {
 	return newName
 }
 
+func NormalizeId(name string) string {
+	newName := strings.ReplaceAll(name, ":", "_")
+	if len(newName) <= common.MaxIdLength {
+		return newName
+	}
+	hashString := Sha1(name)
+	nameLength := common.MaxIdLength - HashLength - 1
+	for strings.ContainsAny(string(newName[nameLength-1]), "-._") {
+		nameLength--
+	}
+	newName = fmt.Sprintf("%s-%s", newName[:nameLength], hashString[:HashLength])
+	return newName
+}
+
 func Sha1(data string) string {
 	h := sha1.New()
 	h.Write([]byte(data))

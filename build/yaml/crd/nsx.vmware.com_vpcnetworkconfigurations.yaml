@@ -1,10 +1,9 @@
-
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.7.0
+    controller-gen.kubebuilder.io/version: v0.11.0
   creationTimestamp: null
   name: vpcnetworkconfigurations.nsx.vmware.com
 spec:
@@ -21,8 +20,8 @@ spec:
       jsonPath: .spec.NSXTProject
       name: NSXTProject
       type: string
-    - description: PublicIPv4Blocks assigned to the Namespace
-      jsonPath: .spec.PublicIPv4Blocks
+    - description: ExternalIPv4Blocks assigned to the Namespace
+      jsonPath: .spec.ExternalIPv4Blocks
       name: PublicIPv4Blocks
       type: string
     - description: PrivateIPv4CIDRs assigned to the Namespace
@@ -54,12 +53,6 @@ spec:
               When a field is not set in a Namespace's VPCNetworkConfiguration, the
               Namespace will use the value in the default VPCNetworkConfiguration.
             properties:
-              appliedToNamespaces:
-                description: Namespaces to be applied. The default VPCNetworkConfiguration
-                  will not have AppliedToNamespaces set.
-                items:
-                  type: string
-                type: array
               defaultGatewayPath:
                 description: PolicyPath of Tier0 or Tier0 VRF gateway.
                 type: string
@@ -79,18 +72,26 @@ spec:
                 description: Edge cluster path on which the networking elements will
                   be created.
                 type: string
-              nsxtProject:
-                description: NSX-T Project the Namespace associated with.
-                type: string
-              privateIPv4CIDRs:
-                description: Private IPv4 CIDRs used to allocate private Subnets.
+              externalIPv4Blocks:
+                description: NSX-T IPv4 Block paths used to allocate external Subnets.
                 items:
                   type: string
                 maxItems: 5
                 minItems: 0
                 type: array
-              publicIPv4Blocks:
-                description: NSX-T IPv4 Block paths used to allocate public Subnets.
+              loadBalancerVPCEndpoint:
+                description: Load balancer endpoint configuration.
+                properties:
+                  enabled:
+                    default: false
+                    description: Flag to enable load balancer for vpc.
+                    type: boolean
+                type: object
+              nsxtProject:
+                description: NSX-T Project the Namespace associated with.
+                type: string
+              privateIPv4CIDRs:
+                description: Private IPv4 CIDRs used to allocate private Subnets.
                 items:
                   type: string
                 maxItems: 5
@@ -138,9 +139,3 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
