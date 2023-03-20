@@ -15,10 +15,13 @@ import (
 	mpsearch "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/search"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management/principal_identities"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/ip_pools"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/realized_state"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
-	vpc_search "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/search"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -31,15 +34,17 @@ const (
 )
 
 type Client struct {
-	NsxConfig     *config.NSXOperatorConfig
-	RestConnector *client.RestConnector
+	NsxConfig          *config.NSXOperatorConfig
+	RestConnector      *client.RestConnector
+	QueryClient        search.QueryClient
+	GroupClient        domains.GroupsClient
+	SecurityClient     domains.SecurityPoliciesClient
+	RuleClient         security_policies.RulesClient
+	InfraClient        nsx_policy.InfraClient
+	ProjectInfraClient projects.InfraClient
+	NSXChecker         NSXHealthChecker
+	NSXVerChecker      NSXVersionChecker
 
-	QueryClient                search.QueryClient
-	VPCQueryClient             vpc_search.QueryClient
-	GroupClient                domains.GroupsClient
-	SecurityClient             domains.SecurityPoliciesClient
-	RuleClient                 security_policies.RulesClient
-	InfraClient                nsx_policy.InfraClient
 	ClusterControlPlanesClient enforcement_points.ClusterControlPlanesClient
 
 	MPQueryClient             mpsearch.QueryClient
@@ -47,8 +52,9 @@ type Client struct {
 	PrincipalIdentitiesClient trust_management.PrincipalIdentitiesClient
 	WithCertificateClient     principal_identities.WithCertificateClient
 
-	NSXChecker    NSXHealthChecker
-	NSXVerChecker NSXVersionChecker
+	IPPoolClient           infra.IpPoolsClient
+	IPSubnetClient         ip_pools.IpSubnetsClient
+	RealizedEntitiesClient realized_state.RealizedEntitiesClient
 }
 
 var nsx320Version = [3]int64{3, 2, 0}
@@ -91,7 +97,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	securityClient := domains.NewSecurityPoliciesClient(restConnector(cluster))
 	ruleClient := security_policies.NewRulesClient(restConnector(cluster))
 	infraClient := nsx_policy.NewInfraClient(restConnector(cluster))
-	vpcQueryClient := vpc_search.NewQueryClient(restConnector(cluster))
 	clusterControlPlanesClient := enforcement_points.NewClusterControlPlanesClient(restConnector(cluster))
 
 	mpQueryClient := mpsearch.NewQueryClient(restConnector(cluster))
@@ -99,6 +104,10 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	principalIdentitiesClient := trust_management.NewPrincipalIdentitiesClient(restConnector(cluster))
 	withCertificateClient := principal_identities.NewWithCertificateClient(restConnector(cluster))
 
+	projectInfraClient := projects.NewInfraClient(restConnector(cluster))
+	ipPoolClient := infra.NewIpPoolsClient(restConnector(cluster))
+	ipSubnetClient := ip_pools.NewIpSubnetsClient(restConnector(cluster))
+	realizedEntitiesClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
 	}
@@ -123,9 +132,12 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		PrincipalIdentitiesClient: principalIdentitiesClient,
 		WithCertificateClient:     withCertificateClient,
 
-		NSXChecker:     *nsxChecker,
-		NSXVerChecker:  *nsxVersionChecker,
-		VPCQueryClient: vpcQueryClient,
+		NSXChecker:             *nsxChecker,
+		NSXVerChecker:          *nsxVersionChecker,
+		ProjectInfraClient:     projectInfraClient,
+		IPPoolClient:           ipPoolClient,
+		IPSubnetClient:         ipSubnetClient,
+		RealizedEntitiesClient: realizedEntitiesClient,
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time
