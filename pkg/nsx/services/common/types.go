@@ -69,3 +69,9 @@ var (
 	String = pointy.String // address of string
 	Int64  = pointy.Int64  // address of int64
 )
+
+type OrgProjectVPC struct {
+	OrgID     string
+	ProjectID string
+	VPCID     string
+}
