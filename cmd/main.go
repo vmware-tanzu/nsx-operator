@@ -15,8 +15,10 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	ippool2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/ippool"
 	namespacecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/namespace"
 	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
 	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
@@ -29,6 +31,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ippool"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
@@ -45,6 +48,7 @@ func init() {
 	var err error
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
+	utilruntime.Must(v1alpha2.AddToScheme(scheme))
 	config.AddFlags()
 
 	logf.SetLogger(logger.ZapLogger())
@@ -100,6 +104,31 @@ func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Ser
 	}
 	if err := nsxServiceAccountReconcile.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "NSXServiceAccount")
+		os.Exit(1)
+	}
+}
+
+func StartIPPoolController(mgr ctrl.Manager, commonService common.Service) {
+	ippoolReconcile := &ippool2.IPPoolReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+	if ipPoolService, err := ippool.InitializeIPPool(commonService); err != nil {
+		log.Error(err, "failed to initialize ippool commonService", "controller", "IPPool")
+		os.Exit(1)
+	} else {
+		ippoolReconcile.Service = ipPoolService
+	}
+
+	// TODO: remove this after vpc is ready
+	if vpcService, err := vpc.InitializeVPC(commonService); err != nil {
+		log.Error(err, "failed to initialize vpc commonService", "controller", "vpc")
+		os.Exit(1)
+	} else {
+		commonctl.ServiceMediator.VPCService = vpcService
+	}
+	if err := ippoolReconcile.Start(mgr); err != nil {
+		log.Error(err, "failed to create controller", "controller", "IPPool")
 		os.Exit(1)
 	}
 }
@@ -181,8 +210,10 @@ func main() {
 
 		StartNamespaceController(mgr, commonService)
 		StartVPCController(mgr, commonService)
+		StartIPPoolController(mgr, commonService)
 	}
-	// Start the security policy controller, it supports VPC and non VPC mode
+
+	// Start the security policy controller.
 	StartSecurityPolicyController(mgr, commonService)
 
 	// Start the NSXServiceAccount controller.
