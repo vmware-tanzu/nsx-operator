@@ -143,8 +143,11 @@ func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors ch
 
 	for _, tag := range tags {
 		tagKey := strings.Replace(*tag.Scope, "/", "\\/", -1)
-		tagValue := strings.Replace(*tag.Tag, ":", "\\:", -1)
-		tagParam += fmt.Sprintf(" AND tags.scope:%s AND tags.tag:%s", tagKey, tagValue)
+		tagParam += fmt.Sprintf(" AND tags.scope:%s ", tagKey)
+		if tag.Tag != nil {
+			tagValue := strings.Replace(*tag.Tag, ":", "\\:", -1)
+			tagParam += fmt.Sprintf(" AND tags.tag:%s ", tagValue)
+		}
 	}
 
 	resourceParam := fmt.Sprintf("%s:%s", ResourceType, resourceTypeValue)

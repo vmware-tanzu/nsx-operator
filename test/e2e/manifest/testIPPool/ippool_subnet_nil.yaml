@@ -1,0 +1,6 @@
+apiVersion: nsx.vmware.com/v1alpha2
+kind: IPPool
+metadata:
+  name: guestcluster-ippool-2
+spec:
+  type: public

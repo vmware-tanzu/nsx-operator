@@ -24,6 +24,10 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
+const (
+	SP = "securitypolicy"
+)
+
 // TestSecurityPolicyBasicTraffic verifies that the basic traffic of security policy.
 // This is the very basic, blocking all in and out traffic between pods should take effect.
 func TestSecurityPolicyBasicTraffic(t *testing.T) {
@@ -56,7 +60,7 @@ func TestSecurityPolicyBasicTraffic(t *testing.T) {
 	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy.yaml")
 	_ = applyYAML(nsIsolationPath, ns)
 	defer deleteYAML(nsIsolationPath, ns)
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, ns, securityPolicyName, Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, ns, securityPolicyName, Ready)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource existing
@@ -71,7 +75,7 @@ func TestSecurityPolicyBasicTraffic(t *testing.T) {
 
 	// Delete security policy
 	_ = deleteYAML(nsIsolationPath, ns)
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, ns, securityPolicyName, Deleted)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, ns, securityPolicyName, Deleted)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource not existing
@@ -100,7 +104,7 @@ func TestSecurityPolicyAddDeleteRule(t *testing.T) {
 	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy.yaml")
 	_ = applyYAML(nsIsolationPath, ns)
 	defer deleteYAML(nsIsolationPath, ns)
-	err := testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, ns, securityPolicyName, Ready)
+	err := testData.waitForCRReadyOrDeleted(defaultTimeout, SP, ns, securityPolicyName, Ready)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource existing
@@ -115,7 +119,7 @@ func TestSecurityPolicyAddDeleteRule(t *testing.T) {
 	nsIsolationPath, _ = filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy-1.yaml")
 	_ = applyYAML(nsIsolationPath, ns)
 	defer deleteYAML(nsIsolationPath, ns)
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, ns, securityPolicyName, Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, ns, securityPolicyName, Ready)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource existing
@@ -126,7 +130,7 @@ func TestSecurityPolicyAddDeleteRule(t *testing.T) {
 
 	// Delete security policy
 	_ = deleteYAML(nsIsolationPath, ns)
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, ns, securityPolicyName, Deleted)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, ns, securityPolicyName, Deleted)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource not existing
@@ -172,7 +176,7 @@ func TestSecurityPolicyMatchExpression(t *testing.T) {
 	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/match-expression.yaml")
 	_ = applyYAML(nsIsolationPath, ns)
 	defer deleteYAML(nsIsolationPath, ns)
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, ns, securityPolicyName, Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, ns, securityPolicyName, Ready)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource existing
@@ -189,7 +193,7 @@ func TestSecurityPolicyMatchExpression(t *testing.T) {
 
 	// Delete security policy
 	_ = deleteYAML(nsIsolationPath, ns)
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, ns, securityPolicyName, Deleted)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, ns, securityPolicyName, Deleted)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource not existing
@@ -235,7 +239,7 @@ func TestSecurityPolicyNamedPort0(t *testing.T) {
 	psb, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
 	assert_nil(t, err, "Error when waiting for IP for Pod %s", webA)
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Ready)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource existing
@@ -252,7 +256,7 @@ func TestSecurityPolicyNamedPort0(t *testing.T) {
 
 	// Delete all
 	_ = deleteYAML(podPath, "")
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Deleted)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Deleted)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource not existing
@@ -292,7 +296,7 @@ func TestSecurityPolicyNamedPort1(t *testing.T) {
 	psb, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
 	assert_nil(t, err, "Error when waiting for IP for Pod %s", webA)
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Ready)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource existing
@@ -309,7 +313,7 @@ func TestSecurityPolicyNamedPort1(t *testing.T) {
 
 	// Delete all
 	_ = deleteYAML(podPath, "")
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Deleted)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Deleted)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource not existing
@@ -349,7 +353,7 @@ func TestSecurityPolicyNamedPort2(t *testing.T) {
 	psb, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
 	assert_nil(t, err, "Error when waiting for IP for Pod %s", webA)
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Ready)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource existing
@@ -371,7 +375,7 @@ func TestSecurityPolicyNamedPort2(t *testing.T) {
 
 	// Delete all
 	_ = deleteYAML(podPath, "")
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Deleted)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Deleted)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource not existing
@@ -417,7 +421,7 @@ func TestSecurityPolicyNamedPort3(t *testing.T) {
 	_, psb, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsWeb)
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Ready)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource existing
@@ -432,7 +436,7 @@ func TestSecurityPolicyNamedPort3(t *testing.T) {
 
 	// Delete all
 	_ = deleteYAML(podPath, "")
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Deleted)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Deleted)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource not existing
@@ -478,7 +482,7 @@ func TestSecurityPolicyNamedPort4(t *testing.T) {
 	_, psb, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsWeb)
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Ready)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource existing
@@ -493,7 +497,7 @@ func TestSecurityPolicyNamedPort4(t *testing.T) {
 
 	// Delete all
 	_ = deleteYAML(podPath, "")
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Deleted)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Deleted)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource not existing
@@ -550,7 +554,7 @@ func TestSecurityPolicyNamedPort5(t *testing.T) {
 	_, psb, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsWeb)
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Ready)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource existing
@@ -569,7 +573,7 @@ func TestSecurityPolicyNamedPort5(t *testing.T) {
 	cmd = fmt.Sprintf("kubectl label ns %s %s=%s --overwrite", nsDB2, "role", "db")
 	_, err = runCommand(cmd)
 	assert_nil(t, err, "Error when running command %s", cmd)
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Ready)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName1, true)
 	assert_nil(t, err)
@@ -582,7 +586,7 @@ func TestSecurityPolicyNamedPort5(t *testing.T) {
 
 	// Delete all
 	_ = deleteYAML(podPath, "")
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Deleted)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Deleted)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource not existing
@@ -646,7 +650,7 @@ func TestSecurityPolicyNamedPort6(t *testing.T) {
 	_, psb, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsWeb)
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Ready)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource existing
@@ -665,7 +669,7 @@ func TestSecurityPolicyNamedPort6(t *testing.T) {
 
 	// Delete all
 	_ = deleteYAML(podPath, "")
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Deleted)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Deleted)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource not existing
@@ -729,7 +733,7 @@ func TestSecurityPolicyNamedPort7(t *testing.T) {
 	_, psb, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
 	assert_nil(t, err, "Error when waiting for IP for Pod ns %s", nsWeb)
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Ready)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource existing
@@ -748,7 +752,7 @@ func TestSecurityPolicyNamedPort7(t *testing.T) {
 
 	// Delete all
 	_ = deleteYAML(podPath, "")
-	err = testData.waitForSecurityPolicyReadyOrDeleted(defaultTimeout, nsWeb, securityPolicyName, Deleted)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Deleted)
 	assert_nil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource not existing

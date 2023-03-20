@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.7.0
+    controller-gen.kubebuilder.io/version: v0.11.0
   creationTimestamp: null
   name: ippools.nsx.vmware.com
 spec:
@@ -15,34 +15,10 @@ spec:
     singular: ippool
   scope: Namespaced
   versions:
-  - name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        properties:
-          spec:
-            properties:
-              subnets:
-                items:
-                  properties:
-                    ipFamily:
-                      pattern: ^ipv(4|6)$
-                      type: string
-                    name:
-                      type: string
-                    prefixLength:
-                      minimum: 1
-                      type: integer
-                  type: object
-                type: array
-            type: object
-        type: object
-        x-kubernetes-preserve-unknown-fields: true
-    served: true
-    storage: false
   - name: v1alpha2
     schema:
       openAPIV3Schema:
-        description: IPPool is the Schema for the ippools API
+        description: IPPool is the Schema for the ippools API.
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -152,9 +128,3 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: ["v1alpha2"]

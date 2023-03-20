@@ -355,11 +355,11 @@ func (data *TestData) deletePodAndWait(timeout time.Duration, name string, ns st
 
 type PodCondition func(*corev1.Pod) (bool, error)
 
-// waitForSecurityPolicyReady polls the K8s apiServer until the specified SecurityPolicy is in the "True" state (or until
+// waitForSecurityPolicyReady polls the K8s apiServer until the specified CR is in the "True" state (or until
 // the provided timeout expires).
-func (data *TestData) waitForSecurityPolicyReadyOrDeleted(timeout time.Duration, namespace string, name string, status Status) error {
+func (data *TestData) waitForCRReadyOrDeleted(timeout time.Duration, cr string, namespace string, name string, status Status) error {
 	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
-		cmd := fmt.Sprintf("kubectl get securitypolicy %s -n %s -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}'", name, namespace)
+		cmd := fmt.Sprintf("kubectl get %s %s -n %s -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}'", cr, name, namespace)
 		log.Printf("%s", cmd)
 		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
 		if err != nil || rc != 0 {
@@ -654,7 +654,7 @@ func (data *TestData) waitForResourceExistOrNot(namespace string, resourceType s
 		if len(response.Results) == 0 {
 			exist = false
 		}
-		//log.Printf("QueryParam: %s Result: %t", queryParam, exist)
+		log.Printf("QueryParam: %s exist: %t", queryParam, exist)
 		if exist != shouldExist {
 			return false, nil
 		}

@@ -9,8 +9,6 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
-	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	vspherelog "github.com/vmware/vsphere-automation-sdk-go/runtime/log"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
 	nsx_policy "github.com/vmware/vsphere-automation-sdk-go/services/nsxt"
@@ -28,6 +26,9 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ip_pools"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ports"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 )
 
 const (
@@ -57,6 +58,7 @@ type Client struct {
 	ClusterControlPlanesClient enforcement_points.ClusterControlPlanesClient
 	SubnetStatusClient         subnets.StatusClient
 	RealizedEntitiesClient     realized_state.RealizedEntitiesClient
+	ProjectInfraClient         projects.InfraClient
 
 	MPQueryClient             mpsearch.QueryClient
 	CertificatesClient        trust_management.CertificatesClient
@@ -131,6 +133,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	principalIdentitiesClient := trust_management.NewPrincipalIdentitiesClient(restConnector(cluster))
 	withCertificateClient := principal_identities.NewWithCertificateClient(restConnector(cluster))
 
+	projectInfraClient := projects.NewInfraClient(restConnector(cluster))
 	portClient := subnets.NewPortsClient(restConnector(cluster))
 	portStateClient := ports.NewStateClient(restConnector(cluster))
 
@@ -167,6 +170,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		PrincipalIdentitiesClient: principalIdentitiesClient,
 		WithCertificateClient:     withCertificateClient,
 
+		ProjectInfraClient: projectInfraClient,
 		PortClient:         portClient,
 		PortStateClient:    portStateClient,
 		SubnetStatusClient: subnetStatusClient,

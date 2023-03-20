@@ -94,6 +94,11 @@ func ToUpper(obj interface{}) string {
 	return strings.ToUpper(str)
 }
 
+func CalculateSubnetSize(mask int) int64 {
+	size := 1 << uint(32-mask)
+	return int64(size)
+}
+
 func IsSystemNamespace(c client.Client, ns string, obj *v1.Namespace) (bool, error) {
 	nsObj := &v1.Namespace{}
 	if obj != nil {

@@ -39,6 +39,10 @@ const (
 	TagScopeVPCCRUID                string = "nsx-op/vpc_cr_uid"
 	TagScopeSubnetPortCRName        string = "nsx-op/subnetport_cr_name"
 	TagScopeSubnetPortCRUID         string = "nsx-op/subnetport_cr_uid"
+	TagScopeIPPoolCRName            string = "nsx-op/ippool_cr_name"
+	TagScopeIPPoolCRUID             string = "nsx-op/ippool_cr_uid"
+	TagScopeIPPoolCRType            string = "nsx-op/ippool_cr_type"
+	TagScopeIPSubnetName            string = "nsx-op/ipsubnet_cr_name"
 	LabelDefaultSubnetSet           string = "nsxoperator.vmware.com/default-subnetset-for"
 	LabelDefaultVMSubnet            string = "VirtualMachine"
 	LabelDefaultPodSubnetSet        string = "Pod"
@@ -50,8 +54,12 @@ const (
 	AnnotationVPCName               string = "nsx.vmware.com/vpc_name"
 	DefaultNetworkConfigName        string = "default"
 
-	GCInterval     = 60 * time.Second
-	RealizeTimeout = 2 * time.Minute
+	GCInterval          = 60 * time.Second
+	RealizeTimeout      = 2 * time.Minute
+	RealizeMaxRetries   = 3
+	IPPoolFinalizerName = "ippool.nsx.vmware.com/finalizer"
+	IPPoolTypePublic    = "public"
+	IPPoolTypePrivate   = "private"
 
 	FinalizerName                  = "securitypolicy.nsx.vmware.com/finalizer"
 	StaticRouteFinalizerName       = "staticroute.nsx.vmware.com/finalizer"
@@ -74,6 +82,8 @@ var (
 	// ResourceTypePrincipalIdentity is used by NSXServiceAccountController, and it is MP resource type.
 	ResourceTypePrincipalIdentity = "principalidentity"
 	ResourceTypeSubnet            = "VpcSubnet"
+	ResourceTypeIPPool            = "IpAddressPool"
+	ResourceTypeIPPoolBlockSubnet = "IpAddressPoolBlockSubnet"
 )
 
 type Service struct {
