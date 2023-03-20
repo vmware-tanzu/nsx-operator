@@ -71,3 +71,9 @@ var (
 	Int64  = pointy.Int64  // address of int64
 	Bool   = pointy.Bool   // address of bool
 )
+
+type OrgProjectVPC struct {
+	OrgID     string
+	ProjectID string
+	VPCID     string
+}
