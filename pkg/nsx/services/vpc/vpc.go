@@ -2,10 +2,10 @@ package vpc
 
 import (
 	"sync"
-
+	
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/client-go/tools/cache"
-
+	
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
@@ -28,23 +28,23 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
-
+	
 	wg.Add(1)
-
+	
 	VPCService := &VPCService{Service: service}
-
+	
 	VPCService.vpcStore = &VPCStore{ResourceStore: common.ResourceStore{
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc}),
 		BindingType: model.VpcBindingType(),
 	}}
-
-	go VPCService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeVPC, vpcStore)
-
+	
+	go VPCService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeVPC, VPCService.vpcStore)
+	
 	go func() {
 		wg.Wait()
 		close(wgDone)
 	}()
-
+	
 	select {
 	case <-wgDone:
 		break
@@ -52,7 +52,7 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 		close(fatalErrors)
 		return VPCService, err
 	}
-
+	
 	return VPCService, nil
 }
 

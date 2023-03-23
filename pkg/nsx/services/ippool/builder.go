@@ -1,11 +1,13 @@
 package ippool
 
 import (
+	"fmt"
 	"strings"
 	
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
+	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -45,7 +47,9 @@ func (service *IPPoolService) buildIPSubnets(IPPool *v1alpha2.IPPool) []*model.I
 	var IPSubnets []*model.IpAddressPoolBlockSubnet
 	for _, subnetRequest := range IPPool.Spec.Subnets {
 		IPSubnet := service.buildIPSubnet(IPPool, subnetRequest)
-		IPSubnets = append(IPSubnets, IPSubnet)
+		if IPSubnet != nil {
+			IPSubnets = append(IPSubnets, IPSubnet)
+		}
 	}
 	return IPSubnets
 }
@@ -69,9 +73,13 @@ func (service *IPPoolService) buildIPSubnetTags(IPPool *v1alpha2.IPPool, subnetR
 }
 
 func (service *IPPoolService) buildIPSubnetIntentPath(IPPool *v1alpha2.IPPool, subnetRequest *v1alpha2.SubnetRequest) string {
-	// TODO: Get the IntentPath by IPPool's namespace, external and private
 	if IPPool.Spec.Type == common.IPPoolTypePrivate {
-		return strings.Join([]string{"/orgs/default/projects/zx-project-1/infra/ip-pools", service.buildIPPoolID(IPPool),
+		orgProjects := commonctl.ServiceMediator.GetOrgProjectVPC(IPPool.Namespace)
+		if len(orgProjects) == 0 {
+			return ""
+		}
+		return strings.Join([]string{fmt.Sprintf("/orgs/%s/projects/%s/infra/ip-pools", orgProjects[0].OrgID, orgProjects[0].ProjectID),
+			service.buildIPPoolID(IPPool),
 			"ip-subnets", service.buildIPSubnetID(IPPool, subnetRequest)}, "/")
 	} else {
 		return strings.Join([]string{"/infra/ip-pools", service.buildIPPoolID(IPPool),
@@ -83,7 +91,12 @@ func (service *IPPoolService) buildIPSubnet(IPPool *v1alpha2.IPPool, subnetReque
 	// TODO: Get the IPBlockPath by IPPool's namespace, external and private
 	IpBlockPath := String("/infra/ip-blocks/block-test")
 	if IPPool.Spec.Type == common.IPPoolTypePrivate {
-		IpBlockPath = String("/orgs/default/projects/zx-project-1/infra/ip-blocks/block-test")
+		orgProjects := commonctl.ServiceMediator.GetOrgProjectVPC(IPPool.Namespace)
+		if len(orgProjects) == 0 {
+			return nil
+		}
+		// TODO: Get the IPBlockPath by IPPool's namespace, external and private
+		IpBlockPath = String(fmt.Sprintf("/orgs/%s/projects/%s/infra/ip-blocks/block-test", orgProjects[0].OrgID, orgProjects[0].ProjectID))
 	}
 	return &model.IpAddressPoolBlockSubnet{
 		Id:          String(service.buildIPSubnetID(IPPool, &subnetRequest)),

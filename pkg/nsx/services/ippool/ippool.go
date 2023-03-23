@@ -9,6 +9,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
+	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
@@ -46,9 +47,8 @@ func InitializeIPPool(service common.Service) (*IPPoolService, error) {
 		BindingType: model.IpAddressPoolBlockSubnetBindingType(),
 	}}
 	
-	// TODO pass in real org and project
-	go ipPoolService.InitializeVPCResourceStore(&wg, fatalErrors, "default", "zx-project-1", ResourceTypeIPPool, ipPoolService.ipPoolStore)
-	go ipPoolService.InitializeVPCResourceStore(&wg, fatalErrors, "default", "zx-project-1", ResourceTypeIPPoolBlockSubnet, ipPoolService.ipPoolBlockSubnetStore)
+	go ipPoolService.InitializeVPCResourceStore(&wg, fatalErrors, "", "", ResourceTypeIPPool, ipPoolService.ipPoolStore)
+	go ipPoolService.InitializeVPCResourceStore(&wg, fatalErrors, "", "", ResourceTypeIPPoolBlockSubnet, ipPoolService.ipPoolBlockSubnetStore)
 	
 	go func() {
 		wg.Wait()
@@ -68,6 +68,10 @@ func InitializeIPPool(service common.Service) (*IPPoolService, error) {
 
 func (service *IPPoolService) CreateOrUpdateIPPool(obj *v1alpha2.IPPool) (bool, bool, error) {
 	nsxIPPool, nsxIPSubnets := service.BuildIPPool(obj)
+	if nsxIPPool == nil || len(nsxIPSubnets) == 0 {
+		err := util.NoEffectiveOption{Desc: "build ip pool and ip pool subnets failed, check its namespace, ippool type and vpc"}
+		return false, false, err
+	}
 	existingIPPool, existingIPSubnets, err := service.indexedIPPoolAndIPPoolSubnets(obj.UID)
 	log.V(1).Info("existing ippool and ip subnets", "existingIPPool", existingIPPool, "existingIPSubnets", existingIPSubnets)
 	if err != nil {
@@ -116,10 +120,14 @@ func (service *IPPoolService) Operate(nsxIPPool *model.IpAddressPool, nsxIPSubne
 		}
 	}
 	
-	// TODO: decide org and project by ns, external or private to do
 	if IPPoolType == common.IPPoolTypePrivate {
-		// TODO: Get the org name and project name from IPPool's namespace
-		err = service.NSXClient.ProjectInfraClient.Patch("default", "zx-project-1", *infraIPPool, &EnforceRevisionCheckParam)
+		ns := service.GetIPPoolNamespace(nsxIPPool)
+		orgProjects := commonctl.ServiceMediator.GetOrgProject(ns)
+		if len(orgProjects) == 0 {
+			err = util.NoEffectiveOption{Desc: "no effective org and project for ippool"}
+		} else {
+			err = service.NSXClient.ProjectInfraClient.Patch(orgProjects[0].Org, orgProjects[0].Project, *infraIPPool, &EnforceRevisionCheckParam)
+		}
 	} else if IPPoolType == common.IPPoolTypeExternal {
 		err = service.NSXClient.InfraClient.Patch(*infraIPPool, &EnforceRevisionCheckParam)
 	} else {
@@ -226,4 +234,14 @@ func (service *IPPoolService) ListIPPoolID() sets.String {
 	ipPoolSet := service.ipPoolStore.ListIndexFuncValues(common.TagScopeIPPoolCRUID)
 	ipPoolSubnetSet := service.ipPoolBlockSubnetStore.ListIndexFuncValues(common.TagScopeIPPoolCRUID)
 	return ipPoolSet.Union(ipPoolSubnetSet)
+}
+
+// GetIPPoolNamespace Get IPPool's namespace by tags
+func (service *IPPoolService) GetIPPoolNamespace(nsxIPPool *model.IpAddressPool) string {
+	for _, tag := range nsxIPPool.Tags {
+		if *tag.Scope == common.TagScopeNamespace {
+			return *tag.Tag
+		}
+	}
+	return ""
 }

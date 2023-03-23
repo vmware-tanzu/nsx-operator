@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"runtime"
 	"time"
-	
+
 	v1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -19,7 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -110,7 +110,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			}
 			log.V(1).Info("added finalizer on ippool CR", "ippool", req.NamespacedName)
 		}
-		
+
 		subnetCidrUpdated, ipPoolSubnetsUpdated, err := r.Service.CreateOrUpdateIPPool(obj)
 		if err != nil {
 			log.Error(err, "operate failed, would retry exponentially", "ippool", req.NamespacedName)
@@ -207,14 +207,14 @@ func (r *Reconciler) IPPoolGarbageCollector(cancel chan bool, timeout time.Durat
 			log.Error(err, "failed to list ip pool CR")
 			continue
 		}
-		
+
 		CRIPPoolSet := sets.NewString()
 		for _, ipp := range ipPoolList.Items {
 			CRIPPoolSet.Insert(string(ipp.UID))
 		}
-		
+
 		log.V(2).Info("ippool garbage collector", "nsxIPPoolSet", nsxIPPoolSet, "CRIPPoolSet", CRIPPoolSet)
-		
+
 		for elem := range nsxIPPoolSet {
 			if CRIPPoolSet.Has(elem) {
 				continue
