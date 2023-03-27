@@ -2,12 +2,13 @@ package ippool
 
 import (
 	"sync"
-	
+	"time"
+
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
-	
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
 	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -34,9 +35,9 @@ func InitializeIPPool(service common.Service) (*IPPoolService, error) {
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
-	
+
 	wg.Add(2)
-	
+
 	ipPoolService := &IPPoolService{Service: service}
 	ipPoolService.ipPoolStore = &IPPoolStore{ResourceStore: common.ResourceStore{
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeIPPoolCRUID: indexFunc}),
@@ -46,15 +47,14 @@ func InitializeIPPool(service common.Service) (*IPPoolService, error) {
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeIPPoolCRUID: indexFunc}),
 		BindingType: model.IpAddressPoolBlockSubnetBindingType(),
 	}}
-	
-	go ipPoolService.InitializeVPCResourceStore(&wg, fatalErrors, "", "", ResourceTypeIPPool, ipPoolService.ipPoolStore)
-	go ipPoolService.InitializeVPCResourceStore(&wg, fatalErrors, "", "", ResourceTypeIPPoolBlockSubnet, ipPoolService.ipPoolBlockSubnetStore)
-	
+
+	go ipPoolService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeIPPool, ipPoolService.ipPoolStore)
+	go ipPoolService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeIPPoolBlockSubnet, ipPoolService.ipPoolBlockSubnetStore)
+
 	go func() {
 		wg.Wait()
 		close(wgDone)
 	}()
-	
 	select {
 	case <-wgDone:
 		break
@@ -62,7 +62,6 @@ func InitializeIPPool(service common.Service) (*IPPoolService, error) {
 		close(fatalErrors)
 		return ipPoolService, err
 	}
-	
 	return ipPoolService, nil
 }
 
@@ -89,11 +88,11 @@ func (service *IPPoolService) CreateOrUpdateIPPool(obj *v1alpha2.IPPool) (bool, 
 	if len(finalIPSubnets) > 0 {
 		ipPoolSubnetsUpdated = true
 	}
-	
+
 	if err := service.Operate(nsxIPPool, finalIPSubnets, ipPoolUpdated, ipPoolSubnetsUpdated); err != nil {
 		return false, false, err
 	}
-	
+
 	realizedSubnets, subnetCidrUpdated, e := service.AcquireRealizedSubnetIP(obj)
 	if e != nil {
 		return false, false, e
@@ -110,7 +109,6 @@ func (service *IPPoolService) Operate(nsxIPPool *model.IpAddressPool, nsxIPSubne
 	if err != nil {
 		return err
 	}
-	
 	// Get IPPool Type from nsxIPPool
 	IPPoolType := common.IPPoolTypeExternal
 	for _, tag := range nsxIPPool.Tags {
@@ -119,14 +117,15 @@ func (service *IPPoolService) Operate(nsxIPPool *model.IpAddressPool, nsxIPSubne
 			break
 		}
 	}
-	
+
 	if IPPoolType == common.IPPoolTypePrivate {
 		ns := service.GetIPPoolNamespace(nsxIPPool)
-		orgProjects := commonctl.ServiceMediator.GetOrgProject(ns)
+		orgProjects := commonctl.ServiceMediator.GetOrgProjectVPC(ns)
 		if len(orgProjects) == 0 {
 			err = util.NoEffectiveOption{Desc: "no effective org and project for ippool"}
 		} else {
-			err = service.NSXClient.ProjectInfraClient.Patch(orgProjects[0].Org, orgProjects[0].Project, *infraIPPool, &EnforceRevisionCheckParam)
+			err = service.NSXClient.ProjectInfraClient.Patch(orgProjects[0].OrgID, orgProjects[0].ProjectID, *infraIPPool,
+				&EnforceRevisionCheckParam)
 		}
 	} else if IPPoolType == common.IPPoolTypeExternal {
 		err = service.NSXClient.InfraClient.Patch(*infraIPPool, &EnforceRevisionCheckParam)
@@ -167,7 +166,7 @@ func (service *IPPoolService) AcquireRealizedSubnetIP(obj *v1alpha2.IPPool) ([]v
 			}
 		}
 		if !realized {
-			cidr, err := service.acquireCidr(obj, &subnetRequest)
+			cidr, err := service.acquireCidr(obj, &subnetRequest, 3)
 			if err != nil {
 				return nil, subnetCidrUpdated, err
 			}
@@ -210,7 +209,7 @@ func (service *IPPoolService) DeleteIPPool(obj interface{}) error {
 	return nil
 }
 
-func (service *IPPoolService) acquireCidr(obj *v1alpha2.IPPool, subnetRequest *v1alpha2.SubnetRequest) (string, error) {
+func (service *IPPoolService) acquireCidr(obj *v1alpha2.IPPool, subnetRequest *v1alpha2.SubnetRequest, retry int) (string, error) {
 	m, err := service.NSXClient.RealizedEntitiesClient.List(service.buildIPSubnetIntentPath(obj, subnetRequest), nil)
 	if err != nil {
 		return "", err
@@ -226,8 +225,14 @@ func (service *IPPoolService) acquireCidr(obj *v1alpha2.IPPool, subnetRequest *v
 			}
 		}
 	}
-	log.V(1).Info("failed to acquire subnet cidr, would retry when reconcile", "subnet request", subnetRequest)
-	return "", nil
+	if retry > 0 {
+		log.V(1).Info("failed to acquire subnet cidr, retrying...", "subnet request", subnetRequest, "retry", retry)
+		time.Sleep(30 * time.Second)
+		return service.acquireCidr(obj, subnetRequest, retry-1)
+	} else {
+		log.V(1).Info("failed to acquire subnet cidr after multiple retries", "subnet request", subnetRequest)
+		return "", nil
+	}
 }
 
 func (service *IPPoolService) ListIPPoolID() sets.String {

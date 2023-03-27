@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	log                    = logger.Log
+	log   = logger.Log
 	reExp = regexp.MustCompile(`/orgs/([^/]+)/projects/([^/]+)/vpcs/([^/]+)`)
 )
 

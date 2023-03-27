@@ -53,7 +53,7 @@ func TestIPPoolService_acquireCidr(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ipPoolService.acquireCidr(tt.args.obj, tt.args.subnetRequest)
+			got, err := ipPoolService.acquireCidr(tt.args.obj, tt.args.subnetRequest, 3)
 			if !tt.wantErr(t, err, fmt.Sprintf("acquireCidr(%v, %v)", tt.args.obj, tt.args.subnetRequest)) {
 				return
 			}

@@ -7,14 +7,14 @@ import (
 	"flag"
 	"os"
 	"time"
-	
+
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -48,14 +48,14 @@ func init() {
 	config.AddFlags()
 	flag.Parse()
 	var err error
-	
+
 	logf.SetLogger(logger.ZapLogger())
 	cf, err = config.NewNSXOperatorConfigFromFile()
 	if err != nil {
 		log.Error(err, "load config file error")
 		os.Exit(1)
 	}
-	
+
 	if metrics.AreMetricsExposed(cf) {
 		metrics.InitializePrometheusMetrics()
 	}
@@ -108,7 +108,7 @@ func StartIPPoolController(mgr ctrl.Manager, commonService common.Service) {
 	} else {
 		ippoolReconcile.Service = ipPoolService
 	}
-	
+
 	// TODO: remove this after vpc is ready
 	if vpcService, err := vpc.InitializeVPC(commonService); err != nil {
 		log.Error(err, "failed to initialize vpc commonService", "controller", "vpc")
@@ -116,7 +116,6 @@ func StartIPPoolController(mgr ctrl.Manager, commonService common.Service) {
 	} else {
 		commonctl.ServiceMediator.VPCService = vpcService
 	}
-	
 	if err := ippoolReconcile.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "IPPool")
 		os.Exit(1)
@@ -125,7 +124,7 @@ func StartIPPoolController(mgr ctrl.Manager, commonService common.Service) {
 
 func main() {
 	log.Info("starting NSX Operator")
-	
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		HealthProbeBindAddress: probeAddr,
@@ -136,35 +135,35 @@ func main() {
 		log.Error(err, "failed to init manager")
 		os.Exit(1)
 	}
-	
+
 	// nsxClient is used to interact with NSX API.
 	nsxClient := nsx.GetClient(cf)
 	if nsxClient == nil {
 		log.Error(err, "failed to get nsx client")
 		os.Exit(1)
 	}
-	
+
 	//  Embed the common commonService to sub-services.
 	var commonService = common.Service{
 		Client:    mgr.GetClient(),
 		NSXClient: nsxClient,
 		NSXConfig: cf,
 	}
-	
+
 	// Start the security policy controller.
 	StartSecurityPolicyController(mgr, commonService)
 	// Start the NSXServiceAccount controller.
 	if cf.EnableAntreaNSXInterworking {
 		StartNSXServiceAccountController(mgr, commonService)
 	}
-	
+
 	// Start the ip pool controller.
 	StartIPPoolController(mgr, commonService)
-	
+
 	if metrics.AreMetricsExposed(cf) {
 		go updateHealthMetricsPeriodically(nsxClient)
 	}
-	
+
 	if err := mgr.AddHealthzCheck("healthz", nsxClient.NSXChecker.CheckNSXHealth); err != nil {
 		log.Error(err, "failed to set up health check")
 		os.Exit(1)
@@ -173,7 +172,7 @@ func main() {
 		log.Error(err, "failed to set up ready check")
 		os.Exit(1)
 	}
-	
+
 	log.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		log.Error(err, "failed to start manager")

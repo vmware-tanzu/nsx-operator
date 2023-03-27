@@ -3,9 +3,9 @@ package ippool
 import (
 	"fmt"
 	"strings"
-	
+
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
 	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"

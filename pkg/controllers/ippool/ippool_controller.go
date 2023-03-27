@@ -75,7 +75,13 @@ func (r *Reconciler) setReadyStatusFalse(ctx *context.Context, ippool *v1alpha2.
 		},
 	}
 	ippool.Status.Conditions = conditions
-	r.Client.Status().Update(*ctx, ippool)
+	if ippool.Status.Subnets == nil {
+		ippool.Status.Subnets = make([]v1alpha2.SubnetResult, 0)
+	}
+	e := r.Client.Status().Update(*ctx, ippool)
+	if e != nil {
+		log.Error(e, "unable to update IPPool status", "ippool", ippool)
+	}
 }
 
 func (r *Reconciler) setReadyStatusTrue(ctx *context.Context, ippool *v1alpha2.IPPool) {
@@ -88,7 +94,10 @@ func (r *Reconciler) setReadyStatusTrue(ctx *context.Context, ippool *v1alpha2.I
 		},
 	}
 	ippool.Status.Conditions = conditions
-	r.Client.Status().Update(*ctx, ippool)
+	e := r.Client.Status().Update(*ctx, ippool)
+	if e != nil {
+		log.Error(e, "unable to update IPPool status", "ippool", ippool)
+	}
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -99,6 +108,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		log.Error(err, "unable to fetch ippool CR", "req", req.NamespacedName)
 		return resultNormal, client.IgnoreNotFound(err)
 	}
+
+	// TODO: Since IPPool v1alpha2 service can only be activated from NSX 4.1.0 onwards,
+	// So need to check NSX version before starting IPPool reconcile
+	//if !r.Service.NSXClient.NSXCheckVersionForStaticRoute() {
+	//	err := errors.New("NSX version check failed, IPPool v1alpha2 is not supported")
+	//	updateFail(r, &ctx, obj, &err)
+	//	if NSX version check fails, it will be put back to reconcile queue and be reconciled after 5 minutes
+	//return ResultRequeueAfter5mins, nil
+	//}
+
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResType)
 		if !controllerutil.ContainsFinalizer(obj, servicecommon.IPPoolFinalizerName) {
@@ -114,6 +133,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		subnetCidrUpdated, ipPoolSubnetsUpdated, err := r.Service.CreateOrUpdateIPPool(obj)
 		if err != nil {
 			log.Error(err, "operate failed, would retry exponentially", "ippool", req.NamespacedName)
+			updateFail(r, &ctx, obj, &err)
 			return resultRequeue, err
 		}
 		if !r.Service.FullyRealized(obj) {
