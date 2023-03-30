@@ -47,7 +47,7 @@ func TestCreateFunc(t *testing.T) {
 		"CreateNsxSearchTimeout":                    CreateNsxSearchTimeout,
 		"CreateNsxSearchOutOfSync":                  CreateNsxSearchOutOfSync,
 		"CreateNsxPendingDelete":                    CreateNsxPendingDelete,
-		"CreateNsxSegemntWithVM":                    CreateNsxSegemntWithVM,
+		"CreateNsxSegmentWithVM":                    CreateNsxSegmentWithVM,
 		"CreateNsxOverlapAddresses":                 CreateNsxOverlapAddresses,
 		"CreateNsxOverlapVlan":                      CreateNsxOverlapVlan,
 		"CreateAPITransactionAborted":               CreateAPITransactionAborted,
