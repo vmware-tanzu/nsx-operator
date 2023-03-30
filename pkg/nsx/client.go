@@ -11,6 +11,7 @@ import (
 	"github.com/sirupsen/logrus"
 	vspherelog "github.com/vmware/vsphere-automation-sdk-go/runtime/log"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
+	nsx_policy "github.com/vmware/vsphere-automation-sdk-go/services/nsxt"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
@@ -30,6 +31,7 @@ type Client struct {
 	GroupClient    domains.GroupsClient
 	SecurityClient domains.SecurityPoliciesClient
 	RuleClient     security_policies.RulesClient
+	InfraClient    nsx_policy.InfraClient
 	NSXChecker     NSXHealthChecker
 	NSXVerChecker  NSXVersionChecker
 }
@@ -71,6 +73,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	groupClient := domains.NewGroupsClient(restConnector(cluster))
 	securityClient := domains.NewSecurityPoliciesClient(restConnector(cluster))
 	ruleClient := security_policies.NewRulesClient(restConnector(cluster))
+	infraClient := nsx_policy.NewInfraClient(restConnector(cluster))
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
 	}
@@ -86,6 +89,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		GroupClient:    groupClient,
 		SecurityClient: securityClient,
 		RuleClient:     ruleClient,
+		InfraClient:    infraClient,
 		NSXChecker:     *nsxChecker,
 		NSXVerChecker:  *nsxVersionChecker,
 	}
