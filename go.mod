@@ -1,6 +1,6 @@
 module github.com/vmware-tanzu/nsx-operator
 
-go 1.17
+go 1.19
 
 require (
 	github.com/agiledragon/gomonkey v2.0.2+incompatible
