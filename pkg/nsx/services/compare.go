@@ -135,6 +135,5 @@ func (service *SecurityPolicyService) simplifyGroup(group *model.Group) *model.G
 		Id:          group.Id,
 		DisplayName: group.Id,
 		Tags:        group.Tags,
-		Expression:  group.Expression,
 	}
 }

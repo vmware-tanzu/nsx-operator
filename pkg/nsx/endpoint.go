@@ -205,7 +205,7 @@ func (ep *Endpoint) XSRFToken() string {
 	return ep.xXSRFToken
 }
 
-// Status return status of endpoint.
+// Status return status of endpoiont.
 func (ep *Endpoint) Status() EndpointStatus {
 	ep.RLock()
 	defer ep.RUnlock()

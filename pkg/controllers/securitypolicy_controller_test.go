@@ -1,12 +1,11 @@
 /* Copyright © 2021 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
-package securitypolicy
+package controllers
 
 import (
 	"context"
 	"errors"
-	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -17,11 +16,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/util/workqueue"
 	controllerruntime "sigs.k8s.io/controller-runtime"
-
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -121,6 +118,43 @@ func TestSecurityPolicyController_updateSecurityPolicyStatusConditions(t *testin
 	}
 }
 
+func TestSecurityPolicyController_isCRRequestedInSystemNamespace(t *testing.T) {
+	r := NewFakeSecurityPolicyReconciler()
+	ctx := context.TODO()
+	dummyNs := &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "dummy"}}
+	r.Client.Create(ctx, dummyNs)
+	req := &controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
+
+	isCRInSysNs, err := r.isCRRequestedInSystemNamespace(&ctx, req)
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	if isCRInSysNs {
+		t.Fatalf("Non-system namespace identied as a system namespace")
+	}
+	r.Client.Delete(ctx, dummyNs)
+
+	sysNs := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "sys-ns",
+			Namespace:   "sys-ns",
+			Annotations: map[string]string{"vmware-system-shared-t1": "true"},
+		},
+	}
+	r.Client.Create(ctx, sysNs)
+	req = &ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "sys-ns", Name: "dummy"}}
+
+	isCRInSysNs, err = r.isCRRequestedInSystemNamespace(&ctx, req)
+
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	if !isCRInSysNs {
+		t.Fatalf("System namespace not identied as a system namespace")
+	}
+	r.Client.Delete(ctx, sysNs)
+}
+
 func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
@@ -138,7 +172,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		Service: service,
 	}
 	ctx := context.Background()
-	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
 
 	// not found
 	errNotFound := errors.New("not found")
@@ -157,7 +191,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		})
 	defer patches.Reset()
 	result, ret := r.Reconcile(ctx, req)
-	resultRequeueAfter5mins := controllerruntime.Result{Requeue: true, RequeueAfter: 5 * time.Minute}
+	resultRequeueAfter5mins := ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Minute}
 	assert.Equal(t, nil, ret)
 	assert.Equal(t, resultRequeueAfter5mins, result)
 
@@ -295,7 +329,7 @@ func TestSecurityPolicyReconciler_Start(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	service := &services.SecurityPolicyService{}
-	var mgr controllerruntime.Manager
+	var mgr ctrl.Manager
 	r := &SecurityPolicyReconciler{
 		Client:  k8sClient,
 		Scheme:  nil,
@@ -303,93 +337,4 @@ func TestSecurityPolicyReconciler_Start(t *testing.T) {
 	}
 	err := r.Start(mgr)
 	assert.NotEqual(t, err, nil)
-}
-
-func TestReconcileSecurityPolicy(t *testing.T) {
-	rule := v1alpha1.SecurityPolicyRule{
-		Name: "rule-with-pod-selector",
-		AppliedTo: []v1alpha1.SecurityPolicyTarget{
-			{},
-		},
-		Sources: []v1alpha1.SecurityPolicyPeer{
-			{
-				PodSelector: &metav1.LabelSelector{
-					MatchLabels: map[string]string{"pod_selector_1": "pod_value_1"},
-				},
-				NamespaceSelector: &metav1.LabelSelector{
-					MatchLabels: map[string]string{"ns1": "spA"},
-				},
-			},
-		},
-		Ports: []v1alpha1.SecurityPolicyPort{
-			{
-				Protocol: v1.ProtocolUDP,
-				Port:     intstr.IntOrString{Type: intstr.String, StrVal: "named-port"},
-			},
-		},
-	}
-	spList := &v1alpha1.SecurityPolicyList{
-		Items: []v1alpha1.SecurityPolicy{
-			{
-				Spec: v1alpha1.SecurityPolicySpec{
-					Rules: []v1alpha1.SecurityPolicyRule{
-						rule,
-					},
-				},
-			},
-		},
-	}
-	pods := []v1.Pod{
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-pod-1",
-				Namespace: "spA",
-			},
-			Spec: v1.PodSpec{
-				Containers: []v1.Container{
-					{
-						Name: "test-container-1",
-						Ports: []v1.ContainerPort{
-							{
-								Name: "named-port",
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
-	ctx := context.Background()
-	policyList := &v1alpha1.SecurityPolicyList{}
-	k8sClient.EXPECT().List(ctx, policyList).Return(nil).Do(func(_ context.Context, list client.ObjectList,
-		_ ...client.ListOption,
-	) error {
-		a := list.(*v1alpha1.SecurityPolicyList)
-		a.Items = spList.Items
-		return nil
-	})
-
-	mockQueue := mock_client.NewMockInterface(mockCtl)
-
-	type args struct {
-		client client.Client
-		pods   []v1.Pod
-		q      workqueue.RateLimitingInterface
-	}
-	tests := []struct {
-		name    string
-		args    args
-		wantErr assert.ErrorAssertionFunc
-	}{
-		{"1", args{k8sClient, pods, mockQueue}, assert.NoError},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tt.wantErr(t, reconcileSecurityPolicy(tt.args.client, tt.args.pods, tt.args.q),
-				fmt.Sprintf("reconcileSecurityPolicy(%v, %v, %v)", tt.args.client, tt.args.pods, tt.args.q))
-		})
-	}
 }

@@ -562,19 +562,3 @@ type NoFilteredPod struct {
 func (err NoFilteredPod) Error() string {
 	return err.Desc
 }
-
-type NoEffectiveOption struct {
-	Desc string
-}
-
-func (err NoEffectiveOption) Error() string {
-	return err.Desc
-}
-
-type RestrictionError struct {
-	Desc string
-}
-
-func (err RestrictionError) Error() string {
-	return err.Desc
-}
