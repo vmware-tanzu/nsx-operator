@@ -8,7 +8,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
@@ -30,7 +29,6 @@ func init() {
 }
 
 type SecurityPolicyService struct {
-	Client              client.Client
 	NSXClient           *nsx.Client
 	NSXConfig           *config.NSXOperatorConfig
 	GroupStore          cache.Indexer
@@ -247,22 +245,6 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}) erro
 		return err
 	}
 	log.Info("successfully deleted  nsxSecurityPolicy", "nsxSecurityPolicy", nsxSecurityPolicy)
-	return nil
-}
-
-func (service *SecurityPolicyService) createOrUpdateGroups(nsxGroups []model.Group) error {
-	for _, group := range nsxGroups {
-		err := service.NSXClient.GroupClient.Patch(getDomain(service), *group.Id, group)
-		if err != nil {
-			return err
-		}
-		err = service.GroupStore.Add(group)
-		log.V(2).Info("add group to store", "group", group.Id)
-		if err != nil {
-			return err
-		}
-	}
-	log.Info("successfully create or update group", "groups", nsxGroups)
 	return nil
 }
 

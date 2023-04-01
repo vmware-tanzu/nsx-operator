@@ -1,7 +1,7 @@
 /* Copyright © 2021 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
-package securitypolicy
+package controllers
 
 import (
 	"context"
@@ -9,35 +9,31 @@ import (
 	"fmt"
 	"reflect"
 	"runtime"
+	"strings"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services"
-	util2 "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 const (
-	METRIC_RES_TYPE = "securitypolicy"
+	WCP_SYSTEM_RESOURCE = "vmware-system-shared-t1"
+	METRIC_RES_TYPE     = "securitypolicy"
 )
 
 var (
@@ -59,14 +55,6 @@ func updateFail(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.Sec
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, METRIC_RES_TYPE)
 }
 
-func k8sClient(mgr ctrl.Manager) client.Client {
-	var c client.Client
-	if mgr != nil {
-		c = mgr.GetClient()
-	}
-	return c
-}
-
 func deleteFail(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
 	r.setSecurityPolicyReadyStatusFalse(c, o, e)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, METRIC_RES_TYPE)
@@ -77,7 +65,7 @@ func updateSuccess(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, METRIC_RES_TYPE)
 }
 
-func deleteSuccess(r *SecurityPolicyReconciler, _ *context.Context, _ *v1alpha1.SecurityPolicy) {
+func deleteSuccess(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy) {
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, METRIC_RES_TYPE)
 }
 
@@ -112,7 +100,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			log.V(1).Info("added finalizer on securitypolicy CR", "securitypolicy", req.NamespacedName)
 		}
 
-		if isCRInSysNs, err := util.IsSystemNamespace(r.Client, req.Namespace, nil); err != nil {
+		if isCRInSysNs, err := r.isCRRequestedInSystemNamespace(&ctx, &req); err != nil {
 			err = errors.New("fetch namespace associated with security policy CR failed")
 			log.Error(err, "would retry exponentially", "securitypolicy", req.NamespacedName)
 			updateFail(r, &ctx, obj, &err)
@@ -125,11 +113,6 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 
 		if err := r.Service.CreateOrUpdateSecurityPolicy(obj); err != nil {
-			if errors.As(err, &util2.RestrictionError{}) {
-				log.Error(err, err.Error(), "securitypolicy", req.NamespacedName)
-				updateFail(r, &ctx, obj, &err)
-				return resultNormal, nil
-			}
 			log.Error(err, "operate failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 			updateFail(r, &ctx, obj, &err)
 			return resultRequeue, err
@@ -139,7 +122,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if controllerutil.ContainsFinalizer(obj, util.FinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, METRIC_RES_TYPE)
 			if err := r.Service.DeleteSecurityPolicy(obj.UID); err != nil {
-				log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
+				log.Error(err, "delete failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 				deleteFail(r, &ctx, obj, &err)
 				return resultRequeue, err
 			}
@@ -160,6 +143,21 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return resultNormal, nil
 }
 
+func (r *SecurityPolicyReconciler) isCRRequestedInSystemNamespace(ctx *context.Context, req *ctrl.Request) (bool, error) {
+	nsObj := &v1.Namespace{}
+
+	if err := r.Client.Get(*ctx, types.NamespacedName{Namespace: req.Namespace, Name: req.Namespace}, nsObj); err != nil {
+		log.Error(err, "unable to fetch namespace associated with security policy CR", "req", req.NamespacedName)
+		return false, client.IgnoreNotFound(err)
+	}
+
+	if isSysNs, ok := nsObj.Annotations[WCP_SYSTEM_RESOURCE]; ok && strings.ToLower(isSysNs) == "true" {
+		return true, nil
+	}
+
+	return false, nil
+}
+
 func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusTrue(ctx *context.Context, sec_policy *v1alpha1.SecurityPolicy) {
 	newConditions := []v1alpha1.SecurityPolicyCondition{
 		{
@@ -178,10 +176,7 @@ func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusFalse(ctx *contex
 			Type:    v1alpha1.SecurityPolicyReady,
 			Status:  v1.ConditionFalse,
 			Message: "NSX Security Policy could not be created/updated",
-			Reason: fmt.Sprintf(
-				"error occurred while processing the Security Policy CR. Error: %v",
-				*err,
-			),
+			Reason:  fmt.Sprintf("Error occurred while processing the Security Policy CR. Please check the config and try again. Error: %v", *err),
 		},
 	}
 	r.updateSecurityPolicyStatusConditions(ctx, sec_policy, newConditions)
@@ -196,8 +191,7 @@ func (r *SecurityPolicyReconciler) updateSecurityPolicyStatusConditions(ctx *con
 	}
 	if conditionsUpdated {
 		r.Client.Status().Update(*ctx, sec_policy)
-		log.V(1).Info("updated Security Policy", "Name", sec_policy.Name, "Namespace", sec_policy.Namespace,
-			"New Conditions", newConditions)
+		log.V(1).Info("Updated Security Policy CRD", "Name", sec_policy.Name, "Namespace", sec_policy.Namespace, "New Conditions", newConditions)
 	}
 }
 
@@ -205,7 +199,7 @@ func (r *SecurityPolicyReconciler) mergeSecurityPolicyStatusCondition(ctx *conte
 	matchedCondition := getExistingConditionOfType(newCondition.Type, sec_policy.Status.Conditions)
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {
-		log.V(2).Info("conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+		log.V(2).Info("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return false
 	}
 
@@ -241,16 +235,6 @@ func (r *SecurityPolicyReconciler) setupWithManager(mgr ctrl.Manager) error {
 			controller.Options{
 				MaxConcurrentReconciles: runtime.NumCPU(),
 			}).
-		Watches(
-			&source.Kind{Type: &v1.Namespace{}},
-			&EnqueueRequestForNamespace{Client: k8sClient(mgr)},
-			builder.WithPredicates(PredicateFuncsNs),
-		).
-		Watches(
-			&source.Kind{Type: &v1.Pod{}},
-			&EnqueueRequestForPod{Client: k8sClient(mgr)},
-			builder.WithPredicates(PredicateFuncsPod),
-		).
 		Complete(r)
 }
 
@@ -306,44 +290,4 @@ func (r *SecurityPolicyReconciler) GarbageCollector(cancel chan bool, timeout ti
 			}
 		}
 	}
-}
-
-// It is triggered by associated controller like pod, namespace, etc.
-func reconcileSecurityPolicy(client client.Client, pods []v1.Pod, q workqueue.RateLimitingInterface) error {
-	podPortNames := getAllPodPortNames(pods)
-	log.V(1).Info("pod named port", "podPortNames", podPortNames)
-	spList := &v1alpha1.SecurityPolicyList{}
-	err := client.List(context.Background(), spList)
-	if err != nil {
-		log.Error(err, "failed to list all the security policy")
-		return err
-	}
-
-	for _, securityPolicy := range spList.Items {
-		shouldReconcile := false
-		for _, rule := range securityPolicy.Spec.Rules {
-			for _, port := range rule.Ports {
-				if port.Port.Type == intstr.String {
-					if podPortNames.Has(port.Port.StrVal) {
-						shouldReconcile = true
-						break
-					}
-				}
-			}
-			if shouldReconcile {
-				break
-			}
-		}
-		if shouldReconcile {
-			log.Info("reconcile security policy because of associated resource change",
-				"namespace", securityPolicy.Namespace, "name", securityPolicy.Name)
-			q.Add(reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      securityPolicy.Name,
-					Namespace: securityPolicy.Namespace,
-				},
-			})
-		}
-	}
-	return nil
 }
