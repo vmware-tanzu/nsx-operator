@@ -47,20 +47,20 @@ func TestConfig_CoeConfig(t *testing.T) {
 func TestConfig_NsxConfig(t *testing.T) {
 	nsxConfig := &NsxConfig{}
 	expect := errors.New("invalid field " + "NsxApiManagers")
-	err := nsxConfig.validate()
+	err := nsxConfig.validate(false)
 	assert.Equal(t, err, expect)
 
 	nsxConfig.NsxApiManagers = []string{"10.0.0.1"}
-	err = nsxConfig.validate()
+	err = nsxConfig.validate(false)
 	assert.Equal(t, err, nil)
 
 	nsxConfig.Thumbprint = []string{"0a:fc"}
-	err = nsxConfig.validate()
+	err = nsxConfig.validate(false)
 	assert.Equal(t, err, nil)
 
 	nsxConfig.Thumbprint = []string{"0a:fc", "ob:fd"}
 	expect = errors.New("thumbprint count not match manager count")
-	err = nsxConfig.validate()
+	err = nsxConfig.validate(false)
 	assert.Equal(t, err, expect)
 }
 

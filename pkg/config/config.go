@@ -127,7 +127,7 @@ func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if err := nsxOperatorConfig.validate(); err != nil {
 		return nil, err
 	}
@@ -138,9 +138,7 @@ func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
 func NewNSXOpertorConfig() *NSXOperatorConfig {
 	defaultNSXOperatorConfig := &NSXOperatorConfig{
 		&DefaultConfig{},
-		&CoeConfig{
-			"",
-		},
+		&CoeConfig{},
 		&NsxConfig{},
 		&K8sConfig{},
 		&VCConfig{},
@@ -152,7 +150,7 @@ func (operatorConfig *NSXOperatorConfig) validate() error {
 	if err := operatorConfig.CoeConfig.validate(); err != nil {
 		return err
 	}
-	if err := operatorConfig.NsxConfig.validate(); err != nil {
+	if err := operatorConfig.NsxConfig.validate(operatorConfig.CoeConfig.EnableVPCNetwork); err != nil {
 		return err
 	}
 	// TODO, verify if user&pwd, cert, jwt has any of them provided
@@ -207,7 +205,7 @@ func (vcConfig *VCConfig) validate() error {
 	return nil
 }
 
-func (nsxConfig *NsxConfig) validate() error {
+func (nsxConfig *NsxConfig) validate(enableVPC bool) error {
 	mCount := len(nsxConfig.NsxApiManagers)
 	if mCount == 0 {
 		err := errors.New("invalid field " + "NsxApiManagers")
@@ -228,7 +226,6 @@ func (nsxConfig *NsxConfig) validate() error {
 		log.Error(err, "validate NsxConfig failed", "thumbprint count", tpCount, "manager count", mCount)
 		return err
 	}
-	enableVPC := coeConfig.EnableVPCNetwork
 	if enableVPC {
 		if nsxConfig.DefaultProject == "" || len(nsxConfig.ExternalIPv4Blocks) == 0 {
 			err := errors.New("default_project is none or external_ipv4_blocks is empty")
