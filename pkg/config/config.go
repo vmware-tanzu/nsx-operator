@@ -42,7 +42,8 @@ type DefaultConfig struct {
 }
 
 type CoeConfig struct {
-	Cluster string `ini:"cluster"`
+	Cluster          string `ini:"cluster"`
+	EnableVPCNetwork bool   `ini:"enable_vpc_network"`
 }
 
 type NsxConfig struct {
@@ -56,6 +57,9 @@ type NsxConfig struct {
 	Insecure             bool     `ini:"insecure"`
 	SingleTierSrTopology bool     `ini:"single_tier_sr_topology"`
 	EnforcementPoint     string   `ini:"enforcement_point"`
+	DefaultProject       string   `ini:"default_project"`
+	ExternalIPv4Blocks   []string `ini:"external_ipv4_blocks"`
+	DefaultSubnetSize    int      `ini:"default_subnet_size"`
 }
 
 type K8sConfig struct {
@@ -123,7 +127,7 @@ func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	
 	if err := nsxOperatorConfig.validate(); err != nil {
 		return nil, err
 	}
@@ -223,6 +227,14 @@ func (nsxConfig *NsxConfig) validate() error {
 		err := errors.New("thumbprint count not match manager count")
 		log.Error(err, "validate NsxConfig failed", "thumbprint count", tpCount, "manager count", mCount)
 		return err
+	}
+	enableVPC := coeConfig.EnableVPCNetwork
+	if enableVPC {
+		if nsxConfig.DefaultProject == "" || len(nsxConfig.ExternalIPv4Blocks) == 0 {
+			err := errors.New("default_project is none or external_ipv4_blocks is empty")
+			log.Error(err, "validate VPCConfig failed")
+			return err
+		}
 	}
 	return nil
 }
