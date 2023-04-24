@@ -34,6 +34,7 @@ type StaticRouteStatus struct {
 	Conditions []StaticRouteCondition `json:"conditions"`
 }
 
+// +genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:storageversion
