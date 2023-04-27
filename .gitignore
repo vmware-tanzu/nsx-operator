@@ -1,3 +1,6 @@
 .idea
 bin/
 .DS_Store
+generated/
+pkg/apis/nsx.vmware.com/
+generated.tar.gz
