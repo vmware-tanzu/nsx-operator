@@ -272,6 +272,9 @@ func (nsxVersion *NsxVersion) featureSupported(feature string) bool {
 	case FeatureNSXServiceAccount:
 		minVersion = nsx401Version
 		validFeature = true
+	case FeatureNSXServiceAccountRestore:
+		minVersion = nsx412Version
+		validFeature = true
 	}
 	if validFeature {
 		// only compared major.minor.patch
