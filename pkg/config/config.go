@@ -93,6 +93,10 @@ type HAConfig struct {
 	EnableHA bool `ini:"enable"`
 }
 
+type HAConfig struct {
+	EnableHA bool `ini:"enable"`
+}
+
 type Validate interface {
 	validate() error
 }
