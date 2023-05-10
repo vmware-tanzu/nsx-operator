@@ -113,6 +113,7 @@ type SecurityPolicyStatus struct {
 	Conditions []Condition `json:"conditions"`
 }
 
+// +genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 

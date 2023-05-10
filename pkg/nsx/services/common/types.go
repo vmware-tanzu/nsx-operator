@@ -40,11 +40,12 @@ const (
 	TagScopeNSXServiceAccountCRUID  string = "nsx-op/nsx_service_account_uid"
 
 	GCInterval          = 60 * time.Second
+	RealizeMaxRetries   = 3
 	FinalizerName       = "securitypolicy.nsx.vmware.com/finalizer"
 	IPPoolFinalizerName = "ippool.nsx.vmware.com/finalizer"
 
 	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
-	IPPoolTypeExternal             = "external"
+	IPPoolTypePublic               = "public"
 	IPPoolTypePrivate              = "private"
 )
 

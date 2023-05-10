@@ -102,7 +102,7 @@ func (service *IPPoolService) CreateOrUpdateIPPool(obj *v1alpha2.IPPool) (bool, 
 }
 
 func (service *IPPoolService) Operate(nsxIPPool *model.IpAddressPool, nsxIPSubnets []*model.IpAddressPoolBlockSubnet, IPPoolUpdated bool, IPPoolSubnetsUpdated bool) error {
-	if !IPPoolUpdated && !IPPoolSubnetsUpdated {
+	if !(IPPoolUpdated || IPPoolSubnetsUpdated) {
 		return nil
 	}
 	infraIPPool, err := service.WrapHierarchyIPPool(nsxIPPool, nsxIPSubnets)
@@ -110,7 +110,7 @@ func (service *IPPoolService) Operate(nsxIPPool *model.IpAddressPool, nsxIPSubne
 		return err
 	}
 	// Get IPPool Type from nsxIPPool
-	IPPoolType := common.IPPoolTypeExternal
+	IPPoolType := common.IPPoolTypePublic
 	for _, tag := range nsxIPPool.Tags {
 		if *tag.Scope == common.TagScopeIPPoolCRType {
 			IPPoolType = *tag.Tag
@@ -127,7 +127,7 @@ func (service *IPPoolService) Operate(nsxIPPool *model.IpAddressPool, nsxIPSubne
 			err = service.NSXClient.ProjectInfraClient.Patch(orgProjects[0].OrgID, orgProjects[0].ProjectID, *infraIPPool,
 				&EnforceRevisionCheckParam)
 		}
-	} else if IPPoolType == common.IPPoolTypeExternal {
+	} else if IPPoolType == common.IPPoolTypePublic {
 		err = service.NSXClient.InfraClient.Patch(*infraIPPool, &EnforceRevisionCheckParam)
 	} else {
 		err = util.NoEffectiveOption{Desc: "no effective ippool type"}
@@ -166,7 +166,7 @@ func (service *IPPoolService) AcquireRealizedSubnetIP(obj *v1alpha2.IPPool) ([]v
 			}
 		}
 		if !realized {
-			cidr, err := service.acquireCidr(obj, &subnetRequest, 3)
+			cidr, err := service.acquireCidr(obj, &subnetRequest, common.RealizeMaxRetries)
 			if err != nil {
 				return nil, subnetCidrUpdated, err
 			}

@@ -4,7 +4,7 @@ metadata:
   name: guestcluster-ippool
   namespace: sc-a
 spec:
-  type: external
+  type: public
   subnets:
   - ipFamily: IPv4
     name: guestcluster1-workers-a

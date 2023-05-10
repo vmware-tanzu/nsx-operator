@@ -1,4 +1,4 @@
-/* Copyright © 2022 VMware, Inc. All Rights Reserved.
+/* Copyright © 2023 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package v1alpha2
@@ -12,7 +12,7 @@ import (
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
-// IPPool is the Schema for the ippools API
+// IPPool is the Schema for the ippools API.
 type IPPool struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata"`
@@ -23,7 +23,7 @@ type IPPool struct {
 
 //+kubebuilder:object:root=true
 
-// IPPoolList contains a list of IPPool
+// IPPoolList contains a list of IPPool.
 type IPPoolList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
@@ -32,9 +32,9 @@ type IPPoolList struct {
 
 // IPPoolSpec defines the desired state of IPPool.
 type IPPoolSpec struct {
-	// Type defines the type of this IPPool, external or private.
-	// +kubebuilder:validation:Enum=external;private
-	// +kubebuilder:default=external
+	// Type defines the type of this IPPool, public or private.
+	// +kubebuilder:validation:Enum=public;private
+	// +kubebuilder:default=private
 	Type string `json:"type"`
 	// Subnets defines set of subnets need to be allocated.
 	// +optional
