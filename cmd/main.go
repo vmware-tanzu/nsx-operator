@@ -82,7 +82,6 @@ func StartSecurityPolicyController(mgr ctrl.Manager, commonService common.Servic
 		os.Exit(1)
 	} else {
 		securityReconcile.Service = securityService
-		commonctl.ServiceMediator.SecurityPolicyService = securityService
 	}
 	if err := securityReconcile.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "SecurityPolicy")

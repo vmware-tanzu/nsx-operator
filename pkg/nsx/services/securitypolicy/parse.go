@@ -2,8 +2,11 @@ package securitypolicy
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -12,10 +15,13 @@ var validRuleActions = []string{
 	util.ToUpper(v1alpha1.RuleActionDrop),
 	util.ToUpper(v1alpha1.RuleActionReject),
 }
-var ruleDirectionIngress = util.ToUpper(v1alpha1.RuleDirectionIngress)
-var ruleDirectionIn = util.ToUpper(v1alpha1.RuleDirectionIn)
-var ruleDirectionEgress = util.ToUpper(v1alpha1.RuleDirectionEgress)
-var ruleDirectionOut = util.ToUpper(v1alpha1.RuleDirectionOut)
+
+var (
+	ruleDirectionIngress = util.ToUpper(v1alpha1.RuleDirectionIngress)
+	ruleDirectionIn      = util.ToUpper(v1alpha1.RuleDirectionIn)
+	ruleDirectionEgress  = util.ToUpper(v1alpha1.RuleDirectionEgress)
+	ruleDirectionOut     = util.ToUpper(v1alpha1.RuleDirectionOut)
+)
 
 func getRuleAction(rule *v1alpha1.SecurityPolicyRule) (string, error) {
 	ruleAction := util.ToUpper(*rule.Action)
@@ -43,4 +49,62 @@ func getCluster(service *SecurityPolicyService) string {
 
 func getDomain(service *SecurityPolicyService) string {
 	return getCluster(service)
+}
+
+func getVpcProjectDomain() string {
+	return "default"
+}
+
+func isVpcEnabled(service *SecurityPolicyService) bool {
+	return service.NSXConfig.EnableVPCNetwork
+}
+
+func getScopeCluserTag(service *SecurityPolicyService) string {
+	if isVpcEnabled(service) {
+		return common.TagScopeCluster
+	} else {
+		return common.TagScopeNCPCluster
+	}
+}
+
+func getScopePodTag(service *SecurityPolicyService) string {
+	if isVpcEnabled(service) {
+		return common.TagScopeVPCPod
+	} else {
+		return common.TagScopeNCPPod
+	}
+}
+
+func getScopeVMInterfaceTag(service *SecurityPolicyService) string {
+	if isVpcEnabled(service) {
+		return common.TagScopeSubnetPortCRUID
+	} else {
+		return common.TagScopeNCPVNETInterface
+	}
+}
+
+func getScopeProjectNamespaceUIDTag(service *SecurityPolicyService, isVMProject bool) string {
+	if isVpcEnabled(service) {
+		if isVMProject {
+			return common.TagScopeVPCVMNamespaceUID
+		} else {
+			return common.TagScopeVPCPodNamespaceUID
+		}
+	} else {
+		if isVMProject {
+			return common.TagScopeNCPVIFProjectUID
+		} else {
+			return common.TagScopeNCPProjectUID
+		}
+	}
+}
+
+func getVpcInfo(spNameSpace string) (*common.VPCResourceInfo, error) {
+	VPCInfo := commonctl.ServiceMediator.ListVPCInfo(spNameSpace)
+	if len(VPCInfo) == 0 {
+		errorMsg := fmt.Sprintf("there is no VPC info found for namespace %s", spNameSpace)
+		err := errors.New(errorMsg)
+		return nil, err
+	}
+	return &VPCInfo[0], nil
 }
