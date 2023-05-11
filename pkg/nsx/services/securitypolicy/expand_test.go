@@ -59,7 +59,7 @@ func TestSecurityPolicyService_buildRuleIPGroup(t *testing.T) {
 
 	var s *SecurityPolicyService
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(s), "BuildPeerTags",
-		func(s *SecurityPolicyService, v *v1alpha1.SecurityPolicy, p *[]v1alpha1.SecurityPolicyPeer, i int) []model.Tag {
+		func(s *SecurityPolicyService, v *v1alpha1.SecurityPolicy, p *[]v1alpha1.SecurityPolicyPeer, i int, isSource, groupShared bool) []model.Tag {
 			peerTags := []model.Tag{
 				{Scope: nil, Tag: nil},
 			}

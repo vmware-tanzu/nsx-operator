@@ -1,12 +1,15 @@
 package securitypolicy
 
 import (
+	"reflect"
 	"testing"
 
+	gomonkey "github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 )
@@ -120,9 +123,17 @@ func TestBuildSecurityPolicy(t *testing.T) {
 			},
 		},
 	}
+
+	var s *SecurityPolicyService
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
+		func(s *SecurityPolicyService, ns string) types.UID {
+			return types.UID(tagValueNSUID)
+		})
+	defer patches.Reset()
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observedPolicy, _, _ := service.buildSecurityPolicy(tt.inputPolicy)
+			observedPolicy, _, _, _ := service.buildSecurityPolicy(tt.inputPolicy)
 			assert.Equal(t, tt.expectedPolicy, observedPolicy)
 		})
 	}
@@ -144,6 +155,12 @@ func TestBuildPolicyGroup(t *testing.T) {
 			expectedPolicyGroupPath: "/infra/domains/k8scl-one/groups/sp_uidA_scope",
 		},
 	}
+	var s *SecurityPolicyService
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
+		func(s *SecurityPolicyService, ns string) types.UID {
+			return types.UID(tagValueNSUID)
+		})
+	defer patches.Reset()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			observedGroup, observedGroupPath, _ := service.buildPolicyGroup(tt.inputPolicy)
@@ -185,8 +202,12 @@ func TestBuildTargetTags(t *testing.T) {
 			inputIndex: 0,
 			expectedTags: []model.Tag{
 				{
+					Scope: &tagScopeVersion,
+					Tag:   &tagValueVersion,
+				},
+				{
 					Scope: &tagScopeGroupType,
-					Tag:   &tagValueScope,
+					Tag:   &tagValueGroupScope,
 				},
 				{
 					Scope: &tagScopeSelectorHash,
@@ -199,6 +220,10 @@ func TestBuildTargetTags(t *testing.T) {
 				{
 					Scope: &tagScopeNamespace,
 					Tag:   &tagValueNS,
+				},
+				{
+					Scope: &tagScopeNamespaceUID,
+					Tag:   &tagValueNSUID,
 				},
 				{
 					Scope: &tagScopeSecurityPolicyCRName,
@@ -215,9 +240,15 @@ func TestBuildTargetTags(t *testing.T) {
 			},
 		},
 	}
+	var s *SecurityPolicyService
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
+		func(s *SecurityPolicyService, ns string) types.UID {
+			return types.UID(tagValueNSUID)
+		})
+	defer patches.Reset()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expectedTags, service.buildTargetTags(tt.inputPolicy, tt.inputTargets, tt.inputIndex))
+			assert.ElementsMatch(t, tt.expectedTags, service.buildTargetTags(tt.inputPolicy, tt.inputTargets, tt.inputIndex))
 		})
 	}
 }
@@ -235,8 +266,12 @@ func TestBuildPeerTags(t *testing.T) {
 			inputIndex:  0,
 			expectedTags: []model.Tag{
 				{
+					Scope: &tagScopeVersion,
+					Tag:   &tagValueVersion,
+				},
+				{
 					Scope: &tagScopeGroupType,
-					Tag:   &tagValueScope,
+					Tag:   &tagValueGroupSource,
 				},
 				{
 					Scope: &tagScopeRuleID,
@@ -255,6 +290,10 @@ func TestBuildPeerTags(t *testing.T) {
 					Tag:   &tagValueNS,
 				},
 				{
+					Scope: &tagScopeNamespaceUID,
+					Tag:   &tagValueNSUID,
+				},
+				{
 					Scope: &tagScopeSecurityPolicyCRName,
 					Tag:   &tagValuePolicyCRName,
 				},
@@ -265,9 +304,15 @@ func TestBuildPeerTags(t *testing.T) {
 			},
 		},
 	}
+	var s *SecurityPolicyService
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
+		func(s *SecurityPolicyService, ns string) types.UID {
+			return types.UID(tagValueNSUID)
+		})
+	defer patches.Reset()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expectedTags, service.BuildPeerTags(tt.inputPolicy, &tt.inputPolicy.Spec.Rules[0].Sources, tt.inputIndex))
+			assert.ElementsMatch(t, tt.expectedTags, service.BuildPeerTags(tt.inputPolicy, &tt.inputPolicy.Spec.Rules[0].Sources, tt.inputIndex, true, false))
 		})
 	}
 }

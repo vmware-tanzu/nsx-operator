@@ -11,6 +11,7 @@ type (
 	SecurityPolicy model.SecurityPolicy
 	Rule           model.Rule
 	Group          model.Group
+	Share          model.Share
 )
 
 type Comparable = common.Comparable
@@ -25,6 +26,10 @@ func (group *Group) Key() string {
 
 func (rule *Rule) Key() string {
 	return *rule.Id
+}
+
+func (share *Share) Key() string {
+	return *share.Id
 }
 
 func (sp *SecurityPolicy) Value() data.DataValue {
@@ -68,6 +73,18 @@ func (group *Group) Value() data.DataValue {
 	return dataValue
 }
 
+func (share *Share) Value() data.DataValue {
+	s := &Share{
+		Id:          share.Id,
+		DisplayName: share.DisplayName,
+		Tags:        share.Tags,
+		SharedWith:  share.SharedWith,
+		Children:    share.Children,
+	}
+	dataValue, _ := ComparableToShare(s).GetDataValue__()
+	return dataValue
+}
+
 func SecurityPolicyToComparable(sp *model.SecurityPolicy) Comparable {
 	return (*SecurityPolicy)(sp)
 }
@@ -84,6 +101,18 @@ func GroupsToComparable(groups []model.Group) []Comparable {
 	res := make([]Comparable, 0, len(groups))
 	for i := range groups {
 		res = append(res, (*Group)(&(groups[i])))
+	}
+	return res
+}
+
+func ShareToComparable(share *model.Share) Comparable {
+	return (*Share)(share)
+}
+
+func SharesToComparable(shares []model.Share) []Comparable {
+	res := make([]Comparable, 0, len(shares))
+	for i := range shares {
+		res = append(res, (*Share)(&(shares[i])))
 	}
 	return res
 }
@@ -114,4 +143,16 @@ func ComparableToGroups(groups []Comparable) []model.Group {
 
 func ComparableToGroup(group Comparable) *model.Group {
 	return (*model.Group)(group.(*Group))
+}
+
+func ComparableToShares(shares []Comparable) []model.Share {
+	res := make([]model.Share, 0, len(shares))
+	for _, share := range shares {
+		res = append(res, (model.Share)(*(share.(*Share))))
+	}
+	return res
+}
+
+func ComparableToShare(share Comparable) *model.Share {
+	return (*model.Share)(share.(*Share))
 }

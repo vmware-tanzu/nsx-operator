@@ -40,38 +40,37 @@ const (
 	AllFeatures
 )
 
-var (
-	FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "STATIC_ROUTE"}
-)
+var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "STATIC_ROUTE"}
 
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
 	RestConnector *client.RestConnector
 
-	QueryClient                search.QueryClient
-	GroupClient                domains.GroupsClient
-	SecurityClient             domains.SecurityPoliciesClient
-	RuleClient                 security_policies.RulesClient
-	InfraClient                nsx_policy.InfraClient
-	StaticRouteClient          vpcs.StaticRoutesClient
-	VPCClient                  projects.VpcsClient
-	IPBlockClient              infra.IpBlocksClient
-	NATRuleClient              nat.NatRulesClient
+	QueryClient    search.QueryClient
+	GroupClient    domains.GroupsClient
+	SecurityClient domains.SecurityPoliciesClient
+	RuleClient     security_policies.RulesClient
+	InfraClient    nsx_policy.InfraClient
+
 	ClusterControlPlanesClient enforcement_points.ClusterControlPlanesClient
 	SubnetStatusClient         subnets.StatusClient
 	RealizedEntitiesClient     realized_state.RealizedEntitiesClient
-	ProjectInfraClient         projects.InfraClient
+	MPQueryClient              mpsearch.QueryClient
+	CertificatesClient         trust_management.CertificatesClient
+	PrincipalIdentitiesClient  trust_management.PrincipalIdentitiesClient
+	WithCertificateClient      principal_identities.WithCertificateClient
 
-	MPQueryClient             mpsearch.QueryClient
-	CertificatesClient        trust_management.CertificatesClient
-	PrincipalIdentitiesClient trust_management.PrincipalIdentitiesClient
-	WithCertificateClient     principal_identities.WithCertificateClient
-
+	OrgRootClient       nsx_policy.OrgRootClient
+	ProjectInfraClient  projects.InfraClient
+	VPCClient           projects.VpcsClient
+	IPBlockClient       infra.IpBlocksClient
+	StaticRouteClient   vpcs.StaticRoutesClient
+	NATRuleClient       nat.NatRulesClient
+	VpcGroupClient      vpcs.GroupsClient
 	PortClient          subnets.PortsClient
 	PortStateClient     ports.StateClient
 	IPPoolClient        subnets.IpPoolsClient
 	IPAllocationClient  ip_pools.IpAllocationsClient
-	OrgRootClient       nsx_policy.OrgRootClient
 	SubnetsClient       vpcs.SubnetsClient
 	RealizedStateClient realized_state.RealizedEntitiesClient
 
@@ -125,10 +124,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	securityClient := domains.NewSecurityPoliciesClient(restConnector(cluster))
 	ruleClient := security_policies.NewRulesClient(restConnector(cluster))
 	infraClient := nsx_policy.NewInfraClient(restConnector(cluster))
-	staticRouteClient := vpcs.NewStaticRoutesClient(restConnector(cluster))
-	vpcClient := projects.NewVpcsClient(restConnector(cluster))
-	ipBlockClient := infra.NewIpBlocksClient(restConnector(cluster))
-	natRulesClient := nat.NewNatRulesClient(restConnector(cluster))
+
 	clusterControlPlanesClient := enforcement_points.NewClusterControlPlanesClient(restConnector(cluster))
 	realizedEntitiesClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
 	mpQueryClient := mpsearch.NewQueryClient(restConnector(cluster))
@@ -136,16 +132,21 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	principalIdentitiesClient := trust_management.NewPrincipalIdentitiesClient(restConnector(cluster))
 	withCertificateClient := principal_identities.NewWithCertificateClient(restConnector(cluster))
 
+	orgRootClient := nsx_policy.NewOrgRootClient(restConnector(cluster))
 	projectInfraClient := projects.NewInfraClient(restConnector(cluster))
+	vpcClient := projects.NewVpcsClient(restConnector(cluster))
+	ipBlockClient := infra.NewIpBlocksClient(restConnector(cluster))
+	staticRouteClient := vpcs.NewStaticRoutesClient(restConnector(cluster))
+	natRulesClient := nat.NewNatRulesClient(restConnector(cluster))
+	vpcGroupClient := vpcs.NewGroupsClient(restConnector(cluster))
 	portClient := subnets.NewPortsClient(restConnector(cluster))
 	portStateClient := ports.NewStateClient(restConnector(cluster))
-
 	ipPoolClient := subnets.NewIpPoolsClient(restConnector(cluster))
 	ipAllocationClient := ip_pools.NewIpAllocationsClient(restConnector(cluster))
-	orgRootClient := nsx_policy.NewOrgRootClient(restConnector(cluster))
 	subnetsClient := vpcs.NewSubnetsClient(restConnector(cluster))
 	subnetStatusClient := subnets.NewStatusClient(restConnector(cluster))
 	realizedStateClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
+
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
 	}
@@ -155,26 +156,28 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	}
 
 	nsxClient := &Client{
-		NsxConfig:                  cf,
-		RestConnector:              restConnector(cluster),
-		QueryClient:                queryClient,
-		GroupClient:                groupClient,
-		SecurityClient:             securityClient,
-		RuleClient:                 ruleClient,
-		InfraClient:                infraClient,
-		StaticRouteClient:          staticRouteClient,
-		VPCClient:                  vpcClient,
-		IPBlockClient:              ipBlockClient,
-		NATRuleClient:              natRulesClient,
+		NsxConfig:      cf,
+		RestConnector:  restConnector(cluster),
+		QueryClient:    queryClient,
+		GroupClient:    groupClient,
+		SecurityClient: securityClient,
+		RuleClient:     ruleClient,
+		InfraClient:    infraClient,
+
 		ClusterControlPlanesClient: clusterControlPlanesClient,
 		RealizedEntitiesClient:     realizedEntitiesClient,
+		MPQueryClient:              mpQueryClient,
+		CertificatesClient:         certificatesClient,
+		PrincipalIdentitiesClient:  principalIdentitiesClient,
+		WithCertificateClient:      withCertificateClient,
 
-		MPQueryClient:             mpQueryClient,
-		CertificatesClient:        certificatesClient,
-		PrincipalIdentitiesClient: principalIdentitiesClient,
-		WithCertificateClient:     withCertificateClient,
-
+		OrgRootClient:      orgRootClient,
 		ProjectInfraClient: projectInfraClient,
+		VPCClient:          vpcClient,
+		IPBlockClient:      ipBlockClient,
+		StaticRouteClient:  staticRouteClient,
+		NATRuleClient:      natRulesClient,
+		VpcGroupClient:     vpcGroupClient,
 		PortClient:         portClient,
 		PortStateClient:    portStateClient,
 		SubnetStatusClient: subnetStatusClient,
@@ -183,7 +186,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		NSXVerChecker:       *nsxVersionChecker,
 		IPPoolClient:        ipPoolClient,
 		IPAllocationClient:  ipAllocationClient,
-		OrgRootClient:       orgRootClient,
 		SubnetsClient:       subnetsClient,
 		RealizedStateClient: realizedStateClient,
 	}

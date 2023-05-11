@@ -67,7 +67,7 @@ func (e *EnqueueRequestForNamespace) Update(updateEvent event.UpdateEvent, l wor
 
 	err = reconcileSecurityPolicy(e.Client, podList.Items, l)
 	if err != nil {
-		log.Error(err, "failed to reconcile security policy")
+		log.Error(err, "failed to reconcile security policy for namedport check")
 	}
 }
 

@@ -14,8 +14,7 @@ import (
 func TestServiceMediator_GetOrgProject(t *testing.T) {
 	vpcService := &vpc.VPCService{}
 	vs := &ServiceMediator{
-		SecurityPolicyService: nil,
-		VPCService:            vpcService,
+		VPCService: vpcService,
 	}
 
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []model.Vpc {
