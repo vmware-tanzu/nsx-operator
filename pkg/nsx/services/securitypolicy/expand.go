@@ -61,13 +61,14 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 		}
 		startPort, err = service.resolveNamedPort(obj, rule, port)
 		if err != nil {
-			// Update the stale ip set group if stale ips exist
+			// In case there is no more valid ip set selected, so clear the stale ip set group in nsx if stale ips exist
 			if errors.As(err, &nsxutil.NoEffectiveOption{}) {
 				groups := service.groupStore.GetByIndex(common.TagScopeRuleID, service.buildRuleID(obj, ruleIdx))
 				var ipSetGroup model.Group
 				for _, group := range groups {
 					ipSetGroup = group
-					ipSetGroup.Expression = nil // clear the stale ips
+					// Clear ip set group in nsx
+					ipSetGroup.Expression = nil
 					err3 := service.createOrUpdateGroups([]model.Group{ipSetGroup})
 					if err3 != nil {
 						return nil, nil, err3
@@ -147,8 +148,8 @@ func (service *SecurityPolicyService) resolveNamedPort(obj *v1alpha1.SecurityPol
 	}
 
 	if len(portAddress) == 0 {
-		return nil, nsxutil.NoFilteredPod{
-			Desc: "no pod has the corresponding named port, please check the pod selector or labels of CR",
+		return nil, nsxutil.NoEffectiveOption{
+			Desc: "no pod has the corresponding named port",
 		}
 	}
 	return nsxutil.MergeAddressByPort(portAddress), nil
