@@ -555,14 +555,6 @@ func (err PodNotRunning) Error() string {
 	return err.Desc
 }
 
-type NoFilteredPod struct {
-	Desc string
-}
-
-func (err NoFilteredPod) Error() string {
-	return err.Desc
-}
-
 type NoEffectiveOption struct {
 	Desc string
 }

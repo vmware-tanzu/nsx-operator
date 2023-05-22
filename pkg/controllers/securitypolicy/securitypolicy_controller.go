@@ -22,8 +22,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -230,12 +228,6 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 func (r *SecurityPolicyReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.SecurityPolicy{}).
-		WithEventFilter(predicate.Funcs{
-			DeleteFunc: func(e event.DeleteEvent) bool {
-				// Suppress Delete events to avoid filtering them out in the Reconcile function
-				return false
-			},
-		}).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: runtime.NumCPU(),
