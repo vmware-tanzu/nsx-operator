@@ -48,6 +48,26 @@ var filterTag = func(v []model.Tag) []string {
 	return res
 }
 
+func indexGroupFunc(obj interface{}) ([]string, error) {
+	res := make([]string, 0, 5)
+	switch o := obj.(type) {
+	case model.Group:
+		return filterGroupTag(o.Tags), nil
+	default:
+		return res, errors.New("indexGroupFunc doesn't support unknown type")
+	}
+}
+
+var filterGroupTag = func(v []model.Tag) []string {
+	res := make([]string, 0, 5)
+	for _, tag := range v {
+		if *tag.Scope == common.TagScopeRuleID {
+			res = append(res, *tag.Tag)
+		}
+	}
+	return res
+}
+
 // SecurityPolicyStore is a store for security policy
 type SecurityPolicyStore struct {
 	common.ResourceStore
