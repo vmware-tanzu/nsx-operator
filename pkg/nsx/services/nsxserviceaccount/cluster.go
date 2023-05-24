@@ -71,8 +71,8 @@ func InitializeNSXServiceAccount(service common.Service) (*NSXServiceAccountServ
 	nsxServiceAccountService := &NSXServiceAccountService{Service: service}
 
 	nsxServiceAccountService.SetUpStore()
-	go nsxServiceAccountService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypePrincipalIdentity, nsxServiceAccountService.PrincipalIdentityStore)
-	go nsxServiceAccountService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeClusterControlPlane, nsxServiceAccountService.ClusterControlPlaneStore)
+	go nsxServiceAccountService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypePrincipalIdentity, nil, nsxServiceAccountService.PrincipalIdentityStore)
+	go nsxServiceAccountService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeClusterControlPlane, nil, nsxServiceAccountService.ClusterControlPlaneStore)
 	go func() {
 		wg.Wait()
 		close(wgDone)

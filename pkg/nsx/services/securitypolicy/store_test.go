@@ -152,7 +152,9 @@ func Test_InitializeRuleStore(t *testing.T) {
 		})
 	defer patches2.Reset()
 
-	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, ruleStore)
+	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, nil, ruleStore)
+	assert.Empty(t, fatalErrors)
+	assert.Equal(t, []string{"11111"}, ruleStore.ListKeys())
 }
 
 func Test_InitializeGroupStore(t *testing.T) {
@@ -201,7 +203,9 @@ func Test_InitializeGroupStore(t *testing.T) {
 		})
 	defer patches2.Reset()
 
-	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, groupStore)
+	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, nil, groupStore)
+	assert.Empty(t, fatalErrors)
+	assert.Equal(t, []string{"11111"}, groupStore.ListKeys())
 }
 
 func Test_InitializeSecurityPolicyStore(t *testing.T) {
@@ -250,7 +254,9 @@ func Test_InitializeSecurityPolicyStore(t *testing.T) {
 		})
 	defer patches2.Reset()
 
-	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSecurityPolicy, securityPolicyStore)
+	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSecurityPolicy, nil, securityPolicyStore)
+	assert.Empty(t, fatalErrors)
+	assert.Equal(t, []string{"11111"}, securityPolicyStore.ListKeys())
 }
 
 func TestSecurityPolicyStore_Operate(t *testing.T) {
