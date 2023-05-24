@@ -123,23 +123,30 @@ func TransError(err error) error {
 
 // InitializeResourceStore is the method to query all the various resources from nsx-t side and
 // save them to the store, we could use it to cache all the resources when process starts.
-func (service *Service) InitializeResourceStore(wg *sync.WaitGroup, fatalErrors chan error, resourceTypeValue string, store Store) {
-	service.InitializeCommonStore(wg, fatalErrors, "", "", resourceTypeValue, store)
+func (service *Service) InitializeResourceStore(wg *sync.WaitGroup, fatalErrors chan error, resourceTypeValue string, tags []model.Tag, store Store) {
+	service.InitializeCommonStore(wg, fatalErrors, "", "", resourceTypeValue, tags, store)
 }
 
 // InitializeVPCResourceStore is the method to query all the various VPC resources from nsx-t side and
 // save them to the store, we could use it to cache all the resources when process starts.
-func (service *Service) InitializeVPCResourceStore(wg *sync.WaitGroup, fatalErrors chan error, org string, project string, resourceTypeValue string, store Store) {
-	service.InitializeCommonStore(wg, fatalErrors, org, project, resourceTypeValue, store)
+func (service *Service) InitializeVPCResourceStore(wg *sync.WaitGroup, fatalErrors chan error, org string, project string, resourceTypeValue string, tags []model.Tag, store Store) {
+	service.InitializeCommonStore(wg, fatalErrors, org, project, resourceTypeValue, tags, store)
 }
 
 // InitializeCommonStore is the common method used by InitializeResourceStore and InitializeVPCResourceStore
-func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors chan error, org string, project string, resourceTypeValue string, store Store) {
+func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors chan error, org string, project string, resourceTypeValue string, tags []model.Tag, store Store) {
 	defer wg.Done()
 
 	tagScopeClusterKey := strings.Replace(TagScopeCluster, "/", "\\/", -1)
 	tagScopeClusterValue := strings.Replace(service.NSXClient.NsxConfig.Cluster, ":", "\\:", -1)
 	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
+
+	for _, tag := range tags {
+		tagKey := strings.Replace(*tag.Scope, "/", "\\/", -1)
+		tagValue := strings.Replace(*tag.Tag, ":", "\\:", -1)
+		tagParam += fmt.Sprintf(" AND tags.scope:%s AND tags.tag:%s", tagKey, tagValue)
+	}
+
 	resourceParam := fmt.Sprintf("%s:%s", ResourceType, resourceTypeValue)
 	queryParam := resourceParam + " AND " + tagParam
 

@@ -177,5 +177,5 @@ func Test_InitializeResourceStore(t *testing.T) {
 		})
 	defer patches2.Reset()
 
-	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, ruleStore)
+	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, nil, ruleStore)
 }

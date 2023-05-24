@@ -152,7 +152,7 @@ func Test_InitializeRuleStore(t *testing.T) {
 		})
 	defer patches2.Reset()
 
-	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, ruleStore)
+	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, nil, ruleStore)
 }
 
 func Test_InitializeGroupStore(t *testing.T) {
@@ -201,7 +201,7 @@ func Test_InitializeGroupStore(t *testing.T) {
 		})
 	defer patches2.Reset()
 
-	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, groupStore)
+	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, nil, groupStore)
 }
 
 func Test_InitializeSecurityPolicyStore(t *testing.T) {
@@ -250,7 +250,7 @@ func Test_InitializeSecurityPolicyStore(t *testing.T) {
 		})
 	defer patches2.Reset()
 
-	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSecurityPolicy, securityPolicyStore)
+	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSecurityPolicy, nil, securityPolicyStore)
 }
 
 func TestSecurityPolicyStore_Operate(t *testing.T) {
