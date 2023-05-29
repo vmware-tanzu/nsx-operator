@@ -1,4 +1,4 @@
-/* Copyright © 2022 VMware, Inc. All Rights Reserved.
+/* Copyright © 2023 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package ippool
@@ -90,7 +90,7 @@ func (r *Reconciler) setReadyStatusTrue(ctx *context.Context, ippool *v1alpha2.I
 			Type:    v1alpha1.Ready,
 			Status:  v1.ConditionTrue,
 			Message: "NSX IPPool has been successfully created/updated",
-			Reason:  "NSX API returned 200 response code for PATCH",
+			Reason:  "",
 		},
 	}
 	ippool.Status.Conditions = conditions

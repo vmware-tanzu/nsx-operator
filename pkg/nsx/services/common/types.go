@@ -81,7 +81,7 @@ var (
 	Bool   = pointy.Bool   // address of bool
 )
 
-type OrgProjectVPC struct {
+type VPCInfo struct {
 	OrgID     string
 	ProjectID string
 	VPCID     string

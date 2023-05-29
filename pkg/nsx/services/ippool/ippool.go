@@ -120,11 +120,11 @@ func (service *IPPoolService) Operate(nsxIPPool *model.IpAddressPool, nsxIPSubne
 
 	if IPPoolType == common.IPPoolTypePrivate {
 		ns := service.GetIPPoolNamespace(nsxIPPool)
-		orgProjects := commonctl.ServiceMediator.GetOrgProjectVPC(ns)
-		if len(orgProjects) == 0 {
+		VPCInfo := commonctl.ServiceMediator.GetVPCInfo(ns)
+		if len(VPCInfo) == 0 {
 			err = util.NoEffectiveOption{Desc: "no effective org and project for ippool"}
 		} else {
-			err = service.NSXClient.ProjectInfraClient.Patch(orgProjects[0].OrgID, orgProjects[0].ProjectID, *infraIPPool,
+			err = service.NSXClient.ProjectInfraClient.Patch(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, *infraIPPool,
 				&EnforceRevisionCheckParam)
 		}
 	} else if IPPoolType == common.IPPoolTypePublic {

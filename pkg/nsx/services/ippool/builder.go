@@ -74,11 +74,11 @@ func (service *IPPoolService) buildIPSubnetTags(IPPool *v1alpha2.IPPool, subnetR
 
 func (service *IPPoolService) buildIPSubnetIntentPath(IPPool *v1alpha2.IPPool, subnetRequest *v1alpha2.SubnetRequest) string {
 	if IPPool.Spec.Type == common.IPPoolTypePrivate {
-		orgProjects := commonctl.ServiceMediator.GetOrgProjectVPC(IPPool.Namespace)
-		if len(orgProjects) == 0 {
+		VPCInfo := commonctl.ServiceMediator.GetVPCInfo(IPPool.Namespace)
+		if len(VPCInfo) == 0 {
 			return ""
 		}
-		return strings.Join([]string{fmt.Sprintf("/orgs/%s/projects/%s/infra/ip-pools", orgProjects[0].OrgID, orgProjects[0].ProjectID),
+		return strings.Join([]string{fmt.Sprintf("/orgs/%s/projects/%s/infra/ip-pools", VPCInfo[0].OrgID, VPCInfo[0].ProjectID),
 			service.buildIPPoolID(IPPool),
 			"ip-subnets", service.buildIPSubnetID(IPPool, subnetRequest)}, "/")
 	} else {
@@ -91,12 +91,12 @@ func (service *IPPoolService) buildIPSubnet(IPPool *v1alpha2.IPPool, subnetReque
 	// TODO: Get the IPBlockPath by IPPool's namespace, external and private
 	IpBlockPath := String("/infra/ip-blocks/block-test")
 	if IPPool.Spec.Type == common.IPPoolTypePrivate {
-		orgProjects := commonctl.ServiceMediator.GetOrgProjectVPC(IPPool.Namespace)
-		if len(orgProjects) == 0 {
+		VPCInfo := commonctl.ServiceMediator.GetVPCInfo(IPPool.Namespace)
+		if len(VPCInfo) == 0 {
 			return nil
 		}
 		// TODO: Get the IPBlockPath by IPPool's namespace, external and private
-		IpBlockPath = String(fmt.Sprintf("/orgs/%s/projects/%s/infra/ip-blocks/block-test", orgProjects[0].OrgID, orgProjects[0].ProjectID))
+		IpBlockPath = String(fmt.Sprintf("/orgs/%s/projects/%s/infra/ip-blocks/block-test", VPCInfo[0].OrgID, VPCInfo[0].ProjectID))
 	}
 	return &model.IpAddressPoolBlockSubnet{
 		Id:          String(service.buildIPSubnetID(IPPool, &subnetRequest)),
