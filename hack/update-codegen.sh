@@ -18,7 +18,7 @@ CODEGEN_PKG=$(go env GOMODCACHE)/k8s.io/code-generator@v0.27.1
 rm -fr "${APIS:?}/${GROUP:?}"
 rm -fr ./pkg/client
 mkdir -p "${APIS}/${GROUP}/${VERSION}"
-cp -r "${APIS}/${VERSION}/" "${APIS}/${GROUP}/${VERSION}"
+cp -r "${APIS}/${VERSION}"/* "${APIS}/${GROUP}/${VERSION}/"
 
 
 bash "${CODEGEN_PKG}"/generate-groups.sh "client,lister,informer" \

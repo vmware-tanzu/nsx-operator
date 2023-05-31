@@ -35,6 +35,7 @@ type NSXOperatorConfig struct {
 	*NsxConfig
 	*K8sConfig
 	*VCConfig
+	*HAConfig
 }
 
 type DefaultConfig struct {
@@ -77,6 +78,10 @@ type VCConfig struct {
 	VCEndPoint string `ini:"vc_endpoint"`
 	SsoDomain  string `ini:"sso_domain"`
 	HttpsPort  int    `ini:"https_port"`
+}
+
+type HAConfig struct {
+	EnableHA bool `ini:"enable"`
 }
 
 type Validate interface {
@@ -127,6 +132,10 @@ func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	err = cfg.Section("ha").MapTo(nsxOperatorConfig.HAConfig)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := nsxOperatorConfig.validate(); err != nil {
 		return nil, err
@@ -142,6 +151,7 @@ func NewNSXOpertorConfig() *NSXOperatorConfig {
 		&NsxConfig{},
 		&K8sConfig{},
 		&VCConfig{},
+		&HAConfig{},
 	}
 	return defaultNSXOperatorConfig
 }

@@ -29,28 +29,28 @@ func CompareResources(existing []Comparable, expected []Comparable) (changed []C
 	changed = make([]Comparable, 0)
 
 	expectedMap := make(map[string]Comparable)
-	for _, e := range expected {
-		expectedMap[e.Key()] = e
+	for _, expected_item := range expected {
+		expectedMap[expected_item.Key()] = expected_item
 	}
 	existingMap := make(map[string]Comparable)
-	for _, e := range existing {
-		existingMap[e.Key()] = e
+	for _, existed_item := range existing {
+		existingMap[existed_item.Key()] = existed_item
 	}
 
-	for key, e := range expectedMap {
-		if e2, ok := existingMap[key]; ok {
-			if isChanged := CompareResource(e2, e); !isChanged {
+	for key, expected_item := range expectedMap {
+		if existed_item, ok := existingMap[key]; ok {
+			if isChanged := CompareResource(existed_item, expected_item); !isChanged {
 				continue
 			} else {
-				log.V(1).Info("resource changed", "existing", e2, "expected", e)
+				log.V(1).Info("resource changed", "existing", existed_item, "expected", expected_item)
 			}
 		}
-		changed = append(changed, e)
+		changed = append(changed, expected_item)
 	}
-	for key, e := range existingMap {
+	for key, existed_item := range existingMap {
 		if _, ok := expectedMap[key]; !ok {
-			log.V(1).Info("resource stale", "existing", e)
-			stale = append(stale, e)
+			log.V(1).Info("resource stale", "existing", existed_item)
+			stale = append(stale, existed_item)
 		}
 	}
 	log.V(1).Info("resources differ", "stale", stale, "changed", changed)

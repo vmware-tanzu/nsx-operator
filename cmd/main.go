@@ -37,6 +37,8 @@ var (
 	probeAddr, metricsAddr string
 	log                    = logger.Log
 	cf                     *config.NSXOperatorConfig
+	nsxOperatorNamespace   = "default"
+	enableHA               = true
 )
 
 func init() {
@@ -54,6 +56,14 @@ func init() {
 	if err != nil {
 		log.Error(err, "load config file error")
 		os.Exit(1)
+	}
+
+	if os.Getenv("NSX_OPERATOR_NAMESPACE") != "" {
+		nsxOperatorNamespace = os.Getenv("NSX_OPERATOR_NAMESPACE")
+	}
+
+	if cf.EnableHA == false {
+		enableHA = false
 	}
 
 	if metrics.AreMetricsExposed(cf) {
@@ -125,11 +135,17 @@ func StartIPPoolController(mgr ctrl.Manager, commonService common.Service) {
 func main() {
 	log.Info("starting NSX Operator")
 
+	if enableHA {
+		log.Info("HA mode enabled")
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 scheme,
-		HealthProbeBindAddress: probeAddr,
-		MetricsBindAddress:     metricsAddr,
-		LeaderElectionID:       "nsx-operator",
+		Scheme:                  scheme,
+		HealthProbeBindAddress:  probeAddr,
+		MetricsBindAddress:      metricsAddr,
+		LeaderElection:          enableHA,
+		LeaderElectionNamespace: nsxOperatorNamespace,
+		LeaderElectionID:        "nsx-operator",
 	})
 	if err != nil {
 		log.Error(err, "failed to init manager")
