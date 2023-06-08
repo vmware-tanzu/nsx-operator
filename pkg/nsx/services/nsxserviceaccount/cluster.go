@@ -180,7 +180,8 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 
 	// update NSXServiceAccountStatus
 	obj.Status.Phase = v1alpha1.NSXServiceAccountPhaseRealized
-	obj.Status.Reason = "Success."
+	obj.Status.Reason = "Success"
+	obj.Status.Conditions = GenerateNSXServiceAccountConditions(obj.Status.Conditions, obj.Generation, metav1.ConditionTrue, v1alpha1.ConditionReasonRealizationSuccess, "Success.")
 	obj.Status.NSXManagers = s.NSXConfig.NsxApiManagers
 	obj.Status.ClusterID = clusterId
 	obj.Status.ClusterName = normalizedClusterName
@@ -286,4 +287,37 @@ func (s *NSXServiceAccountService) GetNSXServiceAccountNameByUID(uid string) (na
 
 func (s *NSXServiceAccountService) getClusterName(namespace, name string) string {
 	return fmt.Sprintf("%s-%s-%s", s.NSXConfig.CoeConfig.Cluster, namespace, name)
+}
+
+func GenerateNSXServiceAccountConditions(existingConditions []metav1.Condition, generation int64, realizedStatus metav1.ConditionStatus, realizedReason string, message string) []metav1.Condition {
+	var conditions []metav1.Condition
+	lastTransitionTime := metav1.Now()
+	for _, condition := range existingConditions {
+		switch condition.Type {
+		case v1alpha1.ConditionTypeRealized:
+			if condition.Status == realizedStatus {
+				lastTransitionTime = condition.LastTransitionTime
+			}
+		default:
+			conditions = append(conditions, *condition.DeepCopy())
+		}
+	}
+	conditions = append(conditions, metav1.Condition{
+		Type:               v1alpha1.ConditionTypeRealized,
+		Status:             realizedStatus,
+		Reason:             realizedReason,
+		ObservedGeneration: generation,
+		LastTransitionTime: lastTransitionTime,
+		Message:            message,
+	})
+	return conditions
+}
+
+func IsNSXServiceAccountRealized(status v1alpha1.NSXServiceAccountStatus) bool {
+	for _, condition := range status.Conditions {
+		if condition.Type == v1alpha1.ConditionTypeRealized && condition.Status == metav1.ConditionTrue {
+			return true
+		}
+	}
+	return status.Phase == v1alpha1.NSXServiceAccountPhaseRealized
 }
