@@ -48,8 +48,11 @@ func InitializeIPPool(service common.Service) (*IPPoolService, error) {
 		BindingType: model.IpAddressPoolBlockSubnetBindingType(),
 	}}
 
-	go ipPoolService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeIPPool, ipPoolService.ipPoolStore)
-	go ipPoolService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeIPPoolBlockSubnet, ipPoolService.ipPoolBlockSubnetStore)
+	go ipPoolService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeIPPool, nil, ipPoolService.ipPoolStore)
+	tags := []model.Tag{
+		{Scope: String(common.TagScopeIPSubnetOwner), Tag: String(ResourceTypeIPPool)},
+	}
+	go ipPoolService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeIPPoolBlockSubnet, tags, ipPoolService.ipPoolBlockSubnetStore)
 
 	go func() {
 		wg.Wait()
@@ -67,10 +70,6 @@ func InitializeIPPool(service common.Service) (*IPPoolService, error) {
 
 func (service *IPPoolService) CreateOrUpdateIPPool(obj *v1alpha2.IPPool) (bool, bool, error) {
 	nsxIPPool, nsxIPSubnets := service.BuildIPPool(obj)
-	if nsxIPPool == nil || len(nsxIPSubnets) == 0 {
-		err := util.NoEffectiveOption{Desc: "build ip pool and ip pool subnets failed, check its namespace, ippool type and vpc"}
-		return false, false, err
-	}
 	existingIPPool, existingIPSubnets, err := service.indexedIPPoolAndIPPoolSubnets(obj.UID)
 	log.V(1).Info("existing ippool and ip subnets", "existingIPPool", existingIPPool, "existingIPSubnets", existingIPSubnets)
 	if err != nil {
@@ -152,7 +151,7 @@ func (service *IPPoolService) Operate(nsxIPPool *model.IpAddressPool, nsxIPSubne
 }
 
 func (service *IPPoolService) AcquireRealizedSubnetIP(obj *v1alpha2.IPPool) ([]v1alpha2.SubnetResult, bool, error) {
-	var realizedSubnets []v1alpha2.SubnetResult
+	realizedSubnets := []v1alpha2.SubnetResult{}
 	subnetCidrUpdated := false
 	for _, subnetRequest := range obj.Spec.Subnets {
 		// check if the subnet is already realized

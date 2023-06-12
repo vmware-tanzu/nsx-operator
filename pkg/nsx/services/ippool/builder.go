@@ -69,6 +69,7 @@ func (service *IPPoolService) buildIPSubnetTags(IPPool *v1alpha2.IPPool, subnetR
 		{Scope: String(common.TagScopeIPPoolCRName), Tag: String(IPPool.ObjectMeta.Name)},
 		{Scope: String(common.TagScopeIPPoolCRUID), Tag: String(string(IPPool.UID))},
 		{Scope: String(common.TagScopeIPSubnetName), Tag: String(subnetRequest.Name)},
+		{Scope: String(common.TagScopeIPSubnetOwner), Tag: String(ResourceTypeIPPool)},
 	}
 }
 

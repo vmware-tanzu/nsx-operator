@@ -29,6 +29,7 @@ const (
 	TagScopeIPPoolCRUID             string = "nsx-op/ippool_cr_uid"
 	TagScopeIPPoolCRType            string = "nsx-op/ippool_cr_type"
 	TagScopeIPSubnetName            string = "nsx-op/ipsubnet_cr_name"
+	TagScopeIPSubnetOwner           string = "nsx-op/ipsubnet_cr_owner"
 	TagScopeNCPCluster              string = "ncp/cluster"
 	TagScopeNCPProject              string = "ncp/project"
 	TagScopeNCPVIFProject           string = "ncp/vif_project"

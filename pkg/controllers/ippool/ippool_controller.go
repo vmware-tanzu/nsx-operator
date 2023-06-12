@@ -137,7 +137,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			return resultRequeue, err
 		}
 		if !r.Service.FullyRealized(obj) {
-			if subnetCidrUpdated || ipPoolSubnetsUpdated {
+			if subnetCidrUpdated || ipPoolSubnetsUpdated || len(obj.Spec.Subnets) == 0 {
 				updateSuccess(r, &ctx, obj)
 			}
 			log.Info("successfully reconcile ippool CR, but put back ippool again, since partial subnets are unrealized", "subnets",
