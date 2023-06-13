@@ -42,11 +42,4 @@ resources:
   kind: IPPool
   path: github.com/vmware-tanzu/nsx-operator/pkg/api/v1alpha2
   version: v1alpha2
-- api:
-    crdVersion: v1
-    namespaced: true
-  domain: nsx.vmware.com
-  kind: IPPool
-  path: github.com/vmware-tanzu/nsx-operator/pkg/api/v1alpha2
-  version: v1alpha2
 version: "3"

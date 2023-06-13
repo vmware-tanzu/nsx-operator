@@ -67,7 +67,7 @@ func (r *Reconciler) setReadyStatusFalse(ctx *context.Context, ippool *v1alpha2.
 		{
 			Type:    v1alpha1.Ready,
 			Status:  v1.ConditionFalse,
-			Message: "NSX IPPool could not be created/updated",
+			Message: "NSX IPPool could not be created/updated/deleted",
 			Reason: fmt.Sprintf(
 				"error occurred while processing the IPPool CR. Error: %v",
 				*err,

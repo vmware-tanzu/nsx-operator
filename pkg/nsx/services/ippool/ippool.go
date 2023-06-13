@@ -218,7 +218,7 @@ func (service *IPPoolService) acquireCidr(obj *v1alpha2.IPPool, subnetRequest *v
 			for _, attr := range realizedEntity.ExtendedAttributes {
 				if *attr.Key == "cidr" {
 					cidr := attr.Values[0]
-					log.V(1).Info("successfully realized ip subnet ip", "subnetRequest.Name", subnetRequest.Name, "cidr", cidr)
+					log.V(1).Info("successfully realized ippool subnet from ipblock", "subnetRequest.Name", subnetRequest.Name, "cidr", cidr)
 					return cidr, nil
 				}
 			}
