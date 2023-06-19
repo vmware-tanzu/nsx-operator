@@ -47,7 +47,7 @@ var (
 	ResourceTypeSecurityPolicy = "SecurityPolicy"
 	ResourceTypeGroup          = "Group"
 	ResourceTypeRule           = "Rule"
-	ResourceTypeVPC            = "VPC"
+	ResourceTypeVpc            = "Vpc"
 	// ResourceTypeClusterControlPlane is used by NSXServiceAccountController
 	ResourceTypeClusterControlPlane = "clustercontrolplane"
 	// ResourceTypePrincipalIdentity is used by NSXServiceAccountController, and it is MP resource type.
