@@ -130,7 +130,7 @@ func Test_InitializeVPCStore(t *testing.T) {
 		})
 	defer patches2.Reset()
 
-	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeVPC, vpcStore)
+	service.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, vpcStore)
 }
 
 func TestVPCStore_CRUDResource(t *testing.T) {
