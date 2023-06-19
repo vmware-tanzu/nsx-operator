@@ -21,6 +21,11 @@ type MockClient struct {
 	recorder *MockClientMockRecorder
 }
 
+func (m *MockClient) SubResource(subResource string) client.SubResourceClient {
+	//TODO implement me
+	panic("implement me")
+}
+
 // MockClientMockRecorder is the mock recorder for MockClient.
 type MockClientMockRecorder struct {
 	mock *MockClient
@@ -96,7 +101,7 @@ func (mr *MockClientMockRecorder) DeleteAllOf(arg0, arg1 interface{}, arg2 ...in
 }
 
 // Get mocks base method.
-func (m *MockClient) Get(arg0 context.Context, arg1 types.NamespacedName, arg2 client.Object) error {
+func (m *MockClient) Get(arg0 context.Context, arg1 types.NamespacedName, arg2 client.Object, opts ...client.GetOption) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
