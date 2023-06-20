@@ -37,7 +37,6 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 		BindingType: model.VpcBindingType(),
 	}}
 
-
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, vpcStore)
 
 	go func() {
