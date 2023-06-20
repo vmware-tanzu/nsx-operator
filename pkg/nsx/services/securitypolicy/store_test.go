@@ -251,6 +251,7 @@ func Test_InitializeSecurityPolicyStore(t *testing.T) {
 	defer patches2.Reset()
 
 	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSecurityPolicy, securityPolicyStore)
+	assert.Emptyf(t, fatalErrors, "fatal errors should be empty")
 }
 
 func TestSecurityPolicyStore_Operate(t *testing.T) {
