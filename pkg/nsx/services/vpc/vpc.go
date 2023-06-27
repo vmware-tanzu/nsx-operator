@@ -11,9 +11,8 @@ import (
 )
 
 var (
-	log             = logger.Log
-	ResourceTypeVPC = common.ResourceTypeVPC
-	NewConverter    = common.NewConverter
+	log          = logger.Log
+	NewConverter = common.NewConverter
 	// The following variables are defined as interface, they should be initialized as concrete type
 	vpcStore common.Store
 )

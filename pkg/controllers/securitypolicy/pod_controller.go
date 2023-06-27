@@ -112,7 +112,7 @@ var PredicateFuncsPod = predicate.Funcs{
 	},
 	DeleteFunc: func(e event.DeleteEvent) bool {
 		if p, ok := e.Object.(*v1.Pod); ok {
-			log.V(1).Info("receive pod create event", "namespace", p.Namespace, "name", p.Name)
+			log.V(1).Info("receive pod delete event", "namespace", p.Namespace, "name", p.Name)
 			return util.CheckPodHasNamedPort(*p, "delete")
 		}
 		return false

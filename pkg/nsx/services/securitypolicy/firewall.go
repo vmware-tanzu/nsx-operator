@@ -45,7 +45,10 @@ func InitializeSecurityPolicy(service common.Service) (*SecurityPolicyService, e
 		BindingType: model.SecurityPolicyBindingType(),
 	}}
 	securityPolicyService.groupStore = &GroupStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc}),
+		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+			common.TagScopeSecurityPolicyCRUID: indexFunc,
+			common.TagScopeRuleID:              indexGroupFunc,
+		}),
 		BindingType: model.GroupBindingType(),
 	}}
 	securityPolicyService.ruleStore = &RuleStore{ResourceStore: common.ResourceStore{
@@ -228,11 +231,11 @@ func (service *SecurityPolicyService) createOrUpdateGroups(nsxGroups []model.Gro
 		if err != nil {
 			return err
 		}
-		err = service.groupStore.Operate(group)
-		log.V(2).Info("add group to store", "group", group.Id)
-		if err != nil {
-			return err
-		}
+	}
+	
+	err := service.groupStore.Operate(&nsxGroups)
+	if err != nil {
+		return err
 	}
 	log.Info("successfully create or update group", "groups", nsxGroups)
 	return nil

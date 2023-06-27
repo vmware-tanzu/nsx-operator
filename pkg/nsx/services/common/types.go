@@ -58,6 +58,7 @@ var (
 	ResourceTypeVPC               = "VPC"
 	ResourceTypeIPPool            = "IpAddressPool"
 	ResourceTypeIPPoolBlockSubnet = "IpAddressPoolBlockSubnet"
+
 	// ResourceTypeClusterControlPlane is used by NSXServiceAccountController
 	ResourceTypeClusterControlPlane = "clustercontrolplane"
 	// ResourceTypePrincipalIdentity is used by NSXServiceAccountController, and it is MP resource type.
