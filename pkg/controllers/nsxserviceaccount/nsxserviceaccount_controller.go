@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -80,7 +81,8 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			log.V(1).Info("added finalizer on CR", "nsxserviceaccount", req.NamespacedName)
 		}
 
-		if obj.Status.Phase == nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized {
+		if nsxserviceaccount.IsNSXServiceAccountRealized(obj.Status) {
+			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
 			return ResultNormal, nil
 		}
 		if err := r.Service.CreateOrUpdateNSXServiceAccount(ctx, obj); err != nil {
@@ -208,6 +210,7 @@ func (r *NSXServiceAccountReconciler) updateNSXServiceAccountStatus(ctx *context
 		obj = o.DeepCopy()
 		obj.Status.Phase = nsxvmwarecomv1alpha1.NSXServiceAccountPhaseFailed
 		obj.Status.Reason = fmt.Sprintf("Error: %v", *e)
+		obj.Status.Conditions = nsxserviceaccount.GenerateNSXServiceAccountConditions(obj.Status.Conditions, obj.Generation, metav1.ConditionFalse, nsxvmwarecomv1alpha1.ConditionReasonRealizationError, fmt.Sprintf("Error: %v", *e))
 	}
 	err := r.Client.Status().Update(*ctx, obj)
 	if err != nil {
