@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -44,6 +45,8 @@ var (
 
 	antreaClusterResourceType = "AntreaClusterControlPlane"
 	revision1                 = int64(1)
+
+	proxyLabels = map[string]string{"mgmt-proxy.antrea-nsx.vmware.com": ""}
 )
 
 type NSXServiceAccountService struct {
@@ -97,6 +100,12 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 	project := s.NSXConfig.CoeConfig.Cluster
 	vpcName := obj.Namespace + "-default-vpc"
 	vpcPath := fmt.Sprintf("/orgs/default/projects/%s/vpcs/%s", util.NormalizeId(project), vpcName)
+
+	// get proxy
+	proxyEndpoints, err := s.getProxyEndpoints(ctx)
+	if err != nil {
+		return err
+	}
 
 	// generate certificate
 	subject := util.DefaultSubject
@@ -189,8 +198,38 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 		Namespace: secretNamespace,
 	}}
 	obj.Status.VPCPath = vpcPath
-	// TODO: Add proxy
+	obj.Status.ProxyEndpoints = proxyEndpoints
 	return s.Client.Status().Update(ctx, obj)
+}
+
+func (s *NSXServiceAccountService) getProxyEndpoints(ctx context.Context) (v1alpha1.NSXProxyEndpoint, error) {
+	proxyEndpoints := v1alpha1.NSXProxyEndpoint{}
+	proxies := &v1.ServiceList{}
+	if err := s.Client.List(ctx, proxies, client.MatchingLabels(proxyLabels)); err != nil {
+		return v1alpha1.NSXProxyEndpoint{}, err
+	}
+	for _, proxy := range proxies.Items {
+		if proxy.Spec.Type == v1.ServiceTypeLoadBalancer {
+			for _, ingress := range proxy.Status.LoadBalancer.Ingress {
+				proxyEndpoints.Addresses = append(proxyEndpoints.Addresses, v1alpha1.NSXProxyEndpointAddress{IP: ingress.IP})
+			}
+			for _, port := range proxy.Spec.Ports {
+				switch port.Name {
+				case PortRestAPI, PortNSXRPCFwdProxy:
+					switch port.Protocol {
+					case "", v1.ProtocolTCP:
+						proxyEndpoints.Ports = append(proxyEndpoints.Ports, v1alpha1.NSXProxyEndpointPort{
+							Name:     port.Name,
+							Port:     uint16(port.Port),
+							Protocol: v1alpha1.NSXProxyProtocolTCP,
+						})
+					}
+				}
+			}
+			break
+		}
+	}
+	return proxyEndpoints, nil
 }
 
 func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, namespacedName types.NamespacedName) error {
