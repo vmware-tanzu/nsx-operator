@@ -346,8 +346,16 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 					VPCName: "vpc1",
 				},
 				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
-					Phase:          "realized",
-					Reason:         "Success.",
+					Phase:  "realized",
+					Reason: "Success",
+					Conditions: []metav1.Condition{
+						{
+							Type:    nsxvmwarecomv1alpha1.ConditionTypeRealized,
+							Status:  metav1.ConditionTrue,
+							Reason:  nsxvmwarecomv1alpha1.ConditionReasonRealizationSuccess,
+							Message: "Success.",
+						},
+					},
 					VPCPath:        "/orgs/default/projects/k8scl-one_test/vpcs/ns1-default-vpc",
 					NSXManagers:    []string{"mgr1:443", "mgr2:443"},
 					ProxyEndpoints: v1alpha1.NSXProxyEndpoint{},
@@ -447,8 +455,16 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 				},
 				Spec: nsxvmwarecomv1alpha1.NSXServiceAccountSpec{},
 				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
-					Phase:          "realized",
-					Reason:         "Success.",
+					Phase:  "realized",
+					Reason: "Success",
+					Conditions: []metav1.Condition{
+						{
+							Type:    nsxvmwarecomv1alpha1.ConditionTypeRealized,
+							Status:  metav1.ConditionTrue,
+							Reason:  nsxvmwarecomv1alpha1.ConditionReasonRealizationSuccess,
+							Message: "Success.",
+						},
+					},
 					VPCPath:        "/orgs/default/projects/k8scl-one_12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456-e8ad9afc/vpcs/ns1-default-vpc",
 					NSXManagers:    []string{"mgr1:443", "mgr2:443"},
 					ProxyEndpoints: v1alpha1.NSXProxyEndpoint{},
@@ -489,6 +505,9 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 			} else {
 				assert.Equal(t, tt.expectedCR.ObjectMeta, actualCR.ObjectMeta)
 				assert.Equal(t, tt.expectedCR.Spec, actualCR.Spec)
+				for i := range actualCR.Status.Conditions {
+					actualCR.Status.Conditions[i].LastTransitionTime = metav1.Time{}
+				}
 				assert.Equal(t, tt.expectedCR.Status, actualCR.Status)
 			}
 			if !tt.wantErr {
