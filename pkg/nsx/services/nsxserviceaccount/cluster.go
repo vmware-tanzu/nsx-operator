@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sync"
 
+	vapierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
@@ -115,48 +116,10 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 		return err
 	}
 
-	// create PI
-	if piObj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName); piObj == nil {
-		pi, err := s.NSXClient.WithCertificateClient.Create(mpmodel.PrincipalIdentityWithCertificate{
-			IsProtected: &isProtectedTrue,
-			Name:        &normalizedClusterName,
-			NodeId:      &normalizedClusterName,
-			Role:        nil,
-			RolesForPaths: []mpmodel.RolesForPath{{
-				Path: &readerPath,
-				Roles: []mpmodel.Role{{
-					Role: &readerRole,
-				}},
-			}, {
-				Path: &vpcPath,
-				Roles: []mpmodel.Role{{
-					Role: &vpcRole,
-				}},
-			}},
-			CertificatePem: &cert,
-			Tags:           common.ConvertTagsToMPTags(s.buildBasicTags(obj)),
-		})
-		if err != nil {
-			return err
-		}
-		s.PrincipalIdentityStore.Add(pi)
-	}
-
-	// create ClusterControlPlane
-	clusterId := ""
-	if ccpObj := s.ClusterControlPlaneStore.GetByKey(normalizedClusterName); ccpObj == nil {
-		ccp, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, normalizedClusterName, model.ClusterControlPlane{
-			Revision:     &revision1,
-			ResourceType: &antreaClusterResourceType,
-			Certificate:  &cert,
-			VhcPath:      &vpcPath,
-			Tags:         s.buildBasicTags(obj),
-		})
-		if err != nil {
-			return err
-		}
-		s.ClusterControlPlaneStore.Add(ccp)
-		clusterId = *ccp.NodeId
+	// create PI and CCP
+	clusterId, err := s.createPIAndCCP(normalizedClusterName, vpcPath, cert, nil, obj)
+	if err != nil {
+		return err
 	}
 
 	// create Secret
@@ -201,6 +164,94 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 	obj.Status.VPCPath = vpcPath
 	obj.Status.ProxyEndpoints = proxyEndpoints
 	return s.Client.Status().Update(ctx, obj)
+}
+
+// UpdateRealizedNSXServiceAccount checks if PI/CCP is created on NSXT for a realized NSXServiceAccount. If both PI/CCP
+// is missing, restore PI/CCP from realized NSXServiceAccount and Secret.
+func (s *NSXServiceAccountService) UpdateRealizedNSXServiceAccount(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
+	normalizedClusterName := obj.Status.ClusterName
+
+	// check PI and CCP is missing
+	piObj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName)
+	ccpObj := s.ClusterControlPlaneStore.GetByKey(normalizedClusterName)
+	if piObj != nil && ccpObj != nil {
+		return nil
+	} else if (piObj != nil) != (ccpObj != nil) {
+		return fmt.Errorf("PI/CCP doesn't match")
+	}
+	_, err := s.NSXClient.ClusterControlPlanesClient.Get(siteId, enforcementpointId, normalizedClusterName)
+	if err == nil {
+		return fmt.Errorf("CCP store is not synchronized")
+	}
+	switch err.(type) {
+	case vapierrors.NotFound:
+	default:
+		return err
+	}
+
+	log.Info("Start to restore realized resource", "nsxserviceaccount", types.NamespacedName{Name: obj.Name, Namespace: obj.Namespace})
+	// read Secret
+	secretName := obj.Status.Secrets[0].Name
+	secretNamespace := obj.Status.Secrets[0].Namespace
+	secret := &v1.Secret{}
+	if err := s.Client.Get(ctx, types.NamespacedName{Name: secretName, Namespace: secretNamespace}, secret); err != nil {
+		return err
+	}
+	cert := secret.Data[SecretCertName]
+	vpcPath := obj.Status.VPCPath
+	existingClusterId := obj.Status.ClusterID
+
+	// restore PI and CCP
+	_, err = s.createPIAndCCP(normalizedClusterName, vpcPath, string(cert), &existingClusterId, obj)
+	return err
+}
+
+func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, vpcPath string, cert string, existingClusterId *string, obj *v1alpha1.NSXServiceAccount) (string, error) {
+	// create PI
+	if piObj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName); piObj == nil {
+		pi, err := s.NSXClient.WithCertificateClient.Create(mpmodel.PrincipalIdentityWithCertificate{
+			IsProtected: &isProtectedTrue,
+			Name:        &normalizedClusterName,
+			NodeId:      &normalizedClusterName,
+			Role:        nil,
+			RolesForPaths: []mpmodel.RolesForPath{{
+				Path: &readerPath,
+				Roles: []mpmodel.Role{{
+					Role: &readerRole,
+				}},
+			}, {
+				Path: &vpcPath,
+				Roles: []mpmodel.Role{{
+					Role: &vpcRole,
+				}},
+			}},
+			CertificatePem: &cert,
+			Tags:           common.ConvertTagsToMPTags(s.buildBasicTags(obj)),
+		})
+		if err != nil {
+			return "", err
+		}
+		s.PrincipalIdentityStore.Add(pi)
+	}
+
+	// create ClusterControlPlane
+	clusterId := ""
+	if ccpObj := s.ClusterControlPlaneStore.GetByKey(normalizedClusterName); ccpObj == nil {
+		ccp, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, normalizedClusterName, model.ClusterControlPlane{
+			Revision:     &revision1,
+			ResourceType: &antreaClusterResourceType,
+			Certificate:  &cert,
+			VhcPath:      &vpcPath,
+			NodeId:       existingClusterId,
+			Tags:         s.buildBasicTags(obj),
+		})
+		if err != nil {
+			return "", err
+		}
+		s.ClusterControlPlaneStore.Add(ccp)
+		clusterId = *ccp.NodeId
+	}
+	return clusterId, nil
 }
 
 func (s *NSXServiceAccountService) getProxyEndpoints(ctx context.Context) (v1alpha1.NSXProxyEndpoint, error) {

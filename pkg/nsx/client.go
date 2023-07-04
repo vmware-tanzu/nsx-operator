@@ -36,6 +36,7 @@ const (
 	VPC = iota
 	SecurityPolicy
 	ServiceAccount
+	ServiceAccountRestore
 	StaticRoute
 	AllFeatures
 )
@@ -84,6 +85,7 @@ var (
 	nsx401Version = [3]int64{4, 0, 1}
 	nsx410Version = [3]int64{4, 1, 0}
 	nsx411Version = [3]int64{4, 1, 1}
+	nsx412Version = [3]int64{4, 1, 2}
 )
 
 type NSXHealthChecker struct {
@@ -91,11 +93,12 @@ type NSXHealthChecker struct {
 }
 
 type NSXVersionChecker struct {
-	cluster                    *Cluster
-	securityPolicySupported    bool
-	nsxServiceAccountSupported bool
-	vpcSupported               bool
-	featureSupported           [AllFeatures]bool
+	cluster                           *Cluster
+	securityPolicySupported           bool
+	nsxServiceAccountSupported        bool
+	nsxServiceAccountRestoreSupported bool
+	vpcSupported                      bool
+	featureSupported                  [AllFeatures]bool
 }
 
 func (ck *NSXHealthChecker) CheckNSXHealth(req *http.Request) error {
@@ -201,6 +204,10 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	if !nsxClient.NSXCheckVersion(ServiceAccount) {
 		err := errors.New("NSXServiceAccount feature support check failed")
 		log.Error(err, "initial NSX version check for NSXServiceAccount got error")
+	}
+	if !nsxClient.NSXCheckVersion(ServiceAccountRestore) {
+		err := errors.New("NSXServiceAccountRestore feature support check failed")
+		log.Error(err, "initial NSX version check for NSXServiceAccountRestore got error")
 	}
 
 	return nsxClient
