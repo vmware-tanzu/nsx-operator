@@ -26,8 +26,9 @@ import (
 )
 
 const (
-	FeatureSecurityPolicy    string = "SECURITY_POLICY"
-	FeatureNSXServiceAccount string = "NSX_SERVICE_ACCOUNT"
+	FeatureSecurityPolicy           string = "SECURITY_POLICY"
+	FeatureNSXServiceAccount        string = "NSX_SERVICE_ACCOUNT"
+	FeatureNSXServiceAccountRestore string = "NSX_SERVICE_ACCOUNT_RESTORE"
 )
 
 type Client struct {
@@ -53,15 +54,17 @@ type Client struct {
 
 var nsx320Version = [3]int64{3, 2, 0}
 var nsx401Version = [3]int64{4, 0, 1}
+var nsx412Version = [3]int64{4, 1, 2}
 
 type NSXHealthChecker struct {
 	cluster *Cluster
 }
 
 type NSXVersionChecker struct {
-	cluster                    *Cluster
-	securityPolicySupported    bool
-	nsxServiceAccountSupported bool
+	cluster                           *Cluster
+	securityPolicySupported           bool
+	nsxServiceAccountSupported        bool
+	nsxServiceAccountRestoreSupported bool
 }
 
 func (ck *NSXHealthChecker) CheckNSXHealth(req *http.Request) error {
@@ -188,5 +191,11 @@ func (client *Client) NSXCheckVersionForNSXServiceAccount() bool {
 		return false
 	}
 	client.NSXVerChecker.nsxServiceAccountSupported = true
+	client.NSXVerChecker.nsxServiceAccountRestoreSupported = nsxVersion.featureSupported(FeatureNSXServiceAccountRestore)
 	return true
+}
+
+func (client *Client) NSXCheckVersionForNSXServiceAccountRestore() bool {
+	client.NSXCheckVersionForNSXServiceAccount()
+	return client.NSXVerChecker.nsxServiceAccountRestoreSupported
 }
