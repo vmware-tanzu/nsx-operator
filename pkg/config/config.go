@@ -77,7 +77,7 @@ type VCConfig struct {
 }
 
 type HAConfig struct {
-	EnableHA bool `ini:"enable"`
+	EnableHA *bool `ini:"enable"`
 }
 
 type Validate interface {
