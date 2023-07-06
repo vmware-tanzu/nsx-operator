@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"gopkg.in/ini.v1"
 )
 
 func TestConfig_VCConfig(t *testing.T) {
@@ -88,23 +87,7 @@ func TestConfig_GetTokenProvider(t *testing.T) {
 
 func TestConfig_GetHA(t *testing.T) {
 	configFilePath = "../mock/nsxop.ini"
-	cf := NewNSXOpertorConfig()
-
-	cfg := ini.Empty()
-	err := ini.ReflectFrom(cfg, cf)
+	cf, err := NewNSXOperatorConfigFromFile()
 	assert.Equal(t, err, nil)
-	err = cfg.Section("ha").MapTo(cf.HAConfig)
-	assert.Equal(t, validateHAValue(cf.EnableHA), true)
-}
-
-func validateHAValue(haValue interface{}) bool {
-	// haValue could be nil, true or false
-	if haValue == nil {
-		return true
-	}
-	_, ok := haValue.(*bool)
-	if ok {
-		return true
-	}
-	return false
+	assert.Equal(t, cf.HAEnabled(), true)
 }
