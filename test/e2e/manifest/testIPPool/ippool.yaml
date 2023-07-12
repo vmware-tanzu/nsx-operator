@@ -1,0 +1,16 @@
+apiVersion: nsx.vmware.com/v1alpha2
+kind: IPPool
+metadata:
+  name: guestcluster-ippool-2
+spec:
+  type: public
+  subnets:
+  - ipFamily: IPv4
+    name: guestcluster1-workers-a
+    prefixLength: 26
+  - ipFamily: IPv4
+    name: guestcluster1-workers-b
+    prefixLength: 26
+  - ipFamily: IPv4
+    name: guestcluster1-workers-c
+    prefixLength: 26
