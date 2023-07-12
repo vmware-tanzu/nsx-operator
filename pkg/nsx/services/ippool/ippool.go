@@ -1,6 +1,7 @@
 package ippool
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -71,11 +72,11 @@ func InitializeIPPool(service common.Service) (*IPPoolService, error) {
 func (service *IPPoolService) CreateOrUpdateIPPool(obj *v1alpha2.IPPool) (bool, bool, error) {
 	nsxIPPool, nsxIPSubnets := service.BuildIPPool(obj)
 	existingIPPool, existingIPSubnets, err := service.indexedIPPoolAndIPPoolSubnets(obj.UID)
-	log.V(1).Info("existing ippool and ip subnets", "existingIPPool", existingIPPool, "existingIPSubnets", existingIPSubnets)
 	if err != nil {
 		log.Error(err, "failed to get ip pool and ip pool subnets by UID", "UID", obj.UID)
 		return false, false, err
 	}
+	log.V(1).Info("existing ippool and ip subnets", "existingIPPool", existingIPPool, "existingIPSubnets", existingIPSubnets)
 	ipPoolSubnetsUpdated := false
 	ipPoolUpdated := common.CompareResource(IpAddressPoolToComparable(existingIPPool), IpAddressPoolToComparable(nsxIPPool))
 	changed, stale := common.CompareResources(IpAddressPoolBlockSubnetsToComparable(existingIPSubnets), IpAddressPoolBlockSubnetsToComparable(nsxIPSubnets))
@@ -209,7 +210,11 @@ func (service *IPPoolService) DeleteIPPool(obj interface{}) error {
 }
 
 func (service *IPPoolService) acquireCidr(obj *v1alpha2.IPPool, subnetRequest *v1alpha2.SubnetRequest, retry int) (string, error) {
-	m, err := service.NSXClient.RealizedEntitiesClient.List(service.buildIPSubnetIntentPath(obj, subnetRequest), nil)
+	intentPath := service.buildIPSubnetIntentPath(obj, subnetRequest)
+	if intentPath == "" {
+		return "", fmt.Errorf("failed to build intent path for ip pool %s, subnetRequest %s", obj.Name, subnetRequest.Name)
+	}
+	m, err := service.NSXClient.RealizedEntitiesClient.List(intentPath, nil)
 	if err != nil {
 		return "", err
 	}

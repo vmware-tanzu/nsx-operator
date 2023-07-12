@@ -36,33 +36,33 @@ var (
 	MetricResType = common.MetricResTypeIPPool
 )
 
-// Reconciler reconciles a IPPool object
-type Reconciler struct {
+// IPPoolReconciler reconciles a IPPool object
+type IPPoolReconciler struct {
 	client.Client
 	Scheme  *apimachineryruntime.Scheme
 	Service *ippool.IPPoolService
 }
 
-func deleteSuccess(r *Reconciler, _ *context.Context, _ *v1alpha2.IPPool) {
+func deleteSuccess(r *IPPoolReconciler, _ *context.Context, _ *v1alpha2.IPPool) {
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
 }
 
-func deleteFail(r *Reconciler, c *context.Context, o *v1alpha2.IPPool, e *error) {
+func deleteFail(r *IPPoolReconciler, c *context.Context, o *v1alpha2.IPPool, e *error) {
 	r.setReadyStatusFalse(c, o, e)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 }
 
-func updateSuccess(r *Reconciler, c *context.Context, o *v1alpha2.IPPool) {
+func updateSuccess(r *IPPoolReconciler, c *context.Context, o *v1alpha2.IPPool) {
 	r.setReadyStatusTrue(c, o)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
 }
 
-func updateFail(r *Reconciler, c *context.Context, o *v1alpha2.IPPool, e *error) {
+func updateFail(r *IPPoolReconciler, c *context.Context, o *v1alpha2.IPPool, e *error) {
 	r.setReadyStatusFalse(c, o, e)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
 }
 
-func (r *Reconciler) setReadyStatusFalse(ctx *context.Context, ippool *v1alpha2.IPPool, err *error) {
+func (r *IPPoolReconciler) setReadyStatusFalse(ctx *context.Context, ippool *v1alpha2.IPPool, err *error) {
 	conditions := []v1alpha1.Condition{
 		{
 			Type:    v1alpha1.Ready,
@@ -84,7 +84,7 @@ func (r *Reconciler) setReadyStatusFalse(ctx *context.Context, ippool *v1alpha2.
 	}
 }
 
-func (r *Reconciler) setReadyStatusTrue(ctx *context.Context, ippool *v1alpha2.IPPool) {
+func (r *IPPoolReconciler) setReadyStatusTrue(ctx *context.Context, ippool *v1alpha2.IPPool) {
 	conditions := []v1alpha1.Condition{
 		{
 			Type:    v1alpha1.Ready,
@@ -100,7 +100,7 @@ func (r *Reconciler) setReadyStatusTrue(ctx *context.Context, ippool *v1alpha2.I
 	}
 }
 
-func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *IPPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	obj := &v1alpha2.IPPool{}
 	log.Info("reconciling ippool CR", "ippool", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
@@ -117,6 +117,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	//	if NSX version check fails, it will be put back to reconcile queue and be reconciled after 5 minutes
 	//return ResultRequeueAfter5mins, nil
 	//}
+
+	// TODO: As we do not have base controller in Go, we need to take care of NSX exceptions in each controller separately.
+	//I agree we should not do infinite retry for all errors, but it's ok to add error handling in a following patch
 
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResType)
@@ -137,14 +140,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			return resultRequeue, err
 		}
 		if !r.Service.FullyRealized(obj) {
-			if subnetCidrUpdated || ipPoolSubnetsUpdated || len(obj.Spec.Subnets) == 0 {
+			if len(obj.Spec.Subnets) == 0 {
 				updateSuccess(r, &ctx, obj)
+				return resultNormal, nil
 			}
-			log.Info("successfully reconcile ippool CR, but put back ippool again, since partial subnets are unrealized", "subnets",
-				r.Service.GetUnrealizedSubnetNames(obj))
-			return resultRequeue, nil
-		} else {
 			if subnetCidrUpdated || ipPoolSubnetsUpdated {
+				err := fmt.Errorf("partial subnets are unrealized, would retry exponentially")
+				updateFail(r, &ctx, obj, &err)
+				log.Info("successfully reconcile ippool CR, but put back ippool again, since partial subnets are unrealized", "subnets",
+					r.Service.GetUnrealizedSubnetNames(obj))
+				return resultRequeue, nil
+			}
+		} else {
+			if subnetCidrUpdated || ipPoolSubnetsUpdated || len(obj.Spec.Subnets) == 0 {
 				updateSuccess(r, &ctx, obj)
 				log.Info("successfully reconcile ippool CR and all subnets are fully realized", "ippool", obj)
 			} else {
@@ -176,7 +184,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return resultNormal, nil
 }
 
-func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *IPPoolReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha2.IPPool{}).
 		WithEventFilter(predicate.Funcs{
@@ -197,7 +205,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // Start setup manager and launch GC
-func (r *Reconciler) Start(mgr ctrl.Manager) error {
+func (r *IPPoolReconciler) Start(mgr ctrl.Manager) error {
 	err := r.SetupWithManager(mgr)
 	if err != nil {
 		return err
@@ -208,7 +216,7 @@ func (r *Reconciler) Start(mgr ctrl.Manager) error {
 
 // IPPoolGarbageCollector collect ippool which has been removed from crd.
 // cancel is used to break the loop during UT
-func (r *Reconciler) IPPoolGarbageCollector(cancel chan bool, timeout time.Duration) {
+func (r *IPPoolReconciler) IPPoolGarbageCollector(cancel chan bool, timeout time.Duration) {
 	ctx := context.Background()
 	log.Info("ippool garbage collector started")
 	for {

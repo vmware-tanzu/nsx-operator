@@ -22,22 +22,7 @@ func (service *IPPoolService) GetUnrealizedSubnetNames(obj *v1alpha2.IPPool) []s
 }
 
 func (service *IPPoolService) FullyRealized(obj *v1alpha2.IPPool) bool {
-	fullyRealized := true
-	for _, subnetRequest := range obj.Spec.Subnets {
-		realized := false
-		for _, statusSubnet := range obj.Status.Subnets {
-			if statusSubnet.Name == subnetRequest.Name && statusSubnet.CIDR != "" {
-				realized = true
-				log.V(2).Info("Subnet realized", "name", statusSubnet.Name, "cidr", statusSubnet.CIDR)
-				break
-			}
-		}
-		if !realized {
-			fullyRealized = false
-			break
-		}
-	}
-	return fullyRealized
+	return len(service.GetUnrealizedSubnetNames(obj)) == 0
 }
 
 func getCluster(service *IPPoolService) string {

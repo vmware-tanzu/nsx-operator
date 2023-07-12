@@ -42,7 +42,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 			},
 		},
 	}
-	r := &Reconciler{
+	r := &IPPoolReconciler{
 		Client:  k8sClient,
 		Scheme:  nil,
 		Service: service,
@@ -121,7 +121,7 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
 
-	r := &Reconciler{
+	r := &IPPoolReconciler{
 		Client:  k8sClient,
 		Scheme:  nil,
 		Service: service,
@@ -188,7 +188,7 @@ func TestReconciler_Start(t *testing.T) {
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	service := &ippool.IPPoolService{}
 	var mgr controllerruntime.Manager
-	r := &Reconciler{
+	r := &IPPoolReconciler{
 		Client:  k8sClient,
 		Scheme:  nil,
 		Service: service,

@@ -108,7 +108,7 @@ func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Ser
 }
 
 func StartIPPoolController(mgr ctrl.Manager, commonService common.Service) {
-	ippoolReconcile := &ippool2.Reconciler{
+	ippoolReconcile := &ippool2.IPPoolReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}

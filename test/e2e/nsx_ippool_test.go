@@ -122,3 +122,31 @@ func TestIPPoolAddDeleteSubnet(t *testing.T) {
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPoolBlockSubnet, subnet_name_3, true)
 	assert_nil(t, err)
 }
+
+// TestIPPoolBasic verifies that it could support when subnets are nil
+func TestIPPoolSubnetsNil(t *testing.T) {
+	ns := "sc-a"
+	name := "guestcluster-ippool-2"
+	setupTest(t, ns)
+	defer teardownTest(t, ns)
+
+	// Create ippool
+	ippoolPath, _ := filepath.Abs("./manifest/testIPPool/ippool.yaml")
+	_ = applyYAML(ippoolPath, ns)
+	defer deleteYAML(ippoolPath, ns)
+
+	// Check ippool status
+	err := testData.waitForCRReadyOrDeleted(defaultTimeout, IPPool, ns, name, Ready)
+	assert_nil(t, err, "Error when waiting for Security Policy %s", name)
+
+	// Check nsx-t resource existing
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPool, name, true)
+	assert_nil(t, err)
+
+	// Delete ippool
+	_ = deleteYAML(ippoolPath, ns)
+
+	// Check nsx-t resource not existing
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPool, name, false)
+	assert_nil(t, err)
+}
