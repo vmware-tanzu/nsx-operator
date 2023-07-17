@@ -4,7 +4,6 @@
 package main
 
 import (
-	"flag"
 	"os"
 	"time"
 
@@ -29,26 +28,33 @@ import (
 )
 
 var (
-	scheme                 = runtime.NewScheme()
-	probeAddr, metricsAddr string
-	log                    = logger.Log
-	cf                     *config.NSXOperatorConfig
+	scheme               = runtime.NewScheme()
+	log                  = logger.Log
+	cf                   *config.NSXOperatorConfig
+	nsxOperatorNamespace = "default"
 )
 
 func init() {
+	var err error
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8384", "The address the probe endpoint binds to.")
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8093", "The address the metrics endpoint binds to.")
 	config.AddFlags()
-	flag.Parse()
-	var err error
-
-	logf.SetLogger(logger.ZapLogger())
 	cf, err = config.NewNSXOperatorConfigFromFile()
 	if err != nil {
 		log.Error(err, "load config file error")
 		os.Exit(1)
+	}
+
+	logf.SetLogger(logger.ZapLogger())
+
+	if os.Getenv("NSX_OPERATOR_NAMESPACE") != "" {
+		nsxOperatorNamespace = os.Getenv("NSX_OPERATOR_NAMESPACE")
+	}
+
+	if cf.HAEnabled() {
+		log.Info("HA mode enabled")
+	} else {
+		log.Info("HA mode disabled")
 	}
 
 	if metrics.AreMetricsExposed(cf) {
@@ -96,10 +102,12 @@ func main() {
 	log.Info("starting NSX Operator")
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 scheme,
-		HealthProbeBindAddress: probeAddr,
-		MetricsBindAddress:     metricsAddr,
-		LeaderElectionID:       "nsx-operator",
+		Scheme:                  scheme,
+		HealthProbeBindAddress:  config.ProbeAddr,
+		MetricsBindAddress:      config.MetricsAddr,
+		LeaderElection:          cf.HAEnabled(),
+		LeaderElectionNamespace: nsxOperatorNamespace,
+		LeaderElectionID:        "nsx-operator",
 	})
 	if err != nil {
 		log.Error(err, "failed to init manager")

@@ -22,9 +22,11 @@ const (
 )
 
 var (
-	configFilePath = ""
-	log            = logf.Log.WithName("config")
-	tokenProvider  auth.TokenProvider
+	LogLevel               int
+	ProbeAddr, MetricsAddr string
+	configFilePath         = ""
+	log                    = logf.Log.WithName("config")
+	tokenProvider          auth.TokenProvider
 )
 
 //TODO delete unnecessary config
@@ -35,6 +37,14 @@ type NSXOperatorConfig struct {
 	*NsxConfig
 	*K8sConfig
 	*VCConfig
+	*HAConfig
+}
+
+func (operatorConfig *NSXOperatorConfig) HAEnabled() bool {
+	if operatorConfig.EnableHA == nil || *operatorConfig.EnableHA == true {
+		return true
+	}
+	return false
 }
 
 type DefaultConfig struct {
@@ -75,6 +85,10 @@ type VCConfig struct {
 	HttpsPort  int    `ini:"https_port"`
 }
 
+type HAConfig struct {
+	EnableHA *bool `ini:"enable"`
+}
+
 type Validate interface {
 	validate() error
 }
@@ -85,6 +99,10 @@ type NsxVersion struct {
 
 func AddFlags() {
 	flag.StringVar(&configFilePath, "nsxconfig", nsxOperatorDefaultConf, "NSX Operator configuration file path")
+	flag.StringVar(&ProbeAddr, "health-probe-bind-address", ":8384", "The address the probe endpoint binds to.")
+	flag.StringVar(&MetricsAddr, "metrics-bind-address", ":8093", "The address the metrics endpoint binds to.")
+	flag.IntVar(&LogLevel, "log-level", 0, "Use zap-core log system.")
+	flag.Parse()
 }
 
 func UpdateConfigFilePath(configFile string) {
@@ -140,6 +158,7 @@ func NewNSXOpertorConfig() *NSXOperatorConfig {
 		&NsxConfig{},
 		&K8sConfig{},
 		&VCConfig{},
+		&HAConfig{},
 	}
 	return defaultNSXOperatorConfig
 }
