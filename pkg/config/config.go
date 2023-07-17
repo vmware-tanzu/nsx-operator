@@ -141,6 +141,10 @@ func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	err = cfg.Section("ha").MapTo(nsxOperatorConfig.HAConfig)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := nsxOperatorConfig.validate(); err != nil {
 		return nil, err
