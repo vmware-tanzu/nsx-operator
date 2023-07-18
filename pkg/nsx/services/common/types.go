@@ -46,7 +46,7 @@ var (
 	ResourceTypeSecurityPolicy = "SecurityPolicy"
 	ResourceTypeGroup          = "Group"
 	ResourceTypeRule           = "Rule"
-	ResourceTypeVPC            = "VPC"
+	ResourceTypeVpc            = "Vpc"
 	// ResourceTypeClusterControlPlane is used by NSXServiceAccountController
 	ResourceTypeClusterControlPlane = "clustercontrolplane"
 	// ResourceTypePrincipalIdentity is used by NSXServiceAccountController, and it is MP resource type.
@@ -70,3 +70,9 @@ var (
 	Int64  = pointy.Int64  // address of int64
 	Bool   = pointy.Bool   // address of bool
 )
+
+type VPCInfo struct {
+	OrgID     string
+	ProjectID string
+	VPCID     string
+}

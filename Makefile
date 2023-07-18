@@ -40,7 +40,8 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=build/yaml/crd/
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./pkg/apis/v1alpha1/" output:crd:artifacts:config=build/yaml/crd/
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./pkg/apis/v1alpha2/" output:crd:artifacts:config=build/yaml/crd/
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -56,7 +57,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: manifests generate fmt vet envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test ./... -coverprofile cover.out
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -gcflags=all=-l ./... -coverprofile cover.out  ## Prohibit inline optimization when using gomonkey
 
 ##@ Build
 

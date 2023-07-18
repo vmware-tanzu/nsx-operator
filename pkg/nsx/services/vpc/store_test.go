@@ -11,6 +11,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -130,7 +131,9 @@ func Test_InitializeVPCStore(t *testing.T) {
 		})
 	defer patches2.Reset()
 
-	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeVPC, nil, vpcStore)
+	service.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, vpcStore)
+	assert.Empty(t, fatalErrors)
+	assert.Equal(t, sets.String(sets.String{}), vpcStore.ListIndexFuncValues(common.TagScopeVPCCRUID))
 }
 
 func TestVPCStore_CRUDResource(t *testing.T) {
