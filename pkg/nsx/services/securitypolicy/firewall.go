@@ -56,9 +56,9 @@ func InitializeSecurityPolicy(service common.Service) (*SecurityPolicyService, e
 		BindingType: model.RuleBindingType(),
 	}}
 
-	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSecurityPolicy, securityPolicyService.securityPolicyStore)
-	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, securityPolicyService.groupStore)
-	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, securityPolicyService.ruleStore)
+	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSecurityPolicy, nil, securityPolicyService.securityPolicyStore)
+	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, nil, securityPolicyService.groupStore)
+	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, nil, securityPolicyService.ruleStore)
 
 	go func() {
 		wg.Wait()
