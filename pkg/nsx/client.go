@@ -18,6 +18,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -46,6 +47,7 @@ type Client struct {
 	RuleClient                 security_policies.RulesClient
 	InfraClient                nsx_policy.InfraClient
 	ClusterControlPlanesClient enforcement_points.ClusterControlPlanesClient
+	RealizedEntitiesClient     realized_state.RealizedEntitiesClient
 
 	MPQueryClient             mpsearch.QueryClient
 	CertificatesClient        trust_management.CertificatesClient
@@ -98,6 +100,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	ruleClient := security_policies.NewRulesClient(restConnector(cluster))
 	infraClient := nsx_policy.NewInfraClient(restConnector(cluster))
 	clusterControlPlanesClient := enforcement_points.NewClusterControlPlanesClient(restConnector(cluster))
+	realizedEntitiesClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
 
 	mpQueryClient := mpsearch.NewQueryClient(restConnector(cluster))
 	certificatesClient := trust_management.NewCertificatesClient(restConnector(cluster))
@@ -122,6 +125,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		InfraClient:    infraClient,
 
 		ClusterControlPlanesClient: clusterControlPlanesClient,
+		RealizedEntitiesClient:     realizedEntitiesClient,
 
 		MPQueryClient:             mpQueryClient,
 		CertificatesClient:        certificatesClient,
