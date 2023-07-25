@@ -72,8 +72,14 @@ var (
 	Bool   = pointy.Bool   // address of bool
 )
 
-type VPCInfo struct {
+type VPCResourceInfo struct {
 	OrgID     string
 	ProjectID string
 	VPCID     string
+	// 1. For the subnetport with path /orgs/o1/projects/p1/vpcs/v1/subnets/s1/ports/port1,
+	//    ID=port1, ParentID=s1;
+	// 2. For the subnet with path /orgs/o1/projects/p1/vpcs/v1/subnets/s1,
+	//    ID=s1, ParentID=v1 (ParentID==VPCID).
+	ID       string
+	ParentID string
 }
