@@ -215,7 +215,20 @@ func (vcConfig *VCConfig) validate() error {
 	return nil
 }
 
+func removeEmptyItem(source []string) []string {
+	target := make([]string, 0)
+	for _, value := range source {
+		if len(value) == 0 {
+			continue
+		}
+		target = append(target, value)
+	}
+	return target
+}
+
 func (nsxConfig *NsxConfig) validate(enableVPC bool) error {
+	nsxConfig.NsxApiManagers = removeEmptyItem(nsxConfig.NsxApiManagers)
+	nsxConfig.Thumbprint = removeEmptyItem(nsxConfig.Thumbprint)
 	mCount := len(nsxConfig.NsxApiManagers)
 	if mCount == 0 {
 		err := errors.New("invalid field " + "NsxApiManagers")
