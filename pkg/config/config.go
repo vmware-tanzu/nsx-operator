@@ -15,7 +15,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth/jwt"
 )
 
-//TODO replace to yaml
+// TODO replace to yaml
 const (
 	nsxOperatorDefaultConf = "/etc/nsx-operator/nsxop.ini"
 	vcHostCACertPath       = "/etc/vmware/wcp/tls/vmca.pem"
@@ -197,7 +197,20 @@ func (vcConfig *VCConfig) validate() error {
 	return nil
 }
 
+func removeEmptyItem(source []string) []string {
+	target := make([]string, 0)
+	for _, value := range source {
+		if len(value) == 0 {
+			continue
+		}
+		target = append(target, value)
+	}
+	return target
+}
+
 func (nsxConfig *NsxConfig) validate() error {
+	nsxConfig.NsxApiManagers = removeEmptyItem(nsxConfig.NsxApiManagers)
+	nsxConfig.Thumbprint = removeEmptyItem(nsxConfig.Thumbprint)
 	mCount := len(nsxConfig.NsxApiManagers)
 	if mCount == 0 {
 		err := errors.New("invalid field " + "NsxApiManagers")
