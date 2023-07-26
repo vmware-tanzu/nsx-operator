@@ -1,8 +1,6 @@
 package mediator
 
 import (
-	"regexp"
-
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
@@ -10,8 +8,7 @@ import (
 )
 
 var (
-	log   = logger.Log
-	reExp = regexp.MustCompile(`/orgs/([^/]+)/projects/([^/]+)/vpcs/([^/]+)`)
+	log = logger.Log
 )
 
 // ServiceMediator We use mediator pattern to wrap all the services,
@@ -24,24 +21,20 @@ type ServiceMediator struct {
 	*vpc.VPCService
 }
 
-// GetVPCInfo is a common method, extracting the org, the project, and the vpc string from vpc path of the VPC model.
+// ListVPCInfo is a common method, extracting the org, the project, and the vpc string from vpc path of the VPC model.
 // VPC path looks like "/orgs/default/projects/project-1/vpcs/vpc-1",
 // Since other modules only know namespace, this is the only entry point to get org and project.
 // Currently, we only support one vpc per namespace, but we may support multiple vpcs per namespace in the future,
 // so we return a slice of VPCInfo.
-func (serviceMediator *ServiceMediator) GetVPCInfo(ns string) []common.VPCInfo {
-	var VPCInfo []common.VPCInfo
+func (serviceMediator *ServiceMediator) ListVPCInfo(ns string) []common.VPCResourceInfo {
+	var VPCInfoList []common.VPCResourceInfo
 	vpcs := serviceMediator.GetVPCsByNamespace(ns) // Transparently call the VPCService.GetVPCsByNamespace method
 	for _, v := range vpcs {
-		matches := reExp.FindStringSubmatch(*v.Path)
-		if len(matches) == 4 {
-			org := matches[1]
-			project := matches[2]
-			vpc_ := matches[3]
-			VPCInfo = append(VPCInfo, common.VPCInfo{OrgID: org, ProjectID: project, VPCID: vpc_})
-		} else {
-			log.Error(nil, "Failed to get vpc info from vpc path", "vpc path", *v.Path)
+		vpcResourceInfo, err := common.ParseVPCResourcePath(*v.Path)
+		if err != nil {
+			log.Error(err, "Failed to get vpc info from vpc path", "vpc path", *v.Path)
 		}
+		VPCInfoList = append(VPCInfoList, vpcResourceInfo)
 	}
-	return VPCInfo
+	return VPCInfoList
 }
