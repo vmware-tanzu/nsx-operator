@@ -23,7 +23,7 @@ type Config struct {
 	// Specify a CA bundle file to use in verifying the NSX Manager server certificate. This option is ignored if
 	// "Insecure" is set to True. If "Insecure" is set to False and "CAFile" is unset, the "Thumbprint" will be used.
 	// If "Thumbprint" is unset, the system root CAs will be used to verify the server certificate.
-	CAFile string
+	CAFile []string
 	// Specify a Thumbprint string to use in verifying the NSX Manager server certificate. This option is ignored
 	// if "Insecure" is set to True or "CAFile" is defined.
 	Thumbprint []string
@@ -58,7 +58,7 @@ type Config struct {
 }
 
 // NewConfig creates a nsx configuration. It provides default values for those items not in function parameters.
-func NewConfig(apiManagers, username, password, caFile string, concurrentConnections, retries, httpTimeout, connIdleTimeout int, insecure, allowOverwriteHeader, allowPassThrough bool, apiRateMode ratelimiter.Type, tokenProvider auth.TokenProvider, clientCertProvider auth.ClientCertProvider, thumbprint []string) *Config {
+func NewConfig(apiManagers, username, password string, caFile []string, concurrentConnections, retries, httpTimeout, connIdleTimeout int, insecure, allowOverwriteHeader, allowPassThrough bool, apiRateMode ratelimiter.Type, tokenProvider auth.TokenProvider, clientCertProvider auth.ClientCertProvider, thumbprint []string) *Config {
 	apis := strings.Split(apiManagers, ",")
 	for i, v := range apis {
 		apis[i] = strings.TrimSpace(v)
