@@ -306,25 +306,13 @@ func (nsxConfig *NsxConfig) validateCert() error {
 
 func (nsxConfig *NsxConfig) validate() error {
 	nsxConfig.NsxApiManagers = removeEmptyItem(nsxConfig.NsxApiManagers)
-	nsxConfig.Thumbprint = removeEmptyItem(nsxConfig.Thumbprint)
 	mCount := len(nsxConfig.NsxApiManagers)
 	if mCount == 0 {
 		err := errors.New("invalid field " + "NsxApiManagers")
 		configLog.Error(err, "validate NsxConfig failed", "NsxApiManagers", nsxConfig.NsxApiManagers)
 		return err
 	}
-	tpCount := len(nsxConfig.Thumbprint)
-	if tpCount == 0 {
-		configLog.Info("no thumbprint provided")
-		return nil
-	}
-	if tpCount == 1 {
-		configLog.Info("all endpoints share one thumbprint")
-		return nil
-	}
-	if tpCount > 1 && tpCount != mCount {
-		err := errors.New("thumbprint count not match manager count")
-		configLog.Error(err, "validate NsxConfig failed", "thumbprint count", tpCount, "manager count", mCount)
+	if err := nsxConfig.validateCert(); err != nil {
 		return err
 	}
 	return nil
