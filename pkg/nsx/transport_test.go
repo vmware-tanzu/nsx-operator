@@ -57,7 +57,7 @@ func TestRoundTripRetry(t *testing.T) {
 	defer ts.Close()
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
-	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, err := NewCluster(config)
 	assert.Nil(err, fmt.Sprintf("Create cluster error %v", err))
 	cluster.endpoints[0], _ = NewEndpoint(ts.URL, &cluster.client, &cluster.noBalancerClient, cluster.endpoints[0].ratelimiter, nil)
@@ -73,7 +73,7 @@ func TestRoundTripRetry(t *testing.T) {
 func TestSelectEndpoint(t *testing.T) {
 	assert := assert.New(t)
 	a := "127.0.0.1, 127.0.0.2, 127.0.0.3"
-	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster := &Cluster{}
 	tr := cluster.createTransport(idleConnTimeout)
 	client := cluster.createHTTPClient(tr, timeout)
@@ -150,7 +150,7 @@ func TestTransport_RoundTrip(t *testing.T) {
 
 func Test_handleRoundTripError(t *testing.T) {
 	a := "127.0.0.1, 127.0.0.2, 127.0.0.3"
-	config := NewConfig(a, "admin", "passw0rd", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster := &Cluster{}
 	tr := cluster.createTransport(idleConnTimeout)
 	client := cluster.createHTTPClient(tr, timeout)
