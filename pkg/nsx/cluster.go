@@ -6,23 +6,24 @@ package nsx
 import (
 	"crypto/sha1"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	policyclient "github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
-
-	policyclient "github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
 )
 
 // ClusterHealth indicates cluster status.
@@ -120,26 +121,67 @@ func (cluster *Cluster) getThumbprint(addr string) string {
 	return thumbprint
 }
 
+func (cluster *Cluster) getCaFile(addr string) string {
+	host := addr[:strings.Index(addr, ":")]
+	var cafile string
+	tpCount := len(cluster.config.CAFile)
+	if tpCount == 1 {
+		cafile = cluster.config.CAFile[0]
+	}
+	if tpCount > 1 {
+		for index, ep := range cluster.endpoints {
+			epHost := ep.Host()
+			if pos := strings.Index(ep.Host(), ":"); pos > 0 {
+				epHost = epHost[:pos]
+			}
+			if epHost == host {
+				cafile = cluster.config.CAFile[index]
+				break
+			}
+		}
+	}
+	return cafile
+}
+
 func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
 	dial := func(network, addr string) (net.Conn, error) {
-		thumbprint := cluster.getThumbprint(addr)
-		tpCount := len(cluster.config.Thumbprint)
-		config := &tls.Config{
-			InsecureSkipVerify: true,
-			VerifyConnection: func(cs tls.ConnectionState) error {
-				// not check thumbprint if no thumbprint config
-				if tpCount > 0 {
-					fingerprint := calcFingerprint(cs.PeerCertificates[0].Raw)
-					if strings.Compare(fingerprint, thumbprint) == 0 {
-						return nil
-					} else {
-						err := errors.New("server certificate didn't match trusted fingerprint")
-						log.Error(err, "verify thumbprint", "address", addr, "server thumbprint", fingerprint, "local thumbprint", thumbprint)
-						return err
+		var config *tls.Config
+		cafile := cluster.getCaFile(addr)
+		caCount := len(cluster.config.CAFile)
+		if caCount > 0 {
+			caCert, err := os.ReadFile(cafile)
+			if err != nil {
+				log.Error(err, "create transport", "read ca file", cafile)
+				return nil, err
+			}
+
+			certPool := x509.NewCertPool()
+			certPool.AppendCertsFromPEM(caCert)
+
+			config = &tls.Config{
+				RootCAs: certPool,
+			}
+
+		} else {
+			thumbprint := cluster.getThumbprint(addr)
+			tpCount := len(cluster.config.Thumbprint)
+			config = &tls.Config{
+				InsecureSkipVerify: true,
+				VerifyConnection: func(cs tls.ConnectionState) error {
+					// not check thumbprint if no thumbprint config
+					if tpCount > 0 {
+						fingerprint := calcFingerprint(cs.PeerCertificates[0].Raw)
+						if strings.Compare(fingerprint, thumbprint) == 0 {
+							return nil
+						} else {
+							err := errors.New("server certificate didn't match trusted fingerprint")
+							log.Error(err, "verify thumbprint", "address", addr, "server thumbprint", fingerprint, "local thumbprint", thumbprint)
+							return err
+						}
 					}
-				}
-				return nil
-			},
+					return nil
+				},
+			}
 		}
 		conn, err := tls.Dial(network, addr, config)
 		if err != nil {

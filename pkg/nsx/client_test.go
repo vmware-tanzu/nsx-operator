@@ -18,7 +18,7 @@ import (
 
 func TestNSXHealthChecker_CheckNSXHealth(t *testing.T) {
 	host := "1.1.1.1"
-	config := NewConfig(host, "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	config := NewConfig(host, "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := NewCluster(config)
 	req := &http.Request{}
 
