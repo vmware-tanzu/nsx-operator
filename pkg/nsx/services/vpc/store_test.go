@@ -208,21 +208,21 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 	}
 	vpc1 := model.Vpc{
 
-		DisplayName:       &vpcName1,
-		Id:                &vpcID1,
-		Tags:              tag1,
-		IpAddressType:     &IPv4Type,
-		PrivateIpv4Blocks: []string{"1.1.1.0/24"},
-		PublicIpv4Blocks:  []string{"2.2.2.0/24"},
+		DisplayName:        &vpcName1,
+		Id:                 &vpcID1,
+		Tags:               tag1,
+		IpAddressType:      &IPv4Type,
+		PrivateIpv4Blocks:  []string{"1.1.1.0/24"},
+		ExternalIpv4Blocks: []string{"2.2.2.0/24"},
 	}
 	vpc2 := model.Vpc{
 
-		DisplayName:       &vpcName2,
-		Id:                &vpcID2,
-		Tags:              tag2,
-		IpAddressType:     &IPv4Type,
-		PrivateIpv4Blocks: []string{"3.3.3.0/24"},
-		PublicIpv4Blocks:  []string{"4.4.4.0/24"},
+		DisplayName:        &vpcName2,
+		Id:                 &vpcID2,
+		Tags:               tag2,
+		IpAddressType:      &IPv4Type,
+		PrivateIpv4Blocks:  []string{"3.3.3.0/24"},
+		ExternalIpv4Blocks: []string{"4.4.4.0/24"},
 	}
 	tests := []struct {
 		name    string
