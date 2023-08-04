@@ -28,8 +28,9 @@ const (
 	TagScopeIPPoolCRName            string = "nsx-op/ippool_cr_name"
 	TagScopeIPPoolCRUID             string = "nsx-op/ippool_cr_uid"
 	TagScopeIPPoolCRType            string = "nsx-op/ippool_cr_type"
+	TagScopeIPPoolCreatedFor            string = "nsx-op/ippool_created_for"
 	TagScopeIPSubnetName            string = "nsx-op/ipsubnet_cr_name"
-	TagScopeIPSubnetOwner           string = "nsx-op/ipsubnet_cr_owner"
+	TagScopeIPSubnetCreatedFor           string = "nsx-op/ipsubnet_created_for"
 	TagScopeNCPCluster              string = "ncp/cluster"
 	TagScopeNCPProject              string = "ncp/project"
 	TagScopeNCPVIFProject           string = "ncp/vif_project"
@@ -83,8 +84,14 @@ var (
 	Bool   = pointy.Bool   // address of bool
 )
 
-type VPCInfo struct {
+type VPCResourceInfo struct {
 	OrgID     string
 	ProjectID string
 	VPCID     string
+	// 1. For the subnetport with path /orgs/o1/projects/p1/vpcs/v1/subnets/s1/ports/port1,
+	//    ID=port1, ParentID=s1;
+	// 2. For the subnet with path /orgs/o1/projects/p1/vpcs/v1/subnets/s1,
+	//    ID=s1, ParentID=v1 (ParentID==VPCID).
+	ID       string
+	ParentID string
 }

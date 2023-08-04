@@ -17,6 +17,10 @@ var (
 	String = common.String
 )
 
+const(
+	GUESTCLUSTER = "guest_cluster"
+)
+
 func (service *IPPoolService) BuildIPPool(IPPool *v1alpha2.IPPool) (*model.IpAddressPool, []*model.IpAddressPoolBlockSubnet) {
 	return &model.IpAddressPool{
 		Id:          String(service.buildIPPoolID(IPPool)),
@@ -40,6 +44,7 @@ func (service *IPPoolService) buildIPPoolTags(IPPool *v1alpha2.IPPool) []model.T
 		{Scope: String(common.TagScopeIPPoolCRName), Tag: String(IPPool.ObjectMeta.Name)},
 		{Scope: String(common.TagScopeIPPoolCRUID), Tag: String(string(IPPool.UID))},
 		{Scope: String(common.TagScopeIPPoolCRType), Tag: String(IPPool.Spec.Type)},
+		{Scope: String(common.TagScopeIPPoolCreatedFor), Tag: String(GUESTCLUSTER)},
 	}
 }
 
@@ -69,13 +74,13 @@ func (service *IPPoolService) buildIPSubnetTags(IPPool *v1alpha2.IPPool, subnetR
 		{Scope: String(common.TagScopeIPPoolCRName), Tag: String(IPPool.ObjectMeta.Name)},
 		{Scope: String(common.TagScopeIPPoolCRUID), Tag: String(string(IPPool.UID))},
 		{Scope: String(common.TagScopeIPSubnetName), Tag: String(subnetRequest.Name)},
-		{Scope: String(common.TagScopeIPSubnetOwner), Tag: String(ResourceTypeIPPool)},
+		{Scope: String(common.TagScopeIPSubnetCreatedFor), Tag: String(GUESTCLUSTER)},
 	}
 }
 
 func (service *IPPoolService) buildIPSubnetIntentPath(IPPool *v1alpha2.IPPool, subnetRequest *v1alpha2.SubnetRequest) string {
 	if IPPool.Spec.Type == common.IPPoolTypePrivate {
-		VPCInfo := commonctl.ServiceMediator.GetVPCInfo(IPPool.Namespace)
+		VPCInfo := commonctl.ServiceMediator.ListVPCInfo(IPPool.Namespace)
 		if len(VPCInfo) == 0 {
 			return ""
 		}
@@ -92,7 +97,7 @@ func (service *IPPoolService) buildIPSubnet(IPPool *v1alpha2.IPPool, subnetReque
 	// TODO: Get the IPBlockPath by IPPool's namespace, external and private
 	IpBlockPath := String("/infra/ip-blocks/block-test")
 	if IPPool.Spec.Type == common.IPPoolTypePrivate {
-		VPCInfo := commonctl.ServiceMediator.GetVPCInfo(IPPool.Namespace)
+		VPCInfo := commonctl.ServiceMediator.ListVPCInfo(IPPool.Namespace)
 		if len(VPCInfo) == 0 {
 			return nil
 		}

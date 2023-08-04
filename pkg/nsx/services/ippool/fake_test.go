@@ -44,7 +44,7 @@ func (f fakeProjectInfraClient) Patch(orgIdParam string, projectIdParam string, 
 type fakeRealizedEntitiesClient struct {
 }
 
-func (f fakeRealizedEntitiesClient) List(_ string, _ *string) (model.GenericPolicyRealizedResourceListResult, error) {
+func (f fakeRealizedEntitiesClient) List(_ string, _ string, _ string, _ *string) (model.GenericPolicyRealizedResourceListResult, error) {
 	a := model.GenericPolicyRealizedResourceListResult{
 		Results: []model.GenericPolicyRealizedResource{
 			{

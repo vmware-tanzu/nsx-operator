@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
@@ -178,4 +179,10 @@ func Test_InitializeResourceStore(t *testing.T) {
 	defer patches2.Reset()
 
 	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, nil, ruleStore)
+	assert.Empty(t, fatalErrors)
+	assert.Equal(t, []string{"11111"}, ruleStore.ListKeys())
+	mTag, mScope := TagScopeNamespace, "11111"
+	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, []model.Tag{{Tag: &mTag, Scope: &mScope}}, ruleStore)
+	assert.Empty(t, fatalErrors)
+	assert.Equal(t, []string{"11111"}, ruleStore.ListKeys())
 }

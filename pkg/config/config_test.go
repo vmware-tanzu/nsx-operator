@@ -84,3 +84,10 @@ func TestConfig_GetTokenProvider(t *testing.T) {
 	tokenProvider := nsxConfig.GetTokenProvider()
 	assert.NotNil(t, tokenProvider)
 }
+
+func TestConfig_GetHA(t *testing.T) {
+	configFilePath = "../mock/nsxop.ini"
+	cf, err := NewNSXOperatorConfigFromFile()
+	assert.Equal(t, err, nil)
+	assert.Equal(t, cf.HAEnabled(), true)
+}

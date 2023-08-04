@@ -11,6 +11,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -131,6 +132,8 @@ func Test_InitializeVPCStore(t *testing.T) {
 	defer patches2.Reset()
 
 	service.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVPC, nil, vpcStore)
+	assert.Empty(t, fatalErrors)
+	assert.Equal(t, sets.String(sets.String{}), vpcStore.ListIndexFuncValues(common.TagScopeVPCCRUID))
 }
 
 func TestVPCStore_CRUDResource(t *testing.T) {
@@ -208,21 +211,21 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 	}
 	vpc1 := model.Vpc{
 
-		DisplayName:       &vpcName1,
-		Id:                &vpcID1,
-		Tags:              tag1,
-		IpAddressType:     &IPv4Type,
-		PrivateIpv4Blocks: []string{"1.1.1.0/24"},
-		PublicIpv4Blocks:  []string{"2.2.2.0/24"},
+		DisplayName:        &vpcName1,
+		Id:                 &vpcID1,
+		Tags:               tag1,
+		IpAddressType:      &IPv4Type,
+		PrivateIpv4Blocks:  []string{"1.1.1.0/24"},
+		ExternalIpv4Blocks: []string{"2.2.2.0/24"},
 	}
 	vpc2 := model.Vpc{
 
-		DisplayName:       &vpcName2,
-		Id:                &vpcID2,
-		Tags:              tag2,
-		IpAddressType:     &IPv4Type,
-		PrivateIpv4Blocks: []string{"3.3.3.0/24"},
-		PublicIpv4Blocks:  []string{"4.4.4.0/24"},
+		DisplayName:        &vpcName2,
+		Id:                 &vpcID2,
+		Tags:               tag2,
+		IpAddressType:      &IPv4Type,
+		PrivateIpv4Blocks:  []string{"3.3.3.0/24"},
+		ExternalIpv4Blocks: []string{"4.4.4.0/24"},
 	}
 	tests := []struct {
 		name    string

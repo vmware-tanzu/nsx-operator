@@ -19,9 +19,9 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/ip_pools"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/realized_state"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -98,6 +98,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	ruleClient := security_policies.NewRulesClient(restConnector(cluster))
 	infraClient := nsx_policy.NewInfraClient(restConnector(cluster))
 	clusterControlPlanesClient := enforcement_points.NewClusterControlPlanesClient(restConnector(cluster))
+	realizedEntitiesClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
 
 	mpQueryClient := mpsearch.NewQueryClient(restConnector(cluster))
 	certificatesClient := trust_management.NewCertificatesClient(restConnector(cluster))
@@ -107,7 +108,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	projectInfraClient := projects.NewInfraClient(restConnector(cluster))
 	ipPoolClient := infra.NewIpPoolsClient(restConnector(cluster))
 	ipSubnetClient := ip_pools.NewIpSubnetsClient(restConnector(cluster))
-	realizedEntitiesClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
 	}

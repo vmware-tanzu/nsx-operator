@@ -49,9 +49,12 @@ func InitializeIPPool(service common.Service) (*IPPoolService, error) {
 		BindingType: model.IpAddressPoolBlockSubnetBindingType(),
 	}}
 
-	go ipPoolService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeIPPool, nil, ipPoolService.ipPoolStore)
 	tags := []model.Tag{
-		{Scope: String(common.TagScopeIPSubnetOwner), Tag: String(ResourceTypeIPPool)},
+		{Scope: String(common.TagScopeIPPoolCreatedFor), Tag: String(GUESTCLUSTER)},
+	}
+	go ipPoolService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeIPPool, tags, ipPoolService.ipPoolStore)
+	tags = []model.Tag{
+		{Scope: String(common.TagScopeIPSubnetCreatedFor), Tag: String(GUESTCLUSTER)},
 	}
 	go ipPoolService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeIPPoolBlockSubnet, tags, ipPoolService.ipPoolBlockSubnetStore)
 
@@ -110,7 +113,7 @@ func (service *IPPoolService) Operate(nsxIPPool *model.IpAddressPool, nsxIPSubne
 		return err
 	}
 	// Get IPPool Type from nsxIPPool
-	IPPoolType := common.IPPoolTypePublic
+	IPPoolType := common.IPPoolTypePrivate
 	for _, tag := range nsxIPPool.Tags {
 		if *tag.Scope == common.TagScopeIPPoolCRType {
 			IPPoolType = *tag.Tag
@@ -120,7 +123,7 @@ func (service *IPPoolService) Operate(nsxIPPool *model.IpAddressPool, nsxIPSubne
 
 	if IPPoolType == common.IPPoolTypePrivate {
 		ns := service.GetIPPoolNamespace(nsxIPPool)
-		VPCInfo := commonctl.ServiceMediator.GetVPCInfo(ns)
+		VPCInfo := commonctl.ServiceMediator.ListVPCInfo(ns)
 		if len(VPCInfo) == 0 {
 			err = util.NoEffectiveOption{Desc: "no effective org and project for ippool"}
 		} else {
@@ -130,7 +133,7 @@ func (service *IPPoolService) Operate(nsxIPPool *model.IpAddressPool, nsxIPSubne
 	} else if IPPoolType == common.IPPoolTypePublic {
 		err = service.NSXClient.InfraClient.Patch(*infraIPPool, &EnforceRevisionCheckParam)
 	} else {
-		err = util.NoEffectiveOption{Desc: "no effective ippool type"}
+		err = util.NoEffectiveOption{Desc: "not valid IPPool type"}
 	}
 	if err != nil {
 		return err
@@ -214,7 +217,13 @@ func (service *IPPoolService) acquireCidr(obj *v1alpha2.IPPool, subnetRequest *v
 	if intentPath == "" {
 		return "", fmt.Errorf("failed to build intent path for ip pool %s, subnetRequest %s", obj.Name, subnetRequest.Name)
 	}
-	m, err := service.NSXClient.RealizedEntitiesClient.List(intentPath, nil)
+	VPCInfo := commonctl.ServiceMediator.ListVPCInfo(obj.Namespace)
+	var err error
+	if len(VPCInfo) == 0 {
+		err = util.NoEffectiveOption{Desc: "no effective org and project for ippool"}
+		return "", err
+	}
+	m, err := service.NSXClient.RealizedEntitiesClient.List(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, intentPath, nil)
 	if err != nil {
 		return "", err
 	}
