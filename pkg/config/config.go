@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"os"
 
+	"go.uber.org/zap"
 	ini "gopkg.in/ini.v1"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth/jwt"
@@ -26,7 +26,7 @@ var (
 	LogLevel               int
 	ProbeAddr, MetricsAddr string
 	configFilePath         = ""
-	log                    = logf.Log.WithName("config")
+	configLog              *zap.SugaredLogger
 	tokenProvider          auth.TokenProvider
 )
 
@@ -38,6 +38,11 @@ type NSXOperatorConfig struct {
 	*K8sConfig
 	*VCConfig
 	*HAConfig
+}
+
+func init() {
+	zapLogger, _ := zap.NewProduction()
+	configLog = zapLogger.Sugar()
 }
 
 func (operatorConfig *NSXOperatorConfig) HAEnabled() bool {
@@ -112,7 +117,8 @@ func UpdateConfigFilePath(configFile string) {
 	configFilePath = configFile
 }
 
-func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
+func LoadConfigFromFile() (*NSXOperatorConfig, error) {
+	configLog.Infof("loading NSX Operator configuration file: %s", configFilePath)
 	nsxOperatorConfig := NewNSXOpertorConfig()
 
 	cfg := ini.Empty()
@@ -156,6 +162,15 @@ func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
 	return nsxOperatorConfig, nil
 }
 
+func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
+	nsxOperatorConfig, err := LoadConfigFromFile()
+	if err != nil {
+		configLog.Error("failed to load NSX Operator configuration file: %v", err)
+		return nil, err
+	}
+	return nsxOperatorConfig, nil
+}
+
 func NewNSXOpertorConfig() *NSXOperatorConfig {
 	defaultNSXOperatorConfig := &NSXOperatorConfig{
 		&DefaultConfig{},
@@ -190,7 +205,7 @@ func (operatorConfig *NSXOperatorConfig) GetTokenProvider() auth.TokenProvider {
 }
 
 func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
-	log.V(1).Info("try to load VC host CA")
+	configLog.Info("try to load VC host CA")
 	var vcCaCert []byte
 	var err error
 	if !operatorConfig.Insecure {
@@ -202,7 +217,7 @@ func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
 		// If operatorConfig.VCInsecure is false, tls will the CA to verify the server
 		// certificate. If loading CA failed, tls will use the CA on local host
 		if err != nil {
-			log.Info("fail to load CA cert from file", "error", err)
+			configLog.Info("fail to load CA cert from file", "error", err)
 		}
 	}
 
@@ -215,25 +230,25 @@ func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
 func (vcConfig *VCConfig) validate() error {
 	if len(vcConfig.VCEndPoint) == 0 {
 		err := errors.New("invalid field " + "VcEndPoint")
-		log.Info("validate VcConfig failed", "VcEndPoint", vcConfig.VCEndPoint)
+		configLog.Info("validate VcConfig failed", "VcEndPoint", vcConfig.VCEndPoint)
 		return err
 	}
 
 	if len(vcConfig.SsoDomain) == 0 {
 		err := errors.New("invalid field " + "SsoDomain")
-		log.Info("validate VcConfig failed", "SsoDomain", vcConfig.SsoDomain)
+		configLog.Info("validate VcConfig failed", "SsoDomain", vcConfig.SsoDomain)
 		return err
 	}
 
 	if vcConfig.HttpsPort == 0 {
 		err := errors.New("invalid field " + "HttpsPort")
-		log.Info("validate VcConfig failed", "HttpsPort", vcConfig.HttpsPort)
+		configLog.Info("validate VcConfig failed", "HttpsPort", vcConfig.HttpsPort)
 		return err
 	}
 	// VCPassword, VCUser should be both empty or valid
 	if !((len(vcConfig.VCPassword) > 0) == (len(vcConfig.VCUser) > 0)) {
 		err := errors.New("invalid field " + "VCUser, VCPassword")
-		log.Info("validate VcConfig failed", "VCUser", vcConfig.VCUser, "VCPassword", vcConfig.VCPassword)
+		configLog.Info("validate VcConfig failed VCUser %s VCPassword %s", vcConfig.VCUser, vcConfig.VCPassword)
 		return err
 	}
 	return nil
@@ -263,28 +278,28 @@ func (nsxConfig *NsxConfig) validateCert() error {
 	// ca file(thumbprint) == 1 or equal to manager count
 	if caCount == 0 && tpCount == 0 {
 		err := errors.New("no ca file or thumbprint provided")
-		log.Error(err, "validate NsxConfig failed")
+		configLog.Error(err, "validate NsxConfig failed")
 		return err
 	}
 	if caCount > 0 {
-		log.V(1).Info("validate CA file", "CA file number", caCount)
+		configLog.Infof("validate CA file: %s", caCount)
 		if caCount > 1 && caCount != mCount {
 			err := errors.New("ca file count not match manager count")
-			log.Error(err, "validate NsxConfig failed", "ca file count", caCount, "manager count", mCount)
+			configLog.Error(err, "validate NsxConfig failed", "ca file count", caCount, "manager count", mCount)
 			return err
 		}
 		for _, file := range nsxConfig.CaFile {
 			if _, err := os.Stat(file); os.IsNotExist(err) {
 				err = fmt.Errorf("ca file does not exist %s", file)
-				log.Error(err, "validate NsxConfig failed")
+				configLog.Error(err, "validate NsxConfig failed")
 				return err
 			}
 		}
 	} else {
-		log.V(1).Info("validate thumbprint", "thumbprint number", tpCount)
+		configLog.Infof("validate thumbprint: %s", tpCount)
 		if tpCount > 1 && tpCount != mCount {
 			err := errors.New("thumbprint count not match manager count")
-			log.Error(err, "validate NsxConfig failed", "thumbprint count", tpCount, "manager count", mCount)
+			configLog.Error(err, "validate NsxConfig failed", "thumbprint count", tpCount, "manager count", mCount)
 			return err
 		}
 	}
@@ -296,7 +311,7 @@ func (nsxConfig *NsxConfig) validate() error {
 	mCount := len(nsxConfig.NsxApiManagers)
 	if mCount == 0 {
 		err := errors.New("invalid field " + "NsxApiManagers")
-		log.Error(err, "validate NsxConfig failed", "NsxApiManagers", nsxConfig.NsxApiManagers)
+		configLog.Error(err, "validate NsxConfig failed", "NsxApiManagers", nsxConfig.NsxApiManagers)
 		return err
 	}
 	if err := nsxConfig.validateCert(); err != nil {
@@ -308,7 +323,7 @@ func (nsxConfig *NsxConfig) validate() error {
 func (coeConfig *CoeConfig) validate() error {
 	if len(coeConfig.Cluster) == 0 {
 		err := errors.New("invalid field " + "Cluster")
-		log.Error(err, "validate coeConfig failed")
+		configLog.Error(err, "validate coeConfig failed")
 		return err
 	}
 	return nil
