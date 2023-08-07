@@ -63,6 +63,7 @@ func main() {
 	flag.IntVar(&config.LogLevel, "log-level", 0, "Use zap-core log system.")
 	flag.Parse()
 
+	logf.SetLogger(logger.ZapLogger())
 	cf = config.NewNSXOpertorConfig()
 	cf.NsxApiManagers = []string{mgrIp}
 	cf.VCUser = vcUser
