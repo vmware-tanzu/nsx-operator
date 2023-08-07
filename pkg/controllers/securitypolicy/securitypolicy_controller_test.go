@@ -149,7 +149,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 
 	// NSX version check failed case
 	sp := &v1alpha1.SecurityPolicy{}
-	checkNsxVersionPatch := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int, version [3]int64) bool {
+	checkNsxVersionPatch := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
 		return false
 	})
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
@@ -163,7 +163,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	assert.Equal(t, resultRequeueAfter5mins, result)
 
 	checkNsxVersionPatch.Reset()
-	checkNsxVersionPatch = gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int, version [3]int64) bool {
+	checkNsxVersionPatch = gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
 		return true
 	})
 	defer checkNsxVersionPatch.Reset()

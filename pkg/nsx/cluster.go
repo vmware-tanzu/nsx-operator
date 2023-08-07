@@ -265,6 +265,9 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 	var minVersion [3]int64
 	validFeature := false
 	switch feature {
+	case VPC:
+		minVersion = nsx411Version
+		validFeature = true
 	case SecurityPolicy:
 		minVersion = nsx320Version
 		validFeature = true
