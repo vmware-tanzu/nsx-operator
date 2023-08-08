@@ -8,7 +8,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -28,11 +27,12 @@ import (
 var (
 	scheme                 = runtime.NewScheme()
 	probeAddr, metricsAddr string
-	log                    logr.Logger
+	log                    = logger.Log
 	cf                     *config.NSXOperatorConfig
 )
 
 func init() {
+	var err error
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 
@@ -40,14 +40,14 @@ func init() {
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8093", "The address the metrics endpoint binds to.")
 	config.AddFlags()
 	flag.Parse()
-	var err error
 
+	logf.SetLogger(logger.ZapLogger())
 	cf, err = config.NewNSXOperatorConfigFromFile()
 	if err != nil {
+		log.Error(err, "load config file error")
 		os.Exit(1)
 	}
-	logf.SetLogger(logger.ZapLogger(cf))
-	log = logf.Log.WithName("main")
+
 	if metrics.AreMetricsExposed(cf) {
 		metrics.InitializePrometheusMetrics()
 	}

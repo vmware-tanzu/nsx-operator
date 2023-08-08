@@ -27,8 +27,7 @@ var (
 	tokenProvider  auth.TokenProvider
 )
 
-//TODO delete unnecessary config
-
+// TODO delete unnecessary config
 type NSXOperatorConfig struct {
 	*DefaultConfig
 	*CoeConfig

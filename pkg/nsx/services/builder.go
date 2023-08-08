@@ -802,9 +802,9 @@ func (service *SecurityPolicyService) updateExpressionsMatchLabels(matchLabels m
 // this function iterates over input matchExpressions LabelSelectorRequirement
 // with same operator and Key, and merges them into one and values to a joined string
 // e.g.
-// - {key: k1, operator: NotIn, values: [a1, a2, a3]}
-// - {key: k1, operator: NotIn, values: [a2, a3, a4]}
-//  => {key: k1, operator: NotIn, values: [a1, a2, a3, a4]}
+//   - {key: k1, operator: NotIn, values: [a1, a2, a3]}
+//   - {key: k1, operator: NotIn, values: [a2, a3, a4]}
+//     => {key: k1, operator: NotIn, values: [a1, a2, a3, a4]}
 func (service *SecurityPolicyService) mergeSelectorMatchExpression(matchExpressions []v1.LabelSelectorRequirement) *[]v1.LabelSelectorRequirement {
 	mergedMatchExpressions := make([]v1.LabelSelectorRequirement, 0)
 	var mergedSelector v1.LabelSelectorRequirement
@@ -954,7 +954,8 @@ func (service *SecurityPolicyService) matchExpressionOpInExist(matchExpressions 
 // Currently NSX only supports 'EQUALS' not 'In'. So, we have to make each value to be AND with other expressions
 // and finally produce a union set to translate from K8s 'In' to NSX EQUALS'.
 // e.g. - {key: k1, operator: NotIn, values: [a1,a2]}
-//      - {key: k2, operator: In, values: [a3,a4]}
+//   - {key: k2, operator: In, values: [a3,a4]}
+//
 // The above two expressions will be translated to:
 // => {k1 NotIn [a1,a2]} AND {k2 EQUALS a3} OR {k1 NotIn [a1,a2]} AND {k2 EQUALS a4}
 func (service *SecurityPolicyService) updateExpressionsMatchExpression(matchExpressions []v1.LabelSelectorRequirement, matchLabels map[string]string,
