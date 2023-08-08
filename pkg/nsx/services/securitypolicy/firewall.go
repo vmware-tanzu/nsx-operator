@@ -232,7 +232,7 @@ func (service *SecurityPolicyService) createOrUpdateGroups(nsxGroups []model.Gro
 			return err
 		}
 	}
-	
+
 	err := service.groupStore.Operate(&nsxGroups)
 	if err != nil {
 		return err
