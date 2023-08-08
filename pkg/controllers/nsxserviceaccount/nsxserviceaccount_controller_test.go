@@ -73,7 +73,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 						Name:      requestArgs.req.Name,
 					},
 				}))
-				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersionForNSXServiceAccount", []gomonkey.OutputCell{{
+				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{false},
 					Times:  1,
 				}})
@@ -104,7 +104,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 						Name:      requestArgs.req.Name,
 					},
 				}))
-				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersionForNSXServiceAccount", []gomonkey.OutputCell{{
+				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{true},
 					Times:  1,
 				}})
@@ -139,7 +139,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 						Name:      requestArgs.req.Name,
 					},
 				}))
-				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersionForNSXServiceAccount", []gomonkey.OutputCell{{
+				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{true},
 					Times:  1,
 				}})
@@ -178,7 +178,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 						Phase: nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
 					},
 				}))
-				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersionForNSXServiceAccount", []gomonkey.OutputCell{{
+				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{true},
 					Times:  1,
 				}})
@@ -209,7 +209,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 						Name:      requestArgs.req.Name,
 					},
 				}))
-				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersionForNSXServiceAccount", []gomonkey.OutputCell{{
+				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{true},
 					Times:  1,
 				}})
@@ -243,7 +243,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 						DeletionTimestamp: deletionTimestamp,
 					},
 				}))
-				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersionForNSXServiceAccount", []gomonkey.OutputCell{{
+				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{true},
 					Times:  1,
 				}})
@@ -274,7 +274,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 						Finalizers:        []string{servicecommon.NSXServiceAccountFinalizerName},
 					},
 				}))
-				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersionForNSXServiceAccount", []gomonkey.OutputCell{{
+				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{true},
 					Times:  1,
 				}})
@@ -313,7 +313,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 						Finalizers:        []string{servicecommon.NSXServiceAccountFinalizerName},
 					},
 				}))
-				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersionForNSXServiceAccount", []gomonkey.OutputCell{{
+				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{true},
 					Times:  1,
 				}})
@@ -356,7 +356,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 						Finalizers:        []string{servicecommon.NSXServiceAccountFinalizerName},
 					},
 				}))
-				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersionForNSXServiceAccount", []gomonkey.OutputCell{{
+				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{true},
 					Times:  1,
 				}})
