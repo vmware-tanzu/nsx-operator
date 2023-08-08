@@ -21,6 +21,8 @@ import (
 	ippool2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/ippool"
 	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
 	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
+	staticroutecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/staticroute"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -44,13 +46,13 @@ func init() {
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
 	config.AddFlags()
+
+	logf.SetLogger(logger.ZapLogger())
 	cf, err = config.NewNSXOperatorConfigFromFile()
 	if err != nil {
 		log.Error(err, "load config file error")
 		os.Exit(1)
 	}
-
-	logf.SetLogger(logger.ZapLogger())
 
 	if os.Getenv("NSX_OPERATOR_NAMESPACE") != "" {
 		nsxOperatorNamespace = os.Getenv("NSX_OPERATOR_NAMESPACE")
@@ -152,7 +154,7 @@ func main() {
 	}
 
 	//  Embed the common commonService to sub-services.
-	var commonService = common.Service{
+	commonService := common.Service{
 		Client:    mgr.GetClient(),
 		NSXClient: nsxClient,
 		NSXConfig: cf,
@@ -160,13 +162,14 @@ func main() {
 
 	// Start the security policy controller.
 	StartSecurityPolicyController(mgr, commonService)
+	staticroutecontroller.StartStaticRouteController(mgr, commonService)
 	// Start the NSXServiceAccount controller.
 	if cf.EnableAntreaNSXInterworking {
 		StartNSXServiceAccountController(mgr, commonService)
 	}
 
-	// Start the ip pool controller.
 	StartIPPoolController(mgr, commonService)
+	subnetport.StartSubnetPortController(mgr, commonService)
 
 	if metrics.AreMetricsExposed(cf) {
 		go updateHealthMetricsPeriodically(nsxClient)

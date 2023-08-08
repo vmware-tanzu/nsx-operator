@@ -50,12 +50,9 @@ func InitializeIPPool(service common.Service) (*IPPoolService, error) {
 	}}
 
 	tags := []model.Tag{
-		{Scope: String(common.TagScopeIPPoolCreatedFor), Tag: String(GUESTCLUSTER)},
+		{Scope: String(common.TagScopeIPPoolCRUID)},
 	}
 	go ipPoolService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeIPPool, tags, ipPoolService.ipPoolStore)
-	tags = []model.Tag{
-		{Scope: String(common.TagScopeIPSubnetCreatedFor), Tag: String(GUESTCLUSTER)},
-	}
 	go ipPoolService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeIPPoolBlockSubnet, tags, ipPoolService.ipPoolBlockSubnetStore)
 
 	go func() {
@@ -125,7 +122,7 @@ func (service *IPPoolService) Operate(nsxIPPool *model.IpAddressPool, nsxIPSubne
 		ns := service.GetIPPoolNamespace(nsxIPPool)
 		VPCInfo := commonctl.ServiceMediator.ListVPCInfo(ns)
 		if len(VPCInfo) == 0 {
-			err = util.NoEffectiveOption{Desc: "no effective org and project for ippool"}
+			err = util.NoEffectiveOption{Desc: "no valid org and project for ippool"}
 		} else {
 			err = service.NSXClient.ProjectInfraClient.Patch(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, *infraIPPool,
 				&EnforceRevisionCheckParam)

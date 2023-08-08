@@ -109,17 +109,18 @@ func (r *IPPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return resultNormal, client.IgnoreNotFound(err)
 	}
 
-	// TODO: Since IPPool v1alpha2 service can only be activated from NSX 4.1.0 onwards,
-	// So need to check NSX version before starting IPPool reconcile
-	//if !r.Service.NSXClient.NSXCheckVersionForStaticRoute() {
-	//	err := errors.New("NSX version check failed, IPPool v1alpha2 is not supported")
-	//	updateFail(r, &ctx, obj, &err)
-	//	if NSX version check fails, it will be put back to reconcile queue and be reconciled after 5 minutes
-	//return ResultRequeueAfter5mins, nil
-	//}
-
 	// TODO: As we do not have base controller in Go, we need to take care of NSX exceptions in each controller separately.
 	//I agree we should not do infinite retry for all errors, but it's ok to add error handling in a following patch
+
+	// TODO: Since only the cloud provider creates it, we can take all the validation logic into consideration later.
+
+	// TODO: add webhook to disallow user update prefixLength
+
+	// TODO: Tao's suggestions: Should we consider some Orphan subnets may exist？
+
+	// TODO: Xiaopei's suggestions: is there possibility that IPPool was deleted from nsx store but NSX block subnet was not deleted?
+
+	// TODO: get default mode from NS NetworkConfig CR
 
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResType)

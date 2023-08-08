@@ -22,6 +22,9 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ports"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -29,45 +32,56 @@ import (
 )
 
 const (
-	FeatureSecurityPolicy    string = "SECURITY_POLICY"
-	FeatureNSXServiceAccount string = "NSX_SERVICE_ACCOUNT"
+	SecurityPolicy = iota
+	ServiceAccount
+	StaticRoute
+	AllFeatures
+)
+
+var (
+	FeaturesName = [AllFeatures]string{"SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "STATIC_ROUTE"}
 )
 
 type Client struct {
-	NsxConfig          *config.NSXOperatorConfig
-	RestConnector      *client.RestConnector
-	QueryClient        search.QueryClient
-	GroupClient        domains.GroupsClient
-	SecurityClient     domains.SecurityPoliciesClient
-	RuleClient         security_policies.RulesClient
-	InfraClient        nsx_policy.InfraClient
-	ProjectInfraClient projects.InfraClient
-	NSXChecker         NSXHealthChecker
-	NSXVerChecker      NSXVersionChecker
-
+	NsxConfig                  *config.NSXOperatorConfig
+	RestConnector              *client.RestConnector
+	QueryClient                search.QueryClient
+	GroupClient                domains.GroupsClient
+	SecurityClient             domains.SecurityPoliciesClient
+	RuleClient                 security_policies.RulesClient
+	InfraClient                nsx_policy.InfraClient
+	StaticRouteClient          vpcs.StaticRoutesClient
 	ClusterControlPlanesClient enforcement_points.ClusterControlPlanesClient
+	SubnetStatusClient         subnets.StatusClient
+	RealizedEntitiesClient     realized_state.RealizedEntitiesClient
+	ProjectInfraClient         projects.InfraClient
+	NSXChecker                 NSXHealthChecker
+	NSXVerChecker              NSXVersionChecker
 
 	MPQueryClient             mpsearch.QueryClient
 	CertificatesClient        trust_management.CertificatesClient
 	PrincipalIdentitiesClient trust_management.PrincipalIdentitiesClient
 	WithCertificateClient     principal_identities.WithCertificateClient
 
-	IPPoolClient           infra.IpPoolsClient
-	IPSubnetClient         ip_pools.IpSubnetsClient
-	RealizedEntitiesClient realized_state.RealizedEntitiesClient
+	IPPoolClient    infra.IpPoolsClient
+	IPSubnetClient  ip_pools.IpSubnetsClient
+	PortClient      subnets.PortsClient
+	PortStateClient ports.StateClient
 }
 
-var nsx320Version = [3]int64{3, 2, 0}
-var nsx401Version = [3]int64{4, 0, 1}
+var (
+	nsx320Version = [3]int64{3, 2, 0}
+	nsx401Version = [3]int64{4, 0, 1}
+	nsx410Version = [3]int64{4, 1, 0}
+)
 
 type NSXHealthChecker struct {
 	cluster *Cluster
 }
 
 type NSXVersionChecker struct {
-	cluster                    *Cluster
-	securityPolicySupported    bool
-	nsxServiceAccountSupported bool
+	cluster          *Cluster
+	featureSupported [AllFeatures]bool
 }
 
 func (ck *NSXHealthChecker) CheckNSXHealth(req *http.Request) error {
@@ -97,6 +111,9 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	securityClient := domains.NewSecurityPoliciesClient(restConnector(cluster))
 	ruleClient := security_policies.NewRulesClient(restConnector(cluster))
 	infraClient := nsx_policy.NewInfraClient(restConnector(cluster))
+
+	staticRouteClient := vpcs.NewStaticRoutesClient(restConnector(cluster))
+
 	clusterControlPlanesClient := enforcement_points.NewClusterControlPlanesClient(restConnector(cluster))
 	realizedEntitiesClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
 
@@ -108,23 +125,27 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	projectInfraClient := projects.NewInfraClient(restConnector(cluster))
 	ipPoolClient := infra.NewIpPoolsClient(restConnector(cluster))
 	ipSubnetClient := ip_pools.NewIpSubnetsClient(restConnector(cluster))
+	portClient := subnets.NewPortsClient(restConnector(cluster))
+	portStateClient := ports.NewStateClient(restConnector(cluster))
+	subnetStatusClient := subnets.NewStatusClient(restConnector(cluster))
+
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
 	}
 	nsxVersionChecker := &NSXVersionChecker{
-		cluster:                 cluster,
-		securityPolicySupported: false,
+		cluster:          cluster,
+		featureSupported: [AllFeatures]bool{},
 	}
 
 	nsxClient := &Client{
-		NsxConfig:      cf,
-		RestConnector:  restConnector(cluster),
-		QueryClient:    queryClient,
-		GroupClient:    groupClient,
-		SecurityClient: securityClient,
-		RuleClient:     ruleClient,
-		InfraClient:    infraClient,
-
+		NsxConfig:                  cf,
+		RestConnector:              restConnector(cluster),
+		QueryClient:                queryClient,
+		GroupClient:                groupClient,
+		SecurityClient:             securityClient,
+		RuleClient:                 ruleClient,
+		InfraClient:                infraClient,
+		StaticRouteClient:          staticRouteClient,
 		ClusterControlPlanesClient: clusterControlPlanesClient,
 
 		MPQueryClient:             mpQueryClient,
@@ -138,6 +159,9 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		IPPoolClient:           ipPoolClient,
 		IPSubnetClient:         ipSubnetClient,
 		RealizedEntitiesClient: realizedEntitiesClient,
+		PortClient:             portClient,
+		PortStateClient:        portStateClient,
+		SubnetStatusClient:     subnetStatusClient,
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time
@@ -154,32 +178,20 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 }
 
 func (client *Client) NSXCheckVersionForSecurityPolicy() bool {
-	if client.NSXVerChecker.securityPolicySupported {
-		return true
-	}
-
-	nsxVersion, err := client.NSXVerChecker.cluster.GetVersion()
-	if err != nil {
-		log.Error(err, "get version error")
-		return false
-	}
-	err = nsxVersion.Validate()
-	if err != nil {
-		log.Error(err, "validate version error")
-		return false
-	}
-
-	if !nsxVersion.featureSupported(FeatureSecurityPolicy) {
-		err = errors.New("NSX version check failed")
-		log.Error(err, "SecurityPolicy feature is not supported", "current version", nsxVersion.NodeVersion, "required version", nsx320Version)
-		return false
-	}
-	client.NSXVerChecker.securityPolicySupported = true
-	return true
+	return client.NSXCheckVersion(SecurityPolicy, nsx320Version)
 }
 
 func (client *Client) NSXCheckVersionForNSXServiceAccount() bool {
-	if client.NSXVerChecker.nsxServiceAccountSupported {
+	return client.NSXCheckVersion(ServiceAccount, nsx401Version)
+}
+
+func (client *Client) NSXCheckVersionForStaticRoute() bool {
+	//return false
+	return client.NSXCheckVersion(StaticRoute, nsx410Version)
+}
+
+func (client *Client) NSXCheckVersion(feature int, version [3]int64) bool {
+	if client.NSXVerChecker.featureSupported[feature] {
 		return true
 	}
 
@@ -194,11 +206,11 @@ func (client *Client) NSXCheckVersionForNSXServiceAccount() bool {
 		return false
 	}
 
-	if !nsxVersion.featureSupported(FeatureNSXServiceAccount) {
+	if !nsxVersion.featureSupported(feature) {
 		err = errors.New("NSX version check failed")
-		log.Error(err, "NSXServiceAccount feature is not supported", "current version", nsxVersion.NodeVersion, "required version", nsx320Version)
+		log.Error(err, FeaturesName[feature]+"feature is not supported", "current version", nsxVersion.NodeVersion, "required version", nsx410Version)
 		return false
 	}
-	client.NSXVerChecker.nsxServiceAccountSupported = true
+	client.NSXVerChecker.featureSupported[feature] = true
 	return true
 }

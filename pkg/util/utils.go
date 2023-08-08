@@ -6,7 +6,10 @@ package util
 import (
 	"context"
 	"crypto/sha1"
+	"errors"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 
 	mapset "github.com/deckarep/golang-set"
@@ -130,4 +133,37 @@ func Contains(s []string, str string) bool {
 		}
 	}
 	return false
+}
+
+// RemoveIPPrefix remove the prefix from an IP address, e.g.
+// "1.2.3.4/24" -> "1.2.3.4"
+func RemoveIPPrefix(ipAddress string) (string, error) {
+	ip := strings.Split(ipAddress, "/")[0]
+	if net.ParseIP(ip) == nil {
+		return "", errors.New("invalid IP address")
+	}
+	return ip, nil
+}
+
+// GetIPPrefix get the prefix from an IP address, e.g.
+// "1.2.3.4/24" -> 24
+func GetIPPrefix(ipAddress string) (int, error) {
+	num, err := strconv.Atoi(strings.Split(ipAddress, "/")[1])
+	if err != nil {
+		return -1, err
+	}
+	return num, err
+}
+
+// GetSubnetMask get the mask for a given prefix length, e.g.
+// 24 -> "255.255.255.0"
+func GetSubnetMask(subnetLength int) (string, error) {
+	if subnetLength < 0 || subnetLength > 32 {
+		return "", errors.New("invalid subnet mask length")
+	}
+	// Create a 32-bit subnet mask with leading 1's and trailing 0's
+	subnetBinary := uint32(0xffffffff) << (32 - subnetLength)
+	// Convert the binary representation to dotted-decimal format
+	subnetMask := net.IPv4(byte(subnetBinary>>24), byte(subnetBinary>>16), byte(subnetBinary>>8), byte(subnetBinary))
+	return subnetMask.String(), nil
 }
