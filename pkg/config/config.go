@@ -27,8 +27,7 @@ var (
 	tokenProvider  auth.TokenProvider
 )
 
-//TODO delete unnecessary config
-
+// TODO delete unnecessary config
 type NSXOperatorConfig struct {
 	*DefaultConfig
 	*CoeConfig
@@ -158,7 +157,7 @@ func (operatorConfig *NSXOperatorConfig) GetTokenProvider() auth.TokenProvider {
 }
 
 func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
-	log.V(2).Info("try to load VC host CA")
+	log.V(1).Info("try to load VC host CA")
 	var vcCaCert []byte
 	var err error
 	if !operatorConfig.Insecure {
