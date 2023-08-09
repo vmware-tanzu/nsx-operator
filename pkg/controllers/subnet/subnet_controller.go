@@ -2,6 +2,7 @@ package subnet
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"runtime"
 
@@ -72,7 +73,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	} else {
 		if controllerutil.ContainsFinalizer(obj, servicecommon.FinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnet)
-			if err := r.Service.DeleteSubnet(*obj); err != nil {
+			if err := r.DeleteSubnet(*obj); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "subnet", req.NamespacedName)
 				deleteFail(r, &ctx, obj)
 				return ResultRequeue, err
@@ -90,6 +91,22 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 	}
 	return ctrl.Result{}, nil
+}
+
+func (r *SubnetReconciler) DeleteSubnet(obj v1alpha1.Subnet) error {
+	nsxSubnets := r.Service.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetCRUID, string(obj.GetUID()))
+	if len(nsxSubnets) == 0 {
+		log.Info("no subnet found for subnet CR", "uid", string(obj.GetUID()))
+		return nil
+	}
+	// TODO Get port number by subnet ID from subnetport store.
+	portNums := 0 // portNums := commonctl.ServiceMediator.GetPortOfSubnet(nsxSubnet.Id)
+	if portNums > 0 {
+		err := errors.New("subnet still attached by port")
+		log.Error(err, "", "ID", *nsxSubnets[0].Id)
+		return err
+	}
+	return r.Service.DeleteSubnet(nsxSubnets[0])
 }
 
 func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {
