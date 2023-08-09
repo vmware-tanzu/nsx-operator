@@ -4,7 +4,6 @@
 package common
 
 import (
-	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -43,7 +42,7 @@ func ParseVPCResourcePath(nsxResourcePath string) (VPCResourceInfo, error) {
 	reExp := regexp.MustCompile(`/orgs/([^/]+)/projects/([^/]+)/vpcs/([^/]+)([/\S+]*)`)
 	matches := reExp.FindStringSubmatch(nsxResourcePath)
 	if len(matches) != 5 {
-		err := errors.New("invalid path")
+		err := fmt.Errorf("invalid path '%s'", nsxResourcePath)
 		return info, err
 	}
 	info.OrgID = matches[1]

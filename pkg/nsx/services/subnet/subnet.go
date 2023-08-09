@@ -15,7 +15,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -156,7 +155,7 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, tags []mod
 		}
 	}
 	log.Info("successfully updated nsxSubnet", "nsxSubnet", nsxSubnet)
-	return *nsxSubnet.Id, nil
+	return *nsxSubnet.Path, nil
 }
 
 func (service *SubnetService) DeleteSubnet(obj v1alpha1.Subnet) error {
@@ -276,24 +275,6 @@ func (service *SubnetService) GetIPPoolUsage(subnet *v1alpha1.Subnet) (*model.Po
 		return nil, errors.New("NSX Subnet doesn't exist in store")
 	}
 	return service.getIPPoolUsage(&nsxSubnets[0])
-}
-
-// GetAvailableSubnet returns available Subnet under SubnetSet, and creates Subnet if necessary.
-func (service *SubnetService) GetAvailableSubnet(subnetSet *v1alpha1.SubnetSet) (string, error) {
-	subnetList := service.SubnetStore.GetByIndex(common.TagScopeSubnetCRUID, string(subnetSet.GetUID()))
-	for _, nsxSubnet := range subnetList {
-		// TODO Get port number by subnet ID.
-		portNums := 1 // portNums := commonctl.ServiceMediator.GetPortOfSubnet(nsxSubnet.Id)
-		totalIP := int(*nsxSubnet.Ipv4SubnetSize)
-		if len(nsxSubnet.IpAddresses) > 0 {
-			// totalIP will be overrided if IpAddresses are specified.
-			totalIP, _ = util.CalculateIPFromCIDRs(nsxSubnet.IpAddresses)
-		}
-		if portNums < totalIP-3 {
-			return *nsxSubnet.Id, nil
-		}
-	}
-	return service.CreateOrUpdateSubnet(subnetSet, nil)
 }
 
 func (service *SubnetService) updateSubnetSetStatus(obj *v1alpha1.SubnetSet) error {

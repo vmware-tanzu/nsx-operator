@@ -10,11 +10,13 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -84,7 +86,12 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		// 	defaultVMSubnet = true
 		// }
 		old_status := obj.Status.DeepCopy()
-		err := r.Service.CreateOrUpdateSubnetPort(obj)
+		nsxSubnetPath, err := r.GetSubnetPathForSubnetPort(obj)
+		if err != nil {
+			log.Error(err, "failed to get NSX resource path from subnet", "subnetport", obj)
+			return common.ResultRequeue, err
+		}
+		err = r.Service.CreateOrUpdateSubnetPort(obj, nsxSubnetPath)
 		if err != nil {
 			log.Error(err, "failed to create or update NSX subnet port, would retry exponentially", "subnetport", req.NamespacedName)
 			updateFail(r, &ctx, obj, &err)
@@ -140,7 +147,7 @@ func (r *SubnetPortReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func StartSubnetPortController(mgr ctrl.Manager, commonService servicecommon.Service) {
-	subnetPortReconcile := SubnetPortReconciler{
+	subnetPortReconciler := SubnetPortReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
@@ -148,9 +155,10 @@ func StartSubnetPortController(mgr ctrl.Manager, commonService servicecommon.Ser
 		log.Error(err, "failed to initialize subnetport commonService", "controller", "SubnetPort")
 		os.Exit(1)
 	} else {
-		subnetPortReconcile.Service = subnetPortService
+		subnetPortReconciler.Service = subnetPortService
+		common.ServiceMediator.SubnetPortService = subnetPortReconciler.Service
 	}
-	if err := subnetPortReconcile.Start(mgr); err != nil {
+	if err := subnetPortReconciler.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "SubnetPort")
 		os.Exit(1)
 	}
@@ -294,4 +302,127 @@ func updateSuccess(r *SubnetPortReconciler, c *context.Context, o *v1alpha1.Subn
 
 func deleteSuccess(r *SubnetPortReconciler, _ *context.Context, _ *v1alpha1.SubnetPort) {
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetPort)
+}
+
+func (r *SubnetPortReconciler) GetSubnetPathForSubnetPort(obj *v1alpha1.SubnetPort) (string, error) {
+	subnetPath := ""
+	if len(obj.Spec.Subnet) > 0 {
+		subnet := &v1alpha1.Subnet{}
+		namespacedName := types.NamespacedName{
+			Name:      obj.Spec.Subnet,
+			Namespace: obj.Namespace,
+		}
+		if err := r.Client.Get(context.Background(), namespacedName, subnet); err != nil {
+			log.Error(err, "subnet CR not found", "subnet CR", namespacedName)
+			return subnetPath, err
+		}
+		subnetPath = subnet.Status.NSXResourcePath
+		if len(subnetPath) == 0 {
+			err := fmt.Errorf("empty NSX resource path from subnet %s", subnet.Name)
+			return subnetPath, err
+		}
+	} else if len(obj.Spec.SubnetSet) > 0 {
+		subnetSet := &v1alpha1.SubnetSet{}
+		namespacedName := types.NamespacedName{
+			Name:      obj.Spec.SubnetSet,
+			Namespace: obj.Namespace,
+		}
+		if err := r.Client.Get(context.Background(), namespacedName, subnetSet); err != nil {
+			log.Error(err, "subnetSet CR not found", "subnet CR", namespacedName)
+			return subnetPath, err
+		}
+		subnetPath, err := r.AllocateSubnetFromSubnetSet(obj, subnetSet)
+		if err != nil {
+			return subnetPath, err
+		}
+		return subnetPath, nil
+	} else {
+		subnetSet, err := r.GetDefaultSubnetSet(obj)
+		if err != nil {
+			return "", err
+		}
+		subnetPath, err := r.AllocateSubnetFromSubnetSet(obj, subnetSet)
+		if err != nil {
+			return subnetPath, err
+		}
+		return subnetPath, nil
+	}
+	return subnetPath, nil
+}
+
+func (r *SubnetPortReconciler) AllocateSubnetFromSubnetSet(subnetPort *v1alpha1.SubnetPort, subnetSet *v1alpha1.SubnetSet) (string, error) {
+	log.Info("allocating Subnet for SubnetPort", "subnetPort", subnetPort.Name, "subnetSet", subnetSet.Name)
+	subnetPath, err := common.ServiceMediator.GetAvailableSubnet(subnetSet)
+	if err != nil {
+		log.Error(err, "failed to allocate Subnet")
+	}
+	log.Info("allocated Subnet for SubnetPort", "subnetPath", subnetPath)
+	return subnetPath, nil
+}
+
+func (r *SubnetPortReconciler) GetDefaultSubnetSet(subnetPort *v1alpha1.SubnetPort) (*v1alpha1.SubnetSet, error) {
+	targetNamespace, _, err := r.getSharedNamespaceAndVpcForNamespace(subnetPort.Namespace)
+	if err != nil {
+		return nil, err
+	}
+	if targetNamespace == "" {
+		log.Info("subnetport's namespace doesn't have shared VPC, searching the default subnetset in the current namespace", "subnetPort.Name", subnetPort.Name, "subnetPort.Namespace", subnetPort.Namespace)
+		targetNamespace = subnetPort.Namespace
+	}
+	subnetSet, err := r.getDefaultSubnetSetByNamespace(subnetPort, targetNamespace)
+	if err != nil {
+		return nil, err
+	}
+	return subnetSet, err
+}
+
+func (r *SubnetPortReconciler) getSharedNamespaceAndVpcForNamespace(namespaceName string) (string, string, error) {
+	sharedNamespaceName := ""
+	sharedVpcName := ""
+	namespace := &v1.Namespace{}
+	namespacedName := types.NamespacedName{Name: namespaceName}
+	if err := r.Client.Get(context.Background(), namespacedName, namespace); err != nil {
+		log.Error(err, "failed to get target namespace during getting VPC for namespace")
+		return "", "", err
+	}
+	// TODO: import "nsx.vmware.com/vpc_name" as the constant from types afer VPC patch is merged.
+	vpcAnnotation, exists := namespace.Annotations["nsx.vmware.com/vpc_name"]
+	if !exists {
+		return "", "", nil
+	}
+	array := strings.Split(vpcAnnotation, "/")
+	if len(array) != 2 {
+		err := fmt.Errorf("invalid annotation value of 'nsx.vmware.com/vpc_name': %s", vpcAnnotation)
+		return "", "", err
+	}
+	sharedNamespaceName, sharedVpcName = array[0], array[1]
+	log.Info("got shared VPC for namespace", "current namespace", namespaceName, "shared VPC", sharedVpcName, "shared namespace", sharedNamespaceName)
+	return sharedNamespaceName, sharedVpcName, nil
+}
+
+func (r *SubnetPortReconciler) getDefaultSubnetSetByNamespace(subnetPort *v1alpha1.SubnetPort, namespace string) (*v1alpha1.SubnetSet, error) {
+	subnetSetList := &v1alpha1.SubnetSetList{}
+	subnetSetSelector := &metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			servicecommon.LabelDefaultSubnetSet: servicecommon.ResourceTypeVirtualMachine,
+		},
+	}
+	labelSelector, _ := metav1.LabelSelectorAsSelector(subnetSetSelector)
+	opts := &client.ListOptions{
+		LabelSelector: labelSelector,
+		Namespace:     namespace,
+	}
+	if err := r.Service.Client.List(context.Background(), subnetSetList, opts); err != nil {
+		log.Error(err, "failed to list default subnetset CR", "namespace", subnetPort.Namespace)
+		return nil, err
+	}
+	if len(subnetSetList.Items) == 0 {
+		return nil, errors.New("default subnetset not found")
+	} else if len(subnetSetList.Items) > 1 {
+		return nil, errors.New("multiple default subnetsets found")
+	}
+	subnetSet := subnetSetList.Items[0]
+	log.Info("got default subnetset", "subnetset.Name", subnetSet.Name, "subnetset.uid", subnetSet.UID)
+	return &subnetSet, nil
+
 }

@@ -55,6 +55,8 @@ const (
 	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
 	SubnetPortFinalizerName        = "subnetport.nsx.vmware.com/finalizer"
 	RealizeTimeout                 = 2 * time.Minute
+
+	IndexKeySubnetID = "IndexKeySubnetID"
 )
 
 var (

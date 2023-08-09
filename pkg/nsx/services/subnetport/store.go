@@ -32,14 +32,28 @@ func filterTag(tags []model.Tag, tagScope string) []string {
 	return res
 }
 
-// subnetPortIndexFunc is used to get index of a resource, usually, which is the UID of the CR controller reconciles,
+// subnetPortIndexByCRUID is used to get index of a resource, usually, which is the UID of the CR controller reconciles,
 // index is used to filter out resources which are related to the CR
-func subnetPortIndexFunc(obj interface{}) ([]string, error) {
+func subnetPortIndexByCRUID(obj interface{}) ([]string, error) {
 	switch o := obj.(type) {
 	case model.SegmentPort:
 		return filterTag(o.Tags, common.TagScopeSubnetPortCRUID), nil
 	default:
-		return nil, errors.New("subnetPortIndexFunc doesn't support unknown type")
+		return nil, errors.New("subnetPortIndexByCRUID doesn't support unknown type")
+	}
+}
+
+func subnetPortIndexBySubnetID(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case model.SegmentPort:
+		vpcInfo, err := common.ParseVPCResourcePath(*o.Path)
+		if err != nil {
+			return nil, err
+		}
+		return []string{vpcInfo.ParentID}, nil
+
+	default:
+		return nil, errors.New("subnetPortIndexByCRUID doesn't support unknown type")
 	}
 }
 
