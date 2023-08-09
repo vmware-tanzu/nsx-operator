@@ -40,12 +40,21 @@ const (
 	TagScopeSubnetPortCRName        string = "nsx-op/subnetport_cr_name"
 	TagScopeSubnetPortCRUID         string = "nsx-op/subnetport_cr_uid"
 	LabelDefaultSubnetSet           string = "nsxoperator.vmware.com/default-subnetset-for"
+	// TagScopeSubnetCRType indicates that NSX Subnet is linked to Subnet CR or SubnetSet CR.
+	TagScopeSubnetCRType    string = "nsx-op/subnet_cr_type"
+	TagScopeSubnetCRUID     string = "nsx-op/subnet_cr_uid"
+	TagScopeSubnetCRName    string = "nsx-op/subnet_cr_name"
+	TagScopeSubnetSetCRName string = "nsx-op/subnetset_cr_name"
 
-	GCInterval                     = 60 * time.Second
-	FinalizerName                  = "securitypolicy.nsx.vmware.com/finalizer"
-	StaticRouteFinalizerName       = "staticroute.nsx.vmware.com/finalizer"
+	GCInterval                      = 60 * time.Second
+	FinalizerName                   = "securitypolicy.nsx.vmware.com/finalizer"
+	StaticRouteFinalizerName        = "staticroute.nsx.vmware.com/finalizer"
+	LabelDefaultVMSubnet     string = "VirtualMachine"
+	LabelDefaultPodSubnetSet string = "Pod"
+
 	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
 	SubnetPortFinalizerName        = "subnetport.nsx.vmware.com/finalizer"
+	RealizeTimeout                 = 2 * time.Minute
 )
 
 var (
@@ -60,6 +69,7 @@ var (
 	ResourceTypeClusterControlPlane = "clustercontrolplane"
 	// ResourceTypePrincipalIdentity is used by NSXServiceAccountController, and it is MP resource type.
 	ResourceTypePrincipalIdentity = "principalidentity"
+	ResourceTypeSubnet            = "VpcSubnet"
 )
 
 type Service struct {
