@@ -58,6 +58,8 @@ const (
 	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
 	SubnetPortFinalizerName        = "subnetport.nsx.vmware.com/finalizer"
 	VPCFinalizerName               = "vpc.nsx.vmware.com/finalizer"
+
+	IndexKeySubnetID = "IndexKeySubnetID"
 )
 
 var (
