@@ -151,7 +151,7 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, tags []mod
 		return "", err
 	}
 	if subnetSet, ok := obj.(*v1alpha1.SubnetSet); ok {
-		if err = service.updateSubnetSetStatus(subnetSet); err != nil {
+		if err = service.UpdateSubnetSetStatus(subnetSet); err != nil {
 			return "", err
 		}
 	}
@@ -159,48 +159,7 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, tags []mod
 	return *nsxSubnet.Id, nil
 }
 
-func (service *SubnetService) DeleteSubnet(obj v1alpha1.Subnet) error {
-	nsxSubnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetCRUID, string(obj.GetUID()))
-	if len(nsxSubnets) == 0 {
-		log.Info("no subnet found for subnet CR", "uid", string(obj.GetUID()))
-		return nil
-	}
-	// TODO Get port number by subnet ID from subnetport store.
-	portNums := 0 // portNums := commonctl.ServiceMediator.GetPortOfSubnet(nsxSubnet.Id)
-	if portNums > 0 {
-		err := errors.New("subnet still attached by port")
-		log.Error(err, "", "ID", *nsxSubnets[0].Id)
-		return err
-	}
-	return service.deleteSubnet(nsxSubnets[0])
-}
-
-func (service *SubnetService) DeleteSubnetForSubnetSet(obj v1alpha1.SubnetSet, updataStatus bool) error {
-	nsxSubnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetCRUID, string(obj.GetUID()))
-	hitError := false
-	for _, subnet := range nsxSubnets {
-		// TODO Get port number by subnet ID from subnetport store.
-		portNums := 0 // portNums := commonctl.ServiceMediator.GetPortOfSubnet(nsxSubnet.Id)
-		if portNums > 0 {
-			continue
-		}
-		if err := service.deleteSubnet(subnet); err != nil {
-			log.Error(err, "fail to delete subnet from subnetset cr", "ID", *subnet.Id)
-			hitError = true
-		}
-	}
-	if updataStatus {
-		if err := service.updateSubnetSetStatus(&obj); err != nil {
-			return err
-		}
-	}
-	if hitError {
-		return errors.New("error occurs when deleting subnet")
-	}
-	return nil
-}
-
-func (service *SubnetService) deleteSubnet(nsxSubnet model.VpcSubnet) error {
+func (service *SubnetService) DeleteSubnet(nsxSubnet model.VpcSubnet) error {
 	vpcInfo, _ := common.ParseVPCResourcePath(*nsxSubnet.Path)
 	nsxSubnet.MarkedForDelete = &MarkedForDelete
 	// WrapHighLevelSubnet will modify the input subnet, make a copy for the following store update.
@@ -296,7 +255,7 @@ func (service *SubnetService) GetAvailableSubnet(subnetSet *v1alpha1.SubnetSet) 
 	return service.CreateOrUpdateSubnet(subnetSet, nil)
 }
 
-func (service *SubnetService) updateSubnetSetStatus(obj *v1alpha1.SubnetSet) error {
+func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) error {
 	var subnetInfoList []v1alpha1.SubnetInfo
 	nsxSubnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetCRUID, string(obj.GetUID()))
 	for _, subnet := range nsxSubnets {
