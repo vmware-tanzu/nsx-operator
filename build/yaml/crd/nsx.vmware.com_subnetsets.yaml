@@ -33,7 +33,8 @@ spec:
           metadata:
             type: object
           spec:
-            description: SubnetSetSpec defines the desired state of SubnetSet.
+            description: SubnetSetSpec defines the desired state of SubnetSet. TODO
+              Add validate webhook or CEL(k8s 1.25+) for immutable fields(IPv4SubnetSize/AccessMode/DHCPConfig).
             properties:
               DHCPConfig:
                 description: DHCPConfig DHCP configuration.
@@ -67,12 +68,12 @@ spec:
                     type: boolean
                 type: object
               accessMode:
-                default: private
+                default: Private
                 description: Access mode of Subnet, accessible only from within VPC
                   or from outside VPC. Defaults to private.
                 enum:
-                - private
-                - public
+                - Private
+                - Public
                 type: string
               advancedConfig:
                 description: Subnet advanced configuration.
@@ -143,9 +144,6 @@ spec:
                   - nsxResourcePath
                   type: object
                 type: array
-            required:
-            - conditions
-            - subnets
             type: object
         type: object
     served: true

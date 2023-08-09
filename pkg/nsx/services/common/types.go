@@ -45,16 +45,25 @@ const (
 	TagScopeNSXServiceAccountCRName string = "nsx-op/nsx_service_account_name"
 	TagScopeNSXServiceAccountCRUID  string = "nsx-op/nsx_service_account_uid"
 
-	GCInterval               = 60 * time.Second
-	RealizeMaxRetries        = 3
-	FinalizerName            = "securitypolicy.nsx.vmware.com/finalizer"
-	StaticRouteFinalizerName = "staticroute.nsx.vmware.com/finalizer"
-	SubnetPortFinalizerName  = "subnetport.nsx.vmware.com/finalizer"
-	IPPoolFinalizerName      = "ippool.nsx.vmware.com/finalizer"
+	RealizeMaxRetries   = 3
+	IPPoolFinalizerName = "ippool.nsx.vmware.com/finalizer"
+	IPPoolTypePublic    = "public"
+	IPPoolTypePrivate   = "private"
+	// TagScopeSubnetCRType indicates that NSX Subnet is linked to Subnet CR or SubnetSet CR.
+	TagScopeSubnetCRType    string = "nsx-op/subnet_cr_type"
+	TagScopeSubnetCRUID     string = "nsx-op/subnet_cr_uid"
+	TagScopeSubnetCRName    string = "nsx-op/subnet_cr_name"
+	TagScopeSubnetSetCRName string = "nsx-op/subnetset_cr_name"
+
+	GCInterval                      = 60 * time.Second
+	FinalizerName                   = "securitypolicy.nsx.vmware.com/finalizer"
+	StaticRouteFinalizerName        = "staticroute.nsx.vmware.com/finalizer"
+	LabelDefaultVMSubnet     string = "VirtualMachine"
+	LabelDefaultPodSubnetSet string = "Pod"
 
 	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
-	IPPoolTypePublic               = "public"
-	IPPoolTypePrivate              = "private"
+	SubnetPortFinalizerName        = "subnetport.nsx.vmware.com/finalizer"
+	RealizeTimeout                 = 2 * time.Minute
 )
 
 var (
@@ -71,6 +80,7 @@ var (
 	ResourceTypeClusterControlPlane = "clustercontrolplane"
 	// ResourceTypePrincipalIdentity is used by NSXServiceAccountController, and it is MP resource type.
 	ResourceTypePrincipalIdentity = "principalidentity"
+	ResourceTypeSubnet            = "VpcSubnet"
 )
 
 type Service struct {

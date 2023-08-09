@@ -15,15 +15,14 @@ import (
 	mpsearch "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/search"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management/principal_identities"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/ip_pools"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ip_pools"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ports"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
 
@@ -63,10 +62,13 @@ type Client struct {
 	PrincipalIdentitiesClient trust_management.PrincipalIdentitiesClient
 	WithCertificateClient     principal_identities.WithCertificateClient
 
-	IPPoolClient    infra.IpPoolsClient
-	IPSubnetClient  ip_pools.IpSubnetsClient
-	PortClient      subnets.PortsClient
-	PortStateClient ports.StateClient
+	PortClient          subnets.PortsClient
+	PortStateClient     ports.StateClient
+	IPPoolClient        subnets.IpPoolsClient
+	IPAllocationClient  ip_pools.IpAllocationsClient
+	OrgRootClient       nsx_policy.OrgRootClient
+	SubnetsClient       vpcs.SubnetsClient
+	RealizedStateClient realized_state.RealizedEntitiesClient
 }
 
 var (
@@ -123,12 +125,15 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	withCertificateClient := principal_identities.NewWithCertificateClient(restConnector(cluster))
 
 	projectInfraClient := projects.NewInfraClient(restConnector(cluster))
-	ipPoolClient := infra.NewIpPoolsClient(restConnector(cluster))
-	ipSubnetClient := ip_pools.NewIpSubnetsClient(restConnector(cluster))
 	portClient := subnets.NewPortsClient(restConnector(cluster))
 	portStateClient := ports.NewStateClient(restConnector(cluster))
-	subnetStatusClient := subnets.NewStatusClient(restConnector(cluster))
 
+	ipPoolClient := subnets.NewIpPoolsClient(restConnector(cluster))
+	ipAllocationClient := ip_pools.NewIpAllocationsClient(restConnector(cluster))
+	orgRootClient := nsx_policy.NewOrgRootClient(restConnector(cluster))
+	subnetsClient := vpcs.NewSubnetsClient(restConnector(cluster))
+	subnetStatusClient := subnets.NewStatusClient(restConnector(cluster))
+	realizedStateClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
 	}
@@ -153,15 +158,19 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		PrincipalIdentitiesClient: principalIdentitiesClient,
 		WithCertificateClient:     withCertificateClient,
 
-		NSXChecker:             *nsxChecker,
-		NSXVerChecker:          *nsxVersionChecker,
 		ProjectInfraClient:     projectInfraClient,
-		IPPoolClient:           ipPoolClient,
-		IPSubnetClient:         ipSubnetClient,
-		RealizedEntitiesClient: realizedEntitiesClient,
 		PortClient:             portClient,
 		PortStateClient:        portStateClient,
 		SubnetStatusClient:     subnetStatusClient,
+		RealizedEntitiesClient: realizedEntitiesClient,
+
+		NSXChecker:          *nsxChecker,
+		NSXVerChecker:       *nsxVersionChecker,
+		IPPoolClient:        ipPoolClient,
+		IPAllocationClient:  ipAllocationClient,
+		OrgRootClient:       orgRootClient,
+		SubnetsClient:       subnetsClient,
+		RealizedStateClient: realizedStateClient,
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time
