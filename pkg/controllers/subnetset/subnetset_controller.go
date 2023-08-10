@@ -217,8 +217,7 @@ func (r *SubnetSetReconciler) DeleteSubnetForSubnetSet(obj v1alpha1.SubnetSet, u
 	nsxSubnets := r.Service.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetCRUID, string(obj.GetUID()))
 	hitError := false
 	for _, subnet := range nsxSubnets {
-		// TODO Get port number by subnet ID from subnetport store.
-		portNums := 0 // portNums := commonctl.ServiceMediator.GetPortOfSubnet(nsxSubnet.Id)
+		portNums := len(common.ServiceMediator.GetPortsOfSubnet(*subnet.Id))
 		if portNums > 0 {
 			continue
 		}

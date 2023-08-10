@@ -99,8 +99,7 @@ func (r *SubnetReconciler) DeleteSubnet(obj v1alpha1.Subnet) error {
 		log.Info("no subnet found for subnet CR", "uid", string(obj.GetUID()))
 		return nil
 	}
-	// TODO Get port number by subnet ID from subnetport store.
-	portNums := 0 // portNums := commonctl.ServiceMediator.GetPortOfSubnet(nsxSubnet.Id)
+	portNums := len(common.ServiceMediator.GetPortsOfSubnet(*nsxSubnets[0].Id))
 	if portNums > 0 {
 		err := errors.New("subnet still attached by port")
 		log.Error(err, "", "ID", *nsxSubnets[0].Id)
