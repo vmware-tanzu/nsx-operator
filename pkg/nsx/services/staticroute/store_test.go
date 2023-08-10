@@ -133,8 +133,8 @@ func TestStaticRouteStore_CRUDResource_List(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			staticRouteStore.Operate(&staticRoute1)
-			staticRouteStore.Operate(&staticRoute2)
+			staticRouteStore.Add(staticRoute1)
+			staticRouteStore.Add(staticRoute2)
 			got := staticRouteStore.List()
 			if len(got) != 2 {
 				t.Errorf("size = %v, want %v", len(got), 2)
