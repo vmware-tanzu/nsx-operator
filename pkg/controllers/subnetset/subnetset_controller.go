@@ -2,6 +2,7 @@ package subnetset
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"runtime"
 	"time"
@@ -65,7 +66,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	} else {
 		if controllerutil.ContainsFinalizer(obj, servicecommon.FinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnetSet)
-			if err := r.Service.DeleteSubnetForSubnetSet(*obj, false); err != nil {
+			if err := r.DeleteSubnetForSubnetSet(*obj, false); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "subnetset", req.NamespacedName)
 				deleteFail(r, &ctx, obj)
 				return ResultRequeue, err
@@ -203,13 +204,38 @@ func (r *SubnetSetReconciler) GarbageCollector(cancel chan bool, timeout time.Du
 			continue
 		}
 		for _, subnetSet := range subnetSetList.Items {
-			if err := r.Service.DeleteSubnetForSubnetSet(subnetSet, true); err != nil {
+			if err := r.DeleteSubnetForSubnetSet(subnetSet, true); err != nil {
 				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetSet)
 			} else {
 				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetSet)
 			}
 		}
 	}
+}
+
+func (r *SubnetSetReconciler) DeleteSubnetForSubnetSet(obj v1alpha1.SubnetSet, updataStatus bool) error {
+	nsxSubnets := r.Service.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetCRUID, string(obj.GetUID()))
+	hitError := false
+	for _, subnet := range nsxSubnets {
+		// TODO Get port number by subnet ID from subnetport store.
+		portNums := 0 // portNums := commonctl.ServiceMediator.GetPortOfSubnet(nsxSubnet.Id)
+		if portNums > 0 {
+			continue
+		}
+		if err := r.Service.DeleteSubnet(subnet); err != nil {
+			log.Error(err, "fail to delete subnet from subnetset cr", "ID", *subnet.Id)
+			hitError = true
+		}
+	}
+	if updataStatus {
+		if err := r.Service.UpdateSubnetSetStatus(&obj); err != nil {
+			return err
+		}
+	}
+	if hitError {
+		return errors.New("error occurs when deleting subnet")
+	}
+	return nil
 }
 
 func StartSubnetSetController(mgr ctrl.Manager, commonService servicecommon.Service) error {
