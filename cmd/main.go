@@ -17,18 +17,21 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	namespacecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/namespace"
 	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
 	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
 	staticroutecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetset"
+	vpccontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/vpc"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
 var (
@@ -102,6 +105,37 @@ func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Ser
 	}
 }
 
+func StartVPCController(mgr ctrl.Manager, commonService common.Service) {
+	vpcReconciler := &vpccontroller.VPCReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+	if vpcService, err := vpc.InitializeVPC(commonService); err != nil {
+		log.Error(err, "failed to initialize vpc commonService", "controller", "VPC")
+		os.Exit(1)
+	} else {
+		vpcReconciler.Service = vpcService
+		commonctl.ServiceMediator.VPCService = vpcService
+	}
+	if err := vpcReconciler.Start(mgr); err != nil {
+		log.Error(err, "failed to create vpc controller", "controller", "VPC")
+		os.Exit(1)
+	}
+}
+
+func StartNamespaceController(mgr ctrl.Manager, commonService common.Service) {
+	nsReconciler := &namespacecontroller.NamespaceReconciler{
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		NSXConfig: commonService.NSXConfig,
+	}
+
+	if err := nsReconciler.Start(mgr); err != nil {
+		log.Error(err, "failed to create namespace controller", "controller", "Namespace")
+		os.Exit(1)
+	}
+}
+
 func main() {
 	log.Info("starting NSX Operator")
 
@@ -145,9 +179,13 @@ func main() {
 
 		staticroutecontroller.StartStaticRouteController(mgr, commonService)
 		subnetport.StartSubnetPortController(mgr, commonService)
+
+		StartNamespaceController(mgr, commonService)
+		StartVPCController(mgr, commonService)
 	}
 	// Start the security policy controller, it supports VPC and non VPC mode
 	StartSecurityPolicyController(mgr, commonService)
+
 	// Start the NSXServiceAccount controller.
 	if cf.EnableAntreaNSXInterworking {
 		StartNSXServiceAccountController(mgr, commonService)

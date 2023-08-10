@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	vspherelog "github.com/vmware/vsphere-automation-sdk-go/runtime/log"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
 	nsx_policy "github.com/vmware/vsphere-automation-sdk-go/services/nsxt"
@@ -18,15 +20,14 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
+	projects "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
+	infra "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ip_pools"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ports"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
-
-	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 )
 
 const (
@@ -51,6 +52,8 @@ type Client struct {
 	RuleClient                 security_policies.RulesClient
 	InfraClient                nsx_policy.InfraClient
 	StaticRouteClient          vpcs.StaticRoutesClient
+	VPCClient                  projects.VpcsClient
+	IPBlockClient              infra.IpBlocksClient
 	ClusterControlPlanesClient enforcement_points.ClusterControlPlanesClient
 	SubnetStatusClient         subnets.StatusClient
 	RealizedEntitiesClient     realized_state.RealizedEntitiesClient
@@ -118,12 +121,11 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	securityClient := domains.NewSecurityPoliciesClient(restConnector(cluster))
 	ruleClient := security_policies.NewRulesClient(restConnector(cluster))
 	infraClient := nsx_policy.NewInfraClient(restConnector(cluster))
-
 	staticRouteClient := vpcs.NewStaticRoutesClient(restConnector(cluster))
-
+	vpcClient := projects.NewVpcsClient(restConnector(cluster))
+	ipBlockClient := infra.NewIpBlocksClient(restConnector(cluster))
 	clusterControlPlanesClient := enforcement_points.NewClusterControlPlanesClient(restConnector(cluster))
 	realizedEntitiesClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
-
 	mpQueryClient := mpsearch.NewQueryClient(restConnector(cluster))
 	certificatesClient := trust_management.NewCertificatesClient(restConnector(cluster))
 	principalIdentitiesClient := trust_management.NewPrincipalIdentitiesClient(restConnector(cluster))
@@ -155,6 +157,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		RuleClient:                 ruleClient,
 		InfraClient:                infraClient,
 		StaticRouteClient:          staticRouteClient,
+		VPCClient:                  vpcClient,
+		IPBlockClient:              ipBlockClient,
 		ClusterControlPlanesClient: clusterControlPlanesClient,
 		RealizedEntitiesClient:     realizedEntitiesClient,
 
