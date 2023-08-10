@@ -2,6 +2,7 @@ package subnet
 
 import (
 	"fmt"
+
 	"github.com/google/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -23,13 +24,13 @@ func getCluster(service *SubnetService) string {
 func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (*model.VpcSubnet, error) {
 	tags = append(tags, service.buildBasicTags(obj)...)
 	var nsxSubnet *model.VpcSubnet
+	boolTrue := true
 	switch o := obj.(type) {
 	case *v1alpha1.Subnet:
 		nsxSubnet = &model.VpcSubnet{
 			Id:          String(string(o.GetUID())),
 			AccessMode:  String(string(o.Spec.AccessMode)),
 			DhcpConfig:  service.buildDHCPConfig(int64(o.Spec.IPv4SubnetSize - 4)),
-			Tags:        tags,
 			DisplayName: String(fmt.Sprintf("%s-%s", obj.GetNamespace(), obj.GetName())),
 		}
 	case *v1alpha1.SubnetSet:
@@ -38,11 +39,16 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 			Id:          String(fmt.Sprintf("%s-%s", string(o.GetUID()), index)),
 			AccessMode:  String(string(o.Spec.AccessMode)),
 			DhcpConfig:  service.buildDHCPConfig(int64(o.Spec.IPv4SubnetSize - 4)),
-			Tags:        tags,
 			DisplayName: String(fmt.Sprintf("%s-%s-%s", obj.GetNamespace(), obj.GetName(), index)),
 		}
 	default:
 		return nil, SubnetTypeError
+	}
+	nsxSubnet.Tags = tags
+	nsxSubnet.AdvancedConfig = &model.SubnetAdvancedConfig{
+		StaticIpAllocation: &model.StaticIpAllocation{
+			Enabled: &boolTrue,
+		},
 	}
 	return nsxSubnet, nil
 }

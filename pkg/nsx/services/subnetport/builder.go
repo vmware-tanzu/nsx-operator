@@ -19,7 +19,7 @@ var (
 	String = common.String
 )
 
-func (service *SubnetPortService) buildSubnetPort(obj *v1alpha1.SubnetPort) (*model.SegmentPort, error) {
+func (service *SubnetPortService) buildSubnetPort(obj *v1alpha1.SubnetPort, nsxSubnetPath string) (*model.SegmentPort, error) {
 	allocateAddresses := "BOTH"
 	nsxSubnetPortName := fmt.Sprintf("port-%s", obj.Name)
 	nsxSubnetPortID := string(obj.UID)
@@ -28,8 +28,6 @@ func (service *SubnetPortService) buildSubnetPort(obj *v1alpha1.SubnetPort) (*mo
 	if err != nil {
 		return nil, err
 	}
-	// TODO: Get the subnet's NSX resource path from subnet store after it is implemented.
-	nsxSubnetPath, err := service.GetSubnetPathForSubnetPort(obj)
 	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", nsxSubnetPath, obj.UID)
 	if err != nil {
 		return nil, err

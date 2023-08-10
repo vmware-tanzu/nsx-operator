@@ -101,8 +101,13 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			return nil
 		})
 	err = errors.New("CreateOrUpdateSubnetPort failed")
+	patchesGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).GetSubnetPathForSubnetPort,
+		func(r *SubnetPortReconciler, obj *v1alpha1.SubnetPort) (string, error) {
+			return "", nil
+		})
+	defer patchesGetSubnetPathForSubnetPort.Reset()
 	patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-		func(s *subnetport.SubnetPortService, obj *v1alpha1.SubnetPort) error {
+		func(s *subnetport.SubnetPortService, obj *v1alpha1.SubnetPort, nsxSubnetPath string) error {
 			return err
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
@@ -118,7 +123,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			return nil
 		})
 	patchesCreateOrUpdateSubnetPort = gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-		func(s *subnetport.SubnetPortService, obj *v1alpha1.SubnetPort) error {
+		func(s *subnetport.SubnetPortService, obj *v1alpha1.SubnetPort, nsxSubnetPath string) error {
 			return nil
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
@@ -142,7 +147,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 	defer patchesDeleteSubnetPort.Reset()
 	patchesCreateOrUpdateSubnetPort = gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-		func(s *subnetport.SubnetPortService, obj *v1alpha1.SubnetPort) error {
+		func(s *subnetport.SubnetPortService, obj *v1alpha1.SubnetPort, nsxSubnetPath string) error {
 			assert.FailNow(t, "should not be called")
 			return nil
 		})

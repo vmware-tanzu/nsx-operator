@@ -1,11 +1,16 @@
 package mediator
 
 import (
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -21,6 +26,7 @@ type ServiceMediator struct {
 	*securitypolicy.SecurityPolicyService
 	*vpc.VPCService
 	*subnet.SubnetService
+	*subnetport.SubnetPortService
 }
 
 // ListVPCInfo is a common method, extracting the org, the project, and the vpc string from vpc path of the VPC model.
@@ -45,4 +51,27 @@ func (serviceMediator *ServiceMediator) ListVPCInfo(ns string) []common.VPCResou
 // and default subnet access mode.
 func (m *ServiceMediator) GetVPCNetworkConfigByNamespace(ns string) *vpc.VPCNetworkConfigInfo {
 	return m.VPCService.GetVPCNetworkConfigByNamespace(ns)
+}
+
+// GetAvailableSubnet returns available Subnet under SubnetSet, and creates Subnet if necessary.
+func (serviceMediator *ServiceMediator) GetAvailableSubnet(subnetSet *v1alpha1.SubnetSet) (string, error) {
+	subnetList := serviceMediator.SubnetStore.GetByIndex(common.TagScopeSubnetCRUID, string(subnetSet.GetUID()))
+	for _, nsxSubnet := range subnetList {
+		portNums := len(serviceMediator.GetPortsOfSubnet(*nsxSubnet.Id))
+		totalIP := int(*nsxSubnet.Ipv4SubnetSize)
+		if len(nsxSubnet.IpAddresses) > 0 {
+			// totalIP will be overrided if IpAddresses are specified.
+			totalIP, _ = util.CalculateIPFromCIDRs(nsxSubnet.IpAddresses)
+		}
+		if portNums < totalIP-3 {
+			return *nsxSubnet.Path, nil
+		}
+	}
+	log.Info("the existing subnets are not available, creating new subnet", "subnetList", subnetList, "subnetSet.Name", subnetSet.Name, "subnetSet.Namespace", subnetSet.Namespace)
+	return serviceMediator.CreateOrUpdateSubnet(subnetSet, nil)
+}
+
+func (serviceMediator *ServiceMediator) GetPortsOfSubnet(nsxSubnetID string) (ports []model.SegmentPort) {
+	subnetPortList := serviceMediator.SubnetPortStore.GetByIndex(common.IndexKeySubnetID, nsxSubnetID)
+	return subnetPortList
 }
