@@ -30,14 +30,15 @@ import (
 )
 
 const (
-	SecurityPolicy = iota
+	VPC = iota
+	SecurityPolicy
 	ServiceAccount
 	StaticRoute
 	AllFeatures
 )
 
 var (
-	FeaturesName = [AllFeatures]string{"SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "STATIC_ROUTE"}
+	FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "STATIC_ROUTE"}
 )
 
 type Client struct {
@@ -75,6 +76,7 @@ var (
 	nsx320Version = [3]int64{3, 2, 0}
 	nsx401Version = [3]int64{4, 0, 1}
 	nsx410Version = [3]int64{4, 1, 0}
+	nsx411Version = [3]int64{4, 1, 1}
 )
 
 type NSXHealthChecker struct {
@@ -82,8 +84,11 @@ type NSXHealthChecker struct {
 }
 
 type NSXVersionChecker struct {
-	cluster          *Cluster
-	featureSupported [AllFeatures]bool
+	cluster                    *Cluster
+	securityPolicySupported    bool
+	nsxServiceAccountSupported bool
+	vpcSupported               bool
+	featureSupported           [AllFeatures]bool
 }
 
 func (ck *NSXHealthChecker) CheckNSXHealth(req *http.Request) error {
@@ -172,11 +177,11 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time
-	if !nsxClient.NSXCheckVersionForSecurityPolicy() {
+	if !nsxClient.NSXCheckVersion(SecurityPolicy) {
 		err := errors.New("SecurityPolicy feature support check failed")
 		log.Error(err, "initial NSX version check for SecurityPolicy got error")
 	}
-	if !nsxClient.NSXCheckVersionForNSXServiceAccount() {
+	if !nsxClient.NSXCheckVersion(ServiceAccount) {
 		err := errors.New("NSXServiceAccount feature support check failed")
 		log.Error(err, "initial NSX version check for NSXServiceAccount got error")
 	}
@@ -184,20 +189,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	return nsxClient
 }
 
-func (client *Client) NSXCheckVersionForSecurityPolicy() bool {
-	return client.NSXCheckVersion(SecurityPolicy, nsx320Version)
-}
-
-func (client *Client) NSXCheckVersionForNSXServiceAccount() bool {
-	return client.NSXCheckVersion(ServiceAccount, nsx401Version)
-}
-
-func (client *Client) NSXCheckVersionForStaticRoute() bool {
-	//return false
-	return client.NSXCheckVersion(StaticRoute, nsx410Version)
-}
-
-func (client *Client) NSXCheckVersion(feature int, version [3]int64) bool {
+func (client *Client) NSXCheckVersion(feature int) bool {
 	if client.NSXVerChecker.featureSupported[feature] {
 		return true
 	}
@@ -215,7 +207,7 @@ func (client *Client) NSXCheckVersion(feature int, version [3]int64) bool {
 
 	if !nsxVersion.featureSupported(feature) {
 		err = errors.New("NSX version check failed")
-		log.Error(err, FeaturesName[feature]+"feature is not supported", "current version", nsxVersion.NodeVersion, "required version", nsx410Version)
+		log.Error(err, FeaturesName[feature]+"feature is not supported", "current version", nsxVersion.NodeVersion)
 		return false
 	}
 	client.NSXVerChecker.featureSupported[feature] = true
