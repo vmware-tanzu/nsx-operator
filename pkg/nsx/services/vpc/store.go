@@ -34,6 +34,18 @@ func indexFunc(obj interface{}) ([]string, error) {
 	}
 }
 
+// for ip block, one vpc may contains multiple ipblock with same vpc cr id
+// add one more indexer using path
+func indexPathFunc(obj interface{}) ([]string, error) {
+	res := make([]string, 0, 5)
+	switch o := obj.(type) {
+	case model.IpAddressBlock:
+		return append(res, *o.Path), nil
+	default:
+		return res, errors.New("indexPathFunc doesn't support unknown type")
+	}
+}
+
 var filterTag = func(v []model.Tag) []string {
 	res := make([]string, 0, 5)
 	for _, tag := range v {
@@ -123,4 +135,15 @@ func (vs *VPCStore) GetByKey(key string) *model.Vpc {
 		return &vpc
 	}
 	return nil
+}
+
+func (is *IPBlockStore) GetByIndex(index string, value string) *model.IpAddressBlock {
+	indexResults, err := is.ResourceStore.Indexer.ByIndex(index, value)
+	if err != nil || len(indexResults) == 0 {
+		log.Error(err, "failed to get obj by index", "index", value)
+		return nil
+	}
+
+	block := indexResults[0].((model.IpAddressBlock))
+	return &block
 }
