@@ -6,7 +6,6 @@ package staticroute
 import (
 	"context"
 	"fmt"
-	"os"
 	"reflect"
 	"runtime"
 	"strings"
@@ -256,19 +255,18 @@ func (r *StaticRouteReconciler) GarbageCollector(cancel chan bool, timeout time.
 	}
 }
 
-func StartStaticRouteController(mgr ctrl.Manager, commonService commonservice.Service) {
+func StartStaticRouteController(mgr ctrl.Manager, commonService commonservice.Service) error {
 	staticRouteReconcile := StaticRouteReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
 	if staticRouteService, err := staticroute.InitializeStaticRoute(commonService); err != nil {
-		log.Error(err, "failed to initialize staticroute commonService", "controller", "StaticRoute")
-		os.Exit(1)
+		return err
 	} else {
 		staticRouteReconcile.Service = staticRouteService
 	}
 	if err := staticRouteReconcile.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "StaticRoute")
-		os.Exit(1)
+		return err
 	}
+	return nil
 }

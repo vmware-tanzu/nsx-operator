@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"reflect"
 	"runtime"
 	"strings"
@@ -150,22 +149,21 @@ func (r *SubnetPortReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r) // TODO: watch the virtualmachine event and update the labels on NSX subnet port.
 }
 
-func StartSubnetPortController(mgr ctrl.Manager, commonService servicecommon.Service) {
+func StartSubnetPortController(mgr ctrl.Manager, commonService servicecommon.Service) error {
 	subnetPortReconciler := SubnetPortReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
 	if subnetPortService, err := subnetport.InitializeSubnetPort(commonService); err != nil {
-		log.Error(err, "failed to initialize subnetport commonService", "controller", "SubnetPort")
-		os.Exit(1)
+		return err
 	} else {
 		subnetPortReconciler.Service = subnetPortService
 		common.ServiceMediator.SubnetPortService = subnetPortReconciler.Service
 	}
 	if err := subnetPortReconciler.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "SubnetPort")
-		os.Exit(1)
+		return err
 	}
+	return nil
 }
 
 // Start setup manager and launch GC

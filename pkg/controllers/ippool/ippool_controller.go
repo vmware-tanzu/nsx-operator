@@ -43,6 +43,23 @@ type IPPoolReconciler struct {
 	Service *ippool.IPPoolService
 }
 
+func StartIPPoolController(mgr ctrl.Manager, commonService servicecommon.Service) error {
+	ippoolReconcile := &IPPoolReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+	if ipPoolService, err := ippool.InitializeIPPool(commonService); err != nil {
+		return err
+	} else {
+		ippoolReconcile.Service = ipPoolService
+	}
+
+	if err := ippoolReconcile.Start(mgr); err != nil {
+		return err
+	}
+	return nil
+}
+
 func deleteSuccess(r *IPPoolReconciler, _ *context.Context, _ *v1alpha2.IPPool) {
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
 }

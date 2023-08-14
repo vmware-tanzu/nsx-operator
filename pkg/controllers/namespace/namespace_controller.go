@@ -22,7 +22,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
-	types "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -37,6 +37,19 @@ type NamespaceReconciler struct {
 	Client    client.Client
 	Scheme    *apimachineryruntime.Scheme
 	NSXConfig *config.NSXOperatorConfig
+}
+
+func StartNamespaceController(mgr ctrl.Manager, commonService servicecommon.Service) error {
+	nsReconciler := &NamespaceReconciler{
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		NSXConfig: commonService.NSXConfig,
+	}
+
+	if err := nsReconciler.Start(mgr); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *NamespaceReconciler) createVPCCR(ctx *context.Context, obj client.Object, ns string, ncName string, vpcName *string) (*v1alpha1.VPC, error) {
@@ -95,9 +108,9 @@ func (r *NamespaceReconciler) insertNamespaceNetworkconfigBinding(ns string, ann
 		return
 	}
 
-	ncName, ncExist := anno[types.AnnotationVPCNetworkConfig]
+	ncName, ncExist := anno[servicecommon.AnnotationVPCNetworkConfig]
 	if !ncExist {
-		ncName = types.DefaultNetworkConfigName
+		ncName = servicecommon.DefaultNetworkConfigName
 	}
 
 	log.V(2).Info("insert namespace and network config mapping", "Namespace", ns, "Networkconfig", ncName)
@@ -140,8 +153,8 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// read anno "nsx.vmware.com/vpc_name", if ns contains this annotation, it means it will share
 		// infra VPC, if the ns in the annotation is the same as ns event, create infra VPC, if not,
 		// skip the event.
-		ncName, ncExist := annotations[types.AnnotationVPCNetworkConfig]
-		vpcName, nameExist := annotations[types.AnnotationVPCName]
+		ncName, ncExist := annotations[servicecommon.AnnotationVPCNetworkConfig]
+		vpcName, nameExist := annotations[servicecommon.AnnotationVPCName]
 		var create_vpc_name *string
 		if nameExist {
 			log.Info("read ns annotation vpcName", "VPCNAME", vpcName)
@@ -166,7 +179,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// If ns do not have network config name tag, then use default vpc network config name
 		if !ncExist {
 			log.Info("network config name not found on ns, using default network config", "Namespace", ns)
-			ncName = types.DefaultNetworkConfigName
+			ncName = servicecommon.DefaultNetworkConfigName
 		}
 
 		if _, err := r.createVPCCR(&ctx, obj, ns, ncName, create_vpc_name); err != nil {

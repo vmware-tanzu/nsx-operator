@@ -52,6 +52,23 @@ type SecurityPolicyReconciler struct {
 	Service *securitypolicy.SecurityPolicyService
 }
 
+func StartSecurityPolicyController(mgr ctrl.Manager, commonService servicecommon.Service) error {
+	securityReconcile := &SecurityPolicyReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+	if securityService, err := securitypolicy.InitializeSecurityPolicy(commonService); err != nil {
+		return err
+	} else {
+		securityReconcile.Service = securityService
+		common.ServiceMediator.SecurityPolicyService = securityService
+	}
+	if err := securityReconcile.Start(mgr); err != nil {
+		return err
+	}
+	return nil
+}
+
 func updateFail(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
 	r.setSecurityPolicyReadyStatusFalse(c, o, e)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
