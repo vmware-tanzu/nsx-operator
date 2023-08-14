@@ -175,7 +175,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, err, ret)
 
-	//  DeletionTimestamp.IsZero = false, Finalizers doesn't include util.FinalizerName
+	//  DeletionTimestamp.IsZero = false, Finalizers doesn't include util.SecurityPolicyFinalizerName
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1sp := obj.(*v1alpha1.SecurityPolicy)
 		time := metav1.Now()
@@ -191,12 +191,12 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	assert.Equal(t, ret, nil)
 	patch.Reset()
 
-	//  DeletionTimestamp.IsZero = false, Finalizers include util.FinalizerName
+	//  DeletionTimestamp.IsZero = false, Finalizers include util.SecurityPolicyFinalizerName
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1sp := obj.(*v1alpha1.SecurityPolicy)
 		time := metav1.Now()
 		v1sp.ObjectMeta.DeletionTimestamp = &time
-		v1sp.Finalizers = []string{common.FinalizerName}
+		v1sp.Finalizers = []string{common.SecurityPolicyFinalizerName}
 		return nil
 	})
 	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}) error {

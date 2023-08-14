@@ -2,6 +2,7 @@ package subnetset
 
 import (
 	"context"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -56,7 +57,13 @@ func (h *VPCHandler) Create(e event.CreateEvent, _ workqueue.RateLimitingInterfa
 						common.LabelDefaultSubnetSet: subnetSetType,
 					},
 				},
-				Spec: v1alpha1.SubnetSetSpec{},
+				Spec: v1alpha1.SubnetSetSpec{
+					AdvancedConfig: v1alpha1.AdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enable: true,
+						},
+					},
+				},
 			}
 			if err := h.Client.Create(context.Background(), obj); err != nil {
 				return err
