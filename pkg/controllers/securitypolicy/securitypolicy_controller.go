@@ -100,8 +100,8 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResType)
-		if !controllerutil.ContainsFinalizer(obj, servicecommon.FinalizerName) {
-			controllerutil.AddFinalizer(obj, servicecommon.FinalizerName)
+		if !controllerutil.ContainsFinalizer(obj, servicecommon.SecurityPolicyFinalizerName) {
+			controllerutil.AddFinalizer(obj, servicecommon.SecurityPolicyFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "securitypolicy", req.NamespacedName)
 				updateFail(r, &ctx, obj, &err)
@@ -134,14 +134,14 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 		updateSuccess(r, &ctx, obj)
 	} else {
-		if controllerutil.ContainsFinalizer(obj, servicecommon.FinalizerName) {
+		if controllerutil.ContainsFinalizer(obj, servicecommon.SecurityPolicyFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
 			if err := r.Service.DeleteSecurityPolicy(obj.UID); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 				deleteFail(r, &ctx, obj, &err)
 				return ResultRequeue, err
 			}
-			controllerutil.RemoveFinalizer(obj, servicecommon.FinalizerName)
+			controllerutil.RemoveFinalizer(obj, servicecommon.SecurityPolicyFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 				deleteFail(r, &ctx, obj, &err)
