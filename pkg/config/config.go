@@ -292,14 +292,6 @@ func (nsxConfig *NsxConfig) validate(enableVPC bool) error {
 	if err := nsxConfig.validateCert(); err != nil {
 		return err
 	}
-	nsxConfig.ExternalIPv4Blocks = removeEmptyItem(nsxConfig.ExternalIPv4Blocks)
-	if enableVPC {
-		if nsxConfig.DefaultProject == "" || len(nsxConfig.ExternalIPv4Blocks) == 0 {
-			err := errors.New("default_project is none or external_ipv4_blocks is empty")
-			log.Error(err, "validate VPCConfig failed")
-			return err
-		}
-	}
 	return nil
 }
 
