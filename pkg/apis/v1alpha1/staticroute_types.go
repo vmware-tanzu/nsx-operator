@@ -31,9 +31,11 @@ type NextHop struct {
 
 // StaticRouteStatus defines the observed state of StaticRoute.
 type StaticRouteStatus struct {
-	Conditions []StaticRouteCondition `json:"conditions"`
+	Conditions      []StaticRouteCondition `json:"conditions"`
+	NSXResourcePath string                 `json:"nsxResourcePath"`
 }
 
+// +genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:storageversion

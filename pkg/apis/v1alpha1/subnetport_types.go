@@ -38,6 +38,7 @@ type SubnetPortIPAddress struct {
 	Netmask string `json:"netmask,omitempty"`
 }
 
+// +genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
