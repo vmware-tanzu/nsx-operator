@@ -70,6 +70,7 @@ const (
 	VPCFinalizerName               = "vpc.nsx.vmware.com/finalizer"
 
 	IndexKeySubnetID = "IndexKeySubnetID"
+	IndexKeyPathPath = "Path"
 )
 
 var (

@@ -107,7 +107,9 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	}}
 
 	VPCService.IpblockStore = &IPBlockStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc}),
+		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+			common.TagScopeVPCCRUID: indexFunc,
+			common.IndexKeyPathPath: indexPathFunc}),
 		BindingType: model.IpAddressBlockBindingType(),
 	}}
 
@@ -188,14 +190,13 @@ func (service *VPCService) DeleteIPBlock(vpc model.Vpc) error {
 				vpcCRUid = *tag.Tag
 			}
 		}
-		log.Info("search ip block from store using index", "index", common.TagScopeVPCCRUID, "value", vpcCRUid)
-		// TODO: bugfix, seems using vpc cr uid can not get the ip blocks from cache, need further checking
-		ipblocks := service.IpblockStore.GetByIndex(common.TagScopeVPCCRUID, vpcCRUid)
-		if ipblocks != nil && len(ipblocks) != 0 {
-			log.Info("deleting ip blocks", "IPBlock", ipblocks[0])
-			b := ipblocks[0].(model.IpAddressBlock)
-			b.MarkedForDelete = &MarkedForDelete
-			service.IpblockStore.Operate(&ipblocks[0])
+		log.V(2).Info("search ip block from store using index and path", "index", common.TagScopeVPCCRUID, "value", vpcCRUid, "path", block)
+		// using index vpc cr id may get multiple ipblocks, add path to filter the correct one
+		ipblock := service.IpblockStore.GetByIndex(common.IndexKeyPathPath, block)
+		if ipblock != nil {
+			log.Info("deleting ip blocks", "IPBlock", ipblock)
+			ipblock.MarkedForDelete = &MarkedForDelete
+			service.IpblockStore.Operate(ipblock)
 		}
 	}
 	log.Info("successfully deleted all ip blocks")
