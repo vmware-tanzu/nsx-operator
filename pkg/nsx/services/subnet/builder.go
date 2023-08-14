@@ -24,7 +24,7 @@ func getCluster(service *SubnetService) string {
 func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (*model.VpcSubnet, error) {
 	tags = append(tags, service.buildBasicTags(obj)...)
 	var nsxSubnet *model.VpcSubnet
-	boolTrue := true
+	var staticIpAllocation bool
 	switch o := obj.(type) {
 	case *v1alpha1.Subnet:
 		nsxSubnet = &model.VpcSubnet{
@@ -33,6 +33,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 			DhcpConfig:  service.buildDHCPConfig(int64(o.Spec.IPv4SubnetSize - 4)),
 			DisplayName: String(fmt.Sprintf("%s-%s", obj.GetNamespace(), obj.GetName())),
 		}
+		staticIpAllocation = o.Spec.AdvancedConfig.StaticIPAllocation.Enable
 	case *v1alpha1.SubnetSet:
 		index := uuid.NewString()
 		nsxSubnet = &model.VpcSubnet{
@@ -41,13 +42,14 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 			DhcpConfig:  service.buildDHCPConfig(int64(o.Spec.IPv4SubnetSize - 4)),
 			DisplayName: String(fmt.Sprintf("%s-%s-%s", obj.GetNamespace(), obj.GetName(), index)),
 		}
+		staticIpAllocation = o.Spec.AdvancedConfig.StaticIPAllocation.Enable
 	default:
 		return nil, SubnetTypeError
 	}
 	nsxSubnet.Tags = tags
 	nsxSubnet.AdvancedConfig = &model.SubnetAdvancedConfig{
 		StaticIpAllocation: &model.StaticIpAllocation{
-			Enabled: &boolTrue,
+			Enabled: &staticIpAllocation,
 		},
 	}
 	return nsxSubnet, nil

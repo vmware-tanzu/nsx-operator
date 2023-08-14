@@ -50,8 +50,8 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResTypeSubnet)
-		if !controllerutil.ContainsFinalizer(obj, servicecommon.FinalizerName) {
-			controllerutil.AddFinalizer(obj, servicecommon.FinalizerName)
+		if !controllerutil.ContainsFinalizer(obj, servicecommon.SubnetFinalizerName) {
+			controllerutil.AddFinalizer(obj, servicecommon.SubnetFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "subnet", req.NamespacedName)
 				updateFail(r, &ctx, obj)
@@ -71,14 +71,14 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 		updateSuccess(r, &ctx, obj)
 	} else {
-		if controllerutil.ContainsFinalizer(obj, servicecommon.FinalizerName) {
+		if controllerutil.ContainsFinalizer(obj, servicecommon.SubnetFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnet)
 			if err := r.DeleteSubnet(*obj); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "subnet", req.NamespacedName)
 				deleteFail(r, &ctx, obj)
 				return ResultRequeue, err
 			}
-			controllerutil.RemoveFinalizer(obj, servicecommon.FinalizerName)
+			controllerutil.RemoveFinalizer(obj, servicecommon.SubnetFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "subnet", req.NamespacedName)
 				deleteFail(r, &ctx, obj)

@@ -61,9 +61,11 @@ const (
 	IPPoolTypePublic    = "public"
 	IPPoolTypePrivate   = "private"
 
-	FinalizerName                  = "securitypolicy.nsx.vmware.com/finalizer"
+	SecurityPolicyFinalizerName    = "securitypolicy.nsx.vmware.com/finalizer"
 	StaticRouteFinalizerName       = "staticroute.nsx.vmware.com/finalizer"
 	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
+	SubnetFinalizerName            = "subnet.nsx.vmware.com/finalizer"
+	SubnetSetFinalizerName         = "subnetset.nsx.vmware.com/finalizer"
 	SubnetPortFinalizerName        = "subnetport.nsx.vmware.com/finalizer"
 	VPCFinalizerName               = "vpc.nsx.vmware.com/finalizer"
 
