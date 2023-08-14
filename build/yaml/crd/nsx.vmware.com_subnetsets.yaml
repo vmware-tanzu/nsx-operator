@@ -33,8 +33,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: SubnetSetSpec defines the desired state of SubnetSet. TODO
-              Add validate webhook or CEL(k8s 1.25+) for immutable fields(IPv4SubnetSize/AccessMode/DHCPConfig).
+            description: SubnetSetSpec defines the desired state of SubnetSet.
             properties:
               DHCPConfig:
                 description: DHCPConfig DHCP configuration.

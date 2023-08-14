@@ -10,6 +10,7 @@ import (
 
 const (
 	MetricResTypeSecurityPolicy    = "securitypolicy"
+	MetricResTypeIPPool            = "ippool"
 	MetricResTypeNSXServiceAccount = "nsxserviceaccount"
 	MetricResTypeSubnetPort        = "subnetport"
 	MetricResTypeStaticRoute       = "staticroute"
