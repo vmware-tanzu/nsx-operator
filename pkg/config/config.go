@@ -6,7 +6,9 @@ package config
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"io/ioutil"
+	"os"
 
 	ini "gopkg.in/ini.v1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -236,27 +238,56 @@ func removeEmptyItem(source []string) []string {
 	return target
 }
 
+func (nsxConfig *NsxConfig) validateCert() error {
+	if nsxConfig.Insecure == true {
+		return nil
+	}
+	nsxConfig.Thumbprint = removeEmptyItem(nsxConfig.Thumbprint)
+	nsxConfig.CaFile = removeEmptyItem(nsxConfig.CaFile)
+	mCount := len(nsxConfig.NsxApiManagers)
+	tpCount := len(nsxConfig.Thumbprint)
+	caCount := len(nsxConfig.CaFile)
+	// ca file has high priority than thumbprint
+	// ca file(thumbprint) == 1 or equal to manager count
+	if caCount == 0 && tpCount == 0 {
+		err := errors.New("no ca file or thumbprint provided")
+		log.Error(err, "validate NsxConfig failed")
+		return err
+	}
+	if caCount > 0 {
+		log.V(1).Info("validate CA file", "CA file number", caCount)
+		if caCount > 1 && caCount != mCount {
+			err := errors.New("ca file count not match manager count")
+			log.Error(err, "validate NsxConfig failed", "ca file count", caCount, "manager count", mCount)
+			return err
+		}
+		for _, file := range nsxConfig.CaFile {
+			if _, err := os.Stat(file); os.IsNotExist(err) {
+				err = fmt.Errorf("ca file does not exist %s", file)
+				log.Error(err, "validate NsxConfig failed")
+				return err
+			}
+		}
+	} else {
+		log.V(1).Info("validate thumbprint", "thumbprint number", tpCount)
+		if tpCount > 1 && tpCount != mCount {
+			err := errors.New("thumbprint count not match manager count")
+			log.Error(err, "validate NsxConfig failed", "thumbprint count", tpCount, "manager count", mCount)
+			return err
+		}
+	}
+	return nil
+}
+
 func (nsxConfig *NsxConfig) validate() error {
 	nsxConfig.NsxApiManagers = removeEmptyItem(nsxConfig.NsxApiManagers)
-	nsxConfig.Thumbprint = removeEmptyItem(nsxConfig.Thumbprint)
 	mCount := len(nsxConfig.NsxApiManagers)
 	if mCount == 0 {
 		err := errors.New("invalid field " + "NsxApiManagers")
 		log.Error(err, "validate NsxConfig failed", "NsxApiManagers", nsxConfig.NsxApiManagers)
 		return err
 	}
-	tpCount := len(nsxConfig.Thumbprint)
-	if tpCount == 0 {
-		log.V(1).Info("no thumbprint provided")
-		return nil
-	}
-	if tpCount == 1 {
-		log.V(1).Info("all endpoints share one thumbprint")
-		return nil
-	}
-	if tpCount > 1 && tpCount != mCount {
-		err := errors.New("thumbprint count not match manager count")
-		log.Error(err, "validate NsxConfig failed", "thumbprint count", tpCount, "manager count", mCount)
+	if err := nsxConfig.validateCert(); err != nil {
 		return err
 	}
 	return nil
