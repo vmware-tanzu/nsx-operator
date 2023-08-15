@@ -281,6 +281,12 @@ func (vcConfig *VCConfig) validate() error {
 		configLog.Info("validate VcConfig failed VCUser %s VCPassword %s", vcConfig.VCUser, vcConfig.VCPassword)
 		return err
 	}
+	// VCPassword, VCUser should be both empty or valid
+	if !((len(vcConfig.VCPassword) > 0) == (len(vcConfig.VCUser) > 0)) {
+		err := errors.New("invalid field " + "VCUser, VCPassword")
+		log.Info("validate VcConfig failed", "VCUser", vcConfig.VCUser, "VCPassword", vcConfig.VCPassword)
+		return err
+	}
 	return nil
 }
 
