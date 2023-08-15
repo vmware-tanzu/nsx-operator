@@ -1,3 +1,4 @@
+
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -38,48 +39,6 @@ spec:
           status:
             description: VPCStatus defines the observed state of VPC
             properties:
-              cidrsUsage:
-                properties:
-                  privateCIDRsUsage:
-                    properties:
-                      allocated:
-                        description: Allocated IPs in the IP Block (including IPs
-                          used by other VPCs).
-                        type: integer
-                      total:
-                        description: Total IP number in the IP Block.
-                        type: integer
-                      used:
-                        description: Used IP for the VPC in the IP Block (IPs used
-                          only in current VPC).
-                        type: integer
-                    required:
-                    - allocated
-                    - total
-                    - used
-                    type: object
-                  publicCIDRsUsage:
-                    properties:
-                      allocated:
-                        description: Allocated IPs in the IP Block (including IPs
-                          used by other VPCs).
-                        type: integer
-                      total:
-                        description: Total IP number in the IP Block.
-                        type: integer
-                      used:
-                        description: Used IP for the VPC in the IP Block (IPs used
-                          only in current VPC).
-                        type: integer
-                    required:
-                    - allocated
-                    - total
-                    - used
-                    type: object
-                required:
-                - privateCIDRsUsage
-                - publicCIDRsUsage
-                type: object
               conditions:
                 items:
                   description: Condition defines condition of custom resource.
@@ -109,15 +68,22 @@ spec:
                   type: object
                 type: array
               defaultSNATIP:
-                description: Default SNAT IP for private Subnets
+                description: Default SNAT IP for private Subnets.
+                type: string
+              lbSubnetCIDR:
+                description: CIDR for the load balancer Subnet.
+                type: string
+              lbSubnetPath:
+                description: NSX PolicyPath for the load balancer Subnet.
                 type: string
               nsxResourcePath:
                 description: NSX VPC Policy API resource path.
                 type: string
             required:
-            - cidrsUsage
             - conditions
             - defaultSNATIP
+            - lbSubnetCIDR
+            - lbSubnetPath
             - nsxResourcePath
             type: object
         type: object
