@@ -10,14 +10,10 @@ import (
 // SubnetSetSpec defines the desired state of SubnetSet.
 type SubnetSetSpec struct {
 	// Size of Subnet based upon estimated workload count.
-	// Defaults to 64.
-	// +kubebuilder:default:=64
 	// +kubebuilder:validation:Maximum:=65536
 	// +kubebuilder:validation:Minimum:=16
 	IPv4SubnetSize int `json:"ipv4SubnetSize,omitempty"`
 	// Access mode of Subnet, accessible only from within VPC or from outside VPC.
-	// Defaults to Private.
-	// +kubebuilder:default:=Private
 	// +kubebuilder:validation:Enum=Private;Public
 	AccessMode AccessMode `json:"accessMode,omitempty"`
 	// Subnet advanced configuration.
