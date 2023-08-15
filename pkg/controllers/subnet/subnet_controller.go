@@ -14,11 +14,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -46,12 +48,18 @@ type SubnetReconciler struct {
 
 func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	obj := &v1alpha1.Subnet{}
+	nsObj := &v1.Namespace{}
 	log.Info("reconciling subnet CR", "subnet", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResTypeSubnet)
 
 	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
 		log.Error(err, "unable to fetch Subnet CR", "req", req.NamespacedName)
 		return ResultNormal, client.IgnoreNotFound(err)
+	}
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: obj.Namespace}, nsObj); err != nil {
+		err = fmt.Errorf("unable to fetch namespace %s", obj.Namespace)
+		log.Error(err, "")
+		return ResultRequeue, err
 	}
 
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -96,6 +104,9 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		tags = append(tags,
 			model.Tag{Scope: servicecommon.String(servicecommon.TagScopeVMNamespaceUID), Tag: servicecommon.String(string(namespace_uid))},
 			model.Tag{Scope: servicecommon.String(servicecommon.TagScopeVMNamespace), Tag: servicecommon.String(req.Namespace)})
+		for k, v := range nsObj.Labels {
+			tags = append(tags, model.Tag{Scope: servicecommon.String(k), Tag: servicecommon.String(v)})
+		}
 
 		if _, err := r.Service.CreateOrUpdateSubnet(obj, tags); err != nil {
 			log.Error(err, "operate failed, would retry exponentially", "subnet", req.NamespacedName)
@@ -253,6 +264,11 @@ func (r *SubnetReconciler) setupWithManager(mgr ctrl.Manager) error {
 				return false
 			},
 		}).
+		Watches(
+			&source.Kind{Type: &v1.Namespace{}},
+			&EnqueueRequestForNamespace{Client: mgr.GetClient()},
+			builder.WithPredicates(PredicateFuncsNs),
+		).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: runtime.NumCPU(),

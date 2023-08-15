@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
@@ -321,6 +322,39 @@ func (service *SubnetService) Cleanup() error {
 			if err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func (service *SubnetService) UpdateSubnetSetTags(ns string, vpcSubnetSets []model.VpcSubnet, tags []model.Tag) error {
+	for _, vpcSubnetSet := range vpcSubnetSets {
+		subnetSet := &v1alpha1.SubnetSet{}
+		var namespace string
+		var name string
+
+		matchNamespace := false
+		for _, tag := range vpcSubnetSet.Tags {
+			if *tag.Scope == common.TagScopeSubnetSetCRName {
+				name = *tag.Tag
+			} else if *tag.Scope == common.TagScopeNamespace {
+				namespace = *tag.Tag
+				if namespace != ns {
+					break
+				} else {
+					matchNamespace = true
+				}
+			}
+		}
+
+		if matchNamespace {
+			if err := service.Client.Get(context.Background(), types.NamespacedName{Namespace: namespace, Name: name}, subnetSet); err != nil {
+				return err
+			}
+			if _, err := service.CreateOrUpdateSubnet(subnetSet, tags); err != nil {
+				return err
+			}
+			log.Info("successfully updated subnet set tags", "subnetSet", subnetSet)
 		}
 	}
 	return nil

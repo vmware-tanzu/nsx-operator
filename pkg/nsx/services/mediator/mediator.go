@@ -86,6 +86,9 @@ func (serviceMediator *ServiceMediator) GetAvailableSubnet(subnetSet *v1alpha1.S
 		return "", err
 	}
 	namespace_uid := namespace.UID
+	for k, v := range namespace.Labels {
+		tags = append(tags, model.Tag{Scope: common.String(k), Tag: common.String(v)})
+	}
 	if !findLabelDefaultPodSubnetSet {
 		tags = append(tags,
 			model.Tag{Scope: common.String(common.TagScopeVMNamespaceUID), Tag: common.String(string(namespace_uid))},
