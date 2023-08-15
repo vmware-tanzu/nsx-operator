@@ -3,6 +3,7 @@ package subnetset
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"runtime"
 	"time"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -55,6 +57,21 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResTypeSubnetSet)
 		if !controllerutil.ContainsFinalizer(obj, servicecommon.SubnetSetFinalizerName) {
 			controllerutil.AddFinalizer(obj, servicecommon.SubnetSetFinalizerName)
+			if obj.Spec.AccessMode == "" || obj.Spec.IPv4SubnetSize == 0 {
+				vpcNetworkConfig := commonctl.ServiceMediator.GetVPCNetworkConfigByNamespace(obj.Namespace)
+				if vpcNetworkConfig == nil {
+					err := fmt.Errorf("failed to find VPCNetworkConfig for namespace %s", obj.Namespace)
+					log.Error(err, "operate failed, would retry exponentially", "subnet", req.NamespacedName)
+					updateFail(r, &ctx, obj)
+					return ResultRequeue, err
+				}
+				if obj.Spec.AccessMode == "" {
+					obj.Spec.AccessMode = v1alpha1.AccessMode(vpcNetworkConfig.DefaultSubnetAccessMode)
+				}
+				if obj.Spec.IPv4SubnetSize == 0 {
+					obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultIPv4SubnetSize
+				}
+			}
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "subnetset", req.NamespacedName)
 				updateFail(r, &ctx, obj)
