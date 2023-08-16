@@ -3,8 +3,9 @@ package subnet
 import (
 	"errors"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 // keyFunc is used to get the key of a resource, usually, which is the ID of the resource
@@ -32,6 +33,17 @@ func subnetIndexFunc(obj interface{}) ([]string, error) {
 	switch o := obj.(type) {
 	case model.VpcSubnet:
 		return filterTag(o.Tags, common.TagScopeSubnetCRUID), nil
+	default:
+		return nil, errors.New("subnetIndexFunc doesn't support unknown type")
+	}
+}
+
+// subnetTypeIndexFunc is used to filter out NSX Subnets which are tagged with subnetcr type.
+// TODO, change it to use "nsx-op/subnetset_cr_uid" and "nsx-op/subnet_cr_uid"
+func subnetTypeIndexFunc(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case model.VpcSubnet:
+		return filterTag(o.Tags, common.TagScopeSubnetCRType), nil
 	default:
 		return nil, errors.New("subnetIndexFunc doesn't support unknown type")
 	}

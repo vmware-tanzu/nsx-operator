@@ -10,6 +10,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -214,14 +215,33 @@ func (r *SubnetSetReconciler) GarbageCollector(cancel chan bool, timeout time.Du
 			return
 		case <-time.After(timeout):
 		}
+
 		subnetSetList := &v1alpha1.SubnetSetList{}
 		err := r.Client.List(ctx, subnetSetList)
 		if err != nil {
 			log.Error(err, "failed to list SubnetSet CR")
 			continue
 		}
+
+		nsxSubnetList := r.Service.ListSubnetCreatedBySubnetSet()
+		if len(nsxSubnetList) == 0 {
+			continue
+		}
+
+		subnetSetIDs := sets.NewString()
 		for _, subnetSet := range subnetSetList.Items {
 			if err := r.DeleteSubnetForSubnetSet(subnetSet, true); err != nil {
+				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetSet)
+			} else {
+				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetSet)
+			}
+			subnetSetIDs.Insert(string(subnetSet.UID))
+		}
+		for _, subnet := range nsxSubnetList {
+			if !r.Service.IsOrphanSubnet(subnet, subnetSetIDs) {
+				continue
+			}
+			if err := r.Service.DeleteSubnet(subnet); err != nil {
 				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetSet)
 			} else {
 				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetSet)
@@ -242,6 +262,7 @@ func (r *SubnetSetReconciler) DeleteSubnetForSubnetSet(obj v1alpha1.SubnetSet, u
 			log.Error(err, "fail to delete subnet from subnetset cr", "ID", *subnet.Id)
 			hitError = true
 		}
+
 	}
 	if updataStatus {
 		if err := r.Service.UpdateSubnetSetStatus(&obj); err != nil {
