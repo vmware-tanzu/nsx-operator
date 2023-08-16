@@ -16,7 +16,16 @@ spec:
     singular: vpc
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Default SNAT IP for Private Subnets
+      jsonPath: .status.defaultSNATIP
+      name: SNATIP
+      type: string
+    - description: CIDR for the load balancer Subnet
+      jsonPath: .status.lbSubnetCIDR
+      name: LBSubnetCIDR
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: VPC is the Schema for the VPC API
@@ -68,7 +77,7 @@ spec:
                   type: object
                 type: array
               defaultSNATIP:
-                description: Default SNAT IP for private Subnets.
+                description: Default SNAT IP for Private Subnets.
                 type: string
               lbSubnetCIDR:
                 description: CIDR for the load balancer Subnet.
@@ -91,9 +100,3 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []

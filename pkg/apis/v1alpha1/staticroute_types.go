@@ -1,4 +1,4 @@
-/* Copyright © 2022 VMware, Inc. All Rights Reserved.
+/* Copyright © 2022-2023 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package v1alpha1
@@ -41,6 +41,8 @@ type StaticRouteStatus struct {
 //+kubebuilder:storageversion
 
 // StaticRoute is the Schema for the staticroutes API.
+// +kubebuilder:printcolumn:name="Network",type=string,JSONPath=`.spec.network`,description="Network in CIDR format"
+// +kubebuilder:printcolumn:name="NextHops",type=string,JSONPath=`.spec.nextHops[*].ipAddress`,description="Next Hops"
 type StaticRoute struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

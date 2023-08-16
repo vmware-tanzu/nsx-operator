@@ -1,3 +1,4 @@
+
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -15,7 +16,20 @@ spec:
     singular: subnet
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Access mode of Subnet
+      jsonPath: .spec.accessMode
+      name: AccessMode
+      type: string
+    - description: Size of Subnet
+      jsonPath: .spec.ipv4SubnetSize
+      name: IPv4SubnetSize
+      type: string
+    - description: CIDRs for the Subnet
+      jsonPath: .status.ipAddresses[*]
+      name: IPAddresses
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: Subnet is the Schema for the subnets API.
@@ -69,7 +83,7 @@ spec:
               accessMode:
                 default: Private
                 description: Access mode of Subnet, accessible only from within VPC
-                  or from outside VPC. Defaults to private.
+                  or from outside VPC. Defaults to Private.
                 enum:
                 - Private
                 - Public
