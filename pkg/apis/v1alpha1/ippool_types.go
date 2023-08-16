@@ -1,21 +1,16 @@
 /* Copyright © 2023 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
-package v1alpha2
+package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 )
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
-//+kubebuilder:storageversion
 
 // IPPool is the Schema for the ippools API.
-// +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.type`,description="Type of IPPool"
-// +kubebuilder:printcolumn:name="Subnets",type=string,JSONPath=`.status.subnets[*].cidr`,description="CIDRs for the Subnet"
 type IPPool struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata"`
@@ -35,10 +30,6 @@ type IPPoolList struct {
 
 // IPPoolSpec defines the desired state of IPPool.
 type IPPoolSpec struct {
-	// Type defines the type of this IPPool, public or private.
-	// +kubebuilder:validation:Enum=public;private
-	// +kubebuilder:default=private
-	Type string `json:"type"`
 	// Subnets defines set of subnets need to be allocated.
 	// +optional
 	Subnets []SubnetRequest `json:"subnets"`
@@ -49,7 +40,7 @@ type IPPoolStatus struct {
 	// Subnets defines subnets allocation result.
 	Subnets []SubnetResult `json:"subnets"`
 	// Conditions defines current state of the IPPool.
-	Conditions []v1alpha1.Condition `json:"conditions"`
+	Conditions []Condition `json:"conditions"`
 }
 
 // SubnetRequest defines the subnet allocation request.
