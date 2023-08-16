@@ -5,7 +5,6 @@ package vpc
 
 import (
 	"context"
-	"errors"
 	"os"
 	"runtime"
 	"time"
@@ -45,7 +44,7 @@ type VPCReconciler struct {
 
 func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	obj := &v1alpha1.VPC{}
-	log.Info("reconciling VPC CR", "vpc", req.NamespacedName)
+	log.Info("reconciling VPC CR", "VPC", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, common.MetricResTypeVPC)
 
 	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
@@ -58,39 +57,62 @@ func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		if !controllerutil.ContainsFinalizer(obj, commonservice.VPCFinalizerName) {
 			controllerutil.AddFinalizer(obj, commonservice.VPCFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
-				log.Error(err, "add finalizer", "vpc", req.NamespacedName)
+				log.Error(err, "add finalizer", "VPC", req.NamespacedName)
 				updateFail(r.Service.NSXConfig, &ctx, obj, &err, r.Client)
 				return common.ResultRequeue, err
 			}
-			log.V(1).Info("added finalizer on VPC CR", "vpc", req.NamespacedName)
+			log.V(1).Info("added finalizer on VPC CR", "VPC", req.NamespacedName)
 		}
 
-		cVpc, err := r.Service.CreateorUpdateVPC(obj)
+		createdVpc, err := r.Service.CreateorUpdateVPC(obj)
 		if err != nil {
-			log.Error(err, "operate failed, would retry exponentially", "vpc", req.NamespacedName)
+			log.Error(err, "operate failed, would retry exponentially", "VPC", req.NamespacedName)
 			updateFail(r.Service.NSXConfig, &ctx, obj, &err, r.Client)
-			return common.ResultRequeue, err
+			return common.ResultRequeueAfter10sec, err
 		}
-		updateSuccess(r.Service.NSXConfig, &ctx, obj, r.Client, *cVpc.Path, "")
+
+		snatIP, path, cidr := "", "", ""
+		// currently, auto snat is not exposed, and use default value True
+		// checking autosnat to support future extension in vpc configuration
+		if *createdVpc.ServiceGateway.AutoSnat {
+			snatIP, err = r.Service.GetDefaultSNATIP(*createdVpc)
+			if err != nil {
+				log.Error(err, "failed to read default SNAT ip from VPC", "VPC", createdVpc.Id)
+				return common.ResultRequeueAfter10sec, err
+			}
+		}
+
+		// if lb vpc enabled, read avi subnet path and cidr
+		// nsx bug, if set LoadBalancerVpcEndpoint.Enabled to false, when read this vpc back,
+		// LoadBalancerVpcEndpoint.Enabled will become a nil pointer.
+		if createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
+			path, cidr, err = r.Service.GetAVISubnetInfo(*createdVpc)
+			if err != nil {
+				log.Error(err, "failed to read lb subnet path and cidr", "VPC", createdVpc.Id)
+				return common.ResultRequeueAfter10sec, err
+			}
+		}
+
+		updateSuccess(r.Service.NSXConfig, &ctx, obj, r.Client, *createdVpc.Path, snatIP, path, cidr)
 	} else {
 		if controllerutil.ContainsFinalizer(obj, commonservice.VPCFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeVPC)
 			vpcs := r.Service.GetVPCsByNamespace(obj.GetNamespace())
+			// if nsx resource do not exist, continue to remove finalizer, or the crd can not be removed
 			if len(vpcs) == 0 {
-				// when nsx vpc not found in vpc store, do not retry
-				notFound := errors.New("can not find vpc from vpc stroe")
-				log.Error(notFound, "can not find vpc from vpc store. put event back to queue")
-				return common.ResultNormal, nil
-			}
-			vpc := vpcs[0]
-			if err := r.Service.DeleteVPC(*vpc.Path); err != nil {
-				log.Error(err, "delete failed, would retry exponentially", "vpc", req.NamespacedName)
-				deleteFail(r.Service.NSXConfig, &ctx, obj, &err, r.Client)
-				return common.ResultRequeueAfter10sec, err
-			}
+				// when nsx vpc not found in vpc store, skip deleting NSX VPC
+				log.Info("can not find VPC in store, skip deleting NSX VPC, remove finalizer from VPC CR")
+			} else {
+				vpc := vpcs[0]
+				if err := r.Service.DeleteVPC(*vpc.Path); err != nil {
+					log.Error(err, "failed to delete VPC CR, would retry exponentially", "VPC", req.NamespacedName)
+					deleteFail(r.Service.NSXConfig, &ctx, obj, &err, r.Client)
+					return common.ResultRequeueAfter10sec, err
+				}
 
-			if err := r.Service.DeleteIPBlock(vpc); err != nil {
-				log.Error(err, "failed to delete private ip blocks for vpc", "VPC", vpc.DisplayName)
+				if err := r.Service.DeleteIPBlock(vpc); err != nil {
+					log.Error(err, "failed to delete private ip blocks for VPC", "VPC", req.NamespacedName)
+				}
 			}
 
 			controllerutil.RemoveFinalizer(obj, commonservice.VPCFinalizerName)
@@ -98,11 +120,11 @@ func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				deleteFail(r.Service.NSXConfig, &ctx, obj, &err, r.Client)
 				return common.ResultRequeue, err
 			}
-			log.V(1).Info("removed finalizer", "vpc", req.NamespacedName)
+			log.V(1).Info("removed finalizer", "VPC", req.NamespacedName)
 			deleteSuccess(r.Service.NSXConfig, &ctx, obj)
 		} else {
 			// only print a message because it's not a normal case
-			log.Info("finalizers cannot be recognized", "vpc", req.NamespacedName)
+			log.Info("finalizers cannot be recognized", "VPC", req.NamespacedName)
 		}
 	}
 	return common.ResultNormal, nil
@@ -180,9 +202,9 @@ func (r *VPCReconciler) GarbageCollector(cancel chan bool, timeout time.Duration
 			} else {
 				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeVPC)
 				if err := r.Service.DeleteIPBlock(elem); err != nil {
-					log.Error(err, "failed to delete private ip blocks for vpc", "VPC", *elem.DisplayName)
+					log.Error(err, "failed to delete private ip blocks for VPC", "VPC", *elem.DisplayName)
 				}
-				log.Info("deleted private ip blocks for vpc", "VPC", *elem.DisplayName)
+				log.Info("deleted private ip blocks for VPC", "VPC", *elem.DisplayName)
 			}
 		}
 	}
@@ -194,13 +216,13 @@ func StartVPCController(mgr ctrl.Manager, commonService commonservice.Service) {
 		Scheme: mgr.GetScheme(),
 	}
 	if vpcService, err := vpc.InitializeVPC(commonService); err != nil {
-		log.Error(err, "failed to initialize vpc commonService")
+		log.Error(err, "failed to initialize VPC commonService")
 		os.Exit(1)
 	} else {
 		vpcReconcile.Service = vpcService
 	}
 	if err := vpcReconcile.Start(mgr); err != nil {
-		log.Error(err, "failed to create vpc controller")
+		log.Error(err, "failed to create VPC controller")
 		os.Exit(1)
 	}
 }

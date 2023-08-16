@@ -25,15 +25,14 @@ type VPCNetworkConfigurationHandler struct {
 
 func (h *VPCNetworkConfigurationHandler) buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) vpc.VPCNetworkConfigInfo {
 	ninfo := vpc.VPCNetworkConfigInfo{
-		Name:                           vpcConfigCR.Name,
-		DefaultGatewayPath:             vpcConfigCR.Spec.DefaultGatewayPath,
-		EdgeClusterPath:                vpcConfigCR.Spec.EdgeClusterPath,
-		NsxtProject:                    vpcConfigCR.Spec.NSXTProject,
-		ExternalIPv4Blocks:             vpcConfigCR.Spec.ExternalIPv4Blocks,
-		PrivateIPv4CIDRs:               vpcConfigCR.Spec.PrivateIPv4CIDRs,
-		DefaultIPv4SubnetSize:          vpcConfigCR.Spec.DefaultIPv4SubnetSize,
-		DefaultSubnetAccessMode:        vpcConfigCR.Spec.DefaultSubnetAccessMode,
-		LoadBalancerVPCEndpointEnabled: true,
+		Name:                    vpcConfigCR.Name,
+		DefaultGatewayPath:      vpcConfigCR.Spec.DefaultGatewayPath,
+		EdgeClusterPath:         vpcConfigCR.Spec.EdgeClusterPath,
+		NsxtProject:             vpcConfigCR.Spec.NSXTProject,
+		ExternalIPv4Blocks:      vpcConfigCR.Spec.ExternalIPv4Blocks,
+		PrivateIPv4CIDRs:        vpcConfigCR.Spec.PrivateIPv4CIDRs,
+		DefaultIPv4SubnetSize:   vpcConfigCR.Spec.DefaultIPv4SubnetSize,
+		DefaultSubnetAccessMode: vpcConfigCR.Spec.DefaultSubnetAccessMode,
 	}
 	return ninfo
 }
@@ -48,7 +47,7 @@ func (h *VPCNetworkConfigurationHandler) Create(e event.CreateEvent, _ workqueue
 
 func (h *VPCNetworkConfigurationHandler) Delete(e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
 	// Currently we do not support deleting networkconfig
-	log.V(1).Info("do not support vpc network config deletion")
+	log.V(1).Info("do not support VPC network config deletion")
 }
 
 func (h *VPCNetworkConfigurationHandler) Generic(_ event.GenericEvent, _ workqueue.RateLimitingInterface) {
@@ -56,7 +55,7 @@ func (h *VPCNetworkConfigurationHandler) Generic(_ event.GenericEvent, _ workque
 }
 
 func (h *VPCNetworkConfigurationHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
-	log.V(1).Info("start processing vpc network config update event")
+	log.V(1).Info("start processing VPC network config update event")
 	oldNc := e.ObjectOld.(*v1alpha1.VPCNetworkConfiguration)
 	newNc := e.ObjectNew.(*v1alpha1.VPCNetworkConfiguration)
 
