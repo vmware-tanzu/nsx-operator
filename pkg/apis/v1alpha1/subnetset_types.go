@@ -16,9 +16,7 @@ type SubnetSetSpec struct {
 	// +kubebuilder:validation:Minimum:=16
 	IPv4SubnetSize int `json:"ipv4SubnetSize,omitempty"`
 	// Access mode of Subnet, accessible only from within VPC or from outside VPC.
-	// Defaults to private.
-	// +kubebuilder:default:=Private
-	// +kubebuilder:validation:Enum=Private;Public
+	// +kubebuilder:validation:Enum=private;public
 	AccessMode AccessMode `json:"accessMode,omitempty"`
 	// Subnet advanced configuration.
 	AdvancedConfig AdvancedConfig `json:"advancedConfig,omitempty"`
