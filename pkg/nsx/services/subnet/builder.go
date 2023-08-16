@@ -4,9 +4,8 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -104,6 +103,9 @@ func (service *SubnetService) buildBasicTags(obj client.Object) []model.Tag {
 		}, model.Tag{
 			Scope: String(common.TagScopeSubnetSetCRName),
 			Tag:   String(obj.GetName()),
+		}, model.Tag{
+			Scope: String(common.TagScopeSubnetSetCRUID),
+			Tag:   String(string(obj.GetUID())),
 		})
 	default:
 		log.Error(SubnetTypeError, "unsupported type when building NSX Subnet tags")

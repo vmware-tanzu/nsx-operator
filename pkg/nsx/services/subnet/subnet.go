@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -69,7 +70,8 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 		SubnetStore: &SubnetStore{
 			ResourceStore: common.ResourceStore{
 				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
-					common.TagScopeSubnetCRUID: subnetIndexFunc,
+					common.TagScopeSubnetCRUID:  subnetIndexFunc,
+					common.TagScopeSubnetCRType: subnetTypeIndexFunc,
 				}),
 				BindingType: model.VpcSubnetBindingType(),
 			},
@@ -178,6 +180,47 @@ func (service *SubnetService) DeleteSubnet(nsxSubnet model.VpcSubnet) error {
 	}
 	log.Info("successfully deleted nsxSubnet", "nsxSubnet", nsxSubnet)
 	return nil
+}
+
+func (service *SubnetService) ListSubnetCreatedByCR() []model.VpcSubnet {
+	return service.listSubnetByCRType("subnet")
+}
+
+func (service *SubnetService) listSubnetByCRType(crType string) []model.VpcSubnet {
+	subnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetCRType, crType)
+	subnetList := []model.VpcSubnet{}
+	for _, subnet := range subnets {
+		subnetList = append(subnetList, subnet)
+	}
+	return subnetList
+}
+
+func (service *SubnetService) ListSubnetCreatedBySubnetSet() []model.VpcSubnet {
+	return service.listSubnetByCRType("subnetset")
+}
+
+func (service *SubnetService) ListSubnetSetID(ctx context.Context) sets.String {
+	crdSubnetSetList := &v1alpha1.SubnetSetList{}
+	subnetsetIDs := sets.NewString()
+	err := service.Client.List(ctx, crdSubnetSetList)
+	if err != nil {
+		log.Error(err, "failed to list subnetset CR")
+		return subnetsetIDs
+	}
+	for _, subnetset := range crdSubnetSetList.Items {
+		subnetsetIDs.Insert(string(subnetset.UID))
+	}
+	return subnetsetIDs
+}
+
+// check if subnet belongs to a subnetset, if yes, check if that subnetset still exists
+func (service *SubnetService) IsOrphanSubnet(subnet model.VpcSubnet, subnetsetIDs sets.String) bool {
+	for _, tag := range subnet.Tags {
+		if *tag.Scope == common.TagScopeSubnetSetCRUID && subnetsetIDs.Has(*tag.Tag) {
+			return false
+		}
+	}
+	return true
 }
 
 func (service *SubnetService) DeleteIPAllocation(orgID, projectID, vpcID, subnetID string) error {
