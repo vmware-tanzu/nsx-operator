@@ -13,10 +13,12 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/retry"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -176,7 +178,7 @@ func (service *VPCService) DeleteVPC(path string) error {
 		return err
 	}
 
-	log.Info("successfully deleted NSX VPC", "nsxVPC", pathInfo.VPCID)
+	log.Info("successfully deleted NSX VPC", "VPC", pathInfo.VPCID)
 	return nil
 }
 
@@ -192,7 +194,7 @@ func (service *VPCService) DeleteIPBlock(vpc model.Vpc) error {
 		parts := strings.Split(block, "/")
 		log.Info("deleting private ip block", "ORG", parts[2], "Project", parts[4], "ID", parts[7])
 		if err := ipblockClient.Delete(parts[2], parts[4], parts[7]); err != nil {
-			log.Error(err, "failed to delete ip block", "PATH", block)
+			log.Error(err, "failed to delete ip block", "Path", block)
 			return err
 		}
 		vpcCRUid := ""
@@ -201,7 +203,7 @@ func (service *VPCService) DeleteIPBlock(vpc model.Vpc) error {
 				vpcCRUid = *tag.Tag
 			}
 		}
-		log.V(2).Info("search ip block from store using index and path", "index", common.TagScopeVPCCRUID, "value", vpcCRUid, "path", block)
+		log.V(2).Info("search ip block from store using index and path", "index", common.TagScopeVPCCRUID, "Value", vpcCRUid, "Path", block)
 		// using index vpc cr id may get multiple ipblocks, add path to filter the correct one
 		ipblock := service.IpblockStore.GetByIndex(common.IndexKeyPathPath, block)
 		if ipblock != nil {
@@ -223,7 +225,7 @@ func (service *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc VPC
 			// if parse success, then check if private cidr exist, here we suppose it must be a cidr format string
 			ip, _, err := net.ParseCIDR(pCidr)
 			if err != nil {
-				message := fmt.Sprintf("invalid cidr %s for vpc %s", pCidr, obj.Name)
+				message := fmt.Sprintf("invalid cidr %s for VPC %s", pCidr, obj.Name)
 				fmtError := errors.New(message)
 				log.Error(fmtError, message)
 				return nil, fmtError
@@ -231,10 +233,10 @@ func (service *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc VPC
 			// check if private ip block already exist
 			// use cidr_project_ns as search key
 			key := generateIPBlockSearchKey(pCidr, string(obj.UID))
-			log.Info("using key to search from ipblock store", "key", key)
+			log.Info("using key to search from ipblock store", "Key", key)
 			block := service.IpblockStore.GetByKey(key)
 			if block == nil {
-				log.Info("no ip block found in stroe for cidr", "cidr", pCidr)
+				log.Info("no ip block found in stroe for cidr", "CIDR", pCidr)
 				blockId := nc.NsxtProject + "_" + ip.String() + "_" + obj.Namespace
 				addr, _ := netip.ParseAddr(ip.String())
 				ipType := util.If(addr.Is4(), model.IpAddressBlock_IP_ADDRESS_TYPE_IPV4, model.IpAddressBlock_IP_ADDRESS_TYPE_IPV6).(string)
@@ -251,7 +253,7 @@ func (service *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc VPC
 				// can not find private ip block from store, create one
 				_err := service.NSXClient.IPBlockClient.Patch(VPCDefaultOrg, nc.NsxtProject, blockId, block)
 				if _err != nil {
-					message := fmt.Sprintf("failed to create private ip block for cidr %s for vpc %s", pCidr, obj.Name)
+					message := fmt.Sprintf("failed to create private ip block for cidr %s for VPC %s", pCidr, obj.Name)
 					ipblockError := errors.New(message)
 					log.Error(ipblockError, message)
 					return nil, ipblockError
@@ -259,7 +261,7 @@ func (service *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc VPC
 				createdBlock, err := service.NSXClient.IPBlockClient.Get(VPCDefaultOrg, nc.NsxtProject, blockId)
 				if err != nil {
 					// created by can not get, ignore this error
-					log.Info("failed to read ip blocks from nsxt", "Project", nc.NsxtProject, "IPBlock", blockId)
+					log.Info("failed to read ip blocks from NSX", "Project", nc.NsxtProject, "IPBlock", blockId)
 					continue
 				}
 				// update ip block store
@@ -268,7 +270,7 @@ func (service *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc VPC
 			} else {
 				eBlock := block.(model.IpAddressBlock)
 				path[pCidr] = *eBlock.Path
-				log.Info("ip block found in stroe for cidr using key", "cidr", pCidr, "key", key)
+				log.Info("ip block found in stroe for cidr using key", "CIDR", pCidr, "Key", key)
 			}
 		}
 	}
@@ -297,31 +299,90 @@ func (s *VPCService) getNetworkconfigNameFromNS(ns string) (string, error) {
 	return ncName, nil
 }
 
-func (service *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, error) {
+func (s *VPCService) GetDefaultSNATIP(vpc model.Vpc) (string, error) {
+	ruleClient := s.NSXClient.NATRuleClient
+	info, err := common.ParseVPCResourcePath(*vpc.Path)
+	if err != nil {
+		log.Error(err, "failed to parse VPC path to get default SNAT ip", "Path", vpc.Path)
+		return "", err
+	}
+	var cursor *string = nil
+	// TODO: support scale scenario
+	pageSize := int64(1000)
+	markedForDelete := false
+	results, err := ruleClient.List(info.OrgID, info.ProjectID, info.VPCID, common.DefaultSNATID, cursor, &markedForDelete, nil, &pageSize, nil, nil)
+	if err != nil {
+		log.Error(err, "failed to read SNAT rule list to get default SNAT ip", "VPC", vpc.Id)
+		return "", err
+	}
+
+	if results.Results == nil || len(results.Results) == 0 {
+		log.Info("no SNAT rule found under VPC", "VPC", vpc.Id)
+		return "", nil
+	}
+
+	// if there is multiple private ip block in vpc, there will also be multiple snat rules, but they are using
+	// the same snat ip, so just using the first snat rule to get snat ip.
+	return *results.Results[0].TranslatedNetwork, nil
+}
+
+func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
+	subnetsClient := s.NSXClient.SubnetsClient
+	statusClient := s.NSXClient.SubnetStatusClient
+	info, err := common.ParseVPCResourcePath(*vpc.Path)
+
+	if err != nil {
+		return "", "", err
+	}
+
+	subnet, err := subnetsClient.Get(info.OrgID, info.ProjectID, info.VPCID, common.AVISubnetLBID)
+	if err != nil {
+		log.Error(err, "failed to read AVI subnet", "VPC", vpc.Id)
+		return "", "", err
+	}
+	path := *subnet.Path
+
+	statusList, err := statusClient.List(info.OrgID, info.ProjectID, info.VPCID, common.AVISubnetLBID)
+	if err != nil {
+		log.Error(err, "failed to read AVI subnet status", "VPC", vpc.Id)
+		return "", "", err
+	}
+
+	if len(statusList.Results) == 0 {
+		log.Info("AVI subnet status not found", "VPC", vpc.Id)
+		return "", "", err
+	}
+
+	cidr := *statusList.Results[0].NetworkAddress
+	log.Info("read AVI subnet properties", "Path", path, "CIDR", cidr)
+	return path, cidr, nil
+}
+
+func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, error) {
 	// check from VPC store if vpc already exist
 	updateVpc := false
-	existingVPC := service.VpcStore.GetVPCsByNamespace(obj.Namespace)
+	existingVPC := s.VpcStore.GetVPCsByNamespace(obj.Namespace)
 	if existingVPC != nil && len(existingVPC) != 0 { // We now consider only one VPC for one namespace
 		updateVpc = true
-		log.Info("VPC already exist, updating vpc object")
+		log.Info("VPC already exist, updating NSX VPC object", "VPC", existingVPC[0].Id)
 	}
 
 	// read corresponding vpc network config from store
-	nc_name, err := service.getNetworkconfigNameFromNS(obj.Namespace)
+	nc_name, err := s.getNetworkconfigNameFromNS(obj.Namespace)
 	if err != nil {
-		log.Error(err, "failed to get network config name for vpc", "VPC", obj.Name)
+		log.Error(err, "failed to get network config name for VPC when creating NSX VPC", "VPC", obj.Name)
 		return nil, err
 	}
-	nc, _exist := service.GetVPCNetworkConfig(nc_name)
+	nc, _exist := s.GetVPCNetworkConfig(nc_name)
 	if !_exist {
-		message := fmt.Sprintf("network config %s not found", nc_name)
+		message := fmt.Sprintf("failed to read network config %s when creating NSX VPC", nc_name)
 		log.Info(message)
 		return nil, errors.New(message)
 	}
 
 	log.Info("read network config from store", "NetworkConfig", nc_name)
 
-	paths, err := service.CreatOrUpdatePrivateIPBlock(obj, nc)
+	paths, err := s.CreatOrUpdatePrivateIPBlock(obj, nc)
 	if err != nil {
 		log.Error(err, "failed to process private ip blocks, push event back to queue")
 		return nil, err
@@ -330,53 +391,68 @@ func (service *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, err
 	// if all private ip blocks are created, then create nsx vpc resource.
 	nsxVPC := &model.Vpc{}
 	if updateVpc {
-		log.Info("vpc resource already exist on nsx, updating vpc", "VPC", existingVPC[0].DisplayName)
+		log.Info("VPC resource already exist on NSX, updating VPC", "VPC", existingVPC[0].DisplayName)
 		nsxVPC = &existingVPC[0]
 	} else {
-		log.Info("vpc does not exist on nsx, creating vpc", "VPC", obj.Name)
+		log.Info("VPC does not exist on NSX, creating VPC", "VPC", obj.Name)
 		nsxVPC = nil
 	}
 
-	createdVpc, err := buildNSXVPC(obj, nc, service.NSXConfig.Cluster, paths, nsxVPC)
+	createdVpc, err := buildNSXVPC(obj, nc, s.NSXConfig.Cluster, paths, nsxVPC)
 	if err != nil {
-		log.Error(err, "failed to build nsx vpc object")
+		log.Error(err, "failed to build NSX VPC object")
 		return nil, err
 	}
 
 	// if there is not change in public cidr and private cidr, build partial vpc will return nil
 	if createdVpc == nil {
-		log.Info("no vpc changed, skip create or update process")
+		log.Info("no VPC changes detect, skip creating or updating process")
 		return &existingVPC[0], nil
 	}
 
-	log.Info("creating nsx vpc resource", "VPC", *createdVpc.Id)
-	err = service.NSXClient.VPCClient.Patch(VPCDefaultOrg, nc.NsxtProject, *createdVpc.Id, *createdVpc)
+	log.Info("creating NSX VPC", "VPC", *createdVpc.Id)
+	err = s.NSXClient.VPCClient.Patch(VPCDefaultOrg, nc.NsxtProject, *createdVpc.Id, *createdVpc)
 	if err != nil {
-		log.Error(err, "failed to create vpc", "Project", nc.NsxtProject, "Namespace", obj.Namespace)
+		log.Error(err, "failed to create VPC", "Project", nc.NsxtProject, "Namespace", obj.Namespace)
 		// TODO: this seems to be a nsx bug, in some case, even if nsx returns failed but the object is still created.
 		// in this condition, we still need to read the object and update it into store, or else operator will create multiple
 		// vpcs for this namespace.
-		log.Info("try to read vpc object although vpc creation failed", "VPC", *createdVpc.Id)
-		failedVpc, rErr := service.NSXClient.VPCClient.Get(VPCDefaultOrg, nc.NsxtProject, *createdVpc.Id)
+		log.Info("try to read VPC although VPC creation failed", "VPC", *createdVpc.Id)
+		failedVpc, rErr := s.NSXClient.VPCClient.Get(VPCDefaultOrg, nc.NsxtProject, *createdVpc.Id)
 		if rErr != nil {
 			// failed to read, but already created, we consider this scenario as success, but store may not sync with nsx
-			log.Info("confirmed vpc is not created", "VPC", createdVpc.Id)
+			log.Info("confirmed VPC is not created", "VPC", createdVpc.Id)
 			return nil, err
 		} else {
 			// vpc created anyway, update store, and in this scenario, we condsider creating successfully
-			log.Info("read vpcs from nsx after creation failed, still update vpc store", "VPC", *createdVpc.Id)
-			service.VpcStore.Add(failedVpc)
+			log.Info("read VPCs from NSX after creation failed, still update VPC store", "VPC", *createdVpc.Id)
+			s.VpcStore.Add(failedVpc)
 			return &failedVpc, nil
 		}
 	}
 
-	newVpc, err := service.NSXClient.VPCClient.Get(VPCDefaultOrg, nc.NsxtProject, *createdVpc.Id)
+	// get the created vpc from nsx, it contains the path of the resources
+	newVpc, err := s.NSXClient.VPCClient.Get(VPCDefaultOrg, nc.NsxtProject, *createdVpc.Id)
 	if err != nil {
 		// failed to read, but already created, we consider this scenario as success, but store may not sync with nsx
-		log.Error(err, "failed to read vpc object after creating", "VPC", createdVpc.Id)
-		return &newVpc, nil
+		log.Error(err, "failed to read VPC object after creating or updating", "VPC", createdVpc.Id)
+		return nil, err
 	}
 
-	service.VpcStore.Add(newVpc)
+	realizeService := realizestate.InitializeRealizeState(s.Service)
+	if err = realizeService.CheckRealizeState(retry.DefaultRetry, *newVpc.Path, "RealizedLogicalRouter"); err != nil {
+		log.Error(err, "failed to check VPC realization state", "VPC", *createdVpc.Id)
+		if realizestate.IsRealizeStateError(err) {
+			log.Error(err, "the created VPC is in error realization state, cleaning the resource", "VPC", *createdVpc.Id)
+			// delete the nsx vpc object and re-created in next loop
+			if err := s.DeleteVPC(*newVpc.Path); err != nil {
+				log.Error(err, "cleanup VPC failed", "VPC", *createdVpc.Id)
+				return nil, err
+			}
+		}
+		return nil, err
+	}
+
+	s.VpcStore.Add(newVpc)
 	return &newVpc, nil
 }

@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	DefaultVPCIPAddressType = "IPV4"
-	VPCLBEndpointEnabled    = true
+	DefaultVPCIPAddressType               = "IPV4"
+	DefaultLoadBalancerVPCEndpointEnabled = true
 )
 
 // private ip block cidr is not unique, there maybe different ip blocks using same cidr, but for different vpc cr
@@ -50,7 +50,7 @@ func buildNSXVPC(obj *v1alpha1.VPC, nc VPCNetworkConfigInfo, cluster string, pat
 	if nsxVPC != nil {
 		// for upgrade case, only check public/private ip block size changing
 		if !IsVPCChanged(nc, nsxVPC) {
-			log.Info("no changes on current nsx vpc, skip updating", "VPC", nsxVPC.Id)
+			log.Info("no changes on current NSX VPC, skip updating", "VPC", nsxVPC.Id)
 			return nil, nil
 		}
 		// for updating vpc case, use current vpc id, name
@@ -69,7 +69,7 @@ func buildNSXVPC(obj *v1alpha1.VPC, nc VPCNetworkConfigInfo, cluster string, pat
 			},
 		}
 		vpc.SiteInfos = siteInfos
-		vpc.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &VPCLBEndpointEnabled}
+		vpc.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &DefaultLoadBalancerVPCEndpointEnabled}
 		vpc.Tags = buildVPCTags(obj, cluster)
 	}
 
