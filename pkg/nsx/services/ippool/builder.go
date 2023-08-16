@@ -92,16 +92,27 @@ func (service *IPPoolService) buildIPSubnetIntentPath(IPPool *v1alpha2.IPPool, s
 }
 
 func (service *IPPoolService) buildIPSubnet(IPPool *v1alpha2.IPPool, subnetRequest v1alpha2.SubnetRequest) *model.IpAddressPoolBlockSubnet {
-	// TODO: Get the IPBlockPath by IPPool's namespace, external and private
-	IpBlockPath := String("/infra/ip-blocks/block-test")
-	if IPPool.Spec.Type == common.IPPoolTypePrivate {
-		VPCInfo := commonctl.ServiceMediator.ListVPCInfo(IPPool.Namespace)
-		if len(VPCInfo) == 0 {
-			return nil
-		}
-		// TODO: Get the IPBlockPath by IPPool's namespace, external and private
-		IpBlockPath = String(fmt.Sprintf("/orgs/%s/projects/%s/infra/ip-blocks/block-test", VPCInfo[0].OrgID, VPCInfo[0].ProjectID))
+	IpBlockPath := String("")
+	IpBlockPathList := make([]string, 0)
+	VPCInfo := commonctl.ServiceMediator.GetVPCsByNamespace(IPPool.Namespace)
+	if len(VPCInfo) == 0 {
+		log.Error(nil, "failed to find VPCInfo for IPPool CR", "IPPool", IPPool.Name, "namespace %s", IPPool.Namespace)
+		return &model.IpAddressPoolBlockSubnet{}
 	}
+
+	if IPPool.Spec.Type == common.IPPoolTypePrivate {
+		IpBlockPathList = VPCInfo[0].PrivateIpv4Blocks
+	} else {
+		IpBlockPathList = VPCInfo[0].ExternalIpv4Blocks
+	}
+	for _, ipBlockPath := range IpBlockPathList {
+		if util.Contains(service.ExhaustedIPBlock, ipBlockPath) {
+			continue
+		}
+		IpBlockPath = String(ipBlockPath)
+		log.V(2).Info("use ip block path", "ip block path", ipBlockPath)
+	}
+
 	return &model.IpAddressPoolBlockSubnet{
 		Id:          String(service.buildIPSubnetID(IPPool, &subnetRequest)),
 		DisplayName: String(service.buildIPSubnetName(IPPool, &subnetRequest)),

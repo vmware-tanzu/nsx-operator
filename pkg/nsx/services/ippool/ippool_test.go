@@ -246,8 +246,22 @@ func TestIPPoolService_CreateOrUpdateIPPool(t *testing.T) {
 		BindingType: model.IpAddressPoolBlockSubnetBindingType(),
 	}}
 	ipPoolBlockSubnetStore.Operate(iapbs)
+	var vpcinfo = []model.Vpc{
+		{PrivateIpv4Blocks: []string{"/infra/ip-blocks/block-test"}},
+	}
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	resourceStore := common.ResourceStore{
+		Indexer:     vpcCacheIndexer,
+		BindingType: model.VpcBindingType(),
+	}
+	vpcStore := &vpc.VPCStore{ResourceStore: resourceStore}
+	commonctl.ServiceMediator.VPCService = &vpc.VPCService{VpcStore: vpcStore}
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(vpcStore), "GetVPCsByNamespace", func(vpcStore *vpc.VPCStore,
+		ns string) []model.Vpc {
+		return vpcinfo
+	})
+	defer patch.Reset()
 	t.Run("1", func(t *testing.T) {
-		commonctl.ServiceMediator = md
 		got, got1, err := service.CreateOrUpdateIPPool(ipPool2)
 		assert.NoError(t, err, "CreateOrUpdateIPPool(%v)(%v)", got, got1)
 	})
