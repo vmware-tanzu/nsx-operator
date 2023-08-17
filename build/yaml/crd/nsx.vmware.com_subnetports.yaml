@@ -1,3 +1,4 @@
+
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -15,7 +16,20 @@ spec:
     singular: subnetport
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Attachment VIF ID owned by the SubnetPort
+      jsonPath: .status.vifID
+      name: VIFID
+      type: string
+    - description: IP Address of the SubnetPort
+      jsonPath: .status.ipAddresses[0].ip
+      name: IPAddress
+      type: string
+    - description: MAC Address of the SubnetPort
+      jsonPath: .status.macAddress
+      name: MACAddress
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: SubnetPort is the Schema for the subnetports API.
@@ -72,7 +86,6 @@ spec:
                     description: 'UID of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids'
                     type: string
                 type: object
-                x-kubernetes-map-type: atomic
               subnet:
                 description: Subnet defines the parent Subnet name of the SubnetPort.
                 type: string

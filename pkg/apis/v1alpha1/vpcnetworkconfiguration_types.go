@@ -1,4 +1,4 @@
-/* Copyright © 2022 VMware, Inc. All Rights Reserved.
+/* Copyright © 2022-2023 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 // +kubebuilder:object:generate=true
@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	AccessModePublic  string = "public"
-	AccessModePrivate string = "private"
+	AccessModePublic  string = "Public"
+	AccessModePrivate string = "Private"
 )
 
 // Load balancer endpoint configuration.
@@ -38,7 +38,7 @@ type VPCNetworkConfigurationSpec struct {
 	// +kubebuilder:validation:MinItems=0
 	// +kubebuilder:validation:MaxItems=5
 	ExternalIPv4Blocks []string `json:"externalIPv4Blocks,omitempty"`
-	// Private IPv4 CIDRs used to allocate private Subnets.
+	// Private IPv4 CIDRs used to allocate Private Subnets.
 	// +kubebuilder:validation:MinItems=0
 	// +kubebuilder:validation:MaxItems=5
 	PrivateIPv4CIDRs []string `json:"privateIPv4CIDRs,omitempty"`
@@ -47,8 +47,8 @@ type VPCNetworkConfigurationSpec struct {
 	// +kubebuilder:default=26
 	DefaultIPv4SubnetSize int `json:"defaultIPv4SubnetSize,omitempty"`
 	// DefaultSubnetAccessMode defines the access mode of the default SubnetSet for PodVM and VM.
-	// Must be public or private.
-	// +kubebuilder:validation:Enum=public;private
+	// Must be Public or Private.
+	// +kubebuilder:validation:Enum=Public;Private
 	DefaultSubnetAccessMode string `json:"defaultSubnetAccessMode,omitempty"`
 }
 
@@ -64,9 +64,9 @@ type VPCNetworkConfigurationStatus struct {
 
 // VPCNetworkConfiguration is the Schema for the vpcnetworkconfigurations API.
 // +kubebuilder:resource:scope="Cluster"
-// +kubebuilder:printcolumn:name="NSXTProject",type=string,JSONPath=`.spec.NSXTProject`,description="NSXTProject the Namespace associated with"
-// +kubebuilder:printcolumn:name="PublicIPv4Blocks",type=string,JSONPath=`.spec.ExternalIPv4Blocks`,description="ExternalIPv4Blocks assigned to the Namespace"
-// +kubebuilder:printcolumn:name="PrivateIPv4CIDRs",type=string,JSONPath=`.spec.PrivateIPv4CIDRs`,description="PrivateIPv4CIDRs assigned to the Namespace"
+// +kubebuilder:printcolumn:name="NSXTProject",type=string,JSONPath=`.spec.nsxtProject`,description="NSXTProject the Namespace associated with"
+// +kubebuilder:printcolumn:name="ExternalIPv4Blocks",type=string,JSONPath=`.spec.externalIPv4Blocks`,description="ExternalIPv4Blocks assigned to the Namespace"
+// +kubebuilder:printcolumn:name="PrivateIPv4CIDRs",type=string,JSONPath=`.spec.privateIPv4CIDRs`,description="PrivateIPv4CIDRs assigned to the Namespace"
 type VPCNetworkConfiguration struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

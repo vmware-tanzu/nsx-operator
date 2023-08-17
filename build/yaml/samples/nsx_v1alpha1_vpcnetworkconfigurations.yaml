@@ -8,8 +8,8 @@ spec:
   defaultIPv4SubnetSize: 26
   nsxtProject: proj-1
   externalIPv4Blocks:
-    - /infra/ip-blocks/block1
+    - block1
   privateIPv4CIDRs:
     - 172.26.0.0/16
     - 172.36.0.0/16
-  defaultSubnetAccessMode: public
+  defaultSubnetAccessMode: Private
