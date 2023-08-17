@@ -1,3 +1,4 @@
+
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -17,15 +18,15 @@ spec:
   versions:
   - additionalPrinterColumns:
     - description: NSXTProject the Namespace associated with
-      jsonPath: .spec.NSXTProject
+      jsonPath: .spec.nsxtProject
       name: NSXTProject
       type: string
     - description: ExternalIPv4Blocks assigned to the Namespace
-      jsonPath: .spec.ExternalIPv4Blocks
-      name: PublicIPv4Blocks
+      jsonPath: .spec.externalIPv4Blocks
+      name: ExternalIPv4Blocks
       type: string
     - description: PrivateIPv4CIDRs assigned to the Namespace
-      jsonPath: .spec.PrivateIPv4CIDRs
+      jsonPath: .spec.privateIPv4CIDRs
       name: PrivateIPv4CIDRs
       type: string
     name: v1alpha1
@@ -63,10 +64,10 @@ spec:
                 type: integer
               defaultSubnetAccessMode:
                 description: DefaultSubnetAccessMode defines the access mode of the
-                  default SubnetSet for PodVM and VM. Must be public or private.
+                  default SubnetSet for PodVM and VM. Must be Public or Private.
                 enum:
-                - public
-                - private
+                - Public
+                - Private
                 type: string
               edgeClusterPath:
                 description: Edge cluster path on which the networking elements will
@@ -91,7 +92,7 @@ spec:
                 description: NSX-T Project the Namespace associated with.
                 type: string
               privateIPv4CIDRs:
-                description: Private IPv4 CIDRs used to allocate private Subnets.
+                description: Private IPv4 CIDRs used to allocate Private Subnets.
                 items:
                   type: string
                 maxItems: 5

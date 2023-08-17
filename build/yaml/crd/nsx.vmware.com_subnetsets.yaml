@@ -16,7 +16,20 @@ spec:
     singular: subnetset
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Access mode of Subnet
+      jsonPath: .spec.accessMode
+      name: AccessMode
+      type: string
+    - description: Size of Subnet
+      jsonPath: .spec.ipv4SubnetSize
+      name: IPv4SubnetSize
+      type: string
+    - description: CIDRs for the Subnet
+      jsonPath: .status.subnets[*].ipAddresses[*]
+      name: IPAddresses
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: SubnetSet is the Schema for the subnetsets API.

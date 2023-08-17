@@ -13,6 +13,8 @@ import (
 //+kubebuilder:subresource:status
 
 // IPPool is the Schema for the ippools API.
+// +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.type`,description="Type of IPPool"
+// +kubebuilder:printcolumn:name="Subnets",type=string,JSONPath=`.status.subnets[*].cidr`,description="CIDRs for the Subnet"
 type IPPool struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata"`
