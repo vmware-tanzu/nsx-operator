@@ -43,6 +43,15 @@ func subnetPortIndexByCRUID(obj interface{}) ([]string, error) {
 	}
 }
 
+func subnetPortIndexByPodUID(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case model.SegmentPort:
+		return filterTag(o.Tags, common.TagScopePodUID), nil
+	default:
+		return nil, errors.New("subnetPortIndexByCRUID doesn't support unknown type")
+	}
+}
+
 func subnetPortIndexBySubnetID(obj interface{}) ([]string, error) {
 	switch o := obj.(type) {
 	case model.SegmentPort:

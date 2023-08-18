@@ -53,6 +53,7 @@ type Client struct {
 	InfraClient    nsx_policy.InfraClient
 
 	ClusterControlPlanesClient enforcement_points.ClusterControlPlanesClient
+	HostTransPortNodesClient   enforcement_points.HostTransportNodesClient
 	SubnetStatusClient         subnets.StatusClient
 	RealizedEntitiesClient     realized_state.RealizedEntitiesClient
 	MPQueryClient              mpsearch.QueryClient
@@ -126,6 +127,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	infraClient := nsx_policy.NewInfraClient(restConnector(cluster))
 
 	clusterControlPlanesClient := enforcement_points.NewClusterControlPlanesClient(restConnector(cluster))
+	hostTransportNodesClient := enforcement_points.NewHostTransportNodesClient(restConnector(cluster))
 	realizedEntitiesClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
 	mpQueryClient := mpsearch.NewQueryClient(restConnector(cluster))
 	certificatesClient := trust_management.NewCertificatesClient(restConnector(cluster))
@@ -165,6 +167,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		InfraClient:    infraClient,
 
 		ClusterControlPlanesClient: clusterControlPlanesClient,
+		HostTransPortNodesClient:   hostTransportNodesClient,
 		RealizedEntitiesClient:     realizedEntitiesClient,
 		MPQueryClient:              mpQueryClient,
 		CertificatesClient:         certificatesClient,
