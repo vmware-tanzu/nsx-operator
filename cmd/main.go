@@ -20,7 +20,9 @@ import (
 	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	ippool2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/ippool"
 	namespacecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/namespace"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/node"
 	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/pod"
 	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
 	staticroutecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnet"
@@ -196,8 +198,10 @@ func main() {
 			os.Exit(1)
 		}
 
+		node.StartNodeController(mgr, commonService)
 		staticroutecontroller.StartStaticRouteController(mgr, commonService)
 		subnetport.StartSubnetPortController(mgr, commonService)
+		pod.StartPodController(mgr, commonService)
 
 		StartNamespaceController(mgr, commonService)
 		StartVPCController(mgr, commonService)

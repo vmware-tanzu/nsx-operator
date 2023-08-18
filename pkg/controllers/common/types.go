@@ -18,6 +18,11 @@ const (
 	MetricResTypeSubnetSet         = "subnetset"
 	MetricResTypeVPC               = "vpc"
 	MetricResTypeNamespace         = "namespace"
+	MetricResTypePod               = "pod"
+	MetricResTypeNode              = "node"
+
+	LabelK8sMasterRole  = "node-role.kubernetes.io/master"
+	LabelK8sControlRole = "node-role.kubernetes.io/control-plane"
 )
 
 var (
