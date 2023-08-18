@@ -13,13 +13,6 @@ const (
 	AccessModePrivate string = "Private"
 )
 
-// Load balancer endpoint configuration.
-type LoadBalancerVPCEndpoint struct {
-	// Flag to enable load balancer for vpc.
-	// +kubebuilder:default=false
-	Enabled bool `json:"enabled,omitempty"`
-}
-
 // VPCNetworkConfigurationSpec defines the desired state of VPCNetworkConfiguration.
 // There is a default VPCNetworkConfiguration that applies to Namespaces
 // do not have a VPCNetworkConfiguration assigned. When a field is not set
@@ -32,8 +25,6 @@ type VPCNetworkConfigurationSpec struct {
 	EdgeClusterPath string `json:"edgeClusterPath,omitempty"`
 	// NSX-T Project the Namespace associated with.
 	NSXTProject string `json:"nsxtProject,omitempty"`
-	// Load balancer endpoint configuration.
-	LoadBalancerVPCEndpoint LoadBalancerVPCEndpoint `json:"loadBalancerVPCEndpoint,omitempty"`
 	// NSX-T IPv4 Block paths used to allocate external Subnets.
 	// +kubebuilder:validation:MinItems=0
 	// +kubebuilder:validation:MaxItems=5
