@@ -7,7 +7,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 
 	ini "gopkg.in/ini.v1"
@@ -88,6 +87,9 @@ type VCConfig struct {
 	VCEndPoint string `ini:"vc_endpoint"`
 	SsoDomain  string `ini:"sso_domain"`
 	HttpsPort  int    `ini:"https_port"`
+	VCUser     string `ini:"user"`
+	VCPassword string `ini:"password"`
+	VCCAFile   string `ini:"ca_file"`
 }
 
 type HAConfig struct {
@@ -194,8 +196,12 @@ func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
 	var vcCaCert []byte
 	var err error
 	if !operatorConfig.Insecure {
-		vcCaCert, err = ioutil.ReadFile(vcHostCACertPath)
-		// If operatorConfig.VCInsecure is false, tls will the CA to verify the server
+		if operatorConfig.VCCAFile != "" {
+			vcCaCert, err = os.ReadFile(operatorConfig.VCCAFile)
+		} else {
+			vcCaCert, err = os.ReadFile(vcHostCACertPath)
+		}
+		// If operatorConfig.VCInsecure is false, tls will use the CA to verify the server
 		// certificate. If loading CA failed, tls will use the CA on local host
 		if err != nil {
 			log.Info("fail to load CA cert from file", "error", err)
@@ -203,7 +209,7 @@ func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
 	}
 
 	if err := operatorConfig.VCConfig.validate(); err == nil {
-		tokenProvider, _ = jwt.NewTokenProvider(operatorConfig.VCEndPoint, operatorConfig.HttpsPort, operatorConfig.SsoDomain, vcCaCert, operatorConfig.Insecure)
+		tokenProvider, _ = jwt.NewTokenProvider(operatorConfig.VCEndPoint, operatorConfig.HttpsPort, operatorConfig.SsoDomain, operatorConfig.VCUser, operatorConfig.VCPassword, vcCaCert, operatorConfig.Insecure)
 	}
 	return nil
 }
@@ -224,6 +230,12 @@ func (vcConfig *VCConfig) validate() error {
 	if vcConfig.HttpsPort == 0 {
 		err := errors.New("invalid field " + "HttpsPort")
 		log.Info("validate VcConfig failed", "HttpsPort", vcConfig.HttpsPort)
+		return err
+	}
+	// VCPassword, VCUser should be both empty or valid
+	if !((len(vcConfig.VCPassword) > 0) == (len(vcConfig.VCUser) > 0)) {
+		err := errors.New("invalid field " + "VCUser, VCPassword")
+		log.Info("validate VcConfig failed", "VCUser", vcConfig.VCUser, "VCPassword", vcConfig.VCPassword)
 		return err
 	}
 	return nil
