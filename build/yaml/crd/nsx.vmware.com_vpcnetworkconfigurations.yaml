@@ -80,14 +80,6 @@ spec:
                 maxItems: 5
                 minItems: 0
                 type: array
-              loadBalancerVPCEndpoint:
-                description: Load balancer endpoint configuration.
-                properties:
-                  enabled:
-                    default: false
-                    description: Flag to enable load balancer for vpc.
-                    type: boolean
-                type: object
               nsxtProject:
                 description: NSX-T Project the Namespace associated with.
                 type: string
