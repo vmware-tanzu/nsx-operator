@@ -125,8 +125,14 @@ func TestVCClient_reloadUsernamePass(t *testing.T) {
 	userName := "admin"
 	password := "admin"
 	ssoDomain := "vsphere.local"
+	// reload == false
 	vcClient, _ := NewVCClient(host, port, ssoDomain, userName, password, nil, true)
 	err := vcClient.reloadUsernamePass()
+	assert.Nil(t, err)
+
+	// reload == true
+	vcClient, _ = NewVCClient(host, port, ssoDomain, "", "", nil, true)
+	err = vcClient.reloadUsernamePass()
 	assert.NotNil(t, err)
 
 	patch := gomonkey.ApplyFunc(os.ReadFile, func(filename string) ([]byte, error) {

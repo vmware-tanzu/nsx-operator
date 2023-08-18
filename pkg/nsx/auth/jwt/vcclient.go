@@ -14,18 +14,19 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math/big"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware/govmomi/sts"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 // VCClient tracks a client session token.
@@ -36,6 +37,9 @@ type VCClient struct {
 	session      string
 	signer       *sts.Signer
 	ssoDomain    string
+	// if reload == true, reload user/password from file
+	// if reload == false, user/password pass from parameter
+	reload bool
 }
 
 var (
@@ -62,11 +66,15 @@ func NewVCClient(hostname string, port int, ssoDomain string, userName, password
 	httpClient := createHttpClient(insecureSkipVerify, caCertPem)
 	baseurl := fmt.Sprintf("https://%s:%d/rest", hostname, port)
 	vcurl, _ := url.Parse(baseurl)
+
 	vcurl.User = url.UserPassword(userName, password)
 	vcClient := &VCClient{
 		url:        vcurl,
 		httpClient: httpClient,
 		ssoDomain:  ssoDomain,
+	}
+	if len(userName) == 0 {
+		vcClient.reload = true
 	}
 	// remove vcClient.getorRenewVAPISession here, defer to cache.refreshJWT
 	return vcClient, nil
@@ -118,14 +126,17 @@ func (vcClient *VCClient) getorRenewVAPISession() error {
 }
 
 func (vcClient *VCClient) reloadUsernamePass() error {
-	f, err := ioutil.ReadFile(VC_SVCACCOUNT_USER_PATH)
+	if !vcClient.reload {
+		return nil
+	}
+	f, err := os.ReadFile(VC_SVCACCOUNT_USER_PATH)
 	if err != nil {
 		log.Error(err, "failed to read user name")
 		return err
 	}
 	username := strings.TrimRight(string(f), "\n\r")
 
-	f, err = ioutil.ReadFile(VC_SVCACCOUNT_PWD_PATH)
+	f, err = os.ReadFile(VC_SVCACCOUNT_PWD_PATH)
 	if err != nil {
 		log.Error(err, "failed to read password")
 		return err

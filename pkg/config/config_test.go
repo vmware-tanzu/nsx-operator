@@ -30,6 +30,17 @@ func TestConfig_VCConfig(t *testing.T) {
 	vcConfig.HttpsPort = 443
 	err = vcConfig.validate()
 	assert.Equal(t, err, nil)
+
+	vcConfig.VCUser = ""
+	vcConfig.VCPassword = "test"
+	err = vcConfig.validate()
+	assert.NotEqual(t, err, nil)
+
+	vcConfig.VCUser = "test1"
+	vcConfig.VCPassword = "test"
+	err = vcConfig.validate()
+	assert.Equal(t, err, nil)
+
 }
 
 func TestConfig_CoeConfig(t *testing.T) {
