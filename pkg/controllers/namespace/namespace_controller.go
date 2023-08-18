@@ -78,7 +78,7 @@ func (r *NamespaceReconciler) createVPCCR(ctx *context.Context, obj client.Objec
 		AnnotationNamespaceVPCError: "",
 	}
 	util.UpdateK8sResourceAnnotation(r.Client, ctx, obj, changes)
-	log.Info("create vpc CR", "VPC", vpcCR.Name, "Namespace", vpcCR.Namespace)
+	log.Info("create VPC CR", "VPC", vpcCR.Name, "Namespace", vpcCR.Namespace)
 	return vpcCR, nil
 }
 
@@ -90,17 +90,20 @@ func (r *NamespaceReconciler) namespaceError(ctx *context.Context, k8sObj client
 }
 
 func (r *NamespaceReconciler) insertNamespaceNetworkconfigBinding(ns string, anno map[string]string) {
+	ncName := ""
 	if anno == nil {
-		log.Info("empty annotation for namespace", "Namespace", ns)
-		return
-	}
-
-	ncName, ncExist := anno[types.AnnotationVPCNetworkConfig]
-	if !ncExist {
+		log.V(2).Info("empty annotation for namespace, using default network config", "Namespace", ns)
 		ncName = types.DefaultNetworkConfigName
+	} else {
+		annoNC, ncExist := anno[types.AnnotationVPCNetworkConfig]
+		if !ncExist {
+			ncName = types.DefaultNetworkConfigName
+		} else {
+			ncName = annoNC
+		}
 	}
 
-	log.V(2).Info("insert namespace and network config mapping", "Namespace", ns, "Networkconfig", ncName)
+	log.Info("record namespace and network config mapping relation", "Namespace", ns, "Networkconfig", ncName)
 	common.ServiceMediator.RegisterNamespaceNetworkconfigBinding(ns, ncName)
 }
 
