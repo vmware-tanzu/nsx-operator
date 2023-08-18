@@ -244,7 +244,6 @@ func StartSubnetSetController(mgr ctrl.Manager, commonService servicecommon.Serv
 	}
 	subnetsetReconciler.Service = subnet.GetSubnetService(commonService)
 	if err := subnetsetReconciler.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "Subnet")
 		return err
 	}
 	return nil

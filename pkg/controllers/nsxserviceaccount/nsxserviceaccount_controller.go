@@ -44,6 +44,23 @@ type NSXServiceAccountReconciler struct {
 	Service *nsxserviceaccount.NSXServiceAccountService
 }
 
+func StartNSXServiceAccountController(mgr ctrl.Manager, commonService servicecommon.Service) error {
+	log.Info("starting NSXServiceAccountController")
+	nsxServiceAccountReconcile := &NSXServiceAccountReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+	if nsxServiceAccountService, err := nsxserviceaccount.InitializeNSXServiceAccount(commonService); err != nil {
+		return err
+	} else {
+		nsxServiceAccountReconcile.Service = nsxServiceAccountService
+	}
+	if err := nsxServiceAccountReconcile.Start(mgr); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 //

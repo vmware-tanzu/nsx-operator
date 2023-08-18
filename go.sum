@@ -37,8 +37,6 @@ github.com/TaoZou1/vsphere-automation-sdk-go/lib v0.5.4 h1:DlmdgfnJZBf3xKVlIzV8h
 github.com/TaoZou1/vsphere-automation-sdk-go/lib v0.5.4/go.mod h1:QJG7MJEjc8SJuo6p++sLJha7Sqt0tzyxjK1peikCB/E=
 github.com/TaoZou1/vsphere-automation-sdk-go/runtime v0.5.4 h1:HfPCC2OxVMZjMgfRFD6txpgynbua+roPkMT3f+SoHbA=
 github.com/TaoZou1/vsphere-automation-sdk-go/runtime v0.5.4/go.mod h1:GqC85noyNzapJN4vIAO9jJ1EKVo3+jCW4/2VTaMvuSg=
-github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt v0.9.5 h1:TfXvc3C/LLrIqkxcJVdOsrDp9NDmq8dRqxxUoUBXZnA=
-github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt v0.9.5/go.mod h1:r6vXdrxnApdHWL8zxnKrWXinGoP8HEXvMVLxKcarV8c=
 github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt v0.9.8 h1:l8DRN/HDjLyTnePixRhM9Ey5U9RekYXvOcCeOwNwuRk=
 github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt v0.9.8/go.mod h1:r6vXdrxnApdHWL8zxnKrWXinGoP8HEXvMVLxKcarV8c=
 github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt-mp v0.3.1-0.20221020082725-84e89979deb6 h1:sFObhyzxRrFCQvvZgVbWwAGyxUvhlom14Axv0Cjix90=

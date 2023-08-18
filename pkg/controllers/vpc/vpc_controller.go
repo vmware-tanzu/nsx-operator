@@ -6,7 +6,6 @@ package vpc
 import (
 	"context"
 	"errors"
-	"os"
 	"runtime"
 	"time"
 
@@ -188,19 +187,18 @@ func (r *VPCReconciler) GarbageCollector(cancel chan bool, timeout time.Duration
 	}
 }
 
-func StartVPCController(mgr ctrl.Manager, commonService commonservice.Service) {
+func StartVPCController(mgr ctrl.Manager, commonService commonservice.Service) error {
 	vpcReconcile := VPCReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
 	if vpcService, err := vpc.InitializeVPC(commonService); err != nil {
-		log.Error(err, "failed to initialize vpc commonService")
-		os.Exit(1)
+		return err
 	} else {
 		vpcReconcile.Service = vpcService
 	}
 	if err := vpcReconcile.Start(mgr); err != nil {
-		log.Error(err, "failed to create vpc controller")
-		os.Exit(1)
+		return err
 	}
+	return nil
 }
