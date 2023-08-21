@@ -81,9 +81,8 @@ spec:
                     type: boolean
                 type: object
               accessMode:
-                default: Private
                 description: Access mode of Subnet, accessible only from within VPC
-                  or from outside VPC. Defaults to Private.
+                  or from outside VPC.
                 enum:
                 - Private
                 - Public
@@ -103,9 +102,7 @@ spec:
                     type: object
                 type: object
               ipv4SubnetSize:
-                default: 64
-                description: Size of Subnet based upon estimated workload count. Defaults
-                  to 64.
+                description: Size of Subnet based upon estimated workload count.
                 maximum: 65536
                 minimum: 16
                 type: integer
