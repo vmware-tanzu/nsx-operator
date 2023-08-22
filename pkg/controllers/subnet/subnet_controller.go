@@ -7,8 +7,10 @@ import (
 	"reflect"
 	"runtime"
 
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -76,7 +78,24 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultIPv4SubnetSize
 			}
 		}
-		if _, err := r.Service.CreateOrUpdateSubnet(obj, nil); err != nil {
+
+		var tags []model.Tag
+		namespace := &v1.Namespace{}
+		namespacedName := types.NamespacedName{
+			Name: req.Namespace,
+		}
+		if err := r.Client.Get(context.Background(), namespacedName, namespace); err != nil {
+			log.Error(err, "unable to fetch namespace of Subnet CR", "req", req.NamespacedName)
+			updateFail(r, &ctx, obj)
+			return ResultRequeue, err
+		}
+		namespace_uid := namespace.UID
+		// user create subnet CR, it is only for VM subnet, no need to add TagScopeNamespaceUID/TagScopeNamespace for pod subnet
+		tags = append(tags,
+			model.Tag{Scope: servicecommon.String(servicecommon.TagScopeVMNamespaceUID), Tag: servicecommon.String(string(namespace_uid))},
+			model.Tag{Scope: servicecommon.String(servicecommon.TagScopeVMNamespace), Tag: servicecommon.String(req.Namespace)})
+
+		if _, err := r.Service.CreateOrUpdateSubnet(obj, tags); err != nil {
 			log.Error(err, "operate failed, would retry exponentially", "subnet", req.NamespacedName)
 			updateFail(r, &ctx, obj)
 			return ResultRequeue, err
