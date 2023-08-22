@@ -51,6 +51,8 @@ const (
 	TagScopeIPPoolCRUID             string = "nsx-op/ippool_cr_uid"
 	TagScopeIPPoolCRType            string = "nsx-op/ippool_cr_type"
 	TagScopeIPSubnetName            string = "nsx-op/ipsubnet_cr_name"
+	TagScopeVMNamespaceUID          string = "nsx-op/vm_namespace_uid"
+	TagScopeVMNamespace             string = "nsx-op/vm_namespace"
 	LabelDefaultSubnetSet           string = "nsxoperator.vmware.com/default-subnetset-for"
 	LabelDefaultVMSubnet            string = "VirtualMachine"
 	LabelDefaultPodSubnetSet        string = "Pod"
