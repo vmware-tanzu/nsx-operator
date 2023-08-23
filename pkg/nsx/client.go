@@ -22,6 +22,7 @@ import (
 	infra "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs"
+	nat "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/nat"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ip_pools"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ports"
@@ -55,6 +56,7 @@ type Client struct {
 	StaticRouteClient          vpcs.StaticRoutesClient
 	VPCClient                  projects.VpcsClient
 	IPBlockClient              infra.IpBlocksClient
+	NATRuleClient              nat.NatRulesClient
 	ClusterControlPlanesClient enforcement_points.ClusterControlPlanesClient
 	SubnetStatusClient         subnets.StatusClient
 	RealizedEntitiesClient     realized_state.RealizedEntitiesClient
@@ -126,6 +128,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	staticRouteClient := vpcs.NewStaticRoutesClient(restConnector(cluster))
 	vpcClient := projects.NewVpcsClient(restConnector(cluster))
 	ipBlockClient := infra.NewIpBlocksClient(restConnector(cluster))
+	natRulesClient := nat.NewNatRulesClient(restConnector(cluster))
 	clusterControlPlanesClient := enforcement_points.NewClusterControlPlanesClient(restConnector(cluster))
 	realizedEntitiesClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
 	mpQueryClient := mpsearch.NewQueryClient(restConnector(cluster))
@@ -162,6 +165,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		StaticRouteClient:          staticRouteClient,
 		VPCClient:                  vpcClient,
 		IPBlockClient:              ipBlockClient,
+		NATRuleClient:              natRulesClient,
 		ClusterControlPlanesClient: clusterControlPlanesClient,
 		RealizedEntitiesClient:     realizedEntitiesClient,
 

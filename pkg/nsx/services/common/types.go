@@ -60,6 +60,8 @@ const (
 	IPPoolFinalizerName = "ippool.nsx.vmware.com/finalizer"
 	IPPoolTypePublic    = "public"
 	IPPoolTypePrivate   = "private"
+	DefaultSNATID       = "DEFAULT"
+	AVISubnetLBID       = "_AVI_SUBNET--LB"
 
 	SecurityPolicyFinalizerName    = "securitypolicy.nsx.vmware.com/finalizer"
 	StaticRouteFinalizerName       = "staticroute.nsx.vmware.com/finalizer"
