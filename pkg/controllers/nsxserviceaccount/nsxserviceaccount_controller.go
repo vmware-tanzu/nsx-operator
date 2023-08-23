@@ -38,7 +38,18 @@ var (
 	MetricResType           = common.MetricResTypeNSXServiceAccount
 )
 
-// NSXServiceAccountReconciler reconciles a NSXServiceAccount object
+// NSXServiceAccountReconciler reconciles a NSXServiceAccount object.
+// Requires NSXT 4.0.1
+//
+// create/delete event will be processed by Reconcile
+//
+// update event with realized resource missing NSX resources will be processed by Reconcile since NSXT 4.1.2
+//
+// # GarbageCollector will clean up stale NSX resources and Secret on every GCInterval
+//
+// GarbageCollector will check and make all Secrets' CA up-to-date on first GC run
+//
+// GarbageCollector will check and rotate client cert if needed on every GCValidationInterval*GCInterval since NSXT 4.1.3
 type NSXServiceAccountReconciler struct {
 	client.Client
 	Scheme  *apimachineryruntime.Scheme
@@ -81,9 +92,9 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			log.V(1).Info("added finalizer on CR", "nsxserviceaccount", req.NamespacedName)
 		}
 
-		if nsxserviceaccount.IsNSXServiceAccountRealized(obj.Status) {
+		if nsxserviceaccount.IsNSXServiceAccountRealized(&obj.Status) {
 			if r.Service.NSXClient.NSXCheckVersion(nsx.ServiceAccountRestore) {
-				if err := r.Service.UpdateRealizedNSXServiceAccount(ctx, obj); err != nil {
+				if err := r.Service.RestoreRealizedNSXServiceAccount(ctx, obj); err != nil {
 					log.Error(err, "update realized failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
 					metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
 					return ResultRequeue, err
@@ -158,26 +169,52 @@ func (r *NSXServiceAccountReconciler) Start(mgr ctrl.Manager) error {
 // cancel is used to break the loop during UT
 func (r *NSXServiceAccountReconciler) GarbageCollector(cancel chan bool, timeout time.Duration) {
 	ctx := context.Background()
+	count := uint16(0)
+	ca := r.Service.NSXConfig.GetCACert()
 	log.Info("garbage collector started")
 	for {
+		nsxServiceAccountList := &nsxvmwarecomv1alpha1.NSXServiceAccountList{}
+		var gcSuccessCount, gcErrorCount uint32
+		var err error
+		nsxServiceAccountUIDSet := r.Service.ListNSXServiceAccountRealization()
+		if len(nsxServiceAccountUIDSet) == 0 {
+			goto gcWait
+		}
+		err = r.Client.List(ctx, nsxServiceAccountList)
+		if err != nil {
+			log.Error(err, "failed to list NSXServiceAccount CR")
+			goto gcWait
+		}
+		gcSuccessCount, gcErrorCount = r.garbageCollector(nsxServiceAccountUIDSet, nsxServiceAccountList)
+		log.V(1).Info("gc collects NSXServiceAccount CR", "success", gcSuccessCount, "error", gcErrorCount)
+		count, ca = r.validateRealized(count, ca, nsxServiceAccountList)
+	gcWait:
 		select {
 		case <-cancel:
 			return
 		case <-time.After(timeout):
 		}
-		nsxServiceAccountUIDSet := r.Service.ListNSXServiceAccountRealization()
-		if len(nsxServiceAccountUIDSet) == 0 {
-			continue
-		}
-		nsxServiceAccountList := &nsxvmwarecomv1alpha1.NSXServiceAccountList{}
-		err := r.Client.List(ctx, nsxServiceAccountList)
-		if err != nil {
-			log.Error(err, "failed to list NSXServiceAccount CR")
-			continue
-		}
-		gcSuccessCount, gcErrorCount := r.garbageCollector(nsxServiceAccountUIDSet, nsxServiceAccountList)
-		log.V(1).Info("gc collects NSXServiceAccount CR", "success", gcSuccessCount, "error", gcErrorCount)
 	}
+}
+
+func (r *NSXServiceAccountReconciler) validateRealized(count uint16, ca []byte, nsxServiceAccountList *nsxvmwarecomv1alpha1.NSXServiceAccountList) (uint16, []byte) {
+	// Validate ca at first time
+	// Validate client cert every GCValidationInterval
+	if count == 0 {
+		for _, nsxServiceAccount := range nsxServiceAccountList.Items {
+			if nsxserviceaccount.IsNSXServiceAccountRealized(&nsxServiceAccount.Status) {
+				if err := r.Service.ValidateAndUpdateRealizedNSXServiceAccount(context.TODO(), &nsxServiceAccount, ca); err != nil {
+					log.Error(err, "Failed to update realized NSXServiceAccount", "namespace", nsxServiceAccount.Namespace, "name", nsxServiceAccount.Name)
+				}
+			}
+		}
+		ca = nil
+	}
+	count++
+	if count == servicecommon.GCValidationInterval {
+		count = 0
+	}
+	return count, ca
 }
 
 func (r *NSXServiceAccountReconciler) garbageCollector(nsxServiceAccountUIDSet sets.String, nsxServiceAccountList *nsxvmwarecomv1alpha1.NSXServiceAccountList) (gcSuccessCount, gcErrorCount uint32) {

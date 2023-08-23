@@ -6,6 +6,7 @@ package config
 import (
 	"errors"
 	"io/fs"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -119,4 +120,59 @@ func TestConfig_GetHA(t *testing.T) {
 	cf, err := NewNSXOperatorConfigFromFile()
 	assert.Equal(t, err, nil)
 	assert.Equal(t, cf.HAEnabled(), true)
+}
+
+func TestNSXOperatorConfig_GetCACert(t *testing.T) {
+	caFile, _ := os.CreateTemp("", "config_test")
+	caFile.Write([]byte("dummy file"))
+	caFile.Close()
+	defer os.Remove(caFile.Name())
+	caFile2, _ := os.CreateTemp("", "config_test")
+	caFile2.Write([]byte("dummy file2"))
+	caFile2.Close()
+	defer os.Remove(caFile2.Name())
+	type fields struct {
+		nsxCA  []byte
+		caFile []string
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		want   []byte
+	}{
+		{
+			name: "no",
+			fields: fields{
+				nsxCA:  nil,
+				caFile: nil,
+			},
+			want: []byte{},
+		},
+		{
+			name: "cached",
+			fields: fields{
+				nsxCA:  []byte("dummy\n"),
+				caFile: nil,
+			},
+			want: []byte("dummy\n"),
+		},
+		{
+			name: "readFile",
+			fields: fields{
+				nsxCA:  nil,
+				caFile: []string{caFile.Name(), caFile2.Name()},
+			},
+			want: []byte("dummy file\ndummy file2\n"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			operatorConfig := &NSXOperatorConfig{
+				NsxConfig:   &NsxConfig{CaFile: tt.fields.caFile},
+				configCache: configCache{nsxCA: tt.fields.nsxCA},
+			}
+			assert.Equalf(t, tt.want, operatorConfig.GetCACert(), "GetCACert()")
+			assert.Equalf(t, tt.want, operatorConfig.configCache.nsxCA, "GetCACert()")
+		})
+	}
 }

@@ -91,9 +91,10 @@ const (
 	VPCFinalizerName               = "vpc.nsx.vmware.com/finalizer"
 	PodFinalizerName               = "pod.nsx.vmware.com/finalizer"
 
-	IndexKeySubnetID = "IndexKeySubnetID"
-	IndexKeyPathPath = "Path"
-	IndexKeyNodeName = "IndexKeyNodeName"
+	IndexKeySubnetID            = "IndexKeySubnetID"
+	IndexKeyPathPath            = "Path"
+	IndexKeyNodeName            = "IndexKeyNodeName"
+	GCValidationInterval uint16 = 720
 )
 
 var TagValueVersion = []string{ValueMajorVersion, ValueMinorVersion, ValuePatchVersion}

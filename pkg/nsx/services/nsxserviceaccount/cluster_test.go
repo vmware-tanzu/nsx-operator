@@ -5,13 +5,17 @@ package nsxserviceaccount
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
-	vapierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	vapierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
@@ -238,6 +242,10 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 					Values: gomonkey.Params{"", "", fmt.Errorf("mock error")},
 					Times:  1,
 				}})
+				patches.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{true},
+					Times:  1,
+				}})
 				return patches
 			},
 			args: args{
@@ -319,6 +327,10 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 						}},
 					}, nil},
 					Times: 1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{true},
+					Times:  1,
 				}})
 				return patches
 			},
@@ -434,6 +446,10 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 					}, nil},
 					Times: 1,
 				}})
+				patches.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{true},
+					Times:  1,
+				}})
 				return patches
 			},
 			args: args{
@@ -494,7 +510,7 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 					Namespace: tt.args.obj.Namespace,
 					Name:      tt.args.obj.Name + SecretSuffix,
 				}, secret))
-				assert.Equal(t, 2, len(secret.Data))
+				assert.Equal(t, 3, len(secret.Data))
 			}
 			actualCR := &nsxvmwarecomv1alpha1.NSXServiceAccount{}
 			err := s.Client.Get(ctx, types.NamespacedName{
@@ -520,7 +536,7 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 	}
 }
 
-func TestNSXServiceAccountService_UpdateRealizedNSXServiceAccount(t *testing.T) {
+func TestNSXServiceAccountService_RestoreRealizedNSXServiceAccount(t *testing.T) {
 	type args struct {
 		obj *v1alpha1.NSXServiceAccount
 	}
@@ -912,8 +928,298 @@ func TestNSXServiceAccountService_UpdateRealizedNSXServiceAccount(t *testing.T) 
 				defer patches.Reset()
 			}
 
-			if err := s.UpdateRealizedNSXServiceAccount(ctx, tt.args.obj); (err != nil) != tt.wantErr {
-				t.Errorf("UpdateRealizedNSXServiceAccount() error = %v, wantErr %v", err, tt.wantErr)
+			if err := s.RestoreRealizedNSXServiceAccount(ctx, tt.args.obj); (err != nil) != tt.wantErr {
+				t.Errorf("RestoreRealizedNSXServiceAccount() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestNSXServiceAccountService_ValidateAndUpdateRealizedNSXServiceAccount(t *testing.T) {
+	type args struct {
+		obj *v1alpha1.NSXServiceAccount
+		ca  []byte
+	}
+	subject := util.DefaultSubject
+	subject.CommonName = "nsx1"
+	ca, _, _ := util.GenerateCertificate(&subject, util.DefaultValidDaysWithRotation)
+	subject = util.DefaultSubject
+	subject.CommonName = "k8scl-one_test-ns1-name1"
+	cert, _, _ := util.GenerateCertificate(&subject, 5)
+	uidScope := common.TagScopeNSXServiceAccountCRUID
+	uidTag := "00000000-0000-0000-0000-000000000001"
+	tests := []struct {
+		name        string
+		prepareFunc func(*testing.T, *NSXServiceAccountService, context.Context, *nsxvmwarecomv1alpha1.NSXServiceAccount) *gomonkey.Patches
+		args        args
+		wantNewCA   bool
+		wantNewCert bool
+		wantErr     bool
+	}{
+		{
+			name: "Skip",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *nsxvmwarecomv1alpha1.NSXServiceAccount) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{false},
+					Times:  1,
+				}})
+				return patches
+			},
+			args: args{
+				obj: &nsxvmwarecomv1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "name1",
+						Namespace: "ns1",
+						UID:       "00000000-0000-0000-0000-000000000001",
+					},
+					Spec: nsxvmwarecomv1alpha1.NSXServiceAccountSpec{
+						VPCName: "vpc1",
+					},
+					Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
+						Phase:       nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
+						VPCPath:     "/orgs/default/projects/k8scl-one:test/vpcs/vpc1",
+						ClusterID:   "clusterId1",
+						ClusterName: "k8scl-one_test-ns1-name1",
+						Secrets: []nsxvmwarecomv1alpha1.NSXSecret{{
+							Name:      "name1" + SecretSuffix,
+							Namespace: "ns1",
+						}},
+					},
+				},
+				ca: nil,
+			},
+			wantNewCA:   false,
+			wantNewCert: false,
+			wantErr:     false,
+		},
+		{
+			name: "GetSecretError",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *nsxvmwarecomv1alpha1.NSXServiceAccount) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{true},
+					Times:  1,
+				}})
+				return patches
+			},
+			args: args{
+				obj: &nsxvmwarecomv1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "name1",
+						Namespace: "ns1",
+						UID:       "00000000-0000-0000-0000-000000000001",
+					},
+					Spec: nsxvmwarecomv1alpha1.NSXServiceAccountSpec{
+						VPCName:            "vpc1",
+						EnableCertRotation: true,
+					},
+					Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
+						Phase:       nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
+						VPCPath:     "/orgs/default/projects/k8scl-one:test/vpcs/vpc1",
+						ClusterID:   "clusterId1",
+						ClusterName: "k8scl-one_test-ns1-name1",
+						Secrets: []nsxvmwarecomv1alpha1.NSXSecret{{
+							Name:      "name1" + SecretSuffix,
+							Namespace: "ns1",
+						}},
+					},
+				},
+				ca: nil,
+			},
+			wantNewCA:   false,
+			wantNewCert: false,
+			wantErr:     true,
+		},
+		{
+			name: "UpdateCA",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *nsxvmwarecomv1alpha1.NSXServiceAccount) *gomonkey.Patches {
+				secretName := obj.Status.Secrets[0].Name
+				secretNamespace := obj.Status.Secrets[0].Namespace
+				cert := "fakeCert"
+				key := "fakeKey"
+				assert.NoError(t, s.Client.Create(ctx, &v1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:        secretName,
+						Namespace:   secretNamespace,
+						Labels:      nil,
+						Annotations: nil,
+						OwnerReferences: []metav1.OwnerReference{{
+							APIVersion:         obj.APIVersion,
+							Kind:               obj.Kind,
+							Name:               obj.Name,
+							UID:                obj.UID,
+							Controller:         nil,
+							BlockOwnerDeletion: nil,
+						}},
+						Finalizers: nil,
+					},
+					Immutable: nil,
+					Data:      map[string][]byte{SecretCertName: []byte(cert), SecretKeyName: []byte(key)},
+					Type:      "",
+				}))
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{false},
+					Times:  1,
+				}})
+				return patches
+			},
+			args: args{
+				obj: &nsxvmwarecomv1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "name1",
+						Namespace: "ns1",
+						UID:       "00000000-0000-0000-0000-000000000001",
+					},
+					Spec: nsxvmwarecomv1alpha1.NSXServiceAccountSpec{
+						VPCName: "vpc1",
+					},
+					Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
+						Phase:       nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
+						VPCPath:     "/orgs/default/projects/k8scl-one:test/vpcs/vpc1",
+						ClusterID:   "clusterId1",
+						ClusterName: "k8scl-one_test-ns1-name1",
+						Secrets: []nsxvmwarecomv1alpha1.NSXSecret{{
+							Name:      "name1" + SecretSuffix,
+							Namespace: "ns1",
+						}},
+					},
+				},
+				ca: []byte(ca),
+			},
+			wantNewCA:   true,
+			wantNewCert: false,
+			wantErr:     false,
+		},
+		{
+			name: "UpdateCert",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *nsxvmwarecomv1alpha1.NSXServiceAccount) *gomonkey.Patches {
+				secretName := obj.Status.Secrets[0].Name
+				secretNamespace := obj.Status.Secrets[0].Namespace
+				key := "fakeKey"
+				assert.NoError(t, s.Client.Create(ctx, &v1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:        secretName,
+						Namespace:   secretNamespace,
+						Labels:      nil,
+						Annotations: nil,
+						OwnerReferences: []metav1.OwnerReference{{
+							APIVersion:         obj.APIVersion,
+							Kind:               obj.Kind,
+							Name:               obj.Name,
+							UID:                obj.UID,
+							Controller:         nil,
+							BlockOwnerDeletion: nil,
+						}},
+						Finalizers: nil,
+					},
+					Immutable: nil,
+					Data:      map[string][]byte{SecretCertName: []byte(cert), SecretKeyName: []byte(key)},
+					Type:      "",
+				}))
+
+				normalizedClusterName := "k8scl-one_test-ns1-name1"
+				piId := "piId1"
+				certId := "certId1"
+				certId2 := "certId2"
+				ccp := model.ClusterControlPlane{Id: &normalizedClusterName, Tags: []model.Tag{{
+					Scope: &uidScope,
+					Tag:   &uidTag,
+				}}}
+				pi := mpmodel.PrincipalIdentity{Name: &normalizedClusterName, Id: &piId, CertificateId: &certId, Tags: []mpmodel.Tag{{
+					Scope: &uidScope,
+					Tag:   &uidTag,
+				}}}
+				pi2 := mpmodel.PrincipalIdentity{Name: &normalizedClusterName, Id: &piId, CertificateId: &certId2, Tags: []mpmodel.Tag{{
+					Scope: &uidScope,
+					Tag:   &uidTag,
+				}}}
+				assert.NoError(t, s.ClusterControlPlaneStore.Add(ccp))
+				assert.NoError(t, s.PrincipalIdentityStore.Add(pi))
+
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{true},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient.ClusterControlPlanesClient, "Update", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{ccp, nil},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient.CertificatesClient, "Importcertificate", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{mpmodel.CertificateList{Results: []mpmodel.Certificate{{Id: &certId2}}}, nil},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient.PrincipalIdentitiesClient, "Updatecertificate", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{pi2, nil},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient.CertificatesClient, "Delete", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				return patches
+			},
+			args: args{
+				obj: &nsxvmwarecomv1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "name1",
+						Namespace: "ns1",
+						UID:       "00000000-0000-0000-0000-000000000001",
+					},
+					Spec: nsxvmwarecomv1alpha1.NSXServiceAccountSpec{
+						VPCName:            "vpc1",
+						EnableCertRotation: true,
+					},
+					Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
+						Phase:       nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
+						VPCPath:     "/orgs/default/projects/k8scl-one:test/vpcs/vpc1",
+						ClusterID:   "clusterId1",
+						ClusterName: "k8scl-one_test-ns1-name1",
+						Secrets: []nsxvmwarecomv1alpha1.NSXSecret{{
+							Name:      "name1" + SecretSuffix,
+							Namespace: "ns1",
+						}},
+					},
+				},
+				ca: nil,
+			},
+			wantNewCA:   false,
+			wantNewCert: true,
+			wantErr:     false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.TODO()
+			commonService := newFakeCommonService()
+			s := &NSXServiceAccountService{Service: commonService}
+			s.SetUpStore()
+			patches := tt.prepareFunc(t, s, ctx, tt.args.obj)
+			if patches != nil {
+				defer patches.Reset()
+			}
+
+			if err := s.ValidateAndUpdateRealizedNSXServiceAccount(ctx, tt.args.obj, tt.args.ca); (err != nil) != tt.wantErr {
+				t.Errorf("ValidateAndUpdateRealizedNSXServiceAccount() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantNewCA {
+				secret := &v1.Secret{}
+				assert.NoError(t, s.Client.Get(ctx, types.NamespacedName{
+					Namespace: tt.args.obj.Namespace,
+					Name:      tt.args.obj.Name + SecretSuffix,
+				}, secret))
+				assert.Equal(t, tt.args.ca, secret.Data[CAName])
+			}
+			if tt.wantNewCert {
+				secret := &v1.Secret{}
+				assert.NoError(t, s.Client.Get(ctx, types.NamespacedName{
+					Namespace: tt.args.obj.Namespace,
+					Name:      tt.args.obj.Name + SecretSuffix,
+				}, secret))
+				certBlock, _ := pem.Decode(secret.Data[SecretCertName])
+				certObj, err := x509.ParseCertificate(certBlock.Bytes)
+				require.NoError(t, err, "Wrong secret: %+v,\n err: %+v", secret, err)
+				assert.True(t, time.Now().AddDate(0, 0, util.DefaultValidDaysWithRotation).After(certObj.NotAfter))
+				assert.True(t, time.Now().AddDate(0, 0, util.DefaultValidDaysWithRotation-util.DefaultRotateDays).Before(certObj.NotAfter))
+				assert.True(t, time.Now().After(certObj.NotBefore))
 			}
 		})
 	}
@@ -1289,6 +1595,127 @@ func TestNSXServiceAccountService_getProxyEndpoints(t *testing.T) {
 				return
 			}
 			assert.Equalf(t, tt.want, got, "getProxyEndpoints()")
+		})
+	}
+}
+
+func TestGenerateNSXServiceAccountConditions(t *testing.T) {
+	type args struct {
+		existingConditions []metav1.Condition
+		generation         int64
+		realizedStatus     metav1.ConditionStatus
+		realizedReason     string
+		message            string
+	}
+	tests := []struct {
+		name string
+		args args
+		want []metav1.Condition
+	}{
+		{
+			name: "KeepTime",
+			args: args{
+				existingConditions: []metav1.Condition{{
+					Type:               v1alpha1.ConditionTypeRealized,
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: 0,
+					LastTransitionTime: metav1.Date(2023, time.January, 1, 0, 0, 0, 0, time.UTC),
+					Reason:             v1alpha1.ConditionReasonRealizationError,
+					Message:            "error",
+				}, {
+					Type:               "dummy",
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: 0,
+					LastTransitionTime: metav1.Date(2023, time.January, 1, 0, 0, 1, 0, time.UTC),
+					Reason:             "dummy",
+					Message:            "dummy",
+				}, {
+					Type:               "dummy2",
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: 0,
+					LastTransitionTime: metav1.Date(2023, time.January, 1, 0, 0, 2, 0, time.UTC),
+					Reason:             "dummy2",
+					Message:            "dummy2",
+				}},
+				generation:     3,
+				realizedStatus: metav1.ConditionTrue,
+				realizedReason: v1alpha1.ConditionReasonRealizationSuccess,
+				message:        "Success.",
+			},
+			want: []metav1.Condition{{
+				Type:               "dummy",
+				Status:             metav1.ConditionTrue,
+				ObservedGeneration: 0,
+				LastTransitionTime: metav1.Date(2023, time.January, 1, 0, 0, 1, 0, time.UTC),
+				Reason:             "dummy",
+				Message:            "dummy",
+			}, {
+				Type:               "dummy2",
+				Status:             metav1.ConditionTrue,
+				ObservedGeneration: 0,
+				LastTransitionTime: metav1.Date(2023, time.January, 1, 0, 0, 2, 0, time.UTC),
+				Reason:             "dummy2",
+				Message:            "dummy2",
+			}, {
+				Type:               v1alpha1.ConditionTypeRealized,
+				Status:             metav1.ConditionTrue,
+				ObservedGeneration: 3,
+				LastTransitionTime: metav1.Date(2023, time.January, 1, 0, 0, 0, 0, time.UTC),
+				Reason:             v1alpha1.ConditionReasonRealizationSuccess,
+				Message:            "Success.",
+			}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, GenerateNSXServiceAccountConditions(tt.args.existingConditions, tt.args.generation, tt.args.realizedStatus, tt.args.realizedReason, tt.args.message), "GenerateNSXServiceAccountConditions(%v, %v, %v, %v, %v)", tt.args.existingConditions, tt.args.generation, tt.args.realizedStatus, tt.args.realizedReason, tt.args.message)
+		})
+	}
+}
+
+func TestIsNSXServiceAccountRealized(t *testing.T) {
+	type args struct {
+		status *v1alpha1.NSXServiceAccountStatus
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{
+			name: "False",
+			args: args{
+				status: &nsxvmwarecomv1alpha1.NSXServiceAccountStatus{},
+			},
+			want: false,
+		},
+		{
+			name: "TrueDeprecated",
+			args: args{
+				status: &nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
+					Phase:      nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
+					Conditions: nil,
+				},
+			},
+			want: true,
+		},
+		{
+			name: "True",
+			args: args{
+				status: &nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
+					Phase: "",
+					Conditions: []metav1.Condition{{
+						Type:   v1alpha1.ConditionTypeRealized,
+						Status: metav1.ConditionTrue,
+					}},
+				},
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, IsNSXServiceAccountRealized(tt.args.status), "IsNSXServiceAccountRealized(%v)", tt.args.status)
 		})
 	}
 }

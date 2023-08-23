@@ -37,11 +37,12 @@ const (
 	SecurityPolicy
 	ServiceAccount
 	ServiceAccountRestore
+	ServiceAccountCertRotation
 	StaticRoute
 	AllFeatures
 )
 
-var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "STATIC_ROUTE"}
+var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE"}
 
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
@@ -83,9 +84,9 @@ type Client struct {
 var (
 	nsx320Version = [3]int64{3, 2, 0}
 	nsx401Version = [3]int64{4, 0, 1}
-	nsx410Version = [3]int64{4, 1, 0}
 	nsx411Version = [3]int64{4, 1, 1}
 	nsx412Version = [3]int64{4, 1, 2}
+	nsx413Version = [3]int64{4, 1, 3}
 )
 
 type NSXHealthChecker struct {
@@ -208,6 +209,10 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	if !nsxClient.NSXCheckVersion(ServiceAccountRestore) {
 		err := errors.New("NSXServiceAccountRestore feature support check failed")
 		log.Error(err, "initial NSX version check for NSXServiceAccountRestore got error")
+	}
+	if !nsxClient.NSXCheckVersion(ServiceAccountCertRotation) {
+		err := errors.New("ServiceAccountCertRotation feature support check failed")
+		log.Error(err, "initial NSX version check for ServiceAccountCertRotation got error")
 	}
 
 	return nsxClient
