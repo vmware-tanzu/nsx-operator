@@ -167,38 +167,52 @@ func TestCluster_enableFeature(t *testing.T) {
 	assert.False(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
 	nsxVersion.NodeVersion = "3.2.0.3.0.18844962"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
 	nsxVersion.NodeVersion = "3.11.0.3.0.18844962"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
 	nsxVersion.NodeVersion = "4.0.0"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
 	nsxVersion.NodeVersion = "4.0.1"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
 	nsxVersion.NodeVersion = "4.1.0"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
 	nsxVersion.NodeVersion = "4.1.2"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccountRestore))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
+	nsxVersion.NodeVersion = "4.1.3"
+	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
+	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
+	assert.True(t, nsxVersion.featureSupported(ServiceAccountRestore))
+	assert.True(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
 	nsxVersion.NodeVersion = "3.2.0"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
 	nsxVersion.NodeVersion = "4.2.0"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccountRestore))
+	assert.True(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
 
 	// Test case for invalid feature
 	feature := 3

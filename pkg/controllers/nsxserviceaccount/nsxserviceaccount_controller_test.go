@@ -246,7 +246,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					nsxVersion := &nsx.NsxVersion{NodeVersion: "4.1.2"}
 					return nsxVersion, nil
 				})
-				patches.ApplyMethodSeq(r.Service, "UpdateRealizedNSXServiceAccount", []gomonkey.OutputCell{{
+				patches.ApplyMethodSeq(r.Service, "RestoreRealizedNSXServiceAccount", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{fmt.Errorf("mock error")},
 					Times:  1,
 				}})

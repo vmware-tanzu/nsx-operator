@@ -328,6 +328,9 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 	case ServiceAccountRestore:
 		minVersion = nsx412Version
 		validFeature = true
+	case ServiceAccountCertRotation:
+		minVersion = nsx413Version
+		validFeature = true
 	}
 
 	if validFeature {
