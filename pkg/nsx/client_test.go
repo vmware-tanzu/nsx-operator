@@ -78,6 +78,7 @@ func TestGetClient(t *testing.T) {
 	assert.True(t, securityPolicySupported == false)
 	assert.False(t, client.NSXCheckVersion(ServiceAccount))
 	assert.False(t, client.NSXCheckVersion(ServiceAccountRestore))
+	assert.False(t, client.NSXCheckVersion(ServiceAccountCertRotation))
 
 	patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
 		nsxVersion := &NsxVersion{NodeVersion: "3.2.1"}
@@ -90,6 +91,7 @@ func TestGetClient(t *testing.T) {
 	assert.True(t, securityPolicySupported == true)
 	assert.False(t, client.NSXCheckVersion(ServiceAccount))
 	assert.False(t, client.NSXCheckVersion(ServiceAccountRestore))
+	assert.False(t, client.NSXCheckVersion(ServiceAccountCertRotation))
 
 	patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
 		nsxVersion := &NsxVersion{NodeVersion: "4.1.0"}
@@ -102,6 +104,7 @@ func TestGetClient(t *testing.T) {
 	assert.True(t, securityPolicySupported == true)
 	assert.True(t, client.NSXCheckVersion(ServiceAccount))
 	assert.False(t, client.NSXCheckVersion(ServiceAccountRestore))
+	assert.False(t, client.NSXCheckVersion(ServiceAccountCertRotation))
 
 	patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
 		nsxVersion := &NsxVersion{NodeVersion: "4.1.2"}
@@ -114,6 +117,20 @@ func TestGetClient(t *testing.T) {
 	assert.True(t, securityPolicySupported == true)
 	assert.True(t, client.NSXCheckVersion(ServiceAccount))
 	assert.True(t, client.NSXCheckVersion(ServiceAccountRestore))
+	assert.False(t, client.NSXCheckVersion(ServiceAccountCertRotation))
+
+	patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
+		nsxVersion := &NsxVersion{NodeVersion: "4.1.3"}
+		return nsxVersion, nil
+	})
+	client = GetClient(&cf)
+	patches.Reset()
+	assert.True(t, client != nil)
+	securityPolicySupported = client.NSXCheckVersion(SecurityPolicy)
+	assert.True(t, securityPolicySupported == true)
+	assert.True(t, client.NSXCheckVersion(ServiceAccount))
+	assert.True(t, client.NSXCheckVersion(ServiceAccountRestore))
+	assert.True(t, client.NSXCheckVersion(ServiceAccountCertRotation))
 }
 
 func IsInstanceOf(objectPtr, typePtr interface{}) bool {
