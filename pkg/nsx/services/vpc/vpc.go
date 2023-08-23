@@ -70,6 +70,17 @@ func (s *VPCService) UnRegisterNamespaceNetworkconfigBinding(ns string) {
 	delete(VPCNSNetworkconfigMap, ns)
 }
 
+// find the namespace list which is using the given network configuration
+func (s *VPCService) GetNamespacesByNetworkconfigName(nc string) []string {
+	result := []string{}
+	for key, value := range VPCNSNetworkconfigMap {
+		if value == nc {
+			result = append(result, key)
+		}
+	}
+	return result
+}
+
 func (s *VPCService) GetVPCNetworkConfigByNamespace(ns string) *VPCNetworkConfigInfo {
 	ncName, nameExist := VPCNSNetworkconfigMap[ns]
 	if !nameExist {
