@@ -246,7 +246,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					nsxVersion := &nsx.NsxVersion{NodeVersion: "4.1.2"}
 					return nsxVersion, nil
 				})
-				patches.ApplyMethodSeq(r.Service, "UpdateRealizedNSXServiceAccount", []gomonkey.OutputCell{{
+				patches.ApplyMethodSeq(r.Service, "RestoreRealizedNSXServiceAccount", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{fmt.Errorf("mock error")},
 					Times:  1,
 				}})
@@ -551,7 +551,7 @@ func TestNSXServiceAccountReconciler_GarbageCollector(t *testing.T) {
 			}
 
 			go func() {
-				time.Sleep(150 * time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
 				cancel <- true
 			}()
 			r.GarbageCollector(cancel, 100*time.Millisecond)
@@ -878,6 +878,83 @@ func TestNSXServiceAccountReconciler_garbageCollector(t *testing.T) {
 			if gotGcErrorCount != tt.wantGcErrorCount {
 				t.Errorf("garbageCollector() gotGcErrorCount = %v, want %v", gotGcErrorCount, tt.wantGcErrorCount)
 			}
+		})
+	}
+}
+
+func TestNSXServiceAccountReconciler_validateRealized(t *testing.T) {
+	type args struct {
+		count                 uint16
+		ca                    []byte
+		nsxServiceAccountList *nsxvmwarecomv1alpha1.NSXServiceAccountList
+	}
+	tests := []struct {
+		name        string
+		prepareFunc func(*testing.T, *NSXServiceAccountReconciler) *gomonkey.Patches
+		args        args
+		want        uint16
+		want1       []byte
+	}{
+		{
+			name:        "skip",
+			prepareFunc: nil,
+			args: args{
+				count:                 1,
+				ca:                    nil,
+				nsxServiceAccountList: nil,
+			},
+			want:  2,
+			want1: nil,
+		},
+		{
+			name:        "last",
+			prepareFunc: nil,
+			args: args{
+				count:                 719,
+				ca:                    nil,
+				nsxServiceAccountList: nil,
+			},
+			want:  0,
+			want1: nil,
+		},
+		{
+			name: "validate",
+			prepareFunc: func(t *testing.T, r *NSXServiceAccountReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(r.Service, "ValidateAndUpdateRealizedNSXServiceAccount", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{fmt.Errorf("mock error")},
+					Times:  1,
+				}})
+				return patches
+			},
+			args: args{
+				count: 0,
+				ca:    []byte("fakeCA"),
+				nsxServiceAccountList: &nsxvmwarecomv1alpha1.NSXServiceAccountList{
+					Items: []nsxvmwarecomv1alpha1.NSXServiceAccount{{
+						ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "name1"},
+						Status:     nsxvmwarecomv1alpha1.NSXServiceAccountStatus{Phase: nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized},
+					}, {
+						ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "name2"},
+						Status:     nsxvmwarecomv1alpha1.NSXServiceAccountStatus{},
+					}},
+				},
+			},
+			want:  1,
+			want1: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &NSXServiceAccountReconciler{
+				Service: &nsxserviceaccount.NSXServiceAccountService{},
+			}
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc(t, r)
+				defer patches.Reset()
+			}
+			got, got1 := r.validateRealized(tt.args.count, tt.args.ca, tt.args.nsxServiceAccountList)
+			assert.Equalf(t, tt.want, got, "validateRealized(%v, %v, %v)", tt.args.count, tt.args.ca, tt.args.nsxServiceAccountList)
+			assert.Equalf(t, tt.want1, got1, "validateRealized(%v, %v, %v)", tt.args.count, tt.args.ca, tt.args.nsxServiceAccountList)
 		})
 	}
 }
