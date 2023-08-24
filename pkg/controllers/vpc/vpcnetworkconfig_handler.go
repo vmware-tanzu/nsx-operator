@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -23,8 +24,8 @@ type VPCNetworkConfigurationHandler struct {
 	vpcService *vpc.VPCService
 }
 
-func (h *VPCNetworkConfigurationHandler) buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) vpc.VPCNetworkConfigInfo {
-	ninfo := vpc.VPCNetworkConfigInfo{
+func (h *VPCNetworkConfigurationHandler) buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) common.VPCNetworkConfigInfo {
+	ninfo := common.VPCNetworkConfigInfo{
 		Name:                    vpcConfigCR.Name,
 		DefaultGatewayPath:      vpcConfigCR.Spec.DefaultGatewayPath,
 		EdgeClusterPath:         vpcConfigCR.Spec.EdgeClusterPath,

@@ -34,9 +34,10 @@ var (
 
 // NamespaceReconciler process namespace create/delete event
 type NamespaceReconciler struct {
-	Client    client.Client
-	Scheme    *apimachineryruntime.Scheme
-	NSXConfig *config.NSXOperatorConfig
+	Client     client.Client
+	Scheme     *apimachineryruntime.Scheme
+	NSXConfig  *config.NSXOperatorConfig
+	VPCService common.IVPCService
 }
 
 func (r *NamespaceReconciler) createVPCCR(ctx *context.Context, obj client.Object, ns string, ncName string, vpcName *string) (*v1alpha1.VPC, error) {
@@ -48,7 +49,7 @@ func (r *NamespaceReconciler) createVPCCR(ctx *context.Context, obj client.Objec
 		log.Info("vpc cr already exist, skip creating", "VPC", vpcs.Items[0].Name)
 		return &vpcs.Items[0], nil
 	}
-	nc, ncExist := common.ServiceMediator.GetVPCNetworkConfig(ncName)
+	nc, ncExist := r.VPCService.GetVPCNetworkConfig(ncName)
 	if !ncExist {
 		message := fmt.Sprintf("missing network config %s for namespace %s", ncName, ns)
 		r.namespaceError(ctx, obj, message, nil)
@@ -57,7 +58,7 @@ func (r *NamespaceReconciler) createVPCCR(ctx *context.Context, obj client.Objec
 
 	//TODO: in next patch, remove this validation. If user did not provide private cidr
 	// use a hardcoded cidr to create a private ip block.
-	if !common.ServiceMediator.ValidateNetworkConfig(nc) {
+	if !r.VPCService.ValidateNetworkConfig(nc) {
 		// if netwrok config is not valid, no need to retry, skip processing
 		message := fmt.Sprintf("invalid network config %s for namespace %s, missing private cidr", ncName, ns)
 		r.namespaceError(ctx, obj, message, nil)
@@ -104,7 +105,7 @@ func (r *NamespaceReconciler) insertNamespaceNetworkconfigBinding(ns string, ann
 	}
 
 	log.Info("record namespace and network config mapping relation", "Namespace", ns, "Networkconfig", ncName)
-	common.ServiceMediator.RegisterNamespaceNetworkconfigBinding(ns, ncName)
+	r.VPCService.RegisterNamespaceNetworkconfigBinding(ns, ncName)
 }
 
 /*
@@ -179,7 +180,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	} else {
 		log.Info("skip ns deletion event for ns", "Namespace", ns)
 		metrics.CounterInc(r.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNamespace)
-		common.ServiceMediator.UnRegisterNamespaceNetworkconfigBinding(obj.GetNamespace())
+		r.VPCService.UnRegisterNamespaceNetworkconfigBinding(obj.GetNamespace())
 		return common.ResultNormal, nil
 	}
 }

@@ -33,7 +33,7 @@ var (
 	ipblockStore common.Store
 
 	// this store contains mapping relation of network config name and network config entity
-	VPCNetworkConfigMap = map[string]VPCNetworkConfigInfo{}
+	VPCNetworkConfigMap = map[string]common.VPCNetworkConfigInfo{}
 
 	// this map contains mapping relation between namespace and the network config it uses.
 	VPCNSNetworkconfigMap = map[string]string{}
@@ -51,7 +51,7 @@ type VPCService struct {
 	IpblockStore *IPBlockStore
 }
 
-func (s *VPCService) RegisterVPCNetworkConfig(ncCRName string, info VPCNetworkConfigInfo) {
+func (s *VPCService) RegisterVPCNetworkConfig(ncCRName string, info common.VPCNetworkConfigInfo) {
 	VPCNetworkConfigMap[ncCRName] = info
 }
 
@@ -59,7 +59,7 @@ func (s *VPCService) UnregisterVPCNetworkConfig(ncCRName string) {
 	delete(VPCNetworkConfigMap, ncCRName)
 }
 
-func (s *VPCService) GetVPCNetworkConfig(ncCRName string) (VPCNetworkConfigInfo, bool) {
+func (s *VPCService) GetVPCNetworkConfig(ncCRName string) (common.VPCNetworkConfigInfo, bool) {
 	nc, exist := VPCNetworkConfigMap[ncCRName]
 	return nc, exist
 }
@@ -83,7 +83,7 @@ func (s *VPCService) GetNamespacesByNetworkconfigName(nc string) []string {
 	return result
 }
 
-func (s *VPCService) GetVPCNetworkConfigByNamespace(ns string) *VPCNetworkConfigInfo {
+func (s *VPCService) GetVPCNetworkConfigByNamespace(ns string) *common.VPCNetworkConfigInfo {
 	ncName, nameExist := VPCNSNetworkconfigMap[ns]
 	if !nameExist {
 		log.Info("failed to get network config name for namespace", "Namespace", ns)
@@ -100,7 +100,7 @@ func (s *VPCService) GetVPCNetworkConfigByNamespace(ns string) *VPCNetworkConfig
 
 // TBD: for now, if network config info do not contains private cidr, we consider this is
 // incorrect configuration, and skip creating this VPC CR
-func (s *VPCService) ValidateNetworkConfig(nc VPCNetworkConfigInfo) bool {
+func (s *VPCService) ValidateNetworkConfig(nc common.VPCNetworkConfigInfo) bool {
 	return nc.PrivateIPv4CIDRs != nil && len(nc.PrivateIPv4CIDRs) != 0
 }
 
@@ -216,7 +216,7 @@ func (service *VPCService) DeleteIPBlock(vpc model.Vpc) error {
 	return nil
 }
 
-func (service *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc VPCNetworkConfigInfo) (map[string]string, error) {
+func (service *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc common.VPCNetworkConfigInfo) (map[string]string, error) {
 	// if network config contains PrivateIPV4CIDRs section, create private ip block for each cidr
 	path := map[string]string{}
 	if nc.PrivateIPv4CIDRs != nil {

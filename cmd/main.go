@@ -13,6 +13,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
@@ -42,6 +43,11 @@ var (
 	log                  = logger.Log
 	cf                   *config.NSXOperatorConfig
 	nsxOperatorNamespace = "default"
+
+	mgr           manager.Manager
+	vpcService    *vpc.VPCService
+	commonService common.Service
+	nsxClient     *nsx.Client
 )
 
 func init() {
@@ -71,9 +77,41 @@ func init() {
 	if metrics.AreMetricsExposed(cf) {
 		metrics.InitializePrometheusMetrics()
 	}
+
+	mgr, err = ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+		Scheme:                  scheme,
+		HealthProbeBindAddress:  config.ProbeAddr,
+		MetricsBindAddress:      config.MetricsAddr,
+		LeaderElection:          cf.HAEnabled(),
+		LeaderElectionNamespace: nsxOperatorNamespace,
+		LeaderElectionID:        "nsx-operator",
+	})
+	if err != nil {
+		log.Error(err, "failed to init manager")
+		os.Exit(1)
+	}
+
+	// nsxClient is used to interact with NSX API.
+	nsxClient = nsx.GetClient(cf)
+	if nsxClient == nil {
+		log.Error(err, "failed to get nsx client")
+		os.Exit(1)
+	}
+
+	//  Embed the common commonService to sub-services.
+	commonService := common.Service{
+		Client:    mgr.GetClient(),
+		NSXClient: nsxClient,
+		NSXConfig: cf,
+	}
+
+	if vpcService, err = vpc.InitializeVPC(commonService); err != nil {
+		log.Error(err, "failed to initialize vpc commonService", "controller", "VPC")
+		os.Exit(1)
+	}
 }
 
-func StartSecurityPolicyController(mgr ctrl.Manager, commonService common.Service) {
+func StartSecurityPolicyController() {
 	securityReconcile := &securitypolicycontroller.SecurityPolicyReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -91,7 +129,7 @@ func StartSecurityPolicyController(mgr ctrl.Manager, commonService common.Servic
 	}
 }
 
-func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Service) {
+func StartNSXServiceAccountController() {
 	log.Info("starting NSXServiceAccountController")
 	nsxServiceAccountReconcile := &nsxserviceaccountcontroller.NSXServiceAccountReconciler{
 		Client: mgr.GetClient(),
@@ -109,7 +147,7 @@ func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Ser
 	}
 }
 
-func StartIPPoolController(mgr ctrl.Manager, commonService common.Service) {
+func StartIPPoolController() {
 	ippoolReconcile := &ippool2.IPPoolReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -134,29 +172,26 @@ func StartIPPoolController(mgr ctrl.Manager, commonService common.Service) {
 	}
 }
 
-func StartVPCController(mgr ctrl.Manager, commonService common.Service) {
+func StartVPCController() {
 	vpcReconciler := &vpccontroller.VPCReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
-	if vpcService, err := vpc.InitializeVPC(commonService); err != nil {
-		log.Error(err, "failed to initialize vpc commonService", "controller", "VPC")
-		os.Exit(1)
-	} else {
-		vpcReconciler.Service = vpcService
-		commonctl.ServiceMediator.VPCService = vpcService
-	}
+
+	vpcReconciler.Service = vpcService
+
 	if err := vpcReconciler.Start(mgr); err != nil {
 		log.Error(err, "failed to create vpc controller", "controller", "VPC")
 		os.Exit(1)
 	}
 }
 
-func StartNamespaceController(mgr ctrl.Manager, commonService common.Service) {
+func StartNamespaceController() {
 	nsReconciler := &namespacecontroller.NamespaceReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		NSXConfig: commonService.NSXConfig,
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		NSXConfig:  commonService.NSXConfig,
+		VPCService: vpcService,
 	}
 
 	if err := nsReconciler.Start(mgr); err != nil {
@@ -167,34 +202,6 @@ func StartNamespaceController(mgr ctrl.Manager, commonService common.Service) {
 
 func main() {
 	log.Info("starting NSX Operator")
-
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                  scheme,
-		HealthProbeBindAddress:  config.ProbeAddr,
-		MetricsBindAddress:      config.MetricsAddr,
-		LeaderElection:          cf.HAEnabled(),
-		LeaderElectionNamespace: nsxOperatorNamespace,
-		LeaderElectionID:        "nsx-operator",
-	})
-	if err != nil {
-		log.Error(err, "failed to init manager")
-		os.Exit(1)
-	}
-
-	// nsxClient is used to interact with NSX API.
-	nsxClient := nsx.GetClient(cf)
-	if nsxClient == nil {
-		log.Error(err, "failed to get nsx client")
-		os.Exit(1)
-	}
-
-	//  Embed the common commonService to sub-services.
-	commonService := common.Service{
-		Client:    mgr.GetClient(),
-		NSXClient: nsxClient,
-		NSXConfig: cf,
-	}
-
 	if cf.CoeConfig.EnableVPCNetwork && commonService.NSXClient.NSXCheckVersion(nsx.VPC) {
 		log.V(1).Info("VPC mode enabled")
 		// Start controllers which only supports VPC
@@ -209,17 +216,17 @@ func main() {
 		staticroutecontroller.StartStaticRouteController(mgr, commonService)
 		subnetport.StartSubnetPortController(mgr, commonService)
 
-		StartNamespaceController(mgr, commonService)
-		StartVPCController(mgr, commonService)
-		StartIPPoolController(mgr, commonService)
+		StartNamespaceController()
+		StartVPCController()
+		StartIPPoolController()
 	}
 
 	// Start the security policy controller.
-	StartSecurityPolicyController(mgr, commonService)
+	StartSecurityPolicyController()
 
 	// Start the NSXServiceAccount controller.
 	if cf.EnableAntreaNSXInterworking {
-		StartNSXServiceAccountController(mgr, commonService)
+		StartNSXServiceAccountController()
 	}
 
 	if metrics.AreMetricsExposed(cf) {
