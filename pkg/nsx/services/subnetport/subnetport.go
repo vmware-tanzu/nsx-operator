@@ -92,9 +92,10 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj *v1alpha1.SubnetP
 		log.Info("NSX subnet port not changed, skipping the update", "nsxSubnetPort.Id", nsxSubnetPort.Id)
 		// We don't need to update it but still need to check realized state.
 	} else {
+		log.Info("updating the NSX subnet port", "existingSubnetPort", existingSubnetPort, "desiredSubnetPort", nsxSubnetPort)
 		err = service.NSXClient.PortClient.Patch(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *nsxSubnetPort.Id, *nsxSubnetPort)
 		if err != nil {
-			log.Error(err, "failed to create or update subnet port")
+			log.Error(err, "failed to create or update subnet port", "nsxSubnetPort.Name", *nsxSubnetPort.DisplayName, "nsxSubnetPort.Id", *nsxSubnetPort.Id)
 			return err
 		}
 		err = service.SubnetPortStore.Operate(nsxSubnetPort)
@@ -111,7 +112,11 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj *v1alpha1.SubnetP
 		log.Error(err, "check and update NSX subnet port state failed, would retry exponentially", "subnetport", obj.UID)
 		return err
 	}
-	log.Info("successfully created or updated subnetport", "subnetport", obj.UID)
+	if isChanged {
+		log.Info("successfully created or updated subnetport", "subnetport", obj.UID)
+	} else {
+		log.Info("subnetport already existed", "subnetport", obj.UID)
+	}
 	return nil
 }
 
@@ -216,4 +221,12 @@ func (service *SubnetPortService) GetGatewayNetmaskForSubnetPort(obj *v1alpha1.S
 		return "", "", err
 	}
 	return gateway, mask, nil
+}
+
+func (service *SubnetPortService) GetSubnetPathFromStoreByKey(nsxSubnetPortID string) string {
+	existingSubnetPort := service.SubnetPortStore.GetByKey(nsxSubnetPortID)
+	if existingSubnetPort.ParentPath == nil {
+		return ""
+	}
+	return *existingSubnetPort.ParentPath
 }

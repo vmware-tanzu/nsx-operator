@@ -49,7 +49,7 @@ func (service *SubnetPortService) buildSubnetPort(obj *v1alpha1.SubnetPort, nsxS
 			// AppId:             common.String("nsx.ns-3.pod-5%"),
 			// ContextId:         common.String("95ccaad4-0dfb-469e-a1e6-27d815826382"),
 			Id:         common.String(nsxCIFID.String()),
-			TrafficTag: nil,
+			TrafficTag: common.Int64(0),
 			Type_:      common.String("STATIC"),
 		},
 		Tags: service.buildBasicTags(obj, namespace_uid),
