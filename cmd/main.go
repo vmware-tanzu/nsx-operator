@@ -120,14 +120,6 @@ func StartIPPoolController(mgr ctrl.Manager, commonService common.Service) {
 	} else {
 		ippoolReconcile.Service = ipPoolService
 	}
-
-	// TODO: remove this after vpc is ready
-	if vpcService, err := vpc.InitializeVPC(commonService); err != nil {
-		log.Error(err, "failed to initialize vpc commonService", "controller", "vpc")
-		os.Exit(1)
-	} else {
-		commonctl.ServiceMediator.VPCService = vpcService
-	}
 	if err := ippoolReconcile.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "IPPool")
 		os.Exit(1)
