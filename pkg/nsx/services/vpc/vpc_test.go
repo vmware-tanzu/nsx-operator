@@ -17,7 +17,9 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/vpcclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
@@ -38,24 +40,50 @@ var (
 	tagScopeNamespace = common.TagScopeNamespace
 )
 
-func TestGetNetworkConfigFromNS(t *testing.T) {
-	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
+func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVpcsClient) {
+	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+
+	cluster, _ := nsx.NewCluster(config2, nil)
+	rc, _ := cluster.NewRestConnector()
+
+	mockCtrl := gomock.NewController(t)
+	mockVpcclient := mocks.NewMockVpcsClient(mockCtrl)
+	k8sClient := mock_client.NewMockClient(mockCtrl)
+
+	vpcStore := &VPCStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeStaticRouteCRUID: indexFunc}),
+		BindingType: model.VpcBindingType(),
+	}}
 
 	service := &VPCService{
 		Service: common.Service{
-			Client:    k8sClient,
-			NSXClient: &nsx.Client{},
-
+			Client: k8sClient,
+			NSXClient: &nsx.Client{
+				QueryClient:   &fakeQueryClient{},
+				VPCClient:     mockVpcclient,
+				RestConnector: rc,
+				NsxConfig: &config.NSXOperatorConfig{
+					CoeConfig: &config.CoeConfig{
+						Cluster: "k8scl-one:test",
+					},
+				},
+			},
 			NSXConfig: &config.NSXOperatorConfig{
-				NsxConfig: &config.NsxConfig{
-					EnforcementPoint: "vmc-enforcementpoint",
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
 				},
 			},
 		},
-		VPCNetworkConfigMap:   map[string]VPCNetworkConfigInfo{},
+		VpcStore:              vpcStore,
+		VPCNetworkConfigMap:   map[string]common.VPCNetworkConfigInfo{},
 		VPCNSNetworkConfigMap: map[string]string{},
 	}
+	return service, mockCtrl, mockVpcclient
+}
+
+func TestGetNetworkConfigFromNS(t *testing.T) {
+	service, _, _ := createService(t)
+	k8sClient := service.Client.(*mock_client.MockClient)
 	fakeErr := errors.New("fake error")
 	mockNs := &v1.Namespace{}
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(fakeErr).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
@@ -72,7 +100,7 @@ func TestGetNetworkConfigFromNS(t *testing.T) {
 	assert.NotNil(t, err)
 	assert.Equal(t, "", ns)
 
-	service.RegisterVPCNetworkConfig("fake-cr", VPCNetworkConfigInfo{
+	service.RegisterVPCNetworkConfig("fake-cr", common.VPCNetworkConfigInfo{
 		IsDefault: true,
 		Name:      "test-name",
 		Org:       "test-org",
@@ -94,23 +122,8 @@ func TestGetNetworkConfigFromNS(t *testing.T) {
 }
 
 func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
-	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
-
-	service := &VPCService{
-		Service: common.Service{
-			Client:    k8sClient,
-			NSXClient: &nsx.Client{},
-
-			NSXConfig: &config.NSXOperatorConfig{
-				NsxConfig: &config.NsxConfig{
-					EnforcementPoint: "vmc-enforcementpoint",
-				},
-			},
-		},
-		VPCNetworkConfigMap:   map[string]VPCNetworkConfigInfo{},
-		VPCNSNetworkConfigMap: map[string]string{},
-	}
+	service, _, _ := createService(t)
+	k8sClient := service.Client.(*mock_client.MockClient)
 
 	ctx := context.Background()
 
@@ -140,32 +153,16 @@ func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
 }
 
 func TestGetDefaultNetworkConfig(t *testing.T) {
-	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
+	service, _, _ := createService(t)
 
-	service := &VPCService{
-		Service: common.Service{
-			Client:    k8sClient,
-			NSXClient: &nsx.Client{},
-
-			NSXConfig: &config.NSXOperatorConfig{
-				NsxConfig: &config.NsxConfig{
-					EnforcementPoint: "vmc-enforcementpoint",
-				},
-			},
-		},
-		VPCNetworkConfigMap:   map[string]VPCNetworkConfigInfo{},
-		VPCNSNetworkConfigMap: map[string]string{},
-	}
-
-	nc1 := VPCNetworkConfigInfo{
+	nc1 := common.VPCNetworkConfigInfo{
 		IsDefault: false,
 	}
 	service.RegisterVPCNetworkConfig("test-1", nc1)
 	exist, _ := service.GetDefaultNetworkConfig()
 	assert.Equal(t, false, exist)
 
-	nc2 := VPCNetworkConfigInfo{
+	nc2 := common.VPCNetworkConfigInfo{
 		Org:       "fake-org",
 		IsDefault: true,
 	}
@@ -184,7 +181,7 @@ func TestGetVPCsByNamespace(t *testing.T) {
 	vpcStore := &VPCStore{ResourceStore: resourceStore}
 	service := &VPCService{
 		Service:               common.Service{NSXClient: nil},
-		VPCNetworkConfigMap:   map[string]VPCNetworkConfigInfo{},
+		VPCNetworkConfigMap:   map[string]common.VPCNetworkConfigInfo{},
 		VPCNSNetworkConfigMap: map[string]string{},
 	}
 	service.VpcStore = vpcStore
@@ -414,7 +411,7 @@ func TestCreateOrUpdateAVIRule(t *testing.T) {
 
 	service := &VPCService{
 		Service:               common.Service{NSXClient: nil},
-		VPCNetworkConfigMap:   map[string]VPCNetworkConfigInfo{},
+		VPCNetworkConfigMap:   map[string]common.VPCNetworkConfigInfo{},
 		VPCNSNetworkConfigMap: map[string]string{},
 	}
 

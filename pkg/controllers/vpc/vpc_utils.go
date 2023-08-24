@@ -16,7 +16,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	types "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
 func setVPCReadyStatusFalse(ctx *context.Context, vpc *v1alpha1.VPC, err *error, client client.Client) {
@@ -139,13 +138,14 @@ func isDefaultNetworkConfigCR(vpcConfigCR v1alpha1.VPCNetworkConfiguration) bool
 	return false
 }
 
-func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*vpc.VPCNetworkConfigInfo, error) {
+func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*types.VPCNetworkConfigInfo, error) {
 	org, project, err := nsxtProjectPathToId(vpcConfigCR.Spec.NSXTProject)
 	if err != nil {
 		log.Error(err, "failed to parse nsx-t project in network config", "Project Path", vpcConfigCR.Spec.NSXTProject)
 		return nil, err
 	}
-	ninfo := &vpc.VPCNetworkConfigInfo{
+
+	ninfo := &types.VPCNetworkConfigInfo{
 		IsDefault:               isDefaultNetworkConfigCR(vpcConfigCR),
 		Org:                     org,
 		Name:                    vpcConfigCR.Name,

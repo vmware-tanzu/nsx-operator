@@ -48,9 +48,9 @@ type VPCService struct {
 	common.Service
 	VpcStore               *VPCStore
 	IpblockStore           *IPBlockStore
-	VPCNetworkConfigMap    map[string]VPCNetworkConfigInfo
+	VPCNetworkConfigMap    map[string]common.VPCNetworkConfigInfo
 	VPCNSNetworkConfigMap  map[string]string
-	defaultNetworkConfigCR *VPCNetworkConfigInfo
+	defaultNetworkConfigCR *common.VPCNetworkConfigInfo
 	AVIAllowRule
 }
 type AVIAllowRule struct {
@@ -60,14 +60,14 @@ type AVIAllowRule struct {
 	PubIpblockStore     *PubIPblockStore
 }
 
-func (s *VPCService) GetDefaultNetworkConfig() (bool, *VPCNetworkConfigInfo) {
+func (s *VPCService) GetDefaultNetworkConfig() (bool, *common.VPCNetworkConfigInfo) {
 	if s.defaultNetworkConfigCR == nil {
 		return false, nil
 	}
 	return true, s.defaultNetworkConfigCR
 }
 
-func (s *VPCService) RegisterVPCNetworkConfig(ncCRName string, info VPCNetworkConfigInfo) {
+func (s *VPCService) RegisterVPCNetworkConfig(ncCRName string, info common.VPCNetworkConfigInfo) {
 	s.VPCNetworkConfigMap[ncCRName] = info
 	if info.IsDefault {
 		s.defaultNetworkConfigCR = &info
@@ -78,7 +78,7 @@ func (s *VPCService) UnregisterVPCNetworkConfig(ncCRName string) {
 	delete(s.VPCNetworkConfigMap, ncCRName)
 }
 
-func (s *VPCService) GetVPCNetworkConfig(ncCRName string) (VPCNetworkConfigInfo, bool) {
+func (s *VPCService) GetVPCNetworkConfig(ncCRName string) (common.VPCNetworkConfigInfo, bool) {
 	nc, exist := s.VPCNetworkConfigMap[ncCRName]
 	return nc, exist
 }
@@ -102,7 +102,7 @@ func (s *VPCService) GetNamespacesByNetworkconfigName(nc string) []string {
 	return result
 }
 
-func (s *VPCService) GetVPCNetworkConfigByNamespace(ns string) *VPCNetworkConfigInfo {
+func (s *VPCService) GetVPCNetworkConfigByNamespace(ns string) *common.VPCNetworkConfigInfo {
 	ncName, nameExist := s.VPCNSNetworkConfigMap[ns]
 	if !nameExist {
 		log.Info("failed to get network config name for namespace", "Namespace", ns)
@@ -119,7 +119,7 @@ func (s *VPCService) GetVPCNetworkConfigByNamespace(ns string) *VPCNetworkConfig
 
 // TBD: for now, if network config info do not contains private cidr, we consider this is
 // incorrect configuration, and skip creating this VPC CR
-func (s *VPCService) ValidateNetworkConfig(nc VPCNetworkConfigInfo) bool {
+func (s *VPCService) ValidateNetworkConfig(nc common.VPCNetworkConfigInfo) bool {
 	return nc.PrivateIPv4CIDRs != nil && len(nc.PrivateIPv4CIDRs) != 0
 }
 
@@ -149,7 +149,7 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 			common.IndexKeyPathPath: indexPathFunc}),
 		BindingType: model.IpAddressBlockBindingType(),
 	}}
-	VPCService.VPCNetworkConfigMap = make(map[string]VPCNetworkConfigInfo)
+	VPCService.VPCNetworkConfigMap = make(map[string]common.VPCNetworkConfigInfo)
 	VPCService.VPCNSNetworkConfigMap = make(map[string]string)
 	//initialize vpc store and ip blocks store
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, VPCService.VpcStore)
@@ -278,7 +278,7 @@ func (s *VPCService) DeleteIPBlockInVPC(vpc model.Vpc) error {
 	return nil
 }
 
-func (s *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc VPCNetworkConfigInfo) (map[string]string, error) {
+func (s *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc common.VPCNetworkConfigInfo) (map[string]string, error) {
 	// if network config contains PrivateIPV4CIDRs section, create private ip block for each cidr
 	path := map[string]string{}
 	if nc.PrivateIPv4CIDRs != nil {
@@ -450,7 +450,7 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	return path, cidr, nil
 }
 
-func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, *VPCNetworkConfigInfo, error) {
+func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, *common.VPCNetworkConfigInfo, error) {
 	// check from VPC store if vpc already exist
 	updateVpc := false
 	existingVPC := s.VpcStore.GetVPCsByNamespace(obj.Namespace)
