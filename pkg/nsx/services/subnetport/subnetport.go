@@ -5,7 +5,6 @@ package subnetport
 
 import (
 	"errors"
-
 	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -16,13 +15,12 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
-
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 )
 
 var (
@@ -75,7 +73,7 @@ func InitializeSubnetPort(service servicecommon.Service) (*SubnetPortService, er
 	return subnetPortService, nil
 }
 
-func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxSubnetPath string, contextID string) (*model.SegmentPortState, error) {
+func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxSubnetPath string, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
 	var uid string
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
@@ -84,7 +82,7 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		uid = string(o.UID)
 	}
 	log.Info("Creating or updating subnetport", "nsxSubnetPort.Id", uid, "nsxSubnetPath", nsxSubnetPath)
-	nsxSubnetPort, err := service.buildSubnetPort(obj, nsxSubnetPath, contextID)
+	nsxSubnetPort, err := service.buildSubnetPort(obj, nsxSubnetPath, contextID, tags)
 	if err != nil {
 		log.Error(err, "failed to build NSX subnet port", "nsxSubnetPort.Id", uid, "nsxSubnetPath", nsxSubnetPath, "contextID", contextID)
 		return nil, err
