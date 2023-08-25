@@ -19,7 +19,7 @@ var (
 	String = common.String
 )
 
-func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnetPath string, contextID string) (*model.SegmentPort, error) {
+func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnetPath string, contextID string, labelTags *map[string]string) (*model.SegmentPort, error) {
 	var objName, objNamespace, uid, appId string
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
@@ -52,6 +52,12 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnetPath
 		return nil, err
 	}
 	namespace_uid := namespace.UID
+	tags := service.buildBasicTags(obj, namespace_uid)
+	if labelTags != nil {
+		for k, v := range *labelTags {
+			tags = append(tags, model.Tag{Scope: common.String(k), Tag: common.String(v)})
+		}
+	}
 	nsxSubnetPort := &model.SegmentPort{
 		DisplayName: common.String(nsxSubnetPortName),
 		Id:          common.String(nsxSubnetPortID),
@@ -61,7 +67,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnetPath
 			TrafficTag:        common.Int64(0),
 			Type_:             common.String("STATIC"),
 		},
-		Tags:       service.buildBasicTags(obj, namespace_uid),
+		Tags:       tags,
 		Path:       &nsxSubnetPortPath,
 		ParentPath: &nsxSubnetPath,
 	}

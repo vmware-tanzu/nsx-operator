@@ -41,7 +41,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	if err := r.Client.Get(ctx, req.NamespacedName, node); err != nil {
 		if errors.IsNotFound(err) {
-			log.Info("node not found, may be deleted", "req", req.NamespacedName)
+			log.Info("node not found", "req", req.NamespacedName)
 			deleted = true
 		} else {
 			log.Error(err, "unable to fetch node", "req", req.NamespacedName)
