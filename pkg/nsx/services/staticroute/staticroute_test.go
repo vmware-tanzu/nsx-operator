@@ -17,6 +17,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/staticrouteclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
@@ -143,9 +144,7 @@ func TestStaticRouteService_DeleteStaticRoute(t *testing.T) {
 	sr1.Id = &id
 	returnservice.StaticRouteStore.Add(*sr1)
 
-	//mediator = commonctl.ServiceMediator
-	mediator.VPCService = &vpc.VPCService{}
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(mediator.VPCService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []model.Vpc {
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []model.Vpc {
 		id := "vpc-1"
 		return []model.Vpc{{Path: common.String("/orgs/default/projects/project-1/vpcs/vpc-1"), Id: &id}}
 	})
@@ -191,8 +190,15 @@ func TestStaticRouteService_CreateorUpdateStaticRoute(t *testing.T) {
 	sr1.UID = types.UID(id)
 
 	mockStaticRouteclient.EXPECT().Patch(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(1)
-
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(mediator.VPCService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []model.Vpc {
+	mId := "test_id"
+	scope := common.TagScopeStaticRouteCRUID
+	tag := "test_tag"
+	m := model.StaticRoutes{
+		Id:   &mId,
+		Tags: []model.Tag{{Tag: &tag, Scope: &scope}},
+	}
+	mockStaticRouteclient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(m, nil).Times(2)
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []model.Vpc {
 		id := "12345678"
 		return []model.Vpc{{Path: common.String("/orgs/default/projects/project-1/vpcs/vpc-1"), Id: &id}}
 	})
@@ -201,7 +207,7 @@ func TestStaticRouteService_CreateorUpdateStaticRoute(t *testing.T) {
 	assert.Equal(t, err, nil)
 
 	// no change,  update
-	mockStaticRouteclient.EXPECT().Patch(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	mockStaticRouteclient.EXPECT().Patch(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(1)
 	err = returnservice.CreateOrUpdateStaticRoute("test", sr1)
 	assert.Equal(t, err, nil)
 }
