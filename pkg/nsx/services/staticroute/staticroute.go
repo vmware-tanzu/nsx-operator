@@ -1,6 +1,7 @@
 package staticroute
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 
@@ -22,7 +23,6 @@ var (
 	log                     = logger.Log
 	resourceTypeStaticRoute = "StaticRoutes"
 	String                  = common.String
-	mediator                = commonctl.ServiceMediator
 )
 
 // InitializeStaticRoute sync NSX resources
@@ -70,16 +70,20 @@ func (service *StaticRouteService) CreateOrUpdateStaticRoute(namespace string, o
 		return nil
 	}
 
-	vpc := mediator.GetVPCsByNamespace(namespace)
+	vpc := commonctl.ServiceMediator.GetVPCsByNamespace(namespace)
 	if len(vpc) == 0 {
-		return nil
+		return fmt.Errorf("no vpc found for ns %s", namespace)
 	}
 	path := strings.Split(*vpc[0].Path, "/")
 	err = service.patch(path[2], path[4], *vpc[0].Id, nsxStaticRoute)
 	if err != nil {
 		return err
 	}
-	err = service.StaticRouteStore.Add(*nsxStaticRoute)
+	staticRoute, err := service.NSXClient.StaticRouteClient.Get(path[2], path[4], *vpc[0].Id, *nsxStaticRoute.Id)
+	if err != nil {
+		return err
+	}
+	err = service.StaticRouteStore.Add(staticRoute)
 	if err != nil {
 		return err
 	}
@@ -113,7 +117,7 @@ func (service *StaticRouteService) DeleteStaticRouteByPath(orgId string, project
 }
 
 func (service *StaticRouteService) DeleteStaticRoute(namespace string, uid string) error {
-	vpc := mediator.GetVPCsByNamespace(namespace)
+	vpc := commonctl.ServiceMediator.GetVPCsByNamespace(namespace)
 	if len(vpc) == 0 {
 		return nil
 	}
