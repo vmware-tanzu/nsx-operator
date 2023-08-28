@@ -14,16 +14,22 @@ import (
 
 	"github.com/apparentlymart/go-cidr/cidr"
 	mapset "github.com/deckarep/golang-set"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 const wcpSystemResource = "vmware-system-shared-t1"
 const HashLength int = 8
+
+var (
+	String = common.String
+)
 
 var log = logf.Log.WithName("pkg").WithName("utils")
 
@@ -243,4 +249,105 @@ func UpdateK8sResourceAnnotation(client client.Client, ctx *context.Context, k8s
 		}
 	}
 	return nil
+}
+
+// some resources has complex index, so set it type to string
+func GenerateID(res_id, prefix, suffix string, index string) string {
+	var id strings.Builder
+	if len(prefix) > 0 {
+		id.WriteString(prefix)
+		id.WriteString("_")
+	}
+
+	id.WriteString(res_id)
+	if len(index) > 0 {
+		id.WriteString("_")
+		id.WriteString(index)
+
+	}
+	if len(suffix) > 0 {
+		id.WriteString("_")
+		id.WriteString(suffix)
+	}
+	return id.String()
+}
+
+func GenerateDisplayName(res_name, prefix, suffix, project, cluster string) string {
+	var name strings.Builder
+	if len(prefix) > 0 {
+		name.WriteString(prefix)
+		name.WriteString("-")
+	}
+	if len(project) > 0 {
+		name.WriteString(project)
+		name.WriteString("-")
+	}
+	if len(cluster) > 0 {
+		name.WriteString(cluster)
+		name.WriteString("-")
+	}
+	name.WriteString(res_name)
+	if len(suffix) > 0 {
+		name.WriteString("-")
+		name.WriteString(suffix)
+	}
+	return name.String()
+}
+
+func GenerateTruncName(limit int, res_name, prefix, suffix, project, cluster string) string {
+	name := GenerateDisplayName(res_name, prefix, suffix, project, cluster)
+	return NormalizeName(name)
+}
+
+func BuildBasicTags(service common.Service, obj interface{}, namespaceID types.UID) []model.Tag {
+	tags := []model.Tag{
+		{
+			Scope: String(common.TagScopeCluster),
+			Tag:   String(service.NSXConfig.Cluster),
+		},
+	}
+	switch i := obj.(type) {
+	case *v1alpha1.StaticRoute:
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeStaticRouteCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeStaticRouteCRUID), Tag: String(string(i.UID))})
+	case *v1alpha1.SecurityPolicy:
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSecurityPolicyCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSecurityPolicyCRUID), Tag: String(string(i.UID))})
+	case *v1alpha1.Subnet:
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetCRUID), Tag: String(string(i.UID))})
+	case *v1alpha1.SubnetPort:
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetPortCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetPortCRUID), Tag: String(string(i.UID))})
+	case *v1alpha1.VPC:
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeVPCCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeVPCCRUID), Tag: String(string(i.UID))})
+	case *v1alpha1.IPPool:
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeIPPoolCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeIPPoolCRUID), Tag: String(string(i.UID))})
+	case *v1alpha1.SubnetSet:
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetSetCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetSetCRUID), Tag: String(string(i.UID))})
+	default:
+		log.Info("unknow obj type", "obj", obj)
+	}
+
+	if len(namespaceID) > 0 {
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespaceUID), Tag: String(string(namespaceID))})
+	}
+	return tags
+}
+
+func AppendTags(basicTags, tags []model.Tag) []model.Tag {
+	for _, tag := range tags {
+		basicTags = append(basicTags, tag)
+	}
+	return basicTags
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func validateStaticRoute(obj *v1alpha1.StaticRoute) error {
@@ -48,24 +48,5 @@ func (service *StaticRouteService) buildStaticRoute(obj *v1alpha1.StaticRoute) (
 }
 
 func (service *StaticRouteService) buildBasicTags(obj *v1alpha1.StaticRoute) []model.Tag {
-	tags := []model.Tag{
-		{
-			Scope: String(common.TagScopeCluster),
-			Tag:   String(service.NSXConfig.Cluster),
-		},
-		{
-			Scope: String(common.TagScopeNamespace),
-			Tag:   String(obj.ObjectMeta.Namespace),
-		},
-		// TODO: get namespace uid
-		{
-			Scope: String(common.TagScopeStaticRouteCRName),
-			Tag:   String(obj.ObjectMeta.Name),
-		},
-		{
-			Scope: String(common.TagScopeStaticRouteCRUID),
-			Tag:   String(string(obj.UID)),
-		},
-	}
-	return tags
+	return util.BuildBasicTags(service.Service, obj, "")
 }

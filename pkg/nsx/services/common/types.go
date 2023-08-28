@@ -50,6 +50,7 @@ const (
 	TagScopeSubnetCRUID             string = "nsx-op/subnet_cr_uid"
 	TagScopeSubnetCRName            string = "nsx-op/subnet_cr_name"
 	TagScopeSubnetSetCRName         string = "nsx-op/subnetset_cr_name"
+	TagScopeSubnetSetCRUID          string = "nsx-op/subnetset_cr_uid"
 	AnnotationVPCNetworkConfig      string = "nsx.vmware.com/vpc_network_config"
 	AnnotationVPCName               string = "nsx.vmware.com/vpc_name"
 	DefaultNetworkConfigName        string = "default"
