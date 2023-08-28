@@ -8,6 +8,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func validateStaticRoute(obj *v1alpha1.StaticRoute) error {
@@ -41,31 +42,12 @@ func (service *StaticRouteService) buildStaticRoute(obj *v1alpha1.StaticRoute) (
 		nexthop.IpAddress = &obj.Spec.NextHops[index].IPAddress
 		sr.NextHops = append(sr.NextHops, nexthop)
 	}
-	sr.Id = String(fmt.Sprintf("sr_%s", fmt.Sprint(obj.UID)))
-	sr.DisplayName = String(fmt.Sprintf("sr-%s-%s", obj.Namespace, obj.Name))
+	sr.Id = String(util.GenerateID(string(obj.UID), "sr", "", ""))
+	sr.DisplayName = String(util.GenerateTruncName(common.MaxNameLength, obj.Name, "sr", "", "", ""))
 	sr.Tags = service.buildBasicTags(obj)
 	return sr, nil
 }
 
 func (service *StaticRouteService) buildBasicTags(obj *v1alpha1.StaticRoute) []model.Tag {
-	tags := []model.Tag{
-		{
-			Scope: String(common.TagScopeCluster),
-			Tag:   String(service.NSXConfig.Cluster),
-		},
-		{
-			Scope: String(common.TagScopeNamespace),
-			Tag:   String(obj.ObjectMeta.Namespace),
-		},
-		// TODO: get namespace uid
-		{
-			Scope: String(common.TagScopeStaticRouteCRName),
-			Tag:   String(obj.ObjectMeta.Name),
-		},
-		{
-			Scope: String(common.TagScopeStaticRouteCRUID),
-			Tag:   String(string(obj.UID)),
-		},
-	}
-	return tags
+	return util.BuildBasicTags(service.Service.NSXConfig.Cluster, obj, "")
 }

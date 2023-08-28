@@ -14,16 +14,38 @@ import (
 
 	"github.com/apparentlymart/go-cidr/cidr"
 	mapset "github.com/deckarep/golang-set"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 const wcpSystemResource = "vmware-system-shared-t1"
 const HashLength int = 8
+
+var (
+	String    = common.String
+	basicTags = []string{common.TagScopeNamespace, common.TagScopeNamespaceUID,
+		common.TagScopeStaticRouteCRName, common.TagScopeStaticRouteCRUID,
+		common.TagScopeSecurityPolicyCRName, common.TagScopeSecurityPolicyCRUID,
+		common.TagScopeSubnetCRName, common.TagScopeSubnetCRUID,
+		common.TagScopeSubnetPortCRName, common.TagScopeSubnetPortCRUID,
+		common.TagScopeVPCCRName, common.TagScopeVPCCRUID,
+		common.TagScopeIPPoolCRName, common.TagScopeIPPoolCRUID,
+		common.TagScopeSubnetSetCRName, common.TagScopeSubnetSetCRUID}
+	tagsScopeSet = sets.New[string]()
+)
+
+func init() {
+	for _, tag := range basicTags {
+		tagsScopeSet.Insert(tag)
+	}
+}
 
 var log = logf.Log.WithName("pkg").WithName("utils")
 
@@ -45,11 +67,15 @@ func NormalizeLabelKey(key string) string {
 }
 
 func NormalizeName(name string) string {
-	if len(name) <= common.MaxTagLength {
+	return normalizeNamebyLimit(name, common.MaxTagLength)
+}
+
+func normalizeNamebyLimit(name string, limit int) string {
+	if len(name) <= limit {
 		return name
 	}
 	hashString := Sha1(name)
-	nameLength := common.MaxTagLength - common.HashLength - 1
+	nameLength := limit - common.HashLength - 1
 	newName := fmt.Sprintf("%s-%s", name[:nameLength], hashString[:common.HashLength])
 	return newName
 }
@@ -243,4 +269,125 @@ func UpdateK8sResourceAnnotation(client client.Client, ctx *context.Context, k8s
 		}
 	}
 	return nil
+}
+
+// GenerateID generate id for nsx resource, some resources has complex index, so set it type to string
+func GenerateID(res_id, prefix, suffix string, index string) string {
+	var id strings.Builder
+	if len(prefix) > 0 {
+		id.WriteString(prefix)
+		id.WriteString("_")
+	}
+
+	id.WriteString(res_id)
+	if len(index) > 0 {
+		id.WriteString("_")
+		id.WriteString(index)
+
+	}
+	if len(suffix) > 0 {
+		id.WriteString("_")
+		id.WriteString(suffix)
+	}
+	return id.String()
+}
+
+func GenerateDisplayName(res_name, prefix, suffix, project, cluster string) string {
+	var name strings.Builder
+	if len(prefix) > 0 {
+		name.WriteString(prefix)
+		name.WriteString("-")
+	}
+	if len(cluster) > 0 {
+		name.WriteString(cluster)
+		name.WriteString("-")
+
+	}
+	name.WriteString(res_name)
+	if len(project) > 0 {
+		name.WriteString("-")
+		name.WriteString(project)
+
+	}
+
+	if len(suffix) > 0 {
+		name.WriteString("-")
+		name.WriteString(suffix)
+	}
+	return name.String()
+}
+
+func GenerateTruncName(limit int, res_name, prefix, suffix, project, cluster string) string {
+	adjusted_limit := limit - len(prefix) - len(suffix)
+	for _, i := range []string{prefix, suffix} {
+		if len(i) > 0 {
+			adjusted_limit -= 1
+		}
+	}
+	old_name := GenerateDisplayName(res_name, "", "", project, cluster)
+	if len(old_name) > adjusted_limit {
+		new_name := normalizeNamebyLimit(
+			old_name, adjusted_limit)
+		return GenerateDisplayName(new_name, prefix, suffix, "", "")
+	}
+	return GenerateDisplayName(res_name, prefix, suffix, project, cluster)
+}
+
+func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []model.Tag {
+	tags := []model.Tag{
+		{
+			Scope: String(common.TagScopeCluster),
+			Tag:   String(cluster),
+		},
+	}
+	switch i := obj.(type) {
+	case *v1alpha1.StaticRoute:
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeStaticRouteCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeStaticRouteCRUID), Tag: String(string(i.UID))})
+	case *v1alpha1.SecurityPolicy:
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSecurityPolicyCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSecurityPolicyCRUID), Tag: String(string(i.UID))})
+	case *v1alpha1.Subnet:
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetCRUID), Tag: String(string(i.UID))})
+	case *v1alpha1.SubnetPort:
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetPortCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetPortCRUID), Tag: String(string(i.UID))})
+	case *v1alpha1.VPC:
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeVPCCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeVPCCRUID), Tag: String(string(i.UID))})
+	case *v1alpha1.IPPool:
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeIPPoolCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeIPPoolCRUID), Tag: String(string(i.UID))})
+	case *v1alpha1.SubnetSet:
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetSetCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetSetCRUID), Tag: String(string(i.UID))})
+	default:
+		log.Info("unknown obj type", "obj", obj)
+	}
+
+	if len(namespaceID) > 0 {
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespaceUID), Tag: String(string(namespaceID))})
+	}
+	return tags
+}
+
+func AppendTags(basicTags, extraTags []model.Tag) []model.Tag {
+	if basicTags == nil {
+		log.Info("AppendTags", "basicTags", basicTags, "extra tags", extraTags)
+		return nil
+	}
+	for _, tag := range extraTags {
+		if !tagsScopeSet.Has(*tag.Scope) {
+			basicTags = append(basicTags, tag)
+		}
+	}
+	return basicTags
 }
