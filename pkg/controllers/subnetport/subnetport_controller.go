@@ -309,7 +309,11 @@ func deleteSuccess(r *SubnetPortReconciler, _ *context.Context, _ *v1alpha1.Subn
 }
 
 func (r *SubnetPortReconciler) GetSubnetPathForSubnetPort(obj *v1alpha1.SubnetPort) (string, error) {
-	subnetPath := ""
+	subnetPath := r.Service.GetSubnetPathFromStoreByKey(string(obj.UID))
+	if len(subnetPath) > 0 {
+		log.V(1).Info("NSX subnet port had been created, returning the existing NSX subnet path", "subnetPort.UID", obj.UID, "subnetPath", subnetPath)
+		return subnetPath, nil
+	}
 	if len(obj.Spec.Subnet) > 0 {
 		subnet := &v1alpha1.Subnet{}
 		namespacedName := types.NamespacedName{

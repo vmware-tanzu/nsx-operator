@@ -24,6 +24,18 @@ func (sp *SubnetPort) Value() data.DataValue {
 		Tags:        sp.Tags,
 		Attachment:  sp.Attachment,
 	}
+	if sp.Attachment != nil {
+		// Ignoring the fields BmsInterfaceConfig, ContextType, EvpnVlans, HyperbusMode
+		// because operator doesn't set them.
+		s.Attachment = &model.PortAttachment{
+			AllocateAddresses: sp.Attachment.AllocateAddresses,
+			AppId:             sp.Attachment.AppId,
+			ContextId:         sp.Attachment.ContextId,
+			Id:                sp.Attachment.Id,
+			TrafficTag:        sp.Attachment.TrafficTag,
+			Type_:             sp.Attachment.AllocateAddresses,
+		}
+	}
 	dataValue, _ := ComparableToSubnetPort(s).GetDataValue__()
 	return dataValue
 }
