@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -256,6 +257,26 @@ func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) err
 	if err := service.Client.Status().Update(context.Background(), obj); err != nil {
 		log.Error(err, "failed to update SubnetSet status")
 		return err
+	}
+	return nil
+}
+
+func (service *SubnetService) ListSubnetID() sets.String {
+	subnetSet := service.SubnetStore.ListIndexFuncValues(common.TagScopeSubnetCRUID)
+	return subnetSet
+}
+
+func (service *SubnetService) Cleanup() error {
+	uids := service.ListSubnetID()
+	log.Info("cleaning up subnet", "count", len(uids))
+	for uid := range uids {
+		nsxSubnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetCRUID, string(uid))
+		for _, nsxSubnet := range nsxSubnets {
+			err := service.DeleteSubnet(nsxSubnet)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

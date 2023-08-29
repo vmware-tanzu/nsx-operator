@@ -261,3 +261,15 @@ func (service *IPPoolService) GetIPPoolNamespace(nsxIPPool *model.IpAddressPool)
 	}
 	return ""
 }
+
+func (service *IPPoolService) Cleanup() error {
+	uids := service.ListIPPoolID()
+	log.Info("cleaning up ippool", "count", len(uids))
+	for uid := range uids {
+		err := service.DeleteIPPool(types.UID(uid))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}

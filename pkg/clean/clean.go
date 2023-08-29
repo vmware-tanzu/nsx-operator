@@ -10,7 +10,9 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ippool"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 )
 
 var log = logger.Log
@@ -21,11 +23,13 @@ var log = logger.Log
 // return error if any, return nil if no error
 func Clean(cf *config.NSXOperatorConfig) error {
 	log.Info("starting NSX cleanup")
-	if cleanupServices, err := InitializeCleanupServices(cf); err != nil {
+	if cleanupService, err := InitializeCleanupService(cf); err != nil {
 		return fmt.Errorf("failed to initialize cleanup service: %w", err)
+	} else if cleanupService.err != nil {
+		return fmt.Errorf("failed to initialize cleanup service: %w", cleanupService.err)
 	} else {
-		for _, cleanupService := range cleanupServices {
-			if err := cleanupService.Cleanup(); err != nil {
+		for _, clean := range cleanupService.cleans {
+			if err := clean.Cleanup(); err != nil {
 				return fmt.Errorf("failed to clean up: %w", err)
 			}
 		}
@@ -34,13 +38,13 @@ func Clean(cf *config.NSXOperatorConfig) error {
 	return nil
 }
 
-// InitializeCleanupServices initializes all the CR services
-func InitializeCleanupServices(cf *config.NSXOperatorConfig) ([]cleanup, error) {
-	var cleanupServices []cleanup
+// InitializeCleanupService initializes all the CR services
+func InitializeCleanupService(cf *config.NSXOperatorConfig) (*CleanupService, error) {
+	cleanupService := NewCleanupService()
 
 	nsxClient := nsx.GetClient(cf)
 	if nsxClient == nil {
-		return nil, fmt.Errorf("failed to get nsx client")
+		return cleanupService, fmt.Errorf("failed to get nsx client")
 	}
 
 	var commonService = common.Service{
@@ -49,13 +53,28 @@ func InitializeCleanupServices(cf *config.NSXOperatorConfig) ([]cleanup, error) 
 	}
 
 	// initialize all the CR services
-	securityService, err := securitypolicy.InitializeSecurityPolicy(commonService)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize security policy service: %w", err)
-	} else {
-		cleanupServices = append(cleanupServices, securityService)
-	}
-	// TODO: initialize other CR services
+	// Use Fluent Interface to escape error check hell
 
-	return cleanupServices, nil
+	wrapInitializeSubnetService := func(service common.Service) cleanupFunc {
+		return func() (cleanup, error) {
+			return subnet.InitializeSubnetService(service)
+		}
+	}
+	wrapInitializeSecurityPolicy := func(service common.Service) cleanupFunc {
+		return func() (cleanup, error) {
+			return securitypolicy.InitializeSecurityPolicy(service)
+		}
+	}
+	wrapInitializeIPPool := func(service common.Service) cleanupFunc {
+		return func() (cleanup, error) {
+			return ippool.InitializeIPPool(service)
+		}
+	}
+
+	cleanupService = cleanupService.
+		AddCleanupService(wrapInitializeSubnetService(commonService)).
+		AddCleanupService(wrapInitializeSecurityPolicy(commonService)).
+		AddCleanupService(wrapInitializeIPPool(commonService))
+
+	return cleanupService, nil
 }
