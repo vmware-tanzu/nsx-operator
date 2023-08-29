@@ -110,7 +110,7 @@ func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 					return common.ResultRequeueAfter10sec, err
 				}
 
-				if err := r.Service.DeleteIPBlock(vpc); err != nil {
+				if err := r.Service.DeleteIPBlockInVPC(vpc); err != nil {
 					log.Error(err, "failed to delete private ip blocks for VPC", "VPC", req.NamespacedName)
 				}
 			}
@@ -201,7 +201,7 @@ func (r *VPCReconciler) GarbageCollector(cancel chan bool, timeout time.Duration
 				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeVPC)
 			} else {
 				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeVPC)
-				if err := r.Service.DeleteIPBlock(elem); err != nil {
+				if err := r.Service.DeleteIPBlockInVPC(elem); err != nil {
 					log.Error(err, "failed to delete private ip blocks for VPC", "VPC", *elem.DisplayName)
 				}
 				log.Info("deleted private ip blocks for VPC", "VPC", *elem.DisplayName)
