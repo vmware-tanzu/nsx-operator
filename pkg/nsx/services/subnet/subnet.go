@@ -302,3 +302,23 @@ func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) err
 	}
 	return nil
 }
+
+func (service *SubnetService) ListSubnetID() sets.String {
+	subnetSet := service.SubnetStore.ListIndexFuncValues(common.TagScopeSubnetCRUID)
+	return subnetSet
+}
+
+func (service *SubnetService) Cleanup() error {
+	uids := service.ListSubnetID()
+	log.Info("cleaning up subnet", "count", len(uids))
+	for uid := range uids {
+		nsxSubnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetCRUID, string(uid))
+		for _, nsxSubnet := range nsxSubnets {
+			err := service.DeleteSubnet(nsxSubnet)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
