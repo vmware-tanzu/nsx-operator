@@ -246,3 +246,16 @@ func (service *SecurityPolicyService) ListSecurityPolicyID() sets.String {
 	policySet := service.securityPolicyStore.ListIndexFuncValues(common.TagScopeSecurityPolicyCRUID)
 	return groupSet.Union(policySet)
 }
+
+func (service *SecurityPolicyService) Cleanup() error {
+	// Delete all the security policies in store
+	uids := service.ListSecurityPolicyID()
+	log.Info("cleaning up security policies", "count", len(uids))
+	for uid := range uids {
+		err := service.DeleteSecurityPolicy(types.UID(uid))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
