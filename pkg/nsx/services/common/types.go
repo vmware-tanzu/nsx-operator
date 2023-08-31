@@ -18,6 +18,7 @@ const (
 	HashLength                      int    = 8
 	MaxTagLength                    int    = 256
 	MaxIdLength                     int    = 255
+	MaxNameLength                   int    = 255
 	TagScopeCluster                 string = "nsx-op/cluster"
 	TagScopeNamespace               string = "nsx-op/namespace"
 	TagScopeNamespaceUID            string = "nsx-op/namespace_uid"
@@ -50,6 +51,7 @@ const (
 	TagScopeSubnetCRUID             string = "nsx-op/subnet_cr_uid"
 	TagScopeSubnetCRName            string = "nsx-op/subnet_cr_name"
 	TagScopeSubnetSetCRName         string = "nsx-op/subnetset_cr_name"
+	TagScopeSubnetSetCRUID          string = "nsx-op/subnetset_cr_uid"
 	AnnotationVPCNetworkConfig      string = "nsx.vmware.com/vpc_network_config"
 	AnnotationVPCName               string = "nsx.vmware.com/vpc_name"
 	DefaultNetworkConfigName        string = "default"

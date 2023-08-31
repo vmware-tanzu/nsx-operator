@@ -267,3 +267,231 @@ func TestNormalizeId(t *testing.T) {
 		})
 	}
 }
+
+func TestGenerateID(t *testing.T) {
+	type args struct {
+		res_id string
+		prefix string
+		suffix string
+		index  string
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{
+			name: "test-1",
+			args: args{
+				res_id: "1234-456",
+				prefix: "sp",
+				suffix: "",
+				index:  "",
+			},
+			want: "sp_1234-456",
+		},
+		{
+			name: "test-subfix",
+			args: args{
+				res_id: "1234-456",
+				prefix: "sp",
+				suffix: "scope",
+				index:  "",
+			},
+			want: "sp_1234-456_scope",
+		},
+		{
+			name: "test-index",
+			args: args{
+				res_id: "1234-456",
+				prefix: "sp",
+				suffix: "scope",
+				index:  "4",
+			},
+			want: "sp_1234-456_4_scope",
+		},
+		{
+			name: "test-scope",
+			args: args{
+				res_id: "1234-456",
+				prefix: "",
+				suffix: "scope",
+				index:  "",
+			},
+			want: "1234-456_scope",
+		},
+		{
+			name: "test-complex-index",
+			args: args{
+				res_id: "1234-456",
+				prefix: "",
+				suffix: "scope",
+				index:  "6_7",
+			},
+			want: "1234-456_6_7_scope",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := GenerateID(tt.args.res_id, tt.args.prefix, tt.args.suffix, tt.args.index); got != tt.want {
+				t.Errorf("GenerateID() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGenerateDisplayName(t *testing.T) {
+	type args struct {
+		res_name string
+		prefix   string
+		suffix   string
+		project  string
+		cluster  string
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{
+			name: "test-1",
+			args: args{
+				res_name: "1234-456",
+				prefix:   "sp",
+				suffix:   "",
+				project:  "",
+			},
+			want: "sp-1234-456",
+		},
+		{
+			name: "test-suffix",
+			args: args{
+				res_name: "1234-456",
+				prefix:   "sp",
+				suffix:   "scope",
+				project:  "",
+			},
+			want: "sp-1234-456-scope",
+		},
+		{
+			name: "test-index",
+			args: args{
+				res_name: "1234-456",
+				prefix:   "sp",
+				suffix:   "scope",
+				project:  "test",
+			},
+			want: "sp-1234-456-test-scope",
+		},
+		{
+			name: "test-cluster",
+			args: args{
+				res_name: "1234-456",
+				prefix:   "",
+				suffix:   "scope",
+				project:  "",
+				cluster:  "k8scl-one",
+			},
+			want: "k8scl-one-1234-456-scope",
+		},
+		{
+			name: "test-project-cluster",
+			args: args{
+				res_name: "1234-456",
+				prefix:   "",
+				suffix:   "scope",
+				project:  "test",
+				cluster:  "k8scl-one",
+			},
+			want: "k8scl-one-1234-456-test-scope",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := GenerateDisplayName(tt.args.res_name, tt.args.prefix, tt.args.suffix, tt.args.project, tt.args.cluster); got != tt.want {
+				t.Errorf("GenerateDisplayName() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGenerateTruncName(t *testing.T) {
+	type args struct {
+		limit    int
+		res_name string
+		prefix   string
+		suffix   string
+		project  string
+		cluster  string
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{
+			name: "test-1",
+			args: args{
+				limit:    255,
+				res_name: "1234-456",
+				prefix:   "sp",
+				suffix:   "",
+				project:  "",
+			},
+			want: "sp-1234-456",
+		},
+		{
+			name: "test-suffix",
+			args: args{
+				limit:    255,
+				res_name: "1234-456",
+				prefix:   "sp",
+				suffix:   "scope",
+				project:  "",
+			},
+			want: "sp-1234-456-scope",
+		},
+		{
+			name: "test-index",
+			args: args{
+				limit:    255,
+				res_name: "1234-456",
+				prefix:   "sp",
+				suffix:   "scope",
+				project:  "test",
+			},
+			want: "sp-1234-456-test-scope",
+		},
+		{
+			name: "test-cluster",
+			args: args{
+				limit:    255,
+				res_name: "1234-456",
+				prefix:   "",
+				suffix:   "scope",
+				project:  "",
+				cluster:  "k8scl-one",
+			},
+			want: "k8scl-one-1234-456-scope",
+		},
+		{
+			name: "test-project-cluster",
+			args: args{
+				limit:    255,
+				res_name: "1234-456",
+				prefix:   "sr",
+				suffix:   "scope",
+				project:  strings.Repeat("s", 300),
+				cluster:  "k8scl-one",
+			},
+			want: "sr-k8scl-one-1234-456-ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss-813dffe8-scope",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := GenerateTruncName(tt.args.limit, tt.args.res_name, tt.args.prefix, tt.args.suffix, tt.args.project, tt.args.cluster); got != tt.want {
+				t.Errorf("GenerateTruncName() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
