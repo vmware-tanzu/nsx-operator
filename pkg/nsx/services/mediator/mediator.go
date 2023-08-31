@@ -6,16 +6,13 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
-var (
-	log = logger.Log
-)
+var log = logger.Log
 
 // ServiceMediator We use mediator pattern to wrap all the services,
 // embed all the services in ServiceMediator, so that we can mediate all the methods of all the services
@@ -23,7 +20,6 @@ var (
 // In startCRDController function, we register the CRDService to the ServiceMediator, since only one controller writes to
 // its own store and other controllers read from the store, so we don't need lock here.
 type ServiceMediator struct {
-	*securitypolicy.SecurityPolicyService
 	*vpc.VPCService
 	*subnet.SubnetService
 	*subnetport.SubnetPortService

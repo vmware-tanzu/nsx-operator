@@ -19,6 +19,12 @@ const (
 	MaxTagLength                    int    = 256
 	MaxIdLength                     int    = 255
 	MaxNameLength                   int    = 255
+	TagScopeNCPCluster              string = "ncp/cluster"
+	TagScopeNCPProjectUID           string = "ncp/project_uid"
+	TagScopeNCPVIFProjectUID        string = "ncp/vif_project_uid"
+	TagScopeNCPPod                  string = "ncp/pod"
+	TagScopeNCPVNETInterface        string = "ncp/vnet_interface"
+	TagScopeVersion                 string = "nsx-op/version"
 	TagScopeCluster                 string = "nsx-op/cluster"
 	TagScopeNamespace               string = "nsx-op/namespace"
 	TagScopeNamespaceUID            string = "nsx-op/namespace_uid"
@@ -27,15 +33,16 @@ const (
 	TagScopeStaticRouteCRName       string = "nsx-op/static_route_cr_name"
 	TagScopeStaticRouteCRUID        string = "nsx-op/static_route_cr_uid"
 	TagScopeRuleID                  string = "nsx-op/rule_id"
+	TagScopeGoupID                  string = "nsx-op/group_id"
 	TagScopeGroupType               string = "nsx-op/group_type"
 	TagScopeSelectorHash            string = "nsx-op/selector_hash"
 	TagScopeNSXServiceAccountCRName string = "nsx-op/nsx_service_account_name"
 	TagScopeNSXServiceAccountCRUID  string = "nsx-op/nsx_service_account_uid"
-	TagScopeNCPCluster              string = "ncp/cluster"
-	TagScopeNCPProject              string = "ncp/project"
-	TagScopeNCPVIFProject           string = "ncp/vif_project"
-	TagScopeNCPPod                  string = "ncp/pod"
-	TagScopeNCPVNETInterface        string = "ncp/vnet_interface"
+	TagScopeNSXProjectID            string = "nsx-op/nsx_project_id"
+	TagScopeProjectGroupShared      string = "nsx-op/is_nsx_project_shared"
+	TagScopeVPCPodNamespaceUID      string = "nsx-op/subnet_namespace_uid"     // Todo: pod subnet, need to change according to subnet controller
+	TagScopeVPCVMNamespaceUID       string = "nsx-op/subnet_vif_namespace_uid" // Todo: VM subnet, need to change according to subnet controller
+	TagScopeVPCPod                  string = "nsx-op/pod_uid"                  // Todo: pod subnetport, need to change according to pod controller
 	TagScopeVPCCRName               string = "nsx-op/vpc_cr_name"
 	TagScopeVPCCRUID                string = "nsx-op/vpc_cr_uid"
 	TagScopeSubnetPortCRName        string = "nsx-op/subnetport_cr_name"
@@ -52,6 +59,10 @@ const (
 	TagScopeSubnetCRName            string = "nsx-op/subnet_cr_name"
 	TagScopeSubnetSetCRName         string = "nsx-op/subnetset_cr_name"
 	TagScopeSubnetSetCRUID          string = "nsx-op/subnetset_cr_uid"
+	TagValueGroupScope              string = "scope"
+	TagValueGroupSrc                string = "source"
+	TagValueGroupDst                string = "destination"
+	TagValueVersion10               string = "1.0"
 	AnnotationVPCNetworkConfig      string = "nsx.vmware.com/vpc_network_config"
 	AnnotationVPCName               string = "nsx.vmware.com/vpc_name"
 	DefaultNetworkConfigName        string = "default"
@@ -78,14 +89,22 @@ const (
 )
 
 var (
-	ResourceType               = "resource_type"
-	ResourceTypeSecurityPolicy = "SecurityPolicy"
-	ResourceTypeGroup          = "Group"
-	ResourceTypeRule           = "Rule"
-	ResourceTypeVpc            = "Vpc"
-	ResourceTypeIPBlock        = "IpAddressBlock"
-	ResourceTypeSubnetPort     = "VpcSubnetPort"
-	ResourceTypeVirtualMachine = "VirtualMachine"
+	ResourceType                    = "resource_type"
+	ResourceTypeSecurityPolicy      = "SecurityPolicy"
+	ResourceTypeGroup               = "Group"
+	ResourceTypeRule                = "Rule"
+	ResourceTypeIPBlock             = "IpAddressBlock"
+	ResourceTypeOrgRoot             = "OrgRoot"
+	ResourceTypeOrg                 = "Org"
+	ResourceTypeProject             = "Project"
+	ResourceTypeVpc                 = "Vpc"
+	ResourceTypeSubnetPort          = "VpcSubnetPort"
+	ResourceTypeVirtualMachine      = "VirtualMachine"
+	ResourceTypeShare               = "Share"
+	ResourceTypeSharedResource      = "SharedResource"
+	ResourceTypeChildSharedResource = "ChildSharedResource"
+	ResourceTypeChildShare          = "ChildShare"
+
 	// ResourceTypeClusterControlPlane is used by NSXServiceAccountController
 	ResourceTypeClusterControlPlane = "clustercontrolplane"
 	// ResourceTypePrincipalIdentity is used by NSXServiceAccountController, and it is MP resource type.
