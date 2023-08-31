@@ -40,9 +40,6 @@ const (
 	TagScopeNSXServiceAccountCRUID  string = "nsx-op/nsx_service_account_uid"
 	TagScopeNSXProjectID            string = "nsx-op/nsx_project_id"
 	TagScopeProjectGroupShared      string = "nsx-op/is_nsx_project_shared"
-	TagScopeVPCPodNamespaceUID      string = "nsx-op/subnet_namespace_uid"     // Todo: pod subnet, need to change according to subnet controller
-	TagScopeVPCVMNamespaceUID       string = "nsx-op/subnet_vif_namespace_uid" // Todo: VM subnet, need to change according to subnet controller
-	TagScopeVPCPod                  string = "nsx-op/pod_uid"                  // Todo: pod subnetport, need to change according to pod controller
 	TagScopeVPCCRName               string = "nsx-op/vpc_cr_name"
 	TagScopeVPCCRUID                string = "nsx-op/vpc_cr_uid"
 	TagScopeSubnetPortCRName        string = "nsx-op/subnetport_cr_name"

@@ -69,7 +69,7 @@ func getScopeCluserTag(service *SecurityPolicyService) string {
 
 func getScopePodTag(service *SecurityPolicyService) string {
 	if isVpcEnabled(service) {
-		return common.TagScopeVPCPod
+		return common.TagScopePodUID
 	} else {
 		return common.TagScopeNCPPod
 	}
@@ -83,15 +83,15 @@ func getScopeVMInterfaceTag(service *SecurityPolicyService) string {
 	}
 }
 
-func getScopeProjectNamespaceUIDTag(service *SecurityPolicyService, isVMProject bool) string {
+func getScopeNamespaceUIDTag(service *SecurityPolicyService, isVMNameSpace bool) string {
 	if isVpcEnabled(service) {
-		if isVMProject {
-			return common.TagScopeVPCVMNamespaceUID
+		if isVMNameSpace {
+			return common.TagScopeVMNamespaceUID
 		} else {
-			return common.TagScopeVPCPodNamespaceUID
+			return common.TagScopeNamespaceUID
 		}
 	} else {
-		if isVMProject {
+		if isVMNameSpace {
 			return common.TagScopeNCPVIFProjectUID
 		} else {
 			return common.TagScopeNCPProjectUID

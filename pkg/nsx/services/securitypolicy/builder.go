@@ -29,7 +29,7 @@ const (
 	MaxMatchExpressionIn        int = 1
 	MaxMatchExpressionInValues  int = 5
 	ClusterTagCount             int = 1
-	ProjectTagCount             int = 1
+	NameSpaceTagCount           int = 1
 )
 
 var (
@@ -902,7 +902,7 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 		service.addOperatorIfNeeded(expressions, "AND")
 		nsExpression := service.buildExpression(
 			"Condition", memberType,
-			fmt.Sprintf("%s|%s", getScopeProjectNamespaceUIDTag(service, false), string(service.getNamespaceUID(obj.ObjectMeta.Namespace))),
+			fmt.Sprintf("%s|%s", getScopeNamespaceUIDTag(service, false), string(service.getNamespaceUID(obj.ObjectMeta.Namespace))),
 			"Tag", "EQUALS", "EQUALS",
 		)
 		expressions.Add(nsExpression)
@@ -915,7 +915,7 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 		service.addOperatorIfNeeded(expressions, "AND")
 		nsExpression := service.buildExpression(
 			"Condition", memberType,
-			fmt.Sprintf("%s|%s", getScopeProjectNamespaceUIDTag(service, true), string(service.getNamespaceUID(obj.ObjectMeta.Namespace))),
+			fmt.Sprintf("%s|%s", getScopeNamespaceUIDTag(service, true), string(service.getNamespaceUID(obj.ObjectMeta.Namespace))),
 			"Tag", "EQUALS", "EQUALS",
 		)
 		expressions.Add(nsExpression)
@@ -928,7 +928,7 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 		service.updateExpressionsMatchLabels(matchLabels, memberType, expressions)
 		matchLabelsCount = len(matchLabels)
 		// PodSelector or VMSelector has two more built-in labels
-		matchLabelsCount += ClusterTagCount + ProjectTagCount
+		matchLabelsCount += ClusterTagCount + NameSpaceTagCount
 
 		if matchExpressions != nil {
 			mergedMatchExpressions = service.mergeSelectorMatchExpression(*matchExpressions)
@@ -1383,7 +1383,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		if peer.NamespaceSelector == nil {
 			podExpression = service.buildExpression(
 				"Condition", memberType,
-				fmt.Sprintf("%s|%s", getScopeProjectNamespaceUIDTag(service, false), string(service.getNamespaceUID(obj.ObjectMeta.Namespace))),
+				fmt.Sprintf("%s|%s", getScopeNamespaceUIDTag(service, false), string(service.getNamespaceUID(obj.ObjectMeta.Namespace))),
 				"Tag", "EQUALS", "EQUALS")
 			mixedNsSelector = false
 		} else {
@@ -1396,7 +1396,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		matchExpressions = &peer.PodSelector.MatchExpressions
 		matchLabelsCount = len(matchLabels)
 		// PodSelector has two more built-in labels
-		matchLabelsCount += ClusterTagCount + ProjectTagCount
+		matchLabelsCount += ClusterTagCount + NameSpaceTagCount
 	}
 	if peer.VMSelector != nil {
 		service.addOperatorIfNeeded(expressions, "AND")
@@ -1412,7 +1412,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		if peer.NamespaceSelector == nil {
 			vmExpression = service.buildExpression(
 				"Condition", memberType,
-				fmt.Sprintf("%s|%s", getScopeProjectNamespaceUIDTag(service, true), string(service.getNamespaceUID(obj.ObjectMeta.Namespace))),
+				fmt.Sprintf("%s|%s", getScopeNamespaceUIDTag(service, true), string(service.getNamespaceUID(obj.ObjectMeta.Namespace))),
 				"Tag", "EQUALS", "EQUALS")
 			mixedNsSelector = false
 		} else {
@@ -1425,7 +1425,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		matchExpressions = &peer.VMSelector.MatchExpressions
 		matchLabelsCount = len(matchLabels)
 		// VMSelector has two more built-in labels
-		matchLabelsCount += ClusterTagCount + ProjectTagCount
+		matchLabelsCount += ClusterTagCount + NameSpaceTagCount
 	}
 	if peer.NamespaceSelector != nil {
 		if !mixedNsSelector {
