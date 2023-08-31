@@ -35,14 +35,17 @@ const (
 
 var (
 	String    = common.String
-	basicTags = []string{common.TagScopeNamespace, common.TagScopeNamespaceUID,
+	basicTags = []string{
+		common.TagScopeCluster, common.TagScopeVersion,
+		common.TagScopeNamespace, common.TagScopeNamespaceUID,
 		common.TagScopeStaticRouteCRName, common.TagScopeStaticRouteCRUID,
 		common.TagScopeSecurityPolicyCRName, common.TagScopeSecurityPolicyCRUID,
 		common.TagScopeSubnetCRName, common.TagScopeSubnetCRUID,
 		common.TagScopeSubnetPortCRName, common.TagScopeSubnetPortCRUID,
 		common.TagScopeVPCCRName, common.TagScopeVPCCRUID,
 		common.TagScopeIPPoolCRName, common.TagScopeIPPoolCRUID,
-		common.TagScopeSubnetSetCRName, common.TagScopeSubnetSetCRUID}
+		common.TagScopeSubnetSetCRName, common.TagScopeSubnetSetCRUID,
+	}
 	tagsScopeSet = sets.New[string]()
 )
 
@@ -343,6 +346,10 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 		{
 			Scope: String(common.TagScopeCluster),
 			Tag:   String(cluster),
+		},
+		{
+			Scope: String(common.TagScopeVersion),
+			Tag:   String(strings.Join(common.TagValueVersion, ".")),
 		},
 	}
 	switch i := obj.(type) {
