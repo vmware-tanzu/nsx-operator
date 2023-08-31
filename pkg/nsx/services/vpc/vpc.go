@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/netip"
 	"strings"
 	"sync"
 
@@ -19,7 +18,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -244,31 +242,20 @@ func (s *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc VPCNetwor
 			block := s.IpblockStore.GetByKey(key)
 			if block == nil {
 				log.Info("no ip block found in stroe for cidr", "CIDR", pCidr)
-				blockId := nc.NsxtProject + "_" + ip.String() + "_" + obj.Namespace
-				addr, _ := netip.ParseAddr(ip.String())
-				ipType := util.If(addr.Is4(), model.IpAddressBlock_IP_ADDRESS_TYPE_IPV4, model.IpAddressBlock_IP_ADDRESS_TYPE_IPV6).(string)
-				blockType := model.IpAddressBlock_VISIBILITY_PRIVATE
-				block := model.IpAddressBlock{
-					DisplayName:   &blockId,
-					Id:            &blockId,
-					Tags:          buildPrivateIPBlockTags(s.NSXConfig.Cluster, nc.NsxtProject, obj.Namespace, string(obj.UID)),
-					Cidr:          &pCidr,
-					IpAddressType: &ipType,
-					Visibility:    &blockType,
-				}
-				log.Info("creating ip block", "IPBlock", blockId, "VPC", obj.Name)
+				block := buildPrivateIpBlock(obj, pCidr, string(ip), nc.NsxtProject, s.NSXConfig.Cluster)
+				log.Info("creating ip block", "IPBlock", block.Id, "VPC", obj.Name)
 				// can not find private ip block from store, create one
-				_err := s.NSXClient.IPBlockClient.Patch(VPCDefaultOrg, nc.NsxtProject, blockId, block)
+				_err := s.NSXClient.IPBlockClient.Patch(VPCDefaultOrg, nc.NsxtProject, *block.Id, block)
 				if _err != nil {
 					message := fmt.Sprintf("failed to create private ip block for cidr %s for VPC %s", pCidr, obj.Name)
 					ipblockError := errors.New(message)
 					log.Error(ipblockError, message)
 					return nil, ipblockError
 				}
-				createdBlock, err := s.NSXClient.IPBlockClient.Get(VPCDefaultOrg, nc.NsxtProject, blockId)
+				createdBlock, err := s.NSXClient.IPBlockClient.Get(VPCDefaultOrg, nc.NsxtProject, *block.Id)
 				if err != nil {
 					// created by can not get, ignore this error
-					log.Info("failed to read ip blocks from NSX", "Project", nc.NsxtProject, "IPBlock", blockId)
+					log.Info("failed to read ip blocks from NSX", "Project", nc.NsxtProject, "IPBlock", block.Id)
 					continue
 				}
 				// update ip block store
