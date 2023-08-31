@@ -212,11 +212,12 @@ func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPoli
 	return targetTags
 }
 
+// Todo, use the uitl basic func to generate basic tags
 func (service *SecurityPolicyService) buildBasicTags(obj *v1alpha1.SecurityPolicy) []model.Tag {
 	tags := []model.Tag{
 		{
 			Scope: String(common.TagScopeVersion),
-			Tag:   String(common.TagValueVersion10),
+			Tag:   String(strings.Join(common.TagValueVersion, ".")),
 		},
 		{
 			Scope: String(common.TagScopeCluster),
@@ -1568,7 +1569,7 @@ func (service *SecurityPolicyService) buildShareTags(obj *v1alpha1.SecurityPolic
 	tags := []model.Tag{
 		{
 			Scope: String(common.TagScopeVersion),
-			Tag:   String(common.TagValueVersion10),
+			Tag:   String(strings.Join(common.TagValueVersion, ".")),
 		},
 		{
 			Scope: String(common.TagScopeCluster),
