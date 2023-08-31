@@ -23,6 +23,9 @@ var log = logger.Log
 // return error if any, return nil if no error
 func Clean(cf *config.NSXOperatorConfig) error {
 	log.Info("starting NSX cleanup")
+	if err := cf.ValidateConfigFromCmd(); err != nil {
+		return fmt.Errorf("failed to validate config: %w", err)
+	}
 	if cleanupService, err := InitializeCleanupService(cf); err != nil {
 		return fmt.Errorf("failed to initialize cleanup service: %w", err)
 	} else if cleanupService.err != nil {
