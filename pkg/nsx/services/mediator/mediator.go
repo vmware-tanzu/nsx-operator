@@ -1,7 +1,11 @@
 package mediator
 
 import (
+	"context"
+
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -63,8 +67,33 @@ func (serviceMediator *ServiceMediator) GetAvailableSubnet(subnetSet *v1alpha1.S
 			return *nsxSubnet.Path, nil
 		}
 	}
+	var tags []model.Tag
+	findLabelDefaultPodSubnetSet := false
+	for k, v := range subnetSet.Labels {
+		if k == common.LabelDefaultSubnetSet && v == common.LabelDefaultPodSubnetSet {
+			findLabelDefaultPodSubnetSet = true
+			break
+		}
+	}
+	namespace := &corev1.Namespace{}
+	namespacedName := types.NamespacedName{
+		Name: subnetSet.Namespace,
+	}
+	if err := serviceMediator.SubnetService.Client.Get(context.Background(), namespacedName, namespace); err != nil {
+		return "", err
+	}
+	namespace_uid := namespace.UID
+	if !findLabelDefaultPodSubnetSet {
+		tags = append(tags,
+			model.Tag{Scope: common.String(common.TagScopeVMNamespaceUID), Tag: common.String(string(namespace_uid))},
+			model.Tag{Scope: common.String(common.TagScopeVMNamespace), Tag: common.String(subnetSet.Namespace)})
+	} else {
+		tags = append(tags,
+			model.Tag{Scope: common.String(common.TagScopeNamespaceUID), Tag: common.String(string(namespace_uid))},
+			model.Tag{Scope: common.String(common.TagScopeNamespace), Tag: common.String(subnetSet.Namespace)})
+	}
 	log.Info("the existing subnets are not available, creating new subnet", "subnetList", subnetList, "subnetSet.Name", subnetSet.Name, "subnetSet.Namespace", subnetSet.Namespace)
-	return serviceMediator.CreateOrUpdateSubnet(subnetSet, nil)
+	return serviceMediator.CreateOrUpdateSubnet(subnetSet, tags)
 }
 
 func (serviceMediator *ServiceMediator) GetPortsOfSubnet(nsxSubnetID string) (ports []model.SegmentPort) {

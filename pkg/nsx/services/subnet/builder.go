@@ -6,9 +6,10 @@ import (
 	"github.com/google/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 )
 
 var (
@@ -85,10 +86,6 @@ func (service *SubnetService) buildBasicTags(obj client.Object) []model.Tag {
 		{
 			Scope: String(common.TagScopeSubnetCRUID),
 			Tag:   String(string(obj.GetUID())),
-		},
-		{
-			Scope: String(common.TagScopeNamespace),
-			Tag:   String(obj.GetNamespace()),
 		},
 	}
 	switch obj.(type) {
