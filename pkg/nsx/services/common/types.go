@@ -67,7 +67,11 @@ const (
 	TagValueVersion10               string = "1.0"
 	AnnotationVPCNetworkConfig      string = "nsx.vmware.com/vpc_network_config"
 	AnnotationVPCName               string = "nsx.vmware.com/vpc_name"
+	AnnotationPodMAC                string = "nsx.vmware.com/mac"
+	AnnotationPodAttachment         string = "nsx.vmware.com/attachment"
 	DefaultNetworkConfigName        string = "default"
+	TagScopePodName                 string = "nsx-op/pod_name"
+	TagScopePodUID                  string = "nsx-op/pod_uid"
 
 	GCInterval          = 60 * time.Second
 	RealizeTimeout      = 2 * time.Minute
@@ -85,9 +89,11 @@ const (
 	SubnetSetFinalizerName         = "subnetset.nsx.vmware.com/finalizer"
 	SubnetPortFinalizerName        = "subnetport.nsx.vmware.com/finalizer"
 	VPCFinalizerName               = "vpc.nsx.vmware.com/finalizer"
+	PodFinalizerName               = "pod.nsx.vmware.com/finalizer"
 
 	IndexKeySubnetID = "IndexKeySubnetID"
 	IndexKeyPathPath = "Path"
+	IndexKeyNodeName = "IndexKeyNodeName"
 )
 
 var (
@@ -114,6 +120,7 @@ var (
 	ResourceTypeSubnet            = "VpcSubnet"
 	ResourceTypeIPPool            = "IpAddressPool"
 	ResourceTypeIPPoolBlockSubnet = "IpAddressPoolBlockSubnet"
+	ResourceTypeNode              = "HostTransportNode"
 )
 
 type Service struct {

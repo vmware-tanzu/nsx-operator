@@ -12,6 +12,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ippool"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
+	sr "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
@@ -24,6 +25,9 @@ var log = logger.Log
 // return error if any, return nil if no error
 func Clean(cf *config.NSXOperatorConfig) error {
 	log.Info("starting NSX cleanup")
+	if err := cf.ValidateConfigFromCmd(); err != nil {
+		return fmt.Errorf("failed to validate config: %w", err)
+	}
 	if cleanupService, err := InitializeCleanupService(cf); err != nil {
 		return fmt.Errorf("failed to initialize cleanup service: %w", err)
 	} else if cleanupService.err != nil {
@@ -78,11 +82,18 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig) (*CleanupService, er
 		}
 	}
 
+	wrapInitializeStaticRoute := func(service common.Service) cleanupFunc {
+		return func() (cleanup, error) {
+			return sr.InitializeStaticRoute(service)
+		}
+	}
+	// TODO: initialize other CR services
 	cleanupService = cleanupService.
 		AddCleanupService(wrapInitializeSubnetService(commonService)).
 		AddCleanupService(wrapInitializeSecurityPolicy(commonService)).
 		AddCleanupService(wrapInitializeIPPool(commonService)).
-		AddCleanupService(wrapInitializeVPC(commonService))
+		AddCleanupService(wrapInitializeStaticRoute(commonService)).
+    AddCleanupService(wrapInitializeVPC(commonService))
 
 	return cleanupService, nil
 }

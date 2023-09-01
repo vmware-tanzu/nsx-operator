@@ -133,3 +133,18 @@ func (service *StaticRouteService) ListStaticRoute() []model.StaticRoutes {
 	}
 	return staticRouteSet
 }
+
+func (service *StaticRouteService) Cleanup() error {
+	staticRouteSet := service.ListStaticRoute()
+	log.Info("cleanup staticroute", "count", len(staticRouteSet))
+	for _, staticRoute := range staticRouteSet {
+		path := strings.Split(*staticRoute.Path, "/")
+		log.Info("removing staticroute", "staticroute path", *staticRoute.Path)
+		err := service.DeleteStaticRouteByPath(path[2], path[4], path[6], *staticRoute.Id)
+		if err != nil {
+			log.Error(err, "remove staticroute failed", "staticroute id", *staticRoute.Id)
+			return err
+		}
+	}
+	return nil
+}

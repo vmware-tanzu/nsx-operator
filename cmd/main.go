@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	vmv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -20,7 +21,9 @@ import (
 	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	ippool2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/ippool"
 	namespacecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/namespace"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/node"
 	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/pod"
 	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
 	staticroutecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnet"
@@ -49,6 +52,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(vmv1alpha1.AddToScheme(scheme))
 	config.AddFlags()
 
 	logf.SetLogger(logger.ZapLogger())
@@ -197,8 +201,10 @@ func main() {
 			os.Exit(1)
 		}
 
+		node.StartNodeController(mgr, commonService)
 		staticroutecontroller.StartStaticRouteController(mgr, commonService)
 		subnetport.StartSubnetPortController(mgr, commonService)
+		pod.StartPodController(mgr, commonService)
 
 		StartNamespaceController(mgr, commonService)
 		StartVPCController(mgr, commonService)
