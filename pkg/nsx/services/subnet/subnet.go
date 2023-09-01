@@ -3,6 +3,7 @@ package subnet
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 
@@ -106,8 +107,10 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, tags []mod
 		log.Error(err, "", "ns", obj.GetNamespace())
 		return "", err
 	}
-	vpcInfo, err := common.ParseVPCResourcePath(vpcList.Items[0].Status.NSXResourcePath)
+	vpc := vpcList.Items[0]
+	vpcInfo, err := common.ParseVPCResourcePath(vpc.Status.NSXResourcePath)
 	if err != nil {
+		err := fmt.Errorf("failed to parse NSX VPC path for VPC %s: %s", vpc.UID, err)
 		return "", err
 	}
 	uid := string(obj.GetUID())
