@@ -15,17 +15,22 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
+	vmv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
-
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -83,7 +88,13 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			log.Error(err, "failed to get NSX resource path from subnet", "subnetport", subnetPort)
 			return common.ResultRequeue, err
 		}
-		nsxSubnetPortState, err := r.Service.CreateOrUpdateSubnetPort(subnetPort, nsxSubnetPath, "")
+		labels, err := r.getLabelsFromVirtualMachine(ctx, subnetPort)
+		if err != nil {
+			log.Error(err, "failed to get labels from virtualmachine", "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID, "subnetPort.Spec.AttachmentRef", subnetPort.Spec.AttachmentRef)
+			return common.ResultRequeue, err
+		}
+		log.Info("got labels from virtualmachine for subnetport", "subnetPort.UID", subnetPort.UID, "virtualmachine name", subnetPort.Spec.AttachmentRef.Name, "labels", labels)
+		nsxSubnetPortState, err := r.Service.CreateOrUpdateSubnetPort(subnetPort, nsxSubnetPath, "", labels)
 		if err != nil {
 			log.Error(err, "failed to create or update NSX subnet port, would retry exponentially", "subnetport", req.NamespacedName)
 			updateFail(r, &ctx, subnetPort, &err)
@@ -144,8 +155,38 @@ func (r *SubnetPortReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: runtime.NumCPU(),
-				}).
+			}).
+		Watches(&source.Kind{Type: &vmv1alpha1.VirtualMachine{}},
+				handler.EnqueueRequestsFromMapFunc(r.vmMapFunc),
+				builder.WithPredicates(predicate.LabelChangedPredicate{})).
 		Complete(r) // TODO: watch the virtualmachine event and update the labels on NSX subnet port.
+}
+
+func (r *SubnetPortReconciler) vmMapFunc(vm client.Object) []reconcile.Request {
+	subnetPortList := &v1alpha1.SubnetPortList{}
+	var requests []reconcile.Request
+	err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+		return err != nil
+	}, func() error {
+		err := r.Client.List(context.TODO(), subnetPortList)
+		return err
+	})
+	if err != nil {
+		log.Error(err, "failed to list subnetport in VM handler")
+		return requests
+	}
+	for _, subnetPort := range subnetPortList.Items {
+		if subnetPort.Spec.AttachmentRef.Name == vm.GetName() && (subnetPort.Spec.AttachmentRef.Namespace == vm.GetNamespace() ||
+			(subnetPort.Spec.AttachmentRef.Namespace == "" && subnetPort.Namespace == vm.GetNamespace())) {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      subnetPort.Name,
+					Namespace: subnetPort.Namespace,
+				},
+			})
+		}
+	}
+	return requests
 }
 
 func StartSubnetPortController(mgr ctrl.Manager, commonService servicecommon.Service) {
@@ -378,4 +419,23 @@ func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alph
 	}
 	subnetPort.Status.LogicalSwitchID = *nsxSubnet.RealizationId
 	return nil
+}
+
+func (r *SubnetPortReconciler) getLabelsFromVirtualMachine(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (*map[string]string, error) {
+	if subnetPort.Spec.AttachmentRef.Name == "" {
+		return nil, nil
+	}
+	vm := &vmv1alpha1.VirtualMachine{}
+	namespace := subnetPort.Spec.AttachmentRef.Namespace
+	if len(namespace) == 0 {
+		namespace = subnetPort.Namespace
+	}
+	namespacedName := types.NamespacedName{
+		Name:      subnetPort.Spec.AttachmentRef.Name,
+		Namespace: namespace,
+	}
+	if err := r.Client.Get(ctx, namespacedName, vm); err != nil {
+		return nil, err
+	}
+	return &vm.ObjectMeta.Labels, nil
 }

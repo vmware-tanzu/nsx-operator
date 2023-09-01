@@ -23,6 +23,7 @@ import (
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 func NewFakeSubnetPortReconciler() *SubnetPortReconciler {
@@ -94,6 +95,17 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	assert.Equal(t, err, ret)
 
 	// CreateOrUpdateSubnetPort fails
+	patchesGetLabelsFromVirtualMachine := gomonkey.ApplyFunc((*SubnetPortReconciler).getLabelsFromVirtualMachine,
+		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort) (*map[string]string, error) {
+			return nil, nil
+		})
+	defer patchesGetLabelsFromVirtualMachine.Reset()
+	patchesVmMapFunc := gomonkey.ApplyFunc((*SubnetPortReconciler).vmMapFunc,
+		func(r *SubnetPortReconciler, vm client.Object) []reconcile.Request {
+			requests := []reconcile.Request{}
+			return requests
+		})
+	defer patchesVmMapFunc.Reset()
 	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(nil)
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
 		func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
@@ -108,7 +120,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 	defer patchesGetSubnetPathForSubnetPort.Reset()
 	patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnetPath string, contextID string) (*model.SegmentPortState, error) {
+		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnetPath string, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
 			return nil, err
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
@@ -140,7 +152,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		},
 	}
 	patchesCreateOrUpdateSubnetPort = gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnetPath string, contextID string) (*model.SegmentPortState, error) {
+		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnetPath string, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
 			return portState, nil
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
@@ -164,7 +176,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 	defer patchesDeleteSubnetPort.Reset()
 	patchesCreateOrUpdateSubnetPort = gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnetPath string, contextID string) (*model.SegmentPortState, error) {
+		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnetPath string, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
 			assert.FailNow(t, "should not be called")
 			return nil, nil
 		})
