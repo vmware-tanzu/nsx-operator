@@ -150,8 +150,8 @@ func (s *VPCService) GetVPCsByNamespace(namespace string) []model.Vpc {
 	return s.VpcStore.GetVPCsByNamespace(namespace)
 }
 
-func (service *VPCService) ListVPC() []model.Vpc {
-	vpcs := service.VpcStore.List()
+func (s *VPCService) ListVPC() []model.Vpc {
+	vpcs := s.VpcStore.List()
 	vpcSet := []model.Vpc{}
 	for _, vpc := range vpcs {
 		vpcSet = append(vpcSet, vpc.(model.Vpc))
@@ -159,13 +159,13 @@ func (service *VPCService) ListVPC() []model.Vpc {
 	return vpcSet
 }
 
-func (service *VPCService) DeleteVPC(path string) error {
+func (s *VPCService) DeleteVPC(path string) error {
 	pathInfo, err := common.ParseVPCResourcePath(path)
 	if err != nil {
 		return err
 	}
-	vpcClient := service.NSXClient.VPCClient
-	vpc := service.VpcStore.GetByKey(pathInfo.VPCID)
+	vpcClient := s.NSXClient.VPCClient
+	vpc := s.VpcStore.GetByKey(pathInfo.VPCID)
 	if vpc == nil {
 		return nil
 	}
@@ -174,7 +174,7 @@ func (service *VPCService) DeleteVPC(path string) error {
 		return err
 	}
 	vpc.MarkedForDelete = &MarkedForDelete
-	if err := service.VpcStore.Operate(vpc); err != nil {
+	if err := s.VpcStore.Operate(vpc); err != nil {
 		return err
 	}
 
@@ -182,19 +182,26 @@ func (service *VPCService) DeleteVPC(path string) error {
 	return nil
 }
 
-func (service *VPCService) DeleteIPBlock(vpc model.Vpc) error {
+func (s *VPCService) deleteIPBlock(path string) error {
+	ipblockClient := s.NSXClient.IPBlockClient
+	parts := strings.Split(path, "/")
+	log.Info("deleting private ip block", "ORG", parts[2], "Project", parts[4], "ID", parts[7])
+	if err := ipblockClient.Delete(parts[2], parts[4], parts[7]); err != nil {
+		log.Error(err, "failed to delete ip block", "Path", path)
+		return err
+	}
+	return nil
+}
+
+func (s *VPCService) DeleteIPBlockInVPC(vpc model.Vpc) error {
 	blocks := vpc.PrivateIpv4Blocks
 	if blocks == nil || len(blocks) == 0 {
 		log.Info("no private cidr list, skip deleting private ip blocks")
 		return nil
 	}
 
-	ipblockClient := service.NSXClient.IPBlockClient
 	for _, block := range blocks {
-		parts := strings.Split(block, "/")
-		log.Info("deleting private ip block", "ORG", parts[2], "Project", parts[4], "ID", parts[7])
-		if err := ipblockClient.Delete(parts[2], parts[4], parts[7]); err != nil {
-			log.Error(err, "failed to delete ip block", "Path", block)
+		if err := s.deleteIPBlock(block); err != nil {
 			return err
 		}
 		vpcCRUid := ""
@@ -205,18 +212,18 @@ func (service *VPCService) DeleteIPBlock(vpc model.Vpc) error {
 		}
 		log.V(2).Info("search ip block from store using index and path", "index", common.TagScopeVPCCRUID, "Value", vpcCRUid, "Path", block)
 		// using index vpc cr id may get multiple ipblocks, add path to filter the correct one
-		ipblock := service.IpblockStore.GetByIndex(common.IndexKeyPathPath, block)
+		ipblock := s.IpblockStore.GetByIndex(common.IndexKeyPathPath, block)
 		if ipblock != nil {
 			log.Info("deleting ip blocks", "IPBlock", ipblock)
 			ipblock.MarkedForDelete = &MarkedForDelete
-			service.IpblockStore.Operate(ipblock)
+			s.IpblockStore.Operate(ipblock)
 		}
 	}
 	log.Info("successfully deleted all ip blocks")
 	return nil
 }
 
-func (service *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc VPCNetworkConfigInfo) (map[string]string, error) {
+func (s *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc VPCNetworkConfigInfo) (map[string]string, error) {
 	// if network config contains PrivateIPV4CIDRs section, create private ip block for each cidr
 	path := map[string]string{}
 	if nc.PrivateIPv4CIDRs != nil {
@@ -234,7 +241,7 @@ func (service *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc VPC
 			// use cidr_project_ns as search key
 			key := generateIPBlockSearchKey(pCidr, string(obj.UID))
 			log.Info("using key to search from ipblock store", "Key", key)
-			block := service.IpblockStore.GetByKey(key)
+			block := s.IpblockStore.GetByKey(key)
 			if block == nil {
 				log.Info("no ip block found in stroe for cidr", "CIDR", pCidr)
 				blockId := nc.NsxtProject + "_" + ip.String() + "_" + obj.Namespace
@@ -244,28 +251,28 @@ func (service *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc VPC
 				block := model.IpAddressBlock{
 					DisplayName:   &blockId,
 					Id:            &blockId,
-					Tags:          buildPrivateIPBlockTags(service.NSXConfig.Cluster, nc.NsxtProject, obj.Namespace, string(obj.UID)),
+					Tags:          buildPrivateIPBlockTags(s.NSXConfig.Cluster, nc.NsxtProject, obj.Namespace, string(obj.UID)),
 					Cidr:          &pCidr,
 					IpAddressType: &ipType,
 					Visibility:    &blockType,
 				}
 				log.Info("creating ip block", "IPBlock", blockId, "VPC", obj.Name)
 				// can not find private ip block from store, create one
-				_err := service.NSXClient.IPBlockClient.Patch(VPCDefaultOrg, nc.NsxtProject, blockId, block)
+				_err := s.NSXClient.IPBlockClient.Patch(VPCDefaultOrg, nc.NsxtProject, blockId, block)
 				if _err != nil {
 					message := fmt.Sprintf("failed to create private ip block for cidr %s for VPC %s", pCidr, obj.Name)
 					ipblockError := errors.New(message)
 					log.Error(ipblockError, message)
 					return nil, ipblockError
 				}
-				createdBlock, err := service.NSXClient.IPBlockClient.Get(VPCDefaultOrg, nc.NsxtProject, blockId)
+				createdBlock, err := s.NSXClient.IPBlockClient.Get(VPCDefaultOrg, nc.NsxtProject, blockId)
 				if err != nil {
 					// created by can not get, ignore this error
 					log.Info("failed to read ip blocks from NSX", "Project", nc.NsxtProject, "IPBlock", blockId)
 					continue
 				}
 				// update ip block store
-				service.IpblockStore.Add(createdBlock)
+				s.IpblockStore.Add(createdBlock)
 				path[pCidr] = *createdBlock.Path
 			} else {
 				eBlock := block.(model.IpAddressBlock)
@@ -455,4 +462,25 @@ func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, error) {
 
 	s.VpcStore.Add(newVpc)
 	return &newVpc, nil
+}
+
+func (s *VPCService) Cleanup() error {
+	vpcs := s.ListVPC()
+	log.Info("cleaning up vpcs", "Count", len(vpcs))
+	for _, vpc := range vpcs {
+		if err := s.DeleteVPC(*vpc.Path); err != nil {
+			return err
+		}
+	}
+
+	ipblocks := s.IpblockStore.List()
+	log.Info("cleaning up ipblocks", "Count", len(ipblocks))
+	for _, ipblock := range ipblocks {
+		ipb := ipblock.(model.IpAddressBlock)
+		if err := s.deleteIPBlock(*ipb.Path); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

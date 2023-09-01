@@ -14,6 +14,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	sr "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
 var log = logger.Log
@@ -74,6 +75,13 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig) (*CleanupService, er
 			return ippool.InitializeIPPool(service)
 		}
 	}
+
+	wrapInitializeVPC := func(service common.Service) cleanupFunc {
+		return func() (cleanup, error) {
+			return vpc.InitializeVPC(service)
+		}
+	}
+
 	wrapInitializeStaticRoute := func(service common.Service) cleanupFunc {
 		return func() (cleanup, error) {
 			return sr.InitializeStaticRoute(service)
@@ -84,7 +92,8 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig) (*CleanupService, er
 		AddCleanupService(wrapInitializeSubnetService(commonService)).
 		AddCleanupService(wrapInitializeSecurityPolicy(commonService)).
 		AddCleanupService(wrapInitializeIPPool(commonService)).
-		AddCleanupService(wrapInitializeStaticRoute(commonService))
+		AddCleanupService(wrapInitializeStaticRoute(commonService)).
+    AddCleanupService(wrapInitializeVPC(commonService))
 
 	return cleanupService, nil
 }
