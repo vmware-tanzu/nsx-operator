@@ -315,3 +315,7 @@ func (coeConfig *CoeConfig) validate() error {
 	}
 	return nil
 }
+
+func (nsxConfig *NsxConfig) ValidateConfigFromCmd() error {
+	return nsxConfig.validate(true)
+}
