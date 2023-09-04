@@ -29,7 +29,21 @@ func init() {
 	Log = logf.Log.WithName("nsx-operator")
 }
 
-func ZapLogger() logr.Logger {
+// If debug set in configmap, set log level to 1.
+// If loglevel set in command line and greater than debug log level, set it to command line level.
+func getLogLevel(cf *config.NSXOperatorConfig) int {
+	logLevel := 0
+	if cf.DefaultConfig.Debug {
+		logLevel = 1
+	}
+	realLogLevel := logLevel
+	if config.LogLevel > logLevel {
+		realLogLevel = config.LogLevel
+	}
+	return realLogLevel
+}
+
+func ZapLogger(cf *config.NSXOperatorConfig) logr.Logger {
 	encoderConf := zapcore.EncoderConfig{
 		CallerKey:      "caller_line",
 		LevelKey:       "level_name",
@@ -55,9 +69,10 @@ func ZapLogger() logr.Logger {
 	// In level.go of zapcore, higher levels are more important.
 	// However, in logr.go, a higher verbosity level means a log message is less important.
 	// So we need to reverse the order of the levels.
-	opts.Level = zapcore.Level(-1 * config.LogLevel)
+	logLevel := getLogLevel(cf)
+	opts.Level = zapcore.Level(-1 * logLevel)
 	opts.ZapOpts = append(opts.ZapOpts, zap.AddCaller(), zap.AddCallerSkip(0))
-	if config.LogLevel > 0 {
+	if logLevel > 0 {
 		opts.StacktraceLevel = zap.ErrorLevel
 	}
 

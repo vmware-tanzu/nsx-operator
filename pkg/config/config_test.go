@@ -103,6 +103,10 @@ func TestConfig_NewNSXOperatorConfigFromFile(t *testing.T) {
 	configFilePath = "../mock/nsxop.ini"
 	_, err = NewNSXOperatorConfigFromFile()
 	assert.Equal(t, err, nil)
+
+	configFilePath = "../mock/nsxop_err.ini"
+	_, err = NewNSXOperatorConfigFromFile()
+	assert.NotNil(t, err)
 }
 
 func TestConfig_GetTokenProvider(t *testing.T) {
