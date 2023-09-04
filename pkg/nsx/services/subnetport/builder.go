@@ -13,6 +13,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -33,8 +34,8 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnetPath
 		appId = string(o.UID)
 	}
 	allocateAddresses := "BOTH"
-	nsxSubnetPortName := fmt.Sprintf("port-%s", objName)
-	nsxSubnetPortID := string(uid)
+	nsxSubnetPortName := util.GenerateDisplayName(objName, "port", "", "", "")
+	nsxSubnetPortID := util.GenerateID(uid, "", "", "")
 	// use the subnetPort CR UID as the attachment uid generation to ensure the latter stable
 	nsxCIFID, err := uuid.NewRandomFromReader(bytes.NewReader([]byte(nsxSubnetPortID)))
 	if err != nil {
@@ -52,7 +53,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnetPath
 		return nil, err
 	}
 	namespace_uid := namespace.UID
-	tags := service.buildBasicTags(obj, namespace_uid)
+	tags := util.BuildBasicTags(getCluster(service), obj, namespace_uid)
 	if labelTags != nil {
 		for k, v := range *labelTags {
 			tags = append(tags, model.Tag{Scope: String(k), Tag: String(v)})
@@ -80,60 +81,4 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnetPath
 
 func getCluster(service *SubnetPortService) string {
 	return service.NSXConfig.Cluster
-}
-
-func (service *SubnetPortService) buildBasicTags(obj interface{}, namespaceUID types.UID) []model.Tag {
-	var tags []model.Tag
-	switch o := obj.(type) {
-	case *v1alpha1.SubnetPort:
-		tags = []model.Tag{
-			{
-				Scope: String(common.TagScopeCluster),
-				Tag:   String(getCluster(service)),
-			},
-			{
-				Scope: String(common.TagScopeVMNamespace),
-				Tag:   String(o.ObjectMeta.Namespace),
-			},
-			{
-				Scope: String(common.TagScopeVMNamespaceUID),
-				Tag:   String(string(namespaceUID)),
-			},
-			{
-				Scope: String(common.TagScopeSubnetPortCRName),
-				Tag:   String(o.ObjectMeta.Name),
-			},
-			{
-				Scope: String(common.TagScopeSubnetPortCRUID),
-				Tag:   String(string(o.UID)),
-			},
-		}
-	case *corev1.Pod:
-		tags = []model.Tag{
-			{
-				Scope: String(common.TagScopeCluster),
-				Tag:   String(getCluster(service)),
-			},
-			{
-				Scope: String(common.TagScopeNamespace),
-				Tag:   String(o.ObjectMeta.Namespace),
-			},
-			{
-				Scope: String(common.TagScopeNamespaceUID),
-				Tag:   String(string(namespaceUID)),
-			},
-			{
-				Scope: String(common.TagScopePodName),
-				Tag:   String(o.ObjectMeta.Name),
-			},
-			{
-				Scope: String(common.TagScopePodUID),
-				Tag:   String(string(o.UID)),
-			},
-		}
-		for k, v := range o.ObjectMeta.Labels {
-			tags = append(tags, model.Tag{Scope: String(k), Tag: String(v)})
-		}
-	}
-	return tags
 }
