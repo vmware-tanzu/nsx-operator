@@ -30,7 +30,7 @@ func TestIPPoolService_BuildIPPool(t *testing.T) {
 	}
 
 	want := &model.IpAddressPool{
-		DisplayName: String("ipc-k8scl-one:test-uuid1-ippool1"),
+		DisplayName: String("ipc-k8scl-one:test-ippool1"),
 		Id:          String("ipc_uuid1"),
 		Tags: []model.Tag{{Scope: String("nsx-op/cluster"), Tag: String("k8scl-one:test")}, {Scope: String("nsx-op/namespace"),
 			Tag: String("")}, {Scope: String("nsx-op/ippool_cr_name"), Tag: String("ippool1")}, {Scope: String("nsx-op/ippool_cr_uid"),
@@ -38,7 +38,7 @@ func TestIPPoolService_BuildIPPool(t *testing.T) {
 	}
 
 	want2 := model.IpAddressPoolBlockSubnet{
-		DisplayName: String("ibs-ippool1-subnet1"),
+		DisplayName: String("ibs-k8scl-one:test-ippool1-subnet1"),
 		Id:          String("ibs_uuid1_subnet1"),
 		IpBlockPath: String("/infra/ip-blocks/block-test"),
 		Tags: []model.Tag{{Scope: String("nsx-op/cluster"), Tag: String("k8scl-one:test")}, {Scope: String("nsx-op/namespace"),
