@@ -92,11 +92,11 @@ func (service *SubnetPortService) buildBasicTags(obj interface{}, namespaceUID t
 				Tag:   String(getCluster(service)),
 			},
 			{
-				Scope: String(common.TagScopeNamespace),
+				Scope: String(common.TagScopeVMNamespace),
 				Tag:   String(o.ObjectMeta.Namespace),
 			},
 			{
-				Scope: String(common.TagScopeNamespaceUID),
+				Scope: String(common.TagScopeVMNamespaceUID),
 				Tag:   String(string(namespaceUID)),
 			},
 			{
