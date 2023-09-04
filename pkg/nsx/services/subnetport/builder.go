@@ -55,17 +55,17 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnetPath
 	tags := service.buildBasicTags(obj, namespace_uid)
 	if labelTags != nil {
 		for k, v := range *labelTags {
-			tags = append(tags, model.Tag{Scope: common.String(k), Tag: common.String(v)})
+			tags = append(tags, model.Tag{Scope: String(k), Tag: String(v)})
 		}
 	}
 	nsxSubnetPort := &model.SegmentPort{
-		DisplayName: common.String(nsxSubnetPortName),
-		Id:          common.String(nsxSubnetPortID),
+		DisplayName: String(nsxSubnetPortName),
+		Id:          String(nsxSubnetPortID),
 		Attachment: &model.PortAttachment{
 			AllocateAddresses: &allocateAddresses,
-			Id:                common.String(nsxCIFID.String()),
+			Id:                String(nsxCIFID.String()),
 			TrafficTag:        common.Int64(0),
-			Type_:             common.String("STATIC"),
+			Type_:             String("STATIC"),
 		},
 		Tags:       tags,
 		Path:       &nsxSubnetPortPath,
@@ -130,6 +130,9 @@ func (service *SubnetPortService) buildBasicTags(obj interface{}, namespaceUID t
 				Scope: String(common.TagScopePodUID),
 				Tag:   String(string(o.UID)),
 			},
+		}
+		for k, v := range o.ObjectMeta.Labels {
+			tags = append(tags, model.Tag{Scope: String(k), Tag: String(v)})
 		}
 	}
 	return tags
