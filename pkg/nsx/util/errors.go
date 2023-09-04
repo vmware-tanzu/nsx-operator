@@ -570,3 +570,11 @@ type RestrictionError struct {
 func (err RestrictionError) Error() string {
 	return err.Desc
 }
+
+type IPBlockAllExhaustedError struct {
+	Desc string
+}
+
+func (err IPBlockAllExhaustedError) Error() string {
+	return err.Desc
+}

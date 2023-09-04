@@ -6,9 +6,11 @@ package ippool
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"runtime"
 	"time"
 
+	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -27,6 +29,8 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ippool"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	util2 "github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -120,8 +124,6 @@ func (r *IPPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// TODO: Xiaopei's suggestions: is there possibility that IPPool was deleted from nsx store but NSX block subnet was not deleted?
 
-	// TODO: get default mode from NS NetworkConfig CR
-
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResType)
 		if !controllerutil.ContainsFinalizer(obj, servicecommon.IPPoolFinalizerName) {
@@ -134,10 +136,46 @@ func (r *IPPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			log.V(1).Info("added finalizer on ippool CR", "ippool", req.NamespacedName)
 		}
 
+		if obj.Spec.Type == "" {
+			vpcNetworkConfig := common.ServiceMediator.GetVPCNetworkConfigByNamespace(obj.Namespace)
+			if vpcNetworkConfig == nil {
+				err := fmt.Errorf("operate failed: cannot get configuration for IPPool CR")
+				log.Error(err, "failed to find VPCNetworkConfig for IPPool CR", "ippool", req.NamespacedName, "namespace %s", obj.Namespace)
+				updateFail(r, &ctx, obj, &err)
+				return resultRequeue, err
+			}
+			obj.Spec.Type = vpcNetworkConfig.DefaultSubnetAccessMode
+		}
+
 		subnetCidrUpdated, ipPoolSubnetsUpdated, err := r.Service.CreateOrUpdateIPPool(obj)
+		// check if ipblock is exhausted
+		apiErr, _ := util.DumpAPIError(err)
+		if apiErr != nil {
+			for _, apiErrItem := range apiErr.RelatedErrors {
+				// 520012=IpAddressBlock with max size does not have spare capacity to satisfy new block subnet of size
+				if *apiErrItem.ErrorCode == 520012 {
+					pathPattern := `path=\[([^\]]+)\]`
+					pathRegex := regexp.MustCompile(pathPattern)
+					pathMatch := pathRegex.FindStringSubmatch(*apiErrItem.ErrorMessage)
+					if len(pathMatch) > 1 {
+						path := pathMatch[1]
+						if !util2.Contains(r.Service.ExhaustedIPBlock, path) {
+							r.Service.ExhaustedIPBlock = append(r.Service.ExhaustedIPBlock, path)
+							log.Info("ExhaustedIPBlock: ", "ExhaustedIPBlock", r.Service.ExhaustedIPBlock)
+						}
+					}
+				}
+			}
+		}
+
 		if err != nil {
-			log.Error(err, "operate failed, would retry exponentially", "ippool", req.NamespacedName)
 			updateFail(r, &ctx, obj, &err)
+			// if all ip blocks are exhausted, we should not retry
+			if errors.As(err, &util.IPBlockAllExhaustedError{}) {
+				log.Error(err, "ip blocks are all exhausted, would not retry", "ippool", req.NamespacedName)
+				return resultNormal, nil
+			}
+			log.Error(err, "operate failed, would retry exponentially", "ippool", req.NamespacedName)
 			return resultRequeue, err
 		}
 		if !r.Service.FullyRealized(obj) {

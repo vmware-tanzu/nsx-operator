@@ -74,10 +74,10 @@ const (
 	RealizeTimeout      = 2 * time.Minute
 	RealizeMaxRetries   = 3
 	IPPoolFinalizerName = "ippool.nsx.vmware.com/finalizer"
-	IPPoolTypePublic    = "public"
-	IPPoolTypePrivate   = "private"
 	DefaultSNATID       = "DEFAULT"
 	AVISubnetLBID       = "_AVI_SUBNET--LB"
+	IPPoolTypePublic    = "Public"
+	IPPoolTypePrivate   = "Private"
 
 	SecurityPolicyFinalizerName    = "securitypolicy.nsx.vmware.com/finalizer"
 	StaticRouteFinalizerName       = "staticroute.nsx.vmware.com/finalizer"
