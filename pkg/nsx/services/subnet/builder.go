@@ -9,12 +9,18 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
 	String = common.String
 	Int64  = common.Int64
 	Bool   = common.Bool
+)
+
+const (
+	SubnetTypeSubnet    = "subnet"
+	SubnetTypeSubnetSet = "subnetset"
 )
 
 func getCluster(service *SubnetService) string {
@@ -29,7 +35,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 	case *v1alpha1.Subnet:
 		nsxSubnet = &model.VpcSubnet{
 			Id:          String(string(o.GetUID())),
-			AccessMode:  String(string(o.Spec.AccessMode)),
+			AccessMode:  String(util.Capitalize(string(o.Spec.AccessMode))),
 			DhcpConfig:  service.buildDHCPConfig(int64(o.Spec.IPv4SubnetSize - 4)),
 			DisplayName: String(fmt.Sprintf("%s-%s", obj.GetNamespace(), obj.GetName())),
 		}
@@ -38,7 +44,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 		index := uuid.NewString()
 		nsxSubnet = &model.VpcSubnet{
 			Id:          String(fmt.Sprintf("%s-%s", string(o.GetUID()), index)),
-			AccessMode:  String(string(o.Spec.AccessMode)),
+			AccessMode:  String(util.Capitalize(string(o.Spec.AccessMode))),
 			DhcpConfig:  service.buildDHCPConfig(int64(o.Spec.IPv4SubnetSize - 4)),
 			DisplayName: String(fmt.Sprintf("%s-%s-%s", obj.GetNamespace(), obj.GetName(), index)),
 		}
@@ -91,7 +97,7 @@ func (service *SubnetService) buildBasicTags(obj client.Object) []model.Tag {
 	case *v1alpha1.Subnet:
 		tags = append(tags, model.Tag{
 			Scope: String(common.TagScopeSubnetCRType),
-			Tag:   String("subnet"),
+			Tag:   String(SubnetTypeSubnet),
 		}, model.Tag{
 			Scope: String(common.TagScopeSubnetCRName),
 			Tag:   String(obj.GetName()),
@@ -99,7 +105,7 @@ func (service *SubnetService) buildBasicTags(obj client.Object) []model.Tag {
 	case *v1alpha1.SubnetSet:
 		tags = append(tags, model.Tag{
 			Scope: String(common.TagScopeSubnetCRType),
-			Tag:   String("subnetset"),
+			Tag:   String(SubnetTypeSubnetSet),
 		}, model.Tag{
 			Scope: String(common.TagScopeSubnetSetCRName),
 			Tag:   String(obj.GetName()),

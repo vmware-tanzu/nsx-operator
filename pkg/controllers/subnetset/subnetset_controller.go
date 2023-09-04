@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -79,6 +80,24 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				return ResultRequeue, err
 			}
 			log.V(1).Info("added finalizer on subnetset CR", "subnetset", req.NamespacedName)
+		}
+
+		// update subnetset tags if labels of namespace changed
+		nsxSubnets := r.Service.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetCRType, subnet.SubnetTypeSubnetSet)
+		if len(nsxSubnets) > 0 {
+			nsObj := &v1.Namespace{}
+			if err := r.Client.Get(ctx, client.ObjectKey{Name: obj.Namespace}, nsObj); err != nil {
+				err = fmt.Errorf("unable to fetch namespace %s", obj.Namespace)
+				log.Error(err, "")
+				return ResultRequeue, err
+			}
+			var tags []model.Tag
+			for k, v := range nsObj.Labels {
+				tags = append(tags, model.Tag{Scope: servicecommon.String(k), Tag: servicecommon.String(v)})
+			}
+			if err := r.Service.UpdateSubnetSetTags(obj.Namespace, nsxSubnets, tags); err != nil {
+				log.Error(err, "failed to update subnetset tags")
+			}
 		}
 		updateSuccess(r, &ctx, obj)
 	} else {
@@ -201,6 +220,11 @@ func (r *SubnetSetReconciler) setupWithManager(mgr ctrl.Manager) error {
 			&source.Kind{Type: &v1alpha1.SubnetPort{}},
 			&SubnetPortHandler{Reconciler: r},
 			builder.WithPredicates(SubnetPortPredicate)).
+		Watches(
+			&source.Kind{Type: &v1.Namespace{}},
+			&EnqueueRequestForNamespace{Client: mgr.GetClient()},
+			builder.WithPredicates(PredicateFuncsNs),
+		).
 		Complete(r)
 }
 
