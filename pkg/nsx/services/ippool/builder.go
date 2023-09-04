@@ -18,7 +18,8 @@ var (
 )
 
 const (
-	IPPOOLPREFIX = "ipc"
+	IPPOOLPREFIX       = "ipc"
+	IPPOOLSUBNETPREFIX = "ibs"
 )
 
 func (service *IPPoolService) BuildIPPool(IPPool *v1alpha2.IPPool) (*model.IpAddressPool, []*model.IpAddressPoolBlockSubnet) {
@@ -30,21 +31,19 @@ func (service *IPPoolService) BuildIPPool(IPPool *v1alpha2.IPPool) (*model.IpAdd
 }
 
 func (service *IPPoolService) buildIPPoolID(IPPool *v1alpha2.IPPool) string {
-	return strings.Join([]string{IPPOOLPREFIX, string(IPPool.UID)}, "_")
+	return util.GenerateID(string(IPPool.UID), IPPOOLPREFIX, "", "")
 }
 
 func (service *IPPoolService) buildIPPoolName(IPPool *v1alpha2.IPPool) string {
-	return strings.Join([]string{IPPOOLPREFIX, getCluster(service), string(IPPool.UID), IPPool.ObjectMeta.Name}, "-")
+	return util.GenerateDisplayName(IPPool.ObjectMeta.Name, IPPOOLPREFIX, "", "", getCluster(service))
 }
 
 func (service *IPPoolService) buildIPPoolTags(IPPool *v1alpha2.IPPool) []model.Tag {
-	return []model.Tag{
-		{Scope: String(common.TagScopeCluster), Tag: String(getCluster(service))},
-		{Scope: String(common.TagScopeNamespace), Tag: String(IPPool.ObjectMeta.Namespace)},
-		{Scope: String(common.TagScopeIPPoolCRName), Tag: String(IPPool.ObjectMeta.Name)},
-		{Scope: String(common.TagScopeIPPoolCRUID), Tag: String(string(IPPool.UID))},
-		{Scope: String(common.TagScopeIPPoolCRType), Tag: String(IPPool.Spec.Type)},
-	}
+	basicTags := util.BuildBasicTags(getCluster(service), IPPool, "")
+	tags := util.AppendTags(basicTags, []model.Tag{
+		{Scope: String(common.TagScopeIPPoolCRType), Tag: String(IPPool.Spec.Type)}},
+	)
+	return tags
 }
 
 func (service *IPPoolService) buildIPSubnets(IPPool *v1alpha2.IPPool) []*model.IpAddressPoolBlockSubnet {
@@ -59,21 +58,19 @@ func (service *IPPoolService) buildIPSubnets(IPPool *v1alpha2.IPPool) []*model.I
 }
 
 func (service *IPPoolService) buildIPSubnetID(IPPool *v1alpha2.IPPool, subnetRequest *v1alpha2.SubnetRequest) string {
-	return strings.Join([]string{"ibs", string(IPPool.UID), subnetRequest.Name}, "_")
+	return util.GenerateID(string(IPPool.UID), IPPOOLSUBNETPREFIX, subnetRequest.Name, "")
 }
 
 func (service *IPPoolService) buildIPSubnetName(IPPool *v1alpha2.IPPool, subnetRequest *v1alpha2.SubnetRequest) string {
-	return strings.Join([]string{"ibs", IPPool.Name, subnetRequest.Name}, "-")
+	return util.GenerateDisplayName(IPPool.ObjectMeta.Name, IPPOOLSUBNETPREFIX, subnetRequest.Name, "", getCluster(service))
 }
 
 func (service *IPPoolService) buildIPSubnetTags(IPPool *v1alpha2.IPPool, subnetRequest *v1alpha2.SubnetRequest) []model.Tag {
-	return []model.Tag{
-		{Scope: String(common.TagScopeCluster), Tag: String(getCluster(service))},
-		{Scope: String(common.TagScopeNamespace), Tag: String(IPPool.ObjectMeta.Namespace)},
-		{Scope: String(common.TagScopeIPPoolCRName), Tag: String(IPPool.ObjectMeta.Name)},
-		{Scope: String(common.TagScopeIPPoolCRUID), Tag: String(string(IPPool.UID))},
-		{Scope: String(common.TagScopeIPSubnetName), Tag: String(subnetRequest.Name)},
-	}
+	basicTags := util.BuildBasicTags(getCluster(service), IPPool, "")
+	tags := util.AppendTags(basicTags, []model.Tag{
+		{Scope: String(common.TagScopeIPSubnetName), Tag: String(subnetRequest.Name)}},
+	)
+	return tags
 }
 
 func (service *IPPoolService) buildIPSubnetIntentPath(IPPool *v1alpha2.IPPool, subnetRequest *v1alpha2.SubnetRequest) string {
