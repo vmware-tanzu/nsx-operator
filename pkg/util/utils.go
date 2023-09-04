@@ -25,8 +25,12 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
-const wcpSystemResource = "vmware-system-shared-t1"
-const HashLength int = 8
+const (
+	wcpSystemResource       = "vmware-system-shared-t1"
+	HashLength          int = 8
+	SubnetTypeSubnet        = "subnet"
+	SubnetTypeSubnetSet     = "subnetset"
+)
 
 var (
 	String    = common.String
@@ -350,9 +354,13 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSecurityPolicyCRName), Tag: String(i.ObjectMeta.Name)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSecurityPolicyCRUID), Tag: String(string(i.UID))})
 	case *v1alpha1.Subnet:
-		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetCRName), Tag: String(i.ObjectMeta.Name)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetCRUID), Tag: String(string(i.UID))})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetCRType), Tag: String(SubnetTypeSubnet)})
+	case *v1alpha1.SubnetSet:
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetSetCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetSetCRUID), Tag: String(string(i.UID))})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetCRType), Tag: String(SubnetTypeSubnetSet)})
 	case *v1alpha1.SubnetPort:
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetPortCRName), Tag: String(i.ObjectMeta.Name)})
@@ -365,10 +373,6 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeIPPoolCRName), Tag: String(i.ObjectMeta.Name)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeIPPoolCRUID), Tag: String(string(i.UID))})
-	case *v1alpha1.SubnetSet:
-		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
-		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetSetCRName), Tag: String(i.ObjectMeta.Name)})
-		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetSetCRUID), Tag: String(string(i.UID))})
 	default:
 		log.Info("unknown obj type", "obj", obj)
 	}
