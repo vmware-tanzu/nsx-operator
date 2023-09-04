@@ -1,8 +1,6 @@
 package subnet
 
 import (
-	"fmt"
-
 	"github.com/google/uuid"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -19,34 +17,49 @@ var (
 )
 
 const (
-	SubnetTypeSubnet    = "subnet"
-	SubnetTypeSubnetSet = "subnetset"
+	SUBNETPREFIX = "sub"
 )
 
 func getCluster(service *SubnetService) string {
 	return service.NSXConfig.Cluster
 }
 
+func (service *SubnetService) buildSubnetID(subnet *v1alpha1.Subnet) string {
+	return util.GenerateID(string(subnet.UID), SUBNETPREFIX, "", "")
+}
+
+func (service *SubnetService) buildSubnetSetID(subnetset *v1alpha1.SubnetSet, index string) string {
+	return util.GenerateID(string(subnetset.UID), SUBNETPREFIX, "", index)
+}
+
+func (service *SubnetService) buildSubnetName(subnet *v1alpha1.Subnet) string {
+	return util.GenerateDisplayName(subnet.ObjectMeta.Name, SUBNETPREFIX, "", "", getCluster(service))
+}
+
+func (service *SubnetService) buildSubnetSetName(subnetset *v1alpha1.SubnetSet, index string) string {
+	return util.GenerateDisplayName(subnetset.ObjectMeta.Name, SUBNETPREFIX, index, "", getCluster(service))
+}
+
 func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (*model.VpcSubnet, error) {
-	tags = append(tags, service.buildBasicTags(obj)...)
+	tags = util.AppendTags(tags, service.buildBasicTags(obj))
 	var nsxSubnet *model.VpcSubnet
 	var staticIpAllocation bool
 	switch o := obj.(type) {
 	case *v1alpha1.Subnet:
 		nsxSubnet = &model.VpcSubnet{
-			Id:          String(string(o.GetUID())),
+			Id:          String(service.buildSubnetID(o)),
 			AccessMode:  String(util.Capitalize(string(o.Spec.AccessMode))),
 			DhcpConfig:  service.buildDHCPConfig(int64(o.Spec.IPv4SubnetSize - 4)),
-			DisplayName: String(fmt.Sprintf("%s-%s", obj.GetNamespace(), obj.GetName())),
+			DisplayName: String(service.buildSubnetName(o)),
 		}
 		staticIpAllocation = o.Spec.AdvancedConfig.StaticIPAllocation.Enable
 	case *v1alpha1.SubnetSet:
 		index := uuid.NewString()
 		nsxSubnet = &model.VpcSubnet{
-			Id:          String(fmt.Sprintf("%s-%s", string(o.GetUID()), index)),
+			Id:          String(service.buildSubnetSetID(o, index)),
 			AccessMode:  String(util.Capitalize(string(o.Spec.AccessMode))),
 			DhcpConfig:  service.buildDHCPConfig(int64(o.Spec.IPv4SubnetSize - 4)),
-			DisplayName: String(fmt.Sprintf("%s-%s-%s", obj.GetNamespace(), obj.GetName(), index)),
+			DisplayName: String(service.buildSubnetSetName(o, index)),
 		}
 		staticIpAllocation = o.Spec.AdvancedConfig.StaticIPAllocation.Enable
 	default:
@@ -83,39 +96,5 @@ func (service *SubnetService) buildDNSClientConfig(obj *v1alpha1.DNSClientConfig
 }
 
 func (service *SubnetService) buildBasicTags(obj client.Object) []model.Tag {
-	tags := []model.Tag{
-		{
-			Scope: String(common.TagScopeCluster),
-			Tag:   String(getCluster(service)),
-		},
-		{
-			Scope: String(common.TagScopeSubnetCRUID),
-			Tag:   String(string(obj.GetUID())),
-		},
-	}
-	switch obj.(type) {
-	case *v1alpha1.Subnet:
-		tags = append(tags, model.Tag{
-			Scope: String(common.TagScopeSubnetCRType),
-			Tag:   String(SubnetTypeSubnet),
-		}, model.Tag{
-			Scope: String(common.TagScopeSubnetCRName),
-			Tag:   String(obj.GetName()),
-		})
-	case *v1alpha1.SubnetSet:
-		tags = append(tags, model.Tag{
-			Scope: String(common.TagScopeSubnetCRType),
-			Tag:   String(SubnetTypeSubnetSet),
-		}, model.Tag{
-			Scope: String(common.TagScopeSubnetSetCRName),
-			Tag:   String(obj.GetName()),
-		}, model.Tag{
-			Scope: String(common.TagScopeSubnetSetCRUID),
-			Tag:   String(string(obj.GetUID())),
-		})
-	default:
-		log.Error(SubnetTypeError, "unsupported type when building NSX Subnet tags")
-		return nil
-	}
-	return tags
+	return util.BuildBasicTags(getCluster(service), obj, "")
 }

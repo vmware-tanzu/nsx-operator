@@ -26,6 +26,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -83,7 +84,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 
 		// update subnetset tags if labels of namespace changed
-		nsxSubnets := r.Service.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetCRType, subnet.SubnetTypeSubnetSet)
+		nsxSubnets := r.Service.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetCRType, util.SubnetTypeSubnetSet)
 		if len(nsxSubnets) > 0 {
 			nsObj := &v1.Namespace{}
 			if err := r.Client.Get(ctx, client.ObjectKey{Name: obj.Namespace}, nsObj); err != nil {
