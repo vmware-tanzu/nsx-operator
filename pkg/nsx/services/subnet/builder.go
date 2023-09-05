@@ -33,11 +33,11 @@ func (service *SubnetService) buildSubnetSetID(subnetset *v1alpha1.SubnetSet, in
 }
 
 func (service *SubnetService) buildSubnetName(subnet *v1alpha1.Subnet) string {
-	return util.GenerateDisplayName(subnet.ObjectMeta.Name, SUBNETPREFIX, "", "", getCluster(service))
+	return util.GenerateTruncName(common.MaxSubnetNameLength, subnet.ObjectMeta.Name, SUBNETPREFIX, "", "", getCluster(service))
 }
 
 func (service *SubnetService) buildSubnetSetName(subnetset *v1alpha1.SubnetSet, index string) string {
-	return util.GenerateDisplayName(subnetset.ObjectMeta.Name, SUBNETPREFIX, index, "", getCluster(service))
+	return util.GenerateTruncName(common.MaxSubnetNameLength, subnetset.ObjectMeta.Name, SUBNETPREFIX, index, "", getCluster(service))
 }
 
 func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (*model.VpcSubnet, error) {
