@@ -250,3 +250,17 @@ func (service *SubnetPortService) GetSubnetPathForSubnetPortFromStore(nsxSubnetP
 	}
 	return *existingSubnetPort.ParentPath
 }
+
+func (service *SubnetPortService) Cleanup() error {
+	subnetPorts := service.SubnetPortStore.List()
+	log.Info("cleanup subnetports", "count", len(subnetPorts))
+	for _, subnetPort := range subnetPorts {
+		subnetPortID := types.UID(*subnetPort.(model.SegmentPort).Id)
+		err := service.DeleteSubnetPort(subnetPortID)
+		if err != nil {
+			log.Error(err, "cleanup subnetport failed", "subnetPortID", subnetPortID)
+			return err
+		}
+	}
+	return nil
+}
