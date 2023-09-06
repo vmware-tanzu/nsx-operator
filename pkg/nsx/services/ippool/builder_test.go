@@ -2,6 +2,7 @@ package ippool
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/agiledragon/gomonkey"
@@ -38,22 +39,35 @@ func TestIPPoolService_BuildIPPool(t *testing.T) {
 	want := &model.IpAddressPool{
 		DisplayName: String("ipc-k8scl-one:test-ippool1"),
 		Id:          String("ipc_uuid1"),
-		Tags: []model.Tag{{Scope: String("nsx-op/cluster"), Tag: String("k8scl-one:test")}, {Scope: String("nsx-op/namespace"),
-			Tag: String("")}, {Scope: String("nsx-op/ippool_cr_name"), Tag: String("ippool1")}, {Scope: String("nsx-op/ippool_cr_uid"),
-			Tag: String("uuid1")}, {Scope: String("nsx-op/ippool_cr_type"), Tag: String("public")}},
+		Tags: []model.Tag{
+			{Scope: String("nsx-op/cluster"), Tag: String("k8scl-one:test")},
+			{Scope: String("nsx-op/version"), Tag: String(strings.Join(common.TagValueVersion, "."))},
+			{Scope: String("nsx-op/namespace"), Tag: String("")},
+			{Scope: String("nsx-op/ippool_cr_name"), Tag: String("ippool1")},
+			{
+				Scope: String("nsx-op/ippool_cr_uid"),
+				Tag:   String("uuid1"),
+			},
+			{Scope: String("nsx-op/ippool_cr_type"), Tag: String("public")},
+		},
 	}
 
 	want2 := model.IpAddressPoolBlockSubnet{
 		DisplayName: String("ibs-k8scl-one:test-ippool1-subnet1"),
 		Id:          String("ibs_uuid1_subnet1"),
 		IpBlockPath: String("/infra/ip-blocks/block-test"),
-		Tags: []model.Tag{{Scope: String("nsx-op/cluster"), Tag: String("k8scl-one:test")}, {Scope: String("nsx-op/namespace"),
-			Tag: String("")}, {Scope: String("nsx-op/ippool_cr_name"), Tag: String("ippool1")}, {Scope: String("nsx-op/ippool_cr_uid"),
-			Tag: String("uuid1")}, {Scope: String("nsx-op/ipsubnet_cr_name"), Tag: String("subnet1")}},
+		Tags: []model.Tag{
+			{Scope: String("nsx-op/cluster"), Tag: String("k8scl-one:test")},
+			{Scope: String("nsx-op/version"), Tag: String(strings.Join(common.TagValueVersion, "."))},
+			{Scope: String("nsx-op/namespace"), Tag: String("")},
+			{Scope: String("nsx-op/ippool_cr_name"), Tag: String("ippool1")},
+			{Scope: String("nsx-op/ippool_cr_uid"), Tag: String("uuid1")},
+			{Scope: String("nsx-op/ipsubnet_cr_name"), Tag: String("subnet1")},
+		},
 		Size: Int64(256),
 	}
 
-	var vpcinfolist = []model.Vpc{
+	vpcinfolist := []model.Vpc{
 		{ExternalIpv4Blocks: []string{"/infra/ip-blocks/block-test"}},
 	}
 	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
@@ -64,7 +78,8 @@ func TestIPPoolService_BuildIPPool(t *testing.T) {
 	vpcStore := &vpc.VPCStore{ResourceStore: resourceStore}
 	commonctl.ServiceMediator.VPCService = &vpc.VPCService{VpcStore: vpcStore}
 	patch := gomonkey.ApplyMethod(reflect.TypeOf(vpcStore), "GetVPCsByNamespace", func(vpcStore *vpc.VPCStore,
-		ns string) []model.Vpc {
+		ns string,
+	) []model.Vpc {
 		return vpcinfolist
 	})
 	defer patch.Reset()

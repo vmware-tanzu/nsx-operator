@@ -62,7 +62,6 @@ const (
 	TagValueGroupScope              string = "scope"
 	TagValueGroupSrc                string = "source"
 	TagValueGroupDst                string = "destination"
-	TagValueVersion10               string = "1.0"
 	AnnotationVPCNetworkConfig      string = "nsx.vmware.com/vpc_network_config"
 	AnnotationVPCName               string = "nsx.vmware.com/vpc_name"
 	AnnotationPodMAC                string = "nsx.vmware.com/mac"
@@ -70,6 +69,9 @@ const (
 	DefaultNetworkConfigName        string = "default"
 	TagScopePodName                 string = "nsx-op/pod_name"
 	TagScopePodUID                  string = "nsx-op/pod_uid"
+	ValueMajorVersion               string = "1"
+	ValueMinorVersion               string = "0"
+	ValuePatchVersion               string = "0"
 
 	GCInterval          = 60 * time.Second
 	RealizeTimeout      = 2 * time.Minute
@@ -93,6 +95,8 @@ const (
 	IndexKeyPathPath = "Path"
 	IndexKeyNodeName = "IndexKeyNodeName"
 )
+
+var TagValueVersion = []string{ValueMajorVersion, ValueMinorVersion, ValuePatchVersion}
 
 var (
 	ResourceType                    = "resource_type"

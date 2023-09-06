@@ -5,6 +5,7 @@ package securitypolicy
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -57,7 +58,7 @@ var (
 	nsxDirectionOut              = "OUT"
 	nsxActionDrop                = "DROP"
 	cluster                      = "k8scl-one"
-	tagValueVersion              = common.TagValueVersion10
+	tagValueVersion              = strings.Join(common.TagValueVersion, ".")
 	tagValueGroupScope           = common.TagValueGroupScope
 	tagValueGroupSource          = common.TagValueGroupSrc
 	tagValueNS                   = "ns1"
