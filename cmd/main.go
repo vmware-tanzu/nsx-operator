@@ -19,25 +19,21 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
-	ippool2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/ippool"
-	namespacecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/namespace"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/ippool"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/namespace"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/node"
-	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/pod"
-	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
-	staticroutecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/staticroute"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetset"
-	vpccontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/vpc"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/vpc"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ippool"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
 var (
@@ -77,89 +73,6 @@ func init() {
 	}
 }
 
-func StartSecurityPolicyController(mgr ctrl.Manager, commonService common.Service) {
-	securityReconcile := &securitypolicycontroller.SecurityPolicyReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}
-	if securityService, err := securitypolicy.InitializeSecurityPolicy(commonService); err != nil {
-		log.Error(err, "failed to initialize securitypolicy commonService", "controller", "SecurityPolicy")
-		os.Exit(1)
-	} else {
-		securityReconcile.Service = securityService
-	}
-	if err := securityReconcile.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "SecurityPolicy")
-		os.Exit(1)
-	}
-}
-
-func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Service) {
-	log.Info("starting NSXServiceAccountController")
-	nsxServiceAccountReconcile := &nsxserviceaccountcontroller.NSXServiceAccountReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}
-	if nsxServiceAccountService, err := nsxserviceaccount.InitializeNSXServiceAccount(commonService); err != nil {
-		log.Error(err, "failed to initialize service", "controller", "NSXServiceAccount")
-		os.Exit(1)
-	} else {
-		nsxServiceAccountReconcile.Service = nsxServiceAccountService
-	}
-	if err := nsxServiceAccountReconcile.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "NSXServiceAccount")
-		os.Exit(1)
-	}
-}
-
-func StartIPPoolController(mgr ctrl.Manager, commonService common.Service) {
-	ippoolReconcile := &ippool2.IPPoolReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}
-	if ipPoolService, err := ippool.InitializeIPPool(commonService); err != nil {
-		log.Error(err, "failed to initialize ippool commonService", "controller", "IPPool")
-		os.Exit(1)
-	} else {
-		ippoolReconcile.Service = ipPoolService
-	}
-	if err := ippoolReconcile.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "IPPool")
-		os.Exit(1)
-	}
-}
-
-func StartVPCController(mgr ctrl.Manager, commonService common.Service) {
-	vpcReconciler := &vpccontroller.VPCReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}
-	if vpcService, err := vpc.InitializeVPC(commonService); err != nil {
-		log.Error(err, "failed to initialize vpc commonService", "controller", "VPC")
-		os.Exit(1)
-	} else {
-		vpcReconciler.Service = vpcService
-		commonctl.ServiceMediator.VPCService = vpcService
-	}
-	if err := vpcReconciler.Start(mgr); err != nil {
-		log.Error(err, "failed to create vpc controller", "controller", "VPC")
-		os.Exit(1)
-	}
-}
-
-func StartNamespaceController(mgr ctrl.Manager, commonService common.Service) {
-	nsReconciler := &namespacecontroller.NamespaceReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		NSXConfig: commonService.NSXConfig,
-	}
-
-	if err := nsReconciler.Start(mgr); err != nil {
-		log.Error(err, "failed to create namespace controller", "controller", "Namespace")
-		os.Exit(1)
-	}
-}
-
 func main() {
 	log.Info("starting NSX Operator")
 
@@ -190,33 +103,45 @@ func main() {
 		NSXConfig: cf,
 	}
 
+	vpcReconciler := &vpc.VPCReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}
+	nsxServiceAccountReconcile := &nsxserviceaccount.NSXServiceAccountReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}
+	ippoolReconcile := &ippool.IPPoolReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}
+	nsReconciler := &namespace.NamespaceReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), NSXConfig: commonService.NSXConfig}
+	securityReconcile := &securitypolicy.SecurityPolicyReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}
+	subnetReconciler := &subnet.SubnetReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}
+	subnetsetReconciler := &subnetset.SubnetSetReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}
+	nodePortReconciler := &node.NodeReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}
+	staticRouteReconcile := &staticroute.StaticRouteReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}
+	subnetPortReconciler := &subnetport.SubnetPortReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}
+	podPortReconciler := &pod.PodReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}
+
+	vpcCtrls := []commonctl.Ctrl{
+		subnetPortReconciler,
+		subnetReconciler,
+		subnetsetReconciler,
+		nodePortReconciler,
+		staticRouteReconcile,
+		podPortReconciler,
+		nsReconciler,
+		ippoolReconcile,
+		vpcReconciler,
+	}
+
 	if cf.CoeConfig.EnableVPCNetwork && commonService.NSXClient.NSXCheckVersion(nsx.VPC) {
 		log.V(1).Info("VPC mode enabled")
 		// Start controllers which only supports VPC
 		// Start subnet/subnetset controller.
-		if err := subnet.StartSubnetController(mgr, commonService); err != nil {
-			os.Exit(1)
+		for _, ctr := range vpcCtrls {
+			ctr.StartController(mgr, commonService)
 		}
-		if err := subnetset.StartSubnetSetController(mgr, commonService); err != nil {
-			os.Exit(1)
-		}
-
-		node.StartNodeController(mgr, commonService)
-		staticroutecontroller.StartStaticRouteController(mgr, commonService)
-		subnetport.StartSubnetPortController(mgr, commonService)
-		pod.StartPodController(mgr, commonService)
-
-		StartNamespaceController(mgr, commonService)
-		StartVPCController(mgr, commonService)
-		StartIPPoolController(mgr, commonService)
 	}
 
 	// Start the security policy controller.
-	StartSecurityPolicyController(mgr, commonService)
+	securityReconcile.StartController(mgr, commonService)
 
 	// Start the NSXServiceAccount controller.
 	if cf.EnableAntreaNSXInterworking {
-		StartNSXServiceAccountController(mgr, commonService)
+		nsxServiceAccountReconcile.StartController(mgr, commonService)
 	}
 
 	if metrics.AreMetricsExposed(cf) {

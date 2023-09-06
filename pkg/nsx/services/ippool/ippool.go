@@ -33,7 +33,7 @@ type IPPoolService struct {
 	ExhaustedIPBlock       []string
 }
 
-func InitializeIPPool(service common.Service) (*IPPoolService, error) {
+func Initialize(service common.Service) (*IPPoolService, error) {
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)

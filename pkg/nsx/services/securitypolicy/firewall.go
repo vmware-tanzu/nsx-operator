@@ -37,8 +37,8 @@ type ProjectShare struct {
 	share      *model.Share
 }
 
-// InitializeSecurityPolicy sync NSX resources
-func InitializeSecurityPolicy(service common.Service) (*SecurityPolicyService, error) {
+// Initialize sync NSX resources
+func Initialize(service common.Service) (*SecurityPolicyService, error) {
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)

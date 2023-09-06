@@ -5,6 +5,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/mediator"
 )
 
@@ -35,3 +36,7 @@ var (
 
 	ServiceMediator = mediator.ServiceMediator{}
 )
+
+type Ctrl interface {
+	StartController(mgr ctrl.Manager, commonService servicecommon.Service)
+}

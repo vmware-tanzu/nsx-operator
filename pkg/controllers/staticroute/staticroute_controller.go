@@ -256,18 +256,14 @@ func (r *StaticRouteReconciler) GarbageCollector(cancel chan bool, timeout time.
 	}
 }
 
-func StartStaticRouteController(mgr ctrl.Manager, commonService commonservice.Service) {
-	staticRouteReconcile := StaticRouteReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}
+func (r *StaticRouteReconciler) StartController(mgr ctrl.Manager, commonService commonservice.Service) {
 	if staticRouteService, err := staticroute.InitializeStaticRoute(commonService); err != nil {
 		log.Error(err, "failed to initialize staticroute commonService", "controller", "StaticRoute")
 		os.Exit(1)
 	} else {
-		staticRouteReconcile.Service = staticRouteService
+		r.Service = staticRouteService
 	}
-	if err := staticRouteReconcile.Start(mgr); err != nil {
+	if err := r.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "StaticRoute")
 		os.Exit(1)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"runtime"
 	"time"
@@ -276,18 +277,13 @@ func (r *SubnetReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func StartSubnetController(mgr ctrl.Manager, commonService servicecommon.Service) error {
-	subnetReconciler := &SubnetReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}
-	subnetReconciler.Service = subnet.GetSubnetService(commonService)
-	common.ServiceMediator.SubnetService = subnetReconciler.Service
-	if err := subnetReconciler.Start(mgr); err != nil {
+func (r *SubnetReconciler) StartController(mgr ctrl.Manager, commonService servicecommon.Service) {
+	r.Service = subnet.GetSubnetService(commonService)
+	common.ServiceMediator.SubnetService = r.Service
+	if err := r.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "Subnet")
-		return err
+		os.Exit(1)
 	}
-	return nil
 }
 
 // Start setup manager
