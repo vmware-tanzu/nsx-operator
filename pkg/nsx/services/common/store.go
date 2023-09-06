@@ -160,6 +160,7 @@ func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors ch
 		pathUnescape, _ := url.PathUnescape("path%3A")
 		queryParam += " AND " + pathUnescape + path
 	}
+	queryParam += " AND marked_for_delete:false"
 
 	var cursor *string = nil
 	count := uint64(0)
