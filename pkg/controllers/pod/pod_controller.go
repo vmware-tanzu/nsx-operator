@@ -86,7 +86,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			return common.ResultRequeue, err
 		}
 		contextID := *node.Id
-		nsxSubnetPortState, err := r.Service.CreateOrUpdateSubnetPort(pod, nsxSubnetPath, contextID, nil)
+		nsxSubnetPortState, err := r.Service.CreateOrUpdateSubnetPort(pod, nsxSubnetPath, contextID, &pod.ObjectMeta.Labels)
 		if err != nil {
 			log.Error(err, "failed to create or update NSX subnet port, would retry exponentially", "pod.Name", req.NamespacedName, "pod.UID", pod.UID)
 			updateFail(r, &ctx, pod, &err)
