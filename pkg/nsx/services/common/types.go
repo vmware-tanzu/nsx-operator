@@ -19,6 +19,7 @@ const (
 	MaxTagLength                    int    = 256
 	MaxIdLength                     int    = 255
 	MaxNameLength                   int    = 255
+	MaxSubnetNameLength             int    = 80
 	TagScopeNCPCluster              string = "ncp/cluster"
 	TagScopeNCPProjectUID           string = "ncp/project_uid"
 	TagScopeNCPVIFProjectUID        string = "ncp/vif_project_uid"
