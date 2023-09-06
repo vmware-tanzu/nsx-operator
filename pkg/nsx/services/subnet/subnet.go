@@ -72,8 +72,9 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 		SubnetStore: &SubnetStore{
 			ResourceStore: common.ResourceStore{
 				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
-					common.TagScopeSubnetCRUID:  subnetIndexFunc,
-					common.TagScopeSubnetCRType: subnetTypeIndexFunc,
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetCRType:   subnetTypeIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
 				}),
 				BindingType: model.VpcSubnetBindingType(),
 			},
