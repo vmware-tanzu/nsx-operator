@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,10 +18,14 @@ import (
 )
 
 var (
-	log = logger.Log
+	log  = logger.Log
+	lock = &sync.Mutex{}
 )
 
 func AllocateSubnetFromSubnetSet(subnetSet *v1alpha1.SubnetSet) (string, error) {
+	// TODO: For now, this is a global lock. In the future, we need to narrow its scope down to improve the performance.
+	lock.Lock()
+	defer lock.Unlock()
 	subnetPath, err := ServiceMediator.GetAvailableSubnet(subnetSet)
 	if err != nil {
 		log.Error(err, "failed to allocate Subnet")

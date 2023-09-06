@@ -58,7 +58,7 @@ func (m *ServiceMediator) GetVPCNetworkConfigByNamespace(ns string) *vpc.VPCNetw
 
 // GetAvailableSubnet returns available Subnet under SubnetSet, and creates Subnet if necessary.
 func (serviceMediator *ServiceMediator) GetAvailableSubnet(subnetSet *v1alpha1.SubnetSet) (string, error) {
-	subnetList := serviceMediator.SubnetStore.GetByIndex(common.TagScopeSubnetCRUID, string(subnetSet.GetUID()))
+	subnetList := serviceMediator.SubnetStore.GetByIndex(common.TagScopeSubnetSetCRUID, string(subnetSet.GetUID()))
 	for _, nsxSubnet := range subnetList {
 		portNums := len(serviceMediator.GetPortsOfSubnet(*nsxSubnet.Id))
 		totalIP := int(*nsxSubnet.Ipv4SubnetSize)
