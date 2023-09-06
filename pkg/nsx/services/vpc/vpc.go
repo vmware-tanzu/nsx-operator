@@ -241,8 +241,8 @@ func (s *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc VPCNetwor
 			log.Info("using key to search from ipblock store", "Key", key)
 			block := s.IpblockStore.GetByKey(key)
 			if block == nil {
-				log.Info("no ip block found in stroe for cidr", "CIDR", pCidr)
-				block := buildPrivateIpBlock(obj, pCidr, string(ip), nc.NsxtProject, s.NSXConfig.Cluster)
+				log.Info("no ip block found in store for cidr", "CIDR", pCidr)
+				block := buildPrivateIpBlock(obj, pCidr, ip.String(), nc.NsxtProject, s.NSXConfig.Cluster)
 				log.Info("creating ip block", "IPBlock", block.Id, "VPC", obj.Name)
 				// can not find private ip block from store, create one
 				_err := s.NSXClient.IPBlockClient.Patch(VPCDefaultOrg, nc.NsxtProject, *block.Id, block)
@@ -264,7 +264,7 @@ func (s *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc VPCNetwor
 			} else {
 				eBlock := block.(model.IpAddressBlock)
 				path[pCidr] = *eBlock.Path
-				log.Info("ip block found in stroe for cidr using key", "CIDR", pCidr, "Key", key)
+				log.Info("ip block found in store for cidr using key", "CIDR", pCidr, "Key", key)
 			}
 		}
 	}
