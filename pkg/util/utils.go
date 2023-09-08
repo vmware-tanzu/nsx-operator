@@ -37,7 +37,6 @@ var (
 	String    = common.String
 	basicTags = []string{
 		common.TagScopeCluster, common.TagScopeVersion,
-		common.TagScopeNamespace, common.TagScopeNamespaceUID,
 		common.TagScopeStaticRouteCRName, common.TagScopeStaticRouteCRUID,
 		common.TagScopeSecurityPolicyCRName, common.TagScopeSecurityPolicyCRUID,
 		common.TagScopeSubnetCRName, common.TagScopeSubnetCRUID,
@@ -352,6 +351,7 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 			Tag:   String(strings.Join(common.TagValueVersion, ".")),
 		},
 	}
+	isVmSubnetPort := false
 	switch i := obj.(type) {
 	case *v1alpha1.StaticRoute:
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
@@ -371,9 +371,7 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetCRType), Tag: String(SubnetTypeSubnetSet)})
 	case *v1alpha1.SubnetPort:
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeVMNamespace), Tag: String(i.ObjectMeta.Namespace)})
-		// In the NSX subnet port created for VM, the namespace uid tag is TagScopeVMNamespaceUID instead of TagScopeNamespaceUID.
-		tags = append(tags, model.Tag{Scope: String(common.TagScopeVMNamespaceUID), Tag: String(string(namespaceID))})
-		namespaceID = ""
+		isVmSubnetPort = true
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetPortCRName), Tag: String(i.ObjectMeta.Name)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetPortCRUID), Tag: String(string(i.UID))})
 	case *v1.Pod:
@@ -393,7 +391,12 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 	}
 
 	if len(namespaceID) > 0 {
-		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespaceUID), Tag: String(string(namespaceID))})
+		if isVmSubnetPort == true {
+			// In the NSX subnet port created for VM, the namespace uid tag is TagScopeVMNamespaceUID instead of TagScopeNamespaceUID.
+			tags = append(tags, model.Tag{Scope: String(common.TagScopeVMNamespaceUID), Tag: String(string(namespaceID))})
+		} else {
+			tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespaceUID), Tag: String(string(namespaceID))})
+		}
 	}
 	return tags
 }
