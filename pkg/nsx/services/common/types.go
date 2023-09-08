@@ -52,7 +52,7 @@ const (
 	TagScopeVMNamespaceUID          string = "nsx-op/vm_namespace_uid"
 	TagScopeVMNamespace             string = "nsx-op/vm_namespace"
 	LabelDefaultSubnetSet           string = "nsxoperator.vmware.com/default-subnetset-for"
-	LabelDefaultVMSubnet            string = "VirtualMachine"
+	LabelDefaultVMSubnetSet         string = "VirtualMachine"
 	LabelDefaultPodSubnetSet        string = "Pod"
 	TagScopeSubnetCRType            string = "nsx-op/subnet_cr_type"
 	TagScopeSubnetCRUID             string = "nsx-op/subnet_cr_uid"

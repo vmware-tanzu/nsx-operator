@@ -21,7 +21,7 @@ import (
 // - VPC deletion: delete all SubnetSets under the VPC.
 
 var defaultSubnetSets = map[string]string{
-	"default-vm-subnetset":  common.LabelDefaultVMSubnet,
+	"default-vm-subnetset":  common.LabelDefaultVMSubnetSet,
 	"default-pod-subnetset": common.LabelDefaultPodSubnetSet,
 }
 
