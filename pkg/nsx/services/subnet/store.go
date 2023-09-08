@@ -49,6 +49,16 @@ func subnetTypeIndexFunc(obj interface{}) ([]string, error) {
 	}
 }
 
+// subnetIndexFunc is used to filter out NSX Subnets which are tagged with CR UID.
+func subnetSetIndexFunc(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case model.VpcSubnet:
+		return filterTag(o.Tags, common.TagScopeSubnetSetCRUID), nil
+	default:
+		return nil, errors.New("subnetSetIndexFunc doesn't support unknown type")
+	}
+}
+
 // SubnetStore is a store for subnet.
 type SubnetStore struct {
 	common.ResourceStore
