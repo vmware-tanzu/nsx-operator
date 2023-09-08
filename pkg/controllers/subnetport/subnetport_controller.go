@@ -382,19 +382,19 @@ func (r *SubnetPortReconciler) GetSubnetPathForSubnetPort(ctx context.Context, s
 		}
 		log.Info("got subnetset for subnetport CR, allocating the NSX subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 		subnetPath, err := common.AllocateSubnetFromSubnetSet(subnetSet)
-		log.Info("allocated Subnet for Pod", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
+		log.Info("allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 		if err != nil {
 			return subnetPath, err
 		}
 		return subnetPath, nil
 	} else {
-		subnetSet, err := common.GetDefaultSubnetSet(r.Client, ctx, subnetPort.Namespace)
+		subnetSet, err := common.GetDefaultSubnetSet(r.Client, ctx, subnetPort.Namespace, servicecommon.LabelDefaultVMSubnetSet)
 		if err != nil {
 			return "", err
 		}
 		log.Info("got default subnetset for subnetport CR, allocating the NSX subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 		subnetPath, err := common.AllocateSubnetFromSubnetSet(subnetSet)
-		log.Info("allocated Subnet for Pod", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
+		log.Info("allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 		if err != nil {
 			return subnetPath, err
 		}
