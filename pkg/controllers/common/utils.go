@@ -55,7 +55,7 @@ func getSharedNamespaceAndVpcForNamespace(client k8sclient.Client, ctx context.C
 	return sharedNamespaceName, sharedVpcName, nil
 }
 
-func GetDefaultSubnetSet(client k8sclient.Client, ctx context.Context, namespace string) (*v1alpha1.SubnetSet, error) {
+func GetDefaultSubnetSet(client k8sclient.Client, ctx context.Context, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
 	targetNamespace, _, err := getSharedNamespaceAndVpcForNamespace(client, ctx, namespace)
 	if err != nil {
 		return nil, err
@@ -64,18 +64,18 @@ func GetDefaultSubnetSet(client k8sclient.Client, ctx context.Context, namespace
 		log.Info("namespace doesn't have shared VPC, searching the default subnetset in the current namespace", "namespace", namespace)
 		targetNamespace = namespace
 	}
-	subnetSet, err := getDefaultSubnetSetByNamespace(client, ctx, targetNamespace)
+	subnetSet, err := getDefaultSubnetSetByNamespace(client, ctx, targetNamespace, resourceType)
 	if err != nil {
 		return nil, err
 	}
 	return subnetSet, err
 }
 
-func getDefaultSubnetSetByNamespace(client k8sclient.Client, ctx context.Context, namespace string) (*v1alpha1.SubnetSet, error) {
+func getDefaultSubnetSetByNamespace(client k8sclient.Client, ctx context.Context, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
 	subnetSetList := &v1alpha1.SubnetSetList{}
 	subnetSetSelector := &metav1.LabelSelector{
 		MatchLabels: map[string]string{
-			servicecommon.LabelDefaultSubnetSet: servicecommon.LabelDefaultPodSubnetSet,
+			servicecommon.LabelDefaultSubnetSet: resourceType,
 		},
 	}
 	labelSelector, _ := metav1.LabelSelectorAsSelector(subnetSetSelector)

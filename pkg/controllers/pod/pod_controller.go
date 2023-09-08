@@ -237,7 +237,7 @@ func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (s
 		log.V(1).Info("NSX subnet port had been created, returning the existing NSX subnet path", "pod.UID", pod.UID, "subnetPath", subnetPath)
 		return subnetPath, nil
 	}
-	subnetSet, err := common.GetDefaultSubnetSet(r.Service.Client, ctx, pod.Namespace)
+	subnetSet, err := common.GetDefaultSubnetSet(r.Service.Client, ctx, pod.Namespace, servicecommon.LabelDefaultPodSubnetSet)
 	if err != nil {
 		return "", err
 	}

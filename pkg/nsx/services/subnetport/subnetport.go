@@ -188,7 +188,7 @@ func (service *SubnetPortService) DeleteSubnetPort(uid types.UID) error {
 	nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID := nsxutil.ParseVPCPath(*nsxSubnetPort.Path)
 	err := service.NSXClient.PortClient.Delete(nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID, string(uid))
 	if err != nil {
-		log.Error(err, "failed to delete subnetport", "nsxSubnetPortID", uid)
+		log.Error(err, "failed to delete subnetport", "nsxSubnetPort.Path", *nsxSubnetPort.Path)
 		return err
 	}
 	if err = service.SubnetPortStore.Delete(uid); err != nil {
