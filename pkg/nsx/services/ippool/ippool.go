@@ -73,7 +73,7 @@ func InitializeIPPool(service common.Service) (*IPPoolService, error) {
 func (service *IPPoolService) CreateOrUpdateIPPool(obj *v1alpha2.IPPool) (bool, bool, error) {
 	nsxIPPool, nsxIPSubnets := service.BuildIPPool(obj)
 	for _, ipSubnet := range nsxIPSubnets {
-		if *ipSubnet.IpBlockPath == "" {
+		if ipSubnet.IpBlockPath == nil || *ipSubnet.IpBlockPath == "" {
 			return false, false, util.IPBlockAllExhaustedError{Desc: "all ip blocks are exhausted"}
 		}
 	}
