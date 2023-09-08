@@ -337,7 +337,7 @@ func (service *SubnetService) UpdateSubnetSetTags(ns string, vpcSubnetSets []mod
 		for _, tag := range vpcSubnetSet.Tags {
 			if *tag.Scope == common.TagScopeSubnetSetCRName {
 				name = *tag.Tag
-			} else if *tag.Scope == common.TagScopeNamespace {
+			} else if *tag.Scope == common.TagScopeNamespace || *tag.Scope == common.TagScopeVMNamespace{
 				namespace = *tag.Tag
 				if namespace != ns {
 					break
