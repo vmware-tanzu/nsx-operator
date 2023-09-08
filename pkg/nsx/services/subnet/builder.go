@@ -41,7 +41,7 @@ func (service *SubnetService) buildSubnetSetName(subnetset *v1alpha1.SubnetSet, 
 }
 
 func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (*model.VpcSubnet, error) {
-	tags = util.AppendTags(service.buildBasicTags(obj), tags)
+	tags = append(service.buildBasicTags(obj), tags...)
 	var nsxSubnet *model.VpcSubnet
 	var staticIpAllocation bool
 	switch o := obj.(type) {
