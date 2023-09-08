@@ -17,6 +17,7 @@ import (
 )
 
 func TestEnqueueRequestForNamespace_Create(t *testing.T) {
+	var ctx = context.Background()
 	type fields struct {
 		Client client.Client
 	}
@@ -36,12 +37,13 @@ func TestEnqueueRequestForNamespace_Create(t *testing.T) {
 			e := &EnqueueRequestForNamespace{
 				Client: tt.fields.Client,
 			}
-			e.Create(tt.args.createEvent, tt.args.l)
+			e.Create(ctx, tt.args.createEvent, tt.args.l)
 		})
 	}
 }
 
 func TestEnqueueRequestForNamespace_Delete(t *testing.T) {
+	var ctx = context.Background()
 	type fields struct {
 		Client client.Client
 	}
@@ -61,12 +63,13 @@ func TestEnqueueRequestForNamespace_Delete(t *testing.T) {
 			e := &EnqueueRequestForNamespace{
 				Client: tt.fields.Client,
 			}
-			e.Delete(tt.args.deleteEvent, tt.args.l)
+			e.Delete(ctx, tt.args.deleteEvent, tt.args.l)
 		})
 	}
 }
 
 func TestEnqueueRequestForNamespace_Generic(t *testing.T) {
+	var ctx = context.Background()
 	type fields struct {
 		Client client.Client
 	}
@@ -86,7 +89,7 @@ func TestEnqueueRequestForNamespace_Generic(t *testing.T) {
 			e := &EnqueueRequestForNamespace{
 				Client: tt.fields.Client,
 			}
-			e.Generic(tt.args.genericEvent, tt.args.l)
+			e.Generic(ctx, tt.args.genericEvent, tt.args.l)
 		})
 	}
 }
@@ -164,7 +167,7 @@ func TestEnqueueRequestForNamespace_Update(t *testing.T) {
 			e := &EnqueueRequestForNamespace{
 				Client: tt.fields.Client,
 			}
-			e.Update(tt.args.updateEvent, tt.args.l)
+			e.Update(ctx, tt.args.updateEvent, tt.args.l)
 		})
 	}
 }

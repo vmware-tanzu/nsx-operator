@@ -77,7 +77,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Values: gomonkey.Params{false},
 					Times:  1,
 				}})
-				return
+				return patches
 			},
 			args:    requestArgs,
 			want:    ResultRequeueAfter5mins,
@@ -86,7 +86,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace:       requestArgs.req.Namespace,
 					Name:            requestArgs.req.Name,
-					ResourceVersion: "2",
+					ResourceVersion: "1",
 				},
 				Spec: nsxvmwarecomv1alpha1.NSXServiceAccountSpec{},
 				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
@@ -123,7 +123,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
-				return
+				return patches
 			},
 			args:    requestArgs,
 			want:    ResultRequeue,
@@ -155,7 +155,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Values: gomonkey.Params{fmt.Errorf("mock error")},
 					Times:  1,
 				}})
-				return
+				return patches
 			},
 			args:    requestArgs,
 			want:    ResultRequeue,
@@ -165,7 +165,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Namespace:       requestArgs.req.Namespace,
 					Name:            requestArgs.req.Name,
 					Finalizers:      []string{servicecommon.NSXServiceAccountFinalizerName},
-					ResourceVersion: "3",
+					ResourceVersion: "2",
 				},
 				Spec: nsxvmwarecomv1alpha1.NSXServiceAccountSpec{},
 				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
@@ -285,7 +285,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
-				return
+				return patches
 			},
 			args:    requestArgs,
 			want:    ResultNormal,
@@ -295,7 +295,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Namespace:       requestArgs.req.Namespace,
 					Name:            requestArgs.req.Name,
 					Finalizers:      []string{servicecommon.NSXServiceAccountFinalizerName},
-					ResourceVersion: "3",
+					ResourceVersion: "1",
 				},
 				Spec:   nsxvmwarecomv1alpha1.NSXServiceAccountSpec{},
 				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{},
@@ -315,7 +315,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Values: gomonkey.Params{true},
 					Times:  1,
 				}})
-				return
+				return patches
 			},
 			args:    requestArgs,
 			want:    ResultNormal,
@@ -361,7 +361,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Name:              requestArgs.req.Name,
 					DeletionTimestamp: deletionTimestamp,
 					Finalizers:        []string{servicecommon.NSXServiceAccountFinalizerName},
-					ResourceVersion:   "2",
+					ResourceVersion:   "1",
 				},
 				Spec: nsxvmwarecomv1alpha1.NSXServiceAccountSpec{},
 				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
@@ -404,7 +404,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
-				return
+				return patches
 			},
 			args:    requestArgs,
 			want:    ResultRequeue,
@@ -440,7 +440,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
-				return
+				return patches
 			},
 			args:       requestArgs,
 			want:       ResultNormal,

@@ -452,7 +452,7 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 					Name:            "name1",
 					Namespace:       "ns1",
 					UID:             "00000000-0000-0000-0000-000000000001",
-					ResourceVersion: "2",
+					ResourceVersion: "1",
 				},
 				Spec: nsxvmwarecomv1alpha1.NSXServiceAccountSpec{},
 				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{

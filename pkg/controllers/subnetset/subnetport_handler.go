@@ -1,6 +1,8 @@
 package subnetset
 
 import (
+	"context"
+
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"k8s.io/client-go/util/workqueue"
@@ -22,7 +24,7 @@ type SubnetPortHandler struct {
 // subnetservice.GetAvailableSubnet
 
 // Create allocates Subnet for SubnetPort from SubnetSet.
-func (h *SubnetPortHandler) Create(e event.CreateEvent, _ workqueue.RateLimitingInterface) {
+func (h *SubnetPortHandler) Create(_ context.Context, e event.CreateEvent, _ workqueue.RateLimitingInterface) {
 	log.V(4).Info("SubnetPort generic event, do nothing")
 	//subnetPort := e.Object.(*v1alpha1.SubnetPort)
 	//if subnetPort.Spec.Subnet != "" {
@@ -59,15 +61,15 @@ func (h *SubnetPortHandler) Create(e event.CreateEvent, _ workqueue.RateLimiting
 }
 
 // Delete TODO Implement this method if required to recycle Subnet without SubnetPort attached.
-func (h *SubnetPortHandler) Delete(e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
+func (h *SubnetPortHandler) Delete(_ context.Context, e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
 	log.V(4).Info("SubnetPort generic event, do nothing")
 }
 
-func (h *SubnetPortHandler) Generic(_ event.GenericEvent, _ workqueue.RateLimitingInterface) {
+func (h *SubnetPortHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
 	log.V(4).Info("SubnetPort generic event, do nothing")
 }
 
-func (h *SubnetPortHandler) Update(_ event.UpdateEvent, _ workqueue.RateLimitingInterface) {
+func (h *SubnetPortHandler) Update(_ context.Context, _ event.UpdateEvent, _ workqueue.RateLimitingInterface) {
 	log.V(4).Info("SubnetPort update event, do nothing")
 }
 

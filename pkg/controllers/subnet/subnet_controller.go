@@ -20,7 +20,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -263,7 +262,7 @@ func (r *SubnetReconciler) setupWithManager(mgr ctrl.Manager) error {
 			},
 		}).
 		Watches(
-			&source.Kind{Type: &v1.Namespace{}},
+			&v1.Namespace{},
 			&EnqueueRequestForNamespace{Client: mgr.GetClient()},
 			builder.WithPredicates(PredicateFuncsNs),
 		).

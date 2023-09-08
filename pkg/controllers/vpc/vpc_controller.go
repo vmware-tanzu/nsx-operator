@@ -16,7 +16,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -141,7 +140,7 @@ func (r *VPCReconciler) setupWithManager(mgr ctrl.Manager) error {
 			// For created/removed network config, add/remove from vpc network config cache.
 			// For modified network config, currently only support appending ips to public ip blocks,
 			// update network config in cache and update nsx vpc object.
-			&source.Kind{Type: &v1alpha1.VPCNetworkConfiguration{}},
+			&v1alpha1.VPCNetworkConfiguration{},
 			&VPCNetworkConfigurationHandler{
 				Client:     mgr.GetClient(),
 				vpcService: r.Service,

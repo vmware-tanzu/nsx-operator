@@ -1,6 +1,7 @@
 package securitypolicy
 
 import (
+	"context"
 	"testing"
 
 	"github.com/agiledragon/gomonkey"
@@ -93,6 +94,7 @@ func TestEnqueueRequestForPod_Raw(t *testing.T) {
 }
 
 func TestEnqueueRequestForPod_Create(t *testing.T) {
+	var ctx = context.Background()
 	evt := event.CreateEvent{
 		Object: &v1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
@@ -130,12 +132,13 @@ func TestEnqueueRequestForPod_Create(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &EnqueueRequestForPod{}
-			e.Create(tt.args.evt, tt.args.q)
+			e.Create(ctx, tt.args.evt, tt.args.q)
 		})
 	}
 }
 
 func TestEnqueueRequestForPod_Update(t *testing.T) {
+	var ctx = context.Background()
 	evt := event.UpdateEvent{
 		ObjectOld: &v1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
@@ -178,12 +181,13 @@ func TestEnqueueRequestForPod_Update(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &EnqueueRequestForPod{}
-			e.Update(tt.args.evt, tt.args.q)
+			e.Update(ctx, tt.args.evt, tt.args.q)
 		})
 	}
 }
 
 func TestEnqueueRequestForPod_Delete(t *testing.T) {
+	var ctx = context.Background()
 	evt := event.DeleteEvent{
 		Object: &v1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
@@ -221,12 +225,13 @@ func TestEnqueueRequestForPod_Delete(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &EnqueueRequestForPod{}
-			e.Delete(tt.args.evt, tt.args.q)
+			e.Delete(ctx, tt.args.evt, tt.args.q)
 		})
 	}
 }
 
 func TestEnqueueRequestForPod_Generic(t *testing.T) {
+	var ctx = context.Background()
 	evt := event.GenericEvent{
 		Object: &v1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
@@ -264,7 +269,7 @@ func TestEnqueueRequestForPod_Generic(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &EnqueueRequestForPod{}
-			e.Generic(tt.args.evt, tt.args.q)
+			e.Generic(ctx, tt.args.evt, tt.args.q)
 		})
 	}
 }

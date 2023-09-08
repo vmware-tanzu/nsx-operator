@@ -3,9 +3,9 @@ module github.com/vmware-tanzu/nsx-operator/pkg/apis
 go 1.19
 
 require (
-	k8s.io/api v0.26.1
-	k8s.io/apimachinery v0.26.1
-	sigs.k8s.io/controller-runtime v0.14.5
+	k8s.io/api v0.28.2
+	k8s.io/apimachinery v0.28.2
+	sigs.k8s.io/controller-runtime v0.16.2
 )
 
 require (

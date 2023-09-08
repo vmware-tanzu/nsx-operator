@@ -17,7 +17,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -213,15 +212,15 @@ func (r *SubnetSetReconciler) setupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: runtime.NumCPU(),
 		}).
-		Watches(&source.Kind{Type: &v1alpha1.VPC{}},
+		Watches(&v1alpha1.VPC{},
 			&VPCHandler{Client: mgr.GetClient()},
 			builder.WithPredicates(VPCPredicate)).
 		Watches(
-			&source.Kind{Type: &v1alpha1.SubnetPort{}},
+			&v1alpha1.SubnetPort{},
 			&SubnetPortHandler{Reconciler: r},
 			builder.WithPredicates(SubnetPortPredicate)).
 		Watches(
-			&source.Kind{Type: &v1.Namespace{}},
+			&v1.Namespace{},
 			&EnqueueRequestForNamespace{Client: mgr.GetClient()},
 			builder.WithPredicates(PredicateFuncsNs),
 		).
