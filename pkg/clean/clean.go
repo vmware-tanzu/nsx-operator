@@ -68,18 +68,18 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig) (*CleanupService, er
 	}
 	wrapInitializeSecurityPolicy := func(service common.Service) cleanupFunc {
 		return func() (cleanup, error) {
-			return securitypolicy.InitializeSecurityPolicy(service)
+			return securitypolicy.Initialize(service)
 		}
 	}
 	wrapInitializeIPPool := func(service common.Service) cleanupFunc {
 		return func() (cleanup, error) {
-			return ippool.InitializeIPPool(service)
+			return ippool.Initialize(service)
 		}
 	}
 
 	wrapInitializeVPC := func(service common.Service) cleanupFunc {
 		return func() (cleanup, error) {
-			return vpc.InitializeVPC(service)
+			return vpc.Initialize(service)
 		}
 	}
 

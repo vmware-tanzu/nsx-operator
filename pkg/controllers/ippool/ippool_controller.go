@@ -6,6 +6,7 @@ package ippool
 import (
 	"context"
 	"fmt"
+	"os"
 	"regexp"
 	"runtime"
 	"time"
@@ -292,5 +293,18 @@ func (r *IPPoolReconciler) IPPoolGarbageCollector(cancel chan bool, timeout time
 				log.Error(err, "failed to delete ip pool CR", "UID", elem)
 			}
 		}
+	}
+}
+
+func (r *IPPoolReconciler) StartController(mgr ctrl.Manager, commonService servicecommon.Service) {
+	if ipPoolService, err := ippool.Initialize(commonService); err != nil {
+		log.Error(err, "failed to initialize ippool commonService", "controller", "IPPool")
+		os.Exit(1)
+	} else {
+		r.Service = ipPoolService
+	}
+	if err := r.Start(mgr); err != nil {
+		log.Error(err, "failed to create controller", "controller", "IPPool")
+		os.Exit(1)
 	}
 }

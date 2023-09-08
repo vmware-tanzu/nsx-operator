@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"runtime"
 	"time"
@@ -338,4 +339,17 @@ func reconcileSecurityPolicy(client client.Client, pods []v1.Pod, q workqueue.Ra
 		}
 	}
 	return nil
+}
+
+func (r *SecurityPolicyReconciler) StartController(mgr ctrl.Manager, commonService servicecommon.Service) {
+	if securityService, err := securitypolicy.Initialize(commonService); err != nil {
+		log.Error(err, "failed to initialize securitypolicy commonService", "controller", "SecurityPolicy")
+		os.Exit(1)
+	} else {
+		r.Service = securityService
+	}
+	if err := r.Start(mgr); err != nil {
+		log.Error(err, "failed to create controller", "controller", "SecurityPolicy")
+		os.Exit(1)
+	}
 }

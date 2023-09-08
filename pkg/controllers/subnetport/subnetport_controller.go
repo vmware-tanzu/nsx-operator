@@ -191,19 +191,15 @@ func (r *SubnetPortReconciler) vmMapFunc(vm client.Object) []reconcile.Request {
 	return requests
 }
 
-func StartSubnetPortController(mgr ctrl.Manager, commonService servicecommon.Service) {
-	subnetPortReconciler := SubnetPortReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}
+func (r *SubnetPortReconciler) StartController(mgr ctrl.Manager, commonService servicecommon.Service) {
 	if subnetPortService, err := subnetport.InitializeSubnetPort(commonService); err != nil {
 		log.Error(err, "failed to initialize subnetport commonService", "controller", "SubnetPort")
 		os.Exit(1)
 	} else {
-		subnetPortReconciler.Service = subnetPortService
-		common.ServiceMediator.SubnetPortService = subnetPortReconciler.Service
+		r.Service = subnetPortService
+		common.ServiceMediator.SubnetPortService = r.Service
 	}
-	if err := subnetPortReconciler.Start(mgr); err != nil {
+	if err := r.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "SubnetPort")
 		os.Exit(1)
 	}

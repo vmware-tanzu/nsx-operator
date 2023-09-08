@@ -52,8 +52,8 @@ type NSXServiceAccountService struct {
 	ClusterControlPlaneStore *ClusterControlPlaneStore
 }
 
-// InitializeNSXServiceAccount sync NSX resources
-func InitializeNSXServiceAccount(service common.Service) (*NSXServiceAccountService, error) {
+// Initialize sync NSX resources
+func Initialize(service common.Service) (*NSXServiceAccountService, error) {
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)

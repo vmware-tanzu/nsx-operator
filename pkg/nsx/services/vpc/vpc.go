@@ -102,8 +102,8 @@ func (s *VPCService) ValidateNetworkConfig(nc VPCNetworkConfigInfo) bool {
 	return nc.PrivateIPv4CIDRs != nil && len(nc.PrivateIPv4CIDRs) != 0
 }
 
-// InitializeVPC sync NSX resources
-func InitializeVPC(service common.Service) (*VPCService, error) {
+// Initialize sync NSX resources
+func Initialize(service common.Service) (*VPCService, error) {
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)

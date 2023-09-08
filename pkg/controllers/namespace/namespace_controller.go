@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"strings"
 
@@ -197,4 +198,12 @@ func (r *NamespaceReconciler) setupWithManager(mgr ctrl.Manager) error {
 // Start setup manager and launch GC
 func (r *NamespaceReconciler) Start(mgr ctrl.Manager) error {
 	return r.setupWithManager(mgr)
+}
+
+func (r *NamespaceReconciler) StartController(mgr ctrl.Manager, commonService types.Service) {
+
+	if err := r.Start(mgr); err != nil {
+		log.Error(err, "failed to create namespace controller", "controller", "Namespace")
+		os.Exit(1)
+	}
 }

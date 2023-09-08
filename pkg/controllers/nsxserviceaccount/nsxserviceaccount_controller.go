@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"time"
 
@@ -234,4 +235,18 @@ func updateSuccess(r *NSXServiceAccountReconciler, c *context.Context, o *nsxvmw
 
 func deleteSuccess(r *NSXServiceAccountReconciler, _ *context.Context, _ *nsxvmwarecomv1alpha1.NSXServiceAccount) {
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
+}
+
+func (r *NSXServiceAccountReconciler) StartController(mgr ctrl.Manager, commonService servicecommon.Service) {
+	log.Info("starting NSXServiceAccountController")
+	if nsxServiceAccountService, err := nsxserviceaccount.Initialize(commonService); err != nil {
+		log.Error(err, "failed to initialize service", "controller", "NSXServiceAccount")
+		os.Exit(1)
+	} else {
+		r.Service = nsxServiceAccountService
+	}
+	if err := r.Start(mgr); err != nil {
+		log.Error(err, "failed to create controller", "controller", "NSXServiceAccount")
+		os.Exit(1)
+	}
 }

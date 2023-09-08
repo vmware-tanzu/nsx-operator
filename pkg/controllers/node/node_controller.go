@@ -7,13 +7,14 @@ import (
 	"context"
 	"os"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
-	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -72,20 +73,16 @@ func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func StartNodeController(mgr ctrl.Manager, commonService servicecommon.Service) {
-	nodePortReconciler := NodeReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}
+func (r *NodeReconciler) StartController(mgr ctrl.Manager, commonService servicecommon.Service) {
 	if nodeService, err := node.InitializeNode(commonService); err != nil {
 		log.Error(err, "failed to initialize node commonService", "controller", "Node")
 		os.Exit(1)
 	} else {
-		nodePortReconciler.Service = nodeService
-		common.ServiceMediator.NodeService = nodePortReconciler.Service
+		r.Service = nodeService
+		common.ServiceMediator.NodeService = r.Service
 	}
 
-	if err := nodePortReconciler.Start(mgr); err != nil {
+	if err := r.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "Node")
 		os.Exit(1)
 	}

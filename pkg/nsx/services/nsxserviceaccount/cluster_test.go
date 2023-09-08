@@ -206,13 +206,13 @@ func TestInitializeNSXServiceAccount(t *testing.T) {
 			commonService := newFakeCommonService()
 			patches := tt.prepareFunc(t, &commonService, ctx)
 			defer patches.Reset()
-			got, err := InitializeNSXServiceAccount(commonService)
+			got, err := Initialize(commonService)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("InitializeNSXServiceAccount() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("Initialize() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got.Service, commonService) {
-				t.Errorf("InitializeNSXServiceAccount() got = %v, want %v", got.Service, commonService)
+				t.Errorf("Initialize() got = %v, want %v", got.Service, commonService)
 			}
 		})
 	}

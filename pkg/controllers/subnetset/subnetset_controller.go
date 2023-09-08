@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"runtime"
 	"time"
@@ -300,17 +301,12 @@ func (r *SubnetSetReconciler) DeleteSubnetForSubnetSet(obj v1alpha1.SubnetSet, u
 	return nil
 }
 
-func StartSubnetSetController(mgr ctrl.Manager, commonService servicecommon.Service) error {
-	subnetsetReconciler := &SubnetSetReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}
-	subnetsetReconciler.Service = subnet.GetSubnetService(commonService)
-	if err := subnetsetReconciler.Start(mgr); err != nil {
+func (r *SubnetSetReconciler) StartController(mgr ctrl.Manager, commonService servicecommon.Service) {
+	r.Service = subnet.GetSubnetService(commonService)
+	if err := r.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "Subnet")
-		return err
+		os.Exit(1)
 	}
-	return nil
 }
 
 // Start setup manager
