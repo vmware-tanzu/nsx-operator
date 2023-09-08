@@ -238,7 +238,11 @@ func (r *StaticRouteReconciler) GarbageCollector(cancel chan bool, timeout time.
 		}
 
 		for _, elem := range nsxStaticRouteList {
-			if crdStaticRouteSet.Has(*elem.Id) {
+			UID := r.Service.GetUID(&elem)
+			if UID == nil {
+				continue
+			}
+			if crdStaticRouteSet.Has(*UID) {
 				continue
 			}
 

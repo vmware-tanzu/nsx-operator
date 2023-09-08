@@ -12,6 +12,7 @@ import (
 
 	gomonkey "github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
+	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
@@ -274,9 +275,11 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 		a := []model.StaticRoutes{}
 		id1 := "2345"
 		path := "/orgs/org123/projects/pro123/vpcs/vpc123/static-routes/123"
-		a = append(a, model.StaticRoutes{Id: &id1, Path: &path})
+		tag1 := []model.Tag{{Scope: pointy.String(common.TagScopeStaticRouteCRUID), Tag: pointy.String("2345")}}
+		a = append(a, model.StaticRoutes{Id: &id1, Path: &path, Tags: tag1})
 		id2 := "1234"
-		a = append(a, model.StaticRoutes{Id: &id2, Path: &path})
+		tag2 := []model.Tag{{Scope: pointy.String(common.TagScopeStaticRouteCRUID), Tag: pointy.String("1234")}}
+		a = append(a, model.StaticRoutes{Id: &id2, Path: &path, Tags: tag2})
 		return a
 	})
 	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRouteByPath", func(_ *staticroute.StaticRouteService, orgId string, projectId string, vpcId string, uid string) error {
@@ -312,7 +315,8 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 	patch.ApplyMethod(reflect.TypeOf(service), "ListStaticRoute", func(_ *staticroute.StaticRouteService) []model.StaticRoutes {
 		a := []model.StaticRoutes{}
 		id := "1234"
-		a = append(a, model.StaticRoutes{Id: &id})
+		tag2 := []model.Tag{{Scope: pointy.String(common.TagScopeStaticRouteCRUID), Tag: pointy.String(id)}}
+		a = append(a, model.StaticRoutes{Id: &id, Tags: tag2})
 		return a
 	})
 	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, namespace string, uid string) error {
