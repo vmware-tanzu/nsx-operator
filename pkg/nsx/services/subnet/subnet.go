@@ -286,7 +286,7 @@ func (service *SubnetService) GetIPPoolUsage(subnet *v1alpha1.Subnet) (*model.Po
 
 func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) error {
 	var subnetInfoList []v1alpha1.SubnetInfo
-	nsxSubnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetCRUID, string(obj.GetUID()))
+	nsxSubnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetSetCRUID, string(obj.GetUID()))
 	for _, subnet := range nsxSubnets {
 		statusList, err := service.GetSubnetStatus(&subnet)
 		if err != nil {
