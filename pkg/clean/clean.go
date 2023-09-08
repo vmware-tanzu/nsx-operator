@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -58,6 +59,9 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig) (*CleanupService, er
 		NSXConfig: cf,
 	}
 
+	vpcService, vpcErr := vpc.InitializeVPC(commonService)
+	commonctl.ServiceMediator.VPCService = vpcService
+
 	// initialize all the CR services
 	// Use Fluent Interface to escape error check hell
 
@@ -79,7 +83,7 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig) (*CleanupService, er
 
 	wrapInitializeVPC := func(service common.Service) cleanupFunc {
 		return func() (cleanup, error) {
-			return vpc.InitializeVPC(service)
+			return vpcService, vpcErr
 		}
 	}
 

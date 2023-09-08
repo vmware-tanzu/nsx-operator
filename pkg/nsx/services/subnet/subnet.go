@@ -308,8 +308,9 @@ func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) err
 }
 
 func (service *SubnetService) ListSubnetID() sets.String {
-	subnetSet := service.SubnetStore.ListIndexFuncValues(common.TagScopeSubnetCRUID)
-	return subnetSet
+	subnets := service.SubnetStore.ListIndexFuncValues(common.TagScopeSubnetCRUID)
+	subnetSets := service.SubnetStore.ListIndexFuncValues(common.TagScopeSubnetSetCRUID)
+	return subnets.Union(subnetSets)
 }
 
 func (service *SubnetService) Cleanup() error {
