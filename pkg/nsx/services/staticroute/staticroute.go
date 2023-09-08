@@ -115,6 +115,18 @@ func (service *StaticRouteService) DeleteStaticRouteByPath(orgId string, project
 	log.Info("successfully deleted NSX StaticRoute", "nsxStaticRoute", *staticroute.Id)
 	return nil
 }
+func (service *StaticRouteService) GetUID(staticroute *model.StaticRoutes) *string {
+	if staticroute == nil {
+		return nil
+	}
+	for _, tag := range staticroute.Tags {
+		if *tag.Scope == common.TagScopeStaticRouteCRUID {
+			return tag.Tag
+		}
+	}
+	return nil
+
+}
 
 func (service *StaticRouteService) DeleteStaticRoute(namespace string, uid string) error {
 	vpc := commonctl.ServiceMediator.GetVPCsByNamespace(namespace)
