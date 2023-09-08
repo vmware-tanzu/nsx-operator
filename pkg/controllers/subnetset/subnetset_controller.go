@@ -276,7 +276,7 @@ func (r *SubnetSetReconciler) GarbageCollector(cancel chan bool, timeout time.Du
 }
 
 func (r *SubnetSetReconciler) DeleteSubnetForSubnetSet(obj v1alpha1.SubnetSet, updataStatus bool) error {
-	nsxSubnets := r.Service.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetCRUID, string(obj.GetUID()))
+	nsxSubnets := r.Service.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetSetCRUID, string(obj.GetUID()))
 	hitError := false
 	for _, subnet := range nsxSubnets {
 		portNums := len(common.ServiceMediator.GetPortsOfSubnet(*subnet.Id))
