@@ -122,8 +122,8 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, tags []mod
 		return "", err
 	}
 	// Only check whether needs update when obj is v1alpha1.Subnet
-	if _, ok := obj.(*v1alpha1.Subnet); ok {
-		existingSubnet := service.SubnetStore.GetByKey(uid)
+	if subnet, ok := obj.(*v1alpha1.Subnet); ok {
+		existingSubnet := service.SubnetStore.GetByKey(service.BuildSubnetID(subnet))
 		changed := false
 		if existingSubnet == nil {
 			changed = true
@@ -339,7 +339,7 @@ func (service *SubnetService) UpdateSubnetSetTags(ns string, vpcSubnetSets []mod
 		for _, tag := range vpcSubnetSet.Tags {
 			if *tag.Scope == common.TagScopeSubnetSetCRName {
 				name = *tag.Tag
-			} else if *tag.Scope == common.TagScopeNamespace || *tag.Scope == common.TagScopeVMNamespace{
+			} else if *tag.Scope == common.TagScopeNamespace || *tag.Scope == common.TagScopeVMNamespace {
 				namespace = *tag.Tag
 				if namespace != ns {
 					break

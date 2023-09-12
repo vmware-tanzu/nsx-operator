@@ -24,7 +24,7 @@ func getCluster(service *SubnetService) string {
 	return service.NSXConfig.Cluster
 }
 
-func (service *SubnetService) buildSubnetID(subnet *v1alpha1.Subnet) string {
+func (service *SubnetService) BuildSubnetID(subnet *v1alpha1.Subnet) string {
 	return util.GenerateID(string(subnet.UID), SUBNETPREFIX, "", "")
 }
 
@@ -47,7 +47,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 	switch o := obj.(type) {
 	case *v1alpha1.Subnet:
 		nsxSubnet = &model.VpcSubnet{
-			Id:          String(service.buildSubnetID(o)),
+			Id:          String(service.BuildSubnetID(o)),
 			AccessMode:  String(util.Capitalize(string(o.Spec.AccessMode))),
 			DhcpConfig:  service.buildDHCPConfig(int64(o.Spec.IPv4SubnetSize - 4)),
 			DisplayName: String(service.buildSubnetName(o)),
