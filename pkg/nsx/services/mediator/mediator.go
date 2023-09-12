@@ -70,14 +70,6 @@ func (serviceMediator *ServiceMediator) GetAvailableSubnet(subnetSet *v1alpha1.S
 			return *nsxSubnet.Path, nil
 		}
 	}
-	var tags []model.Tag
-	findLabelDefaultPodSubnetSet := false
-	for k, v := range subnetSet.Labels {
-		if k == common.LabelDefaultSubnetSet && v == common.LabelDefaultPodSubnetSet {
-			findLabelDefaultPodSubnetSet = true
-			break
-		}
-	}
 	namespace := &corev1.Namespace{}
 	namespacedName := types.NamespacedName{
 		Name: subnetSet.Namespace,
@@ -85,18 +77,9 @@ func (serviceMediator *ServiceMediator) GetAvailableSubnet(subnetSet *v1alpha1.S
 	if err := serviceMediator.SubnetService.Client.Get(context.Background(), namespacedName, namespace); err != nil {
 		return "", err
 	}
-	namespace_uid := namespace.UID
+	tags := serviceMediator.SubnetService.GenerateSubnetNSTags(subnetSet, string(namespace.UID))
 	for k, v := range namespace.Labels {
 		tags = append(tags, model.Tag{Scope: common.String(k), Tag: common.String(v)})
-	}
-	if !findLabelDefaultPodSubnetSet {
-		tags = append(tags,
-			model.Tag{Scope: common.String(common.TagScopeVMNamespaceUID), Tag: common.String(string(namespace_uid))},
-			model.Tag{Scope: common.String(common.TagScopeVMNamespace), Tag: common.String(subnetSet.Namespace)})
-	} else {
-		tags = append(tags,
-			model.Tag{Scope: common.String(common.TagScopeNamespaceUID), Tag: common.String(string(namespace_uid))},
-			model.Tag{Scope: common.String(common.TagScopeNamespace), Tag: common.String(subnetSet.Namespace)})
 	}
 	log.Info("the existing subnets are not available, creating new subnet", "subnetList", subnetList, "subnetSet.Name", subnetSet.Name, "subnetSet.Namespace", subnetSet.Namespace)
 	return serviceMediator.CreateOrUpdateSubnet(subnetSet, tags)
