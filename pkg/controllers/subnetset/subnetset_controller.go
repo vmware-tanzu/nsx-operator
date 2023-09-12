@@ -92,7 +92,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				log.Error(err, "")
 				return ResultRequeue, err
 			}
-			var tags []model.Tag
+			tags := r.Service.GenerateSubnetNSTags(obj, string(nsObj.UID))
 			for k, v := range nsObj.Labels {
 				tags = append(tags, model.Tag{Scope: servicecommon.String(k), Tag: servicecommon.String(v)})
 			}
