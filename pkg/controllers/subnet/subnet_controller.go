@@ -158,7 +158,10 @@ func (r *SubnetReconciler) DeleteSubnet(obj v1alpha1.Subnet) error {
 }
 
 func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {
-	nsxSubnet := r.Service.SubnetStore.GetByKey(string(obj.GetUID()))
+	nsxSubnet := r.Service.SubnetStore.GetByKey(r.Service.BuildSubnetID(obj))
+	if nsxSubnet == nil {
+		return errors.New("failed to get NSX Subnet from store")
+	}
 	obj.Status.IPAddresses = obj.Status.IPAddresses[:0]
 	statusList, err := r.Service.GetSubnetStatus(nsxSubnet)
 	if err != nil {
