@@ -62,7 +62,7 @@ func TestConfig_NsxConfig(t *testing.T) {
 	assert.Equal(t, err, expect)
 
 	nsxConfig.NsxApiManagers = []string{"10.0.0.1"}
-	expect = errors.New("no ca file or thumbprint provided")
+	expect = errors.New("no ca file or thumbprint or nsx username/password provided")
 	err = nsxConfig.validate(false)
 	assert.Equal(t, err, expect)
 

@@ -278,8 +278,8 @@ func (nsxConfig *NsxConfig) validateCert() error {
 	caCount := len(nsxConfig.CaFile)
 	// ca file has high priority than thumbprint
 	// ca file(thumbprint) == 1 or equal to manager count
-	if caCount == 0 && tpCount == 0 {
-		err := errors.New("no ca file or thumbprint provided")
+	if caCount == 0 && tpCount == 0 && nsxConfig.NsxApiUser == "" && nsxConfig.NsxApiPassword == "" {
+		err := errors.New("no ca file or thumbprint or nsx username/password provided")
 		configLog.Error(err, "validate NsxConfig failed")
 		return err
 	}
