@@ -81,7 +81,7 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 	case *corev1.Pod:
 		uid = string(o.UID)
 	}
-	log.Info("Creating or updating subnetport", "nsxSubnetPort.Id", uid, "nsxSubnetPath", nsxSubnetPath)
+	log.Info("creating or updating subnetport", "nsxSubnetPort.Id", uid, "nsxSubnetPath", nsxSubnetPath)
 	nsxSubnetPort, err := service.buildSubnetPort(obj, nsxSubnetPath, contextID, tags)
 	if err != nil {
 		log.Error(err, "failed to build NSX subnet port", "nsxSubnetPort.Id", uid, "nsxSubnetPath", nsxSubnetPath, "contextID", contextID)
@@ -158,7 +158,10 @@ func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubne
 	if err != nil {
 		return nil, err
 	}
-	log.Info("Got the NSX subnet port state", "nsxPortState.RealizedBindings", nsxPortState.RealizedBindings)
+	log.Info("got the NSX subnet port state", "nsxPortState.RealizedBindings", nsxPortState.RealizedBindings, "uid", uid)
+	if len(nsxPortState.RealizedBindings) == 0 {
+		return nsxPortState, errors.New("empty realized bindings")
+	}
 	return nsxPortState, nil
 }
 
@@ -182,7 +185,7 @@ func (service *SubnetPortService) GetSubnetPortState(obj interface{}, nsxSubnetP
 func (service *SubnetPortService) DeleteSubnetPort(uid types.UID) error {
 	nsxSubnetPort := service.SubnetPortStore.GetByKey(string(uid))
 	if nsxSubnetPort.Id == nil {
-		log.Info("NSX subnet port is not found in store, skip deleting it", "subnetPortCRUID", uid)
+		log.Info("NSX subnet port is not found in store, skip deleting it", "uid", uid)
 		return nil
 	}
 	nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID := nsxutil.ParseVPCPath(*nsxSubnetPort.Path)
