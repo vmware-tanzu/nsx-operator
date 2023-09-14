@@ -89,7 +89,6 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			}
 		}
 
-		var tags []model.Tag
 		namespace := &v1.Namespace{}
 		namespacedName := types.NamespacedName{
 			Name: req.Namespace,
@@ -99,11 +98,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			updateFail(r, &ctx, obj)
 			return ResultRequeue, err
 		}
-		namespace_uid := namespace.UID
-		// user create subnet CR, it is only for VM subnet, no need to add TagScopeNamespaceUID/TagScopeNamespace for pod subnet
-		tags = append(tags,
-			model.Tag{Scope: servicecommon.String(servicecommon.TagScopeVMNamespaceUID), Tag: servicecommon.String(string(namespace_uid))},
-			model.Tag{Scope: servicecommon.String(servicecommon.TagScopeVMNamespace), Tag: servicecommon.String(req.Namespace)})
+		tags := r.Service.GenerateSubnetNSTags(obj, string(nsObj.UID))
 		for k, v := range nsObj.Labels {
 			tags = append(tags, model.Tag{Scope: servicecommon.String(k), Tag: servicecommon.String(v)})
 		}

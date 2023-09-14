@@ -97,7 +97,6 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 	return subnetService, nil
 }
 
-// TODO Test update of VpcSubnet(eg. update tags)
 func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, tags []model.Tag) (string, error) {
 	vpcList := &v1alpha1.VPCList{}
 	if err := service.Client.List(context.Background(), vpcList, client.InNamespace(obj.GetNamespace())); err != nil {
@@ -135,7 +134,11 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, tags []mod
 			return uid, nil
 		}
 	}
-	orgRoot, err := service.WrapHierarchySubnet(nsxSubnet, &vpcInfo)
+	return service.createOrUpdateSubnet(obj, nsxSubnet, &vpcInfo)
+}
+
+func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (string, error) {
+	orgRoot, err := service.WrapHierarchySubnet(nsxSubnet, vpcInfo)
 	if err != nil {
 		log.Error(err, "WrapHierarchySubnet failed")
 		return "", err
@@ -329,31 +332,69 @@ func (service *SubnetService) Cleanup() error {
 	return nil
 }
 
-func (service *SubnetService) UpdateSubnetSetTags(ns string, vpcSubnetSets []model.VpcSubnet, tags []model.Tag) error {
-	for _, vpcSubnetSet := range vpcSubnetSets {
+func (service *SubnetService) GenerateSubnetNSTags(obj client.Object, nsUID string) []model.Tag {
+	var tags []model.Tag
+	switch o := obj.(type) {
+	case *v1alpha1.Subnet:
+		tags = append(tags,
+			model.Tag{Scope: String(common.TagScopeVMNamespaceUID), Tag: String(nsUID)},
+			model.Tag{Scope: String(common.TagScopeVMNamespace), Tag: String(obj.GetNamespace())})
+	case *v1alpha1.SubnetSet:
+		findLabelDefaultPodSubnetSet := false
+		for k, v := range o.Labels {
+			if k == common.LabelDefaultSubnetSet && v == common.LabelDefaultPodSubnetSet {
+				findLabelDefaultPodSubnetSet = true
+				break
+			}
+		}
+		if findLabelDefaultPodSubnetSet {
+			tags = append(tags,
+				model.Tag{Scope: common.String(common.TagScopeNamespaceUID), Tag: common.String(nsUID)},
+				model.Tag{Scope: common.String(common.TagScopeNamespace), Tag: common.String(obj.GetNamespace())})
+		} else {
+			tags = append(tags,
+				model.Tag{Scope: common.String(common.TagScopeVMNamespaceUID), Tag: common.String(nsUID)},
+				model.Tag{Scope: common.String(common.TagScopeVMNamespace), Tag: common.String(obj.GetNamespace())})
+		}
+	}
+	return tags
+}
+
+func (service *SubnetService) UpdateSubnetSetTags(ns string, vpcSubnets []model.VpcSubnet, tags []model.Tag) error {
+	for _, existingSubnet := range vpcSubnets {
 		subnetSet := &v1alpha1.SubnetSet{}
-		var namespace string
 		var name string
 
 		matchNamespace := false
-		for _, tag := range vpcSubnetSet.Tags {
+		for _, tag := range existingSubnet.Tags {
 			if *tag.Scope == common.TagScopeSubnetSetCRName {
 				name = *tag.Tag
-			} else if *tag.Scope == common.TagScopeNamespace || *tag.Scope == common.TagScopeVMNamespace {
-				namespace = *tag.Tag
-				if namespace != ns {
+			}
+			if *tag.Scope == common.TagScopeNamespace || *tag.Scope == common.TagScopeVMNamespace {
+				if *tag.Tag != ns {
 					break
-				} else {
-					matchNamespace = true
 				}
+				matchNamespace = true
 			}
 		}
 
 		if matchNamespace {
-			if err := service.Client.Get(context.Background(), types.NamespacedName{Namespace: namespace, Name: name}, subnetSet); err != nil {
+			if err := service.Client.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: name}, subnetSet); err != nil {
 				return err
 			}
-			if _, err := service.CreateOrUpdateSubnet(subnetSet, tags); err != nil {
+			newTags := append(service.buildBasicTags(subnetSet), tags...)
+			changed := common.CompareResource(SubnetToComparable(&existingSubnet), SubnetToComparable(&model.VpcSubnet{Tags: newTags}))
+			if !changed {
+				log.Info("NSX subnet tags unchanged, skip updating")
+				continue
+			}
+			existingSubnet.Tags = newTags
+			vpcInfo, err := common.ParseVPCResourcePath(*existingSubnet.Path)
+			if err != nil {
+				err := fmt.Errorf("failed to parse NSX VPC path for Subnet %s: %s", *existingSubnet.Path, err)
+				return err
+			}
+			if _, err := service.createOrUpdateSubnet(subnetSet, &existingSubnet, &vpcInfo); err != nil {
 				return err
 			}
 			log.Info("successfully updated subnet set tags", "subnetSet", subnetSet)
