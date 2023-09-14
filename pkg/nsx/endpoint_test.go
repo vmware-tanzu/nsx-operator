@@ -114,7 +114,7 @@ var (
 func TestCreateAuthSession(t *testing.T) {
 	assert := assert.New(t)
 	jar := NewJar()
-	cluster := &Cluster{}
+	cluster := &Cluster{config: &Config{}}
 	tr := cluster.createTransport(10)
 	client := cluster.createHTTPClient(tr, 30)
 	noBClient := cluster.createNoBalancerClient(90, 90)
@@ -171,7 +171,7 @@ func TestKeepAlive(t *testing.T) {
 		}
 	}))
 	defer ts.Close()
-	cluster := &Cluster{}
+	cluster := &Cluster{config: &Config{}}
 	tr := cluster.createTransport(10)
 	client := cluster.createHTTPClient(tr, 30)
 	noBClient := cluster.createNoBalancerClient(90, 90)
