@@ -144,57 +144,62 @@ func (cluster *Cluster) getCaFile(addr string) string {
 }
 
 func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
-	dial := func(network, addr string) (net.Conn, error) {
-		var config *tls.Config
-		cafile := cluster.getCaFile(addr)
-		caCount := len(cluster.config.CAFile)
-		if caCount > 0 {
-			caCert, err := os.ReadFile(cafile)
-			if err != nil {
-				log.Error(err, "create transport", "read ca file", cafile)
-				return nil, err
-			}
-
-			certPool := x509.NewCertPool()
-			certPool.AppendCertsFromPEM(caCert)
-
-			config = &tls.Config{
-				RootCAs: certPool,
-			}
-
-		} else {
-			thumbprint := cluster.getThumbprint(addr)
-			tpCount := len(cluster.config.Thumbprint)
-			config = &tls.Config{
-				InsecureSkipVerify: true,
-				VerifyConnection: func(cs tls.ConnectionState) error {
-					// not check thumbprint if no thumbprint config
-					if tpCount > 0 {
-						fingerprint := calcFingerprint(cs.PeerCertificates[0].Raw)
-						if strings.Compare(fingerprint, thumbprint) == 0 {
-							return nil
-						} else {
-							err := errors.New("server certificate didn't match trusted fingerprint")
-							log.Error(err, "verify thumbprint", "address", addr, "server thumbprint", fingerprint, "local thumbprint", thumbprint)
-							return err
-						}
-					}
-					return nil
-				},
-			}
-		}
-		conn, err := tls.Dial(network, addr, config)
-		if err != nil {
-			log.Error(err, "transport connect to", "addr", addr)
-			return nil, err
-
-		}
-		return conn, nil
-	}
-
 	tr := &http.Transport{
-		DialTLS:         dial,
 		IdleConnTimeout: idle * time.Second,
+	}
+	if cluster.config.Insecure == false {
+		dial := func(network, addr string) (net.Conn, error) {
+			var config *tls.Config
+			cafile := cluster.getCaFile(addr)
+			caCount := len(cluster.config.CAFile)
+			if caCount > 0 {
+				caCert, err := os.ReadFile(cafile)
+				if err != nil {
+					log.Error(err, "create transport", "read ca file", cafile)
+					return nil, err
+				}
+
+				certPool := x509.NewCertPool()
+				certPool.AppendCertsFromPEM(caCert)
+
+				config = &tls.Config{
+					RootCAs: certPool,
+				}
+
+			} else {
+				thumbprint := cluster.getThumbprint(addr)
+				tpCount := len(cluster.config.Thumbprint)
+				config = &tls.Config{
+					InsecureSkipVerify: true,
+					VerifyConnection: func(cs tls.ConnectionState) error {
+						// not check thumbprint if no thumbprint config
+						if tpCount > 0 {
+							fingerprint := calcFingerprint(cs.PeerCertificates[0].Raw)
+							if strings.Compare(fingerprint, thumbprint) == 0 {
+								return nil
+							} else {
+								err := errors.New("server certificate didn't match trusted fingerprint")
+								log.Error(err, "verify thumbprint", "address", addr, "server thumbprint", fingerprint, "local thumbprint", thumbprint)
+								return err
+							}
+						}
+						return nil
+					},
+				}
+			}
+			conn, err := tls.Dial(network, addr, config)
+			if err != nil {
+				log.Error(err, "transport connect to", "addr", addr)
+				return nil, err
+
+			}
+			return conn, nil
+		}
+		tr.DialTLS = dial
+	} else {
+		tr.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true,
+		}
 	}
 	return &Transport{Base: tr}
 }
