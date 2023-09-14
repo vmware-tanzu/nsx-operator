@@ -74,7 +74,7 @@ func TestSelectEndpoint(t *testing.T) {
 	assert := assert.New(t)
 	a := "127.0.0.1, 127.0.0.2, 127.0.0.3"
 	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
-	cluster := &Cluster{}
+	cluster := &Cluster{config: &Config{}}
 	tr := cluster.createTransport(idleConnTimeout)
 	client := cluster.createHTTPClient(tr, timeout)
 	noBClient := cluster.createNoBalancerClient(timeout, idleConnTimeout)
@@ -151,7 +151,7 @@ func TestTransport_RoundTrip(t *testing.T) {
 func Test_handleRoundTripError(t *testing.T) {
 	a := "127.0.0.1, 127.0.0.2, 127.0.0.3"
 	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
-	cluster := &Cluster{}
+	cluster := &Cluster{config: &Config{}}
 	tr := cluster.createTransport(idleConnTimeout)
 	client := cluster.createHTTPClient(tr, timeout)
 	noBClient := cluster.createNoBalancerClient(timeout, idleConnTimeout)
