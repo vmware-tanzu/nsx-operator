@@ -1,0 +1,8 @@
+apiVersion: nsx.vmware.com/v1alpha1
+kind: StaticRoute
+metadata:
+  name: guestcluster-staticroute-2
+spec:
+  network: 45.1.2.0/24
+  nextHops:
+  - ipAddress: 172.10.0.2
