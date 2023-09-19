@@ -3,4 +3,4 @@ kind: IPPool
 metadata:
   name: guestcluster-ippool-2
 spec:
-  type: public
+  type: Public

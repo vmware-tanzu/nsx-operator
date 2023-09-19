@@ -5,6 +5,7 @@ package e2e
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
@@ -22,6 +23,9 @@ func TestIPPoolBasic(t *testing.T) {
 	subnet_name_3 := "guestcluster1-workers-c"
 	setupTest(t, ns)
 	defer teardownTest(t, ns)
+
+	// wait for ipblock ready
+	time.Sleep(10 * time.Second)
 
 	// Create ippool
 	ippoolPath, _ := filepath.Abs("./manifest/testIPPool/ippool.yaml")
@@ -65,6 +69,9 @@ func TestIPPoolAddDeleteSubnet(t *testing.T) {
 	subnet_name_3 := "guestcluster1-workers-c"
 	setupTest(t, ns)
 	defer teardownTest(t, ns)
+
+	// wait for ipblock ready
+	time.Sleep(10 * time.Second)
 
 	// Create ippool
 	ippoolPath, _ := filepath.Abs("./manifest/testIPPool/ippool.yaml")
@@ -129,6 +136,9 @@ func TestIPPoolSubnetsNil(t *testing.T) {
 	name := "guestcluster-ippool-2"
 	setupTest(t, ns)
 	defer teardownTest(t, ns)
+
+	// wait for ipblock ready
+	time.Sleep(10 * time.Second)
 
 	// Create ippool
 	ippoolPath, _ := filepath.Abs("./manifest/testIPPool/ippool.yaml")
