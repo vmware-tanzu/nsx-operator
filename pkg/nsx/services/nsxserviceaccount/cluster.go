@@ -100,7 +100,7 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 
 	// generate certificate
 	subject := util.DefaultSubject
-	subject.CommonName = clusterName
+	subject.CommonName = normalizedClusterName
 	cert, key, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
 	if err != nil {
 		return err
@@ -183,7 +183,7 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 	obj.Status.Reason = "Success."
 	obj.Status.NSXManagers = s.NSXConfig.NsxApiManagers
 	obj.Status.ClusterID = clusterId
-	obj.Status.ClusterName = clusterName
+	obj.Status.ClusterName = normalizedClusterName
 	obj.Status.Secrets = []v1alpha1.NSXSecret{{
 		Name:      secretName,
 		Namespace: secretNamespace,
