@@ -920,8 +920,12 @@ func TestNSXServiceAccountService_UpdateRealizedNSXServiceAccount(t *testing.T) 
 }
 
 func TestNSXServiceAccountService_DeleteNSXServiceAccount(t *testing.T) {
+	uidScope := common.TagScopeNSXServiceAccountCRUID
+	uidTag := "uid1"
+
 	type args struct {
 		namespacedName types.NamespacedName
+		uid            types.UID
 	}
 	tests := []struct {
 		name                              string
@@ -939,6 +943,13 @@ func TestNSXServiceAccountService_DeleteNSXServiceAccount(t *testing.T) {
 				certId := "certId1"
 				assert.NoError(t, s.ClusterControlPlaneStore.Add(model.ClusterControlPlane{Id: &normalizedClusterName}))
 				assert.NoError(t, s.PrincipalIdentityStore.Add(mpmodel.PrincipalIdentity{Name: &normalizedClusterName, Id: &piId, CertificateId: &certId}))
+				assert.NoError(t, s.Client.Create(ctx, &v1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "name1",
+						Namespace: "ns1",
+						UID:       "uid1",
+					},
+				}))
 				patches := gomonkey.ApplyMethodSeq(s.NSXClient.ClusterControlPlanesClient, "Delete", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
 					Times:  1,
@@ -958,10 +969,47 @@ func TestNSXServiceAccountService_DeleteNSXServiceAccount(t *testing.T) {
 					Namespace: "ns1",
 					Name:      "name1",
 				},
+				uid: "uid1",
 			},
 			wantErr:                           false,
 			wantClusterControlPlaneStoreCount: 0,
 			wantPrincipalIdentityStoreCount:   0,
+		},
+		{
+			name: "errorDeletePIDifferentUID",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context) *gomonkey.Patches {
+				normalizedClusterName := "k8scl-one_test-ns1-name1"
+				piId := "piId1"
+				certId := "certId1"
+				assert.NoError(t, s.ClusterControlPlaneStore.Add(model.ClusterControlPlane{Id: &normalizedClusterName}))
+				assert.NoError(t, s.PrincipalIdentityStore.Add(mpmodel.PrincipalIdentity{Name: &normalizedClusterName, Id: &piId, CertificateId: &certId, Tags: []mpmodel.Tag{{
+					Scope: &uidScope,
+					Tag:   &uidTag,
+				}}}))
+				assert.NoError(t, s.Client.Create(ctx, &v1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "name1",
+						Namespace: "ns1",
+						UID:       "uid2",
+					},
+				}))
+
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.PrincipalIdentitiesClient, "Delete", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{fmt.Errorf("mock error")},
+					Times:  1,
+				}})
+				return patches
+			},
+			args: args{
+				namespacedName: types.NamespacedName{
+					Namespace: "ns1",
+					Name:      "name1",
+				},
+				uid: "uid1",
+			},
+			wantErr:                           true,
+			wantClusterControlPlaneStoreCount: 1,
+			wantPrincipalIdentityStoreCount:   1,
 		},
 	}
 	for _, tt := range tests {
@@ -973,7 +1021,7 @@ func TestNSXServiceAccountService_DeleteNSXServiceAccount(t *testing.T) {
 			patches := tt.prepareFunc(t, s, ctx)
 			defer patches.Reset()
 
-			if err := s.DeleteNSXServiceAccount(ctx, tt.args.namespacedName); (err != nil) != tt.wantErr {
+			if err := s.DeleteNSXServiceAccount(ctx, tt.args.namespacedName, tt.args.uid); (err != nil) != tt.wantErr {
 				t.Errorf("DeleteNSXServiceAccount() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			assert.Equal(t, tt.wantClusterControlPlaneStoreCount, len(s.ClusterControlPlaneStore.ListKeys()))
