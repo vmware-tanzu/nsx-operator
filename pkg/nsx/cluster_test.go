@@ -166,27 +166,39 @@ func TestCluster_enableFeature(t *testing.T) {
 	nsxVersion.NodeVersion = "3.1.3.3.0.18844962"
 	assert.False(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
 	nsxVersion.NodeVersion = "3.2.0.3.0.18844962"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
 	nsxVersion.NodeVersion = "3.11.0.3.0.18844962"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
 	nsxVersion.NodeVersion = "4.0.0"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
 	nsxVersion.NodeVersion = "4.0.1"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
 	nsxVersion.NodeVersion = "4.1.0"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
+	nsxVersion.NodeVersion = "4.1.2"
+	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
+	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
+	assert.True(t, nsxVersion.featureSupported(ServiceAccountRestore))
 	nsxVersion.NodeVersion = "3.2.0"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
 	nsxVersion.NodeVersion = "4.2.0"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
+	assert.True(t, nsxVersion.featureSupported(ServiceAccountRestore))
 
 	// Test case for invalid feature
 	feature := 3

@@ -92,6 +92,14 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
 					Phase:  nsxvmwarecomv1alpha1.NSXServiceAccountPhaseFailed,
 					Reason: "Error: NSX version check failed, NSXServiceAccount feature is not supported",
+					Conditions: []metav1.Condition{
+						{
+							Type:    nsxvmwarecomv1alpha1.ConditionTypeRealized,
+							Status:  metav1.ConditionFalse,
+							Reason:  nsxvmwarecomv1alpha1.ConditionReasonRealizationError,
+							Message: "Error: NSX version check failed, NSXServiceAccount feature is not supported",
+						},
+					},
 				},
 			},
 		},
@@ -163,6 +171,14 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
 					Phase:  nsxvmwarecomv1alpha1.NSXServiceAccountPhaseFailed,
 					Reason: "Error: mock error",
+					Conditions: []metav1.Condition{
+						{
+							Type:    nsxvmwarecomv1alpha1.ConditionTypeRealized,
+							Status:  metav1.ConditionFalse,
+							Reason:  nsxvmwarecomv1alpha1.ConditionReasonRealizationError,
+							Message: "Error: mock error",
+						},
+					},
 				},
 			},
 		},
@@ -176,17 +192,69 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					},
 					Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
 						Phase: nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
+						Conditions: []metav1.Condition{
+							{
+								Type:   "Dummy",
+								Status: metav1.ConditionFalse,
+							},
+						},
 					},
 				}))
-				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{true},
-					Times:  1,
-				}})
+				cluster := &nsx.Cluster{}
+				patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *nsx.Cluster) (*nsx.NsxVersion, error) {
+					nsxVersion := &nsx.NsxVersion{NodeVersion: "4.0.1"}
+					return nsxVersion, nil
+				})
 				return
 			},
 			args:    requestArgs,
 			want:    ResultNormal,
 			wantErr: false,
+			expectedCR: &nsxvmwarecomv1alpha1.NSXServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace:       requestArgs.req.Namespace,
+					Name:            requestArgs.req.Name,
+					Finalizers:      []string{servicecommon.NSXServiceAccountFinalizerName},
+					ResourceVersion: "2",
+				},
+				Spec: nsxvmwarecomv1alpha1.NSXServiceAccountSpec{},
+				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
+					Phase: nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
+					Conditions: []metav1.Condition{
+						{
+							Type:   "Dummy",
+							Status: metav1.ConditionFalse,
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "RestoreFail",
+			prepareFunc: func(t *testing.T, r *NSXServiceAccountReconciler, ctx context.Context) (patches *gomonkey.Patches) {
+				assert.NoError(t, r.Client.Create(ctx, &nsxvmwarecomv1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: requestArgs.req.Namespace,
+						Name:      requestArgs.req.Name,
+					},
+					Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
+						Phase: nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
+					},
+				}))
+				cluster := &nsx.Cluster{}
+				patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *nsx.Cluster) (*nsx.NsxVersion, error) {
+					nsxVersion := &nsx.NsxVersion{NodeVersion: "4.1.2"}
+					return nsxVersion, nil
+				})
+				patches.ApplyMethodSeq(r.Service, "UpdateRealizedNSXServiceAccount", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{fmt.Errorf("mock error")},
+					Times:  1,
+				}})
+				return
+			},
+			args:    requestArgs,
+			want:    ResultRequeue,
+			wantErr: true,
 			expectedCR: &nsxvmwarecomv1alpha1.NSXServiceAccount{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace:       requestArgs.req.Namespace,
@@ -299,6 +367,14 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
 					Phase:  nsxvmwarecomv1alpha1.NSXServiceAccountPhaseFailed,
 					Reason: "Error: mock error",
+					Conditions: []metav1.Condition{
+						{
+							Type:    nsxvmwarecomv1alpha1.ConditionTypeRealized,
+							Status:  metav1.ConditionFalse,
+							Reason:  nsxvmwarecomv1alpha1.ConditionReasonRealizationError,
+							Message: "Error: mock error",
+						},
+					},
 				},
 			},
 		},
@@ -408,6 +484,9 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 			} else {
 				assert.Equal(t, tt.expectedCR.ObjectMeta, actualCR.ObjectMeta)
 				assert.Equal(t, tt.expectedCR.Spec, actualCR.Spec)
+				for i := range actualCR.Status.Conditions {
+					actualCR.Status.Conditions[i].LastTransitionTime = metav1.Time{}
+				}
 				assert.Equal(t, tt.expectedCR.Status, actualCR.Status)
 			}
 		})
@@ -525,8 +604,16 @@ func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatus(t *testing.T)
 						ResourceVersion: "1",
 					},
 					Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
-						Phase:          nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
-						Reason:         "testReason",
+						Phase:  nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
+						Reason: "testReason",
+						Conditions: []metav1.Condition{
+							{
+								Type:    nsxvmwarecomv1alpha1.ConditionTypeRealized,
+								Status:  metav1.ConditionTrue,
+								Reason:  nsxvmwarecomv1alpha1.ConditionReasonRealizationSuccess,
+								Message: "testReason",
+							},
+						},
 						VPCPath:        "testVPCPath",
 						NSXManagers:    []string{"dummyHost:443"},
 						ProxyEndpoints: nsxvmwarecomv1alpha1.NSXProxyEndpoint{},
@@ -548,8 +635,16 @@ func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatus(t *testing.T)
 						ResourceVersion: "2",
 					},
 					Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
-						Phase:          nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
-						Reason:         "testReason",
+						Phase:  nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
+						Reason: "testReason",
+						Conditions: []metav1.Condition{
+							{
+								Type:    nsxvmwarecomv1alpha1.ConditionTypeRealized,
+								Status:  metav1.ConditionTrue,
+								Reason:  nsxvmwarecomv1alpha1.ConditionReasonRealizationSuccess,
+								Message: "testReason",
+							},
+						},
 						VPCPath:        "testVPCPath",
 						NSXManagers:    []string{"dummyHost:443"},
 						ProxyEndpoints: nsxvmwarecomv1alpha1.NSXProxyEndpoint{},
@@ -583,8 +678,6 @@ func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatus(t *testing.T)
 						ResourceVersion: "1",
 					},
 					Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
-						Phase:          nsxvmwarecomv1alpha1.NSXServiceAccountPhaseInProgress,
-						Reason:         "testReason",
 						VPCPath:        "testVPCPath",
 						NSXManagers:    []string{"dummyHost:443"},
 						ProxyEndpoints: nsxvmwarecomv1alpha1.NSXProxyEndpoint{},
@@ -606,8 +699,16 @@ func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatus(t *testing.T)
 						ResourceVersion: "2",
 					},
 					Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
-						Phase:          nsxvmwarecomv1alpha1.NSXServiceAccountPhaseFailed,
-						Reason:         "Error: test error",
+						Phase:  nsxvmwarecomv1alpha1.NSXServiceAccountPhaseFailed,
+						Reason: "Error: test error",
+						Conditions: []metav1.Condition{
+							{
+								Type:    nsxvmwarecomv1alpha1.ConditionTypeRealized,
+								Status:  metav1.ConditionFalse,
+								Reason:  nsxvmwarecomv1alpha1.ConditionReasonRealizationError,
+								Message: "Error: test error",
+							},
+						},
 						VPCPath:        "testVPCPath",
 						NSXManagers:    []string{"dummyHost:443"},
 						ProxyEndpoints: nsxvmwarecomv1alpha1.NSXProxyEndpoint{},
@@ -637,6 +738,9 @@ func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatus(t *testing.T)
 			}, actualNSXServiceAccount))
 			assert.Equal(t, tt.expected.o.ObjectMeta, actualNSXServiceAccount.ObjectMeta)
 			assert.Equal(t, tt.expected.o.Spec, actualNSXServiceAccount.Spec)
+			for i := range actualNSXServiceAccount.Status.Conditions {
+				actualNSXServiceAccount.Status.Conditions[i].LastTransitionTime = metav1.Time{}
+			}
 			assert.Equal(t, tt.expected.o.Status, actualNSXServiceAccount.Status)
 		})
 	}
@@ -714,10 +818,12 @@ func TestNSXServiceAccountReconciler_garbageCollector(t *testing.T) {
 				count := 0
 				return gomonkey.ApplyMethodFunc(r.Service, "DeleteNSXServiceAccount", func(ctx context.Context, namespacedName types.NamespacedName) error {
 					count++
-					if count == 1 && namespacedName.Namespace == "ns3" {
-						return nil
-					} else if count == 2 && namespacedName.Namespace == "ns4" {
-						return fmt.Errorf("mock error")
+					if count <= 2 {
+						if namespacedName.Namespace == "ns3" {
+							return nil
+						} else if namespacedName.Namespace == "ns4" {
+							return fmt.Errorf("mock error")
+						}
 					}
 					t.Errorf("wrong DeleteNSXServiceAccount call, seq: %d, namespacedName: %v", count, namespacedName)
 					return nil
