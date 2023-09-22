@@ -38,6 +38,7 @@ type SubnetStatus struct {
 // +genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:storageversion
 
 // Subnet is the Schema for the subnets API.
 // +kubebuilder:printcolumn:name="AccessMode",type=string,JSONPath=`.spec.accessMode`,description="Access mode of Subnet"

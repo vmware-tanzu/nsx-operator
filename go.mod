@@ -3,6 +3,7 @@ module github.com/vmware-tanzu/nsx-operator
 go 1.19
 
 replace (
+	github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
 	github.com/vmware/go-vmware-nsxt => github.com/mengdie-song/go-vmware-nsxt v0.0.0-20220921033217-dbd234470e30 // inventory-keeper includes all commits from github.com/gran-vmv/go-vmware-nsxt v0.0.0-20211206034609-cd7ffaf2c996
 	github.com/vmware/vsphere-automation-sdk-go/lib => github.com/TaoZou1/vsphere-automation-sdk-go/lib v0.5.4
 	github.com/vmware/vsphere-automation-sdk-go/runtime => github.com/TaoZou1/vsphere-automation-sdk-go/runtime v0.5.4
@@ -16,15 +17,17 @@ require (
 	github.com/apparentlymart/go-cidr v1.1.0
 	github.com/coreos/go-semver v0.3.0
 	github.com/deckarep/golang-set v1.8.0
-	github.com/go-logr/logr v1.2.3
+	github.com/go-logr/logr v1.2.4
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/golang/mock v1.6.0
 	github.com/google/uuid v1.2.0
 	github.com/kevinburke/ssh_config v1.2.0
 	github.com/openlyinc/pointy v1.1.2
+	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.14.0
 	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.8.0
+	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-00010101000000-000000000000
 	github.com/vmware-tanzu/vm-operator/api v1.8.2
 	github.com/vmware/govmomi v0.27.4
 	github.com/vmware/vsphere-automation-sdk-go/lib v0.5.2
@@ -32,7 +35,7 @@ require (
 	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.11.0
 	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp v0.3.0
 	go.uber.org/zap v1.24.0
-	golang.org/x/crypto v0.5.0
+	golang.org/x/crypto v0.11.0
 	golang.org/x/time v0.3.0
 	gopkg.in/ini.v1 v1.66.4
 	k8s.io/api v0.26.1
@@ -71,7 +74,6 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.37.0 // indirect
@@ -80,13 +82,13 @@ require (
 	github.com/stretchr/objx v0.4.0 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
-	golang.org/x/mod v0.6.0 // indirect
-	golang.org/x/net v0.7.0 // indirect
+	golang.org/x/mod v0.8.0 // indirect
+	golang.org/x/net v0.13.0 // indirect
 	golang.org/x/oauth2 v0.0.0-20220223155221-ee480838109b // indirect
-	golang.org/x/sys v0.5.0 // indirect
-	golang.org/x/term v0.5.0 // indirect
-	golang.org/x/text v0.7.0 // indirect
-	golang.org/x/tools v0.2.0 // indirect
+	golang.org/x/sys v0.10.0 // indirect
+	golang.org/x/term v0.10.0 // indirect
+	golang.org/x/text v0.11.0 // indirect
+	golang.org/x/tools v0.6.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.2.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
@@ -96,10 +98,10 @@ require (
 	k8s.io/apiextensions-apiserver v0.26.1 // indirect
 	k8s.io/component-base v0.26.1 // indirect
 	k8s.io/gengo v0.0.0-20220902162205-c0856e24416d // indirect
-	k8s.io/klog/v2 v2.80.1 // indirect
+	k8s.io/klog/v2 v2.100.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20221012153701-172d655c2280 // indirect
-	k8s.io/utils v0.0.0-20221128185143-99ec85e7a448 // indirect
-	sigs.k8s.io/json v0.0.0-20220713155537-f223a00ba0e2 // indirect
+	k8s.io/utils v0.0.0-20230406110748-d93618cff8a2 // indirect
+	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )

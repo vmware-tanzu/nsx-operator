@@ -41,6 +41,7 @@ type SubnetPortIPAddress struct {
 // +genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:storageversion
 
 // SubnetPort is the Schema for the subnetports API.
 // +kubebuilder:printcolumn:name="VIFID",type=string,JSONPath=`.status.vifID`,description="Attachment VIF ID owned by the SubnetPort"

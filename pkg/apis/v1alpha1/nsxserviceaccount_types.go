@@ -74,6 +74,7 @@ type NSXServiceAccountStatus struct {
 // +genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:storageversion
 
 // NSXServiceAccount is the Schema for the nsxserviceaccounts API
 type NSXServiceAccount struct {

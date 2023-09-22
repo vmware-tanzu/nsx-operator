@@ -116,6 +116,7 @@ type SecurityPolicyStatus struct {
 // +genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:storageversion
 
 // SecurityPolicy is the Schema for the securitypolicies API.
 type SecurityPolicy struct {
