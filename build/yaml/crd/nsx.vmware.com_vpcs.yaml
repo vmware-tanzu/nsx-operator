@@ -17,6 +17,10 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - description: Private IPv4 CIDRs
+      jsonPath: .status.privateIPv4CIDRs
+      name: PrivateIPv4CIDRs
+      type: string
     - description: Default SNAT IP for Private Subnets
       jsonPath: .status.defaultSNATIP
       name: SNATIP
@@ -88,12 +92,18 @@ spec:
               nsxResourcePath:
                 description: NSX VPC Policy API resource path.
                 type: string
+              privateIPv4CIDRs:
+                description: Private CIDRs used for the VPC.
+                items:
+                  type: string
+                type: array
             required:
             - conditions
             - defaultSNATIP
             - lbSubnetCIDR
             - lbSubnetPath
             - nsxResourcePath
+            - privateIPv4CIDRs
             type: object
         type: object
     served: true
