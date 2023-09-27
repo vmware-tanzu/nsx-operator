@@ -13,6 +13,7 @@ import (
 //+kubebuilder:storageversion
 
 // VPC is the Schema for the VPC API
+// +kubebuilder:printcolumn:name="PrivateIPv4CIDRs",type=string,JSONPath=`.status.privateIPv4CIDRs`,description="Private IPv4 CIDRs"
 // +kubebuilder:printcolumn:name="SNATIP",type=string,JSONPath=`.status.defaultSNATIP`,description="Default SNAT IP for Private Subnets"
 // +kubebuilder:printcolumn:name="LBSubnetCIDR",type=string,JSONPath=`.status.lbSubnetCIDR`,description="CIDR for the load balancer Subnet"
 type VPC struct {
@@ -47,6 +48,8 @@ type VPCStatus struct {
 	LBSubnetPath string `json:"lbSubnetPath"`
 	// CIDR for the load balancer Subnet.
 	LBSubnetCIDR string `json:"lbSubnetCIDR"`
+        // Private CIDRs used for the VPC.
+        PrivateIPv4CIDRs []string `json:"privateIPv4CIDRs"`
 }
 
 func init() {
