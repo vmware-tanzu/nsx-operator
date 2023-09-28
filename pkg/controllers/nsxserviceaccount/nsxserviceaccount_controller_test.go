@@ -816,7 +816,7 @@ func TestNSXServiceAccountReconciler_garbageCollector(t *testing.T) {
 					}},
 				}))
 				count := 0
-				return gomonkey.ApplyMethodFunc(r.Service, "DeleteNSXServiceAccount", func(ctx context.Context, namespacedName types.NamespacedName) error {
+				return gomonkey.ApplyMethodFunc(r.Service, "DeleteNSXServiceAccount", func(ctx context.Context, namespacedName types.NamespacedName, uid types.UID) error {
 					count++
 					if count <= 2 {
 						if namespacedName.Namespace == "ns3" {
