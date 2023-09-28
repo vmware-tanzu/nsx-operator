@@ -182,7 +182,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		v1sp.ObjectMeta.DeletionTimestamp = &time
 		return nil
 	})
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}) error {
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isVpcCleanup bool) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
@@ -199,7 +199,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		v1sp.Finalizers = []string{common.SecurityPolicyFinalizerName}
 		return nil
 	})
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}) error {
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isVpcCleanup bool) error {
 		return nil
 	})
 	_, ret = r.Reconcile(ctx, req)
@@ -224,7 +224,7 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 		a.Insert("2345")
 		return a
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}) error {
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isVpcCleanup bool) error {
 		return nil
 	})
 	cancel := make(chan bool)
@@ -259,7 +259,7 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 		a.Insert("1234")
 		return a
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}) error {
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isVpcCleanup bool) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
@@ -282,7 +282,7 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 		a := sets.NewString()
 		return a
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}) error {
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isVpcCleanup bool) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})

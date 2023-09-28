@@ -231,7 +231,7 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 	return nil
 }
 
-func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}) error {
+func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}, isVpcCleanup bool) error {
 	var nsxSecurityPolicy *model.SecurityPolicy
 	var spNameSpace string
 	var err error
@@ -282,7 +282,7 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}) erro
 			log.Info("did not get groups with SecurityPolicy index", "UID", string(sp))
 		}
 
-		if isVpcEnabled(service) {
+		if isVpcEnabled(service) || isVpcCleanup {
 			for i := len(groups) - 1; i >= 0; i-- {
 				for j := len(groups[i].Tags) - 1; j >= 0; j-- {
 					if *(groups[i].Tags[j].Scope) == common.TagScopeProjectGroupShared {
@@ -321,7 +321,7 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}) erro
 	finalSecurityPolicyCopy := *nsxSecurityPolicy
 	finalSecurityPolicyCopy.Rules = nsxSecurityPolicy.Rules
 
-	if isVpcEnabled(service) {
+	if isVpcEnabled(service) || isVpcCleanup {
 		vpcInfo, err := getVpcInfo(spNameSpace)
 		if err != nil {
 			return err
@@ -541,7 +541,7 @@ func (service *SecurityPolicyService) Cleanup() error {
 	uids := service.ListSecurityPolicyID()
 	log.Info("cleaning up security policies", "count", len(uids))
 	for uid := range uids {
-		err := service.DeleteSecurityPolicy(types.UID(uid))
+		err := service.DeleteSecurityPolicy(types.UID(uid), true)
 		if err != nil {
 			return err
 		}
