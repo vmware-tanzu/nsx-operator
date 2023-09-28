@@ -104,7 +104,7 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			if err := r.Service.DeleteNSXServiceAccount(ctx, types.NamespacedName{
 				Namespace: obj.Namespace,
 				Name:      obj.Name,
-			}); err != nil {
+			}, obj.UID); err != nil {
 				log.Error(err, "deleting failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
 				deleteFail(r, &ctx, obj, &err)
 				return ResultRequeue, err
@@ -196,10 +196,11 @@ func (r *NSXServiceAccountReconciler) garbageCollector(nsxServiceAccountUIDSet s
 		log.V(1).Info("gc collects NSXServiceAccount CR", "UID", nsxServiceAccountUID)
 		namespacedName := r.Service.GetNSXServiceAccountNameByUID(nsxServiceAccountUID)
 		if namespacedName.Namespace == "" || namespacedName.Name == "" {
+			log.Info("gc cannot get namespace/name, skip", "namespace", namespacedName.Namespace, "name", namespacedName.Name, "uid", nsxServiceAccountUID)
 			continue
 		}
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
-		err := r.Service.DeleteNSXServiceAccount(context.TODO(), namespacedName)
+		err := r.Service.DeleteNSXServiceAccount(context.TODO(), namespacedName, types.UID(nsxServiceAccountUID))
 		if err != nil {
 			gcErrorCount++
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
