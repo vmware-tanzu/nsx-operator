@@ -304,20 +304,21 @@ func (nsxVersion *NsxVersion) Validate() error {
 	return nil
 }
 
-func (nsxVersion *NsxVersion) featureSupported(feature string) bool {
+func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 	var minVersion [3]int64
 	validFeature := false
 	switch feature {
-	case FeatureSecurityPolicy:
+	case SecurityPolicy:
 		minVersion = nsx320Version
 		validFeature = true
-	case FeatureNSXServiceAccount:
+	case ServiceAccount:
 		minVersion = nsx401Version
 		validFeature = true
-	case FeatureNSXServiceAccountRestore:
+	case ServiceAccountRestore:
 		minVersion = nsx412Version
 		validFeature = true
 	}
+
 	if validFeature {
 		// only compared major.minor.patch
 		// NodeVersion should have at least three sections

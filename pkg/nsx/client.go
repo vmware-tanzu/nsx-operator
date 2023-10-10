@@ -26,10 +26,15 @@ import (
 )
 
 const (
-	FeatureSecurityPolicy           string = "SECURITY_POLICY"
-	FeatureNSXServiceAccount        string = "NSX_SERVICE_ACCOUNT"
-	FeatureNSXServiceAccountRestore string = "NSX_SERVICE_ACCOUNT_RESTORE"
+	VPC = iota
+	SecurityPolicy
+	ServiceAccount
+	ServiceAccountRestore
+	StaticRoute
+	AllFeatures
 )
+
+var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "STATIC_ROUTE"}
 
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
@@ -61,10 +66,8 @@ type NSXHealthChecker struct {
 }
 
 type NSXVersionChecker struct {
-	cluster                           *Cluster
-	securityPolicySupported           bool
-	nsxServiceAccountSupported        bool
-	nsxServiceAccountRestoreSupported bool
+	cluster          *Cluster
+	featureSupported [AllFeatures]bool
 }
 
 func (ck *NSXHealthChecker) CheckNSXHealth(req *http.Request) error {
@@ -106,8 +109,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		cluster: cluster,
 	}
 	nsxVersionChecker := &NSXVersionChecker{
-		cluster:                 cluster,
-		securityPolicySupported: false,
+		cluster:          cluster,
+		featureSupported: [AllFeatures]bool{},
 	}
 
 	nsxClient := &Client{
@@ -132,20 +135,24 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time
-	if !nsxClient.NSXCheckVersionForSecurityPolicy() {
+	if !nsxClient.NSXCheckVersion(SecurityPolicy) {
 		err := errors.New("SecurityPolicy feature support check failed")
 		log.Error(err, "initial NSX version check for SecurityPolicy got error")
 	}
-	if !nsxClient.NSXCheckVersionForNSXServiceAccount() {
+	if !nsxClient.NSXCheckVersion(ServiceAccount) {
 		err := errors.New("NSXServiceAccount feature support check failed")
 		log.Error(err, "initial NSX version check for NSXServiceAccount got error")
+	}
+	if !nsxClient.NSXCheckVersion(ServiceAccountRestore) {
+		err := errors.New("NSXServiceAccountRestore feature support check failed")
+		log.Error(err, "initial NSX version check for NSXServiceAccountRestore got error")
 	}
 
 	return nsxClient
 }
 
-func (client *Client) NSXCheckVersionForSecurityPolicy() bool {
-	if client.NSXVerChecker.securityPolicySupported {
+func (client *Client) NSXCheckVersion(feature int) bool {
+	if client.NSXVerChecker.featureSupported[feature] {
 		return true
 	}
 
@@ -160,42 +167,11 @@ func (client *Client) NSXCheckVersionForSecurityPolicy() bool {
 		return false
 	}
 
-	if !nsxVersion.featureSupported(FeatureSecurityPolicy) {
+	if !nsxVersion.featureSupported(feature) {
 		err = errors.New("NSX version check failed")
-		log.Error(err, "SecurityPolicy feature is not supported", "current version", nsxVersion.NodeVersion, "required version", nsx320Version)
+		log.Error(err, FeaturesName[feature]+"feature is not supported", "current version", nsxVersion.NodeVersion)
 		return false
 	}
-	client.NSXVerChecker.securityPolicySupported = true
+	client.NSXVerChecker.featureSupported[feature] = true
 	return true
-}
-
-func (client *Client) NSXCheckVersionForNSXServiceAccount() bool {
-	if client.NSXVerChecker.nsxServiceAccountSupported {
-		return true
-	}
-
-	nsxVersion, err := client.NSXVerChecker.cluster.GetVersion()
-	if err != nil {
-		log.Error(err, "get version error")
-		return false
-	}
-	err = nsxVersion.Validate()
-	if err != nil {
-		log.Error(err, "validate version error")
-		return false
-	}
-
-	if !nsxVersion.featureSupported(FeatureNSXServiceAccount) {
-		err = errors.New("NSX version check failed")
-		log.Error(err, "NSXServiceAccount feature is not supported", "current version", nsxVersion.NodeVersion, "required version", nsx320Version)
-		return false
-	}
-	client.NSXVerChecker.nsxServiceAccountSupported = true
-	client.NSXVerChecker.nsxServiceAccountRestoreSupported = nsxVersion.featureSupported(FeatureNSXServiceAccountRestore)
-	return true
-}
-
-func (client *Client) NSXCheckVersionForNSXServiceAccountRestore() bool {
-	client.NSXCheckVersionForNSXServiceAccount()
-	return client.NSXVerChecker.nsxServiceAccountRestoreSupported
 }

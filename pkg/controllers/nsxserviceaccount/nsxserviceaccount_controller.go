@@ -25,6 +25,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 )
@@ -61,7 +62,7 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	// Since NSXServiceAccount service can only be activated from NSX 4.1.0 onwards,
 	// So need to check NSX version before starting NSXServiceAccount reconcile
-	if !r.Service.NSXClient.NSXCheckVersionForNSXServiceAccount() {
+	if !r.Service.NSXClient.NSXCheckVersion(nsx.ServiceAccount) {
 		err := errors.New("NSX version check failed, NSXServiceAccount feature is not supported")
 		updateFail(r, &ctx, obj, &err)
 		// if NSX version check fails, it will be put back to reconcile queue and be reconciled after 5 minutes
@@ -81,7 +82,7 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 
 		if nsxserviceaccount.IsNSXServiceAccountRealized(obj.Status) {
-			if r.Service.NSXClient.NSXCheckVersionForNSXServiceAccountRestore() {
+			if r.Service.NSXClient.NSXCheckVersion(nsx.ServiceAccountRestore) {
 				if err := r.Service.UpdateRealizedNSXServiceAccount(ctx, obj); err != nil {
 					log.Error(err, "update realized failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
 					metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
