@@ -63,7 +63,7 @@ func TestSubnetService_wrapSubnet(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := service.wrapSubnet(tt.args.subnet)
+			got, _ := service.wrapSubnet(tt.args.subnet, true)
 			for _, v := range got {
 				subnet, _ := Converter.ConvertToGolang(v, model.ChildVpcSubnetBindingType())
 				child := subnet.(model.ChildVpcSubnet)

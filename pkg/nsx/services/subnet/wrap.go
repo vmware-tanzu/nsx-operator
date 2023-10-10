@@ -14,19 +14,19 @@ import (
 // for this convenience we can no longer CRUD CR separately, and reduce the number of API calls to NSX-T.
 
 // WrapHierarchySubnet Wrap the subnet for InfraClient to patch.
-func (service *SubnetService) WrapHierarchySubnet(subnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.OrgRoot, error) {
-	if orgRoot, err := service.wrapOrgRoot(subnet, vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID); err != nil {
+func (service *SubnetService) WrapHierarchySubnet(subnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo, enableStaticIpAllocation bool) (*model.OrgRoot, error) {
+	if orgRoot, err := service.wrapOrgRoot(subnet, vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, enableStaticIpAllocation); err != nil {
 		return nil, err
 	} else {
 		return orgRoot, nil
 	}
 }
 
-func (service *SubnetService) wrapOrgRoot(subnet *model.VpcSubnet, orgID, projectID, vpcID string) (*model.OrgRoot, error) {
+func (service *SubnetService) wrapOrgRoot(subnet *model.VpcSubnet, orgID, projectID, vpcID string, enableStaticIpAllocation bool) (*model.OrgRoot, error) {
 	// This is the outermost layer of the hierarchy subnet.
 	// It doesn't need ID field.
 	resourceType := "OrgRoot"
-	children, err := service.wrapOrg(subnet, orgID, projectID, vpcID)
+	children, err := service.wrapOrg(subnet, orgID, projectID, vpcID, enableStaticIpAllocation)
 	if err != nil {
 		return nil, err
 	}
@@ -37,8 +37,8 @@ func (service *SubnetService) wrapOrgRoot(subnet *model.VpcSubnet, orgID, projec
 	return &orgRoot, nil
 }
 
-func (service *SubnetService) wrapOrg(subnet *model.VpcSubnet, orgID, projectID, vpcID string) ([]*data.StructValue, error) {
-	children, err := service.wrapProject(subnet, projectID, vpcID)
+func (service *SubnetService) wrapOrg(subnet *model.VpcSubnet, orgID, projectID, vpcID string, enableStaticIpAllocation bool) ([]*data.StructValue, error) {
+	children, err := service.wrapProject(subnet, projectID, vpcID, enableStaticIpAllocation)
 	if err != nil {
 		return nil, err
 	}
@@ -56,8 +56,8 @@ func (service *SubnetService) wrapOrg(subnet *model.VpcSubnet, orgID, projectID,
 	return []*data.StructValue{dataValue.(*data.StructValue)}, nil
 }
 
-func (service *SubnetService) wrapProject(subnet *model.VpcSubnet, projectID, vpcID string) ([]*data.StructValue, error) {
-	children, err := service.wrapVPC(subnet, vpcID)
+func (service *SubnetService) wrapProject(subnet *model.VpcSubnet, projectID, vpcID string, enableStaticIpAllocation bool) ([]*data.StructValue, error) {
+	children, err := service.wrapVPC(subnet, vpcID, enableStaticIpAllocation)
 	if err != nil {
 		return nil, err
 	}
@@ -75,8 +75,8 @@ func (service *SubnetService) wrapProject(subnet *model.VpcSubnet, projectID, vp
 	return []*data.StructValue{dataValue.(*data.StructValue)}, nil
 }
 
-func (service *SubnetService) wrapVPC(subnet *model.VpcSubnet, vpcID string) ([]*data.StructValue, error) {
-	children, err := service.wrapSubnet(subnet)
+func (service *SubnetService) wrapVPC(subnet *model.VpcSubnet, vpcID string, enableStaticIpAllocation bool) ([]*data.StructValue, error) {
+	children, err := service.wrapSubnet(subnet, enableStaticIpAllocation)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func (service *SubnetService) wrapVPC(subnet *model.VpcSubnet, vpcID string) ([]
 	return []*data.StructValue{dataValue.(*data.StructValue)}, nil
 }
 
-func (service *SubnetService) wrapSubnet(subnet *model.VpcSubnet) ([]*data.StructValue, error) {
+func (service *SubnetService) wrapSubnet(subnet *model.VpcSubnet, enableStaticIpAllocation bool) ([]*data.StructValue, error) {
 	subnet.ResourceType = &common.ResourceTypeSubnet
 	childSubnet := model.ChildVpcSubnet{
 		Id:              subnet.Id,
@@ -106,6 +106,24 @@ func (service *SubnetService) wrapSubnet(subnet *model.VpcSubnet) ([]*data.Struc
 	if len(errors) > 0 {
 		return nil, errors[0]
 	}
+
+	// This is a workaround to set static_ip_allocation for NSX subnet.
+	// Revert the codes after the vsphere-automation-sdk-go unhidden it in NSX 4.1.3.
+	vpcSubnetData, _ := dataValue.(*data.StructValue).Field("VpcSubnet")
+	staticIpAllocation := data.NewStructValue(
+		"",
+		map[string]data.DataValue{
+			"enabled": data.NewBooleanValue(enableStaticIpAllocation),
+		},
+	)
+	advancedConfigData := data.NewStructValue(
+		"",
+		map[string]data.DataValue{
+			"static_ip_allocation": staticIpAllocation,
+		},
+	)
+	vpcSubnetData.(*data.OptionalValue).Value().(*data.StructValue).SetField("advanced_config", advancedConfigData)
+
 	return []*data.StructValue{dataValue.(*data.StructValue)}, nil
 }
 

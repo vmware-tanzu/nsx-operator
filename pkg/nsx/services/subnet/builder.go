@@ -40,7 +40,7 @@ func (service *SubnetService) buildSubnetSetName(subnetset *v1alpha1.SubnetSet, 
 	return util.GenerateTruncName(common.MaxSubnetNameLength, subnetset.ObjectMeta.Name, SUBNETPREFIX, index, "", getCluster(service))
 }
 
-func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (*model.VpcSubnet, error) {
+func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (*model.VpcSubnet, bool, error) {
 	tags = append(service.buildBasicTags(obj), tags...)
 	var nsxSubnet *model.VpcSubnet
 	var staticIpAllocation bool
@@ -63,15 +63,10 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 		}
 		staticIpAllocation = o.Spec.AdvancedConfig.StaticIPAllocation.Enable
 	default:
-		return nil, SubnetTypeError
+		return nil, staticIpAllocation, SubnetTypeError
 	}
 	nsxSubnet.Tags = tags
-	nsxSubnet.AdvancedConfig = &model.SubnetAdvancedConfig{
-		StaticIpAllocation: &model.StaticIpAllocation{
-			Enabled: &staticIpAllocation,
-		},
-	}
-	return nsxSubnet, nil
+	return nsxSubnet, staticIpAllocation, nil
 }
 
 func (service *SubnetService) buildDHCPConfig(poolSize int64) *model.VpcSubnetDhcpConfig {

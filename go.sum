@@ -37,8 +37,8 @@ github.com/TaoZou1/vsphere-automation-sdk-go/lib v0.5.4 h1:DlmdgfnJZBf3xKVlIzV8h
 github.com/TaoZou1/vsphere-automation-sdk-go/lib v0.5.4/go.mod h1:QJG7MJEjc8SJuo6p++sLJha7Sqt0tzyxjK1peikCB/E=
 github.com/TaoZou1/vsphere-automation-sdk-go/runtime v0.5.4 h1:HfPCC2OxVMZjMgfRFD6txpgynbua+roPkMT3f+SoHbA=
 github.com/TaoZou1/vsphere-automation-sdk-go/runtime v0.5.4/go.mod h1:GqC85noyNzapJN4vIAO9jJ1EKVo3+jCW4/2VTaMvuSg=
-github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt v0.9.8 h1:l8DRN/HDjLyTnePixRhM9Ey5U9RekYXvOcCeOwNwuRk=
-github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt v0.9.8/go.mod h1:r6vXdrxnApdHWL8zxnKrWXinGoP8HEXvMVLxKcarV8c=
+github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt v0.9.5 h1:TfXvc3C/LLrIqkxcJVdOsrDp9NDmq8dRqxxUoUBXZnA=
+github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt v0.9.5/go.mod h1:r6vXdrxnApdHWL8zxnKrWXinGoP8HEXvMVLxKcarV8c=
 github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt-mp v0.3.1-0.20221020082725-84e89979deb6 h1:sFObhyzxRrFCQvvZgVbWwAGyxUvhlom14Axv0Cjix90=
 github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt-mp v0.3.1-0.20221020082725-84e89979deb6/go.mod h1:75a9Rt4zCs3FA+pFi5HIMdNvl+5AHUDMCNblLZiErg4=
 github.com/a8m/tree v0.0.0-20210115125333-10a5fd5b637d/go.mod h1:FSdwKX97koS5efgm8WevNf7XS3PqtyFkKDDXrz778cg=
@@ -321,6 +321,8 @@ github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9de
 github.com/yuin/goldmark v1.1.32/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.3.5/go.mod h1:mwnBkeHKe2W/ZEtQ+71ViKU8L12m81fl3OWwC1Zlc8k=
+gitlab.eng.vmware.com/vapi-sdk/vsphere-automation-sdk-go/runtime v0.7.0 h1:4pU2NElWcqwIq02gN/H4l3yYwIiPQpbnlQGYkLmthNA=
+gitlab.eng.vmware.com/vapi-sdk/vsphere-automation-sdk-go/runtime v0.7.0/go.mod h1:v4Cynf6AVS1n+80DxMrbE+POcG6tguWgBWAf5FZNM8w=
 go.opencensus.io v0.21.0/go.mod h1:mSImk1erAIZhrmZN+AvHh14ztQfjbGwt4TtuofqLduU=
 go.opencensus.io v0.22.0/go.mod h1:+kGneAE2xo2IficOXnaByMWTGM9T73dGwxeWcUqIpI8=
 go.opencensus.io v0.22.2/go.mod h1:yxeiOL68Rb0Xd1ddK5vPZ/oVn4vY4Ynel7k9FzqtOIw=

@@ -115,7 +115,7 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, tags []mod
 		return "", err
 	}
 	uid := string(obj.GetUID())
-	nsxSubnet, err := service.buildSubnet(obj, tags)
+	nsxSubnet, enableStaticIpAllocation, err := service.buildSubnet(obj, tags)
 	if err != nil {
 		log.Error(err, "failed to build Subnet")
 		return "", err
@@ -134,11 +134,11 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, tags []mod
 			return uid, nil
 		}
 	}
-	return service.createOrUpdateSubnet(obj, nsxSubnet, &vpcInfo)
+	return service.createOrUpdateSubnet(obj, nsxSubnet, &vpcInfo, enableStaticIpAllocation)
 }
 
-func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (string, error) {
-	orgRoot, err := service.WrapHierarchySubnet(nsxSubnet, vpcInfo)
+func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo, enableStaticIpAllocation bool) (string, error) {
+	orgRoot, err := service.WrapHierarchySubnet(nsxSubnet, vpcInfo, enableStaticIpAllocation)
 	if err != nil {
 		log.Error(err, "WrapHierarchySubnet failed")
 		return "", err
@@ -173,7 +173,8 @@ func (service *SubnetService) DeleteSubnet(nsxSubnet model.VpcSubnet) error {
 	nsxSubnet.MarkedForDelete = &MarkedForDelete
 	// WrapHighLevelSubnet will modify the input subnet, make a copy for the following store update.
 	subnetCopy := nsxSubnet
-	orgRoot, err := service.WrapHierarchySubnet(&nsxSubnet, &vpcInfo)
+	// Hard code enableStaticIpAllocation to true because we don't need to care it the deletion request.
+	orgRoot, err := service.WrapHierarchySubnet(&nsxSubnet, &vpcInfo, true)
 	if err != nil {
 		return err
 	}
@@ -394,7 +395,7 @@ func (service *SubnetService) UpdateSubnetSetTags(ns string, vpcSubnets []model.
 				err := fmt.Errorf("failed to parse NSX VPC path for Subnet %s: %s", *existingSubnet.Path, err)
 				return err
 			}
-			if _, err := service.createOrUpdateSubnet(subnetSet, &existingSubnet, &vpcInfo); err != nil {
+			if _, err := service.createOrUpdateSubnet(subnetSet, &existingSubnet, &vpcInfo, subnetSet.Spec.AdvancedConfig.StaticIPAllocation.Enable); err != nil {
 				return err
 			}
 			log.Info("successfully updated subnet set tags", "subnetSet", subnetSet)
