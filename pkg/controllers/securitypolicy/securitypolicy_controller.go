@@ -29,6 +29,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
@@ -90,7 +91,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Since SecurityPolicy service can only be activated from NSX 3.2.0 onwards,
 	// So need to check NSX version before starting SecurityPolicy reconcile
-	if !r.Service.NSXClient.NSXCheckVersionForSecurityPolicy() {
+	if !r.Service.NSXClient.NSXCheckVersion(nsx.SecurityPolicy) {
 		err := errors.New("NSX version check failed, SecurityPolicy feature is not supported")
 		updateFail(r, &ctx, obj, &err)
 		// if NSX version check fails, it will be put back to reconcile queue and be reconciled after 5 minutes
