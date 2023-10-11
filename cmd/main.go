@@ -50,33 +50,10 @@ var (
 )
 
 func init() {
-	var err error
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
 	utilruntime.Must(vmv1alpha1.AddToScheme(scheme))
-	config.AddFlags()
-
-	cf, err = config.NewNSXOperatorConfigFromFile()
-	if err != nil {
-		os.Exit(1)
-	}
-
-	logf.SetLogger(logger.ZapLogger(cf.DefaultConfig.Debug, config.LogLevel))
-
-	if os.Getenv("NSX_OPERATOR_NAMESPACE") != "" {
-		nsxOperatorNamespace = os.Getenv("NSX_OPERATOR_NAMESPACE")
-	}
-
-	if cf.HAEnabled() {
-		log.Info("HA mode enabled")
-	} else {
-		log.Info("HA mode disabled")
-	}
-
-	if metrics.AreMetricsExposed(cf) {
-		metrics.InitializePrometheusMetrics()
-	}
 }
 
 func StartSecurityPolicyController(mgr ctrl.Manager, commonService common.Service) {
@@ -162,6 +139,29 @@ func StartNamespaceController(mgr ctrl.Manager, vpcService *vpc.VPCService) {
 }
 
 func main() {
+	config.AddFlags()
+
+	cf, err := config.NewNSXOperatorConfigFromFile()
+	if err != nil {
+		os.Exit(1)
+	}
+
+	logf.SetLogger(logger.ZapLogger(cf.DefaultConfig.Debug, config.LogLevel))
+
+	if os.Getenv("NSX_OPERATOR_NAMESPACE") != "" {
+		nsxOperatorNamespace = os.Getenv("NSX_OPERATOR_NAMESPACE")
+	}
+
+	if cf.HAEnabled() {
+		log.Info("HA mode enabled")
+	} else {
+		log.Info("HA mode disabled")
+	}
+
+	if metrics.AreMetricsExposed(cf) {
+		metrics.InitializePrometheusMetrics()
+	}
+
 	log.Info("starting NSX Operator")
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                  scheme,
