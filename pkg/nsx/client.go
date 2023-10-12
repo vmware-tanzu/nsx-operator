@@ -119,7 +119,7 @@ func restConnector(c *Cluster) *client.RestConnector {
 	return connector
 }
 
-func GetClient(cf *config.NSXOperatorConfig) *Client {
+func GetClient(cf *config.NSXOperatorConfig) (*Client, error) {
 	// Set log level for vsphere-automation-sdk-go
 	logger := logrus.New()
 	vspherelog.SetLogger(logger)
@@ -215,14 +215,17 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	if !nsxClient.NSXCheckVersion(SecurityPolicy) {
 		err := errors.New("SecurityPolicy feature support check failed")
 		log.Error(err, "initial NSX version check for SecurityPolicy got error")
+		return nil, err
 	}
 	if !nsxClient.NSXCheckVersion(ServiceAccount) {
 		err := errors.New("NSXServiceAccount feature support check failed")
 		log.Error(err, "initial NSX version check for NSXServiceAccount got error")
+		return nil, err
 	}
 	if !nsxClient.NSXCheckVersion(ServiceAccountRestore) {
 		err := errors.New("NSXServiceAccountRestore feature support check failed")
 		log.Error(err, "initial NSX version check for NSXServiceAccountRestore got error")
+		return nil, err
 	}
 	if !nsxClient.NSXCheckVersion(VpcAviRule) {
 		err := errors.New("VpcAviRule feature support check failed")
@@ -233,7 +236,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		log.Error(err, "initial NSX version check for ServiceAccountCertRotation got error")
 	}
 
-	return nsxClient
+	return nsxClient, nil
 }
 
 func (client *Client) NSXCheckVersion(feature int) bool {
