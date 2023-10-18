@@ -26,7 +26,7 @@ func TestIPPoolService_ListIPPoolID(t *testing.T) {
 	p := &model.IpAddressPool{Id: String("1"), DisplayName: String("1"),
 		Tags: []model.Tag{{Scope: String(common.TagScopeIPPoolCRUID),
 			Tag: String("1")}}}
-	_ = ipPoolService.ipPoolStore.Operate(p)
+	_ = ipPoolService.ipPoolStore.Apply(p)
 
 	tests := []struct {
 		name string
@@ -95,7 +95,7 @@ func TestIPPoolService_DeleteIPPool(t *testing.T) {
 		[]*model.IpAddressPoolBlockSubnet) {
 		return iap, iapbs
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "Operate", func(service *IPPoolService, nsxIPPool *model.IpAddressPool,
+	patch.ApplyMethod(reflect.TypeOf(service), "Apply", func(service *IPPoolService, nsxIPPool *model.IpAddressPool,
 		nsxIPSubnets []*model.IpAddressPoolBlockSubnet, IPPoolUpdated bool, IPPoolSubnetsUpdated bool) error {
 		return nil
 	})
@@ -184,17 +184,17 @@ func TestIPPoolService_CRUDResource(t *testing.T) {
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeIPPoolCRUID: indexFunc}),
 		BindingType: model.IpAddressPoolBlockSubnetBindingType(),
 	}}
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(ipPoolStore), "Operate", func(_ *IPPoolStore, nsxIPPool interface{}) error {
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(ipPoolStore), "Apply", func(_ *IPPoolStore, nsxIPPool interface{}) error {
 		return nil
 	})
-	patch.ApplyMethod(reflect.TypeOf(ipPoolBlockSubnetStore), "Operate", func(_ *IPPoolBlockSubnetStore, _ interface{}) error {
+	patch.ApplyMethod(reflect.TypeOf(ipPoolBlockSubnetStore), "Apply", func(_ *IPPoolBlockSubnetStore, _ interface{}) error {
 		return nil
 	})
 	defer patch.Reset()
 
 	t.Run("1", func(t *testing.T) {
-		err := service.Operate(iap, iapbs, true, true)
-		assert.NoError(t, err, "Operate(%v)(%v)", iap, iapbs)
+		err := service.Apply(iap, iapbs, true, true)
+		assert.NoError(t, err, "Apply(%v)(%v)", iap, iapbs)
 	})
 }
 
@@ -235,7 +235,7 @@ func TestIPPoolService_CreateOrUpdateIPPool(t *testing.T) {
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeIPPoolCRUID: indexFunc}),
 		BindingType: model.IpAddressPoolBindingType(),
 	}}
-	ipPoolStore.Operate(p)
+	ipPoolStore.Apply(p)
 
 	iapbs := []*model.IpAddressPoolBlockSubnet{
 		{Id: String("1"), DisplayName: String("1"),
@@ -245,7 +245,7 @@ func TestIPPoolService_CreateOrUpdateIPPool(t *testing.T) {
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeIPPoolCRUID: indexFunc}),
 		BindingType: model.IpAddressPoolBlockSubnetBindingType(),
 	}}
-	ipPoolBlockSubnetStore.Operate(iapbs)
+	ipPoolBlockSubnetStore.Apply(iapbs)
 	var vpcinfo = []model.Vpc{
 		{PrivateIpv4Blocks: []string{"/infra/ip-blocks/block-test"}},
 	}

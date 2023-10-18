@@ -60,7 +60,7 @@ func ipPoolBlockSubnetAssertion(i interface{}) interface{} {
 	return i.(model.IpAddressPoolBlockSubnet)
 }
 
-func (ipPoolStore *IPPoolStore) Operate(i interface{}) error {
+func (ipPoolStore *IPPoolStore) Apply(i interface{}) error {
 	ipPool := i.(*model.IpAddressPool)
 	if ipPool.MarkedForDelete != nil && *ipPool.MarkedForDelete {
 		err := ipPoolStore.Delete(*ipPool)
@@ -78,7 +78,7 @@ func (ipPoolStore *IPPoolStore) Operate(i interface{}) error {
 	return nil
 }
 
-func (ipPoolBlockSubnetStore *IPPoolBlockSubnetStore) Operate(i interface{}) error {
+func (ipPoolBlockSubnetStore *IPPoolBlockSubnetStore) Apply(i interface{}) error {
 	ipPoolBlockSubnets := i.([]*model.IpAddressPoolBlockSubnet)
 	for _, ipPoolBlockSubnet := range ipPoolBlockSubnets {
 		if ipPoolBlockSubnet.MarkedForDelete != nil && *ipPoolBlockSubnet.MarkedForDelete {

@@ -46,7 +46,7 @@ var filterTag = func(v []model.Tag) []string {
 	return res
 }
 
-func (StaticRouteStore *StaticRouteStore) Operate(i interface{}) error {
+func (StaticRouteStore *StaticRouteStore) Apply(i interface{}) error {
 	// not used by staticroute since staticroute doesn't use hierarchy API
 	return nil
 }

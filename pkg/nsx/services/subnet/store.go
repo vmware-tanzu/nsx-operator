@@ -64,7 +64,7 @@ type SubnetStore struct {
 	common.ResourceStore
 }
 
-func (subnetStore *SubnetStore) Operate(i interface{}) error {
+func (subnetStore *SubnetStore) Apply(i interface{}) error {
 	if i == nil {
 		return nil
 	}
