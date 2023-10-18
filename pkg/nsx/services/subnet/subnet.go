@@ -155,7 +155,7 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 		log.Error(err, "failed to check subnet realization state", "ID", *nsxSubnet.Id)
 		return "", err
 	}
-	if err = service.SubnetStore.Operate(nsxSubnet); err != nil {
+	if err = service.SubnetStore.Apply(nsxSubnet); err != nil {
 		log.Error(err, "failed to add subnet to store", "ID", *nsxSubnet.Id)
 		return "", err
 	}
@@ -182,7 +182,7 @@ func (service *SubnetService) DeleteSubnet(nsxSubnet model.VpcSubnet) error {
 		log.Error(err, "failed to delete Subnet", "ID", *nsxSubnet.Id)
 		return err
 	}
-	if err = service.SubnetStore.Operate(&subnetCopy); err != nil {
+	if err = service.SubnetStore.Apply(&subnetCopy); err != nil {
 		log.Error(err, "failed to delete Subnet from store", "ID", *nsxSubnet.Id)
 		return err
 	}

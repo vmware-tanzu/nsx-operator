@@ -13,7 +13,7 @@ type NodeStore struct {
 	common.ResourceStore
 }
 
-func (vs *NodeStore) Operate(i interface{}) error {
+func (vs *NodeStore) Apply(i interface{}) error {
 	if i == nil {
 		return nil
 	}

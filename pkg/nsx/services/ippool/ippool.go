@@ -95,7 +95,7 @@ func (service *IPPoolService) CreateOrUpdateIPPool(obj *v1alpha2.IPPool) (bool, 
 		ipPoolSubnetsUpdated = true
 	}
 
-	if err := service.Operate(nsxIPPool, finalIPSubnets, ipPoolUpdated, ipPoolSubnetsUpdated); err != nil {
+	if err := service.Apply(nsxIPPool, finalIPSubnets, ipPoolUpdated, ipPoolSubnetsUpdated); err != nil {
 		return false, false, err
 	}
 
@@ -107,7 +107,7 @@ func (service *IPPoolService) CreateOrUpdateIPPool(obj *v1alpha2.IPPool) (bool, 
 	return subnetCidrUpdated, ipPoolSubnetsUpdated, nil
 }
 
-func (service *IPPoolService) Operate(nsxIPPool *model.IpAddressPool, nsxIPSubnets []*model.IpAddressPoolBlockSubnet, IPPoolUpdated bool, IPPoolSubnetsUpdated bool) error {
+func (service *IPPoolService) Apply(nsxIPPool *model.IpAddressPool, nsxIPSubnets []*model.IpAddressPoolBlockSubnet, IPPoolUpdated bool, IPPoolSubnetsUpdated bool) error {
 	if !(IPPoolUpdated || IPPoolSubnetsUpdated) {
 		return nil
 	}
@@ -142,13 +142,13 @@ func (service *IPPoolService) Operate(nsxIPPool *model.IpAddressPool, nsxIPSubne
 		return err
 	}
 	if IPPoolUpdated {
-		err = service.ipPoolStore.Operate(nsxIPPool)
+		err = service.ipPoolStore.Apply(nsxIPPool)
 		if err != nil {
 			return err
 		}
 	}
 	if IPPoolSubnetsUpdated {
-		err = service.ipPoolBlockSubnetStore.Operate(nsxIPSubnets)
+		err = service.ipPoolBlockSubnetStore.Apply(nsxIPSubnets)
 		if err != nil {
 			return err
 		}
@@ -208,7 +208,7 @@ func (service *IPPoolService) DeleteIPPool(obj interface{}) error {
 	for i := len(nsxIPSubnets) - 1; i >= 0; i-- {
 		nsxIPSubnets[i].MarkedForDelete = &MarkedForDelete
 	}
-	if err := service.Operate(nsxIPPool, nsxIPSubnets, true, true); err != nil {
+	if err := service.Apply(nsxIPPool, nsxIPSubnets, true, true); err != nil {
 		return err
 	}
 	log.V(1).Info("successfully deleted nsxIPPool", "nsxIPPool", nsxIPPool)

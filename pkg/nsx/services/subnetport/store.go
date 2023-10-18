@@ -71,7 +71,7 @@ type SubnetPortStore struct {
 	common.ResourceStore
 }
 
-func (vs *SubnetPortStore) Operate(i interface{}) error {
+func (vs *SubnetPortStore) Apply(i interface{}) error {
 	if i == nil {
 		return nil
 	}

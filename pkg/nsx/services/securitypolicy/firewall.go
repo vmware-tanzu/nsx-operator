@@ -186,14 +186,14 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 		}
 
 		if (finalProjectGroups != nil) && len(*finalProjectGroups) != 0 {
-			err = service.groupStore.Operate(finalProjectGroups)
+			err = service.groupStore.Apply(finalProjectGroups)
 			if err != nil {
 				return err
 			}
 		}
 
 		if (finalProjectShares != nil) && len(*finalProjectShares) != 0 {
-			err = service.shareStore.Operate(finalProjectShares)
+			err = service.shareStore.Apply(finalProjectShares)
 		}
 	} else {
 		infraSecurityPolicy, err := service.WrapHierarchySecurityPolicy(finalSecurityPolicy, finalGroups)
@@ -210,19 +210,19 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 	// The steps below know how to deal with CR, if there is MarkedForDelete, then delete it from store,
 	// otherwise add or update it to store.
 	if isChanged {
-		err = service.securityPolicyStore.Operate(&finalSecurityPolicyCopy)
+		err = service.securityPolicyStore.Apply(&finalSecurityPolicyCopy)
 		if err != nil {
 			return err
 		}
 	}
 	if !(len(changedRules) == 0 && len(staleRules) == 0) {
-		err = service.ruleStore.Operate(&finalSecurityPolicyCopy)
+		err = service.ruleStore.Apply(&finalSecurityPolicyCopy)
 		if err != nil {
 			return err
 		}
 	}
 	if !(len(changedGroups) == 0 && len(staleGroups) == 0) {
-		err = service.groupStore.Operate(&finalGroups)
+		err = service.groupStore.Apply(&finalGroups)
 		if err != nil {
 			return err
 		}
@@ -379,13 +379,13 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}, isVp
 		}
 
 		if len(nsxProjectShares) != 0 {
-			err = service.shareStore.Operate(&nsxProjectShares)
+			err = service.shareStore.Apply(&nsxProjectShares)
 			if err != nil {
 				return err
 			}
 		}
 		if len(nsxProjectGroups) != 0 {
-			err = service.groupStore.Operate(&nsxProjectGroups)
+			err = service.groupStore.Apply(&nsxProjectGroups)
 		}
 	} else {
 		infraSecurityPolicy, err := service.WrapHierarchySecurityPolicy(nsxSecurityPolicy, *nsxGroups)
@@ -399,15 +399,15 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}, isVp
 		return err
 	}
 
-	err = service.securityPolicyStore.Operate(&finalSecurityPolicyCopy)
+	err = service.securityPolicyStore.Apply(&finalSecurityPolicyCopy)
 	if err != nil {
 		return err
 	}
-	err = service.groupStore.Operate(nsxGroups)
+	err = service.groupStore.Apply(nsxGroups)
 	if err != nil {
 		return err
 	}
-	err = service.ruleStore.Operate(&finalSecurityPolicyCopy)
+	err = service.ruleStore.Apply(&finalSecurityPolicyCopy)
 	if err != nil {
 		return err
 	}
@@ -437,7 +437,7 @@ func (service *SecurityPolicyService) createOrUpdateGroups(obj *v1alpha1.Securit
 	if err != nil {
 		return err
 	}
-	err = service.groupStore.Operate(&nsxGroups)
+	err = service.groupStore.Apply(&nsxGroups)
 	if err != nil {
 		return err
 	}

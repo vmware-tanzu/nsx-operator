@@ -172,7 +172,7 @@ func (s *VPCService) DeleteVPC(path string) error {
 		return err
 	}
 	vpc.MarkedForDelete = &MarkedForDelete
-	if err := s.VpcStore.Operate(vpc); err != nil {
+	if err := s.VpcStore.Apply(vpc); err != nil {
 		return err
 	}
 
@@ -214,7 +214,7 @@ func (s *VPCService) DeleteIPBlockInVPC(vpc model.Vpc) error {
 		if ipblock != nil {
 			log.Info("deleting ip blocks", "IPBlock", ipblock)
 			ipblock.MarkedForDelete = &MarkedForDelete
-			s.IpblockStore.Operate(ipblock)
+			s.IpblockStore.Apply(ipblock)
 		}
 	}
 	log.Info("successfully deleted all ip blocks")
