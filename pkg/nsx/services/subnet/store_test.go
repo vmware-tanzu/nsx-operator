@@ -106,7 +106,7 @@ func Test_InitializeSubnetStore(t *testing.T) {
 	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSubnet, nil, service.SubnetStore)
 }
 
-func TestSubnetStore_Operate(t *testing.T) {
+func TestSubnetStore_Apply(t *testing.T) {
 	subnetCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSubnetCRUID: subnetIndexFunc})
 	resourceStore := common.ResourceStore{
 		Indexer:     subnetCacheIndexer,
@@ -125,7 +125,7 @@ func TestSubnetStore_Operate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.wantErr(t, subnetStore.Operate(tt.args.i), fmt.Sprintf("Operate(%v)", tt.args.i))
+			tt.wantErr(t, subnetStore.Apply(tt.args.i), fmt.Sprintf("Apply(%v)", tt.args.i))
 		})
 	}
 }

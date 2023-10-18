@@ -74,7 +74,7 @@ func (service *NodeService) SyncNodeStore(nodeName string, deleted bool) error {
 		// if err != nil {
 		// 	return fmt.Errorf("failed to get HostTransPortNode for node %s: %s", nodeName, err)
 		// }
-		// node.NodeStore.Operate(updatedNode)
+		// node.NodeStore.Apply(updatedNode)
 	}
 	nodeResults, err := service.NSXClient.HostTransPortNodesClient.List("default", "default", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
@@ -88,7 +88,7 @@ func (service *NodeService) SyncNodeStore(nodeName string, deleted bool) error {
 		}
 		for _, node := range nodes {
 			*node.MarkedForDelete = true
-			service.NodeStore.Operate(node)
+			service.NodeStore.Apply(node)
 		}
 	}
 	synced := false
@@ -98,7 +98,7 @@ func (service *NodeService) SyncNodeStore(nodeName string, deleted bool) error {
 				// Retry until the NSX HostTransportNode is deleted.
 				return fmt.Errorf("node %s had beed deleted but HostTransportNodes still exists", nodeName)
 			}
-			err = service.NodeStore.Operate(&node)
+			err = service.NodeStore.Apply(&node)
 			if err != nil {
 				return fmt.Errorf("failed to sync node %s: %s", nodeName, err)
 			}

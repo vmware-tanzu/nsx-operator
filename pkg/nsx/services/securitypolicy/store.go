@@ -92,7 +92,7 @@ type ShareStore struct {
 	common.ResourceStore
 }
 
-func (securityPolicyStore *SecurityPolicyStore) Operate(i interface{}) error {
+func (securityPolicyStore *SecurityPolicyStore) Apply(i interface{}) error {
 	if i == nil {
 		return nil
 	}
@@ -131,7 +131,7 @@ func (securityPolicyStore *SecurityPolicyStore) GetByIndex(key string, value str
 	return securityPolicies
 }
 
-func (ruleStore *RuleStore) Operate(i interface{}) error {
+func (ruleStore *RuleStore) Apply(i interface{}) error {
 	sp := i.(*model.SecurityPolicy)
 	for _, rule := range sp.Rules {
 		if rule.MarkedForDelete != nil && *rule.MarkedForDelete {
@@ -160,7 +160,7 @@ func (ruleStore *RuleStore) GetByIndex(key string, value string) []model.Rule {
 	return rules
 }
 
-func (groupStore *GroupStore) Operate(i interface{}) error {
+func (groupStore *GroupStore) Apply(i interface{}) error {
 	gs := i.(*[]model.Group)
 	for _, group := range *gs {
 		if group.MarkedForDelete != nil && *group.MarkedForDelete {
@@ -189,7 +189,7 @@ func (groupStore *GroupStore) GetByIndex(key string, value string) []model.Group
 	return groups
 }
 
-func (shareStore *ShareStore) Operate(i interface{}) error {
+func (shareStore *ShareStore) Apply(i interface{}) error {
 	shares := i.(*[]model.Share)
 	for _, share := range *shares {
 		if share.MarkedForDelete != nil && *share.MarkedForDelete {

@@ -104,7 +104,7 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 			log.Error(err, "failed to create or update subnet port", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", nsxSubnetPath)
 			return nil, err
 		}
-		err = service.SubnetPortStore.Operate(nsxSubnetPort)
+		err = service.SubnetPortStore.Apply(nsxSubnetPort)
 		if err != nil {
 			return nil, err
 		}

@@ -125,8 +125,8 @@ func TestVPC_GetVPCsByNamespace(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vpcStore.Operate(&vpc1)
-			vpcStore.Operate(&vpc2)
+			vpcStore.Apply(&vpc1)
+			vpcStore.Apply(&vpc2)
 			got := vpcStore.List()
 			if len(got) != 2 {
 				t.Errorf("size = %v, want %v", len(got), 2)

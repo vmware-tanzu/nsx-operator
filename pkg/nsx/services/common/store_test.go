@@ -84,7 +84,7 @@ func (_ *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool
 	}, nil
 }
 
-func (resourceStore *ResourceStore) Operate(i interface{}) error {
+func (resourceStore *ResourceStore) Apply(i interface{}) error {
 	sp := i.(*model.SecurityPolicy)
 	for _, rule := range sp.Rules {
 		if rule.MarkedForDelete != nil && *rule.MarkedForDelete {

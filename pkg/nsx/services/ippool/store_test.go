@@ -32,7 +32,7 @@ func TestIPPoolBlockSubnetStore_CRUDResource(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.wantErr(t, ipPoolBlockSubnetStore.Operate(tt.args.i), fmt.Sprintf("Operate(%v)", tt.args.i))
+			tt.wantErr(t, ipPoolBlockSubnetStore.Apply(tt.args.i), fmt.Sprintf("Apply(%v)", tt.args.i))
 		})
 	}
 }
@@ -45,7 +45,7 @@ func TestIPPoolStore_GetByIndex(t *testing.T) {
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeIPPoolCRUID: indexFunc}),
 		BindingType: model.IpAddressPoolBindingType(),
 	}}
-	ipPoolStore.Operate(p)
+	ipPoolStore.Apply(p)
 	type args struct {
 		uid types.UID
 	}
@@ -81,7 +81,7 @@ func TestIPPoolBlockSubnetStore_GetByIndex(t *testing.T) {
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeIPPoolCRUID: indexFunc}),
 		BindingType: model.IpAddressPoolBlockSubnetBindingType(),
 	}}
-	ipPoolBlockSubnetStore.Operate(p)
+	ipPoolBlockSubnetStore.Apply(p)
 	type args struct {
 		uid types.UID
 	}
@@ -126,7 +126,7 @@ func TestIPPoolStore_CRUDResource(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.wantErr(t, ipPoolStore.Operate(tt.args.i), fmt.Sprintf("Operate(%v)", tt.args.i))
+			tt.wantErr(t, ipPoolStore.Apply(tt.args.i), fmt.Sprintf("Apply(%v)", tt.args.i))
 		})
 	}
 }
@@ -228,13 +228,13 @@ func TestIPPoolService_indexedIPPoolAndIPPoolSubnets1(t *testing.T) {
 	p := &model.IpAddressPool{Id: String("1"), DisplayName: String("1"),
 		Tags: []model.Tag{{Scope: String(common.TagScopeIPPoolCRUID),
 			Tag: String("1")}}}
-	ipPoolService.ipPoolStore.Operate(p)
+	ipPoolService.ipPoolStore.Apply(p)
 
 	iapbs := []*model.IpAddressPoolBlockSubnet{
 		{Id: String("1"), DisplayName: String("1"),
 			Tags: []model.Tag{{Scope: String(common.TagScopeIPPoolCRUID),
 				Tag: String("1")}}}}
-	ipPoolService.ipPoolBlockSubnetStore.Operate(iapbs)
+	ipPoolService.ipPoolBlockSubnetStore.Apply(iapbs)
 
 	type args struct {
 		uid types.UID

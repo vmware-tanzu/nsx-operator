@@ -61,7 +61,7 @@ type IPBlockStore struct {
 	common.ResourceStore
 }
 
-func (is *IPBlockStore) Operate(i interface{}) error {
+func (is *IPBlockStore) Apply(i interface{}) error {
 	if i == nil {
 		return nil
 	}
@@ -87,7 +87,7 @@ type VPCStore struct {
 	common.ResourceStore
 }
 
-func (vs *VPCStore) Operate(i interface{}) error {
+func (vs *VPCStore) Apply(i interface{}) error {
 	if i == nil {
 		return nil
 	}

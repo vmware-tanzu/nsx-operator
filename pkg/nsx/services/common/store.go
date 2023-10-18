@@ -9,11 +9,10 @@ import (
 
 	vapierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
-	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/cache"
-
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/cache"
 
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
@@ -29,9 +28,9 @@ type Store interface {
 	TransResourceToStore(obj *data.StructValue) error
 	// ListIndexFuncValues is the method to list all the values of the index
 	ListIndexFuncValues(key string) sets.String
-	// Operate is the method to create, update and delete the resource to the store based
+	// Apply is the method to create, update and delete the resource to the store based
 	// on its tag MarkedForDelete.
-	Operate(obj interface{}) error
+	Apply(obj interface{}) error
 	// IsPolicyAPI returns if it is Policy resource
 	IsPolicyAPI() bool
 }

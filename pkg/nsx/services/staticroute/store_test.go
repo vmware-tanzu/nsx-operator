@@ -58,7 +58,7 @@ func TestStaticRouteStore_CRUDResource(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.wantErr(t, staticRouteStore.Operate(tt.args.i), fmt.Sprintf("CRUDResource(%v)", tt.args.i))
+			tt.wantErr(t, staticRouteStore.Apply(tt.args.i), fmt.Sprintf("CRUDResource(%v)", tt.args.i))
 		})
 	}
 }
