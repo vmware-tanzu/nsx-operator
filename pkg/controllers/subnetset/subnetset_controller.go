@@ -235,7 +235,7 @@ func (r *SubnetSetReconciler) GarbageCollector(cancel chan bool, timeout time.Du
 			log.Error(err, "failed to list SubnetSet CR")
 			continue
 		}
-		var nsxSubnetList []model.VpcSubnet
+		var nsxSubnetList []*model.VpcSubnet
 		for _, subnetSet := range subnetSetList.Items {
 			nsxSubnetList = append(nsxSubnetList, r.Service.ListSubnetCreatedBySubnetSet(string(subnetSet.UID))...)
 		}
@@ -253,10 +253,10 @@ func (r *SubnetSetReconciler) GarbageCollector(cancel chan bool, timeout time.Du
 			subnetSetIDs.Insert(string(subnetSet.UID))
 		}
 		for _, subnet := range nsxSubnetList {
-			if !r.Service.IsOrphanSubnet(subnet, subnetSetIDs) {
+			if !r.Service.IsOrphanSubnet(*subnet, subnetSetIDs) {
 				continue
 			}
-			if err := r.Service.DeleteSubnet(subnet); err != nil {
+			if err := r.Service.DeleteSubnet(*subnet); err != nil {
 				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetSet)
 			} else {
 				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetSet)
@@ -273,7 +273,7 @@ func (r *SubnetSetReconciler) DeleteSubnetForSubnetSet(obj v1alpha1.SubnetSet, u
 		if portNums > 0 {
 			continue
 		}
-		if err := r.Service.DeleteSubnet(subnet); err != nil {
+		if err := r.Service.DeleteSubnet(*subnet); err != nil {
 			log.Error(err, "fail to delete subnet from subnetset cr", "ID", *subnet.Id)
 			hitError = true
 		}

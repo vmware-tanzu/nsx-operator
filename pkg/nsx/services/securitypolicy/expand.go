@@ -66,13 +66,13 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 			// In case there is no more valid ip set selected, so clear the stale ip set group in nsx if stale ips exist
 			if errors.As(err, &nsxutil.NoEffectiveOption{}) {
 				groups := service.groupStore.GetByIndex(common.TagScopeRuleID, service.buildRuleID(obj, rule, ruleIdx))
-				var ipSetGroup model.Group
+				var ipSetGroup *model.Group
 				for _, group := range groups {
 					ipSetGroup = group
 					// Clear ip set group in nsx
 					ipSetGroup.Expression = nil
 					log.V(1).Info("clear ruleIPSetGroup", "ruleIPSetGroup", ipSetGroup)
-					err3 := service.createOrUpdateGroups(obj, []model.Group{ipSetGroup})
+					err3 := service.createOrUpdateGroups(obj, []*model.Group{ipSetGroup})
 					if err3 != nil {
 						return nil, nil, err3
 					}

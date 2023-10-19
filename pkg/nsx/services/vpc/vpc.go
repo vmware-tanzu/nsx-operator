@@ -196,7 +196,7 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	return VPCService, nil
 }
 
-func (s *VPCService) GetVPCsByNamespace(namespace string) []model.Vpc {
+func (s *VPCService) GetVPCsByNamespace(namespace string) []*model.Vpc {
 	sns, err := s.getSharedVPCNamespaceFromNS(namespace)
 	if err != nil {
 		log.Error(err, "Failed to get namespace.")
@@ -209,7 +209,7 @@ func (s *VPCService) ListVPC() []model.Vpc {
 	vpcs := s.VpcStore.List()
 	vpcSet := []model.Vpc{}
 	for _, vpc := range vpcs {
-		vpcSet = append(vpcSet, vpc.(model.Vpc))
+		vpcSet = append(vpcSet, *vpc.(*model.Vpc))
 	}
 	return vpcSet
 }
@@ -317,10 +317,10 @@ func (s *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc VPCNetwor
 					continue
 				}
 				// update ip block store
-				s.IpblockStore.Add(createdBlock)
+				s.IpblockStore.Add(&createdBlock)
 				path[pCidr] = *createdBlock.Path
 			} else {
-				eBlock := block.(model.IpAddressBlock)
+				eBlock := block.(*model.IpAddressBlock)
 				path[pCidr] = *eBlock.Path
 				log.Info("ip block found in store for cidr using key", "CIDR", pCidr, "Key", key)
 			}
@@ -484,7 +484,7 @@ func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, *VPCNetwo
 	nsxVPC := &model.Vpc{}
 	if updateVpc {
 		log.Info("VPC resource already exist on NSX, updating VPC", "VPC", existingVPC[0].DisplayName)
-		nsxVPC = &existingVPC[0]
+		nsxVPC = existingVPC[0]
 	} else {
 		log.Info("VPC does not exist on NSX, creating VPC", "VPC", obj.Name)
 		nsxVPC = nil
@@ -499,7 +499,7 @@ func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, *VPCNetwo
 	// if there is not change in public cidr and private cidr, build partial vpc will return nil
 	if createdVpc == nil {
 		log.Info("no VPC changes detect, skip creating or updating process")
-		return &existingVPC[0], &nc, nil
+		return existingVPC[0], &nc, nil
 	}
 
 	log.Info("creating NSX VPC", "VPC", *createdVpc.Id)
@@ -518,7 +518,7 @@ func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, *VPCNetwo
 		} else {
 			// vpc created anyway, update store, and in this scenario, we condsider creating successfully
 			log.Info("read VPCs from NSX after creation failed, still update VPC store", "VPC", *createdVpc.Id)
-			s.VpcStore.Add(failedVpc)
+			s.VpcStore.Add(&failedVpc)
 			return &failedVpc, &nc, nil
 		}
 	}
@@ -545,7 +545,7 @@ func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, *VPCNetwo
 		return nil, nil, err
 	}
 
-	s.VpcStore.Add(newVpc)
+	s.VpcStore.Add(&newVpc)
 	return &newVpc, &nc, nil
 }
 
@@ -561,7 +561,7 @@ func (s *VPCService) Cleanup() error {
 	ipblocks := s.IpblockStore.List()
 	log.Info("cleaning up ipblocks", "Count", len(ipblocks))
 	for _, ipblock := range ipblocks {
-		ipb := ipblock.(model.IpAddressBlock)
+		ipb := ipblock.(*model.IpAddressBlock)
 		if err := s.deleteIPBlock(*ipb.Path); err != nil {
 			return err
 		}
@@ -669,23 +669,23 @@ func (service *VPCService) CreateOrUpdateAVIRule(vpc *model.Vpc, namespace strin
 		log.Error(err, "failed to get avi rule", "rule", nsxrule)
 		return err
 	}
-	service.RuleStore.Add(nsxrule)
+	service.RuleStore.Add(&nsxrule)
 	log.Info("created avi rule successfully")
 	return nil
 }
 
 func (service *VPCService) getorCreateAVIGroup(orgId string, projectId string, vpcId string, groupId string) (*model.Group, error) {
-	group, err := service.getAVIGroup(orgId, projectId, vpcId, groupId)
+	groupPtr, err := service.getAVIGroup(orgId, projectId, vpcId, groupId)
 	if err != nil {
 		log.Info("create avi group", "group", groupId)
-		group, err = service.createAVIGroup(orgId, projectId, vpcId, groupId)
+		groupPtr, err = service.createAVIGroup(orgId, projectId, vpcId, groupId)
 		if err != nil {
 			log.Error(err, "failed to create avi group", "group", groupId)
-			return group, err
+			return groupPtr, err
 		}
-		service.GroupStore.Add(group)
+		service.GroupStore.Add(groupPtr)
 	}
-	return group, err
+	return groupPtr, err
 }
 
 func (service *VPCService) buildAVIGroupTag(vpcId string) []model.Tag {
@@ -800,6 +800,6 @@ func (service *VPCService) checkAVISecurityPolicyExist(orgId string, projectId s
 		log.Error(err, "failed to get avi security policy", "key", key)
 		return false
 	}
-	service.SecurityPolicyStore.Add(nsxtsp)
+	service.SecurityPolicyStore.Add(&nsxtsp)
 	return true
 }

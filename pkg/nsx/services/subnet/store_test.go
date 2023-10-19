@@ -38,7 +38,7 @@ func Test_IndexFunc(t *testing.T) {
 		Tags: []model.Tag{{Tag: &tag, Scope: &scope}},
 	}
 	t.Run("1", func(t *testing.T) {
-		got, _ := subnetIndexFunc(subnet)
+		got, _ := subnetIndexFunc(&subnet)
 		if !reflect.DeepEqual(got, []string{"cr_uid"}) {
 			t.Errorf("subnetCRUIDScopeIndexFunc() = %v, want %v", got, model.Tag{Tag: &tag, Scope: &scope})
 		}
@@ -49,7 +49,7 @@ func Test_KeyFunc(t *testing.T) {
 	id := "test_id"
 	subnet := model.VpcSubnet{Id: &id}
 	t.Run("1", func(t *testing.T) {
-		got, _ := keyFunc(subnet)
+		got, _ := keyFunc(&subnet)
 		if got != "test_id" {
 			t.Errorf("keyFunc() = %v, want %v", got, "test_id")
 		}

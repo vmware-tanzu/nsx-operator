@@ -87,15 +87,16 @@ func (_ *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool
 func (resourceStore *ResourceStore) Apply(i interface{}) error {
 	sp := i.(*model.SecurityPolicy)
 	for _, rule := range sp.Rules {
+		tempRule := rule
 		if rule.MarkedForDelete != nil && *rule.MarkedForDelete {
-			err := resourceStore.Delete(rule)
-			log.V(1).Info("delete rule from store", "rule", rule)
+			err := resourceStore.Delete(&tempRule)
+			log.V(1).Info("delete rule from store", "rule", tempRule)
 			if err != nil {
 				return err
 			}
 		} else {
-			err := resourceStore.Add(rule)
-			log.V(1).Info("add rule to store", "rule", rule)
+			err := resourceStore.Add(&tempRule)
+			log.V(1).Info("add rule to store", "rule", tempRule)
 			if err != nil {
 				return err
 			}
@@ -106,7 +107,7 @@ func (resourceStore *ResourceStore) Apply(i interface{}) error {
 
 func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
-	case model.Rule:
+	case *model.Rule:
 		return *v.Id, nil
 	default:
 		return "", nil
@@ -116,7 +117,7 @@ func keyFunc(obj interface{}) (string, error) {
 func indexFunc(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
 	switch o := obj.(type) {
-	case model.Rule:
+	case *model.Rule:
 		return filterTag(o.Tags), nil
 	default:
 		return res, nil

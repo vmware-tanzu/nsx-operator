@@ -17,8 +17,8 @@ func TestServiceMediator_GetOrgProject(t *testing.T) {
 		VPCService: vpcService,
 	}
 
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []model.Vpc {
-		return []model.Vpc{{Path: common.String("/orgs/default/projects/project-1/vpcs/vpc-1")}}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []*model.Vpc {
+		return []*model.Vpc{{Path: common.String("/orgs/default/projects/project-1/vpcs/vpc-1")}}
 	})
 	defer patches.Reset()
 

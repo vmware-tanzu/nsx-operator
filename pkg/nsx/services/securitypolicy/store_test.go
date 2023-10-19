@@ -21,15 +21,15 @@ import (
 
 func Test_IndexFunc(t *testing.T) {
 	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_uid"
-	m := model.Group{
+	m := &model.Group{
 		Id:   &mId,
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
 	}
-	s := model.SecurityPolicy{
+	s := &model.SecurityPolicy{
 		Id:   &mId,
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
 	}
-	r := model.Rule{
+	r := &model.Rule{
 		Id:   &mId,
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
 	}
@@ -83,9 +83,9 @@ func Test_filterTag(t *testing.T) {
 
 func Test_KeyFunc(t *testing.T) {
 	Id := "11111"
-	g := model.Group{Id: &Id}
-	s := model.SecurityPolicy{Id: &Id}
-	r := model.Rule{Id: &Id}
+	g := &model.Group{Id: &Id}
+	s := &model.SecurityPolicy{Id: &Id}
+	r := &model.Rule{Id: &Id}
 	t.Run("1", func(t *testing.T) {
 		got, _ := keyFunc(s)
 		if got != "11111" {
@@ -339,7 +339,7 @@ func TestRuleStore_Apply(t *testing.T) {
 	}
 }
 
-func TestGroupStore_Operator(t *testing.T) {
+func TestGroupStore_Apply(t *testing.T) {
 	groupCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
 	resourceStore := common.ResourceStore{
 		Indexer:     groupCacheIndexer,

@@ -133,11 +133,11 @@ func TestIPPoolStore_CRUDResource(t *testing.T) {
 
 func Test_indexFunc(t *testing.T) {
 	mId, mTag, mScope := "11111", "11111", common.TagScopeIPPoolCRUID
-	m := model.IpAddressPool{
+	m := &model.IpAddressPool{
 		Id:   &mId,
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
 	}
-	r := model.IpAddressPoolBlockSubnet{
+	r := &model.IpAddressPoolBlockSubnet{
 		Id:   &mId,
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
 	}
@@ -207,8 +207,8 @@ func Test_ipPoolBlockSubnetAssertion(t *testing.T) {
 
 func Test_keyFunc(t *testing.T) {
 	Id := "11111"
-	g := model.IpAddressPool{Id: &Id}
-	s := model.IpAddressPoolBlockSubnet{Id: &Id}
+	g := &model.IpAddressPool{Id: &Id}
+	s := &model.IpAddressPoolBlockSubnet{Id: &Id}
 	t.Run("1", func(t *testing.T) {
 		got, _ := keyFunc(s)
 		if got != "11111" {
