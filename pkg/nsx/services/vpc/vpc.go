@@ -144,7 +144,7 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	return VPCService, nil
 }
 
-func (s *VPCService) GetVPCsByNamespace(namespace string) []model.Vpc {
+func (s *VPCService) GetVPCsByNamespace(namespace string) []*model.Vpc {
 	return s.VpcStore.GetVPCsByNamespace(namespace)
 }
 
@@ -386,7 +386,7 @@ func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, error) {
 	nsxVPC := &model.Vpc{}
 	if updateVpc {
 		log.Info("VPC resource already exist on NSX, updating VPC", "VPC", existingVPC[0].DisplayName)
-		nsxVPC = &existingVPC[0]
+		nsxVPC = existingVPC[0]
 	} else {
 		log.Info("VPC does not exist on NSX, creating VPC", "VPC", obj.Name)
 		nsxVPC = nil
@@ -401,7 +401,7 @@ func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, error) {
 	// if there is not change in public cidr and private cidr, build partial vpc will return nil
 	if createdVpc == nil {
 		log.Info("no VPC changes detect, skip creating or updating process")
-		return &existingVPC[0], nil
+		return existingVPC[0], nil
 	}
 
 	log.Info("creating NSX VPC", "VPC", *createdVpc.Id)

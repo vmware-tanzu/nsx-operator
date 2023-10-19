@@ -102,5 +102,5 @@ func (serviceMediator *ServiceMediator) GetNodeByName(nodeName string) (*model.H
 		}
 		return nil, fmt.Errorf("multiple node IDs found for node %s: %v", nodeName, nodeIDs)
 	}
-	return &nodes[0], nil
+	return nodes[0], nil
 }

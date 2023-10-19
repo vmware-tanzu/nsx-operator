@@ -19,7 +19,7 @@ func Test_indexFunc(t *testing.T) {
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
 	}
 	t.Run("1", func(t *testing.T) {
-		got, _ := indexFunc(v)
+		got, _ := indexFunc(&v)
 		if !reflect.DeepEqual(got, []string{"test_tag"}) {
 			t.Errorf("indexFunc() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
 		}
@@ -30,7 +30,7 @@ func Test_KeyFunc(t *testing.T) {
 	Id := "test_id"
 	v := model.StaticRoutes{Id: &Id}
 	t.Run("1", func(t *testing.T) {
-		got, _ := keyFunc(v)
+		got, _ := keyFunc(&v)
 		if got != "test_id" {
 			t.Errorf("keyFunc() = %v, want %v", got, "test_id")
 		}
@@ -133,8 +133,8 @@ func TestStaticRouteStore_CRUDResource_List(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			staticRouteStore.Add(staticRoute1)
-			staticRouteStore.Add(staticRoute2)
+			staticRouteStore.Add(&staticRoute1)
+			staticRouteStore.Add(&staticRoute2)
 			got := staticRouteStore.List()
 			if len(got) != 2 {
 				t.Errorf("size = %v, want %v", len(got), 2)
@@ -205,14 +205,14 @@ func TestStaticRouteStore_GetByKey(t *testing.T) {
 		Tags:        tag2,
 	}
 
-	staticRouteStore.Add(staticRoute1)
-	staticRouteStore.Add(staticRoute2)
+	staticRouteStore.Add(&staticRoute1)
+	staticRouteStore.Add(&staticRoute2)
 	got := staticRouteStore.GetByKey(staticrouteID2)
 	if *got.Id != staticrouteID2 {
 		t.Errorf("get id = %v failed", staticrouteID2)
 	}
 
-	staticRouteStore.Delete(staticRoute2)
+	staticRouteStore.Delete(&staticRoute2)
 	got = staticRouteStore.GetByKey(staticrouteID2)
 	if got != nil {
 		t.Errorf("id %v should be deleted", *got.Id)

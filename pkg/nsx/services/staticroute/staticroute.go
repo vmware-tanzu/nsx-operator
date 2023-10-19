@@ -83,7 +83,7 @@ func (service *StaticRouteService) CreateOrUpdateStaticRoute(namespace string, o
 	if err != nil {
 		return err
 	}
-	err = service.StaticRouteStore.Add(staticRoute)
+	err = service.StaticRouteStore.Add(&staticRoute)
 	if err != nil {
 		return err
 	}
@@ -108,7 +108,7 @@ func (service *StaticRouteService) DeleteStaticRouteByPath(orgId string, project
 	if err := staticRouteClient.Delete(orgId, projectId, vpcId, *staticroute.Id); err != nil {
 		return err
 	}
-	if err := service.StaticRouteStore.Delete(*staticroute); err != nil {
+	if err := service.StaticRouteStore.Delete(staticroute); err != nil {
 		return err
 	}
 

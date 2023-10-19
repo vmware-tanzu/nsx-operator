@@ -139,14 +139,14 @@ func TestStaticRouteService_DeleteStaticRoute(t *testing.T) {
 		t.Error(err)
 	}
 
-	sr1 := &model.StaticRoutes{}
 	id := "vpc-1"
-	sr1.Id = &id
-	returnservice.StaticRouteStore.Add(*sr1)
+	sr1 := &model.StaticRoutes{Id: &id}
 
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []model.Vpc {
+	returnservice.StaticRouteStore.Add(sr1)
+
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []*model.Vpc {
 		id := "vpc-1"
-		return []model.Vpc{{Path: common.String("/orgs/default/projects/project-1/vpcs/vpc-1"), Id: &id}}
+		return []*model.Vpc{{Path: common.String("/orgs/default/projects/project-1/vpcs/vpc-1"), Id: &id}}
 	})
 
 	// no record found
@@ -198,9 +198,9 @@ func TestStaticRouteService_CreateorUpdateStaticRoute(t *testing.T) {
 		Tags: []model.Tag{{Tag: &tag, Scope: &scope}},
 	}
 	mockStaticRouteclient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(m, nil).Times(2)
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []model.Vpc {
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []*model.Vpc {
 		id := "12345678"
-		return []model.Vpc{{Path: common.String("/orgs/default/projects/project-1/vpcs/vpc-1"), Id: &id}}
+		return []*model.Vpc{{Path: common.String("/orgs/default/projects/project-1/vpcs/vpc-1"), Id: &id}}
 	})
 	defer patches.Reset()
 	err = returnservice.CreateOrUpdateStaticRoute("test", sr1)

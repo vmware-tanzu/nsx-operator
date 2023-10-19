@@ -11,7 +11,6 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -27,7 +26,7 @@ func (qIface *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ 
 	cursor := "2"
 	resultCount := int64(2)
 	return model.SearchResponse{
-		Results: []*data.StructValue{&data.StructValue{}},
+		Results: []*data.StructValue{},
 		Cursor:  &cursor, ResultCount: &resultCount,
 	}, nil
 }
@@ -39,7 +38,7 @@ func Test_IndexFunc(t *testing.T) {
 		Tags: []model.Tag{{Tag: &tag, Scope: &scope}},
 	}
 	t.Run("1", func(t *testing.T) {
-		got, _ := subnetIndexFunc(subnet)
+		got, _ := subnetIndexFunc(&subnet)
 		if !reflect.DeepEqual(got, []string{"cr_uid"}) {
 			t.Errorf("subnetCRUIDScopeIndexFunc() = %v, want %v", got, model.Tag{Tag: &tag, Scope: &scope})
 		}
@@ -50,7 +49,7 @@ func Test_KeyFunc(t *testing.T) {
 	id := "test_id"
 	subnet := model.VpcSubnet{Id: &id}
 	t.Run("1", func(t *testing.T) {
-		got, _ := keyFunc(subnet)
+		got, _ := keyFunc(&subnet)
 		if got != "test_id" {
 			t.Errorf("keyFunc() = %v, want %v", got, "test_id")
 		}

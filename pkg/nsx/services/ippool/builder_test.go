@@ -8,7 +8,7 @@ import (
 	"github.com/agiledragon/gomonkey"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
@@ -67,7 +67,7 @@ func TestIPPoolService_BuildIPPool(t *testing.T) {
 		Size: Int64(256),
 	}
 
-	vpcinfolist := []model.Vpc{
+	vpcinfolist := []*model.Vpc{
 		{ExternalIpv4Blocks: []string{"/infra/ip-blocks/block-test"}},
 	}
 	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
@@ -79,7 +79,7 @@ func TestIPPoolService_BuildIPPool(t *testing.T) {
 	commonctl.ServiceMediator.VPCService = &vpc.VPCService{VpcStore: vpcStore}
 	patch := gomonkey.ApplyMethod(reflect.TypeOf(vpcStore), "GetVPCsByNamespace", func(vpcStore *vpc.VPCStore,
 		ns string,
-	) []model.Vpc {
+	) []*model.Vpc {
 		return vpcinfolist
 	})
 	defer patch.Reset()

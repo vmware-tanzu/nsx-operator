@@ -110,7 +110,7 @@ func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 					return common.ResultRequeueAfter10sec, err
 				}
 
-				if err := r.Service.DeleteIPBlockInVPC(vpc); err != nil {
+				if err := r.Service.DeleteIPBlockInVPC(*vpc); err != nil {
 					log.Error(err, "failed to delete private ip blocks for VPC", "VPC", req.NamespacedName)
 				}
 			}

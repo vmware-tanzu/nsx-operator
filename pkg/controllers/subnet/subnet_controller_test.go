@@ -32,12 +32,12 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 	}
 	// Subnet doesn't have TagScopeSubnetSetCRId (not  belong to SubnetSet)
 	// gc collect item "2345", local store has more item than k8s cache
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSubnetCreatedByCR", func(_ *subnet.SubnetService) []model.VpcSubnet {
-		a := []model.VpcSubnet{}
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSubnetCreatedByCR", func(_ *subnet.SubnetService) []*model.VpcSubnet {
+		a := []*model.VpcSubnet{}
 		id1 := "2345"
-		a = append(a, model.VpcSubnet{Id: &id1})
+		a = append(a, &model.VpcSubnet{Id: &id1})
 		id2 := "1234"
-		a = append(a, model.VpcSubnet{Id: &id2})
+		a = append(a, &model.VpcSubnet{Id: &id2})
 		return a
 	})
 	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
@@ -70,10 +70,10 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has same item as k8s cache
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListSubnetCreatedByCR", func(_ *subnet.SubnetService) []model.VpcSubnet {
-		a := []model.VpcSubnet{}
+	patch.ApplyMethod(reflect.TypeOf(service), "ListSubnetCreatedByCR", func(_ *subnet.SubnetService) []*model.VpcSubnet {
+		a := []*model.VpcSubnet{}
 		id := "1234"
-		a = append(a, model.VpcSubnet{Id: &id})
+		a = append(a, &model.VpcSubnet{Id: &id})
 		return a
 	})
 	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
@@ -95,8 +95,8 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has no item
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListSubnetCreatedByCR", func(_ *subnet.SubnetService) []model.VpcSubnet {
-		return []model.VpcSubnet{}
+	patch.ApplyMethod(reflect.TypeOf(service), "ListSubnetCreatedByCR", func(_ *subnet.SubnetService) []*model.VpcSubnet {
+		return []*model.VpcSubnet{}
 	})
 	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
 		assert.FailNow(t, "should not be called")

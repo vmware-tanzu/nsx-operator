@@ -369,3 +369,34 @@ func castApiError(apiErrorDataValue *data.StructValue) *model.ApiError {
 func isEmptyAPIError(apiError model.ApiError) bool {
 	return (apiError.ErrorCode == nil && apiError.ErrorMessage == nil)
 }
+
+func CasttoPointer(obj interface{}) interface{} {
+	switch v := obj.(type) {
+	case model.Rule:
+		return &v
+	case model.StaticRoutes:
+		return &v
+	case model.HostTransportNode:
+		return &v
+	case model.ClusterControlPlane:
+		return &v
+	case model.IpAddressPool:
+		return &v
+	case model.GenericPolicyRealizedResource:
+		return &v
+	case model.Vpc:
+		return &v
+	case model.IpAddressPoolBlockSubnet:
+		return &v
+	case model.Group:
+		return &v
+	case model.SecurityPolicy:
+		return &v
+	case model.Share:
+		return &v
+	case model.SegmentPort:
+		return &v
+	default:
+		return nil
+	}
+}

@@ -190,20 +190,20 @@ func (service *SubnetService) DeleteSubnet(nsxSubnet model.VpcSubnet) error {
 	return nil
 }
 
-func (service *SubnetService) ListSubnetCreatedByCR() []model.VpcSubnet {
+func (service *SubnetService) ListSubnetCreatedByCR() []*model.VpcSubnet {
 	return service.listSubnetByCRType("subnet")
 }
 
-func (service *SubnetService) listSubnetByCRType(crType string) []model.VpcSubnet {
+func (service *SubnetService) listSubnetByCRType(crType string) []*model.VpcSubnet {
 	subnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetCRType, crType)
-	subnetList := []model.VpcSubnet{}
+	subnetList := []*model.VpcSubnet{}
 	for _, subnet := range subnets {
 		subnetList = append(subnetList, subnet)
 	}
 	return subnetList
 }
 
-func (service *SubnetService) ListSubnetCreatedBySubnetSet() []model.VpcSubnet {
+func (service *SubnetService) ListSubnetCreatedBySubnetSet() []*model.VpcSubnet {
 	return service.listSubnetByCRType("subnetset")
 }
 
@@ -284,14 +284,14 @@ func (service *SubnetService) GetIPPoolUsage(subnet *v1alpha1.Subnet) (*model.Po
 	if len(nsxSubnets) == 0 {
 		return nil, errors.New("NSX Subnet doesn't exist in store")
 	}
-	return service.getIPPoolUsage(&nsxSubnets[0])
+	return service.getIPPoolUsage(nsxSubnets[0])
 }
 
 func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) error {
 	var subnetInfoList []v1alpha1.SubnetInfo
 	nsxSubnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetSetCRUID, string(obj.GetUID()))
 	for _, subnet := range nsxSubnets {
-		statusList, err := service.GetSubnetStatus(&subnet)
+		statusList, err := service.GetSubnetStatus(subnet)
 		if err != nil {
 			return err
 		}
@@ -323,7 +323,7 @@ func (service *SubnetService) Cleanup() error {
 	for uid := range uids {
 		nsxSubnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetCRUID, string(uid))
 		for _, nsxSubnet := range nsxSubnets {
-			err := service.DeleteSubnet(nsxSubnet)
+			err := service.DeleteSubnet(*nsxSubnet)
 			if err != nil {
 				return err
 			}
@@ -360,7 +360,7 @@ func (service *SubnetService) GenerateSubnetNSTags(obj client.Object, nsUID stri
 	return tags
 }
 
-func (service *SubnetService) UpdateSubnetSetTags(ns string, vpcSubnets []model.VpcSubnet, tags []model.Tag) error {
+func (service *SubnetService) UpdateSubnetSetTags(ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag) error {
 	for _, existingSubnet := range vpcSubnets {
 		subnetSet := &v1alpha1.SubnetSet{}
 		var name string
@@ -383,7 +383,7 @@ func (service *SubnetService) UpdateSubnetSetTags(ns string, vpcSubnets []model.
 				return err
 			}
 			newTags := append(service.buildBasicTags(subnetSet), tags...)
-			changed := common.CompareResource(SubnetToComparable(&existingSubnet), SubnetToComparable(&model.VpcSubnet{Tags: newTags}))
+			changed := common.CompareResource(SubnetToComparable(existingSubnet), SubnetToComparable(&model.VpcSubnet{Tags: newTags}))
 			if !changed {
 				log.Info("NSX subnet tags unchanged, skip updating")
 				continue
@@ -394,7 +394,7 @@ func (service *SubnetService) UpdateSubnetSetTags(ns string, vpcSubnets []model.
 				err := fmt.Errorf("failed to parse NSX VPC path for Subnet %s: %s", *existingSubnet.Path, err)
 				return err
 			}
-			if _, err := service.createOrUpdateSubnet(subnetSet, &existingSubnet, &vpcInfo); err != nil {
+			if _, err := service.createOrUpdateSubnet(subnetSet, existingSubnet, &vpcInfo); err != nil {
 				return err
 			}
 			log.Info("successfully updated subnet set tags", "subnetSet", subnetSet)

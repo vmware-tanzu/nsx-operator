@@ -88,13 +88,13 @@ func (resourceStore *ResourceStore) Apply(i interface{}) error {
 	sp := i.(*model.SecurityPolicy)
 	for _, rule := range sp.Rules {
 		if rule.MarkedForDelete != nil && *rule.MarkedForDelete {
-			err := resourceStore.Delete(rule)
+			err := resourceStore.Delete(&rule)
 			log.V(1).Info("delete rule from store", "rule", rule)
 			if err != nil {
 				return err
 			}
 		} else {
-			err := resourceStore.Add(rule)
+			err := resourceStore.Add(&rule)
 			log.V(1).Info("add rule to store", "rule", rule)
 			if err != nil {
 				return err
@@ -106,7 +106,7 @@ func (resourceStore *ResourceStore) Apply(i interface{}) error {
 
 func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
-	case model.Rule:
+	case *model.Rule:
 		return *v.Id, nil
 	default:
 		return "", nil
@@ -116,7 +116,7 @@ func keyFunc(obj interface{}) (string, error) {
 func indexFunc(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
 	switch o := obj.(type) {
-	case model.Rule:
+	case *model.Rule:
 		return filterTag(o.Tags), nil
 	default:
 		return res, nil

@@ -11,10 +11,10 @@ import (
 // keyFunc is used to get the key of a resource, usually, which is the ID of the resource
 func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
-	case model.Vpc:
+	case *model.Vpc:
 		return *v.Id, nil
-	case model.IpAddressBlock:
-		return generateIPBlockKey(obj.(model.IpAddressBlock)), nil
+	case *model.IpAddressBlock:
+		return generateIPBlockKey(*v), nil
 	default:
 		return "", errors.New("keyFunc doesn't support unknown type")
 	}
@@ -25,9 +25,9 @@ func keyFunc(obj interface{}) (string, error) {
 func indexFunc(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
 	switch o := obj.(type) {
-	case model.Vpc:
+	case *model.Vpc:
 		return filterTag(o.Tags), nil
-	case model.IpAddressBlock:
+	case *model.IpAddressBlock:
 		return filterTag(o.Tags), nil
 	default:
 		return res, errors.New("indexFunc doesn't support unknown type")
@@ -39,7 +39,7 @@ func indexFunc(obj interface{}) ([]string, error) {
 func indexPathFunc(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
 	switch o := obj.(type) {
-	case model.IpAddressBlock:
+	case *model.IpAddressBlock:
 		return append(res, *o.Path), nil
 	default:
 		return res, errors.New("indexPathFunc doesn't support unknown type")
@@ -67,13 +67,13 @@ func (is *IPBlockStore) Apply(i interface{}) error {
 	}
 	ipblock := i.(*model.IpAddressBlock)
 	if ipblock.MarkedForDelete != nil && *ipblock.MarkedForDelete {
-		err := is.Delete(*ipblock)
+		err := is.Delete(ipblock)
 		log.V(1).Info("delete ipblock from store", "IPBlock", ipblock)
 		if err != nil {
 			return err
 		}
 	} else {
-		err := is.Add(*ipblock)
+		err := is.Add(ipblock)
 		log.V(1).Info("add IPBlock to store", "IPBlock", ipblock)
 		if err != nil {
 			return err
@@ -93,13 +93,13 @@ func (vs *VPCStore) Apply(i interface{}) error {
 	}
 	vpc := i.(*model.Vpc)
 	if vpc.MarkedForDelete != nil && *vpc.MarkedForDelete {
-		err := vs.Delete(*vpc)
+		err := vs.Delete(vpc)
 		log.V(1).Info("delete VPC from store", "VPC", vpc)
 		if err != nil {
 			return err
 		}
 	} else {
-		err := vs.Add(*vpc)
+		err := vs.Add(vpc)
 		log.V(1).Info("add VPC to store", "VPC", vpc)
 		if err != nil {
 			return err
@@ -108,8 +108,8 @@ func (vs *VPCStore) Apply(i interface{}) error {
 	return nil
 }
 
-func (vs *VPCStore) GetVPCsByNamespace(ns string) []model.Vpc {
-	var ret []model.Vpc
+func (vs *VPCStore) GetVPCsByNamespace(ns string) []*model.Vpc {
+	var ret []*model.Vpc
 	vpcs := vs.List()
 	if len(vpcs) == 0 {
 		log.V(1).Info("No vpc found in vpc store")
@@ -117,7 +117,7 @@ func (vs *VPCStore) GetVPCsByNamespace(ns string) []model.Vpc {
 	}
 
 	for _, vpc := range vpcs {
-		mvpc := vpc.(model.Vpc)
+		mvpc := vpc.(*model.Vpc)
 		tags := mvpc.Tags
 		for _, tag := range tags {
 			if *tag.Scope == common.TagScopeNamespace && *tag.Tag == ns {
@@ -131,8 +131,8 @@ func (vs *VPCStore) GetVPCsByNamespace(ns string) []model.Vpc {
 func (vs *VPCStore) GetByKey(key string) *model.Vpc {
 	obj := vs.ResourceStore.GetByKey(key)
 	if obj != nil {
-		vpc := obj.(model.Vpc)
-		return &vpc
+		vpc := obj.(*model.Vpc)
+		return vpc
 	}
 	return nil
 }
@@ -144,6 +144,6 @@ func (is *IPBlockStore) GetByIndex(index string, value string) *model.IpAddressB
 		return nil
 	}
 
-	block := indexResults[0].((model.IpAddressBlock))
-	return &block
+	block := indexResults[0].((*model.IpAddressBlock))
+	return block
 }

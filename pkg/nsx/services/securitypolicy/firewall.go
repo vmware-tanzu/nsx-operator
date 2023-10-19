@@ -100,10 +100,18 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 	}
 
 	existingSecurityPolicy := service.securityPolicyStore.GetByKey(*nsxSecurityPolicy.Id)
-	existingRules := service.ruleStore.GetByIndex(common.TagScopeSecurityPolicyCRUID, string(obj.UID))
-	existingGroups := service.groupStore.GetByIndex(common.TagScopeSecurityPolicyCRUID, string(obj.UID))
-
+	tmpExistingRules := service.ruleStore.GetByIndex(common.TagScopeSecurityPolicyCRUID, string(obj.UID))
+	tmpExistingGroups := service.groupStore.GetByIndex(common.TagScopeSecurityPolicyCRUID, string(obj.UID))
+	existingRules := []model.Rule{}
+	for i, rule := range tmpExistingRules {
+		existingRules[i] = *rule
+	}
+	existingGroups := []model.Group{}
+	for i, group := range tmpExistingGroups {
+		existingGroups[i] = *group
+	}
 	isChanged := common.CompareResource(SecurityPolicyToComparable(existingSecurityPolicy), SecurityPolicyToComparable(nsxSecurityPolicy))
+
 	changed, stale := common.CompareResources(RulesToComparable(existingRules), RulesToComparable(nsxSecurityPolicy.Rules))
 	changedRules, staleRules := ComparableToRules(changed), ComparableToRules(stale)
 	changed, stale = common.CompareResources(GroupsToComparable(existingGroups), GroupsToComparable(*nsxGroups))
@@ -254,8 +262,8 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}, isVp
 		// Collect project share and project level groups that need to be removed from nsx
 		// project share and project groups only aviable in VPC network.
 		for i := len(*projectShares) - 1; i >= 0; i-- {
-			nsxProjectGroups = append(nsxProjectGroups, *((*projectShares)[i].shareGroup))
-			nsxProjectShares = append(nsxProjectShares, *((*projectShares)[i].share))
+			nsxProjectGroups = append(nsxProjectGroups, *(*projectShares)[i].shareGroup)
+			nsxProjectShares = append(nsxProjectShares, *(*projectShares)[i].share)
 		}
 
 	// This case is for SecurityPolicy GC process, which means that SecurityPolicy
@@ -267,7 +275,7 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}, isVp
 			log.Info("security policy is not found in store, skip deleting it", "securityPolicyUID", sp)
 			return nil
 		}
-		nsxSecurityPolicy = &securityPolicies[0]
+		nsxSecurityPolicy = securityPolicies[0]
 		// Get namespace of nsx SecurityPolicy from tags since there is no K8s SecurityPolicy object
 		for i := len(nsxSecurityPolicy.Tags) - 1; i >= 0; i-- {
 			if *(nsxSecurityPolicy.Tags[i].Scope) == common.TagScopeNamespace {
@@ -287,9 +295,9 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}, isVp
 				for j := len(groups[i].Tags) - 1; j >= 0; j-- {
 					if *(groups[i].Tags[j].Scope) == common.TagScopeProjectGroupShared {
 						if *(groups[i].Tags[j].Tag) == "true" {
-							nsxProjectGroups = append(nsxProjectGroups, groups[i])
+							nsxProjectGroups = append(nsxProjectGroups, *groups[i])
 						} else {
-							*nsxGroups = append(*nsxGroups, groups[i])
+							*nsxGroups = append(*nsxGroups, *groups[i])
 						}
 						break
 					}
@@ -300,11 +308,11 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}, isVp
 				log.Info("did not get shares with SecurityPolicy index", "UID", string(sp))
 			}
 			for _, share := range shares {
-				nsxProjectShares = append(nsxProjectShares, share)
+				nsxProjectShares = append(nsxProjectShares, *share)
 			}
 		} else {
 			for _, group := range groups {
-				*nsxGroups = append(*nsxGroups, group)
+				*nsxGroups = append(*nsxGroups, *group)
 			}
 		}
 	}
@@ -415,7 +423,7 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}, isVp
 	return nil
 }
 
-func (service *SecurityPolicyService) createOrUpdateGroups(obj *v1alpha1.SecurityPolicy, nsxGroups []model.Group) error {
+func (service *SecurityPolicyService) createOrUpdateGroups(obj *v1alpha1.SecurityPolicy, nsxGroups []*model.Group) error {
 	var err error = nil
 	for _, group := range nsxGroups {
 		group.MarkedForDelete = nil
@@ -428,9 +436,9 @@ func (service *SecurityPolicyService) createOrUpdateGroups(obj *v1alpha1.Securit
 			projectId := (*vpcInfo).ProjectID
 			vpcId := (*vpcInfo).VPCID
 
-			err = service.NSXClient.VpcGroupClient.Patch(orgId, projectId, vpcId, *group.Id, group)
+			err = service.NSXClient.VpcGroupClient.Patch(orgId, projectId, vpcId, *group.Id, *group)
 		} else {
-			err = service.NSXClient.GroupClient.Patch(getDomain(service), *group.Id, group)
+			err = service.NSXClient.GroupClient.Patch(getDomain(service), *group.Id, *group)
 		}
 	}
 
@@ -449,8 +457,11 @@ func (service *SecurityPolicyService) createOrUpdateGroups(obj *v1alpha1.Securit
 func (service *SecurityPolicyService) createOrUpdateProjectShares(obj *v1alpha1.SecurityPolicy, projectShares []model.Share) (*[]model.Share, error) {
 	finalShares := make([]model.Share, 0)
 
-	existingShares := service.shareStore.GetByIndex(common.TagScopeSecurityPolicyCRUID, string(obj.UID))
-
+	tmpExistingShares := service.shareStore.GetByIndex(common.TagScopeSecurityPolicyCRUID, string(obj.UID))
+	existingShares := []model.Share{}
+	for i, share := range tmpExistingShares {
+		existingShares[i] = *share
+	}
 	changed, stale := common.CompareResources(SharesToComparable(existingShares), SharesToComparable(projectShares))
 	changedShares, staleShares := ComparableToShares(changed), ComparableToShares(stale)
 
@@ -489,8 +500,11 @@ func (service *SecurityPolicyService) createOrUpdateProjectShares(obj *v1alpha1.
 func (service *SecurityPolicyService) createOrUpdateProjectGroups(obj *v1alpha1.SecurityPolicy, groups []model.Group) (*[]model.Group, error) {
 	finalGroups := make([]model.Group, 0)
 
-	existingGroups := service.groupStore.GetByIndex(common.TagScopeSecurityPolicyCRUID, string(obj.UID))
-
+	tmpExistingGroups := service.groupStore.GetByIndex(common.TagScopeSecurityPolicyCRUID, string(obj.UID))
+	existingGroups := []model.Group{}
+	for i, group := range tmpExistingGroups {
+		existingGroups[i] = *group
+	}
 	changed, stale := common.CompareResources(GroupsToComparable(existingGroups), GroupsToComparable(groups))
 	changedGroups, staleGroups := ComparableToGroups(changed), ComparableToGroups(stale)
 

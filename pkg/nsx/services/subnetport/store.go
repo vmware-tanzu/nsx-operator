@@ -13,7 +13,7 @@ import (
 // keyFunc is used to get the key of a resource, usually, which is the ID of the resource
 func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
-	case model.SegmentPort:
+	case *model.SegmentPort:
 		return *v.Id, nil
 	case types.UID:
 		return string(v), nil

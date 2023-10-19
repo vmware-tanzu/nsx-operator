@@ -25,7 +25,7 @@ func (qIface *fakeQueryClient) List(queryParam string, cursorParam *string, incl
 	cursor := "2"
 	resultCount := int64(2)
 	return model.SearchResponse{
-		Results: []*data.StructValue{&data.StructValue{}},
+		Results: []*data.StructValue{data.NewStructValue("test1", nil), data.NewStructValue("test2", nil)},
 		Cursor:  &cursor, ResultCount: &resultCount,
 	}, nil
 }

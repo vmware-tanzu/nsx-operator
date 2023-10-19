@@ -50,7 +50,8 @@ func (resourceStore *ResourceStore) TransResourceToStore(entity *data.StructValu
 			return e
 		}
 	}
-	err2 := resourceStore.Add(obj)
+	objAddr := nsxutil.CasttoPointer(obj)
+	err2 := resourceStore.Add(objAddr)
 	if err2 != nil {
 		return err2
 	}

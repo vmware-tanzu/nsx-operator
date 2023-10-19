@@ -11,13 +11,13 @@ import (
 // keyFunc is used to get the key of a resource, usually, which is the ID of the resource
 func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
-	case model.Group:
+	case *model.Group:
 		return *v.Id, nil
-	case model.SecurityPolicy:
+	case *model.SecurityPolicy:
 		return *v.Id, nil
-	case model.Rule:
+	case *model.Rule:
 		return *v.Id, nil
-	case model.Share:
+	case *model.Share:
 		return *v.Id, nil
 	default:
 		return "", errors.New("keyFunc doesn't support unknown type")
@@ -29,13 +29,13 @@ func keyFunc(obj interface{}) (string, error) {
 func indexFunc(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
 	switch o := obj.(type) {
-	case model.SecurityPolicy:
+	case *model.SecurityPolicy:
 		return filterTag(o.Tags), nil
-	case model.Group:
+	case *model.Group:
 		return filterTag(o.Tags), nil
-	case model.Rule:
+	case *model.Rule:
 		return filterTag(o.Tags), nil
-	case model.Share:
+	case *model.Share:
 		return filterTag(o.Tags), nil
 	default:
 		return res, errors.New("indexFunc doesn't support unknown type")
@@ -55,7 +55,7 @@ var filterTag = func(v []model.Tag) []string {
 func indexGroupFunc(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
 	switch o := obj.(type) {
-	case model.Group:
+	case *model.Group:
 		return filterRuleTag(o.Tags), nil
 	default:
 		return res, errors.New("indexGroupFunc doesn't support unknown type")
@@ -98,13 +98,13 @@ func (securityPolicyStore *SecurityPolicyStore) Apply(i interface{}) error {
 	}
 	sp := i.(*model.SecurityPolicy)
 	if sp.MarkedForDelete != nil && *sp.MarkedForDelete {
-		err := securityPolicyStore.Delete(*sp) // Pass in the object to be deleted, not the pointer
+		err := securityPolicyStore.Delete(sp)
 		log.V(1).Info("delete security policy from store", "securitypolicy", sp)
 		if err != nil {
 			return err
 		}
 	} else {
-		err := securityPolicyStore.Add(*sp)
+		err := securityPolicyStore.Add(sp)
 		log.V(1).Info("add security policy to store", "securitypolicy", sp)
 		if err != nil {
 			return err
@@ -114,19 +114,19 @@ func (securityPolicyStore *SecurityPolicyStore) Apply(i interface{}) error {
 }
 
 func (securityPolicyStore *SecurityPolicyStore) GetByKey(key string) *model.SecurityPolicy {
-	var securityPolicy model.SecurityPolicy
+	var securityPolicy *model.SecurityPolicy
 	obj := securityPolicyStore.ResourceStore.GetByKey(key)
 	if obj != nil {
-		securityPolicy = obj.(model.SecurityPolicy)
+		securityPolicy = obj.(*model.SecurityPolicy)
 	}
-	return &securityPolicy
+	return securityPolicy
 }
 
-func (securityPolicyStore *SecurityPolicyStore) GetByIndex(key string, value string) []model.SecurityPolicy {
-	securityPolicies := make([]model.SecurityPolicy, 0)
+func (securityPolicyStore *SecurityPolicyStore) GetByIndex(key string, value string) []*model.SecurityPolicy {
+	securityPolicies := make([]*model.SecurityPolicy, 0)
 	objs := securityPolicyStore.ResourceStore.GetByIndex(key, value)
 	for _, securityPolicy := range objs {
-		securityPolicies = append(securityPolicies, securityPolicy.(model.SecurityPolicy))
+		securityPolicies = append(securityPolicies, securityPolicy.(*model.SecurityPolicy))
 	}
 	return securityPolicies
 }
@@ -135,13 +135,13 @@ func (ruleStore *RuleStore) Apply(i interface{}) error {
 	sp := i.(*model.SecurityPolicy)
 	for _, rule := range sp.Rules {
 		if rule.MarkedForDelete != nil && *rule.MarkedForDelete {
-			err := ruleStore.Delete(rule)
+			err := ruleStore.Delete(&rule)
 			log.V(1).Info("delete rule from store", "rule", rule)
 			if err != nil {
 				return err
 			}
 		} else {
-			err := ruleStore.Add(rule)
+			err := ruleStore.Add(&rule)
 			log.V(1).Info("add rule to store", "rule", rule)
 			if err != nil {
 				return err
@@ -151,11 +151,11 @@ func (ruleStore *RuleStore) Apply(i interface{}) error {
 	return nil
 }
 
-func (ruleStore *RuleStore) GetByIndex(key string, value string) []model.Rule {
-	rules := make([]model.Rule, 0)
+func (ruleStore *RuleStore) GetByIndex(key string, value string) []*model.Rule {
+	rules := make([]*model.Rule, 0)
 	objs := ruleStore.ResourceStore.GetByIndex(key, value)
 	for _, rule := range objs {
-		rules = append(rules, rule.(model.Rule))
+		rules = append(rules, rule.(*model.Rule))
 	}
 	return rules
 }
@@ -164,13 +164,15 @@ func (groupStore *GroupStore) Apply(i interface{}) error {
 	gs := i.(*[]model.Group)
 	for _, group := range *gs {
 		if group.MarkedForDelete != nil && *group.MarkedForDelete {
-			err := groupStore.Delete(group)
+			tmp := &group
+			err := groupStore.Delete(tmp)
 			log.V(1).Info("delete group from store", "group", group)
 			if err != nil {
 				return err
 			}
 		} else {
-			err := groupStore.Add(group)
+			tmp := &group
+			err := groupStore.Add(tmp)
 			log.V(1).Info("add group to store", "group", group)
 			if err != nil {
 				return err
@@ -180,11 +182,11 @@ func (groupStore *GroupStore) Apply(i interface{}) error {
 	return nil
 }
 
-func (groupStore *GroupStore) GetByIndex(key string, value string) []model.Group {
-	groups := make([]model.Group, 0)
+func (groupStore *GroupStore) GetByIndex(key string, value string) []*model.Group {
+	groups := make([]*model.Group, 0)
 	objs := groupStore.ResourceStore.GetByIndex(key, value)
 	for _, group := range objs {
-		groups = append(groups, group.(model.Group))
+		groups = append(groups, group.(*model.Group))
 	}
 	return groups
 }
@@ -193,13 +195,13 @@ func (shareStore *ShareStore) Apply(i interface{}) error {
 	shares := i.(*[]model.Share)
 	for _, share := range *shares {
 		if share.MarkedForDelete != nil && *share.MarkedForDelete {
-			err := shareStore.Delete(share)
+			err := shareStore.Delete(&share)
 			log.V(1).Info("delete share from store", "share", share)
 			if err != nil {
 				return err
 			}
 		} else {
-			err := shareStore.Add(share)
+			err := shareStore.Add(&share)
 			log.V(1).Info("add share to store", "group", share)
 			if err != nil {
 				return err
@@ -210,19 +212,19 @@ func (shareStore *ShareStore) Apply(i interface{}) error {
 }
 
 func (shareStore *ShareStore) GetByKey(key string) *model.Share {
-	var share model.Share
+	var share *model.Share
 	obj := shareStore.ResourceStore.GetByKey(key)
 	if obj != nil {
-		share = obj.(model.Share)
+		share = obj.(*model.Share)
 	}
-	return &share
+	return share
 }
 
-func (shareStore *ShareStore) GetByIndex(key string, value string) []model.Share {
-	shares := make([]model.Share, 0)
+func (shareStore *ShareStore) GetByIndex(key string, value string) []*model.Share {
+	shares := make([]*model.Share, 0)
 	objs := shareStore.ResourceStore.GetByIndex(key, value)
 	for _, share := range objs {
-		shares = append(shares, share.(model.Share))
+		shares = append(shares, share.(*model.Share))
 	}
 	return shares
 }

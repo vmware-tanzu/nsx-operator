@@ -308,7 +308,7 @@ func TestListSecurityPolicyID(t *testing.T) {
 	group.UniqueId = &uuid
 
 	group.Tags = []model.Tag{{Scope: &scope, Tag: &id}}
-	err := service.groupStore.Add(group)
+	err := service.groupStore.Add(&group)
 	if err != nil {
 		t.Fatalf("Failed to add group to store: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestListSecurityPolicyID(t *testing.T) {
 	group1.Id = &id1
 	group1.UniqueId = &uuid1
 	group1.Tags = []model.Tag{{Scope: &scope, Tag: &id1}}
-	err = service.groupStore.Add(group1)
+	err = service.groupStore.Add(&group1)
 	if err != nil {
 		t.Fatalf("Failed to add group to store: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestListSecurityPolicyID(t *testing.T) {
 	policy.Id = &id2
 	policy.UniqueId = &uuid
 	policy.Tags = []model.Tag{{Scope: &scope, Tag: &id2}}
-	err = service.securityPolicyStore.Add(policy)
+	err = service.securityPolicyStore.Add(&policy)
 	if err != nil {
 		t.Fatalf("Failed to add policy to store: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestListSecurityPolicyID(t *testing.T) {
 	share.Id = &id1
 	share.UniqueId = &uuid3
 	share.Tags = []model.Tag{{Scope: &scope, Tag: &id3}}
-	err = service.shareStore.Add(share)
+	err = service.shareStore.Add(&share)
 	if err != nil {
 		t.Fatalf("Failed to add share to store: %v", err)
 	}

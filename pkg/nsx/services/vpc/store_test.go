@@ -27,14 +27,14 @@ func (qIface *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ 
 	cursor := "2"
 	resultCount := int64(2)
 	return model.SearchResponse{
-		Results: []*data.StructValue{&data.StructValue{}},
+		Results: []*data.StructValue{},
 		Cursor:  &cursor, ResultCount: &resultCount,
 	}, nil
 }
 
 func Test_IndexFunc(t *testing.T) {
 	mId, mTag, mScope := "test_id", "test_tag", "nsx-op/vpc_cr_uid"
-	v := model.Vpc{
+	v := &model.Vpc{
 		Id:   &mId,
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
 	}
@@ -76,7 +76,7 @@ func Test_filterTag(t *testing.T) {
 
 func Test_KeyFunc(t *testing.T) {
 	Id := "test_id"
-	v := model.Vpc{Id: &Id}
+	v := &model.Vpc{Id: &Id}
 	t.Run("1", func(t *testing.T) {
 		got, _ := keyFunc(v)
 		if got != "test_id" {

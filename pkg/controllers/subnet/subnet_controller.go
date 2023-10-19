@@ -149,7 +149,7 @@ func (r *SubnetReconciler) DeleteSubnet(obj v1alpha1.Subnet) error {
 		log.Error(err, "", "ID", *nsxSubnets[0].Id)
 		return err
 	}
-	return r.Service.DeleteSubnet(nsxSubnets[0])
+	return r.Service.DeleteSubnet(*nsxSubnets[0])
 }
 
 func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {
@@ -331,7 +331,7 @@ func (r *SubnetReconciler) GarbageCollector(cancel chan bool, timeout time.Durat
 
 			log.Info("GC collected Subnet CR", "UID", elem)
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeSubnet)
-			err = r.Service.DeleteSubnet(elem)
+			err = r.Service.DeleteSubnet(*elem)
 			if err != nil {
 				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeSubnet)
 			} else {
