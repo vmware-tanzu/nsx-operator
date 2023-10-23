@@ -1,0 +1,5 @@
+apiVersion: nsx.vmware.com/v1alpha1
+kind: SubnetSet
+metadata:
+  name: user-pod-subnetset
+  namespace: subnet-e2e

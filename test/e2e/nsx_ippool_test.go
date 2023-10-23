@@ -21,7 +21,7 @@ func TestIPPoolBasic(t *testing.T) {
 	subnet_name_2 := "guestcluster1-workers-b"
 	subnet_name_3 := "guestcluster1-workers-c"
 	setupTest(t, ns)
-	defer teardownTest(t, ns)
+	defer teardownTest(t, ns, defaultTimeout)
 
 	// Create ippool
 	ippoolPath, _ := filepath.Abs("./manifest/testIPPool/ippool.yaml")
@@ -64,7 +64,7 @@ func TestIPPoolAddDeleteSubnet(t *testing.T) {
 	subnet_name_2 := "guestcluster1-workers-b"
 	subnet_name_3 := "guestcluster1-workers-c"
 	setupTest(t, ns)
-	defer teardownTest(t, ns)
+	defer teardownTest(t, ns, defaultTimeout)
 
 	// Create ippool
 	ippoolPath, _ := filepath.Abs("./manifest/testIPPool/ippool.yaml")
@@ -128,7 +128,7 @@ func TestIPPoolSubnetsNil(t *testing.T) {
 	ns := "sc-a"
 	name := "guestcluster-ippool-2"
 	setupTest(t, ns)
-	defer teardownTest(t, ns)
+	defer teardownTest(t, ns, defaultTimeout)
 
 	// Create ippool
 	ippoolPath, _ := filepath.Abs("./manifest/testIPPool/ippool.yaml")
