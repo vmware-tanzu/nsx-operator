@@ -2,7 +2,10 @@ module github.com/vmware-tanzu/nsx-operator
 
 go 1.19
 
-replace github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
+replace (
+	github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
+	github.com/vmware-tanzu/nsx-operator/pkg/client => ./pkg/client
+)
 
 require (
 	github.com/agiledragon/gomonkey v2.0.2+incompatible
@@ -20,7 +23,8 @@ require (
 	github.com/prometheus/client_golang v1.16.0
 	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.2
-	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-00010101000000-000000000000
+	github.com/vmware-tanzu/nsx-operator/pkg/apis v1.0.0
+	github.com/vmware-tanzu/nsx-operator/pkg/client v0.0.0-00010101000000-000000000000
 	github.com/vmware-tanzu/vm-operator/api v1.8.2
 	github.com/vmware/govmomi v0.27.4
 	github.com/vmware/vsphere-automation-sdk-go/lib v0.7.0
@@ -31,9 +35,9 @@ require (
 	golang.org/x/crypto v0.14.0
 	golang.org/x/time v0.3.0
 	gopkg.in/ini.v1 v1.66.4
-	k8s.io/api v0.28.3
-	k8s.io/apimachinery v0.28.3
-	k8s.io/client-go v0.28.3
+	k8s.io/api v0.28.4
+	k8s.io/apimachinery v0.28.4
+	k8s.io/client-go v0.28.4
 	k8s.io/code-generator v0.28.3
 	sigs.k8s.io/controller-runtime v0.16.0
 )
@@ -85,7 +89,7 @@ require (
 	golang.org/x/tools v0.9.3 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
-	google.golang.org/protobuf v1.30.0 // indirect
+	google.golang.org/protobuf v1.31.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
