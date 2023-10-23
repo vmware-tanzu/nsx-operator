@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"runtime"
 	"time"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
@@ -209,7 +208,7 @@ func (r *SubnetSetReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.SubnetSet{}).
 		WithOptions(controller.Options{
-			MaxConcurrentReconciles: runtime.NumCPU(),
+			MaxConcurrentReconciles: common.NumReconcile(),
 		}).
 		Watches(&v1alpha1.VPC{},
 			&VPCHandler{Client: mgr.GetClient()},

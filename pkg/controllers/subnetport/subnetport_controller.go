@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"reflect"
-	"runtime"
 	"strings"
 	"time"
 
@@ -154,7 +153,7 @@ func (r *SubnetPortReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		).
 		WithOptions(
 			controller.Options{
-				MaxConcurrentReconciles: runtime.NumCPU(),
+				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
 		Watches(&vmv1alpha1.VirtualMachine{},
 				handler.EnqueueRequestsFromMapFunc(r.vmMapFunc),

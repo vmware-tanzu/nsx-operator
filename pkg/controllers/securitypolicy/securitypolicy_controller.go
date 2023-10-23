@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"runtime"
 	"time"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
@@ -229,7 +228,7 @@ func (r *SecurityPolicyReconciler) setupWithManager(mgr ctrl.Manager) error {
 		For(&v1alpha1.SecurityPolicy{}).
 		WithOptions(
 			controller.Options{
-				MaxConcurrentReconciles: runtime.NumCPU(),
+				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
 		Watches(
 			&v1.Namespace{},

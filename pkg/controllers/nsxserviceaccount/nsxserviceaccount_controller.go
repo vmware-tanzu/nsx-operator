@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"runtime"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -149,7 +148,7 @@ func (r *NSXServiceAccountReconciler) setupWithManager(mgr ctrl.Manager) error {
 		}).
 		WithOptions(
 			controller.Options{
-				MaxConcurrentReconciles: runtime.NumCPU(),
+				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
 		Complete(r)
 }

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"reflect"
-	"runtime"
 	"strings"
 	"time"
 
@@ -193,7 +192,7 @@ func (r *StaticRouteReconciler) setupWithManager(mgr ctrl.Manager) error {
 		}).
 		WithOptions(
 			controller.Options{
-				MaxConcurrentReconciles: runtime.NumCPU(),
+				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
 		Complete(r)
 }

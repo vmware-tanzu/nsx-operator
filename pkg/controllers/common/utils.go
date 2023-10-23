@@ -106,3 +106,8 @@ func NodeIsMaster(node *v1.Node) bool {
 	}
 	return false
 }
+
+// NumReconcile now uses the fix number of concurrency
+func NumReconcile() int {
+	return MaxConcurrentReconciles
+}

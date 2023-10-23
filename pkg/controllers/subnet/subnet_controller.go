@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"runtime"
 	"time"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
@@ -267,7 +266,7 @@ func (r *SubnetReconciler) setupWithManager(mgr ctrl.Manager) error {
 		).
 		WithOptions(
 			controller.Options{
-				MaxConcurrentReconciles: runtime.NumCPU(),
+				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
 		Complete(r)
 }

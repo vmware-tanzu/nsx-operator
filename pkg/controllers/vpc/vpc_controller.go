@@ -6,7 +6,6 @@ package vpc
 import (
 	"context"
 	"os"
-	"runtime"
 	"time"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
@@ -139,7 +138,7 @@ func (r *VPCReconciler) setupWithManager(mgr ctrl.Manager) error {
 		For(&v1alpha1.VPC{}).
 		WithOptions(
 			controller.Options{
-				MaxConcurrentReconciles: runtime.NumCPU(),
+				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
 		Watches(
 			// For created/removed network config, add/remove from vpc network config cache.

@@ -27,6 +27,7 @@ require (
 	github.com/vmware/vsphere-automation-sdk-go/runtime v0.7.0
 	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.12.0
 	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp v0.6.0
+	go.uber.org/automaxprocs v1.5.3
 	go.uber.org/zap v1.25.0
 	golang.org/x/crypto v0.14.0
 	golang.org/x/time v0.3.0
