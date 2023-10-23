@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"reflect"
-	"runtime"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -234,7 +233,7 @@ func (r *SecurityPolicyReconciler) setupWithManager(mgr ctrl.Manager) error {
 		For(&v1alpha1.SecurityPolicy{}).
 		WithOptions(
 			controller.Options{
-				MaxConcurrentReconciles: runtime.NumCPU(),
+				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
 		Watches(
 			&v1.Namespace{},
