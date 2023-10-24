@@ -107,7 +107,11 @@ func TestIPPoolReconciler_Reconcile(t *testing.T) {
 
 	// DeletionTimestamp.IsZero = ture, client update failed
 	sp := &v1alpha2.IPPool{}
-	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+		v1sp := obj.(*v1alpha2.IPPool)
+		v1sp.Spec.Type = "Public"
+		return nil
+	})
 	err = errors.New("Update failed")
 	k8sClient.EXPECT().Update(ctx, gomock.Any(), gomock.Any()).Return(err)
 	fakewriter := fakeStatusWriter{}
@@ -119,6 +123,7 @@ func TestIPPoolReconciler_Reconcile(t *testing.T) {
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1sp := obj.(*v1alpha2.IPPool)
 		time := metav1.Now()
+		v1sp.Spec.Type = "Public"
 		v1sp.ObjectMeta.DeletionTimestamp = &time
 		return nil
 	})
@@ -138,6 +143,7 @@ func TestIPPoolReconciler_Reconcile(t *testing.T) {
 		v1sp := obj.(*v1alpha2.IPPool)
 		time := metav1.Now()
 		v1sp.ObjectMeta.DeletionTimestamp = &time
+		v1sp.Spec.Type = "Public"
 		v1sp.Finalizers = []string{common.IPPoolFinalizerName}
 		return nil
 	})
@@ -152,6 +158,7 @@ func TestIPPoolReconciler_Reconcile(t *testing.T) {
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1sp := obj.(*v1alpha2.IPPool)
 		time := metav1.Now()
+		v1sp.Spec.Type = "Public"
 		v1sp.ObjectMeta.DeletionTimestamp = &time
 		v1sp.Finalizers = []string{common.IPPoolFinalizerName}
 		return nil
@@ -170,6 +177,7 @@ func TestIPPoolReconciler_Reconcile(t *testing.T) {
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1sp := obj.(*v1alpha2.IPPool)
 		v1sp.ObjectMeta.DeletionTimestamp = nil
+		v1sp.Spec.Type = "Public"
 		v1sp.Finalizers = []string{common.IPPoolFinalizerName}
 		return nil
 	})
