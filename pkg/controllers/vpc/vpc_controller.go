@@ -70,6 +70,12 @@ func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			updateFail(r.Service.NSXConfig, &ctx, obj, &err, r.Client)
 			return common.ResultRequeueAfter10sec, err
 		}
+		err = r.Service.CreateOrUpdateAVIRule(createdVpc, obj.Namespace)
+		if err != nil {
+			log.Error(err, "operate failed, would retry exponentially", "VPC", req.NamespacedName)
+			updateFail(r.Service.NSXConfig, &ctx, obj, &err, r.Client)
+			return common.ResultRequeueAfter10sec, err
+		}
 
 		snatIP, path, cidr := "", "", ""
 		// currently, auto snat is not exposed, and use default value True

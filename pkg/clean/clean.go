@@ -58,7 +58,6 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig) (*CleanupService, er
 		NSXClient: nsxClient,
 		NSXConfig: cf,
 	}
-
 	vpcService, vpcErr := vpc.InitializeVPC(commonService)
 	commonctl.ServiceMediator.VPCService = vpcService
 

@@ -253,3 +253,102 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 		})
 	}
 }
+
+func TestRuleStore_GetByKey(t *testing.T) {
+	vpcRuleCacheIndexer := cache.NewIndexer(keyFuncAVI, nil)
+	resourceStore := common.ResourceStore{
+		Indexer:     vpcRuleCacheIndexer,
+		BindingType: model.RuleBindingType(),
+	}
+	ruleStore := &AviRuleStore{ResourceStore: resourceStore}
+	service := &VPCService{
+		Service: common.Service{NSXClient: nil},
+	}
+	service.RuleStore = ruleStore
+
+	path1 := "/org/default/project/project_1/vpcs/vpc1/security-policies/default-section/rules/rule1"
+	path2 := "/org/default/project/project_1/vpcs/vpc2/security-policies/default-section/rules/rule1"
+	rule1 := model.Rule{
+		Path: &path1,
+	}
+	rule2 := model.Rule{
+		Path: &path2,
+	}
+	ruleStore.Add(rule1)
+
+	rule := ruleStore.GetByKey(path1)
+	assert.Equal(t, rule.Path, rule1.Path)
+
+	rule = ruleStore.GetByKey(path2)
+	assert.True(t, rule == nil)
+
+	ruleStore.Add(rule2)
+	rule = ruleStore.GetByKey(path2)
+	assert.Equal(t, rule.Path, rule2.Path)
+}
+
+func TestGroupStore_GetByKey(t *testing.T) {
+	groupCacheIndexer := cache.NewIndexer(keyFuncAVI, nil)
+	resourceStore := common.ResourceStore{
+		Indexer:     groupCacheIndexer,
+		BindingType: model.GroupBindingType(),
+	}
+	groupStore := &AviGroupStore{ResourceStore: resourceStore}
+	service := &VPCService{
+		Service: common.Service{NSXClient: nil},
+	}
+	service.GroupStore = groupStore
+
+	path1 := "/org/default/project/project_1/vpcs/vpc1/groups/group1"
+	path2 := "/org/default/project/project_1/vpcs/vpc2/groups/group2"
+	group1 := model.Group{
+		Path: &path1,
+	}
+	group2 := model.Group{
+		Path: &path2,
+	}
+	groupStore.Add(group1)
+
+	group := groupStore.GetByKey(path1)
+	assert.Equal(t, group.Path, group1.Path)
+
+	group = groupStore.GetByKey(path2)
+	assert.True(t, group == nil)
+
+	groupStore.Add(group2)
+	group = groupStore.GetByKey(path2)
+	assert.Equal(t, group.Path, group2.Path)
+}
+
+func TestSecurityPolicyStore_GetByKey(t *testing.T) {
+	spCacheIndexer := cache.NewIndexer(keyFuncAVI, nil)
+	resourceStore := common.ResourceStore{
+		Indexer:     spCacheIndexer,
+		BindingType: model.SecurityPolicyBindingType(),
+	}
+	spStore := &AviSecurityPolicyStore{ResourceStore: resourceStore}
+	service := &VPCService{
+		Service: common.Service{NSXClient: nil},
+	}
+	service.SecurityPolicyStore = spStore
+
+	path1 := "/org/default/project/project_1/vpcs/vpc1/security-policies/default-section"
+	path2 := "/org/default/project/project_1/vpcs/vpc2/security-policies/default-section"
+	sp1 := model.SecurityPolicy{
+		Path: &path1,
+	}
+	sp2 := model.SecurityPolicy{
+		Path: &path2,
+	}
+	spStore.Add(sp1)
+
+	sp := spStore.GetByKey(path1)
+	assert.Equal(t, sp.Path, sp1.Path)
+
+	sp = spStore.GetByKey(path2)
+	assert.True(t, sp == nil)
+
+	spStore.Add(sp2)
+	sp = spStore.GetByKey(path2)
+	assert.Equal(t, sp.Path, sp2.Path)
+}

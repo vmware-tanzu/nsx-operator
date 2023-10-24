@@ -132,10 +132,70 @@ func (service *Service) InitializeVPCResourceStore(wg *sync.WaitGroup, fatalErro
 	service.InitializeCommonStore(wg, fatalErrors, org, project, resourceTypeValue, tags, store)
 }
 
+type Filter func(interface{}) *data.StructValue
+
+func (service *Service) SearchResource(resourceTypeValue string, queryParam string, store Store, filter Filter) (uint64, error) {
+	var cursor *string = nil
+	count := uint64(0)
+	for {
+		var err error
+		var results []*data.StructValue
+		var resultCount *int64
+		if store.IsPolicyAPI() {
+			response, searchEerr := service.NSXClient.QueryClient.List(queryParam, cursor, nil, Int64(PageSize), nil, nil)
+			results = response.Results
+			cursor = response.Cursor
+			resultCount = response.ResultCount
+			err = searchEerr
+		} else {
+			response, searchEerr := service.NSXClient.MPQueryClient.List(queryParam, cursor, nil, Int64(PageSize), nil, nil)
+			results = response.Results
+			cursor = response.Cursor
+			resultCount = response.ResultCount
+			err = searchEerr
+		}
+
+		err = TransError(err)
+		if _, ok := err.(nsxutil.PageMaxError); ok == true {
+			DecrementPageSize(Int64(PageSize))
+			continue
+		}
+		if err != nil {
+			return count, err
+		}
+		for _, entity := range results {
+			if filter != nil {
+				entity = filter(entity)
+			}
+			err = store.TransResourceToStore(entity)
+			if err != nil {
+				return count, err
+			}
+			count++
+		}
+		if cursor == nil {
+			break
+		}
+		c, _ := strconv.Atoi(*cursor)
+		if int64(c) >= *resultCount {
+			break
+		}
+	}
+	return count, nil
+}
+
+// PopulateResourcetoStore is the method used by populating resources created not by nsx-operator
+func (service *Service) PopulateResourcetoStore(wg *sync.WaitGroup, fatalErrors chan error, resourceTypeValue string, queryParam string, store Store, filter Filter) {
+	defer wg.Done()
+	count, err := service.SearchResource(resourceTypeValue, queryParam, store, filter)
+	if err != nil {
+		fatalErrors <- err
+	}
+	log.Info("initialized store", "resourceType", resourceTypeValue, "count", count)
+}
+
 // InitializeCommonStore is the common method used by InitializeResourceStore and InitializeVPCResourceStore
 func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors chan error, org string, project string, resourceTypeValue string, tags []model.Tag, store Store) {
-	defer wg.Done()
-
 	tagScopeClusterKey := strings.Replace(TagScopeCluster, "/", "\\/", -1)
 	tagScopeClusterValue := strings.Replace(service.NSXClient.NsxConfig.Cluster, ":", "\\:", -1)
 	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
@@ -160,49 +220,5 @@ func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors ch
 		queryParam += " AND " + pathUnescape + path
 	}
 	queryParam += " AND marked_for_delete:false"
-
-	var cursor *string = nil
-	count := uint64(0)
-	for {
-		var err error
-
-		var results []*data.StructValue
-		var resultCount *int64
-		if store.IsPolicyAPI() {
-			response, searchEerr := service.NSXClient.QueryClient.List(queryParam, cursor, nil, Int64(PageSize), nil, nil)
-			results = response.Results
-			cursor = response.Cursor
-			resultCount = response.ResultCount
-			err = searchEerr
-		} else {
-			response, searchEerr := service.NSXClient.MPQueryClient.List(queryParam, cursor, nil, Int64(PageSize), nil, nil)
-			results = response.Results
-			cursor = response.Cursor
-			resultCount = response.ResultCount
-			err = searchEerr
-		}
-		err = TransError(err)
-		if _, ok := err.(nsxutil.PageMaxError); ok == true {
-			DecrementPageSize(Int64(PageSize))
-			continue
-		}
-		if err != nil {
-			fatalErrors <- err
-		}
-		for _, entity := range results {
-			err = store.TransResourceToStore(entity)
-			if err != nil {
-				fatalErrors <- err
-			}
-			count++
-		}
-		if cursor == nil {
-			break
-		}
-		c, _ := strconv.Atoi(*cursor)
-		if int64(c) >= *resultCount {
-			break
-		}
-	}
-	log.Info("initialized store", "resourceType", resourceTypeValue, "count", count)
+	service.PopulateResourcetoStore(wg, fatalErrors, resourceTypeValue, queryParam, store, nil)
 }
