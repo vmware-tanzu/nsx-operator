@@ -36,7 +36,6 @@ var (
 	// this map contains mapping relation between namespace and the network config it uses.
 	VPCNSNetworkconfigMap = map[string]string{}
 
-	VPCDefaultOrg             = "default"
 	VPCIPBlockPathPrefix      = "/infra/ip-blocks/"
 	resourceType              = "resource_type"
 	EnforceRevisionCheckParam = false
@@ -245,14 +244,14 @@ func (s *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc VPCNetwor
 				block := buildPrivateIpBlock(obj, pCidr, ip.String(), nc.NsxtProject, s.NSXConfig.Cluster)
 				log.Info("creating ip block", "IPBlock", block.Id, "VPC", obj.Name)
 				// can not find private ip block from store, create one
-				_err := s.NSXClient.IPBlockClient.Patch(VPCDefaultOrg, nc.NsxtProject, *block.Id, block)
+				_err := s.NSXClient.IPBlockClient.Patch(nc.Org, nc.NsxtProject, *block.Id, block)
 				if _err != nil {
 					message := fmt.Sprintf("failed to create private ip block for cidr %s for VPC %s", pCidr, obj.Name)
 					ipblockError := errors.New(message)
 					log.Error(ipblockError, message)
 					return nil, ipblockError
 				}
-				createdBlock, err := s.NSXClient.IPBlockClient.Get(VPCDefaultOrg, nc.NsxtProject, *block.Id)
+				createdBlock, err := s.NSXClient.IPBlockClient.Get(nc.Org, nc.NsxtProject, *block.Id)
 				if err != nil {
 					// created by can not get, ignore this error
 					log.Info("failed to read ip blocks from NSX", "Project", nc.NsxtProject, "IPBlock", block.Id)
@@ -405,14 +404,14 @@ func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, error) {
 	}
 
 	log.Info("creating NSX VPC", "VPC", *createdVpc.Id)
-	err = s.NSXClient.VPCClient.Patch(VPCDefaultOrg, nc.NsxtProject, *createdVpc.Id, *createdVpc)
+	err = s.NSXClient.VPCClient.Patch(nc.Org, nc.NsxtProject, *createdVpc.Id, *createdVpc)
 	if err != nil {
 		log.Error(err, "failed to create VPC", "Project", nc.NsxtProject, "Namespace", obj.Namespace)
 		// TODO: this seems to be a nsx bug, in some case, even if nsx returns failed but the object is still created.
 		// in this condition, we still need to read the object and update it into store, or else operator will create multiple
 		// vpcs for this namespace.
 		log.Info("try to read VPC although VPC creation failed", "VPC", *createdVpc.Id)
-		failedVpc, rErr := s.NSXClient.VPCClient.Get(VPCDefaultOrg, nc.NsxtProject, *createdVpc.Id)
+		failedVpc, rErr := s.NSXClient.VPCClient.Get(nc.Org, nc.NsxtProject, *createdVpc.Id)
 		if rErr != nil {
 			// failed to read, but already created, we consider this scenario as success, but store may not sync with nsx
 			log.Info("confirmed VPC is not created", "VPC", createdVpc.Id)
@@ -426,7 +425,7 @@ func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, error) {
 	}
 
 	// get the created vpc from nsx, it contains the path of the resources
-	newVpc, err := s.NSXClient.VPCClient.Get(VPCDefaultOrg, nc.NsxtProject, *createdVpc.Id)
+	newVpc, err := s.NSXClient.VPCClient.Get(nc.Org, nc.NsxtProject, *createdVpc.Id)
 	if err != nil {
 		// failed to read, but already created, we consider this scenario as success, but store may not sync with nsx
 		log.Error(err, "failed to read VPC object after creating or updating", "VPC", createdVpc.Id)

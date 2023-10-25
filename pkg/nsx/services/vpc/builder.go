@@ -32,20 +32,6 @@ func generateIPBlockSearchKey(cidr string, vpcCRUID string) string {
 	return cidr + "_" + vpcCRUID
 }
 
-func TransferIpblockIDstoPaths(ids []string) []string {
-	paths := []string{}
-	if ids == nil {
-		return paths
-	}
-
-	for _, id := range ids {
-		path := VPCIPBlockPathPrefix + id
-		paths = append(paths, path)
-	}
-
-	return paths
-}
-
 func buildPrivateIpBlock(vpc *v1alpha1.VPC, cidr, ip, project, cluster string) model.IpAddressBlock {
 	suffix := vpc.GetNamespace() + "-" + vpc.Name + "-" + ip
 	addr, _ := netip.ParseAddr(ip)
@@ -93,7 +79,7 @@ func buildNSXVPC(obj *v1alpha1.VPC, nc VPCNetworkConfigInfo, cluster string, pat
 	}
 
 	// update private/public blocks
-	vpc.ExternalIpv4Blocks = TransferIpblockIDstoPaths(nc.ExternalIPv4Blocks)
+	vpc.ExternalIpv4Blocks = nc.ExternalIPv4Blocks
 	vpc.PrivateIpv4Blocks = util.GetMapValues(pathMap)
 
 	return vpc, nil
