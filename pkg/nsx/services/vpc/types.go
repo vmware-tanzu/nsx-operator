@@ -1,6 +1,7 @@
 package vpc
 
 type VPCNetworkConfigInfo struct {
+	Org                     string
 	Name                    string
 	DefaultGatewayPath      string
 	EdgeClusterPath         string

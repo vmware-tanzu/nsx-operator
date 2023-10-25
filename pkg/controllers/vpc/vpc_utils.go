@@ -2,13 +2,16 @@ package vpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -106,4 +109,34 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 		}
 	}
 	return nil
+}
+
+// parse org id and project id from nsxtProject path
+// example /orgs/default/projects/nsx_operator_e2e_test
+func nsxtProjectPathToId(path string) (string, string, error) {
+	parts := strings.Split(path, "/")
+	if len(parts) < 4 {
+		return "", "", errors.New("Invalid NSXT project path")
+	}
+	return parts[2], parts[len(parts)-1], nil
+}
+
+func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*vpc.VPCNetworkConfigInfo, error) {
+	org, project, err := nsxtProjectPathToId(vpcConfigCR.Spec.NSXTProject)
+	if err != nil {
+		log.Error(err, "failed to parse nsx-t project in network config", vpcConfigCR.Spec.NSXTProject)
+		return nil, err
+	}
+	ninfo := &vpc.VPCNetworkConfigInfo{
+		Org:                     org,
+		Name:                    vpcConfigCR.Name,
+		DefaultGatewayPath:      vpcConfigCR.Spec.DefaultGatewayPath,
+		EdgeClusterPath:         vpcConfigCR.Spec.EdgeClusterPath,
+		NsxtProject:             project,
+		ExternalIPv4Blocks:      vpcConfigCR.Spec.ExternalIPv4Blocks,
+		PrivateIPv4CIDRs:        vpcConfigCR.Spec.PrivateIPv4CIDRs,
+		DefaultIPv4SubnetSize:   vpcConfigCR.Spec.DefaultIPv4SubnetSize,
+		DefaultSubnetAccessMode: vpcConfigCR.Spec.DefaultSubnetAccessMode,
+	}
+	return ninfo, nil
 }

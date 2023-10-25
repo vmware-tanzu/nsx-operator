@@ -14,35 +14,26 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
-// VPCNetworkConfigurationHandler handles VPC NetworkConfiguration event:
+// VPCNetworkConfigurationHandler handles VPC NetworkConfiguration event, and reconcile VPC event:
 // - VPC Network Configuration creation: Add VPC Network Configuration into cache.
 // - VPC Network Configuration deletion: Delete VPC Network Configuration from cache.
+// - VPC Network Configuration update:	Only support updating external/private ipblocks, update values in cache
 
 type VPCNetworkConfigurationHandler struct {
 	Client     client.Client
 	vpcService *vpc.VPCService
 }
 
-func (h *VPCNetworkConfigurationHandler) buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) vpc.VPCNetworkConfigInfo {
-	ninfo := vpc.VPCNetworkConfigInfo{
-		Name:                    vpcConfigCR.Name,
-		DefaultGatewayPath:      vpcConfigCR.Spec.DefaultGatewayPath,
-		EdgeClusterPath:         vpcConfigCR.Spec.EdgeClusterPath,
-		NsxtProject:             vpcConfigCR.Spec.NSXTProject,
-		ExternalIPv4Blocks:      vpcConfigCR.Spec.ExternalIPv4Blocks,
-		PrivateIPv4CIDRs:        vpcConfigCR.Spec.PrivateIPv4CIDRs,
-		DefaultIPv4SubnetSize:   vpcConfigCR.Spec.DefaultIPv4SubnetSize,
-		DefaultSubnetAccessMode: vpcConfigCR.Spec.DefaultSubnetAccessMode,
-	}
-	return ninfo
-}
-
 func (h *VPCNetworkConfigurationHandler) Create(e event.CreateEvent, _ workqueue.RateLimitingInterface) {
 	vpcConfigCR := e.Object.(*v1alpha1.VPCNetworkConfiguration)
 	vname := vpcConfigCR.GetName()
-	ninfo := h.buildNetworkConfigInfo(*vpcConfigCR)
+	ninfo, _err := buildNetworkConfigInfo(*vpcConfigCR)
+	if _err != nil {
+		log.Error(_err, "processing network config add event failed")
+		return
+	}
 	log.Info("create network config and update to store", "NetworkConfigInfo", ninfo)
-	h.vpcService.RegisterVPCNetworkConfig(vname, ninfo)
+	h.vpcService.RegisterVPCNetworkConfig(vname, *ninfo)
 }
 
 func (h *VPCNetworkConfigurationHandler) Delete(e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
@@ -66,7 +57,12 @@ func (h *VPCNetworkConfigurationHandler) Update(e event.UpdateEvent, q workqueue
 	}
 
 	// update network config info in store
-	h.vpcService.RegisterVPCNetworkConfig(newNc.Name, h.buildNetworkConfigInfo(*newNc))
+	info, err := buildNetworkConfigInfo(*newNc)
+	if err != nil {
+		log.Error(err, "failed to process network config update event")
+		return
+	}
+	h.vpcService.RegisterVPCNetworkConfig(newNc.Name, *info)
 
 	nss := h.vpcService.GetNamespacesByNetworkconfigName(newNc.Name)
 	ctx := context.Background()
