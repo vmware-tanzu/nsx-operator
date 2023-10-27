@@ -38,7 +38,8 @@ const (
 	GCInterval    = 60 * time.Second
 	FinalizerName = "securitypolicy.nsx.vmware.com/finalizer"
 
-	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
+	NSXServiceAccountFinalizerName        = "nsxserviceaccount.nsx.vmware.com/finalizer"
+	GCValidationInterval           uint16 = 720
 )
 
 var (
