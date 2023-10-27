@@ -4,6 +4,7 @@ WORKDIR /source
 
 COPY . /source
 
+ENV GOPROXY=https://goproxy.io,direct
 RUN go build -o manager cmd/main.go
 
 
