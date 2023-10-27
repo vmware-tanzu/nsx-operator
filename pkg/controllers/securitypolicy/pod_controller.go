@@ -4,6 +4,7 @@
 package securitypolicy
 
 import (
+	"context"
 	"reflect"
 
 	v1 "k8s.io/api/core/v1"
@@ -27,19 +28,19 @@ type EnqueueRequestForPod struct {
 	Client client.Client
 }
 
-func (e *EnqueueRequestForPod) Create(createEvent event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForPod) Create(ctx context.Context, createEvent event.CreateEvent, q workqueue.RateLimitingInterface) {
 	e.Raw(createEvent, q)
 }
 
-func (e *EnqueueRequestForPod) Update(updateEvent event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForPod) Update(ctx context.Context, updateEvent event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	e.Raw(updateEvent, q)
 }
 
-func (e *EnqueueRequestForPod) Delete(deleteEvent event.DeleteEvent, q workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForPod) Delete(ctx context.Context, deleteEvent event.DeleteEvent, q workqueue.RateLimitingInterface) {
 	e.Raw(deleteEvent, q)
 }
 
-func (e *EnqueueRequestForPod) Generic(genericEvent event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForPod) Generic(ctx context.Context, genericEvent event.GenericEvent, q workqueue.RateLimitingInterface) {
 	e.Raw(genericEvent, q)
 }
 

@@ -25,6 +25,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 var (
@@ -102,9 +103,11 @@ func main() {
 	log.Info("starting NSX Operator")
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                  scheme,
-		HealthProbeBindAddress:  config.ProbeAddr,
-		MetricsBindAddress:      config.MetricsAddr,
+		Scheme:                 scheme,
+		HealthProbeBindAddress: config.ProbeAddr,
+		Metrics: metricsserver.Options{
+			BindAddress: config.MetricsAddr,
+		},
 		LeaderElection:          cf.HAEnabled(),
 		LeaderElectionNamespace: nsxOperatorNamespace,
 		LeaderElectionID:        "nsx-operator",

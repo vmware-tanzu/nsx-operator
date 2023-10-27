@@ -11,6 +11,7 @@ import (
 	gomock "github.com/golang/mock/gomock"
 	meta "k8s.io/apimachinery/pkg/api/meta"
 	runtime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	types "k8s.io/apimachinery/pkg/types"
 	client "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -225,4 +226,26 @@ func (mr *MockClientMockRecorder) Update(arg0, arg1 interface{}, arg2 ...interfa
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]interface{}{arg0, arg1}, arg2...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockClient)(nil).Update), varargs...)
+}
+
+// GroupVersionKindFor mocks base method
+func (m *MockClient) GroupVersionKindFor(arg0 runtime.Object) (schema.GroupVersionKind, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{arg0}
+
+	ret := m.ctrl.Call(m, "GroupVersionKindFor", varargs...)
+	ret0, _ := ret[0].(schema.GroupVersionKind)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IsObjectNamespaced mocks base method
+func (m *MockClient) IsObjectNamespaced(arg0 runtime.Object) (bool, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{arg0}
+
+	ret := m.ctrl.Call(m, "IsObjectNamespaced", varargs...)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }

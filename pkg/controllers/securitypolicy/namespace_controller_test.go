@@ -36,7 +36,7 @@ func TestEnqueueRequestForNamespace_Create(t *testing.T) {
 			e := &EnqueueRequestForNamespace{
 				Client: tt.fields.Client,
 			}
-			e.Create(tt.args.createEvent, tt.args.l)
+			e.Create(context.TODO(), tt.args.createEvent, tt.args.l)
 		})
 	}
 }
@@ -61,7 +61,7 @@ func TestEnqueueRequestForNamespace_Delete(t *testing.T) {
 			e := &EnqueueRequestForNamespace{
 				Client: tt.fields.Client,
 			}
-			e.Delete(tt.args.deleteEvent, tt.args.l)
+			e.Delete(context.TODO(), tt.args.deleteEvent, tt.args.l)
 		})
 	}
 }
@@ -86,7 +86,7 @@ func TestEnqueueRequestForNamespace_Generic(t *testing.T) {
 			e := &EnqueueRequestForNamespace{
 				Client: tt.fields.Client,
 			}
-			e.Generic(tt.args.genericEvent, tt.args.l)
+			e.Generic(context.TODO(), tt.args.genericEvent, tt.args.l)
 		})
 	}
 }
@@ -164,7 +164,7 @@ func TestEnqueueRequestForNamespace_Update(t *testing.T) {
 			e := &EnqueueRequestForNamespace{
 				Client: tt.fields.Client,
 			}
-			e.Update(tt.args.updateEvent, tt.args.l)
+			e.Update(context.TODO(), tt.args.updateEvent, tt.args.l)
 		})
 	}
 }
