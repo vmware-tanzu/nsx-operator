@@ -64,7 +64,7 @@ func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			log.V(1).Info("added finalizer on VPC CR", "VPC", req.NamespacedName)
 		}
 
-		createdVpc, err := r.Service.CreateorUpdateVPC(obj)
+		createdVpc, nc, err := r.Service.CreateorUpdateVPC(obj)
 		if err != nil {
 			log.Error(err, "operate failed, would retry exponentially", "VPC", req.NamespacedName)
 			updateFail(r.Service.NSXConfig, &ctx, obj, &err, r.Client)
@@ -93,7 +93,7 @@ func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			}
 		}
 
-		updateSuccess(r.Service.NSXConfig, &ctx, obj, r.Client, *createdVpc.Path, snatIP, path, cidr)
+		updateSuccess(r.Service.NSXConfig, &ctx, obj, r.Client, *createdVpc.Path, snatIP, path, cidr, nc.PrivateIPv4CIDRs)
 	} else {
 		if controllerutil.ContainsFinalizer(obj, commonservice.VPCFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeVPC)

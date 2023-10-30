@@ -36,7 +36,6 @@ var (
 	// this map contains mapping relation between namespace and the network config it uses.
 	VPCNSNetworkconfigMap = map[string]string{}
 
-	VPCIPBlockPathPrefix      = "/infra/ip-blocks/"
 	resourceType              = "resource_type"
 	EnforceRevisionCheckParam = false
 	MarkedForDelete           = true
@@ -351,7 +350,7 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	return path, cidr, nil
 }
 
-func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, error) {
+func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, *VPCNetworkConfigInfo, error) {
 	// check from VPC store if vpc already exist
 	updateVpc := false
 	existingVPC := s.VpcStore.GetVPCsByNamespace(obj.Namespace)
@@ -364,13 +363,13 @@ func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, error) {
 	nc_name, err := s.getNetworkconfigNameFromNS(obj.Namespace)
 	if err != nil {
 		log.Error(err, "failed to get network config name for VPC when creating NSX VPC", "VPC", obj.Name)
-		return nil, err
+		return nil, nil, err
 	}
 	nc, _exist := s.GetVPCNetworkConfig(nc_name)
 	if !_exist {
 		message := fmt.Sprintf("failed to read network config %s when creating NSX VPC", nc_name)
 		log.Info(message)
-		return nil, errors.New(message)
+		return nil, nil, errors.New(message)
 	}
 
 	log.Info("read network config from store", "NetworkConfig", nc_name)
@@ -378,7 +377,7 @@ func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, error) {
 	paths, err := s.CreatOrUpdatePrivateIPBlock(obj, nc)
 	if err != nil {
 		log.Error(err, "failed to process private ip blocks, push event back to queue")
-		return nil, err
+		return nil, nil, err
 	}
 
 	// if all private ip blocks are created, then create nsx vpc resource.
@@ -394,13 +393,13 @@ func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, error) {
 	createdVpc, err := buildNSXVPC(obj, nc, s.NSXConfig.Cluster, paths, nsxVPC)
 	if err != nil {
 		log.Error(err, "failed to build NSX VPC object")
-		return nil, err
+		return nil, nil, err
 	}
 
 	// if there is not change in public cidr and private cidr, build partial vpc will return nil
 	if createdVpc == nil {
 		log.Info("no VPC changes detect, skip creating or updating process")
-		return &existingVPC[0], nil
+		return &existingVPC[0], &nc, nil
 	}
 
 	log.Info("creating NSX VPC", "VPC", *createdVpc.Id)
@@ -415,12 +414,12 @@ func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, error) {
 		if rErr != nil {
 			// failed to read, but already created, we consider this scenario as success, but store may not sync with nsx
 			log.Info("confirmed VPC is not created", "VPC", createdVpc.Id)
-			return nil, err
+			return nil, nil, err
 		} else {
 			// vpc created anyway, update store, and in this scenario, we condsider creating successfully
 			log.Info("read VPCs from NSX after creation failed, still update VPC store", "VPC", *createdVpc.Id)
 			s.VpcStore.Add(failedVpc)
-			return &failedVpc, nil
+			return &failedVpc, &nc, nil
 		}
 	}
 
@@ -429,7 +428,7 @@ func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, error) {
 	if err != nil {
 		// failed to read, but already created, we consider this scenario as success, but store may not sync with nsx
 		log.Error(err, "failed to read VPC object after creating or updating", "VPC", createdVpc.Id)
-		return nil, err
+		return nil, nil, err
 	}
 
 	realizeService := realizestate.InitializeRealizeState(s.Service)
@@ -440,14 +439,14 @@ func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, error) {
 			// delete the nsx vpc object and re-created in next loop
 			if err := s.DeleteVPC(*newVpc.Path); err != nil {
 				log.Error(err, "cleanup VPC failed", "VPC", *createdVpc.Id)
-				return nil, err
+				return nil, nil, err
 			}
 		}
-		return nil, err
+		return nil, nil, err
 	}
 
 	s.VpcStore.Add(newVpc)
-	return &newVpc, nil
+	return &newVpc, &nc, nil
 }
 
 func (s *VPCService) Cleanup() error {

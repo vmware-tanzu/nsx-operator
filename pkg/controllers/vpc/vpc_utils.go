@@ -25,11 +25,11 @@ func setVPCReadyStatusFalse(ctx *context.Context, vpc *v1alpha1.VPC, err *error,
 			Reason:  fmt.Sprintf("Error occurred while processing the VPC CR. Please check the config and try again. Error: %v", *err),
 		},
 	}
-	updateVPCStatusConditions(ctx, vpc, newConditions, client, "", "", "", "")
+	updateVPCStatusConditions(ctx, vpc, newConditions, client, "", "", "", "", []string{})
 }
 
 func updateVPCStatusConditions(ctx *context.Context, vpc *v1alpha1.VPC, newConditions []v1alpha1.Condition, client client.Client, path string, snatIP string,
-	subnetPath string, cidr string) {
+	subnetPath string, cidr string, privateCidrs []string) {
 	conditionsUpdated := false
 	statusUpdated := false
 	for i := range newConditions {
@@ -37,11 +37,12 @@ func updateVPCStatusConditions(ctx *context.Context, vpc *v1alpha1.VPC, newCondi
 			conditionsUpdated = true
 		}
 	}
-	if vpc.Status.NSXResourcePath != path || vpc.Status.DefaultSNATIP != snatIP || vpc.Status.LBSubnetPath != subnetPath || vpc.Status.LBSubnetCIDR != cidr {
+	if vpc.Status.NSXResourcePath != path || vpc.Status.DefaultSNATIP != snatIP || vpc.Status.LBSubnetPath != subnetPath || vpc.Status.LBSubnetCIDR != cidr || len(vpc.Status.PrivateIPv4CIDRs) != len(privateCidrs) {
 		vpc.Status.NSXResourcePath = path
 		vpc.Status.DefaultSNATIP = snatIP
 		vpc.Status.LBSubnetPath = subnetPath
 		vpc.Status.LBSubnetCIDR = cidr
+		vpc.Status.PrivateIPv4CIDRs = privateCidrs
 		statusUpdated = true
 	}
 
@@ -63,8 +64,8 @@ func updateFail(nsxConfig *config.NSXOperatorConfig, c *context.Context, o *v1al
 }
 
 func updateSuccess(nsxConfig *config.NSXOperatorConfig, c *context.Context, o *v1alpha1.VPC, client client.Client,
-	path string, snatIP string, subnetPath string, cidr string) {
-	setVPCReadyStatusTrue(c, o, client, path, snatIP, subnetPath, cidr)
+	path string, snatIP string, subnetPath string, cidr string, privateCidrs []string) {
+	setVPCReadyStatusTrue(c, o, client, path, snatIP, subnetPath, cidr, privateCidrs)
 	metrics.CounterInc(nsxConfig, metrics.ControllerUpdateSuccessTotal, common.MetricResTypeVPC)
 }
 
@@ -72,7 +73,7 @@ func deleteSuccess(nsxConfig *config.NSXOperatorConfig, _ *context.Context, _ *v
 	metrics.CounterInc(nsxConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeVPC)
 }
 
-func setVPCReadyStatusTrue(ctx *context.Context, vpc *v1alpha1.VPC, client client.Client, path string, snatIP string, subnetPath string, cidr string) {
+func setVPCReadyStatusTrue(ctx *context.Context, vpc *v1alpha1.VPC, client client.Client, path, snatIP, subnetPath, cidr string, privateCidrs []string) {
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:    v1alpha1.Ready,
@@ -81,7 +82,7 @@ func setVPCReadyStatusTrue(ctx *context.Context, vpc *v1alpha1.VPC, client clien
 			Reason:  "NSX API returned 200 response code for PATCH",
 		},
 	}
-	updateVPCStatusConditions(ctx, vpc, newConditions, client, path, snatIP, subnetPath, cidr)
+	updateVPCStatusConditions(ctx, vpc, newConditions, client, path, snatIP, subnetPath, cidr, privateCidrs)
 }
 
 func mergeVPCStatusCondition(ctx *context.Context, vpc *v1alpha1.VPC, newCondition *v1alpha1.Condition) bool {
