@@ -46,23 +46,35 @@ const (
 	NSXServiceAccountPhaseRealized   NSXServiceAccountPhase = "realized"
 	NSXServiceAccountPhaseInProgress NSXServiceAccountPhase = "inProgress"
 	NSXServiceAccountPhaseFailed     NSXServiceAccountPhase = "failed"
+
+	ConditionTypeRealized             string = "Realized"
+	ConditionReasonRealizationSuccess string = "RealizationSuccess"
+	ConditionReasonRealizationError   string = "RealizationError"
 )
 
 // NSXServiceAccountStatus defines the observed state of NSXServiceAccount
 type NSXServiceAccountStatus struct {
-	Phase          NSXServiceAccountPhase `json:"phase,omitempty"`
-	Reason         string                 `json:"reason,omitempty"`
-	VPCPath        string                 `json:"vpcPath,omitempty"`
-	NSXManagers    []string               `json:"nsxManagers,omitempty"`
-	ProxyEndpoints NSXProxyEndpoint       `json:"proxyEndpoints,omitempty"`
-	ClusterID      string                 `json:"clusterID,omitempty"`
-	ClusterName    string                 `json:"clusterName,omitempty"`
-	Secrets        []NSXSecret            `json:"secrets,omitempty"`
+	// Deprecated: Use Conditions instead.
+	// +kubebuilder:deprecatedversion:warning="nsx.vmware.com/v1alpha1 Phase is deprecated"
+	Phase NSXServiceAccountPhase `json:"phase,omitempty"`
+	// Deprecated: Use Conditions instead.
+	// +kubebuilder:deprecatedversion:warning="nsx.vmware.com/v1alpha1 Reason is deprecated"
+	Reason string `json:"reason,omitempty"`
+	// Represents the realization status of a NSXServiceAccount's current state.
+	// Known .status.conditions.type is: "Realized"
+	Conditions     []metav1.Condition `json:"conditions,omitempty"`
+	VPCPath        string             `json:"vpcPath,omitempty"`
+	NSXManagers    []string           `json:"nsxManagers,omitempty"`
+	ProxyEndpoints NSXProxyEndpoint   `json:"proxyEndpoints,omitempty"`
+	ClusterID      string             `json:"clusterID,omitempty"`
+	ClusterName    string             `json:"clusterName,omitempty"`
+	Secrets        []NSXSecret        `json:"secrets,omitempty"`
 }
 
 // +genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:storageversion
 
 // NSXServiceAccount is the Schema for the nsxserviceaccounts API
 type NSXServiceAccount struct {

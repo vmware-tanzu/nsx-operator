@@ -1,4 +1,4 @@
-/* Copyright © 2022 VMware, Inc. All Rights Reserved.
+/* Copyright © 2022-2023 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package v1alpha1
@@ -12,15 +12,11 @@ type AccessMode string
 // SubnetSpec defines the desired state of Subnet.
 type SubnetSpec struct {
 	// Size of Subnet based upon estimated workload count.
-	// Defaults to 64.
-	// +kubebuilder:default:=64
 	// +kubebuilder:validation:Maximum:=65536
 	// +kubebuilder:validation:Minimum:=16
 	IPv4SubnetSize int `json:"ipv4SubnetSize,omitempty"`
 	// Access mode of Subnet, accessible only from within VPC or from outside VPC.
-	// Defaults to private.
-	// +kubebuilder:default:=private
-	// +kubebuilder:validation:Enum=private;public
+	// +kubebuilder:validation:Enum=Private;Public
 	AccessMode AccessMode `json:"accessMode,omitempty"`
 	// Subnet CIDRS.
 	// +kubebuilder:validation:MinItems=0
@@ -34,16 +30,20 @@ type SubnetSpec struct {
 
 // SubnetStatus defines the observed state of Subnet.
 type SubnetStatus struct {
-	NSXResourcePath string      `json:"nsxResourcePath"`
-	IPAddresses     []string    `json:"ipAddresses"`
-	Conditions      []Condition `json:"conditions"`
+	NSXResourcePath string      `json:"nsxResourcePath,omitempty"`
+	IPAddresses     []string    `json:"ipAddresses,omitempty"`
+	Conditions      []Condition `json:"conditions,omitempty"`
 }
 
 // +genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:storageversion
 
 // Subnet is the Schema for the subnets API.
+// +kubebuilder:printcolumn:name="AccessMode",type=string,JSONPath=`.spec.accessMode`,description="Access mode of Subnet"
+// +kubebuilder:printcolumn:name="IPv4SubnetSize",type=string,JSONPath=`.spec.ipv4SubnetSize`,description="Size of Subnet"
+// +kubebuilder:printcolumn:name="IPAddresses",type=string,JSONPath=`.status.ipAddresses[*]`,description="CIDRs for the Subnet"
 type Subnet struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
