@@ -129,7 +129,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
 		log.Error(err, "unable to fetch namespace", "req", req.NamespacedName)
-		return common.ResultRequeueAfter5mins, err
+		return common.ResultNormal, client.IgnoreNotFound(err)
 	}
 
 	// processing create/update event
