@@ -24,6 +24,8 @@ var (
 	vcEndpoint  string
 	vcUser      string
 	vcPasswd    string
+	nsxUser     string
+	nsxPasswd   string
 	vcSsoDomain string
 	vcHttpsPort int
 	thumbprint  string
@@ -35,10 +37,12 @@ func main() {
 	flag.StringVar(&vcEndpoint, "vc-endpoint", "", "nsx manager ip")
 	flag.StringVar(&vcSsoDomain, "vc-sso-domain", "", "nsx manager ip")
 	flag.StringVar(&mgrIp, "mgr-ip", "", "nsx manager ip")
-	flag.StringVar(&vcUser, "vc-user", "", "nsx username")
-	flag.StringVar(&vcPasswd, "vc-passwd", "", "nsx password")
-	flag.IntVar(&vcHttpsPort, "vc-https-port", 443, "nsx password")
+	flag.StringVar(&vcUser, "vc-user", "", "vc username")
+	flag.StringVar(&vcPasswd, "vc-passwd", "", "vc password")
+	flag.IntVar(&vcHttpsPort, "vc-https-port", 443, "vc https port")
 	flag.StringVar(&thumbprint, "thumbprint", "", "nsx thumbprint")
+	flag.StringVar(&nsxUser, "nsx-user", "", "nsx username")
+	flag.StringVar(&nsxPasswd, "nsx-passwd", "", "nsx password")
 	flag.StringVar(&caFile, "ca-file", "", "ca file")
 	flag.StringVar(&cluster, "cluster", "", "cluster name")
 	flag.IntVar(&config.LogLevel, "log-level", 0, "Use zap-core log system.")
@@ -49,6 +53,8 @@ func main() {
 	cf.VCUser = vcUser
 	cf.VCPassword = vcPasswd
 	cf.VCEndPoint = vcEndpoint
+	cf.NsxApiUser = nsxUser
+	cf.NsxApiPassword = nsxPasswd
 	cf.SsoDomain = vcSsoDomain
 	cf.HttpsPort = vcHttpsPort
 	cf.Thumbprint = []string{thumbprint}
