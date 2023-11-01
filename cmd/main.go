@@ -162,6 +162,7 @@ func StartNamespaceController(mgr ctrl.Manager, commonService common.Service) {
 
 func main() {
 	log.Info("starting NSX Operator")
+	log.Info("test ci")
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                  scheme,
