@@ -15,7 +15,20 @@ spec:
     singular: subnet
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Access mode of Subnet
+      jsonPath: .spec.accessMode
+      name: AccessMode
+      type: string
+    - description: Size of Subnet
+      jsonPath: .spec.ipv4SubnetSize
+      name: IPv4SubnetSize
+      type: string
+    - description: CIDRs for the Subnet
+      jsonPath: .status.ipAddresses[*]
+      name: IPAddresses
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: Subnet is the Schema for the subnets API.
@@ -67,12 +80,11 @@ spec:
                     type: boolean
                 type: object
               accessMode:
-                default: private
                 description: Access mode of Subnet, accessible only from within VPC
-                  or from outside VPC. Defaults to private.
+                  or from outside VPC.
                 enum:
-                - private
-                - public
+                - Private
+                - Public
                 type: string
               advancedConfig:
                 description: Subnet advanced configuration.
@@ -96,9 +108,7 @@ spec:
                 minItems: 0
                 type: array
               ipv4SubnetSize:
-                default: 64
-                description: Size of Subnet based upon estimated workload count. Defaults
-                  to 64.
+                description: Size of Subnet based upon estimated workload count.
                 maximum: 65536
                 minimum: 16
                 type: integer
@@ -140,10 +150,6 @@ spec:
                 type: array
               nsxResourcePath:
                 type: string
-            required:
-            - conditions
-            - ipAddresses
-            - nsxResourcePath
             type: object
         type: object
     served: true

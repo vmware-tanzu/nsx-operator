@@ -13,6 +13,8 @@ func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
 	case model.Vpc:
 		return *v.Id, nil
+	case model.IpAddressBlock:
+		return generateIPBlockKey(obj.(model.IpAddressBlock)), nil
 	default:
 		return "", errors.New("keyFunc doesn't support unknown type")
 	}
@@ -25,8 +27,22 @@ func indexFunc(obj interface{}) ([]string, error) {
 	switch o := obj.(type) {
 	case model.Vpc:
 		return filterTag(o.Tags), nil
+	case model.IpAddressBlock:
+		return filterTag(o.Tags), nil
 	default:
 		return res, errors.New("indexFunc doesn't support unknown type")
+	}
+}
+
+// for ip block, one vpc may contains multiple ipblock with same vpc cr id
+// add one more indexer using path
+func indexPathFunc(obj interface{}) ([]string, error) {
+	res := make([]string, 0, 5)
+	switch o := obj.(type) {
+	case model.IpAddressBlock:
+		return append(res, *o.Path), nil
+	default:
+		return res, errors.New("indexPathFunc doesn't support unknown type")
 	}
 }
 
@@ -40,12 +56,38 @@ var filterTag = func(v []model.Tag) []string {
 	return res
 }
 
+// IPBlockStore is a store for private ip blocks
+type IPBlockStore struct {
+	common.ResourceStore
+}
+
+func (is *IPBlockStore) Apply(i interface{}) error {
+	if i == nil {
+		return nil
+	}
+	ipblock := i.(*model.IpAddressBlock)
+	if ipblock.MarkedForDelete != nil && *ipblock.MarkedForDelete {
+		err := is.Delete(*ipblock)
+		log.V(1).Info("delete ipblock from store", "IPBlock", ipblock)
+		if err != nil {
+			return err
+		}
+	} else {
+		err := is.Add(*ipblock)
+		log.V(1).Info("add IPBlock to store", "IPBlock", ipblock)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // VPCStore is a store for VPCs
 type VPCStore struct {
 	common.ResourceStore
 }
 
-func (vs *VPCStore) Operate(i interface{}) error {
+func (vs *VPCStore) Apply(i interface{}) error {
 	if i == nil {
 		return nil
 	}
@@ -84,4 +126,24 @@ func (vs *VPCStore) GetVPCsByNamespace(ns string) []model.Vpc {
 		}
 	}
 	return ret
+}
+
+func (vs *VPCStore) GetByKey(key string) *model.Vpc {
+	obj := vs.ResourceStore.GetByKey(key)
+	if obj != nil {
+		vpc := obj.(model.Vpc)
+		return &vpc
+	}
+	return nil
+}
+
+func (is *IPBlockStore) GetByIndex(index string, value string) *model.IpAddressBlock {
+	indexResults, err := is.ResourceStore.Indexer.ByIndex(index, value)
+	if err != nil || len(indexResults) == 0 {
+		log.Error(err, "failed to get obj by index", "index", value)
+		return nil
+	}
+
+	block := indexResults[0].((model.IpAddressBlock))
+	return &block
 }

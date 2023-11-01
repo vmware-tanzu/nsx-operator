@@ -14,8 +14,7 @@ import (
 func TestServiceMediator_GetOrgProject(t *testing.T) {
 	vpcService := &vpc.VPCService{}
 	vs := &ServiceMediator{
-		SecurityPolicyService: nil,
-		VPCService:            vpcService,
+		VPCService: vpcService,
 	}
 
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []model.Vpc {
@@ -23,8 +22,8 @@ func TestServiceMediator_GetOrgProject(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	got := vs.GetVPCInfo("ns")[0]
-	want := common.VPCInfo{OrgID: "default", ProjectID: "project-1", VPCID: "vpc-1"}
+	got := vs.ListVPCInfo("ns")[0]
+	want := common.VPCResourceInfo{OrgID: "default", ProjectID: "project-1", VPCID: "vpc-1", ID: "vpc-1", ParentID: "project-1"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("GetOrgProject() = %v, want %v", got, want)
 	}

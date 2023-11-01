@@ -6,8 +6,9 @@ package jwt
 import (
 	"time"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 )
 
 const (
@@ -31,9 +32,9 @@ func (provider *JWTTokenProvider) HeaderValue(token string) string {
 	return "Bearer " + token
 }
 
-func NewTokenProvider(vcEndpoint string, port int, ssoDomain string, caCert []byte, insecure bool) (auth.TokenProvider, error) {
+func NewTokenProvider(vcEndpoint string, port int, ssoDomain, user, password string, caCert []byte, insecure bool) (auth.TokenProvider, error) {
 	// not load username/password, not create vapi session, defer them to cache.refreshJWT
-	tesClient, err := NewTESClient(vcEndpoint, port, ssoDomain, "", "", caCert, insecure)
+	tesClient, err := NewTESClient(vcEndpoint, port, ssoDomain, user, password, caCert, insecure)
 	if err != nil {
 		log.Error(err, "failed to create tes client")
 		return nil, err

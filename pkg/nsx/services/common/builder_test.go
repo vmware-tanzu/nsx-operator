@@ -118,3 +118,64 @@ func TestQueryTagCondition(t *testing.T) {
 		})
 	}
 }
+
+func TestParseVPCResourcePath(t *testing.T) {
+	type args struct {
+		nsxResourcePath string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    VPCResourceInfo
+		wantErr bool
+	}{
+		{
+			name: "SubnetPort Path",
+			args: args{
+				nsxResourcePath: "/orgs/org1/projects/proj1/vpcs/vpc1/subnets/subnet1/ports/port1",
+			},
+			want: VPCResourceInfo{
+				OrgID:     "org1",
+				ProjectID: "proj1",
+				VPCID:     "vpc1",
+				ParentID:  "subnet1",
+				ID:        "port1",
+			},
+			wantErr: false,
+		},
+		{
+			name: "VPC Path",
+			args: args{
+				nsxResourcePath: "/orgs/org1/projects/proj1/vpcs/vpc1",
+			},
+			want: VPCResourceInfo{
+				OrgID:     "org1",
+				ProjectID: "proj1",
+				VPCID:     "vpc1",
+				ParentID:  "proj1",
+				ID:        "vpc1",
+			},
+			wantErr: false,
+		},
+		{
+			name: "Invalid Path",
+			args: args{
+				nsxResourcePath: "/abc/def",
+			},
+			want:    VPCResourceInfo{},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseVPCResourcePath(tt.args.nsxResourcePath)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseVPCResourcePath() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("ParseVPCResourcePath() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

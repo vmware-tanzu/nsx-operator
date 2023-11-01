@@ -9,11 +9,10 @@ import (
 
 	vapierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
-	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/cache"
-
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/cache"
 
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
@@ -29,9 +28,9 @@ type Store interface {
 	TransResourceToStore(obj *data.StructValue) error
 	// ListIndexFuncValues is the method to list all the values of the index
 	ListIndexFuncValues(key string) sets.String
-	// Operate is the method to create, update and delete the resource to the store based
+	// Apply is the method to create, update and delete the resource to the store based
 	// on its tag MarkedForDelete.
-	Operate(obj interface{}) error
+	Apply(obj interface{}) error
 	// IsPolicyAPI returns if it is Policy resource
 	IsPolicyAPI() bool
 }
@@ -123,23 +122,33 @@ func TransError(err error) error {
 
 // InitializeResourceStore is the method to query all the various resources from nsx-t side and
 // save them to the store, we could use it to cache all the resources when process starts.
-func (service *Service) InitializeResourceStore(wg *sync.WaitGroup, fatalErrors chan error, resourceTypeValue string, store Store) {
-	service.InitializeCommonStore(wg, fatalErrors, "", "", resourceTypeValue, store)
+func (service *Service) InitializeResourceStore(wg *sync.WaitGroup, fatalErrors chan error, resourceTypeValue string, tags []model.Tag, store Store) {
+	service.InitializeCommonStore(wg, fatalErrors, "", "", resourceTypeValue, tags, store)
 }
 
 // InitializeVPCResourceStore is the method to query all the various VPC resources from nsx-t side and
 // save them to the store, we could use it to cache all the resources when process starts.
-func (service *Service) InitializeVPCResourceStore(wg *sync.WaitGroup, fatalErrors chan error, org string, project string, resourceTypeValue string, store Store) {
-	service.InitializeCommonStore(wg, fatalErrors, org, project, resourceTypeValue, store)
+func (service *Service) InitializeVPCResourceStore(wg *sync.WaitGroup, fatalErrors chan error, org string, project string, resourceTypeValue string, tags []model.Tag, store Store) {
+	service.InitializeCommonStore(wg, fatalErrors, org, project, resourceTypeValue, tags, store)
 }
 
 // InitializeCommonStore is the common method used by InitializeResourceStore and InitializeVPCResourceStore
-func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors chan error, org string, project string, resourceTypeValue string, store Store) {
+func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors chan error, org string, project string, resourceTypeValue string, tags []model.Tag, store Store) {
 	defer wg.Done()
 
 	tagScopeClusterKey := strings.Replace(TagScopeCluster, "/", "\\/", -1)
 	tagScopeClusterValue := strings.Replace(service.NSXClient.NsxConfig.Cluster, ":", "\\:", -1)
 	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
+
+	for _, tag := range tags {
+		tagKey := strings.Replace(*tag.Scope, "/", "\\/", -1)
+		tagParam += fmt.Sprintf(" AND tags.scope:%s ", tagKey)
+		if tag.Tag != nil {
+			tagValue := strings.Replace(*tag.Tag, ":", "\\:", -1)
+			tagParam += fmt.Sprintf(" AND tags.tag:%s ", tagValue)
+		}
+	}
+
 	resourceParam := fmt.Sprintf("%s:%s", ResourceType, resourceTypeValue)
 	queryParam := resourceParam + " AND " + tagParam
 
@@ -150,6 +159,7 @@ func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors ch
 		pathUnescape, _ := url.PathUnescape("path%3A")
 		queryParam += " AND " + pathUnescape + path
 	}
+	queryParam += " AND marked_for_delete:false"
 
 	var cursor *string = nil
 	count := uint64(0)

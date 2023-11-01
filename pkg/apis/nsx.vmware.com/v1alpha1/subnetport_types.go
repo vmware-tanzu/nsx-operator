@@ -1,4 +1,4 @@
-/* Copyright © 2022 VMware, Inc. All Rights Reserved.
+/* Copyright © 2022-2023 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package v1alpha1
@@ -41,8 +41,12 @@ type SubnetPortIPAddress struct {
 // +genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:storageversion
 
 // SubnetPort is the Schema for the subnetports API.
+// +kubebuilder:printcolumn:name="VIFID",type=string,JSONPath=`.status.vifID`,description="Attachment VIF ID owned by the SubnetPort"
+// +kubebuilder:printcolumn:name="IPAddress",type=string,JSONPath=`.status.ipAddresses[0].ip`,description="IP Address of the SubnetPort"
+// +kubebuilder:printcolumn:name="MACAddress",type=string,JSONPath=`.status.macAddress`,description="MAC Address of the SubnetPort"
 type SubnetPort struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

@@ -11,6 +11,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -85,7 +86,7 @@ func Test_KeyFunc(t *testing.T) {
 }
 
 func Test_InitializeVPCStore(t *testing.T) {
-	config2 := nsx.NewConfig("localhost", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config2)
 	rc, _ := cluster.NewRestConnector()
 
@@ -130,7 +131,9 @@ func Test_InitializeVPCStore(t *testing.T) {
 		})
 	defer patches2.Reset()
 
-	service.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, vpcStore)
+	service.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, vpcStore)
+	assert.Empty(t, fatalErrors)
+	assert.Equal(t, sets.String(sets.String{}), vpcStore.ListIndexFuncValues(common.TagScopeVPCCRUID))
 }
 
 func TestVPCStore_CRUDResource(t *testing.T) {
@@ -152,7 +155,7 @@ func TestVPCStore_CRUDResource(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.wantErr(t, vpcStore.Operate(tt.args.i), fmt.Sprintf("CRUDResource(%v)", tt.args.i))
+			tt.wantErr(t, vpcStore.Apply(tt.args.i), fmt.Sprintf("CRUDResource(%v)", tt.args.i))
 		})
 	}
 }
@@ -208,21 +211,21 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 	}
 	vpc1 := model.Vpc{
 
-		DisplayName:       &vpcName1,
-		Id:                &vpcID1,
-		Tags:              tag1,
-		IpAddressType:     &IPv4Type,
-		PrivateIpv4Blocks: []string{"1.1.1.0/24"},
-		PublicIpv4Blocks:  []string{"2.2.2.0/24"},
+		DisplayName:        &vpcName1,
+		Id:                 &vpcID1,
+		Tags:               tag1,
+		IpAddressType:      &IPv4Type,
+		PrivateIpv4Blocks:  []string{"1.1.1.0/24"},
+		ExternalIpv4Blocks: []string{"2.2.2.0/24"},
 	}
 	vpc2 := model.Vpc{
 
-		DisplayName:       &vpcName2,
-		Id:                &vpcID2,
-		Tags:              tag2,
-		IpAddressType:     &IPv4Type,
-		PrivateIpv4Blocks: []string{"3.3.3.0/24"},
-		PublicIpv4Blocks:  []string{"4.4.4.0/24"},
+		DisplayName:        &vpcName2,
+		Id:                 &vpcID2,
+		Tags:               tag2,
+		IpAddressType:      &IPv4Type,
+		PrivateIpv4Blocks:  []string{"3.3.3.0/24"},
+		ExternalIpv4Blocks: []string{"4.4.4.0/24"},
 	}
 	tests := []struct {
 		name    string
@@ -233,8 +236,8 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vpcStore.Operate(&vpc1)
-			vpcStore.Operate(&vpc2)
+			vpcStore.Apply(&vpc1)
+			vpcStore.Apply(&vpc2)
 			got := vpcStore.List()
 			if len(got) != 2 {
 				t.Errorf("size = %v, want %v", len(got), 2)

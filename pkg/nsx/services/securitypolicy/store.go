@@ -17,6 +17,8 @@ func keyFunc(obj interface{}) (string, error) {
 		return *v.Id, nil
 	case model.Rule:
 		return *v.Id, nil
+	case model.Share:
+		return *v.Id, nil
 	default:
 		return "", errors.New("keyFunc doesn't support unknown type")
 	}
@@ -32,6 +34,8 @@ func indexFunc(obj interface{}) ([]string, error) {
 	case model.Group:
 		return filterTag(o.Tags), nil
 	case model.Rule:
+		return filterTag(o.Tags), nil
+	case model.Share:
 		return filterTag(o.Tags), nil
 	default:
 		return res, errors.New("indexFunc doesn't support unknown type")
@@ -52,13 +56,13 @@ func indexGroupFunc(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
 	switch o := obj.(type) {
 	case model.Group:
-		return filterGroupTag(o.Tags), nil
+		return filterRuleTag(o.Tags), nil
 	default:
 		return res, errors.New("indexGroupFunc doesn't support unknown type")
 	}
 }
 
-var filterGroupTag = func(v []model.Tag) []string {
+var filterRuleTag = func(v []model.Tag) []string {
 	res := make([]string, 0, 5)
 	for _, tag := range v {
 		if *tag.Scope == common.TagScopeRuleID {
@@ -83,7 +87,12 @@ type GroupStore struct {
 	common.ResourceStore
 }
 
-func (securityPolicyStore *SecurityPolicyStore) Operate(i interface{}) error {
+// ShareStore is a store for project shares referenced by security policy rule
+type ShareStore struct {
+	common.ResourceStore
+}
+
+func (securityPolicyStore *SecurityPolicyStore) Apply(i interface{}) error {
 	if i == nil {
 		return nil
 	}
@@ -122,7 +131,7 @@ func (securityPolicyStore *SecurityPolicyStore) GetByIndex(key string, value str
 	return securityPolicies
 }
 
-func (ruleStore *RuleStore) Operate(i interface{}) error {
+func (ruleStore *RuleStore) Apply(i interface{}) error {
 	sp := i.(*model.SecurityPolicy)
 	for _, rule := range sp.Rules {
 		if rule.MarkedForDelete != nil && *rule.MarkedForDelete {
@@ -151,7 +160,7 @@ func (ruleStore *RuleStore) GetByIndex(key string, value string) []model.Rule {
 	return rules
 }
 
-func (groupStore *GroupStore) Operate(i interface{}) error {
+func (groupStore *GroupStore) Apply(i interface{}) error {
 	gs := i.(*[]model.Group)
 	for _, group := range *gs {
 		if group.MarkedForDelete != nil && *group.MarkedForDelete {
@@ -178,4 +187,42 @@ func (groupStore *GroupStore) GetByIndex(key string, value string) []model.Group
 		groups = append(groups, group.(model.Group))
 	}
 	return groups
+}
+
+func (shareStore *ShareStore) Apply(i interface{}) error {
+	shares := i.(*[]model.Share)
+	for _, share := range *shares {
+		if share.MarkedForDelete != nil && *share.MarkedForDelete {
+			err := shareStore.Delete(share)
+			log.V(1).Info("delete share from store", "share", share)
+			if err != nil {
+				return err
+			}
+		} else {
+			err := shareStore.Add(share)
+			log.V(1).Info("add share to store", "group", share)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (shareStore *ShareStore) GetByKey(key string) *model.Share {
+	var share model.Share
+	obj := shareStore.ResourceStore.GetByKey(key)
+	if obj != nil {
+		share = obj.(model.Share)
+	}
+	return &share
+}
+
+func (shareStore *ShareStore) GetByIndex(key string, value string) []model.Share {
+	shares := make([]model.Share, 0)
+	objs := shareStore.ResourceStore.GetByIndex(key, value)
+	for _, share := range objs {
+		shares = append(shares, share.(model.Share))
+	}
+	return shares
 }

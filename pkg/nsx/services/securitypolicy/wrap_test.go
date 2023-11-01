@@ -14,8 +14,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
-type fakeQueryClient struct {
-}
+type fakeQueryClient struct{}
 
 func (_ *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
 	cursor := "2"
@@ -27,7 +26,7 @@ func (_ *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool
 }
 
 func fakeService() *SecurityPolicyService {
-	c := nsx.NewConfig("localhost", "1", "1", "", 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	c := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(c)
 	rc, _ := cluster.NewRestConnector()
 	service = &SecurityPolicyService{
@@ -189,9 +188,10 @@ func TestSecurityPolicyService_wrapResourceReference(t *testing.T) {
 		{"1", args{[]*data.StructValue{}}, nil, assert.NoError},
 	}
 
+	domainId := getDomain(service)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := service.wrapResourceReference(tt.args.children)
+			got, _ := service.wrapDomainResource(tt.args.children, domainId)
 			for _, v := range got {
 				r, _ := Converter.ConvertToGolang(v, model.ChildResourceReferenceBindingType())
 				rc := r.(model.ChildResourceReference)

@@ -16,7 +16,7 @@ func TestNewConfig(t *testing.T) {
 		apiManagers           string
 		username              string
 		password              string
-		caFile                string
+		caFile                []string
 		concurrentConnections int
 		retries               int
 		httpTimeout           int

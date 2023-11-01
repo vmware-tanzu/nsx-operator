@@ -14,6 +14,10 @@ import (
 	"strconv"
 	"strings"
 
+	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -270,4 +274,98 @@ func MergeAddressByPort(portAddressOriginal []PortAddress) []PortAddress {
 		portAddress = append(portAddress, PortAddress{Port: key, IPs: mappedPorts[key]})
 	}
 	return portAddress
+}
+
+func ParseVPCPath(nsxResourcePath string) (orgID string, projectID string, vpcID string, resourceID string) {
+	paras := strings.Split(nsxResourcePath, "/")
+	orgID = paras[2]
+	projectID = paras[4]
+	vpcID = paras[6]
+	resourceID = paras[8]
+	return
+}
+
+// if ApiError is nil, check ErrorTypeEnum, such as ServiceUnavailable
+// if both return value are nil, the error is not on the list
+// there is no httpstatus, ApiError does't include it
+func DumpAPIError(err error) (*model.ApiError, *apierrors.ErrorTypeEnum) {
+	switch i := err.(type) {
+	case apierrors.AlreadyExists:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.AlreadyInDesiredState:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.Canceled:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.ConcurrentChange:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.Error:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.FeatureInUse:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.InternalServerError:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.InvalidRequest:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.InvalidArgument:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.InvalidElementConfiguration:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.InvalidElementType:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.NotAllowedInCurrentState:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.NotFound:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.OperationNotFound:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.ResourceBusy:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.ResourceInUse:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.ResourceInaccessible:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.ServiceUnavailable:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.TimedOut:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.UnableToAllocateResource:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.Unauthenticated:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.Unauthorized:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.UnexpectedInput:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.Unsupported:
+		return castApiError(i.Data), i.ErrorType
+	case apierrors.UnverifiedPeer:
+		return castApiError(i.Data), i.ErrorType
+	default:
+		log.Info("dump api error", "error not supported", err)
+		return nil, nil
+	}
+}
+
+func castApiError(apiErrorDataValue *data.StructValue) *model.ApiError {
+	info := "dump api error"
+	if apiErrorDataValue == nil {
+		log.Info(info, "no extra error info", apiErrorDataValue)
+		return nil
+	}
+	var typeConverter = bindings.NewTypeConverter()
+	data, err := typeConverter.ConvertToGolang(apiErrorDataValue, model.ApiErrorBindingType())
+	if err != nil && isEmptyAPIError(data.(model.ApiError)) {
+		log.Error(err[0], info)
+		return nil
+	}
+	apiError, ok := data.(model.ApiError)
+	if !ok {
+		log.Info(info, "error raw data", data)
+		return nil
+	}
+	return &apiError
+}
+
+func isEmptyAPIError(apiError model.ApiError) bool {
+	return (apiError.ErrorCode == nil && apiError.ErrorMessage == nil)
 }

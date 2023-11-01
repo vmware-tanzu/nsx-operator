@@ -30,6 +30,17 @@ func TestConfig_VCConfig(t *testing.T) {
 	vcConfig.HttpsPort = 443
 	err = vcConfig.validate()
 	assert.Equal(t, err, nil)
+
+	vcConfig.VCUser = ""
+	vcConfig.VCPassword = "test"
+	err = vcConfig.validate()
+	assert.NotEqual(t, err, nil)
+
+	vcConfig.VCUser = "test1"
+	vcConfig.VCPassword = "test"
+	err = vcConfig.validate()
+	assert.Equal(t, err, nil)
+
 }
 
 func TestConfig_CoeConfig(t *testing.T) {
@@ -51,13 +62,27 @@ func TestConfig_NsxConfig(t *testing.T) {
 	assert.Equal(t, err, expect)
 
 	nsxConfig.NsxApiManagers = []string{"10.0.0.1"}
+	expect = errors.New("no ca file or thumbprint or nsx username/password provided")
 	err = nsxConfig.validate(false)
-	assert.Equal(t, err, nil)
+	assert.Equal(t, err, expect)
 
 	nsxConfig.Thumbprint = []string{"0a:fc"}
 	err = nsxConfig.validate(false)
 	assert.Equal(t, err, nil)
 
+	nsxConfig.CaFile = []string{"0a:fc", "ob:fd"}
+	expect = errors.New("ca file count not match manager count")
+	err = nsxConfig.validate(false)
+	assert.Equal(t, err, expect)
+
+	// Insecure == true
+	nsxConfig.CaFile = []string{"0a:fc", "ob:fd"}
+	nsxConfig.Insecure = true
+	err = nsxConfig.validate(false)
+	assert.Equal(t, err, nil)
+
+	nsxConfig.CaFile = []string{}
+	nsxConfig.Insecure = false
 	nsxConfig.Thumbprint = []string{"0a:fc", "ob:fd"}
 	expect = errors.New("thumbprint count not match manager count")
 	err = nsxConfig.validate(false)
@@ -73,6 +98,10 @@ func TestConfig_NewNSXOperatorConfigFromFile(t *testing.T) {
 	configFilePath = "../mock/nsxop.ini"
 	_, err = NewNSXOperatorConfigFromFile()
 	assert.Equal(t, err, nil)
+
+	configFilePath = "../mock/nsxop_err.ini"
+	_, err = NewNSXOperatorConfigFromFile()
+	assert.NotNil(t, err)
 }
 
 func TestConfig_GetTokenProvider(t *testing.T) {
@@ -83,4 +112,11 @@ func TestConfig_GetTokenProvider(t *testing.T) {
 	nsxConfig := &NSXOperatorConfig{VCConfig: vcConfig, NsxConfig: &NsxConfig{}}
 	tokenProvider := nsxConfig.GetTokenProvider()
 	assert.NotNil(t, tokenProvider)
+}
+
+func TestConfig_GetHA(t *testing.T) {
+	configFilePath = "../mock/nsxop.ini"
+	cf, err := NewNSXOperatorConfigFromFile()
+	assert.Equal(t, err, nil)
+	assert.Equal(t, cf.HAEnabled(), true)
 }

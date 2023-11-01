@@ -149,7 +149,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 
 	// NSX version check failed case
 	sp := &v1alpha1.SecurityPolicy{}
-	checkNsxVersionPatch := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersionForSecurityPolicy", func(_ *nsx.Client) bool {
+	checkNsxVersionPatch := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
 		return false
 	})
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
@@ -163,7 +163,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	assert.Equal(t, resultRequeueAfter5mins, result)
 
 	checkNsxVersionPatch.Reset()
-	checkNsxVersionPatch = gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersionForSecurityPolicy", func(_ *nsx.Client) bool {
+	checkNsxVersionPatch = gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
 		return true
 	})
 	defer checkNsxVersionPatch.Reset()
@@ -171,18 +171,18 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	// DeletionTimestamp.IsZero = ture, client update failed
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
 	err = errors.New("Update failed")
-	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(err)
+	k8sClient.EXPECT().Update(ctx, gomock.Any(), gomock.Any()).Return(err)
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, err, ret)
 
-	//  DeletionTimestamp.IsZero = false, Finalizers doesn't include util.FinalizerName
+	//  DeletionTimestamp.IsZero = false, Finalizers doesn't include util.SecurityPolicyFinalizerName
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1sp := obj.(*v1alpha1.SecurityPolicy)
 		time := metav1.Now()
 		v1sp.ObjectMeta.DeletionTimestamp = &time
 		return nil
 	})
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}) error {
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isVpcCleanup bool) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
@@ -191,15 +191,15 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	assert.Equal(t, ret, nil)
 	patch.Reset()
 
-	//  DeletionTimestamp.IsZero = false, Finalizers include util.FinalizerName
+	//  DeletionTimestamp.IsZero = false, Finalizers include util.SecurityPolicyFinalizerName
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1sp := obj.(*v1alpha1.SecurityPolicy)
 		time := metav1.Now()
 		v1sp.ObjectMeta.DeletionTimestamp = &time
-		v1sp.Finalizers = []string{common.FinalizerName}
+		v1sp.Finalizers = []string{common.SecurityPolicyFinalizerName}
 		return nil
 	})
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}) error {
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isVpcCleanup bool) error {
 		return nil
 	})
 	_, ret = r.Reconcile(ctx, req)
@@ -224,7 +224,7 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 		a.Insert("2345")
 		return a
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}) error {
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isVpcCleanup bool) error {
 		return nil
 	})
 	cancel := make(chan bool)
@@ -259,7 +259,7 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 		a.Insert("1234")
 		return a
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}) error {
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isVpcCleanup bool) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
@@ -282,7 +282,7 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 		a := sets.NewString()
 		return a
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}) error {
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isVpcCleanup bool) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})

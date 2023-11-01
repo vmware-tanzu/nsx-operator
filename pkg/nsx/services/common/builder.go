@@ -5,6 +5,7 @@ package common
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
@@ -34,4 +35,22 @@ func ConvertMPTagsToTags(mpTags []mpmodel.Tag) []model.Tag {
 		tags[i].Tag = mpTags[i].Tag
 	}
 	return tags
+}
+
+func ParseVPCResourcePath(nsxResourcePath string) (VPCResourceInfo, error) {
+	info := VPCResourceInfo{}
+	reExp := regexp.MustCompile(`/orgs/([^/]+)/projects/([^/]+)/vpcs/([^/]+)([/\S+]*)`)
+	matches := reExp.FindStringSubmatch(nsxResourcePath)
+	if len(matches) != 5 {
+		err := fmt.Errorf("invalid path '%s'", nsxResourcePath)
+		return info, err
+	}
+	info.OrgID = matches[1]
+	info.ProjectID = matches[2]
+	info.VPCID = matches[3]
+	layers := strings.Split(nsxResourcePath, "/")
+	size := len(layers)
+	info.ID = layers[size-1]
+	info.ParentID = layers[size-3]
+	return info, nil
 }
