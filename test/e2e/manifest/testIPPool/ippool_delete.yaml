@@ -3,7 +3,7 @@ kind: IPPool
 metadata:
   name: guestcluster-ippool-2
 spec:
-  type: public
+  type: Public
   subnets:
   - ipFamily: IPv4
     name: guestcluster1-workers-a
