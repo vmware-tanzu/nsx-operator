@@ -172,8 +172,10 @@ func (r *IPPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			updateFail(r, &ctx, obj, &err)
 			// if all ip blocks are exhausted, we should not retry
 			if errors.As(err, &util.IPBlockAllExhaustedError{}) {
-				log.Error(err, "ip blocks are all exhausted, would not retry", "ippool", req.NamespacedName)
-				return resultNormal, nil
+				log.Error(err, "ip blocks are all exhausted, would retry exponentially", "ippool", req.NamespacedName)
+				r.Service.ExhaustedIPBlock = []string{}
+				log.Info("Clear ExhaustedIPBlock: ", "ExhaustedIPBlock", r.Service.ExhaustedIPBlock)
+				return common.ResultRequeueAfter10sec, err
 			}
 			log.Error(err, "operate failed, would retry exponentially", "ippool", req.NamespacedName)
 			return resultRequeue, err

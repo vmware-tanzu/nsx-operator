@@ -93,8 +93,8 @@ func (service *IPPoolService) buildIPSubnet(IPPool *v1alpha2.IPPool, subnetReque
 	IpBlockPathList := make([]string, 0)
 	VPCInfo := commonctl.ServiceMediator.GetVPCsByNamespace(IPPool.Namespace)
 	if len(VPCInfo) == 0 {
-		log.Error(nil, "failed to find VPCInfo for IPPool CR", "IPPool", IPPool.Name, "namespace %s", IPPool.Namespace)
-		return &model.IpAddressPoolBlockSubnet{}
+		log.Error(nil, "failed to find VPCInfo for IPPool CR", "IPPool", IPPool.Name, "namespace", IPPool.Namespace)
+		return nil
 	}
 
 	if IPPool.Spec.Type == common.IPPoolTypePrivate {
