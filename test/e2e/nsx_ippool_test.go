@@ -30,7 +30,7 @@ func TestIPPoolBasic(t *testing.T) {
 
 	// Check ippool status
 	err := testData.waitForCRReadyOrDeleted(defaultTimeout, IPPool, ns, name, Ready)
-	assert_nil(t, err, "Error when waiting for Security Policy %s", name)
+	assert_nil(t, err, "Error when waiting for IPPool %s", name)
 
 	// Check nsx-t resource existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPool, name, true)
@@ -73,7 +73,7 @@ func TestIPPoolAddDeleteSubnet(t *testing.T) {
 
 	// Check ippool status
 	err := testData.waitForCRReadyOrDeleted(defaultTimeout, IPPool, ns, name, Ready)
-	assert_nil(t, err, "Error when waiting for Security Policy %s", name)
+	assert_nil(t, err, "Error when waiting for IPPool %s", name)
 
 	// Check nsx-t resource existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPool, name, true)
@@ -91,7 +91,7 @@ func TestIPPoolAddDeleteSubnet(t *testing.T) {
 
 	// Check ippool status
 	err = testData.waitForCRReadyOrDeleted(defaultTimeout, IPPool, ns, name, Ready)
-	assert_nil(t, err, "Error when waiting for Security Policy %s", name)
+	assert_nil(t, err, "Error when waiting for IPPool %s", name)
 
 	// Check nsx-t resource existing and not existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPool, name, true)
@@ -110,7 +110,7 @@ func TestIPPoolAddDeleteSubnet(t *testing.T) {
 	_ = applyYAML(ippoolPath, ns)
 	// Check ippool status
 	err = testData.waitForCRReadyOrDeleted(defaultTimeout, IPPool, ns, name, Ready)
-	assert_nil(t, err, "Error when waiting for Security Policy %s", name)
+	assert_nil(t, err, "Error when waiting for IPPool %s", name)
 
 	// Check nsx-t resource existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPool, name, true)
@@ -137,7 +137,7 @@ func TestIPPoolSubnetsNil(t *testing.T) {
 
 	// Check ippool status
 	err := testData.waitForCRReadyOrDeleted(defaultTimeout, IPPool, ns, name, Ready)
-	assert_nil(t, err, "Error when waiting for Security Policy %s", name)
+	assert_nil(t, err, "Error when waiting for IPPool %s", name)
 
 	// Check nsx-t resource existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPool, name, true)
