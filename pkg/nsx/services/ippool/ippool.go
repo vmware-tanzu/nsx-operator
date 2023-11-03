@@ -72,7 +72,7 @@ func InitializeIPPool(service common.Service) (*IPPoolService, error) {
 
 func (service *IPPoolService) CreateOrUpdateIPPool(obj *v1alpha2.IPPool) (bool, bool, error) {
 	nsxIPPool, nsxIPSubnets := service.BuildIPPool(obj)
-	if len(nsxIPSubnets) == 0 {
+	if len(obj.Spec.Subnets) != 0 && len(nsxIPSubnets) == 0 {
 		err := util.NoEffectiveOption{Desc: "no valid ip block for ippool"}
 		return false, false, err
 	}
