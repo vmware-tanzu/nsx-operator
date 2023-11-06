@@ -1,0 +1,510 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nsx-operator
+  namespace: vmware-system-nsx
+  labels:
+    component: nsx-operator
+spec:
+  ports:
+    - name: metrics
+      port: 8093
+      targetPort: 8093
+      protocol: TCP
+  selector:
+    component: nsx-operator
+
+---
+
+# Create Namespace for NSX owned resources
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: vmware-system-nsx
+
+
+---
+
+# Create a ServiceAccount for nsx-node-agent
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nsx-operator-svc-account
+  namespace: vmware-system-nsx
+---
+
+# Create ClusterRole for NCP
+kind: ClusterRole
+# Set the apiVersion to rbac.authorization.k8s.io/v1beta1 when k8s < v1.8
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: nsx-operator-cluster-role
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - networking.k8s.io
+      - apps
+    resources:
+      - deployments
+      - endpoints
+      - pods/log
+      - nodes
+      - replicationcontrollers
+
+      # new resource for k8s 1.18
+      - ingressclasses
+
+
+    verbs:
+      - get
+      - watch
+      - list
+
+---
+
+# Create ClusterRole for NCP to edit resources
+kind: ClusterRole
+# Set the apiVersion to rbac.authorization.k8s.io/v1beta1 when k8s < v1.8
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: nsx-operator-patch-role
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - networking.k8s.io
+      - apps
+    resources:
+      # NCP needs to annotate the SNAT errors on namespaces
+      - namespaces
+      - ingresses
+      - services
+      # NCP needs to annotate Pods for multus
+      - pods
+      # NCP needs to annotate Networkpolicies for validation and update errors
+      - networkpolicies
+      # NCP needs to annotate Statefulsets for ip_range
+
+
+    verbs:
+      - get
+      - watch
+      - list
+      - update
+      - patch
+
+  - apiGroups:
+      - ""
+    resources:
+      # NCP in WCP needs to create and update secret for AKO
+      - secrets
+    verbs:
+      - get
+      - watch
+      - list
+      - create
+      - update
+      - patch
+
+      # NSXServiceAccountController requires delete permission for secrets
+      - delete
+  # NCP needs permission to CRUD leases to enable HA mode of nsx-operator
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+      - delete
+
+
+  # NCP needs permission to CRUD custom resource nsxerrors
+  - apiGroups:
+      # The api group is specified in custom resource definition for nsxerrors
+      - nsx.vmware.com
+    resources:
+      - nsxerrors
+
+
+      - clusternetworkinfos
+      - clusternetworkinfos/status
+      - namespacenetworkinfos
+      - namespacenetworkinfos/status
+      - ippools
+      - ippools/status
+      - nsxnetworkconfigurations
+      - nsxnetworkconfigurations/status
+      - routesets
+      - routesets/status
+
+
+      - securitypolicies
+      - securitypolicies/status
+      - nsxserviceaccounts
+      - nsxserviceaccounts/status
+
+      - vpcnetworkconfigurations
+      - vpcnetworkconfigurations/status
+      - vpcs
+      - vpcs/status
+      - subnets
+      - subnets/status
+      - subnetsets
+      - subnetsets/status
+      - subnetports
+      - subnetports/status
+      - ippools
+      - ippools/status
+      - staticroutes
+      - staticroutes/status
+
+
+
+      - nsxlocks
+      - ncpconfigs
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - delete
+      - deletecollection
+      - watch
+
+      - update
+  - apiGroups:
+      - vmoperator.vmware.com
+    resources:
+      - virtualmachines
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+      - extensions
+      - networking.k8s.io
+    resources:
+      - ingresses/status
+      - services/status
+
+    verbs:
+      - replace
+      - update
+      - patch
+
+  - apiGroups:
+      - vmware.com
+    resources:
+      - loadbalancers
+      - loadbalancers/status
+      - nsxlbmonitors
+      - nsxlbmonitors/status
+      - ncpsettings
+
+      - virtualnetworks
+      - virtualnetworks/status
+      - virtualnetworkinterfaces
+      - virtualnetworkinterfaces/status
+
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - delete
+      - watch
+      - update
+
+
+  - apiGroups:
+      - netoperator.vmware.com
+    resources:
+      - aviloadbalancerconfigs
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+
+  # OC4 only needs loadbalancer
+
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+      - delete
+
+
+# NCP needs permission to use psp to patch pods when enabling psp
+
+---
+
+# Bind ServiceAccount created for NCP to its ClusterRole
+kind: ClusterRoleBinding
+# Set the apiVersion to rbac.authorization.k8s.io/v1beta1 when k8s < v1.8
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: nsx-operator-cluster-role-binding
+roleRef:
+
+  # Comment out the apiGroup while using OpenShift
+  apiGroup: rbac.authorization.k8s.io
+
+  kind: ClusterRole
+  name: nsx-operator-cluster-role
+subjects:
+
+  - kind: ServiceAccount
+    name: nsx-operator-svc-account
+    namespace: vmware-system-nsx
+
+---
+
+# Bind ServiceAccount created for NCP to the patch ClusterRole
+kind: ClusterRoleBinding
+# Set the apiVersion to rbac.authorization.k8s.io/v1beta1 when k8s < v1.8
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: nsx-operator-patch-role-binding
+roleRef:
+
+  apiGroup: rbac.authorization.k8s.io
+
+  kind: ClusterRole
+  name: nsx-operator-patch-role
+subjects:
+
+  - kind: ServiceAccount
+    name: nsx-operator-svc-account
+    namespace: vmware-system-nsx
+
+---
+# Create Role for NCP to run exec on pods
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: nsx-operator-exec-role
+  namespace: vmware-system-nsx
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - ""
+    resources:
+      - pods/exec
+    verbs:
+      - get
+      - create
+---
+
+# Bind ServiceAccount created for NCP to the exec Role
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: nsx-operator-exec-role-binding
+  namespace: vmware-system-nsx
+roleRef:
+
+  # Comment out the apiGroup while using OpenShift
+  apiGroup: rbac.authorization.k8s.io
+
+  kind: Role
+  name: nsx-operator-exec-role
+subjects:
+
+  - kind: ServiceAccount
+    name: nsx-operator-svc-account
+    namespace: vmware-system-nsx
+
+---
+
+
+
+---
+# Yaml template for NCP Deployment
+# Proper kubernetes API and NSX API parameters, and NCP Docker image
+# must be specified.
+# This yaml file is part of NCP 4.1.1.0 release.
+
+
+
+
+# ConfigMap for ncp.ini
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nsx-ncp-config
+  namespace: vmware-system-nsx
+  labels:
+    version: v1
+data:
+
+  ncp.ini: |
+
+    [DEFAULT]
+
+    # If set to true, the logging level will be set to DEBUG instead of the
+    # default INFO level.
+    debug = True
+
+    [coe]
+    enable_vpc_network = True
+
+    # Specify cluster for adaptor.
+    cluster = k8scl-one
+
+
+    [ha]
+    enable = False
+
+
+    [k8s]
+
+    # Specify a CA bundle file to use in verifying the k8s API server
+    # certificate.
+    ca_file = /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+
+
+    [nsx_v3]
+
+    # IP address of one or more NSX managers separated by commas. The IP
+    # address should be of the form:
+    # [<scheme>://]<ip_adress>[:<port>]
+    # If scheme is not provided https is used. If port is not provided port 80
+    # is used for http and port 443 for https.
+    nsx_api_managers = nsx_ip
+    nsx_api_user = user
+    insecure = True
+    nsx_api_password = password
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: service
+    app.kubernetes.io/instance: webhook-service
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/created-by: nsx-operator
+    app.kubernetes.io/part-of: nsx-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: subnetset
+  namespace: vmware-system-nsx
+spec:
+  ports:
+    - port: 443
+      protocol: TCP
+      targetPort: 9443
+  selector:
+    component: nsx-operator
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  # VMware NSX Container Plugin
+  name: nsx-operator
+  namespace: vmware-system-nsx
+  labels:
+    tier: nsx-networking
+    component: nsx-operator
+    version: v1
+spec:
+  # Active-Standby is supported from NCP 2.4.0 release,
+  # so replica can be more than 1 if NCP HA is activated.
+  # replica *must be* 1 if NCP HA is deactivated.
+  selector:
+    matchLabels:
+      tier: nsx-networking
+      component: nsx-operator
+      version: v1
+
+  replicas: 1
+
+  template:
+    metadata:
+      labels:
+        tier: nsx-networking
+        component: nsx-operator
+        version: v1
+
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+
+    spec:
+      # NCP shares the host management network.
+      hostNetwork: true
+
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/control-plane
+          effect: NoSchedule
+
+      # If configured with ServiceAccount, update the ServiceAccount
+      # name below.
+      serviceAccountName: nsx-operator-svc-account
+      containers:
+        - name: nsx-operator
+          image: nsx-operator
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9443
+              name: webhook-server
+              protocol: TCP
+          volumeMounts:
+            - name: projected-volume
+              mountPath: /etc/nsx-ujo
+              readOnly: true
+            - mountPath: /tmp/k8s-webhook-server/serving-certs
+              name: cert
+              readOnly: true
+          command: ["/usr/local/bin/manager", "-nsxconfig", "/etc/nsx-ujo/ncp.ini", "-health-probe-bind-address", ":8384"]
+          env:
+            - name: NSX_OPERATOR_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8384
+            initialDelaySeconds: 5
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 5
+      volumes:
+        - name: projected-volume
+          projected:
+            sources:
+              # ConfigMap nsx-ncp-config is expected to supply ncp.ini
+              - configMap:
+                  name: nsx-ncp-config
+                  items:
+                    - key: ncp.ini
+                      path: ncp.ini
+        - name: cert
+          secret:
+            defaultMode: 420
+            secretName: webhook-server-cert
+---

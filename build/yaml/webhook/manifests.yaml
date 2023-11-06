@@ -1,0 +1,31 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  creationTimestamp: null
+  name: validating-webhook-configuration
+  annotations:
+    cert-manager.io/inject-ca-from: vmware-system-nsx/nsx-operator-webhook-cert
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: subnetset
+      namespace: vmware-system-nsx
+      # kubebuilder webhookpath.
+      path: /validate-nsx-vmware-com-v1alpha1-subnetset
+  failurePolicy: Fail
+  name: vsubnetset.kb.io
+  rules:
+  - apiGroups:
+    - nsx.vmware.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    - DELETE
+    resources:
+    - subnetsets
+  sideEffects: None

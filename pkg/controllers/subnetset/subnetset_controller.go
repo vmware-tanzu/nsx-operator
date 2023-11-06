@@ -8,14 +8,6 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
-	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
-	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
-	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -24,6 +16,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
+	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 )
 
 var (
@@ -312,6 +314,11 @@ func (r *SubnetSetReconciler) Start(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
+	hookServer := mgr.GetWebhookServer()
+	hookServer.Register("/validate-nsx-vmware-com-v1alpha1-subnetset",
+		&webhook.Admission{
+			Handler: &SubnetSetValidator{Client: mgr.GetClient()},
+		})
 	go r.GarbageCollector(make(chan bool), servicecommon.GCInterval)
 	return nil
 }
