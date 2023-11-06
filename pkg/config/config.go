@@ -25,12 +25,16 @@ const (
 	// LicenseInterval is the timeout for checking license status
 	LicenseInterval = 86400
 	// LicenseIntervalForDFW is the timeout for checking license status while no DFW license enabled
-	LicenseIntervalForDFW = 1800
+	LicenseIntervalForDFW  = 1800
+	defaultWebhookPort     = 9981
+	defaultWebhookCertPath = "/tmp/k8s-webhook-server/serving-certs"
 )
 
 var (
 	LogLevel               int
 	ProbeAddr, MetricsAddr string
+	WebhookServerPort      int
+	WebhookCertDir         string
 	configFilePath         = ""
 	configLog              *zap.SugaredLogger
 	tokenProvider          auth.TokenProvider
@@ -148,6 +152,8 @@ func AddFlags() {
 	flag.StringVar(&ProbeAddr, "health-probe-bind-address", ":8384", "The address the probe endpoint binds to.")
 	flag.StringVar(&MetricsAddr, "metrics-bind-address", ":8093", "The address the metrics endpoint binds to.")
 	flag.IntVar(&LogLevel, "log-level", 0, "Use zap-core log system.")
+	flag.IntVar(&WebhookServerPort, "webhook-server-port", defaultWebhookPort, "Port number to expose the controller webhook server")
+	flag.StringVar(&WebhookCertDir, "webhook-cert-dir", defaultWebhookCertPath, "Directory for certificate for webhook server")
 	flag.Parse()
 }
 

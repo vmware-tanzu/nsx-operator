@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"time"
 
@@ -219,7 +220,12 @@ func main() {
 		if err := subnet.StartSubnetController(mgr, subnetService, subnetPortService, vpcService); err != nil {
 			os.Exit(1)
 		}
-		if err := subnetset.StartSubnetSetController(mgr, subnetService, subnetPortService, vpcService); err != nil {
+		enableWebhook := true
+		if _, err := os.Stat(config.WebhookCertDir); errors.Is(err, os.ErrNotExist) {
+			log.Error(err, "server cert not found, disabling webhook server", "cert", config.WebhookCertDir)
+			enableWebhook = false
+		}
+		if err := subnetset.StartSubnetSetController(mgr, subnetService, subnetPortService, vpcService, enableWebhook); err != nil {
 			os.Exit(1)
 		}
 

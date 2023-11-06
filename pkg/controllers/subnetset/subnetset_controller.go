@@ -17,8 +17,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
@@ -300,7 +302,9 @@ func (r *SubnetSetReconciler) DeleteSubnetForSubnetSet(obj v1alpha1.SubnetSet, u
 	return nil
 }
 
-func StartSubnetSetController(mgr ctrl.Manager, subnetService *subnet.SubnetService, subnetPortService servicecommon.SubnetPortServiceProvider, vpcService servicecommon.VPCServiceProvider) error {
+func StartSubnetSetController(mgr ctrl.Manager, subnetService *subnet.SubnetService,
+	subnetPortService servicecommon.SubnetPortServiceProvider, vpcService servicecommon.VPCServiceProvider,
+	enableWebhook bool) error {
 	subnetsetReconciler := &SubnetSetReconciler{
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
@@ -308,7 +312,7 @@ func StartSubnetSetController(mgr ctrl.Manager, subnetService *subnet.SubnetServ
 		SubnetPortService: subnetPortService,
 		VPCService:        vpcService,
 	}
-	if err := subnetsetReconciler.Start(mgr); err != nil {
+	if err := subnetsetReconciler.Start(mgr, enableWebhook); err != nil {
 		log.Error(err, "failed to create controller", "controller", "Subnet")
 		return err
 	}
@@ -316,10 +320,23 @@ func StartSubnetSetController(mgr ctrl.Manager, subnetService *subnet.SubnetServ
 }
 
 // Start setup manager
-func (r *SubnetSetReconciler) Start(mgr ctrl.Manager) error {
+func (r *SubnetSetReconciler) Start(mgr ctrl.Manager, enableWebhook bool) error {
 	err := r.setupWithManager(mgr)
 	if err != nil {
 		return err
+	}
+	if enableWebhook {
+		hookServer := webhook.NewServer(webhook.Options{
+			Port:    config.WebhookServerPort,
+			CertDir: config.WebhookCertDir,
+		})
+		if err := mgr.Add(hookServer); err != nil {
+			return err
+		}
+		hookServer.Register("/validate-nsx-vmware-com-v1alpha1-subnetset",
+			&webhook.Admission{
+				Handler: &SubnetSetValidator{Client: mgr.GetClient()},
+			})
 	}
 	go r.GarbageCollector(make(chan bool), servicecommon.GCInterval)
 	return nil
