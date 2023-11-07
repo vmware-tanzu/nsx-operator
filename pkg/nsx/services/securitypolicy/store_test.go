@@ -19,7 +19,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
-func Test_IndexFunc(t *testing.T) {
+func Test_indexBySecurityPolicyCRUID(t *testing.T) {
 	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_uid"
 	m := &model.Group{
 		Id:   &mId,
@@ -34,48 +34,46 @@ func Test_IndexFunc(t *testing.T) {
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
 	}
 	t.Run("1", func(t *testing.T) {
-		got, _ := indexFunc(s)
+		got, _ := indexBySecurityPolicyCRUID(s)
 		if !reflect.DeepEqual(got, []string{"11111"}) {
-			t.Errorf("securityPolicyCRUIDScopeIndexFunc() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
+			t.Errorf("indexBySecurityPolicyCRUID() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
 		}
 	})
 	t.Run("2", func(t *testing.T) {
-		got, _ := indexFunc(m)
+		got, _ := indexBySecurityPolicyCRUID(m)
 		if !reflect.DeepEqual(got, []string{"11111"}) {
-			t.Errorf("securityPolicyCRUIDScopeIndexFunc() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
+			t.Errorf("indexBySecurityPolicyCRUID() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
 		}
 	})
 	t.Run("3", func(t *testing.T) {
-		got, _ := indexFunc(r)
+		got, _ := indexBySecurityPolicyCRUID(r)
 		if !reflect.DeepEqual(got, []string{"11111"}) {
-			t.Errorf("securityPolicyCRUIDScopeIndexFunc() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
+			t.Errorf("indexBySecurityPolicyCRUID() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
 		}
 	})
 }
 
 func Test_filterTag(t *testing.T) {
-	mTag, mScope := "11111", "nsx-op/security_policy_uid"
-	mTag2, mScope2 := "11111", "nsx"
-	tags := []model.Tag{{Scope: &mScope, Tag: &mTag}}
-	tags2 := []model.Tag{{Scope: &mScope2, Tag: &mTag2}}
-	var res []string
-	var res2 []string
+	tagScope := common.TagScopeSecurityPolicyCRUID
+	tags1 := []model.Tag{{Tag: common.String("sp-uid"), Scope: common.String(common.TagScopeSecurityPolicyCRUID)}}
+	tags2 := []model.Tag{{Tag: common.String("cluster-id"), Scope: common.String("cluster")}}
+	var emptyRes []string
 	type args struct {
-		v   []model.Tag
-		res []string
+		tags     []model.Tag
+		tagScope string
 	}
 	tests := []struct {
 		name string
 		args args
 		want []string
 	}{
-		{"1", args{v: tags, res: res}, []string{"11111"}},
-		{"1", args{v: tags2, res: res2}, []string{}},
+		{"hit", args{tags: tags1, tagScope: tagScope}, []string{"sp-uid"}},
+		{"not-hit", args{tags: tags2, tagScope: tagScope}, emptyRes},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := filterTag(tt.args.v); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("filterTag() = %v, want %v", got, tt.want)
+			if got := filterTag(tt.args.tags, tt.args.tagScope); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("%s failed: filterTag() = %v, want %v", tt.name, got, tt.want)
 			}
 		})
 	}
@@ -129,7 +127,7 @@ func Test_InitializeRuleStore(t *testing.T) {
 			},
 		},
 	}
-	ruleCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
+	ruleCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexBySecurityPolicyCRUID})
 	ruleStore := &RuleStore{ResourceStore: common.ResourceStore{
 		Indexer:     ruleCacheIndexer,
 		BindingType: model.RuleBindingType(),
@@ -180,7 +178,7 @@ func Test_InitializeGroupStore(t *testing.T) {
 			},
 		},
 	}
-	groupCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
+	groupCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexBySecurityPolicyCRUID})
 	groupStore := &GroupStore{ResourceStore: common.ResourceStore{
 		Indexer:     groupCacheIndexer,
 		BindingType: model.GroupBindingType(),
@@ -231,7 +229,7 @@ func Test_InitializeSecurityPolicyStore(t *testing.T) {
 			},
 		},
 	}
-	securityPolicyCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
+	securityPolicyCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexBySecurityPolicyCRUID})
 	securityPolicyStore := &SecurityPolicyStore{ResourceStore: common.ResourceStore{
 		Indexer:     securityPolicyCacheIndexer,
 		BindingType: model.SecurityPolicyBindingType(),
@@ -260,7 +258,7 @@ func Test_InitializeSecurityPolicyStore(t *testing.T) {
 }
 
 func TestSecurityPolicyStore_Apply(t *testing.T) {
-	securityPolicyCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
+	securityPolicyCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexBySecurityPolicyCRUID})
 	resourceStore := common.ResourceStore{
 		Indexer:     securityPolicyCacheIndexer,
 		BindingType: model.SecurityPolicyBindingType(),
@@ -284,7 +282,7 @@ func TestSecurityPolicyStore_Apply(t *testing.T) {
 }
 
 func TestRuleStore_Apply(t *testing.T) {
-	ruleCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
+	ruleCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexBySecurityPolicyCRUID})
 	resourceStore := common.ResourceStore{
 		Indexer:     ruleCacheIndexer,
 		BindingType: model.RuleBindingType(),
@@ -340,7 +338,7 @@ func TestRuleStore_Apply(t *testing.T) {
 }
 
 func TestGroupStore_Apply(t *testing.T) {
-	groupCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
+	groupCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexBySecurityPolicyCRUID})
 	resourceStore := common.ResourceStore{
 		Indexer:     groupCacheIndexer,
 		BindingType: model.GroupBindingType(),

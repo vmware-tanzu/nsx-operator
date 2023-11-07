@@ -283,19 +283,19 @@ func TestListSecurityPolicyID(t *testing.T) {
 		Service: common.Service{NSXClient: nil},
 	}
 	service.securityPolicyStore = &SecurityPolicyStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc}),
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexBySecurityPolicyCRUID}),
 		BindingType: model.SecurityPolicyBindingType(),
 	}}
 	service.groupStore = &GroupStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc}),
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexBySecurityPolicyCRUID}),
 		BindingType: model.GroupBindingType(),
 	}}
 	service.ruleStore = &RuleStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc}),
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexBySecurityPolicyCRUID}),
 		BindingType: model.RuleBindingType(),
 	}}
 	service.shareStore = &ShareStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc}),
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexBySecurityPolicyCRUID}),
 		BindingType: model.ShareBindingType(),
 	}}
 

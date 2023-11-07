@@ -22,6 +22,7 @@ import (
 	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	ippool2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/ippool"
 	namespacecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/namespace"
+	networkpolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/networkpolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/node"
 	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/pod"
@@ -37,7 +38,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ippool"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	subnetservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
@@ -76,23 +76,6 @@ func init() {
 
 	if metrics.AreMetricsExposed(cf) {
 		metrics.InitializePrometheusMetrics()
-	}
-}
-
-func StartSecurityPolicyController(mgr ctrl.Manager, commonService common.Service) {
-	securityReconcile := &securitypolicycontroller.SecurityPolicyReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}
-	securityService, err := securitypolicy.InitializeSecurityPolicy(commonService)
-	if err != nil {
-		log.Error(err, "failed to initialize securitypolicy commonService", "controller", "SecurityPolicy")
-		os.Exit(1)
-	}
-	securityReconcile.Service = securityService
-	if err := securityReconcile.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "SecurityPolicy")
-		os.Exit(1)
 	}
 }
 
@@ -219,10 +202,10 @@ func main() {
 		subnetport.StartSubnetPortController(mgr, commonService)
 		pod.StartPodController(mgr, commonService)
 		StartIPPoolController(mgr, commonService)
+		networkpolicycontroller.StartNetworkPolicyController(mgr, commonService)
 	}
 
-	// Start the security policy controller.
-	StartSecurityPolicyController(mgr, commonService)
+	securitypolicycontroller.StartSecurityPolicyController(mgr, commonService)
 
 	// Start the NSXServiceAccount controller.
 	if cf.EnableAntreaNSXInterworking {

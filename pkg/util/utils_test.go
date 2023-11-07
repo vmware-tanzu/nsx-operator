@@ -6,6 +6,8 @@ package util
 import (
 	"context"
 	"fmt"
+	"net"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -441,6 +443,17 @@ func TestGenerateTruncName(t *testing.T) {
 			want: "sp-1234-456",
 		},
 		{
+			name: "test-only-name",
+			args: args{
+				limit:    255,
+				res_name: "1234-456",
+				prefix:   "",
+				suffix:   "",
+				project:  "",
+			},
+			want: "1234-456",
+		},
+		{
 			name: "test-suffix",
 			args: args{
 				limit:    255,
@@ -491,6 +504,137 @@ func TestGenerateTruncName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := GenerateTruncName(tt.args.limit, tt.args.res_name, tt.args.prefix, tt.args.suffix, tt.args.project, tt.args.cluster); got != tt.want {
 				t.Errorf("GenerateTruncName() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_rangesAbstractRange(t *testing.T) {
+	ranges1 := [][]net.IP{
+		{
+			net.ParseIP("172.0.0.1"),
+			net.ParseIP("172.0.255.255"),
+		},
+		{
+			net.ParseIP("172.2.0.1"),
+			net.ParseIP("172.2.255.255"),
+		},
+	}
+	except1 := []net.IP{
+		net.ParseIP("172.0.100.1"),
+		net.ParseIP("172.0.100.255"),
+	}
+	want1 := [][]net.IP{
+		{
+			net.ParseIP("172.0.0.1").To4(),
+			net.ParseIP("172.0.100.0").To4(),
+		},
+		{
+			net.ParseIP("172.0.101.0").To4(),
+			net.ParseIP("172.0.255.255").To4(),
+		},
+		{
+			net.ParseIP("172.2.0.1").To4(),
+			net.ParseIP("172.2.255.255").To4(),
+		},
+	}
+	ranges2 := [][]net.IP{
+		{
+			net.ParseIP("172.0.0.1"),
+			net.ParseIP("172.0.255.255"),
+		},
+		{
+			net.ParseIP("172.2.0.1"),
+			net.ParseIP("172.2.255.255"),
+		},
+	}
+	except2 := []net.IP{
+		net.ParseIP("172.0.100.1"),
+		net.ParseIP("172.2.100.255"),
+	}
+	want2 := [][]net.IP{
+		{
+			net.ParseIP("172.0.0.1").To4(),
+			net.ParseIP("172.0.100.0").To4(),
+		},
+		{
+			net.ParseIP("172.2.101.0").To4(),
+			net.ParseIP("172.2.255.255").To4(),
+		},
+	}
+	type args struct {
+		ranges [][]net.IP
+		except []net.IP
+	}
+	tests := []struct {
+		name string
+		args args
+		want [][]net.IP
+	}{
+		{"1", args{ranges1, except1}, want1},
+		{"2", args{ranges2, except2}, want2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := rangesAbstractRange(tt.args.ranges, tt.args.except)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("%s failed: rangesAbstractRange got %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetCIDRRangesWithExcept(t *testing.T) {
+	cidr1 := "172.17.0.0/16"
+	excepts1 := []string{"172.17.1.0/24"}
+	want1 := []string{"172.17.0.0-172.17.0.255", "172.17.2.0-172.17.255.255"}
+	cidr2 := "172.0.0.0/16"
+	excepts2 := []string{"172.0.100.0/24", "172.0.102.0/24"}
+	want2 := []string{"172.0.0.0-172.0.99.255", "172.0.101.0-172.0.101.255", "172.0.103.0-172.0.255.255"}
+	type args struct {
+		cidr    string
+		excepts []string
+	}
+	tests := []struct {
+		name string
+		args args
+		want []string
+	}{
+		{"1", args{cidr1, excepts1}, want1},
+		{"2", args{cidr2, excepts2}, want2},
+	}
+	for _, tt := range tests {
+		got, err := GetCIDRRangesWithExcept(tt.args.cidr, tt.args.excepts)
+		if err != nil {
+			t.Errorf("%s failed: %s", tt.name, err)
+		}
+		if !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("%s failed: GetCIDRRangesWithExcept got %s, want %s", tt.name, got, tt.want)
+		}
+	}
+}
+
+func Test_calculateOffsetIP(t *testing.T) {
+	ip := net.ParseIP("192.168.0.1")
+	offset1 := 1
+	want1 := net.ParseIP("192.168.0.2").To4()
+	type args struct {
+		ip     net.IP
+		offset int
+	}
+	tests := []struct {
+		name string
+		args args
+		want net.IP
+	}{{"1", args{ip, offset1}, want1}}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := calculateOffsetIP(tt.args.ip, tt.args.offset)
+			if err != nil {
+				t.Errorf("%s failed: %s", tt.name, err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("%s failed: calculateOffsetIP got %v, want %v", tt.name, got, tt.want)
 			}
 		})
 	}

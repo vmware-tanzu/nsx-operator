@@ -11,8 +11,10 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 func TestBuildSecurityPolicy(t *testing.T) {
@@ -30,11 +32,11 @@ func TestBuildSecurityPolicy(t *testing.T) {
 		},
 	)
 
-	podSelectorRule0IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[0], 0), 0, 0)
-	podSelectorRule1IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[1], 1), 0, 0)
-	vmSelectorRule0IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithVMSelector, &spWithVMSelector.Spec.Rules[0], 0), 0, 0)
-	vmSelectorRule1IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithVMSelector, &spWithVMSelector.Spec.Rules[1], 1), 0, 0)
-	vmSelectorRule2IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithVMSelector, &spWithVMSelector.Spec.Rules[2], 2), 0, 0)
+	podSelectorRule0IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[0], 0, common.ResourceTypeSecurityPolicy), 0, 0)
+	podSelectorRule1IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[1], 1, common.ResourceTypeSecurityPolicy), 0, 0)
+	vmSelectorRule0IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithVMSelector, &spWithVMSelector.Spec.Rules[0], 0, common.ResourceTypeSecurityPolicy), 0, 0)
+	vmSelectorRule1IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithVMSelector, &spWithVMSelector.Spec.Rules[1], 1, common.ResourceTypeSecurityPolicy), 0, 0)
+	vmSelectorRule2IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithVMSelector, &spWithVMSelector.Spec.Rules[2], 2, common.ResourceTypeSecurityPolicy), 0, 0)
 
 	tests := []struct {
 		name           string
@@ -140,7 +142,7 @@ func TestBuildSecurityPolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observedPolicy, _, _, _ := service.buildSecurityPolicy(tt.inputPolicy)
+			observedPolicy, _, _, _ := service.buildSecurityPolicy(tt.inputPolicy, common.ResourceTypeSecurityPolicy)
 			assert.Equal(t, tt.expectedPolicy, observedPolicy)
 		})
 	}
@@ -170,7 +172,7 @@ func TestBuildPolicyGroup(t *testing.T) {
 	defer patches.Reset()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observedGroup, observedGroupPath, _ := service.buildPolicyGroup(tt.inputPolicy)
+			observedGroup, observedGroupPath, _ := service.buildPolicyGroup(tt.inputPolicy, common.ResourceTypeSecurityPolicy)
 			assert.Equal(t, tt.expectedPolicyGroupID, observedGroup.Id)
 			assert.Equal(t, tt.expectedPolicyGroupName, observedGroup.DisplayName)
 			assert.Equal(t, tt.expectedPolicyGroupPath, observedGroupPath)
@@ -179,7 +181,7 @@ func TestBuildPolicyGroup(t *testing.T) {
 }
 
 func TestBuildTargetTags(t *testing.T) {
-	ruleTagID0 := service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[0], 0)
+	ruleTagID0 := service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[0], 0, common.ResourceTypeSecurityPolicy)
 	tests := []struct {
 		name         string
 		inputPolicy  *v1alpha1.SecurityPolicy
@@ -256,13 +258,13 @@ func TestBuildTargetTags(t *testing.T) {
 	defer patches.Reset()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.ElementsMatch(t, tt.expectedTags, service.buildTargetTags(tt.inputPolicy, tt.inputTargets, &tt.inputPolicy.Spec.Rules[0], tt.inputIndex))
+			assert.ElementsMatch(t, tt.expectedTags, service.buildTargetTags(tt.inputPolicy, tt.inputTargets, &tt.inputPolicy.Spec.Rules[0], tt.inputIndex, common.ResourceTypeSecurityPolicy))
 		})
 	}
 }
 
 func TestBuildPeerTags(t *testing.T) {
-	ruleTagID0 := service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[0], 0)
+	ruleTagID0 := service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[0], 0, common.ResourceTypeSecurityPolicy)
 	tests := []struct {
 		name         string
 		inputPolicy  *v1alpha1.SecurityPolicy
@@ -321,7 +323,7 @@ func TestBuildPeerTags(t *testing.T) {
 	defer patches.Reset()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.ElementsMatch(t, tt.expectedTags, service.buildPeerTags(tt.inputPolicy, &tt.inputPolicy.Spec.Rules[0], tt.inputIndex, true, false))
+			assert.ElementsMatch(t, tt.expectedTags, service.buildPeerTags(tt.inputPolicy, &tt.inputPolicy.Spec.Rules[0], tt.inputIndex, true, false, common.ResourceTypeSecurityPolicy))
 		})
 	}
 }
@@ -647,4 +649,126 @@ func TestUpdateMixedExpressionsMatchExpression(t *testing.T) {
 	err = service.updateMixedExpressionsMatchExpression(nsMergedMatchExpressions, nsMatchLabels,
 		matchExpressions, matchLabels, &group.Expression, nil, nil, expressions)
 	assert.NotEqual(t, nil, err)
+}
+
+var securityPolicyWithMultipleNormalPorts = v1alpha1.SecurityPolicy{
+	ObjectMeta: v1.ObjectMeta{
+		Namespace: "null",
+		Name:      "null",
+	},
+	Spec: v1alpha1.SecurityPolicySpec{
+		Rules: []v1alpha1.SecurityPolicyRule{
+			{
+				Name: "TCP.80-UDP.1234.1235-ingress-allow",
+				Ports: []v1alpha1.SecurityPolicyPort{
+					{
+						Protocol: "TCP",
+						Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 80},
+					},
+					{
+						Protocol: "UDP",
+						Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 1234},
+						EndPort:  1235,
+					},
+				},
+			},
+		},
+	},
+}
+
+var securityPolicyWithOneNamedPort = v1alpha1.SecurityPolicy{
+	ObjectMeta: v1.ObjectMeta{
+		Namespace: "null",
+		Name:      "null",
+	},
+	Spec: v1alpha1.SecurityPolicySpec{
+		Rules: []v1alpha1.SecurityPolicyRule{
+			{
+				Name: "TCP.http-UDP.1234.1235-ingress-allow",
+				Ports: []v1alpha1.SecurityPolicyPort{
+					{
+						Protocol: "TCP",
+						Port:     intstr.IntOrString{Type: intstr.String, StrVal: "http"},
+					},
+					{
+						Protocol: "UDP",
+						Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 1234},
+						EndPort:  1235,
+					},
+				},
+			},
+		},
+	},
+}
+
+func TestBuildRulePortsString(t *testing.T) {
+	tests := []struct {
+		name                    string
+		inputPorts              *[]v1alpha1.SecurityPolicyPort
+		direction               string
+		expectedRulePortsString string
+	}{
+		{
+			name:                    "build-string-for-multiple-ports-without-named-port",
+			inputPorts:              &securityPolicyWithMultipleNormalPorts.Spec.Rules[0].Ports,
+			direction:               "ingress",
+			expectedRulePortsString: "TCP.80-UDP.1234.1235-ingress-allow",
+		},
+		{
+			name:                    "build-string-for-multiple-ports-without-one-named-port",
+			inputPorts:              &securityPolicyWithOneNamedPort.Spec.Rules[0].Ports,
+			direction:               "ingress",
+			expectedRulePortsString: "TCP.http-UDP.1234.1235-ingress-allow",
+		},
+		{
+			name:                    "build-string-for-nil-ports",
+			inputPorts:              nil,
+			direction:               "ingress",
+			expectedRulePortsString: "all-ingress-allow",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			observedString := service.buildRulePortsString(tt.inputPorts, tt.direction)
+			assert.Equal(t, tt.expectedRulePortsString, observedString)
+		})
+	}
+}
+
+func TestBuildRuleDisplayName(t *testing.T) {
+	tests := []struct {
+		name                    string
+		inputSecurityPolicy     *v1alpha1.SecurityPolicy
+		inputRule               *v1alpha1.SecurityPolicyRule
+		ruleIdx                 int
+		portIdx                 int
+		createdFor              string
+		expectedRuleDisplayName string
+	}{
+		{
+			name:                    "build-display-name-for-multiple-ports-0",
+			inputSecurityPolicy:     &securityPolicyWithMultipleNormalPorts,
+			inputRule:               &securityPolicyWithMultipleNormalPorts.Spec.Rules[0],
+			ruleIdx:                 0,
+			portIdx:                 0,
+			createdFor:              common.ResourceTypeNetworkPolicy,
+			expectedRuleDisplayName: "TCP.80-UDP.1234.1235.TCP.80-ingress-allow",
+		},
+		{
+			name:                    "build-display-name-for-multiple-ports-1",
+			inputSecurityPolicy:     &securityPolicyWithOneNamedPort,
+			inputRule:               &securityPolicyWithMultipleNormalPorts.Spec.Rules[0],
+			ruleIdx:                 0,
+			portIdx:                 1,
+			createdFor:              common.ResourceTypeNetworkPolicy,
+			expectedRuleDisplayName: "TCP.80-UDP.1234.1235.UDP.1234.1235-ingress-allow",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			observedDisplayName, observedError := service.buildRuleDisplayName(tt.inputSecurityPolicy, tt.inputRule, tt.ruleIdx, tt.portIdx, 0, tt.createdFor)
+			assert.Equal(t, tt.expectedRuleDisplayName, observedDisplayName)
+			assert.Equal(t, nil, observedError)
+		})
+	}
 }
