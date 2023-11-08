@@ -124,6 +124,17 @@ func (r *IPPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// TODO: Xiaopei's suggestions: is there possibility that IPPool was deleted from nsx store but NSX block subnet was not deleted?
 
+	if obj.Spec.Type == "" {
+		vpcNetworkConfig := common.ServiceMediator.GetVPCNetworkConfigByNamespace(obj.Namespace)
+		if vpcNetworkConfig == nil {
+			err := fmt.Errorf("operate failed: cannot get configuration for IPPool CR")
+			log.Error(err, "failed to find VPCNetworkConfig for IPPool CR", "ippool", req.NamespacedName, "namespace %s", obj.Namespace)
+			updateFail(r, &ctx, obj, &err)
+			return resultRequeue, err
+		}
+		obj.Spec.Type = vpcNetworkConfig.DefaultSubnetAccessMode
+	}
+
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResType)
 		if !controllerutil.ContainsFinalizer(obj, servicecommon.IPPoolFinalizerName) {
@@ -134,17 +145,6 @@ func (r *IPPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				return resultRequeue, err
 			}
 			log.V(1).Info("added finalizer on ippool CR", "ippool", req.NamespacedName)
-		}
-
-		if obj.Spec.Type == "" {
-			vpcNetworkConfig := common.ServiceMediator.GetVPCNetworkConfigByNamespace(obj.Namespace)
-			if vpcNetworkConfig == nil {
-				err := fmt.Errorf("operate failed: cannot get configuration for IPPool CR")
-				log.Error(err, "failed to find VPCNetworkConfig for IPPool CR", "ippool", req.NamespacedName, "namespace %s", obj.Namespace)
-				updateFail(r, &ctx, obj, &err)
-				return resultRequeue, err
-			}
-			obj.Spec.Type = vpcNetworkConfig.DefaultSubnetAccessMode
 		}
 
 		subnetCidrUpdated, ipPoolSubnetsUpdated, err := r.Service.CreateOrUpdateIPPool(obj)
