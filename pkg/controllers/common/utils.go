@@ -106,3 +106,4 @@ func NodeIsMaster(node *v1.Node) bool {
 	}
 	return false
 }
+
