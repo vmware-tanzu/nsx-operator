@@ -62,6 +62,11 @@ func main() {
 	cf.Cluster = cluster
 	logf.SetLogger(logger.ZapLogger(cf))
 
+	// the error roughly are:
+	// 1. failed to validate config
+	// 2. failed to get nsx client
+	// 3. failed to initialize cleanup service
+	// 4. failed to clean up specific resource
 	err := clean.Clean(cf)
 	if err != nil {
 		log.Error(err, "failed to clean nsx resources")

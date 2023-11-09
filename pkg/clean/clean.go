@@ -6,6 +6,8 @@ package clean
 import (
 	"fmt"
 
+	"k8s.io/client-go/util/retry"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -31,13 +33,24 @@ func Clean(cf *config.NSXOperatorConfig) error {
 		return fmt.Errorf("failed to validate config: %w", err)
 	}
 	if cleanupService, err := InitializeCleanupService(cf); err != nil {
-		return fmt.Errorf("failed to initialize cleanup service: %w", err)
+		return err // failed to get nsx client
 	} else if cleanupService.err != nil {
 		return fmt.Errorf("failed to initialize cleanup service: %w", cleanupService.err)
 	} else {
 		for _, clean := range cleanupService.cleans {
-			if err := clean.Cleanup(); err != nil {
-				return fmt.Errorf("failed to clean up: %w", err)
+			if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+				if err != nil {
+					log.Info("retrying to clean up NSX resources", "error", err)
+					return true
+				}
+				return false
+			}, func() error {
+				if err := clean.Cleanup(); err != nil {
+					return fmt.Errorf("failed to clean up specific resource: %w", err)
+				}
+				return nil
+			}); err != nil {
+				return err
 			}
 		}
 	}
