@@ -104,6 +104,12 @@ func main() {
 	} else {
 		err = clean.Clean(cf, nil)
 	}
+	// the error roughly are:
+	// 1. failed to validate config
+	// 2. failed to get nsx client
+	// 3. failed to initialize cleanup service
+	// 4. failed to clean up specific resource
+	err = clean.Clean(cf, nil)
 	if err != nil {
 		log.Error(err, "failed to clean nsx resources")
 		os.Exit(1)
