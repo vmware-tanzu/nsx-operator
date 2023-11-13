@@ -7,13 +7,14 @@ import (
 	"reflect"
 	"strings"
 
+	v1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
-	v1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func setVPCReadyStatusFalse(ctx *context.Context, vpc *v1alpha1.VPC, err *error, client client.Client) {
@@ -125,7 +126,7 @@ func nsxtProjectPathToId(path string) (string, string, error) {
 func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*vpc.VPCNetworkConfigInfo, error) {
 	org, project, err := nsxtProjectPathToId(vpcConfigCR.Spec.NSXTProject)
 	if err != nil {
-		log.Error(err, "failed to parse nsx-t project in network config", vpcConfigCR.Spec.NSXTProject)
+		log.Error(err, "failed to parse nsx-t project in network config", "Project Path", vpcConfigCR.Spec.NSXTProject)
 		return nil, err
 	}
 	ninfo := &vpc.VPCNetworkConfigInfo{
