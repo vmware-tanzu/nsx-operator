@@ -7,7 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"k8s.io/client-go/rest"
 	"reflect"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"testing"
 	"time"
 
@@ -298,7 +300,7 @@ func TestSecurityPolicyReconciler_Start(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	service := &securitypolicy.SecurityPolicyService{}
-	var mgr controllerruntime.Manager
+	mgr, _ := controllerruntime.NewManager(&rest.Config{}, manager.Options{})
 	r := &SecurityPolicyReconciler{
 		Client:  k8sClient,
 		Scheme:  nil,

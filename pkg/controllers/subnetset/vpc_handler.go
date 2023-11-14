@@ -29,7 +29,7 @@ type VPCHandler struct {
 	Client client.Client
 }
 
-func (h *VPCHandler) Create(e event.CreateEvent, _ workqueue.RateLimitingInterface) {
+func (h *VPCHandler) Create(_ context.Context, e event.CreateEvent, _ workqueue.RateLimitingInterface) {
 	ns := e.Object.GetNamespace()
 	log.Info("creating default Subnetset for VPC", "Namespace", ns, "Name", e.Object.GetName())
 	for name, subnetSetType := range defaultSubnetSets {
@@ -75,7 +75,7 @@ func (h *VPCHandler) Create(e event.CreateEvent, _ workqueue.RateLimitingInterfa
 	}
 }
 
-func (h *VPCHandler) Delete(e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
+func (h *VPCHandler) Delete(_ context.Context, e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
 	log.Info("cleaning default Subnetset for VPC", "Name", e.Object.GetName())
 	for _, subnetSetType := range defaultSubnetSets {
 		if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
@@ -96,11 +96,11 @@ func (h *VPCHandler) Delete(e event.DeleteEvent, _ workqueue.RateLimitingInterfa
 	}
 }
 
-func (h *VPCHandler) Generic(_ event.GenericEvent, _ workqueue.RateLimitingInterface) {
+func (h *VPCHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
 	log.V(4).Info("VPC generic event, do nothing")
 }
 
-func (h *VPCHandler) Update(_ event.UpdateEvent, _ workqueue.RateLimitingInterface) {
+func (h *VPCHandler) Update(_ context.Context, _ event.UpdateEvent, _ workqueue.RateLimitingInterface) {
 	log.V(4).Info("VPC update event, do nothing")
 }
 
