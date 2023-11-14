@@ -25,6 +25,10 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -32,12 +36,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
-
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
-	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 )
 
 var (
@@ -158,13 +156,13 @@ func (r *SubnetPortReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			controller.Options{
 				MaxConcurrentReconciles: runtime.NumCPU(),
 			}).
-		Watches(&source.Kind{Type: &vmv1alpha1.VirtualMachine{}},
+		Watches(&vmv1alpha1.VirtualMachine{},
 				handler.EnqueueRequestsFromMapFunc(r.vmMapFunc),
 				builder.WithPredicates(predicate.LabelChangedPredicate{})).
 		Complete(r) // TODO: watch the virtualmachine event and update the labels on NSX subnet port.
 }
 
-func (r *SubnetPortReconciler) vmMapFunc(vm client.Object) []reconcile.Request {
+func (r *SubnetPortReconciler) vmMapFunc(_ context.Context, vm client.Object) []reconcile.Request {
 	subnetPortList := &v1alpha1.SubnetPortList{}
 	var requests []reconcile.Request
 	err := retry.OnError(retry.DefaultRetry, func(err error) bool {

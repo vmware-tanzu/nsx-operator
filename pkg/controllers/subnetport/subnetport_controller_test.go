@@ -101,7 +101,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 	defer patchesGetLabelsFromVirtualMachine.Reset()
 	patchesVmMapFunc := gomonkey.ApplyFunc((*SubnetPortReconciler).vmMapFunc,
-		func(r *SubnetPortReconciler, vm client.Object) []reconcile.Request {
+		func(r *SubnetPortReconciler, _ context.Context, vm client.Object) []reconcile.Request {
 			requests := []reconcile.Request{}
 			return requests
 		})

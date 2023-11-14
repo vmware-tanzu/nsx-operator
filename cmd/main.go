@@ -14,6 +14,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
@@ -166,7 +167,7 @@ func main() {
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                  scheme,
 		HealthProbeBindAddress:  config.ProbeAddr,
-		MetricsBindAddress:      config.MetricsAddr,
+		Metrics:                 metricsserver.Options{BindAddress: config.MetricsAddr},
 		LeaderElection:          cf.HAEnabled(),
 		LeaderElectionNamespace: nsxOperatorNamespace,
 		LeaderElectionID:        "nsx-operator",

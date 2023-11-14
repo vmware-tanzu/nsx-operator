@@ -24,7 +24,7 @@ type VPCNetworkConfigurationHandler struct {
 	vpcService *vpc.VPCService
 }
 
-func (h *VPCNetworkConfigurationHandler) Create(e event.CreateEvent, _ workqueue.RateLimitingInterface) {
+func (h *VPCNetworkConfigurationHandler) Create(_ context.Context, e event.CreateEvent, _ workqueue.RateLimitingInterface) {
 	vpcConfigCR := e.Object.(*v1alpha1.VPCNetworkConfiguration)
 	vname := vpcConfigCR.GetName()
 	ninfo, _err := buildNetworkConfigInfo(*vpcConfigCR)
@@ -36,16 +36,16 @@ func (h *VPCNetworkConfigurationHandler) Create(e event.CreateEvent, _ workqueue
 	h.vpcService.RegisterVPCNetworkConfig(vname, *ninfo)
 }
 
-func (h *VPCNetworkConfigurationHandler) Delete(e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
+func (h *VPCNetworkConfigurationHandler) Delete(_ context.Context, e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
 	// Currently we do not support deleting networkconfig
 	log.V(1).Info("do not support VPC network config deletion")
 }
 
-func (h *VPCNetworkConfigurationHandler) Generic(_ event.GenericEvent, _ workqueue.RateLimitingInterface) {
+func (h *VPCNetworkConfigurationHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
 	log.V(1).Info("VPCNetworkConfiguration generic event, do nothing")
 }
 
-func (h *VPCNetworkConfigurationHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (h *VPCNetworkConfigurationHandler) Update(_ context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	log.V(1).Info("start processing VPC network config update event")
 	oldNc := e.ObjectOld.(*v1alpha1.VPCNetworkConfiguration)
 	newNc := e.ObjectNew.(*v1alpha1.VPCNetworkConfiguration)
