@@ -5,8 +5,11 @@ package nsxserviceaccount
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"sync"
+	"time"
 
 	vapierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
@@ -21,6 +24,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -34,6 +38,7 @@ const (
 	SecretCAName       = "ca.crt"
 	SecretCertName     = "tls.crt"
 	SecretKeyName      = "tls.key"
+	CAName             = "ca.crt"
 )
 
 var (
@@ -111,7 +116,11 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 	// generate certificate
 	subject := util.DefaultSubject
 	subject.CommonName = normalizedClusterName
-	cert, key, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	validDays := util.DefaultValidDays
+	if s.NSXClient.NSXCheckVersion(nsx.ServiceAccountCertRotation) && obj.Spec.EnableCertRotation {
+		validDays = util.DefaultValidDaysWithRotation
+	}
+	cert, key, err := util.GenerateCertificate(&subject, validDays)
 	if err != nil {
 		return err
 	}
@@ -143,9 +152,8 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 			Finalizers: nil,
 		},
 		Immutable: nil,
-		// TODO: Add NSX CA
-		Data: map[string][]byte{SecretCertName: []byte(cert), SecretKeyName: []byte(key)},
-		Type: "",
+		Data:      map[string][]byte{SecretCertName: []byte(cert), SecretKeyName: []byte(key), CAName: s.NSXConfig.GetCACert()},
+		Type:      "",
 	}); err != nil {
 		return err
 	}
@@ -166,17 +174,19 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 	return s.Client.Status().Update(ctx, obj)
 }
 
-// UpdateRealizedNSXServiceAccount checks if PI/CCP is created on NSXT for a realized NSXServiceAccount. If both PI/CCP
+// RestoreRealizedNSXServiceAccount checks if PI/CCP is created on NSXT for a realized NSXServiceAccount. If both PI/CCP
 // is missing, restore PI/CCP from realized NSXServiceAccount and Secret.
-func (s *NSXServiceAccountService) UpdateRealizedNSXServiceAccount(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
+func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
 	normalizedClusterName := obj.Status.ClusterName
 
 	// check PI and CCP is missing
+	hasPI := len(s.PrincipalIdentityStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(obj.UID))) > 0
+	hasCCP := len(s.ClusterControlPlaneStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(obj.UID))) > 0
 	piObj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName)
 	ccpObj := s.ClusterControlPlaneStore.GetByKey(normalizedClusterName)
-	if piObj != nil && ccpObj != nil {
+	if hasPI && hasCCP && piObj != nil && ccpObj != nil {
 		return nil
-	} else if (piObj != nil) != (ccpObj != nil) {
+	} else if hasPI || hasCCP || (piObj != nil) || (ccpObj != nil) {
 		return fmt.Errorf("PI/CCP doesn't match")
 	}
 	_, err := s.NSXClient.ClusterControlPlanesClient.Get(siteId, enforcementpointId, normalizedClusterName)
@@ -208,7 +218,8 @@ func (s *NSXServiceAccountService) UpdateRealizedNSXServiceAccount(ctx context.C
 
 func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, vpcPath string, cert string, existingClusterId *string, obj *v1alpha1.NSXServiceAccount) (string, error) {
 	// create PI
-	if piObj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName); piObj == nil {
+	hasPI := len(s.PrincipalIdentityStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(obj.UID))) > 0
+	if piObj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName); !hasPI && piObj == nil {
 		pi, err := s.NSXClient.WithCertificateClient.Create(mpmodel.PrincipalIdentityWithCertificate{
 			IsProtected: &isProtectedTrue,
 			Name:        &normalizedClusterName,
@@ -232,11 +243,14 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 			return "", err
 		}
 		s.PrincipalIdentityStore.Add(pi)
+	} else if !hasPI != (piObj == nil) {
+		return "", fmt.Errorf("old PI exists")
 	}
 
 	// create ClusterControlPlane
+	hasCCP := len(s.ClusterControlPlaneStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(obj.UID))) > 0
 	clusterId := ""
-	if ccpObj := s.ClusterControlPlaneStore.GetByKey(normalizedClusterName); ccpObj == nil {
+	if ccpObj := s.ClusterControlPlaneStore.GetByKey(normalizedClusterName); !hasCCP && ccpObj == nil {
 		ccp, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, normalizedClusterName, model.ClusterControlPlane{
 			Revision:     &revision1,
 			ResourceType: &antreaClusterResourceType,
@@ -250,6 +264,8 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 		}
 		s.ClusterControlPlaneStore.Add(ccp)
 		clusterId = *ccp.NodeId
+	} else if !hasCCP != (ccpObj == nil) {
+		return "", fmt.Errorf("old CCP exists")
 	}
 	return clusterId, nil
 }
@@ -284,27 +300,45 @@ func (s *NSXServiceAccountService) getProxyEndpoints(ctx context.Context) (v1alp
 	return proxyEndpoints, nil
 }
 
-func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, namespacedName types.NamespacedName) error {
+func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, namespacedName types.NamespacedName, uid types.UID) error {
+	isDeleteSecret := false
+	nsxsa := &v1alpha1.NSXServiceAccount{}
+	if err := s.Client.Get(ctx, namespacedName, nsxsa); err != nil {
+		isDeleteSecret = true
+	} else if uid == nsxsa.UID {
+		isDeleteSecret = true
+	}
+
 	clusterName := s.getClusterName(namespacedName.Namespace, namespacedName.Name)
 	normalizedClusterName := util.NormalizeId(clusterName)
 	// delete Secret
-	secretName := namespacedName.Name + SecretSuffix
-	secretNamespace := namespacedName.Namespace
-	if err := s.Client.Delete(ctx, &v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: secretNamespace}}); err != nil && !errors.IsNotFound(err) {
-		log.Error(err, "failed to delete", "secret", secretName, "namespace", secretNamespace)
-		return err
+	if isDeleteSecret {
+		secretName := namespacedName.Name + SecretSuffix
+		secretNamespace := namespacedName.Namespace
+		if err := s.Client.Delete(ctx, &v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: secretNamespace}}); err != nil && !errors.IsNotFound(err) {
+			log.Error(err, "failed to delete", "secret", secretName, "namespace", secretNamespace)
+			return err
+		}
 	}
 
-	// delete ClusterControlPlane
-	cascade := true
-	if err := s.NSXClient.ClusterControlPlanesClient.Delete(siteId, enforcementpointId, normalizedClusterName, &cascade); err != nil {
-		log.Error(err, "failed to delete", "ClusterControlPlane", normalizedClusterName)
-		return err
+	isDeleteCCP := true
+	isDeletePI := true
+	if !isDeleteSecret {
+		isDeletePI = len(s.PrincipalIdentityStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(uid))) > 0
+		isDeleteCCP = len(s.ClusterControlPlaneStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(uid))) > 0
 	}
-	s.ClusterControlPlaneStore.Delete(model.ClusterControlPlane{Id: &normalizedClusterName})
+	// delete ClusterControlPlane
+	if isDeleteCCP {
+		cascade := true
+		if err := s.NSXClient.ClusterControlPlanesClient.Delete(siteId, enforcementpointId, normalizedClusterName, &cascade); err != nil {
+			log.Error(err, "failed to delete", "ClusterControlPlane", normalizedClusterName)
+			return err
+		}
+		s.ClusterControlPlaneStore.Delete(model.ClusterControlPlane{Id: &normalizedClusterName})
+	}
 
 	// delete PI
-	if piobj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName); piobj != nil {
+	if piobj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName); isDeletePI && (piobj != nil) {
 		pi := piobj.(mpmodel.PrincipalIdentity)
 		if err := s.NSXClient.PrincipalIdentitiesClient.Delete(*pi.Id); err != nil {
 			log.Error(err, "failed to delete", "PrincipalIdentity", *pi.Name)
@@ -317,6 +351,117 @@ func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, 
 			}
 		}
 		s.PrincipalIdentityStore.Delete(pi)
+	}
+	return nil
+}
+
+// ValidateAndUpdateRealizedNSXServiceAccount checks CA is up-to-date and client cert needs rotation
+// ca is nil means no need to update CA
+// Client cert rotation requires NSXT 4.1.3
+func (s *NSXServiceAccountService) ValidateAndUpdateRealizedNSXServiceAccount(ctx context.Context, obj *v1alpha1.NSXServiceAccount, ca []byte) error {
+	clusterName := s.getClusterName(obj.Namespace, obj.Name)
+	normalizedClusterName := util.NormalizeId(clusterName)
+	secretName := obj.Name + SecretSuffix
+	secretNamespace := obj.Namespace
+	isUpdated := false
+	secret := &v1.Secret{}
+	isCheckCert := s.NSXClient.NSXCheckVersion(nsx.ServiceAccountCertRotation) && obj.Spec.EnableCertRotation
+	if ca != nil || isCheckCert {
+		if err := s.Client.Get(ctx, types.NamespacedName{Name: secretName, Namespace: secretNamespace}, secret); err != nil {
+			return err
+		}
+	}
+
+	// check CA is up-to-date
+	if ca != nil {
+		oldCA := secret.Data[CAName]
+		oldCAPool := x509.NewCertPool()
+		oldCAPool.AppendCertsFromPEM(oldCA)
+		caPool := x509.NewCertPool()
+		caPool.AppendCertsFromPEM(ca)
+		if !caPool.Equal(oldCAPool) {
+			isUpdated = true
+			secret.Data[CAName] = ca
+		}
+	}
+
+	// check client cert need rotation
+	if isCheckCert {
+		oldCert := secret.Data[SecretCertName]
+		certBlock, _ := pem.Decode(oldCert)
+		if certBlock == nil {
+			return fmt.Errorf("missing client cert")
+		}
+		if oldCertObj, err := x509.ParseCertificate(certBlock.Bytes); err != nil {
+			return err
+		} else if time.Now().AddDate(0, 0, util.DefaultRotateDays).After(oldCertObj.NotAfter) {
+			isUpdated = true
+			// generate certificate
+			subject := util.DefaultSubject
+			subject.CommonName = normalizedClusterName
+			cert, key, err := util.GenerateCertificate(&subject, util.DefaultValidDaysWithRotation)
+			if err != nil {
+				return err
+			}
+			// update PI and CCP cert
+			if err = s.updatePIAndCCPCert(normalizedClusterName, string(obj.UID), cert); err != nil {
+				return err
+			}
+			secret.Data[SecretCertName] = []byte(cert)
+			secret.Data[SecretKeyName] = []byte(key)
+		}
+	}
+
+	if isUpdated {
+		log.Info("Update realized NSXServiceAccount", "namespace", obj.Namespace, "name", obj.Name)
+		return s.Client.Update(ctx, secret)
+	}
+	return nil
+}
+
+func (s *NSXServiceAccountService) updatePIAndCCPCert(normalizedClusterName, uid, cert string) error {
+	hasPI := len(s.PrincipalIdentityStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, uid)) > 0
+	hasCCP := len(s.ClusterControlPlaneStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, uid)) > 0
+	piObj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName)
+	ccpObj := s.ClusterControlPlaneStore.GetByKey(normalizedClusterName)
+	if !hasPI || !hasCCP || piObj == nil || ccpObj == nil {
+		return fmt.Errorf("missing PI or CCP, cluster=%s", normalizedClusterName)
+	}
+
+	// update ClusterControlPlane cert
+	ccp := ccpObj.(model.ClusterControlPlane)
+	ccp.Certificate = &cert
+	if ccp, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, normalizedClusterName, ccp); err != nil {
+		return err
+	} else {
+		s.ClusterControlPlaneStore.Add(ccp)
+	}
+
+	// update PI cert
+	pi := piObj.(mpmodel.PrincipalIdentity)
+	oldCertId := ""
+	if pi.CertificateId != nil {
+		oldCertId = *pi.CertificateId
+	}
+	certList, err := s.NSXClient.CertificatesClient.Importcertificate(mpmodel.TrustObjectData{
+		DisplayName: &normalizedClusterName,
+		PemEncoded:  &cert,
+	})
+	if err != nil {
+		return err
+	}
+	if pi, err = s.NSXClient.PrincipalIdentitiesClient.Updatecertificate(mpmodel.UpdatePrincipalIdentityCertificateRequest{
+		CertificateId:       certList.Results[0].Id,
+		PrincipalIdentityId: pi.Id,
+	}); err != nil {
+		return err
+	} else {
+		s.PrincipalIdentityStore.Add(pi)
+	}
+	if oldCertId != "" {
+		if err := s.NSXClient.CertificatesClient.Delete(oldCertId); err != nil {
+			log.Error(err, "failed to delete", "PrincipalIdentity", *pi.Name, "Old Certificate", *pi.CertificateId)
+		}
 	}
 	return nil
 }
@@ -403,7 +548,7 @@ func GenerateNSXServiceAccountConditions(existingConditions []metav1.Condition, 
 	return conditions
 }
 
-func IsNSXServiceAccountRealized(status v1alpha1.NSXServiceAccountStatus) bool {
+func IsNSXServiceAccountRealized(status *v1alpha1.NSXServiceAccountStatus) bool {
 	for _, condition := range status.Conditions {
 		if condition.Type == v1alpha1.ConditionTypeRealized && condition.Status == metav1.ConditionTrue {
 			return true

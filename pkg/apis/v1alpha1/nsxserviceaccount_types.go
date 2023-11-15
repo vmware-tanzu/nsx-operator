@@ -10,6 +10,8 @@ import (
 // NSXServiceAccountSpec defines the desired state of NSXServiceAccount
 type NSXServiceAccountSpec struct {
 	VPCName string `json:"vpcName,omitempty"`
+	// EnableCertRotation enables cert rotation feature in this cluster when NSXT >=4.1.3
+	EnableCertRotation bool `json:"enableCertRotation,omitempty"`
 }
 
 type NSXProxyEndpointAddress struct {

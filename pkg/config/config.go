@@ -38,6 +38,7 @@ type NSXOperatorConfig struct {
 	*K8sConfig
 	*VCConfig
 	*HAConfig
+	configCache configCache
 }
 
 func init() {
@@ -50,6 +51,29 @@ func (operatorConfig *NSXOperatorConfig) HAEnabled() bool {
 		return true
 	}
 	return false
+}
+
+func (operatorConfig *NSXOperatorConfig) GetCACert() []byte {
+	ca := operatorConfig.configCache.nsxCA
+	if ca == nil {
+		ca = []byte{}
+		for _, caFile := range operatorConfig.CaFile {
+			caCert, err := os.ReadFile(caFile)
+			if err != nil || len(caCert) == 0 {
+				configLog.Errorf("Failed to read CA file %s, err=%v, skip", caFile, err)
+				continue
+			}
+			ca = append(ca, caCert...)
+			ca = append(ca, []byte("\n")...)
+		}
+		operatorConfig.configCache.nsxCA = ca
+	}
+	return ca
+}
+
+type configCache struct {
+	// nsxCA stores all file contents of NsxConfig.CaFile in a byte slice
+	nsxCA []byte
 }
 
 type DefaultConfig struct {
@@ -183,6 +207,7 @@ func NewNSXOpertorConfig() *NSXOperatorConfig {
 		&K8sConfig{},
 		&VCConfig{},
 		&HAConfig{},
+		configCache{},
 	}
 	return defaultNSXOperatorConfig
 }
