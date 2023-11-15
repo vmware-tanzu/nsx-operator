@@ -58,9 +58,9 @@ func TestRoundTripRetry(t *testing.T) {
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
 	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
-	cluster, err := NewCluster(config)
+	cluster, err := NewCluster(config, nil)
 	assert.Nil(err, fmt.Sprintf("Create cluster error %v", err))
-	cluster.endpoints[0], _ = NewEndpoint(ts.URL, &cluster.client, &cluster.noBalancerClient, cluster.endpoints[0].ratelimiter, nil)
+	cluster.endpoints[0], _ = NewEndpoint(ts.URL, cluster.client, cluster.noBalancerClient, cluster.endpoints[0].ratelimiter, nil)
 	cluster.endpoints[0].keepAlive()
 	tr := cluster.transport
 	req, _ := http.NewRequest("GET", ts.URL, nil)
@@ -79,7 +79,7 @@ func TestSelectEndpoint(t *testing.T) {
 	client := cluster.createHTTPClient(tr, timeout)
 	noBClient := cluster.createNoBalancerClient(timeout, idleConnTimeout)
 	r := ratelimiter.NewRateLimiter(config.APIRateMode)
-	eps, _ := cluster.createEndpoints(config.APIManagers, &client, &noBClient, r, nil)
+	eps, _ := cluster.createEndpoints(config.APIManagers, client, noBClient, r, nil)
 	// all eps DOWN
 	ep, err := tr.selectEndpoint()
 	assert.NotNil(t, err, fmt.Sprintf("Select endpoint error %s", err))
@@ -156,7 +156,7 @@ func Test_handleRoundTripError(t *testing.T) {
 	client := cluster.createHTTPClient(tr, timeout)
 	noBClient := cluster.createNoBalancerClient(timeout, idleConnTimeout)
 	r := ratelimiter.NewRateLimiter(config.APIRateMode)
-	eps, _ := cluster.createEndpoints(config.APIManagers, &client, &noBClient, r, nil)
+	eps, _ := cluster.createEndpoints(config.APIManagers, client, noBClient, r, nil)
 	cluster.endpoints = eps
 	err := errors.New("connection refused")
 	assert.NotNil(t, handleRoundTripError(err, eps[0]))

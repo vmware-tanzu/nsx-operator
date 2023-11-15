@@ -62,7 +62,7 @@ func main() {
 	cf.Cluster = cluster
 	logf.SetLogger(logger.ZapLogger(cf))
 
-	err := clean.Clean(cf)
+	err := clean.Clean(cf, nil)
 	if err != nil {
 		log.Error(err, "failed to clean nsx resources")
 		os.Exit(1)

@@ -32,7 +32,7 @@ func TestNewCluster(t *testing.T) {
 	a := ts.URL[index+2:]
 	thumbprint := []string{"123"}
 	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
-	_, err := NewCluster(config)
+	_, err := NewCluster(config, nil)
 	assert.True(t, err == nil, fmt.Sprintf("Created cluster failed %v", err))
 }
 
@@ -90,7 +90,7 @@ func TestCluster_NewRestConnector(t *testing.T) {
 	a := ts.URL[index+2:]
 	thumbprint := []string{"123"}
 	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
-	c, _ := NewCluster(config)
+	c, _ := NewCluster(config, nil)
 	con, _ := c.NewRestConnector()
 	assert.NotNil(t, con)
 }
@@ -109,7 +109,7 @@ func TestCluster_createTransport(t *testing.T) {
 	a := ts.URL[index+2:]
 	thumbprint := []string{"123"}
 	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
-	c, _ := NewCluster(config)
+	c, _ := NewCluster(config, nil)
 	assert.NotNil(t, c.createTransport(10))
 }
 
@@ -264,7 +264,7 @@ func TestCluster_getVersion(t *testing.T) {
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
 	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
-	cluster, _ := NewCluster(config)
+	cluster, _ := NewCluster(config, nil)
 	nsxVersion, err := cluster.GetVersion()
 	assert.True(t, err == nil)
 	assert.Equal(t, nsxVersion.NodeVersion, "3.1.3.3.0.18844962")
