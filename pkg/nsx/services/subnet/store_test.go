@@ -11,7 +11,6 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -59,7 +58,7 @@ func Test_KeyFunc(t *testing.T) {
 
 func Test_InitializeSubnetStore(t *testing.T) {
 	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
-	cluster, _ := nsx.NewCluster(config2)
+	cluster, _ := nsx.NewCluster(config2, nil)
 	rc, _ := cluster.NewRestConnector()
 
 	subnetCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSubnetCRUID: subnetIndexFunc})

@@ -310,7 +310,7 @@ func (nsxConfig *NsxConfig) validateCert() error {
 		return err
 	}
 	if caCount > 0 {
-		configLog.Infof("validate CA file: %s", caCount)
+		configLog.Infof("validate CA file: %d", caCount)
 		if caCount > 1 && caCount != mCount {
 			err := errors.New("ca file count not match manager count")
 			configLog.Error(err, "validate NsxConfig failed", "ca file count", caCount, "manager count", mCount)
@@ -324,7 +324,7 @@ func (nsxConfig *NsxConfig) validateCert() error {
 			}
 		}
 	} else {
-		configLog.Infof("validate thumbprint: %s", tpCount)
+		configLog.Infof("validate thumbprint: %d", tpCount)
 		if tpCount > 1 && tpCount != mCount {
 			err := errors.New("thumbprint count not match manager count")
 			configLog.Error(err, "validate NsxConfig failed", "thumbprint count", tpCount, "manager count", mCount)
