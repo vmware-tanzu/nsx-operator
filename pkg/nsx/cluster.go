@@ -43,8 +43,8 @@ type Cluster struct {
 	config           *Config
 	endpoints        []*Endpoint
 	transport        *Transport
-	client           http.Client
-	noBalancerClient http.Client
+	client           *http.Client
+	noBalancerClient *http.Client
 	sync.Mutex
 }
 type NsxVersion struct {
@@ -58,16 +58,21 @@ var (
 )
 
 // NewCluster creates a cluster based on nsx Config.
-func NewCluster(config *Config) (*Cluster, error) {
+func NewCluster(config *Config, client *http.Client) (*Cluster, error) {
 	log.Info("creating cluster")
 	cluster := &Cluster{}
 	cluster.config = config
 	cluster.transport = cluster.createTransport(time.Duration(config.ConnIdleTimeout))
-	cluster.client = cluster.createHTTPClient(cluster.transport, time.Duration(config.HTTPTimeout))
-	cluster.noBalancerClient = cluster.createNoBalancerClient(time.Duration(config.HTTPTimeout), time.Duration(config.ConnIdleTimeout))
+	if client != nil {
+		cluster.client = client
+		cluster.noBalancerClient = nil
+	} else {
+		cluster.client = cluster.createHTTPClient(cluster.transport, time.Duration(config.HTTPTimeout))
+		cluster.noBalancerClient = cluster.createNoBalancerClient(time.Duration(config.HTTPTimeout), time.Duration(config.ConnIdleTimeout))
+	}
 
 	r := ratelimiter.NewRateLimiter(config.APIRateMode)
-	eps, err := cluster.createEndpoints(config.APIManagers, &cluster.client, &cluster.noBalancerClient, r, config.TokenProvider)
+	eps, err := cluster.createEndpoints(config.APIManagers, cluster.client, cluster.noBalancerClient, r, config.TokenProvider)
 	if err != nil {
 		log.Error(err, "creating cluster failed")
 		return nil, err
@@ -94,7 +99,7 @@ func NewCluster(config *Config) (*Cluster, error) {
 // HeaderConfig is used to use http header for request, it could be ignored if no extra header needed.
 func (cluster *Cluster) NewRestConnector() (*policyclient.RestConnector, *HeaderConfig) {
 	// host will be replaced by target endpoint's host when sending request to backend
-	connector := policyclient.NewRestConnector(fmt.Sprintf("%s://%s", cluster.endpoints[0].Scheme(), cluster.endpoints[0].Host()), cluster.client)
+	connector := policyclient.NewRestConnector(fmt.Sprintf("%s://%s", cluster.endpoints[0].Scheme(), cluster.endpoints[0].Host()), *cluster.client)
 	header := CreateHeaderConfig(false, false, cluster.config.AllowOverwriteHeader)
 	return connector, header
 }
@@ -216,14 +221,14 @@ func calcFingerprint(der []byte) string {
 	return string(hex[:len(hex)-1])
 }
 
-func (cluster *Cluster) createHTTPClient(tr *Transport, timeout time.Duration) http.Client {
-	return http.Client{
+func (cluster *Cluster) createHTTPClient(tr *Transport, timeout time.Duration) *http.Client {
+	return &http.Client{
 		Transport: tr,
 		Timeout:   timeout * time.Second,
 	}
 }
 
-func (cluster *Cluster) createNoBalancerClient(timeout, idle time.Duration) http.Client {
+func (cluster *Cluster) createNoBalancerClient(timeout, idle time.Duration) *http.Client {
 	tlsConfig := tls.Config{InsecureSkipVerify: true}
 	transport := &http.Transport{
 		TLSClientConfig: &tlsConfig,
@@ -233,7 +238,7 @@ func (cluster *Cluster) createNoBalancerClient(timeout, idle time.Duration) http
 		Transport: transport,
 		Timeout:   timeout * time.Second,
 	}
-	return noBClient
+	return &noBClient
 }
 
 func (cluster *Cluster) createEndpoints(apiManagers []string, client *http.Client, noBClient *http.Client, r ratelimiter.RateLimiter, tokenProvider auth.TokenProvider) ([]*Endpoint, error) {
@@ -288,7 +293,7 @@ func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 		return nil, err
 	}
 
-	resp, err := ep.noBalancerClient.Do(req)
+	resp, err := ep.client.Do(req)
 	if err != nil {
 		log.Error(err, "failed to get nsx version")
 		return nil, err

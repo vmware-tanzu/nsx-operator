@@ -119,7 +119,7 @@ func restConnector(c *Cluster) *client.RestConnector {
 	return connector
 }
 
-func GetClient(cf *config.NSXOperatorConfig) *Client {
+func GetClient(cf *config.NSXOperatorConfig, client *http.Client) *Client {
 	// Set log level for vsphere-automation-sdk-go
 	logger := logrus.New()
 	vspherelog.SetLogger(logger)
@@ -129,7 +129,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	}
 	c := NewConfig(strings.Join(cf.NsxApiManagers, ","), cf.NsxApiUser, cf.NsxApiPassword, cf.CaFile, 10, 3, defaultHttpTimeout, 20, true, true, true,
 		ratelimiter.AIMD, cf.GetTokenProvider(), nil, cf.Thumbprint)
-	cluster, _ := NewCluster(c)
+	cluster, _ := NewCluster(c, client)
 
 	queryClient := search.NewQueryClient(restConnector(cluster))
 	groupClient := domains.NewGroupsClient(restConnector(cluster))

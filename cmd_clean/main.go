@@ -4,8 +4,11 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
+	"net/http"
 	"os"
+	"time"
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -32,6 +35,22 @@ var (
 	caFile      string
 	cluster     string
 )
+
+type Transport struct {
+	Base http.RoundTripper
+}
+
+func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
+	log.V(1).Info("http request", "method", r.Method, "body", r.Body, "url", r.URL)
+	r.SetBasicAuth(nsxUser, nsxPasswd)
+	return t.base().RoundTrip(r)
+}
+func (t *Transport) base() http.RoundTripper {
+	if t.Base != nil {
+		return t.Base
+	}
+	return http.DefaultTransport
+}
 
 func main() {
 	flag.StringVar(&vcEndpoint, "vc-endpoint", "", "nsx manager ip")
@@ -60,9 +79,20 @@ func main() {
 	cf.Thumbprint = []string{thumbprint}
 	cf.CaFile = []string{caFile}
 	cf.Cluster = cluster
+
 	logf.SetLogger(logger.ZapLogger(cf))
 
-	err := clean.Clean(cf)
+	tr := &http.Transport{
+		IdleConnTimeout: 30 * time.Second,
+	}
+	tr.TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: true,
+	}
+	httpClient := &http.Client{
+		Transport: &Transport{Base: tr},
+		Timeout:   30 * time.Second,
+	}
+	err := clean.Clean(cf, httpClient)
 	if err != nil {
 		log.Error(err, "failed to clean nsx resources")
 		os.Exit(1)
