@@ -1,6 +1,7 @@
 package securitypolicy
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -8,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
@@ -29,6 +30,12 @@ func TestBuildSecurityPolicy(t *testing.T) {
 		},
 	)
 
+	podSelectorRule0IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[0], 0), 0, 0)
+	podSelectorRule1IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[1], 1), 0, 0)
+	vmSelectorRule0IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithVMSelector, &spWithVMSelector.Spec.Rules[0], 0), 0, 0)
+	vmSelectorRule1IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithVMSelector, &spWithVMSelector.Spec.Rules[1], 1), 0, 0)
+	vmSelectorRule2IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithVMSelector, &spWithVMSelector.Spec.Rules[2], 2), 0, 0)
+
 	tests := []struct {
 		name           string
 		inputPolicy    *v1alpha1.SecurityPolicy
@@ -45,7 +52,7 @@ func TestBuildSecurityPolicy(t *testing.T) {
 				Rules: []model.Rule{
 					{
 						DisplayName:       &ruleNameWithPodSelector00,
-						Id:                &ruleIDPort000,
+						Id:                &podSelectorRule0IDPort000,
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxDirectionIn,
 						Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_scope"},
@@ -57,7 +64,7 @@ func TestBuildSecurityPolicy(t *testing.T) {
 					},
 					{
 						DisplayName:       &ruleNameWithNsSelector00,
-						Id:                &ruleIDPort100,
+						Id:                &podSelectorRule1IDPort000,
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxDirectionIn,
 						Scope:             []string{"ANY"},
@@ -83,7 +90,7 @@ func TestBuildSecurityPolicy(t *testing.T) {
 				Rules: []model.Rule{
 					{
 						DisplayName:       &ruleNameWithVMSelector00,
-						Id:                &ruleIDPort000,
+						Id:                &vmSelectorRule0IDPort000,
 						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_dst"},
 						Direction:         &nsxDirectionOut,
 						Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_scope"},
@@ -95,7 +102,7 @@ func TestBuildSecurityPolicy(t *testing.T) {
 					},
 					{
 						DisplayName:       &ruleNameWithNsSelector00,
-						Id:                &ruleIDPort100,
+						Id:                &vmSelectorRule1IDPort000,
 						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidA_1_dst"},
 						Direction:         &nsxDirectionOut,
 						Scope:             []string{"ANY"},
@@ -108,7 +115,7 @@ func TestBuildSecurityPolicy(t *testing.T) {
 
 					{
 						DisplayName:       &ruleNameWithIpBlock00,
-						Id:                &ruleIDPort200,
+						Id:                &vmSelectorRule2IDPort000,
 						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidA_2_dst"},
 						Direction:         &nsxDirectionOut,
 						Scope:             []string{"ANY"},
@@ -172,6 +179,7 @@ func TestBuildPolicyGroup(t *testing.T) {
 }
 
 func TestBuildTargetTags(t *testing.T) {
+	ruleTagID0 := service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[0], 0)
 	tests := []struct {
 		name         string
 		inputPolicy  *v1alpha1.SecurityPolicy
@@ -235,7 +243,7 @@ func TestBuildTargetTags(t *testing.T) {
 				},
 				{
 					Scope: &tagScopeRuleID,
-					Tag:   &ruleID0,
+					Tag:   &ruleTagID0,
 				},
 			},
 		},
@@ -248,12 +256,13 @@ func TestBuildTargetTags(t *testing.T) {
 	defer patches.Reset()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.ElementsMatch(t, tt.expectedTags, service.buildTargetTags(tt.inputPolicy, tt.inputTargets, tt.inputIndex))
+			assert.ElementsMatch(t, tt.expectedTags, service.buildTargetTags(tt.inputPolicy, tt.inputTargets, &tt.inputPolicy.Spec.Rules[0], tt.inputIndex))
 		})
 	}
 }
 
 func TestBuildPeerTags(t *testing.T) {
+	ruleTagID0 := service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[0], 0)
 	tests := []struct {
 		name         string
 		inputPolicy  *v1alpha1.SecurityPolicy
@@ -275,7 +284,7 @@ func TestBuildPeerTags(t *testing.T) {
 				},
 				{
 					Scope: &tagScopeRuleID,
-					Tag:   &ruleID0,
+					Tag:   &ruleTagID0,
 				},
 				{
 					Scope: &tagScopeSelectorHash,
@@ -312,7 +321,7 @@ func TestBuildPeerTags(t *testing.T) {
 	defer patches.Reset()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.ElementsMatch(t, tt.expectedTags, service.BuildPeerTags(tt.inputPolicy, &tt.inputPolicy.Spec.Rules[0].Sources, tt.inputIndex, true, false))
+			assert.ElementsMatch(t, tt.expectedTags, service.buildPeerTags(tt.inputPolicy, &tt.inputPolicy.Spec.Rules[0], tt.inputIndex, true, false))
 		})
 	}
 }

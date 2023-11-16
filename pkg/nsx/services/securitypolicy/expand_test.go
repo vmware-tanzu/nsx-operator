@@ -5,12 +5,13 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/agiledragon/gomonkey/v2"
+	gomonkey "github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	v12 "k8s.io/api/core/v1"
+	core_v1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -20,9 +21,12 @@ import (
 )
 
 func TestSecurityPolicyService_buildRuleIPGroup(t *testing.T) {
-	sp := &v1alpha1.SecurityPolicy{}
-	r := v1alpha1.SecurityPolicyRule{}
-	rule := model.Rule{
+	sp := &v1alpha1.SecurityPolicy{
+		ObjectMeta: v1.ObjectMeta{Namespace: "ns1", Name: "spA", UID: "uidA"},
+	}
+
+	rule := v1alpha1.SecurityPolicyRule{}
+	nsxRule := model.Rule{
 		DisplayName:       &ruleNameWithPodSelector00,
 		Id:                &ruleIDPort000,
 		DestinationGroups: []string{"ANY"},
@@ -50,22 +54,19 @@ func TestSecurityPolicyService_buildRuleIPGroup(t *testing.T) {
 			"ip_addresses":  addresses,
 		},
 	)
+	var s *SecurityPolicyService
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
+		func(s *SecurityPolicyService, ns string) types.UID {
+			return types.UID(tagValueNSUID)
+		})
+	defer patches.Reset()
 	ipGroup := model.Group{
 		Id:          &policyGroupID,
 		DisplayName: &policyGroupName,
 		Expression:  []*data.StructValue{blockExpression},
-		Tags:        []model.Tag{{Scope: nil, Tag: nil}},
+		// build ipset group tags from input securitypolicy and securitypolicy rule
+		Tags: service.buildPeerTags(sp, &rule, 0, false, false),
 	}
-
-	var s *SecurityPolicyService
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(s), "BuildPeerTags",
-		func(s *SecurityPolicyService, v *v1alpha1.SecurityPolicy, p *[]v1alpha1.SecurityPolicyPeer, i int, isSource, groupShared bool) []model.Tag {
-			peerTags := []model.Tag{
-				{Scope: nil, Tag: nil},
-			}
-			return peerTags
-		})
-	defer patches.Reset()
 
 	type args struct {
 		obj *model.Rule
@@ -76,12 +77,11 @@ func TestSecurityPolicyService_buildRuleIPGroup(t *testing.T) {
 		args args
 		want *model.Group
 	}{
-		{"1", args{&rule, ips}, &ipGroup},
+		{"1", args{&nsxRule, ips}, &ipGroup},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := &SecurityPolicyService{}
-			assert.Equalf(t, tt.want, service.buildRuleIPSetGroup(sp, &r, tt.args.obj, tt.args.ips, 0), "buildRuleIPSetGroup(%v, %v)",
+			assert.Equalf(t, tt.want, service.buildRuleIPSetGroup(sp, &rule, tt.args.obj, tt.args.ips, 0), "buildRuleIPSetGroup(%v, %v)",
 				tt.args.obj, tt.args.ips)
 		})
 	}
@@ -179,9 +179,9 @@ func TestSecurityPolicyService_getPodSelectors(t *testing.T) {
 	labelSelector2, _ := v1.LabelSelectorAsSelector(podSelector2)
 	var s *SecurityPolicyService
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(s), "ResolveNamespace",
-		func(s *SecurityPolicyService, _ *v1.LabelSelector) (*v12.NamespaceList, error) {
-			ns := v12.NamespaceList{
-				Items: []v12.Namespace{
+		func(s *SecurityPolicyService, _ *v1.LabelSelector) (*core_v1.NamespaceList, error) {
+			ns := core_v1.NamespaceList{
+				Items: []core_v1.Namespace{
 					{
 						TypeMeta: v1.TypeMeta{},
 						ObjectMeta: v1.ObjectMeta{
