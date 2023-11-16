@@ -56,7 +56,8 @@ var (
 	nsxDirectionOut              = "OUT"
 	nsxActionDrop                = "DROP"
 	cluster                      = "k8scl-one"
-	tagValueScope                = "scope"
+	tagValueGroupScope           = common.TagValueGroupScope
+	tagValueGroupSource          = common.TagValueGroupSource
 	tagValueNS                   = "ns1"
 	tagValuePolicyCRName         = "spA"
 	tagValuePolicyCRUID          = "uidA"
