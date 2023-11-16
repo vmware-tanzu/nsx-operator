@@ -20,6 +20,9 @@ const (
 	TagScopeNCPVIFProject        string = "ncp/vif_project"
 	TagScopeNCPPod               string = "ncp/pod"
 	TagScopeNCPVNETInterface     string = "ncp/vnet_interface"
+	TagValueGroupScope           string = "scope"
+	TagValueGroupSrc             string = "source"
+	TagValueGroupDst             string = "destination"
 
 	GCInterval    = 60 * time.Second
 	FinalizerName = "securitypolicy.nsx.vmware.com/finalizer"

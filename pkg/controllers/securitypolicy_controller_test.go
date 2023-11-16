@@ -199,7 +199,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	defer patches.Reset()
 
 	//  DeletionTimestamp.IsZero = false, Finalizers doesn't include util.FinalizerName
-	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object) error {
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1sp := obj.(*v1alpha1.SecurityPolicy)
 		time := metav1.Now()
 		v1sp.ObjectMeta.DeletionTimestamp = &time
@@ -209,13 +209,13 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
-	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(nil)
+	k8sClient.EXPECT().Update(ctx, gomock.Any(), gomock.Any()).Return(nil)
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, ret, nil)
 	patch.Reset()
 
 	//  DeletionTimestamp.IsZero = false, Finalizers include util.FinalizerName
-	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object) error {
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1sp := obj.(*v1alpha1.SecurityPolicy)
 		time := metav1.Now()
 		v1sp.ObjectMeta.DeletionTimestamp = &time
