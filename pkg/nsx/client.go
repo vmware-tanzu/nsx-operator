@@ -121,7 +121,12 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	// Set log level for vsphere-automation-sdk-go
 	logger := logrus.New()
 	vspherelog.SetLogger(logger)
-	c := NewConfig(strings.Join(cf.NsxApiManagers, ","), cf.NsxApiUser, cf.NsxApiPassword, cf.CaFile, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, cf.GetTokenProvider(), nil, cf.Thumbprint)
+	defaultHttpTimeout := 20
+	if cf.DefaultTimeout > 0 {
+		defaultHttpTimeout = cf.DefaultTimeout
+	}
+	c := NewConfig(strings.Join(cf.NsxApiManagers, ","), cf.NsxApiUser, cf.NsxApiPassword, cf.CaFile, 10, 3, defaultHttpTimeout, 20, true, true, true,
+		ratelimiter.AIMD, cf.GetTokenProvider(), nil, cf.Thumbprint)
 	cluster, _ := NewCluster(c)
 
 	queryClient := search.NewQueryClient(restConnector(cluster))
