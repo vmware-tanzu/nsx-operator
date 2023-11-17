@@ -99,6 +99,7 @@ type NsxConfig struct {
 	DefaultProject       string   `ini:"default_project"`
 	ExternalIPv4Blocks   []string `ini:"external_ipv4_blocks"`
 	DefaultSubnetSize    int      `ini:"default_subnet_size"`
+	DefaultTimeout       int      `ini:"default_timeout"`
 }
 
 type K8sConfig struct {
