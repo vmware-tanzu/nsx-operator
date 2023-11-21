@@ -131,22 +131,26 @@ func main() {
 		NSXConfig: cf,
 	}
 
-	// Start the security policy controller.
+	if cf.CoeConfig.EnableVPCNetwork && commonService.NSXClient.NSXCheckVersion(nsx.VPC) {
+		log.V(1).Info("VPC mode enabled")
+		// Start controllers which only supports VPC
+		// Start subnet/subnetset controller.
+		if err := subnet.StartSubnetController(mgr, commonService); err != nil {
+			os.Exit(1)
+		}
+		if err := subnetset.StartSubnetSetController(mgr, commonService); err != nil {
+			os.Exit(1)
+		}
+
+		staticroutecontroller.StartStaticRouteController(mgr, commonService)
+		subnetport.StartSubnetPortController(mgr, commonService)
+	}
+	// Start the security policy controller, it supports VPC and non VPC mode
 	StartSecurityPolicyController(mgr, commonService)
-	staticroutecontroller.StartStaticRouteController(mgr, commonService)
 	// Start the NSXServiceAccount controller.
 	if cf.EnableAntreaNSXInterworking {
 		StartNSXServiceAccountController(mgr, commonService)
 	}
-	// Start subnet/subnetset controller.
-	if err := subnet.StartSubnetController(mgr, commonService); err != nil {
-		os.Exit(1)
-	}
-	if err := subnetset.StartSubnetSetController(mgr, commonService); err != nil {
-		os.Exit(1)
-	}
-
-	subnetport.StartSubnetPortController(mgr, commonService)
 
 	if metrics.AreMetricsExposed(cf) {
 		go updateHealthMetricsPeriodically(nsxClient)
