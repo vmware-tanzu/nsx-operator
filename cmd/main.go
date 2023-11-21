@@ -51,8 +51,12 @@ func init() {
 		nsxOperatorNamespace = os.Getenv("NSX_OPERATOR_NAMESPACE")
 	}
 
-	if cf.EnableHA == false {
+	if cf.EnableHA == nil || *cf.EnableHA == true {
+		enableHA = true
+		log.Info("HA mode enabled")
+	} else {
 		enableHA = false
+		log.Info("HA mode disabled")
 	}
 
 	if metrics.AreMetricsExposed(cf) {
@@ -98,10 +102,6 @@ func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Ser
 
 func main() {
 	log.Info("starting NSX Operator")
-
-	if enableHA {
-		log.Info("HA mode enabled")
-	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                  scheme,

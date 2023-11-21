@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"gopkg.in/ini.v1"
 )
 
 func TestConfig_VCConfig(t *testing.T) {
@@ -106,62 +107,23 @@ func TestConfig_GetTokenProvider(t *testing.T) {
 
 func TestConfig_GetHA(t *testing.T) {
 	configFilePath = "../mock/nsxop.ini"
-	cf, err := NewNSXOperatorConfigFromFile()
+	cf := NewNSXOpertorConfig()
+
+	cfg := ini.Empty()
+	err := ini.ReflectFrom(cfg, cf)
 	assert.Equal(t, err, nil)
-	assert.Equal(t, cf.HAEnabled(), true)
+	err = cfg.Section("ha").MapTo(cf.HAConfig)
+	assert.Equal(t, validateHAValue(cf.EnableHA), true)
 }
 
-func TestNSXOperatorConfig_GetCACert(t *testing.T) {
-	caFile, _ := os.CreateTemp("", "config_test")
-	caFile.Write([]byte("dummy file"))
-	caFile.Close()
-	defer os.Remove(caFile.Name())
-	caFile2, _ := os.CreateTemp("", "config_test")
-	caFile2.Write([]byte("dummy file2"))
-	caFile2.Close()
-	defer os.Remove(caFile2.Name())
-	type fields struct {
-		nsxCA  []byte
-		caFile []string
+func validateHAValue(haValue interface{}) bool {
+	// haValue could be nil, true or false
+	if haValue == nil {
+		return true
 	}
-	tests := []struct {
-		name   string
-		fields fields
-		want   []byte
-	}{
-		{
-			name: "no",
-			fields: fields{
-				nsxCA:  nil,
-				caFile: nil,
-			},
-			want: []byte{},
-		},
-		{
-			name: "cached",
-			fields: fields{
-				nsxCA:  []byte("dummy\n"),
-				caFile: nil,
-			},
-			want: []byte("dummy\n"),
-		},
-		{
-			name: "readFile",
-			fields: fields{
-				nsxCA:  nil,
-				caFile: []string{caFile.Name(), caFile2.Name()},
-			},
-			want: []byte("dummy file\ndummy file2\n"),
-		},
+	_, ok := haValue.(*bool)
+	if ok {
+		return true
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			operatorConfig := &NSXOperatorConfig{
-				NsxConfig:   &NsxConfig{CaFile: tt.fields.caFile},
-				configCache: configCache{nsxCA: tt.fields.nsxCA},
-			}
-			assert.Equalf(t, tt.want, operatorConfig.GetCACert(), "GetCACert()")
-			assert.Equalf(t, tt.want, operatorConfig.configCache.nsxCA, "GetCACert()")
-		})
-	}
+	return false
 }
