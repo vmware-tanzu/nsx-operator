@@ -11,9 +11,8 @@ import (
 )
 
 var (
-	log             = logger.Log
-	ResourceTypeVPC = common.ResourceTypeVPC
-	NewConverter    = common.NewConverter
+	log          = logger.Log
+	NewConverter = common.NewConverter
 	// The following variables are defined as interface, they should be initialized as concrete type
 	vpcStore common.Store
 )
@@ -38,7 +37,7 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 		BindingType: model.VpcBindingType(),
 	}}
 
-	go VPCService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeVPC, nil, vpcStore)
+	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, vpcStore)
 
 	go func() {
 		wg.Wait()
