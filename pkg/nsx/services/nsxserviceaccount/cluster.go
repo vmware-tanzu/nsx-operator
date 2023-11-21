@@ -174,19 +174,17 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 	return s.Client.Status().Update(ctx, obj)
 }
 
-// RestoreRealizedNSXServiceAccount checks if PI/CCP is created on NSXT for a realized NSXServiceAccount. If both PI/CCP
+// UpdateRealizedNSXServiceAccount checks if PI/CCP is created on NSXT for a realized NSXServiceAccount. If both PI/CCP
 // is missing, restore PI/CCP from realized NSXServiceAccount and Secret.
-func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
+func (s *NSXServiceAccountService) UpdateRealizedNSXServiceAccount(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
 	normalizedClusterName := obj.Status.ClusterName
 
 	// check PI and CCP is missing
-	hasPI := len(s.PrincipalIdentityStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(obj.UID))) > 0
-	hasCCP := len(s.ClusterControlPlaneStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(obj.UID))) > 0
 	piObj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName)
 	ccpObj := s.ClusterControlPlaneStore.GetByKey(normalizedClusterName)
-	if hasPI && hasCCP && piObj != nil && ccpObj != nil {
+	if piObj != nil && ccpObj != nil {
 		return nil
-	} else if hasPI || hasCCP || (piObj != nil) || (ccpObj != nil) {
+	} else if (piObj != nil) != (ccpObj != nil) {
 		return fmt.Errorf("PI/CCP doesn't match")
 	}
 	_, err := s.NSXClient.ClusterControlPlanesClient.Get(siteId, enforcementpointId, normalizedClusterName)
@@ -218,8 +216,7 @@ func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.
 
 func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, vpcPath string, cert string, existingClusterId *string, obj *v1alpha1.NSXServiceAccount) (string, error) {
 	// create PI
-	hasPI := len(s.PrincipalIdentityStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(obj.UID))) > 0
-	if piObj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName); !hasPI && piObj == nil {
+	if piObj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName); piObj == nil {
 		pi, err := s.NSXClient.WithCertificateClient.Create(mpmodel.PrincipalIdentityWithCertificate{
 			IsProtected: &isProtectedTrue,
 			Name:        &normalizedClusterName,
@@ -243,14 +240,11 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 			return "", err
 		}
 		s.PrincipalIdentityStore.Add(pi)
-	} else if !hasPI != (piObj == nil) {
-		return "", fmt.Errorf("old PI exists")
 	}
 
 	// create ClusterControlPlane
-	hasCCP := len(s.ClusterControlPlaneStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(obj.UID))) > 0
 	clusterId := ""
-	if ccpObj := s.ClusterControlPlaneStore.GetByKey(normalizedClusterName); !hasCCP && ccpObj == nil {
+	if ccpObj := s.ClusterControlPlaneStore.GetByKey(normalizedClusterName); ccpObj == nil {
 		ccp, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, normalizedClusterName, model.ClusterControlPlane{
 			Revision:     &revision1,
 			ResourceType: &antreaClusterResourceType,
@@ -264,8 +258,6 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 		}
 		s.ClusterControlPlaneStore.Add(ccp)
 		clusterId = *ccp.NodeId
-	} else if !hasCCP != (ccpObj == nil) {
-		return "", fmt.Errorf("old CCP exists")
 	}
 	return clusterId, nil
 }
