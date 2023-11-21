@@ -38,6 +38,7 @@ type SubnetSetStatus struct {
 	Subnets    []SubnetInfo `json:"subnets"`
 }
 
+// +genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 

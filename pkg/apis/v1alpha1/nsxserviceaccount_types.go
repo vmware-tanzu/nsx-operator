@@ -73,6 +73,7 @@ type NSXServiceAccountStatus struct {
 	Secrets        []NSXSecret        `json:"secrets,omitempty"`
 }
 
+// +genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
