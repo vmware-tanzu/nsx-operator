@@ -69,9 +69,10 @@ func ZapLogger(cf *config.NSXOperatorConfig) logr.Logger {
 	// In level.go of zapcore, higher levels are more important.
 	// However, in logr.go, a higher verbosity level means a log message is less important.
 	// So we need to reverse the order of the levels.
-	opts.Level = zapcore.Level(-1 * config.LogLevel)
+	logLevel := getLogLevel(cf)
+	opts.Level = zapcore.Level(-1 * logLevel)
 	opts.ZapOpts = append(opts.ZapOpts, zap.AddCaller(), zap.AddCallerSkip(0))
-	if config.LogLevel > 0 {
+	if logLevel > 0 {
 		opts.StacktraceLevel = zap.ErrorLevel
 	}
 

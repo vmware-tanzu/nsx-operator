@@ -26,7 +26,7 @@ var (
 	LogLevel               int
 	ProbeAddr, MetricsAddr string
 	configFilePath         = ""
-	log                    = logf.Log.WithName("config")
+	configLog              *zap.SugaredLogger
 	tokenProvider          auth.TokenProvider
 )
 
@@ -38,6 +38,11 @@ type NSXOperatorConfig struct {
 	*K8sConfig
 	*VCConfig
 	*HAConfig
+}
+
+func init() {
+	zapLogger, _ := zap.NewProduction()
+	configLog = zapLogger.Sugar()
 }
 
 func (operatorConfig *NSXOperatorConfig) HAEnabled() bool {
@@ -202,7 +207,7 @@ func (operatorConfig *NSXOperatorConfig) GetTokenProvider() auth.TokenProvider {
 }
 
 func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
-	log.V(1).Info("try to load VC host CA")
+	configLog.Info("try to load VC host CA")
 	var vcCaCert []byte
 	var err error
 	if !operatorConfig.Insecure {
@@ -248,12 +253,6 @@ func (vcConfig *VCConfig) validate() error {
 		configLog.Info("validate VcConfig failed VCUser %s VCPassword %s", vcConfig.VCUser, vcConfig.VCPassword)
 		return err
 	}
-	// VCPassword, VCUser should be both empty or valid
-	if !((len(vcConfig.VCPassword) > 0) == (len(vcConfig.VCUser) > 0)) {
-		err := errors.New("invalid field " + "VCUser, VCPassword")
-		log.Info("validate VcConfig failed", "VCUser", vcConfig.VCUser, "VCPassword", vcConfig.VCPassword)
-		return err
-	}
 	return nil
 }
 
@@ -281,28 +280,28 @@ func (nsxConfig *NsxConfig) validateCert() error {
 	// ca file(thumbprint) == 1 or equal to manager count
 	if caCount == 0 && tpCount == 0 {
 		err := errors.New("no ca file or thumbprint provided")
-		log.Error(err, "validate NsxConfig failed")
+		configLog.Error(err, "validate NsxConfig failed")
 		return err
 	}
 	if caCount > 0 {
-		log.V(1).Info("validate CA file", "CA file number", caCount)
+		configLog.Infof("validate CA file: %s", caCount)
 		if caCount > 1 && caCount != mCount {
 			err := errors.New("ca file count not match manager count")
-			log.Error(err, "validate NsxConfig failed", "ca file count", caCount, "manager count", mCount)
+			configLog.Error(err, "validate NsxConfig failed", "ca file count", caCount, "manager count", mCount)
 			return err
 		}
 		for _, file := range nsxConfig.CaFile {
 			if _, err := os.Stat(file); os.IsNotExist(err) {
 				err = fmt.Errorf("ca file does not exist %s", file)
-				log.Error(err, "validate NsxConfig failed")
+				configLog.Error(err, "validate NsxConfig failed")
 				return err
 			}
 		}
 	} else {
-		log.V(1).Info("validate thumbprint", "thumbprint number", tpCount)
+		configLog.Infof("validate thumbprint: %s", tpCount)
 		if tpCount > 1 && tpCount != mCount {
 			err := errors.New("thumbprint count not match manager count")
-			log.Error(err, "validate NsxConfig failed", "thumbprint count", tpCount, "manager count", mCount)
+			configLog.Error(err, "validate NsxConfig failed", "thumbprint count", tpCount, "manager count", mCount)
 			return err
 		}
 	}
@@ -314,7 +313,7 @@ func (nsxConfig *NsxConfig) validate(enableVPC bool) error {
 	mCount := len(nsxConfig.NsxApiManagers)
 	if mCount == 0 {
 		err := errors.New("invalid field " + "NsxApiManagers")
-		log.Error(err, "validate NsxConfig failed", "NsxApiManagers", nsxConfig.NsxApiManagers)
+		configLog.Error(err, "validate NsxConfig failed", "NsxApiManagers", nsxConfig.NsxApiManagers)
 		return err
 	}
 	if err := nsxConfig.validateCert(); err != nil {
