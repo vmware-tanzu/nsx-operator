@@ -19,6 +19,8 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ports"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -47,12 +49,16 @@ type Client struct {
 	RuleClient                 security_policies.RulesClient
 	InfraClient                nsx_policy.InfraClient
 	ClusterControlPlanesClient enforcement_points.ClusterControlPlanesClient
+	SubnetStatusClient         subnets.StatusClient
 	RealizedEntitiesClient     realized_state.RealizedEntitiesClient
 
 	MPQueryClient             mpsearch.QueryClient
 	CertificatesClient        trust_management.CertificatesClient
 	PrincipalIdentitiesClient trust_management.PrincipalIdentitiesClient
 	WithCertificateClient     principal_identities.WithCertificateClient
+
+	PortClient      subnets.PortsClient
+	PortStateClient ports.StateClient
 
 	NSXChecker    NSXHealthChecker
 	NSXVerChecker NSXVersionChecker
@@ -107,6 +113,10 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	principalIdentitiesClient := trust_management.NewPrincipalIdentitiesClient(restConnector(cluster))
 	withCertificateClient := principal_identities.NewWithCertificateClient(restConnector(cluster))
 
+	portClient := subnets.NewPortsClient(restConnector(cluster))
+	portStateClient := ports.NewStateClient(restConnector(cluster))
+	subnetStatusClient := subnets.NewStatusClient(restConnector(cluster))
+
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
 	}
@@ -131,6 +141,10 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		CertificatesClient:        certificatesClient,
 		PrincipalIdentitiesClient: principalIdentitiesClient,
 		WithCertificateClient:     withCertificateClient,
+
+		PortClient:         portClient,
+		PortStateClient:    portStateClient,
+		SubnetStatusClient: subnetStatusClient,
 
 		NSXChecker:    *nsxChecker,
 		NSXVerChecker: *nsxVersionChecker,

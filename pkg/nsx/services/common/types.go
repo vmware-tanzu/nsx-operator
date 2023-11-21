@@ -20,6 +20,7 @@ const (
 	MaxIdLength                     int    = 255
 	TagScopeCluster                 string = "nsx-op/cluster"
 	TagScopeNamespace               string = "nsx-op/namespace"
+	TagScopeNamespaceUID            string = "nsx-op/namespace_uid"
 	TagScopeSecurityPolicyCRName    string = "nsx-op/security_policy_cr_name"
 	TagScopeSecurityPolicyCRUID     string = "nsx-op/security_policy_cr_uid"
 	TagScopeRuleID                  string = "nsx-op/rule_id"
@@ -34,12 +35,15 @@ const (
 	TagScopeNCPVNETInterface        string = "ncp/vnet_interface"
 	TagScopeVPCCRName               string = "nsx-op/vpc_cr_name"
 	TagScopeVPCCRUID                string = "nsx-op/vpc_cr_uid"
+	TagScopeSubnetPortCRName        string = "nsx-op/subnetport_cr_name"
+	TagScopeSubnetPortCRUID         string = "nsx-op/subnetport_cr_uid"
+	LabelDefaultSubnetSet           string = "nsxoperator.vmware.com/default-subnetset-for"
 
 	GCInterval    = 60 * time.Second
 	FinalizerName = "securitypolicy.nsx.vmware.com/finalizer"
 
-	NSXServiceAccountFinalizerName        = "nsxserviceaccount.nsx.vmware.com/finalizer"
-	GCValidationInterval           uint16 = 720
+	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
+	SubnetPortFinalizerName        = "subnetport.nsx.vmware.com/finalizer"
 )
 
 var (
@@ -48,6 +52,8 @@ var (
 	ResourceTypeGroup          = "Group"
 	ResourceTypeRule           = "Rule"
 	ResourceTypeVpc            = "Vpc"
+	ResourceTypeSubnetPort     = "VpcSubnetPort"
+	ResourceTypeVirtualMachine = "VirtualMachine"
 	// ResourceTypeClusterControlPlane is used by NSXServiceAccountController
 	ResourceTypeClusterControlPlane = "clustercontrolplane"
 	// ResourceTypePrincipalIdentity is used by NSXServiceAccountController, and it is MP resource type.
