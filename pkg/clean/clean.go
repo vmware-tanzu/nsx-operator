@@ -85,7 +85,8 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig) (*CleanupService, er
 		AddCleanupService(wrapInitializeSubnetService(commonService)).
 		AddCleanupService(wrapInitializeSecurityPolicy(commonService)).
 		AddCleanupService(wrapInitializeIPPool(commonService)).
-		AddCleanupService(wrapInitializeStaticRoute(commonService))
+		AddCleanupService(wrapInitializeStaticRoute(commonService)).
+		AddCleanupService(wrapInitializeVPC(commonService))
 
 	return cleanupService, nil
 }
