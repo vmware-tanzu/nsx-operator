@@ -41,12 +41,12 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	config.AddFlags()
+
+	logf.SetLogger(logger.ZapLogger())
 	cf, err = config.NewNSXOperatorConfigFromFile()
 	if err != nil {
 		os.Exit(1)
 	}
-
-	logf.SetLogger(logger.ZapLogger())
 
 	if os.Getenv("NSX_OPERATOR_NAMESPACE") != "" {
 		nsxOperatorNamespace = os.Getenv("NSX_OPERATOR_NAMESPACE")
