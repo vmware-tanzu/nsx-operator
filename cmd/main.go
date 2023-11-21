@@ -28,12 +28,10 @@ import (
 )
 
 var (
-	scheme                 = runtime.NewScheme()
-	probeAddr, metricsAddr string
-	log                    = logger.Log
-	cf                     *config.NSXOperatorConfig
-	nsxOperatorNamespace   = "default"
-	enableHA               = true
+	scheme               = runtime.NewScheme()
+	log                  = logger.Log
+	cf                   *config.NSXOperatorConfig
+	nsxOperatorNamespace = "default"
 )
 
 func init() {
@@ -41,21 +39,20 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	config.AddFlags()
-
 	cf, err = config.NewNSXOperatorConfigFromFile()
 	if err != nil {
 		os.Exit(1)
 	}
 
+	logf.SetLogger(logger.ZapLogger())
+
 	if os.Getenv("NSX_OPERATOR_NAMESPACE") != "" {
 		nsxOperatorNamespace = os.Getenv("NSX_OPERATOR_NAMESPACE")
 	}
 
-	if cf.EnableHA == nil || *cf.EnableHA == true {
-		enableHA = true
+	if cf.HAEnabled() {
 		log.Info("HA mode enabled")
 	} else {
-		enableHA = false
 		log.Info("HA mode disabled")
 	}
 
@@ -105,9 +102,9 @@ func main() {
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                  scheme,
-		HealthProbeBindAddress:  probeAddr,
-		MetricsBindAddress:      metricsAddr,
-		LeaderElection:          enableHA,
+		HealthProbeBindAddress:  config.ProbeAddr,
+		MetricsBindAddress:      config.MetricsAddr,
+		LeaderElection:          cf.HAEnabled(),
 		LeaderElectionNamespace: nsxOperatorNamespace,
 		LeaderElectionID:        "nsx-operator",
 	})

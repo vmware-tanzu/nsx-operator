@@ -26,7 +26,7 @@ var (
 	LogLevel               int
 	ProbeAddr, MetricsAddr string
 	configFilePath         = ""
-	configLog              *zap.SugaredLogger
+	log                    = logf.Log.WithName("config")
 	tokenProvider          auth.TokenProvider
 )
 
@@ -38,6 +38,13 @@ type NSXOperatorConfig struct {
 	*K8sConfig
 	*VCConfig
 	*HAConfig
+}
+
+func (operatorConfig *NSXOperatorConfig) HAEnabled() bool {
+	if operatorConfig.EnableHA == nil || *operatorConfig.EnableHA == true {
+		return true
+	}
+	return false
 }
 
 type DefaultConfig struct {
