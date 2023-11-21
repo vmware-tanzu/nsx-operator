@@ -200,11 +200,10 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 						},
 					},
 				}))
-				cluster := &nsx.Cluster{}
-				patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *nsx.Cluster) (*nsx.NsxVersion, error) {
-					nsxVersion := &nsx.NsxVersion{NodeVersion: "4.0.1"}
-					return nsxVersion, nil
-				})
+				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{true},
+					Times:  1,
+				}})
 				return
 			},
 			args:    requestArgs,

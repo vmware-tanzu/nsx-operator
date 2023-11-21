@@ -19,6 +19,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ports"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
@@ -28,11 +29,8 @@ import (
 )
 
 const (
-	VPC = iota
-	SecurityPolicy
+	SecurityPolicy = iota
 	ServiceAccount
-	ServiceAccountRestore
-	ServiceAccountCertRotation
 	StaticRoute
 	AllFeatures
 )
@@ -48,6 +46,7 @@ type Client struct {
 	SecurityClient             domains.SecurityPoliciesClient
 	RuleClient                 security_policies.RulesClient
 	InfraClient                nsx_policy.InfraClient
+	StaticRouteClient          vpcs.StaticRoutesClient
 	ClusterControlPlanesClient enforcement_points.ClusterControlPlanesClient
 	SubnetStatusClient         subnets.StatusClient
 	RealizedEntitiesClient     realized_state.RealizedEntitiesClient
@@ -64,10 +63,11 @@ type Client struct {
 	NSXVerChecker NSXVersionChecker
 }
 
-var nsx320Version = [3]int64{3, 2, 0}
-var nsx401Version = [3]int64{4, 0, 1}
-var nsx412Version = [3]int64{4, 1, 2}
-var nsx413Version = [3]int64{4, 1, 3}
+var (
+	nsx320Version = [3]int64{3, 2, 0}
+	nsx401Version = [3]int64{4, 0, 1}
+	nsx410Version = [3]int64{4, 1, 0}
+)
 
 type NSXHealthChecker struct {
 	cluster *Cluster
@@ -105,6 +105,9 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	securityClient := domains.NewSecurityPoliciesClient(restConnector(cluster))
 	ruleClient := security_policies.NewRulesClient(restConnector(cluster))
 	infraClient := nsx_policy.NewInfraClient(restConnector(cluster))
+
+	staticRouteClient := vpcs.NewStaticRoutesClient(restConnector(cluster))
+
 	clusterControlPlanesClient := enforcement_points.NewClusterControlPlanesClient(restConnector(cluster))
 	realizedEntitiesClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
 
@@ -126,14 +129,14 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	}
 
 	nsxClient := &Client{
-		NsxConfig:      cf,
-		RestConnector:  restConnector(cluster),
-		QueryClient:    queryClient,
-		GroupClient:    groupClient,
-		SecurityClient: securityClient,
-		RuleClient:     ruleClient,
-		InfraClient:    infraClient,
-
+		NsxConfig:                  cf,
+		RestConnector:              restConnector(cluster),
+		QueryClient:                queryClient,
+		GroupClient:                groupClient,
+		SecurityClient:             securityClient,
+		RuleClient:                 ruleClient,
+		InfraClient:                infraClient,
+		StaticRouteClient:          staticRouteClient,
 		ClusterControlPlanesClient: clusterControlPlanesClient,
 		RealizedEntitiesClient:     realizedEntitiesClient,
 
@@ -159,19 +162,23 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		err := errors.New("NSXServiceAccount feature support check failed")
 		log.Error(err, "initial NSX version check for NSXServiceAccount got error")
 	}
-	if !nsxClient.NSXCheckVersion(ServiceAccountRestore) {
-		err := errors.New("NSXServiceAccountRestore feature support check failed")
-		log.Error(err, "initial NSX version check for NSXServiceAccountRestore got error")
-	}
-	if !nsxClient.NSXCheckVersion(ServiceAccountCertRotation) {
-		err := errors.New("ServiceAccountCertRotation feature support check failed")
-		log.Error(err, "initial NSX version check for ServiceAccountCertRotation got error")
-	}
 
 	return nsxClient
 }
 
-func (client *Client) NSXCheckVersion(feature int) bool {
+func (client *Client) NSXCheckVersionForSecurityPolicy() bool {
+	return client.NSXCheckVersion(SecurityPolicy, nsx320Version)
+}
+
+func (client *Client) NSXCheckVersionForNSXServiceAccount() bool {
+	return client.NSXCheckVersion(ServiceAccount, nsx401Version)
+}
+
+func (client *Client) NSXCheckVersionForStaticRoute() bool {
+	return client.NSXCheckVersion(StaticRoute, nsx410Version)
+}
+
+func (client *Client) NSXCheckVersion(feature int, version [3]int64) bool {
 	if client.NSXVerChecker.featureSupported[feature] {
 		return true
 	}
@@ -189,7 +196,7 @@ func (client *Client) NSXCheckVersion(feature int) bool {
 
 	if !nsxVersion.featureSupported(feature) {
 		err = errors.New("NSX version check failed")
-		log.Error(err, FeaturesName[feature]+"feature is not supported", "current version", nsxVersion.NodeVersion)
+		log.Error(err, FeaturesName[feature]+"feature is not supported", "current version", nsxVersion.NodeVersion, "required version", nsx410Version)
 		return false
 	}
 	client.NSXVerChecker.featureSupported[feature] = true

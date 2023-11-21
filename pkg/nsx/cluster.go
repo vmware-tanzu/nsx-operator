@@ -314,6 +314,9 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 	case ServiceAccount:
 		minVersion = nsx401Version
 		validFeature = true
+	case StaticRoute:
+		minVersion = nsx401Version
+		validFeature = true
 	case ServiceAccountRestore:
 		minVersion = nsx412Version
 		validFeature = true

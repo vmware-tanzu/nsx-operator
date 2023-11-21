@@ -1,0 +1,10 @@
+apiVersion: nsx.vmware.com/v1alpha1
+kind: StaticRoute
+metadata:
+  name: test-2
+  namespace: qe
+spec:
+  network: 45.1.2.0/24
+  nextHops:
+  - ipAddress: 172.10.0.2
+  - ipAddress: 172.10.0.1

@@ -12,6 +12,7 @@ const (
 	MetricResTypeSecurityPolicy    = "securitypolicy"
 	MetricResTypeNSXServiceAccount = "nsxserviceaccount"
 	MetricResTypeSubnetPort        = "subnetport"
+	MetricResTypeStaticRoute       = "staticroute"
 )
 
 var (

@@ -19,6 +19,7 @@ import (
 	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
 	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
+	staticroutecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
@@ -130,6 +131,7 @@ func main() {
 
 	// Start the security policy controller.
 	StartSecurityPolicyController(mgr, commonService)
+	staticroutecontroller.StartStaticRouteController(mgr, commonService)
 	// Start the NSXServiceAccount controller.
 	if cf.EnableAntreaNSXInterworking {
 		StartNSXServiceAccountController(mgr, commonService)

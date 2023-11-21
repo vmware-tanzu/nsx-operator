@@ -23,6 +23,8 @@ const (
 	TagScopeNamespaceUID            string = "nsx-op/namespace_uid"
 	TagScopeSecurityPolicyCRName    string = "nsx-op/security_policy_cr_name"
 	TagScopeSecurityPolicyCRUID     string = "nsx-op/security_policy_cr_uid"
+	TagScopeStaticRouteCRName       string = "nsx-op/static_route_cr_name"
+	TagScopeStaticRouteCRUID        string = "nsx-op/static_route_cr_uid"
 	TagScopeRuleID                  string = "nsx-op/rule_id"
 	TagScopeGroupType               string = "nsx-op/group_type"
 	TagScopeSelectorHash            string = "nsx-op/selector_hash"
@@ -39,9 +41,9 @@ const (
 	TagScopeSubnetPortCRUID         string = "nsx-op/subnetport_cr_uid"
 	LabelDefaultSubnetSet           string = "nsxoperator.vmware.com/default-subnetset-for"
 
-	GCInterval    = 60 * time.Second
-	FinalizerName = "securitypolicy.nsx.vmware.com/finalizer"
-
+	GCInterval                     = 60 * time.Second
+	FinalizerName                  = "securitypolicy.nsx.vmware.com/finalizer"
+	StaticRouteFinalizerName       = "staticroute.nsx.vmware.com/finalizer"
 	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
 	SubnetPortFinalizerName        = "subnetport.nsx.vmware.com/finalizer"
 )
