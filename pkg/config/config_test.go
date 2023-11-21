@@ -88,7 +88,6 @@ func TestConfig_NsxConfig(t *testing.T) {
 	expect = errors.New("thumbprint count not match manager count")
 	err = nsxConfig.validate(false)
 	assert.Equal(t, err, expect)
-
 }
 
 func TestConfig_NewNSXOperatorConfigFromFile(t *testing.T) {
