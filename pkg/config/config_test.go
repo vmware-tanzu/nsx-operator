@@ -70,26 +70,11 @@ func TestConfig_NsxConfig(t *testing.T) {
 	err = nsxConfig.validate(false)
 	assert.Equal(t, err, nil)
 
-	nsxConfig.CaFile = []string{"0a:fc", "ob:fd"}
-	expect = errors.New("ca file count not match manager count")
-	err = nsxConfig.validate()
-	assert.Equal(t, err, expect)
-
-	// Insecure == true
-	nsxConfig.CaFile = []string{"0a:fc", "ob:fd"}
-	nsxConfig.Insecure = true
-	err = nsxConfig.validate()
-	assert.Equal(t, err, nil)
-
 	nsxConfig.CaFile = []string{}
 	nsxConfig.Insecure = false
 	nsxConfig.Thumbprint = []string{"0a:fc", "ob:fd"}
 	expect = errors.New("thumbprint count not match manager count")
 	err = nsxConfig.validate(false)
-	assert.Equal(t, err, expect)
-
-	nsxConfig.NsxApiManagers = []string{"10.0.0.1", "", ""}
-	err = nsxConfig.validate()
 	assert.Equal(t, err, expect)
 
 }

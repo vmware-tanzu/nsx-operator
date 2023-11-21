@@ -178,7 +178,7 @@ func LoadConfigFromFile() (*NSXOperatorConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if err := nsxOperatorConfig.validate(); err != nil {
 		return nil, err
 	}
@@ -343,7 +343,6 @@ func (nsxConfig *NsxConfig) validate() error {
 	if err := nsxConfig.validateCert(); err != nil {
 		return err
 	}
-	enableVPC := coeConfig.EnableVPCNetwork
 	if enableVPC {
 		if nsxConfig.DefaultProject == "" || len(nsxConfig.ExternalIPv4Blocks) == 0 {
 			err := errors.New("default_project is none or external_ipv4_blocks is empty")
