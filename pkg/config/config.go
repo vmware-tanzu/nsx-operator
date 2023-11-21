@@ -7,7 +7,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 
 	"go.uber.org/zap"
@@ -91,14 +90,6 @@ type VCConfig struct {
 	VCUser     string `ini:"user"`
 	VCPassword string `ini:"password"`
 	VCCAFile   string `ini:"ca_file"`
-}
-
-type HAConfig struct {
-	EnableHA *bool `ini:"enable"`
-}
-
-type HAConfig struct {
-	EnableHA bool `ini:"enable"`
 }
 
 type HAConfig struct {
@@ -220,7 +211,7 @@ func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
 		} else {
 			vcCaCert, err = os.ReadFile(vcHostCACertPath)
 		}
-		// If operatorConfig.VCInsecure is false, tls will the CA to verify the server
+		// If operatorConfig.VCInsecure is false, tls will use the CA to verify the server
 		// certificate. If loading CA failed, tls will use the CA on local host
 		if err != nil {
 			configLog.Info("fail to load CA cert from file", "error", err)
@@ -255,6 +246,12 @@ func (vcConfig *VCConfig) validate() error {
 	if !((len(vcConfig.VCPassword) > 0) == (len(vcConfig.VCUser) > 0)) {
 		err := errors.New("invalid field " + "VCUser, VCPassword")
 		configLog.Info("validate VcConfig failed VCUser %s VCPassword %s", vcConfig.VCUser, vcConfig.VCPassword)
+		return err
+	}
+	// VCPassword, VCUser should be both empty or valid
+	if !((len(vcConfig.VCPassword) > 0) == (len(vcConfig.VCUser) > 0)) {
+		err := errors.New("invalid field " + "VCUser, VCPassword")
+		log.Info("validate VcConfig failed", "VCUser", vcConfig.VCUser, "VCPassword", vcConfig.VCPassword)
 		return err
 	}
 	return nil
