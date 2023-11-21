@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 
 	"go.uber.org/zap"
@@ -259,17 +260,13 @@ func (vcConfig *VCConfig) validate() error {
 	return nil
 }
 
-func (nsxConfig *NsxConfig) validate(enableVPC bool) error {
-	mCount := len(nsxConfig.NsxApiManagers)
-	if mCount == 0 {
-		err := errors.New("invalid field " + "NsxApiManagers")
-		log.Error(err, "validate NsxConfig failed", "NsxApiManagers", nsxConfig.NsxApiManagers)
-		return err
-	}
-	tpCount := len(nsxConfig.Thumbprint)
-	if tpCount == 0 {
-		log.V(1).Info("no thumbprint provided")
-		return nil
+func removeEmptyItem(source []string) []string {
+	target := make([]string, 0)
+	for _, value := range source {
+		if len(value) == 0 {
+			continue
+		}
+		target = append(target, value)
 	}
 	return target
 }
@@ -287,44 +284,46 @@ func (nsxConfig *NsxConfig) validateCert() error {
 	// ca file(thumbprint) == 1 or equal to manager count
 	if caCount == 0 && tpCount == 0 {
 		err := errors.New("no ca file or thumbprint provided")
-		configLog.Error(err, "validate NsxConfig failed")
+		log.Error(err, "validate NsxConfig failed")
 		return err
 	}
-	if enableVPC {
-		if nsxConfig.DefaultProject == "" || len(nsxConfig.ExternalIPv4Blocks) == 0 {
-			err := errors.New("default_project is none or external_ipv4_blocks is empty")
-			log.Error(err, "validate VPCConfig failed")
+	if caCount > 0 {
+		log.V(1).Info("validate CA file", "CA file number", caCount)
+		if caCount > 1 && caCount != mCount {
+			err := errors.New("ca file count not match manager count")
+			log.Error(err, "validate NsxConfig failed", "ca file count", caCount, "manager count", mCount)
 			return err
 		}
 		for _, file := range nsxConfig.CaFile {
 			if _, err := os.Stat(file); os.IsNotExist(err) {
 				err = fmt.Errorf("ca file does not exist %s", file)
-				configLog.Error(err, "validate NsxConfig failed")
+				log.Error(err, "validate NsxConfig failed")
 				return err
 			}
 		}
 	} else {
-		configLog.Infof("validate thumbprint: %s", tpCount)
+		log.V(1).Info("validate thumbprint", "thumbprint number", tpCount)
 		if tpCount > 1 && tpCount != mCount {
 			err := errors.New("thumbprint count not match manager count")
-			configLog.Error(err, "validate NsxConfig failed", "thumbprint count", tpCount, "manager count", mCount)
+			log.Error(err, "validate NsxConfig failed", "thumbprint count", tpCount, "manager count", mCount)
 			return err
 		}
 	}
 	return nil
 }
 
-func (nsxConfig *NsxConfig) validate() error {
+func (nsxConfig *NsxConfig) validate(enableVPC bool) error {
 	nsxConfig.NsxApiManagers = removeEmptyItem(nsxConfig.NsxApiManagers)
 	mCount := len(nsxConfig.NsxApiManagers)
 	if mCount == 0 {
 		err := errors.New("invalid field " + "NsxApiManagers")
-		configLog.Error(err, "validate NsxConfig failed", "NsxApiManagers", nsxConfig.NsxApiManagers)
+		log.Error(err, "validate NsxConfig failed", "NsxApiManagers", nsxConfig.NsxApiManagers)
 		return err
 	}
 	if err := nsxConfig.validateCert(); err != nil {
 		return err
 	}
+	nsxConfig.ExternalIPv4Blocks = removeEmptyItem(nsxConfig.ExternalIPv4Blocks)
 	if enableVPC {
 		if nsxConfig.DefaultProject == "" || len(nsxConfig.ExternalIPv4Blocks) == 0 {
 			err := errors.New("default_project is none or external_ipv4_blocks is empty")

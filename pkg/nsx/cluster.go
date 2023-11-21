@@ -124,11 +124,11 @@ func (cluster *Cluster) getThumbprint(addr string) string {
 func (cluster *Cluster) getCaFile(addr string) string {
 	host := addr[:strings.Index(addr, ":")]
 	var cafile string
-	caCount := len(cluster.config.CAFile)
-	if caCount == 1 {
+	tpCount := len(cluster.config.CAFile)
+	if tpCount == 1 {
 		cafile = cluster.config.CAFile[0]
 	}
-	if caCount > 1 {
+	if tpCount > 1 {
 		for index, ep := range cluster.endpoints {
 			epHost := ep.Host()
 			if pos := strings.Index(ep.Host(), ":"); pos > 0 {
