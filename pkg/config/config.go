@@ -174,10 +174,6 @@ func LoadConfigFromFile() (*NSXOperatorConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = cfg.Section("ha").MapTo(nsxOperatorConfig.HAConfig)
-	if err != nil {
-		return nil, err
-	}
 
 	if err := nsxOperatorConfig.validate(); err != nil {
 		return nil, err
@@ -198,9 +194,7 @@ func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
 func NewNSXOpertorConfig() *NSXOperatorConfig {
 	defaultNSXOperatorConfig := &NSXOperatorConfig{
 		&DefaultConfig{},
-		&CoeConfig{
-			"",
-		},
+		&CoeConfig{},
 		&NsxConfig{},
 		&K8sConfig{},
 		&VCConfig{},
@@ -214,7 +208,7 @@ func (operatorConfig *NSXOperatorConfig) validate() error {
 	if err := operatorConfig.CoeConfig.validate(); err != nil {
 		return err
 	}
-	if err := operatorConfig.NsxConfig.validate(); err != nil {
+	if err := operatorConfig.NsxConfig.validate(operatorConfig.CoeConfig.EnableVPCNetwork); err != nil {
 		return err
 	}
 	// TODO, verify if user&pwd, cert, jwt has any of them provided
@@ -279,13 +273,17 @@ func (vcConfig *VCConfig) validate() error {
 	return nil
 }
 
-func removeEmptyItem(source []string) []string {
-	target := make([]string, 0)
-	for _, value := range source {
-		if len(value) == 0 {
-			continue
-		}
-		target = append(target, value)
+func (nsxConfig *NsxConfig) validate(enableVPC bool) error {
+	mCount := len(nsxConfig.NsxApiManagers)
+	if mCount == 0 {
+		err := errors.New("invalid field " + "NsxApiManagers")
+		log.Error(err, "validate NsxConfig failed", "NsxApiManagers", nsxConfig.NsxApiManagers)
+		return err
+	}
+	tpCount := len(nsxConfig.Thumbprint)
+	if tpCount == 0 {
+		log.V(1).Info("no thumbprint provided")
+		return nil
 	}
 	return target
 }
@@ -306,11 +304,10 @@ func (nsxConfig *NsxConfig) validateCert() error {
 		configLog.Error(err, "validate NsxConfig failed")
 		return err
 	}
-	if caCount > 0 {
-		configLog.Infof("validate CA file: %s", caCount)
-		if caCount > 1 && caCount != mCount {
-			err := errors.New("ca file count not match manager count")
-			configLog.Error(err, "validate NsxConfig failed", "ca file count", caCount, "manager count", mCount)
+	if enableVPC {
+		if nsxConfig.DefaultProject == "" || len(nsxConfig.ExternalIPv4Blocks) == 0 {
+			err := errors.New("default_project is none or external_ipv4_blocks is empty")
+			log.Error(err, "validate VPCConfig failed")
 			return err
 		}
 		for _, file := range nsxConfig.CaFile {
