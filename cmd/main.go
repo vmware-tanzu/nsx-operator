@@ -28,10 +28,12 @@ import (
 )
 
 var (
-	scheme               = runtime.NewScheme()
-	log                  = logger.Log
-	cf                   *config.NSXOperatorConfig
-	nsxOperatorNamespace = "default"
+	scheme                 = runtime.NewScheme()
+	probeAddr, metricsAddr string
+	log                    = logger.Log
+	cf                     *config.NSXOperatorConfig
+	nsxOperatorNamespace   = "default"
+	enableHA               = true
 )
 
 func init() {
@@ -45,16 +47,12 @@ func init() {
 		os.Exit(1)
 	}
 
-	logf.SetLogger(logger.ZapLogger(cf))
-
 	if os.Getenv("NSX_OPERATOR_NAMESPACE") != "" {
 		nsxOperatorNamespace = os.Getenv("NSX_OPERATOR_NAMESPACE")
 	}
 
-	if cf.HAEnabled() {
-		log.Info("HA mode enabled")
-	} else {
-		log.Info("HA mode disabled")
+	if cf.EnableHA == false {
+		enableHA = false
 	}
 
 	if metrics.AreMetricsExposed(cf) {
@@ -101,11 +99,15 @@ func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Ser
 func main() {
 	log.Info("starting NSX Operator")
 
+	if enableHA {
+		log.Info("HA mode enabled")
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                  scheme,
-		HealthProbeBindAddress:  config.ProbeAddr,
-		MetricsBindAddress:      config.MetricsAddr,
-		LeaderElection:          cf.HAEnabled(),
+		HealthProbeBindAddress:  probeAddr,
+		MetricsBindAddress:      metricsAddr,
+		LeaderElection:          enableHA,
 		LeaderElectionNamespace: nsxOperatorNamespace,
 		LeaderElectionID:        "nsx-operator",
 	})
