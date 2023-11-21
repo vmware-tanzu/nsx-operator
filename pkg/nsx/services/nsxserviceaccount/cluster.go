@@ -548,7 +548,7 @@ func GenerateNSXServiceAccountConditions(existingConditions []metav1.Condition, 
 	return conditions
 }
 
-func IsNSXServiceAccountRealized(status *v1alpha1.NSXServiceAccountStatus) bool {
+func IsNSXServiceAccountRealized(status v1alpha1.NSXServiceAccountStatus) bool {
 	for _, condition := range status.Conditions {
 		if condition.Type == v1alpha1.ConditionTypeRealized && condition.Status == metav1.ConditionTrue {
 			return true

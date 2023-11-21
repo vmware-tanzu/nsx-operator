@@ -229,45 +229,6 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "RestoreFail",
-			prepareFunc: func(t *testing.T, r *NSXServiceAccountReconciler, ctx context.Context) (patches *gomonkey.Patches) {
-				assert.NoError(t, r.Client.Create(ctx, &nsxvmwarecomv1alpha1.NSXServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: requestArgs.req.Namespace,
-						Name:      requestArgs.req.Name,
-					},
-					Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
-						Phase: nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
-					},
-				}))
-				cluster := &nsx.Cluster{}
-				patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *nsx.Cluster) (*nsx.NsxVersion, error) {
-					nsxVersion := &nsx.NsxVersion{NodeVersion: "4.1.2"}
-					return nsxVersion, nil
-				})
-				patches.ApplyMethodSeq(r.Service, "RestoreRealizedNSXServiceAccount", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{fmt.Errorf("mock error")},
-					Times:  1,
-				}})
-				return
-			},
-			args:    requestArgs,
-			want:    ResultRequeue,
-			wantErr: true,
-			expectedCR: &nsxvmwarecomv1alpha1.NSXServiceAccount{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace:       requestArgs.req.Namespace,
-					Name:            requestArgs.req.Name,
-					Finalizers:      []string{servicecommon.NSXServiceAccountFinalizerName},
-					ResourceVersion: "2",
-				},
-				Spec: nsxvmwarecomv1alpha1.NSXServiceAccountSpec{},
-				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
-					Phase: nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
-				},
-			},
-		},
-		{
 			name: "CreateSuccess",
 			prepareFunc: func(t *testing.T, r *NSXServiceAccountReconciler, ctx context.Context) (patches *gomonkey.Patches) {
 				assert.NoError(t, r.Client.Create(ctx, &nsxvmwarecomv1alpha1.NSXServiceAccount{

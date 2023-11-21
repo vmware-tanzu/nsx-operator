@@ -92,14 +92,7 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			log.V(1).Info("added finalizer on CR", "nsxserviceaccount", req.NamespacedName)
 		}
 
-		if nsxserviceaccount.IsNSXServiceAccountRealized(&obj.Status) {
-			if r.Service.NSXClient.NSXCheckVersion(nsx.ServiceAccountRestore) {
-				if err := r.Service.RestoreRealizedNSXServiceAccount(ctx, obj); err != nil {
-					log.Error(err, "update realized failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
-					metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
-					return ResultRequeue, err
-				}
-			}
+		if nsxserviceaccount.IsNSXServiceAccountRealized(obj.Status) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
 			return ResultNormal, nil
 		}
