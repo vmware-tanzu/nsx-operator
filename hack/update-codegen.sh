@@ -28,4 +28,8 @@ ${GROUP}:v1alpha1,v1alpha2 \
 --output-base "${SCRIPT_ROOT}" -v 10
 
 mv ./${OUTPUT_PKG} ./pkg/
+cd ./pkg/client
+go mod init github.com/vmware-tanzu/nsx-operator/pkg/client
+go mod tidy
+cd ../../
 rm -rf ./github.com
