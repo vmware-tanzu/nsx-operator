@@ -3,7 +3,6 @@ package ippool
 import (
 	"testing"
 
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
@@ -11,8 +10,6 @@ import (
 )
 
 func TestIPPoolService_WrapHierarchyIPPool(t *testing.T) {
-	Converter := bindings.NewTypeConverter()
-	Converter.SetMode(bindings.REST)
 	service := fakeService()
 	iapbs := []*model.IpAddressPoolBlockSubnet{
 		&model.IpAddressPoolBlockSubnet{

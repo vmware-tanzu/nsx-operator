@@ -52,7 +52,6 @@ func fakeService() *SecurityPolicyService {
 
 func TestSecurityPolicyService_wrapSecurityPolicy(t *testing.T) {
 	Converter := bindings.NewTypeConverter()
-	Converter.SetMode(bindings.REST)
 	service := fakeService()
 	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_cr_uid"
 	markDelete := true
@@ -88,7 +87,6 @@ func TestSecurityPolicyService_wrapSecurityPolicy(t *testing.T) {
 
 func TestSecurityPolicyService_wrapGroups(t *testing.T) {
 	Converter := bindings.NewTypeConverter()
-	Converter.SetMode(bindings.REST)
 	service := fakeService()
 	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_cr_uid"
 	markDelete := true
@@ -125,7 +123,6 @@ func TestSecurityPolicyService_wrapGroups(t *testing.T) {
 
 func TestSecurityPolicyService_wrapRules(t *testing.T) {
 	Converter := bindings.NewTypeConverter()
-	Converter.SetMode(bindings.REST)
 	service := fakeService()
 	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_cr_uid"
 	markDelete := true
@@ -162,7 +159,6 @@ func TestSecurityPolicyService_wrapRules(t *testing.T) {
 
 func TestSecurityPolicyService_wrapResourceReference(t *testing.T) {
 	Converter := bindings.NewTypeConverter()
-	Converter.SetMode(bindings.REST)
 	service := fakeService()
 	type args struct {
 		children []*data.StructValue
