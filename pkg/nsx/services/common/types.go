@@ -134,7 +134,6 @@ type Service struct {
 
 func NewConverter() *bindings.TypeConverter {
 	converter := bindings.NewTypeConverter()
-	converter.SetMode(bindings.REST)
 	return converter
 }
 
