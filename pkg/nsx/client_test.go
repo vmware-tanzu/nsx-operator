@@ -4,11 +4,14 @@
 package nsx
 
 import (
+	"fmt"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
 	"github.com/agiledragon/gomonkey"
 
@@ -135,4 +138,38 @@ func TestGetClient(t *testing.T) {
 
 func IsInstanceOf(objectPtr, typePtr interface{}) bool {
 	return reflect.TypeOf(objectPtr) == reflect.TypeOf(typePtr)
+}
+
+func TestSRGetClient(t *testing.T) {
+	cf := config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{NsxApiUser: "admin", NsxApiPassword: "Admin!23Admin", NsxApiManagers: []string{"10.173.82.128"}}}
+	cf.VCConfig = &config.VCConfig{}
+	client := GetClient(&cf)
+	st, error := client.StaticRouteClient.Get("default", "project-1", "vpc-2", "site1")
+	if error == nil {
+		fmt.Printf("sr %v\n", *st.ResourceType)
+	} else {
+		fmt.Printf("error %v\n", error)
+	}
+	st1 := st
+	ip := "10.0.0.2"
+	dis := int64(1)
+	nexthop := model.RouterNexthop{IpAddress: &ip, AdminDistance: &dis}
+	st1.NextHops = append(st1.NextHops, nexthop)
+	st, error = client.StaticRouteClient.Update("default", "project-1", "vpc-2", "site1", st1)
+	if error == nil {
+		fmt.Printf("sr %v\n", *st.ResourceType)
+	} else {
+		fmt.Printf("error %v\n", error)
+	}
+
+	error = client.StaticRouteClient.Delete("default", "project-1", "vpc-2", "site1")
+	if error == nil {
+		fmt.Printf("delete succ")
+	} else {
+		fmt.Printf("delete error %v\n", error)
+	}
+	a := "/orgs/default/projects/project-1/vpcs/vpc-2/static-routes/site1"
+	b := strings.Split(a, "/")
+	fmt.Printf("b is %v \n", b[2])
+
 }

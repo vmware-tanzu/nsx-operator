@@ -124,11 +124,11 @@ func (cluster *Cluster) getThumbprint(addr string) string {
 func (cluster *Cluster) getCaFile(addr string) string {
 	host := addr[:strings.Index(addr, ":")]
 	var cafile string
-	caCount := len(cluster.config.CAFile)
-	if caCount == 1 {
+	tpCount := len(cluster.config.CAFile)
+	if tpCount == 1 {
 		cafile = cluster.config.CAFile[0]
 	}
-	if caCount > 1 {
+	if tpCount > 1 {
 		for index, ep := range cluster.endpoints {
 			epHost := ep.Host()
 			if pos := strings.Index(ep.Host(), ":"); pos > 0 {
@@ -144,57 +144,62 @@ func (cluster *Cluster) getCaFile(addr string) string {
 }
 
 func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
-	dial := func(network, addr string) (net.Conn, error) {
-		var config *tls.Config
-		cafile := cluster.getCaFile(addr)
-		caCount := len(cluster.config.CAFile)
-		if caCount > 0 {
-			caCert, err := os.ReadFile(cafile)
-			if err != nil {
-				log.Error(err, "create transport", "read ca file", cafile)
-				return nil, err
-			}
-
-			certPool := x509.NewCertPool()
-			certPool.AppendCertsFromPEM(caCert)
-
-			config = &tls.Config{
-				RootCAs: certPool,
-			}
-
-		} else {
-			thumbprint := cluster.getThumbprint(addr)
-			tpCount := len(cluster.config.Thumbprint)
-			config = &tls.Config{
-				InsecureSkipVerify: true,
-				VerifyConnection: func(cs tls.ConnectionState) error {
-					// not check thumbprint if no thumbprint config
-					if tpCount > 0 {
-						fingerprint := calcFingerprint(cs.PeerCertificates[0].Raw)
-						if strings.Compare(fingerprint, thumbprint) == 0 {
-							return nil
-						} else {
-							err := errors.New("server certificate didn't match trusted fingerprint")
-							log.Error(err, "verify thumbprint", "address", addr, "server thumbprint", fingerprint, "local thumbprint", thumbprint)
-							return err
-						}
-					}
-					return nil
-				},
-			}
-		}
-		conn, err := tls.Dial(network, addr, config)
-		if err != nil {
-			log.Error(err, "transport connect to", "addr", addr)
-			return nil, err
-
-		}
-		return conn, nil
-	}
-
 	tr := &http.Transport{
-		DialTLS:         dial,
 		IdleConnTimeout: idle * time.Second,
+	}
+	if cluster.config.Insecure == false {
+		dial := func(network, addr string) (net.Conn, error) {
+			var config *tls.Config
+			cafile := cluster.getCaFile(addr)
+			caCount := len(cluster.config.CAFile)
+			if caCount > 0 {
+				caCert, err := os.ReadFile(cafile)
+				if err != nil {
+					log.Error(err, "create transport", "read ca file", cafile)
+					return nil, err
+				}
+
+				certPool := x509.NewCertPool()
+				certPool.AppendCertsFromPEM(caCert)
+
+				config = &tls.Config{
+					RootCAs: certPool,
+				}
+
+			} else {
+				thumbprint := cluster.getThumbprint(addr)
+				tpCount := len(cluster.config.Thumbprint)
+				config = &tls.Config{
+					InsecureSkipVerify: true,
+					VerifyConnection: func(cs tls.ConnectionState) error {
+						// not check thumbprint if no thumbprint config
+						if tpCount > 0 {
+							fingerprint := calcFingerprint(cs.PeerCertificates[0].Raw)
+							if strings.Compare(fingerprint, thumbprint) == 0 {
+								return nil
+							} else {
+								err := errors.New("server certificate didn't match trusted fingerprint")
+								log.Error(err, "verify thumbprint", "address", addr, "server thumbprint", fingerprint, "local thumbprint", thumbprint)
+								return err
+							}
+						}
+						return nil
+					},
+				}
+			}
+			conn, err := tls.Dial(network, addr, config)
+			if err != nil {
+				log.Error(err, "transport connect to", "addr", addr)
+				return nil, err
+
+			}
+			return conn, nil
+		}
+		tr.DialTLS = dial
+	} else {
+		tr.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true,
+		}
 	}
 	return &Transport{Base: tr}
 }
@@ -308,10 +313,16 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 	var minVersion [3]int64
 	validFeature := false
 	switch feature {
+	case VPC:
+		minVersion = nsx411Version
+		validFeature = true
 	case SecurityPolicy:
 		minVersion = nsx320Version
 		validFeature = true
 	case ServiceAccount:
+		minVersion = nsx401Version
+		validFeature = true
+	case StaticRoute:
 		minVersion = nsx401Version
 		validFeature = true
 	case ServiceAccountRestore:

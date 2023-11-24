@@ -55,7 +55,7 @@ func TestVPC_GetVPCsByNamespace(t *testing.T) {
 	service := &VPCService{
 		Service: common.Service{NSXClient: nil},
 	}
-	service.vpcStore = vpcStore
+	service.VpcStore = vpcStore
 	type args struct {
 		i interface{}
 		j interface{}
@@ -100,21 +100,21 @@ func TestVPC_GetVPCsByNamespace(t *testing.T) {
 	}
 	vpc1 := model.Vpc{
 
-		DisplayName:       &vpcName1,
-		Id:                &vpcID1,
-		Tags:              tag1,
-		IpAddressType:     &IPv4Type,
-		PrivateIpv4Blocks: []string{"1.1.1.0/24"},
-		PublicIpv4Blocks:  []string{"2.2.2.0/24"},
+		DisplayName:        &vpcName1,
+		Id:                 &vpcID1,
+		Tags:               tag1,
+		IpAddressType:      &IPv4Type,
+		PrivateIpv4Blocks:  []string{"1.1.1.0/24"},
+		ExternalIpv4Blocks: []string{"2.2.2.0/24"},
 	}
 	vpc2 := model.Vpc{
 
-		DisplayName:       &vpcName2,
-		Id:                &vpcID2,
-		Tags:              tag2,
-		IpAddressType:     &IPv4Type,
-		PrivateIpv4Blocks: []string{"3.3.3.0/24"},
-		PublicIpv4Blocks:  []string{"4.4.4.0/24"},
+		DisplayName:        &vpcName2,
+		Id:                 &vpcID2,
+		Tags:               tag2,
+		IpAddressType:      &IPv4Type,
+		PrivateIpv4Blocks:  []string{"3.3.3.0/24"},
+		ExternalIpv4Blocks: []string{"4.4.4.0/24"},
 	}
 	tests := []struct {
 		name    string
@@ -125,8 +125,8 @@ func TestVPC_GetVPCsByNamespace(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vpcStore.Operate(&vpc1)
-			vpcStore.Operate(&vpc2)
+			vpcStore.Apply(&vpc1)
+			vpcStore.Apply(&vpc2)
 			got := vpcStore.List()
 			if len(got) != 2 {
 				t.Errorf("size = %v, want %v", len(got), 2)

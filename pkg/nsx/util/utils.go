@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"reflect"
 	"sort"
@@ -233,20 +233,20 @@ func httpErrortoNSXError(detail *ErrorDetail) NsxError {
 }
 
 func HandleHTTPResponse(response *http.Response, result interface{}, debug bool) (error, []byte) {
+	body, err := io.ReadAll(response.Body)
+	defer response.Body.Close()
 	if !(response.StatusCode == http.StatusOK || response.StatusCode == http.StatusAccepted) {
 		err := errors.New("received HTTP Error")
-		log.Error(err, "handle http response", "status", response.StatusCode, "requestUrl", response.Request.URL, "response", response)
+		log.Error(err, "handle http response", "status", response.StatusCode, "requestUrl", response.Request.URL, "response body", string(body))
 		return err, nil
+	}
+	if err != nil || body == nil {
+		return err, body
 	}
 	if result == nil {
 		return nil, nil
 	}
 
-	body, err := ioutil.ReadAll(response.Body)
-	defer response.Body.Close()
-	if err != nil || body == nil {
-		return err, body
-	}
 	if debug {
 		log.V(2).Info("received HTTP response", "response", string(body))
 	}
@@ -274,6 +274,15 @@ func MergeAddressByPort(portAddressOriginal []PortAddress) []PortAddress {
 		portAddress = append(portAddress, PortAddress{Port: key, IPs: mappedPorts[key]})
 	}
 	return portAddress
+}
+
+func ParseVPCPath(nsxResourcePath string) (orgID string, projectID string, vpcID string, resourceID string) {
+	paras := strings.Split(nsxResourcePath, "/")
+	orgID = paras[2]
+	projectID = paras[4]
+	vpcID = paras[6]
+	resourceID = paras[8]
+	return
 }
 
 // if ApiError is nil, check ErrorTypeEnum, such as ServiceUnavailable

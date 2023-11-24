@@ -15,7 +15,20 @@ spec:
     singular: subnetport
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Attachment VIF ID owned by the SubnetPort
+      jsonPath: .status.vifID
+      name: VIFID
+      type: string
+    - description: IP Address of the SubnetPort
+      jsonPath: .status.ipAddresses[0].ip
+      name: IPAddress
+      type: string
+    - description: MAC Address of the SubnetPort
+      jsonPath: .status.macAddress
+      name: MACAddress
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: SubnetPort is the Schema for the subnetports API.

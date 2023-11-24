@@ -1,6 +1,7 @@
 package securitypolicy
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,7 +10,9 @@ import (
 
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -26,7 +29,7 @@ const (
 	MaxMatchExpressionIn        int = 1
 	MaxMatchExpressionInValues  int = 5
 	ClusterTagCount             int = 1
-	ProjectTagCount             int = 1
+	NameSpaceTagCount           int = 1
 )
 
 var (
@@ -34,9 +37,10 @@ var (
 	Int64  = common.Int64
 )
 
-func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.SecurityPolicy) (*model.SecurityPolicy, *[]model.Group, error) {
+func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.SecurityPolicy) (*model.SecurityPolicy, *[]model.Group, *[]ProjectShare, error) {
 	var nsxRules []model.Rule
 	var nsxGroups []model.Group
+	var projectShares []ProjectShare
 
 	contains := func(groups []model.Group, group model.Group) bool {
 		for _, a := range groups {
@@ -59,7 +63,7 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 	policyGroup, policyGroupPath, err := service.buildPolicyGroup(obj)
 	if err != nil {
 		log.Error(err, "failed to build policy group", "policy", *obj)
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	nsxSecurityPolicy.Scope = []string{policyGroupPath}
@@ -69,10 +73,10 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 
 	for ruleIdx, rule := range obj.Spec.Rules {
 		// A rule containing named port may expand to multiple rules if the name maps to multiple port numbers.
-		expandRules, ruleGroups, err := service.buildRuleAndGroups(obj, &rule, ruleIdx)
+		expandRules, ruleGroups, shares, err := service.buildRuleAndGroups(obj, &rule, ruleIdx)
 		if err != nil {
 			log.Error(err, "failed to build rule and groups", "rule", rule, "ruleIndex", ruleIdx)
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		for _, nsxRule := range expandRules {
 			if nsxRule != nil {
@@ -87,11 +91,17 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 				}
 			}
 		}
+		for _, share := range shares {
+			if share != nil {
+				projectShares = append(projectShares, *share)
+			}
+		}
+
 	}
 	nsxSecurityPolicy.Rules = nsxRules
 	nsxSecurityPolicy.Tags = service.buildBasicTags(obj)
 	log.V(1).Info("built nsxSecurityPolicy", "nsxSecurityPolicy", nsxSecurityPolicy, "nsxGroups", nsxGroups)
-	return nsxSecurityPolicy, &nsxGroups, nil
+	return nsxSecurityPolicy, &nsxGroups, &projectShares, nil
 }
 
 func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPolicy) (*model.Group, string, error) {
@@ -109,7 +119,7 @@ func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPol
 		return nil, "ANY", nil
 	}
 
-	targetGroupCount, targetGroupTotalExprCount := 0, 0
+	targetGroupCriteriaCount, targetGroupTotalExprCount := 0, 0
 	criteriaCount, totalExprCount := 0, 0
 	var err error = nil
 	errorMsg := ""
@@ -121,19 +131,19 @@ func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPol
 			i,
 		)
 		if err == nil {
-			targetGroupCount += criteriaCount
+			targetGroupCriteriaCount += criteriaCount
 			targetGroupTotalExprCount += totalExprCount
 		} else {
 			return nil, "", err
 		}
 	}
-	log.V(2).Info("build policy target group criteria", "total criteria",
-		targetGroupCount, "total expressions of criteria", targetGroupTotalExprCount)
+	log.V(2).Info("build policy target group criteria",
+		"total criteria", targetGroupCriteriaCount, "total expressions of criteria", targetGroupTotalExprCount)
 
-	if targetGroupCount > MaxCriteria {
+	if targetGroupCriteriaCount > MaxCriteria {
 		errorMsg = fmt.Sprintf(
 			"total counts of policy target group criteria %d exceed NSX limit of %d",
-			targetGroupCount,
+			targetGroupCriteriaCount,
 			MaxCriteria,
 		)
 	} else if targetGroupTotalExprCount > MaxTotalCriteriaExpressions {
@@ -146,8 +156,13 @@ func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPol
 		return nil, "", err
 	}
 
-	policyGroupPath := service.buildPolicyGroupPath(obj)
-	return &policyGroup, policyGroupPath, nil
+	policyAppliedGroupPath, err := service.buildAppliedGroupPath(obj, "")
+	if err != nil {
+		return nil, "", err
+	}
+
+	log.V(1).Info("built policy target group", "policyGroup", policyGroup)
+	return &policyGroup, policyAppliedGroupPath, nil
 }
 
 func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPolicy, targets *[]v1alpha1.SecurityPolicyTarget, idx int) []model.Tag {
@@ -161,16 +176,30 @@ func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPoli
 	targetTags := []model.Tag{
 		{
 			Scope: String(common.TagScopeGroupType),
-			Tag:   String("scope"),
+			Tag:   String(common.TagValueGroupScope),
 		},
 		{
 			Scope: String(common.TagScopeSelectorHash),
 			Tag:   String(util.Sha1(string(serializedBytes))),
 		},
 	}
+
 	for _, tag := range basicTags {
 		targetTags = append(targetTags, tag)
 	}
+
+	// In non-VPC network, there is no need to add is_project_shared tag for target groups
+	if isVpcEnabled(service) {
+		// the target group for policy or rule is always not group shared
+		// because target group doesn't have nameSpace selector
+		targetTags = append(targetTags,
+			model.Tag{
+				Scope: String(common.TagScopeProjectGroupShared),
+				Tag:   String("false"),
+			},
+		)
+	}
+
 	if idx != -1 {
 		// the appliedTo group belongs to a rule, so it needs a tag including the rule id
 		targetTags = append(targetTags,
@@ -183,8 +212,13 @@ func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPoli
 	return targetTags
 }
 
+// Todo, use the uitl basic func to generate basic tags
 func (service *SecurityPolicyService) buildBasicTags(obj *v1alpha1.SecurityPolicy) []model.Tag {
 	tags := []model.Tag{
+		{
+			Scope: String(common.TagScopeVersion),
+			Tag:   String(strings.Join(common.TagValueVersion, ".")),
+		},
 		{
 			Scope: String(common.TagScopeCluster),
 			Tag:   String(getCluster(service)),
@@ -193,7 +227,10 @@ func (service *SecurityPolicyService) buildBasicTags(obj *v1alpha1.SecurityPolic
 			Scope: String(common.TagScopeNamespace),
 			Tag:   String(obj.ObjectMeta.Namespace),
 		},
-		// TODO: get namespace uid
+		{
+			Scope: String(common.TagScopeNamespaceUID),
+			Tag:   String(string(service.getNamespaceUID(obj.ObjectMeta.Namespace))),
+		},
 		{
 			Scope: String(common.TagScopeSecurityPolicyCRName),
 			Tag:   String(obj.ObjectMeta.Name),
@@ -313,15 +350,33 @@ func (service *SecurityPolicyService) buildPolicyGroupID(obj *v1alpha1.SecurityP
 	return fmt.Sprintf("sp_%s_scope", obj.UID)
 }
 
-func (service *SecurityPolicyService) buildPolicyGroupPath(obj *v1alpha1.SecurityPolicy) string {
-	return fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), service.buildPolicyGroupID(obj))
+// build appliedTo group path for both policy and rule levels.
+func (service *SecurityPolicyService) buildAppliedGroupPath(obj *v1alpha1.SecurityPolicy, groupID string) (string, error) {
+	if groupID == "" {
+		groupID = service.buildPolicyGroupID(obj)
+	}
+
+	if isVpcEnabled(service) {
+		vpcInfo, err := getVpcInfo(obj.ObjectMeta.Namespace)
+		if err != nil {
+			return "", err
+		}
+		orgId := (*vpcInfo).OrgID
+		projectId := (*vpcInfo).ProjectID
+		vpcId := (*vpcInfo).VPCID
+		return fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s/groups/%s", orgId, projectId, vpcId, groupID), nil
+	}
+
+	return fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), groupID), nil
 }
 
-func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int) ([]*model.Rule, []*model.Group, error) {
+func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int) ([]*model.Rule, []*model.Group, []*ProjectShare, error) {
 	var ruleGroups []*model.Group
+	var projectShares []*ProjectShare
 	var nsxRuleAppliedGroup *model.Group
 	var nsxRuleSrcGroup *model.Group
 	var nsxRuleDstGroup *model.Group
+	var nsxProjectShare *ProjectShare
 	var nsxRuleAppliedGroupPath string
 	var nsxRuleDstGroupPath string
 	var nsxRuleSrcGroupPath string
@@ -329,14 +384,14 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 
 	ruleDirection, err := getRuleDirection(rule)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// Since a named port may map to multiple port numbers, then it would return multiple rules.
 	// We use the destination port number of service entry to group the rules.
 	ipSetGroups, nsxRules, err := service.expandRule(obj, rule, ruleIdx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	for _, g := range ipSetGroups {
 		ruleGroups = append(ruleGroups, g)
@@ -344,22 +399,37 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 
 	for _, nsxRule := range nsxRules {
 		if ruleDirection == "IN" {
-			nsxRuleSrcGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, err = service.buildRuleInGroup(
+			nsxRuleSrcGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, nsxProjectShare, err = service.buildRuleInGroup(
 				obj,
 				rule,
 				nsxRule,
 				ruleIdx,
 			)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
-			ruleGroups = append(ruleGroups, nsxRuleSrcGroup)
+			if nsxRuleSrcGroup != nil {
+				ruleGroups = append(ruleGroups, nsxRuleSrcGroup)
+			}
+			if nsxProjectShare != nil {
+				projectShares = append(projectShares, nsxProjectShare)
+			}
 		} else if ruleDirection == "OUT" {
-			nsxRuleDstGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, err = service.buildRuleOutGroup(obj, rule, nsxRule, ruleIdx)
+			nsxRuleDstGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, nsxProjectShare, err = service.buildRuleOutGroup(
+				obj,
+				rule,
+				nsxRule,
+				ruleIdx,
+			)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
-			ruleGroups = append(ruleGroups, nsxRuleDstGroup)
+			if nsxRuleDstGroup != nil {
+				ruleGroups = append(ruleGroups, nsxRuleDstGroup)
+			}
+			if nsxProjectShare != nil {
+				projectShares = append(projectShares, nsxProjectShare)
+			}
 		}
 		nsxRule.SourceGroups = []string{nsxRuleSrcGroupPath}
 		nsxRule.DestinationGroups = []string{nsxRuleDstGroupPath}
@@ -372,16 +442,16 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 			nsxRuleDstGroupPath,
 		)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		ruleGroups = append(ruleGroups, nsxRuleAppliedGroup)
 		nsxRule.Scope = []string{nsxRuleAppliedGroupPath}
 
-		log.V(2).Info("built rule and groups", "nsxRuleAppliedGroup", nsxRuleAppliedGroup,
+		log.V(1).Info("built rule and groups", "nsxRuleAppliedGroup", nsxRuleAppliedGroup,
 			"~", nsxRuleSrcGroup, "nsxRuleDstGroup", nsxRuleDstGroup,
 			"action", *nsxRule.Action, "direction", *nsxRule.Direction)
 	}
-	return nsxRules, ruleGroups, nil
+	return nsxRules, ruleGroups, projectShares, nil
 }
 
 func (service *SecurityPolicyService) buildRuleServiceEntries(port v1alpha1.SecurityPolicyPort, portAddress nsxutil.PortAddress) *data.StructValue {
@@ -411,7 +481,7 @@ func (service *SecurityPolicyService) buildRuleServiceEntries(port v1alpha1.Secu
 			"overridden":        data.NewBooleanValue(false),
 		},
 	)
-	log.V(2).Info("built service entry", "serviceEntry", serviceEntry)
+	log.V(1).Info("built service entry", "serviceEntry", serviceEntry)
 	return serviceEntry
 }
 
@@ -438,15 +508,16 @@ func (service *SecurityPolicyService) buildRuleAppliedToGroup(obj *v1alpha1.Secu
 	return nsxRuleAppliedGroup, nsxRuleAppliedGroupPath, nil
 }
 
-func (service *SecurityPolicyService) buildRuleInGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, nsxRule *model.Rule, ruleIdx int) (*model.Group, string, string, error) {
+func (service *SecurityPolicyService) buildRuleInGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, nsxRule *model.Rule, ruleIdx int) (*model.Group, string, string, *ProjectShare, error) {
 	var nsxRuleSrcGroup *model.Group
+	var nsxProjectShare *ProjectShare
 	var nsxRuleSrcGroupPath string
 	var nsxRuleDstGroupPath string
 	var err error
 	if len(rule.Sources) > 0 {
-		nsxRuleSrcGroup, nsxRuleSrcGroupPath, err = service.buildRuleSrcGroup(obj, rule, ruleIdx)
+		nsxRuleSrcGroup, nsxRuleSrcGroupPath, nsxProjectShare, err = service.buildRulePeerGroup(obj, rule, ruleIdx, true)
 		if err != nil {
-			return nil, "", "", err
+			return nil, "", "", nil, err
 		}
 	} else {
 		nsxRuleSrcGroupPath = "ANY"
@@ -457,11 +528,12 @@ func (service *SecurityPolicyService) buildRuleInGroup(obj *v1alpha1.SecurityPol
 	} else {
 		nsxRuleDstGroupPath = "ANY"
 	}
-	return nsxRuleSrcGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, nil
+	return nsxRuleSrcGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, nsxProjectShare, nil
 }
 
-func (service *SecurityPolicyService) buildRuleOutGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, nsxRule *model.Rule, ruleIdx int) (*model.Group, string, string, error) {
+func (service *SecurityPolicyService) buildRuleOutGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, nsxRule *model.Rule, ruleIdx int) (*model.Group, string, string, *ProjectShare, error) {
 	var nsxRuleDstGroup *model.Group
+	var nsxProjectShare *ProjectShare
 	var nsxRuleSrcGroupPath string
 	var nsxRuleDstGroupPath string
 	var err error
@@ -469,16 +541,16 @@ func (service *SecurityPolicyService) buildRuleOutGroup(obj *v1alpha1.SecurityPo
 		nsxRuleDstGroupPath = nsxRule.DestinationGroups[0]
 	} else {
 		if len(rule.Destinations) > 0 {
-			nsxRuleDstGroup, nsxRuleDstGroupPath, err = service.buildRuleDstGroup(obj, rule, ruleIdx)
+			nsxRuleDstGroup, nsxRuleDstGroupPath, nsxProjectShare, err = service.buildRulePeerGroup(obj, rule, ruleIdx, false)
 			if err != nil {
-				return nil, "", "", err
+				return nil, "", "", nil, err
 			}
 		} else {
 			nsxRuleDstGroupPath = "ANY"
 		}
 	}
 	nsxRuleSrcGroupPath = "ANY"
-	return nsxRuleDstGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, nil
+	return nsxRuleDstGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, nsxProjectShare, nil
 }
 
 func (service *SecurityPolicyService) buildRuleID(obj *v1alpha1.SecurityPolicy, idx int) string {
@@ -495,6 +567,7 @@ func (service *SecurityPolicyService) buildRuleName(obj *v1alpha1.SecurityPolicy
 
 func (service *SecurityPolicyService) buildRuleAppliedGroupByPolicy(obj *v1alpha1.SecurityPolicy, nsxRuleSrcGroupPath string, nsxRuleDstGroupPath string) (string, error) {
 	var nsxRuleAppliedGroupPath string
+	var err error
 	if len(obj.Spec.AppliedTo) == 0 {
 		return "", errors.New("appliedTo needs to be set in either spec or rules")
 	}
@@ -502,7 +575,10 @@ func (service *SecurityPolicyService) buildRuleAppliedGroupByPolicy(obj *v1alpha
 		// NSX-T manager will report error if all the rule's scope/src/dst are "ANY".
 		// So if the rule's scope is empty while policy's not, the rule's scope also
 		// will be set to the policy's scope to avoid this case.
-		nsxRuleAppliedGroupPath = service.buildPolicyGroupPath(obj)
+		nsxRuleAppliedGroupPath, err = service.buildAppliedGroupPath(obj, "")
+		if err != nil {
+			return "", err
+		}
 	} else {
 		nsxRuleAppliedGroupPath = "ANY"
 	}
@@ -519,16 +595,18 @@ func (service *SecurityPolicyService) buildRuleAppliedGroupByRule(obj *v1alpha1.
 		ruleAppliedGroupName = fmt.Sprintf("%s-%d-scope", obj.ObjectMeta.Name, idx)
 	}
 	targetTags := service.buildTargetTags(obj, &appliedTo, idx)
-	ruleAppliedGroupPath := fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), ruleAppliedGroupID)
+	ruleAppliedGroupPath, err := service.buildAppliedGroupPath(obj, ruleAppliedGroupID)
+	if err != nil {
+		return nil, "", err
+	}
 	ruleAppliedGroup := model.Group{
 		Id:          &ruleAppliedGroupID,
 		DisplayName: &ruleAppliedGroupName,
 		Tags:        targetTags,
 	}
 
-	ruleGroupCount, ruleGroupTotalExprCount := 0, 0
+	ruleGroupCriteriaCount, ruleGroupTotalExprCount := 0, 0
 	criteriaCount, totalExprCount := 0, 0
-	var err error = nil
 	errorMsg := ""
 	for i, target := range appliedTo {
 		criteriaCount, totalExprCount, err = service.updateTargetExpressions(
@@ -538,18 +616,19 @@ func (service *SecurityPolicyService) buildRuleAppliedGroupByRule(obj *v1alpha1.
 			i,
 		)
 		if err == nil {
-			ruleGroupCount += criteriaCount
+			ruleGroupCriteriaCount += criteriaCount
 			ruleGroupTotalExprCount += totalExprCount
 		} else {
 			return nil, "", err
 		}
 	}
-	log.V(2).Info("build rule applied group criteria", "total criteria", ruleGroupCount, "total expressions of criteria", ruleGroupTotalExprCount)
+	log.V(2).Info("build rule applied group criteria", "total criteria",
+		ruleGroupCriteriaCount, "total expressions of criteria", ruleGroupTotalExprCount)
 
-	if ruleGroupCount > MaxCriteria {
+	if ruleGroupCriteriaCount > MaxCriteria {
 		errorMsg = fmt.Sprintf(
 			"total counts of rule applied group criteria %d exceed NSX limit of %d",
-			ruleGroupCount,
+			ruleGroupCriteriaCount,
 			MaxCriteria,
 		)
 	} else if ruleGroupTotalExprCount > MaxTotalCriteriaExpressions {
@@ -564,114 +643,149 @@ func (service *SecurityPolicyService) buildRuleAppliedGroupByRule(obj *v1alpha1.
 	return &ruleAppliedGroup, ruleAppliedGroupPath, nil
 }
 
-func (service *SecurityPolicyService) buildRuleSrcGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, idx int) (*model.Group, string, error) {
-	var ruleSrcGroupName string
-	sources := rule.Sources
-	ruleSrcGroupID := fmt.Sprintf("sp_%s_%d_src", obj.UID, idx)
-	if len(rule.Name) > 0 {
-		ruleSrcGroupName = fmt.Sprintf("%s-src", rule.Name)
-	} else {
-		ruleSrcGroupName = fmt.Sprintf("%s-%d-src", obj.ObjectMeta.Name, idx)
-	}
-	ruleSrcGroupPath := fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), ruleSrcGroupID)
-	peerTags := service.BuildPeerTags(obj, &sources, idx)
-	ruleSrcGroup := model.Group{
-		Id:          &ruleSrcGroupID,
-		DisplayName: &ruleSrcGroupName,
-		Tags:        peerTags,
-	}
-
-	ruleSrcGroupCount, ruleSrcGroupTotalExprCount := 0, 0
-	criteriaCount, totalExprCount := 0, 0
-	var err error = nil
-	errorMsg := ""
-	for i, peer := range sources {
-		criteriaCount, totalExprCount, err = service.updatePeerExpressions(
-			obj,
-			&peer,
-			&ruleSrcGroup,
-			i,
-		)
-		if err == nil {
-			ruleSrcGroupCount += criteriaCount
-			ruleSrcGroupTotalExprCount += totalExprCount
-		} else {
-			return nil, "", err
+func (service *SecurityPolicyService) buildRulePeerGroupPath(obj *v1alpha1.SecurityPolicy, groupID string, groupShared bool) (string, error) {
+	if isVpcEnabled(service) {
+		vpcInfo, err := getVpcInfo(obj.ObjectMeta.Namespace)
+		if err != nil {
+			return "", err
 		}
-	}
-	log.V(2).Info("build rule source group criteria", "total criteria", ruleSrcGroupCount, "total expressions of criteria", ruleSrcGroupTotalExprCount)
+		orgId := (*vpcInfo).OrgID
+		projectId := (*vpcInfo).ProjectID
+		vpcId := (*vpcInfo).VPCID
 
-	if ruleSrcGroupCount > MaxCriteria {
-		errorMsg = fmt.Sprintf(
-			"total counts of rule source group criteria %d exceed NSX limit of %d",
-			ruleSrcGroupCount,
-			MaxCriteria,
-		)
-	} else if ruleSrcGroupTotalExprCount > MaxTotalCriteriaExpressions {
-		errorMsg = fmt.Sprintf("total expression counts in source group criteria %d exceed NSX limit of %d", ruleSrcGroupTotalExprCount, MaxTotalCriteriaExpressions)
+		if groupShared {
+			return fmt.Sprintf("/orgs/%s/projects/%s/infra/domains/%s/groups/%s", orgId, projectId, getVpcProjectDomain(), groupID), nil
+		}
+		return fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s/groups/%s", orgId, projectId, vpcId, groupID), nil
 	}
 
-	if len(errorMsg) != 0 {
-		err = errors.New(errorMsg)
-		return nil, "", err
-	}
-
-	return &ruleSrcGroup, ruleSrcGroupPath, err
+	return fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), groupID), nil
 }
 
-// TODO: merge buildRuleSrcGroup and buildRuleDstGroup
-func (service *SecurityPolicyService) buildRuleDstGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, idx int) (*model.Group, string, error) {
-	var ruleDstGroupName string
-	destinations := rule.Destinations
-	ruleDstGroupID := fmt.Sprintf("sp_%s_%d_dst", obj.UID, idx)
-	if len(rule.Name) > 0 {
-		ruleDstGroupName = fmt.Sprintf("%s-dst", rule.Name)
+func (service *SecurityPolicyService) buildRulePeerGroupID(obj *v1alpha1.SecurityPolicy, idx int, isSource bool) string {
+	if isSource == true {
+		return fmt.Sprintf("sp_%s_%d_src", obj.UID, idx)
 	} else {
-		ruleDstGroupName = fmt.Sprintf("%s-%d-dst", obj.ObjectMeta.Name, idx)
+		return fmt.Sprintf("sp_%s_%d_dst", obj.UID, idx)
 	}
-	ruleDstGroupPath := fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), ruleDstGroupID)
-	peerTags := service.BuildPeerTags(obj, &destinations, idx)
-	ruleDstGroup := model.Group{
-		Id:          &ruleDstGroupID,
-		DisplayName: &ruleDstGroupName,
+}
+
+func (service *SecurityPolicyService) buildRulePeerGroupName(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, idx int, isSource bool) string {
+	if isSource == true {
+		if len(rule.Name) > 0 {
+			return fmt.Sprintf("%s-src", rule.Name)
+		} else {
+			return fmt.Sprintf("%s-%d-src", obj.ObjectMeta.Name, idx)
+		}
+	} else {
+		if len(rule.Name) > 0 {
+			return fmt.Sprintf("%s-dst", rule.Name)
+		} else {
+			return fmt.Sprintf("%s-%d-dst", obj.ObjectMeta.Name, idx)
+		}
+	}
+}
+
+func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, idx int, isSource bool) (*model.Group, string, *ProjectShare, error) {
+	var rulePeers []v1alpha1.SecurityPolicyPeer
+	var ruleDirection string
+	rulePeerGroupID := service.buildRulePeerGroupID(obj, idx, isSource)
+	rulePeerGroupName := service.buildRulePeerGroupName(obj, rule, idx, isSource)
+	if isSource == true {
+		rulePeers = rule.Sources
+		ruleDirection = "source"
+	} else {
+		rulePeers = rule.Destinations
+		ruleDirection = "destination"
+	}
+
+	groupShared := false
+	for _, peer := range rulePeers {
+		if peer.NamespaceSelector != nil {
+			groupShared = true
+			break
+		}
+	}
+
+	rulePeerGroupPath, err := service.buildRulePeerGroupPath(obj, rulePeerGroupID, groupShared)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	peerTags := service.BuildPeerTags(obj, &rulePeers, idx, isSource, groupShared)
+	rulePeerGroup := model.Group{
+		Id:          &rulePeerGroupID,
+		DisplayName: &rulePeerGroupName,
 		Tags:        peerTags,
 	}
 
-	ruleDstGroupCount, ruleDstGroupTotalExprCount := 0, 0
+	rulePeerGroupCriteriaCount, rulePeerGroupTotalExprCount := 0, 0
 	criteriaCount, totalExprCount := 0, 0
-	var err error = nil
 	errorMsg := ""
-	for i, peer := range destinations {
+	for i, peer := range rulePeers {
 		criteriaCount, totalExprCount, err = service.updatePeerExpressions(
 			obj,
 			&peer,
-			&ruleDstGroup,
+			&rulePeerGroup,
 			i,
+			groupShared,
 		)
 		if err == nil {
-			ruleDstGroupCount += criteriaCount
-			ruleDstGroupTotalExprCount += totalExprCount
+			rulePeerGroupCriteriaCount += criteriaCount
+			rulePeerGroupTotalExprCount += totalExprCount
 		} else {
-			return nil, "", err
+			return nil, "", nil, err
 		}
 	}
-	log.V(2).Info("build rule destination group criteria", "total criteria", ruleDstGroupCount, "total expressions of criteria", ruleDstGroupTotalExprCount)
+	log.V(2).Info(fmt.Sprintf("build rule %s group criteria", ruleDirection),
+		"total criteria", rulePeerGroupCriteriaCount, "total expressions of criteria", rulePeerGroupTotalExprCount)
 
-	if ruleDstGroupCount > MaxCriteria {
+	if rulePeerGroupCriteriaCount > MaxCriteria {
 		errorMsg = fmt.Sprintf(
-			"total counts of rule destination group criteria %d exceed NSX limit of %d",
-			ruleDstGroupCount,
+			"total counts of rule %s group criteria %d exceed NSX limit of %d",
+			ruleDirection,
+			rulePeerGroupCriteriaCount,
 			MaxCriteria,
 		)
-	} else if ruleDstGroupTotalExprCount > MaxTotalCriteriaExpressions {
-		errorMsg = fmt.Sprintf("total expression counts in rule destination group criteria %d exceed NSX limit of %d", ruleDstGroupTotalExprCount, MaxTotalCriteriaExpressions)
+	} else if rulePeerGroupTotalExprCount > MaxTotalCriteriaExpressions {
+		errorMsg = fmt.Sprintf("total expression counts in %s group criteria %d exceed NSX limit of %d",
+			ruleDirection,
+			rulePeerGroupTotalExprCount,
+			MaxTotalCriteriaExpressions,
+		)
 	}
 
 	if len(errorMsg) != 0 {
 		err = errors.New(errorMsg)
-		return nil, "", err
+		return nil, "", nil, err
 	}
-	return &ruleDstGroup, ruleDstGroupPath, err
+
+	if isVpcEnabled(service) && (groupShared == true) {
+		var projectShare ProjectShare
+		projectShare.shareGroup = &rulePeerGroup
+
+		var sharedNamespace []string
+		// Share group with the VPC in which SecurityPolicy rule is put
+		sharedNamespace = append(sharedNamespace, obj.ObjectMeta.Namespace)
+
+		sharedWith, err := service.buildSharedWith(&sharedNamespace)
+		if err != nil {
+			log.Error(err, "failed to build SharedWith path", "rule group Name", rulePeerGroupName)
+			return nil, "", nil, err
+		}
+		// Build a nsx share resource in project level
+		share, err := service.buildProjectShare(obj, &rulePeerGroup, []string{rulePeerGroupPath}, *sharedWith)
+		if err != nil {
+			log.Error(err, "failed to build project share", "rule group Name", rulePeerGroupName)
+			return nil, "", nil, err
+		}
+
+		projectShare.share = share
+		log.V(1).Info("built nsx project share resource", "share", share)
+		return nil, rulePeerGroupPath, &projectShare, err
+	}
+
+	return &rulePeerGroup, rulePeerGroupPath, nil, err
 }
 
 // Build rule basic info, ruleIdx is the index of the rules of security policy,
@@ -700,7 +814,7 @@ func (service *SecurityPolicyService) buildRuleBasicInfo(obj *v1alpha1.SecurityP
 	return &nsxRule, nil
 }
 
-func (service *SecurityPolicyService) BuildPeerTags(obj *v1alpha1.SecurityPolicy, peers *[]v1alpha1.SecurityPolicyPeer, idx int) []model.Tag {
+func (service *SecurityPolicyService) BuildPeerTags(obj *v1alpha1.SecurityPolicy, peers *[]v1alpha1.SecurityPolicyPeer, idx int, isSource, groupShared bool) []model.Tag {
 	basicTags := service.buildBasicTags(obj)
 	// TODO: abstract sort func for both peers and targets
 	sort.Slice(*peers, func(i, j int) bool {
@@ -709,10 +823,19 @@ func (service *SecurityPolicyService) BuildPeerTags(obj *v1alpha1.SecurityPolicy
 		return string(k1) < string(k2)
 	})
 	serializedBytes, _ := json.Marshal(*peers)
+
+	groupTypeTag := String(common.TagValueGroupDst)
+	if isSource == true {
+		groupTypeTag = String(common.TagValueGroupSrc)
+	}
+	groupSharedTag := String("false")
+	if groupShared == true {
+		groupSharedTag = String("true")
+	}
 	peerTags := []model.Tag{
 		{
 			Scope: String(common.TagScopeGroupType),
-			Tag:   String("scope"),
+			Tag:   groupTypeTag,
 		},
 		{
 			Scope: String(common.TagScopeRuleID),
@@ -726,18 +849,32 @@ func (service *SecurityPolicyService) BuildPeerTags(obj *v1alpha1.SecurityPolicy
 	for _, tag := range basicTags {
 		peerTags = append(peerTags, tag)
 	}
+
+	// In non-VPC network, there is no need to add is_project_shared tag for rule peer groups
+	if isVpcEnabled(service) {
+		peerTags = append(peerTags,
+			model.Tag{
+				Scope: String(common.TagScopeProjectGroupShared),
+				Tag:   groupSharedTag,
+			},
+		)
+	}
 	return peerTags
 }
 
 func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.SecurityPolicy, target *v1alpha1.SecurityPolicyTarget, group *model.Group, idx int) (int, int, error) {
 	var err error = nil
 	var tagValueExpression *data.StructValue = nil
-	memberType := "SegmentPort"
 	var matchLabels map[string]string
 	var matchExpressions *[]v1.LabelSelectorRequirement = nil
 	var mergedMatchExpressions *[]v1.LabelSelectorRequirement = nil
 	opInValueCount, totalCriteriaCount, totalExprCount := 0, 0, 0
 	matchLabelsCount, matchExpressionsCount := 0, 0
+
+	memberType, clusterMemberType := "SegmentPort", "Segment"
+	if isVpcEnabled(service) {
+		memberType, clusterMemberType = "VpcSubnetPort", "VpcSubnetPort"
+	}
 
 	if target.PodSelector != nil && target.VMSelector != nil {
 		errorMsg := "PodSelector and VMSelector are not allowed to set in one group"
@@ -745,25 +882,28 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 		return 0, 0, err
 	}
 
-	log.V(2).Info("build target expressions", "index", idx)
+	log.V(2).Info("update target expressions", "index", idx)
 	service.appendOperatorIfNeeded(&group.Expression, "OR")
 	expressions := service.buildGroupExpression(&group.Expression)
 
-	// Setting cluster member type to "Segment" for PodSelector and VMSelector ensure the criteria is mixed
-	// because the following conditions must have condition whose memberType=SegmentPort
+	// In non-VPC network, setting cluster memberType to Segment for PodSelector and VMSelector ensures the criteria is mixed,
+	// Because the following conditions must have condition whose memberType is SegmentPort.
+	// In VPC network, setting cluster memberType VpcSubnetPort because VPC level group doesn't support mixed criteria.
+	// Also, following conditions must have condition whose memberType is VpcSubnetPort.
+	// Segment and SegmentPort are not supported in VPC level group.
+	// Target group must be put under VPC level group path.
 	clusterExpression := service.buildExpression(
-		"Condition", "Segment",
-		fmt.Sprintf("%s|%s", common.TagScopeNCPCluster, getCluster(service)),
+		"Condition", clusterMemberType,
+		fmt.Sprintf("%s|%s", getScopeCluserTag(service), getCluster(service)),
 		"Tag", "EQUALS", "EQUALS",
 	)
 	expressions.Add(clusterExpression)
 
 	if target.PodSelector != nil {
 		service.addOperatorIfNeeded(expressions, "AND")
-		// TODO: consider to use project_uid instead of project
 		nsExpression := service.buildExpression(
 			"Condition", memberType,
-			fmt.Sprintf("%s|%s", common.TagScopeNCPProject, obj.ObjectMeta.Namespace),
+			fmt.Sprintf("%s|%s", getScopeNamespaceUIDTag(service, false), string(service.getNamespaceUID(obj.ObjectMeta.Namespace))),
 			"Tag", "EQUALS", "EQUALS",
 		)
 		expressions.Add(nsExpression)
@@ -776,7 +916,7 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 		service.addOperatorIfNeeded(expressions, "AND")
 		nsExpression := service.buildExpression(
 			"Condition", memberType,
-			fmt.Sprintf("%s|%s", common.TagScopeNCPVIFProject, obj.ObjectMeta.Namespace),
+			fmt.Sprintf("%s|%s", getScopeNamespaceUIDTag(service, true), string(service.getNamespaceUID(obj.ObjectMeta.Namespace))),
 			"Tag", "EQUALS", "EQUALS",
 		)
 		expressions.Add(nsExpression)
@@ -789,7 +929,7 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 		service.updateExpressionsMatchLabels(matchLabels, memberType, expressions)
 		matchLabelsCount = len(matchLabels)
 		// PodSelector or VMSelector has two more built-in labels
-		matchLabelsCount += ClusterTagCount + ProjectTagCount
+		matchLabelsCount += ClusterTagCount + NameSpaceTagCount
 
 		if matchExpressions != nil {
 			mergedMatchExpressions = service.mergeSelectorMatchExpression(*matchExpressions)
@@ -806,13 +946,23 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 			}
 		}
 
-		// Since cluster is set as default "Segment" memberType, So the final produced group criteria is always treated as a mixed criteria
-		totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(
-			matchLabelsCount,
-			matchExpressionsCount,
-			opInValueCount,
-			true,
-		)
+		if isVpcEnabled(service) {
+			// In VPC level, it doesn't support mixed expression criteria
+			totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(
+				matchLabelsCount,
+				matchExpressionsCount,
+				opInValueCount,
+				false,
+			)
+		} else {
+			// Since cluster memberType is set as default Segment, So the final produced group criteria is always treated as a mixed criteria
+			totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(
+				matchLabelsCount,
+				matchExpressionsCount,
+				opInValueCount,
+				true,
+			)
+		}
 		if err != nil {
 			return 0, 0, err
 		}
@@ -1142,17 +1292,19 @@ func (service *SecurityPolicyService) updateMixedExpressionsMatchExpression(nsMa
 	return err
 }
 
-func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.SecurityPolicy, peer *v1alpha1.SecurityPolicyPeer, group *model.Group, idx int) (int, int, error) {
+func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.SecurityPolicy, peer *v1alpha1.SecurityPolicyPeer, group *model.Group,
+	idx int, groupShared bool,
+) (int, int, error) {
 	var err error = nil
 	errorMsg := ""
 	var tagValueExpression *data.StructValue = nil
-	var memberType string
 	var matchLabels map[string]string
 	var matchExpressions *[]v1.LabelSelectorRequirement = nil
 	var mergedMatchExpressions *[]v1.LabelSelectorRequirement = nil
 	opInValueCount, totalCriteriaCount, totalExprCount := 0, 0, 0
 	matchLabelsCount, matchExpressionsCount := 0, 0
 	mixedNsSelector := false
+	isVpcEnable := isVpcEnabled(service)
 
 	if len(peer.IPBlocks) > 0 {
 		addresses := data.NewListValue()
@@ -1188,30 +1340,42 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 	service.appendOperatorIfNeeded(&group.Expression, "OR")
 	expressions := service.buildGroupExpression(&group.Expression)
 
-	// Setting cluster member type to "Segment" for PodSelector and VMSelector ensure the criteria is mixed
-	// because the following conditions must have condition whose memberType=SegmentPort
+	// In non-VPC network, setting cluster memberType to Segment for PodSelector and VMSelector ensures the criteria is mixed,
+	// Because the following conditions must have condition whose memberType is SegmentPort
 	clusterMemberType := "Segment"
-	// Setting cluster member type to "SegmentPort" for NamespaceSelector ensure the criteria is mixed
-	// because the following conditions must have condition whose memberType=Segment when NamespaceSelector isn't empty
+	// Setting cluster memberType to SegmentPort for NamespaceSelector only case ensures the criteria is mixed,
+	// Because the following conditions must have condition whose memberType is Segment when NamespaceSelector isn't empty
 	if peer.PodSelector == nil && peer.VMSelector == nil && peer.NamespaceSelector != nil &&
 		peer.NamespaceSelector.Size() > 0 {
 		clusterMemberType = "SegmentPort"
 	}
 
+	memberType := "SegmentPort"
+	// In VPC network, cluster memberType must be set as VpcSubnetPort when no NamespaceSelector.
+	// Moreover, VPC level group doesn't support mixed criteria but project level group can support mixed criteria.
+	// MemberType must be set as VpcSubnetPort for the VPC level group.
+	// If NamespaceSelector is specified, peer group must be put under project level for sharing with VPC.
+	// VpcSubnet and VpcSubnetPort types are not supported in project level group.
+	// Project level group can support SegmentPort and Segment type.
+	// If groupShared is True, it means there are NamespaceSelectors in the rule groups, so we can use mixed criteria.
+	if isVpcEnable && !groupShared {
+		clusterMemberType = "VpcSubnetPort"
+		memberType = "VpcSubnetPort"
+	}
+
 	clusterExpression := service.buildExpression(
 		"Condition", clusterMemberType,
-		fmt.Sprintf("%s|%s", common.TagScopeNCPCluster, getCluster(service)),
+		fmt.Sprintf("%s|%s", getScopeCluserTag(service), getCluster(service)),
 		"Tag", "EQUALS", "EQUALS",
 	)
 	expressions.Add(clusterExpression)
 
 	if peer.PodSelector != nil {
-		memberType = "SegmentPort"
 		service.addOperatorIfNeeded(expressions, "AND")
 		podExpression := service.buildExpression(
 			"Condition",
 			memberType,
-			fmt.Sprintf("%s|", common.TagScopeNCPPod),
+			fmt.Sprintf("%s|", getScopePodTag(service)),
 			"Tag",
 			"EQUALS",
 			"EQUALS",
@@ -1220,7 +1384,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		if peer.NamespaceSelector == nil {
 			podExpression = service.buildExpression(
 				"Condition", memberType,
-				fmt.Sprintf("%s|%s", common.TagScopeNCPProject, obj.ObjectMeta.Namespace),
+				fmt.Sprintf("%s|%s", getScopeNamespaceUIDTag(service, false), string(service.getNamespaceUID(obj.ObjectMeta.Namespace))),
 				"Tag", "EQUALS", "EQUALS")
 			mixedNsSelector = false
 		} else {
@@ -1233,15 +1397,14 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		matchExpressions = &peer.PodSelector.MatchExpressions
 		matchLabelsCount = len(matchLabels)
 		// PodSelector has two more built-in labels
-		matchLabelsCount += ClusterTagCount + ProjectTagCount
+		matchLabelsCount += ClusterTagCount + NameSpaceTagCount
 	}
 	if peer.VMSelector != nil {
-		memberType = "SegmentPort"
 		service.addOperatorIfNeeded(expressions, "AND")
 		vmExpression := service.buildExpression(
 			"Condition",
 			memberType,
-			fmt.Sprintf("%s|", common.TagScopeNCPVNETInterface),
+			fmt.Sprintf("%s|", getScopeVMInterfaceTag(service)),
 			"Tag",
 			"EQUALS",
 			"EQUALS",
@@ -1250,7 +1413,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		if peer.NamespaceSelector == nil {
 			vmExpression = service.buildExpression(
 				"Condition", memberType,
-				fmt.Sprintf("%s|%s", common.TagScopeNCPVIFProject, obj.ObjectMeta.Namespace),
+				fmt.Sprintf("%s|%s", getScopeNamespaceUIDTag(service, true), string(service.getNamespaceUID(obj.ObjectMeta.Namespace))),
 				"Tag", "EQUALS", "EQUALS")
 			mixedNsSelector = false
 		} else {
@@ -1263,7 +1426,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		matchExpressions = &peer.VMSelector.MatchExpressions
 		matchLabelsCount = len(matchLabels)
 		// VMSelector has two more built-in labels
-		matchLabelsCount += ClusterTagCount + ProjectTagCount
+		matchLabelsCount += ClusterTagCount + NameSpaceTagCount
 	}
 	if peer.NamespaceSelector != nil {
 		if !mixedNsSelector {
@@ -1276,7 +1439,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 				service.addOperatorIfNeeded(expressions, "AND")
 				clusterSegPortExpression := service.buildExpression(
 					"Condition", "SegmentPort",
-					fmt.Sprintf("%s|%s", common.TagScopeNCPCluster, getCluster(service)),
+					fmt.Sprintf("%s|%s", getScopeCluserTag(service), getCluster(service)),
 					"Tag", "EQUALS", "EQUALS",
 				)
 				expressions.Add(clusterSegPortExpression)
@@ -1372,17 +1535,165 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 			}
 		}
 
-		// Since cluster is set as "Segment" or "SegmentPort" memberType, So the final produced group criteria is always treated as a mixed criteria
-		totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(
-			matchLabelsCount,
-			matchExpressionsCount,
-			opInValueCount,
-			true,
-		)
+		if isVpcEnable && !groupShared {
+			// In VPC level, it doesn't support mixed expression criteria
+			totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(
+				matchLabelsCount,
+				matchExpressionsCount,
+				opInValueCount,
+				false,
+			)
+		} else {
+			// Since cluster memberType is set as "Segment" or "SegmentPort", So the final produced group criteria is always treated as a mixed criteria
+			totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(
+				matchLabelsCount,
+				matchExpressionsCount,
+				opInValueCount,
+				true,
+			)
+		}
 		if err != nil {
 			return 0, 0, err
 		}
 	}
 
 	return totalCriteriaCount, totalExprCount, nil
+}
+
+func (service *SecurityPolicyService) buildShareID(nsxProjectName, groupID string) string {
+	nsxProjectShareId := fmt.Sprintf("share_%s_group_%s", nsxProjectName, groupID)
+	return nsxProjectShareId
+}
+
+func (service *SecurityPolicyService) buildShareTags(obj *v1alpha1.SecurityPolicy, projectId string, group *model.Group) []model.Tag {
+	tags := []model.Tag{
+		{
+			Scope: String(common.TagScopeVersion),
+			Tag:   String(strings.Join(common.TagValueVersion, ".")),
+		},
+		{
+			Scope: String(common.TagScopeCluster),
+			Tag:   String(getCluster(service)),
+		},
+		{
+			Scope: String(common.TagScopeNSXProjectID),
+			Tag:   String(string(projectId)),
+		},
+		{
+			Scope: String(common.TagScopeSecurityPolicyCRName),
+			Tag:   String(obj.ObjectMeta.Name),
+		},
+		{
+			Scope: String(common.TagScopeSecurityPolicyCRUID),
+			Tag:   String(string(obj.UID)),
+		},
+		{
+			Scope: String(common.TagScopeGoupID),
+			Tag:   String(string(*group.Id)),
+		},
+	}
+	return tags
+}
+
+func (service *SecurityPolicyService) buildSharedResource(shareId string, sharedGroupPath []string) (*model.SharedResource, error) {
+	var resourceObjects []model.ResourceObject
+	resourceType := common.ResourceTypeSharedResource
+	includeChildren := false
+
+	for _, groupPath := range sharedGroupPath {
+		resourceObject := model.ResourceObject{
+			IncludeChildren: &includeChildren,
+			ResourcePath:    &groupPath,
+		}
+		resourceObjects = append(resourceObjects, resourceObject)
+	}
+	sharedResource := model.SharedResource{
+		Id:              &shareId,
+		ResourceType:    &resourceType,
+		ResourceObjects: resourceObjects,
+	}
+
+	return &sharedResource, nil
+}
+
+func (service *SecurityPolicyService) buildChildSharedResource(shareId string, sharedGroupPath []string) ([]*data.StructValue, error) {
+	resourceType := common.ResourceTypeChildSharedResource
+	sharedResource, err := service.buildSharedResource(shareId, sharedGroupPath)
+	if err != nil {
+		return nil, err
+	}
+
+	childSharedResource := model.ChildSharedResource{
+		ResourceType:   resourceType,
+		SharedResource: sharedResource,
+	}
+	dataValue, errors := NewConverter().ConvertToVapi(childSharedResource, model.ChildSharedResourceBindingType())
+	if len(errors) > 0 {
+		return nil, errors[0]
+	}
+	return []*data.StructValue{dataValue.(*data.StructValue)}, nil
+}
+
+func (service *SecurityPolicyService) buildProjectShare(obj *v1alpha1.SecurityPolicy, group *model.Group,
+	sharedGroupPath, sharedWith []string,
+) (*model.Share, error) {
+	resourceType := common.ResourceTypeShare
+	vpcInfo, err := getVpcInfo(obj.ObjectMeta.Namespace)
+	if err != nil {
+		return nil, err
+	}
+	projectId := (*vpcInfo).ProjectID
+
+	projectShareId := service.buildShareID(projectId, string(*group.Id))
+	projectShareTags := service.buildShareTags(obj, projectId, group)
+	projectShareName := fmt.Sprintf("share-%s-group-%s", projectId, *group.DisplayName)
+
+	childSharedResource, err := service.buildChildSharedResource(projectShareId, sharedGroupPath)
+	if err != nil {
+		return nil, err
+	}
+
+	projectShare := model.Share{
+		Id:           &projectShareId,
+		DisplayName:  &projectShareName,
+		Tags:         projectShareTags,
+		ResourceType: &resourceType,
+		SharedWith:   sharedWith,
+		Children:     childSharedResource,
+	}
+
+	return &projectShare, nil
+}
+
+func (service *SecurityPolicyService) buildSharedWith(sharedNamespace *[]string) (*[]string, error) {
+	var sharedWith []string
+	for _, ns := range *sharedNamespace {
+		log.V(1).Info("building sharedwith in nameSpace", "sharedNamespace", ns)
+
+		vpcInfo, err := getVpcInfo(ns)
+		if err != nil {
+			return nil, err
+		}
+		orgId := (*vpcInfo).OrgID
+		projectId := (*vpcInfo).ProjectID
+		vpcId := (*vpcInfo).VPCID
+
+		sharedWithPath := fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s", orgId, projectId, vpcId)
+		sharedWith = append(sharedWith, sharedWithPath)
+	}
+
+	return &sharedWith, nil
+}
+
+func (service *SecurityPolicyService) getNamespaceUID(ns string) (nsUid types.UID) {
+	namespace := &corev1.Namespace{}
+	namespacedName := types.NamespacedName{
+		Name: ns,
+	}
+	if err := service.Client.Get(context.Background(), namespacedName, namespace); err != nil {
+		log.Error(err, "failed to get namespace UID", "namespace", ns)
+		return ""
+	}
+	namespace_uid := namespace.UID
+	return namespace_uid
 }

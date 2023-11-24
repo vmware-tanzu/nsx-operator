@@ -100,8 +100,8 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResType)
-		if !controllerutil.ContainsFinalizer(obj, servicecommon.FinalizerName) {
-			controllerutil.AddFinalizer(obj, servicecommon.FinalizerName)
+		if !controllerutil.ContainsFinalizer(obj, servicecommon.SecurityPolicyFinalizerName) {
+			controllerutil.AddFinalizer(obj, servicecommon.SecurityPolicyFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "securitypolicy", req.NamespacedName)
 				updateFail(r, &ctx, obj, &err)
@@ -128,20 +128,20 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				updateFail(r, &ctx, obj, &err)
 				return ResultNormal, nil
 			}
-			log.Error(err, "operate failed, would retry exponentially", "securitypolicy", req.NamespacedName)
+			log.Error(err, "create or update failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 			updateFail(r, &ctx, obj, &err)
 			return ResultRequeue, err
 		}
 		updateSuccess(r, &ctx, obj)
 	} else {
-		if controllerutil.ContainsFinalizer(obj, servicecommon.FinalizerName) {
+		if controllerutil.ContainsFinalizer(obj, servicecommon.SecurityPolicyFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
-			if err := r.Service.DeleteSecurityPolicy(obj.UID); err != nil {
+			if err := r.Service.DeleteSecurityPolicy(obj, false); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 				deleteFail(r, &ctx, obj, &err)
 				return ResultRequeue, err
 			}
-			controllerutil.RemoveFinalizer(obj, servicecommon.FinalizerName)
+			controllerutil.RemoveFinalizer(obj, servicecommon.SecurityPolicyFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 				deleteFail(r, &ctx, obj, &err)
@@ -177,7 +177,7 @@ func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusFalse(ctx *contex
 			Status:  v1.ConditionFalse,
 			Message: "NSX Security Policy could not be created/updated",
 			Reason: fmt.Sprintf(
-				"error occurred while processing the Security Policy CR. Error: %v",
+				"error occurred while processing the SecurityPolicy CR. Error: %v",
 				*err,
 			),
 		},
@@ -194,7 +194,7 @@ func (r *SecurityPolicyReconciler) updateSecurityPolicyStatusConditions(ctx *con
 	}
 	if conditionsUpdated {
 		r.Client.Status().Update(*ctx, sec_policy)
-		log.V(1).Info("updated Security Policy", "Name", sec_policy.Name, "Namespace", sec_policy.Namespace,
+		log.V(1).Info("updated SecurityPolicy", "Name", sec_policy.Name, "Namespace", sec_policy.Namespace,
 			"New Conditions", newConditions)
 	}
 }
@@ -275,7 +275,7 @@ func (r *SecurityPolicyReconciler) GarbageCollector(cancel chan bool, timeout ti
 		policyList := &v1alpha1.SecurityPolicyList{}
 		err := r.Client.List(ctx, policyList)
 		if err != nil {
-			log.Error(err, "failed to list security policy CR")
+			log.Error(err, "failed to list SecurityPolicy CR")
 			continue
 		}
 
@@ -290,7 +290,7 @@ func (r *SecurityPolicyReconciler) GarbageCollector(cancel chan bool, timeout ti
 			}
 			log.V(1).Info("GC collected SecurityPolicy CR", "UID", elem)
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
-			err = r.Service.DeleteSecurityPolicy(types.UID(elem))
+			err = r.Service.DeleteSecurityPolicy(types.UID(elem), false)
 			if err != nil {
 				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 			} else {

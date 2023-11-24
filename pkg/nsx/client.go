@@ -18,7 +18,14 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
-	vpc_search "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/search"
+	projects "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
+	infra "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs"
+	nat "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/nat"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ip_pools"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ports"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -41,35 +48,58 @@ type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
 	RestConnector *client.RestConnector
 
-	QueryClient                search.QueryClient
-	VPCQueryClient             vpc_search.QueryClient
-	GroupClient                domains.GroupsClient
-	SecurityClient             domains.SecurityPoliciesClient
-	RuleClient                 security_policies.RulesClient
-	InfraClient                nsx_policy.InfraClient
-	ClusterControlPlanesClient enforcement_points.ClusterControlPlanesClient
+	QueryClient    search.QueryClient
+	GroupClient    domains.GroupsClient
+	SecurityClient domains.SecurityPoliciesClient
+	RuleClient     security_policies.RulesClient
+	InfraClient    nsx_policy.InfraClient
 
-	MPQueryClient             mpsearch.QueryClient
-	CertificatesClient        trust_management.CertificatesClient
-	PrincipalIdentitiesClient trust_management.PrincipalIdentitiesClient
-	WithCertificateClient     principal_identities.WithCertificateClient
+	ClusterControlPlanesClient enforcement_points.ClusterControlPlanesClient
+	HostTransPortNodesClient   enforcement_points.HostTransportNodesClient
+	SubnetStatusClient         subnets.StatusClient
+	RealizedEntitiesClient     realized_state.RealizedEntitiesClient
+	MPQueryClient              mpsearch.QueryClient
+	CertificatesClient         trust_management.CertificatesClient
+	PrincipalIdentitiesClient  trust_management.PrincipalIdentitiesClient
+	WithCertificateClient      principal_identities.WithCertificateClient
+
+	OrgRootClient       nsx_policy.OrgRootClient
+	ProjectInfraClient  projects.InfraClient
+	VPCClient           projects.VpcsClient
+	IPBlockClient       infra.IpBlocksClient
+	StaticRouteClient   vpcs.StaticRoutesClient
+	NATRuleClient       nat.NatRulesClient
+	VpcGroupClient      vpcs.GroupsClient
+	PortClient          subnets.PortsClient
+	PortStateClient     ports.StateClient
+	IPPoolClient        subnets.IpPoolsClient
+	IPAllocationClient  ip_pools.IpAllocationsClient
+	SubnetsClient       vpcs.SubnetsClient
+	RealizedStateClient realized_state.RealizedEntitiesClient
 
 	NSXChecker    NSXHealthChecker
 	NSXVerChecker NSXVersionChecker
 }
 
-var nsx320Version = [3]int64{3, 2, 0}
-var nsx401Version = [3]int64{4, 0, 1}
-var nsx412Version = [3]int64{4, 1, 2}
-var nsx413Version = [3]int64{4, 1, 3}
+var (
+	nsx320Version = [3]int64{3, 2, 0}
+	nsx401Version = [3]int64{4, 0, 1}
+	nsx411Version = [3]int64{4, 1, 1}
+	nsx412Version = [3]int64{4, 1, 2}
+	nsx413Version = [3]int64{4, 1, 3}
+)
 
 type NSXHealthChecker struct {
 	cluster *Cluster
 }
 
 type NSXVersionChecker struct {
-	cluster          *Cluster
-	featureSupported [AllFeatures]bool
+	cluster                           *Cluster
+	securityPolicySupported           bool
+	nsxServiceAccountSupported        bool
+	nsxServiceAccountRestoreSupported bool
+	vpcSupported                      bool
+	featureSupported                  [AllFeatures]bool
 }
 
 func (ck *NSXHealthChecker) CheckNSXHealth(req *http.Request) error {
@@ -91,7 +121,12 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	// Set log level for vsphere-automation-sdk-go
 	logger := logrus.New()
 	vspherelog.SetLogger(logger)
-	c := NewConfig(strings.Join(cf.NsxApiManagers, ","), cf.NsxApiUser, cf.NsxApiPassword, cf.CaFile, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, cf.GetTokenProvider(), nil, cf.Thumbprint)
+	defaultHttpTimeout := 20
+	if cf.DefaultTimeout > 0 {
+		defaultHttpTimeout = cf.DefaultTimeout
+	}
+	c := NewConfig(strings.Join(cf.NsxApiManagers, ","), cf.NsxApiUser, cf.NsxApiPassword, cf.CaFile, 10, 3, defaultHttpTimeout, 20, true, true, true,
+		ratelimiter.AIMD, cf.GetTokenProvider(), nil, cf.Thumbprint)
 	cluster, _ := NewCluster(c)
 
 	queryClient := search.NewQueryClient(restConnector(cluster))
@@ -99,13 +134,29 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	securityClient := domains.NewSecurityPoliciesClient(restConnector(cluster))
 	ruleClient := security_policies.NewRulesClient(restConnector(cluster))
 	infraClient := nsx_policy.NewInfraClient(restConnector(cluster))
-	vpcQueryClient := vpc_search.NewQueryClient(restConnector(cluster))
-	clusterControlPlanesClient := enforcement_points.NewClusterControlPlanesClient(restConnector(cluster))
 
+	clusterControlPlanesClient := enforcement_points.NewClusterControlPlanesClient(restConnector(cluster))
+	hostTransportNodesClient := enforcement_points.NewHostTransportNodesClient(restConnector(cluster))
+	realizedEntitiesClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
 	mpQueryClient := mpsearch.NewQueryClient(restConnector(cluster))
 	certificatesClient := trust_management.NewCertificatesClient(restConnector(cluster))
 	principalIdentitiesClient := trust_management.NewPrincipalIdentitiesClient(restConnector(cluster))
 	withCertificateClient := principal_identities.NewWithCertificateClient(restConnector(cluster))
+
+	orgRootClient := nsx_policy.NewOrgRootClient(restConnector(cluster))
+	projectInfraClient := projects.NewInfraClient(restConnector(cluster))
+	vpcClient := projects.NewVpcsClient(restConnector(cluster))
+	ipBlockClient := infra.NewIpBlocksClient(restConnector(cluster))
+	staticRouteClient := vpcs.NewStaticRoutesClient(restConnector(cluster))
+	natRulesClient := nat.NewNatRulesClient(restConnector(cluster))
+	vpcGroupClient := vpcs.NewGroupsClient(restConnector(cluster))
+	portClient := subnets.NewPortsClient(restConnector(cluster))
+	portStateClient := ports.NewStateClient(restConnector(cluster))
+	ipPoolClient := subnets.NewIpPoolsClient(restConnector(cluster))
+	ipAllocationClient := ip_pools.NewIpAllocationsClient(restConnector(cluster))
+	subnetsClient := vpcs.NewSubnetsClient(restConnector(cluster))
+	subnetStatusClient := subnets.NewStatusClient(restConnector(cluster))
+	realizedStateClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
 
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
@@ -125,15 +176,30 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		InfraClient:    infraClient,
 
 		ClusterControlPlanesClient: clusterControlPlanesClient,
+		HostTransPortNodesClient:   hostTransportNodesClient,
+		RealizedEntitiesClient:     realizedEntitiesClient,
+		MPQueryClient:              mpQueryClient,
+		CertificatesClient:         certificatesClient,
+		PrincipalIdentitiesClient:  principalIdentitiesClient,
+		WithCertificateClient:      withCertificateClient,
 
-		MPQueryClient:             mpQueryClient,
-		CertificatesClient:        certificatesClient,
-		PrincipalIdentitiesClient: principalIdentitiesClient,
-		WithCertificateClient:     withCertificateClient,
+		OrgRootClient:      orgRootClient,
+		ProjectInfraClient: projectInfraClient,
+		VPCClient:          vpcClient,
+		IPBlockClient:      ipBlockClient,
+		StaticRouteClient:  staticRouteClient,
+		NATRuleClient:      natRulesClient,
+		VpcGroupClient:     vpcGroupClient,
+		PortClient:         portClient,
+		PortStateClient:    portStateClient,
+		SubnetStatusClient: subnetStatusClient,
 
-		NSXChecker:     *nsxChecker,
-		NSXVerChecker:  *nsxVersionChecker,
-		VPCQueryClient: vpcQueryClient,
+		NSXChecker:          *nsxChecker,
+		NSXVerChecker:       *nsxVersionChecker,
+		IPPoolClient:        ipPoolClient,
+		IPAllocationClient:  ipAllocationClient,
+		SubnetsClient:       subnetsClient,
+		RealizedStateClient: realizedStateClient,
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time

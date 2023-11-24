@@ -5,6 +5,7 @@ package securitypolicy
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -25,10 +26,11 @@ var (
 	directionIn  = v1alpha1.RuleDirectionIn
 	directionOut = v1alpha1.RuleDirectionOut
 
-	tagScopeGroupType = common.TagScopeGroupType
-
+	tagScopeVersion              = common.TagScopeVersion
+	tagScopeGroupType            = common.TagScopeGroupType
 	tagScopeCluster              = common.TagScopeCluster
 	tagScopeNamespace            = common.TagScopeNamespace
+	tagScopeNamespaceUID         = common.TagScopeNamespaceUID
 	tagScopeSecurityPolicyCRName = common.TagScopeSecurityPolicyCRName
 	tagScopeSecurityPolicyCRUID  = common.TagScopeSecurityPolicyCRUID
 	tagScopeRuleID               = common.TagScopeRuleID
@@ -56,8 +58,11 @@ var (
 	nsxDirectionOut              = "OUT"
 	nsxActionDrop                = "DROP"
 	cluster                      = "k8scl-one"
-	tagValueScope                = "scope"
+	tagValueVersion              = strings.Join(common.TagValueVersion, ".")
+	tagValueGroupScope           = common.TagValueGroupScope
+	tagValueGroupSource          = common.TagValueGroupSrc
 	tagValueNS                   = "ns1"
+	tagValueNSUID                = "us1UID"
 	tagValuePolicyCRName         = "spA"
 	tagValuePolicyCRUID          = "uidA"
 	tagValuePodSelectorHash      = "a42321575d78a6c340c6963c7a82c86c7217f847"
@@ -248,12 +253,20 @@ var (
 
 	basicTags = []model.Tag{
 		{
+			Scope: &tagScopeVersion,
+			Tag:   &tagValueVersion,
+		},
+		{
 			Scope: &tagScopeCluster,
 			Tag:   &cluster,
 		},
 		{
 			Scope: &tagScopeNamespace,
 			Tag:   &tagValueNS,
+		},
+		{
+			Scope: &tagScopeNamespaceUID,
+			Tag:   &tagValueNSUID,
 		},
 		{
 			Scope: &tagScopeSecurityPolicyCRName,
@@ -281,6 +294,10 @@ func TestListSecurityPolicyID(t *testing.T) {
 	service.ruleStore = &RuleStore{ResourceStore: common.ResourceStore{
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc}),
 		BindingType: model.RuleBindingType(),
+	}}
+	service.shareStore = &ShareStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc}),
+		BindingType: model.ShareBindingType(),
 	}}
 
 	group := model.Group{}
@@ -317,6 +334,17 @@ func TestListSecurityPolicyID(t *testing.T) {
 		t.Fatalf("Failed to add policy to store: %v", err)
 	}
 
+	id3 := "shareId"
+	uuid3 := "shareIdUID"
+	share := model.Share{}
+	share.Id = &id1
+	share.UniqueId = &uuid3
+	share.Tags = []model.Tag{{Scope: &scope, Tag: &id3}}
+	err = service.shareStore.Add(share)
+	if err != nil {
+		t.Fatalf("Failed to add share to store: %v", err)
+	}
+
 	tests := []struct {
 		name    string
 		want    sets.String
@@ -332,6 +360,7 @@ func TestListSecurityPolicyID(t *testing.T) {
 	tests[0].want.Insert(id)
 	tests[0].want.Insert(id1)
 	tests[0].want.Insert(id2)
+	tests[0].want.Insert(id3)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := service.ListSecurityPolicyID()

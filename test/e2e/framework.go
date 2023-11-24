@@ -29,7 +29,9 @@ import (
 )
 
 const (
-	defaultTimeout = 100 * time.Second
+	defaultTimeout         = 100 * time.Second
+	verifyNoneExistTimeout = 15 * time.Second
+	crdVersion             = "v1alpha1"
 )
 
 type Status int
@@ -355,11 +357,11 @@ func (data *TestData) deletePodAndWait(timeout time.Duration, name string, ns st
 
 type PodCondition func(*corev1.Pod) (bool, error)
 
-// waitForSecurityPolicyReady polls the K8s apiServer until the specified SecurityPolicy is in the "True" state (or until
+// waitForSecurityPolicyReady polls the K8s apiServer until the specified CR is in the "True" state (or until
 // the provided timeout expires).
-func (data *TestData) waitForSecurityPolicyReadyOrDeleted(timeout time.Duration, namespace string, name string, status Status) error {
+func (data *TestData) waitForCRReadyOrDeleted(timeout time.Duration, cr string, namespace string, name string, status Status) error {
 	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
-		cmd := fmt.Sprintf("kubectl get securitypolicy %s -n %s -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}'", name, namespace)
+		cmd := fmt.Sprintf("kubectl get %s %s -n %s -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}'", cr, name, namespace)
 		log.Printf("%s", cmd)
 		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
 		if err != nil || rc != 0 {
@@ -381,6 +383,71 @@ func (data *TestData) waitForSecurityPolicyReadyOrDeleted(timeout time.Duration,
 		return err
 	}
 	return nil
+}
+
+func (data *TestData) getCRProperties(timeout time.Duration, crType, crName, namespace, key string) (string, error) {
+	value := ""
+	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+		cmd := fmt.Sprintf("kubectl get %s %s -n %s -o yaml | grep %s", crType, crName, namespace, key)
+		log.Printf("%s", cmd)
+		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
+		if err != nil || rc != 0 {
+			return false, fmt.Errorf("error when running the following command `%s` on master Node: %v, %s", cmd, err, stdout)
+		} else {
+			parts := strings.Split(stdout, ":")
+			if len(parts) != 2 {
+				return false, fmt.Errorf("failed to read attribute from output %s", stdout)
+			} else {
+				value = parts[1]
+				return true, nil
+			}
+		}
+	})
+	if err != nil {
+		return value, err
+	}
+	return value, nil
+}
+
+// Check if CR is created under NS, for resources like VPC, we do not know CR name
+// return map structure, key is CR name, value is CR UID
+func (data *TestData) getCRResource(timeout time.Duration, cr string, namespace string) (map[string]string, error) {
+	crs := map[string]string{}
+	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+		cmd := fmt.Sprintf("kubectl get %s -n %s", cr, namespace)
+		log.Printf("%s", cmd)
+		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
+		if err != nil || rc != 0 {
+			return false, fmt.Errorf("error when running the following command `%s` on master Node: %v, %s", cmd, err, stdout)
+		} else {
+			crs_raw := strings.Split(stdout, "\n")
+			// for each resource, get json structure as value
+			for i, c := range crs_raw {
+				if i == 0 {
+					// first line is table header
+					continue
+				}
+				r := regexp.MustCompile("[^\\s]+")
+				parts := r.FindAllString(c, -1)
+				if len(parts) < 1 { // to avoid empty lines
+					continue
+				}
+				uid_cmd := fmt.Sprintf("kubectl get %s %s -n %s -o yaml | grep uid", cr, parts[0], namespace)
+				log.Printf("trying to get uid for cr: %s", uid_cmd)
+				rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, uid_cmd)
+				if err != nil || rc != 0 {
+					return false, fmt.Errorf("error when running the following command `%s` on master Node: %v, %s", uid_cmd, err, stdout)
+				}
+				uid := strings.Split(stdout, ":")[1]
+				crs[parts[0]] = uid
+			}
+			return true, nil
+		}
+	})
+	if err != nil {
+		return crs, err
+	}
+	return crs, nil
 }
 
 // podWaitFor polls the K8s apiServer until the specified Pod is found (in the test Namespace) and
@@ -636,29 +703,37 @@ func deleteYAML(filename string, ns string) error {
 	return nil
 }
 
-func (data *TestData) waitForResourceExistOrNot(namespace string, resourceType string, resourceName string, shouldExist bool) error {
+func (data *TestData) waitForResourceExist(namespace string, resourceType string, key string, value string, shouldExist bool) error {
 	err := wait.Poll(1*time.Second, defaultTimeout, func() (bool, error) {
 		exist := true
 		tagScopeClusterKey := strings.Replace(common.TagScopeNamespace, "/", "\\/", -1)
 		tagScopeClusterValue := strings.Replace(namespace, ":", "\\:", -1)
 		tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
-		resourceParam := fmt.Sprintf("%s:%s AND display_name:*%s*", common.ResourceType, resourceType, resourceName)
+		resourceParam := fmt.Sprintf("%s:%s AND %s:*%s*", common.ResourceType, resourceType, key, value)
 		queryParam := resourceParam + " AND " + tagParam
 		var cursor *string = nil
 		var pageSize int64 = 500
 		response, err := testData.nsxClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
 		if err != nil {
-			log.Printf("Error when querying resource %s/%s: %v", resourceType, resourceName, err)
+			log.Printf("Error when querying resource %s/%s: %s,%v", resourceType, key, value, err)
 			return false, err
 		}
 		if len(response.Results) == 0 {
 			exist = false
 		}
-		//log.Printf("QueryParam: %s Result: %t", queryParam, exist)
+		log.Printf("QueryParam: %s exist: %t", queryParam, exist)
 		if exist != shouldExist {
 			return false, nil
 		}
 		return true, nil
 	})
 	return err
+}
+
+func (data *TestData) waitForResourceExistById(namespace string, resourceType string, id string, shouldExist bool) error {
+	return data.waitForResourceExist(namespace, resourceType, "id", id, shouldExist)
+}
+
+func (data *TestData) waitForResourceExistOrNot(namespace string, resourceType string, resourceName string, shouldExist bool) error {
+	return data.waitForResourceExist(namespace, resourceType, "display_name", resourceName, shouldExist)
 }

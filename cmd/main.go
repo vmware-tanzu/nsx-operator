@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	vmv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -15,16 +16,28 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	ippool2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/ippool"
+	namespacecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/namespace"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/node"
 	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/pod"
 	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
+	staticroutecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/staticroute"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnet"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetport"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetset"
+	vpccontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/vpc"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ippool"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
 var (
@@ -38,6 +51,8 @@ func init() {
 	var err error
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
+	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(vmv1alpha1.AddToScheme(scheme))
 	config.AddFlags()
 
 	cf, err = config.NewNSXOperatorConfigFromFile()
@@ -72,7 +87,6 @@ func StartSecurityPolicyController(mgr ctrl.Manager, commonService common.Servic
 		os.Exit(1)
 	} else {
 		securityReconcile.Service = securityService
-		commonctl.ServiceMediator.SecurityPolicyService = securityService
 	}
 	if err := securityReconcile.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "SecurityPolicy")
@@ -94,6 +108,54 @@ func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Ser
 	}
 	if err := nsxServiceAccountReconcile.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "NSXServiceAccount")
+		os.Exit(1)
+	}
+}
+
+func StartIPPoolController(mgr ctrl.Manager, commonService common.Service) {
+	ippoolReconcile := &ippool2.IPPoolReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+	if ipPoolService, err := ippool.InitializeIPPool(commonService); err != nil {
+		log.Error(err, "failed to initialize ippool commonService", "controller", "IPPool")
+		os.Exit(1)
+	} else {
+		ippoolReconcile.Service = ipPoolService
+	}
+	if err := ippoolReconcile.Start(mgr); err != nil {
+		log.Error(err, "failed to create controller", "controller", "IPPool")
+		os.Exit(1)
+	}
+}
+
+func StartVPCController(mgr ctrl.Manager, commonService common.Service) {
+	vpcReconciler := &vpccontroller.VPCReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+	if vpcService, err := vpc.InitializeVPC(commonService); err != nil {
+		log.Error(err, "failed to initialize vpc commonService", "controller", "VPC")
+		os.Exit(1)
+	} else {
+		vpcReconciler.Service = vpcService
+		commonctl.ServiceMediator.VPCService = vpcService
+	}
+	if err := vpcReconciler.Start(mgr); err != nil {
+		log.Error(err, "failed to create vpc controller", "controller", "VPC")
+		os.Exit(1)
+	}
+}
+
+func StartNamespaceController(mgr ctrl.Manager, commonService common.Service) {
+	nsReconciler := &namespacecontroller.NamespaceReconciler{
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		NSXConfig: commonService.NSXConfig,
+	}
+
+	if err := nsReconciler.Start(mgr); err != nil {
+		log.Error(err, "failed to create namespace controller", "controller", "Namespace")
 		os.Exit(1)
 	}
 }
@@ -128,8 +190,30 @@ func main() {
 		NSXConfig: cf,
 	}
 
+	if cf.CoeConfig.EnableVPCNetwork && commonService.NSXClient.NSXCheckVersion(nsx.VPC) {
+		log.V(1).Info("VPC mode enabled")
+		// Start controllers which only supports VPC
+		// Start subnet/subnetset controller.
+		if err := subnet.StartSubnetController(mgr, commonService); err != nil {
+			os.Exit(1)
+		}
+		if err := subnetset.StartSubnetSetController(mgr, commonService); err != nil {
+			os.Exit(1)
+		}
+
+		node.StartNodeController(mgr, commonService)
+		staticroutecontroller.StartStaticRouteController(mgr, commonService)
+		subnetport.StartSubnetPortController(mgr, commonService)
+		pod.StartPodController(mgr, commonService)
+
+		StartNamespaceController(mgr, commonService)
+		StartVPCController(mgr, commonService)
+		StartIPPoolController(mgr, commonService)
+	}
+
 	// Start the security policy controller.
 	StartSecurityPolicyController(mgr, commonService)
+
 	// Start the NSXServiceAccount controller.
 	if cf.EnableAntreaNSXInterworking {
 		StartNSXServiceAccountController(mgr, commonService)

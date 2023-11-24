@@ -15,7 +15,16 @@ spec:
     singular: staticroute
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Network in CIDR format
+      jsonPath: .spec.network
+      name: Network
+      type: string
+    - description: Next Hops
+      jsonPath: .spec.nextHops[*].ipAddress
+      name: NextHops
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: StaticRoute is the Schema for the staticroutes API.
@@ -88,8 +97,11 @@ spec:
                   - type
                   type: object
                 type: array
+              nsxResourcePath:
+                type: string
             required:
             - conditions
+            - nsxResourcePath
             type: object
         type: object
     served: true

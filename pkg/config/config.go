@@ -81,7 +81,8 @@ type DefaultConfig struct {
 }
 
 type CoeConfig struct {
-	Cluster string `ini:"cluster"`
+	Cluster          string `ini:"cluster"`
+	EnableVPCNetwork bool   `ini:"enable_vpc_network"`
 }
 
 type NsxConfig struct {
@@ -95,6 +96,10 @@ type NsxConfig struct {
 	Insecure             bool     `ini:"insecure"`
 	SingleTierSrTopology bool     `ini:"single_tier_sr_topology"`
 	EnforcementPoint     string   `ini:"enforcement_point"`
+	DefaultProject       string   `ini:"default_project"`
+	ExternalIPv4Blocks   []string `ini:"external_ipv4_blocks"`
+	DefaultSubnetSize    int      `ini:"default_subnet_size"`
+	DefaultTimeout       int      `ini:"default_timeout"`
 }
 
 type K8sConfig struct {
@@ -198,9 +203,7 @@ func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
 func NewNSXOpertorConfig() *NSXOperatorConfig {
 	defaultNSXOperatorConfig := &NSXOperatorConfig{
 		&DefaultConfig{},
-		&CoeConfig{
-			"",
-		},
+		&CoeConfig{},
 		&NsxConfig{},
 		&K8sConfig{},
 		&VCConfig{},
@@ -214,7 +217,7 @@ func (operatorConfig *NSXOperatorConfig) validate() error {
 	if err := operatorConfig.CoeConfig.validate(); err != nil {
 		return err
 	}
-	if err := operatorConfig.NsxConfig.validate(); err != nil {
+	if err := operatorConfig.NsxConfig.validate(operatorConfig.CoeConfig.EnableVPCNetwork); err != nil {
 		return err
 	}
 	// TODO, verify if user&pwd, cert, jwt has any of them provided
@@ -239,7 +242,7 @@ func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
 		} else {
 			vcCaCert, err = os.ReadFile(vcHostCACertPath)
 		}
-		// If operatorConfig.VCInsecure is false, tls will the CA to verify the server
+		// If operatorConfig.VCInsecure is false, tls will use the CA to verify the server
 		// certificate. If loading CA failed, tls will use the CA on local host
 		if err != nil {
 			configLog.Info("fail to load CA cert from file", "error", err)
@@ -301,8 +304,8 @@ func (nsxConfig *NsxConfig) validateCert() error {
 	caCount := len(nsxConfig.CaFile)
 	// ca file has high priority than thumbprint
 	// ca file(thumbprint) == 1 or equal to manager count
-	if caCount == 0 && tpCount == 0 {
-		err := errors.New("no ca file or thumbprint provided")
+	if caCount == 0 && tpCount == 0 && nsxConfig.NsxApiUser == "" && nsxConfig.NsxApiPassword == "" {
+		err := errors.New("no ca file or thumbprint or nsx username/password provided")
 		configLog.Error(err, "validate NsxConfig failed")
 		return err
 	}
@@ -331,7 +334,7 @@ func (nsxConfig *NsxConfig) validateCert() error {
 	return nil
 }
 
-func (nsxConfig *NsxConfig) validate() error {
+func (nsxConfig *NsxConfig) validate(enableVPC bool) error {
 	nsxConfig.NsxApiManagers = removeEmptyItem(nsxConfig.NsxApiManagers)
 	mCount := len(nsxConfig.NsxApiManagers)
 	if mCount == 0 {
@@ -352,4 +355,8 @@ func (coeConfig *CoeConfig) validate() error {
 		return err
 	}
 	return nil
+}
+
+func (nsxConfig *NsxConfig) ValidateConfigFromCmd() error {
+	return nsxConfig.validate(true)
 }

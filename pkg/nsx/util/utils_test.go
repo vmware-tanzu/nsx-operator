@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -169,6 +170,7 @@ func TestVCClient_handleHTTPResponse(t *testing.T) {
 	response.Request = &http.Request{}
 	response.Request.URL = &url.URL{Host: "10.0.0.1"}
 	response.StatusCode = 301
+	response.Body = io.NopCloser(strings.NewReader("Hello, World!"))
 	var sessionData map[string]string
 
 	// http status code > 300

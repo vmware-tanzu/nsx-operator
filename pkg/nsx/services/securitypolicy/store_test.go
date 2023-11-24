@@ -152,7 +152,9 @@ func Test_InitializeRuleStore(t *testing.T) {
 		})
 	defer patches2.Reset()
 
-	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, ruleStore)
+	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, nil, ruleStore)
+	assert.Empty(t, fatalErrors)
+	assert.Equal(t, []string{"11111"}, ruleStore.ListKeys())
 }
 
 func Test_InitializeGroupStore(t *testing.T) {
@@ -201,7 +203,9 @@ func Test_InitializeGroupStore(t *testing.T) {
 		})
 	defer patches2.Reset()
 
-	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, groupStore)
+	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, nil, groupStore)
+	assert.Empty(t, fatalErrors)
+	assert.Equal(t, []string{"11111"}, groupStore.ListKeys())
 }
 
 func Test_InitializeSecurityPolicyStore(t *testing.T) {
@@ -250,10 +254,12 @@ func Test_InitializeSecurityPolicyStore(t *testing.T) {
 		})
 	defer patches2.Reset()
 
-	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSecurityPolicy, securityPolicyStore)
+	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSecurityPolicy, nil, securityPolicyStore)
+	assert.Empty(t, fatalErrors)
+	assert.Equal(t, []string{"11111"}, securityPolicyStore.ListKeys())
 }
 
-func TestSecurityPolicyStore_Operate(t *testing.T) {
+func TestSecurityPolicyStore_Apply(t *testing.T) {
 	securityPolicyCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
 	resourceStore := common.ResourceStore{
 		Indexer:     securityPolicyCacheIndexer,
@@ -272,12 +278,12 @@ func TestSecurityPolicyStore_Operate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.wantErr(t, securityPolicyStore.Operate(tt.args.i), fmt.Sprintf("Operate(%v)", tt.args.i))
+			tt.wantErr(t, securityPolicyStore.Apply(tt.args.i), fmt.Sprintf("Apply(%v)", tt.args.i))
 		})
 	}
 }
 
-func TestRuleStore_Operate(t *testing.T) {
+func TestRuleStore_Apply(t *testing.T) {
 	ruleCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexFunc})
 	resourceStore := common.ResourceStore{
 		Indexer:     ruleCacheIndexer,
@@ -328,7 +334,7 @@ func TestRuleStore_Operate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.wantErr(t, ruleStore.Operate(tt.args.i), fmt.Sprintf("Operate(%v)", tt.args.i))
+			tt.wantErr(t, ruleStore.Apply(tt.args.i), fmt.Sprintf("Apply(%v)", tt.args.i))
 		})
 	}
 }
@@ -353,7 +359,7 @@ func TestGroupStore_Operator(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.wantErr(t, groupStore.Operate(tt.args.i), fmt.Sprintf("Operate(%v)", tt.args.i))
+			tt.wantErr(t, groupStore.Apply(tt.args.i), fmt.Sprintf("Apply(%v)", tt.args.i))
 		})
 	}
 }

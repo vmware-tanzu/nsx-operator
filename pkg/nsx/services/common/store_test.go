@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
@@ -83,7 +84,7 @@ func (_ *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool
 	}, nil
 }
 
-func (resourceStore *ResourceStore) Operate(i interface{}) error {
+func (resourceStore *ResourceStore) Apply(i interface{}) error {
 	sp := i.(*model.SecurityPolicy)
 	for _, rule := range sp.Rules {
 		if rule.MarkedForDelete != nil && *rule.MarkedForDelete {
@@ -177,5 +178,11 @@ func Test_InitializeResourceStore(t *testing.T) {
 		})
 	defer patches2.Reset()
 
-	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, ruleStore)
+	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, nil, ruleStore)
+	assert.Empty(t, fatalErrors)
+	assert.Equal(t, []string{"11111"}, ruleStore.ListKeys())
+	mTag, mScope := TagScopeNamespace, "11111"
+	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, []model.Tag{{Tag: &mTag, Scope: &mScope}}, ruleStore)
+	assert.Empty(t, fatalErrors)
+	assert.Equal(t, []string{"11111"}, ruleStore.ListKeys())
 }

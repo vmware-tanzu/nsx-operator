@@ -5,6 +5,7 @@ package nsxserviceaccount
 
 import (
 	"errors"
+
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
@@ -16,7 +17,7 @@ type PrincipalIdentityStore struct {
 	common.ResourceStore
 }
 
-func (s *PrincipalIdentityStore) Operate(i interface{}) error {
+func (s *PrincipalIdentityStore) Apply(i interface{}) error {
 	pis := i.(*[]mpmodel.PrincipalIdentity)
 	for _, pi := range *pis {
 		// MP resource doesn't have MarkedForDelete tag.
@@ -38,7 +39,7 @@ type ClusterControlPlaneStore struct {
 	common.ResourceStore
 }
 
-func (s *ClusterControlPlaneStore) Operate(i interface{}) error {
+func (s *ClusterControlPlaneStore) Apply(i interface{}) error {
 	pis := i.(*[]model.ClusterControlPlane)
 	for _, pi := range *pis {
 		if pi.MarkedForDelete != nil && *pi.MarkedForDelete {
