@@ -62,6 +62,7 @@ const (
 	TagValueGroupScope              string = "scope"
 	TagValueGroupSrc                string = "source"
 	TagValueGroupDst                string = "destination"
+	TagValueGroupAvi                string = "avi"
 	AnnotationVPCNetworkConfig      string = "nsx.vmware.com/vpc_network_config"
 	AnnotationVPCName               string = "nsx.vmware.com/vpc_name"
 	AnnotationPodMAC                string = "nsx.vmware.com/mac"

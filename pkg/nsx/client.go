@@ -23,6 +23,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs"
 	nat "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/nat"
+	vpc_sp "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ip_pools"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ports"
@@ -39,10 +40,11 @@ const (
 	ServiceAccountRestore
 	ServiceAccountCertRotation
 	StaticRoute
+	VpcAviRule
 	AllFeatures
 )
 
-var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE"}
+var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_AVI_RULE"}
 
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
@@ -62,6 +64,10 @@ type Client struct {
 	CertificatesClient         trust_management.CertificatesClient
 	PrincipalIdentitiesClient  trust_management.PrincipalIdentitiesClient
 	WithCertificateClient      principal_identities.WithCertificateClient
+
+	// for AVI security policy rule
+	VPCSecurityClient vpcs.SecurityPoliciesClient
+	VPCRuleClient     vpc_sp.RulesClient
 
 	OrgRootClient       nsx_policy.OrgRootClient
 	ProjectInfraClient  projects.InfraClient
@@ -94,12 +100,8 @@ type NSXHealthChecker struct {
 }
 
 type NSXVersionChecker struct {
-	cluster                           *Cluster
-	securityPolicySupported           bool
-	nsxServiceAccountSupported        bool
-	nsxServiceAccountRestoreSupported bool
-	vpcSupported                      bool
-	featureSupported                  [AllFeatures]bool
+	cluster          *Cluster
+	featureSupported [AllFeatures]bool
 }
 
 func (ck *NSXHealthChecker) CheckNSXHealth(req *http.Request) error {
@@ -158,6 +160,9 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	subnetStatusClient := subnets.NewStatusClient(restConnector(cluster))
 	realizedStateClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
 
+	vpcSecurityClient := vpcs.NewSecurityPoliciesClient(restConnector(cluster))
+	vpcRuleClient := vpc_sp.NewRulesClient(restConnector(cluster))
+
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
 	}
@@ -193,6 +198,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		PortClient:         portClient,
 		PortStateClient:    portStateClient,
 		SubnetStatusClient: subnetStatusClient,
+		VPCSecurityClient:  vpcSecurityClient,
+		VPCRuleClient:      vpcRuleClient,
 
 		NSXChecker:          *nsxChecker,
 		NSXVerChecker:       *nsxVersionChecker,
@@ -214,6 +221,10 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	if !nsxClient.NSXCheckVersion(ServiceAccountRestore) {
 		err := errors.New("NSXServiceAccountRestore feature support check failed")
 		log.Error(err, "initial NSX version check for NSXServiceAccountRestore got error")
+	}
+	if !nsxClient.NSXCheckVersion(VpcAviRule) {
+		err := errors.New("VpcAviRule feature support check failed")
+		log.Error(err, "initial NSX version check for VpcAviRule got error")
 	}
 	if !nsxClient.NSXCheckVersion(ServiceAccountCertRotation) {
 		err := errors.New("ServiceAccountCertRotation feature support check failed")
@@ -246,4 +257,8 @@ func (client *Client) NSXCheckVersion(feature int) bool {
 	}
 	client.NSXVerChecker.featureSupported[feature] = true
 	return true
+}
+
+func (client *Client) FeatureEnabled(feature int) bool {
+	return client.NSXVerChecker.featureSupported[feature] == true
 }
