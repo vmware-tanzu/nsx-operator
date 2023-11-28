@@ -20,7 +20,7 @@ var (
 	String = common.String
 )
 
-func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnetPath string, contextID string, labelTags *map[string]string) (*model.SegmentPort, error) {
+func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnetPath string, contextID string, labelTags *map[string]string) (*model.VpcSubnetPort, error) {
 	var objName, objNamespace, uid, appId string
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
@@ -59,7 +59,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnetPath
 			tags = append(tags, model.Tag{Scope: String(k), Tag: String(v)})
 		}
 	}
-	nsxSubnetPort := &model.SegmentPort{
+	nsxSubnetPort := &model.VpcSubnetPort{
 		DisplayName: String(nsxSubnetPortName),
 		Id:          String(nsxSubnetPortID),
 		Attachment: &model.PortAttachment{
