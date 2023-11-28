@@ -147,3 +147,86 @@ func (is *IPBlockStore) GetByIndex(index string, value string) *model.IpAddressB
 	block := indexResults[0].((model.IpAddressBlock))
 	return &block
 }
+
+// keyFuncAVI is used to get the key of a AVI rule related resource
+func keyFuncAVI(obj interface{}) (string, error) {
+	switch v := obj.(type) {
+	case model.Rule:
+		return *v.Path, nil
+	case model.SecurityPolicy:
+		return *v.Path, nil
+	case model.Group:
+		return *v.Path, nil
+	case model.IpAddressBlock:
+		return *v.Path, nil
+	default:
+		return "", errors.New("keyFunc doesn't support unknown type")
+	}
+}
+
+// AviRuleStore is a store for saving AVI related Rules in VPCs
+type AviRuleStore struct {
+	common.ResourceStore
+}
+
+func (ruleStore *AviRuleStore) Apply(i interface{}) error {
+	return nil
+}
+func (ruleStore *AviRuleStore) GetByKey(key string) *model.Rule {
+	obj := ruleStore.ResourceStore.GetByKey(key)
+	if obj != nil {
+		rule := obj.(model.Rule)
+		return &rule
+	}
+	return nil
+}
+
+// PubIPblockStore is a store to query external ip blocks cidr
+type PubIPblockStore struct {
+	common.ResourceStore
+}
+
+func (ipBlockStore *PubIPblockStore) Apply(i interface{}) error {
+	return nil
+}
+func (ipBlockStore *PubIPblockStore) GetByKey(key string) *model.IpAddressBlock {
+	obj := ipBlockStore.ResourceStore.GetByKey(key)
+	if obj != nil {
+		ipblock := obj.(model.IpAddressBlock)
+		return &ipblock
+	}
+	return nil
+}
+
+type AviGroupStore struct {
+	common.ResourceStore
+}
+
+func (groupStore *AviGroupStore) Apply(i interface{}) error {
+	return nil
+}
+func (groupStore *AviGroupStore) GetByKey(key string) *model.Group {
+	obj := groupStore.ResourceStore.GetByKey(key)
+	if obj != nil {
+		group := obj.(model.Group)
+		return &group
+	}
+	return nil
+}
+
+type AviSecurityPolicyStore struct {
+	common.ResourceStore
+}
+
+func (securityPolicyStore *AviSecurityPolicyStore) Apply(i interface{}) error {
+	return nil
+}
+
+func (securityPolicyStore *AviSecurityPolicyStore) GetByKey(key string) *model.SecurityPolicy {
+	obj := securityPolicyStore.ResourceStore.GetByKey(key)
+	if obj != nil {
+		sp := obj.(model.SecurityPolicy)
+		return &sp
+	}
+	return nil
+}
