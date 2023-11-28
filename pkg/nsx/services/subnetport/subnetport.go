@@ -52,7 +52,7 @@ func InitializeSubnetPort(service servicecommon.Service) (*SubnetPortService, er
 				servicecommon.TagScopePodUID:          subnetPortIndexByPodUID,
 				servicecommon.IndexKeySubnetID:        subnetPortIndexBySubnetID,
 			}),
-		BindingType: model.SegmentPortBindingType(),
+		BindingType: model.VpcSubnetPortBindingType(),
 	}}
 
 	go subnetPortService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSubnetPort, nil, subnetPortService.SubnetPortStore)
@@ -82,9 +82,7 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		uid = string(o.UID)
 	}
 	log.Info("creating or updating subnetport", "nsxSubnetPort.Id", uid, "nsxSubnetPath", nsxSubnetPath)
-	//nsxSubnetPort, err := service.buildSubnetPort(obj, nsxSubnetPath, contextID, tags)
-	nsxSubnetPort := &model.VpcSubnetPort{}
-	var err error
+	nsxSubnetPort, err := service.buildSubnetPort(obj, nsxSubnetPath, contextID, tags)
 	if err != nil {
 		log.Error(err, "failed to build NSX subnet port", "nsxSubnetPort.Id", uid, "nsxSubnetPath", nsxSubnetPath, "contextID", contextID)
 		return nil, err
@@ -95,8 +93,7 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		return nil, err
 	}
 	existingSubnetPort := service.SubnetPortStore.GetByKey(*nsxSubnetPort.Id)
-	//isChanged := servicecommon.CompareResource(SubnetPortToComparable(existingSubnetPort), SubnetPortToComparable(nsxSubnetPort))
-	isChanged := false
+	isChanged := servicecommon.CompareResource(SubnetPortToComparable(existingSubnetPort), SubnetPortToComparable(nsxSubnetPort))
 	if !isChanged {
 		log.Info("NSX subnet port not changed, skipping the update", "nsxSubnetPort.Id", nsxSubnetPort.Id, "nsxSubnetPath", nsxSubnetPath)
 		// We don't need to update it but still need to check realized state.
@@ -261,7 +258,7 @@ func (service *SubnetPortService) Cleanup() error {
 	subnetPorts := service.SubnetPortStore.List()
 	log.Info("cleanup subnetports", "count", len(subnetPorts))
 	for _, subnetPort := range subnetPorts {
-		subnetPortID := types.UID(*subnetPort.(model.SegmentPort).Id)
+		subnetPortID := types.UID(*subnetPort.(model.VpcSubnetPort).Id)
 		err := service.DeleteSubnetPort(subnetPortID)
 		if err != nil {
 			log.Error(err, "cleanup subnetport failed", "subnetPortID", subnetPortID)
