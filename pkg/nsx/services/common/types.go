@@ -34,6 +34,9 @@ const (
 	TagScopeNCPVNETInterface        string = "ncp/vnet_interface"
 	TagScopeVPCCRName               string = "nsx-op/vpc_cr_name"
 	TagScopeVPCCRUID                string = "nsx-op/vpc_cr_uid"
+	TagValueGroupScope              string = "scope"
+	TagValueGroupSource             string = "source"
+	TagValueGroupDestination        string = "destination"
 
 	GCInterval    = 60 * time.Second
 	FinalizerName = "securitypolicy.nsx.vmware.com/finalizer"
