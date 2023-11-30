@@ -36,6 +36,10 @@ const (
 	// GREEN means endpoints status are UP.
 	GREEN ClusterHealth = "GREEN"
 )
+const (
+	EnvoyUrlWithCert       = "http://%s:%d/external-cert/http1/%s"
+	EnvoyUrlWithThumbprint = "http://%s:%d/external-tp/http1/%s/%s"
+)
 
 // Cluster consists of endpoint and provides http.Client used to send http requests.
 type Cluster struct {
@@ -71,9 +75,15 @@ func NewCluster(config *Config) (*Cluster, error) {
 		log.Error(err, "creating cluster failed")
 		return nil, err
 	}
+
 	cluster.endpoints = eps
 	cluster.transport.endpoints = eps
 	cluster.transport.config = cluster.config
+	cluster.loadCAforEnvoy()
+	for _, ep := range cluster.endpoints {
+		envoyUrl := cluster.CreateServerUrl(ep.Host(), ep.Scheme())
+		ep.SetEnvoyUrl(envoyUrl)
+	}
 	cluster.createAuthSessions()
 	for _, ep := range cluster.endpoints {
 		ep.setUserPassword(config.Username, config.Password)
@@ -89,13 +99,70 @@ func NewCluster(config *Config) (*Cluster, error) {
 	return cluster, err
 }
 
+// Convert colon separated thumbprint to colon-free for envoy sidecar
+func thumbprintToUrlPath(thumbprint string) string {
+	return strings.ReplaceAll(strings.ToUpper(thumbprint), ":", "")
+}
+
+// loadCAforEnvoy should be called after endpoint is created
+func (cluster *Cluster) loadCAforEnvoy() {
+	if !cluster.UsingEnvoy() {
+		return
+	}
+	for i, caFile := range cluster.config.CAFile {
+		cert := util.CertPemBytesToHeader(caFile)
+		if cert != "" {
+			cluster.endpoints[i].caFile = cert
+			log.Info("load CA for envoy sidecar", "caFile", caFile)
+			return
+		}
+	}
+
+	for i, thumbprint := range cluster.config.Thumbprint {
+		cluster.endpoints[i].Thumbprint = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(thumbprint, ":", "")))
+	}
+}
+
+func (cluster *Cluster) CreateServerUrl(host string, scheme string) string {
+	serverUrl := ""
+	if cluster.UsingEnvoy() {
+		envoyUrl := ""
+		index := strings.Index(host, ":")
+		mgrIP := ""
+		if index == -1 {
+			log.Info("no port provided, use default port 443", "host", host)
+			mgrIP = host + "/443"
+		} else {
+			mgrIP = strings.ReplaceAll(host, ":", "/")
+		}
+
+		cf := cluster.config
+		if len(cf.CAFile) > 0 {
+			envoyUrl = fmt.Sprintf(EnvoyUrlWithCert, cf.EnvoyHost, cf.EnvoyPort, mgrIP)
+		} else if len(cf.Thumbprint) > 0 {
+			thumbprint := thumbprintToUrlPath(cf.Thumbprint[0])
+			envoyUrl = fmt.Sprintf(
+				EnvoyUrlWithThumbprint, cf.EnvoyHost, cf.EnvoyPort, mgrIP, thumbprint)
+		}
+		serverUrl = envoyUrl
+	} else {
+		serverUrl = fmt.Sprintf("%s://%s", scheme, host)
+	}
+	log.Info("create serverUrl", "serverUrl", serverUrl)
+	return serverUrl
+}
+
 // NewRestConnector creates a RestConnector used for SDK client.
 // HeaderConfig is used to use http header for request, it could be ignored if no extra header needed.
 func (cluster *Cluster) NewRestConnector() (*policyclient.RestConnector, *HeaderConfig) {
-	// host will be replaced by target endpoint's host when sending request to backend
-	connector := policyclient.NewRestConnector(fmt.Sprintf("%s://%s", cluster.endpoints[0].Scheme(), cluster.endpoints[0].Host()), *cluster.client)
+	nsxtUrl := cluster.CreateServerUrl(cluster.endpoints[0].Host(), cluster.endpoints[0].Scheme())
+	connector := policyclient.NewRestConnector(nsxtUrl, *cluster.client)
 	header := CreateHeaderConfig(false, false, cluster.config.AllowOverwriteHeader)
 	return connector, header
+}
+
+func (cluster *Cluster) UsingEnvoy() bool {
+	return cluster.config.EnvoyPort != 0
 }
 
 func (cluster *Cluster) getThumbprint(addr string) string {
@@ -146,11 +213,13 @@ func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
 	tr := &http.Transport{
 		IdleConnTimeout: idle * time.Second,
 	}
+	log.Info("cluster envoy mode", "envoy mode", cluster.UsingEnvoy())
 	if cluster.config.Insecure == false {
 		dial := func(ctx context.Context, network, addr string) (net.Conn, error) { // #nosec G402: ignore insecure options
 			var config *tls.Config
 			cafile := cluster.getCaFile(addr)
 			caCount := len(cluster.config.CAFile)
+			log.Info("create Transport", "ca file", cafile, "caCount", caCount)
 			if caCount > 0 {
 				caCert, err := os.ReadFile(cafile)
 				if err != nil {
@@ -166,6 +235,7 @@ func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
 			} else {
 				thumbprint := cluster.getThumbprint(addr)
 				tpCount := len(cluster.config.Thumbprint)
+				log.Info("create Transport", "thumbprint", thumbprint, "tpCount", tpCount)
 				// #nosec G402: ignore insecure options
 				config = &tls.Config{
 					InsecureSkipVerify: true,
@@ -260,17 +330,19 @@ func (cluster *Cluster) Health() ClusterHealth {
 
 func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 	ep := cluster.endpoints[0]
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s://%s/api/v1/node/version", ep.Scheme(), ep.Host()), nil)
+	serverUrl := cluster.CreateServerUrl(cluster.endpoints[0].Host(), cluster.endpoints[0].Scheme())
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/v1/node/version", serverUrl), nil)
 	if err != nil {
 		log.Error(err, "failed to create http request")
 		return nil, err
 	}
+	log.V(1).Info("get version", "url", req.URL)
 	err = ep.UpdateHttpRequestAuth(req)
 	if err != nil {
 		log.Error(err, "keep alive update auth error")
 		return nil, err
 	}
-
+	ep.UpdateCAforEnvoy(req)
 	resp, err := ep.noBalancerClient.Do(req)
 	if err != nil {
 		log.Error(err, "failed to get nsx version")

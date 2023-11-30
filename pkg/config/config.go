@@ -100,6 +100,8 @@ type NsxConfig struct {
 	ExternalIPv4Blocks   []string `ini:"external_ipv4_blocks"`
 	DefaultSubnetSize    int      `ini:"default_subnet_size"`
 	DefaultTimeout       int      `ini:"default_timeout"`
+	EnvoyHost            string   `ini:"envoy_host"`
+	EnvoyPort            int      `ini:"envoy_port"`
 }
 
 type K8sConfig struct {
@@ -245,7 +247,7 @@ func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
 		// If operatorConfig.VCInsecure is false, tls will use the CA to verify the server
 		// certificate. If loading CA failed, tls will use the CA on local host
 		if err != nil {
-			configLog.Info("fail to load CA cert from file", "error", err)
+			configLog.Info("fail to load CA cert from file.", " error: ", err)
 		}
 	}
 
@@ -306,6 +308,11 @@ func (nsxConfig *NsxConfig) validateCert() error {
 	// ca file(thumbprint) == 1 or equal to manager count
 	if caCount == 0 && tpCount == 0 && nsxConfig.NsxApiUser == "" && nsxConfig.NsxApiPassword == "" {
 		err := errors.New("no ca file or thumbprint or nsx username/password provided")
+		configLog.Error(err, "validate NsxConfig failed")
+		return err
+	}
+	if nsxConfig.EnvoyPort != 0 && caCount == 0 && tpCount == 0 {
+		err := errors.New("no ca file or thumbprint while using envoy mode")
 		configLog.Error(err, "validate NsxConfig failed")
 		return err
 	}

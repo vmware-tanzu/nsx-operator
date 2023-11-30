@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -246,6 +247,100 @@ func TestCluster_getVersion(t *testing.T) {
 	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	cluster, _ := NewCluster(config)
 	nsxVersion, err := cluster.GetVersion()
-	assert.True(t, err == nil)
+	assert.Equal(t, err, nil)
 	assert.Equal(t, nsxVersion.NodeVersion, "3.1.3.3.0.18844962")
+}
+
+func TestCluster_CreateServerUrl(t *testing.T) {
+	type fields struct {
+		config           *Config
+		endpoints        []*Endpoint
+		transport        *Transport
+		client           *http.Client
+		noBalancerClient *http.Client
+	}
+	type args struct {
+		host   string
+		scheme string
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		want   string
+	}{
+		{
+			name: "envoy, with thumbprint",
+			fields: fields{
+				config: &Config{
+					Thumbprint: []string{"123"},
+					EnvoyPort:  1080,
+					EnvoyHost:  "localhost",
+				},
+			},
+			want: "http://localhost:1080/external-tp/http1/domain-c9/443/123",
+			args: args{
+				host:   "domain-c9",
+				scheme: "https",
+			},
+		},
+		{
+			name: "envoy, with ca",
+			fields: fields{
+				config: &Config{
+					CAFile:     []string{"./ca.cert"},
+					EnvoyPort:  1080,
+					EnvoyHost:  "localhost",
+					Thumbprint: []string{},
+				},
+			},
+			want: "http://localhost:1080/external-cert/http1/domain-c9/443",
+			args: args{
+				host:   "domain-c9",
+				scheme: "https",
+			},
+		},
+		{
+			name: "envoy, no ca, thumbprint",
+			fields: fields{
+				config: &Config{
+					EnvoyPort: 1080,
+					EnvoyHost: "localhost",
+				},
+			},
+			want: "",
+			args: args{
+				host:   "domain-c9",
+				scheme: "https",
+			},
+		},
+		{
+			name: "not envoy",
+			fields: fields{
+				config: &Config{
+					EnvoyPort: 0,
+				},
+			},
+			want: "https://domain-c9",
+			args: args{
+				host:   "domain-c9",
+				scheme: "https",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cluster := &Cluster{
+				config:           tt.fields.config,
+				endpoints:        tt.fields.endpoints,
+				transport:        tt.fields.transport,
+				client:           tt.fields.client,
+				noBalancerClient: tt.fields.noBalancerClient,
+				Mutex:            sync.Mutex{},
+			}
+			if got := cluster.CreateServerUrl(tt.args.host, tt.args.scheme); got != tt.want {
+				t.Errorf("Cluster.CreateServerUrl() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

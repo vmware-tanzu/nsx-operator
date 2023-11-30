@@ -454,3 +454,25 @@ Lcw=
 		})
 	}
 }
+
+func TestUpdateRequestURL(t *testing.T) {
+	// updating host
+	a := "/test1/test2/test3"
+	c := strings.Split(a, "/")
+	assert.Equal(t, c[0], "")
+	reqUrl, _ := url.Parse("https://10.186.66.241/policy/api/v1/search/query")
+	newHost := "newhost"
+	newTP := "AA004DFC146CE84FE4B8B99DDF14170202DE1BDC"
+	UpdateRequestURL(reqUrl, newHost, newTP)
+	assert.Equal(t, newHost, reqUrl.Host)
+
+	// updating path, thumbprint
+	reqUrl, _ = url.Parse("http://localhost:1080/external-tp/http1/10.186.66.241/443/F8004DFC146CE84FE4B8B99DDF14170202DE1BDC")
+	UpdateRequestURL(reqUrl, newHost, newTP)
+	assert.Equal(t, "/external-tp/http1/newhost/443/AA004DFC146CE84FE4B8B99DDF14170202DE1BDC", reqUrl.Path)
+
+	// updating path, ca
+	reqUrl, _ = url.Parse("http://localhost:1080/external-cert/http1/10.186.66.241/443/policy/api/v1/search/")
+	UpdateRequestURL(reqUrl, newHost, newTP)
+	assert.Equal(t, "/external-cert/http1/newhost/443/policy/api/v1/search/", reqUrl.Path)
+}

@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
 	"reflect"
 	"sort"
 	"strconv"
@@ -520,5 +522,70 @@ func CasttoPointer(obj interface{}) interface{} {
 		return &v
 	default:
 		return nil
+	}
+}
+
+func UpdateURL(reqUrl *url.URL, nsxtHost string) {
+	urls := strings.Split(reqUrl.Path, "/")
+	index := 0
+	// check if it's request sent to envoy
+	if strings.Contains(reqUrl.Host, "localhost") {
+		for i, url := range urls {
+			if url == "http1" {
+				index = i
+				break
+			}
+		}
+	}
+	if index == 0 {
+		reqUrl.Host = nsxtHost
+	} else {
+		urls[index+1] = nsxtHost
+		reqUrl.Path = strings.Join(urls, "/")
+	}
+}
+
+const (
+	X509_PEM_HEADER = "-----BEGIN CERTIFICATE-----"
+	X509_PEM_FOOTER = "-----END CERTIFICATE-----"
+)
+
+func CertPemBytesToHeader(caFile string) string {
+	certPem, err := os.ReadFile(caFile)
+	if err != nil {
+		log.Error(err, "failed to read ca file")
+		return ""
+	}
+	cert := string(certPem)
+	certIdx := strings.Index(cert, X509_PEM_FOOTER)
+	if certIdx > 0 {
+		cert = cert[:certIdx]
+	}
+	cert = strings.ReplaceAll(cert, X509_PEM_HEADER, "")
+	cert = strings.ReplaceAll(cert, X509_PEM_FOOTER, "")
+	cert = strings.ReplaceAll(cert, "\n", "")
+	return strings.TrimSpace(cert)
+}
+
+func UpdateRequestURL(reqUrl *url.URL, nsxtHost string, thumbprint string) {
+	urls := strings.Split(reqUrl.Path, "/")
+	index := 0
+	// check if it's request sent to envoy
+	if strings.Contains(reqUrl.Host, "localhost") {
+		for i, url := range urls {
+			if url == "http1" {
+				index = i
+				break
+			}
+		}
+	}
+	if index == 0 {
+		reqUrl.Host = nsxtHost
+	} else {
+		urls[index+1] = nsxtHost
+		if strings.Contains(urls[1], "external-tp") {
+			urls[index+3] = thumbprint
+		}
+		reqUrl.Path = strings.Join(urls, "/")
 	}
 }
