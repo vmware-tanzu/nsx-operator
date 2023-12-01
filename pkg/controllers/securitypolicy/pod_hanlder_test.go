@@ -1,6 +1,7 @@
 package securitypolicy
 
 import (
+	"context"
 	"testing"
 
 	"github.com/agiledragon/gomonkey"
@@ -130,7 +131,7 @@ func TestEnqueueRequestForPod_Create(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &EnqueueRequestForPod{}
-			e.Create(tt.args.evt, tt.args.q)
+			e.Create(context.TODO(), tt.args.evt, tt.args.q)
 		})
 	}
 }
@@ -178,7 +179,7 @@ func TestEnqueueRequestForPod_Update(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &EnqueueRequestForPod{}
-			e.Update(tt.args.evt, tt.args.q)
+			e.Update(context.TODO(), tt.args.evt, tt.args.q)
 		})
 	}
 }
@@ -221,7 +222,7 @@ func TestEnqueueRequestForPod_Delete(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &EnqueueRequestForPod{}
-			e.Delete(tt.args.evt, tt.args.q)
+			e.Delete(context.TODO(), tt.args.evt, tt.args.q)
 		})
 	}
 }
@@ -264,7 +265,7 @@ func TestEnqueueRequestForPod_Generic(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &EnqueueRequestForPod{}
-			e.Generic(tt.args.evt, tt.args.q)
+			e.Generic(context.TODO(), tt.args.evt, tt.args.q)
 		})
 	}
 }

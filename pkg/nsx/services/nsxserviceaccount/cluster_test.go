@@ -135,10 +135,9 @@ func (c *fakeCertificatesClient) Validate(certIdParam string, usageParam *string
 }
 
 func newFakeCommonService() common.Service {
-	client := fake.NewClientBuilder().Build()
-	scheme := client.Scheme()
-	clientgoscheme.AddToScheme(scheme)
+	scheme := clientgoscheme.Scheme
 	nsxvmwarecomv1alpha1.AddToScheme(scheme)
+	client := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&nsxvmwarecomv1alpha1.NSXServiceAccount{}).Build()
 	service := common.Service{
 		Client: client,
 		NSXClient: &nsx.Client{
