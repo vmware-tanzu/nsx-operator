@@ -8,7 +8,7 @@ import (
 )
 
 type (
-	SubnetPort model.SegmentPort
+	SubnetPort model.VpcSubnetPort
 )
 
 type Comparable = common.Comparable
@@ -40,10 +40,10 @@ func (sp *SubnetPort) Value() data.DataValue {
 	return dataValue
 }
 
-func SubnetPortToComparable(sp *model.SegmentPort) Comparable {
+func SubnetPortToComparable(sp *model.VpcSubnetPort) Comparable {
 	return (*SubnetPort)(sp)
 }
 
-func ComparableToSubnetPort(sp Comparable) *model.SegmentPort {
-	return (*model.SegmentPort)(sp.(*SubnetPort))
+func ComparableToSubnetPort(sp Comparable) *model.VpcSubnetPort {
+	return (*model.VpcSubnetPort)(sp.(*SubnetPort))
 }
