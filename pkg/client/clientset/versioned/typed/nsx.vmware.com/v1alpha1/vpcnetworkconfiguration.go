@@ -20,7 +20,7 @@ import (
 // VPCNetworkConfigurationsGetter has a method to return a VPCNetworkConfigurationInterface.
 // A group's client should implement this interface.
 type VPCNetworkConfigurationsGetter interface {
-	VPCNetworkConfigurations(namespace string) VPCNetworkConfigurationInterface
+	VPCNetworkConfigurations() VPCNetworkConfigurationInterface
 }
 
 // VPCNetworkConfigurationInterface has methods to work with VPCNetworkConfiguration resources.
@@ -40,14 +40,12 @@ type VPCNetworkConfigurationInterface interface {
 // vPCNetworkConfigurations implements VPCNetworkConfigurationInterface
 type vPCNetworkConfigurations struct {
 	client rest.Interface
-	ns     string
 }
 
 // newVPCNetworkConfigurations returns a VPCNetworkConfigurations
-func newVPCNetworkConfigurations(c *NsxV1alpha1Client, namespace string) *vPCNetworkConfigurations {
+func newVPCNetworkConfigurations(c *NsxV1alpha1Client) *vPCNetworkConfigurations {
 	return &vPCNetworkConfigurations{
 		client: c.RESTClient(),
-		ns:     namespace,
 	}
 }
 
@@ -55,7 +53,6 @@ func newVPCNetworkConfigurations(c *NsxV1alpha1Client, namespace string) *vPCNet
 func (c *vPCNetworkConfigurations) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1alpha1.VPCNetworkConfiguration, err error) {
 	result = &v1alpha1.VPCNetworkConfiguration{}
 	err = c.client.Get().
-		Namespace(c.ns).
 		Resource("vpcnetworkconfigurations").
 		Name(name).
 		VersionedParams(&options, scheme.ParameterCodec).
@@ -72,7 +69,6 @@ func (c *vPCNetworkConfigurations) List(ctx context.Context, opts v1.ListOptions
 	}
 	result = &v1alpha1.VPCNetworkConfigurationList{}
 	err = c.client.Get().
-		Namespace(c.ns).
 		Resource("vpcnetworkconfigurations").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -89,7 +85,6 @@ func (c *vPCNetworkConfigurations) Watch(ctx context.Context, opts v1.ListOption
 	}
 	opts.Watch = true
 	return c.client.Get().
-		Namespace(c.ns).
 		Resource("vpcnetworkconfigurations").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -100,7 +95,6 @@ func (c *vPCNetworkConfigurations) Watch(ctx context.Context, opts v1.ListOption
 func (c *vPCNetworkConfigurations) Create(ctx context.Context, vPCNetworkConfiguration *v1alpha1.VPCNetworkConfiguration, opts v1.CreateOptions) (result *v1alpha1.VPCNetworkConfiguration, err error) {
 	result = &v1alpha1.VPCNetworkConfiguration{}
 	err = c.client.Post().
-		Namespace(c.ns).
 		Resource("vpcnetworkconfigurations").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Body(vPCNetworkConfiguration).
@@ -113,7 +107,6 @@ func (c *vPCNetworkConfigurations) Create(ctx context.Context, vPCNetworkConfigu
 func (c *vPCNetworkConfigurations) Update(ctx context.Context, vPCNetworkConfiguration *v1alpha1.VPCNetworkConfiguration, opts v1.UpdateOptions) (result *v1alpha1.VPCNetworkConfiguration, err error) {
 	result = &v1alpha1.VPCNetworkConfiguration{}
 	err = c.client.Put().
-		Namespace(c.ns).
 		Resource("vpcnetworkconfigurations").
 		Name(vPCNetworkConfiguration.Name).
 		VersionedParams(&opts, scheme.ParameterCodec).
@@ -128,7 +121,6 @@ func (c *vPCNetworkConfigurations) Update(ctx context.Context, vPCNetworkConfigu
 func (c *vPCNetworkConfigurations) UpdateStatus(ctx context.Context, vPCNetworkConfiguration *v1alpha1.VPCNetworkConfiguration, opts v1.UpdateOptions) (result *v1alpha1.VPCNetworkConfiguration, err error) {
 	result = &v1alpha1.VPCNetworkConfiguration{}
 	err = c.client.Put().
-		Namespace(c.ns).
 		Resource("vpcnetworkconfigurations").
 		Name(vPCNetworkConfiguration.Name).
 		SubResource("status").
@@ -142,7 +134,6 @@ func (c *vPCNetworkConfigurations) UpdateStatus(ctx context.Context, vPCNetworkC
 // Delete takes name of the vPCNetworkConfiguration and deletes it. Returns an error if one occurs.
 func (c *vPCNetworkConfigurations) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	return c.client.Delete().
-		Namespace(c.ns).
 		Resource("vpcnetworkconfigurations").
 		Name(name).
 		Body(&opts).
@@ -157,7 +148,6 @@ func (c *vPCNetworkConfigurations) DeleteCollection(ctx context.Context, opts v1
 		timeout = time.Duration(*listOpts.TimeoutSeconds) * time.Second
 	}
 	return c.client.Delete().
-		Namespace(c.ns).
 		Resource("vpcnetworkconfigurations").
 		VersionedParams(&listOpts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -170,7 +160,6 @@ func (c *vPCNetworkConfigurations) DeleteCollection(ctx context.Context, opts v1
 func (c *vPCNetworkConfigurations) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1alpha1.VPCNetworkConfiguration, err error) {
 	result = &v1alpha1.VPCNetworkConfiguration{}
 	err = c.client.Patch(pt).
-		Namespace(c.ns).
 		Resource("vpcnetworkconfigurations").
 		Name(name).
 		SubResource(subresources...).

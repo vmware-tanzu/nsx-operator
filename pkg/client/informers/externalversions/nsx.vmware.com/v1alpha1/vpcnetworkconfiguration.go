@@ -29,33 +29,32 @@ type VPCNetworkConfigurationInformer interface {
 type vPCNetworkConfigurationInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
-	namespace        string
 }
 
 // NewVPCNetworkConfigurationInformer constructs a new informer for VPCNetworkConfiguration type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewVPCNetworkConfigurationInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredVPCNetworkConfigurationInformer(client, namespace, resyncPeriod, indexers, nil)
+func NewVPCNetworkConfigurationInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredVPCNetworkConfigurationInformer(client, resyncPeriod, indexers, nil)
 }
 
 // NewFilteredVPCNetworkConfigurationInformer constructs a new informer for VPCNetworkConfiguration type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredVPCNetworkConfigurationInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredVPCNetworkConfigurationInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.NsxV1alpha1().VPCNetworkConfigurations(namespace).List(context.TODO(), options)
+				return client.NsxV1alpha1().VPCNetworkConfigurations().List(context.TODO(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.NsxV1alpha1().VPCNetworkConfigurations(namespace).Watch(context.TODO(), options)
+				return client.NsxV1alpha1().VPCNetworkConfigurations().Watch(context.TODO(), options)
 			},
 		},
 		&nsxvmwarecomv1alpha1.VPCNetworkConfiguration{},
@@ -65,7 +64,7 @@ func NewFilteredVPCNetworkConfigurationInformer(client versioned.Interface, name
 }
 
 func (f *vPCNetworkConfigurationInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredVPCNetworkConfigurationInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewFilteredVPCNetworkConfigurationInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
 func (f *vPCNetworkConfigurationInformer) Informer() cache.SharedIndexInformer {

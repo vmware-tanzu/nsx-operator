@@ -84,5 +84,5 @@ func (v *version) VPCs() VPCInformer {
 
 // VPCNetworkConfigurations returns a VPCNetworkConfigurationInformer.
 func (v *version) VPCNetworkConfigurations() VPCNetworkConfigurationInformer {
-	return &vPCNetworkConfigurationInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+	return &vPCNetworkConfigurationInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
