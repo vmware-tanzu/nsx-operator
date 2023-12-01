@@ -5,6 +5,7 @@ package clean
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -25,12 +26,12 @@ var log = logger.Log
 // including security policy, static route, subnet, subnet port, subnet set, vpc, ip pool, nsx service account
 // it is usually used when nsx-operator is uninstalled and remove all the resources created by nsx-operator
 // return error if any, return nil if no error
-func Clean(cf *config.NSXOperatorConfig) error {
+func Clean(cf *config.NSXOperatorConfig, client *http.Client) error {
 	log.Info("starting NSX cleanup")
 	if err := cf.ValidateConfigFromCmd(); err != nil {
 		return fmt.Errorf("failed to validate config: %w", err)
 	}
-	if cleanupService, err := InitializeCleanupService(cf); err != nil {
+	if cleanupService, err := InitializeCleanupService(cf, client); err != nil {
 		return fmt.Errorf("failed to initialize cleanup service: %w", err)
 	} else if cleanupService.err != nil {
 		return fmt.Errorf("failed to initialize cleanup service: %w", cleanupService.err)
@@ -46,10 +47,10 @@ func Clean(cf *config.NSXOperatorConfig) error {
 }
 
 // InitializeCleanupService initializes all the CR services
-func InitializeCleanupService(cf *config.NSXOperatorConfig) (*CleanupService, error) {
+func InitializeCleanupService(cf *config.NSXOperatorConfig, client *http.Client) (*CleanupService, error) {
 	cleanupService := NewCleanupService()
 
-	nsxClient := nsx.GetClient(cf)
+	nsxClient := nsx.GetClient(cf, client)
 	if nsxClient == nil {
 		return cleanupService, fmt.Errorf("failed to get nsx client")
 	}

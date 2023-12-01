@@ -66,7 +66,7 @@ func (qIface *fakeQueryClient) List(queryParam string, cursorParam *string, incl
 func createService(t *testing.T) (*StaticRouteService, *gomock.Controller, *mocks.MockStaticRoutesClient) {
 	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 
-	cluster, _ := nsx.NewCluster(config2)
+	cluster, _ := nsx.NewCluster(config2, nil)
 	rc, _ := cluster.NewRestConnector()
 
 	mockCtrl := gomock.NewController(t)
