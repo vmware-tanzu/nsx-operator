@@ -18,8 +18,9 @@ type VPCNetworkConfigurationLister interface {
 	// List lists all VPCNetworkConfigurations in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*v1alpha1.VPCNetworkConfiguration, err error)
-	// VPCNetworkConfigurations returns an object that can list and get VPCNetworkConfigurations.
-	VPCNetworkConfigurations(namespace string) VPCNetworkConfigurationNamespaceLister
+	// Get retrieves the VPCNetworkConfiguration from the index for a given name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*v1alpha1.VPCNetworkConfiguration, error)
 	VPCNetworkConfigurationListerExpansion
 }
 
@@ -41,41 +42,9 @@ func (s *vPCNetworkConfigurationLister) List(selector labels.Selector) (ret []*v
 	return ret, err
 }
 
-// VPCNetworkConfigurations returns an object that can list and get VPCNetworkConfigurations.
-func (s *vPCNetworkConfigurationLister) VPCNetworkConfigurations(namespace string) VPCNetworkConfigurationNamespaceLister {
-	return vPCNetworkConfigurationNamespaceLister{indexer: s.indexer, namespace: namespace}
-}
-
-// VPCNetworkConfigurationNamespaceLister helps list and get VPCNetworkConfigurations.
-// All objects returned here must be treated as read-only.
-type VPCNetworkConfigurationNamespaceLister interface {
-	// List lists all VPCNetworkConfigurations in the indexer for a given namespace.
-	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1alpha1.VPCNetworkConfiguration, err error)
-	// Get retrieves the VPCNetworkConfiguration from the indexer for a given namespace and name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1alpha1.VPCNetworkConfiguration, error)
-	VPCNetworkConfigurationNamespaceListerExpansion
-}
-
-// vPCNetworkConfigurationNamespaceLister implements the VPCNetworkConfigurationNamespaceLister
-// interface.
-type vPCNetworkConfigurationNamespaceLister struct {
-	indexer   cache.Indexer
-	namespace string
-}
-
-// List lists all VPCNetworkConfigurations in the indexer for a given namespace.
-func (s vPCNetworkConfigurationNamespaceLister) List(selector labels.Selector) (ret []*v1alpha1.VPCNetworkConfiguration, err error) {
-	err = cache.ListAllByNamespace(s.indexer, s.namespace, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.VPCNetworkConfiguration))
-	})
-	return ret, err
-}
-
-// Get retrieves the VPCNetworkConfiguration from the indexer for a given namespace and name.
-func (s vPCNetworkConfigurationNamespaceLister) Get(name string) (*v1alpha1.VPCNetworkConfiguration, error) {
-	obj, exists, err := s.indexer.GetByKey(s.namespace + "/" + name)
+// Get retrieves the VPCNetworkConfiguration from the index for a given name.
+func (s *vPCNetworkConfigurationLister) Get(name string) (*v1alpha1.VPCNetworkConfiguration, error) {
+	obj, exists, err := s.indexer.GetByKey(name)
 	if err != nil {
 		return nil, err
 	}

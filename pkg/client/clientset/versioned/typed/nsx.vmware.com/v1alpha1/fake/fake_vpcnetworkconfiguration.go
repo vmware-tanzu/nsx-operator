@@ -19,7 +19,6 @@ import (
 // FakeVPCNetworkConfigurations implements VPCNetworkConfigurationInterface
 type FakeVPCNetworkConfigurations struct {
 	Fake *FakeNsxV1alpha1
-	ns   string
 }
 
 var vpcnetworkconfigurationsResource = v1alpha1.SchemeGroupVersion.WithResource("vpcnetworkconfigurations")
@@ -29,8 +28,7 @@ var vpcnetworkconfigurationsKind = v1alpha1.SchemeGroupVersion.WithKind("VPCNetw
 // Get takes name of the vPCNetworkConfiguration, and returns the corresponding vPCNetworkConfiguration object, and an error if there is any.
 func (c *FakeVPCNetworkConfigurations) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1alpha1.VPCNetworkConfiguration, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewGetAction(vpcnetworkconfigurationsResource, c.ns, name), &v1alpha1.VPCNetworkConfiguration{})
-
+		Invokes(testing.NewRootGetAction(vpcnetworkconfigurationsResource, name), &v1alpha1.VPCNetworkConfiguration{})
 	if obj == nil {
 		return nil, err
 	}
@@ -40,8 +38,7 @@ func (c *FakeVPCNetworkConfigurations) Get(ctx context.Context, name string, opt
 // List takes label and field selectors, and returns the list of VPCNetworkConfigurations that match those selectors.
 func (c *FakeVPCNetworkConfigurations) List(ctx context.Context, opts v1.ListOptions) (result *v1alpha1.VPCNetworkConfigurationList, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewListAction(vpcnetworkconfigurationsResource, vpcnetworkconfigurationsKind, c.ns, opts), &v1alpha1.VPCNetworkConfigurationList{})
-
+		Invokes(testing.NewRootListAction(vpcnetworkconfigurationsResource, vpcnetworkconfigurationsKind, opts), &v1alpha1.VPCNetworkConfigurationList{})
 	if obj == nil {
 		return nil, err
 	}
@@ -62,15 +59,13 @@ func (c *FakeVPCNetworkConfigurations) List(ctx context.Context, opts v1.ListOpt
 // Watch returns a watch.Interface that watches the requested vPCNetworkConfigurations.
 func (c *FakeVPCNetworkConfigurations) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
-		InvokesWatch(testing.NewWatchAction(vpcnetworkconfigurationsResource, c.ns, opts))
-
+		InvokesWatch(testing.NewRootWatchAction(vpcnetworkconfigurationsResource, opts))
 }
 
 // Create takes the representation of a vPCNetworkConfiguration and creates it.  Returns the server's representation of the vPCNetworkConfiguration, and an error, if there is any.
 func (c *FakeVPCNetworkConfigurations) Create(ctx context.Context, vPCNetworkConfiguration *v1alpha1.VPCNetworkConfiguration, opts v1.CreateOptions) (result *v1alpha1.VPCNetworkConfiguration, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewCreateAction(vpcnetworkconfigurationsResource, c.ns, vPCNetworkConfiguration), &v1alpha1.VPCNetworkConfiguration{})
-
+		Invokes(testing.NewRootCreateAction(vpcnetworkconfigurationsResource, vPCNetworkConfiguration), &v1alpha1.VPCNetworkConfiguration{})
 	if obj == nil {
 		return nil, err
 	}
@@ -80,8 +75,7 @@ func (c *FakeVPCNetworkConfigurations) Create(ctx context.Context, vPCNetworkCon
 // Update takes the representation of a vPCNetworkConfiguration and updates it. Returns the server's representation of the vPCNetworkConfiguration, and an error, if there is any.
 func (c *FakeVPCNetworkConfigurations) Update(ctx context.Context, vPCNetworkConfiguration *v1alpha1.VPCNetworkConfiguration, opts v1.UpdateOptions) (result *v1alpha1.VPCNetworkConfiguration, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewUpdateAction(vpcnetworkconfigurationsResource, c.ns, vPCNetworkConfiguration), &v1alpha1.VPCNetworkConfiguration{})
-
+		Invokes(testing.NewRootUpdateAction(vpcnetworkconfigurationsResource, vPCNetworkConfiguration), &v1alpha1.VPCNetworkConfiguration{})
 	if obj == nil {
 		return nil, err
 	}
@@ -92,8 +86,7 @@ func (c *FakeVPCNetworkConfigurations) Update(ctx context.Context, vPCNetworkCon
 // Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
 func (c *FakeVPCNetworkConfigurations) UpdateStatus(ctx context.Context, vPCNetworkConfiguration *v1alpha1.VPCNetworkConfiguration, opts v1.UpdateOptions) (*v1alpha1.VPCNetworkConfiguration, error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewUpdateSubresourceAction(vpcnetworkconfigurationsResource, "status", c.ns, vPCNetworkConfiguration), &v1alpha1.VPCNetworkConfiguration{})
-
+		Invokes(testing.NewRootUpdateSubresourceAction(vpcnetworkconfigurationsResource, "status", vPCNetworkConfiguration), &v1alpha1.VPCNetworkConfiguration{})
 	if obj == nil {
 		return nil, err
 	}
@@ -103,14 +96,13 @@ func (c *FakeVPCNetworkConfigurations) UpdateStatus(ctx context.Context, vPCNetw
 // Delete takes name of the vPCNetworkConfiguration and deletes it. Returns an error if one occurs.
 func (c *FakeVPCNetworkConfigurations) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	_, err := c.Fake.
-		Invokes(testing.NewDeleteActionWithOptions(vpcnetworkconfigurationsResource, c.ns, name, opts), &v1alpha1.VPCNetworkConfiguration{})
-
+		Invokes(testing.NewRootDeleteActionWithOptions(vpcnetworkconfigurationsResource, name, opts), &v1alpha1.VPCNetworkConfiguration{})
 	return err
 }
 
 // DeleteCollection deletes a collection of objects.
 func (c *FakeVPCNetworkConfigurations) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	action := testing.NewDeleteCollectionAction(vpcnetworkconfigurationsResource, c.ns, listOpts)
+	action := testing.NewRootDeleteCollectionAction(vpcnetworkconfigurationsResource, listOpts)
 
 	_, err := c.Fake.Invokes(action, &v1alpha1.VPCNetworkConfigurationList{})
 	return err
@@ -119,8 +111,7 @@ func (c *FakeVPCNetworkConfigurations) DeleteCollection(ctx context.Context, opt
 // Patch applies the patch and returns the patched vPCNetworkConfiguration.
 func (c *FakeVPCNetworkConfigurations) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1alpha1.VPCNetworkConfiguration, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(vpcnetworkconfigurationsResource, c.ns, name, pt, data, subresources...), &v1alpha1.VPCNetworkConfiguration{})
-
+		Invokes(testing.NewRootPatchSubresourceAction(vpcnetworkconfigurationsResource, name, pt, data, subresources...), &v1alpha1.VPCNetworkConfiguration{})
 	if obj == nil {
 		return nil, err
 	}

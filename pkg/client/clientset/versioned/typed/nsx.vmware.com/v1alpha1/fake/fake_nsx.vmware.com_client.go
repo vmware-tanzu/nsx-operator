@@ -47,8 +47,8 @@ func (c *FakeNsxV1alpha1) VPCs(namespace string) v1alpha1.VPCInterface {
 	return &FakeVPCs{c, namespace}
 }
 
-func (c *FakeNsxV1alpha1) VPCNetworkConfigurations(namespace string) v1alpha1.VPCNetworkConfigurationInterface {
-	return &FakeVPCNetworkConfigurations{c, namespace}
+func (c *FakeNsxV1alpha1) VPCNetworkConfigurations() v1alpha1.VPCNetworkConfigurationInterface {
+	return &FakeVPCNetworkConfigurations{c}
 }
 
 // RESTClient returns a RESTClient that is used to communicate
