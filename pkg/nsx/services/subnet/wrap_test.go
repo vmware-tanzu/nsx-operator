@@ -41,7 +41,6 @@ func fakeService() *SubnetService {
 
 func TestSubnetService_wrapSubnet(t *testing.T) {
 	Converter := bindings.NewTypeConverter()
-	Converter.SetMode(bindings.REST)
 	service := fakeService()
 	mId, mTag, mScope := "11111", "11111", "nsx-op/subnet_cr_uid"
 	markDelete := true

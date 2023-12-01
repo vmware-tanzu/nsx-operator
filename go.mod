@@ -4,10 +4,7 @@ go 1.19
 
 replace (
 	github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
-	github.com/vmware/vsphere-automation-sdk-go/lib => github.com/TaoZou1/vsphere-automation-sdk-go/lib v0.5.4
-	github.com/vmware/vsphere-automation-sdk-go/runtime => github.com/TaoZou1/vsphere-automation-sdk-go/runtime v0.5.4
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt => github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt v0.9.8 // update it from 0.9.5 to 0.9.8 to workaround the relization error for subnetport
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp => github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt-mp v0.3.1-0.20221020082725-84e89979deb6
+	github.com/vmware/go-vmware-nsxt => github.com/mengdie-song/go-vmware-nsxt v0.0.0-20220921033217-dbd234470e30 // inventory-keeper includes all commits from github.com/gran-vmv/go-vmware-nsxt v0.0.0-20211206034609-cd7ffaf2c996
 )
 
 require (
@@ -29,10 +26,10 @@ require (
 	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-00010101000000-000000000000
 	github.com/vmware-tanzu/vm-operator/api v1.8.2
 	github.com/vmware/govmomi v0.27.4
-	github.com/vmware/vsphere-automation-sdk-go/lib v0.5.2
-	github.com/vmware/vsphere-automation-sdk-go/runtime v0.5.2
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.11.0
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp v0.3.0
+	github.com/vmware/vsphere-automation-sdk-go/lib v0.7.0
+	github.com/vmware/vsphere-automation-sdk-go/runtime v0.7.0
+	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.12.0
+	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp v0.6.0
 	go.uber.org/zap v1.24.0
 	golang.org/x/crypto v0.14.0
 	golang.org/x/time v0.3.0
@@ -59,6 +56,7 @@ require (
 	github.com/go-openapi/jsonreference v0.20.0 // indirect
 	github.com/go-openapi/swag v0.19.14 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/golang-jwt/jwt/v4 v4.3.0 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/gnostic v0.5.7-v3refs // indirect
