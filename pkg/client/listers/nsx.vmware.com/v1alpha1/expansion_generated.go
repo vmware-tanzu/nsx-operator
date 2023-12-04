@@ -72,7 +72,3 @@ type VPCNamespaceListerExpansion interface{}
 // VPCNetworkConfigurationListerExpansion allows custom methods to be added to
 // VPCNetworkConfigurationLister.
 type VPCNetworkConfigurationListerExpansion interface{}
-
-// VPCNetworkConfigurationNamespaceListerExpansion allows custom methods to be added to
-// VPCNetworkConfigurationNamespaceLister.
-type VPCNetworkConfigurationNamespaceListerExpansion interface{}

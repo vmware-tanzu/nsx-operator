@@ -63,8 +63,8 @@ func (c *NsxV1alpha1Client) VPCs(namespace string) VPCInterface {
 	return newVPCs(c, namespace)
 }
 
-func (c *NsxV1alpha1Client) VPCNetworkConfigurations(namespace string) VPCNetworkConfigurationInterface {
-	return newVPCNetworkConfigurations(c, namespace)
+func (c *NsxV1alpha1Client) VPCNetworkConfigurations() VPCNetworkConfigurationInterface {
+	return newVPCNetworkConfigurations(c)
 }
 
 // NewForConfig creates a new NsxV1alpha1Client for the given config.
