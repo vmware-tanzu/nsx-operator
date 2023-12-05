@@ -2,10 +2,7 @@ module github.com/vmware-tanzu/nsx-operator
 
 go 1.19
 
-replace (
-	github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
-	github.com/vmware/go-vmware-nsxt => github.com/mengdie-song/go-vmware-nsxt v0.0.0-20220921033217-dbd234470e30 // inventory-keeper includes all commits from github.com/gran-vmv/go-vmware-nsxt v0.0.0-20211206034609-cd7ffaf2c996
-)
+replace github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
 
 require (
 	github.com/agiledragon/gomonkey v2.0.2+incompatible
