@@ -126,7 +126,7 @@ func TestDefaultVPC(t *testing.T) {
 	// VPC under each ns
 	ns := "vpc-default-1"
 	setupTest(t, ns)
-	defer teardownTest(t, ns)
+	defer teardownTest(t, ns, defaultTimeout)
 
 	// Check vpc cr existence
 	vpc_name, vpc_uid := verifyVPCCRCreated(t, ns, 1)
