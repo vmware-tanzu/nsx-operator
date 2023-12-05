@@ -4,7 +4,6 @@
 package nsx
 
 import (
-	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -170,12 +169,7 @@ func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
 				VerifyConnection: func(cs tls.ConnectionState) error {
 					// not check thumbprint if no thumbprint config
 					if tpCount > 0 {
-						fingerprint := calcFingerprint(cs.PeerCertificates[0].Raw)
-						if strings.Compare(fingerprint, thumbprint) == 0 {
-							return nil
-						} else {
-							err := errors.New("server certificate didn't match trusted fingerprint")
-							log.Error(err, "verify thumbprint", "address", addr, "server thumbprint", fingerprint, "local thumbprint", thumbprint)
+						if err := util.VerifyNsxCertWithThumbprint(cs.PeerCertificates[0].Raw, thumbprint); err != nil {
 							return err
 						}
 					}
@@ -197,18 +191,6 @@ func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
 		IdleConnTimeout: idle * time.Second,
 	}
 	return &Transport{Base: tr}
-}
-
-func calcFingerprint(der []byte) string {
-	hash := sha1.Sum(der)
-	hex := make([]byte, len(hash)*3)
-	for i, data := range hash {
-		buf := []byte(fmt.Sprintf("%02X", data))
-		hex[i*3] = buf[0]
-		hex[i*3+1] = buf[1]
-		hex[i*3+2] = byte(':')
-	}
-	return string(hex[:len(hex)-1])
 }
 
 func (cluster *Cluster) createHTTPClient(tr *Transport, timeout time.Duration) http.Client {
