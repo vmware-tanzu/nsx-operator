@@ -24,6 +24,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/test/e2e/providers"
 )
@@ -76,6 +77,7 @@ var provider providers.ProviderInterface
 type TestData struct {
 	kubeConfig         *restclient.Config
 	clientset          clientset.Interface
+	crdClientset       versioned.Interface
 	nsxClient          *NSXClient
 	nsxVersion         *semver.Version
 	clusterID          string
@@ -148,8 +150,13 @@ func (data *TestData) createClients() error {
 	if err != nil {
 		return fmt.Errorf("error when creating kubernetes client: %v", err)
 	}
+	crdClientset, err := versioned.NewForConfig(kubeConfig)
+	if err != nil {
+		return fmt.Errorf("error when creating nsx-operator CRD client: %v", err)
+	}
 	data.kubeConfig = kubeConfig
 	data.clientset = clientSet
+	data.crdClientset = crdClientset
 	return nil
 }
 

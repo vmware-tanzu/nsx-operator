@@ -36,7 +36,7 @@ func TestSecurityPolicyBasicTraffic(t *testing.T) {
 	ncPod := "nc-pod"
 	securityPolicyName := "isolate-policy-1"
 	setupTest(t, ns)
-	defer teardownTest(t, ns)
+	defer teardownTest(t, ns, defaultTimeout)
 
 	// Create pods
 	busyboxPath, _ := filepath.Abs("./manifest/testSecurityPolicy/busybox.yaml")
@@ -98,7 +98,7 @@ func TestSecurityPolicyAddDeleteRule(t *testing.T) {
 	ruleName0 := "isolate-policy-1-0"
 	ruleName1 := "isolate-policy-1-1"
 	setupTest(t, ns)
-	defer teardownTest(t, ns)
+	defer teardownTest(t, ns, defaultTimeout)
 
 	// Create security policy
 	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy.yaml")
@@ -148,7 +148,7 @@ func TestSecurityPolicyMatchExpression(t *testing.T) {
 	clientB := "client-b"
 	podA := "pod-a"
 	setupTest(t, ns)
-	defer teardownTest(t, ns)
+	defer teardownTest(t, ns, defaultTimeout)
 
 	// Create pods
 	podPath, _ := filepath.Abs("./manifest/testSecurityPolicy/allow-client-a-via-pod-selector-with-match-expressions.yaml")
