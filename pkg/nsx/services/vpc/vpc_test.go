@@ -1,26 +1,35 @@
 package vpc
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/vpcclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 var (
 	vpcName1          = "ns1-vpc-1"
 	vpcName2          = "ns1-vpc-2"
+	infraVPCName      = "infra-vpc"
 	vpcID1            = "ns-vpc-uid-1"
 	vpcID2            = "ns-vpc-uid-2"
+	vpcID3            = "ns-vpc-uid-3"
 	IPv4Type          = "IPv4"
 	cluster           = "k8scl-one"
 	tagValueNS        = "ns1"
@@ -51,6 +60,87 @@ var (
 	}
 )
 
+func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVpcsClient) {
+	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+
+	cluster, _ := nsx.NewCluster(config2, nil)
+	rc, _ := cluster.NewRestConnector()
+
+	mockCtrl := gomock.NewController(t)
+	mockVpcclient := mocks.NewMockVpcsClient(mockCtrl)
+
+	vpcStore := &VPCStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeStaticRouteCRUID: indexFunc}),
+		BindingType: model.VpcBindingType(),
+	}}
+
+	service := &VPCService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				QueryClient:   &fakeQueryClient{},
+				VPCClient:     mockVpcclient,
+				RestConnector: rc,
+				NsxConfig: &config.NSXOperatorConfig{
+					CoeConfig: &config.CoeConfig{
+						Cluster: "k8scl-one:test",
+					},
+				},
+			},
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		VpcStore: vpcStore,
+	}
+	return service, mockCtrl, mockVpcclient
+}
+
+func TestVPC_getSharedVPCNamespaceFromNS(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+
+	service := &VPCService{
+		Service: common.Service{
+			Client:    k8sClient,
+			NSXClient: &nsx.Client{},
+
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+				},
+			},
+		},
+	}
+
+	ctx := context.Background()
+
+	tests := []struct {
+		name     string
+		ns       string
+		anno     map[string]string
+		expected string
+	}{
+		{"1", "test-ns-1", map[string]string{"nsx.vmware.com/vpc_network_config": "default"}, ""},
+		{"2", "test-ns-2", map[string]string{"nsx.vmware.com/vpc_network_config": "infra", "nsx.vmware.com/vpc_name": "kube-system/fake_vpc"}, "kube-system"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockNs := &v1.Namespace{}
+			k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(nil).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1ns := obj.(*v1.Namespace)
+				v1ns.ObjectMeta.Annotations = tt.anno
+				return nil
+			})
+			ns, _err := service.getSharedVPCNamespaceFromNS(tt.ns)
+			assert.Equal(t, tt.expected, ns)
+			assert.Equal(t, nil, _err)
+		})
+	}
+
+}
+
 func TestVPC_GetVPCsByNamespace(t *testing.T) {
 	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
 	resourceStore := common.ResourceStore{
@@ -63,8 +153,10 @@ func TestVPC_GetVPCsByNamespace(t *testing.T) {
 	}
 	service.VpcStore = vpcStore
 	type args struct {
-		i interface{}
-		j interface{}
+		ns       string
+		size     int
+		expected string
+		infra    string
 	}
 	ns1 := "test-ns-1"
 	tag1 := []model.Tag{
@@ -104,6 +196,25 @@ func TestVPC_GetVPCsByNamespace(t *testing.T) {
 			Tag:   &tagValueVPCCRUID,
 		},
 	}
+	infraNs := "kube-system"
+	tag3 := []model.Tag{
+		{
+			Scope: &tagScopeCluster,
+			Tag:   &cluster,
+		},
+		{
+			Scope: &tagScopeNamespace,
+			Tag:   &infraNs,
+		},
+		{
+			Scope: &tagScopeVPCCRName,
+			Tag:   &tagValueVPCCRName,
+		},
+		{
+			Scope: &tagScopeVPCCRUID,
+			Tag:   &tagValueVPCCRUID,
+		},
+	}
 	vpc1 := model.Vpc{
 
 		DisplayName:        &vpcName1,
@@ -122,30 +233,48 @@ func TestVPC_GetVPCsByNamespace(t *testing.T) {
 		PrivateIpv4Blocks:  []string{"3.3.3.0/24"},
 		ExternalIpv4Blocks: []string{"4.4.4.0/24"},
 	}
+	infravpc := model.Vpc{
+		DisplayName:        &infraVPCName,
+		Id:                 &vpcID3,
+		Tags:               tag3,
+		IpAddressType:      &IPv4Type,
+		PrivateIpv4Blocks:  []string{"3.3.3.0/24"},
+		ExternalIpv4Blocks: []string{"4.4.4.0/24"},
+	}
 	tests := []struct {
 		name    string
 		args    args
 		wantErr assert.ErrorAssertionFunc
 	}{
-		{"1", args{i: vpc1, j: vpc2}, assert.NoError},
+		{"1", args{ns: "invalid", size: 0, expected: "", infra: ""}, assert.NoError},
+		{"2", args{ns: "test-ns-1", size: 1, expected: vpcName1, infra: ""}, assert.NoError},
+		{"3", args{ns: "test-ns-2", size: 1, expected: vpcName2, infra: ""}, assert.NoError},
+		{"4", args{ns: "test-ns-1", size: 1, expected: infraVPCName, infra: "kube-system"}, assert.NoError},
 	}
+
+	vpcStore.Apply(&vpc1)
+	vpcStore.Apply(&vpc2)
+	vpcStore.Apply(&infravpc)
+	got := vpcStore.List()
+	if len(got) != 3 {
+		t.Errorf("size = %v, want %v", len(got), 3)
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vpcStore.Apply(&vpc1)
-			vpcStore.GetByKey(vpcID1)
-			vpcStore.Apply(&vpc2)
-			got := vpcStore.List()
-			if len(got) != 2 {
-				t.Errorf("size = %v, want %v", len(got), 2)
+			patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "getSharedVPCNamespaceFromNS", func(_ *VPCService, ns string) (string, error) {
+				return tt.args.infra, nil
+			})
+			vpc_list_1 := service.GetVPCsByNamespace(tt.args.ns)
+			if len(vpc_list_1) != tt.args.size {
+				t.Errorf("size = %v, want %v", len(vpc_list_1), tt.args.size)
 			}
-			vpc_list_1 := service.GetVPCsByNamespace("invalid")
-			if len(vpc_list_1) != 0 {
-				t.Errorf("size = %v, want %v", len(vpc_list_1), 0)
+
+			if tt.args.size != 0 && *vpc_list_1[0].DisplayName != tt.args.expected {
+				t.Errorf("name = %v, want %v", vpc_list_1[0].DisplayName, tt.args.expected)
 			}
-			vpc_list_2 := service.GetVPCsByNamespace(ns2)
-			if len(vpc_list_2) != 1 && *vpc_list_2[0].DisplayName != vpcName2 {
-				t.Errorf("size = %v, want %v, display = %s, want %s", len(vpc_list_2), 1, *vpc_list_2[0].DisplayName, vpcName2)
-			}
+
+			patch.Reset()
 		})
 	}
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 const (
@@ -194,7 +195,12 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 }
 
 func (s *VPCService) GetVPCsByNamespace(namespace string) []model.Vpc {
-	return s.VpcStore.GetVPCsByNamespace(namespace)
+	sns, err := s.getSharedVPCNamespaceFromNS(namespace)
+	if err != nil {
+		log.Error(err, "Failed to get namespace.")
+		return nil
+	}
+	return s.VpcStore.GetVPCsByNamespace(util.If(sns == "", namespace, sns).(string))
 }
 
 func (s *VPCService) ListVPC() []model.Vpc {
@@ -319,6 +325,34 @@ func (s *VPCService) CreatOrUpdatePrivateIPBlock(obj *v1alpha1.VPC, nc VPCNetwor
 		}
 	}
 	return path, nil
+}
+
+func (s *VPCService) getSharedVPCNamespaceFromNS(ns string) (string, error) {
+	obj := &v1.Namespace{}
+	if err := s.Client.Get(ctx, types.NamespacedName{
+		Name:      ns,
+		Namespace: ns,
+	}, obj); err != nil {
+		log.Error(err, "failed to fetch namespace", "Namespace", ns)
+		return "", err
+	}
+
+	annos := obj.Annotations
+	// If no annotaion on ns, then this is not a shared VPC ns
+	if len(annos) == 0 {
+		return "", nil
+	}
+
+	// If no annotation nsx.vmware.com/vpc_name on ns, this is not a shared vpc
+	ncName, exist := annos[common.AnnotationVPCName]
+	if !exist {
+		return "", nil
+	}
+
+	// Retrieve the shared vpc namespace from annotation
+	shared_ns := strings.Split(ncName, "/")[0]
+
+	return shared_ns, nil
 }
 
 func (s *VPCService) getNetworkconfigNameFromNS(ns string) (string, error) {

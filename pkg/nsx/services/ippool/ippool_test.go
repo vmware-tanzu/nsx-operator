@@ -49,7 +49,7 @@ func TestIPPoolService_acquireCidr(t *testing.T) {
 	}
 	vpcStore := &vpc.VPCStore{ResourceStore: resourceStore}
 	commonctl.ServiceMediator.VPCService = &vpc.VPCService{VpcStore: vpcStore}
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcStore), "GetVPCsByNamespace", func(_ *vpc.VPCStore, ns string) []model.Vpc {
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []model.Vpc {
 		id := "vpc-1"
 		return []model.Vpc{{Path: common.String("/orgs/default/projects/project-1/vpcs/vpc-1"), Id: &id}}
 	})
@@ -117,7 +117,7 @@ func TestIPPoolService_AcquireRealizedSubnetIP(t *testing.T) {
 	}
 	vpcStore := &vpc.VPCStore{ResourceStore: resourceStore}
 	commonctl.ServiceMediator.VPCService = &vpc.VPCService{VpcStore: vpcStore}
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcStore), "GetVPCsByNamespace", func(_ *vpc.VPCStore, ns string) []model.Vpc {
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []model.Vpc {
 		id := "vpc-1"
 		return []model.Vpc{{Path: common.String("/orgs/default/projects/project-1/vpcs/vpc-1"), Id: &id}}
 	})
@@ -164,7 +164,7 @@ func TestIPPoolService_CRUDResource(t *testing.T) {
 	}
 	vpcStore := &vpc.VPCStore{ResourceStore: resourceStore}
 	commonctl.ServiceMediator.VPCService = &vpc.VPCService{VpcStore: vpcStore}
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcStore), "GetVPCsByNamespace", func(_ *vpc.VPCStore, ns string) []model.Vpc {
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []model.Vpc {
 		id := "vpc-1"
 		return []model.Vpc{{Path: common.String("/orgs/default/projects/project-1/vpcs/vpc-1"), Id: &id}}
 	})
@@ -256,7 +256,7 @@ func TestIPPoolService_CreateOrUpdateIPPool(t *testing.T) {
 	}
 	vpcStore := &vpc.VPCStore{ResourceStore: resourceStore}
 	commonctl.ServiceMediator.VPCService = &vpc.VPCService{VpcStore: vpcStore}
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(vpcStore), "GetVPCsByNamespace", func(vpcStore *vpc.VPCStore,
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(vpcService *vpc.VPCService,
 		ns string) []model.Vpc {
 		return vpcinfo
 	})
