@@ -323,7 +323,7 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
-	k8sClient.EXPECT().List(gomock.Any(), srList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+	k8sClient.EXPECT().List(ctx, srList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 		a := list.(*v1alpha1.StaticRouteList)
 		a.Items = append(a.Items, v1alpha1.StaticRoute{})
 		a.Items[0].ObjectMeta = metav1.ObjectMeta{}

@@ -84,9 +84,6 @@ func TestIPPoolService_BuildIPPool(t *testing.T) {
 	})
 	defer patch.Reset()
 
-	type fields struct {
-		Service common.Service
-	}
 	type args struct {
 		IPPool *v1alpha2.IPPool
 	}

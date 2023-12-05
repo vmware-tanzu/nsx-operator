@@ -398,7 +398,7 @@ func (s *VPCService) GetDefaultSNATIP(vpc model.Vpc) (string, error) {
 		log.Error(err, "failed to parse VPC path to get default SNAT ip", "Path", vpc.Path)
 		return "", err
 	}
-	var cursor *string = nil
+	var cursor *string
 	// TODO: support scale scenario
 	pageSize := int64(1000)
 	markedForDelete := false
@@ -615,6 +615,10 @@ func (service *VPCService) CreateOrUpdateAVIRule(vpc *model.Vpc, namespace strin
 		return nil
 	}
 	vpcInfo, err := common.ParseVPCResourcePath(*vpc.Path)
+	if err != nil {
+		log.Error(err, "failed to parse VPC Resource Path: ", *vpc.Path)
+		return err
+	}
 	orgId := vpcInfo.OrgID
 	projectId := vpcInfo.ProjectID
 	ruleId := AviSEIngressAllowRuleId
@@ -625,13 +629,14 @@ func (service *VPCService) CreateOrUpdateAVIRule(vpc *model.Vpc, namespace strin
 		return errors.New("avi security policy not found")
 	}
 	allowrule, err := service.getAVIAllowRule(orgId, projectId, *vpc.Id, spId, ruleId)
+	if err != nil {
+		log.Info("avi rule is not found, creating")
+	}
 	externalCIDRs, err := service.getIpblockCidr(vpc.ExternalIpv4Blocks)
 	if err != nil {
 		return err
-	} else {
-		log.Info("avi rule get external cidr", "cidr", externalCIDRs)
 	}
-
+	log.Info("avi rule get external cidr", "cidr", externalCIDRs)
 	if allowrule != nil {
 		if !service.needUpdateRule(allowrule, externalCIDRs) {
 			log.Info("avi rule is not changed, skip updating avi rule")

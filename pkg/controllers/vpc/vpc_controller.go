@@ -9,13 +9,6 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
-	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
-	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
-	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -23,6 +16,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
+	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
+	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
 var (
@@ -219,12 +220,12 @@ func StartVPCController(mgr ctrl.Manager, commonService commonservice.Service) {
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
-	if vpcService, err := vpc.InitializeVPC(commonService); err != nil {
+	vpcService, err := vpc.InitializeVPC(commonService)
+	if err != nil {
 		log.Error(err, "failed to initialize VPC commonService")
 		os.Exit(1)
-	} else {
-		vpcReconcile.Service = vpcService
 	}
+	vpcReconcile.Service = vpcService
 	if err := vpcReconcile.Start(mgr); err != nil {
 		log.Error(err, "failed to create VPC controller")
 		os.Exit(1)

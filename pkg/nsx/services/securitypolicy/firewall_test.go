@@ -52,7 +52,6 @@ var (
 	ruleID1                      = "sp_uidA_1"
 	ruleIDPort000                = "sp_uidA_0_0_0"
 	ruleIDPort100                = "sp_uidA_1_0_0"
-	ruleIDPort200                = "sp_uidA_2_0_0"
 	nsxDirectionIn               = "IN"
 	nsxActionAllow               = "ALLOW"
 	nsxDirectionOut              = "OUT"
@@ -347,7 +346,7 @@ func TestListSecurityPolicyID(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		want    sets.String
+		want    sets.Set[string]
 		wantErr bool
 	}{
 		{
@@ -356,7 +355,7 @@ func TestListSecurityPolicyID(t *testing.T) {
 		},
 	}
 
-	tests[0].want = sets.NewString()
+	tests[0].want = sets.New[string]()
 	tests[0].want.Insert(id)
 	tests[0].want.Insert(id1)
 	tests[0].want.Insert(id2)

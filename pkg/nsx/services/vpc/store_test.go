@@ -27,7 +27,7 @@ func (qIface *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ 
 	cursor := "2"
 	resultCount := int64(2)
 	return model.SearchResponse{
-		Results: []*data.StructValue{&data.StructValue{}},
+		Results: []*data.StructValue{{}},
 		Cursor:  &cursor, ResultCount: &resultCount,
 	}, nil
 }
@@ -134,7 +134,7 @@ func Test_InitializeVPCStore(t *testing.T) {
 
 	service.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, vpcStore)
 	assert.Empty(t, fatalErrors)
-	assert.Equal(t, sets.String(sets.String{}), vpcStore.ListIndexFuncValues(common.TagScopeVPCCRUID))
+	assert.Equal(t, sets.New[string](), vpcStore.ListIndexFuncValues(common.TagScopeVPCCRUID))
 }
 
 func TestVPCStore_CRUDResource(t *testing.T) {

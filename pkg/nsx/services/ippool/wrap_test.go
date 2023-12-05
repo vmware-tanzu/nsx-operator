@@ -12,7 +12,7 @@ import (
 func TestIPPoolService_WrapHierarchyIPPool(t *testing.T) {
 	service := fakeService()
 	iapbs := []*model.IpAddressPoolBlockSubnet{
-		&model.IpAddressPoolBlockSubnet{
+		{
 			Id: String("1"), DisplayName: String("1"),
 			Tags: []model.Tag{{Scope: String(common.TagScopeIPPoolCRUID), Tag: String("1")}}}}
 	iap := &model.IpAddressPool{Id: String("1"), DisplayName: String("1"),

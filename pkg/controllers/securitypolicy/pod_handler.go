@@ -76,8 +76,8 @@ func (e *EnqueueRequestForPod) Raw(evt interface{}, q workqueue.RateLimitingInte
 	}
 }
 
-func getAllPodPortNames(pods []v1.Pod) sets.String {
-	podPortNames := sets.NewString()
+func getAllPodPortNames(pods []v1.Pod) sets.Set[string] {
+	podPortNames := sets.New[string]()
 	for _, pod := range pods {
 		for _, container := range pod.Spec.Containers {
 			for _, port := range container.Ports {

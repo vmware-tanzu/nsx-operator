@@ -8,19 +8,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/tools/cache"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/tools/cache"
 )
 
 var (
@@ -78,7 +78,7 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
 		uid = string(o.UID)
-	case *corev1.Pod:
+	case *v1.Pod:
 		uid = string(o.UID)
 	}
 	log.Info("creating or updating subnetport", "nsxSubnetPort.Id", uid, "nsxSubnetPath", nsxSubnetPath)
@@ -207,13 +207,13 @@ func (service *SubnetPortService) DeleteSubnetPort(uid types.UID) error {
 	return nil
 }
 
-func (service *SubnetPortService) ListNSXSubnetPortIDForCR() sets.String {
+func (service *SubnetPortService) ListNSXSubnetPortIDForCR() sets.Set[string] {
 	log.V(2).Info("listing subnet port CR UIDs")
 	subnetPortSet := service.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopeSubnetPortCRUID)
 	return subnetPortSet
 }
 
-func (service *SubnetPortService) ListNSXSubnetPortIDForPod() sets.String {
+func (service *SubnetPortService) ListNSXSubnetPortIDForPod() sets.Set[string] {
 	log.V(2).Info("listing pod UIDs")
 	subnetPortSet := service.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopePodUID)
 	return subnetPortSet

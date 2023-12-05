@@ -48,7 +48,7 @@ var (
 )
 
 func createHttpClient(insecureSkipVerify bool, caCertPem []byte) *http.Client {
-	tlsConfig := &tls.Config{InsecureSkipVerify: insecureSkipVerify}
+	tlsConfig := &tls.Config{InsecureSkipVerify: insecureSkipVerify} // #nosec G402: ignore insecure options
 	transport := &http.Transport{
 		TLSClientConfig: tlsConfig,
 	}

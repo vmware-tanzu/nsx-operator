@@ -23,7 +23,6 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
-	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -36,6 +35,7 @@ var (
 	ResultNormal            = common.ResultNormal
 	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
+	ResultRequeueAfter10sec = common.ResultRequeueAfter10sec
 	MetricResTypeSubnet     = common.MetricResTypeSubnet
 )
 
@@ -74,7 +74,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			log.V(1).Info("added finalizer on subnet CR", "subnet", req.NamespacedName)
 		}
 		if obj.Spec.AccessMode == "" || obj.Spec.IPv4SubnetSize == 0 {
-			vpcNetworkConfig := commonctl.ServiceMediator.GetVPCNetworkConfigByNamespace(obj.Namespace)
+			vpcNetworkConfig := common.ServiceMediator.GetVPCNetworkConfigByNamespace(obj.Namespace)
 			if vpcNetworkConfig == nil {
 				err := fmt.Errorf("operate failed: cannot get configuration for Subnet CR")
 				log.Error(nil, "failed to find VPCNetworkConfig for Subnet CR", "subnet", req.NamespacedName, "namespace %s", obj.Namespace)
@@ -104,7 +104,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 		vpcInfo, err := common.ServiceMediator.GetNamespaceVPCInfo(req.Namespace)
 		if err != nil {
-			return commonctl.ResultRequeueAfter10sec, nil
+			return ResultRequeueAfter10sec, nil
 		}
 		if _, err := r.Service.CreateOrUpdateSubnet(obj, *vpcInfo, tags); err != nil {
 			log.Error(err, "operate failed, would retry exponentially", "subnet", req.NamespacedName)

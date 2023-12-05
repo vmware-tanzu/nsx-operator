@@ -25,10 +25,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
-	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -36,6 +32,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 )
 
 var (
@@ -194,13 +195,13 @@ func StartSubnetPortController(mgr ctrl.Manager, commonService servicecommon.Ser
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
-	if subnetPortService, err := subnetport.InitializeSubnetPort(commonService); err != nil {
+	subnetPortService, err := subnetport.InitializeSubnetPort(commonService)
+	if err != nil {
 		log.Error(err, "failed to initialize subnetport commonService", "controller", "SubnetPort")
 		os.Exit(1)
-	} else {
-		subnetPortReconciler.Service = subnetPortService
-		common.ServiceMediator.SubnetPortService = subnetPortReconciler.Service
 	}
+	subnetPortReconciler.Service = subnetPortService
+	common.ServiceMediator.SubnetPortService = subnetPortReconciler.Service
 	if err := subnetPortReconciler.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "SubnetPort")
 		os.Exit(1)

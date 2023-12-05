@@ -2,6 +2,7 @@ package namespace
 
 import (
 	"github.com/google/uuid"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 )
 

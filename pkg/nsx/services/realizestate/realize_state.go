@@ -55,6 +55,6 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 			}
 			return errors.New(*result.State)
 		}
-		return errors.New(fmt.Sprintf("%s not realized", entityType))
+		return fmt.Errorf("%s not realized", entityType)
 	})
 }

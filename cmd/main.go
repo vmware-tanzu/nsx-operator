@@ -83,12 +83,12 @@ func StartSecurityPolicyController(mgr ctrl.Manager, commonService common.Servic
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
-	if securityService, err := securitypolicy.InitializeSecurityPolicy(commonService); err != nil {
+	securityService, err := securitypolicy.InitializeSecurityPolicy(commonService)
+	if err != nil {
 		log.Error(err, "failed to initialize securitypolicy commonService", "controller", "SecurityPolicy")
 		os.Exit(1)
-	} else {
-		securityReconcile.Service = securityService
 	}
+	securityReconcile.Service = securityService
 	if err := securityReconcile.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "SecurityPolicy")
 		os.Exit(1)
@@ -101,12 +101,12 @@ func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Ser
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
-	if nsxServiceAccountService, err := nsxserviceaccount.InitializeNSXServiceAccount(commonService); err != nil {
+	nsxServiceAccountService, err := nsxserviceaccount.InitializeNSXServiceAccount(commonService)
+	if err != nil {
 		log.Error(err, "failed to initialize service", "controller", "NSXServiceAccount")
 		os.Exit(1)
-	} else {
-		nsxServiceAccountReconcile.Service = nsxServiceAccountService
 	}
+	nsxServiceAccountReconcile.Service = nsxServiceAccountService
 	if err := nsxServiceAccountReconcile.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "NSXServiceAccount")
 		os.Exit(1)
@@ -118,12 +118,13 @@ func StartIPPoolController(mgr ctrl.Manager, commonService common.Service) {
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
-	if ipPoolService, err := ippool.InitializeIPPool(commonService); err != nil {
+	ipPoolService, err := ippool.InitializeIPPool(commonService)
+	if err != nil {
 		log.Error(err, "failed to initialize ippool commonService", "controller", "IPPool")
 		os.Exit(1)
-	} else {
-		ippoolReconcile.Service = ipPoolService
 	}
+	ippoolReconcile.Service = ipPoolService
+
 	if err := ippoolReconcile.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "IPPool")
 		os.Exit(1)
@@ -135,13 +136,13 @@ func StartVPCController(mgr ctrl.Manager, commonService common.Service) {
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
-	if vpcService, err := vpc.InitializeVPC(commonService); err != nil {
+	vpcService, err := vpc.InitializeVPC(commonService)
+	if err != nil {
 		log.Error(err, "failed to initialize vpc commonService", "controller", "VPC")
 		os.Exit(1)
-	} else {
-		vpcReconciler.Service = vpcService
-		commonctl.ServiceMediator.VPCService = vpcService
 	}
+	vpcReconciler.Service = vpcService
+	commonctl.ServiceMediator.VPCService = vpcService
 	if err := vpcReconciler.Start(mgr); err != nil {
 		log.Error(err, "failed to create vpc controller", "controller", "VPC")
 		os.Exit(1)

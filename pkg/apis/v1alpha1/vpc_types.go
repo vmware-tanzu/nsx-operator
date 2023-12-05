@@ -48,8 +48,8 @@ type VPCStatus struct {
 	LBSubnetPath string `json:"lbSubnetPath"`
 	// CIDR for the load balancer Subnet.
 	LBSubnetCIDR string `json:"lbSubnetCIDR"`
-        // Private CIDRs used for the VPC.
-        PrivateIPv4CIDRs []string `json:"privateIPv4CIDRs"`
+	// Private CIDRs used for the VPC.
+	PrivateIPv4CIDRs []string `json:"privateIPv4CIDRs"`
 }
 
 func init() {

@@ -34,11 +34,12 @@ const (
 	enforcementpointId = "default"
 	PortRestAPI        = "rest-api"
 	PortNSXRPCFwdProxy = "nsx-rpc-fwd-proxy"
-	SecretSuffix       = "-nsx-cert"
-	SecretCAName       = "ca.crt"
-	SecretCertName     = "tls.crt"
-	SecretKeyName      = "tls.key"
-	CAName             = "ca.crt"
+	// #nosec G101: false positive triggered by variable name which includes "secret"
+	SecretSuffix   = "-nsx-cert"
+	SecretCAName   = "ca.crt"
+	SecretCertName = "tls.crt"
+	SecretKeyName  = "tls.key"
+	CAName         = "ca.crt"
 )
 
 var (
@@ -467,7 +468,7 @@ func (s *NSXServiceAccountService) updatePIAndCCPCert(normalizedClusterName, uid
 }
 
 // ListNSXServiceAccountRealization returns all existing realized or failed NSXServiceAccount on NSXT
-func (s *NSXServiceAccountService) ListNSXServiceAccountRealization() sets.String {
+func (s *NSXServiceAccountService) ListNSXServiceAccountRealization() sets.Set[string] {
 	// List PI
 	uidSet := s.PrincipalIdentityStore.ListIndexFuncValues(common.TagScopeNSXServiceAccountCRUID)
 

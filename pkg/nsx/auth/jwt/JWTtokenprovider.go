@@ -13,7 +13,8 @@ import (
 
 const (
 	VC_SVCACCOUNT_USER_PATH = "/etc/nsx-ujo/vc/username"
-	VC_SVCACCOUNT_PWD_PATH  = "/etc/nsx-ujo/vc/password"
+	// #nosec G101: false positive triggered by variable name which includes "pwd"
+	VC_SVCACCOUNT_PWD_PATH = "/etc/nsx-ujo/vc/password"
 )
 
 var (

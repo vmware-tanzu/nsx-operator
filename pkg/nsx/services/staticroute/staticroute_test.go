@@ -32,7 +32,6 @@ var (
 	staticrouteID2            = "ns-staticroute-uid-2"
 	IPv4Type                  = "IPv4"
 	cluster                   = "k8scl-one"
-	tagValueNS                = "ns1"
 	tagScopeStaticRouteCRName = common.TagScopeStaticRouteCRName
 	tagScopeStaticRouteCRUID  = common.TagScopeStaticRouteCRUID
 	tagValueStaticRouteCRName = "staticrouteA"
@@ -40,17 +39,6 @@ var (
 	tagScopeCluster           = common.TagScopeCluster
 	tagScopeNamespace         = common.TagScopeNamespace
 )
-
-type fakeVPCQueryClient struct {
-}
-
-func (qIface *fakeVPCQueryClient) List(_ string, _ string, _ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
-	resultCount := int64(1)
-	return model.SearchResponse{
-		Results: []*data.StructValue{},
-		Cursor:  nil, ResultCount: &resultCount,
-	}, nil
-}
 
 type fakeQueryClient struct {
 }

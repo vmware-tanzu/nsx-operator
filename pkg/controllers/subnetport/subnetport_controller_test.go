@@ -9,13 +9,14 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -258,8 +259,8 @@ func TestSubnetPortReconciler_GarbageCollector(t *testing.T) {
 		},
 	}
 	patchesListNSXSubnetPortIDForCR := gomonkey.ApplyFunc((*subnetport.SubnetPortService).ListNSXSubnetPortIDForCR,
-		func(s *subnetport.SubnetPortService) sets.String {
-			a := sets.NewString()
+		func(s *subnetport.SubnetPortService) sets.Set[string] {
+			a := sets.New[string]()
 			a.Insert("1234")
 			a.Insert("2345")
 			return a

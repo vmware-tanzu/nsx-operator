@@ -90,13 +90,12 @@ func (service *IPPoolService) buildIPSubnetIntentPath(IPPool *v1alpha2.IPPool, s
 
 func (service *IPPoolService) buildIPSubnet(IPPool *v1alpha2.IPPool, subnetRequest v1alpha2.SubnetRequest) *model.IpAddressPoolBlockSubnet {
 	IpBlockPath := String("")
-	IpBlockPathList := make([]string, 0)
 	VPCInfo := commonctl.ServiceMediator.GetVPCsByNamespace(IPPool.Namespace)
 	if len(VPCInfo) == 0 {
 		log.Error(nil, "failed to find VPCInfo for IPPool CR", "IPPool", IPPool.Name, "namespace", IPPool.Namespace)
 		return nil
 	}
-
+	var IpBlockPathList []string
 	if IPPool.Spec.Type == common.IPPoolTypePrivate {
 		IpBlockPathList = VPCInfo[0].PrivateIpv4Blocks
 	} else {

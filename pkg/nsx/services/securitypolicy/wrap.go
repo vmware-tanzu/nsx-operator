@@ -77,7 +77,8 @@ func (service *SecurityPolicyService) wrapDomainResource(children []*data.Struct
 
 func (service *SecurityPolicyService) wrapRules(rules []model.Rule) ([]*data.StructValue, error) {
 	var rulesChildren []*data.StructValue
-	for _, rule := range rules {
+	for _, r := range rules {
+		rule := r
 		rule.ResourceType = &common.ResourceTypeRule // InfraClient need this field to identify the resource type
 		childRule := model.ChildRule{                // We need to put child rule's id into upper level, otherwise, NSX-T will not find the child rule
 			ResourceType:    "ChildRule", // Children are not allowed for rule, so we don't need to wrap ServiceEntry into Children
@@ -96,7 +97,8 @@ func (service *SecurityPolicyService) wrapRules(rules []model.Rule) ([]*data.Str
 
 func (service *SecurityPolicyService) wrapGroups(groups []model.Group) ([]*data.StructValue, error) {
 	var groupsChildren []*data.StructValue
-	for _, group := range groups {
+	for _, g := range groups {
+		group := g
 		group.ResourceType = &common.ResourceTypeGroup // InfraClient need this field to identify the resource type
 		childGroup := model.ChildGroup{
 			ResourceType:    "ChildGroup",
@@ -244,7 +246,8 @@ func (service *SecurityPolicyService) wrapChildShares(shares []model.Share) ([]*
 	var sharesChildren []*data.StructValue
 	resourceType := common.ResourceTypeChildShare
 
-	for _, share := range shares {
+	for _, s := range shares {
+		share := s
 		childShare := model.ChildShare{
 			Id:              share.Id,
 			ResourceType:    resourceType,

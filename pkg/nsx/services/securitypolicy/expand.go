@@ -137,7 +137,8 @@ func (service *SecurityPolicyService) resolveNamedPort(obj *v1alpha1.SecurityPol
 		return nil, err
 	}
 
-	for _, podSelector := range podSelectors {
+	for _, selector := range podSelectors {
+		podSelector := selector
 		podsList := &v1.PodList{}
 		log.V(2).Info("port", "podSelector", podSelector)
 		err := service.Client.List(context.Background(), podsList, &podSelector)
@@ -164,7 +165,8 @@ func (service *SecurityPolicyService) resolveNamedPort(obj *v1alpha1.SecurityPol
 // Check port name and protocol, only when the pod is really running, and it does have effective ip.
 func (service *SecurityPolicyService) resolvePodPort(pod v1.Pod, spPort *v1alpha1.SecurityPolicyPort) ([]nsxutil.PortAddress, error) {
 	var addr []nsxutil.PortAddress
-	for _, container := range pod.Spec.Containers {
+	for _, c := range pod.Spec.Containers {
+		container := c
 		for _, port := range container.Ports {
 			log.V(2).Info("resolvePodPort", "namespace", pod.Namespace, "pod_name", pod.Name,
 				"port_name", port.Name, "containerPort", port.ContainerPort,

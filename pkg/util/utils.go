@@ -5,7 +5,7 @@ package util
 
 import (
 	"context"
-	"crypto/sha1"
+	"crypto/sha1" // #nosec G505: not used for security purposes
 	"errors"
 	"fmt"
 	"net"
@@ -102,7 +102,7 @@ func NormalizeId(name string) string {
 }
 
 func Sha1(data string) string {
-	h := sha1.New()
+	h := sha1.New() // #nosec G401: not used for security purposes
 	h.Write([]byte(data))
 	sum := h.Sum(nil)
 	return fmt.Sprintf("%x", sum)

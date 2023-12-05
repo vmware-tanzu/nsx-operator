@@ -164,7 +164,8 @@ func (service *IPPoolService) Apply(nsxIPPool *model.IpAddressPool, nsxIPSubnets
 func (service *IPPoolService) AcquireRealizedSubnetIP(obj *v1alpha2.IPPool) ([]v1alpha2.SubnetResult, bool, error) {
 	realizedSubnets := []v1alpha2.SubnetResult{}
 	subnetCidrUpdated := false
-	for _, subnetRequest := range obj.Spec.Subnets {
+	for _, subnet := range obj.Spec.Subnets {
+		subnetRequest := subnet
 		// check if the subnet is already realized
 		realized := false
 		realizedSubnet := v1alpha2.SubnetResult{Name: subnetRequest.Name}
@@ -256,7 +257,7 @@ func (service *IPPoolService) acquireCidr(obj *v1alpha2.IPPool, subnetRequest *v
 	}
 }
 
-func (service *IPPoolService) ListIPPoolID() sets.String {
+func (service *IPPoolService) ListIPPoolID() sets.Set[string] {
 	ipPoolSet := service.ipPoolStore.ListIndexFuncValues(common.TagScopeIPPoolCRUID)
 	ipPoolSubnetSet := service.ipPoolBlockSubnetStore.ListIndexFuncValues(common.TagScopeIPPoolCRUID)
 	return ipPoolSet.Union(ipPoolSubnetSet)

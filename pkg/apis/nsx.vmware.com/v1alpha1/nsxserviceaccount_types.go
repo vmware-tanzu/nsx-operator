@@ -56,12 +56,8 @@ const (
 
 // NSXServiceAccountStatus defines the observed state of NSXServiceAccount
 type NSXServiceAccountStatus struct {
-	// Deprecated: Use Conditions instead.
-	// +kubebuilder:deprecatedversion:warning="nsx.vmware.com/v1alpha1 Phase is deprecated"
-	Phase NSXServiceAccountPhase `json:"phase,omitempty"`
-	// Deprecated: Use Conditions instead.
-	// +kubebuilder:deprecatedversion:warning="nsx.vmware.com/v1alpha1 Reason is deprecated"
-	Reason string `json:"reason,omitempty"`
+	Phase  NSXServiceAccountPhase `json:"phase,omitempty"`
+	Reason string                 `json:"reason,omitempty"`
 	// Represents the realization status of a NSXServiceAccount's current state.
 	// Known .status.conditions.type is: "Realized"
 	Conditions     []metav1.Condition `json:"conditions,omitempty"`

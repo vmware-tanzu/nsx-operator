@@ -39,9 +39,9 @@ func Test_getAllPodPortNames(t *testing.T) {
 	tests := []struct {
 		name string
 		args args
-		want sets.String
+		want sets.Set[string]
 	}{
-		{"1", args{[]v1.Pod{pod}}, sets.NewString("test-port", "test-port-2")},
+		{"1", args{[]v1.Pod{pod}}, sets.New[string]("test-port", "test-port-2")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

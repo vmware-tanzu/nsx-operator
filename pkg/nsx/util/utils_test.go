@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -184,12 +183,12 @@ func TestVCClient_handleHTTPResponse(t *testing.T) {
 	assert.Equal(t, err, nil)
 
 	// 	response.StatusCode = 200， body content correct
-	response.Body = ioutil.NopCloser(bytes.NewReader([]byte(`{"value": "hello"}`)))
+	response.Body = io.NopCloser(bytes.NewReader([]byte(`{"value": "hello"}`)))
 	err, _ = HandleHTTPResponse(response, &sessionData, false)
 	assert.Equal(t, err, nil)
 
 	// 	response.StatusCode = 200， body content invalid
-	response.Body = ioutil.NopCloser(bytes.NewReader([]byte(`{"value": 4}`)))
+	response.Body = io.NopCloser(bytes.NewReader([]byte(`{"value": 4}`)))
 	err, _ = HandleHTTPResponse(response, &sessionData, false)
 	_, ok := err.(*json.UnmarshalTypeError)
 	assert.Equal(t, ok, true)
