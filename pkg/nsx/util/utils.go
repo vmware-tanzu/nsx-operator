@@ -4,6 +4,9 @@
 package util
 
 import (
+	"crypto/sha1"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -368,4 +371,30 @@ func castApiError(apiErrorDataValue *data.StructValue) *model.ApiError {
 
 func isEmptyAPIError(apiError model.ApiError) bool {
 	return (apiError.ErrorCode == nil && apiError.ErrorMessage == nil)
+}
+
+func VerifyNsxCertWithThumbprint(der []byte, thumbprint string) error {
+	tbRaw := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(thumbprint, ":", "")))
+	var tbFromCert string
+	if len(tbRaw) == 40 {
+		// SHA-1
+		digest := sha1.Sum(der) // #nosec G401: not used
+		tbFromCert = hex.EncodeToString(digest[:])
+	} else if len(tbRaw) == 64 {
+		// SHA-256
+		digest := sha256.Sum256(der)
+		tbFromCert = hex.EncodeToString(digest[:])
+	} else {
+		err := errors.New("invalid thumbprint format")
+		log.Error(err, "unknown thumbprint length", "thumbprint", tbRaw)
+		return err
+	}
+
+	if strings.Compare(tbRaw, tbFromCert) == 0 {
+		return nil
+	}
+
+	err := errors.New("server certificate didn't match trusted fingerprint")
+	log.Error(err, "verify thumbprint", "server", tbFromCert, "local", tbRaw)
+	return err
 }

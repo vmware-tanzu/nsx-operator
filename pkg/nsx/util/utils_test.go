@@ -194,3 +194,54 @@ func TestVCClient_handleHTTPResponse(t *testing.T) {
 	_, ok := err.(*json.UnmarshalTypeError)
 	assert.Equal(t, ok, true)
 }
+
+func TestVerifyNsxCertWithThumbprint(t *testing.T) {
+	type args struct {
+		der        []byte
+		thumbprint string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr bool
+	}{
+		{
+			name: "SHA-1",
+			args: args{
+				der:        []byte("It is byte."),
+				thumbprint: "5C:1D:AE:31:3A:EA:74:74:FE:69:BA:9F:0B:1D:86:5E:39:97:43:4F"},
+			wantErr: false,
+		},
+		{
+			name: "SHA-256",
+			args: args{
+				der:        []byte("It is byte."),
+				thumbprint: "2F:CB:42:CD:71:96:A2:47:D2:BC:8B:A9:A6:2F:E0:97:BF:4A:5E:2C:45:8F:1C:BE:5B:1F:4D:36:8B:DD:06:25"},
+			wantErr: false,
+		},
+		{
+			name: "SHA mismatched",
+			args: args{
+				der:        []byte("It is another byte."),
+				thumbprint: "2F:CB:42:CD:71:96:A2:47:D2:BC:8B:A9:A6:2F:E0:97:BF:4A:5E:2C:45:8F:1C:BE:5B:1F:4D:36:8B:DD:06:25"},
+			wantErr: true,
+		},
+		{
+			name: "malformed fingerprint",
+			args: args{
+				der:        []byte("It is byte."),
+				thumbprint: "2F:CB:42:CD:71:96:A2:47:D2:BC:8B:A9:A6:2F:E0:97"},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := VerifyNsxCertWithThumbprint(tt.args.der, tt.args.thumbprint)
+			if tt.wantErr {
+				assert.Error(t, err, "VerifyNsxCertWithThumbprint expected err returned")
+			} else {
+				assert.NoError(t, err, "VerifyNsxCertWithThumbprint expected no error returned")
+			}
+		})
+	}
+}
