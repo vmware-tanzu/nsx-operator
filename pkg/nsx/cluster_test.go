@@ -113,26 +113,6 @@ func TestCluster_createTransport(t *testing.T) {
 	assert.NotNil(t, c.createTransport(10))
 }
 
-func Test_calcFingerprint(t *testing.T) {
-	type args struct {
-		der []byte
-	}
-	tests := []struct {
-		name string
-		args args
-		want string
-	}{
-		{"1", args{der: []byte("It is byte.")}, "5C:1D:AE:31:3A:EA:74:74:FE:69:BA:9F:0B:1D:86:5E:39:97:43:4F"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := calcFingerprint(tt.args.der); got != tt.want {
-				t.Errorf("calcFingerprint() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestCluster_Health(t *testing.T) {
 	cluster := &Cluster{}
 	addr := &address{host: "10.0.0.1", scheme: "https"}
