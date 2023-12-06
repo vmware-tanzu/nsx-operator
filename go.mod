@@ -5,7 +5,6 @@ go 1.19
 replace (
 	github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
 	github.com/vmware-tanzu/nsx-operator/pkg/client => ./pkg/client
-	github.com/vmware/go-vmware-nsxt => github.com/mengdie-song/go-vmware-nsxt v0.0.0-20220921033217-dbd234470e30 // inventory-keeper includes all commits from github.com/gran-vmv/go-vmware-nsxt v0.0.0-20211206034609-cd7ffaf2c996
 )
 
 require (
@@ -24,7 +23,7 @@ require (
 	github.com/prometheus/client_golang v1.16.0
 	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.2
-	github.com/vmware-tanzu/nsx-operator/pkg/apis v1.0.0
+	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.1
 	github.com/vmware-tanzu/nsx-operator/pkg/client v0.0.0-00010101000000-000000000000
 	github.com/vmware-tanzu/vm-operator/api v1.8.2
 	github.com/vmware/govmomi v0.27.4
