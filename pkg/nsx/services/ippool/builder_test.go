@@ -8,7 +8,7 @@ import (
 	"github.com/agiledragon/gomonkey"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
@@ -77,7 +77,7 @@ func TestIPPoolService_BuildIPPool(t *testing.T) {
 	}
 	vpcStore := &vpc.VPCStore{ResourceStore: resourceStore}
 	commonctl.ServiceMediator.VPCService = &vpc.VPCService{VpcStore: vpcStore}
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(vpcStore), "GetVPCsByNamespace", func(vpcStore *vpc.VPCStore,
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(vpcService *vpc.VPCService,
 		ns string,
 	) []model.Vpc {
 		return vpcinfolist
