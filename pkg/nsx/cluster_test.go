@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agiledragon/gomonkey"
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
