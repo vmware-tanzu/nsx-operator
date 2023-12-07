@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agiledragon/gomonkey"
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"

@@ -8,7 +8,6 @@ replace (
 )
 
 require (
-	github.com/agiledragon/gomonkey v2.0.2+incompatible
 	github.com/agiledragon/gomonkey/v2 v2.9.0
 	github.com/apparentlymart/go-cidr v1.1.0
 	github.com/coreos/go-semver v0.3.1
