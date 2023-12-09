@@ -125,6 +125,7 @@ var (
 	ResourceTypeIPPool            = "IpAddressPool"
 	ResourceTypeIPPoolBlockSubnet = "IpAddressPoolBlockSubnet"
 	ResourceTypeNode              = "HostTransportNode"
+	ResourceTypeStaticRoute       = "StaticRoutes"
 )
 
 type Service struct {

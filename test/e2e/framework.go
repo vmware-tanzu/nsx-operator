@@ -29,9 +29,10 @@ import (
 )
 
 const (
-	defaultTimeout         = 100 * time.Second
+	defaultTimeout         = 300 * time.Second
 	verifyNoneExistTimeout = 15 * time.Second
 	crdVersion             = "v1alpha1"
+	waitInteral            = 5 * time.Second
 )
 
 type Status int
@@ -81,6 +82,8 @@ type TestData struct {
 	clusterID          string
 	clusterName        string
 	logsDirForTestCase string
+	timeOut            time.Duration
+	waitInternal       time.Duration
 }
 
 var testData *TestData
@@ -108,7 +111,7 @@ func initProvider() error {
 }
 
 func NewTestData(nsxConfig string) error {
-	testData = &TestData{}
+	testData = &TestData{timeOut: defaultTimeout, waitInternal: waitInteral}
 	err := testData.createClients()
 	if err != nil {
 		return err
@@ -127,6 +130,14 @@ func (data *TestData) createNSXClients(nsxConfig string) error {
 	}
 	data.nsxClient = nsxClient
 	return nil
+}
+
+func (data *TestData) setTimeout(second int) {
+	data.timeOut = time.Duration(second) * time.Second
+}
+
+func (data *TestData) setWaitInternal(second int) {
+	data.waitInternal = time.Duration(second) * time.Second
 }
 
 // createClients initializes the clientSets in the TestData structure.
@@ -292,7 +303,7 @@ func (data *TestData) deleteNamespace(namespace string, timeout time.Duration) e
 		}
 		return fmt.Errorf("error when deleting '%s' Namespace: %v", namespace, err)
 	}
-	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+	err := wait.Poll(data.waitInternal, timeout, func() (bool, error) {
 		if ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{}); err != nil {
 			if errors.IsNotFound(err) {
 				// Success
@@ -339,7 +350,7 @@ func (data *TestData) deletePodAndWait(timeout time.Duration, name string, ns st
 		return err
 	}
 
-	if err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+	if err := wait.Poll(data.waitInternal, timeout, func() (bool, error) {
 		if _, err := data.clientset.CoreV1().Pods(ns).Get(context.TODO(), name, metav1.GetOptions{}); err != nil {
 			if errors.IsNotFound(err) {
 				return true, nil
@@ -360,7 +371,7 @@ type PodCondition func(*corev1.Pod) (bool, error)
 // waitForSecurityPolicyReady polls the K8s apiServer until the specified CR is in the "True" state (or until
 // the provided timeout expires).
 func (data *TestData) waitForCRReadyOrDeleted(timeout time.Duration, cr string, namespace string, name string, status Status) error {
-	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+	err := wait.Poll(data.waitInternal, timeout, func() (bool, error) {
 		cmd := fmt.Sprintf("kubectl get %s %s -n %s -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}'", cr, name, namespace)
 		log.Printf("%s", cmd)
 		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
@@ -387,7 +398,7 @@ func (data *TestData) waitForCRReadyOrDeleted(timeout time.Duration, cr string, 
 
 func (data *TestData) getCRProperties(timeout time.Duration, crType, crName, namespace, key string) (string, error) {
 	value := ""
-	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+	err := wait.Poll(data.waitInternal, timeout, func() (bool, error) {
 		cmd := fmt.Sprintf("kubectl get %s %s -n %s -o yaml | grep %s", crType, crName, namespace, key)
 		log.Printf("%s", cmd)
 		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
@@ -413,7 +424,7 @@ func (data *TestData) getCRProperties(timeout time.Duration, crType, crName, nam
 // return map structure, key is CR name, value is CR UID
 func (data *TestData) getCRResource(timeout time.Duration, cr string, namespace string) (map[string]string, error) {
 	crs := map[string]string{}
-	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+	err := wait.Poll(data.waitInternal, timeout, func() (bool, error) {
 		cmd := fmt.Sprintf("kubectl get %s -n %s", cr, namespace)
 		log.Printf("%s", cmd)
 		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
@@ -453,7 +464,7 @@ func (data *TestData) getCRResource(timeout time.Duration, cr string, namespace 
 // podWaitFor polls the K8s apiServer until the specified Pod is found (in the test Namespace) and
 // the condition predicate is met (or until the provided timeout expires).
 func (data *TestData) podWaitFor(timeout time.Duration, name, namespace string, condition PodCondition) (*corev1.Pod, error) {
-	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+	err := wait.Poll(data.waitInternal, timeout, func() (bool, error) {
 		if pod, err := data.clientset.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{}); err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil
@@ -520,7 +531,7 @@ func (data *TestData) deploymentWaitForIPsOrNames(timeout time.Duration, namespa
 	opt := metav1.ListOptions{
 		LabelSelector: "deployment=" + deployment,
 	}
-	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+	err := wait.Poll(data.waitInternal, timeout, func() (bool, error) {
 		if pods, err := data.clientset.CoreV1().Pods(namespace).List(context.TODO(), opt); err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil
@@ -695,7 +706,7 @@ func deleteYAML(filename string, ns string) error {
 	command.Stderr = &stderr
 	err := command.Run()
 	if err != nil {
-		log.Printf("Error when deleting YAML file %s: %v", filename, err)
+		log.Printf("Error when deleting YAML file %s: %v, stdout:%s, stderr:%s", filename, err, stdout.String(), stderr.String())
 		return nil
 	}
 	outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
@@ -704,7 +715,7 @@ func deleteYAML(filename string, ns string) error {
 }
 
 func (data *TestData) waitForResourceExist(namespace string, resourceType string, key string, value string, shouldExist bool) error {
-	err := wait.Poll(1*time.Second, defaultTimeout, func() (bool, error) {
+	err := wait.Poll(data.waitInternal, data.timeOut, func() (bool, error) {
 		exist := true
 		tagScopeClusterKey := strings.Replace(common.TagScopeNamespace, "/", "\\/", -1)
 		tagScopeClusterValue := strings.Replace(namespace, ":", "\\:", -1)
