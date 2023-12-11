@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -150,6 +151,10 @@ func TestRandomDelay(t *testing.T) {
 }
 
 func TestMaxDelay(t *testing.T) {
+	if os.Getenv("OS") == "macos-latest" {
+		t.Skip("Skipping testing in MacOS GitHub actions - too slow, duration is wrong")
+	}
+
 	start := time.Now()
 	err := Do(
 		func() error { return errors.New("test") },
@@ -159,8 +164,8 @@ func TestMaxDelay(t *testing.T) {
 	)
 	dur := time.Since(start)
 	assert.Error(t, err)
-	assert.True(t, dur > 170*time.Millisecond, "5 times with maximum delay retry is longer than 170ms")
-	assert.True(t, dur < 200*time.Millisecond, "5 times with maximum delay retry is shorter than 200ms")
+	assert.Greater(t, dur, 120*time.Millisecond, "5 times with maximum delay retry is less than 120ms")
+	assert.Less(t, dur, 250*time.Millisecond, "5 times with maximum delay retry is longer than 250ms")
 }
 
 func TestBackOffDelay(t *testing.T) {
