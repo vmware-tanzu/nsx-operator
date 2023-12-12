@@ -41,6 +41,11 @@ type VPCNetworkConfigurationSpec struct {
 	// Must be Public or Private.
 	// +kubebuilder:validation:Enum=Public;Private
 	DefaultSubnetAccessMode string `json:"defaultSubnetAccessMode,omitempty"`
+	// ShortID specifies Identifier to use when displaying VPC context in logs.
+	// Less than equal to 8 characters.
+	// +kubebuilder:validation:MaxLength=8
+	// +optional
+	ShortID string `json:"shortID,omitempty"`
 }
 
 // VPCNetworkConfigurationStatus defines the observed state of VPCNetworkConfiguration
