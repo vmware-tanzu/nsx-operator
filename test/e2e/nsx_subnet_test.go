@@ -62,7 +62,7 @@ func TestDefaultSubnetSet(t *testing.T) {
 
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_1.yaml")
 	err = applyYAML(portPath, E2ENamespace)
-	time.Sleep(10 * time.Second)
+	time.Sleep(30 * time.Second)
 	assert_nil(t, err)
 	defer deleteYAML(portPath, E2ENamespace)
 
@@ -144,7 +144,7 @@ func TestUserSubnetSet(t *testing.T) {
 
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_2.yaml")
 	err = applyYAML(portPath, E2ENamespace)
-	time.Sleep(10 * time.Second)
+	time.Sleep(30 * time.Second)
 	assert_nil(t, err)
 	defer deleteYAML(portPath, E2ENamespace)
 
