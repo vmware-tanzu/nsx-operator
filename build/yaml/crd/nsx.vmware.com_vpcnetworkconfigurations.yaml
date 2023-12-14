@@ -89,6 +89,11 @@ spec:
                 maxItems: 5
                 minItems: 0
                 type: array
+              shortID:
+                description: ShortID specifies Identifier to use when displaying VPC
+                  context in logs. Less than equal to 8 characters.
+                maxLength: 8
+                type: string
             type: object
           status:
             description: VPCNetworkConfigurationStatus defines the observed state
