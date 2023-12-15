@@ -46,10 +46,15 @@ func verifySubnetSetCR(subnetSet string) bool {
 	return true
 }
 
-func TestDefaultSubnetSet(t *testing.T) {
+func TestSubnetSet(t *testing.T) {
 	setupTest(t, E2ENamespace)
 	defer teardownTest(t, E2ENamespace, SubnetDeletionTimeout)
 
+	t.Run("case=DefaultSubnetSet", defaultSubnetSet)
+	t.Run("case=UserSubnetSet", userSubnetSet)
+}
+
+func defaultSubnetSet(t *testing.T) {
 	// 1. Check whether default-vm-subnetset and default-pod-subnetset are created.
 	err := testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetSetCRType, E2ENamespace, DefaultVMSubnetSet, Ready)
 	assert_nil(t, err)
@@ -129,10 +134,7 @@ func TestDefaultSubnetSet(t *testing.T) {
 	assert_false(t, found, "Failed to delete tags for NSX subnet %s", vpcInfo.ID)
 }
 
-func TestUserSubnetSet(t *testing.T) {
-	setupTest(t, E2ENamespace)
-	defer teardownTest(t, E2ENamespace, SubnetDeletionTimeout)
-
+func userSubnetSet(t *testing.T) {
 	// 1. Check SubnetSet created by user.
 	subnetSetPath, _ := filepath.Abs("./manifest/testSubnet/subnetset.yaml")
 	err := applyYAML(subnetSetPath, E2ENamespace)

@@ -312,6 +312,6 @@ func (r *SubnetSetReconciler) Start(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-	go r.GarbageCollector(make(chan bool), servicecommon.GCInterval)
+	//go r.GarbageCollector(make(chan bool), servicecommon.GCInterval)
 	return nil
 }
