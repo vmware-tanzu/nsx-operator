@@ -3,9 +3,7 @@ FROM golang:1.19.10 as golang-build
 WORKDIR /source
 
 COPY . /source
-
-RUN go build -o manager cmd/main.go
-
+RUN CGO_ENABLED=0 go build -o manager cmd/main.go
 
 FROM photon
 
