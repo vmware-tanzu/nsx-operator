@@ -10,4 +10,5 @@ type VPCNetworkConfigInfo struct {
 	PrivateIPv4CIDRs        []string
 	DefaultIPv4SubnetSize   int
 	DefaultSubnetAccessMode string
+	ShortID                 string
 }

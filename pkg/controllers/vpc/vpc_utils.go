@@ -139,6 +139,7 @@ func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*vpc.
 		PrivateIPv4CIDRs:        vpcConfigCR.Spec.PrivateIPv4CIDRs,
 		DefaultIPv4SubnetSize:   vpcConfigCR.Spec.DefaultIPv4SubnetSize,
 		DefaultSubnetAccessMode: vpcConfigCR.Spec.DefaultSubnetAccessMode,
+		ShortID:                 vpcConfigCR.Spec.ShortID,
 	}
 	return ninfo, nil
 }

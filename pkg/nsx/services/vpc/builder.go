@@ -81,6 +81,9 @@ func buildNSXVPC(obj *v1alpha1.VPC, nc VPCNetworkConfigInfo, cluster string, pat
 	// update private/public blocks
 	vpc.ExternalIpv4Blocks = nc.ExternalIPv4Blocks
 	vpc.PrivateIpv4Blocks = util.GetMapValues(pathMap)
+	if nc.ShortID != "" {
+		vpc.ShortId = &nc.ShortID
+	}
 
 	return vpc, nil
 }

@@ -1,6 +1,6 @@
 module github.com/vmware-tanzu/nsx-operator
 
-go 1.19
+go 1.21.5
 
 replace (
 	github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
@@ -8,7 +8,6 @@ replace (
 )
 
 require (
-	github.com/agiledragon/gomonkey v2.0.2+incompatible
 	github.com/agiledragon/gomonkey/v2 v2.9.0
 	github.com/apparentlymart/go-cidr v1.1.0
 	github.com/coreos/go-semver v0.3.1
@@ -23,7 +22,7 @@ require (
 	github.com/prometheus/client_golang v1.16.0
 	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.2
-	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.1
+	github.com/vmware-tanzu/nsx-operator/pkg/apis v1.0.0
 	github.com/vmware-tanzu/nsx-operator/pkg/client v0.0.0-00010101000000-000000000000
 	github.com/vmware-tanzu/vm-operator/api v1.8.2
 	github.com/vmware/govmomi v0.27.4
