@@ -139,7 +139,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	// So, it's unnecessary to exit even if failed in the first time
 	if !nsxClient.NSXCheckVersion(SecurityPolicy) {
 		err := errors.New("SecurityPolicy feature support check failed")
-		log.Error(err, "initial NSX version check for SecurityPolicy got error")
+		log.Error(err, "Initial NSX version check for SecurityPolicy got error")
 	}
 	if !nsxClient.NSXCheckVersion(ServiceAccount) {
 		err := errors.New("NSXServiceAccount feature support check failed")

@@ -47,7 +47,7 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 		return false
 	}
 
-	log.V(1).Info("building the model SecurityPolicy from CR SecurityPolicy", "object", *obj)
+	log.V(1).Info("Building the model SecurityPolicy from CR SecurityPolicy", "object", *obj)
 	nsxSecurityPolicy := &model.SecurityPolicy{}
 
 	nsxSecurityPolicy.Id = String(fmt.Sprintf("sp_%s", obj.UID))
