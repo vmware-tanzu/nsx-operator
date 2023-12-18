@@ -1,6 +1,6 @@
 module github.com/vmware-tanzu/nsx-operator/pkg/client
 
-go 1.21.5
+go 1.21
 
 require (
 	github.com/vmware-tanzu/nsx-operator/pkg/apis v1.0.0
