@@ -82,7 +82,24 @@ func (serviceMediator *ServiceMediator) GetAvailableSubnet(subnetSet *v1alpha1.S
 		tags = append(tags, model.Tag{Scope: common.String(k), Tag: common.String(v)})
 	}
 	log.Info("the existing subnets are not available, creating new subnet", "subnetList", subnetList, "subnetSet.Name", subnetSet.Name, "subnetSet.Namespace", subnetSet.Namespace)
-	return serviceMediator.CreateOrUpdateSubnet(subnetSet, tags)
+	vpcInfo, err := serviceMediator.GetNamespaceVPCInfo(subnetSet.Namespace)
+	if err != nil {
+		return "", err
+	}
+	return serviceMediator.CreateOrUpdateSubnet(subnetSet, *vpcInfo, tags)
+}
+
+func (serviceMediator *ServiceMediator) GetNamespaceVPCInfo(ns string) (*common.VPCResourceInfo, error) {
+	vpcList := serviceMediator.GetVPCsByNamespace(ns)
+	if len(vpcList) == 0 {
+		return nil, fmt.Errorf("no vpc found for ns %s", ns)
+	}
+	vpcInfo, err := common.ParseVPCResourcePath(*vpcList[0].Path)
+	if err != nil {
+		err := fmt.Errorf("failed to parse NSX VPC path for VPC %s: %s", *vpcList[0].Id, err)
+		return nil, err
+	}
+	return &vpcInfo, nil
 }
 
 func (serviceMediator *ServiceMediator) GetPortsOfSubnet(nsxSubnetID string) (ports []model.VpcSubnetPort) {

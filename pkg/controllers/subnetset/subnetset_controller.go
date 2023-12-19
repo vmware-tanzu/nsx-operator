@@ -32,8 +32,6 @@ var (
 	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
 	MetricResTypeSubnetSet  = common.MetricResTypeSubnetSet
-	//TODO rename this
-	defaultSubnet = "default-subnet"
 )
 
 // SubnetSetReconciler reconciles a SubnetSet object
@@ -211,9 +209,6 @@ func (r *SubnetSetReconciler) setupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: runtime.NumCPU(),
 		}).
-		Watches(&v1alpha1.VPC{},
-			&VPCHandler{Client: mgr.GetClient()},
-			builder.WithPredicates(VPCPredicate)).
 		Watches(
 			&v1.Namespace{},
 			&EnqueueRequestForNamespace{Client: mgr.GetClient()},
