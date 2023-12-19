@@ -6,14 +6,7 @@ package subnetport
 import (
 	"errors"
 	"sync"
-
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/util/retry"
+	"time"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -21,6 +14,13 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/tools/cache"
 )
 
 var (
@@ -141,7 +141,13 @@ func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubne
 		return nil, errors.New("failed to get subnet port from store")
 	}
 	realizeService := realizestate.InitializeRealizeState(service.Service)
-	if err := realizeService.CheckRealizeState(retry.DefaultRetry, *nsxSubnetPort.Path, "RealizedLogicalPort"); err != nil {
+	backoff := wait.Backoff{
+		Duration: 1 * time.Second,
+		Factor:   2.0,
+		Jitter:   0,
+		Steps:    6,
+	}
+	if err := realizeService.CheckRealizeState(backoff, *nsxSubnetPort.Path, "RealizedLogicalPort"); err != nil {
 		log.Error(err, "failed to get realized status", "subnetport path", *nsxSubnetPort.Path)
 		if realizestate.IsRealizeStateError(err) {
 			log.Error(err, "the created subnet port is in error realization state, cleaning the resource", "subnetport", uid)
