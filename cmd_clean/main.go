@@ -89,6 +89,7 @@ func main() {
 	// here using the basic user/password mode for authentication
 	// not handling verify
 	var err error
+	var status clean.Status
 	if useExternalHttp {
 		tr := &http.Transport{
 			IdleConnTimeout: 30 * time.Second,
@@ -100,18 +101,18 @@ func main() {
 			Transport: &Transport{Base: tr},
 			Timeout:   30 * time.Second,
 		}
-		err = clean.Clean(cf, httpClient)
+		status, err = clean.Clean(cf, httpClient)
 	} else {
-		err = clean.Clean(cf, nil)
+		status, err = clean.Clean(cf, nil)
 	}
 	// the error roughly are:
 	// 1. failed to validate config
 	// 2. failed to get nsx client
 	// 3. failed to initialize cleanup service
 	// 4. failed to clean up specific resource
-	err = clean.Clean(cf, nil)
+	status, err = clean.Clean(cf, nil)
 	if err != nil {
-		log.Error(err, "failed to clean nsx resources")
+		log.Error(err, "failed to clean nsx resources", "status", status)
 		os.Exit(1)
 	}
 	os.Exit(0)
