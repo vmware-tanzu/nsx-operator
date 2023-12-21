@@ -4,4 +4,4 @@ metadata:
   name: port-1
   namespace: subnet-e2e
 spec:
-  subnetSet: default-pod-subnetset
+  subnetSet: pod-default

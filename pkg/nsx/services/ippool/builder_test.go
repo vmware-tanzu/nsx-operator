@@ -43,12 +43,12 @@ func TestIPPoolService_BuildIPPool(t *testing.T) {
 			{Scope: String("nsx-op/cluster"), Tag: String("k8scl-one:test")},
 			{Scope: String("nsx-op/version"), Tag: String(strings.Join(common.TagValueVersion, "."))},
 			{Scope: String("nsx-op/namespace"), Tag: String("")},
-			{Scope: String("nsx-op/ippool_cr_name"), Tag: String("ippool1")},
+			{Scope: String("nsx-op/ippool_name"), Tag: String("ippool1")},
 			{
-				Scope: String("nsx-op/ippool_cr_uid"),
+				Scope: String("nsx-op/ippool_uid"),
 				Tag:   String("uuid1"),
 			},
-			{Scope: String("nsx-op/ippool_cr_type"), Tag: String("public")},
+			{Scope: String("nsx-op/ippool_type"), Tag: String("public")},
 		},
 	}
 
@@ -60,9 +60,9 @@ func TestIPPoolService_BuildIPPool(t *testing.T) {
 			{Scope: String("nsx-op/cluster"), Tag: String("k8scl-one:test")},
 			{Scope: String("nsx-op/version"), Tag: String(strings.Join(common.TagValueVersion, "."))},
 			{Scope: String("nsx-op/namespace"), Tag: String("")},
-			{Scope: String("nsx-op/ippool_cr_name"), Tag: String("ippool1")},
-			{Scope: String("nsx-op/ippool_cr_uid"), Tag: String("uuid1")},
-			{Scope: String("nsx-op/ipsubnet_cr_name"), Tag: String("subnet1")},
+			{Scope: String("nsx-op/ippool_name"), Tag: String("ippool1")},
+			{Scope: String("nsx-op/ippool_uid"), Tag: String("uuid1")},
+			{Scope: String("nsx-op/ipsubnet_name"), Tag: String("subnet1")},
 		},
 		Size: Int64(256),
 	}

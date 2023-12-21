@@ -61,8 +61,7 @@ func buildNSXVPC(obj *v1alpha1.VPC, nc VPCNetworkConfigInfo, cluster string, pat
 		vpc = nsxVPC
 	} else {
 		// for creating vpc case, fill in vpc properties based on networkconfig
-		suffix := obj.GetNamespace() + "-" + obj.Name
-		vpcName := util.GenerateDisplayName("vpc", "", suffix, "", cluster)
+		vpcName := util.GenerateDisplayName(obj.Name, obj.GetNamespace(), cluster, "", "")
 		vpc.DisplayName = &vpcName
 		vpc.Id = common.String(string(obj.GetUID()))
 		vpc.DefaultGatewayPath = &nc.DefaultGatewayPath

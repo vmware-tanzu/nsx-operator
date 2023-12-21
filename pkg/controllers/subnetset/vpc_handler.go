@@ -3,17 +3,15 @@ package subnetset
 import (
 	"context"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 // VPCHandler handles VPC event for SubnetSet:
@@ -21,8 +19,8 @@ import (
 // - VPC deletion: delete all SubnetSets under the VPC.
 
 var defaultSubnetSets = map[string]string{
-	"default-vm-subnetset":  common.LabelDefaultVMSubnetSet,
-	"default-pod-subnetset": common.LabelDefaultPodSubnetSet,
+	common.DefaultVMSubnetSet:  common.LabelDefaultVMSubnetSet,
+	common.DefaultPodSubnetSet: common.LabelDefaultPodSubnetSet,
 }
 
 type VPCHandler struct {
