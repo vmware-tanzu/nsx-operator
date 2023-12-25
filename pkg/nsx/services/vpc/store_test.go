@@ -33,7 +33,7 @@ func (qIface *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ 
 }
 
 func Test_IndexFunc(t *testing.T) {
-	mId, mTag, mScope := "test_id", "test_tag", "nsx-op/vpc_cr_uid"
+	mId, mTag, mScope := "test_id", "test_tag", "nsx-op/vpc_uid"
 	v := model.Vpc{
 		Id:   &mId,
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
@@ -47,7 +47,7 @@ func Test_IndexFunc(t *testing.T) {
 }
 
 func Test_filterTag(t *testing.T) {
-	mTag, mScope := "test_tag", "nsx-op/vpc_cr_uid"
+	mTag, mScope := "test_tag", "nsx-op/vpc_uid"
 	mTag2, mScope2 := "test_tag", "nsx"
 	tags := []model.Tag{{Scope: &mScope, Tag: &mTag}}
 	tags2 := []model.Tag{{Scope: &mScope2, Tag: &mTag2}}

@@ -8,13 +8,12 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 const (
-	DefaultPodSubnetSet    = "default-pod-subnetset"
-	DefaultVMSubnetSet     = "default-vm-subnetset"
 	SubnetSetCRType        = "subnetsets"
 	E2ENamespace           = "subnet-e2e"
 	VPCNetworkConfigCRName = "default"
@@ -50,15 +49,15 @@ func TestDefaultSubnetSet(t *testing.T) {
 	setupTest(t, E2ENamespace)
 	defer teardownTest(t, E2ENamespace, SubnetDeletionTimeout)
 
-	// 1. Check whether default-vm-subnetset and default-pod-subnetset are created.
-	err := testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetSetCRType, E2ENamespace, DefaultVMSubnetSet, Ready)
+	// 1. Check whether vm-default, pod-default are created.
+	err := testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetSetCRType, E2ENamespace, common.DefaultVMSubnetSet, Ready)
 	assert_nil(t, err)
-	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetSetCRType, E2ENamespace, DefaultPodSubnetSet, Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetSetCRType, E2ENamespace, common.DefaultPodSubnetSet, Ready)
 	assert_nil(t, err)
 
 	// 2. Check `Ipv4SubnetSize` and `AccessMode` should be same with related fields in VPCNetworkConfig.
-	assert_true(t, verifySubnetSetCR(DefaultVMSubnetSet))
-	assert_true(t, verifySubnetSetCR(DefaultPodSubnetSet))
+	assert_true(t, verifySubnetSetCR(common.DefaultVMSubnetSet))
+	assert_true(t, verifySubnetSetCR(common.DefaultPodSubnetSet))
 
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_1.yaml")
 	err = applyYAML(portPath, E2ENamespace)
@@ -67,7 +66,7 @@ func TestDefaultSubnetSet(t *testing.T) {
 	defer deleteYAML(portPath, E2ENamespace)
 
 	// 3. Check SubnetSet CR status should be updated with NSX subnet info.
-	subnetSet, err := testData.crdClientset.NsxV1alpha1().SubnetSets(E2ENamespace).Get(context.TODO(), DefaultPodSubnetSet, v1.GetOptions{})
+	subnetSet, err := testData.crdClientset.NsxV1alpha1().SubnetSets(E2ENamespace).Get(context.TODO(), common.DefaultPodSubnetSet, v1.GetOptions{})
 	assert_nil(t, err)
 	assert.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
 	// 4. Check NSX subnet allocation.

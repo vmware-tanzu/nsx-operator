@@ -301,7 +301,7 @@ func TestListSecurityPolicyID(t *testing.T) {
 	}}
 
 	group := model.Group{}
-	scope := "nsx-op/security_policy_cr_uid"
+	scope := "nsx-op/security_policy_uid"
 	uuid := "111111111"
 	id := "1234"
 	group.Id = &id

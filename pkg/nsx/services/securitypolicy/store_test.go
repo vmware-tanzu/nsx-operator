@@ -20,7 +20,7 @@ import (
 )
 
 func Test_IndexFunc(t *testing.T) {
-	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_cr_uid"
+	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_uid"
 	m := model.Group{
 		Id:   &mId,
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
@@ -54,7 +54,7 @@ func Test_IndexFunc(t *testing.T) {
 }
 
 func Test_filterTag(t *testing.T) {
-	mTag, mScope := "11111", "nsx-op/security_policy_cr_uid"
+	mTag, mScope := "11111", "nsx-op/security_policy_uid"
 	mTag2, mScope2 := "11111", "nsx"
 	tags := []model.Tag{{Scope: &mScope, Tag: &mTag}}
 	tags2 := []model.Tag{{Scope: &mScope2, Tag: &mTag2}}
