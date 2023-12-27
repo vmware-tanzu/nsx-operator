@@ -105,16 +105,15 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 }
 
 func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPolicy) (*model.Group, string, error) {
-	policyGroup := model.Group{}
-
-	policyGroup.Id = String(service.buildPolicyGroupID(obj))
+	policyAppliedGroup := model.Group{}
+	policyAppliedGroup.Id = String(service.buildAppliedGroupID(obj, -1))
 
 	// TODO: have a common function to generate ID and Name with parameters like prefix, suffix
-	policyGroup.DisplayName = String(fmt.Sprintf("%s-%s-scope", obj.ObjectMeta.Namespace, obj.ObjectMeta.Name))
+	policyAppliedGroup.DisplayName = String(service.buildAppliedGroupName(obj, -1))
 
 	appliedTo := obj.Spec.AppliedTo
-	targetTags := service.buildTargetTags(obj, &appliedTo, -1)
-	policyGroup.Tags = targetTags
+	targetTags := service.buildTargetTags(obj, &appliedTo, nil, -1)
+	policyAppliedGroup.Tags = targetTags
 	if len(appliedTo) == 0 {
 		return nil, "ANY", nil
 	}
@@ -127,7 +126,7 @@ func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPol
 		criteriaCount, totalExprCount, err = service.updateTargetExpressions(
 			obj,
 			&target,
-			&policyGroup,
+			&policyAppliedGroup,
 			i,
 		)
 		if err == nil {
@@ -156,16 +155,18 @@ func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPol
 		return nil, "", err
 	}
 
-	policyAppliedGroupPath, err := service.buildAppliedGroupPath(obj, "")
+	policyAppliedGroupPath, err := service.buildAppliedGroupPath(obj, -1)
 	if err != nil {
 		return nil, "", err
 	}
 
-	log.V(1).Info("built policy target group", "policyGroup", policyGroup)
-	return &policyGroup, policyAppliedGroupPath, nil
+	log.V(1).Info("built policy target group", "policyGroup", policyAppliedGroup)
+	return &policyAppliedGroup, policyAppliedGroupPath, nil
 }
 
-func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPolicy, targets *[]v1alpha1.SecurityPolicyTarget, idx int) []model.Tag {
+func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPolicy, targets *[]v1alpha1.SecurityPolicyTarget,
+	rule *v1alpha1.SecurityPolicyRule, ruleIdx int,
+) []model.Tag {
 	basicTags := service.buildBasicTags(obj)
 	sort.Slice(*targets, func(i, j int) bool {
 		k1, _ := json.Marshal((*targets)[i])
@@ -200,12 +201,12 @@ func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPoli
 		)
 	}
 
-	if idx != -1 {
+	if ruleIdx != -1 && rule != nil {
 		// the appliedTo group belongs to a rule, so it needs a tag including the rule id
 		targetTags = append(targetTags,
 			model.Tag{
 				Scope: String(common.TagScopeRuleID),
-				Tag:   String(service.buildRuleID(obj, idx)),
+				Tag:   String(service.buildRuleID(obj, rule, ruleIdx)),
 			},
 		)
 	}
@@ -346,14 +347,22 @@ func (service *SecurityPolicyService) buildExpressionsMatchExpression(matchExpre
 	return err
 }
 
-func (service *SecurityPolicyService) buildPolicyGroupID(obj *v1alpha1.SecurityPolicy) string {
+// build appliedTo group ID for both policy and rule levels.
+func (service *SecurityPolicyService) buildAppliedGroupID(obj *v1alpha1.SecurityPolicy, ruleIdx int) string {
+	if ruleIdx != -1 {
+		return fmt.Sprintf("sp_%s_%d_scope", obj.UID, ruleIdx)
+	}
+
 	return fmt.Sprintf("sp_%s_scope", obj.UID)
 }
 
 // build appliedTo group path for both policy and rule levels.
-func (service *SecurityPolicyService) buildAppliedGroupPath(obj *v1alpha1.SecurityPolicy, groupID string) (string, error) {
-	if groupID == "" {
-		groupID = service.buildPolicyGroupID(obj)
+func (service *SecurityPolicyService) buildAppliedGroupPath(obj *v1alpha1.SecurityPolicy, ruleIdx int) (string, error) {
+	var groupID string
+	if ruleIdx == -1 {
+		groupID = service.buildAppliedGroupID(obj, -1)
+	} else {
+		groupID = service.buildAppliedGroupID(obj, ruleIdx)
 	}
 
 	if isVpcEnabled(service) {
@@ -368,6 +377,20 @@ func (service *SecurityPolicyService) buildAppliedGroupPath(obj *v1alpha1.Securi
 	}
 
 	return fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), groupID), nil
+}
+
+// build appliedTo group display name for both policy and rule levels.
+func (service *SecurityPolicyService) buildAppliedGroupName(obj *v1alpha1.SecurityPolicy, ruleIdx int) string {
+	var rule *v1alpha1.SecurityPolicyRule
+	if ruleIdx != -1 {
+		rule = &(obj.Spec.Rules[ruleIdx])
+		if len(rule.Name) > 0 {
+			return fmt.Sprintf("%s-scope", rule.Name)
+		}
+		return fmt.Sprintf("%s-%d-scope", obj.ObjectMeta.Name, ruleIdx)
+	}
+
+	return fmt.Sprintf("%s-%s-scope", obj.ObjectMeta.Namespace, obj.ObjectMeta.Name)
 }
 
 func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int) ([]*model.Rule, []*model.Group, []*ProjectShare, error) {
@@ -553,15 +576,16 @@ func (service *SecurityPolicyService) buildRuleOutGroup(obj *v1alpha1.SecurityPo
 	return nsxRuleDstGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, nsxProjectShare, nil
 }
 
-func (service *SecurityPolicyService) buildRuleID(obj *v1alpha1.SecurityPolicy, idx int) string {
-	return fmt.Sprintf("sp_%s_%d", obj.UID, idx)
+func (service *SecurityPolicyService) buildRuleID(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int) string {
+	serializedBytes, _ := json.Marshal(rule)
+	return fmt.Sprintf("sp_%s_%s_%d", obj.UID, util.Sha1(string(serializedBytes)), ruleIdx)
 }
 
-func (service *SecurityPolicyService) buildRuleName(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, idx int) string {
+func (service *SecurityPolicyService) buildRuleName(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int) string {
 	if len(rule.Name) > 0 {
 		return rule.Name
 	} else {
-		return fmt.Sprintf("%s-%d", obj.ObjectMeta.Name, idx)
+		return fmt.Sprintf("%s-%d", obj.ObjectMeta.Name, ruleIdx)
 	}
 }
 
@@ -575,7 +599,7 @@ func (service *SecurityPolicyService) buildRuleAppliedGroupByPolicy(obj *v1alpha
 		// NSX-T manager will report error if all the rule's scope/src/dst are "ANY".
 		// So if the rule's scope is empty while policy's not, the rule's scope also
 		// will be set to the policy's scope to avoid this case.
-		nsxRuleAppliedGroupPath, err = service.buildAppliedGroupPath(obj, "")
+		nsxRuleAppliedGroupPath, err = service.buildAppliedGroupPath(obj, -1)
 		if err != nil {
 			return "", err
 		}
@@ -585,17 +609,14 @@ func (service *SecurityPolicyService) buildRuleAppliedGroupByPolicy(obj *v1alpha
 	return nsxRuleAppliedGroupPath, nil
 }
 
-func (service *SecurityPolicyService) buildRuleAppliedGroupByRule(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, idx int) (*model.Group, string, error) {
+func (service *SecurityPolicyService) buildRuleAppliedGroupByRule(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int) (*model.Group, string, error) {
 	var ruleAppliedGroupName string
 	appliedTo := rule.AppliedTo
-	ruleAppliedGroupID := fmt.Sprintf("sp_%s_%d_scope", obj.UID, idx)
-	if len(rule.Name) > 0 {
-		ruleAppliedGroupName = fmt.Sprintf("%s-scope", rule.Name)
-	} else {
-		ruleAppliedGroupName = fmt.Sprintf("%s-%d-scope", obj.ObjectMeta.Name, idx)
-	}
-	targetTags := service.buildTargetTags(obj, &appliedTo, idx)
-	ruleAppliedGroupPath, err := service.buildAppliedGroupPath(obj, ruleAppliedGroupID)
+	ruleAppliedGroupID := service.buildAppliedGroupID(obj, ruleIdx)
+	ruleAppliedGroupName = service.buildAppliedGroupName(obj, ruleIdx)
+
+	targetTags := service.buildTargetTags(obj, &appliedTo, rule, ruleIdx)
+	ruleAppliedGroupPath, err := service.buildAppliedGroupPath(obj, ruleIdx)
 	if err != nil {
 		return nil, "", err
 	}
@@ -643,7 +664,34 @@ func (service *SecurityPolicyService) buildRuleAppliedGroupByRule(obj *v1alpha1.
 	return &ruleAppliedGroup, ruleAppliedGroupPath, nil
 }
 
-func (service *SecurityPolicyService) buildRulePeerGroupPath(obj *v1alpha1.SecurityPolicy, groupID string, groupShared bool) (string, error) {
+func (service *SecurityPolicyService) buildRulePeerGroupID(obj *v1alpha1.SecurityPolicy, ruleIdx int, isSource bool) string {
+	if isSource == true {
+		return fmt.Sprintf("sp_%s_%d_src", obj.UID, ruleIdx)
+	} else {
+		return fmt.Sprintf("sp_%s_%d_dst", obj.UID, ruleIdx)
+	}
+}
+
+func (service *SecurityPolicyService) buildRulePeerGroupName(obj *v1alpha1.SecurityPolicy, ruleIdx int, isSource bool) string {
+	rule := &(obj.Spec.Rules[ruleIdx])
+	if isSource == true {
+		if len(rule.Name) > 0 {
+			return fmt.Sprintf("%s-src", rule.Name)
+		} else {
+			return fmt.Sprintf("%s-%d-src", obj.ObjectMeta.Name, ruleIdx)
+		}
+	} else {
+		if len(rule.Name) > 0 {
+			return fmt.Sprintf("%s-dst", rule.Name)
+		} else {
+			return fmt.Sprintf("%s-%d-dst", obj.ObjectMeta.Name, ruleIdx)
+		}
+	}
+}
+
+func (service *SecurityPolicyService) buildRulePeerGroupPath(obj *v1alpha1.SecurityPolicy, ruleIdx int, isSource, groupShared bool) (string, error) {
+	groupID := service.buildRulePeerGroupID(obj, ruleIdx, isSource)
+
 	if isVpcEnabled(service) {
 		vpcInfo, err := getVpcInfo(obj.ObjectMeta.Namespace)
 		if err != nil {
@@ -662,35 +710,11 @@ func (service *SecurityPolicyService) buildRulePeerGroupPath(obj *v1alpha1.Secur
 	return fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), groupID), nil
 }
 
-func (service *SecurityPolicyService) buildRulePeerGroupID(obj *v1alpha1.SecurityPolicy, idx int, isSource bool) string {
-	if isSource == true {
-		return fmt.Sprintf("sp_%s_%d_src", obj.UID, idx)
-	} else {
-		return fmt.Sprintf("sp_%s_%d_dst", obj.UID, idx)
-	}
-}
-
-func (service *SecurityPolicyService) buildRulePeerGroupName(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, idx int, isSource bool) string {
-	if isSource == true {
-		if len(rule.Name) > 0 {
-			return fmt.Sprintf("%s-src", rule.Name)
-		} else {
-			return fmt.Sprintf("%s-%d-src", obj.ObjectMeta.Name, idx)
-		}
-	} else {
-		if len(rule.Name) > 0 {
-			return fmt.Sprintf("%s-dst", rule.Name)
-		} else {
-			return fmt.Sprintf("%s-%d-dst", obj.ObjectMeta.Name, idx)
-		}
-	}
-}
-
-func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, idx int, isSource bool) (*model.Group, string, *ProjectShare, error) {
+func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int, isSource bool) (*model.Group, string, *ProjectShare, error) {
 	var rulePeers []v1alpha1.SecurityPolicyPeer
 	var ruleDirection string
-	rulePeerGroupID := service.buildRulePeerGroupID(obj, idx, isSource)
-	rulePeerGroupName := service.buildRulePeerGroupName(obj, rule, idx, isSource)
+	rulePeerGroupID := service.buildRulePeerGroupID(obj, ruleIdx, isSource)
+	rulePeerGroupName := service.buildRulePeerGroupName(obj, ruleIdx, isSource)
 	if isSource == true {
 		rulePeers = rule.Sources
 		ruleDirection = "source"
@@ -707,12 +731,12 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 		}
 	}
 
-	rulePeerGroupPath, err := service.buildRulePeerGroupPath(obj, rulePeerGroupID, groupShared)
+	rulePeerGroupPath, err := service.buildRulePeerGroupPath(obj, ruleIdx, isSource, groupShared)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	peerTags := service.BuildPeerTags(obj, &rulePeers, idx, isSource, groupShared)
+	peerTags := service.buildPeerTags(obj, rule, ruleIdx, isSource, groupShared)
 	rulePeerGroup := model.Group{
 		Id:          &rulePeerGroupID,
 		DisplayName: &rulePeerGroupName,
@@ -802,7 +826,7 @@ func (service *SecurityPolicyService) buildRuleBasicInfo(obj *v1alpha1.SecurityP
 	}
 
 	nsxRule := model.Rule{
-		Id:             String(fmt.Sprintf("%s_%d_%d", service.buildRuleID(obj, ruleIdx), portIdx, portAddressIdx)),
+		Id:             String(fmt.Sprintf("%s_%d_%d", service.buildRuleID(obj, rule, ruleIdx), portIdx, portAddressIdx)),
 		DisplayName:    String(fmt.Sprintf("%s-%d-%d", service.buildRuleName(obj, rule, ruleIdx), portIdx, portAddressIdx)),
 		Direction:      &ruleDirection,
 		SequenceNumber: Int64(int64(ruleIdx)),
@@ -814,8 +838,15 @@ func (service *SecurityPolicyService) buildRuleBasicInfo(obj *v1alpha1.SecurityP
 	return &nsxRule, nil
 }
 
-func (service *SecurityPolicyService) BuildPeerTags(obj *v1alpha1.SecurityPolicy, peers *[]v1alpha1.SecurityPolicyPeer, idx int, isSource, groupShared bool) []model.Tag {
+func (service *SecurityPolicyService) buildPeerTags(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int, isSource, groupShared bool) []model.Tag {
 	basicTags := service.buildBasicTags(obj)
+	groupTypeTag := String(common.TagValueGroupDestination)
+	peers := &rule.Destinations
+	if isSource == true {
+		groupTypeTag = String(common.TagValueGroupSource)
+		peers = &rule.Sources
+	}
+
 	// TODO: abstract sort func for both peers and targets
 	sort.Slice(*peers, func(i, j int) bool {
 		k1, _ := json.Marshal((*peers)[i])
@@ -824,10 +855,6 @@ func (service *SecurityPolicyService) BuildPeerTags(obj *v1alpha1.SecurityPolicy
 	})
 	serializedBytes, _ := json.Marshal(*peers)
 
-	groupTypeTag := String(common.TagValueGroupDst)
-	if isSource == true {
-		groupTypeTag = String(common.TagValueGroupSrc)
-	}
 	groupSharedTag := String("false")
 	if groupShared == true {
 		groupSharedTag = String("true")
@@ -839,7 +866,7 @@ func (service *SecurityPolicyService) BuildPeerTags(obj *v1alpha1.SecurityPolicy
 		},
 		{
 			Scope: String(common.TagScopeRuleID),
-			Tag:   String(service.buildRuleID(obj, idx)),
+			Tag:   String(service.buildRuleID(obj, rule, ruleIdx)),
 		},
 		{
 			Scope: String(common.TagScopeSelectorHash),
@@ -862,7 +889,7 @@ func (service *SecurityPolicyService) BuildPeerTags(obj *v1alpha1.SecurityPolicy
 	return peerTags
 }
 
-func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.SecurityPolicy, target *v1alpha1.SecurityPolicyTarget, group *model.Group, idx int) (int, int, error) {
+func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.SecurityPolicy, target *v1alpha1.SecurityPolicyTarget, group *model.Group, ruleIdx int) (int, int, error) {
 	var err error = nil
 	var tagValueExpression *data.StructValue = nil
 	var matchLabels map[string]string
@@ -882,7 +909,7 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 		return 0, 0, err
 	}
 
-	log.V(2).Info("update target expressions", "index", idx)
+	log.V(2).Info("update target expressions", "index", ruleIdx)
 	service.appendOperatorIfNeeded(&group.Expression, "OR")
 	expressions := service.buildGroupExpression(&group.Expression)
 
@@ -1292,9 +1319,7 @@ func (service *SecurityPolicyService) updateMixedExpressionsMatchExpression(nsMa
 	return err
 }
 
-func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.SecurityPolicy, peer *v1alpha1.SecurityPolicyPeer, group *model.Group,
-	idx int, groupShared bool,
-) (int, int, error) {
+func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.SecurityPolicy, peer *v1alpha1.SecurityPolicyPeer, group *model.Group, ruleIdx int, groupShared bool) (int, int, error) {
 	var err error = nil
 	errorMsg := ""
 	var tagValueExpression *data.StructValue = nil
@@ -1323,7 +1348,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		group.Expression = append(group.Expression, blockExpression)
 	}
 
-	log.V(2).Info("update peer expressions", "index", idx)
+	log.V(2).Info("update peer expressions", "index", ruleIdx)
 	if peer.PodSelector == nil && peer.VMSelector == nil && peer.NamespaceSelector == nil {
 		return 0, 0, nil
 	} else if peer.PodSelector != nil && peer.VMSelector != nil && peer.NamespaceSelector == nil {

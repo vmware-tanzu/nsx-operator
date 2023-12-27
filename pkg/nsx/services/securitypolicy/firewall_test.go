@@ -60,7 +60,7 @@ var (
 	cluster                      = "k8scl-one"
 	tagValueVersion              = strings.Join(common.TagValueVersion, ".")
 	tagValueGroupScope           = common.TagValueGroupScope
-	tagValueGroupSource          = common.TagValueGroupSrc
+	tagValueGroupSource          = common.TagValueGroupSource
 	tagValueNS                   = "ns1"
 	tagValueNSUID                = "us1UID"
 	tagValuePolicyCRName         = "spA"

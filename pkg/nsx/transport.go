@@ -85,7 +85,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			} else if util.ShouldRetry(err) {
 				return true
 			} else {
-				log.V(1).Info("error is configrated as not retriable", "error", err.Error())
+				log.V(1).Info("error is configurated as not retriable", "error", err.Error())
 				return false
 			}
 		}), retry.LastErrorOnly(true),
