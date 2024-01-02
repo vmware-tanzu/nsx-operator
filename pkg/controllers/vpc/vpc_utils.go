@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
@@ -14,6 +15,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
+	types "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
@@ -123,6 +125,20 @@ func nsxtProjectPathToId(path string) (string, string, error) {
 	return parts[2], parts[len(parts)-1], nil
 }
 
+func isDefaultNetworkConfigCR(vpcConfigCR v1alpha1.VPCNetworkConfiguration) bool {
+	annos := vpcConfigCR.GetAnnotations()
+	val, exist := annos[types.AnnotationDefaultNetworkConfig]
+	if exist {
+		boolVar, err := strconv.ParseBool(val)
+		if err != nil {
+			log.Error(err, "failed to parse annotation to check default NetworkConfig", "Annotation", annos[types.AnnotationDefaultNetworkConfig])
+			return false
+		}
+		return boolVar
+	}
+	return false
+}
+
 func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*vpc.VPCNetworkConfigInfo, error) {
 	org, project, err := nsxtProjectPathToId(vpcConfigCR.Spec.NSXTProject)
 	if err != nil {
@@ -130,6 +146,7 @@ func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*vpc.
 		return nil, err
 	}
 	ninfo := &vpc.VPCNetworkConfigInfo{
+		IsDefault:               isDefaultNetworkConfigCR(vpcConfigCR),
 		Org:                     org,
 		Name:                    vpcConfigCR.Name,
 		DefaultGatewayPath:      vpcConfigCR.Spec.DefaultGatewayPath,

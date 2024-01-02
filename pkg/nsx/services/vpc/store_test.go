@@ -89,6 +89,11 @@ func Test_InitializeVPCStore(t *testing.T) {
 	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config2, nil)
 	rc, _ := cluster.NewRestConnector()
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	vpcStore := &VPCStore{ResourceStore: common.ResourceStore{
+		Indexer:     vpcCacheIndexer,
+		BindingType: model.VpcBindingType(),
+	}}
 
 	service := VPCService{
 		Service: common.Service{
@@ -107,12 +112,8 @@ func Test_InitializeVPCStore(t *testing.T) {
 				},
 			},
 		},
+		VpcStore: vpcStore,
 	}
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
-	vpcStore = &VPCStore{ResourceStore: common.ResourceStore{
-		Indexer:     vpcCacheIndexer,
-		BindingType: model.VpcBindingType(),
-	}}
 
 	wg := sync.WaitGroup{}
 	fatalErrors := make(chan error)
@@ -142,7 +143,7 @@ func TestVPCStore_CRUDResource(t *testing.T) {
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),
 	}
-	vpcStore = &VPCStore{ResourceStore: resourceStore}
+	vpcStore := &VPCStore{ResourceStore: resourceStore}
 	type args struct {
 		i interface{}
 	}

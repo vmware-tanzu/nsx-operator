@@ -6,6 +6,8 @@ apiVersion: nsx.vmware.com/v1alpha1
 kind: VPCNetworkConfiguration
 metadata:
   name: default
+  annotations:
+    nsx.vmware.com/default: "true"
 spec:
   defaultGatewayPath: /infra/tier-0s/PLR
   # nsx-operator-ci would replace '{edge-cluster-id}' with real edge-cluster-id of testbed
