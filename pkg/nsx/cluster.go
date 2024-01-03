@@ -166,11 +166,13 @@ func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
 
 				certPool := x509.NewCertPool()
 				certPool.AppendCertsFromPEM(caCert)
-
 				config = &tls.Config{
 					RootCAs: certPool,
 				}
-
+				// Bypass CN / SAN verification by setting tls config ServerName to the one in cert
+				if cn, err := util.GetCommonNameFromLeafCert(caCert); err != nil {
+					config.ServerName = cn
+				}
 			} else {
 				thumbprint := cluster.getThumbprint(addr)
 				tpCount := len(cluster.config.Thumbprint)
