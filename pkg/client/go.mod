@@ -3,7 +3,7 @@ module github.com/vmware-tanzu/nsx-operator/pkg/client
 go 1.21
 
 require (
-	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.1
+	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-20231227030711-34390278f3cd
 	k8s.io/apimachinery v0.28.4
 	k8s.io/client-go v0.28.4
 )
