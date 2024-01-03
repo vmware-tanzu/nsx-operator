@@ -6,8 +6,10 @@ package util
 import (
 	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -397,4 +399,33 @@ func VerifyNsxCertWithThumbprint(der []byte, thumbprint string) error {
 	err := errors.New("server certificate didn't match trusted fingerprint")
 	log.Error(err, "verify thumbprint", "server", tbFromCert, "local", tbRaw)
 	return err
+}
+
+// GetCommonNameFromLeafCert returns the common name of the first (leaf) cert of
+// provided pemCerts. If CA cert is passed, empty CN will be returned.
+// Error is returned if pem invalid or not a certificate.
+func GetCommonNameFromLeafCert(pemCerts []byte) (string, error) {
+	block, _ := pem.Decode(pemCerts)
+	if block == nil {
+		err := errors.New("decode ca file fail")
+		log.Error(err, "failed to get CN from cert", "pem", pemCerts)
+		return "", err
+	}
+	if block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
+		err := errors.New("pem not certificate or header not found")
+		log.Error(err, "failed to get CN from cert", "pem", pemCerts)
+		return "", err
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		log.Error(err, "failed to get CN from cert", "pem", pemCerts)
+		return "", err
+	}
+
+	if cert.IsCA {
+		return "", nil
+	}
+
+	return cert.Subject.CommonName, nil
 }
