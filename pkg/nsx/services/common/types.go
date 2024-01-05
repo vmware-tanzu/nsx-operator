@@ -107,6 +107,13 @@ const (
 
 	NetworkPolicyRuleSuffixIngressAllow = "ingress-allow"
 	NetworkPolicyRuleSuffixEgressAllow  = "egress-allow"
+	SecurityPolicyPrefix                = "sp"
+	IpSetGroupSuffix                    = "ipset"
+	NetworkPolicyPrefix                 = "np"
+	TargetGroupSuffix                   = "scope"
+	SrcGroupSuffix                      = "src"
+	DstGroupSuffix                      = "dst"
+	SharePrefix                         = "share"
 )
 
 var TagValueVersion = []string{ValueMajorVersion, ValueMinorVersion, ValuePatchVersion}

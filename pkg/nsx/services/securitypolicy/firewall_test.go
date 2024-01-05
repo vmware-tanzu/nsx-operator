@@ -35,7 +35,7 @@ var (
 	tagScopeSecurityPolicyCRUID  = common.TagValueScopeSecurityPolicyUID
 	tagScopeRuleID               = common.TagScopeRuleID
 	tagScopeSelectorHash         = common.TagScopeSelectorHash
-	spName                       = "ns1-spA"
+	spName                       = "sp-ns1-spA"
 	spGroupName                  = "ns1-spA-scope"
 	spID                         = "sp_uidA"
 	spID2                        = "sp_uidB"
@@ -252,12 +252,12 @@ var (
 
 	basicTags = []model.Tag{
 		{
-			Scope: &tagScopeVersion,
-			Tag:   &tagValueVersion,
-		},
-		{
 			Scope: &tagScopeCluster,
 			Tag:   &cluster,
+		},
+		{
+			Scope: &tagScopeVersion,
+			Tag:   &tagValueVersion,
 		},
 		{
 			Scope: &tagScopeNamespace,
