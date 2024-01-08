@@ -620,7 +620,7 @@ func (service *VPCService) CreateOrUpdateAVIRule(vpc *model.Vpc, namespace strin
 
 	if allowrule != nil {
 		if !service.needUpdateRule(allowrule, externalCIDRs) {
-			log.Info("avi rule is not changed, skip updating avi rulee")
+			log.Info("avi rule is not changed, skip updating avi rule")
 			return nil
 		} else {
 			log.Info("avi rule changed", "previous", allowrule.DestinationGroups, "current", externalCIDRs)

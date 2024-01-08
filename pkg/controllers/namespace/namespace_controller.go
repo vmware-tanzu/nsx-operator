@@ -11,7 +11,9 @@ import (
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -82,6 +84,54 @@ func (r *NamespaceReconciler) createVPCCR(ctx *context.Context, obj client.Objec
 	return vpcCR, nil
 }
 
+func (r *NamespaceReconciler) createDefaultSubnetSet(ns string) error {
+	defaultSubnetSets := map[string]string{
+		types.DefaultVMSubnetSet:  types.LabelDefaultVMSubnetSet,
+		types.DefaultPodSubnetSet: types.LabelDefaultPodSubnetSet,
+	}
+	for name, subnetSetType := range defaultSubnetSets {
+		if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+			return err != nil
+		}, func() error {
+			list := &v1alpha1.SubnetSetList{}
+			label := client.MatchingLabels{
+				types.LabelDefaultSubnetSet: subnetSetType,
+			}
+			if err := r.Client.List(context.Background(), list, label, client.InNamespace(ns)); err != nil {
+				return err
+			}
+			if len(list.Items) > 0 {
+				log.Info("default SubnetSet already exists", types.LabelDefaultSubnetSet, subnetSetType)
+				return nil
+			}
+			obj := &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: ns,
+					Name:      name,
+					Labels: map[string]string{
+						types.LabelDefaultSubnetSet: subnetSetType,
+					},
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					AdvancedConfig: v1alpha1.AdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enable: true,
+						},
+					},
+				},
+			}
+			if err := r.Client.Create(context.Background(), obj); err != nil {
+				return err
+			}
+			return nil
+		}); err != nil {
+			log.Error(err, "failed to create SubnetSet", "Namespace", ns, "Name", name)
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *NamespaceReconciler) namespaceError(ctx *context.Context, k8sObj client.Object, msg string, err error) {
 	logErr := util.If(err == nil, errors.New(msg), err).(error)
 	log.Error(logErr, msg)
@@ -137,6 +187,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		metrics.CounterInc(r.NSXConfig, metrics.ControllerUpdateTotal, common.MetricResTypeNamespace)
 		log.Info("start processing namespace create/update event", "namespace", ns)
+
 		ctx := context.Background()
 		annotations := obj.GetAnnotations()
 		r.insertNamespaceNetworkconfigBinding(ns, annotations)
@@ -145,7 +196,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// skip the event.
 		ncName, ncExist := annotations[types.AnnotationVPCNetworkConfig]
 		vpcName, nameExist := annotations[types.AnnotationVPCName]
-		var create_vpc_name *string
+		var createVpcName *string
 		if nameExist {
 			log.Info("read ns annotation vpcName", "VPCNAME", vpcName)
 			res := strings.Split(vpcName, "/")
@@ -162,7 +213,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				log.Info("name space is using shared vpc, with vpc name anno", "VPCNAME", vpcName, "Namespace", ns)
 				return common.ResultNormal, nil
 			}
-			create_vpc_name = &res[1]
+			createVpcName = &res[1]
 			log.Info("creating vpc using customer defined vpc name", "VPCName", res[1])
 		}
 
@@ -172,7 +223,10 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			ncName = types.DefaultNetworkConfigName
 		}
 
-		if _, err := r.createVPCCR(&ctx, obj, ns, ncName, create_vpc_name); err != nil {
+		if _, err := r.createVPCCR(&ctx, obj, ns, ncName, createVpcName); err != nil {
+			return common.ResultRequeueAfter10sec, nil
+		}
+		if err := r.createDefaultSubnetSet(ns); err != nil {
 			return common.ResultRequeueAfter10sec, nil
 		}
 		return common.ResultNormal, nil

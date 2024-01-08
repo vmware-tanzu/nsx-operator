@@ -97,23 +97,7 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 	return subnetService, nil
 }
 
-func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, tags []model.Tag) (string, error) {
-	vpcList := &v1alpha1.VPCList{}
-	if err := service.Client.List(context.Background(), vpcList, client.InNamespace(obj.GetNamespace())); err != nil {
-		log.Error(err, "fail to list VPC", "ns", obj.GetNamespace())
-		return "", err
-	}
-	if len(vpcList.Items) == 0 {
-		err := errors.New("no VPC found")
-		log.Error(err, "", "ns", obj.GetNamespace())
-		return "", err
-	}
-	vpc := vpcList.Items[0]
-	vpcInfo, err := common.ParseVPCResourcePath(vpc.Status.NSXResourcePath)
-	if err != nil {
-		err := fmt.Errorf("failed to parse NSX VPC path for VPC %s: %s", vpc.UID, err)
-		return "", err
-	}
+func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (string, error) {
 	uid := string(obj.GetUID())
 	nsxSubnet, err := service.buildSubnet(obj, tags)
 	if err != nil {

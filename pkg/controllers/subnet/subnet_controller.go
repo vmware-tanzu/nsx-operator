@@ -100,8 +100,11 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		for k, v := range nsObj.Labels {
 			tags = append(tags, model.Tag{Scope: servicecommon.String(k), Tag: servicecommon.String(v)})
 		}
-
-		if _, err := r.Service.CreateOrUpdateSubnet(obj, tags); err != nil {
+		vpcInfo, err := common.ServiceMediator.GetNamespaceVPCInfo(req.Namespace)
+		if err != nil {
+			return commonctl.ResultRequeueAfter10sec, nil
+		}
+		if _, err := r.Service.CreateOrUpdateSubnet(obj, *vpcInfo, tags); err != nil {
 			log.Error(err, "operate failed, would retry exponentially", "subnet", req.NamespacedName)
 			updateFail(r, &ctx, obj)
 			return ResultRequeue, err
