@@ -308,15 +308,17 @@ func (r *SubnetReconciler) GarbageCollector(cancel chan bool, timeout time.Durat
 			return
 		case <-time.After(timeout):
 		}
-		nsxSubnetList := r.Service.ListSubnetCreatedByCR()
-		if len(nsxSubnetList) == 0 {
-			continue
-		}
-
 		crdSubnetList := &v1alpha1.SubnetList{}
 		err := r.Client.List(ctx, crdSubnetList)
 		if err != nil {
 			log.Error(err, "failed to list subnet CR")
+			continue
+		}
+		var nsxSubnetList []model.VpcSubnet
+		for _, subnet := range crdSubnetList.Items {
+			nsxSubnetList = append(nsxSubnetList, r.Service.ListSubnetCreatedBySubnet(string(subnet.UID))...)
+		}
+		if len(nsxSubnetList) == 0 {
 			continue
 		}
 

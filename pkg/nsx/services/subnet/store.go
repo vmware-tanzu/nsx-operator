@@ -38,17 +38,6 @@ func subnetIndexFunc(obj interface{}) ([]string, error) {
 	}
 }
 
-// subnetTypeIndexFunc is used to filter out NSX Subnets which are tagged with subnetcr type.
-// TODO, change it to use "nsx-op/subnetset_cr_uid" and "nsx-op/subnet_cr_uid"
-func subnetTypeIndexFunc(obj interface{}) ([]string, error) {
-	switch o := obj.(type) {
-	case model.VpcSubnet:
-		return filterTag(o.Tags, common.TagScopeSubnetCRType), nil
-	default:
-		return nil, errors.New("subnetIndexFunc doesn't support unknown type")
-	}
-}
-
 // subnetIndexFunc is used to filter out NSX Subnets which are tagged with CR UID.
 func subnetSetIndexFunc(obj interface{}) ([]string, error) {
 	switch o := obj.(type) {

@@ -364,11 +364,9 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 	case *v1alpha1.Subnet:
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetCRName), Tag: String(i.ObjectMeta.Name)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetCRUID), Tag: String(string(i.UID))})
-		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetCRType), Tag: String(SubnetTypeSubnet)})
 	case *v1alpha1.SubnetSet:
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetSetCRName), Tag: String(i.ObjectMeta.Name)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetSetCRUID), Tag: String(string(i.UID))})
-		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetCRType), Tag: String(SubnetTypeSubnetSet)})
 	case *v1alpha1.SubnetPort:
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeVMNamespace), Tag: String(i.ObjectMeta.Namespace)})
 		isVmSubnetPort = true

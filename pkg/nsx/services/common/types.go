@@ -56,7 +56,6 @@ const (
 	LabelDefaultPodSubnetSet        string = "Pod"
 	DefaultPodSubnetSet             string = "pod-default"
 	DefaultVMSubnetSet              string = "vm-default"
-	TagScopeSubnetCRType            string = "nsx-op/subnet_type"
 	TagScopeSubnetCRUID             string = "nsx-op/subnet_uid"
 	TagScopeSubnetCRName            string = "nsx-op/subnet_name"
 	TagScopeSubnetSetCRName         string = "nsx-op/subnetset_name"
