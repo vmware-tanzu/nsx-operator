@@ -429,3 +429,12 @@ func GetCommonNameFromLeafCert(pemCerts []byte) (string, error) {
 
 	return cert.Subject.CommonName, nil
 }
+
+func FindTag(tags []model.Tag, tagScope string) string {
+	for _, tag := range tags {
+		if *tag.Scope == tagScope {
+			return *tag.Tag
+		}
+	}
+	return ""
+}
