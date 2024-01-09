@@ -235,8 +235,10 @@ func (r *SubnetSetReconciler) GarbageCollector(cancel chan bool, timeout time.Du
 			log.Error(err, "failed to list SubnetSet CR")
 			continue
 		}
-
-		nsxSubnetList := r.Service.ListSubnetCreatedBySubnetSet()
+		var nsxSubnetList []model.VpcSubnet
+		for _, subnetSet := range subnetSetList.Items {
+			nsxSubnetList = append(nsxSubnetList, r.Service.ListSubnetCreatedBySubnetSet(string(subnetSet.UID))...)
+		}
 		if len(nsxSubnetList) == 0 {
 			continue
 		}

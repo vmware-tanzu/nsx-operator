@@ -73,7 +73,6 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 			ResourceStore: common.ResourceStore{
 				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
 					common.TagScopeSubnetCRUID:    subnetIndexFunc,
-					common.TagScopeSubnetCRType:   subnetTypeIndexFunc,
 					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
 				}),
 				BindingType: model.VpcSubnetBindingType(),
@@ -174,21 +173,12 @@ func (service *SubnetService) DeleteSubnet(nsxSubnet model.VpcSubnet) error {
 	return nil
 }
 
-func (service *SubnetService) ListSubnetCreatedByCR() []model.VpcSubnet {
-	return service.listSubnetByCRType("subnet")
+func (service *SubnetService) ListSubnetCreatedBySubnet(id string) []model.VpcSubnet {
+	return service.SubnetStore.GetByIndex(common.TagScopeSubnetCRUID, id)
 }
 
-func (service *SubnetService) listSubnetByCRType(crType string) []model.VpcSubnet {
-	subnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetCRType, crType)
-	subnetList := []model.VpcSubnet{}
-	for _, subnet := range subnets {
-		subnetList = append(subnetList, subnet)
-	}
-	return subnetList
-}
-
-func (service *SubnetService) ListSubnetCreatedBySubnetSet() []model.VpcSubnet {
-	return service.listSubnetByCRType("subnetset")
+func (service *SubnetService) ListSubnetCreatedBySubnetSet(id string) []model.VpcSubnet {
+	return service.SubnetStore.GetByIndex(common.TagScopeSubnetSetCRUID, id)
 }
 
 func (service *SubnetService) ListSubnetSetID(ctx context.Context) sets.String {
