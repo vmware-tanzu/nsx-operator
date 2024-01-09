@@ -4,6 +4,7 @@
 package util
 
 import (
+	"bytes"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/x509"
@@ -129,6 +130,7 @@ func InitErrorFromResponse(host string, statusCode int, body []byte) NsxError {
 }
 
 func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorDetail, error) {
+	log.V(2).Info("http response", "status code", statusCode, "body", string(body))
 	ec := ErrorDetail{StatusCode: statusCode}
 	if len(body) == 0 {
 		log.V(1).Info("body length is 0")
@@ -141,7 +143,6 @@ func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorD
 	}
 
 	ec.ErrorCode = res.ErrorCode
-	log.V(2).Info("http response", "status code", statusCode, "body", res)
 	msg := []string{res.ErrorMsg}
 	for _, a := range res.RelatedErr {
 		ec.RelatedErrorCodes = append(ec.RelatedErrorCodes, a.ErrorCode)
@@ -288,6 +289,22 @@ func ParseVPCPath(nsxResourcePath string) (orgID string, projectID string, vpcID
 	vpcID = paras[6]
 	resourceID = paras[8]
 	return
+}
+func DumpHttpRequest(request *http.Request) {
+	var body []byte
+	var err error
+	if request.Body == nil {
+		return
+	}
+	if request != nil {
+		body, err = io.ReadAll(request.Body)
+		if err != nil {
+			return
+		}
+	}
+	request.Body.Close()
+	request.Body = io.NopCloser(bytes.NewReader(body))
+	log.V(2).Info("http request", "url", request.URL, "body", string(body))
 }
 
 // if ApiError is nil, check ErrorTypeEnum, such as ServiceUnavailable

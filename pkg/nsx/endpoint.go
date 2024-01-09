@@ -332,7 +332,6 @@ func (ep *Endpoint) UpdateHttpRequestAuth(request *http.Request) error {
 	} else {
 		xsrfToken := ep.XSRFToken()
 		if len(xsrfToken) > 0 {
-			log.V(2).Info("update cookie")
 			if request.Header.Get("Authorization") != "" {
 				request.Header.Del("Authorization")
 			}
