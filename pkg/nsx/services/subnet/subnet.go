@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
@@ -134,7 +135,13 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 		return "", err
 	}
 	realizeService := realizestate.InitializeRealizeState(service.Service)
-	if err = realizeService.CheckRealizeState(retry.DefaultRetry, *nsxSubnet.Path, "RealizedLogicalSwitch"); err != nil {
+	backoff := wait.Backoff{
+		Duration: 1 * time.Second,
+		Factor:   2.0,
+		Jitter:   0,
+		Steps:    6,
+	}
+	if err = realizeService.CheckRealizeState(backoff, *nsxSubnet.Path, "RealizedLogicalSwitch"); err != nil {
 		log.Error(err, "failed to check subnet realization state", "ID", *nsxSubnet.Id)
 		return "", err
 	}
