@@ -4,17 +4,13 @@ import (
 	"testing"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	types "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/stretchr/testify/assert"
-	"k8s.io/client-go/util/workqueue"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
 func TestNsxtProjectPathToId(t *testing.T) {
-	type args struct {
-		createEvent event.CreateEvent
-		l           workqueue.RateLimitingInterface
-	}
 	tests := []struct {
 		name    string
 		path    string
@@ -37,6 +33,31 @@ func TestNsxtProjectPathToId(t *testing.T) {
 			assert.Equal(t, tt.project, p)
 		})
 	}
+}
+
+func TestIsDefaultNetworkConfigCR(t *testing.T) {
+	testCRD1 := v1alpha1.VPCNetworkConfiguration{}
+	testCRD1.Name = "test-1"
+	testCRD2 := v1alpha1.VPCNetworkConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				types.AnnotationDefaultNetworkConfig: "invalid",
+			},
+		},
+	}
+	testCRD2.Name = "test-2"
+	testCRD3 := v1alpha1.VPCNetworkConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				types.AnnotationDefaultNetworkConfig: "true",
+			},
+		},
+	}
+	testCRD3.Name = "test-3"
+	assert.Equal(t, isDefaultNetworkConfigCR(testCRD1), false)
+	assert.Equal(t, isDefaultNetworkConfigCR(testCRD2), false)
+	assert.Equal(t, isDefaultNetworkConfigCR(testCRD3), true)
+
 }
 
 func TestBuildNetworkConfigInfo(t *testing.T) {
@@ -78,6 +99,16 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 	}
 	testCRD2.Name = "test-2"
 
+	testCRD3 := v1alpha1.VPCNetworkConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				types.AnnotationDefaultNetworkConfig: "true",
+			},
+		},
+		Spec: spec2,
+	}
+	testCRD3.Name = "test-3"
+
 	tests := []struct {
 		name       string
 		nc         v1alpha1.VPCNetworkConfiguration
@@ -87,9 +118,11 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 		project    string
 		subnetSize int
 		accessMode string
+		isDefault  bool
 	}{
-		{"1", testCRD1, "test-gw-path-1", "test-edge-path-1", "default", "nsx_operator_e2e_test", 64, "Public"},
-		{"2", testCRD2, "test-gw-path-2", "test-edge-path-2", "anotherOrg", "anotherProject", 32, "Private"},
+		{"1", testCRD1, "test-gw-path-1", "test-edge-path-1", "default", "nsx_operator_e2e_test", 64, "Public", false},
+		{"2", testCRD2, "test-gw-path-2", "test-edge-path-2", "anotherOrg", "anotherProject", 32, "Private", false},
+		{"3", testCRD3, "test-gw-path-2", "test-edge-path-2", "anotherOrg", "anotherProject", 32, "Private", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -101,6 +134,7 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 			assert.Equal(t, tt.project, nc.NsxtProject)
 			assert.Equal(t, tt.subnetSize, nc.DefaultIPv4SubnetSize)
 			assert.Equal(t, tt.accessMode, nc.DefaultSubnetAccessMode)
+			assert.Equal(t, tt.isDefault, nc.IsDefault)
 		})
 	}
 

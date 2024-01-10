@@ -1,6 +1,7 @@
 package vpc
 
 type VPCNetworkConfigInfo struct {
+	IsDefault               bool
 	Org                     string
 	Name                    string
 	DefaultGatewayPath      string

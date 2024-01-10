@@ -41,6 +41,14 @@ type NamespaceReconciler struct {
 	NSXConfig *config.NSXOperatorConfig
 }
 
+func (r *NamespaceReconciler) getDefaultNetworkConfigName() (string, error) {
+	exist, nc := common.ServiceMediator.GetDefaultNetworkConfig()
+	if !exist {
+		return "", errors.New("default network config not found")
+	}
+	return nc.Name, nil
+}
+
 func (r *NamespaceReconciler) createVPCCR(ctx *context.Context, obj client.Object, ns string, ncName string, vpcName *string) (*v1alpha1.VPC, error) {
 	// check if vpc cr already exist under this namespace
 	vpcs := &v1alpha1.VPCList{}
@@ -139,22 +147,32 @@ func (r *NamespaceReconciler) namespaceError(ctx *context.Context, k8sObj client
 	util.UpdateK8sResourceAnnotation(r.Client, ctx, k8sObj, changes)
 }
 
-func (r *NamespaceReconciler) insertNamespaceNetworkconfigBinding(ns string, anno map[string]string) {
+func (r *NamespaceReconciler) insertNamespaceNetworkconfigBinding(ns string, anno map[string]string) error {
 	ncName := ""
+	useDefault := false
+	var err error
 	if anno == nil {
 		log.V(2).Info("empty annotation for namespace, using default network config", "Namespace", ns)
-		ncName = types.DefaultNetworkConfigName
+		useDefault = true
 	} else {
 		annoNC, ncExist := anno[types.AnnotationVPCNetworkConfig]
 		if !ncExist {
-			ncName = types.DefaultNetworkConfigName
+			useDefault = true
 		} else {
 			ncName = annoNC
 		}
 	}
 
+	if useDefault {
+		ncName, err = r.getDefaultNetworkConfigName()
+		if err != nil {
+			return err
+		}
+	}
+
 	log.Info("record namespace and network config mapping relation", "Namespace", ns, "Networkconfig", ncName)
 	common.ServiceMediator.RegisterNamespaceNetworkconfigBinding(ns, ncName)
+	return nil
 }
 
 /*
@@ -172,7 +190,6 @@ We suppose namespace should have following annotations:
     default VPC in network config CR store. The default VPC network config CR's name is "default".
 */
 func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-
 	obj := &v1.Namespace{}
 	log.Info("reconciling K8s namespace", "namespace", req.NamespacedName)
 	metrics.CounterInc(r.NSXConfig, metrics.ControllerSyncTotal, common.MetricResTypeNamespace)
@@ -190,7 +207,11 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 		ctx := context.Background()
 		annotations := obj.GetAnnotations()
-		r.insertNamespaceNetworkconfigBinding(ns, annotations)
+		err := r.insertNamespaceNetworkconfigBinding(ns, annotations)
+		if err != nil {
+			log.Error(err, "failed to build namespace and network config bindings", "Namepspace", ns)
+			return common.ResultRequeueAfter10sec, nil
+		}
 		// read anno "nsx.vmware.com/vpc_name", if ns contains this annotation, it means it will share
 		// infra VPC, if the ns in the annotation is the same as ns event, create infra VPC, if not,
 		// skip the event.
@@ -220,7 +241,11 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// If ns do not have network config name tag, then use default vpc network config name
 		if !ncExist {
 			log.Info("network config name not found on ns, using default network config", "Namespace", ns)
-			ncName = types.DefaultNetworkConfigName
+			ncName, err = r.getDefaultNetworkConfigName()
+			if err != nil {
+				log.Error(err, "failed to get default network config name", "Namespace", ns)
+				return common.ResultRequeueAfter10sec, nil
+			}
 		}
 
 		if _, err := r.createVPCCR(&ctx, obj, ns, ncName, createVpcName); err != nil {
