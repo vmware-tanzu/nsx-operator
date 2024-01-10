@@ -28,15 +28,20 @@ var log = logger.Log
 // including security policy, static route, subnet, subnet port, subnet set, vpc, ip pool, nsx service account
 // it is usually used when nsx-operator is uninstalled and remove all the resources created by nsx-operator
 // return error if any, return nil if no error
-func Clean(cf *config.NSXOperatorConfig, client *http.Client) error {
+func Clean(cf *config.NSXOperatorConfig, client *http.Client) (Status, error) {
 	log.Info("starting NSX cleanup")
 	if err := cf.ValidateConfigFromCmd(); err != nil {
-		return fmt.Errorf("failed to validate config: %w", err)
+		return ValidationFailed, err
 	}
-	if cleanupService, err := InitializeCleanupService(cf, client); err != nil {
-		return err // failed to get nsx client
+	nsxClient := nsx.GetClient(cf, client)
+	if nsxClient == nil {
+		return GetNSXClientFailed, fmt.Errorf("failed to get nsx client")
+	}
+	if cleanupService, err := InitializeCleanupService(cf, nsxClient); err != nil {
+		return InitCleanupServiceFailed, err
+
 	} else if cleanupService.err != nil {
-		return fmt.Errorf("failed to initialize cleanup service: %w", cleanupService.err)
+		return InitCleanupServiceFailed, cleanupService.err
 	} else {
 		for _, clean := range cleanupService.cleans {
 			if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
@@ -47,26 +52,21 @@ func Clean(cf *config.NSXOperatorConfig, client *http.Client) error {
 				return false
 			}, func() error {
 				if err := clean.Cleanup(); err != nil {
-					return fmt.Errorf("failed to clean up specific resource: %w", err)
+					return err
 				}
 				return nil
 			}); err != nil {
-				return err
+				return CleanupResourceFailed, err
 			}
 		}
 	}
 	log.Info("cleanup NSX resources successfully")
-	return nil
+	return OK, nil
 }
 
 // InitializeCleanupService initializes all the CR services
-func InitializeCleanupService(cf *config.NSXOperatorConfig, client *http.Client) (*CleanupService, error) {
+func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Client) (*CleanupService, error) {
 	cleanupService := NewCleanupService()
-
-	nsxClient := nsx.GetClient(cf, client)
-	if nsxClient == nil {
-		return cleanupService, fmt.Errorf("failed to get nsx client")
-	}
 
 	var commonService = common.Service{
 		NSXClient: nsxClient,
