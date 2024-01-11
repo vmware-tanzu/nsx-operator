@@ -3,3 +3,7 @@ kind: SubnetSet
 metadata:
   name: user-pod-subnetset
   namespace: subnet-e2e
+spec:
+  advancedConfig:
+    staticIPAllocation:
+      enable: true
