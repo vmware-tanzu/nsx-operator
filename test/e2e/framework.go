@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coreos/go-semver/semver"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -75,14 +74,10 @@ var provider providers.ProviderInterface
 
 // TestData stores the state required for each test case.
 type TestData struct {
-	kubeConfig         *restclient.Config
-	clientset          clientset.Interface
-	crdClientset       versioned.Interface
-	nsxClient          *NSXClient
-	nsxVersion         *semver.Version
-	clusterID          string
-	clusterName        string
-	logsDirForTestCase string
+	kubeConfig   *restclient.Config
+	clientset    clientset.Interface
+	crdClientset versioned.Interface
+	nsxClient    *NSXClient
 }
 
 var testData *TestData
@@ -286,7 +281,7 @@ func (data *TestData) createNamespace(namespace string) error {
 
 // deleteNamespace deletes the provided namespace and waits for deletion to actually complete.
 func (data *TestData) deleteNamespace(namespace string, timeout time.Duration) error {
-	var gracePeriodSeconds int64 = 0
+	var gracePeriodSeconds int64
 	var propagationPolicy = metav1.DeletePropagationForeground
 	deleteOptions := metav1.DeleteOptions{
 		GracePeriodSeconds: &gracePeriodSeconds,
@@ -299,7 +294,7 @@ func (data *TestData) deleteNamespace(namespace string, timeout time.Duration) e
 		}
 		return fmt.Errorf("error when deleting '%s' Namespace: %v", namespace, err)
 	}
-	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
 		if ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{}); err != nil {
 			if errors.IsNotFound(err) {
 				// Success
@@ -309,57 +304,10 @@ func (data *TestData) deleteNamespace(namespace string, timeout time.Duration) e
 		} else if ns.Status.Phase != corev1.NamespaceTerminating {
 			return false, fmt.Errorf("deleted Namespace '%s' should be in 'Terminating' phase", namespace)
 		}
-
 		// Keep trying
 		return false, nil
 	})
 	return err
-}
-
-// deletePod deletes a Pod in the test namespace.
-func (data *TestData) deletePod(namespace, name string) error {
-	var gracePeriodSeconds int64 = 5
-	deleteOptions := metav1.DeleteOptions{
-		GracePeriodSeconds: &gracePeriodSeconds,
-	}
-	if err := data.clientset.CoreV1().Pods(namespace).Delete(context.TODO(), name, deleteOptions); err != nil {
-		if !errors.IsNotFound(err) {
-			return err
-		}
-	}
-	return nil
-}
-
-// getPod gets a Pod in the namespace.
-func (data *TestData) getPod(namespace, name string) (*corev1.Pod, error) {
-	pod, err := data.clientset.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("error when getting Pod: %v", err)
-	}
-	return pod, nil
-}
-
-// Deletes a Pod in the test namespace then waits us to timeout for the Pod not to be visible to the
-// client anymore.
-func (data *TestData) deletePodAndWait(timeout time.Duration, name string, ns string) error {
-	if err := data.deletePod(ns, name); err != nil {
-		return err
-	}
-
-	if err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
-		if _, err := data.clientset.CoreV1().Pods(ns).Get(context.TODO(), name, metav1.GetOptions{}); err != nil {
-			if errors.IsNotFound(err) {
-				return true, nil
-			}
-			return false, fmt.Errorf("error when getting Pod: %v", err)
-		}
-		// Keep trying
-		return false, nil
-	}); err == wait.ErrWaitTimeout {
-		return fmt.Errorf("pod '%s' still visible to client after %v", name, timeout)
-	} else {
-		return err
-	}
 }
 
 type PodCondition func(*corev1.Pod) (bool, error)
@@ -367,7 +315,7 @@ type PodCondition func(*corev1.Pod) (bool, error)
 // waitForSecurityPolicyReady polls the K8s apiServer until the specified CR is in the "True" state (or until
 // the provided timeout expires).
 func (data *TestData) waitForCRReadyOrDeleted(timeout time.Duration, cr string, namespace string, name string, status Status) error {
-	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
 		cmd := fmt.Sprintf("kubectl get %s %s -n %s -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}'", cr, name, namespace)
 		log.Printf("%s", cmd)
 		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
@@ -394,7 +342,7 @@ func (data *TestData) waitForCRReadyOrDeleted(timeout time.Duration, cr string, 
 
 func (data *TestData) getCRProperties(timeout time.Duration, crType, crName, namespace, key string) (string, error) {
 	value := ""
-	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
 		cmd := fmt.Sprintf("kubectl get %s %s -n %s -o yaml | grep %s", crType, crName, namespace, key)
 		log.Printf("%s", cmd)
 		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
@@ -420,7 +368,7 @@ func (data *TestData) getCRProperties(timeout time.Duration, crType, crName, nam
 // return map structure, key is CR name, value is CR UID
 func (data *TestData) getCRResource(timeout time.Duration, cr string, namespace string) (map[string]string, error) {
 	crs := map[string]string{}
-	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
 		cmd := fmt.Sprintf("kubectl get %s -n %s", cr, namespace)
 		log.Printf("%s", cmd)
 		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
@@ -460,7 +408,7 @@ func (data *TestData) getCRResource(timeout time.Duration, cr string, namespace 
 // podWaitFor polls the K8s apiServer until the specified Pod is found (in the test Namespace) and
 // the condition predicate is met (or until the provided timeout expires).
 func (data *TestData) podWaitFor(timeout time.Duration, name, namespace string, condition PodCondition) (*corev1.Pod, error) {
-	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
 		if pod, err := data.clientset.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{}); err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil
@@ -493,7 +441,7 @@ func (data *TestData) podWaitForIPs(timeout time.Duration, name, namespace strin
 	if pod.Status.PodIP == "" {
 		return nil, fmt.Errorf("pod is running but has no assigned IP, which should never happen")
 	}
-	podIPStrings := sets.NewString(pod.Status.PodIP)
+	podIPStrings := sets.New[string](pod.Status.PodIP)
 	for _, podIP := range pod.Status.PodIPs {
 		ipStr := strings.TrimSpace(podIP.IP)
 		if ipStr != "" {
@@ -527,7 +475,7 @@ func (data *TestData) deploymentWaitForIPsOrNames(timeout time.Duration, namespa
 	opt := metav1.ListOptions{
 		LabelSelector: "deployment=" + deployment,
 	}
-	err := wait.Poll(1*time.Second, timeout, func() (bool, error) {
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
 		if pods, err := data.clientset.CoreV1().Pods(namespace).List(context.TODO(), opt); err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil
@@ -553,26 +501,25 @@ func (data *TestData) deploymentWaitForIPsOrNames(timeout time.Duration, namespa
 	return podIPStrings.List(), podNames, nil
 }
 
-func parsePodIPs(podIPStrings sets.String) (*PodIPs, error) {
+func parsePodIPs(podIPStrings sets.Set[string]) (*PodIPs, error) {
 	ips := new(PodIPs)
-	for idx := range podIPStrings.List() {
-		ipStr := podIPStrings.List()[idx]
-		ip := net.ParseIP(ipStr)
+	for podIP := range podIPStrings {
+		ip := net.ParseIP(podIP)
 		if ip.To4() != nil {
-			if ips.ipv4 != nil && ipStr != ips.ipv4.String() {
-				return nil, fmt.Errorf("pod is assigned multiple IPv4 addresses: %s and %s", ips.ipv4.String(), ipStr)
+			if ips.ipv4 != nil && podIP != ips.ipv4.String() {
+				return nil, fmt.Errorf("pod is assigned multiple IPv4 addresses: %s and %s", ips.ipv4.String(), podIP)
 			}
 			if ips.ipv4 == nil {
 				ips.ipv4 = &ip
-				ips.ipStrings = append(ips.ipStrings, ipStr)
+				ips.ipStrings = append(ips.ipStrings, podIP)
 			}
 		} else {
-			if ips.ipv6 != nil && ipStr != ips.ipv6.String() {
-				return nil, fmt.Errorf("pod is assigned multiple IPv6 addresses: %s and %s", ips.ipv6.String(), ipStr)
+			if ips.ipv6 != nil && podIP != ips.ipv6.String() {
+				return nil, fmt.Errorf("pod is assigned multiple IPv6 addresses: %s and %s", ips.ipv6.String(), podIP)
 			}
 			if ips.ipv6 == nil {
 				ips.ipv6 = &ip
-				ips.ipStrings = append(ips.ipStrings, ipStr)
+				ips.ipStrings = append(ips.ipStrings, podIP)
 			}
 		}
 	}
@@ -605,7 +552,7 @@ func (data *TestData) runCommandFromPod(namespace string, podName string, contai
 		return "", "", err
 	}
 	var stdoutB, stderrB bytes.Buffer
-	if err := exec2.Stream(remotecommand.StreamOptions{
+	if err := exec2.StreamWithContext(context.Background(), remotecommand.StreamOptions{
 		Stdout: &stdoutB,
 		Stderr: &stderrB,
 	}); err != nil {
@@ -669,7 +616,7 @@ func applyYAML(filename string, ns string) error {
 }
 
 func runCommand(cmd string) (string, error) {
-	err := wait.Poll(1*time.Second, defaultTimeout, func() (bool, error) {
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (bool, error) {
 		var stdout, stderr bytes.Buffer
 		command := exec.Command("bash", "-c", cmd)
 		log.Printf("Running command %s", cmd)
@@ -711,14 +658,14 @@ func deleteYAML(filename string, ns string) error {
 }
 
 func (data *TestData) waitForResourceExist(namespace string, resourceType string, key string, value string, shouldExist bool) error {
-	err := wait.Poll(1*time.Second, defaultTimeout, func() (bool, error) {
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (bool, error) {
 		exist := true
 		tagScopeClusterKey := strings.Replace(common.TagScopeNamespace, "/", "\\/", -1)
 		tagScopeClusterValue := strings.Replace(namespace, ":", "\\:", -1)
 		tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
 		resourceParam := fmt.Sprintf("%s:%s AND %s:*%s*", common.ResourceType, resourceType, key, value)
 		queryParam := resourceParam + " AND " + tagParam
-		var cursor *string = nil
+		var cursor *string
 		var pageSize int64 = 500
 		response, err := testData.nsxClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
 		if err != nil {

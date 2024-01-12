@@ -163,18 +163,6 @@ func TestSecurityPolicyService_wrapResourceReference(t *testing.T) {
 	type args struct {
 		children []*data.StructValue
 	}
-	var children []*data.StructValue
-	serviceEntry := data.NewStructValue(
-		"",
-		map[string]data.DataValue{
-			"l4_protocol":   data.NewStringValue("TCP"),
-			"resource_type": data.NewStringValue("L4PortSetServiceEntry"),
-			// adding the following default values to make it easy when compare the existing object from store and the new built object
-			"marked_for_delete": data.NewBooleanValue(false),
-			"overridden":        data.NewBooleanValue(false),
-		},
-	)
-	children = append(children, serviceEntry)
 	tests := []struct {
 		name    string
 		args    args

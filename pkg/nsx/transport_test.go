@@ -15,7 +15,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 )
 
@@ -81,13 +80,13 @@ func TestSelectEndpoint(t *testing.T) {
 	r := ratelimiter.NewRateLimiter(config.APIRateMode)
 	eps, _ := cluster.createEndpoints(config.APIManagers, client, noBClient, r, nil)
 	// all eps DOWN
-	ep, err := tr.selectEndpoint()
+	_, err := tr.selectEndpoint()
 	assert.NotNil(t, err, fmt.Sprintf("Select endpoint error %s", err))
 	// one ep UP
 	eps[0].status = UP
 	tr.endpoints = eps
 
-	ep, err = tr.selectEndpoint()
+	ep, err := tr.selectEndpoint()
 	assert.Nil(err, fmt.Sprintf("Select endpoint failed due to %v", err))
 	assert.Equal(ep.Host(), eps[0].Host(), "Select endpoint error, ep is %s, error is %s", ep.Host(), err)
 
@@ -112,10 +111,9 @@ func TestSelectEndpoint(t *testing.T) {
 
 func TestTransport_RoundTrip(t *testing.T) {
 	type fields struct {
-		Base          http.RoundTripper
-		endpoints     []*Endpoint
-		tokenProvider auth.TokenProvider
-		config        *Config
+		Base      http.RoundTripper
+		endpoints []*Endpoint
+		config    *Config
 	}
 	type args struct {
 		r *http.Request
@@ -168,10 +166,9 @@ func Test_handleRoundTripError(t *testing.T) {
 
 func TestTransport_base(t *testing.T) {
 	type fields struct {
-		Base          http.RoundTripper
-		endpoints     []*Endpoint
-		tokenProvider auth.TokenProvider
-		config        *Config
+		Base      http.RoundTripper
+		endpoints []*Endpoint
+		config    *Config
 	}
 	tests := []struct {
 		name   string
@@ -196,10 +193,9 @@ func TestTransport_base(t *testing.T) {
 
 func TestTransport_selectEndpoint(t *testing.T) {
 	type fields struct {
-		Base          http.RoundTripper
-		endpoints     []*Endpoint
-		tokenProvider auth.TokenProvider
-		config        *Config
+		Base      http.RoundTripper
+		endpoints []*Endpoint
+		config    *Config
 	}
 	tests := []struct {
 		name    string

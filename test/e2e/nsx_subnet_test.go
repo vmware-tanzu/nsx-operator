@@ -87,6 +87,7 @@ func defaultSubnetSet(t *testing.T) {
 	// 4. Check NSX subnet allocation.
 	subnetPath := subnetSet.Status.Subnets[0].NSXResourcePath
 	vpcInfo, err := common.ParseVPCResourcePath(subnetPath)
+	assert_nil(t, err, "Failed to parse VPC resource path %s", subnetPath)
 	vpcSubnet, err := testData.nsxClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
 	assert_nil(t, err, "Failed to get VPC subnet %s", vpcInfo.ID)
 
@@ -128,7 +129,7 @@ func defaultSubnetSet(t *testing.T) {
 
 	// 7. Check deleting NSX subnet tags.
 	delete(ns.Labels, labelKey)
-	ns, err = testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
+	_, err = testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
 	time.Sleep(5 * time.Second)
 	assert_nil(t, err)
 	vpcSubnet, err = testData.nsxClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
@@ -147,6 +148,7 @@ func userSubnetSet(t *testing.T) {
 	// 1. Check SubnetSet created by user.
 	subnetSetPath, _ := filepath.Abs("./manifest/testSubnet/subnetset.yaml")
 	err := applyYAML(subnetSetPath, E2ENamespace)
+	assert_nil(t, err)
 	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetSetCRType, E2ENamespace, UserSubnetSet, Ready)
 	assert_nil(t, err)
 
@@ -166,6 +168,7 @@ func userSubnetSet(t *testing.T) {
 	// 4. Check NSX subnet allocation.
 	subnetPath := subnetSet.Status.Subnets[0].NSXResourcePath
 	vpcInfo, err := common.ParseVPCResourcePath(subnetPath)
+	assert_nil(t, err, "Failed to parse VPC resource path %s", subnetPath)
 	_, err = testData.nsxClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
 	assert_nil(t, err, "Failed to get VPC subnet %s", vpcInfo.ID)
 }

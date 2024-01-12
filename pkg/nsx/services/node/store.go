@@ -13,19 +13,19 @@ type NodeStore struct {
 	common.ResourceStore
 }
 
-func (vs *NodeStore) Apply(i interface{}) error {
+func (nodeStore *NodeStore) Apply(i interface{}) error {
 	if i == nil {
 		return nil
 	}
 	node := i.(*model.HostTransportNode)
 	if node.MarkedForDelete != nil && *node.MarkedForDelete {
-		err := vs.Delete(*node)
+		err := nodeStore.Delete(*node)
 		log.V(1).Info("delete Node from store", "node", node)
 		if err != nil {
 			return err
 		}
 	} else {
-		err := vs.Add(*node)
+		err := nodeStore.Add(*node)
 		log.V(1).Info("add Node to store", "node", node)
 		if err != nil {
 			return err

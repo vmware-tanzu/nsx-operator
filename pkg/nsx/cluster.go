@@ -4,6 +4,7 @@
 package nsx
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -153,7 +154,7 @@ func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
 		IdleConnTimeout: idle * time.Second,
 	}
 	if cluster.config.Insecure == false {
-		dial := func(network, addr string) (net.Conn, error) {
+		dial := func(ctx context.Context, network, addr string) (net.Conn, error) { // #nosec G402: ignore insecure options
 			var config *tls.Config
 			cafile := cluster.getCaFile(addr)
 			caCount := len(cluster.config.CAFile)
@@ -166,6 +167,7 @@ func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
 
 				certPool := x509.NewCertPool()
 				certPool.AppendCertsFromPEM(caCert)
+				// #nosec G402: ignore insecure options
 				config = &tls.Config{
 					RootCAs: certPool,
 				}
@@ -176,6 +178,7 @@ func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
 			} else {
 				thumbprint := cluster.getThumbprint(addr)
 				tpCount := len(cluster.config.Thumbprint)
+				// #nosec G402: ignore insecure options
 				config = &tls.Config{
 					InsecureSkipVerify: true,
 					VerifyConnection: func(cs tls.ConnectionState) error {
@@ -197,8 +200,9 @@ func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
 			}
 			return conn, nil
 		}
-		tr.DialTLS = dial
+		tr.DialTLSContext = dial
 	} else {
+		// #nosec G402: ignore insecure options
 		tr.TLSClientConfig = &tls.Config{
 			InsecureSkipVerify: true,
 		}
@@ -214,6 +218,7 @@ func (cluster *Cluster) createHTTPClient(tr *Transport, timeout time.Duration) *
 }
 
 func (cluster *Cluster) createNoBalancerClient(timeout, idle time.Duration) *http.Client {
+	// #nosec G402: ignore insecure options
 	tlsConfig := tls.Config{InsecureSkipVerify: true}
 	transport := &http.Transport{
 		TLSClientConfig: &tlsConfig,

@@ -8,13 +8,6 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
-	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
-	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
-	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
@@ -24,6 +17,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
+	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 )
 
 var (
@@ -56,7 +56,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if !controllerutil.ContainsFinalizer(obj, servicecommon.SubnetSetFinalizerName) {
 			controllerutil.AddFinalizer(obj, servicecommon.SubnetSetFinalizerName)
 			if obj.Spec.AccessMode == "" || obj.Spec.IPv4SubnetSize == 0 {
-				vpcNetworkConfig := commonctl.ServiceMediator.GetVPCNetworkConfigByNamespace(obj.Namespace)
+				vpcNetworkConfig := common.ServiceMediator.GetVPCNetworkConfigByNamespace(obj.Namespace)
 				if vpcNetworkConfig == nil {
 					err := fmt.Errorf("failed to find VPCNetworkConfig for namespace %s", obj.Namespace)
 					log.Error(err, "operate failed, would retry exponentially", "subnet", req.NamespacedName)
@@ -243,7 +243,7 @@ func (r *SubnetSetReconciler) GarbageCollector(cancel chan bool, timeout time.Du
 			continue
 		}
 
-		subnetSetIDs := sets.NewString()
+		subnetSetIDs := sets.New[string]()
 		for _, subnetSet := range subnetSetList.Items {
 			if err := r.DeleteSubnetForSubnetSet(subnetSet, true); err != nil {
 				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetSet)

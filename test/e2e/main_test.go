@@ -6,10 +6,8 @@ package e2e
 import (
 	"flag"
 	"log"
-	"math/rand"
 	"os"
 	"testing"
-	"time"
 )
 
 // setupLogging creates a temporary directory to export the test logs if necessary. If a directory
@@ -70,17 +68,15 @@ func testMain(m *testing.M) int {
 	log.Println("Collecting information about K8s cluster")
 	if err := collectClusterInfo(); err != nil {
 		log.Fatalf("Error when collecting information about K8s cluster: %v", err)
-	} else {
-		if clusterInfo.podV4NetworkCIDR != "" {
-			log.Printf("Pod IPv4 network: '%s'", clusterInfo.podV4NetworkCIDR)
-		}
-		if clusterInfo.podV6NetworkCIDR != "" {
-			log.Printf("Pod IPv6 network: '%s'", clusterInfo.podV6NetworkCIDR)
-		}
-		log.Printf("Num nodes: %d", clusterInfo.numNodes)
 	}
+	if clusterInfo.podV4NetworkCIDR != "" {
+		log.Printf("Pod IPv4 network: '%s'", clusterInfo.podV4NetworkCIDR)
+	}
+	if clusterInfo.podV6NetworkCIDR != "" {
+		log.Printf("Pod IPv6 network: '%s'", clusterInfo.podV6NetworkCIDR)
+	}
+	log.Printf("Num nodes: %d", clusterInfo.numNodes)
 
-	rand.Seed(time.Now().UnixNano())
 	ret := m.Run()
 	return ret
 }

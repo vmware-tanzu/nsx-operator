@@ -3,10 +3,11 @@ package vpc
 import (
 	"context"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"

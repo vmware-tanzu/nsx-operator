@@ -71,7 +71,8 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 		nsxGroups = append(nsxGroups, *policyGroup)
 	}
 
-	for ruleIdx, rule := range obj.Spec.Rules {
+	for ruleIdx, r := range obj.Spec.Rules {
+		rule := r
 		// A rule containing named port may expand to multiple rules if the name maps to multiple port numbers.
 		expandRules, ruleGroups, shares, err := service.buildRuleAndGroups(obj, &rule, ruleIdx)
 		if err != nil {
@@ -120,12 +121,12 @@ func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPol
 
 	targetGroupCriteriaCount, targetGroupTotalExprCount := 0, 0
 	criteriaCount, totalExprCount := 0, 0
-	var err error = nil
+	var err error
 	errorMsg := ""
-	for i, target := range appliedTo {
+	for i := range appliedTo {
 		criteriaCount, totalExprCount, err = service.updateTargetExpressions(
 			obj,
-			&target,
+			&appliedTo[i],
 			&policyAppliedGroup,
 			i,
 		)
@@ -299,7 +300,7 @@ func (service *SecurityPolicyService) buildExpression(resource_type, member_type
 }
 
 func (service *SecurityPolicyService) buildExpressionsMatchExpression(matchExpressions []v1.LabelSelectorRequirement, memberType string, expressions *data.ListValue) error {
-	var err error = nil
+	var err error
 	errorMsg := ""
 
 	for _, expr := range matchExpressions {
@@ -629,10 +630,10 @@ func (service *SecurityPolicyService) buildRuleAppliedGroupByRule(obj *v1alpha1.
 	ruleGroupCriteriaCount, ruleGroupTotalExprCount := 0, 0
 	criteriaCount, totalExprCount := 0, 0
 	errorMsg := ""
-	for i, target := range appliedTo {
+	for i := range appliedTo {
 		criteriaCount, totalExprCount, err = service.updateTargetExpressions(
 			obj,
-			&target,
+			&appliedTo[i],
 			&ruleAppliedGroup,
 			i,
 		)
@@ -746,10 +747,10 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 	rulePeerGroupCriteriaCount, rulePeerGroupTotalExprCount := 0, 0
 	criteriaCount, totalExprCount := 0, 0
 	errorMsg := ""
-	for i, peer := range rulePeers {
+	for i := range rulePeers {
 		criteriaCount, totalExprCount, err = service.updatePeerExpressions(
 			obj,
-			&peer,
+			&rulePeers[i],
 			&rulePeerGroup,
 			i,
 			groupShared,
@@ -890,11 +891,11 @@ func (service *SecurityPolicyService) buildPeerTags(obj *v1alpha1.SecurityPolicy
 }
 
 func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.SecurityPolicy, target *v1alpha1.SecurityPolicyTarget, group *model.Group, ruleIdx int) (int, int, error) {
-	var err error = nil
-	var tagValueExpression *data.StructValue = nil
+	var err error
+	var tagValueExpression *data.StructValue
 	var matchLabels map[string]string
-	var matchExpressions *[]v1.LabelSelectorRequirement = nil
-	var mergedMatchExpressions *[]v1.LabelSelectorRequirement = nil
+	var matchExpressions *[]v1.LabelSelectorRequirement
+	var mergedMatchExpressions *[]v1.LabelSelectorRequirement
 	opInValueCount, totalCriteriaCount, totalExprCount := 0, 0, 0
 	matchLabelsCount, matchExpressionsCount := 0, 0
 
@@ -1070,7 +1071,7 @@ func (service *SecurityPolicyService) mergeSelectorMatchExpression(matchExpressi
 func (service *SecurityPolicyService) validateSelectorOpIn(matchExpressions []v1.LabelSelectorRequirement, matchLabels map[string]string) (int, error) {
 	mexprInOpCount := 0
 	mexprInValueCount := 0
-	var err error = nil
+	var err error
 	errorMsg := ""
 	exists := false
 	var opInIndex int
@@ -1110,7 +1111,7 @@ func (service *SecurityPolicyService) validateSelectorOpIn(matchExpressions []v1
 }
 
 func (service *SecurityPolicyService) validateNsSelectorOpNotIn(nsMatchExpressions []v1.LabelSelectorRequirement) error {
-	var err error = nil
+	var err error
 	errorMsg := ""
 
 	for _, expr := range nsMatchExpressions {
@@ -1124,7 +1125,7 @@ func (service *SecurityPolicyService) validateNsSelectorOpNotIn(nsMatchExpressio
 }
 
 func (service *SecurityPolicyService) validateSelectorExpressions(matchLabelsCount int, matchExpressionsCount int, opInValueCount int, mixedCriteria bool) (int, int, error) {
-	var err error = nil
+	var err error
 	errorMsg := ""
 	totalExprCount := 0
 	totalCriteria := 0
@@ -1193,7 +1194,7 @@ func (service *SecurityPolicyService) matchExpressionOpInExist(
 func (service *SecurityPolicyService) updateExpressionsMatchExpression(matchExpressions []v1.LabelSelectorRequirement, matchLabels map[string]string,
 	policyExpression *[]*data.StructValue, clusterExpression *data.StructValue, tagValueExpression *data.StructValue, memberType string, expressions *data.ListValue,
 ) error {
-	var err error = nil
+	var err error
 	found, opInIdx := service.matchExpressionOpInExist(matchExpressions)
 	if !found {
 		err = service.buildExpressionsMatchExpression(matchExpressions, memberType, expressions)
@@ -1239,9 +1240,9 @@ func (service *SecurityPolicyService) updateMixedExpressionsMatchExpression(nsMa
 	policyExpression *[]*data.StructValue, clusterExpression *data.StructValue, tagValueExpression *data.StructValue,
 	expressions *data.ListValue,
 ) error {
-	var err error = nil
+	var err error
 	opInIdx := 0
-	var opInMatchExpressions []v1.LabelSelectorRequirement = nil
+	var opInMatchExpressions []v1.LabelSelectorRequirement
 	memberType := ""
 
 	nsFound, opInIdx1 := service.matchExpressionOpInExist(nsMatchExpressions)
@@ -1320,12 +1321,12 @@ func (service *SecurityPolicyService) updateMixedExpressionsMatchExpression(nsMa
 }
 
 func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.SecurityPolicy, peer *v1alpha1.SecurityPolicyPeer, group *model.Group, ruleIdx int, groupShared bool) (int, int, error) {
-	var err error = nil
+	var err error
 	errorMsg := ""
-	var tagValueExpression *data.StructValue = nil
+	var tagValueExpression *data.StructValue
 	var matchLabels map[string]string
-	var matchExpressions *[]v1.LabelSelectorRequirement = nil
-	var mergedMatchExpressions *[]v1.LabelSelectorRequirement = nil
+	var matchExpressions *[]v1.LabelSelectorRequirement
+	var mergedMatchExpressions *[]v1.LabelSelectorRequirement
 	opInValueCount, totalCriteriaCount, totalExprCount := 0, 0, 0
 	matchLabelsCount, matchExpressionsCount := 0, 0
 	mixedNsSelector := false
@@ -1625,7 +1626,8 @@ func (service *SecurityPolicyService) buildSharedResource(shareId string, shared
 	resourceType := common.ResourceTypeSharedResource
 	includeChildren := false
 
-	for _, groupPath := range sharedGroupPath {
+	for _, path := range sharedGroupPath {
+		groupPath := path
 		resourceObject := model.ResourceObject{
 			IncludeChildren: &includeChildren,
 			ResourcePath:    &groupPath,

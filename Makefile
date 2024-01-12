@@ -2,13 +2,14 @@
 IMG ?= controller:latest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.22
+LDFLAGS            :=
+GOFLAGS            :=
+BINDIR             ?= $(CURDIR)/bin
+GO_FILES           := $(shell find . -type d -name '.cache' -prune -o -type f -name '*.go' -print)
 
-# Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
-ifeq (,$(shell go env GOBIN))
-GOBIN=$(shell go env GOPATH)/bin
-else
-GOBIN=$(shell go env GOBIN)
-endif
+GOLANGCI_LINT_VERSION := v1.54.0
+GOLANGCI_LINT_BINDIR  := $(CURDIR)/.golangci-bin
+GOLANGCI_LINT_BIN     := $(GOLANGCI_LINT_BINDIR)/$(GOLANGCI_LINT_VERSION)/golangci-lint
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
@@ -48,25 +49,44 @@ generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
-	go fmt ./...
+	@echo
+	@echo "===> Formatting Go files <==="
+	@gofmt -s -l -w $(GO_FILES)
 
 .PHONY: vet
 vet: ## Run go vet against code.
 	go vet ./...
 
+$(GOLANGCI_LINT_BIN):
+	@echo "===> Installing Golangci-lint <==="
+	@rm -rf $(GOLANGCI_LINT_BINDIR)/* # remove old versions
+	@curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOLANGCI_LINT_BINDIR)/$(GOLANGCI_LINT_VERSION) $(GOLANGCI_LINT_VERSION)
+
+.PHONY: golangci
+golangci: $(GOLANGCI_LINT_BIN)
+	@echo "===> Running golangci (linux) <==="
+	@GOOS=linux $(GOLANGCI_LINT_BIN) run -c $(CURDIR)/.golangci.yml
+
+.PHONY: golangci-fix
+golangci-fix: $(GOLANGCI_LINT_BIN)
+	@echo "===> Running golangci (linux) <==="
+	@GOOS=linux $(GOLANGCI_LINT_BIN) run -c $(CURDIR)/.golangci.yml --fix
+
+.PHONY: .coverage
+.coverage:
+	mkdir -p $(CURDIR)/.coverage
+
 .PHONY: test
-test: manifests generate fmt vet envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -gcflags=all=-l ./... -coverprofile cover.out  ## Prohibit inline optimization when using gomonkey
+test: manifests generate fmt vet envtest .coverage## Run tests .
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -gcflags=all=-l ./... -coverprofile $(CURDIR)/.coverage/coverage-unit.out  ## Prohibit inline optimization when using gomonkey
 
 ##@ Build
 
 .PHONY: build
 build: generate fmt vet ## Build manager binary.
-	go build -o bin/manager cmd/main.go
-
-.PHONY: clean
-clean: generate fmt vet ## Build clean binary.
-	go build -o bin/clean cmd_clean/main.go
+	@mkdir -p $(BINDIR)
+	GOOS=linux go build -o $(BINDIR) $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd/main.go
+        GOOS=linux go build -o $(BINDIR) $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd_clean/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
@@ -83,6 +103,17 @@ docker-push: ## Push docker image with the manager.
 .PHONY: photon
 photon:
 	docker build -t github.com/vmware-tanzu/nsx-operator -f build/image/photon/Dockerfile .
+
+.PHONY: clean
+clean:
+	@rm -rf $(BINDIR)
+	@rm -rf $(GOLANGCI_LINT_BINDIR)
+	@rm -rf $(CURDIR)/.coverage
+
+.PHONY: verify
+verify:
+	@echo "===> Verifying spellings <==="
+	GO=$(GO) $(CURDIR)/hack/verify-spelling.sh
 
 ##@ Deployment
 

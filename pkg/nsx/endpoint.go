@@ -43,7 +43,7 @@ type Endpoint struct {
 	keepaliveperiod  int
 	connnumber       int32
 	stop             chan bool
-	// Used when JWT token is not avaiable, default value is 120s
+	// Used when JWT token is not available, default value is 120s
 	lockWait      time.Duration
 	user          string
 	password      string

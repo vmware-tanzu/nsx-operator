@@ -27,7 +27,7 @@ type Store interface {
 	// to specific nsx-t side resource and then add it to the store.
 	TransResourceToStore(obj *data.StructValue) error
 	// ListIndexFuncValues is the method to list all the values of the index
-	ListIndexFuncValues(key string) sets.String
+	ListIndexFuncValues(key string) sets.Set[string]
 	// Apply is the method to create, update and delete the resource to the store based
 	// on its tag MarkedForDelete.
 	Apply(obj interface{}) error
@@ -64,8 +64,8 @@ func DecrementPageSize(pageSize *int64) {
 	}
 }
 
-func (resourceStore *ResourceStore) ListIndexFuncValues(key string) sets.String {
-	values := sets.NewString()
+func (resourceStore *ResourceStore) ListIndexFuncValues(key string) sets.Set[string] {
+	values := sets.New[string]()
 	entities := resourceStore.Indexer.ListIndexFuncValues(key)
 	for _, entity := range entities {
 		values.Insert(entity)
@@ -135,7 +135,7 @@ func (service *Service) InitializeVPCResourceStore(wg *sync.WaitGroup, fatalErro
 type Filter func(interface{}) *data.StructValue
 
 func (service *Service) SearchResource(resourceTypeValue string, queryParam string, store Store, filter Filter) (uint64, error) {
-	var cursor *string = nil
+	var cursor *string
 	count := uint64(0)
 	for {
 		var err error

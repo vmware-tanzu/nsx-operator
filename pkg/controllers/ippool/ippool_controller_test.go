@@ -220,8 +220,8 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 			},
 		},
 	}
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListIPPoolID", func(_ *ippool.IPPoolService) sets.String {
-		a := sets.NewString()
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListIPPoolID", func(_ *ippool.IPPoolService) sets.Set[string] {
+		a := sets.New[string]()
 		a.Insert("1234")
 		a.Insert("2345")
 		return a
@@ -256,8 +256,8 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has same item as k8s cache
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListIPPoolID", func(_ *ippool.IPPoolService) sets.String {
-		a := sets.NewString()
+	patch.ApplyMethod(reflect.TypeOf(service), "ListIPPoolID", func(_ *ippool.IPPoolService) sets.Set[string] {
+		a := sets.New[string]()
 		a.Insert("1234")
 		return a
 	})
@@ -280,8 +280,8 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has no item
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListIPPoolID", func(_ *ippool.IPPoolService) sets.String {
-		a := sets.NewString()
+	patch.ApplyMethod(reflect.TypeOf(service), "ListIPPoolID", func(_ *ippool.IPPoolService) sets.Set[string] {
+		a := sets.New[string]()
 		return a
 	})
 	patch.ApplyMethod(reflect.TypeOf(service), "DeleteIPPool", func(_ *ippool.IPPoolService, UID interface{}) error {

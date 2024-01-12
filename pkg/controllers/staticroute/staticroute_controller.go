@@ -237,7 +237,8 @@ func (r *StaticRouteReconciler) GarbageCollector(cancel chan bool, timeout time.
 			crdStaticRouteSet.Insert(string(sr.UID))
 		}
 
-		for _, elem := range nsxStaticRouteList {
+		for _, e := range nsxStaticRouteList {
+			elem := e
 			UID := r.Service.GetUID(&elem)
 			if UID == nil {
 				continue
@@ -265,12 +266,12 @@ func StartStaticRouteController(mgr ctrl.Manager, commonService commonservice.Se
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
-	if staticRouteService, err := staticroute.InitializeStaticRoute(commonService); err != nil {
+	staticRouteService, err := staticroute.InitializeStaticRoute(commonService)
+	if err != nil {
 		log.Error(err, "failed to initialize staticroute commonService", "controller", "StaticRoute")
 		os.Exit(1)
-	} else {
-		staticRouteReconcile.Service = staticRouteService
 	}
+	staticRouteReconcile.Service = staticRouteService
 	if err := staticRouteReconcile.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "StaticRoute")
 		os.Exit(1)

@@ -68,13 +68,13 @@ func (r *NamespaceReconciler) createVPCCR(ctx *context.Context, obj client.Objec
 	//TODO: in next patch, remove this validation. If user did not provide private cidr
 	// use a hardcoded cidr to create a private ip block.
 	if !common.ServiceMediator.ValidateNetworkConfig(nc) {
-		// if netwrok config is not valid, no need to retry, skip processing
+		// if network config is not valid, no need to retry, skip processing
 		message := fmt.Sprintf("invalid network config %s for namespace %s, missing private cidr", ncName, ns)
 		r.namespaceError(ctx, obj, message, nil)
 		return nil, errors.New(message)
 	}
 
-	// create vpc cr with exisitng vpc network config
+	// create vpc cr with existing vpc network config
 	vpcCR := BuildVPCCR(ns, ncName, vpcName)
 	err := r.Client.Create(*ctx, vpcCR)
 	if err != nil {

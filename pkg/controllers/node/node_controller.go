@@ -7,13 +7,14 @@ import (
 	"context"
 	"os"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
-	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -77,13 +78,13 @@ func StartNodeController(mgr ctrl.Manager, commonService servicecommon.Service) 
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
-	if nodeService, err := node.InitializeNode(commonService); err != nil {
+	nodeService, err := node.InitializeNode(commonService)
+	if err != nil {
 		log.Error(err, "failed to initialize node commonService", "controller", "Node")
 		os.Exit(1)
-	} else {
-		nodePortReconciler.Service = nodeService
-		common.ServiceMediator.NodeService = nodePortReconciler.Service
 	}
+	nodePortReconciler.Service = nodeService
+	common.ServiceMediator.NodeService = nodePortReconciler.Service
 
 	if err := nodePortReconciler.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "Node")
@@ -97,20 +98,4 @@ func (r *NodeReconciler) Start(mgr ctrl.Manager) error {
 		return err
 	}
 	return nil
-}
-
-func updateFail(r *NodeReconciler, c *context.Context, o *v1.Node, e *error) {
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResTypeNode)
-}
-
-func deleteFail(r *NodeReconciler, c *context.Context, o *v1.Node, e *error) {
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeNode)
-}
-
-func updateSuccess(r *NodeReconciler, c *context.Context, o *v1.Node) {
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResTypeNode)
-}
-
-func deleteSuccess(r *NodeReconciler, _ *context.Context, _ *v1.Node) {
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeNode)
 }

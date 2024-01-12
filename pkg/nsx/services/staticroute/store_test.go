@@ -151,10 +151,6 @@ func TestStaticRouteStore_GetByKey(t *testing.T) {
 	}
 
 	staticRouteStore := &StaticRouteStore{ResourceStore: resourceStore}
-	type args struct {
-		i interface{}
-		j interface{}
-	}
 	ns1 := "test-ns-1"
 	tag1 := []model.Tag{
 		{

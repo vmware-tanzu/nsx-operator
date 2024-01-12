@@ -25,13 +25,13 @@ func (impl *nsxErrorImpl) setDetail(detail *ErrorDetail) {
 	impl.ErrorDetail = *detail
 	if len(detail.RelatedErrorCodes) > 0 {
 		impl.ErrorDetail.RelatedErrorCodes = []int{}
-		for index, _ := range detail.RelatedErrorCodes {
+		for index := range detail.RelatedErrorCodes {
 			impl.ErrorDetail.RelatedErrorCodes = append(impl.ErrorDetail.RelatedErrorCodes, detail.RelatedErrorCodes[index])
 		}
 	}
 	if len(detail.RelatedStatusCodes) > 0 {
 		impl.ErrorDetail.RelatedStatusCodes = []string{}
-		for index, _ := range detail.RelatedStatusCodes {
+		for index := range detail.RelatedStatusCodes {
 			impl.ErrorDetail.RelatedStatusCodes = append(impl.ErrorDetail.RelatedStatusCodes, detail.RelatedStatusCodes[index])
 		}
 	}
@@ -189,8 +189,7 @@ func CreateRealizationError(operation string, argVal string, argName string) *Re
 }
 
 type RealizationErrorStateError struct {
-	msg    string `parent:"RealizationError"`
-	detail *ErrorDetail
+	msg string `parent:"RealizationError"`
 }
 
 func CreateRealizationErrorStateError(resourceType string, resourceID string, error string) *RealizationErrorStateError {
@@ -200,8 +199,7 @@ func CreateRealizationErrorStateError(resourceType string, resourceID string, er
 }
 
 type RealizationTimeoutError struct {
-	msg    string `parent:"RealizationError"`
-	detail *ErrorDetail
+	msg string `parent:"RealizationError"`
 }
 
 func CreateRealizationTimeoutError(resourceType string, resourceID string, attempts string, sleep string) *RealizationTimeoutError {
@@ -211,8 +209,7 @@ func CreateRealizationTimeoutError(resourceType string, resourceID string, attem
 }
 
 type DetailedRealizationTimeoutError struct {
-	msg    string `parent:"RealizationError"`
-	detail *ErrorDetail
+	msg string `parent:"RealizationError"`
 }
 
 func CreateDetailedRealizationTimeoutError(resourceType string, resourceID string, realizedType string, relatedType string, relatedID string, attempts string, sleep string) *DetailedRealizationTimeoutError {
@@ -239,8 +236,7 @@ type ServerBusy interface {
 
 type ServerBusyImpl struct {
 	managerErrorImpl
-	msg    string
-	detail *ErrorDetail
+	msg string
 }
 
 func (ServerBusyImpl) serverBusy() {}

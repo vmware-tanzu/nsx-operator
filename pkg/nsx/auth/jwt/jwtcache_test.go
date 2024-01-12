@@ -48,6 +48,7 @@ func TestJwtcache_GetJWT(t *testing.T) {
 
 	cache := NewJWTCache(tesClient, freshInterval)
 	cache.tesClient = tesClient
+	// #nosec G402: ignore insecure options
 	config := &tls.Config{InsecureSkipVerify: true}
 	tr := &http.Transport{
 		TLSClientConfig: config,
@@ -81,6 +82,7 @@ func TestJwtcache_GetJWTFailed(t *testing.T) {
 
 	cache := NewJWTCache(tesClient, freshInterval)
 	cache.tesClient = tesClient
+	// #nosec G402: ignore insecure options
 	config := &tls.Config{InsecureSkipVerify: true}
 	tr := &http.Transport{
 		TLSClientConfig: config,

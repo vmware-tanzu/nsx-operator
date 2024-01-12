@@ -3,9 +3,10 @@ package vpc
 import (
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	types "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/stretchr/testify/assert"
 )

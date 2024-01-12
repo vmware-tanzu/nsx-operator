@@ -10,13 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
-	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	v1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -149,13 +150,14 @@ func StartPodController(mgr ctrl.Manager, commonService servicecommon.Service) {
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
-	if subnetPortService, err := subnetport.InitializeSubnetPort(commonService); err != nil {
+	subnetPortService, err := subnetport.InitializeSubnetPort(commonService)
+	if err != nil {
 		log.Error(err, "failed to initialize subnetport commonService", "controller", "Pod")
 		os.Exit(1)
-	} else {
-		podPortReconciler.Service = subnetPortService
-		common.ServiceMediator.SubnetPortService = podPortReconciler.Service
 	}
+	podPortReconciler.Service = subnetPortService
+	common.ServiceMediator.SubnetPortService = podPortReconciler.Service
+
 	if err := podPortReconciler.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "Pod")
 		os.Exit(1)

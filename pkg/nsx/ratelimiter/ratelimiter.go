@@ -71,14 +71,6 @@ type AIMDRateLimter struct {
 	sync.Mutex
 }
 
-type rateLimiter struct {
-	apirateLimitPerEndpoint int
-}
-
-func (r *rateLimiter) SetMaxrate(maxrate int) {
-	r.apirateLimitPerEndpoint = maxrate
-}
-
 // NewRateLimiter creates rate limeter based on RateLimiterType
 func NewRateLimiter(rateLimiterType Type) RateLimiter {
 	if rateLimiterType == FIXRATE {

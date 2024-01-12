@@ -17,9 +17,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
-	mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/vpcclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
@@ -32,74 +30,13 @@ var (
 	vpcID3            = "ns-vpc-uid-3"
 	IPv4Type          = "IPv4"
 	cluster           = "k8scl-one"
-	tagValueNS        = "ns1"
 	tagScopeVPCCRName = common.TagScopeVPCCRName
 	tagScopeVPCCRUID  = common.TagScopeVPCCRUID
 	tagValueVPCCRName = "vpcA"
 	tagValueVPCCRUID  = "uidA"
 	tagScopeCluster   = common.TagScopeCluster
 	tagScopeNamespace = common.TagScopeNamespace
-
-	basicTags = []model.Tag{
-		{
-			Scope: &tagScopeCluster,
-			Tag:   &cluster,
-		},
-		{
-			Scope: &tagScopeNamespace,
-			Tag:   &tagValueNS,
-		},
-		{
-			Scope: &tagScopeVPCCRName,
-			Tag:   &tagValueVPCCRName,
-		},
-		{
-			Scope: &tagScopeVPCCRUID,
-			Tag:   &tagValueVPCCRUID,
-		},
-	}
 )
-
-func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVpcsClient) {
-	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
-
-	cluster, _ := nsx.NewCluster(config2, nil)
-	rc, _ := cluster.NewRestConnector()
-
-	mockCtrl := gomock.NewController(t)
-	mockVpcclient := mocks.NewMockVpcsClient(mockCtrl)
-	k8sClient := mock_client.NewMockClient(mockCtrl)
-
-	vpcStore := &VPCStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeStaticRouteCRUID: indexFunc}),
-		BindingType: model.VpcBindingType(),
-	}}
-
-	service := &VPCService{
-		Service: common.Service{
-			Client: k8sClient,
-			NSXClient: &nsx.Client{
-				QueryClient:   &fakeQueryClient{},
-				VPCClient:     mockVpcclient,
-				RestConnector: rc,
-				NsxConfig: &config.NSXOperatorConfig{
-					CoeConfig: &config.CoeConfig{
-						Cluster: "k8scl-one:test",
-					},
-				},
-			},
-			NSXConfig: &config.NSXOperatorConfig{
-				CoeConfig: &config.CoeConfig{
-					Cluster: "k8scl-one:test",
-				},
-			},
-		},
-		VpcStore:              vpcStore,
-		VPCNetworkConfigMap:   map[string]VPCNetworkConfigInfo{},
-		VPCNSNetworkConfigMap: map[string]string{},
-	}
-	return service, mockCtrl, mockVpcclient
-}
 
 func TestGetNetworkConfigFromNS(t *testing.T) {
 	mockCtl := gomock.NewController(t)

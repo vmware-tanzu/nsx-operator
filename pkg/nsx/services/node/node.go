@@ -29,17 +29,18 @@ func InitializeNode(service servicecommon.Service) (*NodeService, error) {
 
 	wg.Add(1)
 
-	nodeService := &NodeService{Service: service}
-
-	nodeService.NodeStore = &NodeStore{
-		ResourceStore: servicecommon.ResourceStore{
-			Indexer: cache.NewIndexer(
-				keyFunc,
-				cache.Indexers{
-					servicecommon.IndexKeyNodeName: nodeIndexByNodeName,
-				},
-			),
-			BindingType: model.HostTransportNodeBindingType(),
+	nodeService := &NodeService{
+		Service: service,
+		NodeStore: &NodeStore{
+			ResourceStore: servicecommon.ResourceStore{
+				Indexer: cache.NewIndexer(
+					keyFunc,
+					cache.Indexers{
+						servicecommon.IndexKeyNodeName: nodeIndexByNodeName,
+					},
+				),
+				BindingType: model.HostTransportNodeBindingType(),
+			},
 		},
 	}
 	// TODO: confirm whether we can remove the following intialization because node doesn't have the cluster tag so it's a dry run
@@ -93,6 +94,7 @@ func (service *NodeService) SyncNodeStore(nodeName string, deleted bool) error {
 	}
 	synced := false
 	for _, node := range nodeResults.Results {
+		node := node
 		if *node.NodeDeploymentInfo.Fqdn == nodeName {
 			if deleted {
 				// Retry until the NSX HostTransportNode is deleted.

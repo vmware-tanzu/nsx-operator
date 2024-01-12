@@ -5,7 +5,7 @@ package util
 
 import (
 	"bytes"
-	"crypto/sha1"
+	"crypto/sha1" // #nosec G505: not used for security purposes
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"

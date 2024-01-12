@@ -108,38 +108,3 @@ func (service *SubnetService) wrapSubnet(subnet *model.VpcSubnet) ([]*data.Struc
 	}
 	return []*data.StructValue{dataValue.(*data.StructValue)}, nil
 }
-
-// wrapDHCPStaticBindingConfig wraps DHCPStaticBindingConfig as children of VPCSubnet.
-func (service *SubnetService) wrapDHCPStaticBindingConfig(config model.DhcpStaticBindingConfig) ([]*data.StructValue, error) {
-	configValue, errors := NewConverter().ConvertToVapi(config, model.ChildDhcpStaticBindingConfigBindingType())
-	if len(errors) > 0 {
-		return nil, errors[0]
-	}
-	configChild := model.ChildDhcpStaticBindingConfig{
-		ResourceType:            "ChildDhcpStaticBindingConfig",
-		Id:                      config.Id,
-		DhcpStaticBindingConfig: configValue.(*data.StructValue),
-		MarkedForDelete:         config.MarkedForDelete,
-	}
-	configChildValue, errors := NewConverter().ConvertToVapi(configChild, model.ChildDhcpStaticBindingConfigBindingType())
-	if len(errors) > 0 {
-		return nil, errors[0]
-	}
-	return []*data.StructValue{configChildValue.(*data.StructValue)}, nil
-}
-
-// wrapSegmentPort wraps SegmentPort as children of VPCSubnet.
-// A reserved function for creating SegmentPorts, currently not used.
-func (service *SubnetService) wrapSegmentPort(port model.SegmentPort) ([]*data.StructValue, error) {
-	portChild := model.ChildSegmentPort{
-		ResourceType:    "ChildSegmentPort",
-		Id:              port.Id,
-		SegmentPort:     &port,
-		MarkedForDelete: port.MarkedForDelete,
-	}
-	dataValue, errors := NewConverter().ConvertToVapi(portChild, model.ChildSegmentBindingType())
-	if len(errors) > 0 {
-		return nil, errors[0]
-	}
-	return []*data.StructValue{dataValue.(*data.StructValue)}, nil
-}

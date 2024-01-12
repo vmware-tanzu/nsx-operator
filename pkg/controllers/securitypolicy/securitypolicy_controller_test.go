@@ -7,11 +7,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"k8s.io/client-go/rest"
 	"reflect"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"testing"
 	"time"
+
+	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	gomonkey "github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
@@ -220,8 +221,8 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 			},
 		},
 	}
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *securitypolicy.SecurityPolicyService) sets.String {
-		a := sets.NewString()
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *securitypolicy.SecurityPolicyService) sets.Set[string] {
+		a := sets.New[string]()
 		a.Insert("1234")
 		a.Insert("2345")
 		return a
@@ -256,8 +257,8 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has same item as k8s cache
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *securitypolicy.SecurityPolicyService) sets.String {
-		a := sets.NewString()
+	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *securitypolicy.SecurityPolicyService) sets.Set[string] {
+		a := sets.New[string]()
 		a.Insert("1234")
 		return a
 	})
@@ -280,8 +281,8 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has no item
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *securitypolicy.SecurityPolicyService) sets.String {
-		a := sets.NewString()
+	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *securitypolicy.SecurityPolicyService) sets.Set[string] {
+		a := sets.New[string]()
 		return a
 	})
 	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isVpcCleanup bool) error {

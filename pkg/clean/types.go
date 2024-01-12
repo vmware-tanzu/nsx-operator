@@ -36,9 +36,9 @@ type Status struct {
 }
 
 var (
-	OK                       Status = Status{Code: 0, Message: "cleanup successfully"}
-	ValidationFailed         Status = Status{Code: 1, Message: "failed to validate config"}
-	GetNSXClientFailed       Status = Status{Code: 2, Message: "failed to get nsx client"}
-	InitCleanupServiceFailed Status = Status{Code: 3, Message: "failed to initialize cleanup service"}
-	CleanupResourceFailed    Status = Status{Code: 4, Message: "failed to clean up"}
+	OK                       = Status{Code: 0, Message: "cleanup successfully"}
+	ValidationFailed         = Status{Code: 1, Message: "failed to validate config"}
+	GetNSXClientFailed       = Status{Code: 2, Message: "failed to get nsx client"}
+	InitCleanupServiceFailed = Status{Code: 3, Message: "failed to initialize cleanup service"}
+	CleanupResourceFailed    = Status{Code: 4, Message: "failed to clean up"}
 )

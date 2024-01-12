@@ -89,12 +89,6 @@ func (service *SubnetService) buildDHCPConfig(poolSize int64) *model.VpcSubnetDh
 	return dhcpConfig
 }
 
-func (service *SubnetService) buildDNSClientConfig(obj *v1alpha1.DNSClientConfig) *model.DnsClientConfig {
-	dnsClientConfig := &model.DnsClientConfig{}
-	dnsClientConfig.DnsServerIps = append(dnsClientConfig.DnsServerIps, obj.DNSServersIPs...)
-	return dnsClientConfig
-}
-
 func (service *SubnetService) buildBasicTags(obj client.Object) []model.Tag {
 	return util.BuildBasicTags(getCluster(service), obj, "")
 }

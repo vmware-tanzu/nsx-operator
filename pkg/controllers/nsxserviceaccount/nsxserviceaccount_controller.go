@@ -201,7 +201,8 @@ func (r *NSXServiceAccountReconciler) validateRealized(count uint16, ca []byte, 
 	// Validate ca at first time
 	// Validate client cert every GCValidationInterval
 	if count == 0 {
-		for _, nsxServiceAccount := range nsxServiceAccountList.Items {
+		for _, account := range nsxServiceAccountList.Items {
+			nsxServiceAccount := account
 			if nsxserviceaccount.IsNSXServiceAccountRealized(&nsxServiceAccount.Status) {
 				if err := r.Service.ValidateAndUpdateRealizedNSXServiceAccount(context.TODO(), &nsxServiceAccount, ca); err != nil {
 					log.Error(err, "Failed to update realized NSXServiceAccount", "namespace", nsxServiceAccount.Namespace, "name", nsxServiceAccount.Name)
@@ -217,7 +218,7 @@ func (r *NSXServiceAccountReconciler) validateRealized(count uint16, ca []byte, 
 	return count, ca
 }
 
-func (r *NSXServiceAccountReconciler) garbageCollector(nsxServiceAccountUIDSet sets.String, nsxServiceAccountList *nsxvmwarecomv1alpha1.NSXServiceAccountList) (gcSuccessCount, gcErrorCount uint32) {
+func (r *NSXServiceAccountReconciler) garbageCollector(nsxServiceAccountUIDSet sets.Set[string], nsxServiceAccountList *nsxvmwarecomv1alpha1.NSXServiceAccountList) (gcSuccessCount, gcErrorCount uint32) {
 	nsxServiceAccountCRUIDMap := map[string]types.NamespacedName{}
 	for _, nsxServiceAccount := range nsxServiceAccountList.Items {
 		nsxServiceAccountCRUIDMap[string(nsxServiceAccount.UID)] = types.NamespacedName{

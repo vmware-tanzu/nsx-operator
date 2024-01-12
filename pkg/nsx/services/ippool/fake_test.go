@@ -14,18 +14,11 @@ import (
 type fakeQueryClient struct {
 }
 
-type fakeProjectQueryClient struct {
-}
-
-func (f fakeProjectQueryClient) List(orgIdParam string, projectIdParam string, queryParam string, cursorParam *string, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.SearchResponse, error) {
-	return model.SearchResponse{}, nil
-}
-
 func (qIface *fakeQueryClient) List(queryParam string, cursorParam *string, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.SearchResponse, error) {
 	cursor := "2"
 	resultCount := int64(2)
 	return model.SearchResponse{
-		Results: []*data.StructValue{&data.StructValue{}},
+		Results: []*data.StructValue{{}},
 		Cursor:  &cursor, ResultCount: &resultCount,
 	}, nil
 }

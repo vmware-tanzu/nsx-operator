@@ -88,11 +88,17 @@ func main() {
 	// customer http client should handle verify and authentication
 	// here using the basic user/password mode for authentication
 	// not handling verify
+	// the error roughly are:
+	// 1. failed to validate config
+	// 2. failed to get nsx client
+	// 3. failed to initialize cleanup service
+	// 4. failed to clean up specific resourc
 	var err error
 	var status clean.Status
 	if useExternalHttp {
 		tr := &http.Transport{
 			IdleConnTimeout: 30 * time.Second,
+			// #nosec G402: ignore insecure options
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: true,
 			},
@@ -105,12 +111,6 @@ func main() {
 	} else {
 		status, err = clean.Clean(cf, nil)
 	}
-	// the error roughly are:
-	// 1. failed to validate config
-	// 2. failed to get nsx client
-	// 3. failed to initialize cleanup service
-	// 4. failed to clean up specific resource
-	status, err = clean.Clean(cf, nil)
 	if err != nil {
 		log.Error(err, "failed to clean nsx resources", "status", status)
 		os.Exit(1)
