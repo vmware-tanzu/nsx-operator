@@ -18,7 +18,7 @@ SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
 .PHONY: all
-all: build
+all: build build-clean
 
 ##@ General
 
@@ -77,7 +77,7 @@ golangci-fix: $(GOLANGCI_LINT_BIN)
 	mkdir -p $(CURDIR)/.coverage
 
 .PHONY: test
-test: manifests generate fmt vet envtest .coverage## Run tests .
+test: manifests generate fmt vet envtest .coverage ## Run tests .
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -gcflags=all=-l ./... -coverprofile $(CURDIR)/.coverage/coverage-unit.out  ## Prohibit inline optimization when using gomonkey
 
 ##@ Build
@@ -85,8 +85,12 @@ test: manifests generate fmt vet envtest .coverage## Run tests .
 .PHONY: build
 build: generate fmt vet ## Build manager binary.
 	@mkdir -p $(BINDIR)
-	GOOS=linux go build -o $(BINDIR) $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd/main.go
-        GOOS=linux go build -o $(BINDIR) $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd_clean/main.go
+	GOOS=linux go build -o $(BINDIR)/manager $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd/main.go
+
+.PHONY: build-clean
+build-clean: generate fmt vet ## Build clean binary.
+	@mkdir -p $(BINDIR)
+	GOOS=linux go build -o $(BINDIR)/clean $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd_clean/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
