@@ -38,6 +38,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ippool"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
+	subnetservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
@@ -196,15 +197,20 @@ func main() {
 			log.Error(err, "failed to initialize vpc commonService", "controller", "VPC")
 			os.Exit(1)
 		}
+		subnetService, err := subnetservice.InitializeSubnetService(commonService)
+		if err != nil {
+			log.Error(err, "failed to initialize subnet commonService")
+			os.Exit(1)
+		}
 		commonctl.ServiceMediator.VPCService = vpcService
 		// Start controllers which only supports VPC
 		StartVPCController(mgr, vpcService)
 		StartNamespaceController(mgr, vpcService)
 		// Start subnet/subnetset controller.
-		if err := subnet.StartSubnetController(mgr, commonService); err != nil {
+		if err := subnet.StartSubnetController(mgr, subnetService); err != nil {
 			os.Exit(1)
 		}
-		if err := subnetset.StartSubnetSetController(mgr, commonService); err != nil {
+		if err := subnetset.StartSubnetSetController(mgr, subnetService); err != nil {
 			os.Exit(1)
 		}
 

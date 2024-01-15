@@ -285,12 +285,12 @@ func (r *SubnetReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func StartSubnetController(mgr ctrl.Manager, commonService servicecommon.Service) error {
+func StartSubnetController(mgr ctrl.Manager, subnetService *subnet.SubnetService) error {
 	subnetReconciler := &SubnetReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
-	subnetReconciler.Service = subnet.GetSubnetService(commonService)
+	subnetReconciler.Service = subnetService
 	common.ServiceMediator.SubnetService = subnetReconciler.Service
 	if err := subnetReconciler.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "Subnet")

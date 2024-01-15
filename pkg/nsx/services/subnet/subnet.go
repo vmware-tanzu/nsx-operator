@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
@@ -42,25 +41,6 @@ type SubnetParameters struct {
 	OrgID     string
 	ProjectID string
 	VPCID     string
-}
-
-var subnetService *SubnetService
-var lock = &sync.Mutex{}
-
-// GetSubnetService get singleton SubnetService instance, subnet/subnetset controller share the same instance.
-func GetSubnetService(service common.Service) *SubnetService {
-	if subnetService == nil {
-		lock.Lock()
-		defer lock.Unlock()
-		if subnetService == nil {
-			var err error
-			if subnetService, err = InitializeSubnetService(service); err != nil {
-				log.Error(err, "failed to initialize subnet commonService")
-				os.Exit(1)
-			}
-		}
-	}
-	return subnetService
 }
 
 // InitializeSubnetService initialize Subnet service.

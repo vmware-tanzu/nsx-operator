@@ -300,12 +300,12 @@ func (r *SubnetSetReconciler) DeleteSubnetForSubnetSet(obj v1alpha1.SubnetSet, u
 	return nil
 }
 
-func StartSubnetSetController(mgr ctrl.Manager, commonService servicecommon.Service) error {
+func StartSubnetSetController(mgr ctrl.Manager, subnetService *subnet.SubnetService) error {
 	subnetsetReconciler := &SubnetSetReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
-	subnetsetReconciler.Service = subnet.GetSubnetService(commonService)
+	subnetsetReconciler.Service = subnetService
 	if err := subnetsetReconciler.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "Subnet")
 		return err
