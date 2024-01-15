@@ -574,3 +574,9 @@ type IPBlockAllExhaustedError struct {
 func (err IPBlockAllExhaustedError) Error() string {
 	return err.Desc
 }
+
+type ExceedTagsError struct {
+	Desc string
+}
+
+func (err ExceedTagsError) Error() string { return err.Desc }
