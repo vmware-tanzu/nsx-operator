@@ -65,6 +65,13 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 	default:
 		return nil, SubnetTypeError
 	}
+	// tags cannot exceed maximum size 26
+	if len(tags) > common.TagsCountMax {
+		// can't use tags = tags[:common.TagsCountMax] directly, otherwise nsx would report error
+		newTags := make([]model.Tag, common.TagsCountMax)
+		copy(newTags, tags[:common.TagsCountMax])
+		tags = newTags
+	}
 	nsxSubnet.Tags = tags
 	nsxSubnet.AdvancedConfig = &model.SubnetAdvancedConfig{
 		StaticIpAllocation: &model.StaticIpAllocation{
