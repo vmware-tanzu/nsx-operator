@@ -12,6 +12,7 @@ import (
 
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -52,21 +53,21 @@ func deleteSuccess(r *IPPoolReconciler, _ *context.Context, _ *v1alpha2.IPPool) 
 }
 
 func deleteFail(r *IPPoolReconciler, c *context.Context, o *v1alpha2.IPPool, e *error) {
-	r.setReadyStatusFalse(c, o, e)
+	r.setReadyStatusFalse(c, o, metav1.Now(), e)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 }
 
 func updateSuccess(r *IPPoolReconciler, c *context.Context, o *v1alpha2.IPPool) {
-	r.setReadyStatusTrue(c, o)
+	r.setReadyStatusTrue(c, o, metav1.Now())
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
 }
 
 func updateFail(r *IPPoolReconciler, c *context.Context, o *v1alpha2.IPPool, e *error) {
-	r.setReadyStatusFalse(c, o, e)
+	r.setReadyStatusFalse(c, o, metav1.Now(), e)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
 }
 
-func (r *IPPoolReconciler) setReadyStatusFalse(ctx *context.Context, ippool *v1alpha2.IPPool, err *error) {
+func (r *IPPoolReconciler) setReadyStatusFalse(ctx *context.Context, ippool *v1alpha2.IPPool, transitionTime metav1.Time, err *error) {
 	conditions := []v1alpha1.Condition{
 		{
 			Type:    v1alpha1.Ready,
@@ -76,6 +77,7 @@ func (r *IPPoolReconciler) setReadyStatusFalse(ctx *context.Context, ippool *v1a
 				"error occurred while processing the IPPool CR. Error: %v",
 				*err,
 			),
+			LastTransitionTime: transitionTime,
 		},
 	}
 	ippool.Status.Conditions = conditions
@@ -88,13 +90,14 @@ func (r *IPPoolReconciler) setReadyStatusFalse(ctx *context.Context, ippool *v1a
 	}
 }
 
-func (r *IPPoolReconciler) setReadyStatusTrue(ctx *context.Context, ippool *v1alpha2.IPPool) {
+func (r *IPPoolReconciler) setReadyStatusTrue(ctx *context.Context, ippool *v1alpha2.IPPool, transitionTime metav1.Time) {
 	conditions := []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.Ready,
-			Status:  v1.ConditionTrue,
-			Message: "NSX IPPool has been successfully created/updated",
-			Reason:  "",
+			Type:               v1alpha1.Ready,
+			Status:             v1.ConditionTrue,
+			Message:            "NSX IPPool has been successfully created/updated",
+			Reason:             "",
+			LastTransitionTime: transitionTime,
 		},
 	}
 	ippool.Status.Conditions = conditions

@@ -10,6 +10,7 @@ import (
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -177,25 +178,27 @@ func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {
 	return nil
 }
 
-func (r *SubnetReconciler) setSubnetReadyStatusTrue(ctx *context.Context, subnet *v1alpha1.Subnet) {
+func (r *SubnetReconciler) setSubnetReadyStatusTrue(ctx *context.Context, subnet *v1alpha1.Subnet, transitionTime metav1.Time) {
 	newConditions := []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.Ready,
-			Status:  v1.ConditionTrue,
-			Message: "NSX Subnet has been successfully created/updated",
-			Reason:  "SubnetCreated",
+			Type:               v1alpha1.Ready,
+			Status:             v1.ConditionTrue,
+			Message:            "NSX Subnet has been successfully created/updated",
+			Reason:             "SubnetCreated",
+			LastTransitionTime: transitionTime,
 		},
 	}
 	r.updateSubnetStatusConditions(ctx, subnet, newConditions)
 }
 
-func (r *SubnetReconciler) setSubnetReadyStatusFalse(ctx *context.Context, subnet *v1alpha1.Subnet, msg string) {
+func (r *SubnetReconciler) setSubnetReadyStatusFalse(ctx *context.Context, subnet *v1alpha1.Subnet, transitionTime metav1.Time, msg string) {
 	newConditions := []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.Ready,
-			Status:  v1.ConditionFalse,
-			Message: "NSX Subnet could not be created/updated",
-			Reason:  "SubnetNotReady",
+			Type:               v1alpha1.Ready,
+			Status:             v1.ConditionFalse,
+			Message:            "NSX Subnet could not be created/updated",
+			Reason:             "SubnetNotReady",
+			LastTransitionTime: transitionTime,
 		},
 	}
 	if msg != "" {
@@ -212,9 +215,11 @@ func (r *SubnetReconciler) updateSubnetStatusConditions(ctx *context.Context, su
 		}
 	}
 	if conditionsUpdated {
-		r.Client.Status().Update(*ctx, subnet)
-		log.V(1).Info("updated Subnet", "Name", subnet.Name, "Namespace", subnet.Namespace,
-			"New Conditions", newConditions)
+		if err := r.Client.Status().Update(*ctx, subnet); err != nil {
+			log.Error(err, "failed to update subnet status", "Name", subnet.Name, "Namespace", subnet.Namespace)
+		} else {
+			log.Info("updated Subnet", "Name", subnet.Name, "Namespace", subnet.Namespace, "New Conditions", newConditions)
+		}
 	}
 }
 
@@ -246,17 +251,17 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 }
 
 func updateFail(r *SubnetReconciler, c *context.Context, o *v1alpha1.Subnet, m string) {
-	r.setSubnetReadyStatusFalse(c, o, m)
+	r.setSubnetReadyStatusFalse(c, o, metav1.Now(), m)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResTypeSubnet)
 }
 
 func deleteFail(r *SubnetReconciler, c *context.Context, o *v1alpha1.Subnet, m string) {
-	r.setSubnetReadyStatusFalse(c, o, m)
+	r.setSubnetReadyStatusFalse(c, o, metav1.Now(), m)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnet)
 }
 
 func updateSuccess(r *SubnetReconciler, c *context.Context, o *v1alpha1.Subnet) {
-	r.setSubnetReadyStatusTrue(c, o)
+	r.setSubnetReadyStatusTrue(c, o, metav1.Now())
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResTypeSubnet)
 }
 

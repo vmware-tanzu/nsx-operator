@@ -13,6 +13,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -47,17 +48,17 @@ type StaticRouteReconciler struct {
 }
 
 func deleteFail(r *StaticRouteReconciler, c *context.Context, o *v1alpha1.StaticRoute, e *error) {
-	r.setStaticRouteReadyStatusFalse(c, o, e)
+	r.setStaticRouteReadyStatusFalse(c, o, metav1.Now(), e)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeStaticRoute)
 }
 
 func updateFail(r *StaticRouteReconciler, c *context.Context, o *v1alpha1.StaticRoute, e *error) {
-	r.setStaticRouteReadyStatusFalse(c, o, e)
+	r.setStaticRouteReadyStatusFalse(c, o, metav1.Now(), e)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
 }
 
 func updateSuccess(r *StaticRouteReconciler, c *context.Context, o *v1alpha1.StaticRoute) {
-	r.setStaticRouteReadyStatusTrue(c, o)
+	r.setStaticRouteReadyStatusTrue(c, o, metav1.Now())
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, common.MetricResTypeStaticRoute)
 }
 
@@ -118,45 +119,47 @@ func (r *StaticRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return ResultNormal, nil
 }
 
-func (r *StaticRouteReconciler) setStaticRouteReadyStatusTrue(ctx *context.Context, static_route *v1alpha1.StaticRoute) {
+func (r *StaticRouteReconciler) setStaticRouteReadyStatusTrue(ctx *context.Context, staticRoute *v1alpha1.StaticRoute, transitionTime metav1.Time) {
 	newConditions := []v1alpha1.StaticRouteCondition{
 		{
-			Type:    v1alpha1.Ready,
-			Status:  v1.ConditionTrue,
-			Message: "NSX Static Route has been successfully created/updated",
-			Reason:  "NSX API returned 200 response code for PATCH",
+			Type:               v1alpha1.Ready,
+			Status:             v1.ConditionTrue,
+			Message:            "NSX Static Route has been successfully created/updated",
+			Reason:             "NSX API returned 200 response code for PATCH",
+			LastTransitionTime: transitionTime,
 		},
 	}
-	r.updateStaticRouteStatusConditions(ctx, static_route, newConditions)
+	r.updateStaticRouteStatusConditions(ctx, staticRoute, newConditions)
 }
 
-func (r *StaticRouteReconciler) setStaticRouteReadyStatusFalse(ctx *context.Context, static_route *v1alpha1.StaticRoute, err *error) {
+func (r *StaticRouteReconciler) setStaticRouteReadyStatusFalse(ctx *context.Context, staticRoute *v1alpha1.StaticRoute, transitionTime metav1.Time, err *error) {
 	newConditions := []v1alpha1.StaticRouteCondition{
 		{
-			Type:    v1alpha1.Ready,
-			Status:  v1.ConditionFalse,
-			Message: "NSX Static Route could not be created/updated/deleted",
-			Reason:  fmt.Sprintf("Error occurred while processing the Static Route CR. Please check the config and try again. Error: %v", *err),
+			Type:               v1alpha1.Ready,
+			Status:             v1.ConditionFalse,
+			Message:            "NSX Static Route could not be created/updated/deleted",
+			Reason:             fmt.Sprintf("Error occurred while processing the Static Route CR. Please check the config and try again. Error: %v", *err),
+			LastTransitionTime: transitionTime,
 		},
 	}
-	r.updateStaticRouteStatusConditions(ctx, static_route, newConditions)
+	r.updateStaticRouteStatusConditions(ctx, staticRoute, newConditions)
 }
 
-func (r *StaticRouteReconciler) updateStaticRouteStatusConditions(ctx *context.Context, static_route *v1alpha1.StaticRoute, newConditions []v1alpha1.StaticRouteCondition) {
+func (r *StaticRouteReconciler) updateStaticRouteStatusConditions(ctx *context.Context, staticRoute *v1alpha1.StaticRoute, newConditions []v1alpha1.StaticRouteCondition) {
 	conditionsUpdated := false
 	for i := range newConditions {
-		if r.mergeStaticRouteStatusCondition(static_route, &newConditions[i]) {
+		if r.mergeStaticRouteStatusCondition(staticRoute, &newConditions[i]) {
 			conditionsUpdated = true
 		}
 	}
 	if conditionsUpdated {
-		r.Client.Status().Update(*ctx, static_route)
-		log.V(1).Info("Updated Static Route CRD", "Name", static_route.Name, "Namespace", static_route.Namespace, "New Conditions", newConditions)
+		r.Client.Status().Update(*ctx, staticRoute)
+		log.V(1).Info("Updated Static Route CRD", "Name", staticRoute.Name, "Namespace", staticRoute.Namespace, "New Conditions", newConditions)
 	}
 }
 
-func (r *StaticRouteReconciler) mergeStaticRouteStatusCondition(static_route *v1alpha1.StaticRoute, newCondition *v1alpha1.StaticRouteCondition) bool {
-	matchedCondition := getExistingConditionOfType(v1alpha1.StaticRouteStatusCondition(newCondition.Type), static_route.Status.Conditions)
+func (r *StaticRouteReconciler) mergeStaticRouteStatusCondition(staticRoute *v1alpha1.StaticRoute, newCondition *v1alpha1.StaticRouteCondition) bool {
+	matchedCondition := getExistingConditionOfType(v1alpha1.StaticRouteStatusCondition(newCondition.Type), staticRoute.Status.Conditions)
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {
 		log.V(2).Info("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
@@ -168,7 +171,7 @@ func (r *StaticRouteReconciler) mergeStaticRouteStatusCondition(static_route *v1
 		matchedCondition.Message = newCondition.Message
 		matchedCondition.Status = newCondition.Status
 	} else {
-		static_route.Status.Conditions = append(static_route.Status.Conditions, *newCondition)
+		staticRoute.Status.Conditions = append(staticRoute.Status.Conditions, *newCondition)
 	}
 	return true
 }

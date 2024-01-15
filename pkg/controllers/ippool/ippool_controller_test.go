@@ -44,17 +44,19 @@ func TestIPPoolController_setReadyStatusTrue(t *testing.T) {
 	r := NewFakeIPPoolReconciler()
 	ctx := context.TODO()
 	dummyIPPool := &v1alpha2.IPPool{}
+	transitionTime := metav1.Now()
 
 	// Case: Static Route CRD creation fails
 	newConditions := []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.Ready,
-			Status:  v1.ConditionTrue,
-			Message: "NSX IPPool has been successfully created/updated",
-			Reason:  "",
+			Type:               v1alpha1.Ready,
+			Status:             v1.ConditionTrue,
+			Message:            "NSX IPPool has been successfully created/updated",
+			Reason:             "",
+			LastTransitionTime: transitionTime,
 		},
 	}
-	r.setReadyStatusTrue(&ctx, dummyIPPool)
+	r.setReadyStatusTrue(&ctx, dummyIPPool, transitionTime)
 
 	if !reflect.DeepEqual(dummyIPPool.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")

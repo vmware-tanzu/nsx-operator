@@ -12,6 +12,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -52,7 +53,7 @@ type SecurityPolicyReconciler struct {
 }
 
 func updateFail(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
-	r.setSecurityPolicyReadyStatusFalse(c, o, e)
+	r.setSecurityPolicyReadyStatusFalse(c, o, metav1.Now(), e)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
 }
 
@@ -65,12 +66,12 @@ func k8sClient(mgr ctrl.Manager) client.Client {
 }
 
 func deleteFail(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
-	r.setSecurityPolicyReadyStatusFalse(c, o, e)
+	r.setSecurityPolicyReadyStatusFalse(c, o, metav1.Now(), e)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 }
 
 func updateSuccess(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy) {
-	r.setSecurityPolicyReadyStatusTrue(c, o)
+	r.setSecurityPolicyReadyStatusTrue(c, o, metav1.Now())
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
 }
 
@@ -157,19 +158,20 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ResultNormal, nil
 }
 
-func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusTrue(ctx *context.Context, sec_policy *v1alpha1.SecurityPolicy) {
+func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusTrue(ctx *context.Context, secPolicy *v1alpha1.SecurityPolicy, transitionTime metav1.Time) {
 	newConditions := []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.Ready,
-			Status:  v1.ConditionTrue,
-			Message: "NSX Security Policy has been successfully created/updated",
-			Reason:  "NSX API returned 200 response code for PATCH",
+			Type:               v1alpha1.Ready,
+			Status:             v1.ConditionTrue,
+			Message:            "NSX Security Policy has been successfully created/updated",
+			Reason:             "NSX API returned 200 response code for PATCH",
+			LastTransitionTime: transitionTime,
 		},
 	}
-	r.updateSecurityPolicyStatusConditions(ctx, sec_policy, newConditions)
+	r.updateSecurityPolicyStatusConditions(ctx, secPolicy, newConditions)
 }
 
-func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusFalse(ctx *context.Context, sec_policy *v1alpha1.SecurityPolicy, err *error) {
+func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusFalse(ctx *context.Context, secPolicy *v1alpha1.SecurityPolicy, transitionTime metav1.Time, err *error) {
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:    v1alpha1.Ready,
@@ -179,27 +181,28 @@ func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusFalse(ctx *contex
 				"error occurred while processing the SecurityPolicy CR. Error: %v",
 				*err,
 			),
+			LastTransitionTime: transitionTime,
 		},
 	}
-	r.updateSecurityPolicyStatusConditions(ctx, sec_policy, newConditions)
+	r.updateSecurityPolicyStatusConditions(ctx, secPolicy, newConditions)
 }
 
-func (r *SecurityPolicyReconciler) updateSecurityPolicyStatusConditions(ctx *context.Context, sec_policy *v1alpha1.SecurityPolicy, newConditions []v1alpha1.Condition) {
+func (r *SecurityPolicyReconciler) updateSecurityPolicyStatusConditions(ctx *context.Context, secPolicy *v1alpha1.SecurityPolicy, newConditions []v1alpha1.Condition) {
 	conditionsUpdated := false
 	for i := range newConditions {
-		if r.mergeSecurityPolicyStatusCondition(ctx, sec_policy, &newConditions[i]) {
+		if r.mergeSecurityPolicyStatusCondition(ctx, secPolicy, &newConditions[i]) {
 			conditionsUpdated = true
 		}
 	}
 	if conditionsUpdated {
-		r.Client.Status().Update(*ctx, sec_policy)
-		log.V(1).Info("updated SecurityPolicy", "Name", sec_policy.Name, "Namespace", sec_policy.Namespace,
+		r.Client.Status().Update(*ctx, secPolicy)
+		log.V(1).Info("updated SecurityPolicy", "Name", secPolicy.Name, "Namespace", secPolicy.Namespace,
 			"New Conditions", newConditions)
 	}
 }
 
-func (r *SecurityPolicyReconciler) mergeSecurityPolicyStatusCondition(ctx *context.Context, sec_policy *v1alpha1.SecurityPolicy, newCondition *v1alpha1.Condition) bool {
-	matchedCondition := getExistingConditionOfType(newCondition.Type, sec_policy.Status.Conditions)
+func (r *SecurityPolicyReconciler) mergeSecurityPolicyStatusCondition(ctx *context.Context, secPolicy *v1alpha1.SecurityPolicy, newCondition *v1alpha1.Condition) bool {
+	matchedCondition := getExistingConditionOfType(newCondition.Type, secPolicy.Status.Conditions)
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {
 		log.V(2).Info("conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
@@ -211,7 +214,7 @@ func (r *SecurityPolicyReconciler) mergeSecurityPolicyStatusCondition(ctx *conte
 		matchedCondition.Message = newCondition.Message
 		matchedCondition.Status = newCondition.Status
 	} else {
-		sec_policy.Status.Conditions = append(sec_policy.Status.Conditions, *newCondition)
+		secPolicy.Status.Conditions = append(secPolicy.Status.Conditions, *newCondition)
 	}
 	return true
 }
