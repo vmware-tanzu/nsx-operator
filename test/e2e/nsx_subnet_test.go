@@ -16,6 +16,7 @@ import (
 
 const (
 	SubnetSetCRType        = "subnetsets"
+	SubnetPortCRType       = "subnetport"
 	E2ENamespace           = "subnet-e2e"
 	E2ENamespaceShared     = "subnet-e2e-shared"
 	E2ENamespaceTarget     = "target-ns"
@@ -52,11 +53,13 @@ func TestSubnetSet(t *testing.T) {
 	setupTest(t, E2ENamespace)
 	nsPath, _ := filepath.Abs("./manifest/testSubnet/shared_ns.yaml")
 	err := applyYAML(nsPath, "")
-	assert_nil(t, err)
+	assertNil(t, err)
 
-	defer teardownTest(t, E2ENamespace, SubnetDeletionTimeout)
-	defer teardownTest(t, E2ENamespaceShared, SubnetDeletionTimeout)
-	defer teardownTest(t, E2ENamespaceTarget, SubnetDeletionTimeout)
+	t.Cleanup(func() {
+		teardownTest(t, E2ENamespace, SubnetDeletionTimeout)
+		teardownTest(t, E2ENamespaceShared, SubnetDeletionTimeout)
+		teardownTest(t, E2ENamespaceTarget, SubnetDeletionTimeout)
+	})
 
 	t.Run("case=DefaultSubnetSet", defaultSubnetSet)
 	t.Run("case=UserSubnetSet", userSubnetSet)
@@ -66,41 +69,42 @@ func TestSubnetSet(t *testing.T) {
 func defaultSubnetSet(t *testing.T) {
 	// 1. Check whether default-vm-subnetset and default-pod-subnetset are created.
 	err := testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetSetCRType, E2ENamespace, common.DefaultVMSubnetSet, Ready)
-	assert_nil(t, err)
+	assertNil(t, err)
 	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetSetCRType, E2ENamespace, common.DefaultPodSubnetSet, Ready)
-	assert_nil(t, err)
+	assertNil(t, err)
 
 	// 2. Check `Ipv4SubnetSize` and `AccessMode` should be same with related fields in VPCNetworkConfig.
-	assert_true(t, verifySubnetSetCR(common.DefaultVMSubnetSet))
-	assert_true(t, verifySubnetSetCR(common.DefaultPodSubnetSet))
+	assertTrue(t, verifySubnetSetCR(common.DefaultVMSubnetSet))
+	assertTrue(t, verifySubnetSetCR(common.DefaultPodSubnetSet))
 
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_1.yaml")
 	err = applyYAML(portPath, E2ENamespace)
-	time.Sleep(30 * time.Second)
-	assert_nil(t, err)
+	assertNil(t, err)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetPortCRType, E2ENamespace, "port-1", Ready)
+	assertNil(t, err)
 	defer deleteYAML(portPath, E2ENamespace)
 
 	// 3. Check SubnetSet CR status should be updated with NSX subnet info.
 	subnetSet, err := testData.crdClientset.NsxV1alpha1().SubnetSets(E2ENamespace).Get(context.TODO(), common.DefaultPodSubnetSet, v1.GetOptions{})
-	assert_nil(t, err)
+	assertNil(t, err)
 	assert.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
 	// 4. Check NSX subnet allocation.
 	subnetPath := subnetSet.Status.Subnets[0].NSXResourcePath
 	vpcInfo, err := common.ParseVPCResourcePath(subnetPath)
-	assert_nil(t, err, "Failed to parse VPC resource path %s", subnetPath)
+	assertNil(t, err, "Failed to parse VPC resource path %s", subnetPath)
 	vpcSubnet, err := testData.nsxClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
-	assert_nil(t, err, "Failed to get VPC subnet %s", vpcInfo.ID)
+	assertNil(t, err, "Failed to get VPC subnet %s", vpcInfo.ID)
 
 	// 5. Check adding NSX subnet tags.
 	ns, err := testData.clientset.CoreV1().Namespaces().Get(context.TODO(), E2ENamespace, v1.GetOptions{})
-	assert_nil(t, err)
+	assertNil(t, err)
 	labelKey, labelValue := "subnet-e2e", "add"
 	ns.Labels[labelKey] = labelValue
 	ns, err = testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
 	time.Sleep(5 * time.Second)
-	assert_nil(t, err)
+	assertNil(t, err)
 	vpcSubnet, err = testData.nsxClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
-	assert_nil(t, err)
+	assertNil(t, err)
 	found := false
 	for _, tag := range vpcSubnet.Tags {
 		if *tag.Scope == labelKey && *tag.Tag == labelValue {
@@ -108,16 +112,16 @@ func defaultSubnetSet(t *testing.T) {
 			break
 		}
 	}
-	assert_true(t, found, "Failed to add tags for NSX subnet %s", vpcInfo.ID)
+	assertTrue(t, found, "Failed to add tags for NSX subnet %s", vpcInfo.ID)
 
 	// 6. Check updating NSX subnet tags.
 	labelValue = "update"
 	ns.Labels[labelKey] = labelValue
 	ns, err = testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
 	time.Sleep(5 * time.Second)
-	assert_nil(t, err)
+	assertNil(t, err)
 	vpcSubnet, err = testData.nsxClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
-	assert_nil(t, err)
+	assertNil(t, err)
 	found = false
 	for _, tag := range vpcSubnet.Tags {
 		if *tag.Scope == labelKey && *tag.Tag == labelValue {
@@ -125,15 +129,15 @@ func defaultSubnetSet(t *testing.T) {
 			break
 		}
 	}
-	assert_true(t, found, "Failed to update tags for NSX subnet %s", vpcInfo.ID)
+	assertTrue(t, found, "Failed to update tags for NSX subnet %s", vpcInfo.ID)
 
 	// 7. Check deleting NSX subnet tags.
 	delete(ns.Labels, labelKey)
 	_, err = testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
 	time.Sleep(5 * time.Second)
-	assert_nil(t, err)
+	assertNil(t, err)
 	vpcSubnet, err = testData.nsxClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
-	assert_nil(t, err)
+	assertNil(t, err)
 	found = false
 	for _, tag := range vpcSubnet.Tags {
 		if *tag.Scope == labelKey {
@@ -141,68 +145,70 @@ func defaultSubnetSet(t *testing.T) {
 			break
 		}
 	}
-	assert_false(t, found, "Failed to delete tags for NSX subnet %s", vpcInfo.ID)
+	assertFalse(t, found, "Failed to delete tags for NSX subnet %s", vpcInfo.ID)
 }
 
 func userSubnetSet(t *testing.T) {
 	// 1. Check SubnetSet created by user.
 	subnetSetPath, _ := filepath.Abs("./manifest/testSubnet/subnetset.yaml")
 	err := applyYAML(subnetSetPath, E2ENamespace)
-	assert_nil(t, err)
+	assertNil(t, err)
 	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetSetCRType, E2ENamespace, UserSubnetSet, Ready)
-	assert_nil(t, err)
+	assertNil(t, err)
 
 	// 2. Check `Ipv4SubnetSize` and `AccessMode` should be same with related fields in VPCNetworkConfig.
-	assert_true(t, verifySubnetSetCR(UserSubnetSet))
+	assertTrue(t, verifySubnetSetCR(UserSubnetSet))
 
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_2.yaml")
 	err = applyYAML(portPath, E2ENamespace)
-	time.Sleep(30 * time.Second)
-	assert_nil(t, err)
+	assertNil(t, err)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetPortCRType, E2ENamespace, "port-2", Ready)
+	assertNil(t, err)
 	defer deleteYAML(portPath, E2ENamespace)
 
 	// 3. Check SubnetSet CR status should be updated with NSX subnet info.
 	subnetSet, err := testData.crdClientset.NsxV1alpha1().SubnetSets(E2ENamespace).Get(context.TODO(), UserSubnetSet, v1.GetOptions{})
-	assert_nil(t, err)
+	assertNil(t, err)
 	assert.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
 	// 4. Check NSX subnet allocation.
 	subnetPath := subnetSet.Status.Subnets[0].NSXResourcePath
 	vpcInfo, err := common.ParseVPCResourcePath(subnetPath)
-	assert_nil(t, err, "Failed to parse VPC resource path %s", subnetPath)
+	assertNil(t, err, "Failed to parse VPC resource path %s", subnetPath)
 	_, err = testData.nsxClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
-	assert_nil(t, err, "Failed to get VPC subnet %s", vpcInfo.ID)
+	assertNil(t, err, "Failed to get VPC subnet %s", vpcInfo.ID)
 }
 
 func sharedSubnetSet(t *testing.T) {
 	// 1. Check whether default-vm-subnetset and default-pod-subnetset are created.
 	err := testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetSetCRType, E2ENamespaceTarget, common.DefaultVMSubnetSet, Ready)
-	assert_nil(t, err)
+	assertNil(t, err)
 	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetSetCRType, E2ENamespaceTarget, common.DefaultPodSubnetSet, Ready)
-	assert_nil(t, err)
+	assertNil(t, err)
 
 	// 2. Check `Ipv4SubnetSize` and `AccessMode` should be same with related fields in VPCNetworkConfig.
-	assert_true(t, verifySubnetSetCR(common.DefaultVMSubnetSet))
-	assert_true(t, verifySubnetSetCR(common.DefaultPodSubnetSet))
+	assertTrue(t, verifySubnetSetCR(common.DefaultVMSubnetSet))
+	assertTrue(t, verifySubnetSetCR(common.DefaultPodSubnetSet))
 
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_3.yaml")
 	err = applyYAML(portPath, E2ENamespaceShared)
-	time.Sleep(30 * time.Second)
-	assert_nil(t, err)
+	assertNil(t, err)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetPortCRType, E2ENamespaceShared, "port-3", Ready)
+	assertNil(t, err)
 	defer deleteYAML(portPath, E2ENamespaceShared)
 
 	// 3. Check SubnetSet CR status should be updated with NSX subnet info.
 	subnetSet, err := testData.crdClientset.NsxV1alpha1().SubnetSets(E2ENamespaceTarget).Get(context.TODO(), common.DefaultVMSubnetSet, v1.GetOptions{})
-	assert_nil(t, err)
+	assertNil(t, err)
 	assert.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
 
 	// 4. Check IP address is allocated to SubnetPort.
 	port, err := testData.crdClientset.NsxV1alpha1().SubnetPorts(E2ENamespaceShared).Get(context.TODO(), "port-3", v1.GetOptions{})
-	assert_nil(t, err)
+	assertNil(t, err)
 	assert.NotEmpty(t, port.Status.IPAddresses, "No IP address in SubnetPort")
 
 	// 5. Check Subnet CIDR contains SubnetPort IP.
 	portIP := net.ParseIP(port.Status.IPAddresses[0].IP)
 	_, subnetCIDR, err := net.ParseCIDR(subnetSet.Status.Subnets[0].IPAddresses[0])
-	assert_nil(t, err)
-	assert_true(t, subnetCIDR.Contains(portIP))
+	assertNil(t, err)
+	assertTrue(t, subnetCIDR.Contains(portIP))
 }
