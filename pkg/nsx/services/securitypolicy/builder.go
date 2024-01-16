@@ -90,7 +90,8 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 	}
 	nsxSecurityPolicy.Rules = nsxRules
 	nsxSecurityPolicy.Tags = service.buildBasicTags(obj)
-	log.V(1).Info("built nsxSecurityPolicy", "nsxSecurityPolicy", nsxSecurityPolicy, "nsxGroups", nsxGroups)
+	// nsxRules info are included in nsxSecurityPolicy obj
+	log.Info("built nsxSecurityPolicy", "nsxSecurityPolicy", nsxSecurityPolicy, "nsxGroups", nsxGroups)
 	return nsxSecurityPolicy, &nsxGroups, nil
 }
 
@@ -146,6 +147,7 @@ func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPol
 	}
 
 	policyAppliedGroupPath := service.buildAppliedGroupPath(obj, -1)
+	log.V(1).Info("built policy target group", "policyGroup", policyAppliedGroup)
 	return &policyAppliedGroup, policyAppliedGroupPath, nil
 }
 
@@ -335,12 +337,7 @@ func (service *SecurityPolicyService) buildAppliedGroupName(obj *v1alpha1.Securi
 
 // build appliedTo group path for both policy and rule levels.
 func (service *SecurityPolicyService) buildAppliedGroupPath(obj *v1alpha1.SecurityPolicy, ruleIdx int) string {
-	var groupID string
-	if ruleIdx == -1 {
-		groupID = service.buildAppliedGroupID(obj, -1)
-	} else {
-		groupID = service.buildAppliedGroupID(obj, ruleIdx)
-	}
+	groupID := service.buildAppliedGroupID(obj, ruleIdx)
 
 	return fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), groupID)
 }
@@ -409,10 +406,6 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 		}
 		ruleGroups = append(ruleGroups, nsxRuleAppliedGroup)
 		nsxRule.Scope = []string{nsxRuleAppliedGroupPath}
-
-		log.V(2).Info("built rule and groups", "nsxRuleAppliedGroup", nsxRuleAppliedGroup,
-			"~", nsxRuleSrcGroup, "nsxRuleDstGroup", nsxRuleDstGroup,
-			"action", *nsxRule.Action, "direction", *nsxRule.Direction)
 	}
 	return nsxRules, ruleGroups, nil
 }
@@ -444,7 +437,7 @@ func (service *SecurityPolicyService) buildRuleServiceEntries(port v1alpha1.Secu
 			"overridden":        data.NewBooleanValue(false),
 		},
 	)
-	log.V(2).Info("built service entry", "serviceEntry", serviceEntry)
+	log.V(1).Info("built rule service entry", "destinationPorts", portRange, "protocol", port.Protocol)
 	return serviceEntry
 }
 
@@ -468,6 +461,7 @@ func (service *SecurityPolicyService) buildRuleAppliedToGroup(obj *v1alpha1.Secu
 			return nil, "", err
 		}
 	}
+	log.V(1).Info("built rule target group", "ruleAppliedToGroup", nsxRuleAppliedGroup)
 	return nsxRuleAppliedGroup, nsxRuleAppliedGroupPath, nil
 }
 
