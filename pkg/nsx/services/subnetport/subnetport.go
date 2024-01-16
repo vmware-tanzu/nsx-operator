@@ -150,12 +150,13 @@ func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubne
 	if err := realizeService.CheckRealizeState(backoff, *nsxSubnetPort.Path, "RealizedLogicalPort"); err != nil {
 		log.Error(err, "failed to get realized status", "subnetport path", *nsxSubnetPort.Path)
 		if realizestate.IsRealizeStateError(err) {
-			log.Error(err, "the created subnet port is in error realization state, cleaning the resource", "subnetport", uid)
-			// only recreate subnet port on RealizationErrorStateError.
-			if err := service.DeleteSubnetPort(uid); err != nil {
-				log.Error(err, "cleanup error subnetport failed", "subnetport", uid)
-				return nil, err
-			}
+			panic(err)
+			// log.Error(err, "the created subnet port is in error realization state, cleaning the resource", "subnetport", uid)
+			// // only recreate subnet port on RealizationErrorStateError.
+			// if err := service.DeleteSubnetPort(uid); err != nil {
+			// 	log.Error(err, "cleanup error subnetport failed", "subnetport", uid)
+			// 	return nil, err
+			// }
 		}
 		return nil, err
 	}

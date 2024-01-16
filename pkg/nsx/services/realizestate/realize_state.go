@@ -11,7 +11,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+)
+
+var (
+	log = logger.Log
 )
 
 type RealizeStateService struct {
@@ -45,6 +50,9 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 		results, err := service.NSXClient.RealizedEntitiesClient.List(vpcInfo.OrgID, vpcInfo.ProjectID, intentPath, nil)
 		if err != nil {
 			return err
+		}
+		for _, result := range results.Results {
+			log.Info("checking result.State", "result", result, "result.State", result.State, "result.PublishStatusErrorDetails", result.PublishStatusErrorDetails, "result.ExtendedAttributes", result.ExtendedAttributes)
 		}
 		for _, result := range results.Results {
 			if *result.EntityType != entityType {
