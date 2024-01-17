@@ -11,6 +11,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
@@ -77,6 +78,10 @@ func InitializeSecurityPolicy(service common.Service) (*SecurityPolicyService, e
 }
 
 func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1.SecurityPolicy) error {
+	if !nsxutil.IsLicensed(nsxutil.FeatureDFW) {
+		log.Info("no DFW license, skip creating SecurityPolicy.")
+		return nsxutil.RestrictionError{Desc: "no DFW license"}
+	}
 	nsxSecurityPolicy, nsxGroups, err := service.buildSecurityPolicy(obj)
 	if err != nil {
 		log.Error(err, "failed to build SecurityPolicy")

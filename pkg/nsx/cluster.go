@@ -35,6 +35,9 @@ const (
 	// GREEN means endpoints status are UP.
 	GREEN ClusterHealth = "GREEN"
 )
+const (
+	LicenseAPI = "api/v1/licenses/licensed-features"
+)
 
 // Cluster consists of endpoint and provides http.Client used to send http requests.
 type Cluster struct {
@@ -270,6 +273,48 @@ func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 	err, _ = util.HandleHTTPResponse(resp, nsxVersion, true)
 	return nsxVersion, err
 }
+func (cluster *Cluster) CreateServerUrl(host string, scheme string) string {
+	return fmt.Sprintf("%s://%s", scheme, host)
+}
+
+// HttpGet sends a http GET request to the cluster, exported for use
+func (cluster *Cluster) HttpGet(url string) (map[string]interface{}, error) {
+	resp, err := cluster.httpAction(url, "GET")
+	if err != nil {
+		log.Error(err, "failed to do http GET operation")
+		return nil, err
+	}
+	respJson := make(map[string]interface{})
+	err, _ = util.HandleHTTPResponse(resp, &respJson, true)
+	return respJson, err
+}
+
+func (cluster *Cluster) httpAction(url, method string) (*http.Response, error) {
+	ep := cluster.endpoints[0]
+	serverUrl := cluster.CreateServerUrl(cluster.endpoints[0].Host(), cluster.endpoints[0].Scheme())
+	url = fmt.Sprintf("%s/%s", serverUrl, url)
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		log.Error(err, "failed to create http request")
+		return nil, err
+	}
+	log.V(1).Info(method+" url", "url", req.URL)
+	resp, err := ep.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// HttpDelete sends a http DELETE request to the cluster, exported for use
+func (cluster *Cluster) HttpDelete(url string) error {
+	_, err := cluster.httpAction(url, "DELETE")
+	if err != nil {
+		log.Error(err, "failed to do http DELETE operation")
+		return err
+	}
+	return nil
+}
 
 func (nsxVersion *NsxVersion) Validate() error {
 	re, _ := regexp.Compile(`^([\d]+).([\d]+).([\d]+)`)
@@ -327,4 +372,19 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 		return true
 	}
 	return false
+}
+
+func (cluster *Cluster) FetchLicense() error {
+	resp, err := cluster.httpAction(LicenseAPI, "GET")
+	if err != nil {
+		log.Error(err, "failed to get nsx license")
+		return err
+	}
+	nsxLicense := &util.NsxLicense{}
+	err, _ = util.HandleHTTPResponse(resp, nsxLicense, true)
+	if err != nil {
+		return err
+	}
+	util.UpdateFeatureLicense(nsxLicense)
+	return nil
 }

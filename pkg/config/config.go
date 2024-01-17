@@ -20,6 +20,10 @@ import (
 const (
 	nsxOperatorDefaultConf = "/etc/nsx-operator/nsxop.ini"
 	vcHostCACertPath       = "/etc/vmware/wcp/tls/vmca.pem"
+	// LicenseInterval is the timeout for checking license status
+	LicenseInterval = 86400
+	// LicenseIntervalForDFW is the timeout for checking license status while no DFW license enabled
+	LicenseIntervalForDFW = 1800
 )
 
 var (
@@ -85,16 +89,17 @@ type CoeConfig struct {
 }
 
 type NsxConfig struct {
-	NsxApiUser           string   `ini:"nsx_api_user"`
-	NsxApiPassword       string   `ini:"nsx_api_password"`
-	NsxApiCertFile       string   `ini:"nsx_api_cert_file"`
-	NsxApiPrivateKeyFile string   `ini:"nsx_api_private_key_file"`
-	NsxApiManagers       []string `ini:"nsx_api_managers"`
-	CaFile               []string `ini:"ca_file"`
-	Thumbprint           []string `ini:"thumbprint"`
-	Insecure             bool     `ini:"insecure"`
-	SingleTierSrTopology bool     `ini:"single_tier_sr_topology"`
-	EnforcementPoint     string   `ini:"enforcement_point"`
+	NsxApiUser                string   `ini:"nsx_api_user"`
+	NsxApiPassword            string   `ini:"nsx_api_password"`
+	NsxApiCertFile            string   `ini:"nsx_api_cert_file"`
+	NsxApiPrivateKeyFile      string   `ini:"nsx_api_private_key_file"`
+	NsxApiManagers            []string `ini:"nsx_api_managers"`
+	CaFile                    []string `ini:"ca_file"`
+	Thumbprint                []string `ini:"thumbprint"`
+	Insecure                  bool     `ini:"insecure"`
+	SingleTierSrTopology      bool     `ini:"single_tier_sr_topology"`
+	EnforcementPoint          string   `ini:"enforcement_point"`
+	LicenseValidationInterval int      `ini:"license_validation_interval"`
 }
 
 type K8sConfig struct {
