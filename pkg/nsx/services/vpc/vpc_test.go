@@ -484,7 +484,7 @@ func TestCreateOrUpdateAVIRule(t *testing.T) {
 		Path:              &rulepath1,
 		DestinationGroups: []string{"2.2.2.0/24"},
 	}
-	ruleStore.Add(rule)
+	ruleStore.Add(&rule)
 	spClient.Err = nil
 	resulterr := errors.New("get external ipblock failed")
 	patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "getIpblockCidr", func(_ *VPCService, cidr []string) ([]string, error) {

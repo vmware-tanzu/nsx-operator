@@ -93,7 +93,10 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		return nil, err
 	}
 	existingSubnetPort := service.SubnetPortStore.GetByKey(*nsxSubnetPort.Id)
-	isChanged := servicecommon.CompareResource(SubnetPortToComparable(existingSubnetPort), SubnetPortToComparable(nsxSubnetPort))
+	isChanged := true
+	if existingSubnetPort != nil {
+		isChanged = servicecommon.CompareResource(SubnetPortToComparable(existingSubnetPort), SubnetPortToComparable(nsxSubnetPort))
+	}
 	if !isChanged {
 		log.Info("NSX subnet port not changed, skipping the update", "nsxSubnetPort.Id", nsxSubnetPort.Id, "nsxSubnetPath", nsxSubnetPath)
 		// We don't need to update it but still need to check realized state.
@@ -190,7 +193,7 @@ func (service *SubnetPortService) GetSubnetPortState(obj interface{}, nsxSubnetP
 
 func (service *SubnetPortService) DeleteSubnetPort(uid types.UID) error {
 	nsxSubnetPort := service.SubnetPortStore.GetByKey(string(uid))
-	if nsxSubnetPort.Id == nil {
+	if nsxSubnetPort == nil || nsxSubnetPort.Id == nil {
 		log.Info("NSX subnet port is not found in store, skip deleting it", "uid", uid)
 		return nil
 	}
@@ -254,6 +257,10 @@ func (service *SubnetPortService) GetGatewayNetmaskForSubnetPort(obj *v1alpha1.S
 
 func (service *SubnetPortService) GetSubnetPathForSubnetPortFromStore(nsxSubnetPortID string) string {
 	existingSubnetPort := service.SubnetPortStore.GetByKey(nsxSubnetPortID)
+	if existingSubnetPort == nil {
+		log.Info("subnetport is not found in store", "nsxSubnetPortID", nsxSubnetPortID)
+		return ""
+	}
 	if existingSubnetPort.ParentPath == nil {
 		return ""
 	}

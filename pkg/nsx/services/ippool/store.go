@@ -11,11 +11,11 @@ import (
 
 func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
-	case model.IpAddressPool:
+	case *model.IpAddressPool:
 		return *v.Id, nil
-	case model.IpAddressPoolBlockSubnet:
+	case *model.IpAddressPoolBlockSubnet:
 		return *v.Id, nil
-	case model.GenericPolicyRealizedResource:
+	case *model.GenericPolicyRealizedResource:
 		return *v.Id, nil
 	default:
 		return "", errors.New("keyFunc doesn't support unknown type")
@@ -25,9 +25,11 @@ func keyFunc(obj interface{}) (string, error) {
 func indexFunc(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
 	switch v := obj.(type) {
-	case model.IpAddressPoolBlockSubnet:
+	case *model.IpAddressPoolBlockSubnet:
 		return filterTag(v.Tags), nil
-	case model.IpAddressPool:
+	case *model.IpAddressPool:
+		return filterTag(v.Tags), nil
+	case *model.GenericPolicyRealizedResource:
 		return filterTag(v.Tags), nil
 	default:
 		return res, errors.New("indexFunc doesn't support unknown type")
@@ -63,13 +65,13 @@ func ipPoolBlockSubnetAssertion(i interface{}) interface{} {
 func (ipPoolStore *IPPoolStore) Apply(i interface{}) error {
 	ipPool := i.(*model.IpAddressPool)
 	if ipPool.MarkedForDelete != nil && *ipPool.MarkedForDelete {
-		err := ipPoolStore.Delete(*ipPool)
+		err := ipPoolStore.Delete(ipPool)
 		log.V(1).Info("delete ipPool from store", "ipPool", ipPool)
 		if err != nil {
 			return err
 		}
 	} else {
-		err := ipPoolStore.Add(*ipPool)
+		err := ipPoolStore.Add(ipPool)
 		log.V(1).Info("add ipPool to store", "ipPool", ipPool)
 		if err != nil {
 			return err
@@ -82,13 +84,13 @@ func (ipPoolBlockSubnetStore *IPPoolBlockSubnetStore) Apply(i interface{}) error
 	ipPoolBlockSubnets := i.([]*model.IpAddressPoolBlockSubnet)
 	for _, ipPoolBlockSubnet := range ipPoolBlockSubnets {
 		if ipPoolBlockSubnet.MarkedForDelete != nil && *ipPoolBlockSubnet.MarkedForDelete {
-			err := ipPoolBlockSubnetStore.Delete(*ipPoolBlockSubnet)
+			err := ipPoolBlockSubnetStore.Delete(ipPoolBlockSubnet)
 			log.V(1).Info("delete ipPoolBlockSubnet from store", "ipPoolBlockSubnet", ipPoolBlockSubnet)
 			if err != nil {
 				return err
 			}
 		} else {
-			err := ipPoolBlockSubnetStore.Add(*ipPoolBlockSubnet)
+			err := ipPoolBlockSubnetStore.Add(ipPoolBlockSubnet)
 			log.V(1).Info("add ipPoolBlockSubnet to store", "ipPoolBlockSubnet", ipPoolBlockSubnet)
 			if err != nil {
 				return err
@@ -121,8 +123,8 @@ func (ipPoolBlockSubnetStore *IPPoolBlockSubnetStore) GetByIndex(uid types.UID) 
 		log.Info("did not get ip subnets with index", "UID", string(uid))
 	}
 	for _, ipSubnet := range indexResults {
-		t := ipSubnet.(model.IpAddressPoolBlockSubnet)
-		nsxIPSubnets = append(nsxIPSubnets, &t)
+		t := ipSubnet.(*model.IpAddressPoolBlockSubnet)
+		nsxIPSubnets = append(nsxIPSubnets, t)
 	}
 	return nsxIPSubnets, nil
 }
@@ -135,8 +137,8 @@ func (ipPoolStore *IPPoolStore) GetByIndex(uid types.UID) (*model.IpAddressPool,
 		return nil, err
 	}
 	if len(indexResults) > 0 {
-		t := indexResults[0].(model.IpAddressPool)
-		nsxIPPool = &t
+		t := indexResults[0].(*model.IpAddressPool)
+		nsxIPPool = t
 	} else {
 		log.Info("did not get ip pool with index", "UID", string(uid))
 	}

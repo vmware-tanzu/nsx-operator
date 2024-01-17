@@ -34,7 +34,7 @@ func (qIface *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ 
 
 func Test_IndexFunc(t *testing.T) {
 	mId, mTag, mScope := "test_id", "test_tag", "nsx-op/vpc_uid"
-	v := model.Vpc{
+	v := &model.Vpc{
 		Id:   &mId,
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
 	}
@@ -76,7 +76,7 @@ func Test_filterTag(t *testing.T) {
 
 func Test_KeyFunc(t *testing.T) {
 	Id := "test_id"
-	v := model.Vpc{Id: &Id}
+	v := &model.Vpc{Id: &Id}
 	t.Run("1", func(t *testing.T) {
 		got, _ := keyFunc(v)
 		if got != "test_id" {
@@ -275,7 +275,7 @@ func TestRuleStore_GetByKey(t *testing.T) {
 	rule2 := model.Rule{
 		Path: &path2,
 	}
-	ruleStore.Add(rule1)
+	ruleStore.Add(&rule1)
 
 	rule := ruleStore.GetByKey(path1)
 	assert.Equal(t, rule.Path, rule1.Path)
@@ -283,7 +283,7 @@ func TestRuleStore_GetByKey(t *testing.T) {
 	rule = ruleStore.GetByKey(path2)
 	assert.True(t, rule == nil)
 
-	ruleStore.Add(rule2)
+	ruleStore.Add(&rule2)
 	rule = ruleStore.GetByKey(path2)
 	assert.Equal(t, rule.Path, rule2.Path)
 }
@@ -308,7 +308,7 @@ func TestGroupStore_GetByKey(t *testing.T) {
 	group2 := model.Group{
 		Path: &path2,
 	}
-	groupStore.Add(group1)
+	groupStore.Add(&group1)
 
 	group := groupStore.GetByKey(path1)
 	assert.Equal(t, group.Path, group1.Path)
@@ -316,7 +316,7 @@ func TestGroupStore_GetByKey(t *testing.T) {
 	group = groupStore.GetByKey(path2)
 	assert.True(t, group == nil)
 
-	groupStore.Add(group2)
+	groupStore.Add(&group2)
 	group = groupStore.GetByKey(path2)
 	assert.Equal(t, group.Path, group2.Path)
 }
@@ -341,7 +341,7 @@ func TestSecurityPolicyStore_GetByKey(t *testing.T) {
 	sp2 := model.SecurityPolicy{
 		Path: &path2,
 	}
-	spStore.Add(sp1)
+	spStore.Add(&sp1)
 
 	sp := spStore.GetByKey(path1)
 	assert.Equal(t, sp.Path, sp1.Path)
@@ -349,7 +349,7 @@ func TestSecurityPolicyStore_GetByKey(t *testing.T) {
 	sp = spStore.GetByKey(path2)
 	assert.True(t, sp == nil)
 
-	spStore.Add(sp2)
+	spStore.Add(&sp2)
 	sp = spStore.GetByKey(path2)
 	assert.Equal(t, sp.Path, sp2.Path)
 }

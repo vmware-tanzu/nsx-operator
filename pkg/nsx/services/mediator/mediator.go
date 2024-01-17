@@ -102,7 +102,7 @@ func (serviceMediator *ServiceMediator) GetNamespaceVPCInfo(ns string) (*common.
 	return &vpcInfo, nil
 }
 
-func (serviceMediator *ServiceMediator) GetPortsOfSubnet(nsxSubnetID string) (ports []model.VpcSubnetPort) {
+func (serviceMediator *ServiceMediator) GetPortsOfSubnet(nsxSubnetID string) (ports []*model.VpcSubnetPort) {
 	subnetPortList := serviceMediator.SubnetPortStore.GetByIndex(common.IndexKeySubnetID, nsxSubnetID)
 	return subnetPortList
 }
@@ -119,5 +119,5 @@ func (serviceMediator *ServiceMediator) GetNodeByName(nodeName string) (*model.H
 		}
 		return nil, fmt.Errorf("multiple node IDs found for node %s: %v", nodeName, nodeIDs)
 	}
-	return &nodes[0], nil
+	return nodes[0], nil
 }

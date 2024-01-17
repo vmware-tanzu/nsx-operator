@@ -32,14 +32,14 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 	}
 	// Subnet doesn't have TagScopeSubnetSetCRId (not  belong to SubnetSet)
 	// gc collect item "2345", local store has more item than k8s cache
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, uid string) []model.VpcSubnet {
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, uid string) []*model.VpcSubnet {
 		tags1 := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("2345")}}
 		tags2 := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("1234")}}
-		var a []model.VpcSubnet
+		var a []*model.VpcSubnet
 		id1 := "2345"
-		a = append(a, model.VpcSubnet{Id: &id1, Tags: tags1})
+		a = append(a, &model.VpcSubnet{Id: &id1, Tags: tags1})
 		id2 := "1234"
-		a = append(a, model.VpcSubnet{Id: &id2, Tags: tags2})
+		a = append(a, &model.VpcSubnet{Id: &id2, Tags: tags2})
 		return a
 	})
 	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
@@ -72,11 +72,11 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has same item as k8s cache
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, uid string) []model.VpcSubnet {
+	patch.ApplyMethod(reflect.TypeOf(service), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, uid string) []*model.VpcSubnet {
 		tags := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("1234")}}
-		var a []model.VpcSubnet
+		var a []*model.VpcSubnet
 		id := "1234"
-		a = append(a, model.VpcSubnet{Id: &id, Tags: tags})
+		a = append(a, &model.VpcSubnet{Id: &id, Tags: tags})
 		return a
 	})
 	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
@@ -98,8 +98,8 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has no item
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, uid string) []model.VpcSubnet {
-		return []model.VpcSubnet{}
+	patch.ApplyMethod(reflect.TypeOf(service), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, uid string) []*model.VpcSubnet {
+		return []*model.VpcSubnet{}
 	})
 	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
 		assert.FailNow(t, "should not be called")

@@ -67,7 +67,7 @@ func TestIPPoolService_BuildIPPool(t *testing.T) {
 		Size: Int64(256),
 	}
 
-	vpcinfolist := []model.Vpc{
+	vpcinfolist := []*model.Vpc{
 		{ExternalIpv4Blocks: []string{"/infra/ip-blocks/block-test"}},
 	}
 	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
@@ -79,7 +79,7 @@ func TestIPPoolService_BuildIPPool(t *testing.T) {
 	commonctl.ServiceMediator.VPCService = &vpc.VPCService{VpcStore: vpcStore}
 	patch := gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(vpcService *vpc.VPCService,
 		ns string,
-	) []model.Vpc {
+	) []*model.Vpc {
 		return vpcinfolist
 	})
 	defer patch.Reset()

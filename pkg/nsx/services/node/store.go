@@ -43,11 +43,11 @@ func (nodeStore *NodeStore) GetByKey(key string) *model.HostTransportNode {
 	return &node
 }
 
-func (nodeStore *NodeStore) GetByIndex(key string, value string) []model.HostTransportNode {
-	hostTransportNodes := make([]model.HostTransportNode, 0)
+func (nodeStore *NodeStore) GetByIndex(key string, value string) []*model.HostTransportNode {
+	hostTransportNodes := make([]*model.HostTransportNode, 0)
 	objs := nodeStore.ResourceStore.GetByIndex(key, value)
 	for _, node := range objs {
-		hostTransportNodes = append(hostTransportNodes, node.(model.HostTransportNode))
+		hostTransportNodes = append(hostTransportNodes, node.(*model.HostTransportNode))
 	}
 	return hostTransportNodes
 }
@@ -55,7 +55,7 @@ func (nodeStore *NodeStore) GetByIndex(key string, value string) []model.HostTra
 // keyFunc is used to get the key of a resource, usually, which is the ID of the resource
 func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
-	case model.HostTransportNode:
+	case *model.HostTransportNode:
 		return *v.Id, nil
 	default:
 		return "", errors.New("keyFunc doesn't support unknown type")
@@ -64,7 +64,7 @@ func keyFunc(obj interface{}) (string, error) {
 
 func nodeIndexByNodeName(obj interface{}) ([]string, error) {
 	switch o := obj.(type) {
-	case model.HostTransportNode:
+	case *model.HostTransportNode:
 		return []string{*o.NodeDeploymentInfo.Fqdn}, nil
 	default:
 		return nil, errors.New("nodeIndexByNodeName doesn't support unknown type")

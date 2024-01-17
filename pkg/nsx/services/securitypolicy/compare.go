@@ -89,24 +89,46 @@ func SecurityPolicyToComparable(sp *model.SecurityPolicy) Comparable {
 	return (*SecurityPolicy)(sp)
 }
 
-func RulesToComparable(rules []model.Rule) []Comparable {
+func RulesPtrToComparable(rules []*model.Rule) []Comparable {
 	res := make([]Comparable, 0, len(rules))
 	for i := range rules {
-		res = append(res, (*Rule)(&(rules[i])))
+		res = append(res, (*Rule)((rules[i])))
 	}
 	return res
 }
 
+func RulesToComparable(rules []model.Rule) []Comparable {
+	res := make([]Comparable, 0, len(rules))
+	for i := range rules {
+		res = append(res, (*Rule)((&rules[i])))
+	}
+	return res
+}
+func GroupsPtrToComparable(groups []*model.Group) []Comparable {
+	res := make([]Comparable, 0, len(groups))
+	for i := range groups {
+		res = append(res, (*Group)((groups[i])))
+	}
+	return res
+}
 func GroupsToComparable(groups []model.Group) []Comparable {
 	res := make([]Comparable, 0, len(groups))
 	for i := range groups {
-		res = append(res, (*Group)(&(groups[i])))
+		res = append(res, (*Group)((&groups[i])))
 	}
 	return res
 }
 
 func ShareToComparable(share *model.Share) Comparable {
 	return (*Share)(share)
+}
+
+func SharesPtrToComparable(shares []*model.Share) []Comparable {
+	res := make([]Comparable, 0, len(shares))
+	for i := range shares {
+		res = append(res, (*Share)((shares[i])))
+	}
+	return res
 }
 
 func SharesToComparable(shares []model.Share) []Comparable {
@@ -124,7 +146,7 @@ func ComparableToSecurityPolicy(sp Comparable) *model.SecurityPolicy {
 func ComparableToRules(rules []Comparable) []model.Rule {
 	res := make([]model.Rule, 0, len(rules))
 	for _, rule := range rules {
-		res = append(res, (model.Rule)(*(rule.(*Rule))))
+		res = append(res, (model.Rule)(*rule.(*Rule)))
 	}
 	return res
 }

@@ -16,7 +16,7 @@ type StaticRouteStore struct {
 // keyFunc is used to get the key of a resource, usually, which is the ID of the resource
 func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
-	case model.StaticRoutes:
+	case *model.StaticRoutes:
 		return *v.Id, nil
 	default:
 		return "", errors.New("keyFunc doesn't support unknown type")
@@ -28,7 +28,7 @@ func keyFunc(obj interface{}) (string, error) {
 func indexFunc(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
 	switch v := obj.(type) {
-	case model.StaticRoutes:
+	case *model.StaticRoutes:
 		return filterTag(v.Tags), nil
 	default:
 		break
@@ -54,8 +54,8 @@ func (StaticRouteStore *StaticRouteStore) Apply(i interface{}) error {
 func (StaticRouteStore *StaticRouteStore) GetByKey(key string) *model.StaticRoutes {
 	obj := StaticRouteStore.ResourceStore.GetByKey(key)
 	if obj != nil {
-		staticRoute := obj.(model.StaticRoutes)
-		return &staticRoute
+		staticRoute := obj.(*model.StaticRoutes)
+		return staticRoute
 	}
 	return nil
 }
