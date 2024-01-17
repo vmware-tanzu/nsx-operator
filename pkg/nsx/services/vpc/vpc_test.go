@@ -21,6 +21,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
@@ -471,6 +472,7 @@ func TestCreateOrUpdateAVIRule(t *testing.T) {
 	sp := model.SecurityPolicy{
 		Path: &sppath1,
 	}
+	util.UpdateLicense(util.FeatureDFW, true)
 
 	// security policy not found
 	spClient.SP = sp
