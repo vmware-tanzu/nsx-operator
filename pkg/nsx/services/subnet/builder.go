@@ -1,12 +1,15 @@
 package subnet
 
 import (
+	"fmt"
+
 	"github.com/google/uuid"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	util2 "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -64,6 +67,11 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 		staticIpAllocation = o.Spec.AdvancedConfig.StaticIPAllocation.Enable
 	default:
 		return nil, SubnetTypeError
+	}
+	// tags cannot exceed maximum size 26
+	if len(tags) > common.TagsCountMax {
+		errorMsg := fmt.Sprintf("tags cannot exceed maximum size 26, tags length: %d", len(tags))
+		return nil, util2.ExceedTagsError{Desc: errorMsg}
 	}
 	nsxSubnet.Tags = tags
 	nsxSubnet.AdvancedConfig = &model.SubnetAdvancedConfig{

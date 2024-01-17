@@ -60,7 +60,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				if vpcNetworkConfig == nil {
 					err := fmt.Errorf("failed to find VPCNetworkConfig for namespace %s", obj.Namespace)
 					log.Error(err, "operate failed, would retry exponentially", "subnet", req.NamespacedName)
-					updateFail(r, &ctx, obj)
+					updateFail(r, &ctx, obj, "")
 					return ResultRequeue, err
 				}
 				if obj.Spec.AccessMode == "" {
@@ -72,7 +72,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			}
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "subnetset", req.NamespacedName)
-				updateFail(r, &ctx, obj)
+				updateFail(r, &ctx, obj, "")
 				return ResultRequeue, err
 			}
 			log.V(1).Info("added finalizer on subnetset CR", "subnetset", req.NamespacedName)
@@ -91,6 +91,13 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			for k, v := range nsObj.Labels {
 				tags = append(tags, model.Tag{Scope: servicecommon.String(k), Tag: servicecommon.String(v)})
 			}
+			// tags cannot exceed maximum size 26
+			if len(tags) > servicecommon.TagsCountMax {
+				errorMsg := fmt.Sprintf("tags cannot exceed maximum size 26, tags length: %d", len(tags))
+				log.Error(nil, "exceed tags limit, would not retry", "subnet", req.NamespacedName)
+				updateFail(r, &ctx, obj, errorMsg)
+				return ResultNormal, nil
+			}
 			if err := r.Service.UpdateSubnetSetTags(obj.Namespace, nsxSubnets, tags); err != nil {
 				log.Error(err, "failed to update subnetset tags")
 			}
@@ -101,13 +108,13 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnetSet)
 			if err := r.DeleteSubnetForSubnetSet(*obj, false); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "subnetset", req.NamespacedName)
-				deleteFail(r, &ctx, obj)
+				deleteFail(r, &ctx, obj, "")
 				return ResultRequeue, err
 			}
 			controllerutil.RemoveFinalizer(obj, servicecommon.SubnetSetFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "subnetset", req.NamespacedName)
-				deleteFail(r, &ctx, obj)
+				deleteFail(r, &ctx, obj, "")
 				return ResultRequeue, err
 			}
 			log.V(1).Info("removed finalizer", "subnetset", req.NamespacedName)
@@ -119,13 +126,13 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	return ctrl.Result{}, nil
 }
 
-func updateFail(r *SubnetSetReconciler, c *context.Context, o *v1alpha1.SubnetSet) {
-	r.setSubnetSetReadyStatusFalse(c, o)
+func updateFail(r *SubnetSetReconciler, c *context.Context, o *v1alpha1.SubnetSet, m string) {
+	r.setSubnetSetReadyStatusFalse(c, o, m)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResTypeSubnetSet)
 }
 
-func deleteFail(r *SubnetSetReconciler, c *context.Context, o *v1alpha1.SubnetSet) {
-	r.setSubnetSetReadyStatusFalse(c, o)
+func deleteFail(r *SubnetSetReconciler, c *context.Context, o *v1alpha1.SubnetSet, m string) {
+	r.setSubnetSetReadyStatusFalse(c, o, m)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetSet)
 }
 
@@ -150,7 +157,7 @@ func (r *SubnetSetReconciler) setSubnetSetReadyStatusTrue(ctx *context.Context, 
 	r.updateSubnetSetStatusConditions(ctx, subnetset, newConditions)
 }
 
-func (r *SubnetSetReconciler) setSubnetSetReadyStatusFalse(ctx *context.Context, subnetset *v1alpha1.SubnetSet) {
+func (r *SubnetSetReconciler) setSubnetSetReadyStatusFalse(ctx *context.Context, subnetset *v1alpha1.SubnetSet, m string) {
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:    v1alpha1.Ready,
@@ -158,6 +165,9 @@ func (r *SubnetSetReconciler) setSubnetSetReadyStatusFalse(ctx *context.Context,
 			Message: "NSX SubnetSet could not be created/updated",
 			Reason:  "SubnetNotReady",
 		},
+	}
+	if m != "" {
+		newConditions[0].Message = m
 	}
 	r.updateSubnetSetStatusConditions(ctx, subnetset, newConditions)
 }
