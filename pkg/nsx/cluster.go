@@ -36,6 +36,14 @@ const (
 	// GREEN means endpoints status are UP.
 	GREEN ClusterHealth = "GREEN"
 )
+const (
+	LicenseAPI = "api/v1/licenses/licensed-features"
+)
+
+const (
+	maxNSXGetRetries = 10
+	NSXGetDelay      = 2 * time.Second
+)
 
 // Cluster consists of endpoint and provides http.Client used to send http requests.
 type Cluster struct {
@@ -250,6 +258,63 @@ func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 	return nsxVersion, err
 }
 
+// HttpGet sends a http GET request to the cluster, exported for use
+func (cluster *Cluster) HttpGet(url string) (map[string]interface{}, error) {
+	ep := cluster.endpoints[0]
+	serverUrl := fmt.Sprintf("%s://%s", cluster.endpoints[0].Scheme(), cluster.endpoints[0].Host())
+	url = fmt.Sprintf("%s/%s", serverUrl, url)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		log.Error(err, "failed to create http request")
+		return nil, err
+	}
+	log.V(1).Info("Get url", "url", req.URL)
+	resp, err := ep.client.Do(req)
+	if err != nil {
+		log.Error(err, "failed to do http GET operation")
+		return nil, err
+	}
+	respJson := make(map[string]interface{})
+	err, _ = util.HandleHTTPResponse(resp, &respJson, true)
+	return respJson, err
+}
+
+// HttpDelete sends a http DELETE request to the cluster, exported for use
+func (cluster *Cluster) HttpDelete(url string) error {
+	ep := cluster.endpoints[0]
+	serverUrl := fmt.Sprintf("%s://%s", cluster.endpoints[0].Scheme(), cluster.endpoints[0].Host())
+	url = fmt.Sprintf("%s/%s", serverUrl, url)
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		log.Error(err, "failed to create http request")
+		return err
+	}
+	log.V(1).Info("Delete url", "url", req.URL)
+	_, err = ep.client.Do(req)
+	if err != nil {
+		log.Error(err, "failed to do http DELETE operation")
+		return err
+	}
+	return nil
+}
+
+func (cluster *Cluster) httpAction(url, method string) (*http.Response, error) {
+	ep := cluster.endpoints[0]
+	serverUrl := fmt.Sprintf("%s://%s", cluster.endpoints[0].Scheme(), cluster.endpoints[0].Host())
+	url = fmt.Sprintf("%s/%s", serverUrl, url)
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		log.Error(err, "failed to create http request")
+		return nil, err
+	}
+	log.V(1).Info(method+" url", "url", req.URL)
+	resp, err := ep.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
 func (nsxVersion *NsxVersion) Validate() error {
 	re, _ := regexp.Compile(`^([\d]+).([\d]+).([\d]+)`)
 	result := re.Find([]byte(nsxVersion.NodeVersion))
@@ -295,4 +360,19 @@ func (nsxVersion *NsxVersion) featureSupported(feature string) bool {
 		return true
 	}
 	return false
+}
+
+func (cluster *Cluster) FetchLicense() error {
+	resp, err := cluster.httpAction(LicenseAPI, "GET")
+	if err != nil {
+		log.Error(err, "failed to get nsx license")
+		return err
+	}
+	nsxLicense := &util.NsxLicense{}
+	err, _ = util.HandleHTTPResponse(resp, nsxLicense, true)
+	if err != nil {
+		return err
+	}
+	util.UpdateFeatureLicense(nsxLicense)
+	return nil
 }

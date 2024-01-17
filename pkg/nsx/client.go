@@ -18,6 +18,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 const (
@@ -126,4 +127,32 @@ func (client *Client) NSXCheckVersionForSecurityPolicy() bool {
 	}
 	client.NSXVerChecker.securityPolicySupported = true
 	return true
+}
+
+// ValidateLicense validates NSX license. init is used to indicate whether nsx-operator is init or not
+// if not init, nsx-operator will check if license has been updated.
+// once license updated, operator will restart
+// if FeatureContainer license is false, operatore will restart
+func (client *Client) ValidateLicense(init bool) error {
+	log.Info("Checking NSX license")
+	oldContainerLicense := util.IsLicensed(util.FeatureContainer)
+	oldDfwLicense := util.IsLicensed(util.FeatureDFW)
+	err := client.NSXChecker.cluster.FetchLicense()
+	if err != nil {
+		return err
+	}
+	if !util.IsLicensed(util.FeatureContainer) {
+		err = errors.New("NSX license check failed")
+		log.Error(err, "container license is not supported")
+		return err
+	}
+	if !init {
+		newContainerLicense := util.IsLicensed(util.FeatureContainer)
+		newDfwLicense := util.IsLicensed(util.FeatureDFW)
+		if newContainerLicense != oldContainerLicense || newDfwLicense != oldDfwLicense {
+			log.Info("license updated, reset", "container license new value", newContainerLicense, "DFW license new value", newDfwLicense, "container license old value", oldContainerLicense, "DFW license old value", oldDfwLicense)
+			return errors.New("license updated")
+		}
+	}
+	return nil
 }
