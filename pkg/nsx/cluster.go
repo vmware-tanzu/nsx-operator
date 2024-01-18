@@ -58,19 +58,13 @@ var (
 )
 
 // NewCluster creates a cluster based on nsx Config.
-func NewCluster(config *Config, client *http.Client) (*Cluster, error) {
+func NewCluster(config *Config) (*Cluster, error) {
 	log.Info("creating cluster")
 	cluster := &Cluster{}
 	cluster.config = config
 	cluster.transport = cluster.createTransport(time.Duration(config.ConnIdleTimeout))
-	// if client created by third-party, set noBalancerClient to nil to disable keep alive for clean up
-	if client != nil {
-		cluster.client = client
-		cluster.noBalancerClient = client
-	} else {
-		cluster.client = cluster.createHTTPClient(cluster.transport, time.Duration(config.HTTPTimeout))
-		cluster.noBalancerClient = cluster.createNoBalancerClient(time.Duration(config.HTTPTimeout), time.Duration(config.ConnIdleTimeout))
-	}
+	cluster.client = cluster.createHTTPClient(cluster.transport, time.Duration(config.HTTPTimeout))
+	cluster.noBalancerClient = cluster.createNoBalancerClient(time.Duration(config.HTTPTimeout), time.Duration(config.ConnIdleTimeout))
 
 	r := ratelimiter.NewRateLimiter(config.APIRateMode)
 	eps, err := cluster.createEndpoints(config.APIManagers, cluster.client, cluster.noBalancerClient, r, config.TokenProvider)
