@@ -6,8 +6,7 @@ package jwt
 import (
 	"time"
 
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 )
 
@@ -18,7 +17,7 @@ const (
 )
 
 var (
-	log = logf.Log.WithName("nsx").WithName("jwt")
+	log = logger.Log
 )
 
 type JWTTokenProvider struct {

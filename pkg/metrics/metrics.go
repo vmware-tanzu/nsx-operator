@@ -4,10 +4,10 @@ import (
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
 const (
@@ -24,7 +24,7 @@ const (
 	ScrapeTimeout                   = 30
 )
 
-var log = logf.Log.WithName("metrics")
+var log = logger.Log
 
 var (
 	NSXOperatorHealthStats = prometheus.NewGauge(

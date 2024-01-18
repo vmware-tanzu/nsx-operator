@@ -24,10 +24,11 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
-var log = logf.Log.WithName("nsx").WithName("utils")
+var log = logger.Log
 
 // ErrorDetail is error detail which info extracted from http.Response.Body.
 type ErrorDetail struct {

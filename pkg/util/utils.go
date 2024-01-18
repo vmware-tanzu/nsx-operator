@@ -19,10 +19,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
@@ -54,7 +54,7 @@ func init() {
 	}
 }
 
-var log = logf.Log.WithName("pkg").WithName("utils")
+var log = logger.Log
 
 func NormalizeLabels(matchLabels *map[string]string) *map[string]string {
 	newLabels := make(map[string]string)

@@ -62,7 +62,7 @@ func init() {
 		os.Exit(1)
 	}
 
-	logf.SetLogger(logger.ZapLogger(cf))
+	logf.SetLogger(logger.ZapLogger(cf.DefaultConfig.Debug, config.LogLevel))
 
 	if os.Getenv("NSX_OPERATOR_NAMESPACE") != "" {
 		nsxOperatorNamespace = os.Getenv("NSX_OPERATOR_NAMESPACE")
