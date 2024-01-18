@@ -19,13 +19,13 @@ func (nodeStore *NodeStore) Apply(i interface{}) error {
 	}
 	node := i.(*model.HostTransportNode)
 	if node.MarkedForDelete != nil && *node.MarkedForDelete {
-		err := nodeStore.Delete(*node)
+		err := nodeStore.Delete(node)
 		log.V(1).Info("delete Node from store", "node", node)
 		if err != nil {
 			return err
 		}
 	} else {
-		err := nodeStore.Add(*node)
+		err := nodeStore.Add(node)
 		log.V(1).Info("add Node to store", "node", node)
 		if err != nil {
 			return err
