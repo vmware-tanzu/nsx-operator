@@ -52,7 +52,7 @@ func (serviceMediator *ServiceMediator) ListVPCInfo(ns string) []common.VPCResou
 
 // This method is used for subnet service since vpc network config contains default subnet size
 // and default subnet access mode.
-func (m *ServiceMediator) GetVPCNetworkConfigByNamespace(ns string) *vpc.VPCNetworkConfigInfo {
+func (m *ServiceMediator) GetVPCNetworkConfigByNamespace(ns string) *common.VPCNetworkConfigInfo {
 	return m.VPCService.GetVPCNetworkConfigByNamespace(ns)
 }
 

@@ -131,29 +131,27 @@ func StartIPPoolController(mgr ctrl.Manager, commonService common.Service) {
 	}
 }
 
-func StartVPCController(mgr ctrl.Manager, commonService common.Service) {
+func StartVPCController(mgr ctrl.Manager, vpcService *vpc.VPCService) {
 	vpcReconciler := &vpccontroller.VPCReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
-	vpcService, err := vpc.InitializeVPC(commonService)
-	if err != nil {
-		log.Error(err, "failed to initialize vpc commonService", "controller", "VPC")
-		os.Exit(1)
-	}
+
 	vpcReconciler.Service = vpcService
 	commonctl.ServiceMediator.VPCService = vpcService
+
 	if err := vpcReconciler.Start(mgr); err != nil {
 		log.Error(err, "failed to create vpc controller", "controller", "VPC")
 		os.Exit(1)
 	}
 }
 
-func StartNamespaceController(mgr ctrl.Manager, commonService common.Service) {
+func StartNamespaceController(mgr ctrl.Manager, vpcService *vpc.VPCService) {
 	nsReconciler := &namespacecontroller.NamespaceReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		NSXConfig: commonService.NSXConfig,
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		NSXConfig:  vpcService.NSXConfig,
+		VPCService: vpcService,
 	}
 
 	if err := nsReconciler.Start(mgr); err != nil {
@@ -164,7 +162,6 @@ func StartNamespaceController(mgr ctrl.Manager, commonService common.Service) {
 
 func main() {
 	log.Info("starting NSX Operator")
-
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                  scheme,
 		HealthProbeBindAddress:  config.ProbeAddr,
@@ -194,7 +191,15 @@ func main() {
 
 	if cf.CoeConfig.EnableVPCNetwork && commonService.NSXClient.NSXCheckVersion(nsx.VPC) {
 		log.V(1).Info("VPC mode enabled")
+		vpcService, err := vpc.InitializeVPC(commonService)
+		if err != nil {
+			log.Error(err, "failed to initialize vpc commonService", "controller", "VPC")
+			os.Exit(1)
+		}
+		commonctl.ServiceMediator.VPCService = vpcService
 		// Start controllers which only supports VPC
+		StartVPCController(mgr, vpcService)
+		StartNamespaceController(mgr, vpcService)
 		// Start subnet/subnetset controller.
 		if err := subnet.StartSubnetController(mgr, commonService); err != nil {
 			os.Exit(1)
@@ -207,9 +212,6 @@ func main() {
 		staticroutecontroller.StartStaticRouteController(mgr, commonService)
 		subnetport.StartSubnetPortController(mgr, commonService)
 		pod.StartPodController(mgr, commonService)
-
-		StartNamespaceController(mgr, commonService)
-		StartVPCController(mgr, commonService)
 		StartIPPoolController(mgr, commonService)
 	}
 

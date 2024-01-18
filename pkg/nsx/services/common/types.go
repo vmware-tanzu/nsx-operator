@@ -156,3 +156,17 @@ type VPCResourceInfo struct {
 	ID       string
 	ParentID string
 }
+
+type VPCNetworkConfigInfo struct {
+	IsDefault               bool
+	Org                     string
+	Name                    string
+	DefaultGatewayPath      string
+	EdgeClusterPath         string
+	NsxtProject             string
+	ExternalIPv4Blocks      []string
+	PrivateIPv4CIDRs        []string
+	DefaultIPv4SubnetSize   int
+	DefaultSubnetAccessMode string
+	ShortID                 string
+}

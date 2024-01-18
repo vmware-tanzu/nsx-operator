@@ -49,7 +49,7 @@ func buildPrivateIpBlock(vpc *v1alpha1.VPC, cidr, ip, project, cluster string) m
 	return block
 }
 
-func buildNSXVPC(obj *v1alpha1.VPC, nc VPCNetworkConfigInfo, cluster string, pathMap map[string]string, nsxVPC *model.Vpc) (*model.Vpc, error) {
+func buildNSXVPC(obj *v1alpha1.VPC, nc common.VPCNetworkConfigInfo, cluster string, pathMap map[string]string, nsxVPC *model.Vpc) (*model.Vpc, error) {
 	vpc := &model.Vpc{}
 	if nsxVPC != nil {
 		// for upgrade case, only check public/private ip block size changing
