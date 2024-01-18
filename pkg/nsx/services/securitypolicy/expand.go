@@ -144,7 +144,7 @@ func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.Security
 		log.V(1).Info("built ruleIPSetGroup", "ruleIPSetGroup", ruleIPSetGroup)
 		nsxGroups = append(nsxGroups, ruleIPSetGroup)
 	}
-	log.V(1).Info("built rule by service entry", "rule", nsxRule)
+	log.V(1).Info("built rule by service entry", "nsxRule", nsxRule)
 	return nsxGroups, nsxRule, nil
 }
 
@@ -191,8 +191,8 @@ func (service *SecurityPolicyService) resolvePodPort(pod v1.Pod, spPort *v1alpha
 	for _, c := range pod.Spec.Containers {
 		container := c
 		for _, port := range container.Ports {
-			log.V(2).Info("resolvePodPort", "namespace", pod.Namespace, "pod_name", pod.Name,
-				"port_name", port.Name, "containerPort", port.ContainerPort,
+			log.V(2).Info("resolvePodPort", "namespace", pod.Namespace, "podName", pod.Name,
+				"portName", port.Name, "containerPort", port.ContainerPort,
 				"protocol", port.Protocol, "podIP", pod.Status.PodIP)
 			if port.Name == spPort.Port.String() && port.Protocol == spPort.Protocol {
 				if pod.Status.Phase != "Running" {

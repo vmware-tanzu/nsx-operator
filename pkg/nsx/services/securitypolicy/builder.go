@@ -59,6 +59,8 @@ func (service *SecurityPolicyService) buildecurityPolicyID(obj *v1alpha1.Securit
 func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.SecurityPolicy, createdFor string) (*model.SecurityPolicy, *[]model.Group, *[]ProjectShare, error) {
 	var nsxRules []model.Rule
 	var nsxGroups []model.Group
+	var nsxProjectGroups []model.Group
+	var nsxProjectShares []model.Share
 	var projectShares []ProjectShare
 
 	log.V(1).Info("building the model SecurityPolicy from CR SecurityPolicy", "object", *obj)
@@ -83,7 +85,7 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 	for ruleIdx, r := range obj.Spec.Rules {
 		rule := r
 		// A rule containing named port may expand to multiple rules if the name maps to multiple port numbers.
-		expandRules, ruleGroups, shares, err := service.buildRuleAndGroups(obj, &rule, ruleIdx, createdFor)
+		expandRules, buildGroups, buildProjectShares, err := service.buildRuleAndGroups(obj, &rule, ruleIdx, createdFor)
 		if err != nil {
 			log.Error(err, "failed to build rule and groups", "rule", rule, "ruleIndex", ruleIdx)
 			return nil, nil, nil, err
@@ -99,7 +101,7 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 		}
 
 		currentSet.Clear()
-		for _, nsxGroup := range ruleGroups {
+		for _, nsxGroup := range buildGroups {
 			if nsxGroup != nil {
 				if !currentSet.Has(*nsxGroup.Id) {
 					currentSet.Insert(*nsxGroup.Id)
@@ -108,9 +110,15 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 			}
 		}
 
-		for _, share := range shares {
-			if share != nil {
-				projectShares = append(projectShares, *share)
+		currentSet.Clear()
+		for _, projectShare := range buildProjectShares {
+			if projectShare != nil {
+				if !currentSet.Has(*projectShare.share.Id) {
+					currentSet.Insert(*projectShare.share.Id)
+					projectShares = append(projectShares, *projectShare)
+					nsxProjectGroups = append(nsxProjectGroups, *projectShare.shareGroup)
+					nsxProjectShares = append(nsxProjectShares, *projectShare.share)
+				}
 			}
 		}
 
@@ -118,7 +126,8 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 	nsxSecurityPolicy.Rules = nsxRules
 	nsxSecurityPolicy.Tags = service.buildBasicTags(obj, createdFor)
 	// nsxRules info are included in nsxSecurityPolicy obj
-	log.Info("built nsxSecurityPolicy", "nsxSecurityPolicy", nsxSecurityPolicy, "nsxGroups", nsxGroups)
+	log.Info("built nsxSecurityPolicy", "nsxSecurityPolicy", nsxSecurityPolicy, "nsxGroups", nsxGroups, "nsxProjectGroups", nsxProjectGroups, "nsxProjectShares", nsxProjectShares)
+
 	return nsxSecurityPolicy, &nsxGroups, &projectShares, nil
 }
 
@@ -154,7 +163,7 @@ func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPol
 		}
 	}
 	log.V(2).Info("build policy target group criteria",
-		"total criteria", targetGroupCriteriaCount, "total expressions of criteria", targetGroupTotalExprCount)
+		"totalCriteria", targetGroupCriteriaCount, "totalExprsOfCriteria", targetGroupTotalExprCount)
 
 	if targetGroupCriteriaCount > MaxCriteria {
 		errorMsg = fmt.Sprintf(
@@ -177,7 +186,7 @@ func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPol
 		return nil, "", err
 	}
 
-	log.V(1).Info("built policy target group", "policyGroup", policyAppliedGroup)
+	log.V(1).Info("built policy target group", "policyAppliedGroup", policyAppliedGroup)
 	return &policyAppliedGroup, policyAppliedGroupPath, nil
 }
 
@@ -437,6 +446,7 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 			if err != nil {
 				return nil, nil, nil, err
 			}
+
 			if nsxRuleSrcGroup != nil {
 				ruleGroups = append(ruleGroups, nsxRuleSrcGroup)
 			}
@@ -449,6 +459,7 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 			if err != nil {
 				return nil, nil, nil, err
 			}
+
 			if nsxRuleDstGroup != nil {
 				ruleGroups = append(ruleGroups, nsxRuleDstGroup)
 			}
@@ -456,6 +467,7 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 				projectShares = append(projectShares, nsxProjectShare)
 			}
 		}
+
 		nsxRule.SourceGroups = []string{nsxRuleSrcGroupPath}
 		nsxRule.DestinationGroups = []string{nsxRuleDstGroupPath}
 
@@ -466,10 +478,6 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 		}
 		ruleGroups = append(ruleGroups, nsxRuleAppliedGroup)
 		nsxRule.Scope = []string{nsxRuleAppliedGroupPath}
-
-		log.V(1).Info("built rule and groups", "nsxRuleAppliedGroup", nsxRuleAppliedGroup,
-			"~", nsxRuleSrcGroup, "nsxRuleDstGroup", nsxRuleDstGroup,
-			"action", *nsxRule.Action, "direction", *nsxRule.Direction)
 	}
 	return nsxRules, ruleGroups, projectShares, nil
 }
@@ -501,7 +509,7 @@ func (service *SecurityPolicyService) buildRuleServiceEntries(port v1alpha1.Secu
 			"overridden":        data.NewBooleanValue(false),
 		},
 	)
-	log.V(1).Info("built service entry", "serviceEntry", serviceEntry)
+	log.V(1).Info("built rule service entry", "destinationPorts", portRange, "protocol", port.Protocol)
 	return serviceEntry
 }
 
@@ -522,6 +530,7 @@ func (service *SecurityPolicyService) buildRuleAppliedToGroup(obj *v1alpha1.Secu
 			return nil, "", err
 		}
 	}
+	log.V(1).Info("built rule target group", "ruleAppliedGroup", nsxRuleAppliedGroup)
 	return nsxRuleAppliedGroup, nsxRuleAppliedGroupPath, nil
 }
 
@@ -693,8 +702,8 @@ func (service *SecurityPolicyService) buildRuleAppliedGroupByRule(obj *v1alpha1.
 			return nil, "", err
 		}
 	}
-	log.V(2).Info("build rule applied group criteria", "total criteria",
-		ruleGroupCriteriaCount, "total expressions of criteria", ruleGroupTotalExprCount)
+	log.V(2).Info("build rule applied group criteria", "totalCriteria",
+		ruleGroupCriteriaCount, "totalExprsOfCriteria", ruleGroupTotalExprCount)
 
 	if ruleGroupCriteriaCount > MaxCriteria {
 		errorMsg = fmt.Sprintf(
@@ -808,7 +817,7 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 		}
 	}
 	log.V(2).Info(fmt.Sprintf("build rule %s group criteria", ruleDirection),
-		"total criteria", rulePeerGroupCriteriaCount, "total expressions of criteria", rulePeerGroupTotalExprCount)
+		"totalCriteria", rulePeerGroupCriteriaCount, "totalExprsOfCriteria", rulePeerGroupTotalExprCount)
 
 	if rulePeerGroupCriteriaCount > MaxCriteria {
 		errorMsg = fmt.Sprintf(
@@ -840,18 +849,17 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 
 		sharedWith, err := service.buildSharedWith(&sharedNamespace)
 		if err != nil {
-			log.Error(err, "failed to build SharedWith path", "rule group Name", rulePeerGroupName)
+			log.Error(err, "failed to build SharedWith path", "ruleGroupName", rulePeerGroupName)
 			return nil, "", nil, err
 		}
 		// Build a nsx share resource in project level
-		share, err := service.buildProjectShare(obj, &rulePeerGroup, []string{rulePeerGroupPath}, *sharedWith, createdFor)
+		nsxShare, err := service.buildProjectShare(obj, &rulePeerGroup, []string{rulePeerGroupPath}, *sharedWith, createdFor)
 		if err != nil {
-			log.Error(err, "failed to build project share", "rule group Name", rulePeerGroupName)
+			log.Error(err, "failed to build nsx project share", "ruleGroupName", rulePeerGroupName)
 			return nil, "", nil, err
 		}
 
-		projectShare.share = share
-		log.V(1).Info("built nsx project share resource", "share", share)
+		projectShare.share = nsxShare
 		return nil, rulePeerGroupPath, &projectShare, err
 	}
 
@@ -961,7 +969,7 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 		return 0, 0, err
 	}
 
-	log.V(2).Info("update target expressions", "index", ruleIdx)
+	log.V(2).Info("update target expressions", "ruleIndex", ruleIdx)
 	service.appendOperatorIfNeeded(&group.Expression, "OR")
 	expressions := service.buildGroupExpression(&group.Expression)
 
@@ -1014,7 +1022,6 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 			mergedMatchExpressions = service.mergeSelectorMatchExpression(*matchExpressions)
 			matchExpressionsCount = len(*mergedMatchExpressions)
 			opInValueCount, err = service.validateSelectorOpIn(*mergedMatchExpressions, matchLabels)
-
 			if err != nil {
 				return 0, 0, err
 			}
@@ -1190,7 +1197,7 @@ func (service *SecurityPolicyService) validateSelectorExpressions(matchLabelsCou
 
 	if !mixedCriteria && totalExprCount > MaxCriteriaExpressions {
 		errorMsg = fmt.Sprintf(
-			"total count of labelSelectors expressions %d exceed NSX limit of %d in one criteria based on same member type",
+			"total count of labelSelectors expressions %d exceed NSX limit of %d in one criteria based on the same member type",
 			totalExprCount,
 			MaxCriteriaExpressions,
 		)
@@ -1400,7 +1407,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		group.Expression = append(group.Expression, blockExpression)
 	}
 
-	log.V(2).Info("update peer expressions", "index", ruleIdx)
+	log.V(2).Info("update peer expressions", "ruleIndex", ruleIdx)
 	if peer.PodSelector == nil && peer.VMSelector == nil && peer.NamespaceSelector == nil {
 		return 0, 0, nil
 	} else if peer.PodSelector != nil && peer.VMSelector != nil && peer.NamespaceSelector == nil {
@@ -1567,7 +1574,6 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 			// NamespaceSelector AND with PodSelector or VMSelector expressions to produce final expressions
 			err = service.updateMixedExpressionsMatchExpression(*nsMergedMatchExpressions, nsMatchLabels,
 				*matchExpressions, matchLabels, &group.Expression, clusterExpression, tagValueExpression, expressions)
-
 			if err != nil {
 				return 0, 0, err
 			}
@@ -1592,7 +1598,6 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 					*mergedMatchExpressions,
 					matchLabels,
 				)
-
 				if err != nil {
 					return 0, 0, err
 				}
