@@ -23,29 +23,29 @@ func IsDirEmpty(name string) (bool, error) {
 	return false, err
 }
 
-func assert_nil(t *testing.T, object interface{}, msgAndArgs ...interface{}) bool {
+func assertNil(t *testing.T, object interface{}, msgAndArgs ...interface{}) bool {
 	if assert.Nil(t, object, msgAndArgs...) {
 		return true
 	}
 	panic("assertion failed")
 }
 
-func assert_notnil(t *testing.T, object interface{}, msgAndArgs ...interface{}) bool {
+func assertNotNil(t *testing.T, object interface{}, msgAndArgs ...interface{}) bool {
 	if assert.NotNil(t, object, msgAndArgs...) {
-		t.Logf("assert_notnil: %v", object)
+		t.Logf("assertNotNil: %v", object)
 		return true
 	}
 	panic("assertion failed")
 }
 
-func assert_true(t *testing.T, value bool, msgAndArgs ...interface{}) bool {
+func assertTrue(t *testing.T, value bool, msgAndArgs ...interface{}) bool {
 	if assert.True(t, value, msgAndArgs...) {
 		return true
 	}
 	panic("assertion failed")
 }
 
-func assert_false(t *testing.T, value bool, msgAndArgs ...interface{}) bool {
+func assertFalse(t *testing.T, value bool, msgAndArgs ...interface{}) bool {
 	if assert.False(t, value, msgAndArgs...) {
 		return true
 	}

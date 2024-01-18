@@ -30,30 +30,30 @@ func TestIPPoolBasic(t *testing.T) {
 
 	// Check ippool status
 	err := testData.waitForCRReadyOrDeleted(defaultTimeout, IPPool, ns, name, Ready)
-	assert_nil(t, err, "Error when waiting for IPPool %s", name)
+	assertNil(t, err, "Error when waiting for IPPool %s", name)
 
 	// Check nsx-t resource existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPool, name, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPoolBlockSubnet, subnet_name_1, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPoolBlockSubnet, subnet_name_2, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPoolBlockSubnet, subnet_name_3, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 
 	// Delete ippool
 	_ = deleteYAML(ippoolPath, ns)
 
 	// Check nsx-t resource not existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPool, name, false)
-	assert_nil(t, err)
+	assertNil(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPoolBlockSubnet, subnet_name_1, false)
-	assert_nil(t, err)
+	assertNil(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPoolBlockSubnet, subnet_name_2, false)
-	assert_nil(t, err)
+	assertNil(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPoolBlockSubnet, subnet_name_3, false)
-	assert_nil(t, err)
+	assertNil(t, err)
 }
 
 // TestIPPoolAddDeleteSubnet verifies that it is as expected when adding or deleting some subnets.
@@ -73,17 +73,17 @@ func TestIPPoolAddDeleteSubnet(t *testing.T) {
 
 	// Check ippool status
 	err := testData.waitForCRReadyOrDeleted(defaultTimeout, IPPool, ns, name, Ready)
-	assert_nil(t, err, "Error when waiting for IPPool %s", name)
+	assertNil(t, err, "Error when waiting for IPPool %s", name)
 
 	// Check nsx-t resource existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPool, name, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPoolBlockSubnet, subnet_name_1, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPoolBlockSubnet, subnet_name_2, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPoolBlockSubnet, subnet_name_3, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 
 	// Delete subnet_name_2 and subnet_name_3
 	ippoolDeletePath, _ := filepath.Abs("./manifest/testIPPool/ippool_delete.yaml")
@@ -91,36 +91,36 @@ func TestIPPoolAddDeleteSubnet(t *testing.T) {
 
 	// Check ippool status
 	err = testData.waitForCRReadyOrDeleted(defaultTimeout, IPPool, ns, name, Ready)
-	assert_nil(t, err, "Error when waiting for IPPool %s", name)
+	assertNil(t, err, "Error when waiting for IPPool %s", name)
 
 	// Check nsx-t resource existing and not existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPool, name, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 	// Still existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPoolBlockSubnet, subnet_name_1, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 	// Deleted
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPoolBlockSubnet, subnet_name_2, false)
-	assert_nil(t, err)
+	assertNil(t, err)
 	// Deleted
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPoolBlockSubnet, subnet_name_3, false)
-	assert_nil(t, err)
+	assertNil(t, err)
 
 	// Add back subnet_name_2 and subnet_name_3
 	_ = applyYAML(ippoolPath, ns)
 	// Check ippool status
 	err = testData.waitForCRReadyOrDeleted(defaultTimeout, IPPool, ns, name, Ready)
-	assert_nil(t, err, "Error when waiting for IPPool %s", name)
+	assertNil(t, err, "Error when waiting for IPPool %s", name)
 
 	// Check nsx-t resource existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPool, name, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPoolBlockSubnet, subnet_name_1, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPoolBlockSubnet, subnet_name_2, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPoolBlockSubnet, subnet_name_3, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 }
 
 // TestIPPoolBasic verifies that it could support when subnets are nil
@@ -137,16 +137,16 @@ func TestIPPoolSubnetsNil(t *testing.T) {
 
 	// Check ippool status
 	err := testData.waitForCRReadyOrDeleted(defaultTimeout, IPPool, ns, name, Ready)
-	assert_nil(t, err, "Error when waiting for IPPool %s", name)
+	assertNil(t, err, "Error when waiting for IPPool %s", name)
 
 	// Check nsx-t resource existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPool, name, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 
 	// Delete ippool
 	_ = deleteYAML(ippoolPath, ns)
 
 	// Check nsx-t resource not existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeIPPool, name, false)
-	assert_nil(t, err)
+	assertNil(t, err)
 }

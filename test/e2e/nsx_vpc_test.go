@@ -35,7 +35,7 @@ func verifyVPCCRCreated(t *testing.T, ns string, expect int) (string, string) {
 		log.Printf("VPC list %s size not the same as expected %d", resources, expect)
 		panic("VPC CR creation verify failed")
 	}
-	assert_nil(t, err)
+	assertNil(t, err)
 
 	var vpc_name, vpc_uid string = "", ""
 	// waiting for CR to be ready
@@ -49,13 +49,13 @@ func verifyVPCCRCreated(t *testing.T, ns string, expect int) (string, string) {
 
 func verifyPrivateIPBlockCreated(t *testing.T, ns, id string) {
 	err := testData.waitForResourceExistById(ns, PrivateIPBlockNSXType, id, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 }
 
 func verifyVPCCRProperties(t *testing.T, ns, vpc_name string) {
 	for _, key := range verify_keys {
 		value, err := testData.getCRProperties(defaultTimeout, VPCCRType, vpc_name, ns, key)
-		assert_nil(t, err)
+		assertNil(t, err)
 		if strings.TrimSpace(value) == "" {
 			log.Printf("failed to read key %s for VPC %s", key, vpc_name)
 			panic("failed to read attribute from VPC CR")
@@ -79,13 +79,13 @@ func TestCustomizedVPC(t *testing.T) {
 	vpc_name, vpc_uid := verifyVPCCRCreated(t, ns, 1)
 
 	err := testData.waitForCRReadyOrDeleted(defaultTimeout, VPCCRType, ns, vpc_name, Ready)
-	assert_nil(t, err, "Error when waiting for VPC %s", vpc_name)
+	assertNil(t, err, "Error when waiting for VPC %s", vpc_name)
 
 	verifyVPCCRProperties(t, ns, vpc_name)
 
 	// Check nsx-t resource existing, nsx vpc is using vpc cr uid as id
 	err = testData.waitForResourceExistById(ns, VPCNSXType, vpc_uid, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 
 	//verify private ipblocks created for vpc
 	p_ipb_id1 := vpc_uid + "_" + CustomizedPrivateCIDR1
@@ -101,13 +101,13 @@ func TestInfraVPC(t *testing.T) {
 	vpc_name, vpc_uid := verifyVPCCRCreated(t, InfraVPCNamespace, 1)
 
 	err := testData.waitForCRReadyOrDeleted(defaultTimeout, VPCCRType, InfraVPCNamespace, vpc_name, Ready)
-	assert_nil(t, err, "Error when waiting for VPC %s", vpc_name)
+	assertNil(t, err, "Error when waiting for VPC %s", vpc_name)
 
 	verifyVPCCRProperties(t, InfraVPCNamespace, vpc_name)
 
 	// Check nsx-t resource existing, nsx vpc is using vpc cr uid as id
 	err = testData.waitForResourceExistById(InfraVPCNamespace, VPCNSXType, vpc_uid, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 
 	//verify private ipblocks created for vpc
 	p_ipb_id1 := vpc_uid + "_" + InfraPrivateCIDR1
@@ -132,13 +132,13 @@ func TestDefaultVPC(t *testing.T) {
 	vpc_name, vpc_uid := verifyVPCCRCreated(t, ns, 1)
 
 	err := testData.waitForCRReadyOrDeleted(defaultTimeout, VPCCRType, ns, vpc_name, Ready)
-	assert_nil(t, err, "Error when waiting for VPC %s", vpc_name)
+	assertNil(t, err, "Error when waiting for VPC %s", vpc_name)
 
 	verifyVPCCRProperties(t, ns, vpc_name)
 
 	// Check nsx-t resource existing, nsx vpc is using vpc cr uid as id
 	err = testData.waitForResourceExistById(ns, VPCNSXType, vpc_uid, true)
-	assert_nil(t, err)
+	assertNil(t, err)
 
 	//verify private ipblocks created for vpc
 	p_ipb_id1 := vpc_uid + "_" + DefaultPrivateCIDR1
