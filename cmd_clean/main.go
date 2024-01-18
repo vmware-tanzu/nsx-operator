@@ -82,7 +82,7 @@ func main() {
 	cf.CaFile = []string{caFile}
 	cf.Cluster = cluster
 
-	logf.SetLogger(logger.ZapLogger(cf))
+	logf.SetLogger(logger.ZapLogger(cf.DefaultConfig.Debug, config.LogLevel))
 
 	// just a demo to show how to use customer http client
 	// customer http client should handle verify and authentication

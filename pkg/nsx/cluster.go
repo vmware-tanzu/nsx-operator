@@ -19,8 +19,8 @@ import (
 	"time"
 
 	policyclient "github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
@@ -54,7 +54,7 @@ type NsxVersion struct {
 var (
 	jarCache   = NewJar()
 	nsxVersion = &NsxVersion{}
-	log        = logf.Log.WithName("nsx").WithName("cluster")
+	log        = logger.Log
 )
 
 // NewCluster creates a cluster based on nsx Config.

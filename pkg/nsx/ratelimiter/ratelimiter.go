@@ -9,13 +9,14 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
 // APIReduceRateCodes is http status code set which will trigger rate limiter adjust.
 var (
 	APIReduceRateCodes = [2]int{429, 503}
-	log                = logf.Log.WithName("nsx").WithName("ratelimiter")
+	log                = logger.Log
 )
 
 const (
