@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"crypto/sha1" // #nosec G505: not used for security purposes
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
@@ -419,33 +420,61 @@ func VerifyNsxCertWithThumbprint(der []byte, thumbprint string) error {
 	return err
 }
 
-// GetCommonNameFromLeafCert returns the common name of the first (leaf) cert of
-// provided pemCerts. If CA cert is passed, empty CN will be returned.
+// GetTLSConfigForCert returns TLS config based on given pemCerts.
+// If CA cert is passed, TLS config will do native cert check for connection.
+// Otherwise, exact byte-to-byte check will be performed.
 // Error is returned if pem invalid or not a certificate.
-func GetCommonNameFromLeafCert(pemCerts []byte) (string, error) {
+func GetTLSConfigForCert(pemCerts []byte) (*tls.Config, error) {
 	block, _ := pem.Decode(pemCerts)
 	if block == nil {
 		err := errors.New("decode ca file fail")
-		log.Error(err, "failed to get CN from cert", "pem", pemCerts)
-		return "", err
+		log.Error(err, "failed to decode cert", "pem", pemCerts)
+		return nil, err
 	}
 	if block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
 		err := errors.New("pem not certificate or header not found")
-		log.Error(err, "failed to get CN from cert", "pem", pemCerts)
-		return "", err
+		log.Error(err, "failed to decode cert", "pem", pemCerts)
+		return nil, err
 	}
 
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		log.Error(err, "failed to get CN from cert", "pem", pemCerts)
-		return "", err
+		log.Error(err, "failed to decode cert", "pem", pemCerts)
+		return nil, err
 	}
 
+	// Native cert verification in case of CA cert
 	if cert.IsCA {
-		return "", nil
+		log.Info("configured CA cert", "subject", cert.Subject)
+		certPool := x509.NewCertPool()
+		certPool.AddCert(cert)
+		// #nosec G402: ignore insecure options
+		config := &tls.Config{
+			RootCAs: certPool,
+		}
+		return config, nil
 	}
 
-	return cert.Subject.CommonName, nil
+	// Exact pem matching for leaf certs (certificate pinning)
+	// #nosec G402: ignore insecure options
+	config := &tls.Config{
+		InsecureSkipVerify: true,
+		VerifyConnection: func(cs tls.ConnectionState) error {
+			if cs.PeerCertificates == nil || cs.PeerCertificates[0] == nil {
+				err := errors.New("server didn't present cert")
+				log.Error(err, "verify cert")
+				return err
+			}
+			if !bytes.Equal(cs.PeerCertificates[0].Raw, cert.Raw) {
+				err := errors.New("server certificate didn't match pinned leaf cert")
+				log.Error(err, "verify cert")
+				return err
+			}
+			return nil
+		},
+	}
+	log.Info("configured cert pining", "subject", cert.Subject)
+	return config, nil
 }
 
 func FindTag(tags []model.Tag, tagScope string) string {
