@@ -4,6 +4,7 @@
 package clean
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var log = logger.Log
@@ -32,39 +34,45 @@ var log = logger.Log
 // GetNSXClientFailed  			indicate that could not retrieve nsx client to perform cleanup operation
 // InitCleanupServiceFailed 	indicate that error happened when trying to initialize cleanup service
 // CleanupResourceFailed    	indicate that the cleanup operation failed at some services, the detailed will in the service logs
-func Clean(cf *config.NSXOperatorConfig) error {
+func Clean(ctx context.Context, cf *config.NSXOperatorConfig) error {
 	log.Info("starting NSX cleanup")
 	if err := cf.ValidateConfigFromCmd(); err != nil {
-		return errors.Join(ValidationFailed, err)
+		return errors.Join(nsxutil.ValidationFailed, err)
 	}
 	nsxClient := nsx.GetClient(cf)
 	if nsxClient == nil {
-		return GetNSXClientFailed
+		return nsxutil.GetNSXClientFailed
 	}
 	if cleanupService, err := InitializeCleanupService(cf); err != nil {
-		return errors.Join(InitCleanupServiceFailed, err)
+		return errors.Join(nsxutil.InitCleanupServiceFailed, err)
 	} else if cleanupService.err != nil {
-		return errors.Join(InitCleanupServiceFailed, cleanupService.err)
+		return errors.Join(nsxutil.InitCleanupServiceFailed, cleanupService.err)
 	} else {
 		for _, clean := range cleanupService.cleans {
-			if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
-				if err != nil {
-					log.Info("retrying to clean up NSX resources", "error", err)
-					return true
-				}
-				return false
-			}, func() error {
-				if err := clean.Cleanup(); err != nil {
-					return err
-				}
-				return nil
-			}); err != nil {
-				return errors.Join(CleanupResourceFailed, err)
+			if err := retry.OnError(retry.DefaultRetry, retriable, wrapCleanFunc(ctx, clean)); err != nil {
+				return errors.Join(nsxutil.CleanupResourceFailed, err)
 			}
 		}
 	}
 	log.Info("cleanup NSX resources successfully")
 	return nil
+}
+
+func retriable(err error) bool {
+	if err != nil && !errors.As(err, &nsxutil.TimeoutFailed) {
+		log.Info("retrying to clean up NSX resources", "error", err)
+		return true
+	}
+	return false
+}
+
+func wrapCleanFunc(ctx context.Context, clean cleanup) func() error {
+	return func() error {
+		if err := clean.Cleanup(ctx); err != nil {
+			return err
+		}
+		return nil
+	}
 }
 
 // InitializeCleanupService initializes all the CR services

@@ -4,8 +4,10 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
+	"time"
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -77,10 +79,12 @@ func main() {
 	cf.EnvoyPort = envoyPort
 
 	logf.SetLogger(logger.ZapLogger(cf.DefaultConfig.Debug, config.LogLevel))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+	defer cancel()
 
-	err := clean.Clean(cf)
+	err := clean.Clean(ctx, cf)
 	if err != nil {
-		log.Error(err, "failed to clean nsx resources", "status", err.Error())
+		log.Error(err, "failed to clean nsx resources")
 		os.Exit(1)
 	}
 	os.Exit(0)

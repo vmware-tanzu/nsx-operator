@@ -1,6 +1,8 @@
 package staticroute
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -11,6 +13,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 type StaticRouteService struct {
@@ -145,16 +148,21 @@ func (service *StaticRouteService) ListStaticRoute() []*model.StaticRoutes {
 	return staticRouteSet
 }
 
-func (service *StaticRouteService) Cleanup() error {
+func (service *StaticRouteService) Cleanup(ctx context.Context) error {
 	staticRouteSet := service.ListStaticRoute()
 	log.Info("cleanup staticroute", "count", len(staticRouteSet))
 	for _, staticRoute := range staticRouteSet {
 		path := strings.Split(*staticRoute.Path, "/")
 		log.Info("removing staticroute", "staticroute path", *staticRoute.Path)
-		err := service.DeleteStaticRouteByPath(path[2], path[4], path[6], *staticRoute.Id)
-		if err != nil {
-			log.Error(err, "remove staticroute failed", "staticroute id", *staticRoute.Id)
-			return err
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			err := service.DeleteStaticRouteByPath(path[2], path[4], path[6], *staticRoute.Id)
+			if err != nil {
+				log.Error(err, "remove staticroute failed", "staticroute id", *staticRoute.Id)
+				return err
+			}
 		}
 	}
 	return nil

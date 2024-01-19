@@ -1,6 +1,7 @@
 package ippool
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -273,13 +274,18 @@ func (service *IPPoolService) GetIPPoolNamespace(nsxIPPool *model.IpAddressPool)
 	return ""
 }
 
-func (service *IPPoolService) Cleanup() error {
+func (service *IPPoolService) Cleanup(ctx context.Context) error {
 	uids := service.ListIPPoolID()
 	log.Info("cleaning up ippool", "count", len(uids))
 	for uid := range uids {
-		err := service.DeleteIPPool(types.UID(uid))
-		if err != nil {
-			return err
+		select {
+		case <-ctx.Done():
+			return util.TimeoutFailed
+		default:
+			err := service.DeleteIPPool(types.UID(uid))
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil

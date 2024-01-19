@@ -22,6 +22,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -549,12 +550,17 @@ func (s *VPCService) CreateorUpdateVPC(obj *v1alpha1.VPC) (*model.Vpc, *common.V
 	return &newVpc, &nc, nil
 }
 
-func (s *VPCService) Cleanup() error {
+func (s *VPCService) Cleanup(ctx context.Context) error {
 	vpcs := s.ListVPC()
 	log.Info("cleaning up vpcs", "Count", len(vpcs))
 	for _, vpc := range vpcs {
-		if err := s.DeleteVPC(*vpc.Path); err != nil {
-			return err
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			if err := s.DeleteVPC(*vpc.Path); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -562,8 +568,13 @@ func (s *VPCService) Cleanup() error {
 	log.Info("cleaning up ipblocks", "Count", len(ipblocks))
 	for _, ipblock := range ipblocks {
 		ipb := ipblock.(*model.IpAddressBlock)
-		if err := s.deleteIPBlock(*ipb.Path); err != nil {
-			return err
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			if err := s.deleteIPBlock(*ipb.Path); err != nil {
+				return err
+			}
 		}
 	}
 
