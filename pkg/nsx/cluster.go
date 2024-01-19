@@ -6,7 +6,6 @@ package nsx
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -165,15 +164,10 @@ func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
 					return nil, err
 				}
 
-				certPool := x509.NewCertPool()
-				certPool.AppendCertsFromPEM(caCert)
-				// #nosec G402: ignore insecure options
-				config = &tls.Config{
-					RootCAs: certPool,
-				}
-				// Bypass CN / SAN verification by setting tls config ServerName to the one in cert
-				if cn, err := util.GetCommonNameFromLeafCert(caCert); err != nil {
-					config.ServerName = cn
+				config, err = util.GetTLSConfigForCert(caCert)
+				if err != nil {
+					log.Error(err, "create transport", "get tls config from cert", cafile)
+					return nil, err
 				}
 			} else {
 				thumbprint := cluster.getThumbprint(addr)

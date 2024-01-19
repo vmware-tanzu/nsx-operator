@@ -5,7 +5,10 @@ package util
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -245,15 +248,15 @@ func TestVerifyNsxCertWithThumbprint(t *testing.T) {
 	}
 }
 
-func TestGetCommonNameFromCert(t *testing.T) {
+func TestGetTLSConfigForCert(t *testing.T) {
 	tests := []struct {
 		name    string
 		pem     []byte
-		cn      string
+		isCA    bool
 		wantErr bool
 	}{
 		{
-			name: "One cert",
+			name: "One leaf cert",
 			pem: []byte(`
 -----BEGIN CERTIFICATE-----
 MIID5DCCAsygAwIBAgIJAIJaVMN4AJHVMA0GCSqGSIb3DQEBCwUAMIGIMTQwMgYD
@@ -279,7 +282,7 @@ XkMSQJYdYDsUkiu98jNxh+oT8Cqdruwtg73pw8pP17EPltBABlHkYOEznw3dgDH3
 jSy6ts7e8AND6YWulG9jLmrI1xWwjbVqAoapxJQeSRYQ6Wb/KODPlg==
 -----END CERTIFICATE-----
 `),
-			cn:      "nsxmanager-ob-22945368-1-dev-integ-nsx-9389",
+			isCA:    false,
 			wantErr: false,
 		},
 		{
@@ -379,7 +382,7 @@ nAuknZoh8/CbCzB428Hch0P+vGOaysXCHMnHjf87ElgI5rY97HosTvuDls4MPGmH
 VHOkc8KT/1EQrBVUAdj8BbGJoX90g5pJ19xOe4pIb4tF9g==
 -----END CERTIFICATE-----
 `),
-			cn:      "nsxManager.sddc-10-215-208-250.vmwarevmc.com",
+			isCA:    false,
 			wantErr: false,
 		},
 		{
@@ -416,7 +419,7 @@ exCdtTix9qrKgWRs6PLigVWXUX/hwidQosk8WwBD9lu51aX8/wdQQGcHsFXwt35u
 Lcw=
 -----END CERTIFICATE-----
 `),
-			cn:      "",
+			isCA:    true,
 			wantErr: false,
 		},
 		{
@@ -427,11 +430,26 @@ Lcw=
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cn, err := GetCommonNameFromLeafCert(tt.pem)
+			config, err := GetTLSConfigForCert(tt.pem)
 			if tt.wantErr {
-				assert.Error(t, err, "GetCommonNameFromCert expected err returned")
+				assert.Error(t, err, "GetTLSConfigForCert expected err returned")
+				return
+			}
+
+			if tt.isCA {
+				assert.False(t, config.InsecureSkipVerify)
+				expected := x509.NewCertPool()
+				expected.AppendCertsFromPEM(tt.pem)
+				assert.True(t, config.RootCAs.Equal(expected))
 			} else {
-				assert.Equal(t, tt.cn, cn)
+				assert.True(t, config.InsecureSkipVerify)
+				assert.Nil(t, config.RootCAs)
+				assert.NotNil(t, config.VerifyConnection)
+				certDer, _ := pem.Decode(tt.pem)
+				cert, _ := x509.ParseCertificate(certDer.Bytes)
+				assert.NoError(t, config.VerifyConnection(tls.ConnectionState{
+					PeerCertificates: []*x509.Certificate{cert},
+				}))
 			}
 		})
 	}
