@@ -103,7 +103,10 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj *v1alpha1
 	existingRules := service.ruleStore.GetByIndex(common.TagScopeSecurityPolicyCRUID, string(obj.UID))
 	existingGroups := service.groupStore.GetByIndex(common.TagScopeSecurityPolicyCRUID, string(obj.UID))
 
-	isChanged := common.CompareResource(SecurityPolicyToComparable(existingSecurityPolicy), SecurityPolicyToComparable(nsxSecurityPolicy))
+	isChanged := true
+	if existingSecurityPolicy != nil {
+		isChanged = common.CompareResource(SecurityPolicyToComparable(existingSecurityPolicy), SecurityPolicyToComparable(nsxSecurityPolicy))
+	}
 
 	changed, stale := common.CompareResources(RulesPtrToComparable(existingRules), RulesToComparable(nsxSecurityPolicy.Rules))
 	changedRules, staleRules := ComparableToRules(changed), ComparableToRules(stale)
