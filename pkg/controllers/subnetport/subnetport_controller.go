@@ -15,6 +15,7 @@ import (
 
 	vmv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -259,19 +260,20 @@ func (r *SubnetPortReconciler) GarbageCollector(cancel chan bool, timeout time.D
 	}
 }
 
-func (r *SubnetPortReconciler) setSubnetPortReadyStatusTrue(ctx *context.Context, subnetPort *v1alpha1.SubnetPort) {
+func (r *SubnetPortReconciler) setSubnetPortReadyStatusTrue(ctx *context.Context, subnetPort *v1alpha1.SubnetPort, transitionTime metav1.Time) {
 	newConditions := []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.Ready,
-			Status:  v1.ConditionTrue,
-			Message: "NSX subnet port has been successfully created/updated",
-			Reason:  "NSX API returned 200 response code for PATCH",
+			Type:               v1alpha1.Ready,
+			Status:             v1.ConditionTrue,
+			Message:            "NSX subnet port has been successfully created/updated",
+			Reason:             "NSX API returned 200 response code for PATCH",
+			LastTransitionTime: transitionTime,
 		},
 	}
 	r.UpdateSubnetPortStatusConditions(ctx, subnetPort, newConditions)
 }
 
-func (r *SubnetPortReconciler) setSubnetPortReadyStatusFalse(ctx *context.Context, subnetPort *v1alpha1.SubnetPort, err *error) {
+func (r *SubnetPortReconciler) setSubnetPortReadyStatusFalse(ctx *context.Context, subnetPort *v1alpha1.SubnetPort, transitionTime metav1.Time, err *error) {
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:    v1alpha1.Ready,
@@ -281,6 +283,7 @@ func (r *SubnetPortReconciler) setSubnetPortReadyStatusFalse(ctx *context.Contex
 				"error occurred while processing the SubnetPort CR. Error: %v",
 				*err,
 			),
+			LastTransitionTime: transitionTime,
 		},
 	}
 	r.UpdateSubnetPortStatusConditions(ctx, subnetPort, newConditions)
@@ -328,17 +331,17 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 }
 
 func updateFail(r *SubnetPortReconciler, c *context.Context, o *v1alpha1.SubnetPort, e *error) {
-	r.setSubnetPortReadyStatusFalse(c, o, e)
+	r.setSubnetPortReadyStatusFalse(c, o, metav1.Now(), e)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResTypeSubnetPort)
 }
 
 func deleteFail(r *SubnetPortReconciler, c *context.Context, o *v1alpha1.SubnetPort, e *error) {
-	r.setSubnetPortReadyStatusFalse(c, o, e)
+	r.setSubnetPortReadyStatusFalse(c, o, metav1.Now(), e)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetPort)
 }
 
 func updateSuccess(r *SubnetPortReconciler, c *context.Context, o *v1alpha1.SubnetPort) {
-	r.setSubnetPortReadyStatusTrue(c, o)
+	r.setSubnetPortReadyStatusTrue(c, o, metav1.Now())
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResTypeSubnetPort)
 }
 

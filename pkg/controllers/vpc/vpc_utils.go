@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
@@ -21,10 +22,11 @@ import (
 func setVPCReadyStatusFalse(ctx *context.Context, vpc *v1alpha1.VPC, err *error, client client.Client) {
 	newConditions := []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.Ready,
-			Status:  v1.ConditionFalse,
-			Message: "NSX VPC could not be created/updated",
-			Reason:  fmt.Sprintf("Error occurred while processing the VPC CR. Please check the config and try again. Error: %v", *err),
+			Type:               v1alpha1.Ready,
+			Status:             v1.ConditionFalse,
+			Message:            "NSX VPC could not be created/updated",
+			Reason:             fmt.Sprintf("Error occurred while processing the VPC CR. Please check the config and try again. Error: %v", *err),
+			LastTransitionTime: metav1.Now(),
 		},
 	}
 	updateVPCStatusConditions(ctx, vpc, newConditions, client, "", "", "", "", []string{})
@@ -78,10 +80,11 @@ func deleteSuccess(nsxConfig *config.NSXOperatorConfig, _ *context.Context, _ *v
 func setVPCReadyStatusTrue(ctx *context.Context, vpc *v1alpha1.VPC, client client.Client, path, snatIP, subnetPath, cidr string, privateCidrs []string) {
 	newConditions := []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.Ready,
-			Status:  v1.ConditionTrue,
-			Message: "NSX VPC has been successfully created/updated",
-			Reason:  "NSX API returned 200 response code for PATCH",
+			Type:               v1alpha1.Ready,
+			Status:             v1.ConditionTrue,
+			Message:            "NSX VPC has been successfully created/updated",
+			Reason:             "NSX API returned 200 response code for PATCH",
+			LastTransitionTime: metav1.Now(),
 		},
 	}
 	updateVPCStatusConditions(ctx, vpc, newConditions, client, path, snatIP, subnetPath, cidr, privateCidrs)

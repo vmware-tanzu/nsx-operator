@@ -10,6 +10,7 @@ import (
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -127,17 +128,17 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 }
 
 func updateFail(r *SubnetSetReconciler, c *context.Context, o *v1alpha1.SubnetSet, m string) {
-	r.setSubnetSetReadyStatusFalse(c, o, m)
+	r.setSubnetSetReadyStatusFalse(c, o, metav1.Now(), m)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResTypeSubnetSet)
 }
 
 func deleteFail(r *SubnetSetReconciler, c *context.Context, o *v1alpha1.SubnetSet, m string) {
-	r.setSubnetSetReadyStatusFalse(c, o, m)
+	r.setSubnetSetReadyStatusFalse(c, o, metav1.Now(), m)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetSet)
 }
 
 func updateSuccess(r *SubnetSetReconciler, c *context.Context, o *v1alpha1.SubnetSet) {
-	r.setSubnetSetReadyStatusTrue(c, o)
+	r.setSubnetSetReadyStatusTrue(c, o, metav1.Now())
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResTypeSubnetSet)
 }
 
@@ -145,25 +146,27 @@ func deleteSuccess(r *SubnetSetReconciler, _ *context.Context, _ *v1alpha1.Subne
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetSet)
 }
 
-func (r *SubnetSetReconciler) setSubnetSetReadyStatusTrue(ctx *context.Context, subnetset *v1alpha1.SubnetSet) {
+func (r *SubnetSetReconciler) setSubnetSetReadyStatusTrue(ctx *context.Context, subnetset *v1alpha1.SubnetSet, transitionTime metav1.Time) {
 	newConditions := []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.Ready,
-			Status:  v1.ConditionTrue,
-			Message: "NSX SubnetSet has been successfully created/updated",
-			Reason:  "SubnetsReady",
+			Type:               v1alpha1.Ready,
+			Status:             v1.ConditionTrue,
+			Message:            "NSX SubnetSet has been successfully created/updated",
+			Reason:             "SubnetsReady",
+			LastTransitionTime: transitionTime,
 		},
 	}
 	r.updateSubnetSetStatusConditions(ctx, subnetset, newConditions)
 }
 
-func (r *SubnetSetReconciler) setSubnetSetReadyStatusFalse(ctx *context.Context, subnetset *v1alpha1.SubnetSet, m string) {
+func (r *SubnetSetReconciler) setSubnetSetReadyStatusFalse(ctx *context.Context, subnetset *v1alpha1.SubnetSet, transitionTime metav1.Time, m string) {
 	newConditions := []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.Ready,
-			Status:  v1.ConditionFalse,
-			Message: "NSX SubnetSet could not be created/updated",
-			Reason:  "SubnetNotReady",
+			Type:               v1alpha1.Ready,
+			Status:             v1.ConditionFalse,
+			Message:            "NSX SubnetSet could not be created/updated",
+			Reason:             "SubnetNotReady",
+			LastTransitionTime: transitionTime,
 		},
 	}
 	if m != "" {
@@ -180,9 +183,11 @@ func (r *SubnetSetReconciler) updateSubnetSetStatusConditions(ctx *context.Conte
 		}
 	}
 	if conditionsUpdated {
-		r.Client.Status().Update(*ctx, subnetset)
-		log.V(1).Info("updated Subnet", "Name", subnetset.Name, "Namespace", subnetset.Namespace,
-			"New Conditions", newConditions)
+		if err := r.Client.Status().Update(*ctx, subnetset); err != nil {
+			log.Error(err, "failed to update status", "Name", subnetset.Name, "Namespace", subnetset.Namespace)
+		} else {
+			log.Info("updated SubnetSet", "Name", subnetset.Name, "Namespace", subnetset.Namespace, "New Conditions", newConditions)
+		}
 	}
 }
 
