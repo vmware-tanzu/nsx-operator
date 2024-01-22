@@ -239,7 +239,7 @@ func (r *StaticRouteReconciler) GarbageCollector(cancel chan bool, timeout time.
 
 		for _, e := range nsxStaticRouteList {
 			elem := e
-			UID := r.Service.GetUID(&elem)
+			UID := r.Service.GetUID(elem)
 			if UID == nil {
 				continue
 			}

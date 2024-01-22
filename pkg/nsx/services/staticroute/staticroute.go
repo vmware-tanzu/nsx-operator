@@ -137,11 +137,11 @@ func (service *StaticRouteService) DeleteStaticRoute(namespace string, uid strin
 	return service.DeleteStaticRouteByPath(path[2], path[4], *vpc[0].Id, uid)
 }
 
-func (service *StaticRouteService) ListStaticRoute() []model.StaticRoutes {
+func (service *StaticRouteService) ListStaticRoute() []*model.StaticRoutes {
 	staticRoutes := service.StaticRouteStore.List()
-	staticRouteSet := []model.StaticRoutes{}
+	staticRouteSet := []*model.StaticRoutes{}
 	for _, staticroute := range staticRoutes {
-		staticRouteSet = append(staticRouteSet, staticroute.(model.StaticRoutes))
+		staticRouteSet = append(staticRouteSet, staticroute.(*model.StaticRoutes))
 	}
 	return staticRouteSet
 }
