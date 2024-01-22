@@ -5,7 +5,6 @@ package clean
 
 import (
 	"fmt"
-	"net/http"
 
 	"k8s.io/client-go/util/retry"
 
@@ -28,18 +27,17 @@ var log = logger.Log
 // including security policy, static route, subnet, subnet port, subnet set, vpc, ip pool, nsx service account
 // it is usually used when nsx-operator is uninstalled and remove all the resources created by nsx-operator
 // return error if any, return nil if no error
-func Clean(cf *config.NSXOperatorConfig, client *http.Client) (Status, error) {
+func Clean(cf *config.NSXOperatorConfig) (Status, error) {
 	log.Info("starting NSX cleanup")
 	if err := cf.ValidateConfigFromCmd(); err != nil {
 		return ValidationFailed, err
 	}
-	nsxClient := nsx.GetClient(cf, client)
+	nsxClient := nsx.GetClient(cf)
 	if nsxClient == nil {
 		return GetNSXClientFailed, fmt.Errorf("failed to get nsx client")
 	}
-	if cleanupService, err := InitializeCleanupService(cf, nsxClient); err != nil {
-		return InitCleanupServiceFailed, err
-
+	if cleanupService, err := InitializeCleanupService(cf); err != nil {
+		return InitCleanupServiceFailed, fmt.Errorf("failed to initialize cleanup service: %w", err)
 	} else if cleanupService.err != nil {
 		return InitCleanupServiceFailed, cleanupService.err
 	} else {
@@ -65,8 +63,13 @@ func Clean(cf *config.NSXOperatorConfig, client *http.Client) (Status, error) {
 }
 
 // InitializeCleanupService initializes all the CR services
-func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Client) (*CleanupService, error) {
+func InitializeCleanupService(cf *config.NSXOperatorConfig) (*CleanupService, error) {
 	cleanupService := NewCleanupService()
+
+	nsxClient := nsx.GetClient(cf)
+	if nsxClient == nil {
+		return cleanupService, fmt.Errorf("failed to get nsx client")
+	}
 
 	var commonService = common.Service{
 		NSXClient: nsxClient,

@@ -177,7 +177,7 @@ func main() {
 	}
 
 	// nsxClient is used to interact with NSX API.
-	nsxClient := nsx.GetClient(cf, nil)
+	nsxClient := nsx.GetClient(cf)
 	if nsxClient == nil {
 		log.Error(err, "failed to get nsx client")
 		os.Exit(1)

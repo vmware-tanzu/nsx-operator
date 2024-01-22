@@ -4,11 +4,8 @@
 package main
 
 import (
-	"crypto/tls"
 	"flag"
-	"net/http"
 	"os"
-	"time"
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -21,37 +18,20 @@ import (
 // ./bin/clean -cluster=''  -thumbprint="" -log-level=0 -vc-user="" -vc-passwd="" -vc-endpoint="" -vc-sso-domain="" -vc-https-port=443  -mgr-ip=""
 
 var (
-	log             = logger.Log
-	cf              *config.NSXOperatorConfig
-	mgrIp           string
-	vcEndpoint      string
-	vcUser          string
-	vcPasswd        string
-	nsxUser         string
-	nsxPasswd       string
-	vcSsoDomain     string
-	vcHttpsPort     int
-	thumbprint      string
-	caFile          string
-	cluster         string
-	useExternalHttp bool
+	log         = logger.Log
+	cf          *config.NSXOperatorConfig
+	mgrIp       string
+	vcEndpoint  string
+	vcUser      string
+	vcPasswd    string
+	nsxUser     string
+	nsxPasswd   string
+	vcSsoDomain string
+	vcHttpsPort int
+	thumbprint  string
+	caFile      string
+	cluster     string
 )
-
-type Transport struct {
-	Base http.RoundTripper
-}
-
-func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
-	log.V(1).Info("http request", "method", r.Method, "body", r.Body, "url", r.URL)
-	r.SetBasicAuth(nsxUser, nsxPasswd)
-	return t.base().RoundTrip(r)
-}
-func (t *Transport) base() http.RoundTripper {
-	if t.Base != nil {
-		return t.Base
-	}
-	return http.DefaultTransport
-}
 
 func main() {
 	flag.StringVar(&vcEndpoint, "vc-endpoint", "", "nsx manager ip")
@@ -66,7 +46,6 @@ func main() {
 	flag.StringVar(&caFile, "ca-file", "", "ca file")
 	flag.StringVar(&cluster, "cluster", "", "cluster name")
 	flag.IntVar(&config.LogLevel, "log-level", 0, "Use zap-core log system.")
-	flag.BoolVar(&useExternalHttp, "use-external-http", false, "Use wcp created http client")
 	flag.Parse()
 
 	cf = config.NewNSXOpertorConfig()
@@ -84,33 +63,7 @@ func main() {
 
 	logf.SetLogger(logger.ZapLogger(cf.DefaultConfig.Debug, config.LogLevel))
 
-	// just a demo to show how to use customer http client
-	// customer http client should handle verify and authentication
-	// here using the basic user/password mode for authentication
-	// not handling verify
-	// the error roughly are:
-	// 1. failed to validate config
-	// 2. failed to get nsx client
-	// 3. failed to initialize cleanup service
-	// 4. failed to clean up specific resourc
-	var err error
-	var status clean.Status
-	if useExternalHttp {
-		tr := &http.Transport{
-			IdleConnTimeout: 30 * time.Second,
-			// #nosec G402: ignore insecure options
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		}
-		httpClient := &http.Client{
-			Transport: &Transport{Base: tr},
-			Timeout:   30 * time.Second,
-		}
-		status, err = clean.Clean(cf, httpClient)
-	} else {
-		status, err = clean.Clean(cf, nil)
-	}
+	status, err := clean.Clean(cf)
 	if err != nil {
 		log.Error(err, "failed to clean nsx resources", "status", status)
 		os.Exit(1)

@@ -27,7 +27,7 @@ func (_ *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool
 
 func fakeService() *SecurityPolicyService {
 	c := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
-	cluster, _ := nsx.NewCluster(c, nil)
+	cluster, _ := nsx.NewCluster(c)
 	rc, _ := cluster.NewRestConnector()
 	service = &SecurityPolicyService{
 		Service: common.Service{

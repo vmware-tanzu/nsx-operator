@@ -53,7 +53,7 @@ func (f fakeRealizedEntitiesClient) List(_ string, _ string, _ string, _ *string
 
 func fakeService() *IPPoolService {
 	c := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
-	cluster, _ := nsx.NewCluster(c, nil)
+	cluster, _ := nsx.NewCluster(c)
 	rc, _ := cluster.NewRestConnector()
 	ipPoolStore := &IPPoolStore{ResourceStore: common.ResourceStore{
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeIPPoolCRUID: indexFunc}),

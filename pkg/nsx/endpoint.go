@@ -107,10 +107,6 @@ type epHealthy struct {
 }
 
 func (ep *Endpoint) keepAlive() error {
-	// disable keepAlive for cleanup
-	if ep.noBalancerClient == ep.client {
-		return nil
-	}
 	req, err := http.NewRequest("GET", fmt.Sprintf(healthURL, ep.Scheme(), ep.Host()), nil)
 	if err != nil {
 		log.Error(err, "create keep alive request error")
@@ -259,10 +255,7 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 		log.V(2).Info("Skipping session create with JWT based auth")
 		return nil
 	}
-	// disable createAuthSession for cleanup
-	if ep.noBalancerClient == ep.client {
-		return nil
-	}
+
 	u := &url.URL{Host: ep.Host(), Scheme: ep.Scheme()}
 	postValues := url.Values{}
 	postValues.Add("j_username", username)
