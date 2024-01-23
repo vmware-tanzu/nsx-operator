@@ -35,8 +35,11 @@ type Status struct {
 	Message string
 }
 
+func (s Status) Error() string {
+	return s.Message
+}
+
 var (
-	OK                       = Status{Code: 0, Message: "cleanup successfully"}
 	ValidationFailed         = Status{Code: 1, Message: "failed to validate config"}
 	GetNSXClientFailed       = Status{Code: 2, Message: "failed to get nsx client"}
 	InitCleanupServiceFailed = Status{Code: 3, Message: "failed to initialize cleanup service"}
