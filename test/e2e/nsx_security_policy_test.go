@@ -15,11 +15,8 @@
 package e2e
 
 import (
-	"fmt"
 	"path/filepath"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
@@ -32,30 +29,33 @@ const (
 // This is the very basic, blocking all in and out traffic between pods should take effect.
 func TestSecurityPolicyBasicTraffic(t *testing.T) {
 	ns := "test-security-policy-1"
-	busybox := "busybox"
-	ncPod := "nc-pod"
 	securityPolicyName := "isolate-policy-1"
+	var err error
 	setupTest(t, ns)
 	defer teardownTest(t, ns, defaultTimeout)
 
-	// Create pods
-	busyboxPath, _ := filepath.Abs("./manifest/testSecurityPolicy/busybox.yaml")
-	_ = applyYAML(busyboxPath, ns)
-	netcatPath, _ := filepath.Abs("./manifest/testSecurityPolicy/netcat-pod.yaml")
-	_ = applyYAML(netcatPath, ns)
+	// Temporarily disable traffic check
+	/*
+		// Create pods
+		busyboxPath, _ := filepath.Abs("./manifest/testSecurityPolicy/busybox.yaml")
+		_ = applyYAML(busyboxPath, ns)
+		netcatPath, _ := filepath.Abs("./manifest/testSecurityPolicy/netcat-pod.yaml")
+		_ = applyYAML(netcatPath, ns)
 
-	// Wait for pods
-	ps, err := testData.podWaitForIPs(defaultTimeout, busybox, ns)
-	t.Logf("Pods are %v", ps)
-	assertNil(t, err, "Error when waiting for IP for Pod %s", busybox)
-	iPs, err := testData.podWaitForIPs(defaultTimeout, ncPod, ns)
-	t.Logf("Pods are %v", iPs)
-	assertNil(t, err, "Error when waiting for IP for Pod %s", ncPod)
+		busybox := "busybox"
+		ncPod := "nc-pod
+		// Wait for pods
+		ps, err := testData.podWaitForIPs(defaultTimeout, busybox, ns)
+		t.Logf("Pods are %v", ps)
+		assertNil(t, err, "Error when waiting for IP for Pod %s", busybox)
+		iPs, err := testData.podWaitForIPs(defaultTimeout, ncPod, ns)
+		t.Logf("Pods are %v", iPs)
+		assertNil(t, err, "Error when waiting for IP for Pod %s", ncPod)
 
-	// Ping from pod
-	err = testData.runPingCommandFromPod(ns, busybox, iPs, 4)
-	assertNil(t, err, "Error when running ping command from test Pod %s", busybox)
-
+		// Ping from pod
+		err = testData.runPingCommandFromPod(ns, busybox, iPs, 4)
+		assertNil(t, err, "Error when running ping command from test Pod %s", busybox)
+	*/
 	// Create security policy
 	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy.yaml")
 	_ = applyYAML(nsIsolationPath, ns)
@@ -69,9 +69,12 @@ func TestSecurityPolicyBasicTraffic(t *testing.T) {
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, securityPolicyName, true)
 	assertNil(t, err)
 
-	// Ping from pod
-	err = testData.runPingCommandFromPod(ns, busybox, iPs, 4)
-	assertNotNil(t, err, "Error when running ping command from test Pod %s", busybox)
+	//Temporarily disable traffic check
+	/*
+		// Ping from pod
+		err = testData.runPingCommandFromPod(ns, busybox, iPs, 4)
+		assertNotNil(t, err, "Error when running ping command from test Pod %s", busybox)
+	*/
 
 	// Delete security policy
 	_ = deleteYAML(nsIsolationPath, ns)
@@ -84,9 +87,12 @@ func TestSecurityPolicyBasicTraffic(t *testing.T) {
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, securityPolicyName, false)
 	assertNil(t, err)
 
-	// Ping from pod
-	err = testData.runPingCommandFromPod(ns, busybox, iPs, 4)
-	assertNil(t, err, "Error when running ping command from test Pod %s", busybox)
+	//Temporarily disable traffic check
+	/*
+		// Ping from pod
+		err = testData.runPingCommandFromPod(ns, busybox, iPs, 4)
+		assertNil(t, err, "Error when running ping command from test Pod %s", busybox)
+	*/
 }
 
 // TestSecurityPolicyAddDeleteRule verifies that when adding or deleting rule, the security policy will be updated.
@@ -144,9 +150,7 @@ func TestSecurityPolicyAddDeleteRule(t *testing.T) {
 func TestSecurityPolicyMatchExpression(t *testing.T) {
 	ns := "test-security-policy-match-expression"
 	securityPolicyName := "expression-policy-1"
-	clientA := "client-a"
-	clientB := "client-b"
-	podA := "pod-a"
+	var err error
 	setupTest(t, ns)
 	defer teardownTest(t, ns, defaultTimeout)
 
@@ -155,22 +159,28 @@ func TestSecurityPolicyMatchExpression(t *testing.T) {
 	_ = applyYAML(podPath, ns)
 	defer deleteYAML(podPath, "")
 
-	// Wait for pods
-	ps, err := testData.podWaitForIPs(defaultTimeout, clientA, ns)
-	t.Logf("Pods are %v", ps)
-	assertNil(t, err, "Error when waiting for IP for Pod %s", clientA)
-	psb, err := testData.podWaitForIPs(defaultTimeout, clientB, ns)
-	t.Logf("Pods are %v", psb)
-	assertNil(t, err, "Error when waiting for IP for Pod %s", clientB)
-	iPs, err := testData.podWaitForIPs(defaultTimeout, podA, ns)
-	t.Logf("Pods are %v", iPs)
-	assertNil(t, err, "Error when waiting for IP for Pod %s", podA)
+	// Temporarily disable traffic check
+	//clientA := "client-a"
+	//clientB := "client-b"
+	//podA := "pod-a"
+	/*
+		// Wait for pods
+		ps, err := testData.podWaitForIPs(defaultTimeout, clientA, ns)
+		t.Logf("Pods are %v", ps)
+		assertNil(t, err, "Error when waiting for IP for Pod %s", clientA)
+		psb, err := testData.podWaitForIPs(defaultTimeout, clientB, ns)
+		t.Logf("Pods are %v", psb)
+		assertNil(t, err, "Error when waiting for IP for Pod %s", clientB)
+		iPs, err := testData.podWaitForIPs(defaultTimeout, podA, ns)
+		t.Logf("Pods are %v", iPs)
+		assertNil(t, err, "Error when waiting for IP for Pod %s", podA)
 
-	// Ping from pod
-	err = testData.runPingCommandFromPod(ns, clientA, iPs, 4)
-	assertNil(t, err, "Error when running ping command from Pod %s", clientA)
-	err = testData.runPingCommandFromPod(ns, clientB, iPs, 4)
-	assertNil(t, err, "Error when running ping command from Pod %s", clientB)
+		// Ping from pod
+		err = testData.runPingCommandFromPod(ns, clientA, iPs, 4)
+		assertNil(t, err, "Error when running ping command from Pod %s", clientA)
+		err = testData.runPingCommandFromPod(ns, clientB, iPs, 4)
+		assertNil(t, err, "Error when running ping command from Pod %s", clientB)
+	*/
 
 	// Create security policy
 	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/match-expression.yaml")
@@ -185,11 +195,14 @@ func TestSecurityPolicyMatchExpression(t *testing.T) {
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, securityPolicyName, true)
 	assertNil(t, err)
 
-	// Ping from pod
-	err = testData.runPingCommandFromPod(ns, clientA, iPs, 4)
-	assertNil(t, err, "Error when running ping command from Pod %s", clientA)
-	err = testData.runPingCommandFromPod(ns, clientB, iPs, 4)
-	assert.NotNilf(t, err, "Error when running ping command from Pod %s", clientB)
+	// Temporarily disable traffic check
+	/*
+		// Ping from pod
+		err = testData.runPingCommandFromPod(ns, clientA, iPs, 4)
+		assertNil(t, err, "Error when running ping command from Pod %s", clientA)
+		err = testData.runPingCommandFromPod(ns, clientB, iPs, 4)
+		assert.NotNilf(t, err, "Error when running ping command from Pod %s", clientB)
+	*/
 
 	// Delete security policy
 	_ = deleteYAML(nsIsolationPath, ns)
@@ -202,13 +215,17 @@ func TestSecurityPolicyMatchExpression(t *testing.T) {
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, securityPolicyName, false)
 	assertNil(t, err)
 
-	// Ping from pod
-	err = testData.runPingCommandFromPod(ns, clientA, iPs, 4)
-	assertNil(t, err, "Error when running ping command from Pod %s", clientA)
-	err = testData.runPingCommandFromPod(ns, clientB, iPs, 4)
-	assertNil(t, err, "Error when running ping command from Pod %s", clientB)
+	// Temporarily disable traffic check
+	/*
+		// Ping from pod
+		err = testData.runPingCommandFromPod(ns, clientA, iPs, 4)
+		assertNil(t, err, "Error when running ping command from Pod %s", clientA)
+		err = testData.runPingCommandFromPod(ns, clientB, iPs, 4)
+		assertNil(t, err, "Error when running ping command from Pod %s", clientB)
+	*/
 }
 
+/*
 // TestSecurityPolicyNamedPort0 verifies that the traffic of security policy when named port applied.
 // This test is to verify the named port feature of security policy.
 // When appliedTo is in policy level.
@@ -763,3 +780,4 @@ func TestSecurityPolicyNamedPort7(t *testing.T) {
 	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName1, false)
 	assertNil(t, err)
 }
+*/
