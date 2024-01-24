@@ -267,6 +267,11 @@ func (service *SubnetPortService) GetSubnetPathForSubnetPortFromStore(nsxSubnetP
 	return *existingSubnetPort.ParentPath
 }
 
+func (service *SubnetPortService) GetPortsOfSubnet(nsxSubnetID string) (ports []*model.VpcSubnetPort) {
+	subnetPortList := service.SubnetPortStore.GetByIndex(servicecommon.IndexKeySubnetID, nsxSubnetID)
+	return subnetPortList
+}
+
 func (service *SubnetPortService) Cleanup() error {
 	subnetPorts := service.SubnetPortStore.List()
 	log.Info("cleanup subnetports", "count", len(subnetPorts))

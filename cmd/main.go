@@ -19,7 +19,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	ippool2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/ippool"
 	namespacecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/namespace"
 	networkpolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/networkpolicy"
@@ -41,6 +40,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
 	subnetservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
+	subnetportservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
@@ -118,10 +118,7 @@ func StartVPCController(mgr ctrl.Manager, vpcService *vpc.VPCService) {
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
-
 	vpcReconciler.Service = vpcService
-	commonctl.ServiceMediator.VPCService = vpcService
-
 	if err := vpcReconciler.Start(mgr); err != nil {
 		log.Error(err, "failed to create vpc controller", "controller", "VPC")
 		os.Exit(1)
@@ -188,9 +185,12 @@ func main() {
 		ipPoolService, err := ippool.InitializeIPPool(commonService, vpcService)
 		if err != nil {
 			log.Error(err, "failed to initialize ippool commonService", "controller", "IPPool")
+		}
+		subnetPortService, err := subnetportservice.InitializeSubnetPort(commonService)
+		if err != nil {
+			log.Error(err, "failed to initialize subnetport commonService", "controller", "SubnetPort")
 			os.Exit(1)
 		}
-		commonctl.ServiceMediator.VPCService = vpcService
 		nodeService, err := nodeservice.InitializeNode(commonService)
 		if err != nil {
 			log.Error(err, "failed to initialize node commonService", "controller", "Node")
@@ -205,17 +205,17 @@ func main() {
 		StartVPCController(mgr, vpcService)
 		StartNamespaceController(mgr, cf, vpcService)
 		// Start subnet/subnetset controller.
-		if err := subnet.StartSubnetController(mgr, subnetService); err != nil {
+		if err := subnet.StartSubnetController(mgr, subnetService, subnetPortService, vpcService); err != nil {
 			os.Exit(1)
 		}
-		if err := subnetset.StartSubnetSetController(mgr, subnetService); err != nil {
+		if err := subnetset.StartSubnetSetController(mgr, subnetService, subnetPortService, vpcService); err != nil {
 			os.Exit(1)
 		}
 
 		node.StartNodeController(mgr, nodeService)
 		staticroutecontroller.StartStaticRouteController(mgr, staticRouteService)
-		subnetport.StartSubnetPortController(mgr, commonService)
-		pod.StartPodController(mgr, commonService, nodeService)
+		subnetport.StartSubnetPortController(mgr, subnetPortService, subnetService, vpcService)
+		pod.StartPodController(mgr, subnetPortService, subnetService, vpcService, nodeService)
 		StartIPPoolController(mgr, ipPoolService, vpcService)
 		networkpolicycontroller.StartNetworkPolicyController(mgr, commonService, vpcService)
 	}

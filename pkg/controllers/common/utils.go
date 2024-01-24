@@ -15,6 +15,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -22,16 +23,34 @@ var (
 	lock = &sync.Mutex{}
 )
 
-func AllocateSubnetFromSubnetSet(subnetSet *v1alpha1.SubnetSet) (string, error) {
+func AllocateSubnetFromSubnetSet(subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, error) {
 	// TODO: For now, this is a global lock. In the future, we need to narrow its scope down to improve the performance.
 	lock.Lock()
 	defer lock.Unlock()
-	subnetPath, err := ServiceMediator.GetAvailableSubnet(subnetSet)
-	if err != nil {
+	subnetList := subnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.GetUID()))
+	for _, nsxSubnet := range subnetList {
+		portNums := len(subnetPortService.GetPortsOfSubnet(*nsxSubnet.Id))
+		totalIP := int(*nsxSubnet.Ipv4SubnetSize)
+		if len(nsxSubnet.IpAddresses) > 0 {
+			// totalIP will be overrided if IpAddresses are specified.
+			totalIP, _ = util.CalculateIPFromCIDRs(nsxSubnet.IpAddresses)
+		}
+		if portNums < totalIP-3 {
+			return *nsxSubnet.Path, nil
+		}
+	}
+	tags := subnetService.GenerateSubnetNSTags(subnetSet, subnetSet.Namespace)
+	if tags == nil {
+		return "", errors.New("failed to generate subnet tags")
+	}
+	log.Info("the existing subnets are not available, creating new subnet", "subnetList", subnetList, "subnetSet.Name", subnetSet.Name, "subnetSet.Namespace", subnetSet.Namespace)
+	vpcInfoList := vpcService.ListVPCInfo(subnetSet.Namespace)
+	if len(vpcInfoList) == 0 {
+		err := errors.New("no VPC found")
 		log.Error(err, "failed to allocate Subnet")
 		return "", err
 	}
-	return subnetPath, nil
+	return subnetService.CreateOrUpdateSubnet(subnetSet, vpcInfoList[0], tags)
 }
 
 func getSharedNamespaceAndVpcForNamespace(client k8sclient.Client, ctx context.Context, namespaceName string) (string, string, error) {
@@ -64,14 +83,14 @@ func GetDefaultSubnetSet(client k8sclient.Client, ctx context.Context, namespace
 		log.Info("namespace doesn't have shared VPC, searching the default subnetset in the current namespace", "namespace", namespace)
 		targetNamespace = namespace
 	}
-	subnetSet, err := getDefaultSubnetSetByNamespace(client, ctx, targetNamespace, resourceType)
+	subnetSet, err := getDefaultSubnetSetByNamespace(client, targetNamespace, resourceType)
 	if err != nil {
 		return nil, err
 	}
 	return subnetSet, err
 }
 
-func getDefaultSubnetSetByNamespace(client k8sclient.Client, ctx context.Context, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
+func getDefaultSubnetSetByNamespace(client k8sclient.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
 	subnetSetList := &v1alpha1.SubnetSetList{}
 	subnetSetSelector := &metav1.LabelSelector{
 		MatchLabels: map[string]string{

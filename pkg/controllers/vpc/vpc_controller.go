@@ -5,7 +5,6 @@ package vpc
 
 import (
 	"context"
-	"os"
 	"runtime"
 	"time"
 
@@ -212,22 +211,5 @@ func (r *VPCReconciler) GarbageCollector(cancel chan bool, timeout time.Duration
 				log.Info("deleted private ip blocks for VPC", "VPC", *elem.DisplayName)
 			}
 		}
-	}
-}
-
-func StartVPCController(mgr ctrl.Manager, commonService commonservice.Service) {
-	vpcReconcile := VPCReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}
-	vpcService, err := vpc.InitializeVPC(commonService)
-	if err != nil {
-		log.Error(err, "failed to initialize VPC commonService")
-		os.Exit(1)
-	}
-	vpcReconcile.Service = vpcService
-	if err := vpcReconcile.Start(mgr); err != nil {
-		log.Error(err, "failed to create VPC controller")
-		os.Exit(1)
 	}
 }

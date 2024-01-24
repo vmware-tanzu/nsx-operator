@@ -50,9 +50,9 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 	k8sClient := mock_client.NewMockClient(mockCtl)
 
 	r := &SubnetReconciler{
-		Client:  k8sClient,
-		Scheme:  nil,
-		Service: service,
+		Client:        k8sClient,
+		Scheme:        nil,
+		SubnetService: service,
 	}
 	ctx := context.Background()
 	srList := &v1alpha1.SubnetList{}
