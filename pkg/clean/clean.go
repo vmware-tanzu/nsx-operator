@@ -4,6 +4,7 @@
 package clean
 
 import (
+	"errors"
 	"fmt"
 
 	"k8s.io/client-go/util/retry"
@@ -27,19 +28,24 @@ var log = logger.Log
 // including security policy, static route, subnet, subnet port, subnet set, vpc, ip pool, nsx service account
 // it is usually used when nsx-operator is uninstalled and remove all the resources created by nsx-operator
 // return error if any, return nil if no error
-func Clean(cf *config.NSXOperatorConfig) (Status, error) {
+// the error type include followings:
+// ValidationFailed 			indicate that the config is incorrect and failed to pass validation
+// GetNSXClientFailed  			indicate that could not retrieve nsx client to perform cleanup operation
+// InitCleanupServiceFailed 	indicate that error happened when trying to initialize cleanup service
+// CleanupResourceFailed    	indicate that the cleanup operation failed at some services, the detailed will in the service logs
+func Clean(cf *config.NSXOperatorConfig) error {
 	log.Info("starting NSX cleanup")
 	if err := cf.ValidateConfigFromCmd(); err != nil {
-		return ValidationFailed, err
+		return errors.Join(ValidationFailed, err)
 	}
 	nsxClient := nsx.GetClient(cf)
 	if nsxClient == nil {
-		return GetNSXClientFailed, fmt.Errorf("failed to get nsx client")
+		return GetNSXClientFailed
 	}
 	if cleanupService, err := InitializeCleanupService(cf); err != nil {
-		return InitCleanupServiceFailed, fmt.Errorf("failed to initialize cleanup service: %w", err)
+		return errors.Join(InitCleanupServiceFailed, err)
 	} else if cleanupService.err != nil {
-		return InitCleanupServiceFailed, cleanupService.err
+		return errors.Join(InitCleanupServiceFailed, cleanupService.err)
 	} else {
 		for _, clean := range cleanupService.cleans {
 			if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
@@ -54,12 +60,12 @@ func Clean(cf *config.NSXOperatorConfig) (Status, error) {
 				}
 				return nil
 			}); err != nil {
-				return CleanupResourceFailed, err
+				return errors.Join(CleanupResourceFailed, err)
 			}
 		}
 	}
 	log.Info("cleanup NSX resources successfully")
-	return OK, nil
+	return nil
 }
 
 // InitializeCleanupService initializes all the CR services

@@ -63,9 +63,9 @@ func main() {
 
 	logf.SetLogger(logger.ZapLogger(cf.DefaultConfig.Debug, config.LogLevel))
 
-	status, err := clean.Clean(cf)
+	err := clean.Clean(cf)
 	if err != nil {
-		log.Error(err, "failed to clean nsx resources", "status", status)
+		log.Error(err, "failed to clean nsx resources", "status", err.Error())
 		os.Exit(1)
 	}
 	os.Exit(0)
