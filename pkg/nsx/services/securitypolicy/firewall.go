@@ -503,7 +503,7 @@ func (service *SecurityPolicyService) createOrUpdateProjectGroups(obj *v1alpha1.
 	finalGroups := make([]model.Group, 0)
 
 	tmpExistingGroups := service.groupStore.GetByIndex(common.TagScopeSecurityPolicyCRUID, string(obj.UID))
-	existingGroups := []model.Group{}
+	existingGroups := make([]model.Group, len(tmpExistingGroups))
 	for i, group := range tmpExistingGroups {
 		existingGroups[i] = *group
 	}
