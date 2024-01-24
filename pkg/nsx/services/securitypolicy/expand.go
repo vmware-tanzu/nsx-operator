@@ -41,6 +41,27 @@ func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, r
 		nsxGroups = append(nsxGroups, nsxGroups2...)
 		nsxRules = append(nsxRules, nsxRules2...)
 	}
+
+	// Merge multiple rules into one rule if they have the same destinations,
+	// let the rule's services be the union of all rules' services.
+	// Implement merge rules here, using hash
+	var mapRules = make(map[string]*model.Rule)
+	for _, rule := range nsxRules {
+		destination := ""
+		if len(rule.DestinationGroups) > 0 {
+			destination = rule.DestinationGroups[0]
+		}
+		if _, ok := mapRules[destination]; ok {
+			mapRules[destination].ServiceEntries = append(mapRules[destination].ServiceEntries, rule.ServiceEntries...)
+		} else {
+			mapRules[destination] = rule
+		}
+	}
+	nsxRules = []*model.Rule{}
+	for _, rule := range mapRules {
+		nsxRules = append(nsxRules, rule)
+	}
+
 	return nsxGroups, nsxRules, nil
 }
 
