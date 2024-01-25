@@ -182,12 +182,12 @@ func (r *NetworkPolicyReconciler) GarbageCollector(cancel chan bool, timeout tim
 	}
 }
 
-func StartNetworkPolicyController(mgr ctrl.Manager, commonService servicecommon.Service) {
+func StartNetworkPolicyController(mgr ctrl.Manager, commonService servicecommon.Service, vpcService servicecommon.VPCServiceProvider) {
 	networkPolicyReconcile := NetworkPolicyReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
-	networkPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService)
+	networkPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService, vpcService)
 	if err := networkPolicyReconcile.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "NetworkPolicy")
 		os.Exit(1)

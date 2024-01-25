@@ -803,3 +803,18 @@ func (service *VPCService) checkAVISecurityPolicyExist(orgId string, projectId s
 	service.SecurityPolicyStore.Add(&nsxtsp)
 	return true
 }
+
+func (service *VPCService) ListVPCInfo(ns string) []common.VPCResourceInfo {
+	var VPCInfoList []common.VPCResourceInfo
+	vpcs := service.GetVPCsByNamespace(ns) // Transparently call the VPCService.GetVPCsByNamespace method
+	for _, v := range vpcs {
+		vpcResourceInfo, err := common.ParseVPCResourcePath(*v.Path)
+		if err != nil {
+			log.Error(err, "Failed to get vpc info from vpc path", "vpc path", *v.Path)
+		}
+		vpcResourceInfo.ExternalIPv4Blocks = v.ExternalIpv4Blocks
+		vpcResourceInfo.PrivateIpv4Blocks = v.PrivateIpv4Blocks
+		VPCInfoList = append(VPCInfoList, vpcResourceInfo)
+	}
+	return VPCInfoList
+}

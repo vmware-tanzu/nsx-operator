@@ -223,7 +223,7 @@ func (service *SecurityPolicyService) buildRuleIPSetGroupPath(obj *v1alpha1.Secu
 	ipSetGroupID := service.buildRuleIPSetGroupID(ruleModel)
 
 	if isVpcEnabled(service) {
-		vpcInfo, err := getVpcInfo(obj.ObjectMeta.Namespace)
+		vpcInfo, err := service.getVpcInfo(obj.ObjectMeta.Namespace)
 		if err != nil {
 			return "", err
 		}

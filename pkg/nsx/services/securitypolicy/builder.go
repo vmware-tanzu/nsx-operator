@@ -383,7 +383,7 @@ func (service *SecurityPolicyService) buildAppliedGroupPath(obj *v1alpha1.Securi
 	}
 
 	if isVpcEnabled(service) {
-		vpcInfo, err := getVpcInfo(obj.ObjectMeta.Namespace)
+		vpcInfo, err := service.getVpcInfo(obj.ObjectMeta.Namespace)
 		if err != nil {
 			return "", err
 		}
@@ -715,7 +715,7 @@ func (service *SecurityPolicyService) buildRulePeerGroupPath(obj *v1alpha1.Secur
 	groupID := service.buildRulePeerGroupID(obj, ruleIdx, isSource)
 
 	if isVpcEnabled(service) {
-		vpcInfo, err := getVpcInfo(obj.ObjectMeta.Namespace)
+		vpcInfo, err := service.getVpcInfo(obj.ObjectMeta.Namespace)
 		if err != nil {
 			return "", err
 		}
@@ -1698,7 +1698,7 @@ func (service *SecurityPolicyService) buildProjectShare(obj *v1alpha1.SecurityPo
 	sharedGroupPath, sharedWith []string, createdFor string,
 ) (*model.Share, error) {
 	resourceType := common.ResourceTypeShare
-	vpcInfo, err := getVpcInfo(obj.ObjectMeta.Namespace)
+	vpcInfo, err := service.getVpcInfo(obj.ObjectMeta.Namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -1730,7 +1730,7 @@ func (service *SecurityPolicyService) buildSharedWith(sharedNamespace *[]string)
 	for _, ns := range *sharedNamespace {
 		log.V(1).Info("building sharedwith in nameSpace", "sharedNamespace", ns)
 
-		vpcInfo, err := getVpcInfo(ns)
+		vpcInfo, err := service.getVpcInfo(ns)
 		if err != nil {
 			return nil, err
 		}

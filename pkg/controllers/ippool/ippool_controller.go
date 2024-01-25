@@ -44,8 +44,9 @@ var (
 // IPPoolReconciler reconciles a IPPool object
 type IPPoolReconciler struct {
 	client.Client
-	Scheme  *apimachineryruntime.Scheme
-	Service *ippool.IPPoolService
+	Scheme     *apimachineryruntime.Scheme
+	Service    *ippool.IPPoolService
+	VPCService servicecommon.VPCServiceProvider
 }
 
 func deleteSuccess(r *IPPoolReconciler, _ *context.Context, _ *v1alpha2.IPPool) {
@@ -128,7 +129,7 @@ func (r *IPPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// TODO: Xiaopei's suggestions: is there possibility that IPPool was deleted from nsx store but NSX block subnet was not deleted?
 
 	if obj.Spec.Type == "" {
-		vpcNetworkConfig := common.ServiceMediator.GetVPCNetworkConfigByNamespace(obj.Namespace)
+		vpcNetworkConfig := r.VPCService.GetVPCNetworkConfigByNamespace(obj.Namespace)
 		if vpcNetworkConfig == nil {
 			err := fmt.Errorf("operate failed: cannot get configuration for IPPool CR")
 			log.Error(err, "failed to find VPCNetworkConfig for IPPool CR", "ippool", req.NamespacedName, "namespace %s", obj.Namespace)

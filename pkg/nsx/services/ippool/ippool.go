@@ -11,7 +11,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
-	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
@@ -31,16 +30,17 @@ type IPPoolService struct {
 	ipPoolStore            *IPPoolStore
 	ipPoolBlockSubnetStore *IPPoolBlockSubnetStore
 	ExhaustedIPBlock       []string
+	VPCService             common.VPCServiceProvider
 }
 
-func InitializeIPPool(service common.Service) (*IPPoolService, error) {
+func InitializeIPPool(service common.Service, vpcService common.VPCServiceProvider) (*IPPoolService, error) {
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
 
 	wg.Add(2)
 
-	ipPoolService := &IPPoolService{Service: service}
+	ipPoolService := &IPPoolService{Service: service, VPCService: vpcService}
 	ipPoolService.ipPoolStore = &IPPoolStore{ResourceStore: common.ResourceStore{
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeIPPoolCRUID: indexFunc}),
 		BindingType: model.IpAddressPoolBindingType(),
@@ -130,7 +130,7 @@ func (service *IPPoolService) Apply(nsxIPPool *model.IpAddressPool, nsxIPSubnets
 
 	if IPPoolType == common.IPPoolTypePrivate {
 		ns := service.GetIPPoolNamespace(nsxIPPool)
-		VPCInfo := commonctl.ServiceMediator.ListVPCInfo(ns)
+		VPCInfo := service.VPCService.ListVPCInfo(ns)
 		if len(VPCInfo) == 0 {
 			err = util.NoEffectiveOption{Desc: "no valid org and project for ippool"}
 		} else {
@@ -225,7 +225,7 @@ func (service *IPPoolService) acquireCidr(obj *v1alpha2.IPPool, subnetRequest *v
 	if intentPath == "" {
 		return "", fmt.Errorf("failed to build intent path for ip pool %s, subnetRequest %s", obj.Name, subnetRequest.Name)
 	}
-	VPCInfo := commonctl.ServiceMediator.ListVPCInfo(obj.Namespace)
+	VPCInfo := service.VPCService.ListVPCInfo(obj.Namespace)
 	var err error
 	if len(VPCInfo) == 0 {
 		err = util.NoEffectiveOption{Desc: "no effective org and project for ippool"}

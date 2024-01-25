@@ -15,9 +15,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
-	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/mediator"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
@@ -47,16 +45,15 @@ func TestIPPoolService_acquireCidr(t *testing.T) {
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),
 	}
+	ipPoolService := fakeService()
 	vpcStore := &vpc.VPCStore{ResourceStore: resourceStore}
-	commonctl.ServiceMediator.VPCService = &vpc.VPCService{VpcStore: vpcStore}
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []*model.Vpc {
+	ipPoolService.VPCService = &vpc.VPCService{VpcStore: vpcStore}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(ipPoolService.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
 		id := "vpc-1"
-		return []*model.Vpc{{Path: common.String("/orgs/default/projects/project-1/vpcs/vpc-1"), Id: &id}}
+		return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "project-1", VPCID: "vpc-1", ID: id}}
 	})
 
 	defer patches.Reset()
-
-	ipPoolService := fakeService()
 
 	type args struct {
 		obj           *v1alpha2.IPPool
@@ -117,14 +114,13 @@ func TestIPPoolService_AcquireRealizedSubnetIP(t *testing.T) {
 		BindingType: model.VpcBindingType(),
 	}
 	vpcStore := &vpc.VPCStore{ResourceStore: resourceStore}
-	commonctl.ServiceMediator.VPCService = &vpc.VPCService{VpcStore: vpcStore}
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []*model.Vpc {
+	ipPoolService := fakeService()
+	ipPoolService.VPCService = &vpc.VPCService{VpcStore: vpcStore}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(ipPoolService.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
 		id := "vpc-1"
-		return []*model.Vpc{{Path: common.String("/orgs/default/projects/project-1/vpcs/vpc-1"), Id: &id}}
+		return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "project-1", VPCID: "vpc-1", ID: id}}
 	})
 	defer patches.Reset()
-	ipPoolService := fakeService()
-
 	ipPool2 := &v1alpha2.IPPool{
 		Spec: v1alpha2.IPPoolSpec{
 			Subnets: []v1alpha2.SubnetRequest{
@@ -164,13 +160,13 @@ func TestIPPoolService_CRUDResource(t *testing.T) {
 		BindingType: model.VpcBindingType(),
 	}
 	vpcStore := &vpc.VPCStore{ResourceStore: resourceStore}
-	commonctl.ServiceMediator.VPCService = &vpc.VPCService{VpcStore: vpcStore}
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []*model.Vpc {
+	service := fakeService()
+	service.VPCService = &vpc.VPCService{VpcStore: vpcStore}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(service.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
 		id := "vpc-1"
-		return []*model.Vpc{{Path: common.String("/orgs/default/projects/project-1/vpcs/vpc-1"), Id: &id}}
+		return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "project-1", VPCID: "vpc-1", ID: id}}
 	})
 	defer patches.Reset()
-	service := fakeService()
 	iap := &model.IpAddressPool{Id: String("1"), DisplayName: String("1"),
 		Tags: []model.Tag{{Scope: String(common.TagScopeIPPoolCRUID),
 			Tag: String("1")}}}
@@ -222,8 +218,8 @@ func TestIPPoolService_CreateOrUpdateIPPool(t *testing.T) {
 	var vpcinfolist = []common.VPCResourceInfo{
 		{OrgID: "1", VPCID: "1", ProjectID: "1", ID: "1", ParentID: "1"},
 	}
-	md := mediator.ServiceMediator{}
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(&md), "ListVPCInfo", func(serviceMediator *mediator.ServiceMediator,
+	service.VPCService = &vpc.VPCService{}
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service.VPCService), "ListVPCInfo", func(vpcService common.VPCServiceProvider,
 		ns string) []common.VPCResourceInfo {
 		return vpcinfolist
 	})
@@ -247,7 +243,7 @@ func TestIPPoolService_CreateOrUpdateIPPool(t *testing.T) {
 		BindingType: model.IpAddressPoolBlockSubnetBindingType(),
 	}}
 	ipPoolBlockSubnetStore.Apply(iapbs)
-	var vpcinfo = []*model.Vpc{
+	var vpcinfo = []common.VPCResourceInfo{
 		{PrivateIpv4Blocks: []string{"/infra/ip-blocks/block-test"}},
 	}
 	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
@@ -256,9 +252,9 @@ func TestIPPoolService_CreateOrUpdateIPPool(t *testing.T) {
 		BindingType: model.VpcBindingType(),
 	}
 	vpcStore := &vpc.VPCStore{ResourceStore: resourceStore}
-	commonctl.ServiceMediator.VPCService = &vpc.VPCService{VpcStore: vpcStore}
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(vpcService *vpc.VPCService,
-		ns string) []*model.Vpc {
+	service.VPCService = &vpc.VPCService{VpcStore: vpcStore}
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service.VPCService), "ListVPCInfo", func(vpcService *vpc.VPCService,
+		ns string) []common.VPCResourceInfo {
 		return vpcinfo
 	})
 	defer patch.Reset()

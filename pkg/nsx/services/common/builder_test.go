@@ -135,11 +135,13 @@ func TestParseVPCResourcePath(t *testing.T) {
 				nsxResourcePath: "/orgs/org1/projects/proj1/vpcs/vpc1/subnets/subnet1/ports/port1",
 			},
 			want: VPCResourceInfo{
-				OrgID:     "org1",
-				ProjectID: "proj1",
-				VPCID:     "vpc1",
-				ParentID:  "subnet1",
-				ID:        "port1",
+				OrgID:              "org1",
+				ProjectID:          "proj1",
+				VPCID:              "vpc1",
+				ParentID:           "subnet1",
+				ID:                 "port1",
+				PrivateIpv4Blocks:  nil,
+				ExternalIPv4Blocks: nil,
 			},
 			wantErr: false,
 		},
@@ -149,11 +151,13 @@ func TestParseVPCResourcePath(t *testing.T) {
 				nsxResourcePath: "/orgs/org1/projects/proj1/vpcs/vpc1",
 			},
 			want: VPCResourceInfo{
-				OrgID:     "org1",
-				ProjectID: "proj1",
-				VPCID:     "vpc1",
-				ParentID:  "proj1",
-				ID:        "vpc1",
+				OrgID:              "org1",
+				ProjectID:          "proj1",
+				VPCID:              "vpc1",
+				ParentID:           "proj1",
+				ID:                 "vpc1",
+				PrivateIpv4Blocks:  nil,
+				ExternalIPv4Blocks: nil,
 			},
 			wantErr: false,
 		},
@@ -173,7 +177,7 @@ func TestParseVPCResourcePath(t *testing.T) {
 				t.Errorf("ParseVPCResourcePath() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if got != tt.want {
+			if !reflect.DeepEqual(tt.want, got) {
 				t.Errorf("ParseVPCResourcePath() got = %v, want %v", got, tt.want)
 			}
 		})

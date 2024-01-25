@@ -1,6 +1,7 @@
 package securitypolicy
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -35,6 +36,7 @@ type SecurityPolicyService struct {
 	ruleStore           *RuleStore
 	groupStore          *GroupStore
 	shareStore          *ShareStore
+	vpcService          common.VPCServiceProvider
 }
 
 type ProjectShare struct {
@@ -46,13 +48,13 @@ var securityService *SecurityPolicyService
 var lock = &sync.Mutex{}
 
 // GetSecurityService get singleton SecurityPolicyService instance, networkpolicy/securitypolicy controller share the same instance.
-func GetSecurityService(service common.Service) *SecurityPolicyService {
+func GetSecurityService(service common.Service, vpcService common.VPCServiceProvider) *SecurityPolicyService {
 	if securityService == nil {
 		lock.Lock()
 		defer lock.Unlock()
 		if securityService == nil {
 			var err error
-			if securityService, err = InitializeSecurityPolicy(service); err != nil {
+			if securityService, err = InitializeSecurityPolicy(service, vpcService); err != nil {
 				log.Error(err, "failed to initialize subnet commonService")
 				os.Exit(1)
 			}
@@ -62,7 +64,7 @@ func GetSecurityService(service common.Service) *SecurityPolicyService {
 }
 
 // InitializeSecurityPolicy sync NSX resources
-func InitializeSecurityPolicy(service common.Service) (*SecurityPolicyService, error) {
+func InitializeSecurityPolicy(service common.Service, vpcService common.VPCServiceProvider) (*SecurityPolicyService, error) {
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
@@ -101,6 +103,7 @@ func InitializeSecurityPolicy(service common.Service) (*SecurityPolicyService, e
 		}),
 		BindingType: model.ShareBindingType(),
 	}}
+	securityPolicyService.vpcService = vpcService
 
 	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSecurityPolicy, nil, securityPolicyService.securityPolicyStore)
 	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, nil, securityPolicyService.groupStore)
@@ -368,7 +371,7 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 	finalSecurityPolicyCopy.Rules = finalSecurityPolicy.Rules
 
 	if isVpcEnabled(service) {
-		vpcInfo, err := getVpcInfo(obj.ObjectMeta.Namespace)
+		vpcInfo, err := service.getVpcInfo(obj.ObjectMeta.Namespace)
 		if err != nil {
 			return err
 		}
@@ -583,7 +586,7 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(obj interface{}, isVp
 	finalSecurityPolicyCopy.Rules = nsxSecurityPolicy.Rules
 
 	if isVpcEnabled(service) || isVpcCleanup {
-		vpcInfo, err := getVpcInfo(spNameSpace)
+		vpcInfo, err := service.getVpcInfo(spNameSpace)
 		if err != nil {
 			return err
 		}
@@ -684,7 +687,7 @@ func (service *SecurityPolicyService) createOrUpdateGroups(obj *v1alpha1.Securit
 	for _, group := range nsxGroups {
 		group.MarkedForDelete = nil
 		if isVpcEnabled(service) {
-			vpcInfo, err = getVpcInfo(obj.ObjectMeta.Namespace)
+			vpcInfo, err = service.getVpcInfo(obj.ObjectMeta.Namespace)
 			if err != nil {
 				return err
 			}
@@ -734,7 +737,7 @@ func (service *SecurityPolicyService) createOrUpdateProjectShares(obj *v1alpha1.
 	finalShares = append(finalShares, staleShares...)
 	finalShares = append(finalShares, changedShares...)
 
-	vpcInfo, err := getVpcInfo(obj.ObjectMeta.Namespace)
+	vpcInfo, err := service.getVpcInfo(obj.ObjectMeta.Namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -782,7 +785,7 @@ func (service *SecurityPolicyService) createOrUpdateProjectGroups(obj *v1alpha1.
 	finalGroups = append(finalGroups, staleGroups...)
 	finalGroups = append(finalGroups, changedGroups...)
 
-	vpcInfo, err := getVpcInfo(obj.ObjectMeta.Namespace)
+	vpcInfo, err := service.getVpcInfo(obj.ObjectMeta.Namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -842,4 +845,14 @@ func (service *SecurityPolicyService) Cleanup() error {
 		}
 	}
 	return nil
+}
+
+func (s *SecurityPolicyService) getVpcInfo(spNameSpace string) (*common.VPCResourceInfo, error) {
+	VPCInfo := s.vpcService.ListVPCInfo(spNameSpace)
+	if len(VPCInfo) == 0 {
+		errorMsg := fmt.Sprintf("there is no VPC info found for namespace %s", spNameSpace)
+		err := errors.New(errorMsg)
+		return nil, err
+	}
+	return &VPCInfo[0], nil
 }

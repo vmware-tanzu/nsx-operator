@@ -7,7 +7,6 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
-	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -75,7 +74,7 @@ func (service *IPPoolService) buildIPSubnetTags(IPPool *v1alpha2.IPPool, subnetR
 
 func (service *IPPoolService) buildIPSubnetIntentPath(IPPool *v1alpha2.IPPool, subnetRequest *v1alpha2.SubnetRequest) string {
 	if IPPool.Spec.Type == common.IPPoolTypePrivate {
-		VPCInfo := commonctl.ServiceMediator.ListVPCInfo(IPPool.Namespace)
+		VPCInfo := service.VPCService.ListVPCInfo(IPPool.Namespace)
 		if len(VPCInfo) == 0 {
 			return ""
 		}
@@ -90,7 +89,7 @@ func (service *IPPoolService) buildIPSubnetIntentPath(IPPool *v1alpha2.IPPool, s
 
 func (service *IPPoolService) buildIPSubnet(IPPool *v1alpha2.IPPool, subnetRequest v1alpha2.SubnetRequest) *model.IpAddressPoolBlockSubnet {
 	IpBlockPath := String("")
-	VPCInfo := commonctl.ServiceMediator.GetVPCsByNamespace(IPPool.Namespace)
+	VPCInfo := service.VPCService.ListVPCInfo(IPPool.Namespace)
 	if len(VPCInfo) == 0 {
 		log.Error(nil, "failed to find VPCInfo for IPPool CR", "IPPool", IPPool.Name, "namespace", IPPool.Namespace)
 		return nil
@@ -99,7 +98,7 @@ func (service *IPPoolService) buildIPSubnet(IPPool *v1alpha2.IPPool, subnetReque
 	if IPPool.Spec.Type == common.IPPoolTypePrivate {
 		IpBlockPathList = VPCInfo[0].PrivateIpv4Blocks
 	} else {
-		IpBlockPathList = VPCInfo[0].ExternalIpv4Blocks
+		IpBlockPathList = VPCInfo[0].ExternalIPv4Blocks
 	}
 	for _, ipBlockPath := range IpBlockPathList {
 		if util.Contains(service.ExhaustedIPBlock, ipBlockPath) {

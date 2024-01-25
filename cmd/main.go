@@ -97,17 +97,13 @@ func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Ser
 	}
 }
 
-func StartIPPoolController(mgr ctrl.Manager, commonService common.Service) {
+func StartIPPoolController(mgr ctrl.Manager, ipPoolService *ippool.IPPoolService, vpcService common.VPCServiceProvider) {
 	ippoolReconcile := &ippool2.IPPoolReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
-	ipPoolService, err := ippool.InitializeIPPool(commonService)
-	if err != nil {
-		log.Error(err, "failed to initialize ippool commonService", "controller", "IPPool")
-		os.Exit(1)
-	}
 	ippoolReconcile.Service = ipPoolService
+	ippoolReconcile.VPCService = vpcService
 
 	if err := ippoolReconcile.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "IPPool")
@@ -130,11 +126,11 @@ func StartVPCController(mgr ctrl.Manager, vpcService *vpc.VPCService) {
 	}
 }
 
-func StartNamespaceController(mgr ctrl.Manager, vpcService *vpc.VPCService) {
+func StartNamespaceController(mgr ctrl.Manager, cf *config.NSXOperatorConfig, vpcService common.VPCServiceProvider) {
 	nsReconciler := &namespacecontroller.NamespaceReconciler{
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
-		NSXConfig:  vpcService.NSXConfig,
+		NSXConfig:  cf,
 		VPCService: vpcService,
 	}
 
@@ -173,9 +169,11 @@ func main() {
 		NSXConfig: cf,
 	}
 
+	var vpcService *vpc.VPCService
+
 	if cf.CoeConfig.EnableVPCNetwork && commonService.NSXClient.NSXCheckVersion(nsx.VPC) {
 		log.V(1).Info("VPC mode enabled")
-		vpcService, err := vpc.InitializeVPC(commonService)
+		vpcService, err = vpc.InitializeVPC(commonService)
 		if err != nil {
 			log.Error(err, "failed to initialize vpc commonService", "controller", "VPC")
 			os.Exit(1)
@@ -185,10 +183,15 @@ func main() {
 			log.Error(err, "failed to initialize subnet commonService")
 			os.Exit(1)
 		}
+		ipPoolService, err := ippool.InitializeIPPool(commonService, vpcService)
+		if err != nil {
+			log.Error(err, "failed to initialize ippool commonService", "controller", "IPPool")
+			os.Exit(1)
+		}
 		commonctl.ServiceMediator.VPCService = vpcService
 		// Start controllers which only supports VPC
 		StartVPCController(mgr, vpcService)
-		StartNamespaceController(mgr, vpcService)
+		StartNamespaceController(mgr, cf, vpcService)
 		// Start subnet/subnetset controller.
 		if err := subnet.StartSubnetController(mgr, subnetService); err != nil {
 			os.Exit(1)
@@ -201,11 +204,11 @@ func main() {
 		staticroutecontroller.StartStaticRouteController(mgr, commonService)
 		subnetport.StartSubnetPortController(mgr, commonService)
 		pod.StartPodController(mgr, commonService)
-		StartIPPoolController(mgr, commonService)
-		networkpolicycontroller.StartNetworkPolicyController(mgr, commonService)
+		StartIPPoolController(mgr, ipPoolService, vpcService)
+		networkpolicycontroller.StartNetworkPolicyController(mgr, commonService, vpcService)
 	}
 
-	securitypolicycontroller.StartSecurityPolicyController(mgr, commonService)
+	securitypolicycontroller.StartSecurityPolicyController(mgr, commonService, vpcService)
 
 	// Start the NSXServiceAccount controller.
 	if cf.EnableAntreaNSXInterworking {

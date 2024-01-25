@@ -343,12 +343,12 @@ func reconcileSecurityPolicy(client client.Client, pods []v1.Pod, q workqueue.Ra
 	return nil
 }
 
-func StartSecurityPolicyController(mgr ctrl.Manager, commonService servicecommon.Service) {
+func StartSecurityPolicyController(mgr ctrl.Manager, commonService servicecommon.Service, vpcService servicecommon.VPCServiceProvider) {
 	securityPolicyReconcile := SecurityPolicyReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}
-	securityPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService)
+	securityPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService, vpcService)
 	if err := securityPolicyReconcile.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "SecurityPolicy")
 		os.Exit(1)
