@@ -55,6 +55,8 @@ type Config struct {
 	TokenProvider auth.TokenProvider
 	// None, or ClientCertProvider object. If specified, client cert will be used instead of basic authentication.
 	ClientCertProvider auth.ClientCertProvider
+	EnvoyHost          string
+	EnvoyPort          int
 }
 
 // NewConfig creates a nsx configuration. It provides default values for those items not in function parameters.

@@ -129,6 +129,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	}
 	c := NewConfig(strings.Join(cf.NsxApiManagers, ","), cf.NsxApiUser, cf.NsxApiPassword, cf.CaFile, 10, 3, defaultHttpTimeout, 20, true, true, true,
 		ratelimiter.AIMD, cf.GetTokenProvider(), nil, cf.Thumbprint)
+	c.EnvoyHost = cf.EnvoyHost
+	c.EnvoyPort = cf.EnvoyPort
 	cluster, _ := NewCluster(c)
 
 	queryClient := search.NewQueryClient(restConnector(cluster))

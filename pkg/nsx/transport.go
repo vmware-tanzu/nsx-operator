@@ -42,8 +42,9 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			ep.increaseConnNumber()
 			defer ep.decreaseConnNumber()
 
-			r.URL.Host = ep.Host()
+			util.UpdateRequestURL(r.URL, ep.Host(), ep.Thumbprint)
 			ep.UpdateHttpRequestAuth(r)
+			ep.UpdateCAforEnvoy(r)
 			start := time.Now()
 			ep.wait()
 			util.DumpHttpRequest(r)

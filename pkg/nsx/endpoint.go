@@ -48,6 +48,9 @@ type Endpoint struct {
 	user          string
 	password      string
 	tokenProvider auth.TokenProvider
+	caFile        string
+	Thumbprint    string
+	envoyUrl      string
 	sync.RWMutex
 	provider
 }
@@ -106,19 +109,40 @@ type epHealthy struct {
 	Healthy bool `json:"healthy"`
 }
 
+func (ep *Endpoint) UpdateCAforEnvoy(req *http.Request) {
+	if ep.caFile != "" {
+		req.Header.Set("x-vmware-server-tls-cert", ep.caFile)
+	}
+}
+func (ep *Endpoint) SetEnvoyUrl(url string) {
+	ep.Lock()
+	ep.envoyUrl = url
+	ep.Unlock()
+}
 func (ep *Endpoint) keepAlive() error {
-	req, err := http.NewRequest("GET", fmt.Sprintf(healthURL, ep.Scheme(), ep.Host()), nil)
+	var req *http.Request
+	var err error
+	ep.Lock()
+	envoyUrl := ep.envoyUrl
+	ep.Unlock()
+	if envoyUrl != "" {
+		req, err = http.NewRequest("GET", fmt.Sprintf("%s/api/v1/reverse-proxy/node/health", envoyUrl), nil)
+	} else {
+		req, err = http.NewRequest("GET", fmt.Sprintf(healthURL, ep.Scheme(), ep.Host()), nil)
+	}
+	log.V(1).Info("keep alive request", "url", req.URL.String())
 	if err != nil {
 		log.Error(err, "create keep alive request error")
 		return err
 	}
+
 	err = ep.UpdateHttpRequestAuth(req)
 	if err != nil {
 		log.Error(err, "keep alive update auth error")
 		ep.setStatus(DOWN)
 		return err
 	}
-
+	ep.UpdateCAforEnvoy(req)
 	resp, err := ep.noBalancerClient.Do(req)
 	if err != nil {
 		log.Error(err, "failed to validate API cluster", "endpoint", ep.Host())
@@ -260,16 +284,26 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 	postValues := url.Values{}
 	postValues.Add("j_username", username)
 	postValues.Add("j_password", password)
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s://%s/api/session/create", u.Scheme, u.Host), strings.NewReader(postValues.Encode()))
+	ep.Lock()
+	envoyUrl := ep.envoyUrl
+	ep.Unlock()
+	var req *http.Request
+	var err error
+	if envoyUrl != "" {
+		req, err = http.NewRequest("POST", fmt.Sprintf("%s/api/session/create", envoyUrl), strings.NewReader(postValues.Encode()))
+	} else {
+		req, err = http.NewRequest("POST", fmt.Sprintf("%s://%s/api/session/create", u.Scheme, u.Host), strings.NewReader(postValues.Encode()))
+	}
+
 	if err != nil {
 		log.Error(err, "failed to generate request for session creation", "endpoint", ep.Host())
 		return err
 	}
-
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
-	log.V(2).Info("creating auth session", "endpoint", ep.Host(), "request header", req.Header)
+	log.V(1).Info("creating auth session", "url", req.URL.String(), "endpoint", ep.Host(), "request header", req.Header)
+	ep.UpdateCAforEnvoy(req)
 	resp, err := ep.noBalancerClient.Do(req)
 	if err != nil {
 		log.Error(err, "session creation failed", "endpoint", u.Host)
