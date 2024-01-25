@@ -282,7 +282,7 @@ func (data *TestData) createNamespace(namespace string) error {
 // deleteNamespace deletes the provided namespace and waits for deletion to actually complete.
 func (data *TestData) deleteNamespace(namespace string, timeout time.Duration) error {
 	var gracePeriodSeconds int64
-	var propagationPolicy = metav1.DeletePropagationForeground
+	propagationPolicy := metav1.DeletePropagationForeground
 	deleteOptions := metav1.DeleteOptions{
 		GracePeriodSeconds: &gracePeriodSeconds,
 		PropagationPolicy:  &propagationPolicy,
@@ -665,6 +665,8 @@ func (data *TestData) waitForResourceExist(namespace string, resourceType string
 		tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
 		resourceParam := fmt.Sprintf("%s:%s AND %s:*%s*", common.ResourceType, resourceType, key, value)
 		queryParam := resourceParam + " AND " + tagParam
+		queryParam += " AND marked_for_delete:false"
+
 		var cursor *string
 		var pageSize int64 = 500
 		response, err := testData.nsxClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
