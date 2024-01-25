@@ -30,6 +30,8 @@ func assertNil(t *testing.T, object interface{}, msgAndArgs ...interface{}) bool
 	panic("assertion failed")
 }
 
+//Temporarily disable traffic check
+/*
 func assertNotNil(t *testing.T, object interface{}, msgAndArgs ...interface{}) bool {
 	if assert.NotNil(t, object, msgAndArgs...) {
 		t.Logf("assertNotNil: %v", object)
@@ -37,6 +39,7 @@ func assertNotNil(t *testing.T, object interface{}, msgAndArgs ...interface{}) b
 	}
 	panic("assertion failed")
 }
+*/
 
 func assertTrue(t *testing.T, value bool, msgAndArgs ...interface{}) bool {
 	if assert.True(t, value, msgAndArgs...) {
