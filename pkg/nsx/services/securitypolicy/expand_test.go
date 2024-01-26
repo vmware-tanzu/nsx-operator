@@ -18,6 +18,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 func TestSecurityPolicyService_buildRuleIPGroup(t *testing.T) {
@@ -65,7 +66,7 @@ func TestSecurityPolicyService_buildRuleIPGroup(t *testing.T) {
 		DisplayName: &policyGroupName,
 		Expression:  []*data.StructValue{blockExpression},
 		// build ipset group tags from input securitypolicy and securitypolicy rule
-		Tags: service.buildPeerTags(sp, &rule, 0, false, false),
+		Tags: service.buildPeerTags(sp, &rule, 0, false, false, common.ResourceTypeSecurityPolicy),
 	}
 
 	type args struct {
@@ -81,7 +82,7 @@ func TestSecurityPolicyService_buildRuleIPGroup(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, service.buildRuleIPSetGroup(sp, &rule, tt.args.obj, tt.args.ips, 0), "buildRuleIPSetGroup(%v, %v)",
+			assert.Equalf(t, tt.want, service.buildRuleIPSetGroup(sp, &rule, tt.args.obj, tt.args.ips, 0, common.ResourceTypeSecurityPolicy), "buildRuleIPSetGroup(%v, %v)",
 				tt.args.obj, tt.args.ips)
 		})
 	}

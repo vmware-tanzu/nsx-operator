@@ -21,20 +21,20 @@ import (
 // When a rule contains named port, we should consider whether the rule should be expanded to
 // multiple rules if the port name maps to conflicted port numbers.
 func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
-	ruleIdx int,
+	ruleIdx int, createdFor string,
 ) ([]*model.Group, []*model.Rule, error) {
 	var nsxRules []*model.Rule
 	var nsxGroups []*model.Group
 
 	if len(rule.Ports) == 0 {
-		nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, 0, 0)
+		nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, 0, 0, createdFor)
 		if err != nil {
 			return nil, nil, err
 		}
 		nsxRules = append(nsxRules, nsxRule)
 	}
 	for portIdx, port := range rule.Ports {
-		nsxGroups2, nsxRules2, err := service.expandRuleByPort(obj, rule, ruleIdx, port, portIdx)
+		nsxGroups2, nsxRules2, err := service.expandRuleByPort(obj, rule, ruleIdx, port, portIdx, createdFor)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -66,7 +66,7 @@ func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, r
 }
 
 func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
-	ruleIdx int, port v1alpha1.SecurityPolicyPort, portIdx int,
+	ruleIdx int, port v1alpha1.SecurityPolicyPort, portIdx int, createdFor string,
 ) ([]*model.Group, []*model.Rule, error) {
 	var err error
 	var startPort []nsxutil.PortAddress
@@ -86,7 +86,7 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 		if err != nil {
 			// In case there is no more valid ip set selected, so clear the stale ip set group in nsx if stale ips exist
 			if errors.As(err, &nsxutil.NoEffectiveOption{}) {
-				groups := service.groupStore.GetByIndex(common.TagScopeRuleID, service.buildRuleID(obj, rule, ruleIdx))
+				groups := service.groupStore.GetByIndex(common.TagScopeRuleID, service.buildRuleID(obj, rule, ruleIdx, createdFor))
 				var ipSetGroup *model.Group
 				for _, group := range groups {
 					ipSetGroup = group
@@ -104,7 +104,7 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 	}
 
 	for portAddressIdx, portAddress := range startPort {
-		gs, r, err := service.expandRuleByService(obj, rule, ruleIdx, port, portIdx, portAddress, portAddressIdx)
+		gs, r, err := service.expandRuleByService(obj, rule, ruleIdx, port, portIdx, portAddress, portAddressIdx, createdFor)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -115,11 +115,11 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 }
 
 func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int,
-	port v1alpha1.SecurityPolicyPort, portIdx int, portAddress nsxutil.PortAddress, portAddressIdx int,
+	port v1alpha1.SecurityPolicyPort, portIdx int, portAddress nsxutil.PortAddress, portAddressIdx int, createdFor string,
 ) ([]*model.Group, *model.Rule, error) {
 	var nsxGroups []*model.Group
 
-	nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, portIdx, portAddressIdx)
+	nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, portIdx, portAddressIdx, createdFor)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -131,7 +131,7 @@ func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.Security
 
 	// If portAddress contains a list of IPs, we should build an ip set group for the rule.
 	if len(portAddress.IPs) > 0 {
-		ruleIPSetGroup := service.buildRuleIPSetGroup(obj, rule, nsxRule, portAddress.IPs, ruleIdx)
+		ruleIPSetGroup := service.buildRuleIPSetGroup(obj, rule, nsxRule, portAddress.IPs, ruleIdx, createdFor)
 
 		// In VPC network, NSGroup with IPAddressExpression type can be supported in VPC level as well.
 		IPSetGroupPath, err := service.buildRuleIPSetGroupPath(obj, nsxRule, false)
@@ -242,7 +242,7 @@ func (service *SecurityPolicyService) buildRuleIPSetGroupPath(obj *v1alpha1.Secu
 
 // Build an ip set group for NSX.
 func (service *SecurityPolicyService) buildRuleIPSetGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleModel *model.Rule,
-	ips []string, ruleIdx int,
+	ips []string, ruleIdx int, createdFor string,
 ) *model.Group {
 	ipSetGroup := model.Group{}
 
@@ -252,7 +252,7 @@ func (service *SecurityPolicyService) buildRuleIPSetGroup(obj *v1alpha1.Security
 	ipSetGroup.DisplayName = &ipSetGroupName
 
 	// IPSetGroup is always destination group for named port
-	peerTags := service.buildPeerTags(obj, rule, ruleIdx, false, false)
+	peerTags := service.buildPeerTags(obj, rule, ruleIdx, false, false, createdFor)
 	ipSetGroup.Tags = peerTags
 
 	addresses := data.NewListValue()

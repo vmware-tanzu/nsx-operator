@@ -24,32 +24,46 @@ func keyFunc(obj interface{}) (string, error) {
 	}
 }
 
-// indexFunc is used to get index of a resource, usually, which is the UID of the CR controller reconciles,
-// index is used to filter out resources which are related to the CR
-func indexFunc(obj interface{}) ([]string, error) {
-	res := make([]string, 0, 5)
-	switch o := obj.(type) {
-	case *model.SecurityPolicy:
-		return filterTag(o.Tags), nil
-	case *model.Group:
-		return filterTag(o.Tags), nil
-	case *model.Rule:
-		return filterTag(o.Tags), nil
-	case *model.Share:
-		return filterTag(o.Tags), nil
-	default:
-		return res, errors.New("indexFunc doesn't support unknown type")
-	}
-}
-
-var filterTag = func(v []model.Tag) []string {
-	res := make([]string, 0, 5)
-	for _, tag := range v {
-		if *tag.Scope == common.TagScopeSecurityPolicyCRUID {
+func filterTag(tags []model.Tag, tagScope string) []string {
+	var res []string
+	for _, tag := range tags {
+		if *tag.Scope == tagScope {
 			res = append(res, *tag.Tag)
 		}
 	}
 	return res
+}
+
+// indexBySecurityPolicyCRUID is used to get index of a resource, usually, which is the UID of the CR controller reconciles,
+// index is used to filter out resources which are related to the CR
+func indexBySecurityPolicyCRUID(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case *model.SecurityPolicy:
+		return filterTag(o.Tags, common.TagScopeSecurityPolicyCRUID), nil
+	case *model.Group:
+		return filterTag(o.Tags, common.TagScopeSecurityPolicyCRUID), nil
+	case *model.Rule:
+		return filterTag(o.Tags, common.TagScopeSecurityPolicyCRUID), nil
+	case *model.Share:
+		return filterTag(o.Tags, common.TagScopeSecurityPolicyCRUID), nil
+	default:
+		return nil, errors.New("indexBySecurityPolicyCRUID doesn't support unknown type")
+	}
+}
+
+func indexByNetworkPolicyUID(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case *model.SecurityPolicy:
+		return filterTag(o.Tags, common.TagScopeNetworkPolicyUID), nil
+	case *model.Group:
+		return filterTag(o.Tags, common.TagScopeNetworkPolicyUID), nil
+	case *model.Rule:
+		return filterTag(o.Tags, common.TagScopeNetworkPolicyUID), nil
+	case *model.Share:
+		return filterTag(o.Tags, common.TagScopeNetworkPolicyUID), nil
+	default:
+		return nil, errors.New("indexByNetworkPolicyUID doesn't support unknown type")
+	}
 }
 
 func indexGroupFunc(obj interface{}) ([]string, error) {

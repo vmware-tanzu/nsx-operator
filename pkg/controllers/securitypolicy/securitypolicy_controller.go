@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"runtime"
 	"time"
@@ -136,7 +137,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	} else {
 		if controllerutil.ContainsFinalizer(obj, servicecommon.SecurityPolicyFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
-			if err := r.Service.DeleteSecurityPolicy(obj, false); err != nil {
+			if err := r.Service.DeleteSecurityPolicy(obj, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 				deleteFail(r, &ctx, obj, &err)
 				return ResultRequeue, err
@@ -292,7 +293,7 @@ func (r *SecurityPolicyReconciler) GarbageCollector(cancel chan bool, timeout ti
 			}
 			log.V(1).Info("GC collected SecurityPolicy CR", "UID", elem)
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
-			err = r.Service.DeleteSecurityPolicy(types.UID(elem), false)
+			err = r.Service.DeleteSecurityPolicy(types.UID(elem), false, servicecommon.ResourceTypeSecurityPolicy)
 			if err != nil {
 				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 			} else {
@@ -340,4 +341,16 @@ func reconcileSecurityPolicy(client client.Client, pods []v1.Pod, q workqueue.Ra
 		}
 	}
 	return nil
+}
+
+func StartSecurityPolicyController(mgr ctrl.Manager, commonService servicecommon.Service) {
+	securityPolicyReconcile := SecurityPolicyReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+	securityPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService)
+	if err := securityPolicyReconcile.Start(mgr); err != nil {
+		log.Error(err, "failed to create controller", "controller", "SecurityPolicy")
+		os.Exit(1)
+	}
 }
