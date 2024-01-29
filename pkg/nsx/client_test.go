@@ -64,8 +64,8 @@ func TestNSXHealthChecker_CheckNSXHealth(t *testing.T) {
 func TestGetClient(t *testing.T) {
 	cf := config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{NsxApiUser: "1", NsxApiPassword: "1"}}
 	cf.VCConfig = &config.VCConfig{}
-	client := GetClient(&cf)
-	assert.True(t, client != nil)
+	_, err := GetClient(&cf)
+	assert.True(t, err == nil)
 
 	cluster := &Cluster{}
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
@@ -73,9 +73,9 @@ func TestGetClient(t *testing.T) {
 		return nsxVersion, nil
 	})
 
-	client = GetClient(&cf)
+	client, err := GetClient(&cf)
 	patches.Reset()
-	assert.True(t, client != nil)
+	assert.True(t, err == nil)
 	securityPolicySupported := client.NSXCheckVersion(SecurityPolicy)
 	assert.True(t, securityPolicySupported == false)
 	assert.False(t, client.NSXCheckVersion(ServiceAccount))
@@ -86,9 +86,9 @@ func TestGetClient(t *testing.T) {
 		nsxVersion := &NsxVersion{NodeVersion: "3.2.1"}
 		return nsxVersion, nil
 	})
-	client = GetClient(&cf)
+	client, err = GetClient(&cf)
 	patches.Reset()
-	assert.True(t, client != nil)
+	assert.True(t, err == nil)
 	securityPolicySupported = client.NSXCheckVersion(SecurityPolicy)
 	assert.True(t, securityPolicySupported == true)
 	assert.False(t, client.NSXCheckVersion(ServiceAccount))
@@ -99,9 +99,9 @@ func TestGetClient(t *testing.T) {
 		nsxVersion := &NsxVersion{NodeVersion: "4.1.0"}
 		return nsxVersion, nil
 	})
-	client = GetClient(&cf)
+	client, err = GetClient(&cf)
 	patches.Reset()
-	assert.True(t, client != nil)
+	assert.True(t, err == nil)
 	securityPolicySupported = client.NSXCheckVersion(SecurityPolicy)
 	assert.True(t, securityPolicySupported == true)
 	assert.True(t, client.NSXCheckVersion(ServiceAccount))
@@ -112,9 +112,9 @@ func TestGetClient(t *testing.T) {
 		nsxVersion := &NsxVersion{NodeVersion: "4.1.2"}
 		return nsxVersion, nil
 	})
-	client = GetClient(&cf)
+	client, err = GetClient(&cf)
 	patches.Reset()
-	assert.True(t, client != nil)
+	assert.True(t, err == nil)
 	securityPolicySupported = client.NSXCheckVersion(SecurityPolicy)
 	assert.True(t, securityPolicySupported == true)
 	assert.True(t, client.NSXCheckVersion(ServiceAccount))
@@ -125,9 +125,9 @@ func TestGetClient(t *testing.T) {
 		nsxVersion := &NsxVersion{NodeVersion: "4.1.3"}
 		return nsxVersion, nil
 	})
-	client = GetClient(&cf)
+	client, err = GetClient(&cf)
 	patches.Reset()
-	assert.True(t, client != nil)
+	assert.True(t, err == nil)
 	securityPolicySupported = client.NSXCheckVersion(SecurityPolicy)
 	assert.True(t, securityPolicySupported == true)
 	assert.True(t, client.NSXCheckVersion(ServiceAccount))
@@ -142,7 +142,7 @@ func IsInstanceOf(objectPtr, typePtr interface{}) bool {
 func TestSRGetClient(t *testing.T) {
 	cf := config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{NsxApiUser: "admin", NsxApiPassword: "Admin!23Admin", NsxApiManagers: []string{"10.173.82.128"}}}
 	cf.VCConfig = &config.VCConfig{}
-	client := GetClient(&cf)
+	client, _ := GetClient(&cf)
 	st, error := client.StaticRouteClient.Get("default", "project-1", "vpc-2", "site1")
 	if error == nil {
 		fmt.Printf("sr %v\n", *st.ResourceType)

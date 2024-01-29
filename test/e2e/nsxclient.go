@@ -21,8 +21,8 @@ func NewNSXClient(configFile string) (*NSXClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := nsx.GetClient(cf)
-	if client == nil {
+	client, err := nsx.GetClient(cf)
+	if err != nil {
 		return nil, fmt.Errorf("failed to get nsx client")
 	}
 	nsxClient := &NSXClient{}

@@ -5,7 +5,6 @@ package clean
 
 import (
 	"errors"
-	"fmt"
 
 	"k8s.io/client-go/util/retry"
 
@@ -38,10 +37,6 @@ func Clean(cf *config.NSXOperatorConfig) error {
 	if err := cf.ValidateConfigFromCmd(); err != nil {
 		return errors.Join(ValidationFailed, err)
 	}
-	nsxClient := nsx.GetClient(cf)
-	if nsxClient == nil {
-		return GetNSXClientFailed
-	}
 	if cleanupService, err := InitializeCleanupService(cf); err != nil {
 		return errors.Join(InitCleanupServiceFailed, err)
 	} else if cleanupService.err != nil {
@@ -72,9 +67,9 @@ func Clean(cf *config.NSXOperatorConfig) error {
 func InitializeCleanupService(cf *config.NSXOperatorConfig) (*CleanupService, error) {
 	cleanupService := NewCleanupService()
 
-	nsxClient := nsx.GetClient(cf)
-	if nsxClient == nil {
-		return cleanupService, fmt.Errorf("failed to get nsx client")
+	nsxClient, err := nsx.GetClient(cf)
+	if err != nil {
+		return cleanupService, GetNSXClientFailed
 	}
 
 	var commonService = common.Service{
