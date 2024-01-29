@@ -32,24 +32,6 @@ type ServiceMediator struct {
 	*node.NodeService
 }
 
-// ListVPCInfo is a common method, extracting the org, the project, and the vpc string from vpc path of the VPC model.
-// VPC path looks like "/orgs/default/projects/project-1/vpcs/vpc-1",
-// Since other modules only know namespace, this is the only entry point to get org and project.
-// Currently, we only support one vpc per namespace, but we may support multiple vpcs per namespace in the future,
-// so we return a slice of VPCInfo.
-func (serviceMediator *ServiceMediator) ListVPCInfo(ns string) []common.VPCResourceInfo {
-	var VPCInfoList []common.VPCResourceInfo
-	vpcs := serviceMediator.GetVPCsByNamespace(ns) // Transparently call the VPCService.GetVPCsByNamespace method
-	for _, v := range vpcs {
-		vpcResourceInfo, err := common.ParseVPCResourcePath(*v.Path)
-		if err != nil {
-			log.Error(err, "Failed to get vpc info from vpc path", "vpc path", *v.Path)
-		}
-		VPCInfoList = append(VPCInfoList, vpcResourceInfo)
-	}
-	return VPCInfoList
-}
-
 // This method is used for subnet service since vpc network config contains default subnet size
 // and default subnet access mode.
 func (m *ServiceMediator) GetVPCNetworkConfigByNamespace(ns string) *common.VPCNetworkConfigInfo {

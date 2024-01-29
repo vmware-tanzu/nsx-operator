@@ -12,7 +12,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
-	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
@@ -67,8 +66,8 @@ func TestIPPoolService_BuildIPPool(t *testing.T) {
 		Size: Int64(256),
 	}
 
-	vpcinfolist := []*model.Vpc{
-		{ExternalIpv4Blocks: []string{"/infra/ip-blocks/block-test"}},
+	vpcinfolist := []common.VPCResourceInfo{
+		{ExternalIPv4Blocks: []string{"/infra/ip-blocks/block-test"}},
 	}
 	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
 	resourceStore := common.ResourceStore{
@@ -76,10 +75,10 @@ func TestIPPoolService_BuildIPPool(t *testing.T) {
 		BindingType: model.VpcBindingType(),
 	}
 	vpcStore := &vpc.VPCStore{ResourceStore: resourceStore}
-	commonctl.ServiceMediator.VPCService = &vpc.VPCService{VpcStore: vpcStore}
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(vpcService *vpc.VPCService,
+	ipPoolService.VPCService = &vpc.VPCService{VpcStore: vpcStore}
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(ipPoolService.VPCService), "ListVPCInfo", func(vpcService *vpc.VPCService,
 		ns string,
-	) []*model.Vpc {
+	) []common.VPCResourceInfo {
 		return vpcinfolist
 	})
 	defer patch.Reset()

@@ -35,3 +35,8 @@ func (m *MockVPCServiceProvider) GetDefaultNetworkConfig() (bool, *VPCNetworkCon
 	m.Called()
 	return false, nil
 }
+
+func (m *MockVPCServiceProvider) ListVPCInfo(ns string) []VPCResourceInfo {
+	m.Called()
+	return []VPCResourceInfo{}
+}

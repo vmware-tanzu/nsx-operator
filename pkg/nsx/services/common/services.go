@@ -10,4 +10,5 @@ type VPCServiceProvider interface {
 	ValidateNetworkConfig(nc VPCNetworkConfigInfo) bool
 	GetVPCNetworkConfigByNamespace(ns string) *VPCNetworkConfigInfo
 	GetDefaultNetworkConfig() (bool, *VPCNetworkConfigInfo)
+	ListVPCInfo(ns string) []VPCResourceInfo
 }

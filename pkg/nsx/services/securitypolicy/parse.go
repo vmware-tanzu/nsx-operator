@@ -2,10 +2,8 @@ package securitypolicy
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -97,14 +95,4 @@ func getScopeNamespaceUIDTag(service *SecurityPolicyService, isVMNameSpace bool)
 			return common.TagScopeNCPProjectUID
 		}
 	}
-}
-
-func getVpcInfo(spNameSpace string) (*common.VPCResourceInfo, error) {
-	VPCInfo := commonctl.ServiceMediator.ListVPCInfo(spNameSpace)
-	if len(VPCInfo) == 0 {
-		errorMsg := fmt.Sprintf("there is no VPC info found for namespace %s", spNameSpace)
-		err := errors.New(errorMsg)
-		return nil, err
-	}
-	return &VPCInfo[0], nil
 }
