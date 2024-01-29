@@ -1,5 +1,7 @@
 package common
 
+import "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+
 // The method in this interface can be provided to other controllers.
 // Using interface instead vpc service instance can prevent other service
 // calling method that should not be exposed.
@@ -11,4 +13,8 @@ type VPCServiceProvider interface {
 	GetVPCNetworkConfigByNamespace(ns string) *VPCNetworkConfigInfo
 	GetDefaultNetworkConfig() (bool, *VPCNetworkConfigInfo)
 	ListVPCInfo(ns string) []VPCResourceInfo
+}
+
+type NodeServiceReader interface {
+	GetNodeByName(nodeName string) []*model.HostTransportNode
 }

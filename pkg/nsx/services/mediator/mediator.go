@@ -11,7 +11,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/node"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
@@ -29,7 +28,6 @@ type ServiceMediator struct {
 	*vpc.VPCService
 	*subnet.SubnetService
 	*subnetport.SubnetPortService
-	*node.NodeService
 }
 
 // This method is used for subnet service since vpc network config contains default subnet size
@@ -87,19 +85,4 @@ func (serviceMediator *ServiceMediator) GetNamespaceVPCInfo(ns string) (*common.
 func (serviceMediator *ServiceMediator) GetPortsOfSubnet(nsxSubnetID string) (ports []*model.VpcSubnetPort) {
 	subnetPortList := serviceMediator.SubnetPortStore.GetByIndex(common.IndexKeySubnetID, nsxSubnetID)
 	return subnetPortList
-}
-
-func (serviceMediator *ServiceMediator) GetNodeByName(nodeName string) (*model.HostTransportNode, error) {
-	nodes := serviceMediator.NodeStore.GetByIndex(common.IndexKeyNodeName, nodeName)
-	if len(nodes) == 0 {
-		return nil, fmt.Errorf("node %s not found", nodeName)
-	}
-	if len(nodes) > 1 {
-		var nodeIDs []string
-		for _, node := range nodes {
-			nodeIDs = append(nodeIDs, *node.Id)
-		}
-		return nil, fmt.Errorf("multiple node IDs found for node %s: %v", nodeName, nodeIDs)
-	}
-	return nodes[0], nil
 }
