@@ -219,10 +219,10 @@ func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPoli
 	return targetTags
 }
 
-// Todo, use the uitl basic func to generate basic tags
+// Todo, use the util basic func to generate basic tags
 func (service *SecurityPolicyService) buildBasicTags(obj *v1alpha1.SecurityPolicy, createdFor string) []model.Tag {
-	scopeOwnerName := common.TagScopeSecurityPolicyCRName
-	scopeOwnerUID := common.TagScopeSecurityPolicyCRUID
+	scopeOwnerName := common.TagValueScopeSecurityPolicyName
+	scopeOwnerUID := common.TagValueScopeSecurityPolicyUID
 	if createdFor == common.ResourceTypeNetworkPolicy {
 		scopeOwnerName = common.TagScopeNetworkPolicyName
 		scopeOwnerUID = common.TagScopeNetworkPolicyUID
@@ -1619,8 +1619,8 @@ func (service *SecurityPolicyService) buildShareID(nsxProjectName, groupID strin
 func (service *SecurityPolicyService) buildShareTags(obj *v1alpha1.SecurityPolicy, projectId string, group *model.Group, createdFor string) []model.Tag {
 	var scopeOwnerName, scopeOwnerUID string
 	if createdFor == common.ResourceTypeSecurityPolicy {
-		scopeOwnerName = common.TagScopeSecurityPolicyCRName
-		scopeOwnerUID = common.TagScopeSecurityPolicyCRUID
+		scopeOwnerName = common.TagValueScopeSecurityPolicyName
+		scopeOwnerUID = common.TagValueScopeSecurityPolicyUID
 	} else {
 		scopeOwnerName = common.TagScopeNetworkPolicyName
 		scopeOwnerUID = common.TagScopeNetworkPolicyUID

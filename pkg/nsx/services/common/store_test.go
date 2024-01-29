@@ -127,7 +127,7 @@ func indexFunc(obj interface{}) ([]string, error) {
 var filterTag = func(v []model.Tag) []string {
 	res := make([]string, 0, 5)
 	for _, tag := range v {
-		if *tag.Scope == TagScopeSecurityPolicyCRUID {
+		if *tag.Scope == TagValueScopeSecurityPolicyUID {
 			res = append(res, *tag.Tag)
 		}
 	}
@@ -156,7 +156,7 @@ func Test_InitializeResourceStore(t *testing.T) {
 		},
 	}
 
-	ruleCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{TagScopeSecurityPolicyCRUID: indexFunc})
+	ruleCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{TagValueScopeSecurityPolicyUID: indexFunc})
 	ruleStore := &ResourceStore{
 		Indexer:     ruleCacheIndexer,
 		BindingType: model.RuleBindingType(),

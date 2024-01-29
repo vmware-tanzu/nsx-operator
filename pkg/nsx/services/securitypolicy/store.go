@@ -34,20 +34,20 @@ func filterTag(tags []model.Tag, tagScope string) []string {
 	return res
 }
 
-// indexBySecurityPolicyCRUID is used to get index of a resource, usually, which is the UID of the CR controller reconciles,
+// indexBySecurityPolicyUID is used to get index of a resource, usually, which is the UID of the CR controller reconciles,
 // index is used to filter out resources which are related to the CR
-func indexBySecurityPolicyCRUID(obj interface{}) ([]string, error) {
+func indexBySecurityPolicyUID(obj interface{}) ([]string, error) {
 	switch o := obj.(type) {
 	case *model.SecurityPolicy:
-		return filterTag(o.Tags, common.TagScopeSecurityPolicyCRUID), nil
+		return filterTag(o.Tags, common.TagValueScopeSecurityPolicyUID), nil
 	case *model.Group:
-		return filterTag(o.Tags, common.TagScopeSecurityPolicyCRUID), nil
+		return filterTag(o.Tags, common.TagValueScopeSecurityPolicyUID), nil
 	case *model.Rule:
-		return filterTag(o.Tags, common.TagScopeSecurityPolicyCRUID), nil
+		return filterTag(o.Tags, common.TagValueScopeSecurityPolicyUID), nil
 	case *model.Share:
-		return filterTag(o.Tags, common.TagScopeSecurityPolicyCRUID), nil
+		return filterTag(o.Tags, common.TagValueScopeSecurityPolicyUID), nil
 	default:
-		return nil, errors.New("indexBySecurityPolicyCRUID doesn't support unknown type")
+		return nil, errors.New("indexBySecurityPolicyUID doesn't support unknown type")
 	}
 }
 

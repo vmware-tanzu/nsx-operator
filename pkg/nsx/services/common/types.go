@@ -31,8 +31,10 @@ const (
 	TagScopeCluster                    string = "nsx-op/cluster"
 	TagScopeNamespace                  string = "nsx-op/namespace"
 	TagScopeNamespaceUID               string = "nsx-op/namespace_uid"
-	TagScopeSecurityPolicyCRName       string = "nsx-op/security_policy_name"
-	TagScopeSecurityPolicyCRUID        string = "nsx-op/security_policy_uid"
+	TagScopeSecurityPolicyCRName       string = "nsx-op/security_policy_cr_name"
+	TagScopeSecurityPolicyCRUID        string = "nsx-op/security_policy_cr_uid"
+	TagScopeSecurityPolicyName         string = "nsx-op/security_policy_name"
+	TagScopeSecurityPolicyUID          string = "nsx-op/security_policy_uid"
 	TagScopeNetworkPolicyName          string = "nsx-op/network_policy_name"
 	TagScopeNetworkPolicyUID           string = "nsx-op/network_policy_uid"
 	TagScopeStaticRouteCRName          string = "nsx-op/static_route_name"
@@ -108,6 +110,8 @@ const (
 )
 
 var TagValueVersion = []string{ValueMajorVersion, ValueMinorVersion, ValuePatchVersion}
+var TagValueScopeSecurityPolicyName = TagScopeSecurityPolicyCRName
+var TagValueScopeSecurityPolicyUID = TagScopeSecurityPolicyCRUID
 
 var (
 	ResourceType                    = "resource_type"

@@ -77,33 +77,39 @@ func InitializeSecurityPolicy(service common.Service, vpcService common.VPCServi
 
 	securityPolicyService := &SecurityPolicyService{Service: service}
 
+	if isVpcEnabled(securityPolicyService) {
+		common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
+		common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
+	}
+	indexScope := common.TagValueScopeSecurityPolicyUID
+
 	securityPolicyService.securityPolicyStore = &SecurityPolicyStore{ResourceStore: common.ResourceStore{
 		Indexer: cache.NewIndexer(
 			keyFunc, cache.Indexers{
-				common.TagScopeSecurityPolicyCRUID: indexBySecurityPolicyCRUID,
-				common.TagScopeNetworkPolicyUID:    indexByNetworkPolicyUID,
+				indexScope:                      indexBySecurityPolicyUID,
+				common.TagScopeNetworkPolicyUID: indexByNetworkPolicyUID,
 			}),
 		BindingType: model.SecurityPolicyBindingType(),
 	}}
 	securityPolicyService.groupStore = &GroupStore{ResourceStore: common.ResourceStore{
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
-			common.TagScopeSecurityPolicyCRUID: indexBySecurityPolicyCRUID,
-			common.TagScopeNetworkPolicyUID:    indexByNetworkPolicyUID,
-			common.TagScopeRuleID:              indexGroupFunc,
+			indexScope:                      indexBySecurityPolicyUID,
+			common.TagScopeNetworkPolicyUID: indexByNetworkPolicyUID,
+			common.TagScopeRuleID:           indexGroupFunc,
 		}),
 		BindingType: model.GroupBindingType(),
 	}}
 	securityPolicyService.ruleStore = &RuleStore{ResourceStore: common.ResourceStore{
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
-			common.TagScopeSecurityPolicyCRUID: indexBySecurityPolicyCRUID,
-			common.TagScopeNetworkPolicyUID:    indexByNetworkPolicyUID,
+			indexScope:                      indexBySecurityPolicyUID,
+			common.TagScopeNetworkPolicyUID: indexByNetworkPolicyUID,
 		}),
 		BindingType: model.RuleBindingType(),
 	}}
 	securityPolicyService.shareStore = &ShareStore{ResourceStore: common.ResourceStore{
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
-			common.TagScopeSecurityPolicyCRUID: indexBySecurityPolicyCRUID,
-			common.TagScopeNetworkPolicyUID:    indexByNetworkPolicyUID,
+			indexScope:                      indexBySecurityPolicyUID,
+			common.TagScopeNetworkPolicyUID: indexByNetworkPolicyUID,
 		}),
 		BindingType: model.ShareBindingType(),
 	}}
@@ -325,7 +331,7 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 	if len(nsxSecurityPolicy.Scope) == 0 {
 		log.Info("SecurityPolicy has empty policy-level appliedTo")
 	}
-	indexScope := common.TagScopeSecurityPolicyCRUID
+	indexScope := common.TagValueScopeSecurityPolicyUID
 	if createdFor == common.ResourceTypeNetworkPolicy {
 		indexScope = common.TagScopeNetworkPolicyUID
 	}
@@ -526,7 +532,7 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(obj interface{}, isVp
 	// doesn't exist in K8s any more but still has corresponding nsx SecurityPolicy object.
 	// Hence, we use SecurityPolicy's UID here from store instead of K8s SecurityPolicy object
 	case types.UID:
-		indexScope := common.TagScopeSecurityPolicyCRUID
+		indexScope := common.TagValueScopeSecurityPolicyUID
 		if createdFor == common.ResourceTypeNetworkPolicy {
 			indexScope = common.TagScopeNetworkPolicyUID
 		}
@@ -723,7 +729,7 @@ func (service *SecurityPolicyService) createOrUpdateProjectShares(obj *v1alpha1.
 	_, _, _, shareStore := service.getStoresByCreatedFor(createdFor)
 	finalShares := make([]model.Share, 0)
 
-	indexScope := common.TagScopeSecurityPolicyCRUID
+	indexScope := common.TagValueScopeSecurityPolicyUID
 	if createdFor == common.ResourceTypeNetworkPolicy {
 		indexScope = common.TagScopeNetworkPolicyUID
 	}
@@ -768,7 +774,7 @@ func (service *SecurityPolicyService) createOrUpdateProjectGroups(obj *v1alpha1.
 	_, _, groupStore, _ := service.getStoresByCreatedFor(createdFor)
 	finalGroups := make([]model.Group, 0)
 
-	indexScope := common.TagScopeSecurityPolicyCRUID
+	indexScope := common.TagValueScopeSecurityPolicyUID
 	if createdFor == common.ResourceTypeNetworkPolicy {
 		indexScope = common.TagScopeNetworkPolicyUID
 	}
@@ -813,11 +819,13 @@ func (service *SecurityPolicyService) createOrUpdateProjectGroups(obj *v1alpha1.
 }
 
 func (service *SecurityPolicyService) ListSecurityPolicyID() sets.Set[string] {
+	indexScope := common.TagValueScopeSecurityPolicyUID
+
 	// List SecurityPolicyID to which groups resources are associated in group store
-	groupSet := service.groupStore.ListIndexFuncValues(common.TagScopeSecurityPolicyCRUID)
+	groupSet := service.groupStore.ListIndexFuncValues(indexScope)
 	// List SecurityPolicyID to which share resources are associated in share store
-	shareSet := service.shareStore.ListIndexFuncValues(common.TagScopeSecurityPolicyCRUID)
-	policySet := service.securityPolicyStore.ListIndexFuncValues(common.TagScopeSecurityPolicyCRUID)
+	shareSet := service.shareStore.ListIndexFuncValues(indexScope)
+	policySet := service.securityPolicyStore.ListIndexFuncValues(indexScope)
 
 	return groupSet.Union(policySet).Union(shareSet)
 }
