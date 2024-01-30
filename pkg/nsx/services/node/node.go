@@ -63,6 +63,10 @@ func InitializeNode(service servicecommon.Service) (*NodeService, error) {
 
 }
 
+func (service *NodeService) GetNodeByName(nodeName string) []*model.HostTransportNode {
+	return service.NodeStore.GetByIndex(servicecommon.IndexKeyNodeName, nodeName)
+}
+
 func (service *NodeService) SyncNodeStore(nodeName string, deleted bool) error {
 	nodes := service.NodeStore.GetByIndex(servicecommon.IndexKeyNodeName, nodeName)
 	if len(nodes) > 1 {

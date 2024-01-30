@@ -5,20 +5,18 @@ package pod
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"runtime"
 	"strings"
 	"time"
 
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
-
-	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
-	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -26,6 +24,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
@@ -39,8 +39,9 @@ var (
 // PodReconciler reconciles a Pod object
 type PodReconciler struct {
 	client.Client
-	Scheme  *apimachineryruntime.Scheme
-	Service *subnetport.SubnetPortService
+	Scheme            *apimachineryruntime.Scheme
+	Service           *subnetport.SubnetPortService
+	NodeServiceReader servicecommon.NodeServiceReader
 }
 
 func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -80,7 +81,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			return common.ResultRequeue, err
 		}
 		log.Info("got NSX subnet for pod", "NSX subnet path", nsxSubnetPath, "pod.Name", pod.Name, "pod.UID", pod.UID)
-		node, err := common.ServiceMediator.GetNodeByName(pod.Spec.NodeName)
+		node, err := r.GetNodeByName(pod.Spec.NodeName)
 		if err != nil {
 			// The error at the very beginning of the operator startup is expected because at that time the node may be not cached yet. We can expect the retry to become normal.
 			log.Error(err, "failed to get node ID for pod", "pod.Name", req.NamespacedName, "pod.UID", pod.UID, "node", pod.Spec.NodeName)
@@ -126,6 +127,21 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	return ctrl.Result{}, nil
 }
 
+func (r *PodReconciler) GetNodeByName(nodeName string) (*model.HostTransportNode, error) {
+	nodes := r.NodeServiceReader.GetNodeByName(nodeName)
+	if len(nodes) == 0 {
+		return nil, fmt.Errorf("node %s not found", nodeName)
+	}
+	if len(nodes) > 1 {
+		var nodeIDs []string
+		for _, node := range nodes {
+			nodeIDs = append(nodeIDs, *node.Id)
+		}
+		return nil, fmt.Errorf("multiple node IDs found for node %s: %v", nodeName, nodeIDs)
+	}
+	return nodes[0], nil
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -145,10 +161,11 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func StartPodController(mgr ctrl.Manager, commonService servicecommon.Service) {
+func StartPodController(mgr ctrl.Manager, commonService servicecommon.Service, nodeServiceReader servicecommon.NodeServiceReader) {
 	podPortReconciler := PodReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		NodeServiceReader: nodeServiceReader,
 	}
 	subnetPortService, err := subnetport.InitializeSubnetPort(commonService)
 	if err != nil {
