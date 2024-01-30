@@ -634,7 +634,7 @@ func (service *SecurityPolicyService) buildRuleAppliedGroupByPolicy(obj *v1alpha
 func (service *SecurityPolicyService) buildRuleAppliedGroupByRule(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int, createdFor string) (*model.Group, string, error) {
 	var ruleAppliedGroupName string
 	appliedTo := rule.AppliedTo
-	ruleAppliedGroupID := service.buildAppliedGroupID(obj, ruleIdx, common.ResourceTypeNetworkPolicy)
+	ruleAppliedGroupID := service.buildAppliedGroupID(obj, ruleIdx, createdFor)
 	ruleAppliedGroupName = service.buildAppliedGroupName(obj, ruleIdx)
 
 	targetTags := service.buildTargetTags(obj, &appliedTo, rule, ruleIdx, createdFor)
@@ -1764,7 +1764,6 @@ func (service *SecurityPolicyService) buildRulePortString(port *v1alpha1.Securit
 		return fmt.Sprintf("%s.%s.%d", protocol, (port.Port).String(), port.EndPort)
 	}
 	return fmt.Sprintf("%s.%s", protocol, (port.Port).String())
-
 }
 
 func (service *SecurityPolicyService) buildRulePortsString(ports *[]v1alpha1.SecurityPolicyPort, direction string) string {
