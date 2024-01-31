@@ -117,7 +117,17 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, fmt.Sprintf("Failed to get Subnet by path: %s", nsxSubnetPath), setSubnetPortReadyStatusFalse, r.SubnetPortService)
 			return common.ResultRequeue, err
 		}
-		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels)
+
+		isVmSubnetPort := true
+		if value, exists := subnetPort.Labels[servicecommon.LabelImageFetcher]; exists && value == "true" {
+			isVmSubnetPort = false
+			if labels == nil {
+				labels = &map[string]string{}
+			}
+			(*labels)[servicecommon.LabelImageFetcher] = "true"
+		}
+
+		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels, isVmSubnetPort)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService)
 			return common.ResultRequeue, err
