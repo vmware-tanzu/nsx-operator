@@ -111,7 +111,7 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig) (*CleanupService, er
 
 	wrapInitializeStaticRoute := func(service common.Service) cleanupFunc {
 		return func() (cleanup, error) {
-			return sr.InitializeStaticRoute(service)
+			return sr.InitializeStaticRoute(service, vpcService)
 		}
 	}
 
