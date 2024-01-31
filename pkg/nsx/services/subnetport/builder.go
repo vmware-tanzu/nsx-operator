@@ -26,7 +26,7 @@ var (
 	String = common.String
 )
 
-func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labelTags *map[string]string) (*model.VpcSubnetPort, error) {
+func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labelTags *map[string]string, isVmSubnetPort bool) (*model.VpcSubnetPort, error) {
 	var objNamespace, appId, allocateAddresses string
 	objMeta := getObjectMeta(obj)
 	if objMeta == nil {
@@ -65,6 +65,27 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	}
 	namespace_uid := namespace.UID
 	tags := util.BuildBasicTags(getCluster(service), obj, namespace_uid)
+
+	// Filter tags based on the type of subnet port (VM or Pod).
+	// For VM subnet ports, we need to filter out tags with scope VMNamespaceUID and VMNamespace.
+	// For Pod subnet ports, we need to filter out tags with scope NamespaceUID and Namespace.
+	var tagsFiltered []model.Tag
+	for _, tag := range tags {
+		if isVmSubnetPort && *tag.Scope == common.TagScopeNamespaceUID {
+			continue
+		}
+		if isVmSubnetPort && *tag.Scope == common.TagScopeNamespace {
+			continue
+		}
+		if !isVmSubnetPort && *tag.Scope == common.TagScopeVMNamespaceUID {
+			continue
+		}
+		if !isVmSubnetPort && *tag.Scope == common.TagScopeVMNamespace {
+			continue
+		}
+		tagsFiltered = append(tagsFiltered, tag)
+	}
+
 	if labelTags != nil {
 		// Append Namespace labels in order as tags
 		labelKeys := make([]string, 0, len(*labelTags))
@@ -73,7 +94,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		}
 		sort.Strings(labelKeys)
 		for _, k := range labelKeys {
-			tags = append(tags, model.Tag{Scope: common.String(k), Tag: common.String((*labelTags)[k])})
+			tagsFiltered = append(tagsFiltered, model.Tag{Scope: common.String(k), Tag: common.String((*labelTags)[k])})
 		}
 	}
 	nsxSubnetPort := &model.VpcSubnetPort{
@@ -85,7 +106,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 			TrafficTag:        common.Int64(0),
 			Type_:             String("STATIC"),
 		},
-		Tags:                   tags,
+		Tags:                   tagsFiltered,
 		Path:                   &nsxSubnetPortPath,
 		ParentPath:             nsxSubnet.Path,
 		ExternalAddressBinding: externalAddressBinding,
