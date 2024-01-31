@@ -17,7 +17,6 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/staticrouteclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
@@ -99,7 +98,9 @@ func Test_InitializeStaticRouteStore(t *testing.T) {
 	})
 	defer patch.Reset()
 
-	_, err := InitializeStaticRoute(commonService)
+	vpcService := &vpc.VPCService{}
+
+	_, err := InitializeStaticRoute(commonService, vpcService)
 	if err != nil {
 		t.Error(err)
 	}
@@ -121,8 +122,8 @@ func TestStaticRouteService_DeleteStaticRoute(t *testing.T) {
 			return j, nil
 		})
 	defer patches2.Reset()
-
-	returnservice, err := InitializeStaticRoute(service.Service)
+	vpcService := &vpc.VPCService{}
+	returnservice, err := InitializeStaticRoute(service.Service, vpcService)
 	if err != nil {
 		t.Error(err)
 	}
@@ -132,9 +133,9 @@ func TestStaticRouteService_DeleteStaticRoute(t *testing.T) {
 
 	returnservice.StaticRouteStore.Add(sr1)
 
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []*model.Vpc {
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(returnservice.VPCService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
 		id := "vpc-1"
-		return []*model.Vpc{{Path: common.String("/orgs/default/projects/project-1/vpcs/vpc-1"), Id: &id}}
+		return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "project-1", VPCID: "vpc-1", ID: id}}
 	})
 
 	// no record found
@@ -168,7 +169,8 @@ func TestStaticRouteService_CreateorUpdateStaticRoute(t *testing.T) {
 		})
 	defer patches2.Reset()
 
-	returnservice, err := InitializeStaticRoute(service.Service)
+	vpcService := &vpc.VPCService{}
+	returnservice, err := InitializeStaticRoute(service.Service, vpcService)
 
 	if err != nil {
 		t.Error(err)
@@ -186,9 +188,9 @@ func TestStaticRouteService_CreateorUpdateStaticRoute(t *testing.T) {
 		Tags: []model.Tag{{Tag: &tag, Scope: &scope}},
 	}
 	mockStaticRouteclient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(m, nil).Times(2)
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(commonctl.ServiceMediator.VPCService), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []*model.Vpc {
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(returnservice.VPCService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
 		id := "12345678"
-		return []*model.Vpc{{Path: common.String("/orgs/default/projects/project-1/vpcs/vpc-1"), Id: &id}}
+		return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "project-1", VPCID: "vpc-1", ID: id}}
 	})
 	defer patches.Reset()
 	err = returnservice.CreateOrUpdateStaticRoute("test", sr1)

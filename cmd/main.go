@@ -39,6 +39,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ippool"
 	nodeservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/node"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
 	subnetservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
@@ -195,6 +196,11 @@ func main() {
 			log.Error(err, "failed to initialize node commonService", "controller", "Node")
 			os.Exit(1)
 		}
+		staticRouteService, err := staticroute.InitializeStaticRoute(commonService, vpcService)
+		if err != nil {
+			log.Error(err, "failed to initialize staticroute commonService", "controller", "StaticRoute")
+			os.Exit(1)
+		}
 		// Start controllers which only supports VPC
 		StartVPCController(mgr, vpcService)
 		StartNamespaceController(mgr, cf, vpcService)
@@ -207,7 +213,7 @@ func main() {
 		}
 
 		node.StartNodeController(mgr, nodeService)
-		staticroutecontroller.StartStaticRouteController(mgr, commonService)
+		staticroutecontroller.StartStaticRouteController(mgr, staticRouteService)
 		subnetport.StartSubnetPortController(mgr, commonService)
 		pod.StartPodController(mgr, commonService, nodeService)
 		StartIPPoolController(mgr, ipPoolService, vpcService)

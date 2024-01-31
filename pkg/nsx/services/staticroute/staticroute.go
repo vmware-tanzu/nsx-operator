@@ -9,7 +9,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
@@ -17,6 +16,7 @@ import (
 type StaticRouteService struct {
 	common.Service
 	StaticRouteStore *StaticRouteStore
+	VPCService       common.VPCServiceProvider
 }
 
 var (
@@ -26,7 +26,7 @@ var (
 )
 
 // InitializeStaticRoute sync NSX resources
-func InitializeStaticRoute(commonService common.Service) (*StaticRouteService, error) {
+func InitializeStaticRoute(commonService common.Service, vpcService common.VPCServiceProvider) (*StaticRouteService, error) {
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
@@ -40,6 +40,7 @@ func InitializeStaticRoute(commonService common.Service) (*StaticRouteService, e
 	staticRouteStore.BindingType = model.StaticRoutesBindingType()
 	staticRouteService.StaticRouteStore = staticRouteStore
 	staticRouteService.NSXConfig = commonService.NSXConfig
+	staticRouteService.VPCService = vpcService
 
 	go staticRouteService.InitializeResourceStore(&wg, fatalErrors, resourceTypeStaticRoute, nil, staticRouteService.StaticRouteStore)
 
@@ -70,16 +71,15 @@ func (service *StaticRouteService) CreateOrUpdateStaticRoute(namespace string, o
 		return nil
 	}
 
-	vpc := commonctl.ServiceMediator.GetVPCsByNamespace(namespace)
+	vpc := service.VPCService.ListVPCInfo(namespace)
 	if len(vpc) == 0 {
 		return fmt.Errorf("no vpc found for ns %s", namespace)
 	}
-	path := strings.Split(*vpc[0].Path, "/")
-	err = service.patch(path[2], path[4], *vpc[0].Id, nsxStaticRoute)
+	err = service.patch(vpc[0].OrgID, vpc[0].ProjectID, vpc[0].ID, nsxStaticRoute)
 	if err != nil {
 		return err
 	}
-	staticRoute, err := service.NSXClient.StaticRouteClient.Get(path[2], path[4], *vpc[0].Id, *nsxStaticRoute.Id)
+	staticRoute, err := service.NSXClient.StaticRouteClient.Get(vpc[0].OrgID, vpc[0].ProjectID, vpc[0].ID, *nsxStaticRoute.Id)
 	if err != nil {
 		return err
 	}
@@ -129,12 +129,11 @@ func (service *StaticRouteService) GetUID(staticroute *model.StaticRoutes) *stri
 }
 
 func (service *StaticRouteService) DeleteStaticRoute(namespace string, uid string) error {
-	vpc := commonctl.ServiceMediator.GetVPCsByNamespace(namespace)
+	vpc := service.VPCService.ListVPCInfo(namespace)
 	if len(vpc) == 0 {
 		return nil
 	}
-	path := strings.Split(*vpc[0].Path, "/")
-	return service.DeleteStaticRouteByPath(path[2], path[4], *vpc[0].Id, uid)
+	return service.DeleteStaticRouteByPath(vpc[0].OrgID, vpc[0].ProjectID, vpc[0].ID, uid)
 }
 
 func (service *StaticRouteService) ListStaticRoute() []*model.StaticRoutes {
