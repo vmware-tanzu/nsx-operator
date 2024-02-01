@@ -277,7 +277,7 @@ func (service *SubnetPortService) Cleanup(ctx context.Context) error {
 	subnetPorts := service.SubnetPortStore.List()
 	log.Info("cleanup subnetports", "count", len(subnetPorts))
 	for _, subnetPort := range subnetPorts {
-		subnetPortID := types.UID(*subnetPort.(model.VpcSubnetPort).Id)
+		subnetPortID := types.UID(*subnetPort.(*model.VpcSubnetPort).Id)
 		select {
 		case <-ctx.Done():
 			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
