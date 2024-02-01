@@ -29,9 +29,9 @@ import (
 
 func NewFakeSubnetPortReconciler() *SubnetPortReconciler {
 	return &SubnetPortReconciler{
-		Client:  fake.NewClientBuilder().Build(),
-		Scheme:  fake.NewClientBuilder().Build().Scheme(),
-		Service: nil,
+		Client:            fake.NewClientBuilder().Build(),
+		Scheme:            fake.NewClientBuilder().Build().Scheme(),
+		SubnetPortService: nil,
 	}
 }
 
@@ -49,9 +49,9 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		},
 	}
 	r := &SubnetPortReconciler{
-		Client:  k8sClient,
-		Scheme:  nil,
-		Service: service,
+		Client:            k8sClient,
+		Scheme:            nil,
+		SubnetPortService: service,
 	}
 	ctx := context.Background()
 	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
@@ -275,9 +275,9 @@ func TestSubnetPortReconciler_GarbageCollector(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	r := &SubnetPortReconciler{
-		Client:  k8sClient,
-		Scheme:  nil,
-		Service: service,
+		Client:            k8sClient,
+		Scheme:            nil,
+		SubnetPortService: service,
 	}
 	subnetPortList := &v1alpha1.SubnetPortList{}
 	k8sClient.EXPECT().List(gomock.Any(), subnetPortList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {

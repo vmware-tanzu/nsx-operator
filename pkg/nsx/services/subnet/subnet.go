@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -273,6 +274,10 @@ func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) err
 	return nil
 }
 
+func (service *SubnetService) GetSubnetByKey(key string) *model.VpcSubnet {
+	return service.SubnetStore.GetByKey(key)
+}
+
 func (service *SubnetService) ListSubnetID() sets.Set[string] {
 	subnets := service.SubnetStore.ListIndexFuncValues(common.TagScopeSubnetCRUID)
 	subnetSets := service.SubnetStore.ListIndexFuncValues(common.TagScopeSubnetSetCRUID)
@@ -294,7 +299,19 @@ func (service *SubnetService) Cleanup() error {
 	return nil
 }
 
-func (service *SubnetService) GenerateSubnetNSTags(obj client.Object, nsUID string) []model.Tag {
+func (service *SubnetService) GetSubnetsByIndex(key, value string) []*model.VpcSubnet {
+	return service.SubnetStore.GetByIndex(key, value)
+}
+
+func (service *SubnetService) GenerateSubnetNSTags(obj client.Object, ns string) []model.Tag {
+	namespace := &v1.Namespace{}
+	namespacedName := types.NamespacedName{
+		Name: ns,
+	}
+	if err := service.Client.Get(context.Background(), namespacedName, namespace); err != nil {
+		return nil
+	}
+	nsUID := string(namespace.UID)
 	var tags []model.Tag
 	switch o := obj.(type) {
 	case *v1alpha1.Subnet:
@@ -318,6 +335,9 @@ func (service *SubnetService) GenerateSubnetNSTags(obj client.Object, nsUID stri
 				model.Tag{Scope: common.String(common.TagScopeVMNamespaceUID), Tag: common.String(nsUID)},
 				model.Tag{Scope: common.String(common.TagScopeVMNamespace), Tag: common.String(obj.GetNamespace())})
 		}
+	}
+	for k, v := range namespace.Labels {
+		tags = append(tags, model.Tag{Scope: common.String(k), Tag: common.String(v)})
 	}
 	return tags
 }

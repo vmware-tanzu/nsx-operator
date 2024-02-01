@@ -1,8 +1,12 @@
 package common
 
-import "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+import (
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
-// The method in this interface can be provided to other controllers.
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+)
+
+// VPCServiceProvider provides to methods other controllers and services.
 // Using interface instead vpc service instance can prevent other service
 // calling method that should not be exposed.
 type VPCServiceProvider interface {
@@ -13,6 +17,17 @@ type VPCServiceProvider interface {
 	GetVPCNetworkConfigByNamespace(ns string) *VPCNetworkConfigInfo
 	GetDefaultNetworkConfig() (bool, *VPCNetworkConfigInfo)
 	ListVPCInfo(ns string) []VPCResourceInfo
+}
+
+type SubnetServiceProvider interface {
+	GetSubnetByKey(key string) *model.VpcSubnet
+	GetSubnetsByIndex(key, value string) []*model.VpcSubnet
+	CreateOrUpdateSubnet(obj client.Object, vpcInfo VPCResourceInfo, tags []model.Tag) (string, error)
+	GenerateSubnetNSTags(obj client.Object, nsUID string) []model.Tag
+}
+
+type SubnetPortServiceProvider interface {
+	GetPortsOfSubnet(nsxSubnetID string) (ports []*model.VpcSubnetPort)
 }
 
 type NodeServiceReader interface {
