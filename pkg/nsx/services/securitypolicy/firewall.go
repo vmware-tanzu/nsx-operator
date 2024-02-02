@@ -1,6 +1,7 @@
 package securitypolicy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -826,22 +828,19 @@ func (service *SecurityPolicyService) ListNetworkPolicyID() sets.Set[string] {
 	return groupSet.Union(policySet).Union(shareSet)
 }
 
-func (service *SecurityPolicyService) Cleanup() error {
+func (service *SecurityPolicyService) Cleanup(ctx context.Context) error {
 	// Delete all the security policies in store
-	uids := service.ListSecurityPolicyID()
-	log.Info("cleaning up security policies created for CR", "count", len(uids))
-	for uid := range uids {
-		err := service.DeleteSecurityPolicy(types.UID(uid), true, common.ResourceTypeSecurityPolicy)
-		if err != nil {
-			return err
-		}
-	}
-	uids = service.ListNetworkPolicyID()
+	uids := service.ListNetworkPolicyID()
 	log.Info("cleaning up security policies created for network policy", "count", len(uids))
 	for uid := range uids {
-		err := service.DeleteSecurityPolicy(types.UID(uid), true, common.ResourceTypeNetworkPolicy)
-		if err != nil {
-			return err
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			err := service.DeleteSecurityPolicy(types.UID(uid), true, common.ResourceTypeNetworkPolicy)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil

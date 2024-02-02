@@ -19,6 +19,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
@@ -284,15 +285,20 @@ func (service *SubnetService) ListSubnetID() sets.Set[string] {
 	return subnets.Union(subnetSets)
 }
 
-func (service *SubnetService) Cleanup() error {
+func (service *SubnetService) Cleanup(ctx context.Context) error {
 	uids := service.ListSubnetID()
 	log.Info("cleaning up subnet", "count", len(uids))
 	for uid := range uids {
 		nsxSubnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetCRUID, string(uid))
 		for _, nsxSubnet := range nsxSubnets {
-			err := service.DeleteSubnet(*nsxSubnet)
-			if err != nil {
-				return err
+			select {
+			case <-ctx.Done():
+				return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+			default:
+				err := service.DeleteSubnet(*nsxSubnet)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}

@@ -580,3 +580,20 @@ type ExceedTagsError struct {
 }
 
 func (err ExceedTagsError) Error() string { return err.Desc }
+
+type Status struct {
+	Code    uint32
+	Message string
+}
+
+func (s Status) Error() string {
+	return s.Message
+}
+
+var (
+	ValidationFailed         = Status{Code: 1, Message: "failed to validate config"}
+	GetNSXClientFailed       = Status{Code: 2, Message: "failed to get nsx client"}
+	InitCleanupServiceFailed = Status{Code: 3, Message: "failed to initialize cleanup service"}
+	CleanupResourceFailed    = Status{Code: 4, Message: "failed to clean up"}
+	TimeoutFailed            = Status{Code: 5, Message: "failed because of timeout"}
+)

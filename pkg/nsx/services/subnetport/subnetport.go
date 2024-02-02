@@ -4,6 +4,7 @@
 package subnetport
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
@@ -272,15 +273,21 @@ func (service *SubnetPortService) GetPortsOfSubnet(nsxSubnetID string) (ports []
 	return subnetPortList
 }
 
-func (service *SubnetPortService) Cleanup() error {
+func (service *SubnetPortService) Cleanup(ctx context.Context) error {
 	subnetPorts := service.SubnetPortStore.List()
 	log.Info("cleanup subnetports", "count", len(subnetPorts))
 	for _, subnetPort := range subnetPorts {
 		subnetPortID := types.UID(*subnetPort.(model.VpcSubnetPort).Id)
-		err := service.DeleteSubnetPort(subnetPortID)
-		if err != nil {
-			log.Error(err, "cleanup subnetport failed", "subnetPortID", subnetPortID)
-			return err
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			err := service.DeleteSubnetPort(subnetPortID)
+			if err != nil {
+				log.Error(err, "cleanup subnetport failed", "subnetPortID", subnetPortID)
+				return err
+			}
+
 		}
 	}
 	return nil
