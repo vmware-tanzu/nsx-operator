@@ -44,8 +44,10 @@ type ProjectShare struct {
 	share      *model.Share
 }
 
-var securityService *SecurityPolicyService
-var lock = &sync.Mutex{}
+var (
+	securityService *SecurityPolicyService
+	lock            = &sync.Mutex{}
+)
 
 // GetSecurityService get singleton SecurityPolicyService instance, networkpolicy/securitypolicy controller share the same instance.
 func GetSecurityService(service common.Service, vpcService common.VPCServiceProvider) *SecurityPolicyService {
@@ -684,8 +686,10 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(obj interface{}, isVp
 func (service *SecurityPolicyService) createOrUpdateGroups(obj *v1alpha1.SecurityPolicy, nsxGroups []*model.Group) error {
 	var vpcInfo *common.VPCResourceInfo
 	var err error
+	finalGroups := make([]model.Group, 0)
 	for _, group := range nsxGroups {
 		group.MarkedForDelete = nil
+		finalGroups = append(finalGroups, *group)
 		if isVpcEnabled(service) {
 			vpcInfo, err = service.getVpcInfo(obj.ObjectMeta.Namespace)
 			if err != nil {
@@ -704,11 +708,11 @@ func (service *SecurityPolicyService) createOrUpdateGroups(obj *v1alpha1.Securit
 	if err != nil {
 		return err
 	}
-	err = service.groupStore.Apply(&nsxGroups)
+	err = service.groupStore.Apply(&finalGroups)
 	if err != nil {
 		return err
 	}
-	log.Info("successfully create or update groups", "groups", nsxGroups)
+	log.Info("successfully create or update groups", "nsxGroups", finalGroups)
 	return nil
 }
 
@@ -807,9 +811,9 @@ func (service *SecurityPolicyService) createOrUpdateProjectGroups(obj *v1alpha1.
 }
 
 func (service *SecurityPolicyService) ListSecurityPolicyID() sets.Set[string] {
-	// List SeurityPolicyID to which groups resources are associated in group store
+	// List SecurityPolicyID to which groups resources are associated in group store
 	groupSet := service.groupStore.ListIndexFuncValues(common.TagScopeSecurityPolicyCRUID)
-	// List SeurityPolicyID to which share resources are associated in share store
+	// List SecurityPolicyID to which share resources are associated in share store
 	shareSet := service.shareStore.ListIndexFuncValues(common.TagScopeSecurityPolicyCRUID)
 	policySet := service.securityPolicyStore.ListIndexFuncValues(common.TagScopeSecurityPolicyCRUID)
 
