@@ -352,6 +352,58 @@ func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 	return nsxVersion, err
 }
 
+// HttpGet sends a http GET request to the cluster, exported for use
+func (cluster *Cluster) HttpGet(url string) (map[string]interface{}, error) {
+	ep := cluster.endpoints[0]
+	serverUrl := cluster.CreateServerUrl(cluster.endpoints[0].Host(), cluster.endpoints[0].Scheme())
+	url = fmt.Sprintf("%s/%s", serverUrl, url)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		log.Error(err, "failed to create http request")
+		return nil, err
+	}
+	log.V(1).Info("Get url", "url", req.URL)
+	err = ep.UpdateHttpRequestAuth(req)
+	if err != nil {
+		log.Error(err, "http get update auth error")
+		return nil, err
+	}
+	ep.UpdateCAforEnvoy(req)
+	resp, err := ep.client.Do(req)
+	if err != nil {
+		log.Error(err, "failed to do http GET operation")
+		return nil, err
+	}
+	var respJson map[string]interface{}
+	err, _ = util.HandleHTTPResponse(resp, respJson, true)
+	return respJson, err
+}
+
+// HttpDelete sends a http DELETE request to the cluster, exported for use
+func (cluster *Cluster) HttpDelete(url string) error {
+	ep := cluster.endpoints[0]
+	serverUrl := cluster.CreateServerUrl(cluster.endpoints[0].Host(), cluster.endpoints[0].Scheme())
+	url = fmt.Sprintf("%s/%s", serverUrl, url)
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		log.Error(err, "failed to create http request")
+		return err
+	}
+	log.V(1).Info("Delete url", "url", req.URL)
+	err = ep.UpdateHttpRequestAuth(req)
+	if err != nil {
+		log.Error(err, "http get update auth error")
+		return err
+	}
+	ep.UpdateCAforEnvoy(req)
+	_, err = ep.client.Do(req)
+	if err != nil {
+		log.Error(err, "failed to do http DELETE operation")
+		return err
+	}
+	return nil
+}
+
 func (nsxVersion *NsxVersion) Validate() error {
 	re, _ := regexp.Compile(`^([\d]+).([\d]+).([\d]+)`)
 	result := re.Find([]byte(nsxVersion.NodeVersion))
