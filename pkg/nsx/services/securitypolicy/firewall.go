@@ -834,7 +834,22 @@ func (service *SecurityPolicyService) ListNetworkPolicyID() sets.Set[string] {
 
 func (service *SecurityPolicyService) Cleanup(ctx context.Context) error {
 	// Delete all the security policies in store
-	uids := service.ListNetworkPolicyID()
+	uids := service.ListSecurityPolicyID()
+	log.Info("cleaning up security policies created for CR", "count", len(uids))
+	for uid := range uids {
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			err := service.DeleteSecurityPolicy(types.UID(uid), true, common.ResourceTypeSecurityPolicy)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// Delete all the security policies created for network policy in store
+	uids = service.ListNetworkPolicyID()
 	log.Info("cleaning up security policies created for network policy", "count", len(uids))
 	for uid := range uids {
 		select {
