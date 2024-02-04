@@ -31,8 +31,8 @@ var (
 	tagScopeCluster              = common.TagScopeCluster
 	tagScopeNamespace            = common.TagScopeNamespace
 	tagScopeNamespaceUID         = common.TagScopeNamespaceUID
-	tagScopeSecurityPolicyCRName = common.TagScopeSecurityPolicyCRName
-	tagScopeSecurityPolicyCRUID  = common.TagScopeSecurityPolicyCRUID
+	tagScopeSecurityPolicyCRName = common.TagValueScopeSecurityPolicyName
+	tagScopeSecurityPolicyCRUID  = common.TagValueScopeSecurityPolicyUID
 	tagScopeRuleID               = common.TagScopeRuleID
 	tagScopeSelectorHash         = common.TagScopeSelectorHash
 	spName                       = "ns1-spA"
@@ -283,24 +283,24 @@ func TestListSecurityPolicyID(t *testing.T) {
 		Service: common.Service{NSXClient: nil},
 	}
 	service.securityPolicyStore = &SecurityPolicyStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexBySecurityPolicyCRUID}),
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagValueScopeSecurityPolicyUID: indexBySecurityPolicyUID}),
 		BindingType: model.SecurityPolicyBindingType(),
 	}}
 	service.groupStore = &GroupStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexBySecurityPolicyCRUID}),
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagValueScopeSecurityPolicyUID: indexBySecurityPolicyUID}),
 		BindingType: model.GroupBindingType(),
 	}}
 	service.ruleStore = &RuleStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexBySecurityPolicyCRUID}),
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagValueScopeSecurityPolicyUID: indexBySecurityPolicyUID}),
 		BindingType: model.RuleBindingType(),
 	}}
 	service.shareStore = &ShareStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSecurityPolicyCRUID: indexBySecurityPolicyCRUID}),
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagValueScopeSecurityPolicyUID: indexBySecurityPolicyUID}),
 		BindingType: model.ShareBindingType(),
 	}}
 
 	group := model.Group{}
-	scope := "nsx-op/security_policy_uid"
+	scope := "nsx-op/security_policy_cr_uid"
 	uuid := "111111111"
 	id := "1234"
 	group.Id = &id
