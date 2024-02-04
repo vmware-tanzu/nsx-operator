@@ -49,6 +49,7 @@ var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_AC
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
 	RestConnector *client.RestConnector
+	Cluster       *Cluster
 
 	QueryClient    search.QueryClient
 	GroupClient    domains.GroupsClient
@@ -174,14 +175,14 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	}
 
 	nsxClient := &Client{
-		NsxConfig:      cf,
-		RestConnector:  restConnector(cluster),
-		QueryClient:    queryClient,
-		GroupClient:    groupClient,
-		SecurityClient: securityClient,
-		RuleClient:     ruleClient,
-		InfraClient:    infraClient,
-
+		NsxConfig:                  cf,
+		RestConnector:              restConnector(cluster),
+		QueryClient:                queryClient,
+		GroupClient:                groupClient,
+		SecurityClient:             securityClient,
+		RuleClient:                 ruleClient,
+		InfraClient:                infraClient,
+		Cluster:                    cluster,
 		ClusterControlPlanesClient: clusterControlPlanesClient,
 		HostTransPortNodesClient:   hostTransportNodesClient,
 		RealizedEntitiesClient:     realizedEntitiesClient,

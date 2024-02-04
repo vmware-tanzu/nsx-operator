@@ -363,19 +363,13 @@ func (cluster *Cluster) HttpGet(url string) (map[string]interface{}, error) {
 		return nil, err
 	}
 	log.V(1).Info("Get url", "url", req.URL)
-	err = ep.UpdateHttpRequestAuth(req)
-	if err != nil {
-		log.Error(err, "http get update auth error")
-		return nil, err
-	}
-	ep.UpdateCAforEnvoy(req)
 	resp, err := ep.client.Do(req)
 	if err != nil {
 		log.Error(err, "failed to do http GET operation")
 		return nil, err
 	}
-	var respJson map[string]interface{}
-	err, _ = util.HandleHTTPResponse(resp, respJson, true)
+	respJson := make(map[string]interface{})
+	err, _ = util.HandleHTTPResponse(resp, &respJson, true)
 	return respJson, err
 }
 
@@ -390,12 +384,6 @@ func (cluster *Cluster) HttpDelete(url string) error {
 		return err
 	}
 	log.V(1).Info("Delete url", "url", req.URL)
-	err = ep.UpdateHttpRequestAuth(req)
-	if err != nil {
-		log.Error(err, "http get update auth error")
-		return err
-	}
-	ep.UpdateCAforEnvoy(req)
 	_, err = ep.client.Do(req)
 	if err != nil {
 		log.Error(err, "failed to do http DELETE operation")

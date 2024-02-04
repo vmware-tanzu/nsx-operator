@@ -27,6 +27,7 @@ var log = logger.Log
 
 // Clean cleans up NSX resources,
 // including security policy, static route, subnet, subnet port, subnet set, vpc, ip pool, nsx service account
+// besides, it also cleans up DLB resources, which was previously implemented in nsx-ncp,
 // it is usually used when nsx-operator is uninstalled and remove all the resources created by nsx-operator
 // return error if any, return nil if no error
 // the error type include followings:
@@ -43,7 +44,7 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig) error {
 	if nsxClient == nil {
 		return nsxutil.GetNSXClientFailed
 	}
-	if cleanupService, err := InitializeCleanupService(cf); err != nil {
+	if cleanupService, err := InitializeCleanupService(cf, nsxClient); err != nil {
 		return errors.Join(nsxutil.InitCleanupServiceFailed, err)
 	} else if cleanupService.err != nil {
 		return errors.Join(nsxutil.InitCleanupServiceFailed, cleanupService.err)
@@ -54,6 +55,22 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig) error {
 			}
 		}
 	}
+	// delete DLB group -> delete virtual servers -> DLB services -> DLB pools -> persistent profiles for DLB
+	if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+		if err != nil {
+			log.Info("retrying to clean up DLB resources", "error", err)
+			return true
+		}
+		return false
+	}, func() error {
+		if err := CleanDLB(ctx, nsxClient.Cluster, cf); err != nil {
+			return fmt.Errorf("failed to clean up specific resource: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
 	log.Info("cleanup NSX resources successfully")
 	return nil
 }
@@ -76,13 +93,8 @@ func wrapCleanFunc(ctx context.Context, clean cleanup) func() error {
 }
 
 // InitializeCleanupService initializes all the CR services
-func InitializeCleanupService(cf *config.NSXOperatorConfig) (*CleanupService, error) {
+func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Client) (*CleanupService, error) {
 	cleanupService := NewCleanupService()
-
-	nsxClient := nsx.GetClient(cf)
-	if nsxClient == nil {
-		return cleanupService, fmt.Errorf("failed to get nsx client")
-	}
 
 	var commonService = common.Service{
 		NSXClient: nsxClient,
