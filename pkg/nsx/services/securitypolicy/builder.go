@@ -37,6 +37,24 @@ var (
 	Int64  = common.Int64
 )
 
+func (service *SecurityPolicyService) buildecurityPolicyName(obj *v1alpha1.SecurityPolicy, createdFor string) string {
+	prefix := common.SecurityPolicyPrefix
+	if createdFor != common.ResourceTypeSecurityPolicy {
+		prefix = common.NetworkPolicyPrefix
+	}
+	nsxSecurityPolicyName := util.GenerateTruncName(common.MaxNameLength, fmt.Sprintf("%s-%s", obj.Namespace, obj.Name), prefix, "", "", "")
+	return nsxSecurityPolicyName
+}
+
+func (service *SecurityPolicyService) buildecurityPolicyID(obj *v1alpha1.SecurityPolicy, createdFor string) string {
+	prefix := common.SecurityPolicyPrefix
+	if createdFor != common.ResourceTypeSecurityPolicy {
+		prefix = common.NetworkPolicyPrefix
+	}
+	nsxSecurityPolicyID := util.GenerateID(string(obj.UID), prefix, "", "")
+	return nsxSecurityPolicyID
+}
+
 func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.SecurityPolicy, createdFor string) (*model.SecurityPolicy, *[]model.Group, *[]ProjectShare, error) {
 	var nsxRules []model.Rule
 	var nsxGroups []model.Group
@@ -54,12 +72,8 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 	log.V(1).Info("building the model SecurityPolicy from CR SecurityPolicy", "object", *obj)
 	nsxSecurityPolicy := &model.SecurityPolicy{}
 
-	prefix := common.SecurityPolicyPrefix
-	if createdFor != common.ResourceTypeSecurityPolicy {
-		prefix = common.NetworkPolicyPrefix
-	}
-	nsxSecurityPolicy.Id = String(util.GenerateID(string(obj.UID), prefix, "", ""))
-	nsxSecurityPolicy.DisplayName = String(util.GenerateTruncName(common.MaxNameLength, obj.Name, prefix, "", "", obj.Namespace))
+	nsxSecurityPolicy.Id = String(service.buildecurityPolicyID(obj, createdFor))
+	nsxSecurityPolicy.DisplayName = String(service.buildecurityPolicyName(obj, createdFor))
 	// TODO: confirm the sequence number: offset
 	nsxSecurityPolicy.SequenceNumber = Int64(int64(obj.Spec.Priority))
 
@@ -112,7 +126,6 @@ func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPol
 	policyAppliedGroup := model.Group{}
 	policyAppliedGroup.Id = String(service.buildAppliedGroupID(obj, -1, createdFor))
 
-	// TODO: have a common function to generate ID and Name with parameters like prefix, suffix
 	policyAppliedGroup.DisplayName = String(service.buildAppliedGroupName(obj, -1))
 
 	appliedTo := obj.Spec.AppliedTo
@@ -217,7 +230,6 @@ func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPoli
 	return targetTags
 }
 
-// Todo, use the util basic func to generate basic tags
 func (service *SecurityPolicyService) buildBasicTags(obj *v1alpha1.SecurityPolicy, createdFor string) []model.Tag {
 	scopeOwnerName := common.TagValueScopeSecurityPolicyName
 	scopeOwnerUID := common.TagValueScopeSecurityPolicyUID
@@ -1593,6 +1605,11 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 	return totalCriteriaCount, totalExprCount, nil
 }
 
+func (service *SecurityPolicyService) buildShareName(nsxProjectName, groupName string) string {
+	nsxProjectShareName := util.GenerateTruncName(common.MaxNameLength, nsxProjectName, common.SharePrefix, fmt.Sprintf("group-%s", groupName), "", "")
+	return nsxProjectShareName
+}
+
 func (service *SecurityPolicyService) buildShareID(nsxProjectName, groupID string) string {
 	nsxProjectShareId := util.GenerateID(nsxProjectName, common.SharePrefix, fmt.Sprintf("group_%s", groupID), "")
 	return nsxProjectShareId
@@ -1618,7 +1635,7 @@ func (service *SecurityPolicyService) buildShareTags(obj *v1alpha1.SecurityPolic
 		},
 		{
 			Scope: String(common.TagScopeNSXProjectID),
-			Tag:   String(string(projectId)),
+			Tag:   String(projectId),
 		},
 		{
 			Scope: String(scopeOwnerName),
@@ -1630,7 +1647,7 @@ func (service *SecurityPolicyService) buildShareTags(obj *v1alpha1.SecurityPolic
 		},
 		{
 			Scope: String(common.TagScopeGoupID),
-			Tag:   String(string(*group.Id)),
+			Tag:   String(*group.Id),
 		},
 	}
 	return tags
@@ -1686,9 +1703,9 @@ func (service *SecurityPolicyService) buildProjectShare(obj *v1alpha1.SecurityPo
 	}
 	projectId := (*vpcInfo).ProjectID
 
-	projectShareId := service.buildShareID(projectId, string(*group.Id))
+	projectShareId := service.buildShareID(projectId, *group.Id)
 	projectShareTags := service.buildShareTags(obj, projectId, group, createdFor)
-	projectShareName := fmt.Sprintf("share-%s-group-%s", projectId, *group.DisplayName)
+	projectShareName := service.buildShareName(projectId, *group.DisplayName)
 
 	childSharedResource, err := service.buildChildSharedResource(projectShareId, sharedGroupPath)
 	if err != nil {
