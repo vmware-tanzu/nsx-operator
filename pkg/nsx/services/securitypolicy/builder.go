@@ -54,14 +54,12 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 	log.V(1).Info("building the model SecurityPolicy from CR SecurityPolicy", "object", *obj)
 	nsxSecurityPolicy := &model.SecurityPolicy{}
 
-	if createdFor == common.ResourceTypeSecurityPolicy {
-		nsxSecurityPolicy.Id = String(fmt.Sprintf("sp_%s", obj.UID))
-	} else {
-		nsxSecurityPolicy.Id = String(fmt.Sprintf("np_%s", obj.UID))
+	prefix := common.SecurityPolicyPrefix
+	if createdFor != common.ResourceTypeSecurityPolicy {
+		prefix = common.NetworkPolicyPrefix
 	}
-
-	nsxSecurityPolicy.DisplayName = String(fmt.Sprintf("%s-%s", obj.ObjectMeta.Namespace, obj.ObjectMeta.Name))
-
+	nsxSecurityPolicy.Id = String(util.GenerateID(string(obj.UID), prefix, "", ""))
+	nsxSecurityPolicy.DisplayName = String(util.GenerateTruncName(common.MaxNameLength, obj.Name, prefix, "", "", obj.Namespace))
 	// TODO: confirm the sequence number: offset
 	nsxSecurityPolicy.SequenceNumber = Int64(int64(obj.Spec.Priority))
 
@@ -227,32 +225,18 @@ func (service *SecurityPolicyService) buildBasicTags(obj *v1alpha1.SecurityPolic
 		scopeOwnerName = common.TagScopeNetworkPolicyName
 		scopeOwnerUID = common.TagScopeNetworkPolicyUID
 	}
-	tags := []model.Tag{
-		{
-			Scope: String(common.TagScopeVersion),
-			Tag:   String(strings.Join(common.TagValueVersion, ".")),
-		},
-		{
-			Scope: String(common.TagScopeCluster),
-			Tag:   String(getCluster(service)),
-		},
-		{
-			Scope: String(common.TagScopeNamespace),
-			Tag:   String(obj.ObjectMeta.Namespace),
-		},
-		{
-			Scope: String(common.TagScopeNamespaceUID),
-			Tag:   String(string(service.getNamespaceUID(obj.ObjectMeta.Namespace))),
-		},
+
+	tags := util.BuildBasicTags(getCluster(service), obj, service.getNamespaceUID(obj.ObjectMeta.Namespace))
+	tags = append(tags, []model.Tag{
 		{
 			Scope: String(scopeOwnerName),
-			Tag:   String(obj.ObjectMeta.Name),
+			Tag:   String(obj.Name),
 		},
 		{
 			Scope: String(scopeOwnerUID),
 			Tag:   String(string(obj.UID)),
 		},
-	}
+	}...)
 	return tags
 }
 
@@ -361,16 +345,17 @@ func (service *SecurityPolicyService) buildExpressionsMatchExpression(matchExpre
 
 // build appliedTo group ID for both policy and rule levels.
 func (service *SecurityPolicyService) buildAppliedGroupID(obj *v1alpha1.SecurityPolicy, ruleIdx int, createdFor string) string {
-	prefix := "sp"
+	prefix := common.SecurityPolicyPrefix
 	if createdFor == common.ResourceTypeNetworkPolicy {
-		prefix = "np"
+		prefix = common.NetworkPolicyPrefix
 	}
 
+	ruleIdxStr := ""
 	if ruleIdx != -1 {
-		return fmt.Sprintf("%s_%s_%d_scope", prefix, obj.UID, ruleIdx)
+		ruleIdxStr = fmt.Sprintf("%d", ruleIdx)
 	}
 
-	return fmt.Sprintf("%s_%s_scope", prefix, obj.UID)
+	return util.GenerateID(string(obj.UID), prefix, common.TargetGroupSuffix, ruleIdxStr)
 }
 
 // build appliedTo group path for both policy and rule levels.
@@ -401,13 +386,14 @@ func (service *SecurityPolicyService) buildAppliedGroupName(obj *v1alpha1.Securi
 	var rule *v1alpha1.SecurityPolicyRule
 	if ruleIdx != -1 {
 		rule = &(obj.Spec.Rules[ruleIdx])
+		ruleName := fmt.Sprintf("%s-%d", obj.Name, ruleIdx)
 		if len(rule.Name) > 0 {
-			return fmt.Sprintf("%s-scope", rule.Name)
+			ruleName = rule.Name
 		}
-		return fmt.Sprintf("%s-%d-scope", obj.ObjectMeta.Name, ruleIdx)
+		return util.GenerateTruncName(common.MaxNameLength, ruleName, "", common.TargetGroupSuffix, "", "")
 	}
-
-	return fmt.Sprintf("%s-%s-scope", obj.ObjectMeta.Namespace, obj.ObjectMeta.Name)
+	ruleName := fmt.Sprintf("%s-%s", obj.Namespace, obj.Name)
+	return util.GenerateTruncName(common.MaxNameLength, ruleName, "", common.TargetGroupSuffix, "", "")
 }
 
 func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int, createdFor string) ([]*model.Rule, []*model.Group, []*ProjectShare, error) {
@@ -578,12 +564,12 @@ func (service *SecurityPolicyService) buildRuleOutGroup(obj *v1alpha1.SecurityPo
 }
 
 func (service *SecurityPolicyService) buildRuleID(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int, createdFor string) string {
-	serializedBytes, _ := json.Marshal(rule)
-	prefix := "sp"
+	prefix := common.SecurityPolicyPrefix
 	if createdFor == common.ResourceTypeNetworkPolicy {
-		prefix = "np"
+		prefix = common.NetworkPolicyPrefix
 	}
-	return fmt.Sprintf("%s_%s_%s_%d", prefix, obj.UID, util.Sha1(string(serializedBytes)), ruleIdx)
+	serializedBytes, _ := json.Marshal(rule)
+	return util.GenerateID(fmt.Sprintf("%s", obj.UID), prefix, fmt.Sprintf("%s", util.Sha1(string(serializedBytes))), fmt.Sprintf("%d", ruleIdx))
 }
 
 func (service *SecurityPolicyService) buildRuleDisplayName(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int, portIdx int, portAddressIdx int, createdFor string) (string, error) {
@@ -687,28 +673,24 @@ func (service *SecurityPolicyService) buildRuleAppliedGroupByRule(obj *v1alpha1.
 }
 
 func (service *SecurityPolicyService) buildRulePeerGroupID(obj *v1alpha1.SecurityPolicy, ruleIdx int, isSource bool) string {
+	suffix := common.DstGroupSuffix
 	if isSource == true {
-		return fmt.Sprintf("sp_%s_%d_src", obj.UID, ruleIdx)
-	} else {
-		return fmt.Sprintf("sp_%s_%d_dst", obj.UID, ruleIdx)
+		suffix = common.SrcGroupSuffix
 	}
+	return util.GenerateID(string(obj.UID), common.SecurityPolicyPrefix, suffix, fmt.Sprintf("%d", ruleIdx))
 }
 
 func (service *SecurityPolicyService) buildRulePeerGroupName(obj *v1alpha1.SecurityPolicy, ruleIdx int, isSource bool) string {
 	rule := &(obj.Spec.Rules[ruleIdx])
+	suffix := common.DstGroupSuffix
 	if isSource == true {
-		if len(rule.Name) > 0 {
-			return fmt.Sprintf("%s-src", rule.Name)
-		} else {
-			return fmt.Sprintf("%s-%d-src", obj.ObjectMeta.Name, ruleIdx)
-		}
-	} else {
-		if len(rule.Name) > 0 {
-			return fmt.Sprintf("%s-dst", rule.Name)
-		} else {
-			return fmt.Sprintf("%s-%d-dst", obj.ObjectMeta.Name, ruleIdx)
-		}
+		suffix = common.SrcGroupSuffix
 	}
+	ruleName := fmt.Sprintf("%s-%d", obj.Name, ruleIdx)
+	if len(rule.Name) > 0 {
+		ruleName = rule.Name
+	}
+	return util.GenerateTruncName(common.MaxNameLength, ruleName, "", suffix, "", "")
 }
 
 func (service *SecurityPolicyService) buildRulePeerGroupPath(obj *v1alpha1.SecurityPolicy, ruleIdx int, isSource, groupShared bool) (string, error) {
@@ -1612,7 +1594,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 }
 
 func (service *SecurityPolicyService) buildShareID(nsxProjectName, groupID string) string {
-	nsxProjectShareId := fmt.Sprintf("share_%s_group_%s", nsxProjectName, groupID)
+	nsxProjectShareId := util.GenerateID(nsxProjectName, common.SharePrefix, fmt.Sprintf("group_%s", groupID), "")
 	return nsxProjectShareId
 }
 

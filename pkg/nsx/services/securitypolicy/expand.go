@@ -16,6 +16,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 // When a rule contains named port, we should consider whether the rule should be expanded to
@@ -212,11 +213,11 @@ func (service *SecurityPolicyService) resolvePodPort(pod v1.Pod, spPort *v1alpha
 }
 
 func (service *SecurityPolicyService) buildRuleIPSetGroupID(ruleModel *model.Rule) string {
-	return fmt.Sprintf("%s_ipset", *ruleModel.Id)
+	return util.GenerateID(*ruleModel.Id, "", common.IpSetGroupSuffix, "")
 }
 
 func (service *SecurityPolicyService) buildRuleIPSetGroupName(ruleModel *model.Rule) string {
-	return fmt.Sprintf("%s-ipset", *ruleModel.DisplayName)
+	return util.GenerateTruncName(common.MaxNameLength, *ruleModel.DisplayName, "", common.IpSetGroupSuffix, "", "")
 }
 
 func (service *SecurityPolicyService) buildRuleIPSetGroupPath(obj *v1alpha1.SecurityPolicy, ruleModel *model.Rule, groupShared bool) (string, error) {

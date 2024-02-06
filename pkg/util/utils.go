@@ -455,12 +455,8 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeStaticRouteCRUID), Tag: String(string(i.UID))})
 	case *v1alpha1.SecurityPolicy:
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
-		tags = append(tags, model.Tag{Scope: String(common.TagValueScopeSecurityPolicyName), Tag: String(i.ObjectMeta.Name)})
-		tags = append(tags, model.Tag{Scope: String(common.TagValueScopeSecurityPolicyUID), Tag: String(string(i.UID))})
 	case *networkingv1.NetworkPolicy:
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
-		tags = append(tags, model.Tag{Scope: String(common.TagScopeNetworkPolicyName), Tag: String(i.ObjectMeta.Name)})
-		tags = append(tags, model.Tag{Scope: String(common.TagScopeNetworkPolicyUID), Tag: String(string(i.UID))})
 	case *v1alpha1.Subnet:
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetCRName), Tag: String(i.ObjectMeta.Name)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetCRUID), Tag: String(string(i.UID))})
