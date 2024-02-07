@@ -115,6 +115,8 @@ func (cluster *Cluster) loadCAforEnvoy() {
 			cluster.endpoints[i].caFile = cert
 			log.Info("load CA for envoy sidecar", "caFile", caFile)
 			return
+		} else {
+			log.Info("failed to load CA for envoy sidecar", "caFile", caFile)
 		}
 	}
 
