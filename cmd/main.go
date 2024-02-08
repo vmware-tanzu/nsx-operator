@@ -101,11 +101,12 @@ func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Ser
 
 func StartIPPoolController(mgr ctrl.Manager, ipPoolService *ippool.IPPoolService, vpcService common.VPCServiceProvider) {
 	ippoolReconcile := &ippool2.IPPoolReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		Service:    ipPoolService,
+		VPCService: vpcService,
+		Recorder:   mgr.GetEventRecorderFor("ippool-controller"),
 	}
-	ippoolReconcile.Service = ipPoolService
-	ippoolReconcile.VPCService = vpcService
 
 	if err := ippoolReconcile.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "IPPool")
