@@ -4,7 +4,6 @@
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -14,8 +13,6 @@ type SubnetPortSpec struct {
 	Subnet string `json:"subnet,omitempty"`
 	// SubnetSet defines the parent SubnetSet name of the SubnetPort.
 	SubnetSet string `json:"subnetSet,omitempty"`
-	// AttachmentRef refers to the virtual machine which the SubnetPort is attached.
-	AttachmentRef corev1.ObjectReference `json:"attachmentRef,omitempty"`
 }
 
 // SubnetPortStatus defines the observed state of SubnetPort.

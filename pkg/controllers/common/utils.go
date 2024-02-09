@@ -125,3 +125,20 @@ func NodeIsMaster(node *v1.Node) bool {
 	}
 	return false
 }
+
+func GetVirtualMachineNameForSubnetPort(subnetPort *v1alpha1.SubnetPort) (string, error) {
+	annotations := subnetPort.GetAnnotations()
+	if annotations == nil {
+		return "", nil
+	}
+	attachmentRef, exist := annotations[servicecommon.AnnotationAttachmentRef]
+	if !exist {
+		return "", nil
+	}
+	array := strings.Split(attachmentRef, "/")
+	if len(array) != 2 || !strings.EqualFold(array[0], servicecommon.ResourceTypeVirtualMachine) {
+		err := fmt.Errorf("invalid annotation value of '%s': %s", servicecommon.AnnotationAttachmentRef, attachmentRef)
+		return "", err
+	}
+	return array[1], nil
+}

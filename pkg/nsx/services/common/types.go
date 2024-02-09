@@ -73,6 +73,7 @@ const (
 	AnnotationVPCNetworkConfig         string = "nsx.vmware.com/vpc_network_config"
 	AnnotationVPCName                  string = "nsx.vmware.com/vpc_name"
 	AnnotationDefaultNetworkConfig     string = "nsx.vmware.com/default"
+	AnnotationAttachmentRef            string = "nsx.vmware.com/attachment_ref"
 	AnnotationPodMAC                   string = "nsx.vmware.com/mac"
 	AnnotationPodAttachment            string = "nsx.vmware.com/attachment"
 	TagScopePodName                    string = "nsx-op/pod_name"

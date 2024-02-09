@@ -1,0 +1,6 @@
+apiVersion: vmoperator.vmware.com/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm1
+  namespace: subnetport-e2e
+spec:
