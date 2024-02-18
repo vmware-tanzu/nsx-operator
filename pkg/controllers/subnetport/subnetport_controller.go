@@ -94,10 +94,9 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		labels, err := r.getLabelsFromVirtualMachine(ctx, subnetPort)
 		if err != nil {
-			log.Error(err, "failed to get labels from virtualmachine", "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID, "subnetPort.Spec.AttachmentRef", subnetPort.Spec.AttachmentRef)
+			log.Error(err, "failed to get labels from virtualmachine", "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 			return common.ResultRequeue, err
 		}
-		log.Info("got labels from virtualmachine for subnetport", "subnetPort.UID", subnetPort.UID, "virtualmachine name", subnetPort.Spec.AttachmentRef.Name, "labels", labels)
 		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnetPath, "", labels)
 		if err != nil {
 			log.Error(err, "failed to create or update NSX subnet port, would retry exponentially", "subnetport", req.NamespacedName)
@@ -180,8 +179,13 @@ func (r *SubnetPortReconciler) vmMapFunc(_ context.Context, vm client.Object) []
 		return requests
 	}
 	for _, subnetPort := range subnetPortList.Items {
-		if subnetPort.Spec.AttachmentRef.Name == vm.GetName() && (subnetPort.Spec.AttachmentRef.Namespace == vm.GetNamespace() ||
-			(subnetPort.Spec.AttachmentRef.Namespace == "" && subnetPort.Namespace == vm.GetNamespace())) {
+		port := subnetPort
+		vmName, err := common.GetVirtualMachineNameForSubnetPort(&port)
+		if err != nil {
+			// not block the subnetport visiting because of invalid annotations
+			log.Error(err, "failed to get virtualmachine name from subnetport", "subnetPort.UID", subnetPort.UID)
+		}
+		if vmName == vm.GetName() && subnetPort.Namespace == vm.GetNamespace() {
 			requests = append(requests, reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      subnetPort.Name,
@@ -424,20 +428,18 @@ func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alph
 }
 
 func (r *SubnetPortReconciler) getLabelsFromVirtualMachine(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (*map[string]string, error) {
-	if subnetPort.Spec.AttachmentRef.Name == "" {
-		return nil, nil
+	vmName, err := common.GetVirtualMachineNameForSubnetPort(subnetPort)
+	if vmName == "" {
+		return nil, err
 	}
 	vm := &vmv1alpha1.VirtualMachine{}
-	namespace := subnetPort.Spec.AttachmentRef.Namespace
-	if len(namespace) == 0 {
-		namespace = subnetPort.Namespace
-	}
 	namespacedName := types.NamespacedName{
-		Name:      subnetPort.Spec.AttachmentRef.Name,
-		Namespace: namespace,
+		Name:      vmName,
+		Namespace: subnetPort.Namespace,
 	}
 	if err := r.Client.Get(ctx, namespacedName, vm); err != nil {
 		return nil, err
 	}
+	log.Info("got labels from virtualmachine for subnetport", "subnetPort.UID", subnetPort.UID, "vmName", vmName, "labels", vm.ObjectMeta.Labels)
 	return &vm.ObjectMeta.Labels, nil
 }

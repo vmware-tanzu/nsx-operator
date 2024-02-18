@@ -1,0 +1,9 @@
+apiVersion: nsx.vmware.com/v1alpha1
+kind: SubnetPort
+metadata:
+  name: vm-port
+  namespace: subnetport-e2e
+  annotations:
+    nsx.vmware.com/attachment_ref: virtualmachine/vm1
+spec:
+  subnetSet: vm-default
