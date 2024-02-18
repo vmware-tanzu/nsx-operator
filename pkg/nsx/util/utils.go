@@ -247,7 +247,7 @@ func HandleHTTPResponse(response *http.Response, result interface{}, debug bool)
 	defer response.Body.Close()
 	if !(response.StatusCode == http.StatusOK || response.StatusCode == http.StatusAccepted) {
 		err := errors.New("received HTTP Error")
-		log.Error(err, "handle http response", "status", response.StatusCode, "requestUrl", response.Request.URL, "response body", string(body))
+		log.Error(err, "handle http response", "status", response.StatusCode, "request URL", response.Request.URL, "response body", string(body))
 		return err, nil
 	}
 	if err != nil || body == nil {
@@ -308,7 +308,7 @@ func DumpHttpRequest(request *http.Request) {
 	}
 	request.Body.Close()
 	request.Body = io.NopCloser(bytes.NewReader(body))
-	log.V(2).Info("http request", "url", request.URL, "body", string(body))
+	log.V(2).Info("http request", "url", request.URL, "body", string(body), "head", request.Header)
 }
 
 // if ApiError is nil, check ErrorTypeEnum, such as ServiceUnavailable
@@ -552,14 +552,18 @@ const (
 
 func CertPemBytesToHeader(caFile string) string {
 	certPem, err := os.ReadFile(caFile)
+	cert := ""
 	if err != nil {
-		log.Error(err, "failed to read ca file")
-		return ""
+		cert = caFile
+	} else {
+		cert = string(certPem)
 	}
-	cert := string(certPem)
 	certIdx := strings.Index(cert, X509_PEM_FOOTER)
 	if certIdx > 0 {
 		cert = cert[:certIdx]
+	} else {
+		log.Info("not found pem footer", "cert", cert)
+		return ""
 	}
 	cert = strings.ReplaceAll(cert, X509_PEM_HEADER, "")
 	cert = strings.ReplaceAll(cert, X509_PEM_FOOTER, "")

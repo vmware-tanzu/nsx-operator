@@ -4,6 +4,8 @@
 package config
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -324,8 +326,19 @@ func (nsxConfig *NsxConfig) validateCert() error {
 			return err
 		}
 		for _, file := range nsxConfig.CaFile {
-			if _, err := os.Stat(file); os.IsNotExist(err) {
-				err = fmt.Errorf("ca file does not exist %s", file)
+			// caFile should be a existed cert filename or raw content of a cert
+			if _, err := os.Stat(file); !os.IsNotExist(err) {
+				continue
+			}
+			block, _ := pem.Decode([]byte(file))
+			if block == nil || block.Type != "CERTIFICATE" {
+				err := fmt.Errorf("ca file does not exist or not a valid cert %s", file)
+				configLog.Error(err, "validate NsxConfig failed")
+				return err
+			}
+			_, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				err := fmt.Errorf("ca file does not exist or not a valid cert %s", file)
 				configLog.Error(err, "validate NsxConfig failed")
 				return err
 			}

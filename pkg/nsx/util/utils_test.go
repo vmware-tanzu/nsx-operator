@@ -476,3 +476,37 @@ func TestUpdateRequestURL(t *testing.T) {
 	UpdateRequestURL(reqUrl, newHost, newTP)
 	assert.Equal(t, "/external-cert/http1/newhost/443/policy/api/v1/search/", reqUrl.Path)
 }
+
+func TestCertPemBytesToHeader(t *testing.T) {
+	// Test with valid cert PEM file
+	certPem := []byte(`-----BEGIN CERTIFICATE-----
+MIIDYzCCAkugAwIBAgIUc+zM3o4BZsmb9RrPms5SBmxGw+kwDQYJKoZIhvcNAQEL
+BQAwWjELMAkGA1UEBhMCVVMxCzAJBgNVBAgMAkNBMRIwEAYDVQQHDAlQYWxvIEFs
+dG8xDDAKBgNVBAoMA05DUDEPMA0GA1UECwwGVk13YXJlMQswCQYDVQQDDAJDSTAe
+Fw0yNDAyMDcwNzM2MDFaFw0yNTAyMDYwNzM2MDFaMFoxCzAJBgNVBAYTAlVTMQsw
+CQYDVQQIDAJDQTESMBAGA1UEBwwJUGFsbyBBbHRvMQwwCgYDVQQKDANOQ1AxDzAN
+BgNVBAsMBlZNd2FyZTELMAkGA1UEAwwCQ0kwggEiMA0GCSqGSIb3DQEBAQUAA4IB
+DwAwggEKAoIBAQC34DKcV7BescXTdiBDvMnh7D0ar9fVm8w+WHnMCWF0IQ7FaHCV
++xPdXEkaQNuLgsSEcA/Bh2evjNNwN9jdO7edxl+zLWlpiWop/6UC4o7iR+Vg20H3
+S6DTIZN3KsEJGrwE2mlJs75SrE8aCF+BNzVP3y74JKs5mYcf6hJQxKU09VKw2ZeK
+a1hoJJb2gpNBhbZkzXoPA0JEPDyVK9oCevODYN3KN2cjX7fwMjR4efHLjm88uBYn
+fVRqH5dnc4xHctjqucI2XdOgGXQVtxWrmc+BIuPY8fjPf/9yayWrzV8q69eO7vYC
+gKNt323m53WLw91PL59Q5eXr9xT4i56eHJoPAgMBAAGjITAfMB0GA1UdDgQWBBSn
+zwwivhs6ljZJ6UibSf/+P52jnzANBgkqhkiG9w0BAQsFAAOCAQEAkQxyoIguMv7K
+YaJNNlc89Yj2cR+I2Yt/QAIAx1X3UCq21C5pK+Wc9vFgBC5w1hlxiPSh68Y1RPyB
+qvDdeeRl2Em+H8Otk8SfBkuResv0iJ3YO0/MR0bL10n1ruI+uCY+4gNXFUSxHcuz
+G0ioSnkoCAISqkafS//XXaBeorFnWo1oPYViBpeOaNF0tqOpc3o7IQyFfFSybJK6
+g0+BYo0SBb1VFAteCqF8dixy0N3wBFT4obL3FFlY3EX17qfxARp48brruWq6zSnI
+Hce3uM6Xn8sAglod/r+0onZ09yoiH2Qj5EY50wUIOPtey2ilhuhwoo/M7Nt/yomF
+0yUtxsuObg==
+-----END CERTIFICATE-----`)
+
+	header := CertPemBytesToHeader(string(certPem))
+
+	assert.Contains(t, header, "MIIDYzCCAkugAwIBAgIUc+zM3o4")
+	assert.NotContains(t, header, "-----BEGIN CERTIFICATE-----")
+	assert.NotContains(t, header, "-----END CERTIFICATE-----")
+
+	header = CertPemBytesToHeader("/tmp/test.pem")
+	assert.Equal(t, "", header)
+}
