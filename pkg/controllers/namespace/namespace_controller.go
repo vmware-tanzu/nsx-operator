@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"runtime"
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
@@ -268,7 +267,7 @@ func (r *NamespaceReconciler) setupWithManager(mgr ctrl.Manager) error {
 		For(&v1.Namespace{}).
 		WithOptions(
 			controller.Options{
-				MaxConcurrentReconciles: runtime.NumCPU(),
+				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
 		Complete(r)
 }

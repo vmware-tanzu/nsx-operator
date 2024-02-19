@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"runtime"
 	"time"
 
 	"github.com/pkg/errors"
@@ -244,7 +243,7 @@ func (r *IPPoolReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}).
 		WithOptions(
 			controller.Options{
-				MaxConcurrentReconciles: runtime.NumCPU(),
+				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
 		Complete(r)
 }

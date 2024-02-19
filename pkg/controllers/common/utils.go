@@ -142,3 +142,8 @@ func GetVirtualMachineNameForSubnetPort(subnetPort *v1alpha1.SubnetPort) (string
 	}
 	return array[1], nil
 }
+
+// NumReconcile now uses the fix number of concurrency
+func NumReconcile() int {
+	return MaxConcurrentReconciles
+}

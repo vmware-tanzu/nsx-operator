@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"runtime"
 	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -218,7 +217,7 @@ func (r *SubnetSetReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.SubnetSet{}).
 		WithOptions(controller.Options{
-			MaxConcurrentReconciles: runtime.NumCPU(),
+			MaxConcurrentReconciles: common.NumReconcile(),
 		}).
 		Watches(
 			&v1.Namespace{},
