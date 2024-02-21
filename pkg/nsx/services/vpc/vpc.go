@@ -625,6 +625,10 @@ func (service *VPCService) CreateOrUpdateAVIRule(vpc *model.Vpc, namespace strin
 	if !enableAviAllowRule {
 		return nil
 	}
+	if !nsxutil.IsLicensed(nsxutil.FeatureDFW) {
+		log.Info("avi rule cannot be created or updated due to no DFW license")
+		return nil
+	}
 	vpcInfo, err := common.ParseVPCResourcePath(*vpc.Path)
 	if err != nil {
 		log.Error(err, "failed to parse VPC Resource Path: ", *vpc.Path)

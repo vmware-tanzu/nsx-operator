@@ -137,6 +137,10 @@ func InitializeSecurityPolicy(service common.Service, vpcService common.VPCServi
 }
 
 func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj interface{}) error {
+	if !nsxutil.IsLicensed(nsxutil.FeatureDFW) {
+		log.Info("no DFW license, skip creating SecurityPolicy.")
+		return nsxutil.RestrictionError{Desc: "no DFW license"}
+	}
 	var err error
 	switch obj.(type) {
 	case *networkingv1.NetworkPolicy:
