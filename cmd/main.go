@@ -171,8 +171,14 @@ func main() {
 
 	var vpcService *vpc.VPCService
 
-	if cf.CoeConfig.EnableVPCNetwork && commonService.NSXClient.NSXCheckVersion(nsx.VPC) {
-		log.V(1).Info("VPC mode enabled")
+	if cf.CoeConfig.EnableVPCNetwork {
+		// Check NSX version for VPC networking mode
+		if !commonService.NSXClient.NSXCheckVersion(nsx.VPC) {
+			log.Error(nil, "VPC mode cannot be enabled if NSX version is lower than 4.1.1")
+			os.Exit(1)
+		}
+		log.Info("VPC mode is enabled")
+
 		vpcService, err = vpc.InitializeVPC(commonService)
 		if err != nil {
 			log.Error(err, "failed to initialize vpc commonService", "controller", "VPC")
@@ -220,7 +226,7 @@ func main() {
 		StartIPPoolController(mgr, ipPoolService, vpcService)
 		networkpolicycontroller.StartNetworkPolicyController(mgr, commonService, vpcService)
 	}
-
+	// Start controllers which can run in non-VPC mode
 	securitypolicycontroller.StartSecurityPolicyController(mgr, commonService, vpcService)
 
 	// Start the NSXServiceAccount controller.
