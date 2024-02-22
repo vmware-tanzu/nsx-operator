@@ -23,7 +23,7 @@ const (
 	nsxOperatorDefaultConf = "/etc/nsx-operator/nsxop.ini"
 	vcHostCACertPath       = "/etc/vmware/wcp/tls/vmca.pem"
 	// LicenseInterval is the timeout for checking license status
-	LicenseInterval = 7200
+	LicenseInterval = 86400
 	// LicenseIntervalForDFW is the timeout for checking license status while no DFW license enabled
 	LicenseIntervalForDFW = 1800
 )
