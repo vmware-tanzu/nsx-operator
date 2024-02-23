@@ -7,6 +7,10 @@ import (
 	"fmt"
 )
 
+const (
+	InvalidLicenseErrorCode = 505
+)
+
 type NsxError interface {
 	setDetail(detail *ErrorDetail)
 	Error() string
