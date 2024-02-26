@@ -30,15 +30,15 @@ func TestNormalizeName(t *testing.T) {
 }
 
 func TestNormalizeLabelKey(t *testing.T) {
-	shortKey := strings.Repeat("a", 256)
+	shortKey := strings.Repeat("a", 128)
 	assert.Equal(t, NormalizeLabelKey(shortKey), shortKey)
-	longKey := strings.Repeat("a", 257) + "/def"
+	longKey := strings.Repeat("a", 129) + "/def"
 	assert.Equal(t, NormalizeLabelKey(longKey), "def")
 }
 
 func TestNormalizeLabels(t *testing.T) {
-	shortKey := strings.Repeat("a", 256)
-	longKey := strings.Repeat("a", 257) + "/def"
+	shortKey := strings.Repeat("a", 128)
+	longKey := strings.Repeat("a", 129) + "/def"
 	longValue := strings.Repeat("v", 257)
 	tests := []struct {
 		name           string

@@ -68,16 +68,16 @@ func NormalizeLabels(matchLabels *map[string]string) *map[string]string {
 }
 
 func NormalizeLabelKey(key string) string {
-	if len(key) <= common.MaxTagLength {
+	if len(key) <= common.MaxTagScopeLength {
 		return key
 	}
 	splitted := strings.Split(key, "/")
 	key = splitted[len(splitted)-1]
-	return NormalizeName(key)
+	return normalizeNamebyLimit(key, common.MaxTagScopeLength)
 }
 
 func NormalizeName(name string) string {
-	return normalizeNamebyLimit(name, common.MaxTagLength)
+	return normalizeNamebyLimit(name, common.MaxTagValueLength)
 }
 
 func normalizeNamebyLimit(name string, limit int) string {
