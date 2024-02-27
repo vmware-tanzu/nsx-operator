@@ -16,7 +16,8 @@ import (
 
 const (
 	HashLength                         int    = 8
-	MaxTagLength                       int    = 256
+	MaxTagScopeLength                  int    = 128
+	MaxTagValueLength                  int    = 256
 	MaxIdLength                        int    = 255
 	MaxNameLength                      int    = 255
 	MaxSubnetNameLength                int    = 80
@@ -117,9 +118,11 @@ const (
 	SharePrefix                         = "share"
 )
 
-var TagValueVersion = []string{ValueMajorVersion, ValueMinorVersion, ValuePatchVersion}
-var TagValueScopeSecurityPolicyName = TagScopeSecurityPolicyCRName
-var TagValueScopeSecurityPolicyUID = TagScopeSecurityPolicyCRUID
+var (
+	TagValueVersion                 = []string{ValueMajorVersion, ValueMinorVersion, ValuePatchVersion}
+	TagValueScopeSecurityPolicyName = TagScopeSecurityPolicyCRName
+	TagValueScopeSecurityPolicyUID  = TagScopeSecurityPolicyCRUID
+)
 
 var (
 	ResourceType                    = "resource_type"
