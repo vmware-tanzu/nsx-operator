@@ -15,6 +15,7 @@ import (
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -46,24 +47,29 @@ type IPPoolReconciler struct {
 	Scheme     *apimachineryruntime.Scheme
 	Service    *ippool.IPPoolService
 	VPCService servicecommon.VPCServiceProvider
+	Recorder   record.EventRecorder
 }
 
-func deleteSuccess(r *IPPoolReconciler, _ *context.Context, _ *v1alpha2.IPPool) {
+func deleteSuccess(r *IPPoolReconciler, _ *context.Context, o *v1alpha2.IPPool) {
+	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "IPPool CR has been successfully deleted")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
 }
 
 func deleteFail(r *IPPoolReconciler, c *context.Context, o *v1alpha2.IPPool, e *error) {
 	r.setReadyStatusFalse(c, o, metav1.Now(), e)
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 }
 
 func updateSuccess(r *IPPoolReconciler, c *context.Context, o *v1alpha2.IPPool) {
 	r.setReadyStatusTrue(c, o, metav1.Now())
+	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "IPPool CR has been successfully updated")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
 }
 
 func updateFail(r *IPPoolReconciler, c *context.Context, o *v1alpha2.IPPool, e *error) {
 	r.setReadyStatusFalse(c, o, metav1.Now(), e)
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
 }
 

@@ -33,3 +33,10 @@ var (
 	// for unstable event, eg: failed to k8s resources when reconciling, may due to k8s unstable
 	ResultRequeueAfter5mins = ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Minute}
 )
+
+const (
+	ReasonSuccessfulDelete = "SuccessfulDelete"
+	ReasonSuccessfulUpdate = "SuccessfulUpdate"
+	ReasonFailDelete       = "FailDelete"
+	ReasonFailUpdate       = "FailUpdate"
+)
