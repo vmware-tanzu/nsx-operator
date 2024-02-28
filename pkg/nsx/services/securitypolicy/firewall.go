@@ -227,7 +227,6 @@ func (service *SecurityPolicyService) convertNetworkPolicyToInternalSecurityPoli
 				}
 				rule.Ports = append(rule.Ports, *spPort)
 			}
-			rule.Name = service.buildRulePortsString(&rule.Ports, "ingress")
 			spAllow.Spec.Rules = append(spAllow.Spec.Rules, *rule)
 		}
 	}
@@ -261,7 +260,6 @@ func (service *SecurityPolicyService) convertNetworkPolicyToInternalSecurityPoli
 				}
 				rule.Ports = append(rule.Ports, *spPort)
 			}
-			rule.Name = service.buildRulePortsString(&rule.Ports, "egress")
 			spAllow.Spec.Rules = append(spAllow.Spec.Rules, *rule)
 		}
 	}

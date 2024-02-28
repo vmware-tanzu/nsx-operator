@@ -43,7 +43,6 @@ func TestDoFirstOk(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	assert.Equal(t, uint(0), retrySum, "no retry")
-
 }
 
 func TestRetryIf(t *testing.T) {
@@ -70,7 +69,6 @@ func TestRetryIf(t *testing.T) {
 #3: special`
 	assert.Equal(t, expectedErrorFormat, err.Error(), "retry error format")
 	assert.Equal(t, uint(2), retryCount, "right count of retry")
-
 }
 
 func TestDefaultSleep(t *testing.T) {
@@ -164,8 +162,8 @@ func TestMaxDelay(t *testing.T) {
 	)
 	dur := time.Since(start)
 	assert.Error(t, err)
-	assert.Greater(t, dur, 120*time.Millisecond, "5 times with maximum delay retry is less than 120ms")
-	assert.Less(t, dur, 250*time.Millisecond, "5 times with maximum delay retry is longer than 250ms")
+	assert.Greater(t, dur, 120*time.Millisecond, "5 times with maximum delay retry is greater than 120ms")
+	assert.Less(t, dur, 250*time.Millisecond, "5 times with maximum delay retry is less than 250ms")
 }
 
 func TestBackOffDelay(t *testing.T) {
@@ -220,8 +218,10 @@ func TestExponentDelay(t *testing.T) {
 		maxDelay: 10 * time.Second,
 		factor:   2,
 	}
-	delays := []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 400 * time.Millisecond, 800 * time.Millisecond,
-		1600 * time.Millisecond, 3200 * time.Millisecond, 6400 * time.Millisecond}
+	delays := []time.Duration{
+		100 * time.Millisecond, 200 * time.Millisecond, 400 * time.Millisecond, 800 * time.Millisecond,
+		1600 * time.Millisecond, 3200 * time.Millisecond, 6400 * time.Millisecond,
+	}
 	for _, i := range delays {
 		delay := ExponentDelay(0, nil, &config)
 		assert.Equal(delay, i, "")

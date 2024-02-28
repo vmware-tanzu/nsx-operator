@@ -107,15 +107,19 @@ const (
 	IndexKeyNodeName            = "IndexKeyNodeName"
 	GCValidationInterval uint16 = 720
 
-	NetworkPolicyRuleSuffixIngressAllow = "ingress-allow"
-	NetworkPolicyRuleSuffixEgressAllow  = "egress-allow"
-	SecurityPolicyPrefix                = "sp"
-	IpSetGroupSuffix                    = "ipset"
-	NetworkPolicyPrefix                 = "np"
-	TargetGroupSuffix                   = "scope"
-	SrcGroupSuffix                      = "src"
-	DstGroupSuffix                      = "dst"
-	SharePrefix                         = "share"
+	RuleSuffixIngressAllow  = "ingress-allow"
+	RuleSuffixEgressAllow   = "egress-allow"
+	RuleSuffixIngressDrop   = "ingress-isolation"
+	RuleSuffixEgressDrop    = "egress-isolation"
+	RuleSuffixIngressReject = "ingress-reject"
+	RuleSuffixEgressReject  = "egress-reject"
+	SecurityPolicyPrefix    = "sp"
+	NetworkPolicyPrefix     = "np"
+	TargetGroupSuffix       = "scope"
+	SrcGroupSuffix          = "src"
+	DstGroupSuffix          = "dst"
+	IpSetGroupSuffix        = "ipset"
+	SharePrefix             = "share"
 )
 
 var (

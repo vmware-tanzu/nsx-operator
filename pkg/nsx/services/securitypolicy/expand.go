@@ -28,39 +28,40 @@ func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, r
 	var nsxGroups []*model.Group
 
 	if len(rule.Ports) == 0 {
-		nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, 0, 0, createdFor)
+		nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, 0, 0, -1, false, createdFor)
 		if err != nil {
 			return nil, nil, err
 		}
 		nsxRules = append(nsxRules, nsxRule)
 	}
-	for portIdx, port := range rule.Ports {
-		nsxGroups2, nsxRules2, err := service.expandRuleByPort(obj, rule, ruleIdx, port, portIdx, createdFor)
+
+	// Check if there is a namedport in the rule
+	hasNamedPort := service.hasNamedPort(rule)
+	if !hasNamedPort {
+		nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, 0, 0, -1, false, createdFor)
 		if err != nil {
 			return nil, nil, err
 		}
-		nsxGroups = append(nsxGroups, nsxGroups2...)
-		nsxRules = append(nsxRules, nsxRules2...)
+		var ruleServiceEntries []*data.StructValue
+		for _, port := range rule.Ports {
+			portAddress := nsxutil.PortAddress{Port: port.Port.IntValue()}
+			serviceEntry := service.buildRuleServiceEntries(port, portAddress)
+			ruleServiceEntries = append(ruleServiceEntries, serviceEntry)
+		}
+		nsxRule.ServiceEntries = ruleServiceEntries
+
+		nsxRules = append(nsxRules, nsxRule)
 	}
 
-	// Merge multiple rules into one rule if they have the same destinations,
-	// let the rule's services be the union of all rules' services.
-	// Implement merge rules here, using hash
-	var mapRules = make(map[string]*model.Rule)
-	for _, rule := range nsxRules {
-		destination := ""
-		if len(rule.DestinationGroups) > 0 {
-			destination = rule.DestinationGroups[0]
+	if hasNamedPort {
+		for portIdx, port := range rule.Ports {
+			nsxGroups2, nsxRules2, err := service.expandRuleByPort(obj, rule, ruleIdx, port, portIdx, createdFor)
+			if err != nil {
+				return nil, nil, err
+			}
+			nsxGroups = append(nsxGroups, nsxGroups2...)
+			nsxRules = append(nsxRules, nsxRules2...)
 		}
-		if _, ok := mapRules[destination]; ok {
-			mapRules[destination].ServiceEntries = append(mapRules[destination].ServiceEntries, rule.ServiceEntries...)
-		} else {
-			mapRules[destination] = rule
-		}
-	}
-	nsxRules = []*model.Rule{}
-	for _, rule := range mapRules {
-		nsxRules = append(nsxRules, rule)
 	}
 
 	return nsxGroups, nsxRules, nil
@@ -120,7 +121,7 @@ func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.Security
 ) ([]*model.Group, *model.Rule, error) {
 	var nsxGroups []*model.Group
 
-	nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, portIdx, portAddressIdx, createdFor)
+	nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, portIdx, portAddressIdx, portAddress.Port, true, createdFor)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -364,6 +365,17 @@ func (service *SecurityPolicyService) getPodSelectors(obj *v1alpha1.SecurityPoli
 		}
 	}
 	return finalSelectors, nil
+}
+
+func (service *SecurityPolicyService) hasNamedPort(rule *v1alpha1.SecurityPolicyRule) bool {
+	hasNamedPort := false
+	for _, port := range rule.Ports {
+		if port.Port.Type == intstr.String {
+			hasNamedPort = true
+			break
+		}
+	}
+	return hasNamedPort
 }
 
 // ResolveNamespace Get namespace name when the rule has namespace selector.

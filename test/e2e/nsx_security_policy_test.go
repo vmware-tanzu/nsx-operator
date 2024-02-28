@@ -30,6 +30,8 @@ const (
 func TestSecurityPolicyBasicTraffic(t *testing.T) {
 	ns := "test-security-policy-1"
 	securityPolicyName := "isolate-policy-1"
+	ruleName0 := "all-ingress-isolation"
+	ruleName1 := "all-egress-isolation"
 	var err error
 	setupTest(t, ns)
 	defer teardownTest(t, ns, defaultTimeout)
@@ -66,7 +68,9 @@ func TestSecurityPolicyBasicTraffic(t *testing.T) {
 	// Check nsx-t resource existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
 	assertNil(t, err)
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, securityPolicyName, true)
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName0, true)
+	assertNil(t, err)
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, true)
 	assertNil(t, err)
 
 	//Temporarily disable traffic check
@@ -84,7 +88,9 @@ func TestSecurityPolicyBasicTraffic(t *testing.T) {
 	// Check nsx-t resource not existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
 	assertNil(t, err)
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, securityPolicyName, false)
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName0, false)
+	assertNil(t, err)
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, false)
 	assertNil(t, err)
 
 	//Temporarily disable traffic check
@@ -101,8 +107,8 @@ func TestSecurityPolicyBasicTraffic(t *testing.T) {
 func TestSecurityPolicyAddDeleteRule(t *testing.T) {
 	ns := "test-security-policy-2"
 	securityPolicyName := "isolate-policy-1"
-	ruleName0 := "isolate-policy-1-0"
-	ruleName1 := "isolate-policy-1-1"
+	ruleName0 := "all-ingress-isolation"
+	ruleName1 := "all-egress-isolation"
 	setupTest(t, ns)
 	defer teardownTest(t, ns, defaultTimeout)
 
@@ -150,6 +156,8 @@ func TestSecurityPolicyAddDeleteRule(t *testing.T) {
 func TestSecurityPolicyMatchExpression(t *testing.T) {
 	ns := "test-security-policy-match-expression"
 	securityPolicyName := "expression-policy-1"
+	ruleName := "expression-policy-1-rule"
+
 	var err error
 	setupTest(t, ns)
 	defer teardownTest(t, ns, defaultTimeout)
@@ -192,7 +200,7 @@ func TestSecurityPolicyMatchExpression(t *testing.T) {
 	// Check nsx-t resource existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
 	assertNil(t, err)
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, securityPolicyName, true)
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName, true)
 	assertNil(t, err)
 
 	// Temporarily disable traffic check
@@ -212,7 +220,7 @@ func TestSecurityPolicyMatchExpression(t *testing.T) {
 	// Check nsx-t resource not existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
 	assertNil(t, err)
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, securityPolicyName, false)
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName, false)
 	assertNil(t, err)
 
 	// Temporarily disable traffic check

@@ -14,3 +14,4 @@ spec:
   rules:
     - direction: Out
       action: drop
+      name: expression-policy-1-rule

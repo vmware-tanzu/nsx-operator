@@ -43,10 +43,8 @@ var (
 	seq0                         = int64(0)
 	seq1                         = int64(1)
 	seq2                         = int64(2)
-	ruleNameWithPodSelector00    = "rule-with-pod-selector-0-0"
-	ruleNameWithVMSelector00     = "rule-with-VM-selector-0-0"
-	ruleNameWithNsSelector00     = "rule-with-ns-selector-0-0"
-	ruleNameWithIpBlock00        = "rule-with-ip-block-0-0"
+	ruleNameWithPodSelector00    = "rule-with-pod-selector"
+	ruleNameWithNsSelector00     = "rule-with-ns-selector"
 	cidr                         = "192.168.1.1/24"
 	ruleID0                      = "sp_uidA_0"
 	ruleID1                      = "sp_uidA_1"
