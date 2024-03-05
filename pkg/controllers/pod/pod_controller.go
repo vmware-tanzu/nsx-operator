@@ -65,7 +65,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return common.ResultNormal, nil
 	}
 
-	if pod.ObjectMeta.DeletionTimestamp.IsZero() {
+	if !podIsDeleted(pod) {
 		metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerUpdateTotal, MetricResTypePod)
 		if !controllerutil.ContainsFinalizer(pod, servicecommon.PodFinalizerName) {
 			controllerutil.AddFinalizer(pod, servicecommon.PodFinalizerName)
@@ -264,4 +264,8 @@ func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (s
 	}
 	log.Info("allocated NSX subnet for pod", "nsxSubnetPath", subnetPath, "pod.Name", pod.Name, "pod.UID", pod.UID)
 	return subnetPath, nil
+}
+
+func podIsDeleted(pod *v1.Pod) bool {
+	return !pod.ObjectMeta.DeletionTimestamp.IsZero() || pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed"
 }
