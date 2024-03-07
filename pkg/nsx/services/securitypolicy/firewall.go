@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,6 +38,7 @@ type SecurityPolicyService struct {
 	securityPolicyStore *SecurityPolicyStore
 	ruleStore           *RuleStore
 	groupStore          *GroupStore
+	projectGroupStore   *GroupStore
 	shareStore          *ShareStore
 	vpcService          common.VPCServiceProvider
 }
@@ -73,7 +75,7 @@ func InitializeSecurityPolicy(service common.Service, vpcService common.VPCServi
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
 
-	wg.Add(4)
+	wg.Add(5)
 
 	securityPolicyService := &SecurityPolicyService{Service: service}
 
@@ -106,6 +108,14 @@ func InitializeSecurityPolicy(service common.Service, vpcService common.VPCServi
 		}),
 		BindingType: model.RuleBindingType(),
 	}}
+
+	securityPolicyService.projectGroupStore = &GroupStore{ResourceStore: common.ResourceStore{
+		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+			indexScope:                      indexBySecurityPolicyUID,
+			common.TagScopeNetworkPolicyUID: indexByNetworkPolicyUID,
+		}),
+		BindingType: model.GroupBindingType(),
+	}}
 	securityPolicyService.shareStore = &ShareStore{ResourceStore: common.ResourceStore{
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
 			indexScope:                      indexBySecurityPolicyUID,
@@ -115,10 +125,28 @@ func InitializeSecurityPolicy(service common.Service, vpcService common.VPCServi
 	}}
 	securityPolicyService.vpcService = vpcService
 
-	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSecurityPolicy, nil, securityPolicyService.securityPolicyStore)
-	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, nil, securityPolicyService.groupStore)
-	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, nil, securityPolicyService.ruleStore)
+	projectGroupShareTag := []model.Tag{
+		{
+			Scope: String(common.TagScopeProjectGroupShared),
+			Tag:   String("true"),
+		},
+	}
+	projectGroupNotShareTag := []model.Tag{
+		{
+			Scope: String(common.TagScopeProjectGroupShared),
+			Tag:   String("false"),
+		},
+	}
+	if isVpcEnabled(securityPolicyService) {
+		go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, projectGroupNotShareTag, securityPolicyService.groupStore)
+	} else {
+		go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, nil, securityPolicyService.groupStore)
+	}
+
+	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, projectGroupShareTag, securityPolicyService.projectGroupStore)
 	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeShare, nil, securityPolicyService.shareStore)
+	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSecurityPolicy, nil, securityPolicyService.securityPolicyStore)
+	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, nil, securityPolicyService.ruleStore)
 
 	go func() {
 		wg.Wait()
@@ -318,13 +346,13 @@ func (service *SecurityPolicyService) convertNetworkPolicyPortToSecurityPolicyPo
 	return spPort, nil
 }
 
-func (service *SecurityPolicyService) getStoresByCreatedFor(createdFor string) (*SecurityPolicyStore, *RuleStore, *GroupStore, *ShareStore) {
-	return service.securityPolicyStore, service.ruleStore, service.groupStore, service.shareStore
+func (service *SecurityPolicyService) getStores() (*SecurityPolicyStore, *RuleStore, *GroupStore, *GroupStore, *ShareStore) {
+	return service.securityPolicyStore, service.ruleStore, service.groupStore, service.projectGroupStore, service.shareStore
 }
 
 func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1.SecurityPolicy, createdFor string) error {
-	securityPolicyStore, ruleStore, groupStore, _ := service.getStoresByCreatedFor(createdFor)
-	nsxSecurityPolicy, nsxGroups, nsxProjectShares, err := service.buildSecurityPolicy(obj, createdFor)
+	securityPolicyStore, ruleStore, groupStore, projectGroupStore, shareStore := service.getStores()
+	nsxSecurityPolicy, nsxGroups, projectShares, err := service.buildSecurityPolicy(obj, createdFor)
 	if err != nil {
 		log.Error(err, "failed to build SecurityPolicy")
 		return err
@@ -343,7 +371,7 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 
 	isChanged := true
 	if existingSecurityPolicy != nil {
-		isChanged = common.CompareResource(SecurityPolicyToComparable(existingSecurityPolicy), SecurityPolicyToComparable(nsxSecurityPolicy))
+		isChanged = common.CompareResource(SecurityPolicyPtrToComparable(existingSecurityPolicy), SecurityPolicyPtrToComparable(nsxSecurityPolicy))
 	}
 
 	changed, stale := common.CompareResources(RulesPtrToComparable(existingRules), RulesToComparable(nsxSecurityPolicy.Rules))
@@ -365,7 +393,7 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 
 	finalRules := make([]model.Rule, 0)
 	for i := len(staleRules) - 1; i >= 0; i-- { // Don't use range, it would copy the element
-		staleRules[i].MarkedForDelete = &MarkedForDelete // InfraClient need this field to delete the group
+		staleRules[i].MarkedForDelete = &MarkedForDelete // nsx clients need this field to delete the rules
 	}
 	finalRules = append(finalRules, staleRules...)
 	finalRules = append(finalRules, changedRules...)
@@ -373,14 +401,14 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 
 	finalGroups := make([]model.Group, 0)
 	for i := len(staleGroups) - 1; i >= 0; i-- { // Don't use range, it would copy the element
-		staleGroups[i].MarkedForDelete = &MarkedForDelete // InfraClient need this field to delete the group
+		staleGroups[i].MarkedForDelete = &MarkedForDelete // nsx clients need this field to delete the group
 	}
 	finalGroups = append(finalGroups, staleGroups...)
 	finalGroups = append(finalGroups, changedGroups...)
 
 	// WrapHighLevelSecurityPolicy will modify the input security policy, so we need to make a copy for the following store update.
 	finalSecurityPolicyCopy := *finalSecurityPolicy
-	finalSecurityPolicyCopy.Rules = finalSecurityPolicy.Rules
+	finalSecurityPolicyCopy.Rules = finalRules
 
 	if isVpcEnabled(service) {
 		vpcInfo, err := service.getVpcInfo(obj.ObjectMeta.Namespace)
@@ -388,56 +416,76 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 			return err
 		}
 
-		var finalProjectGroups *[]model.Group
-		var finalProjectShares *[]model.Share
+		finalProjectGroups := make([]model.Group, 0)
+		finalProjectShares := make([]model.Share, 0)
+		nsxProjectGroups := make([]model.Group, 0)
+		nsxProjectShares := make([]model.Share, 0)
+		for i := len(*projectShares) - 1; i >= 0; i-- {
+			nsxProjectGroups = append(nsxProjectGroups, *((*projectShares)[i].shareGroup))
+			nsxProjectShares = append(nsxProjectShares, *((*projectShares)[i].share))
+		}
 
-		if len(*nsxProjectShares) != 0 {
-			projectGroups := make([]model.Group, 0)
-			projectShares := make([]model.Share, 0)
-			// create/update nsx project shares and nsx project level groups
-			for i := len(*nsxProjectShares) - 1; i >= 0; i-- {
-				projectGroups = append(projectGroups, *((*nsxProjectShares)[i].shareGroup))
-				projectShares = append(projectShares, *((*nsxProjectShares)[i].share))
-			}
+		// Create/Update nsx project shares and nsx project level groups
+		existingNsxProjectGroups := projectGroupStore.GetByIndex(indexScope, string(obj.UID))
+		changed, stale := common.CompareResources(GroupsPtrToComparable(existingNsxProjectGroups), GroupsToComparable(nsxProjectGroups))
+		changedProjectGroups, staleProjectGroups := ComparableToGroups(changed), ComparableToGroups(stale)
+		if len(changedProjectGroups) == 0 && len(staleProjectGroups) == 0 {
+			log.Info("project groups are not changed, skip updating them")
+		}
+		for i := len(staleProjectGroups) - 1; i >= 0; i-- {
+			staleProjectGroups[i].MarkedForDelete = &MarkedForDelete
+		}
+		finalProjectGroups = append(finalProjectGroups, staleProjectGroups...)
+		finalProjectGroups = append(finalProjectGroups, changedProjectGroups...)
 
-			// 1.Create/update project level groups
-			finalProjectGroups, err = service.createOrUpdateProjectGroups(obj, projectGroups, createdFor)
+		existingNsxProjectShares := shareStore.GetByIndex(indexScope, string(obj.UID))
+		changed, stale = common.CompareResources(SharesPtrToComparable(existingNsxProjectShares), SharesToComparable(nsxProjectShares))
+		changedProjectShares, staleProjectShares := ComparableToShares(changed), ComparableToShares(stale)
+		if len(changedProjectShares) == 0 && len(staleProjectShares) == 0 {
+			log.Info("project shares are not changed, skip updating them")
+		}
+		for i := len(staleProjectShares) - 1; i >= 0; i-- {
+			staleProjectShares[i].MarkedForDelete = &MarkedForDelete
+		}
+		finalProjectShares = append(finalProjectShares, staleProjectShares...)
+		finalProjectShares = append(finalProjectShares, changedProjectShares...)
+
+		// 1.Wrap project groups and shares into project child infra.
+		var projectInfra []*data.StructValue
+		if len(finalProjectGroups) != 0 || len(finalProjectShares) != 0 {
+			projectInfra, err = service.wrapHierarchyProjectResources(finalProjectShares, finalProjectGroups)
 			if err != nil {
-				log.Error(err, "failed to create or update project level groups")
-				return err
-			}
-
-			// 2.Create/update project shares
-			finalProjectShares, err = service.createOrUpdateProjectShares(obj, projectShares, createdFor)
-			if err != nil {
-				log.Error(err, "failed to create or update project share")
+				log.Error(err, "failed to wrap project groups and shares")
 				return err
 			}
 		}
 
-		orgRoot, err := service.WrapHierarchyVpcSecurityPolicy(finalSecurityPolicy, finalGroups, vpcInfo)
+		// 2.Wrap SecurityPolicy, groups, rules under VPC level together with project groups and shares into one hierarchy resource tree.
+		orgRoot, err := service.WrapHierarchyVpcSecurityPolicy(finalSecurityPolicy, finalGroups, projectInfra, vpcInfo)
 		if err != nil {
 			log.Error(err, "failed to wrap SecurityPolicy in VPC")
 			return err
 		}
-		// 3.Create/update SecurityPolicy, groups and rules under VPC path
+
+		// 3.Create/update SecurityPolicy together with groups, rules under VPC level and project groups, shares.
 		err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
 		if err != nil {
-			log.Error(err, "failed to create or update SecurityPolicy")
+			log.Error(err, "failed to create or update SecurityPolicy in VPC")
 			return err
 		}
 
-		if (finalProjectGroups != nil) && len(*finalProjectGroups) != 0 {
-			err = groupStore.Apply(finalProjectGroups)
+		if len(finalProjectGroups) != 0 {
+			err = projectGroupStore.Apply(&finalProjectGroups)
 			if err != nil {
-				log.Error(err, "failed to apply store", "group", finalProjectGroups)
+				log.Error(err, "failed to apply store", "nsxProjectGroups", finalProjectGroups)
 				return err
 			}
 		}
 
-		if (finalProjectShares != nil) && len(*finalProjectShares) != 0 {
-			if err = service.shareStore.Apply(finalProjectShares); err != nil {
-				log.Error(err, "failed to apply store", "share", finalProjectShares)
+		if len(finalProjectShares) != 0 {
+			err = shareStore.Apply(&finalProjectShares)
+			if err != nil {
+				log.Error(err, "failed to apply store", "nsxProjectShares", finalProjectShares)
 				return err
 			}
 		}
@@ -447,8 +495,9 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 			log.Error(err, "failed to wrap SecurityPolicy")
 			return err
 		}
-		if err = service.NSXClient.InfraClient.Patch(*infraSecurityPolicy, &EnforceRevisionCheckParam); err != nil {
-			log.Error(err, "failed to update SecurityPolicy")
+		err = service.NSXClient.InfraClient.Patch(*infraSecurityPolicy, &EnforceRevisionCheckParam)
+		if err != nil {
+			log.Error(err, "failed to create or update SecurityPolicy")
 			return err
 		}
 	}
@@ -461,18 +510,21 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 	if isChanged {
 		err = securityPolicyStore.Apply(&finalSecurityPolicyCopy)
 		if err != nil {
+			log.Error(err, "failed to apply store", "securityPolicy", finalSecurityPolicyCopy)
 			return err
 		}
 	}
 	if !(len(changedRules) == 0 && len(staleRules) == 0) {
 		err = ruleStore.Apply(&finalSecurityPolicyCopy)
 		if err != nil {
+			log.Error(err, "failed to apply store", "nsxRules", finalSecurityPolicyCopy.Rules)
 			return err
 		}
 	}
 	if !(len(changedGroups) == 0 && len(staleGroups) == 0) {
 		err = groupStore.Apply(&finalGroups)
 		if err != nil {
+			log.Error(err, "failed to apply store", "nsxGroups", finalGroups)
 			return err
 		}
 	}
@@ -508,10 +560,12 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(obj interface{}, isVp
 	var err error
 	g := make([]model.Group, 0)
 	nsxGroups := &g
+	r := make([]model.Rule, 0)
+	nsxRules := &r
 	var projectShares *[]ProjectShare
 	nsxProjectShares := make([]model.Share, 0)
 	nsxProjectGroups := make([]model.Group, 0)
-	securityPolicyStore, ruleStore, groupStore, shareStore := service.getStoresByCreatedFor(createdFor)
+	securityPolicyStore, ruleStore, groupStore, projectGroupStore, shareStore := service.getStores()
 	switch sp := obj.(type) {
 	// This case is for normal SecurityPolicy deletion process, which means that SecurityPolicy
 	// has corresponding nsx SecurityPolicy object
@@ -524,13 +578,13 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(obj interface{}, isVp
 		}
 
 		// Collect project share and project level groups that need to be removed from nsx
-		// project share and project groups only aviable in VPC network.
+		// project share and project groups only needed in VPC network.
 		for i := len(*projectShares) - 1; i >= 0; i-- {
 			nsxProjectGroups = append(nsxProjectGroups, *(*projectShares)[i].shareGroup)
 			nsxProjectShares = append(nsxProjectShares, *(*projectShares)[i].share)
 		}
 
-	// This case is for SecurityPolicy GC process, which means that SecurityPolicy
+	// This case is for SecurityPolicy GC or cleanup process, which means that SecurityPolicy
 	// doesn't exist in K8s any more but still has corresponding nsx SecurityPolicy object.
 	// Hence, we use SecurityPolicy's UID here from store instead of K8s SecurityPolicy object
 	case types.UID:
@@ -538,49 +592,54 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(obj interface{}, isVp
 		if createdFor == common.ResourceTypeNetworkPolicy {
 			indexScope = common.TagScopeNetworkPolicyUID
 		}
-		securityPolicies := securityPolicyStore.GetByIndex(indexScope, string(sp))
-		if len(securityPolicies) == 0 {
+		existingSecurityPolices := securityPolicyStore.GetByIndex(indexScope, string(sp))
+		if len(existingSecurityPolices) == 0 {
 			log.Info("NSX security policy is not found in store, skip deleting it", "nsxSecurityPolicyUID", sp, "createdFor", createdFor)
 			return nil
 		}
-		nsxSecurityPolicy = securityPolicies[0]
+		nsxSecurityPolicy = existingSecurityPolices[0]
 		// Get namespace of nsx SecurityPolicy from tags since there is no K8s SecurityPolicy object
 		for i := len(nsxSecurityPolicy.Tags) - 1; i >= 0; i-- {
 			if *(nsxSecurityPolicy.Tags[i].Scope) == common.TagScopeNamespace {
 				spNameSpace = *(nsxSecurityPolicy.Tags[i].Tag)
-				log.V(1).Info("get namespace with SecurityPolicy index", "namespace", spNameSpace, "UID", string(sp))
+				log.V(1).Info("get namespace with SecurityPolicy index", "namespace", spNameSpace, "securityPolicyUID", string(sp))
 				break
 			}
 		}
 
-		groups := groupStore.GetByIndex(indexScope, string(sp))
-		if len(groups) == 0 {
-			log.Info("did not get groups with SecurityPolicy index", "UID", string(sp))
+		existingGroups := groupStore.GetByIndex(indexScope, string(sp))
+		if len(existingGroups) == 0 {
+			log.Info("did not get groups with SecurityPolicy index", "securityPolicyUID", string(sp))
+		}
+		for _, group := range existingGroups {
+			*nsxGroups = append(*nsxGroups, *group)
 		}
 
+		// In GC or Cleanup process, there is no nsx rules in the security policy retrieved from securityPolicy store
+		// the rules associated the deleting security policy can only be gotten from rule store.
+		existingRules := ruleStore.GetByIndex(indexScope, string(sp))
+		if len(existingRules) == 0 {
+			log.Info("did not get rules with SecurityPolicy index", "securityPolicyUID", string(sp))
+		}
+		for _, rule := range existingRules {
+			*nsxRules = append(*nsxRules, *rule)
+		}
+		nsxSecurityPolicy.Rules = *nsxRules
+
 		if isVpcEnabled(service) || isVpcCleanup {
-			for i := len(groups) - 1; i >= 0; i-- {
-				for j := len(groups[i].Tags) - 1; j >= 0; j-- {
-					if *(groups[i].Tags[j].Scope) == common.TagScopeProjectGroupShared {
-						if *(groups[i].Tags[j].Tag) == "true" {
-							nsxProjectGroups = append(nsxProjectGroups, *groups[i])
-						} else {
-							*nsxGroups = append(*nsxGroups, *groups[i])
-						}
-						break
-					}
-				}
+			existingNsxProjectGroups := projectGroupStore.GetByIndex(indexScope, string(sp))
+			if len(existingNsxProjectGroups) == 0 {
+				log.Info("did not get project groups with SecurityPolicy index", "securityPolicyUID", string(sp))
 			}
-			shares := shareStore.GetByIndex(indexScope, string(sp))
-			if len(shares) == 0 {
-				log.Info("did not get shares with SecurityPolicy index", "UID", string(sp))
+			for _, projectGroup := range existingNsxProjectGroups {
+				nsxProjectGroups = append(nsxProjectGroups, *projectGroup)
 			}
-			for _, share := range shares {
-				nsxProjectShares = append(nsxProjectShares, *share)
+			existingNsxProjectShares := shareStore.GetByIndex(indexScope, string(sp))
+			if len(existingNsxProjectShares) == 0 {
+				log.Info("did not get project shares with SecurityPolicy index", "securityPolicyUID", string(sp))
 			}
-		} else {
-			for _, group := range groups {
-				*nsxGroups = append(*nsxGroups, *group)
+			for _, nsxShare := range existingNsxProjectShares {
+				nsxProjectShares = append(nsxProjectShares, *nsxShare)
 			}
 		}
 	}
@@ -602,8 +661,6 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(obj interface{}, isVp
 		if err != nil {
 			return err
 		}
-		orgId := (*vpcInfo).OrgID
-		projectId := (*vpcInfo).ProjectID
 
 		for i := len(nsxProjectGroups) - 1; i >= 0; i-- {
 			nsxProjectGroups[i].MarkedForDelete = &MarkedForDelete
@@ -612,56 +669,42 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(obj interface{}, isVp
 			nsxProjectShares[i].MarkedForDelete = &MarkedForDelete
 		}
 
-		// 1.Delete SecurityPolicy, groups and rules under VPC path
-		orgRoot, err := service.WrapHierarchyVpcSecurityPolicy(nsxSecurityPolicy, *nsxGroups, vpcInfo)
+		// 1.Wrap project groups and shares into project child infra.
+		var projectInfra []*data.StructValue
+		if len(nsxProjectShares) != 0 || len(nsxProjectGroups) != 0 {
+			projectInfra, err = service.wrapHierarchyProjectResources(nsxProjectShares, nsxProjectGroups)
+			if err != nil {
+				log.Error(err, "failed to wrap project groups and shares")
+				return err
+			}
+		}
+
+		// 2.Wrap SecurityPolicy, groups, rules under VPC level together with project groups and shares into one hierarchy resource tree.
+		orgRoot, err := service.WrapHierarchyVpcSecurityPolicy(nsxSecurityPolicy, *nsxGroups, projectInfra, vpcInfo)
 		if err != nil {
 			log.Error(err, "failed to wrap SecurityPolicy in VPC")
 			return err
 		}
+
+		// 3.Create/update SecurityPolicy together with groups, rules under VPC level and project groups, shares.
 		err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
 		if err != nil {
-			log.Error(err, "failed to delete SecurityPolicy")
+			log.Error(err, "failed to delete SecurityPolicy in VPC")
 			return err
 		}
 
-		// 2.Delete nsx project share under project level
-		if len(nsxProjectShares) != 0 {
-			projectInfra, err := service.WrapHierarchyProjectShares(nsxProjectShares)
-			if err != nil {
-				log.Error(err, "failed to wrap project share")
-				return err
-			}
-
-			err = service.NSXClient.ProjectInfraClient.Patch(orgId, projectId, *projectInfra, &EnforceRevisionCheckParam)
-			if err != nil {
-				log.Error(err, "failed to delete project shares")
-				return err
-			}
-		}
-
-		// 3.Delete nsx project groups under project level
 		if len(nsxProjectGroups) != 0 {
-			projectInfra1, err := service.WrapHierarchyProjectGroups(nsxProjectGroups)
+			err = projectGroupStore.Apply(&nsxProjectGroups)
 			if err != nil {
-				log.Error(err, "failed to wrap project level groups")
-				return err
-			}
-
-			err = service.NSXClient.ProjectInfraClient.Patch(orgId, projectId, *projectInfra1, &EnforceRevisionCheckParam)
-			if err != nil {
-				log.Error(err, "failed to delete project level groups")
+				log.Error(err, "failed to apply store", "nsxProjectGroups", nsxProjectGroups)
 				return err
 			}
 		}
 
 		if len(nsxProjectShares) != 0 {
-			err = service.shareStore.Apply(&nsxProjectShares)
+			err = shareStore.Apply(&nsxProjectShares)
 			if err != nil {
-				return err
-			}
-		}
-		if len(nsxProjectGroups) != 0 {
-			if err = service.groupStore.Apply(&nsxProjectGroups); err != nil {
+				log.Error(err, "failed to apply store", "nsxProjectShares", nsxProjectShares)
 				return err
 			}
 		}
@@ -671,24 +714,32 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(obj interface{}, isVp
 			log.Error(err, "failed to wrap SecurityPolicy")
 			return err
 		}
-		if err = service.NSXClient.InfraClient.Patch(*infraSecurityPolicy, &EnforceRevisionCheckParam); err != nil {
+		err = service.NSXClient.InfraClient.Patch(*infraSecurityPolicy, &EnforceRevisionCheckParam)
+		if err != nil {
 			log.Error(err, "failed to delete SecurityPolicy")
 			return err
 		}
 	}
-
-	err = securityPolicyStore.Apply(&finalSecurityPolicyCopy)
 	if err != nil {
 		return err
 	}
-	err = groupStore.Apply(nsxGroups)
+
+	err = securityPolicyStore.Apply(&finalSecurityPolicyCopy)
 	if err != nil {
+		log.Error(err, "failed to apply store", "securityPolicy", finalSecurityPolicyCopy)
 		return err
 	}
 	err = ruleStore.Apply(&finalSecurityPolicyCopy)
 	if err != nil {
+		log.Error(err, "failed to apply store", "nsxRules", finalSecurityPolicyCopy.Rules)
 		return err
 	}
+	err = groupStore.Apply(nsxGroups)
+	if err != nil {
+		log.Error(err, "failed to apply store", "nsxGroups", nsxGroups)
+		return err
+	}
+
 	log.Info("successfully deleted nsx SecurityPolicy", "nsxSecurityPolicy", finalSecurityPolicyCopy)
 	return nil
 }
@@ -724,100 +775,6 @@ func (service *SecurityPolicyService) createOrUpdateGroups(obj *v1alpha1.Securit
 	}
 	log.Info("successfully create or update groups", "nsxGroups", finalGroups)
 	return nil
-}
-
-// Create a project group share to share the group with vpc in which SecurityPolicy is
-func (service *SecurityPolicyService) createOrUpdateProjectShares(obj *v1alpha1.SecurityPolicy, projectShares []model.Share, createdFor string) (*[]model.Share, error) {
-	_, _, _, shareStore := service.getStoresByCreatedFor(createdFor)
-	finalShares := make([]model.Share, 0)
-
-	indexScope := common.TagValueScopeSecurityPolicyUID
-	if createdFor == common.ResourceTypeNetworkPolicy {
-		indexScope = common.TagScopeNetworkPolicyUID
-	}
-	existingShares := shareStore.GetByIndex(indexScope, string(obj.UID))
-
-	changed, stale := common.CompareResources(SharesPtrToComparable(existingShares), SharesToComparable(projectShares))
-	changedShares, staleShares := ComparableToShares(changed), ComparableToShares(stale)
-
-	if len(changedShares) == 0 && len(staleShares) == 0 {
-		log.Info("project shares are not changed, skip updating them")
-		return &finalShares, nil
-	}
-
-	for i := len(staleShares) - 1; i >= 0; i-- { // Don't use range, it would copy the element
-		staleShares[i].MarkedForDelete = &MarkedForDelete
-	}
-	finalShares = append(finalShares, staleShares...)
-	finalShares = append(finalShares, changedShares...)
-
-	vpcInfo, err := service.getVpcInfo(obj.ObjectMeta.Namespace)
-	if err != nil {
-		return nil, err
-	}
-	orgId := (*vpcInfo).OrgID
-	projectId := (*vpcInfo).ProjectID
-
-	projectInfra, err := service.WrapHierarchyProjectShares(projectShares)
-	if err != nil {
-		log.Error(err, "failed to wrap project shares")
-		return nil, err
-	}
-
-	err = service.NSXClient.ProjectInfraClient.Patch(orgId, projectId, *projectInfra, &EnforceRevisionCheckParam)
-	if err != nil {
-		return nil, err
-	}
-
-	return &finalShares, nil
-}
-
-func (service *SecurityPolicyService) createOrUpdateProjectGroups(obj *v1alpha1.SecurityPolicy, groups []model.Group, createdFor string) (*[]model.Group, error) {
-	_, _, groupStore, _ := service.getStoresByCreatedFor(createdFor)
-	finalGroups := make([]model.Group, 0)
-
-	indexScope := common.TagValueScopeSecurityPolicyUID
-	if createdFor == common.ResourceTypeNetworkPolicy {
-		indexScope = common.TagScopeNetworkPolicyUID
-	}
-	tmpExistingGroups := groupStore.GetByIndex(indexScope, string(obj.UID))
-	existingGroups := make([]model.Group, len(tmpExistingGroups))
-	for i, group := range tmpExistingGroups {
-		existingGroups[i] = *group
-	}
-	changed, stale := common.CompareResources(GroupsToComparable(existingGroups), GroupsToComparable(groups))
-	changedGroups, staleGroups := ComparableToGroups(changed), ComparableToGroups(stale)
-
-	if len(changedGroups) == 0 && len(staleGroups) == 0 {
-		log.Info("project groups are not changed, skip updating them")
-		return nil, nil
-	}
-
-	for i := len(staleGroups) - 1; i >= 0; i-- { // Don't use range, it would copy the element
-		staleGroups[i].MarkedForDelete = &MarkedForDelete
-	}
-	finalGroups = append(finalGroups, staleGroups...)
-	finalGroups = append(finalGroups, changedGroups...)
-
-	vpcInfo, err := service.getVpcInfo(obj.ObjectMeta.Namespace)
-	if err != nil {
-		return nil, err
-	}
-	orgId := (*vpcInfo).OrgID
-	projectId := (*vpcInfo).ProjectID
-
-	projectInfra, err := service.WrapHierarchyProjectGroups(finalGroups)
-	if err != nil {
-		log.Error(err, "failed to wrap project level groups")
-		return nil, err
-	}
-
-	err = service.NSXClient.ProjectInfraClient.Patch(orgId, projectId, *projectInfra, &EnforceRevisionCheckParam)
-	if err != nil {
-		return nil, err
-	}
-
-	return &finalGroups, nil
 }
 
 func (service *SecurityPolicyService) ListSecurityPolicyID() sets.Set[string] {

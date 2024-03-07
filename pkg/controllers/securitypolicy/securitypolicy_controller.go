@@ -279,7 +279,7 @@ func (r *SecurityPolicyReconciler) Start(mgr ctrl.Manager) error {
 	return nil
 }
 
-// GarbageCollector collect securitypolicy which has been removed from crd.
+// GarbageCollector collect securitypolicy which has been removed from k8s.
 // cancel is used to break the loop during UT
 func (r *SecurityPolicyReconciler) GarbageCollector(cancel chan bool, timeout time.Duration) {
 	ctx := context.Background()

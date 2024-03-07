@@ -85,8 +85,12 @@ func (share *Share) Value() data.DataValue {
 	return dataValue
 }
 
-func SecurityPolicyToComparable(sp *model.SecurityPolicy) Comparable {
+func SecurityPolicyPtrToComparable(sp *model.SecurityPolicy) Comparable {
 	return (*SecurityPolicy)(sp)
+}
+
+func SecurityPolicyToComparable(sp model.SecurityPolicy) Comparable {
+	return (*SecurityPolicy)(&sp)
 }
 
 func RulesPtrToComparable(rules []*model.Rule) []Comparable {
@@ -104,6 +108,7 @@ func RulesToComparable(rules []model.Rule) []Comparable {
 	}
 	return res
 }
+
 func GroupsPtrToComparable(groups []*model.Group) []Comparable {
 	res := make([]Comparable, 0, len(groups))
 	for i := range groups {
@@ -111,16 +116,13 @@ func GroupsPtrToComparable(groups []*model.Group) []Comparable {
 	}
 	return res
 }
+
 func GroupsToComparable(groups []model.Group) []Comparable {
 	res := make([]Comparable, 0, len(groups))
 	for i := range groups {
 		res = append(res, (*Group)((&groups[i])))
 	}
 	return res
-}
-
-func ShareToComparable(share *model.Share) Comparable {
-	return (*Share)(share)
 }
 
 func SharesPtrToComparable(shares []*model.Share) []Comparable {

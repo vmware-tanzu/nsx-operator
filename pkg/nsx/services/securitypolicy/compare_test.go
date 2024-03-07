@@ -209,7 +209,7 @@ func TestSecurityPolicyEqual(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			isChanged := common.CompareResource(SecurityPolicyToComparable(tt.inputPolicy1), SecurityPolicyToComparable(tt.inputPolicy2))
+			isChanged := common.CompareResource(SecurityPolicyPtrToComparable(tt.inputPolicy1), SecurityPolicyPtrToComparable(tt.inputPolicy2))
 			changedSecurityPolicy := tt.inputPolicy2
 			assert.Equal(t, tt.expectedResult2, isChanged)
 			assert.Equal(t, tt.expectedResult, changedSecurityPolicy)
