@@ -2,15 +2,9 @@ module github.com/vmware-tanzu/nsx-operator
 
 go 1.21
 
-replace (
-	github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
-	github.com/vmware-tanzu/nsx-operator/pkg/client => ./pkg/client
-)
-
 require (
 	github.com/agiledragon/gomonkey/v2 v2.9.0
 	github.com/apparentlymart/go-cidr v1.1.0
-	github.com/coreos/go-semver v0.3.1
 	github.com/deckarep/golang-set v1.8.0
 	github.com/go-logr/logr v1.2.4
 	github.com/golang-jwt/jwt v3.2.2+incompatible
@@ -22,8 +16,8 @@ require (
 	github.com/prometheus/client_golang v1.16.0
 	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.2
-	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-20231227030711-34390278f3cd
-	github.com/vmware-tanzu/nsx-operator/pkg/client v0.0.0-00010101000000-000000000000
+	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-20240305035435-c992c623aad3
+	github.com/vmware-tanzu/nsx-operator/pkg/client v0.0.0-20240102061654-537b080e159f
 	github.com/vmware-tanzu/vm-operator/api v1.8.2
 	github.com/vmware/govmomi v0.27.4
 	github.com/vmware/vsphere-automation-sdk-go/lib v0.7.0
@@ -68,7 +62,6 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
-	github.com/moby/spdystream v0.2.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
