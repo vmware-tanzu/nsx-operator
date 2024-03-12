@@ -1,4 +1,4 @@
-/* Copyright © 2024 VMware, Inc. All Rights Reserved.
+/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package subnetset
