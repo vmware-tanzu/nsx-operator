@@ -1,4 +1,4 @@
-/* Copyright © 2022-2023 VMware, Inc. All Rights Reserved.
+/* Copyright © 2022-2023 Broadcom, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package securitypolicy

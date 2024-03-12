@@ -71,7 +71,7 @@ BREAKING CHANGES
 
 */
 
-// Copyright (c) 2021 VMware, Inc. All rights reserved. VMware Confidential.
+// Copyright (c) 2021 Broadcom, Inc. All rights reserved. Broadcom Confidential.
 
 // Adds ExponentDelay support, adds UT for it.
 

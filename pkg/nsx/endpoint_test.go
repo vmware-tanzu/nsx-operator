@@ -1,4 +1,4 @@
-/* Copyright (c) 2021 VMware, Inc. All rights reserved.
+/* Copyright (c) 2021 Broadcom, Inc. All rights reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package nsx

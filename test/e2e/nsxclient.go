@@ -1,4 +1,4 @@
-// Copyright © 2019-2021 VMware, Inc. All Rights Reserved.
+// Copyright © 2019-2021 Broadcom, Inc. All Rights Reserved.
 // SPDX-License-Identifier: BSD-2-Clause
 
 package e2e
