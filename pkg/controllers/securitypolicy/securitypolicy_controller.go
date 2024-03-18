@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -26,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
@@ -47,13 +49,15 @@ var (
 
 // SecurityPolicyReconciler SecurityPolicyReconcile reconciles a SecurityPolicy object
 type SecurityPolicyReconciler struct {
-	Client  client.Client
-	Scheme  *apimachineryruntime.Scheme
-	Service *securitypolicy.SecurityPolicyService
+	Client   client.Client
+	Scheme   *apimachineryruntime.Scheme
+	Service  *securitypolicy.SecurityPolicyService
+	Recorder record.EventRecorder
 }
 
 func updateFail(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
 	r.setSecurityPolicyReadyStatusFalse(c, o, metav1.Now(), e)
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
 }
 
@@ -67,15 +71,18 @@ func k8sClient(mgr ctrl.Manager) client.Client {
 
 func deleteFail(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
 	r.setSecurityPolicyReadyStatusFalse(c, o, metav1.Now(), e)
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 }
 
 func updateSuccess(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy) {
 	r.setSecurityPolicyReadyStatusTrue(c, o, metav1.Now())
+	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "SecurityPolicy CR has been successfully updated")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
 }
 
-func deleteSuccess(r *SecurityPolicyReconciler, _ *context.Context, _ *v1alpha1.SecurityPolicy) {
+func deleteSuccess(r *SecurityPolicyReconciler, _ *context.Context, o *v1alpha1.SecurityPolicy) {
+	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "SecurityPolicy CR has been successfully deleted")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
 }
 
@@ -364,8 +371,9 @@ func reconcileSecurityPolicy(client client.Client, pods []v1.Pod, q workqueue.Ra
 
 func StartSecurityPolicyController(mgr ctrl.Manager, commonService servicecommon.Service, vpcService servicecommon.VPCServiceProvider) {
 	securityPolicyReconcile := SecurityPolicyReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("securitypolicy-controller"),
 	}
 	securityPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService, vpcService)
 	if err := securityPolicyReconcile.Start(mgr); err != nil {
