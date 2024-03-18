@@ -15,6 +15,7 @@ import (
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -44,6 +45,7 @@ type PodReconciler struct {
 	SubnetService     servicecommon.SubnetServiceProvider
 	VPCService        servicecommon.VPCServiceProvider
 	NodeServiceReader servicecommon.NodeServiceReader
+	Recorder          record.EventRecorder
 }
 
 func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -171,6 +173,7 @@ func StartPodController(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPo
 		SubnetPortService: subnetPortService,
 		VPCService:        vpcService,
 		NodeServiceReader: nodeService,
+		Recorder:          mgr.GetEventRecorderFor("pod-controller"),
 	}
 	if err := podPortReconciler.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "Pod")
@@ -232,18 +235,22 @@ func (r *PodReconciler) GarbageCollector(cancel chan bool, timeout time.Duration
 }
 
 func updateFail(r *PodReconciler, c *context.Context, o *v1.Pod, e *error) {
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResTypePod)
 }
 
 func deleteFail(r *PodReconciler, c *context.Context, o *v1.Pod, e *error) {
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypePod)
 }
 
 func updateSuccess(r *PodReconciler, c *context.Context, o *v1.Pod) {
+	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "Pod CR has been successfully updated")
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResTypePod)
 }
 
-func deleteSuccess(r *PodReconciler, _ *context.Context, _ *v1.Pod) {
+func deleteSuccess(r *PodReconciler, _ *context.Context, o *v1.Pod) {
+	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "Pod CR has been successfully deleted")
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypePod)
 }
 
