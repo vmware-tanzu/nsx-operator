@@ -18,6 +18,7 @@ import (
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -30,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
@@ -51,6 +53,7 @@ type SubnetPortReconciler struct {
 	SubnetPortService *subnetport.SubnetPortService
 	SubnetService     servicecommon.SubnetServiceProvider
 	VPCService        servicecommon.VPCServiceProvider
+	Recorder          record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=nsx.vmware.com,resources=subnetports,verbs=get;list;watch;create;update;patch;delete
@@ -203,6 +206,7 @@ func StartSubnetPortController(mgr ctrl.Manager, subnetPortService *subnetport.S
 		SubnetService:     subnetService,
 		SubnetPortService: subnetPortService,
 		VPCService:        vpcService,
+		Recorder:          mgr.GetEventRecorderFor("subnetport-controller"),
 	}
 	if err := subnetPortReconciler.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "SubnetPort")
@@ -335,20 +339,24 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 
 func updateFail(r *SubnetPortReconciler, c *context.Context, o *v1alpha1.SubnetPort, e *error) {
 	r.setSubnetPortReadyStatusFalse(c, o, metav1.Now(), e)
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResTypeSubnetPort)
 }
 
 func deleteFail(r *SubnetPortReconciler, c *context.Context, o *v1alpha1.SubnetPort, e *error) {
 	r.setSubnetPortReadyStatusFalse(c, o, metav1.Now(), e)
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetPort)
 }
 
 func updateSuccess(r *SubnetPortReconciler, c *context.Context, o *v1alpha1.SubnetPort) {
 	r.setSubnetPortReadyStatusTrue(c, o, metav1.Now())
+	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "SubnetPort CR has been successfully updated")
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResTypeSubnetPort)
 }
 
-func deleteSuccess(r *SubnetPortReconciler, _ *context.Context, _ *v1alpha1.SubnetPort) {
+func deleteSuccess(r *SubnetPortReconciler, _ *context.Context, o *v1alpha1.SubnetPort) {
+	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "SubnetPort CR has been successfully deleted")
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetPort)
 }
 
