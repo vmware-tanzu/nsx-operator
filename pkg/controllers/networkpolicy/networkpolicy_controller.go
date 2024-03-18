@@ -6,14 +6,17 @@ package networkpolicy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"runtime"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -38,24 +41,29 @@ var (
 
 // NetworkPolicyReconciler reconciles a NetworkPolicy object
 type NetworkPolicyReconciler struct {
-	Client  client.Client
-	Scheme  *apimachineryruntime.Scheme
-	Service *securitypolicy.SecurityPolicyService
+	Client   client.Client
+	Scheme   *apimachineryruntime.Scheme
+	Service  *securitypolicy.SecurityPolicyService
+	Recorder record.EventRecorder
 }
 
 func updateFail(r *NetworkPolicyReconciler, c *context.Context, o *networkingv1.NetworkPolicy, e *error) {
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
 }
 
 func deleteFail(r *NetworkPolicyReconciler, c *context.Context, o *networkingv1.NetworkPolicy, e *error) {
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 }
 
 func updateSuccess(r *NetworkPolicyReconciler, c *context.Context, o *networkingv1.NetworkPolicy) {
+	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "NetworkPolicy CR has been successfully updated")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
 }
 
-func deleteSuccess(r *NetworkPolicyReconciler, _ *context.Context, _ *networkingv1.NetworkPolicy) {
+func deleteSuccess(r *NetworkPolicyReconciler, _ *context.Context, o *networkingv1.NetworkPolicy) {
+	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "NetworkPolicy CR has been successfully deleted")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
 }
 
@@ -184,8 +192,9 @@ func (r *NetworkPolicyReconciler) GarbageCollector(cancel chan bool, timeout tim
 
 func StartNetworkPolicyController(mgr ctrl.Manager, commonService servicecommon.Service, vpcService servicecommon.VPCServiceProvider) {
 	networkPolicyReconcile := NetworkPolicyReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("networkpolicy-controller"),
 	}
 	networkPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService, vpcService)
 	if err := networkPolicyReconcile.Start(mgr); err != nil {
