@@ -20,6 +20,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	ippool2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/ippool"
 	namespacecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/namespace"
@@ -87,8 +88,9 @@ func init() {
 func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Service) {
 	log.Info("starting NSXServiceAccountController")
 	nsxServiceAccountReconcile := &nsxserviceaccountcontroller.NSXServiceAccountReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("nsxserviceaccount-controller"),
 	}
 	nsxServiceAccountService, err := nsxserviceaccount.InitializeNSXServiceAccount(commonService)
 	if err != nil {
