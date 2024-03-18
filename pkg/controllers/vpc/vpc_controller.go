@@ -9,6 +9,7 @@ import (
 
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -16,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
@@ -34,9 +36,10 @@ var (
 
 // VPCReconciler VPCReconcile reconciles a VPC object
 type VPCReconciler struct {
-	Client  client.Client
-	Scheme  *apimachineryruntime.Scheme
-	Service *vpc.VPCService
+	Client   client.Client
+	Scheme   *apimachineryruntime.Scheme
+	Service  *vpc.VPCService
+	Recorder record.EventRecorder
 }
 
 func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -55,7 +58,7 @@ func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			controllerutil.AddFinalizer(obj, commonservice.VPCFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "VPC", req.NamespacedName)
-				updateFail(r.Service.NSXConfig, &ctx, obj, &err, r.Client)
+				updateFail(r, &ctx, obj, &err, r.Client)
 				return common.ResultRequeue, err
 			}
 			log.V(1).Info("added finalizer on VPC CR", "VPC", req.NamespacedName)
@@ -64,13 +67,13 @@ func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		createdVpc, nc, err := r.Service.CreateorUpdateVPC(obj)
 		if err != nil {
 			log.Error(err, "operate failed, would retry exponentially", "VPC", req.NamespacedName)
-			updateFail(r.Service.NSXConfig, &ctx, obj, &err, r.Client)
+			updateFail(r, &ctx, obj, &err, r.Client)
 			return common.ResultRequeueAfter10sec, err
 		}
 		err = r.Service.CreateOrUpdateAVIRule(createdVpc, obj.Namespace)
 		if err != nil {
 			log.Error(err, "operate failed, would retry exponentially", "VPC", req.NamespacedName)
-			updateFail(r.Service.NSXConfig, &ctx, obj, &err, r.Client)
+			updateFail(r, &ctx, obj, &err, r.Client)
 			return common.ResultRequeueAfter10sec, err
 		}
 
@@ -96,7 +99,7 @@ func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			}
 		}
 
-		updateSuccess(r.Service.NSXConfig, &ctx, obj, r.Client, *createdVpc.Path, snatIP, path, cidr, nc.PrivateIPv4CIDRs)
+		updateSuccess(r, &ctx, obj, r.Client, *createdVpc.Path, snatIP, path, cidr, nc.PrivateIPv4CIDRs)
 	} else {
 		if controllerutil.ContainsFinalizer(obj, commonservice.VPCFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeVPC)
@@ -109,7 +112,7 @@ func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				vpc := vpcs[0]
 				if err := r.Service.DeleteVPC(*vpc.Path); err != nil {
 					log.Error(err, "failed to delete VPC CR, would retry exponentially", "VPC", req.NamespacedName)
-					deleteFail(r.Service.NSXConfig, &ctx, obj, &err, r.Client)
+					deleteFail(r, &ctx, obj, &err, r.Client)
 					return common.ResultRequeueAfter10sec, err
 				}
 
@@ -120,11 +123,11 @@ func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 			controllerutil.RemoveFinalizer(obj, commonservice.VPCFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
-				deleteFail(r.Service.NSXConfig, &ctx, obj, &err, r.Client)
+				deleteFail(r, &ctx, obj, &err, r.Client)
 				return common.ResultRequeue, err
 			}
 			log.V(1).Info("removed finalizer", "VPC", req.NamespacedName)
-			deleteSuccess(r.Service.NSXConfig, &ctx, obj)
+			deleteSuccess(r, &ctx, obj)
 		} else {
 			// only print a message because it's not a normal case
 			log.Info("finalizers cannot be recognized", "VPC", req.NamespacedName)

@@ -20,6 +20,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	ippool2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/ippool"
 	namespacecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/namespace"
@@ -119,8 +120,9 @@ func StartIPPoolController(mgr ctrl.Manager, ipPoolService *ippool.IPPoolService
 
 func StartVPCController(mgr ctrl.Manager, vpcService *vpc.VPCService) {
 	vpcReconciler := &vpccontroller.VPCReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("vpc-controller"),
 	}
 	vpcReconciler.Service = vpcService
 	if err := vpcReconciler.Start(mgr); err != nil {

@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	types "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -57,24 +57,28 @@ func updateVPCStatusConditions(ctx *context.Context, vpc *v1alpha1.VPC, newCondi
 	}
 }
 
-func deleteFail(nsxConfig *config.NSXOperatorConfig, c *context.Context, o *v1alpha1.VPC, e *error, client client.Client) {
+func deleteFail(r *VPCReconciler, c *context.Context, o *v1alpha1.VPC, e *error, client client.Client) {
 	setVPCReadyStatusFalse(c, o, e, client)
-	metrics.CounterInc(nsxConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeVPC)
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeVPC)
 }
 
-func updateFail(nsxConfig *config.NSXOperatorConfig, c *context.Context, o *v1alpha1.VPC, e *error, client client.Client) {
+func updateFail(r *VPCReconciler, c *context.Context, o *v1alpha1.VPC, e *error, client client.Client) {
 	setVPCReadyStatusFalse(c, o, e, client)
-	metrics.CounterInc(nsxConfig, metrics.ControllerUpdateFailTotal, MetricResType)
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
 }
 
-func updateSuccess(nsxConfig *config.NSXOperatorConfig, c *context.Context, o *v1alpha1.VPC, client client.Client,
+func updateSuccess(r *VPCReconciler, c *context.Context, o *v1alpha1.VPC, client client.Client,
 	path string, snatIP string, subnetPath string, cidr string, privateCidrs []string) {
 	setVPCReadyStatusTrue(c, o, client, path, snatIP, subnetPath, cidr, privateCidrs)
-	metrics.CounterInc(nsxConfig, metrics.ControllerUpdateSuccessTotal, common.MetricResTypeVPC)
+	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "VPC CR has been successfully updated")
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, common.MetricResTypeVPC)
 }
 
-func deleteSuccess(nsxConfig *config.NSXOperatorConfig, _ *context.Context, _ *v1alpha1.VPC) {
-	metrics.CounterInc(nsxConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeVPC)
+func deleteSuccess(r *VPCReconciler, _ *context.Context, o *v1alpha1.VPC) {
+	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "VPC CR has been successfully deleted")
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeVPC)
 }
 
 func setVPCReadyStatusTrue(ctx *context.Context, vpc *v1alpha1.VPC, client client.Client, path, snatIP, subnetPath, cidr string, privateCidrs []string) {
