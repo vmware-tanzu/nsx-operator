@@ -17,12 +17,14 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/staticrouteclient"
@@ -131,6 +133,17 @@ func (writer fakeStatusWriter) Update(ctx context.Context, obj client.Object, op
 func (writer fakeStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 	return nil
 }
+
+type fakeRecorder struct {
+}
+
+func (recorder fakeRecorder) Event(object runtime.Object, eventtype, reason, message string) {
+}
+func (recorder fakeRecorder) Eventf(object runtime.Object, eventtype, reason, messageFmt string, args ...interface{}) {
+}
+func (recorder fakeRecorder) AnnotatedEventf(object runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
+}
+
 func TestStaticRouteReconciler_Reconcile(t *testing.T) {
 
 	mockCtl := gomock.NewController(t)
@@ -155,9 +168,10 @@ func TestStaticRouteReconciler_Reconcile(t *testing.T) {
 	service.NSXConfig.CoeConfig = &config.CoeConfig{}
 	service.NSXConfig.Cluster = "k8s_cluster"
 	r := &StaticRouteReconciler{
-		Client:  k8sClient,
-		Scheme:  nil,
-		Service: service,
+		Client:   k8sClient,
+		Scheme:   nil,
+		Service:  service,
+		Recorder: fakeRecorder{},
 	}
 	ctx := context.Background()
 	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}

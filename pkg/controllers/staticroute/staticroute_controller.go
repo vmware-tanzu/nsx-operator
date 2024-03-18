@@ -15,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -23,6 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
@@ -41,27 +43,32 @@ var (
 
 // StaticRouteReconciler StaticRouteReconcile reconciles a StaticRoute object
 type StaticRouteReconciler struct {
-	Client  client.Client
-	Scheme  *apimachineryruntime.Scheme
-	Service *staticroute.StaticRouteService
+	Client   client.Client
+	Scheme   *apimachineryruntime.Scheme
+	Service  *staticroute.StaticRouteService
+	Recorder record.EventRecorder
 }
 
 func deleteFail(r *StaticRouteReconciler, c *context.Context, o *v1alpha1.StaticRoute, e *error) {
 	r.setStaticRouteReadyStatusFalse(c, o, metav1.Now(), e)
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeStaticRoute)
 }
 
 func updateFail(r *StaticRouteReconciler, c *context.Context, o *v1alpha1.StaticRoute, e *error) {
 	r.setStaticRouteReadyStatusFalse(c, o, metav1.Now(), e)
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
 }
 
 func updateSuccess(r *StaticRouteReconciler, c *context.Context, o *v1alpha1.StaticRoute) {
 	r.setStaticRouteReadyStatusTrue(c, o, metav1.Now())
+	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "StaticRoute CR has been successfully updated")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, common.MetricResTypeStaticRoute)
 }
 
-func deleteSuccess(r *StaticRouteReconciler, _ *context.Context, _ *v1alpha1.StaticRoute) {
+func deleteSuccess(r *StaticRouteReconciler, _ *context.Context, o *v1alpha1.StaticRoute) {
+	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "StaticRoute CR has been successfully deleted")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeStaticRoute)
 }
 
@@ -265,8 +272,9 @@ func (r *StaticRouteReconciler) GarbageCollector(cancel chan bool, timeout time.
 
 func StartStaticRouteController(mgr ctrl.Manager, staticRouteService *staticroute.StaticRouteService) {
 	staticRouteReconcile := StaticRouteReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("staticroute-controller"),
 	}
 	staticRouteReconcile.Service = staticRouteService
 	if err := staticRouteReconcile.Start(mgr); err != nil {
