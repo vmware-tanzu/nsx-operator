@@ -17,6 +17,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -24,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	nsxvmwarecomv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -31,13 +33,24 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 )
 
+type fakeRecorder struct {
+}
+
+func (recorder fakeRecorder) Event(object runtime.Object, eventtype, reason, message string) {
+}
+func (recorder fakeRecorder) Eventf(object runtime.Object, eventtype, reason, messageFmt string, args ...interface{}) {
+}
+func (recorder fakeRecorder) AnnotatedEventf(object runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
+
+}
 func newFakeNSXServiceAccountReconciler() *NSXServiceAccountReconciler {
 	scheme := clientgoscheme.Scheme
 	nsxvmwarecomv1alpha1.AddToScheme(scheme)
 	return &NSXServiceAccountReconciler{
-		Client:  fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&nsxvmwarecomv1alpha1.NSXServiceAccount{}).Build(),
-		Scheme:  scheme,
-		Service: nil,
+		Client:   fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&nsxvmwarecomv1alpha1.NSXServiceAccount{}).Build(),
+		Scheme:   scheme,
+		Service:  nil,
+		Recorder: fakeRecorder{},
 	}
 }
 

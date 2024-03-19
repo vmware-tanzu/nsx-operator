@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -21,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	nsxvmwarecomv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
@@ -51,8 +54,9 @@ var (
 // GarbageCollector will check and rotate client cert if needed on every GCValidationInterval*GCInterval since NSXT 4.1.3
 type NSXServiceAccountReconciler struct {
 	client.Client
-	Scheme  *apimachineryruntime.Scheme
-	Service *nsxserviceaccount.NSXServiceAccountService
+	Scheme   *apimachineryruntime.Scheme
+	Service  *nsxserviceaccount.NSXServiceAccountService
+	Recorder record.EventRecorder
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -267,19 +271,23 @@ func (r *NSXServiceAccountReconciler) updateNSXServiceAccountStatus(ctx *context
 
 func updateFail(r *NSXServiceAccountReconciler, c *context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount, e *error) {
 	r.updateNSXServiceAccountStatus(c, o, e)
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
 }
 
 func deleteFail(r *NSXServiceAccountReconciler, c *context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount, e *error) {
 	r.updateNSXServiceAccountStatus(c, o, e)
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 }
 
 func updateSuccess(r *NSXServiceAccountReconciler, c *context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount) {
 	r.updateNSXServiceAccountStatus(c, o, nil)
+	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "ServiceAccount CR has been successfully updated")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
 }
 
-func deleteSuccess(r *NSXServiceAccountReconciler, _ *context.Context, _ *nsxvmwarecomv1alpha1.NSXServiceAccount) {
+func deleteSuccess(r *NSXServiceAccountReconciler, _ *context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount) {
+	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "ServiceAccount CR has been successfully deleted")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
 }
