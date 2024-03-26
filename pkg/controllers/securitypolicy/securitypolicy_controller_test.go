@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -28,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -123,6 +125,16 @@ func TestSecurityPolicyController_updateSecurityPolicyStatusConditions(t *testin
 	}
 }
 
+type fakeRecorder struct {
+}
+
+func (recorder fakeRecorder) Event(object runtime.Object, eventtype, reason, message string) {
+}
+func (recorder fakeRecorder) Eventf(object runtime.Object, eventtype, reason, messageFmt string, args ...interface{}) {
+}
+func (recorder fakeRecorder) AnnotatedEventf(object runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
+}
+
 func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
@@ -137,9 +149,10 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		},
 	}
 	r := &SecurityPolicyReconciler{
-		Client:  k8sClient,
-		Scheme:  nil,
-		Service: service,
+		Client:   k8sClient,
+		Scheme:   nil,
+		Service:  service,
+		Recorder: fakeRecorder{},
 	}
 	ctx := context.Background()
 	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
