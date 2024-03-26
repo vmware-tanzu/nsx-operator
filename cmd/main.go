@@ -121,8 +121,9 @@ func StartIPPoolController(mgr ctrl.Manager, ipPoolService *ippool.IPPoolService
 
 func StartVPCController(mgr ctrl.Manager, vpcService *vpc.VPCService) {
 	vpcReconciler := &vpccontroller.VPCReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("vpc-controller"),
 	}
 	vpcReconciler.Service = vpcService
 	if err := vpcReconciler.Start(mgr); err != nil {
