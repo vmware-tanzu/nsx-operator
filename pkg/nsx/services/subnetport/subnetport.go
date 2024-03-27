@@ -6,6 +6,7 @@ package subnetport
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
@@ -32,7 +34,8 @@ var (
 
 type SubnetPortService struct {
 	servicecommon.Service
-	SubnetPortStore *SubnetPortStore
+	SubnetPortStore    *SubnetPortStore
+	AviSubnetPortStore *SubnetPortStore // It is only used to cleanup avi resources
 }
 
 // InitializeSubnetPort sync NSX resources.
@@ -72,6 +75,42 @@ func InitializeSubnetPort(service servicecommon.Service) (*SubnetPortService, er
 	}
 
 	return subnetPortService, nil
+}
+
+// InitializeAviSubnetPort sync NSX resource created by avi controller.
+func InitializeAviSubnetPort(service *SubnetPortService, orgProjectSet sets.String) error {
+	wg := sync.WaitGroup{}
+	wgDone := make(chan bool)
+	fatalErrors := make(chan error)
+
+	wg.Add(len(orgProjectSet))
+
+	service.AviSubnetPortStore = &SubnetPortStore{ResourceStore: servicecommon.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.VpcSubnetPortBindingType(),
+	}}
+
+	for orgProject := range orgProjectSet {
+		orgPro := strings.Split(orgProject, ",")
+		org := orgPro[0]
+		project := orgPro[1]
+		go service.InitializeAviResourceStore(&wg, fatalErrors, org, project, ResourceTypeSubnetPort, nil, service.AviSubnetPortStore)
+	}
+
+	go func() {
+		wg.Wait()
+		close(wgDone)
+	}()
+
+	select {
+	case <-wgDone:
+		break
+	case err := <-fatalErrors:
+		close(fatalErrors)
+		return err
+	}
+
+	return nil
 }
 
 func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxSubnetPath string, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
@@ -211,6 +250,25 @@ func (service *SubnetPortService) DeleteSubnetPort(uid types.UID) error {
 	return nil
 }
 
+func (service *SubnetPortService) DeleteAviSubnetPort(uid types.UID) error {
+	nsxSubnetPort := service.AviSubnetPortStore.GetByKey(string(uid))
+	if nsxSubnetPort == nil || nsxSubnetPort.Id == nil {
+		log.Info("NSX subnet port is not found in store, skip deleting it", "uid", uid)
+		return nil
+	}
+	nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID := nsxutil.ParseVPCPath(*nsxSubnetPort.Path)
+	err := service.NSXClient.PortClient.Delete(nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID, string(uid))
+	if err != nil {
+		log.Error(err, "failed to delete subnetport", "nsxSubnetPort.Path", *nsxSubnetPort.Path)
+		return err
+	}
+	if err = service.AviSubnetPortStore.Delete(uid); err != nil {
+		return err
+	}
+	log.Info("successfully deleted nsxSubnetPort", "nsxSubnetPortID", uid)
+	return nil
+}
+
 func (service *SubnetPortService) ListNSXSubnetPortIDForCR() sets.Set[string] {
 	log.V(2).Info("listing subnet port CR UIDs")
 	subnetPortSet := service.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopeSubnetPortCRUID)
@@ -275,6 +333,7 @@ func (service *SubnetPortService) GetPortsOfSubnet(nsxSubnetID string) (ports []
 
 func (service *SubnetPortService) Cleanup(ctx context.Context) error {
 	subnetPorts := service.SubnetPortStore.List()
+	orgProjectSet := sets.NewString()
 	log.Info("cleanup subnetports", "count", len(subnetPorts))
 	for _, subnetPort := range subnetPorts {
 		subnetPortID := types.UID(*subnetPort.(*model.VpcSubnetPort).Id)
@@ -282,13 +341,38 @@ func (service *SubnetPortService) Cleanup(ctx context.Context) error {
 		case <-ctx.Done():
 			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
 		default:
+			nsxSubnetPort := service.SubnetPortStore.GetByKey(string(subnetPortID))
+			if nsxSubnetPort.Path != nil {
+				nsxOrgID, nsxProjectID, _, _ := nsxutil.ParseVPCPath(*nsxSubnetPort.Path)
+				orgProjectSet.Insert(nsxOrgID + string(',') + nsxProjectID)
+			}
 			err := service.DeleteSubnetPort(subnetPortID)
 			if err != nil {
 				log.Error(err, "cleanup subnetport failed", "subnetPortID", subnetPortID)
 				return err
 			}
-
 		}
+	}
+
+	err := InitializeAviSubnetPort(service, orgProjectSet)
+	if err != nil {
+		return err
+	}
+	subnetPorts = service.AviSubnetPortStore.List()
+	log.Info("cleanup avi subnetports", "count", len(subnetPorts))
+	for _, subnetPort := range subnetPorts {
+		subnetPortID := types.UID(*subnetPort.(*model.VpcSubnetPort).Id)
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			err := service.DeleteAviSubnetPort(subnetPortID)
+			if err != nil {
+				log.Error(err, "cleanup subnetport failed", "subnetPortID", subnetPortID)
+				return err
+			}
+		}
+
 	}
 	return nil
 }

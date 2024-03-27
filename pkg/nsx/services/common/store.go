@@ -124,13 +124,20 @@ func TransError(err error) error {
 // InitializeResourceStore is the method to query all the various resources from nsx-t side and
 // save them to the store, we could use it to cache all the resources when process starts.
 func (service *Service) InitializeResourceStore(wg *sync.WaitGroup, fatalErrors chan error, resourceTypeValue string, tags []model.Tag, store Store) {
-	service.InitializeCommonStore(wg, fatalErrors, "", "", resourceTypeValue, tags, store)
+	service.InitializeCommonStore(wg, fatalErrors, "", "", resourceTypeValue, tags, store, true)
 }
 
 // InitializeVPCResourceStore is the method to query all the various VPC resources from nsx-t side and
 // save them to the store, we could use it to cache all the resources when process starts.
 func (service *Service) InitializeVPCResourceStore(wg *sync.WaitGroup, fatalErrors chan error, org string, project string, resourceTypeValue string, tags []model.Tag, store Store) {
-	service.InitializeCommonStore(wg, fatalErrors, org, project, resourceTypeValue, tags, store)
+	service.InitializeCommonStore(wg, fatalErrors, org, project, resourceTypeValue, tags, store, true)
+}
+
+// InitializeAviResourceStore is the method to query all the various VPC resources created by Avi Controller
+// from nsx-t side and save them to the store, it is used by Cleanup.
+func (service *Service) InitializeAviResourceStore(wg *sync.WaitGroup, fatalErrors chan error, org string, project string,
+	resourceTypeValue string, tags []model.Tag, store Store) {
+	service.InitializeCommonStore(wg, fatalErrors, org, project, resourceTypeValue, tags, store, false)
 }
 
 type Filter func(interface{}) *data.StructValue
@@ -196,10 +203,14 @@ func (service *Service) PopulateResourcetoStore(wg *sync.WaitGroup, fatalErrors 
 }
 
 // InitializeCommonStore is the common method used by InitializeResourceStore and InitializeVPCResourceStore
-func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors chan error, org string, project string, resourceTypeValue string, tags []model.Tag, store Store) {
+func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors chan error, org string, project string,
+	resourceTypeValue string, tags []model.Tag, store Store, createdByNsxOperator bool) {
 	tagScopeClusterKey := strings.Replace(TagScopeCluster, "/", "\\/", -1)
 	tagScopeClusterValue := strings.Replace(service.NSXClient.NsxConfig.Cluster, ":", "\\:", -1)
 	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
+	if !createdByNsxOperator {
+		tagParam = fmt.Sprintf("NOT tags.scope:%s AND NOT tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
+	}
 
 	for _, tag := range tags {
 		tagKey := strings.Replace(*tag.Scope, "/", "\\/", -1)
