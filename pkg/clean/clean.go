@@ -7,7 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -24,6 +26,13 @@ import (
 )
 
 var log = logger.Log
+
+var Backoff = wait.Backoff{
+	Steps:    12,
+	Duration: 10 * time.Second,
+	Factor:   2.0,
+	Jitter:   0.1,
+}
 
 // Clean cleans up NSX resources,
 // including security policy, static route, subnet, subnet port, subnet set, vpc, ip pool, nsx service account
@@ -50,7 +59,7 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig) error {
 		return errors.Join(nsxutil.InitCleanupServiceFailed, cleanupService.err)
 	} else {
 		for _, clean := range cleanupService.cleans {
-			if err := retry.OnError(retry.DefaultRetry, retriable, wrapCleanFunc(ctx, clean)); err != nil {
+			if err := retry.OnError(Backoff, retriable, wrapCleanFunc(ctx, clean)); err != nil {
 				return errors.Join(nsxutil.CleanupResourceFailed, err)
 			}
 		}
