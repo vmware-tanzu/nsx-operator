@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"k8s.io/client-go/util/retry"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -96,7 +97,16 @@ func wrapCleanFunc(ctx context.Context, clean cleanup) func() error {
 func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Client) (*CleanupService, error) {
 	cleanupService := NewCleanupService()
 
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{})
+	if err != nil {
+		return nil, err
+	}
+
+	// ensure we can get mgr.GetClient() and the cache already started
+	go mgr.Start(context.Background())
+
 	var commonService = common.Service{
+		Client:    mgr.GetClient(),
 		NSXClient: nsxClient,
 		NSXConfig: cf,
 	}
