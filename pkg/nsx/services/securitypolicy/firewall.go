@@ -258,7 +258,6 @@ func (service *SecurityPolicyService) convertNetworkPolicyToInternalSecurityPoli
 			spAllow.Spec.Rules = append(spAllow.Spec.Rules, *rule)
 		}
 	}
-	securityPolicies = append(securityPolicies, spAllow, spIsolation)
 
 	if len(networkPolicy.Spec.Egress) > 0 {
 		spIsolation.Spec.Rules = append(spIsolation.Spec.Rules, v1alpha1.SecurityPolicyRule{
