@@ -29,6 +29,7 @@ import (
 	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/pod"
 	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/service"
 	staticroutecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetport"
@@ -238,6 +239,7 @@ func main() {
 		pod.StartPodController(mgr, subnetPortService, subnetService, vpcService, nodeService)
 		StartIPPoolController(mgr, ipPoolService, vpcService)
 		networkpolicycontroller.StartNetworkPolicyController(mgr, commonService, vpcService)
+		service.StartServiceLbController(mgr, commonService)
 	}
 	// Start controllers which can run in non-VPC mode
 	securitypolicycontroller.StartSecurityPolicyController(mgr, commonService, vpcService)
