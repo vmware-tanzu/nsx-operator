@@ -102,8 +102,9 @@ var PredicateFuncsPod = predicate.Funcs{
 		oldObj := e.ObjectOld.(*v1.Pod)
 		newObj := e.ObjectNew.(*v1.Pod)
 		log.V(1).Info("receive pod update event", "namespace", oldObj.Namespace, "name", oldObj.Name)
-		if reflect.DeepEqual(oldObj.ObjectMeta.Labels, newObj.ObjectMeta.Labels) {
-			log.V(1).Info("label of pod is not changed, ignore it", "name", oldObj.Name)
+		// The NSX operator should handle the case when the pod phase is changed from Pending to Running.
+		if reflect.DeepEqual(oldObj.ObjectMeta.Labels, newObj.ObjectMeta.Labels) && oldObj.Status.Phase == newObj.Status.Phase {
+			log.V(1).Info("pod label and phase are not changed, ignore it", "name", oldObj.Name)
 			return false
 		}
 		if util.CheckPodHasNamedPort(*newObj, "update") {

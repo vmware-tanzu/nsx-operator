@@ -169,24 +169,19 @@ func (service *SecurityPolicyService) resolveNamedPort(obj *v1alpha1.SecurityPol
 			return nil, err
 		}
 		for _, pod := range podsList.Items {
-			addr, err := service.resolvePodPort(pod, &spPort)
-			if errors.As(err, &nsxutil.PodIPNotFound{}) || errors.As(err, &nsxutil.PodNotRunning{}) {
-				return nil, err
-			}
+			addr := service.resolvePodPort(pod, &spPort)
 			portAddress = append(portAddress, addr...)
 		}
 	}
 
 	if len(portAddress) == 0 {
-		return nil, nsxutil.NoEffectiveOption{
-			Desc: "no pod has the corresponding named port",
-		}
+		log.Info("no pod has the corresponding named port", "port", spPort)
 	}
 	return nsxutil.MergeAddressByPort(portAddress), nil
 }
 
 // Check port name and protocol, only when the pod is really running, and it does have effective ip.
-func (service *SecurityPolicyService) resolvePodPort(pod v1.Pod, spPort *v1alpha1.SecurityPolicyPort) ([]nsxutil.PortAddress, error) {
+func (service *SecurityPolicyService) resolvePodPort(pod v1.Pod, spPort *v1alpha1.SecurityPolicyPort) []nsxutil.PortAddress {
 	var addr []nsxutil.PortAddress
 	for _, c := range pod.Spec.Containers {
 		container := c
@@ -196,12 +191,12 @@ func (service *SecurityPolicyService) resolvePodPort(pod v1.Pod, spPort *v1alpha
 				"protocol", port.Protocol, "podIP", pod.Status.PodIP)
 			if port.Name == spPort.Port.String() && port.Protocol == spPort.Protocol {
 				if pod.Status.Phase != "Running" {
-					errMsg := fmt.Sprintf("pod %s/%s is not running", pod.Namespace, pod.Name)
-					return nil, nsxutil.PodNotRunning{Desc: errMsg}
+					log.Info("pod with named port is not running", "pod.Namespace", pod.Namespace, "pod.Name", pod.Name)
+					return addr
 				}
 				if pod.Status.PodIP == "" {
-					errMsg := fmt.Sprintf("pod %s/%s ip not initialized", pod.Namespace, pod.Name)
-					return nil, nsxutil.PodIPNotFound{Desc: errMsg}
+					log.Info("pod with named port doesn't have initialized IP", "pod.Namespace", pod.Namespace, "pod.Name", pod.Name)
+					return addr
 				}
 				addr = append(
 					addr,
@@ -210,7 +205,7 @@ func (service *SecurityPolicyService) resolvePodPort(pod v1.Pod, spPort *v1alpha
 			}
 		}
 	}
-	return addr, nil
+	return addr
 }
 
 func (service *SecurityPolicyService) buildRuleIPSetGroupID(ruleModel *model.Rule) string {

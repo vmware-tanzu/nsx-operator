@@ -15,6 +15,7 @@
 package e2e
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -231,6 +232,46 @@ func TestSecurityPolicyMatchExpression(t *testing.T) {
 		err = testData.runPingCommandFromPod(ns, clientB, iPs, 4)
 		assertNil(t, err, "Error when running ping command from Pod %s", clientB)
 	*/
+}
+
+// TestSecurityPolicyNamedPortWithoutPod verifies that the traffic of security policy when named port applied.
+// This test is to verify the named port feature of security policy.
+// When appliedTo is in policy level and there's no pod holding the related named ports.
+func TestSecurityPolicyNamedPortWithoutPod(t *testing.T) {
+	nsClient := "client"
+	nsWeb := "web"
+	securityPolicyCRName := "named-port-policy-without-pod"
+	securityPolicyNSXDisplayName := fmt.Sprintf("sp-%s-%s", nsWeb, securityPolicyCRName)
+	webA := "web"
+	labelWeb := "tcp-deployment"
+	ruleName0 := "all-ingress-isolation"
+	ruleName1 := "all-egress-isolation"
+
+	testData.deleteNamespace(nsClient, defaultTimeout)
+	testData.deleteNamespace(nsWeb, defaultTimeout)
+	_ = testData.createNamespace(nsClient)
+	_ = testData.createNamespace(nsWeb)
+	defer testData.deleteNamespace(nsClient, defaultTimeout)
+	defer testData.deleteNamespace(nsWeb, defaultTimeout)
+
+	// Create all
+	yamlPath, _ := filepath.Abs("./manifest/testSecurityPolicy/named-port-without-pod.yaml")
+	_ = applyYAML(yamlPath, "")
+	defer deleteYAML(yamlPath, "")
+
+	psb, err := testData.deploymentWaitForNames(defaultTimeout, nsWeb, labelWeb)
+	t.Logf("Pods are %v", psb)
+	assertNil(t, err, "Error when waiting for IP for Pod %s", webA)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyCRName, Ready)
+	assertNil(t, err, "Error when waiting for Security Policy %s", securityPolicyCRName)
+
+	// Check NSX resource existing
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyNSXDisplayName, true)
+	assertNil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName0, true)
+	assertNil(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName1, true)
+	assertNil(t, err)
 }
 
 /*
