@@ -656,9 +656,23 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(obj interface{}, isVp
 	finalSecurityPolicyCopy.Rules = nsxSecurityPolicy.Rules
 
 	if isVpcEnabled(service) || isVpcCleanup {
-		vpcInfo, err := service.getVpcInfo(spNameSpace)
-		if err != nil {
-			return err
+		var vpcInfo *common.VPCResourceInfo
+		if isVpcCleanup == false {
+			vpcInfo, err = service.getVpcInfo(spNameSpace)
+			if err != nil {
+				return err
+			}
+		} else {
+			// In cleanup process, vpcInfo should be listed directly from security policy store to avoid calling VPC service.
+			// Get orgId, projectId, vpcId from security policy path "/orgs/<orgId>/projects/<projectId>/vpcs/<vpcId>/security-policies/<spId>"
+			if nsxSecurityPolicy.Path == nil {
+				err = errors.New("nsxSecurityPolicy path is empty")
+				log.Error(err, "failed to delete SecurityPolicy in VPC")
+				return err
+			}
+
+			vpcInfo = new(common.VPCResourceInfo)
+			vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, _ = nsxutil.ParseVPCPath(*(nsxSecurityPolicy.Path))
 		}
 
 		for i := len(nsxProjectGroups) - 1; i >= 0; i-- {
