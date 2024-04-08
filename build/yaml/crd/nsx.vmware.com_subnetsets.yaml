@@ -85,6 +85,7 @@ spec:
                 enum:
                 - Private
                 - Public
+                - Project
                 type: string
               advancedConfig:
                 description: Subnet advanced configuration.

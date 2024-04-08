@@ -195,15 +195,17 @@ type VPCResourceInfo struct {
 }
 
 type VPCNetworkConfigInfo struct {
-	IsDefault               bool
-	Org                     string
-	Name                    string
-	DefaultGatewayPath      string
-	EdgeClusterPath         string
-	NsxtProject             string
-	ExternalIPv4Blocks      []string
-	PrivateIPv4CIDRs        []string
-	DefaultIPv4SubnetSize   int
-	DefaultSubnetAccessMode string
-	ShortID                 string
+	IsDefault             bool
+	Org                   string
+	Name                  string
+	DefaultGatewayPath    string
+	EdgeClusterPath       string
+	NsxtProject           string
+	ExternalIPv4Blocks    []string
+	PrivateIPv4CIDRs      []string
+	DefaultIPv4SubnetSize int
+	// DefaultSubnetAccessMode
+	// DefaultPodSubnetAccessMode
+	DefaultPodSubnetAccessMode string
+	ShortID                    string
 }

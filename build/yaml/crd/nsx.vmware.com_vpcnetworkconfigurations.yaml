@@ -61,12 +61,13 @@ spec:
                 description: Default size of Subnet based upon estimated workload
                   count. Defaults to 26.
                 type: integer
-              defaultSubnetAccessMode:
-                description: DefaultSubnetAccessMode defines the access mode of the
-                  default SubnetSet for PodVM and VM. Must be Public or Private.
+              defaultPodSubnetAccessMode:
+                description: DefaultPodSubnetAccessMode defines the access mode of
+                  the default SubnetSet for PodVM. Must be Public or Private.
                 enum:
                 - Public
                 - Private
+                - Project
                 type: string
               edgeClusterPath:
                 description: Edge cluster path on which the networking elements will

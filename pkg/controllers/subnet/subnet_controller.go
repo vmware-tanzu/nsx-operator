@@ -80,7 +80,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				return ResultRequeue, err
 			}
 			if obj.Spec.AccessMode == "" {
-				obj.Spec.AccessMode = v1alpha1.AccessMode(vpcNetworkConfig.DefaultSubnetAccessMode)
+				obj.Spec.AccessMode = v1alpha1.AccessMode("Private")
 			}
 			if obj.Spec.IPv4SubnetSize == 0 {
 				obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultIPv4SubnetSize

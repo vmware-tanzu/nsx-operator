@@ -3,3 +3,5 @@ bin/
 .DS_Store
 go.work
 go.work.sum
+vendor/
+.golangci-bin/

@@ -141,7 +141,7 @@ func (r *IPPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			updateFail(r, &ctx, obj, &err)
 			return resultRequeue, err
 		}
-		obj.Spec.Type = vpcNetworkConfig.DefaultSubnetAccessMode
+		obj.Spec.Type = "Private"
 	}
 
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {

@@ -37,12 +37,12 @@ type VPCNetworkConfigurationSpec struct {
 	// Defaults to 26.
 	// +kubebuilder:default=26
 	DefaultIPv4SubnetSize int `json:"defaultIPv4SubnetSize,omitempty"`
-	// DefaultSubnetAccessMode defines the access mode of the default SubnetSet for PodVM and VM.
+	// DefaultPodSubnetAccessMode defines the access mode of the default SubnetSet for PodVM.
 	// Must be Public or Private.
-	// +kubebuilder:validation:Enum=Public;Private
-	DefaultSubnetAccessMode string `json:"defaultSubnetAccessMode,omitempty"`
+	// +kubebuilder:validation:Enum=Public;Private;Project
+	DefaultPodSubnetAccessMode string `json:"defaultPodSubnetAccessMode,omitempty"`
 	// ShortID specifies Identifier to use when displaying VPC context in logs.
-	// Less than or equal to 8 characters.
+	// Less than equal to 8 characters.
 	// +kubebuilder:validation:MaxLength=8
 	// +optional
 	ShortID string `json:"shortID,omitempty"`
@@ -64,9 +64,9 @@ type VPCInfo struct {
 
 // +genclient
 // +genclient:nonNamespaced
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-//+kubebuilder:storageversion
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:storageversion
 
 // VPCNetworkConfiguration is the Schema for the vpcnetworkconfigurations API.
 // +kubebuilder:resource:scope="Cluster"
@@ -81,7 +81,7 @@ type VPCNetworkConfiguration struct {
 	Status VPCNetworkConfigurationStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // VPCNetworkConfigurationList contains a list of VPCNetworkConfiguration.
 type VPCNetworkConfigurationList struct {
