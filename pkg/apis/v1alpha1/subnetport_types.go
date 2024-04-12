@@ -19,20 +19,26 @@ type SubnetPortSpec struct {
 type SubnetPortStatus struct {
 	// Conditions describes current state of SubnetPort.
 	Conditions []Condition `json:"conditions,omitempty"`
-	// VIFID describes the attachment VIF ID owned by the SubnetPort in NSX-T.
-	VIFID string `json:"vifID,omitempty"`
-	// IPAddresses describes the IP addresses of the SubnetPort.
-	IPAddresses []SubnetPortIPAddress `json:"ipAddresses,omitempty"`
-	// MACAddress describes the MAC address of the SubnetPort.
-	MACAddress string `json:"macAddress,omitempty"`
-	// LogicalSwitchID defines the logical switch ID in NSX-T.
-	LogicalSwitchID string `json:"logicalSwitchID,omitempty"`
+	// Subnet port attachment state.
+	Attachment             SegmentPortAttachmentState `json:"attachment,omitempty"`
+	NetworkInterfaceConfig NetworkInterfaceConfig     `json:"networkInterfaceConfig,omitempty"`
 }
 
-type SubnetPortIPAddress struct {
-	Gateway string `json:"gateway,omitempty"`
-	IP      string `json:"ip,omitempty"`
-	Netmask string `json:"netmask,omitempty"`
+// VIF attachment state of a subnet port.
+type SegmentPortAttachmentState struct {
+	ID string `json:"id,omitempty"`
+}
+
+type NetworkInterfaceConfig struct {
+	LogicalSwitchUUID string                      `json:"logicalSwitchUUID,omitempty"`
+	IPAddresses       []NetworkInterfaceIPAddress `json:"ipAddresses,omitempty"`
+	MACAddress        string                      `json:"macAddress,omitempty"`
+}
+
+type NetworkInterfaceIPAddress struct {
+	// IP address string with the prefix.
+	IPAddress string `json:"ipAddress,omitempty"`
+	Gateway   string `json:"gateway,omitempty"`
 }
 
 // +genclient
@@ -41,9 +47,9 @@ type SubnetPortIPAddress struct {
 //+kubebuilder:storageversion
 
 // SubnetPort is the Schema for the subnetports API.
-// +kubebuilder:printcolumn:name="VIFID",type=string,JSONPath=`.status.vifID`,description="Attachment VIF ID owned by the SubnetPort"
-// +kubebuilder:printcolumn:name="IPAddress",type=string,JSONPath=`.status.ipAddresses[0].ip`,description="IP Address of the SubnetPort"
-// +kubebuilder:printcolumn:name="MACAddress",type=string,JSONPath=`.status.macAddress`,description="MAC Address of the SubnetPort"
+// +kubebuilder:printcolumn:name="VIFID",type=string,JSONPath=`.status.attachment.id`,description="Attachment VIF ID owned by the SubnetPort."
+// +kubebuilder:printcolumn:name="IPAddress",type=string,JSONPath=`.status.networkInterfaceConfig.ipAddresses[0].ipAddress`,description="IP address string with the prefix."
+// +kubebuilder:printcolumn:name="MACAddress",type=string,JSONPath=`.status.networkInterfaceConfig.macAddress`,description="MAC Address of the SubnetPort."
 type SubnetPort struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
