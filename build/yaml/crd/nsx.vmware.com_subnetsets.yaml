@@ -16,7 +16,20 @@ spec:
     singular: subnetset
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Access mode of Subnet
+      jsonPath: .spec.accessMode
+      name: AccessMode
+      type: string
+    - description: Size of Subnet
+      jsonPath: .spec.ipv4SubnetSize
+      name: IPv4SubnetSize
+      type: string
+    - description: CIDRs for the Subnet
+      jsonPath: .status.subnets[*].ipAddresses[*]
+      name: IPAddresses
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: SubnetSet is the Schema for the subnetsets API.
@@ -36,18 +49,63 @@ spec:
           spec:
             description: SubnetSetSpec defines the desired state of SubnetSet.
             properties:
+              DHCPConfig:
+                description: DHCPConfig DHCP configuration.
+                properties:
+                  dhcpRelayConfigPath:
+                    description: DHCPRelayConfigPath is policy path of DHCP-relay-config.
+                    type: string
+                  dhcpV4PoolSize:
+                    default: 80
+                    description: DHCPV4PoolSize IPs in % to be reserved for DHCP ranges.
+                      By default, 80% of IPv4 IPs will be reserved for DHCP. Configure
+                      0 if no pool is required.
+                    maximum: 100
+                    minimum: 0
+                    type: integer
+                  dhcpV6PoolSize:
+                    default: 2000
+                    description: DHCPV6PoolSize number of IPs to be reserved for DHCP
+                      ranges. By default, 2000 IPv6 IPs will be reserved for DHCP.
+                    type: integer
+                  dnsClientConfig:
+                    description: DNSClientConfig holds DNS configurations.
+                    properties:
+                      dnsServersIPs:
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  enableDHCP:
+                    default: false
+                    type: boolean
+                type: object
               accessMode:
-                default: private
                 description: Access mode of Subnet, accessible only from within VPC
-                  or from outside VPC. Defaults to private.
+                  or from outside VPC.
                 enum:
-                - private
-                - public
+                - Private
+                - Public
+                - Project
                 type: string
+              advancedConfig:
+                description: Subnet advanced configuration.
+                properties:
+                  staticIPAllocation:
+                    description: StaticIPAllocation configuration for subnet ports
+                      with VIF attachment.
+                    properties:
+                      enable:
+                        default: false
+                        description: Enable or disable static IP allocation for subnet
+                          ports with VIF attachment.
+                        type: boolean
+                    type: object
+                type: object
               ipv4SubnetSize:
-                default: 64
-                description: Size of Subnet based upon estimated workload count. Defaults
-                  to 64.
+                description: Size of Subnet based upon estimated workload count.
+                maximum: 65536
+                minimum: 16
                 type: integer
             type: object
           status:
@@ -97,9 +155,6 @@ spec:
                   - nsxResourcePath
                   type: object
                 type: array
-            required:
-            - conditions
-            - subnets
             type: object
         type: object
     served: true
