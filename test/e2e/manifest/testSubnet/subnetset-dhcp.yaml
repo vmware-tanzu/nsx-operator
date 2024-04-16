@@ -1,9 +1,8 @@
 apiVersion: nsx.vmware.com/v1alpha1
 kind: SubnetSet
 metadata:
-  name: user-pod-subnetset
+  name: user-pod-subnetset-dhcp
   namespace: subnet-e2e
 spec:
-  advancedConfig:
-    staticIPAllocation:
-      enable: true
+  DHCPConfig:
+    enableDHCP: true

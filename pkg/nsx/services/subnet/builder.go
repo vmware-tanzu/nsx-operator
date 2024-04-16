@@ -52,16 +52,17 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 		nsxSubnet = &model.VpcSubnet{
 			Id:          String(service.BuildSubnetID(o)),
 			AccessMode:  String(util.Capitalize(string(o.Spec.AccessMode))),
-			DhcpConfig:  service.buildDHCPConfig(int64(o.Spec.IPv4SubnetSize - 4)),
+			DhcpConfig:  service.buildDHCPConfig(o.Spec.DHCPConfig.EnableDHCP, int64(o.Spec.IPv4SubnetSize-4)),
 			DisplayName: String(service.buildSubnetName(o)),
 		}
 		staticIpAllocation = o.Spec.AdvancedConfig.StaticIPAllocation.Enable
+		nsxSubnet.IpAddresses = o.Spec.IPAddresses
 	case *v1alpha1.SubnetSet:
 		index := uuid.NewString()
 		nsxSubnet = &model.VpcSubnet{
 			Id:          String(service.buildSubnetSetID(o, index)),
 			AccessMode:  String(util.Capitalize(string(o.Spec.AccessMode))),
-			DhcpConfig:  service.buildDHCPConfig(int64(o.Spec.IPv4SubnetSize - 4)),
+			DhcpConfig:  service.buildDHCPConfig(o.Spec.DHCPConfig.EnableDHCP, int64(o.Spec.IPv4SubnetSize-4)),
 			DisplayName: String(service.buildSubnetSetName(o, index)),
 		}
 		staticIpAllocation = o.Spec.AdvancedConfig.StaticIPAllocation.Enable
@@ -82,11 +83,11 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 	return nsxSubnet, nil
 }
 
-func (service *SubnetService) buildDHCPConfig(poolSize int64) *model.VpcSubnetDhcpConfig {
+func (service *SubnetService) buildDHCPConfig(enableDHCP bool, poolSize int64) *model.VpcSubnetDhcpConfig {
 	// Subnet DHCP is used by AVI, not needed for now. We need to explicitly mark enableDhcp = false,
 	// otherwise Subnet will use DhcpConfig inherited from VPC.
 	dhcpConfig := &model.VpcSubnetDhcpConfig{
-		EnableDhcp: Bool(false),
+		EnableDhcp: Bool(enableDHCP),
 		StaticPoolConfig: &model.StaticPoolConfig{
 			// Number of IPs to be reserved in static ip pool.
 			// By default, if dhcp is enabled then static ipv4 pool size will be zero and all available IPs will be

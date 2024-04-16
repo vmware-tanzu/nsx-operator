@@ -99,17 +99,22 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			log.Error(err, "failed to get labels from virtualmachine", "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 			return common.ResultRequeue, err
 		}
-		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnetPath, "", labels)
+		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath)
+		if err != nil {
+			return common.ResultRequeue, err
+		}
+		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels)
 		if err != nil {
 			log.Error(err, "failed to create or update NSX subnet port, would retry exponentially", "subnetport", req.NamespacedName)
 			updateFail(r, &ctx, subnetPort, &err)
 			return common.ResultRequeue, err
 		}
-		ipAddress := v1alpha1.SubnetPortIPAddress{
-			IP: *nsxSubnetPortState.RealizedBindings[0].Binding.IpAddress,
+		ipAddress := v1alpha1.SubnetPortIPAddress{}
+		if len(nsxSubnetPortState.RealizedBindings) > 0 {
+			ipAddress.IP = *nsxSubnetPortState.RealizedBindings[0].Binding.IpAddress
+			subnetPort.Status.MACAddress = strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\"")
 		}
 		subnetPort.Status.IPAddresses = []v1alpha1.SubnetPortIPAddress{ipAddress}
-		subnetPort.Status.MACAddress = strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\"")
 		subnetPort.Status.VIFID = *nsxSubnetPortState.Attachment.Id
 		err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnetPath)
 		if err != nil {
@@ -419,16 +424,12 @@ func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alph
 	if err != nil {
 		return err
 	}
-	subnetInfo, err := servicecommon.ParseVPCResourcePath(nsxSubnetPath)
-	if err != nil {
-		return err
-	}
-	// For now, we have an asumption that one subnetport only have one IP address
+	// For now, we have an assumption that one subnetport only have one IP address
 	subnetPort.Status.IPAddresses[0].Gateway = gateway
 	subnetPort.Status.IPAddresses[0].Netmask = netmask
-	nsxSubnet := r.SubnetService.GetSubnetByKey(subnetInfo.ID)
-	if nsxSubnet == nil {
-		return errors.New("NSX subnet not found in store")
+	nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath)
+	if err != nil {
+		return err
 	}
 	subnetPort.Status.LogicalSwitchID = *nsxSubnet.RealizationId
 	return nil

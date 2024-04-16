@@ -9,8 +9,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
@@ -21,7 +24,6 @@ const (
 	E2ENamespaceShared     = "subnet-e2e-shared"
 	E2ENamespaceTarget     = "target-ns"
 	VPCNetworkConfigCRName = "default"
-	UserSubnetSet          = "user-pod-subnetset"
 	// SubnetDeletionTimeout requires a bigger value than defaultTimeout, it's because that it takes some time for NSX to
 	// recycle allocated IP addresses and NSX VPCSubnet won't be deleted until all IP addresses have been recycled.
 	SubnetDeletionTimeout = 300 * time.Second
@@ -62,8 +64,9 @@ func TestSubnetSet(t *testing.T) {
 	})
 
 	t.Run("case=DefaultSubnetSet", defaultSubnetSet)
-	t.Run("case=UserSubnetSet", userSubnetSet)
+	t.Run("case=UserSubnetSet", UserSubnetSet)
 	t.Run("case=SharedSubnetSet", sharedSubnetSet)
+	t.Run("case=SubnetCIDR", SubnetCIDR)
 }
 
 func defaultSubnetSet(t *testing.T) {
@@ -148,34 +151,55 @@ func defaultSubnetSet(t *testing.T) {
 	assertFalse(t, found, "Failed to delete tags for NSX subnet %s", vpcInfo.ID)
 }
 
-func userSubnetSet(t *testing.T) {
-	// 1. Check SubnetSet created by user.
-	subnetSetPath, _ := filepath.Abs("./manifest/testSubnet/subnetset.yaml")
-	err := applyYAML(subnetSetPath, E2ENamespace)
-	assertNil(t, err)
-	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetSetCRType, E2ENamespace, UserSubnetSet, Ready)
-	assertNil(t, err)
+func UserSubnetSet(t *testing.T) {
+	subnetSetYAMLs := []string{
+		"./manifest/testSubnet/subnetset-static.yaml",
+		"./manifest/testSubnet/subnetset-dhcp.yaml",
+	}
+	subnetSetNames := []string{
+		"user-pod-subnetset-static",
+		"user-pod-subnetset-dhcp",
+	}
+	portYAMLs := []string{
+		"./manifest/testSubnet/subnetport-in-static-subnetset.yaml",
+		"./manifest/testSubnet/subnetport-in-dhcp-subnetset.yaml",
+	}
+	portNames := []string{
+		"port-in-static-subnetset",
+		"port-in-dhcp-subnetset",
+	}
+	for idx, subnetSetYAML := range subnetSetYAMLs {
+		subnetSetName := subnetSetNames[idx]
+		portYAML := portYAMLs[idx]
+		portName := portNames[idx]
+		// 1. Check SubnetSet created by user.
+		subnetSetPath, _ := filepath.Abs(subnetSetYAML)
+		err := applyYAML(subnetSetPath, E2ENamespace)
+		assertNil(t, err)
+		err = testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetSetCRType, E2ENamespace, subnetSetName, Ready)
+		assertNil(t, err)
 
-	// 2. Check `Ipv4SubnetSize` and `AccessMode` should be same with related fields in VPCNetworkConfig.
-	assertTrue(t, verifySubnetSetCR(UserSubnetSet))
+		// 2. Check `Ipv4SubnetSize` and `AccessMode` should be same with related fields in VPCNetworkConfig.
+		assertTrue(t, verifySubnetSetCR(subnetSetName))
 
-	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_2.yaml")
-	err = applyYAML(portPath, E2ENamespace)
-	assertNil(t, err)
-	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetPortCRType, E2ENamespace, "port-2", Ready)
-	assertNil(t, err)
-	defer deleteYAML(portPath, E2ENamespace)
+		portPath, _ := filepath.Abs(portYAML)
+		err = applyYAML(portPath, E2ENamespace)
+		assertNil(t, err)
+		err = testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetPortCRType, E2ENamespace, portName, Ready)
+		assertNil(t, err)
+		defer deleteYAML(portPath, E2ENamespace)
 
-	// 3. Check SubnetSet CR status should be updated with NSX subnet info.
-	subnetSet, err := testData.crdClientset.NsxV1alpha1().SubnetSets(E2ENamespace).Get(context.TODO(), UserSubnetSet, v1.GetOptions{})
-	assertNil(t, err)
-	assert.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
-	// 4. Check NSX subnet allocation.
-	subnetPath := subnetSet.Status.Subnets[0].NSXResourcePath
-	vpcInfo, err := common.ParseVPCResourcePath(subnetPath)
-	assertNil(t, err, "Failed to parse VPC resource path %s", subnetPath)
-	_, err = testData.nsxClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
-	assertNil(t, err, "Failed to get VPC subnet %s", vpcInfo.ID)
+		// 3. Check SubnetSet CR status should be updated with NSX subnet info.
+		subnetSet, err := testData.crdClientset.NsxV1alpha1().SubnetSets(E2ENamespace).Get(context.TODO(), subnetSetName, v1.GetOptions{})
+		assertNil(t, err)
+		assert.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
+		// 4. Check NSX subnet allocation.
+		subnetPath := subnetSet.Status.Subnets[0].NSXResourcePath
+		vpcInfo, err := common.ParseVPCResourcePath(subnetPath)
+		assertNil(t, err, "Failed to parse VPC resource path %s", subnetPath)
+		_, err = testData.nsxClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
+		assertNil(t, err, "Failed to get VPC subnet %s", vpcInfo.ID)
+	}
 }
 
 func sharedSubnetSet(t *testing.T) {
@@ -211,4 +235,51 @@ func sharedSubnetSet(t *testing.T) {
 	_, subnetCIDR, err := net.ParseCIDR(subnetSet.Status.Subnets[0].IPAddresses[0])
 	assertNil(t, err)
 	assertTrue(t, subnetCIDR.Contains(portIP))
+}
+
+func SubnetCIDR(t *testing.T) {
+	subnet := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-dhcp-cidr",
+			Namespace: E2ENamespace,
+		},
+		Spec: v1alpha1.SubnetSpec{
+			DHCPConfig: v1alpha1.DHCPConfig{
+				EnableDHCP: true,
+			},
+		},
+	}
+	_, err := testData.crdClientset.NsxV1alpha1().Subnets(E2ENamespace).Create(context.TODO(), subnet, v1.CreateOptions{})
+	if err != nil && errors.IsAlreadyExists(err) {
+		err = nil
+	}
+	assertNil(t, err)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, "subnets", E2ENamespace, subnet.Name, Ready)
+	assertNil(t, err)
+	allocatedSubnet, err := testData.crdClientset.NsxV1alpha1().Subnets(E2ENamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
+	assertNil(t, err)
+	targetCIDR := allocatedSubnet.Status.IPAddresses[0]
+	err = testData.crdClientset.NsxV1alpha1().Subnets(E2ENamespace).Delete(context.TODO(), subnet.Name, v1.DeleteOptions{})
+	assertNil(t, err)
+
+	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 100*time.Second, false, func(ctx context.Context) (bool, error) {
+		_, err := testData.crdClientset.NsxV1alpha1().Subnets(E2ENamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
+		if err != nil && errors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	})
+	assertNil(t, err)
+
+	subnet.Spec.IPAddresses = []string{targetCIDR}
+	_, err = testData.crdClientset.NsxV1alpha1().Subnets(E2ENamespace).Create(context.TODO(), subnet, v1.CreateOptions{})
+	if err != nil && errors.IsAlreadyExists(err) {
+		err = nil
+	}
+	assertNil(t, err)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, "subnets", E2ENamespace, subnet.Name, Ready)
+	assertNil(t, err)
+	allocatedSubnet, err = testData.crdClientset.NsxV1alpha1().Subnets(E2ENamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
+	assertNil(t, err)
+	assert.Equal(t, targetCIDR, allocatedSubnet.Status.IPAddresses[0])
 }
