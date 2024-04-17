@@ -19,7 +19,6 @@ const (
 	MetricResTypeNamespace         = "namespace"
 	MetricResTypePod               = "pod"
 	MetricResTypeNode              = "node"
-	MetricResTypeServiceLb         = "servicelb"
 	MaxConcurrentReconciles        = 8
 
 	LabelK8sMasterRole  = "node-role.kubernetes.io/master"

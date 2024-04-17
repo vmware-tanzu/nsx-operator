@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -129,7 +130,7 @@ func (r *NetworkPolicyReconciler) setupWithManager(mgr ctrl.Manager) error {
 		For(&networkingv1.NetworkPolicy{}).
 		WithOptions(
 			controller.Options{
-				MaxConcurrentReconciles: common.NumReconcile(),
+				MaxConcurrentReconciles: runtime.NumCPU(),
 			}).
 		Complete(r)
 }

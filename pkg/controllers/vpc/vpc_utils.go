@@ -153,17 +153,17 @@ func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*type
 	}
 
 	ninfo := &types.VPCNetworkConfigInfo{
-		IsDefault:               isDefaultNetworkConfigCR(vpcConfigCR),
-		Org:                     org,
-		Name:                    vpcConfigCR.Name,
-		DefaultGatewayPath:      vpcConfigCR.Spec.DefaultGatewayPath,
-		EdgeClusterPath:         vpcConfigCR.Spec.EdgeClusterPath,
-		NsxtProject:             project,
-		ExternalIPv4Blocks:      vpcConfigCR.Spec.ExternalIPv4Blocks,
-		PrivateIPv4CIDRs:        vpcConfigCR.Spec.PrivateIPv4CIDRs,
-		DefaultIPv4SubnetSize:   vpcConfigCR.Spec.DefaultIPv4SubnetSize,
-		DefaultSubnetAccessMode: vpcConfigCR.Spec.DefaultSubnetAccessMode,
-		ShortID:                 vpcConfigCR.Spec.ShortID,
+		IsDefault:                  isDefaultNetworkConfigCR(vpcConfigCR),
+		Org:                        org,
+		Name:                       vpcConfigCR.Name,
+		DefaultGatewayPath:         vpcConfigCR.Spec.DefaultGatewayPath,
+		EdgeClusterPath:            vpcConfigCR.Spec.EdgeClusterPath,
+		NsxtProject:                project,
+		ExternalIPv4Blocks:         vpcConfigCR.Spec.ExternalIPv4Blocks,
+		PrivateIPv4CIDRs:           vpcConfigCR.Spec.PrivateIPv4CIDRs,
+		DefaultIPv4SubnetSize:      vpcConfigCR.Spec.DefaultIPv4SubnetSize,
+		DefaultPodSubnetAccessMode: vpcConfigCR.Spec.DefaultPodSubnetAccessMode,
+		ShortID:                    vpcConfigCR.Spec.ShortID,
 	}
 	return ninfo, nil
 }

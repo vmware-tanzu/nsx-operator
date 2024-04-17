@@ -61,9 +61,6 @@ const (
 	LabelDefaultSubnetSet              string = "nsxoperator.vmware.com/default-subnetset-for"
 	LabelDefaultVMSubnetSet            string = "VirtualMachine"
 	LabelDefaultPodSubnetSet           string = "Pod"
-	LabelLbIngressIpMode               string = "tanzu.vmware.com/ingress-ip-mode"
-	LabelLbIngressIpModeVipValue       string = "vip"
-	LabelLbIngressIpModeProxyValue     string = "proxy"
 	DefaultPodSubnetSet                string = "pod-default"
 	DefaultVMSubnetSet                 string = "vm-default"
 	TagScopeSubnetCRUID                string = "nsx-op/subnet_uid"
@@ -197,15 +194,15 @@ type VPCResourceInfo struct {
 }
 
 type VPCNetworkConfigInfo struct {
-	IsDefault               bool
-	Org                     string
-	Name                    string
-	DefaultGatewayPath      string
-	EdgeClusterPath         string
-	NsxtProject             string
-	ExternalIPv4Blocks      []string
-	PrivateIPv4CIDRs        []string
-	DefaultIPv4SubnetSize   int
-	DefaultSubnetAccessMode string
-	ShortID                 string
+	IsDefault                  bool
+	Org                        string
+	Name                       string
+	DefaultGatewayPath         string
+	EdgeClusterPath            string
+	NsxtProject                string
+	ExternalIPv4Blocks         []string
+	PrivateIPv4CIDRs           []string
+	DefaultIPv4SubnetSize      int
+	DefaultPodSubnetAccessMode string
+	ShortID                    string
 }

@@ -27,7 +27,7 @@ const (
 	SubnetDeletionTimeout = 300 * time.Second
 )
 
-func verifySubnetSetCR(subnetSet string) bool {
+func verifySubnetSetCR(subnetSet string, subnetType string) bool {
 	vpcNetworkConfig, err := testData.crdClientset.NsxV1alpha1().VPCNetworkConfigurations().Get(context.TODO(), VPCNetworkConfigCRName, v1.GetOptions{})
 	if err != nil {
 		log.Printf("Failed to get VPCNetworkConfiguration %s: %v", VPCNetworkConfigCRName, err)
@@ -38,8 +38,14 @@ func verifySubnetSetCR(subnetSet string) bool {
 		log.Printf("Failed to get %s/%s: %s", E2ENamespace, subnetSet, err)
 		return false
 	}
-	if string(subnetSetCR.Spec.AccessMode) != vpcNetworkConfig.Spec.DefaultSubnetAccessMode {
-		log.Printf("AccessMode is %s, while it's expected to be %s", subnetSetCR.Spec.AccessMode, vpcNetworkConfig.Spec.DefaultSubnetAccessMode)
+	var desiredSubnetType string
+	if subnetType == "" {
+		desiredSubnetType = vpcNetworkConfig.Spec.DefaultPodSubnetAccessMode
+	} else {
+		desiredSubnetType = subnetType
+	}
+	if string(subnetSetCR.Spec.AccessMode) != desiredSubnetType {
+		log.Printf("AccessMode is %s, while it's expected to be %s", subnetSetCR.Spec.AccessMode, desiredSubnetType)
 		return false
 	}
 	if subnetSetCR.Spec.IPv4SubnetSize != vpcNetworkConfig.Spec.DefaultIPv4SubnetSize {
@@ -74,8 +80,8 @@ func defaultSubnetSet(t *testing.T) {
 	assertNil(t, err)
 
 	// 2. Check `Ipv4SubnetSize` and `AccessMode` should be same with related fields in VPCNetworkConfig.
-	assertTrue(t, verifySubnetSetCR(common.DefaultVMSubnetSet))
-	assertTrue(t, verifySubnetSetCR(common.DefaultPodSubnetSet))
+	assertTrue(t, verifySubnetSetCR(common.DefaultVMSubnetSet, "Private"))
+	assertTrue(t, verifySubnetSetCR(common.DefaultPodSubnetSet, ""))
 
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_1.yaml")
 	err = applyYAML(portPath, E2ENamespace)
@@ -157,7 +163,7 @@ func userSubnetSet(t *testing.T) {
 	assertNil(t, err)
 
 	// 2. Check `Ipv4SubnetSize` and `AccessMode` should be same with related fields in VPCNetworkConfig.
-	assertTrue(t, verifySubnetSetCR(UserSubnetSet))
+	assertTrue(t, verifySubnetSetCR(UserSubnetSet, "Private"))
 
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_2.yaml")
 	err = applyYAML(portPath, E2ENamespace)
@@ -186,8 +192,8 @@ func sharedSubnetSet(t *testing.T) {
 	assertNil(t, err)
 
 	// 2. Check `Ipv4SubnetSize` and `AccessMode` should be same with related fields in VPCNetworkConfig.
-	assertTrue(t, verifySubnetSetCR(common.DefaultVMSubnetSet))
-	assertTrue(t, verifySubnetSetCR(common.DefaultPodSubnetSet))
+	assertTrue(t, verifySubnetSetCR(common.DefaultVMSubnetSet, "Private"))
+	assertTrue(t, verifySubnetSetCR(common.DefaultPodSubnetSet, ""))
 
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_3.yaml")
 	err = applyYAML(portPath, E2ENamespaceShared)

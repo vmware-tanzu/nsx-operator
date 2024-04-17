@@ -125,14 +125,13 @@ func TestSecurityPolicyController_updateSecurityPolicyStatusConditions(t *testin
 	}
 }
 
-type fakeRecorder struct{}
+type fakeRecorder struct {
+}
 
 func (recorder fakeRecorder) Event(object runtime.Object, eventtype, reason, message string) {
 }
-
 func (recorder fakeRecorder) Eventf(object runtime.Object, eventtype, reason, messageFmt string, args ...interface{}) {
 }
-
 func (recorder fakeRecorder) AnnotatedEventf(object runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
 }
 
