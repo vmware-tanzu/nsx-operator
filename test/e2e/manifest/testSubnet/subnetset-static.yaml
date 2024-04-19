@@ -1,0 +1,9 @@
+apiVersion: nsx.vmware.com/v1alpha1
+kind: SubnetSet
+metadata:
+  name: user-pod-subnetset-static
+  namespace: subnet-e2e
+spec:
+  advancedConfig:
+    staticIPAllocation:
+      enable: true

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -275,8 +276,22 @@ func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) err
 	return nil
 }
 
-func (service *SubnetService) GetSubnetByKey(key string) *model.VpcSubnet {
-	return service.SubnetStore.GetByKey(key)
+func (service *SubnetService) GetSubnetByKey(key string) (*model.VpcSubnet, error) {
+	nsxSubnet := service.SubnetStore.GetByKey(key)
+	if nsxSubnet == nil {
+		return nil, errors.New("NSX subnet not found in store")
+	}
+	return nsxSubnet, nil
+}
+
+func (service *SubnetService) GetSubnetByPath(path string) (*model.VpcSubnet, error) {
+	pathSlice := strings.Split(path, "/")
+	if len(pathSlice) == 0 {
+		return nil, fmt.Errorf("invalid path '%s' while getting subnet", path)
+	}
+	key := pathSlice[len(pathSlice)-1]
+	nsxSubnet, err := service.GetSubnetByKey(key)
+	return nsxSubnet, err
 }
 
 func (service *SubnetService) ListSubnetID() sets.Set[string] {

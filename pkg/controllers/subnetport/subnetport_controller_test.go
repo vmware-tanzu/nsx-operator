@@ -18,6 +18,7 @@ import (
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,17 +26,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
-
-func NewFakeSubnetPortReconciler() *SubnetPortReconciler {
-	return &SubnetPortReconciler{
-		Client:            fake.NewClientBuilder().Build(),
-		Scheme:            fake.NewClientBuilder().Build().Scheme(),
-		SubnetPortService: nil,
-	}
-}
 
 type fakeRecorder struct {
 }
@@ -60,14 +52,31 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			},
 		},
 	}
+	subnetService := &subnet.SubnetService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{},
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+				},
+			},
+		},
+	}
 	r := &SubnetPortReconciler{
 		Client:            k8sClient,
 		Scheme:            nil,
 		SubnetPortService: service,
+		SubnetService:     subnetService,
 		Recorder:          fakeRecorder{},
 	}
 	ctx := context.Background()
 	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
+	patchesGetSubnetByPath := gomonkey.ApplyFunc((*subnet.SubnetService).GetSubnetByPath,
+		func(s *subnet.SubnetService, nsxSubnetPath string) (*model.VpcSubnet, error) {
+			nsxSubnet := &model.VpcSubnet{}
+			return nsxSubnet, nil
+		})
+	defer patchesGetSubnetByPath.Reset()
 
 	// not found
 	errNotFound := errors.New("not found")
@@ -134,13 +143,12 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 	defer patchesGetSubnetPathForSubnetPort.Reset()
 	patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnetPath string, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
+		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
 			return nil, err
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, err, ret)
-
 	// happy path
 	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(nil)
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
@@ -166,7 +174,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		},
 	}
 	patchesCreateOrUpdateSubnetPort = gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnetPath string, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
+		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
 			return portState, nil
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
@@ -190,7 +198,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 	defer patchesDeleteSubnetPort.Reset()
 	patchesCreateOrUpdateSubnetPort = gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnetPath string, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
+		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
 			assert.FailNow(t, "should not be called")
 			return nil, nil
 		})

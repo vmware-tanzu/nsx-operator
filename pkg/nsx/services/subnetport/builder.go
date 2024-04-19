@@ -20,8 +20,8 @@ var (
 	String = common.String
 )
 
-func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnetPath string, contextID string, labelTags *map[string]string) (*model.VpcSubnetPort, error) {
-	var objName, objNamespace, uid, appId string
+func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labelTags *map[string]string) (*model.VpcSubnetPort, error) {
+	var objName, objNamespace, uid, appId, allocateAddresses string
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
 		objName = o.Name
@@ -33,7 +33,11 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnetPath
 		uid = string(o.UID)
 		appId = string(o.UID)
 	}
-	allocateAddresses := "BOTH"
+	if *nsxSubnet.DhcpConfig.EnableDhcp {
+		allocateAddresses = "DHCP"
+	} else {
+		allocateAddresses = "BOTH"
+	}
 	nsxSubnetPortName := util.GenerateDisplayName(objName, "port", "", "", "")
 	nsxSubnetPortID := util.GenerateID(uid, "", "", "")
 	// use the subnetPort CR UID as the attachment uid generation to ensure the latter stable
@@ -41,7 +45,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnetPath
 	if err != nil {
 		return nil, err
 	}
-	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", nsxSubnetPath, uid)
+	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", *nsxSubnet.Path, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +74,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnetPath
 		},
 		Tags:       tags,
 		Path:       &nsxSubnetPortPath,
-		ParentPath: &nsxSubnetPath,
+		ParentPath: nsxSubnet.Path,
 	}
 	if appId != "" {
 		nsxSubnetPort.Attachment.AppId = &appId
