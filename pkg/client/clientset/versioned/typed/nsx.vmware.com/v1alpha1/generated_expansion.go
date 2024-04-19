@@ -9,6 +9,8 @@ type IPPoolExpansion interface{}
 
 type NSXServiceAccountExpansion interface{}
 
+type NetworkInfoExpansion interface{}
+
 type SecurityPolicyExpansion interface{}
 
 type StaticRouteExpansion interface{}

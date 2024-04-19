@@ -15,6 +15,8 @@ type Interface interface {
 	IPPools() IPPoolInformer
 	// NSXServiceAccounts returns a NSXServiceAccountInformer.
 	NSXServiceAccounts() NSXServiceAccountInformer
+	// NetworkInfos returns a NetworkInfoInformer.
+	NetworkInfos() NetworkInfoInformer
 	// SecurityPolicies returns a SecurityPolicyInformer.
 	SecurityPolicies() SecurityPolicyInformer
 	// StaticRoutes returns a StaticRouteInformer.
@@ -50,6 +52,11 @@ func (v *version) IPPools() IPPoolInformer {
 // NSXServiceAccounts returns a NSXServiceAccountInformer.
 func (v *version) NSXServiceAccounts() NSXServiceAccountInformer {
 	return &nSXServiceAccountInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// NetworkInfos returns a NetworkInfoInformer.
+func (v *version) NetworkInfos() NetworkInfoInformer {
+	return &networkInfoInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // SecurityPolicies returns a SecurityPolicyInformer.

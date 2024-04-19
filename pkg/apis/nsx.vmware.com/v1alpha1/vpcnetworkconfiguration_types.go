@@ -41,12 +41,25 @@ type VPCNetworkConfigurationSpec struct {
 	// Must be Public or Private.
 	// +kubebuilder:validation:Enum=Public;Private
 	DefaultSubnetAccessMode string `json:"defaultSubnetAccessMode,omitempty"`
+	// ShortID specifies Identifier to use when displaying VPC context in logs.
+	// Less than or equal to 8 characters.
+	// +kubebuilder:validation:MaxLength=8
+	// +optional
+	ShortID string `json:"shortID,omitempty"`
 }
 
 // VPCNetworkConfigurationStatus defines the observed state of VPCNetworkConfiguration
 type VPCNetworkConfigurationStatus struct {
-	// Conditions describes current state of VPCNetworkConfiguration.
-	Conditions []Condition `json:"conditions"`
+	// VPCs describes VPC info, now it includes lb Subnet info which are needed for AKO.
+	VPCs []VPCInfo `json:"vpcs,omitempty"`
+}
+
+// VPCInfo defines VPC info needed by tenant admin.
+type VPCInfo struct {
+	// VPC name.
+	Name string `json:"name"`
+	// AVISESubnetPath is the NSX Policy Path for the AVI SE Subnet.
+	AVISESubnetPath string `json:"lbSubnetPath,omitempty"`
 }
 
 // +genclient

@@ -21,6 +21,14 @@ type NSXServiceAccountListerExpansion interface{}
 // NSXServiceAccountNamespaceLister.
 type NSXServiceAccountNamespaceListerExpansion interface{}
 
+// NetworkInfoListerExpansion allows custom methods to be added to
+// NetworkInfoLister.
+type NetworkInfoListerExpansion interface{}
+
+// NetworkInfoNamespaceListerExpansion allows custom methods to be added to
+// NetworkInfoNamespaceLister.
+type NetworkInfoNamespaceListerExpansion interface{}
+
 // SecurityPolicyListerExpansion allows custom methods to be added to
 // SecurityPolicyLister.
 type SecurityPolicyListerExpansion interface{}
