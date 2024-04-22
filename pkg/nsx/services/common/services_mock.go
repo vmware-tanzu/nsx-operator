@@ -8,6 +8,13 @@ type MockVPCServiceProvider struct {
 	mock.Mock
 }
 
+func (m *MockVPCServiceProvider) GetNamespacesByNetworkconfigName(nc string) []string {
+	return nil
+}
+
+func (m *MockVPCServiceProvider) RegisterVPCNetworkConfig(ncCRName string, info VPCNetworkConfigInfo) {
+}
+
 func (m *MockVPCServiceProvider) RegisterNamespaceNetworkconfigBinding(ns string, ncCRName string) {
 	m.Called(ns, ncCRName)
 }

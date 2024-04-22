@@ -40,7 +40,7 @@ func TestIPPoolService_ListIPPoolID(t *testing.T) {
 }
 
 func TestIPPoolService_acquireCidr(t *testing.T) {
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),
@@ -108,7 +108,7 @@ func TestIPPoolService_DeleteIPPool(t *testing.T) {
 }
 
 func TestIPPoolService_AcquireRealizedSubnetIP(t *testing.T) {
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),
@@ -154,7 +154,7 @@ func TestIPPoolService_AcquireRealizedSubnetIP(t *testing.T) {
 }
 
 func TestIPPoolService_CRUDResource(t *testing.T) {
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),
@@ -246,7 +246,7 @@ func TestIPPoolService_CreateOrUpdateIPPool(t *testing.T) {
 	var vpcinfo = []common.VPCResourceInfo{
 		{PrivateIpv4Blocks: []string{"/infra/ip-blocks/block-test"}},
 	}
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),

@@ -33,10 +33,6 @@ var (
 	vpcID3            = "ns-vpc-uid-3"
 	IPv4Type          = "IPv4"
 	cluster           = "k8scl-one"
-	tagScopeVPCCRName = common.TagScopeVPCCRName
-	tagScopeVPCCRUID  = common.TagScopeVPCCRUID
-	tagValueVPCCRName = "vpcA"
-	tagValueVPCCRUID  = "uidA"
 	tagScopeCluster   = common.TagScopeCluster
 	tagScopeNamespace = common.TagScopeNamespace
 )
@@ -174,7 +170,7 @@ func TestGetDefaultNetworkConfig(t *testing.T) {
 }
 
 func TestGetVPCsByNamespace(t *testing.T) {
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),
@@ -202,14 +198,6 @@ func TestGetVPCsByNamespace(t *testing.T) {
 			Scope: &tagScopeNamespace,
 			Tag:   &ns1,
 		},
-		{
-			Scope: &tagScopeVPCCRName,
-			Tag:   &tagValueVPCCRName,
-		},
-		{
-			Scope: &tagScopeVPCCRUID,
-			Tag:   &tagValueVPCCRUID,
-		},
 	}
 	ns2 := "test-ns-2"
 	tag2 := []model.Tag{
@@ -221,14 +209,6 @@ func TestGetVPCsByNamespace(t *testing.T) {
 			Scope: &tagScopeNamespace,
 			Tag:   &ns2,
 		},
-		{
-			Scope: &tagScopeVPCCRName,
-			Tag:   &tagValueVPCCRName,
-		},
-		{
-			Scope: &tagScopeVPCCRUID,
-			Tag:   &tagValueVPCCRUID,
-		},
 	}
 	infraNs := "kube-system"
 	tag3 := []model.Tag{
@@ -239,14 +219,6 @@ func TestGetVPCsByNamespace(t *testing.T) {
 		{
 			Scope: &tagScopeNamespace,
 			Tag:   &infraNs,
-		},
-		{
-			Scope: &tagScopeVPCCRName,
-			Tag:   &tagValueVPCCRName,
-		},
-		{
-			Scope: &tagScopeVPCCRUID,
-			Tag:   &tagValueVPCCRUID,
 		},
 	}
 	vpc1 := model.Vpc{
@@ -433,14 +405,6 @@ func TestCreateOrUpdateAVIRule(t *testing.T) {
 		{
 			Scope: &tagScopeNamespace,
 			Tag:   &ns1,
-		},
-		{
-			Scope: &tagScopeVPCCRName,
-			Tag:   &tagValueVPCCRName,
-		},
-		{
-			Scope: &tagScopeVPCCRUID,
-			Tag:   &tagValueVPCCRUID,
 		},
 	}
 	path1 := "/orgs/default/projects/project_1/vpcs/vpc1"

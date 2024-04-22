@@ -4,31 +4,19 @@
 package namespace
 
 import (
-	"context"
 	"errors"
 	"reflect"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
-)
-
-var (
-	BuildVPCCRFunc = BuildVPCCR
 )
 
 func createNameSpaceReconciler() *NamespaceReconciler {
@@ -120,112 +108,4 @@ func TestInsertNamespaceNetworkconfigBinding(t *testing.T) {
 			patch.Reset()
 		})
 	}
-}
-
-func TestCreateVPCCR(t *testing.T) {
-	r := createNameSpaceReconciler()
-	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
-	ctx := context.Background()
-	r.Client = k8sClient
-	namespace := v1.Namespace{}
-	vpcList1 := &v1alpha1.VPCList{Items: []v1alpha1.VPC{{ObjectMeta: metav1.ObjectMeta{Name: "fake-name1"}}, {}}}
-	vpcs := &v1alpha1.VPCList{}
-	k8sClient.EXPECT().List(gomock.Any(), vpcs, client.InNamespace("test-ns")).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		list.(*v1alpha1.VPCList).Items = vpcList1.Items
-		return nil
-	})
-	target, err := r.createVPCCR(&ctx, &namespace, "test-ns", "test-nc", nil)
-	assert.Equal(t, target.Name, "fake-name1")
-	assert.Nil(t, err)
-
-	vpcs = &v1alpha1.VPCList{}
-	k8sClient.EXPECT().List(gomock.Any(), vpcs, client.InNamespace("test-ns")).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		list.(*v1alpha1.VPCList).Items = []v1alpha1.VPC{}
-		return nil
-	})
-	patch1 := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfig", func(_ *vpc.VPCService, ncName string) (common.VPCNetworkConfigInfo, bool) {
-		return common.VPCNetworkConfigInfo{}, false
-	})
-	patch2 := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "namespaceError", func(_ *NamespaceReconciler, _ *context.Context, _ client.Object, _ string, _ error) {
-	})
-	target, err = r.createVPCCR(&ctx, &namespace, "test-ns", "test-nc", nil)
-	assert.Nil(t, target)
-	assert.NotNil(t, err)
-	patch1.Reset()
-	patch2.Reset()
-
-	vpcs = &v1alpha1.VPCList{}
-	k8sClient.EXPECT().List(gomock.Any(), vpcs, client.InNamespace("test-ns")).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		list.(*v1alpha1.VPCList).Items = []v1alpha1.VPC{}
-		return nil
-	})
-	patch1 = gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfig", func(_ *vpc.VPCService, ncName string) (common.VPCNetworkConfigInfo, bool) {
-		return common.VPCNetworkConfigInfo{}, true
-	})
-	patch2 = gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "namespaceError", func(_ *NamespaceReconciler, _ *context.Context, _ client.Object, _ string, _ error) {
-	})
-	patch3 := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "ValidateNetworkConfig", func(_ *vpc.VPCService, nc common.VPCNetworkConfigInfo) bool {
-		return false
-	})
-	target, err = r.createVPCCR(&ctx, &namespace, "test-ns", "test-nc", nil)
-	assert.Nil(t, target)
-	assert.NotNil(t, err)
-	patch1.Reset()
-	patch2.Reset()
-	patch3.Reset()
-
-	vpcs = &v1alpha1.VPCList{}
-	mockVPC := &v1alpha1.VPC{}
-	mockVPC.SetName("test-vpc")
-	buildVPCPatch := gomonkey.ApplyFuncReturn(BuildVPCCR, mockVPC)
-
-	k8sClient.EXPECT().List(gomock.Any(), vpcs, client.InNamespace("test-ns")).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		list.(*v1alpha1.VPCList).Items = []v1alpha1.VPC{}
-		return nil
-	})
-	k8sClient.EXPECT().Create(gomock.Any(), mockVPC, gomock.Any()).Return(errors.New("create-err")).Do(func(_ context.Context, _ client.Object, _ ...client.CreateOption) error {
-		return errors.New("create vpc cr error")
-	})
-	patch1 = gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfig", func(_ *vpc.VPCService, ncName string) (common.VPCNetworkConfigInfo, bool) {
-		return common.VPCNetworkConfigInfo{}, true
-	})
-	patch2 = gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "namespaceError", func(_ *NamespaceReconciler, _ *context.Context, _ client.Object, _ string, _ error) {
-	})
-	patch3 = gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "ValidateNetworkConfig", func(_ *vpc.VPCService, nc common.VPCNetworkConfigInfo) bool {
-		return true
-	})
-	target, err = r.createVPCCR(&ctx, &namespace, "test-ns", "test-nc", nil)
-	assert.Nil(t, target)
-	assert.NotNil(t, err)
-	patch1.Reset()
-	patch2.Reset()
-	patch3.Reset()
-
-	vpcs = &v1alpha1.VPCList{}
-	k8sClient.EXPECT().List(gomock.Any(), vpcs, client.InNamespace("test-ns")).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		list.(*v1alpha1.VPCList).Items = []v1alpha1.VPC{}
-		return nil
-	})
-	k8sClient.EXPECT().Create(gomock.Any(), mockVPC, gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.Object, _ ...client.CreateOption) error {
-		return nil
-	})
-	patch1 = gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfig", func(_ *vpc.VPCService, ncName string) (common.VPCNetworkConfigInfo, bool) {
-		return common.VPCNetworkConfigInfo{}, true
-	})
-	patch2 = gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "namespaceError", func(_ *NamespaceReconciler, _ *context.Context, _ client.Object, _ string, _ error) {
-	})
-	patch3 = gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "ValidateNetworkConfig", func(_ *vpc.VPCService, nc common.VPCNetworkConfigInfo) bool {
-		return true
-	})
-	patchUtil := gomonkey.ApplyFuncReturn(util.UpdateK8sResourceAnnotation, nil)
-	target, err = r.createVPCCR(&ctx, &namespace, "test-ns", "test-nc", nil)
-	assert.Equal(t, target.GetName(), "test-vpc")
-	assert.Nil(t, err)
-
-	patch1.Reset()
-	patch2.Reset()
-	patch3.Reset()
-	buildVPCPatch.Reset()
-	patchUtil.Reset()
 }

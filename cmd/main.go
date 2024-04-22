@@ -24,6 +24,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	ippool2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/ippool"
 	namespacecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/namespace"
+	networkinfocontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/networkinfo"
 	networkpolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/networkpolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/node"
 	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
@@ -34,7 +35,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetset"
-	vpccontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/vpc"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -120,15 +120,15 @@ func StartIPPoolController(mgr ctrl.Manager, ipPoolService *ippool.IPPoolService
 	}
 }
 
-func StartVPCController(mgr ctrl.Manager, vpcService *vpc.VPCService) {
-	vpcReconciler := &vpccontroller.VPCReconciler{
+func StartNetworkInfoController(mgr ctrl.Manager, vpcService *vpc.VPCService) {
+	networkInfoReconciler := &networkinfocontroller.NetworkInfoReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("vpc-controller"),
+		Recorder: mgr.GetEventRecorderFor("networkinfo-controller"),
 	}
-	vpcReconciler.Service = vpcService
-	if err := vpcReconciler.Start(mgr); err != nil {
-		log.Error(err, "failed to create vpc controller", "controller", "VPC")
+	networkInfoReconciler.Service = vpcService
+	if err := networkInfoReconciler.Start(mgr); err != nil {
+		log.Error(err, "failed to create networkinfo controller", "controller", "NetworkInfo")
 		os.Exit(1)
 	}
 }
@@ -218,7 +218,7 @@ func main() {
 			os.Exit(1)
 		}
 		// Start controllers which only supports VPC
-		StartVPCController(mgr, vpcService)
+		StartNetworkInfoController(mgr, vpcService)
 		StartNamespaceController(mgr, cf, vpcService)
 		// Start subnet/subnetset controller.
 		if err := subnet.StartSubnetController(mgr, subnetService, subnetPortService, vpcService); err != nil {
