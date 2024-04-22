@@ -1,7 +1,7 @@
 /* Copyright © 2023 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
-package vpc
+package networkinfo
 
 import (
 	"context"
@@ -27,44 +27,42 @@ import (
 )
 
 var (
-	log                     = logger.Log
-	ResultNormal            = common.ResultNormal
-	ResultRequeue           = common.ResultRequeue
-	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
-	MetricResType           = common.MetricResTypeVPC
+	log           = logger.Log
+	MetricResType = common.MetricResTypeNetworkInfo
 )
 
-// VPCReconciler VPCReconcile reconciles a VPC object
-type VPCReconciler struct {
+// NetworkInfoReconciler NetworkInfoReconcile reconciles a NetworkInfo object
+// Actually it is more like a shell, which is used to manage nsx VPC
+type NetworkInfoReconciler struct {
 	Client   client.Client
 	Scheme   *apimachineryruntime.Scheme
 	Service  *vpc.VPCService
 	Recorder record.EventRecorder
 }
 
-func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	obj := &v1alpha1.VPC{}
-	log.Info("reconciling VPC CR", "VPC", req.NamespacedName)
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, common.MetricResTypeVPC)
+func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	obj := &v1alpha1.NetworkInfo{}
+	log.Info("reconciling NetworkInfo CR", "NetworkInfo", req.NamespacedName)
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, common.MetricResTypeNetworkInfo)
 
 	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
-		log.Error(err, "unable to fetch VPC CR", "req", req.NamespacedName)
+		log.Error(err, "unable to fetch NetworkInfo CR", "req", req.NamespacedName)
 		return common.ResultNormal, client.IgnoreNotFound(err)
 	}
 
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
-		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, common.MetricResTypeVPC)
-		if !controllerutil.ContainsFinalizer(obj, commonservice.VPCFinalizerName) {
-			controllerutil.AddFinalizer(obj, commonservice.VPCFinalizerName)
+		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, common.MetricResTypeNetworkInfo)
+		if !controllerutil.ContainsFinalizer(obj, commonservice.NetworkInfoFinalizerName) {
+			controllerutil.AddFinalizer(obj, commonservice.NetworkInfoFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
-				log.Error(err, "add finalizer", "VPC", req.NamespacedName)
+				log.Error(err, "add finalizer", "NetworkInfo", req.NamespacedName)
 				updateFail(r, &ctx, obj, &err, r.Client)
 				return common.ResultRequeue, err
 			}
-			log.V(1).Info("added finalizer on VPC CR", "VPC", req.NamespacedName)
+			log.V(1).Info("added finalizer on NetworkInfo CR", "NetworkInfo", req.NamespacedName)
 		}
 
-		createdVpc, nc, err := r.Service.CreateorUpdateVPC(obj)
+		createdVpc, nc, err := r.Service.CreateOrUpdateVPC(obj)
 		if err != nil {
 			log.Error(err, "operate failed, would retry exponentially", "VPC", req.NamespacedName)
 			updateFail(r, &ctx, obj, &err, r.Client)
@@ -72,7 +70,7 @@ func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 		err = r.Service.CreateOrUpdateAVIRule(createdVpc, obj.Namespace)
 		if err != nil {
-			log.Error(err, "operate failed, would retry exponentially", "VPC", req.NamespacedName)
+			log.Error(err, "operate failed, would retry exponentially", "NetworkInfo", req.NamespacedName)
 			updateFail(r, &ctx, obj, &err, r.Client)
 			return common.ResultRequeueAfter10sec, err
 		}
@@ -83,7 +81,7 @@ func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		if *createdVpc.ServiceGateway.AutoSnat {
 			snatIP, err = r.Service.GetDefaultSNATIP(*createdVpc)
 			if err != nil {
-				log.Error(err, "failed to read default SNAT ip from VPC", "VPC", createdVpc.Id)
+				log.Error(err, "failed to read default SNAT ip from NetworkInfo", "NetworkInfo", createdVpc.Id)
 				return common.ResultRequeueAfter10sec, err
 			}
 		}
@@ -94,15 +92,15 @@ func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		if createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
 			path, cidr, err = r.Service.GetAVISubnetInfo(*createdVpc)
 			if err != nil {
-				log.Error(err, "failed to read lb subnet path and cidr", "VPC", createdVpc.Id)
+				log.Error(err, "failed to read lb subnet path and cidr", "NetworkInfo", createdVpc.Id)
 				return common.ResultRequeueAfter10sec, err
 			}
 		}
 
-		updateSuccess(r, &ctx, obj, r.Client, *createdVpc.Path, snatIP, path, cidr, nc.PrivateIPv4CIDRs)
+		updateSuccess(r, &ctx, obj, r.Client, *createdVpc.DisplayName, *createdVpc.Path, snatIP, path, cidr, nc.PrivateIPv4CIDRs, nc.Name)
 	} else {
-		if controllerutil.ContainsFinalizer(obj, commonservice.VPCFinalizerName) {
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeVPC)
+		if controllerutil.ContainsFinalizer(obj, commonservice.NetworkInfoFinalizerName) {
+			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNetworkInfo)
 			vpcs := r.Service.GetVPCsByNamespace(obj.GetNamespace())
 			// if nsx resource do not exist, continue to remove finalizer, or the crd can not be removed
 			if len(vpcs) == 0 {
@@ -121,7 +119,7 @@ func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				}
 			}
 
-			controllerutil.RemoveFinalizer(obj, commonservice.VPCFinalizerName)
+			controllerutil.RemoveFinalizer(obj, commonservice.NetworkInfoFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				deleteFail(r, &ctx, obj, &err, r.Client)
 				return common.ResultRequeue, err
@@ -136,9 +134,9 @@ func (r *VPCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	return common.ResultNormal, nil
 }
 
-func (r *VPCReconciler) setupWithManager(mgr ctrl.Manager) error {
+func (r *NetworkInfoReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.VPC{}).
+		For(&v1alpha1.NetworkInfo{}).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
@@ -157,7 +155,7 @@ func (r *VPCReconciler) setupWithManager(mgr ctrl.Manager) error {
 }
 
 // Start setup manager and launch GC
-func (r *VPCReconciler) Start(mgr ctrl.Manager) error {
+func (r *NetworkInfoReconciler) Start(mgr ctrl.Manager) error {
 	err := r.setupWithManager(mgr)
 	if err != nil {
 		return err
@@ -167,9 +165,9 @@ func (r *VPCReconciler) Start(mgr ctrl.Manager) error {
 	return nil
 }
 
-// GarbageCollector collect vpc which has been removed from crd.
+// GarbageCollector collect vpc which has been removed from networkInfo crd.
 // cancel is used to break the loop during UT
-func (r *VPCReconciler) GarbageCollector(cancel chan bool, timeout time.Duration) {
+func (r *NetworkInfoReconciler) GarbageCollector(cancel chan bool, timeout time.Duration) {
 	ctx := context.Background()
 	log.Info("VPC garbage collector started")
 	for {
@@ -183,30 +181,32 @@ func (r *VPCReconciler) GarbageCollector(cancel chan bool, timeout time.Duration
 			continue
 		}
 
-		crdVPCList := &v1alpha1.VPCList{}
-		err := r.Client.List(ctx, crdVPCList)
+		networkInfoList := &v1alpha1.NetworkInfoList{}
+		err := r.Client.List(ctx, networkInfoList)
 		if err != nil {
-			log.Error(err, "failed to list VPC CR")
+			log.Error(err, "failed to list NetworkInfo CR")
 			continue
 		}
 
-		crdVPCSet := sets.NewString()
-		for _, vc := range crdVPCList.Items {
-			crdVPCSet.Insert(string(vc.UID))
+		crdNetworkInfoVPCStateSet := sets.NewString()
+		for _, networkInfo := range networkInfoList.Items {
+			for _, vpcState := range networkInfo.VPCs {
+				crdNetworkInfoVPCStateSet.Insert(vpcState.VPCPath)
+			}
 		}
 
 		for _, elem := range nsxVPCList {
-			if crdVPCSet.Has(*elem.Id) {
+			if crdNetworkInfoVPCStateSet.Has(*elem.Path) {
 				continue
 			}
 
 			log.V(1).Info("GC collected nsx VPC object", "ID", elem.Id)
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeVPC)
+			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNetworkInfo)
 			err = r.Service.DeleteVPC(*elem.Path)
 			if err != nil {
-				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeVPC)
+				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeNetworkInfo)
 			} else {
-				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeVPC)
+				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeNetworkInfo)
 				if err := r.Service.DeleteIPBlockInVPC(elem); err != nil {
 					log.Error(err, "failed to delete private ip blocks for VPC", "VPC", *elem.DisplayName)
 				}

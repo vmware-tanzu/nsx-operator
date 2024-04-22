@@ -2,9 +2,7 @@ module github.com/vmware-tanzu/nsx-operator
 
 go 1.21
 
-replace (
-	github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
-)
+replace github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
 
 require (
 	github.com/agiledragon/gomonkey/v2 v2.9.0

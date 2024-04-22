@@ -89,7 +89,7 @@ func Test_InitializeVPCStore(t *testing.T) {
 	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config2)
 	rc, _ := cluster.NewRestConnector()
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeNetworkInfoCRUID: indexFunc})
 	vpcStore := &VPCStore{ResourceStore: common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),
@@ -134,11 +134,11 @@ func Test_InitializeVPCStore(t *testing.T) {
 
 	service.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, vpcStore)
 	assert.Empty(t, fatalErrors)
-	assert.Equal(t, sets.New[string](), vpcStore.ListIndexFuncValues(common.TagScopeVPCCRUID))
+	assert.Equal(t, sets.New[string](), vpcStore.ListIndexFuncValues(common.TagScopeNetworkInfoCRUID))
 }
 
 func TestVPCStore_CRUDResource(t *testing.T) {
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeNetworkInfoCRUID: indexFunc})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),
@@ -162,7 +162,7 @@ func TestVPCStore_CRUDResource(t *testing.T) {
 }
 
 func TestVPCStore_CRUDResource_List(t *testing.T) {
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeNetworkInfoCRUID: indexFunc})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),

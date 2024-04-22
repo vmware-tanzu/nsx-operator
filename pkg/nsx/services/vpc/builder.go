@@ -21,7 +21,7 @@ func generateIPBlockKey(block model.IpAddressBlock) string {
 	cidr := block.Cidr
 	vpc_uid := ""
 	for _, tag := range block.Tags {
-		if *tag.Scope == common.TagScopeVPCCRUID {
+		if *tag.Scope == common.TagScopeNetworkInfoCRUID {
 			vpc_uid = *tag.Tag
 		}
 	}
@@ -32,15 +32,15 @@ func generateIPBlockSearchKey(cidr string, vpcCRUID string) string {
 	return cidr + "_" + vpcCRUID
 }
 
-func buildPrivateIpBlock(vpc *v1alpha1.VPC, cidr, ip, project, cluster string) model.IpAddressBlock {
-	suffix := vpc.GetNamespace() + "-" + vpc.Name + "-" + ip
+func buildPrivateIpBlock(networkInfo *v1alpha1.NetworkInfo, cidr, ip, project, cluster string) model.IpAddressBlock {
+	suffix := networkInfo.GetNamespace() + "-" + networkInfo.Name + "-" + ip
 	addr, _ := netip.ParseAddr(ip)
 	ipType := util.If(addr.Is4(), model.IpAddressBlock_IP_ADDRESS_TYPE_IPV4, model.IpAddressBlock_IP_ADDRESS_TYPE_IPV6).(string)
 	blockType := model.IpAddressBlock_VISIBILITY_PRIVATE
 	block := model.IpAddressBlock{
 		DisplayName:   common.String(util.GenerateDisplayName("ipblock", "", suffix, "", cluster)),
-		Id:            common.String(string(vpc.UID) + "_" + ip),
-		Tags:          util.BuildBasicTags(cluster, vpc, ""), // ipblock and vpc can use the same tags
+		Id:            common.String(string(networkInfo.UID) + "_" + ip),
+		Tags:          util.BuildBasicTags(cluster, networkInfo, ""), // ipblock and vpc can use the same tags
 		Cidr:          &cidr,
 		IpAddressType: &ipType,
 		Visibility:    &blockType,
@@ -49,7 +49,9 @@ func buildPrivateIpBlock(vpc *v1alpha1.VPC, cidr, ip, project, cluster string) m
 	return block
 }
 
-func buildNSXVPC(obj *v1alpha1.VPC, nc common.VPCNetworkConfigInfo, cluster string, pathMap map[string]string, nsxVPC *model.Vpc) (*model.Vpc, error) {
+func buildNSXVPC(obj *v1alpha1.NetworkInfo, nc common.VPCNetworkConfigInfo, cluster string, pathMap map[string]string, nsxVPC *model.Vpc,
+	sharedVPCName string) (*model.Vpc,
+	error) {
 	vpc := &model.Vpc{}
 	if nsxVPC != nil {
 		// for upgrade case, only check public/private ip block size changing
@@ -61,7 +63,10 @@ func buildNSXVPC(obj *v1alpha1.VPC, nc common.VPCNetworkConfigInfo, cluster stri
 		vpc = nsxVPC
 	} else {
 		// for creating vpc case, fill in vpc properties based on networkconfig
-		vpcName := util.GenerateDisplayName(obj.Name, obj.GetNamespace(), cluster, "", "")
+		vpcName := sharedVPCName
+		if sharedVPCName == "" {
+			vpcName = util.GenerateDisplayName(obj.Name, obj.GetNamespace(), cluster, "", "")
+		}
 		vpc.DisplayName = &vpcName
 		vpc.Id = common.String(string(obj.GetUID()))
 		vpc.DefaultGatewayPath = &nc.DefaultGatewayPath

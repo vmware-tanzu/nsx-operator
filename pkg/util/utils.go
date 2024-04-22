@@ -44,7 +44,7 @@ var (
 		common.TagScopeNetworkPolicyName, common.TagScopeNetworkPolicyUID,
 		common.TagScopeSubnetCRName, common.TagScopeSubnetCRUID,
 		common.TagScopeSubnetPortCRName, common.TagScopeSubnetPortCRUID,
-		common.TagScopeVPCCRName, common.TagScopeVPCCRUID,
+		common.TagScopeNetworkInfoCRName, common.TagScopeNetworkInfoCRUID,
 		common.TagScopeIPPoolCRName, common.TagScopeIPPoolCRUID,
 		common.TagScopeSubnetSetCRName, common.TagScopeSubnetSetCRUID,
 	}
@@ -472,10 +472,10 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopePodName), Tag: String(i.ObjectMeta.Name)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopePodUID), Tag: String(string(i.UID))})
-	case *v1alpha1.VPC:
+	case *v1alpha1.NetworkInfo:
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
-		tags = append(tags, model.Tag{Scope: String(common.TagScopeVPCCRName), Tag: String(i.ObjectMeta.Name)})
-		tags = append(tags, model.Tag{Scope: String(common.TagScopeVPCCRUID), Tag: String(string(i.UID))})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNetworkInfoCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNetworkInfoCRUID), Tag: String(string(i.UID))})
 	case *v1alpha2.IPPool:
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeIPPoolCRName), Tag: String(i.ObjectMeta.Name)})

@@ -16,6 +16,7 @@ const (
 	MetricResTypeSubnet            = "subnet"
 	MetricResTypeSubnetSet         = "subnetset"
 	MetricResTypeVPC               = "vpc"
+	MetricResTypeNetworkInfo       = "networkinfo"
 	MetricResTypeNamespace         = "namespace"
 	MetricResTypePod               = "pod"
 	MetricResTypeNode              = "node"

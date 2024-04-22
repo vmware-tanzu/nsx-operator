@@ -33,8 +33,8 @@ var (
 	vpcID3            = "ns-vpc-uid-3"
 	IPv4Type          = "IPv4"
 	cluster           = "k8scl-one"
-	tagScopeVPCCRName = common.TagScopeVPCCRName
-	tagScopeVPCCRUID  = common.TagScopeVPCCRUID
+	tagScopeVPCCRName = common.TagScopeNetworkInfoCRName
+	tagScopeVPCCRUID  = common.TagScopeNetworkInfoCRUID
 	tagValueVPCCRName = "vpcA"
 	tagValueVPCCRUID  = "uidA"
 	tagScopeCluster   = common.TagScopeCluster
@@ -174,7 +174,7 @@ func TestGetDefaultNetworkConfig(t *testing.T) {
 }
 
 func TestGetVPCsByNamespace(t *testing.T) {
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeNetworkInfoCRUID: indexFunc})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),

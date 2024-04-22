@@ -29,8 +29,7 @@ import (
 
 var (
 	AnnotationNamespaceVPCError = " nsx.vmware.com/vpc_error"
-
-	log = logger.Log
+	log                         = logger.Log
 )
 
 // NamespaceReconciler process namespace create/delete event
@@ -51,14 +50,13 @@ func (r *NamespaceReconciler) getDefaultNetworkConfigName() (string, error) {
 	return nc.Name, nil
 }
 
-func (r *NamespaceReconciler) createVPCCR(ctx *context.Context, obj client.Object, ns string, ncName string, vpcName *string) (*v1alpha1.VPC, error) {
-	// check if vpc cr already exist under this namespace
-	vpcs := &v1alpha1.VPCList{}
-	r.Client.List(*ctx, vpcs, client.InNamespace(ns))
-	if len(vpcs.Items) > 0 {
-		// if there is already one vpc exist under this ns, return this vpc.
-		log.Info("vpc cr already exist, skip creating", "VPC", vpcs.Items[0].Name)
-		return &vpcs.Items[0], nil
+func (r *NamespaceReconciler) createNetworkInfoCR(ctx *context.Context, obj client.Object, ns string, ncName string) (*v1alpha1.NetworkInfo, error) {
+	networkInfos := &v1alpha1.NetworkInfoList{}
+	r.Client.List(*ctx, networkInfos, client.InNamespace(ns))
+	if len(networkInfos.Items) > 0 {
+		// if there is already one networkInfo, return this networkInfo
+		log.Info("networkInfo already exists", "networkInfo", networkInfos.Items[0].Name, "Namespace", ns)
+		return &networkInfos.Items[0], nil
 	}
 	nc, ncExist := r.VPCService.GetVPCNetworkConfig(ncName)
 	if !ncExist {
@@ -73,22 +71,21 @@ func (r *NamespaceReconciler) createVPCCR(ctx *context.Context, obj client.Objec
 		return nil, errors.New(message)
 	}
 
-	// create vpc cr with existing vpc network config
-	vpcCR := BuildVPCCR(ns, ncName, vpcName)
-	err := r.Client.Create(*ctx, vpcCR)
+	// create networkInfo cr with existing vpc network config
+	log.V(2).Info("building networkInfo", "ns", ns)
+	networkInfoCR := &v1alpha1.NetworkInfo{}
+	networkInfoCR.Name = ns
+	networkInfoCR.Namespace = ns
+	networkInfoCR.VPCs = []v1alpha1.VPCState{}
+	err := r.Client.Create(*ctx, networkInfoCR)
 	if err != nil {
-		message := "failed to create VPC CR"
+		message := "failed to create or update NetworkInfo CR"
 		r.namespaceError(ctx, obj, message, err)
-		// If create VPC CR failed, put ns create event back to queue.
+		// If create NetworkInfo CR failed, put ns create event back to queue.
 		return nil, err
 	}
-
-	changes := map[string]string{
-		AnnotationNamespaceVPCError: "",
-	}
-	util.UpdateK8sResourceAnnotation(r.Client, ctx, obj, changes)
-	log.Info("create VPC CR", "VPC", vpcCR.Name, "Namespace", vpcCR.Namespace)
-	return vpcCR, nil
+	log.Info("create NetworkInfo CR", "NetworkInfo", networkInfoCR.Name, "Namespace", networkInfoCR.Namespace)
+	return networkInfoCR, nil
 }
 
 func (r *NamespaceReconciler) createDefaultSubnetSet(ns string) error {
@@ -211,30 +208,19 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			log.Error(err, "failed to build namespace and network config bindings", "Namepspace", ns)
 			return common.ResultRequeueAfter10sec, nil
 		}
-		// read anno "nsx.vmware.com/vpc_name", if ns contains this annotation, it means it will share
-		// infra VPC, if the ns in the annotation is the same as ns event, create infra VPC, if not,
-		// skip the event.
+		// read anno "nsx.vmware.com/vpc_name", if ns contains this annotation, it means it will share infra VPC
 		ncName, ncExist := annotations[types.AnnotationVPCNetworkConfig]
 		vpcName, nameExist := annotations[types.AnnotationVPCName]
-		var createVpcName *string
 		if nameExist {
-			log.Info("read ns annotation vpcName", "VPCNAME", vpcName)
+			log.Info("read ns annotation networkInfoName", "VPCNAME", vpcName)
 			res := strings.Split(vpcName, "/")
 			// The format should be namespace/vpc_name
 			if len(res) != 2 {
-				message := fmt.Sprintf("incorrect vpcName annotation %s for namespace %s", vpcName, ns)
+				message := fmt.Sprintf("incorrect networkInfoName annotation %s for namespace %s", vpcName, ns)
 				r.namespaceError(&ctx, obj, message, nil)
 				// If illegal format, skip handling this event?
 				return common.ResultNormal, nil
 			}
-			log.Info("start to handle vpcName anno", "VPCNS", res[1], "NS", ns)
-
-			if ns != res[0] {
-				log.Info("name space is using shared vpc, with vpc name anno", "VPCNAME", vpcName, "Namespace", ns)
-				return common.ResultNormal, nil
-			}
-			createVpcName = &res[1]
-			log.Info("creating vpc using customer defined vpc name", "VPCName", res[1])
 		}
 
 		// If ns do not have network config name tag, then use default vpc network config name
@@ -247,7 +233,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			}
 		}
 
-		if _, err := r.createVPCCR(&ctx, obj, ns, ncName, createVpcName); err != nil {
+		if _, err := r.createNetworkInfoCR(&ctx, obj, ns, ncName); err != nil {
 			return common.ResultRequeueAfter10sec, nil
 		}
 		if err := r.createDefaultSubnetSet(ns); err != nil {
