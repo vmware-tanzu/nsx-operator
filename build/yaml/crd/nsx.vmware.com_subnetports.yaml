@@ -16,16 +16,16 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - description: Attachment VIF ID owned by the SubnetPort
-      jsonPath: .status.vifID
+    - description: Attachment VIF ID owned by the SubnetPort.
+      jsonPath: .status.attachment.id
       name: VIFID
       type: string
-    - description: IP Address of the SubnetPort
-      jsonPath: .status.ipAddresses[0].ip
+    - description: IP address string with the prefix.
+      jsonPath: .status.networkInterfaceConfig.ipAddresses[0].ipAddress
       name: IPAddress
       type: string
-    - description: MAC Address of the SubnetPort
-      jsonPath: .status.macAddress
+    - description: MAC Address of the SubnetPort.
+      jsonPath: .status.networkInterfaceConfig.macAddress
       name: MACAddress
       type: string
     name: v1alpha1
@@ -58,6 +58,12 @@ spec:
           status:
             description: SubnetPortStatus defines the observed state of SubnetPort.
             properties:
+              attachment:
+                description: Subnet port attachment state.
+                properties:
+                  id:
+                    type: string
+                type: object
               conditions:
                 description: Conditions describes current state of SubnetPort.
                 items:
@@ -87,28 +93,23 @@ spec:
                   - type
                   type: object
                 type: array
-              ipAddresses:
-                description: IPAddresses describes the IP addresses of the SubnetPort.
-                items:
-                  properties:
-                    gateway:
-                      type: string
-                    ip:
-                      type: string
-                    netmask:
-                      type: string
-                  type: object
-                type: array
-              logicalSwitchID:
-                description: LogicalSwitchID defines the logical switch ID in NSX-T.
-                type: string
-              macAddress:
-                description: MACAddress describes the MAC address of the SubnetPort.
-                type: string
-              vifID:
-                description: VIFID describes the attachment VIF ID owned by the SubnetPort
-                  in NSX-T.
-                type: string
+              networkInterfaceConfig:
+                properties:
+                  ipAddresses:
+                    items:
+                      properties:
+                        gateway:
+                          type: string
+                        ipAddress:
+                          description: IP address string with the prefix.
+                          type: string
+                      type: object
+                    type: array
+                  logicalSwitchUUID:
+                    type: string
+                  macAddress:
+                    type: string
+                type: object
             type: object
         type: object
     served: true

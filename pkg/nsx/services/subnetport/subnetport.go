@@ -226,37 +226,33 @@ func (service *SubnetPortService) ListNSXSubnetPortIDForPod() sets.Set[string] {
 	return subnetPortSet
 }
 
-func (service *SubnetPortService) GetGatewayNetmaskForSubnetPort(obj *v1alpha1.SubnetPort, nsxSubnetPath string) (string, string, error) {
-	// TODO: merge the logic to subnet service when subnet implementation is done.
+// TODO: merge the logic to subnet service when subnet implementation is done.
+func (service *SubnetPortService) GetGatewayPrefixForSubnetPort(obj *v1alpha1.SubnetPort, nsxSubnetPath string) (string, int, error) {
 	subnetInfo, err := servicecommon.ParseVPCResourcePath(nsxSubnetPath)
 	if err != nil {
-		return "", "", err
+		return "", -1, err
 	}
 	// TODO: if the port is not the first on the same subnet, try to get the info from existing realized subnetport CR to avoid query NSX API again.
 	statusList, err := service.NSXClient.SubnetStatusClient.List(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID)
 	if err != nil {
 		log.Error(err, "failed to get subnet status")
-		return "", "", err
+		return "", -1, err
 	}
 	if len(statusList.Results) == 0 {
 		err := errors.New("empty status result")
 		log.Error(err, "no subnet status found")
-		return "", "", err
+		return "", -1, err
 	}
 	status := statusList.Results[0]
 	gateway, err := util.RemoveIPPrefix(*status.GatewayAddress)
 	if err != nil {
-		return "", "", err
+		return "", -1, err
 	}
 	prefix, err := util.GetIPPrefix(*status.GatewayAddress)
 	if err != nil {
-		return "", "", err
+		return "", -1, err
 	}
-	mask, err := util.GetSubnetMask(prefix)
-	if err != nil {
-		return "", "", err
-	}
-	return gateway, mask, nil
+	return gateway, prefix, nil
 }
 
 func (service *SubnetPortService) GetSubnetPathForSubnetPortFromStore(nsxSubnetPortID string) string {

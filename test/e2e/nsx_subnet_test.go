@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -228,10 +229,11 @@ func sharedSubnetSet(t *testing.T) {
 	// 4. Check IP address is allocated to SubnetPort.
 	port, err := testData.crdClientset.NsxV1alpha1().SubnetPorts(E2ENamespaceShared).Get(context.TODO(), "port-3", v1.GetOptions{})
 	assertNil(t, err)
-	assert.NotEmpty(t, port.Status.IPAddresses, "No IP address in SubnetPort")
+	assert.NotEmpty(t, port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "No IP address in SubnetPort")
 
 	// 5. Check Subnet CIDR contains SubnetPort IP.
-	portIP := net.ParseIP(port.Status.IPAddresses[0].IP)
+
+	portIP := net.ParseIP(strings.Split(port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "/")[0])
 	_, subnetCIDR, err := net.ParseCIDR(subnetSet.Status.Subnets[0].IPAddresses[0])
 	assertNil(t, err)
 	assertTrue(t, subnetCIDR.Contains(portIP))

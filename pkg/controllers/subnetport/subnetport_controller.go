@@ -109,13 +109,18 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			updateFail(r, &ctx, subnetPort, &err)
 			return common.ResultRequeue, err
 		}
-		ipAddress := v1alpha1.SubnetPortIPAddress{}
-		if len(nsxSubnetPortState.RealizedBindings) > 0 {
-			ipAddress.IP = *nsxSubnetPortState.RealizedBindings[0].Binding.IpAddress
-			subnetPort.Status.MACAddress = strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\"")
+		subnetPort.Status.Attachment = v1alpha1.SegmentPortAttachmentState{ID: *nsxSubnetPortState.Attachment.Id}
+		subnetPort.Status.NetworkInterfaceConfig = v1alpha1.NetworkInterfaceConfig{
+			IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+				{
+					Gateway: "",
+				},
+			},
 		}
-		subnetPort.Status.IPAddresses = []v1alpha1.SubnetPortIPAddress{ipAddress}
-		subnetPort.Status.VIFID = *nsxSubnetPortState.Attachment.Id
+		if len(nsxSubnetPortState.RealizedBindings) > 0 {
+			subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress = *nsxSubnetPortState.RealizedBindings[0].Binding.IpAddress
+			subnetPort.Status.NetworkInterfaceConfig.MACAddress = strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\"")
+		}
 		err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnetPath)
 		if err != nil {
 			log.Error(err, "failed to retrieve subnet status for subnetport", "subnetport", subnetPort, "nsxSubnetPath", nsxSubnetPath)
@@ -420,18 +425,18 @@ func (r *SubnetPortReconciler) GetSubnetPathForSubnetPort(ctx context.Context, s
 }
 
 func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alpha1.SubnetPort, nsxSubnetPath string) error {
-	gateway, netmask, err := r.SubnetPortService.GetGatewayNetmaskForSubnetPort(subnetPort, nsxSubnetPath)
+	gateway, prefix, err := r.SubnetPortService.GetGatewayPrefixForSubnetPort(subnetPort, nsxSubnetPath)
 	if err != nil {
 		return err
 	}
 	// For now, we have an assumption that one subnetport only have one IP address
-	subnetPort.Status.IPAddresses[0].Gateway = gateway
-	subnetPort.Status.IPAddresses[0].Netmask = netmask
+	subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress += fmt.Sprintf("/%d", prefix)
+	subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway = gateway
 	nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath)
 	if err != nil {
 		return err
 	}
-	subnetPort.Status.LogicalSwitchID = *nsxSubnet.RealizationId
+	subnetPort.Status.NetworkInterfaceConfig.LogicalSwitchUUID = *nsxSubnet.RealizationId
 	return nil
 }
 
