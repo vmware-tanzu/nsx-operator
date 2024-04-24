@@ -23,6 +23,10 @@ func (c *FakeNsxV1alpha1) NSXServiceAccounts(namespace string) v1alpha1.NSXServi
 	return &FakeNSXServiceAccounts{c, namespace}
 }
 
+func (c *FakeNsxV1alpha1) NetworkInfos(namespace string) v1alpha1.NetworkInfoInterface {
+	return &FakeNetworkInfos{c, namespace}
+}
+
 func (c *FakeNsxV1alpha1) SecurityPolicies(namespace string) v1alpha1.SecurityPolicyInterface {
 	return &FakeSecurityPolicies{c, namespace}
 }

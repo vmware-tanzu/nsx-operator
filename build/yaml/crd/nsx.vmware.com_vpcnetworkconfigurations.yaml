@@ -91,7 +91,7 @@ spec:
                 type: array
               shortID:
                 description: ShortID specifies Identifier to use when displaying VPC
-                  context in logs. Less than equal to 8 characters.
+                  context in logs. Less than or equal to 8 characters.
                 maxLength: 8
                 type: string
             type: object
@@ -99,37 +99,23 @@ spec:
             description: VPCNetworkConfigurationStatus defines the observed state
               of VPCNetworkConfiguration
             properties:
-              conditions:
-                description: Conditions describes current state of VPCNetworkConfiguration.
+              vpcs:
+                description: VPCs describes VPC info, now it includes lb Subnet info
+                  which are needed for AKO.
                 items:
-                  description: Condition defines condition of custom resource.
+                  description: VPCInfo defines VPC info needed by tenant admin.
                   properties:
-                    lastTransitionTime:
-                      description: Last time the condition transitioned from one status
-                        to another. This should be when the underlying condition changed.
-                        If that is not known, then using the time when the API field
-                        changed is acceptable.
-                      format: date-time
+                    lbSubnetPath:
+                      description: AVISESubnetPath is the NSX Policy Path for the
+                        AVI SE Subnet.
                       type: string
-                    message:
-                      description: Message shows a human-readable message about condition.
-                      type: string
-                    reason:
-                      description: Reason shows a brief reason of condition.
-                      type: string
-                    status:
-                      description: Status of the condition, one of True, False, Unknown.
-                      type: string
-                    type:
-                      description: Type defines condition type.
+                    name:
+                      description: VPC name.
                       type: string
                   required:
-                  - status
-                  - type
+                  - name
                   type: object
                 type: array
-            required:
-            - conditions
             type: object
         type: object
     served: true

@@ -45,6 +45,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Nsx().V1alpha1().IPPools().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("nsxserviceaccounts"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Nsx().V1alpha1().NSXServiceAccounts().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("networkinfos"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Nsx().V1alpha1().NetworkInfos().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("securitypolicies"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Nsx().V1alpha1().SecurityPolicies().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("staticroutes"):

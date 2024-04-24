@@ -17,6 +17,7 @@ type NsxV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	IPPoolsGetter
 	NSXServiceAccountsGetter
+	NetworkInfosGetter
 	SecurityPoliciesGetter
 	StaticRoutesGetter
 	SubnetsGetter
@@ -37,6 +38,10 @@ func (c *NsxV1alpha1Client) IPPools(namespace string) IPPoolInterface {
 
 func (c *NsxV1alpha1Client) NSXServiceAccounts(namespace string) NSXServiceAccountInterface {
 	return newNSXServiceAccounts(c, namespace)
+}
+
+func (c *NsxV1alpha1Client) NetworkInfos(namespace string) NetworkInfoInterface {
+	return newNetworkInfos(c, namespace)
 }
 
 func (c *NsxV1alpha1Client) SecurityPolicies(namespace string) SecurityPolicyInterface {
