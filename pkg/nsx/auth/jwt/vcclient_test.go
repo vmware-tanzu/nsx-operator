@@ -61,7 +61,7 @@ func TestVCClient_NewVCClient(t *testing.T) {
 		singer := &sts.Signer{}
 		return singer, nil
 	})
-	vcClient, err := NewVCClient(host, port, ssoDomain, userName, password, nil, true)
+	vcClient, err := NewVCClient(host, port, ssoDomain, userName, password, nil, true, "https")
 	assert.Equal(t, err, nil)
 	assert.NotEqual(t, vcClient, nil)
 
@@ -70,7 +70,7 @@ func TestVCClient_NewVCClient(t *testing.T) {
 
 	// bad session data
 	offset += 1
-	_, err = NewVCClient(host, port, ssoDomain, userName, password, nil, true)
+	_, err = NewVCClient(host, port, ssoDomain, userName, password, nil, true, "https")
 	assert.Equal(t, err, nil)
 
 }
@@ -101,7 +101,7 @@ func TestVCClient_getorRenewVAPISession(t *testing.T) {
 	userName := "admin"
 	password := "admin"
 	ssoDomain := "vsphere.local"
-	vcClient, err := NewVCClient(host, port, ssoDomain, userName, password, nil, true)
+	vcClient, err := NewVCClient(host, port, ssoDomain, userName, password, nil, true, "https")
 	assert.Equal(t, err, nil)
 	assert.NotEqual(t, vcClient, nil)
 
@@ -126,12 +126,12 @@ func TestVCClient_reloadUsernamePass(t *testing.T) {
 	password := "admin"
 	ssoDomain := "vsphere.local"
 	// reload == false
-	vcClient, _ := NewVCClient(host, port, ssoDomain, userName, password, nil, true)
+	vcClient, _ := NewVCClient(host, port, ssoDomain, userName, password, nil, true, "https")
 	err := vcClient.reloadUsernamePass()
 	assert.Nil(t, err)
 
 	// reload == true
-	vcClient, _ = NewVCClient(host, port, ssoDomain, "", "", nil, true)
+	vcClient, _ = NewVCClient(host, port, ssoDomain, "", "", nil, true, "https")
 	err = vcClient.reloadUsernamePass()
 	assert.NotNil(t, err)
 

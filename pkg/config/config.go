@@ -265,7 +265,11 @@ func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
 	}
 
 	if err := operatorConfig.VCConfig.validate(); err == nil {
-		tokenProvider, _ = jwt.NewTokenProvider(operatorConfig.VCEndPoint, operatorConfig.HttpsPort, operatorConfig.SsoDomain, operatorConfig.VCUser, operatorConfig.VCPassword, vcCaCert, operatorConfig.Insecure)
+		if operatorConfig.EnvoyPort != 0 {
+			tokenProvider, _ = jwt.NewTokenProvider(operatorConfig.EnvoyHost, operatorConfig.EnvoyPort, operatorConfig.SsoDomain, operatorConfig.VCUser, operatorConfig.VCPassword, vcCaCert, operatorConfig.Insecure, "http")
+		} else {
+			tokenProvider, _ = jwt.NewTokenProvider(operatorConfig.VCEndPoint, operatorConfig.HttpsPort, operatorConfig.SsoDomain, operatorConfig.VCUser, operatorConfig.VCPassword, vcCaCert, operatorConfig.Insecure, "https")
+		}
 	}
 	return nil
 }

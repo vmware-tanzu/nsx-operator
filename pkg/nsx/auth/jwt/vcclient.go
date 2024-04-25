@@ -62,9 +62,9 @@ func createHttpClient(insecureSkipVerify bool, caCertPem []byte) *http.Client {
 }
 
 // NewVCClient creates a new logged in VC client with vapi session.
-func NewVCClient(hostname string, port int, ssoDomain string, userName, password string, caCertPem []byte, insecureSkipVerify bool) (*VCClient, error) {
+func NewVCClient(hostname string, port int, ssoDomain string, userName, password string, caCertPem []byte, insecureSkipVerify bool, scheme string) (*VCClient, error) {
 	httpClient := createHttpClient(insecureSkipVerify, caCertPem)
-	baseurl := fmt.Sprintf("https://%s:%d/rest", hostname, port)
+	baseurl := fmt.Sprintf("%s://%s:%d/rest", scheme, hostname, port)
 	vcurl, _ := url.Parse(baseurl)
 
 	vcurl.User = url.UserPassword(userName, password)
@@ -193,7 +193,7 @@ func (vcClient *VCClient) getorCreateSTSClient() (*sts.Client, error) {
 		return stsClient, nil
 	}
 
-	vimSdkURL := fmt.Sprintf("https://%s/sdk", vcClient.url.Host)
+	vimSdkURL := fmt.Sprintf("%s://%s/sdk", vcClient.url.Scheme, vcClient.url.Host)
 	vimClient, err := vcClient.createVimClient(context.Background(), vimSdkURL)
 	if err != nil {
 		return nil, err
@@ -204,7 +204,7 @@ func (vcClient *VCClient) getorCreateSTSClient() (*sts.Client, error) {
 }
 
 func (vcClient *VCClient) createSCClient(vimClient *vim25.Client) *soap.Client {
-	url := fmt.Sprintf("https://%s/sts/STSService/%s", vcClient.url.Host, vcClient.ssoDomain)
+	url := fmt.Sprintf("%s://%s/sts/STSService/%s", vcClient.url.Scheme, vcClient.url.Host, vcClient.ssoDomain)
 	return vimClient.Client.NewServiceClient(url, "oasis:names:tc:SAML:2.0:assertion")
 }
 

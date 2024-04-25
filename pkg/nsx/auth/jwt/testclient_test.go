@@ -12,7 +12,7 @@ import (
 )
 
 func TestTESClient_NewTESClient(t *testing.T) {
-	_, err := NewTESClient("10.0.0.1", 433, "vsphere.local", "admin", "admin", []byte{}, true)
+	_, err := NewTESClient("10.0.0.1", 433, "vsphere.local", "admin", "admin", []byte{}, true, "https")
 	assert.Equal(t, err, nil)
 }
 
