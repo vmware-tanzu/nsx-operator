@@ -19,9 +19,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -343,7 +343,10 @@ func (r *SubnetSetReconciler) Start(mgr ctrl.Manager, enableWebhook bool) error 
 		}
 		hookServer.Register("/validate-nsx-vmware-com-v1alpha1-subnetset",
 			&webhook.Admission{
-				Handler: &SubnetSetValidator{Client: mgr.GetClient()},
+				Handler: &SubnetSetValidator{
+					Client:  mgr.GetClient(),
+					decoder: admission.NewDecoder(mgr.GetScheme()),
+				},
 			})
 	}
 	go r.GarbageCollector(make(chan bool), servicecommon.GCInterval)

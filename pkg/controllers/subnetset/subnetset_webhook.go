@@ -103,10 +103,3 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 	}
 	return admission.Allowed("")
 }
-
-// InjectDecoder injects the decoder into a validator.
-// A decoder will be automatically injected by controller-manager.
-func (v *SubnetSetValidator) InjectDecoder(d *admission.Decoder) error {
-	v.decoder = d
-	return nil
-}
