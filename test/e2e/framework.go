@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/test/e2e/providers"
 )
@@ -31,6 +32,10 @@ const (
 )
 
 type Status int
+
+var (
+	opelog = logger.Log
+)
 
 const (
 	Ready Status = iota
@@ -156,7 +161,9 @@ func (data *TestData) createClients() error {
 
 // RunCommandOnNode is a convenience wrapper around the Provider interface RunCommandOnNode method.
 func RunCommandOnNode(nodeName string, cmd string) (code int, stdout string, stderr string, err error) {
-	return provider.RunCommandOnNode(nodeName, cmd)
+	code, stdout, stderr, err = provider.RunCommandOnNode(nodeName, cmd)
+	opelog.Info("run command on node", "nodeName", nodeName, "command", cmd, "stdout", stdout, "stderr", stderr, "code", code, "error", err)
+	return
 }
 
 func collectClusterInfo() error {

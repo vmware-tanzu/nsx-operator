@@ -31,6 +31,7 @@ import (
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
@@ -97,6 +98,7 @@ func (r *StaticRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err := r.Service.CreateOrUpdateStaticRoute(req.Namespace, obj); err != nil {
 			updateFail(r, &ctx, obj, &err)
 			// TODO: if error is not retriable, not requeue
+			util.DumpAPIError(err)
 			return ResultRequeue, err
 		}
 		updateSuccess(r, &ctx, obj)

@@ -155,7 +155,7 @@ func (service *Service) SearchResource(resourceTypeValue string, queryParam stri
 			resultCount = response.ResultCount
 			err = searchEerr
 		}
-
+		nsxutil.DumpAPIError(err)
 		err = TransError(err)
 		if _, ok := err.(nsxutil.PageMaxError); ok == true {
 			DecrementPageSize(Int64(PageSize))
