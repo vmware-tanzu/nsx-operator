@@ -32,9 +32,9 @@ func (provider *JWTTokenProvider) HeaderValue(token string) string {
 	return "Bearer " + token
 }
 
-func NewTokenProvider(vcEndpoint string, port int, ssoDomain, user, password string, caCert []byte, insecure bool) (auth.TokenProvider, error) {
+func NewTokenProvider(vcEndpoint string, port int, ssoDomain, user, password string, caCert []byte, insecure bool, scheme string) (auth.TokenProvider, error) {
 	// not load username/password, not create vapi session, defer them to cache.refreshJWT
-	tesClient, err := NewTESClient(vcEndpoint, port, ssoDomain, user, password, caCert, insecure)
+	tesClient, err := NewTESClient(vcEndpoint, port, ssoDomain, user, password, caCert, insecure, scheme)
 	if err != nil {
 		log.Error(err, "failed to create tes client")
 		return nil, err
