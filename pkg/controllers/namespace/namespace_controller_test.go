@@ -43,8 +43,12 @@ func createNameSpaceReconciler() *NamespaceReconciler {
 				},
 			},
 		},
-		VPCNetworkConfigMap:   map[string]common.VPCNetworkConfigInfo{},
-		VPCNSNetworkConfigMap: map[string]string{},
+		VPCNetworkConfigStore: vpc.VPCNetworkInfoStore{
+			VPCNetworkConfigMap: map[string]common.VPCNetworkConfigInfo{},
+		},
+		VPCNSNetworkConfigStore: vpc.VPCNsNetworkConfigStore{
+			VPCNSNetworkConfigMap: map[string]string{},
+		},
 	}
 
 	return &NamespaceReconciler{

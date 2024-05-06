@@ -45,13 +45,23 @@ var (
 	enableAviAllowRule = false
 )
 
+type VPCNetworkInfoStore struct {
+	sync.Mutex
+	VPCNetworkConfigMap map[string]common.VPCNetworkConfigInfo
+}
+
+type VPCNsNetworkConfigStore struct {
+	sync.Mutex
+	VPCNSNetworkConfigMap map[string]string
+}
+
 type VPCService struct {
 	common.Service
-	VpcStore               *VPCStore
-	IpblockStore           *IPBlockStore
-	VPCNetworkConfigMap    map[string]common.VPCNetworkConfigInfo
-	VPCNSNetworkConfigMap  map[string]string
-	defaultNetworkConfigCR *common.VPCNetworkConfigInfo
+	VpcStore                *VPCStore
+	IpblockStore            *IPBlockStore
+	VPCNetworkConfigStore   VPCNetworkInfoStore
+	VPCNSNetworkConfigStore VPCNsNetworkConfigStore
+	defaultNetworkConfigCR  *common.VPCNetworkConfigInfo
 	AVIAllowRule
 }
 type AVIAllowRule struct {
@@ -69,33 +79,41 @@ func (s *VPCService) GetDefaultNetworkConfig() (bool, *common.VPCNetworkConfigIn
 }
 
 func (s *VPCService) RegisterVPCNetworkConfig(ncCRName string, info common.VPCNetworkConfigInfo) {
-	s.VPCNetworkConfigMap[ncCRName] = info
+	s.VPCNetworkConfigStore.Lock()
+	s.VPCNetworkConfigStore.VPCNetworkConfigMap[ncCRName] = info
 	if info.IsDefault {
 		s.defaultNetworkConfigCR = &info
 	}
+	s.VPCNetworkConfigStore.Unlock()
 }
 
 func (s *VPCService) UnregisterVPCNetworkConfig(ncCRName string) {
-	delete(s.VPCNetworkConfigMap, ncCRName)
+	s.VPCNetworkConfigStore.Lock()
+	delete(s.VPCNetworkConfigStore.VPCNetworkConfigMap, ncCRName)
+	s.VPCNetworkConfigStore.Unlock()
 }
 
 func (s *VPCService) GetVPCNetworkConfig(ncCRName string) (common.VPCNetworkConfigInfo, bool) {
-	nc, exist := s.VPCNetworkConfigMap[ncCRName]
+	nc, exist := s.VPCNetworkConfigStore.VPCNetworkConfigMap[ncCRName]
 	return nc, exist
 }
 
 func (s *VPCService) RegisterNamespaceNetworkconfigBinding(ns string, ncCRName string) {
-	s.VPCNSNetworkConfigMap[ns] = ncCRName
+	s.VPCNSNetworkConfigStore.Lock()
+	s.VPCNSNetworkConfigStore.VPCNSNetworkConfigMap[ns] = ncCRName
+	s.VPCNSNetworkConfigStore.Unlock()
 }
 
 func (s *VPCService) UnRegisterNamespaceNetworkconfigBinding(ns string) {
-	delete(s.VPCNSNetworkConfigMap, ns)
+	s.VPCNSNetworkConfigStore.Lock()
+	delete(s.VPCNSNetworkConfigStore.VPCNSNetworkConfigMap, ns)
+	s.VPCNSNetworkConfigStore.Unlock()
 }
 
 // find the namespace list which is using the given network configuration
 func (s *VPCService) GetNamespacesByNetworkconfigName(nc string) []string {
 	result := []string{}
-	for key, value := range s.VPCNSNetworkConfigMap {
+	for key, value := range s.VPCNSNetworkConfigStore.VPCNSNetworkConfigMap {
 		if value == nc {
 			result = append(result, key)
 		}
@@ -104,7 +122,7 @@ func (s *VPCService) GetNamespacesByNetworkconfigName(nc string) []string {
 }
 
 func (s *VPCService) GetVPCNetworkConfigByNamespace(ns string) *common.VPCNetworkConfigInfo {
-	ncName, nameExist := s.VPCNSNetworkConfigMap[ns]
+	ncName, nameExist := s.VPCNSNetworkConfigStore.VPCNSNetworkConfigMap[ns]
 	if !nameExist {
 		log.Info("failed to get network config name for namespace", "Namespace", ns)
 		return nil
@@ -150,8 +168,12 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 			common.IndexKeyPathPath: indexPathFunc}),
 		BindingType: model.IpAddressBlockBindingType(),
 	}}
-	VPCService.VPCNetworkConfigMap = make(map[string]common.VPCNetworkConfigInfo)
-	VPCService.VPCNSNetworkConfigMap = make(map[string]string)
+	VPCService.VPCNetworkConfigStore = VPCNetworkInfoStore{
+		VPCNetworkConfigMap: make(map[string]common.VPCNetworkConfigInfo),
+	}
+	VPCService.VPCNSNetworkConfigStore = VPCNsNetworkConfigStore{
+		VPCNSNetworkConfigMap: make(map[string]string),
+	}
 	//initialize vpc store and ip blocks store
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, VPCService.VpcStore)
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeIPBlock, nil, VPCService.IpblockStore)
