@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	vapierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
+	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -101,22 +101,12 @@ func (resourceStore *ResourceStore) IsPolicyAPI() bool {
 }
 
 func TransError(err error) error {
-	switch err.(type) {
-	case vapierrors.ServiceUnavailable:
-		vApiError, _ := err.(vapierrors.ServiceUnavailable)
-		if vApiError.Data == nil {
-			return err
-		}
-		dataError, errs := NewConverter().ConvertToGolang(vApiError.Data, model.ApiErrorBindingType())
-		if len(errs) > 0 {
-			return err
-		}
-		apiError := dataError.(model.ApiError)
-		if *apiError.ErrorCode == int64(60576) {
+	apierror, errortype := nsxutil.DumpAPIError(err)
+	if apierror != nil {
+		log.Info("translate error", "apierror", apierror, "error type", errortype)
+		if *errortype == apierrors.ErrorType_SERVICE_UNAVAILABLE && *apierror.ErrorCode == int64(60576) {
 			return nsxutil.PageMaxError{Desc: "page max overflow"}
 		}
-	default:
-		return err
 	}
 	return err
 }
@@ -137,33 +127,34 @@ type Filter func(interface{}) *data.StructValue
 
 func (service *Service) SearchResource(resourceTypeValue string, queryParam string, store Store, filter Filter) (uint64, error) {
 	var cursor *string
+	pagesize := PageSize
 	count := uint64(0)
 	for {
 		var err error
 		var results []*data.StructValue
 		var resultCount *int64
 		if store.IsPolicyAPI() {
-			response, searchEerr := service.NSXClient.QueryClient.List(queryParam, cursor, nil, Int64(PageSize), nil, nil)
+			response, searchEerr := service.NSXClient.QueryClient.List(queryParam, cursor, nil, &pagesize, nil, nil)
 			results = response.Results
 			cursor = response.Cursor
 			resultCount = response.ResultCount
 			err = searchEerr
 		} else {
-			response, searchEerr := service.NSXClient.MPQueryClient.List(queryParam, cursor, nil, Int64(PageSize), nil, nil)
+			response, searchEerr := service.NSXClient.MPQueryClient.List(queryParam, cursor, nil, &pagesize, nil, nil)
 			results = response.Results
 			cursor = response.Cursor
 			resultCount = response.ResultCount
 			err = searchEerr
 		}
-		nsxutil.DumpAPIError(err)
-		err = TransError(err)
-		if _, ok := err.(nsxutil.PageMaxError); ok == true {
-			DecrementPageSize(Int64(PageSize))
-			continue
-		}
 		if err != nil {
+			err = TransError(err)
+			if _, ok := err.(nsxutil.PageMaxError); ok == true {
+				DecrementPageSize(&pagesize)
+				continue
+			}
 			return count, err
 		}
+
 		for _, entity := range results {
 			if filter != nil {
 				entity = filter(entity)

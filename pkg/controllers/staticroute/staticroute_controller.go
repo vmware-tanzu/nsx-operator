@@ -98,7 +98,10 @@ func (r *StaticRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err := r.Service.CreateOrUpdateStaticRoute(req.Namespace, obj); err != nil {
 			updateFail(r, &ctx, obj, &err)
 			// TODO: if error is not retriable, not requeue
-			util.DumpAPIError(err)
+			apierror, errortype := util.DumpAPIError(err)
+			if apierror != nil {
+				log.Info("create or update static route failed", "error", apierror, "error type", errortype)
+			}
 			return ResultRequeue, err
 		}
 		updateSuccess(r, &ctx, obj)
