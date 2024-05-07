@@ -72,7 +72,7 @@ func TestConfig_NsxConfig(t *testing.T) {
 	assert.Equal(t, err, nil)
 
 	nsxConfig.CaFile = []string{"0a:fc", "ob:fd"}
-	expect = errors.New("ca file count not match manager count")
+	expect = errors.New("ca or cert file count not match manager count")
 	err = nsxConfig.validate()
 	assert.Equal(t, err, expect)
 
