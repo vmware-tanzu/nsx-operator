@@ -404,6 +404,31 @@ func (data *TestData) getCRResource(timeout time.Duration, cr string, namespace 
 	return crs, nil
 }
 
+// deploymentWaitForNames polls the K8s apiServer once the specific pods are created, no matter they are running or not.
+func (data *TestData) deploymentWaitForNames(timeout time.Duration, namespace, deployment string) ([]string, error) {
+	var podNames []string
+	opt := metav1.ListOptions{
+		LabelSelector: "deployment=" + deployment,
+	}
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
+		if pods, err := data.clientset.CoreV1().Pods(namespace).List(context.TODO(), opt); err != nil {
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("error when getting Pod  %v", err)
+		} else {
+			for _, p := range pods.Items {
+				podNames = append(podNames, p.Name)
+			}
+			return true, nil
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	return podNames, nil
+}
+
 //Temporarily disable traffic check
 /*
 // podWaitFor polls the K8s apiServer until the specified Pod is found (in the test Namespace) and

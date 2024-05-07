@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tcp-deployment
+  namespace: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      role: web
+  template:
+    metadata:
+      labels:
+        deployment: tcp-deployment
+        role: web
+    spec:
+      hostname: web-deployment
+      containers:
+        - name: web
+          image: "harbor-repo.vmware.com/dockerhub-proxy-cache/humanux/http_https_echo:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+              name: web-port
+          resources:
+            requests: # make sure that the pod cannot be running
+              cpu: "10000m"
+              memory: "10000Gi"
+---
+apiVersion: nsx.vmware.com/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: named-port-policy-without-pod
+  namespace: web
+spec:
+  priority: 10
+  appliedTo:
+    - podSelector:
+        matchLabels:
+          role: web
+  rules:
+    - direction: in
+      action: allow
+      ports:
+        - protocol: TCP
+          port: web-port
+    - direction: in
+      action: drop
+    - direction: out
+      action: drop
