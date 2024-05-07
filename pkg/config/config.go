@@ -67,7 +67,11 @@ func (operatorConfig *NSXOperatorConfig) GetCACert() []byte {
 	ca := operatorConfig.configCache.nsxCA
 	if ca == nil {
 		ca = []byte{}
-		for _, caFile := range operatorConfig.CaFile {
+		caFiles := operatorConfig.CaFile
+		if len(operatorConfig.LeafCertFile) > 0 {
+			caFiles = operatorConfig.LeafCertFile
+		}
+		for _, caFile := range caFiles {
 			caCert, err := os.ReadFile(caFile)
 			if err != nil || len(caCert) == 0 {
 				configLog.Errorf("Failed to read CA file %s, err=%v, skip", caFile, err)
@@ -102,6 +106,7 @@ type NsxConfig struct {
 	NsxApiPrivateKeyFile      string   `ini:"nsx_api_private_key_file"`
 	NsxApiManagers            []string `ini:"nsx_api_managers"`
 	CaFile                    []string `ini:"ca_file"`
+	LeafCertFile              []string `ini:"nsx_leaf_cert_file"`
 	Thumbprint                []string `ini:"thumbprint"`
 	Insecure                  bool     `ini:"insecure"`
 	SingleTierSrTopology      bool     `ini:"single_tier_sr_topology"`
@@ -318,9 +323,17 @@ func (nsxConfig *NsxConfig) validateCert() error {
 	}
 	nsxConfig.Thumbprint = removeEmptyItem(nsxConfig.Thumbprint)
 	nsxConfig.CaFile = removeEmptyItem(nsxConfig.CaFile)
+	nsxConfig.LeafCertFile = removeEmptyItem(nsxConfig.LeafCertFile)
 	mCount := len(nsxConfig.NsxApiManagers)
 	tpCount := len(nsxConfig.Thumbprint)
+	// Prefer LeafCertFile, otherwise fallback to CaFile
 	caCount := len(nsxConfig.CaFile)
+	ca := nsxConfig.CaFile
+	if len(nsxConfig.LeafCertFile) > 0 {
+		caCount = len(nsxConfig.LeafCertFile)
+		ca = nsxConfig.LeafCertFile
+	}
+
 	// ca file has high priority than thumbprint
 	// ca file(thumbprint) == 1 or equal to manager count
 	if caCount == 0 && tpCount == 0 && nsxConfig.NsxApiUser == "" && nsxConfig.NsxApiPassword == "" {
@@ -336,24 +349,24 @@ func (nsxConfig *NsxConfig) validateCert() error {
 	if caCount > 0 {
 		configLog.Infof("validate CA file: %s", caCount)
 		if caCount > 1 && caCount != mCount {
-			err := errors.New("ca file count not match manager count")
-			configLog.Error(err, "validate NsxConfig failed", "ca file count", caCount, "manager count", mCount)
+			err := errors.New("ca or cert file count not match manager count")
+			configLog.Error(err, "validate NsxConfig failed", "cert count", caCount, "manager count", mCount)
 			return err
 		}
-		for _, file := range nsxConfig.CaFile {
+		for _, file := range ca {
 			// caFile should be a existed cert filename or raw content of a cert
 			if _, err := os.Stat(file); !os.IsNotExist(err) {
 				continue
 			}
 			block, _ := pem.Decode([]byte(file))
 			if block == nil || block.Type != "CERTIFICATE" {
-				err := fmt.Errorf("ca file does not exist or not a valid cert %s", file)
+				err := fmt.Errorf("ca or cert file does not exist or not a valid cert %s", file)
 				configLog.Error(err, "validate NsxConfig failed")
 				return err
 			}
 			_, err := x509.ParseCertificate(block.Bytes)
 			if err != nil {
-				err := fmt.Errorf("ca file does not exist or not a valid cert %s", file)
+				err := fmt.Errorf("ca or cert file does not exist or not a valid cert %s", file)
 				configLog.Error(err, "validate NsxConfig failed")
 				return err
 			}
