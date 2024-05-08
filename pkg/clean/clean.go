@@ -60,9 +60,23 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig, logg *logr.Logger,
 	if nsxClient == nil {
 		return nsxutil.GetNSXClientFailed
 	}
-	if cleanupService, err := InitializeCleanupService(cf, nsxClient); err != nil {
-		return errors.Join(nsxutil.InitCleanupServiceFailed, err)
-	} else if cleanupService.err != nil {
+	// add timeout for initialization
+	errChan := make(chan error)
+	var cleanupService *CleanupService
+	var err error
+	go func() {
+		cleanupService, err = InitializeCleanupService(cf, nsxClient)
+		errChan <- err
+	}()
+	select {
+	case err := <-errChan:
+		if err != nil {
+			return errors.Join(nsxutil.InitCleanupServiceFailed, err)
+		}
+	case <-ctx.Done():
+		return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+	}
+	if cleanupService.err != nil {
 		return errors.Join(nsxutil.InitCleanupServiceFailed, cleanupService.err)
 	} else {
 		for _, clean := range cleanupService.cleans {
