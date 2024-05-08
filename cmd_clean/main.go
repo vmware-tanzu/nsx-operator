@@ -9,8 +9,6 @@ import (
 	"os"
 	"time"
 
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-
 	"github.com/vmware-tanzu/nsx-operator/pkg/clean"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -78,11 +76,10 @@ func main() {
 	cf.EnvoyHost = envoyHost
 	cf.EnvoyPort = envoyPort
 
-	logf.SetLogger(logger.ZapLogger(cf.DefaultConfig.Debug, config.LogLevel))
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
 	defer cancel()
-
-	err := clean.Clean(ctx, cf)
+	log = logger.ZapLogger(cf.DefaultConfig.Debug, config.LogLevel)
+	err := clean.Clean(ctx, cf, &log, cf.DefaultConfig.Debug, config.LogLevel)
 	if err != nil {
 		log.Error(err, "failed to clean nsx resources")
 		os.Exit(1)

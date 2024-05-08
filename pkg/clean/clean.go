@@ -9,9 +9,6 @@ import (
 	"fmt"
 	"time"
 
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/util/retry"
-
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -23,6 +20,11 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+
+	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/retry"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 var log = logger.Log
@@ -44,7 +46,12 @@ var Backoff = wait.Backoff{
 // GetNSXClientFailed  			indicate that could not retrieve nsx client to perform cleanup operation
 // InitCleanupServiceFailed 	indicate that error happened when trying to initialize cleanup service
 // CleanupResourceFailed    	indicate that the cleanup operation failed at some services, the detailed will in the service logs
-func Clean(ctx context.Context, cf *config.NSXOperatorConfig) error {
+func Clean(ctx context.Context, cf *config.NSXOperatorConfig, logg *logr.Logger, debug bool, logLevel int) error {
+	if logg != nil {
+		logf.SetLogger(*logg)
+	} else {
+		logf.SetLogger(logger.ZapLogger(debug, logLevel))
+	}
 	log.Info("starting NSX cleanup")
 	if err := cf.ValidateConfigFromCmd(); err != nil {
 		return errors.Join(nsxutil.ValidationFailed, err)
