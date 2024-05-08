@@ -88,12 +88,14 @@ func (service *SubnetService) buildDHCPConfig(enableDHCP bool, poolSize int64) *
 	// otherwise Subnet will use DhcpConfig inherited from VPC.
 	dhcpConfig := &model.VpcSubnetDhcpConfig{
 		EnableDhcp: Bool(enableDHCP),
-		StaticPoolConfig: &model.StaticPoolConfig{
+	}
+	if !enableDHCP {
+		dhcpConfig.StaticPoolConfig = &model.StaticPoolConfig{
 			// Number of IPs to be reserved in static ip pool.
 			// By default, if dhcp is enabled then static ipv4 pool size will be zero and all available IPs will be
 			// reserved in local dhcp pool. Maximum allowed value is 'subnet size - 4'.
 			Ipv4PoolSize: Int64(poolSize),
-		},
+		}
 	}
 	return dhcpConfig
 }
