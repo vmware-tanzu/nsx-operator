@@ -75,9 +75,13 @@ func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVp
 				},
 			},
 		},
-		VpcStore:              vpcStore,
-		VPCNetworkConfigMap:   map[string]common.VPCNetworkConfigInfo{},
-		VPCNSNetworkConfigMap: map[string]string{},
+		VpcStore: vpcStore,
+		VPCNetworkConfigStore: VPCNetworkInfoStore{
+			VPCNetworkConfigMap: map[string]common.VPCNetworkConfigInfo{},
+		},
+		VPCNSNetworkConfigStore: VPCNsNetworkConfigStore{
+			VPCNSNetworkConfigMap: map[string]string{},
+		},
 	}
 	return service, mockCtrl, mockVpcclient
 }
@@ -181,9 +185,13 @@ func TestGetVPCsByNamespace(t *testing.T) {
 	}
 	vpcStore := &VPCStore{ResourceStore: resourceStore}
 	service := &VPCService{
-		Service:               common.Service{NSXClient: nil},
-		VPCNetworkConfigMap:   map[string]common.VPCNetworkConfigInfo{},
-		VPCNSNetworkConfigMap: map[string]string{},
+		Service: common.Service{NSXClient: nil},
+		VPCNetworkConfigStore: VPCNetworkInfoStore{
+			VPCNetworkConfigMap: map[string]common.VPCNetworkConfigInfo{},
+		},
+		VPCNSNetworkConfigStore: VPCNsNetworkConfigStore{
+			VPCNSNetworkConfigMap: map[string]string{},
+		},
 	}
 	service.VpcStore = vpcStore
 	type args struct {
@@ -415,9 +423,13 @@ func TestCreateOrUpdateAVIRule(t *testing.T) {
 	spStore := &AviSecurityPolicyStore{ResourceStore: resourceStore2}
 
 	service := &VPCService{
-		Service:               common.Service{NSXClient: nil},
-		VPCNetworkConfigMap:   map[string]common.VPCNetworkConfigInfo{},
-		VPCNSNetworkConfigMap: map[string]string{},
+		Service: common.Service{NSXClient: nil},
+		VPCNetworkConfigStore: VPCNetworkInfoStore{
+			VPCNetworkConfigMap: map[string]common.VPCNetworkConfigInfo{},
+		},
+		VPCNSNetworkConfigStore: VPCNsNetworkConfigStore{
+			VPCNSNetworkConfigMap: map[string]string{},
+		},
 	}
 
 	service.RuleStore = ruleStore
