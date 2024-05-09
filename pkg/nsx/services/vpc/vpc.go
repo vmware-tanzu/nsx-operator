@@ -618,6 +618,10 @@ func (s *VPCService) Cleanup(ctx context.Context) error {
 		case <-ctx.Done():
 			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
 		default:
+			// first clean avi subnet ports, or else vpc delete will fail
+			if err := CleanAviSubnetPorts(ctx, s.NSXClient.Cluster, *vpc.Path); err != nil {
+				return err
+			}
 			if err := s.DeleteVPC(*vpc.Path); err != nil {
 				return err
 			}
