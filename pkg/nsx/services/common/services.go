@@ -11,6 +11,8 @@ import (
 // calling method that should not be exposed.
 type VPCServiceProvider interface {
 	RegisterNamespaceNetworkconfigBinding(ns string, ncCRName string)
+	GetNamespacesByNetworkconfigName(nc string) []string
+	RegisterVPCNetworkConfig(ncCRName string, info VPCNetworkConfigInfo)
 	UnRegisterNamespaceNetworkconfigBinding(ns string)
 	GetVPCNetworkConfig(ncCRName string) (VPCNetworkConfigInfo, bool)
 	ValidateNetworkConfig(nc VPCNetworkConfigInfo) bool

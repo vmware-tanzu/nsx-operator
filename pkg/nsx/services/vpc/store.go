@@ -49,7 +49,7 @@ func indexPathFunc(obj interface{}) ([]string, error) {
 var filterTag = func(v []model.Tag) []string {
 	res := make([]string, 0, 5)
 	for _, tag := range v {
-		if *tag.Scope == common.TagScopeVPCCRUID {
+		if *tag.Scope == common.TagScopeNamespaceUID {
 			res = append(res, *tag.Tag)
 		}
 	}

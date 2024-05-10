@@ -48,8 +48,6 @@ const (
 	TagScopeNSXServiceAccountCRUID     string = "nsx-op/nsx_service_account_uid"
 	TagScopeNSXProjectID               string = "nsx-op/nsx_project_id"
 	TagScopeProjectGroupShared         string = "nsx-op/is_nsx_project_shared"
-	TagScopeVPCCRName                  string = "nsx-op/vpc_name"
-	TagScopeVPCCRUID                   string = "nsx-op/vpc_uid"
 	TagScopeSubnetPortCRName           string = "nsx-op/subnetport_name"
 	TagScopeSubnetPortCRUID            string = "nsx-op/subnetport_uid"
 	TagScopeIPPoolCRName               string = "nsx-op/ippool_name"
@@ -102,7 +100,7 @@ const (
 	SubnetFinalizerName            = "subnet.nsx.vmware.com/finalizer"
 	SubnetSetFinalizerName         = "subnetset.nsx.vmware.com/finalizer"
 	SubnetPortFinalizerName        = "subnetport.nsx.vmware.com/finalizer"
-	VPCFinalizerName               = "vpc.nsx.vmware.com/finalizer"
+	NetworkInfoFinalizerName       = "networkinfo.nsx.vmware.com/finalizer"
 	PodFinalizerName               = "pod.nsx.vmware.com/finalizer"
 
 	IndexKeySubnetID            = "IndexKeySubnetID"

@@ -69,7 +69,7 @@ func TestIPPoolService_BuildIPPool(t *testing.T) {
 	vpcinfolist := []common.VPCResourceInfo{
 		{ExternalIPv4Blocks: []string{"/infra/ip-blocks/block-test"}},
 	}
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),

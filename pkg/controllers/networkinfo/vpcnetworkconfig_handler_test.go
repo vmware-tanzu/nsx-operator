@@ -1,14 +1,13 @@
-package vpc
+package networkinfo
 
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	types "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-
-	"github.com/stretchr/testify/assert"
 )
 
 func TestNsxtProjectPathToId(t *testing.T) {

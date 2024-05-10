@@ -33,7 +33,7 @@ func (qIface *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ 
 }
 
 func Test_IndexFunc(t *testing.T) {
-	mId, mTag, mScope := "test_id", "test_tag", "nsx-op/vpc_uid"
+	mId, mTag, mScope := "test_id", "test_tag", "nsx-op/namespace_uid"
 	v := &model.Vpc{
 		Id:   &mId,
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
@@ -41,13 +41,13 @@ func Test_IndexFunc(t *testing.T) {
 	t.Run("1", func(t *testing.T) {
 		got, _ := indexFunc(v)
 		if !reflect.DeepEqual(got, []string{"test_tag"}) {
-			t.Errorf("VPCCRUIDScopeIndexFunc() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
+			t.Errorf("NSCRUIDScopeIndexFunc() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
 		}
 	})
 }
 
 func Test_filterTag(t *testing.T) {
-	mTag, mScope := "test_tag", "nsx-op/vpc_uid"
+	mTag, mScope := "test_tag", "nsx-op/namespace_uid"
 	mTag2, mScope2 := "test_tag", "nsx"
 	tags := []model.Tag{{Scope: &mScope, Tag: &mTag}}
 	tags2 := []model.Tag{{Scope: &mScope2, Tag: &mTag2}}
@@ -89,7 +89,7 @@ func Test_InitializeVPCStore(t *testing.T) {
 	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config2)
 	rc, _ := cluster.NewRestConnector()
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
 	vpcStore := &VPCStore{ResourceStore: common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),
@@ -134,11 +134,11 @@ func Test_InitializeVPCStore(t *testing.T) {
 
 	service.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, vpcStore)
 	assert.Empty(t, fatalErrors)
-	assert.Equal(t, sets.New[string](), vpcStore.ListIndexFuncValues(common.TagScopeVPCCRUID))
+	assert.Equal(t, sets.New[string](), vpcStore.ListIndexFuncValues(common.TagScopeNamespaceUID))
 }
 
 func TestVPCStore_CRUDResource(t *testing.T) {
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),
@@ -162,7 +162,7 @@ func TestVPCStore_CRUDResource(t *testing.T) {
 }
 
 func TestVPCStore_CRUDResource_List(t *testing.T) {
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),
@@ -182,14 +182,6 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 			Scope: &tagScopeNamespace,
 			Tag:   &ns1,
 		},
-		{
-			Scope: &tagScopeVPCCRName,
-			Tag:   &tagValueVPCCRName,
-		},
-		{
-			Scope: &tagScopeVPCCRUID,
-			Tag:   &tagValueVPCCRUID,
-		},
 	}
 	ns2 := "test-ns-2"
 	tag2 := []model.Tag{
@@ -200,14 +192,6 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 		{
 			Scope: &tagScopeNamespace,
 			Tag:   &ns2,
-		},
-		{
-			Scope: &tagScopeVPCCRName,
-			Tag:   &tagValueVPCCRName,
-		},
-		{
-			Scope: &tagScopeVPCCRUID,
-			Tag:   &tagValueVPCCRUID,
 		},
 	}
 	vpc1 := model.Vpc{
