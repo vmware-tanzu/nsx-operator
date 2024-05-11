@@ -430,7 +430,9 @@ func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alph
 		return err
 	}
 	// For now, we have an assumption that one subnetport only have one IP address
-	subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress += fmt.Sprintf("/%d", prefix)
+	if len(subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress) > 0 {
+		subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress += fmt.Sprintf("/%d", prefix)
+	}
 	subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway = gateway
 	nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath)
 	if err != nil {

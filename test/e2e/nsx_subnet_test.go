@@ -194,7 +194,17 @@ func UserSubnetSet(t *testing.T) {
 		subnetSet, err := testData.crdClientset.NsxV1alpha1().SubnetSets(E2ENamespace).Get(context.TODO(), subnetSetName, v1.GetOptions{})
 		assertNil(t, err)
 		assert.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
-		// 4. Check NSX subnet allocation.
+
+		// 4. Check IP address is (not) allocated to SubnetPort.
+		port, err := testData.crdClientset.NsxV1alpha1().SubnetPorts(E2ENamespace).Get(context.TODO(), portName, v1.GetOptions{})
+		assertNil(t, err)
+		if portName == "port-in-static-subnetset" {
+			assert.NotEmpty(t, port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "No IP address in SubnetPort")
+		} else if portName == "port-in-dhcp-subnetset" {
+			assert.Empty(t, port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "DHCP port shouldn't have IP Address")
+		}
+
+		// 5. Check NSX subnet allocation.
 		subnetPath := subnetSet.Status.Subnets[0].NSXResourcePath
 		vpcInfo, err := common.ParseVPCResourcePath(subnetPath)
 		assertNil(t, err, "Failed to parse VPC resource path %s", subnetPath)
