@@ -5,13 +5,13 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.11.0
   creationTimestamp: null
-  name: networkinfoes.nsx.vmware.com
+  name: networkinfos.nsx.vmware.com
 spec:
   group: nsx.vmware.com
   names:
     kind: NetworkInfo
     listKind: NetworkInfoList
-    plural: networkinfoes
+    plural: networkinfos
     singular: networkinfo
   scope: Namespaced
   versions:
