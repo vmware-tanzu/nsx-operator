@@ -156,7 +156,7 @@ func (cluster *Cluster) CreateServerUrl(host string, scheme string) string {
 	} else {
 		serverUrl = fmt.Sprintf("%s://%s", scheme, host)
 	}
-	log.Info("create serverUrl", "serverUrl", serverUrl)
+	log.V(1).Info("create serverUrl", "serverUrl", serverUrl)
 	return serverUrl
 }
 
