@@ -188,108 +188,139 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj interface
 	return err
 }
 
-func (service *SecurityPolicyService) convertNetworkPolicyToInternalSecurityPolicies(networkPolicy *networkingv1.NetworkPolicy) ([]*v1alpha1.SecurityPolicy, error) {
-	securityPolicies := []*v1alpha1.SecurityPolicy{}
+func (service *SecurityPolicyService) populateRulesForAllowSection(spAllow *v1alpha1.SecurityPolicy, networkPolicy *networkingv1.NetworkPolicy) error {
 	actionAllow := v1alpha1.RuleActionAllow
+	directionIn := v1alpha1.RuleDirectionIn
+	directionOut := v1alpha1.RuleDirectionOut
+	for _, ingress := range networkPolicy.Spec.Ingress {
+		rule := &v1alpha1.SecurityPolicyRule{
+			Action:    &actionAllow,
+			Direction: &directionIn,
+			Sources:   []v1alpha1.SecurityPolicyPeer{},
+		}
+		for _, p := range ingress.From {
+			npPeer := p
+			spPeer, err := service.convertNetworkPolicyPeerToSecurityPolicyPeer(&npPeer)
+			if err != nil {
+				return err
+			}
+			rule.Sources = append(rule.Sources, *spPeer)
+		}
+		for _, p := range ingress.Ports {
+			npPort := p
+			spPort, err := service.convertNetworkPolicyPortToSecurityPolicyPort(&npPort)
+			if err != nil {
+				return err
+			}
+			rule.Ports = append(rule.Ports, *spPort)
+		}
+		spAllow.Spec.Rules = append(spAllow.Spec.Rules, *rule)
+	}
+
+	for _, egress := range networkPolicy.Spec.Egress {
+		rule := &v1alpha1.SecurityPolicyRule{
+			Action:       &actionAllow,
+			Direction:    &directionOut,
+			Destinations: []v1alpha1.SecurityPolicyPeer{},
+		}
+		for _, p := range egress.To {
+			npPeer := p
+			spPeer, err := service.convertNetworkPolicyPeerToSecurityPolicyPeer(&npPeer)
+			if err != nil {
+				return err
+			}
+			rule.Destinations = append(rule.Destinations, *spPeer)
+		}
+		for _, p := range egress.Ports {
+			npPort := p
+			spPort, err := service.convertNetworkPolicyPortToSecurityPolicyPort(&npPort)
+			if err != nil {
+				return err
+			}
+			rule.Ports = append(rule.Ports, *spPort)
+		}
+		spAllow.Spec.Rules = append(spAllow.Spec.Rules, *rule)
+	}
+	return nil
+}
+
+func (service *SecurityPolicyService) populateRulesForIsolationSection(spIsolation *v1alpha1.SecurityPolicy, networkPolicy *networkingv1.NetworkPolicy) error {
 	actionDrop := v1alpha1.RuleActionDrop
 	directionIn := v1alpha1.RuleDirectionIn
 	directionOut := v1alpha1.RuleDirectionOut
-	spAllow := &v1alpha1.SecurityPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: networkPolicy.Namespace,
-			Name:      service.BuildNetworkPolicyAllowPolicyName(networkPolicy.Name),
-			UID:       types.UID(service.BuildNetworkPolicyAllowPolicyID(string(networkPolicy.UID))),
-		},
-		Spec: v1alpha1.SecurityPolicySpec{
-			Priority: common.PriorityNetworkPolicyAllowRule,
-			AppliedTo: []v1alpha1.SecurityPolicyTarget{
-				{
-					PodSelector: &networkPolicy.Spec.PodSelector,
-				},
-			},
-		},
-	}
-	spIsolation := &v1alpha1.SecurityPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: networkPolicy.Namespace,
-			Name:      service.BuildNetworkPolicyIsolationPolicyName(networkPolicy.Name),
-			UID:       types.UID(service.BuildNetworkPolicyIsolationPolicyID(string(networkPolicy.UID))),
-		},
-		Spec: v1alpha1.SecurityPolicySpec{
-			Priority: common.PriorityNetworkPolicyIsolationRule,
-			AppliedTo: []v1alpha1.SecurityPolicyTarget{
-				{
-					PodSelector: &networkPolicy.Spec.PodSelector,
-				},
-			},
-		},
-	}
-
-	if len(networkPolicy.Spec.Ingress) > 0 {
-		spIsolation.Spec.Rules = []v1alpha1.SecurityPolicyRule{
-			{
+	for _, policyType := range networkPolicy.Spec.PolicyTypes {
+		if policyType == networkingv1.PolicyTypeIngress {
+			// Generating ingress deny rule in isolation section.
+			spIsolation.Spec.Rules = append(spIsolation.Spec.Rules, v1alpha1.SecurityPolicyRule{
 				Action:    &actionDrop,
 				Direction: &directionIn,
 				Name:      "ingress-isolation",
+			})
+		} else if policyType == networkingv1.PolicyTypeEgress {
+			// Generating egress deny rule in isolation section.
+			spIsolation.Spec.Rules = append(spIsolation.Spec.Rules, v1alpha1.SecurityPolicyRule{
+				Action:    &actionDrop,
+				Direction: &directionOut,
+				Name:      "egress-isolation",
+			})
+		} else {
+			// This logic branch is impossible, leave it just for following the coding rules.
+			return fmt.Errorf("invalid network policy type %s", policyType)
+		}
+	}
+	return nil
+}
+
+func (service *SecurityPolicyService) generateSectionForNetworkPolicy(networkPolicy *networkingv1.NetworkPolicy, sectionType string) (*v1alpha1.SecurityPolicy, error) {
+	name := service.BuildNetworkPolicyAllowPolicyName(networkPolicy.Name)
+	uid := types.UID(service.BuildNetworkPolicyAllowPolicyID(string(networkPolicy.UID)))
+	priority := common.PriorityNetworkPolicyAllowRule
+	if sectionType == "isolation" {
+		name = service.BuildNetworkPolicyIsolationPolicyName(networkPolicy.Name)
+		uid = types.UID(service.BuildNetworkPolicyIsolationPolicyID(string(networkPolicy.UID)))
+		priority = common.PriorityNetworkPolicyIsolationRule
+	}
+	section := &v1alpha1.SecurityPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: networkPolicy.Namespace,
+			Name:      name,
+			UID:       uid,
+		},
+		Spec: v1alpha1.SecurityPolicySpec{
+			Priority: priority,
+			AppliedTo: []v1alpha1.SecurityPolicyTarget{
+				{
+					PodSelector: &networkPolicy.Spec.PodSelector,
+				},
 			},
-		}
-		for _, ingress := range networkPolicy.Spec.Ingress {
-			rule := &v1alpha1.SecurityPolicyRule{
-				Action:    &actionAllow,
-				Direction: &directionIn,
-				Sources:   []v1alpha1.SecurityPolicyPeer{},
-			}
-			for _, p := range ingress.From {
-				npPeer := p
-				spPeer, err := service.convertNetworkPolicyPeerToSecurityPolicyPeer(&npPeer)
-				if err != nil {
-					return securityPolicies, err
-				}
-				rule.Sources = append(rule.Sources, *spPeer)
-			}
-			for _, p := range ingress.Ports {
-				npPort := p
-				spPort, err := service.convertNetworkPolicyPortToSecurityPolicyPort(&npPort)
-				if err != nil {
-					return securityPolicies, err
-				}
-				rule.Ports = append(rule.Ports, *spPort)
-			}
-			spAllow.Spec.Rules = append(spAllow.Spec.Rules, *rule)
-		}
+		},
+	}
+	return section, nil
+}
+
+func (service *SecurityPolicyService) convertNetworkPolicyToInternalSecurityPolicies(networkPolicy *networkingv1.NetworkPolicy) ([]*v1alpha1.SecurityPolicy, error) {
+	securityPolicies := []*v1alpha1.SecurityPolicy{}
+
+	// Generating allow section.
+	spAllow, err := service.generateSectionForNetworkPolicy(networkPolicy, "allow")
+	if err != nil {
+		return nil, err
+	}
+	err = service.populateRulesForAllowSection(spAllow, networkPolicy)
+	if err != nil {
+		return nil, err
 	}
 
-	if len(networkPolicy.Spec.Egress) > 0 {
-		spIsolation.Spec.Rules = append(spIsolation.Spec.Rules, v1alpha1.SecurityPolicyRule{
-			Action:    &actionDrop,
-			Direction: &directionOut,
-			Name:      "egress-isolation",
-		})
-		for _, egress := range networkPolicy.Spec.Egress {
-			rule := &v1alpha1.SecurityPolicyRule{
-				Action:       &actionAllow,
-				Direction:    &directionOut,
-				Destinations: []v1alpha1.SecurityPolicyPeer{},
-			}
-			for _, p := range egress.To {
-				npPeer := p
-				spPeer, err := service.convertNetworkPolicyPeerToSecurityPolicyPeer(&npPeer)
-				if err != nil {
-					return securityPolicies, err
-				}
-				rule.Destinations = append(rule.Destinations, *spPeer)
-			}
-			for _, p := range egress.Ports {
-				npPort := p
-				spPort, err := service.convertNetworkPolicyPortToSecurityPolicyPort(&npPort)
-				if err != nil {
-					return securityPolicies, err
-				}
-				rule.Ports = append(rule.Ports, *spPort)
-			}
-			spAllow.Spec.Rules = append(spAllow.Spec.Rules, *rule)
-		}
+	// Generating isolation section.
+	spIsolation, err := service.generateSectionForNetworkPolicy(networkPolicy, "isolation")
+	if err != nil {
+		return nil, err
 	}
+	err = service.populateRulesForIsolationSection(spIsolation, networkPolicy)
+	if err != nil {
+		return nil, err
+	}
+
 	securityPolicies = append(securityPolicies, spAllow, spIsolation)
 	log.V(1).Info("converted network policy to security policies", "securityPolicies", securityPolicies)
 	return securityPolicies, nil
