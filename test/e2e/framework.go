@@ -649,8 +649,7 @@ func applyYAML(filename string, ns string) error {
 	return nil
 }
 
-//Temporarily disable traffic check
-/*
+// Temporarily disable traffic check
 func runCommand(cmd string) (string, error) {
 	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (bool, error) {
 		var stdout, stderr bytes.Buffer
@@ -672,7 +671,6 @@ func runCommand(cmd string) (string, error) {
 	})
 	return "", err
 }
-*/
 
 func deleteYAML(filename string, ns string) error {
 	cmd := fmt.Sprintf("kubectl delete -f %s -n %s", filename, ns)
