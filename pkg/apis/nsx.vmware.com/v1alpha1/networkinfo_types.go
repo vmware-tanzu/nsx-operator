@@ -12,6 +12,7 @@ import (
 //+kubebuilder:storageversion
 
 // NetworkInfo is used to report the network information for a namespace.
+// +kubebuilder:resource:path=networkinfos
 type NetworkInfo struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
