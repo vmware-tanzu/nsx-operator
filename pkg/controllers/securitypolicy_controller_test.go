@@ -145,7 +145,6 @@ func TestSecurityPolicyController_isCRRequestedInSystemNamespace(t *testing.T) {
 	req = &ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "sys-ns", Name: "dummy"}}
 
 	isCRInSysNs, err = r.isCRRequestedInSystemNamespace(&ctx, req)
-
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
@@ -209,7 +208,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	assert.Equal(t, err, ret)
 
 	//  DeletionTimestamp.IsZero = false, Finalizers doesn't include util.FinalizerName
-	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object) error {
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1sp := obj.(*v1alpha1.SecurityPolicy)
 		time := metav1.Now()
 		v1sp.ObjectMeta.DeletionTimestamp = &time
@@ -225,7 +224,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	patch.Reset()
 
 	//  DeletionTimestamp.IsZero = false, Finalizers include util.FinalizerName
-	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object) error {
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1sp := obj.(*v1alpha1.SecurityPolicy)
 		time := metav1.Now()
 		v1sp.ObjectMeta.DeletionTimestamp = &time
