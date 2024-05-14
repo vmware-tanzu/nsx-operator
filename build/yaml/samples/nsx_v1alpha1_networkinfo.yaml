@@ -1,0 +1,18 @@
+apiVersion: nsx.vmware.com/v1alpha1
+kind: NetworkInfo
+metadata:
+  creationTimestamp: "2024-05-14T02:14:18Z"
+  finalizers:
+  - networkinfo.nsx.vmware.com/finalizer
+  generation: 2
+  name: kube-system
+  namespace: kube-system
+  resourceVersion: "76701"
+  uid: 518c4acf-3f4b-4593-9115-68ef0d697908
+vpcs:
+- defaultSNATIP: 192.168.0.0
+  loadBalancerIPAddresses: 172.26.0.0/26
+  name: vpc-d110d5aa-006d-4b59-9caf-424a4fba932c--kube-system
+  privateIPv4CIDRs:
+  - 172.26.0.0/16
+  vpcPath: /orgs/default/projects/project-quality/vpcs/19a8a52e-beb0-4396-91ce-5821a15a43db

@@ -23,7 +23,6 @@ type NsxV1alpha1Interface interface {
 	SubnetsGetter
 	SubnetPortsGetter
 	SubnetSetsGetter
-	VPCsGetter
 	VPCNetworkConfigurationsGetter
 }
 
@@ -62,10 +61,6 @@ func (c *NsxV1alpha1Client) SubnetPorts(namespace string) SubnetPortInterface {
 
 func (c *NsxV1alpha1Client) SubnetSets(namespace string) SubnetSetInterface {
 	return newSubnetSets(c, namespace)
-}
-
-func (c *NsxV1alpha1Client) VPCs(namespace string) VPCInterface {
-	return newVPCs(c, namespace)
 }
 
 func (c *NsxV1alpha1Client) VPCNetworkConfigurations() VPCNetworkConfigurationInterface {

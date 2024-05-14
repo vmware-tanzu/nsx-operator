@@ -4,6 +4,9 @@ go 1.21.9
 
 replace (
 	github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
+	github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1 => ./pkg/apis/v1alpha1
+	github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2 => ./pkg/apis/v1alpha2
+        github.com/vmware-tanzu/nsx-operator/pkg/client => ./pkg/client
 )
 
 require (
