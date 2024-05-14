@@ -2,6 +2,9 @@
 run:
   tests: true
   timeout: 15m
+  skip-files:
+   - third_party/
+   - pkg/client/
   skip-dirs-use-default: true
 
 linters-settings:

@@ -27,8 +27,6 @@ type Interface interface {
 	SubnetPorts() SubnetPortInformer
 	// SubnetSets returns a SubnetSetInformer.
 	SubnetSets() SubnetSetInformer
-	// VPCs returns a VPCInformer.
-	VPCs() VPCInformer
 	// VPCNetworkConfigurations returns a VPCNetworkConfigurationInformer.
 	VPCNetworkConfigurations() VPCNetworkConfigurationInformer
 }
@@ -82,11 +80,6 @@ func (v *version) SubnetPorts() SubnetPortInformer {
 // SubnetSets returns a SubnetSetInformer.
 func (v *version) SubnetSets() SubnetSetInformer {
 	return &subnetSetInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
-}
-
-// VPCs returns a VPCInformer.
-func (v *version) VPCs() VPCInformer {
-	return &vPCInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // VPCNetworkConfigurations returns a VPCNetworkConfigurationInformer.

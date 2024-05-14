@@ -69,14 +69,6 @@ type SubnetSetListerExpansion interface{}
 // SubnetSetNamespaceLister.
 type SubnetSetNamespaceListerExpansion interface{}
 
-// VPCListerExpansion allows custom methods to be added to
-// VPCLister.
-type VPCListerExpansion interface{}
-
-// VPCNamespaceListerExpansion allows custom methods to be added to
-// VPCNamespaceLister.
-type VPCNamespaceListerExpansion interface{}
-
 // VPCNetworkConfigurationListerExpansion allows custom methods to be added to
 // VPCNetworkConfigurationLister.
 type VPCNetworkConfigurationListerExpansion interface{}
