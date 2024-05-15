@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/url"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -26,9 +27,8 @@ import (
 )
 
 const (
-	defaultTimeout         = 200 * time.Second
-	verifyNoneExistTimeout = 15 * time.Second
-	crdVersion             = "v1alpha1"
+	defaultTimeout = 200 * time.Second
+	PolicyAPI      = "policy/api/v1"
 )
 
 type Status int
@@ -340,22 +340,21 @@ func (data *TestData) waitForCRReadyOrDeleted(timeout time.Duration, cr string, 
 	return nil
 }
 
-func (data *TestData) getCRProperties(timeout time.Duration, crType, crName, namespace, key string) (string, error) {
+func (data *TestData) getCRPropertiesByJson(timeout time.Duration, crType, crName, namespace, key string) (string, error) {
 	value := ""
 	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
-		cmd := fmt.Sprintf("kubectl get %s %s -n %s -o yaml | grep %s", crType, crName, namespace, key)
+		cmd := fmt.Sprintf("kubectl get %s %s -n %s -o json | jq '%s'", crType, crName, namespace, key)
 		log.Printf("%s", cmd)
 		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
 		if err != nil || rc != 0 {
 			return false, fmt.Errorf("error when running the following command `%s` on master Node: %v, %s", cmd, err, stdout)
 		} else {
-			parts := strings.Split(stdout, ":")
-			if len(parts) != 2 {
-				return false, fmt.Errorf("failed to read attribute from output %s", stdout)
-			} else {
-				value = parts[1]
-				return true, nil
+			// check if 'null' in stdout
+			if strings.Contains(stdout, "null") {
+				return false, nil
 			}
+			value = stdout
+			return true, nil
 		}
 	})
 	if err != nil {
@@ -370,6 +369,10 @@ func (data *TestData) getCRResource(timeout time.Duration, cr string, namespace 
 	crs := map[string]string{}
 	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
 		cmd := fmt.Sprintf("kubectl get %s -n %s", cr, namespace)
+		// check if name is nil
+		if cr == "namespaces" {
+			cmd = fmt.Sprintf("kubectl get %s %s", cr, namespace)
+		}
 		log.Printf("%s", cmd)
 		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
 		if err != nil || rc != 0 {
@@ -388,6 +391,9 @@ func (data *TestData) getCRResource(timeout time.Duration, cr string, namespace 
 					continue
 				}
 				uid_cmd := fmt.Sprintf("kubectl get %s %s -n %s -o yaml | grep uid", cr, parts[0], namespace)
+				if cr == "namespaces" {
+					uid_cmd = fmt.Sprintf("kubectl get %s %s -o yaml | grep uid", cr, parts[0])
+				}
 				log.Printf("trying to get uid for cr: %s", uid_cmd)
 				rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, uid_cmd)
 				if err != nil || rc != 0 {
@@ -723,4 +729,37 @@ func (data *TestData) waitForResourceExistById(namespace string, resourceType st
 
 func (data *TestData) waitForResourceExistOrNot(namespace string, resourceType string, resourceName string, shouldExist bool) error {
 	return data.waitForResourceExist(namespace, resourceType, "display_name", resourceName, shouldExist)
+}
+
+func (data *TestData) waitForResourceExistByPath(pathPolicy string, shouldExist bool) error {
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (bool, error) {
+		exist := true
+
+		fullURL := PolicyAPI + pathPolicy
+		fullURL = strings.ReplaceAll(fullURL, "\"", "")
+		fullURL = strings.ReplaceAll(fullURL, "\n", "")
+		fullURL = strings.ReplaceAll(fullURL, "\r", "")
+		_, err := url.Parse(fullURL)
+		if err != nil {
+			fmt.Println("Invalid URL:", err)
+			return false, err
+		}
+
+		resp, err := testData.nsxClient.Client.Cluster.HttpGet(fullURL)
+		if err != nil {
+			if !shouldExist {
+				return true, nil
+			}
+			return false, err
+		}
+		id, ok := resp["id"].(string)
+		if !ok || id == "" {
+			exist = false
+		}
+		if exist != shouldExist {
+			return false, nil
+		}
+		return true, nil
+	})
+	return err
 }
