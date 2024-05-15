@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -28,6 +29,7 @@ import (
 )
 
 var log = logger.Log
+var once sync.Once
 
 var Backoff = wait.Backoff{
 	Steps:    12,
@@ -47,11 +49,14 @@ var Backoff = wait.Backoff{
 // InitCleanupServiceFailed 	indicate that error happened when trying to initialize cleanup service
 // CleanupResourceFailed    	indicate that the cleanup operation failed at some services, the detailed will in the service logs
 func Clean(ctx context.Context, cf *config.NSXOperatorConfig, logg *logr.Logger, debug bool, logLevel int) error {
-	if logg != nil {
-		logf.SetLogger(*logg)
-	} else {
-		logf.SetLogger(logger.ZapLogger(debug, logLevel))
-	}
+	// Clean may be called many times, only init once
+	once.Do(func() {
+		if logg != nil {
+			logf.SetLogger(*logg)
+		} else {
+			logf.SetLogger(logger.ZapLogger(debug, logLevel))
+		}
+	})
 	log.Info("starting NSX cleanup")
 	if err := cf.ValidateConfigFromCmd(); err != nil {
 		return errors.Join(nsxutil.ValidationFailed, err)
