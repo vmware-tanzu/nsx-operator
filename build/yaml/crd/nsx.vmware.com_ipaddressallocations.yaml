@@ -54,12 +54,10 @@ spec:
               ip_address_block_visibility:
                 default: Private
                 description: IPAddressBlockVisibility specifies the visibility of
-                  the IPBlocks to allocate IP addresses. Can be External, Private
-                  or Project.
+                  the IPBlocks to allocate IP addresses. Can be External or Private.
                 enum:
                 - External
                 - Private
-                - Project
                 type: string
             type: object
           status:
