@@ -41,6 +41,8 @@ func (f *genericInformer) Lister() cache.GenericLister {
 func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource) (GenericInformer, error) {
 	switch resource {
 	// Group=nsx.vmware.com, Version=v1alpha1
+	case v1alpha1.SchemeGroupVersion.WithResource("ipaddressallocations"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Nsx().V1alpha1().IPAddressAllocations().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("ippools"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Nsx().V1alpha1().IPPools().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("nsxserviceaccounts"):
