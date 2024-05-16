@@ -53,6 +53,9 @@ const (
 	TagScopeIPPoolCRName               string = "nsx-op/ippool_name"
 	TagScopeIPPoolCRUID                string = "nsx-op/ippool_uid"
 	TagScopeIPPoolCRType               string = "nsx-op/ippool_type"
+	TagScopeIPAddressAllocationCRName  string = "nsx-op/ipaddressallocation_name"
+	TagScopeIPAddressAllocationCRUID   string = "nsx-op/ipaddressallocation_uid"
+	TagScopeIPAddressAllocationCRType  string = "nsx-op/ipaddressallocation_type"
 	TagScopeIPSubnetName               string = "nsx-op/ipsubnet_name"
 	TagScopeVMNamespaceUID             string = "nsx-op/vm_namespace_uid"
 	TagScopeVMNamespace                string = "nsx-op/vm_namespace"
@@ -84,14 +87,15 @@ const (
 	ValueMinorVersion                  string = "0"
 	ValuePatchVersion                  string = "0"
 
-	GCInterval          = 60 * time.Second
-	RealizeTimeout      = 2 * time.Minute
-	RealizeMaxRetries   = 3
-	IPPoolFinalizerName = "ippool.nsx.vmware.com/finalizer"
-	DefaultSNATID       = "DEFAULT"
-	AVISubnetLBID       = "_AVI_SUBNET--LB"
-	IPPoolTypePublic    = "Public"
-	IPPoolTypePrivate   = "Private"
+	GCInterval                       = 60 * time.Second
+	RealizeTimeout                   = 2 * time.Minute
+	RealizeMaxRetries                = 3
+	IPPoolFinalizerName              = "ippool.nsx.vmware.com/finalizer"
+	IPAddressAllocationFinalizerName = "ipaddressallocation.nsx.vmware.com/finalizer"
+	DefaultSNATID                    = "DEFAULT"
+	AVISubnetLBID                    = "_AVI_SUBNET--LB"
+	IPPoolTypePublic                 = "Public"
+	IPPoolTypePrivate                = "Private"
 
 	SecurityPolicyFinalizerName    = "securitypolicy.nsx.vmware.com/finalizer"
 	NetworkPolicyFinalizerName     = "networkpolicy.nsx.vmware.com/finalizer"
@@ -156,11 +160,12 @@ var (
 	// ResourceTypeClusterControlPlane is used by NSXServiceAccountController
 	ResourceTypeClusterControlPlane = "clustercontrolplane"
 	// ResourceTypePrincipalIdentity is used by NSXServiceAccountController, and it is MP resource type.
-	ResourceTypePrincipalIdentity = "principalidentity"
-	ResourceTypeSubnet            = "VpcSubnet"
-	ResourceTypeIPPool            = "IpAddressPool"
-	ResourceTypeIPPoolBlockSubnet = "IpAddressPoolBlockSubnet"
-	ResourceTypeNode              = "HostTransportNode"
+	ResourceTypePrincipalIdentity   = "principalidentity"
+	ResourceTypeSubnet              = "VpcSubnet"
+	ResourceTypeIPPool              = "IpAddressPool"
+	ResourceTypeIPAddressAllocation = "ProjectIpAddressAllocation"
+	ResourceTypeIPPoolBlockSubnet   = "IpAddressPoolBlockSubnet"
+	ResourceTypeNode                = "HostTransportNode"
 )
 
 type Service struct {

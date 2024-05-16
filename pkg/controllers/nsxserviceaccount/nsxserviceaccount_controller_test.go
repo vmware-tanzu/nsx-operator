@@ -875,7 +875,8 @@ func TestNSXServiceAccountReconciler_garbageCollector(t *testing.T) {
 				})
 			},
 			args: args{
-				nsxServiceAccountUIDSet: sets.New[string]("00000000-0000-0000-0000-000000000002", "00000000-0000-0000-0000-000000000003", "00000000-0000-0000-0000-000000000004"),
+				nsxServiceAccountUIDSet: sets.New[string]("00000000-0000-0000-0000-000000000002", "00000000-0000-0000-0000-000000000003",
+					"00000000-0000-0000-0000-000000000004"),
 				nsxServiceAccountList: &nsxvmwarecomv1alpha1.NSXServiceAccountList{Items: []nsxvmwarecomv1alpha1.NSXServiceAccount{{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace:  "ns1",
