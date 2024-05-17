@@ -49,7 +49,7 @@ var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_AC
 
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
-	RestConnector *client.RestConnector
+	RestConnector client.Connector
 	Cluster       *Cluster
 
 	QueryClient    search.QueryClient
@@ -116,7 +116,7 @@ func (ck *NSXHealthChecker) CheckNSXHealth(req *http.Request) error {
 	}
 }
 
-func restConnector(c *Cluster) *client.RestConnector {
+func restConnector(c *Cluster) client.Connector {
 	connector, _ := c.NewRestConnector()
 	return connector
 }
