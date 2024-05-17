@@ -53,29 +53,23 @@ func AllocateSubnetFromSubnetSet(subnetSet *v1alpha1.SubnetSet, vpcService servi
 	return subnetService.CreateOrUpdateSubnet(subnetSet, vpcInfoList[0], tags)
 }
 
-func getSharedNamespaceAndVpcForNamespace(client k8sclient.Client, ctx context.Context, namespaceName string) (string, string, error) {
+func getSharedNamespaceForNamespace(client k8sclient.Client, ctx context.Context, namespaceName string) (string, error) {
 	namespace := &v1.Namespace{}
 	namespacedName := types.NamespacedName{Name: namespaceName}
 	if err := client.Get(ctx, namespacedName, namespace); err != nil {
 		log.Error(err, "failed to get target namespace during getting VPC for namespace")
-		return "", "", err
+		return "", err
 	}
-	vpcAnnotation, exists := namespace.Annotations[servicecommon.AnnotationVPCName]
+	sharedNamespaceName, exists := namespace.Annotations[servicecommon.AnnotationSharedVPCNamespace]
 	if !exists {
-		return "", "", nil
+		return "", nil
 	}
-	array := strings.Split(vpcAnnotation, "/")
-	if len(array) != 2 {
-		err := fmt.Errorf("invalid annotation value of '%s': %s", servicecommon.AnnotationVPCName, vpcAnnotation)
-		return "", "", err
-	}
-	sharedNamespaceName, sharedVpcName := array[0], array[1]
-	log.Info("got shared VPC for namespace", "current namespace", namespaceName, "shared VPC", sharedVpcName, "shared namespace", sharedNamespaceName)
-	return sharedNamespaceName, sharedVpcName, nil
+	log.Info("got shared VPC namespace", "current namespace", namespaceName, "shared namespace", sharedNamespaceName)
+	return sharedNamespaceName, nil
 }
 
 func GetDefaultSubnetSet(client k8sclient.Client, ctx context.Context, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
-	targetNamespace, _, err := getSharedNamespaceAndVpcForNamespace(client, ctx, namespace)
+	targetNamespace, err := getSharedNamespaceForNamespace(client, ctx, namespace)
 	if err != nil {
 		return nil, err
 	}
