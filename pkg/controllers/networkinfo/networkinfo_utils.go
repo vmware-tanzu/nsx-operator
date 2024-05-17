@@ -16,15 +16,13 @@ import (
 )
 
 func deleteFail(r *NetworkInfoReconciler, c *context.Context, o *v1alpha1.NetworkInfo, e *error, client client.Client) {
-	createdVpc := &v1alpha1.VPCState{}
-	setNetworkInfoVPCStatus(c, o, client, createdVpc)
+	setNetworkInfoVPCStatus(c, o, client, nil)
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeNetworkInfo)
 }
 
 func updateFail(r *NetworkInfoReconciler, c *context.Context, o *v1alpha1.NetworkInfo, e *error, client client.Client) {
-	createdVpc := &v1alpha1.VPCState{}
-	setNetworkInfoVPCStatus(c, o, client, createdVpc)
+	setNetworkInfoVPCStatus(c, o, client, nil)
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
 }
@@ -51,6 +49,12 @@ func deleteSuccess(r *NetworkInfoReconciler, _ *context.Context, o *v1alpha1.Net
 }
 
 func setNetworkInfoVPCStatus(ctx *context.Context, networkInfo *v1alpha1.NetworkInfo, client client.Client, createdVPC *v1alpha1.VPCState) {
+	// if createdVPC is empty, remove the VPC from networkInfo
+	if createdVPC == nil {
+		networkInfo.VPCs = []v1alpha1.VPCState{}
+		client.Update(*ctx, networkInfo)
+		return
+	}
 	existingVPC := &v1alpha1.VPCState{}
 	if len(networkInfo.VPCs) > 0 {
 		existingVPC = &networkInfo.VPCs[0]
