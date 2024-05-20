@@ -73,7 +73,7 @@ const (
 	TagValueGroupDestination           string = "destination"
 	TagValueGroupAvi                   string = "avi"
 	AnnotationVPCNetworkConfig         string = "nsx.vmware.com/vpc_network_config"
-	AnnotationVPCName                  string = "nsx.vmware.com/vpc_name"
+	AnnotationSharedVPCNamespace       string = "nsx.vmware.com/shared_vpc_namespace"
 	AnnotationDefaultNetworkConfig     string = "nsx.vmware.com/default"
 	AnnotationAttachmentRef            string = "nsx.vmware.com/attachment_ref"
 	AnnotationPodMAC                   string = "nsx.vmware.com/mac"

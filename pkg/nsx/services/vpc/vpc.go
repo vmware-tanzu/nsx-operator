@@ -382,16 +382,11 @@ func (s *VPCService) getSharedVPCNamespaceFromNS(ns string) (string, error) {
 		return "", nil
 	}
 
-	// If no annotation nsx.vmware.com/vpc_name on ns, this is not a shared vpc
-	ncName, exist := annos[common.AnnotationVPCName]
+	// If no annotation nsx.vmware.com/shared_vpc_namespace on ns, this is not a shared vpc
+	shared_ns, exist := annos[common.AnnotationSharedVPCNamespace]
 	if !exist {
 		return "", nil
 	}
-
-	// Retrieve the shared vpc namespace from annotation
-	// The format should be namespace/vpc_name, e.g. kube-system/infra-vpc
-	shared_ns := strings.Split(ncName, "/")[0]
-
 	return shared_ns, nil
 }
 
