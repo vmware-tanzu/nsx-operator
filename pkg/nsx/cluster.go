@@ -162,10 +162,11 @@ func (cluster *Cluster) CreateServerUrl(host string, scheme string) string {
 
 // NewRestConnector creates a RestConnector used for SDK client.
 // HeaderConfig is used to use http header for request, it could be ignored if no extra header needed.
-func (cluster *Cluster) NewRestConnector() (*policyclient.RestConnector, *HeaderConfig) {
+func (cluster *Cluster) NewRestConnector() (policyclient.Connector, *HeaderConfig) {
 	nsxtUrl := cluster.CreateServerUrl(cluster.endpoints[0].Host(), cluster.endpoints[0].Scheme())
-	connector := policyclient.NewRestConnector(nsxtUrl, *cluster.client)
+	connector := policyclient.NewConnector(nsxtUrl, policyclient.UsingRest(nil), policyclient.WithHttpClient(cluster.client))
 	header := CreateHeaderConfig(false, false, cluster.config.AllowOverwriteHeader)
+	connector.NewExecutionContext()
 	return connector, header
 }
 
