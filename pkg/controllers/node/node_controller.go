@@ -6,12 +6,15 @@ package node
 import (
 	"context"
 	"os"
+	"reflect"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -68,6 +71,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Node{}).
+		WithEventFilter(PredicateFuncsNode).
 		Complete(r)
 }
 
@@ -91,4 +95,37 @@ func (r *NodeReconciler) Start(mgr ctrl.Manager) error {
 		return err
 	}
 	return nil
+}
+
+// PredicateFuncsNode filters out events where only resourceVersion, lastHeartbeatTime, or lastTransitionTime have changed
+var PredicateFuncsNode = predicate.Funcs{
+	UpdateFunc: func(e event.UpdateEvent) bool {
+		oldNode, okOld := e.ObjectOld.(*v1.Node)
+		newNode, okNew := e.ObjectNew.(*v1.Node)
+		if !okOld || !okNew {
+			return true
+		}
+
+		// If only the heartbeat time, transition time and resource version has changed, and other properties unchanged, ignore the update
+		if len(newNode.Status.Conditions) > 0 && len(oldNode.Status.Conditions) > 0 {
+			if newNode.ResourceVersion != oldNode.ResourceVersion &&
+				newNode.Status.Conditions[0].LastHeartbeatTime != oldNode.Status.Conditions[0].LastHeartbeatTime &&
+				newNode.Status.Conditions[0].LastTransitionTime != oldNode.Status.Conditions[0].LastTransitionTime {
+				oldNode.Status.Conditions[0].LastHeartbeatTime = newNode.Status.Conditions[0].LastHeartbeatTime
+				oldNode.Status.Conditions[0].LastTransitionTime = newNode.Status.Conditions[0].LastTransitionTime
+				return !reflect.DeepEqual(oldNode.Status, newNode.Status)
+			}
+		}
+		return true
+
+	},
+	CreateFunc: func(e event.CreateEvent) bool {
+		return true
+	},
+	DeleteFunc: func(e event.DeleteEvent) bool {
+		return true
+	},
+	GenericFunc: func(e event.GenericEvent) bool {
+		return true
+	},
 }
