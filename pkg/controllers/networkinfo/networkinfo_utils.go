@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	client "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
+	svccommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 func deleteFail(r *NetworkInfoReconciler, c *context.Context, o *v1alpha1.NetworkInfo, e *error, client client.Client) {
@@ -21,24 +22,17 @@ func deleteFail(r *NetworkInfoReconciler, c *context.Context, o *v1alpha1.Networ
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeNetworkInfo)
 }
 
-func updateFail(r *NetworkInfoReconciler, c *context.Context, o *v1alpha1.NetworkInfo, e *error, client client.Client) {
-	setNetworkInfoVPCStatus(c, o, client, nil)
+func updateFail(r *NetworkInfoReconciler, c *context.Context, o *v1alpha1.NetworkInfo, e *error, client client.Client, vpcState *v1alpha1.VPCState) {
+	setNetworkInfoVPCStatus(c, o, client, vpcState)
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
 }
 
 func updateSuccess(r *NetworkInfoReconciler, c *context.Context, o *v1alpha1.NetworkInfo, client client.Client,
-	name string, path string, snatIP string, subnetPath string, cidr string, privateCidrs []string, ncName string) {
-	createdVpc := &v1alpha1.VPCState{
-		Name:                    name,
-		VPCPath:                 path,
-		DefaultSNATIP:           snatIP,
-		LoadBalancerIPAddresses: cidr,
-		PrivateIPv4CIDRs:        privateCidrs,
-	}
-	setNetworkInfoVPCStatus(c, o, client, createdVpc)
+	vpcState *v1alpha1.VPCState, ncName string, subnetPath string) {
+	setNetworkInfoVPCStatus(c, o, client, vpcState)
 	// ako needs to know the avi subnet path created by nsx
-	setVPCNetworkConfigurationStatus(c, client, ncName, name, subnetPath)
+	setVPCNetworkConfigurationStatus(c, client, ncName, vpcState.Name, subnetPath)
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "NetworkInfo CR has been successfully updated")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, common.MetricResTypeNetworkInfo)
 }
@@ -90,4 +84,14 @@ func setVPCNetworkConfigurationStatus(ctx *context.Context, client client.Client
 	}
 	nc.Status.VPCs = append(nc.Status.VPCs, *createdVPCInfo)
 	client.Status().Update(*ctx, nc)
+}
+
+func getNamespaceFromNSXVPC(nsxVPC *model.Vpc) string {
+	tags := nsxVPC.Tags
+	for _, tag := range tags {
+		if *tag.Scope == svccommon.TagScopeNamespace {
+			return *tag.Tag
+		}
+	}
+	return ""
 }
