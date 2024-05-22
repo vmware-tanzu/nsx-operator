@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -184,12 +183,12 @@ func (r *NamespaceReconciler) insertNamespaceNetworkconfigBinding(ns string, ann
 	VPC creation strategy:
 
 We suppose namespace should have following annotations:
-  - "nsx.vmware.com/vpc_name": "<Namespace Name>/<Supervisor ID>"
-    If the ns contains this annotation, first check if	the namespace in annotation is the same as
+  - "nsx.vmware.com/shared_vpc_namespace": "<Namespace Name>"
+    If the ns contains this annotation, first check if the namespace in annotation is the same as
     the one in ns event, if yes, create an infra VPC for it. if	not, skip the whole ns event as the infra
     VPC will be created its corresponding ns creation event.
   - "nsx.vmware.com/vpc_network_config":"<Supervisor ID>"
-    If ns do not contains "nsx.vmware.com/vpc_name" annotation. Use this annotation to handle VPC creation.
+    If ns do not contains "nsx.vmware.com/shared_vpc_namespace" annotation. Use this annotation to handle VPC creation.
     VPC will locate the network config with the CR name, and create VPC using its config.
   - If the ns do not have either of the annotation above, then we believe it is using default VPC, try to search
     default VPC in network config CR store. The default VPC network config CR's name is "default".
@@ -217,20 +216,8 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			log.Error(err, "failed to build namespace and network config bindings", "Namepspace", ns)
 			return common.ResultRequeueAfter10sec, nil
 		}
-		// read anno "nsx.vmware.com/vpc_name", if ns contains this annotation, it means it will share infra VPC
+		// read annotation "nsx.vmware.com/shared_vpc_namespace", if ns contains this annotation, it means it will share infra VPC
 		ncName, ncExist := annotations[types.AnnotationVPCNetworkConfig]
-		vpcName, nameExist := annotations[types.AnnotationVPCName]
-		if nameExist {
-			log.Info("read ns annotation vpcName", "VPCNAME", vpcName)
-			res := strings.Split(vpcName, "/")
-			// The format should be namespace/vpc_name
-			if len(res) != 2 {
-				message := fmt.Sprintf("incorrect vpcName annotation %s for namespace %s", vpcName, ns)
-				r.namespaceError(&ctx, obj, message, nil)
-				// If illegal format, skip handling this event?
-				return common.ResultNormal, nil
-			}
-		}
 
 		// If ns do not have network config name tag, then use default vpc network config name
 		if !ncExist {

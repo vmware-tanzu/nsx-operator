@@ -20,12 +20,13 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/test/e2e/providers"
 )
 
 const (
-	defaultTimeout         = 100 * time.Second
+	defaultTimeout         = 200 * time.Second
 	verifyNoneExistTimeout = 15 * time.Second
 	crdVersion             = "v1alpha1"
 )

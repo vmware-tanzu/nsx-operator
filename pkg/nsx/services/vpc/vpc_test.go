@@ -135,7 +135,7 @@ func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
 		expected string
 	}{
 		{"1", "test-ns-1", map[string]string{"nsx.vmware.com/vpc_network_config": "default"}, ""},
-		{"2", "test-ns-2", map[string]string{"nsx.vmware.com/vpc_network_config": "infra", "nsx.vmware.com/vpc_name": "kube-system/fake_vpc"}, "kube-system"},
+		{"2", "test-ns-2", map[string]string{"nsx.vmware.com/vpc_network_config": "infra", "nsx.vmware.com/shared_vpc_namespace": "kube-system"}, "kube-system"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
