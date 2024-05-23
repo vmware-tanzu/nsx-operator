@@ -21,6 +21,4 @@ type SubnetPortExpansion interface{}
 
 type SubnetSetExpansion interface{}
 
-type VPCExpansion interface{}
-
 type VPCNetworkConfigurationExpansion interface{}
