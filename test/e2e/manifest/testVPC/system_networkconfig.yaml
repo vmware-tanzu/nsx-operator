@@ -1,10 +1,10 @@
 # This file is used in testing VPC case,
 # it should be applied on testbed setup stage,
-# for infra namespaces, they should use this network config.
+# for system namespaces, they should use this network config.
 apiVersion: nsx.vmware.com/v1alpha1
 kind: VPCNetworkConfiguration
 metadata:
-  name: infra
+  name: system
 spec:
   defaultGatewayPath: /infra/tier-0s/PLR
   # nsx-operator-ci would replace '{edge-cluster-id}' with real edge-cluster-id of testbed
