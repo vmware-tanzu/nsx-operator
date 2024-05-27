@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -38,6 +39,7 @@ var (
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
 	ResultRequeueAfter10sec = common.ResultRequeueAfter10sec
 	MetricResTypeSubnet     = common.MetricResTypeSubnet
+	once                    sync.Once
 )
 
 // SubnetReconciler reconciles a SubnetSet object
@@ -51,6 +53,8 @@ type SubnetReconciler struct {
 }
 
 func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	// Use once.Do to ensure gc is called only once
+	once.Do(func() { go r.GarbageCollector(make(chan bool), servicecommon.GCInterval) })
 	obj := &v1alpha1.Subnet{}
 	log.Info("reconciling subnet CR", "subnet", req.NamespacedName)
 	metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerSyncTotal, MetricResTypeSubnet)
@@ -303,7 +307,6 @@ func (r *SubnetReconciler) Start(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-	go r.GarbageCollector(make(chan bool), servicecommon.GCInterval)
 	return nil
 }
 

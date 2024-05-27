@@ -10,6 +10,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	vmv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
@@ -44,6 +45,7 @@ import (
 var (
 	log                     = logger.Log
 	MetricResTypeSubnetPort = common.MetricResTypeSubnetPort
+	once                    sync.Once
 )
 
 // SubnetPortReconciler reconciles a SubnetPort object
@@ -60,6 +62,8 @@ type SubnetPortReconciler struct {
 // +kubebuilder:rbac:groups=nsx.vmware.com,resources=subnetports/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=nsx.vmware.com,resources=subnetports/finalizers,verbs=update
 func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	// Use once.Do to ensure gc is called only once
+	once.Do(func() { go r.GarbageCollector(make(chan bool), servicecommon.GCInterval) })
 	subnetPort := &v1alpha1.SubnetPort{}
 	log.Info("reconciling subnetport CR", "subnetport", req.NamespacedName)
 
@@ -230,7 +234,6 @@ func (r *SubnetPortReconciler) Start(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-	go r.GarbageCollector(make(chan bool), servicecommon.GCInterval)
 	return nil
 }
 

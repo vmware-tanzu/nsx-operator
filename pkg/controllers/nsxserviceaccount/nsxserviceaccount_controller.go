@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -38,6 +39,7 @@ var (
 	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
 	MetricResType           = common.MetricResTypeNSXServiceAccount
+	once                    sync.Once
 )
 
 // NSXServiceAccountReconciler reconciles a NSXServiceAccount object.
@@ -65,6 +67,8 @@ type NSXServiceAccountReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.13.0/pkg/reconcile
 func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	// Use once.Do to ensure gc is called only once
+	once.Do(func() { go r.GarbageCollector(make(chan bool), servicecommon.GCInterval) })
 	obj := &nsxvmwarecomv1alpha1.NSXServiceAccount{}
 	log.Info("reconciling CR", "nsxserviceaccount", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
@@ -163,8 +167,6 @@ func (r *NSXServiceAccountReconciler) Start(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-
-	go r.GarbageCollector(make(chan bool), servicecommon.GCInterval)
 	return nil
 }
 
