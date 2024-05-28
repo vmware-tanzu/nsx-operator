@@ -239,7 +239,7 @@ func (r *NetworkInfoReconciler) GarbageCollector(cancel chan bool, timeout time.
 
 		nsSet := sets.NewString()
 		for _, ns := range namespaces.Items {
-			nsSet.Insert(ns.Namespace)
+			nsSet.Insert(ns.Name)
 		}
 
 		for _, elem := range nsxVPCList {
