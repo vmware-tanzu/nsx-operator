@@ -207,7 +207,7 @@ func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors ch
 
 	if org != "" || project != "" {
 		// QueryClient.List() will escape the path, "path:" then will be "path%25%3A" instead of "path:3A",
-		//"path%25%3A" would fail to get response. Hack it here.
+		// "path%25%3A" would fail to get response. Hack it here.
 		path := "\\/orgs\\/" + org + "\\/projects\\/" + project + "\\/*"
 		pathUnescape, _ := url.PathUnescape("path%3A")
 		queryParam += " AND " + pathUnescape + path

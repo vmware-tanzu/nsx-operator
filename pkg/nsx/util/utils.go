@@ -393,7 +393,7 @@ func castApiError(apiErrorDataValue *data.StructValue) *model.ApiError {
 }
 
 func isEmptyAPIError(apiError model.ApiError) bool {
-	return (apiError.ErrorCode == nil && apiError.ErrorMessage == nil)
+	return apiError.ErrorCode == nil && apiError.ErrorMessage == nil
 }
 
 func VerifyNsxCertWithThumbprint(der []byte, thumbprint string) error {

@@ -21,14 +21,26 @@ const (
 type VPCNetworkConfigurationSpec struct {
 	// PolicyPath of Tier0 or Tier0 VRF gateway.
 	DefaultGatewayPath string `json:"defaultGatewayPath,omitempty"`
+
+	// VPCConnectivityProfile ID. This profile has configuration related to create VPC transit gateway attachment.
+	VPCConnectivityProfile string `json:"vpc_connectivity_profile,omitempty"`
+
+	// // VPCServiceProfile ID. A collection of default DHCP and subnet profiles.
+	// // Default vpc service profile will be created as part of new project creation workflow.
+	// // That will be used as default for all VPCs created under that project.
+	// VPCServiceProfile string `json:"vpc_service_profile"`
+
 	// Edge cluster path on which the networking elements will be created.
 	EdgeClusterPath string `json:"edgeClusterPath,omitempty"`
+
 	// NSX-T Project the Namespace associated with.
 	NSXTProject string `json:"nsxtProject,omitempty"`
+
 	// NSX-T IPv4 Block paths used to allocate external Subnets.
 	// +kubebuilder:validation:MinItems=0
 	// +kubebuilder:validation:MaxItems=5
 	ExternalIPv4Blocks []string `json:"externalIPv4Blocks,omitempty"`
+
 	// Private IPv4 CIDRs used to allocate Private Subnets.
 	// +kubebuilder:validation:MinItems=0
 	// +kubebuilder:validation:MaxItems=5
@@ -64,9 +76,9 @@ type VPCInfo struct {
 
 // +genclient
 // +genclient:nonNamespaced
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-//+kubebuilder:storageversion
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:storageversion
 
 // VPCNetworkConfiguration is the Schema for the vpcnetworkconfigurations API.
 // +kubebuilder:resource:scope="Cluster"
@@ -81,7 +93,7 @@ type VPCNetworkConfiguration struct {
 	Status VPCNetworkConfigurationStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // VPCNetworkConfigurationList contains a list of VPCNetworkConfiguration.
 type VPCNetworkConfigurationList struct {
