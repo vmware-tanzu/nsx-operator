@@ -96,6 +96,8 @@ type DefaultConfig struct {
 type CoeConfig struct {
 	Cluster          string `ini:"cluster"`
 	EnableVPCNetwork bool   `ini:"enable_vpc_network"`
+
+	EnableNSXLBIntegration bool `ini:"enable_nsx_lb_integration"`
 }
 
 type NsxConfig struct {

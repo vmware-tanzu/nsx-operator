@@ -262,6 +262,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	if cf.EnableNSXLBIntegration {
+
+	}
+
 	log.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		log.Error(err, "failed to start manager")
