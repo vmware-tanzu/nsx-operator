@@ -65,6 +65,7 @@ spec:
                 enum:
                 - Private
                 - Public
+                - PrivateTGW
                 type: string
               advancedConfig:
                 description: Subnet advanced configuration.
