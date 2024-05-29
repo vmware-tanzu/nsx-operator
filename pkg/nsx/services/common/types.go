@@ -191,17 +191,19 @@ type VPCResourceInfo struct {
 	ID                 string
 	ParentID           string
 	PrivateIpv4Blocks  []string
-	ExternalIPv4Blocks []string
+	ExternalIPv4Blocks []string // deprecated, existing field
 }
 
 type VPCNetworkConfigInfo struct {
-	IsDefault               bool
-	Org                     string
-	Name                    string
-	DefaultGatewayPath      string
-	EdgeClusterPath         string
+	IsDefault          bool
+	Org                string
+	Name               string
+	DefaultGatewayPath string // deprecated, existing field
+	// VPCServiceProfile       string
+	// VPCConnectivityProfile  string
+	EdgeClusterPath         string // deprecated, existing field
 	NsxtProject             string
-	ExternalIPv4Blocks      []string
+	ExternalIPv4Blocks      []string // deprecated, existing field
 	PrivateIPv4CIDRs        []string
 	DefaultIPv4SubnetSize   int
 	DefaultSubnetAccessMode string

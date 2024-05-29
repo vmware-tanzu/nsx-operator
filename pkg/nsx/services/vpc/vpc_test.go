@@ -293,9 +293,9 @@ func TestGetVPCsByNamespace(t *testing.T) {
 	}
 }
 
-func TestListVPCInfo(t *testing.T) {
-
-}
+// func TestListVPCInfo(t *testing.T) {
+//
+// }
 
 type MockSecurityPoliciesClient struct {
 	SP  model.SecurityPolicy

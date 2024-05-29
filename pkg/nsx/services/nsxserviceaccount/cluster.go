@@ -107,6 +107,7 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 	// TODO: Use WCPConfig.NSXTProject as project when WCPConfig.EnableWCPVPCNetwork is true
 	project := s.NSXConfig.CoeConfig.Cluster
 	vpcName := obj.Namespace + "-default-vpc"
+	//
 	vpcPath := fmt.Sprintf("/orgs/default/projects/%s/vpcs/%s", util.NormalizeId(project), vpcName)
 
 	// get proxy

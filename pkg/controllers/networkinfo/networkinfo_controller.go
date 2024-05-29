@@ -41,6 +41,7 @@ type NetworkInfoReconciler struct {
 	Recorder record.EventRecorder
 }
 
+// Reconcile ...
 func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Use once.Do to ensure gc is called only once
 	common.GcOnce(r, &once)

@@ -121,11 +121,13 @@ func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*comm
 	}
 
 	ninfo := &commontypes.VPCNetworkConfigInfo{
-		IsDefault:               isDefaultNetworkConfigCR(vpcConfigCR),
-		Org:                     org,
-		Name:                    vpcConfigCR.Name,
-		DefaultGatewayPath:      vpcConfigCR.Spec.DefaultGatewayPath,
-		EdgeClusterPath:         vpcConfigCR.Spec.EdgeClusterPath,
+		IsDefault:          isDefaultNetworkConfigCR(vpcConfigCR),
+		Org:                org,
+		Name:               vpcConfigCR.Name,
+		DefaultGatewayPath: vpcConfigCR.Spec.DefaultGatewayPath,
+		EdgeClusterPath:    vpcConfigCR.Spec.EdgeClusterPath,
+		// VPCConnectivityProfile:  vpcConfigCR.Spec.VPCConnectivityProfile,
+		// VPCServiceProfile:       vpcConfigCR.Spec.VPCServiceProfile,
 		NsxtProject:             project,
 		ExternalIPv4Blocks:      vpcConfigCR.Spec.ExternalIPv4Blocks,
 		PrivateIPv4CIDRs:        vpcConfigCR.Spec.PrivateIPv4CIDRs,

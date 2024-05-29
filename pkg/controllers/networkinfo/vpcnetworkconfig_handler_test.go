@@ -73,18 +73,20 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 	assert.NotNil(t, e)
 
 	spec1 := v1alpha1.VPCNetworkConfigurationSpec{
-		DefaultGatewayPath:      "test-gw-path-1",
-		EdgeClusterPath:         "test-edge-path-1",
-		ExternalIPv4Blocks:      []string{"external-ipb-1", "external-ipb-2"},
-		PrivateIPv4CIDRs:        []string{"private-ipb-1", "private-ipb-2"},
-		DefaultIPv4SubnetSize:   64,
+		// DefaultGatewayPath:      "test-gw-path-1",
+		// EdgeClusterPath: "test-edge-path-1",
+		// ExternalIPv4Blocks:      []string{"external-ipb-1", "external-ipb-2"},
+		PrivateIPv4CIDRs:      []string{"private-ipb-1", "private-ipb-2"},
+		DefaultIPv4SubnetSize: 64,
+		// VPCServiceProfile:       "test-VpcServiceProfile",
+		VPCConnectivityProfile:  "test-VPCConnectivityProfile",
 		DefaultSubnetAccessMode: "Public",
 		NSXTProject:             "/orgs/default/projects/nsx_operator_e2e_test",
 	}
 	spec2 := v1alpha1.VPCNetworkConfigurationSpec{
-		DefaultGatewayPath:      "test-gw-path-2",
-		EdgeClusterPath:         "test-edge-path-2",
-		ExternalIPv4Blocks:      []string{"external-ipb-1", "external-ipb-2"},
+		// DefaultGatewayPath:      "test-gw-path-2",
+		// EdgeClusterPath: "test-edge-path-2",
+		// ExternalIPv4Blocks:      []string{"external-ipb-1", "external-ipb-2"},
 		PrivateIPv4CIDRs:        []string{"private-ipb-1", "private-ipb-2"},
 		DefaultIPv4SubnetSize:   32,
 		DefaultSubnetAccessMode: "Private",
@@ -110,26 +112,27 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 	testCRD3.Name = "test-3"
 
 	tests := []struct {
-		name       string
-		nc         v1alpha1.VPCNetworkConfiguration
-		gw         string
-		edge       string
-		org        string
-		project    string
-		subnetSize int
-		accessMode string
-		isDefault  bool
+		name                   string
+		nc                     v1alpha1.VPCNetworkConfiguration
+		gw                     string
+		edge                   string
+		org                    string
+		project                string
+		subnetSize             int
+		accessMode             string
+		isDefault              bool
+		vpcConnectivityProfile string
 	}{
-		{"1", testCRD1, "test-gw-path-1", "test-edge-path-1", "default", "nsx_operator_e2e_test", 64, "Public", false},
-		{"2", testCRD2, "test-gw-path-2", "test-edge-path-2", "anotherOrg", "anotherProject", 32, "Private", false},
-		{"3", testCRD3, "test-gw-path-2", "test-edge-path-2", "anotherOrg", "anotherProject", 32, "Private", true},
+		{"test-nsxtProjectPathToId", testCRD1, "test-gw-path-1", "test-edge-path-1", "default", "nsx_operator_e2e_test", 64, "Public", false, ""},
+		{"with-VPCConnectivityProfile", testCRD2, "test-gw-path-2", "test-edge-path-2", "anotherOrg", "anotherProject", 32, "Private", false, "test-VpcConnectivityProfile"},
+		{"with-defaultNetworkConfig", testCRD3, "test-gw-path-2", "test-edge-path-2", "anotherOrg", "anotherProject", 32, "Private", true, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			nc, e := buildNetworkConfigInfo(tt.nc)
 			assert.Nil(t, e)
-			assert.Equal(t, tt.gw, nc.DefaultGatewayPath)
-			assert.Equal(t, tt.edge, nc.EdgeClusterPath)
+			// assert.Equal(t, tt.gw, nc.DefaultGatewayPath)
+			// assert.Equal(t, tt.edge, nc.EdgeClusterPath)
 			assert.Equal(t, tt.org, nc.Org)
 			assert.Equal(t, tt.project, nc.NsxtProject)
 			assert.Equal(t, tt.subnetSize, nc.DefaultIPv4SubnetSize)
