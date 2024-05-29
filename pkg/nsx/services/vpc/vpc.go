@@ -173,11 +173,11 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	VPCService.VPCNSNetworkConfigStore = VPCNsNetworkConfigStore{
 		VPCNSNetworkConfigMap: make(map[string]string),
 	}
-	//initialize vpc store and ip blocks store
+	// initialize vpc store and ip blocks store
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, VPCService.VpcStore)
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeIPBlock, nil, VPCService.IpblockStore)
 
-	//initalize avi rule related store
+	// initialize avi rule related store
 	if enableAviAllowRule {
 		VPCService.RuleStore = &AviRuleStore{ResourceStore: common.ResourceStore{
 			Indexer:     cache.NewIndexer(keyFuncAVI, nil),

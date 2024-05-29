@@ -52,14 +52,7 @@ func (h *VPCNetworkConfigurationHandler) Generic(_ context.Context, _ event.Gene
 
 func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	log.V(1).Info("start processing VPC network config update event")
-	oldNc := e.ObjectOld.(*v1alpha1.VPCNetworkConfiguration)
 	newNc := e.ObjectNew.(*v1alpha1.VPCNetworkConfiguration)
-
-	if getListSize(oldNc.Spec.ExternalIPv4Blocks) == getListSize(newNc.Spec.ExternalIPv4Blocks) &&
-		getListSize(oldNc.Spec.PrivateIPv4CIDRs) == getListSize(newNc.Spec.PrivateIPv4CIDRs) {
-		log.V(1).Info("only support updating external/private ipv4 cidr, no change")
-		return
-	}
 
 	// update network config info in store
 	info, err := buildNetworkConfigInfo(*newNc)
@@ -105,14 +98,6 @@ var VPCNetworkConfigurationPredicate = predicate.Funcs{
 	},
 }
 
-func getListSize(s []string) int {
-	if s == nil {
-		return 0
-	} else {
-		return len(s)
-	}
-}
-
 func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*commontypes.VPCNetworkConfigInfo, error) {
 	org, project, err := nsxtProjectPathToId(vpcConfigCR.Spec.NSXTProject)
 	if err != nil {
@@ -121,17 +106,16 @@ func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*comm
 	}
 
 	ninfo := &commontypes.VPCNetworkConfigInfo{
-		IsDefault:               isDefaultNetworkConfigCR(vpcConfigCR),
-		Org:                     org,
-		Name:                    vpcConfigCR.Name,
-		DefaultGatewayPath:      vpcConfigCR.Spec.DefaultGatewayPath,
-		EdgeClusterPath:         vpcConfigCR.Spec.EdgeClusterPath,
-		NsxtProject:             project,
-		ExternalIPv4Blocks:      vpcConfigCR.Spec.ExternalIPv4Blocks,
-		PrivateIPv4CIDRs:        vpcConfigCR.Spec.PrivateIPv4CIDRs,
-		DefaultIPv4SubnetSize:   vpcConfigCR.Spec.DefaultIPv4SubnetSize,
-		DefaultSubnetAccessMode: vpcConfigCR.Spec.DefaultSubnetAccessMode,
-		ShortID:                 vpcConfigCR.Spec.ShortID,
+		IsDefault:                  isDefaultNetworkConfigCR(vpcConfigCR),
+		Org:                        org,
+		Name:                       vpcConfigCR.Name,
+		VPCConnectivityProfile:     vpcConfigCR.Spec.VPCConnectivityProfile,
+		LbServiceSize:              vpcConfigCR.Spec.LbServiceSize,
+		NsxtProject:                project,
+		PrivateIPv4CIDRs:           vpcConfigCR.Spec.PrivateIPv4CIDRs,
+		DefaultIPv4SubnetSize:      vpcConfigCR.Spec.DefaultIPv4SubnetSize,
+		DefaultPodSubnetAccessMode: vpcConfigCR.Spec.DefaultPodSubnetAccessMode,
+		ShortID:                    vpcConfigCR.Spec.ShortID,
 	}
 	return ninfo, nil
 }

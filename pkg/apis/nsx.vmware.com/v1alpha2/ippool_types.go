@@ -10,9 +10,9 @@ import (
 )
 
 // +genclient
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-//+kubebuilder:storageversion
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:storageversion
 
 // IPPool is the Schema for the ippools API.
 // +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.type`,description="Type of IPPool"
@@ -25,7 +25,7 @@ type IPPool struct {
 	Status IPPoolStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // IPPoolList contains a list of IPPool.
 type IPPoolList struct {
@@ -36,8 +36,8 @@ type IPPoolList struct {
 
 // IPPoolSpec defines the desired state of IPPool.
 type IPPoolSpec struct {
-	// Type defines the type of this IPPool, Public or Private.
-	// +kubebuilder:validation:Enum=Public;Private
+	// Type defines the type of this IPPool, Public, Private or Project.
+	// +kubebuilder:validation:Enum=Public;Private;Project
 	// +optional
 	Type string `json:"type,omitempty"`
 	// Subnets defines set of subnets need to be allocated.

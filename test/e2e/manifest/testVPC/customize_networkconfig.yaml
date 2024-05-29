@@ -15,5 +15,5 @@ spec:
   privateIPv4CIDRs:
     - 172.29.0.0/16
     - 172.39.0.0/16
-  defaultSubnetAccessMode: Public
+  defaultPodSubnetAccessMode: Public
   

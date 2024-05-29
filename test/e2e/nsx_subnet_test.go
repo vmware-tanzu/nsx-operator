@@ -41,8 +41,8 @@ func verifySubnetSetCR(subnetSet string) bool {
 		log.Printf("Failed to get %s/%s: %s", E2ENamespace, subnetSet, err)
 		return false
 	}
-	if string(subnetSetCR.Spec.AccessMode) != vpcNetworkConfig.Spec.DefaultSubnetAccessMode {
-		log.Printf("AccessMode is %s, while it's expected to be %s", subnetSetCR.Spec.AccessMode, vpcNetworkConfig.Spec.DefaultSubnetAccessMode)
+	if string(subnetSetCR.Spec.AccessMode) != vpcNetworkConfig.Spec.DefaultPodSubnetAccessMode {
+		log.Printf("AccessMode is %s, while it's expected to be %s", subnetSetCR.Spec.AccessMode, vpcNetworkConfig.Spec.DefaultPodSubnetAccessMode)
 		return false
 	}
 	if subnetSetCR.Spec.IPv4SubnetSize != vpcNetworkConfig.Spec.DefaultIPv4SubnetSize {
