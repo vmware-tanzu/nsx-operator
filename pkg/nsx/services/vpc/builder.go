@@ -67,15 +67,9 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 		vpcName := util.GenerateIDByObjectByLimit(obj, common.MaxNameLength)
 		vpc.DisplayName = &vpcName
 		vpc.Id = common.String(util.GenerateIDByObject(obj))
-		vpc.DefaultGatewayPath = &nc.DefaultGatewayPath
 		vpc.IpAddressType = &DefaultVPCIPAddressType
 
-		siteInfos := []model.SiteInfo{
-			{
-				EdgeClusterPaths: []string{nc.EdgeClusterPath},
-			},
-		}
-		vpc.SiteInfos = siteInfos
+		vpc.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &DefaultLoadBalancerVPCEndpointEnabled}
 		if useAVILB {
 			loadBalancerVPCEndpointEnabled := true
 			vpc.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &loadBalancerVPCEndpointEnabled}
@@ -83,8 +77,10 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 		vpc.Tags = util.BuildBasicTags(cluster, obj, nsObj.UID)
 	}
 
-	// update private/public blocks
-	vpc.ExternalIpv4Blocks = nc.ExternalIPv4Blocks
+	vpc.VpcConnectivityProfile = &nc.VPCConnectivityProfile
+
+	// TODO: add PrivateIps and remove PrivateIpv4Blocks once the NSX VPC API support private_ips field.
+	// vpc.PrivateIps = nc.PrivateIPs
 	vpc.PrivateIpv4Blocks = util.GetMapValues(pathMap)
 	if nc.ShortID != "" {
 		vpc.ShortId = &nc.ShortID

@@ -57,18 +57,6 @@ func (r *NamespaceReconciler) createNetworkInfoCR(ctx *context.Context, obj clie
 		log.Info("networkInfo already exists", "networkInfo", networkInfos.Items[0].Name, "Namespace", ns)
 		return &networkInfos.Items[0], nil
 	}
-	nc, ncExist := r.VPCService.GetVPCNetworkConfig(ncName)
-	if !ncExist {
-		message := fmt.Sprintf("missing network config %s for namespace %s", ncName, ns)
-		r.namespaceError(ctx, obj, message, nil)
-		return nil, errors.New(message)
-	}
-	if !r.VPCService.ValidateNetworkConfig(nc) {
-		// if network config is not valid, no need to retry, skip processing
-		message := fmt.Sprintf("invalid network config %s for namespace %s, missing private cidr", ncName, ns)
-		r.namespaceError(ctx, obj, message, nil)
-		return nil, errors.New(message)
-	}
 
 	// create networkInfo cr with existing vpc network config
 	log.V(2).Info("building networkInfo", "ns", ns)
@@ -96,7 +84,7 @@ func (r *NamespaceReconciler) createNetworkInfoCR(ctx *context.Context, obj clie
 	return networkInfoCR, nil
 }
 
-func (r *NamespaceReconciler) createDefaultSubnetSet(ns string) error {
+func (r *NamespaceReconciler) createDefaultSubnetSet(ns string, defaultPodAccessMode string) error {
 	defaultSubnetSets := map[string]string{
 		types.DefaultVMSubnetSet:  types.LabelDefaultVMSubnetSet,
 		types.DefaultPodSubnetSet: types.LabelDefaultPodSubnetSet,
@@ -131,6 +119,12 @@ func (r *NamespaceReconciler) createDefaultSubnetSet(ns string) error {
 						},
 					},
 				},
+			}
+			if name == types.DefaultVMSubnetSet {
+				// use "Private" type for VM
+				obj.Spec.AccessMode = v1alpha1.AccessMode("Private")
+			} else if name == types.DefaultPodSubnetSet {
+				obj.Spec.AccessMode = v1alpha1.AccessMode(defaultPodAccessMode)
 			}
 			if err := r.Client.Create(context.Background(), obj); err != nil {
 				return err
@@ -229,10 +223,23 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			}
 		}
 
+		nc, ncExist := r.VPCService.GetVPCNetworkConfig(ncName)
+		if !ncExist {
+			message := fmt.Sprintf("missing network config %s for namespace %s", ncName, ns)
+			r.namespaceError(&ctx, obj, message, nil)
+			return common.ResultRequeueAfter10sec, nil
+		}
+		if !r.VPCService.ValidateNetworkConfig(nc) {
+			// if network config is not valid, no need to retry, skip processing
+			message := fmt.Sprintf("invalid network config %s for namespace %s, missing private cidr", ncName, ns)
+			r.namespaceError(&ctx, obj, message, nil)
+			return common.ResultRequeueAfter10sec, nil
+		}
+
 		if _, err := r.createNetworkInfoCR(&ctx, obj, ns, ncName); err != nil {
 			return common.ResultRequeueAfter10sec, nil
 		}
-		if err := r.createDefaultSubnetSet(ns); err != nil {
+		if err := r.createDefaultSubnetSet(ns, nc.PodSubnetAccessMode); err != nil {
 			return common.ResultRequeueAfter10sec, nil
 		}
 		return common.ResultNormal, nil

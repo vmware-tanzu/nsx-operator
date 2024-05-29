@@ -97,8 +97,6 @@ func (service *IPPoolService) buildIPSubnet(IPPool *v1alpha2.IPPool, subnetReque
 	var IpBlockPathList []string
 	if IPPool.Spec.Type == common.IPPoolTypePrivate {
 		IpBlockPathList = VPCInfo[0].PrivateIpv4Blocks
-	} else {
-		IpBlockPathList = VPCInfo[0].ExternalIPv4Blocks
 	}
 	for _, ipBlockPath := range IpBlockPathList {
 		if util.Contains(service.ExhaustedIPBlock, ipBlockPath) {

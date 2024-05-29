@@ -52,14 +52,7 @@ func (h *VPCNetworkConfigurationHandler) Generic(_ context.Context, _ event.Gene
 
 func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	log.V(1).Info("start processing VPC network config update event")
-	oldNc := e.ObjectOld.(*v1alpha1.VPCNetworkConfiguration)
 	newNc := e.ObjectNew.(*v1alpha1.VPCNetworkConfiguration)
-
-	if getListSize(oldNc.Spec.ExternalIPv4Blocks) == getListSize(newNc.Spec.ExternalIPv4Blocks) &&
-		getListSize(oldNc.Spec.PrivateIPv4CIDRs) == getListSize(newNc.Spec.PrivateIPv4CIDRs) {
-		log.V(1).Info("only support updating external/private ipv4 cidr, no change")
-		return
-	}
 
 	// update network config info in store
 	info, err := buildNetworkConfigInfo(*newNc)
@@ -105,33 +98,23 @@ var VPCNetworkConfigurationPredicate = predicate.Funcs{
 	},
 }
 
-func getListSize(s []string) int {
-	if s == nil {
-		return 0
-	} else {
-		return len(s)
-	}
-}
-
 func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*commontypes.VPCNetworkConfigInfo, error) {
-	org, project, err := nsxtProjectPathToId(vpcConfigCR.Spec.NSXTProject)
+	org, project, err := nsxtProjectPathToId(vpcConfigCR.Spec.NSXProject)
 	if err != nil {
-		log.Error(err, "failed to parse nsx-t project in network config", "Project Path", vpcConfigCR.Spec.NSXTProject)
+		log.Error(err, "failed to parse nsx-t project in network config", "Project Path", vpcConfigCR.Spec.NSXProject)
 		return nil, err
 	}
 
 	ninfo := &commontypes.VPCNetworkConfigInfo{
-		IsDefault:               isDefaultNetworkConfigCR(vpcConfigCR),
-		Org:                     org,
-		Name:                    vpcConfigCR.Name,
-		DefaultGatewayPath:      vpcConfigCR.Spec.DefaultGatewayPath,
-		EdgeClusterPath:         vpcConfigCR.Spec.EdgeClusterPath,
-		NsxtProject:             project,
-		ExternalIPv4Blocks:      vpcConfigCR.Spec.ExternalIPv4Blocks,
-		PrivateIPv4CIDRs:        vpcConfigCR.Spec.PrivateIPv4CIDRs,
-		DefaultIPv4SubnetSize:   vpcConfigCR.Spec.DefaultIPv4SubnetSize,
-		DefaultSubnetAccessMode: vpcConfigCR.Spec.DefaultSubnetAccessMode,
-		ShortID:                 vpcConfigCR.Spec.ShortID,
+		IsDefault:              isDefaultNetworkConfigCR(vpcConfigCR),
+		Org:                    org,
+		Name:                   vpcConfigCR.Name,
+		VPCConnectivityProfile: vpcConfigCR.Spec.VPCConnectivityProfile,
+		NSXProject:             project,
+		PrivateIPs:             vpcConfigCR.Spec.PrivateIPs,
+		DefaultSubnetSize:      vpcConfigCR.Spec.DefaultSubnetSize,
+		PodSubnetAccessMode:    vpcConfigCR.Spec.PodSubnetAccessMode,
+		ShortID:                vpcConfigCR.Spec.ShortID,
 	}
 	return ninfo, nil
 }
@@ -150,7 +133,7 @@ func isDefaultNetworkConfigCR(vpcConfigCR v1alpha1.VPCNetworkConfiguration) bool
 	return false
 }
 
-// parse org id and project id from nsxtProject path
+// parse org id and project id from nsxProject path
 // example /orgs/default/projects/nsx_operator_e2e_test
 func nsxtProjectPathToId(path string) (string, string, error) {
 	parts := strings.Split(path, "/")
