@@ -20,6 +20,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/ipaddressallocation"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	ippool2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/ippool"
@@ -39,6 +40,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	ipaddressallocationservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ippool"
 	nodeservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/node"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
@@ -147,6 +149,21 @@ func StartNamespaceController(mgr ctrl.Manager, cf *config.NSXOperatorConfig, vp
 	}
 }
 
+func StartIPAddressAllocationController(mgr ctrl.Manager, ipAddressAllocationService *ipaddressallocationservice.IPAddressAllocationService, vpcService common.VPCServiceProvider) {
+	ipAddressAllocationReconciler := &ipaddressallocation.IPAddressAllocationReconciler{
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		Service:    ipAddressAllocationService,
+		VPCService: vpcService,
+		Recorder:   mgr.GetEventRecorderFor("ipaddressallocation-controller"),
+	}
+
+	if err := ipAddressAllocationReconciler.SetupWithManager(mgr); err != nil {
+		log.Error(err, "failed to create namespace controller", "controller", "Namespace")
+		os.Exit(1)
+	}
+}
+
 func main() {
 	log.Info("starting NSX Operator")
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
@@ -202,6 +219,10 @@ func main() {
 		if err != nil {
 			log.Error(err, "failed to initialize ippool commonService", "controller", "IPPool")
 		}
+		ipAddressAllocationService, err := ipaddressallocationservice.InitializeIPAddressAllocation(commonService, vpcService)
+		if err != nil {
+			log.Error(err, "failed to initialize ipaddressallocation commonService", "controller", "IPAddressAllocation")
+		}
 		subnetPortService, err := subnetportservice.InitializeSubnetPort(commonService)
 		if err != nil {
 			log.Error(err, "failed to initialize subnetport commonService", "controller", "SubnetPort")
@@ -238,6 +259,7 @@ func main() {
 		subnetport.StartSubnetPortController(mgr, subnetPortService, subnetService, vpcService)
 		pod.StartPodController(mgr, subnetPortService, subnetService, vpcService, nodeService)
 		StartIPPoolController(mgr, ipPoolService, vpcService)
+		StartIPAddressAllocationController(mgr, ipAddressAllocationService, vpcService)
 		networkpolicycontroller.StartNetworkPolicyController(mgr, commonService, vpcService)
 		service.StartServiceLbController(mgr, commonService)
 	}

@@ -1,0 +1,251 @@
+/* Copyright © 2023 VMware, Inc. All Rights Reserved.
+   SPDX-License-Identifier: Apache-2.0 */
+
+package ipaddressallocation
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"regexp"
+	"sync"
+
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
+	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	util2 "github.com/vmware-tanzu/nsx-operator/pkg/util"
+)
+
+var (
+	log           = logger.Log
+	once          sync.Once
+	resultNormal  = common.ResultNormal
+	resultRequeue = common.ResultRequeue
+	MetricResType = common.MetricResTypeIPPool
+)
+
+// IPAddressAllocationReconciler reconciles a IPAddressAllocation object
+type IPAddressAllocationReconciler struct {
+	client.Client
+	Scheme     *apimachineryruntime.Scheme
+	Service    *ipaddressallocation.IPAddressAllocationService
+	VPCService servicecommon.VPCServiceProvider
+	Recorder   record.EventRecorder
+}
+
+func deleteSuccess(r *IPAddressAllocationReconciler, _ *context.Context, o *v1alpha1.IPAddressAllocation) {
+	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "IPPool CR has been successfully deleted")
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
+}
+
+func deleteFail(r *IPAddressAllocationReconciler, c *context.Context, o *v1alpha1.IPAddressAllocation, e *error) {
+	r.setReadyStatusFalse(c, o, metav1.Now(), e)
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
+}
+
+func updateSuccess(r *IPAddressAllocationReconciler, c *context.Context, o *v1alpha1.IPAddressAllocation) {
+	r.setReadyStatusTrue(c, o, metav1.Now())
+	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "IPAddressAllocation CR has been successfully updated")
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
+}
+
+func updateFail(r *IPAddressAllocationReconciler, c *context.Context, o *v1alpha1.IPAddressAllocation, e *error) {
+	r.setReadyStatusFalse(c, o, metav1.Now(), e)
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
+}
+
+func (r *IPAddressAllocationReconciler) setReadyStatusFalse(ctx *context.Context, ipaddressallocation *v1alpha1.IPAddressAllocation, transitionTime metav1.Time, err *error) {
+	conditions := []v1alpha1.Condition{
+		{
+			Type:    v1alpha1.Ready,
+			Status:  v1.ConditionFalse,
+			Message: "NSX IPAddressAllocation could not be created/updated/deleted",
+			Reason: fmt.Sprintf(
+				"error occurred while processing the IPAddressAllocation CR. Error: %v",
+				*err,
+			),
+			LastTransitionTime: transitionTime,
+		},
+	}
+	ipaddressallocation.Status.Conditions = conditions
+	e := r.Client.Status().Update(*ctx, ipaddressallocation)
+	if e != nil {
+		log.Error(e, "unable to update IPAddressAllocation status", "ipaddressallocation", ipaddressallocation)
+	}
+}
+
+func (r *IPAddressAllocationReconciler) setReadyStatusTrue(ctx *context.Context, ipaddressallocation *v1alpha1.IPAddressAllocation, transitionTime metav1.Time) {
+	conditions := []v1alpha1.Condition{
+		{
+			Type:               v1alpha1.Ready,
+			Status:             v1.ConditionTrue,
+			Message:            "NSX IPAddressAllocation has been successfully created/updated",
+			Reason:             "",
+			LastTransitionTime: transitionTime,
+		},
+	}
+	ipaddressallocation.Status.Conditions = conditions
+	e := r.Client.Status().Update(*ctx, ipaddressallocation)
+	if e != nil {
+		log.Error(e, "unable to update IPAddressAllocation status", "ipaddressallocation", ipaddressallocation)
+	}
+}
+
+func (r *IPAddressAllocationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	once.Do(func() { go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.collectGarbage) })
+	obj := &v1alpha1.IPAddressAllocation{}
+	log.Info("reconciling ipaddressallocation CR", "ipaddressallocation", req.NamespacedName)
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
+	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
+		log.Error(err, "unable to fetch ipaddressallocation CR", "req", req.NamespacedName)
+		return resultNormal, client.IgnoreNotFound(err)
+	}
+	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
+		return r.handleUpdate(ctx, req, obj)
+	}
+	return r.handleDeletion(ctx, req, obj)
+}
+
+func (r *IPAddressAllocationReconciler) handleExhaustedIPBlock(err error) error {
+	if errors.As(err, &util.IPBlockAllExhaustedError{}) {
+		r.Service.ExhaustedIPBlock = []string{}
+		log.Info("Clear ExhaustedIPBlock: ", "ExhaustedIPBlock", r.Service.ExhaustedIPBlock)
+		return err
+	}
+
+	apiErr, _ := util.DumpAPIError(err)
+	if apiErr == nil {
+		return err
+	}
+
+	for _, apiErrItem := range apiErr.RelatedErrors {
+		if *apiErrItem.ErrorCode == 520012 {
+			pathPattern := `path=[([^]]+)]`
+			pathRegex := regexp.MustCompile(pathPattern) //nolint:staticcheck
+			pathMatch := pathRegex.FindStringSubmatch(*apiErrItem.ErrorMessage)
+			if len(pathMatch) > 1 {
+				path := pathMatch[1]
+				if !util2.Contains(r.Service.ExhaustedIPBlock, path) {
+					r.Service.ExhaustedIPBlock = append(r.Service.ExhaustedIPBlock, path)
+					log.Info("ExhaustedIPBlock: ", "ExhaustedIPBlock", r.Service.ExhaustedIPBlock)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (r *IPAddressAllocationReconciler) handleUpdate(ctx context.Context, req ctrl.Request, obj *v1alpha1.IPAddressAllocation) (ctrl.Result, error) {
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResType)
+	if !controllerutil.ContainsFinalizer(obj, servicecommon.IPAddressAllocationFinalizerName) {
+		controllerutil.AddFinalizer(obj, servicecommon.IPAddressAllocationFinalizerName)
+		if err := r.Client.Update(ctx, obj); err != nil {
+			log.Error(err, "add finalizer", "ipaddressallocation", req.NamespacedName)
+			updateFail(r, &ctx, obj, &err)
+			return resultRequeue, err
+		}
+		log.V(1).Info("added finalizer on ipaddressallocation CR", "ipaddressallocation", req.NamespacedName)
+	}
+
+	if err := r.Service.CreateOrUpdateIPAddressAllocation(obj); err != nil {
+		updateFail(r, &ctx, obj, &err)
+		err = r.handleExhaustedIPBlock(err)
+		if err != nil {
+			return common.ResultRequeueAfter10sec, err
+		}
+		return resultRequeue, nil
+	}
+	updateSuccess(r, &ctx, obj)
+	return resultNormal, nil
+}
+
+func (r *IPAddressAllocationReconciler) handleDeletion(ctx context.Context, req ctrl.Request, obj *v1alpha1.IPAddressAllocation) (ctrl.Result, error) {
+	if controllerutil.ContainsFinalizer(obj, servicecommon.IPAddressAllocationFinalizerName) {
+		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
+		if err := r.Service.DeleteIPAddressAllocation(obj); err != nil {
+			log.Error(err, "deletion failed, would retry exponentially", "ipaddressallocation", req.NamespacedName)
+			deleteFail(r, &ctx, obj, &err)
+			return resultRequeue, err
+		}
+		controllerutil.RemoveFinalizer(obj, servicecommon.IPAddressAllocationFinalizerName)
+		if err := r.Client.Update(ctx, obj); err != nil {
+			log.Error(err, "deletion failed, would retry exponentially", "ipaddressallocation", req.NamespacedName)
+			deleteFail(r, &ctx, obj, &err)
+			return resultRequeue, err
+		}
+		log.V(1).Info("removed finalizer on ipaddressallocation CR", "ipaddressallocation", req.NamespacedName)
+		deleteSuccess(r, &ctx, obj)
+		log.Info("successfully deleted ipaddressallocation CR and all subnets", "ipaddressallocation", obj)
+	} else {
+		// only print a message because it's not a normal case
+		log.Info("ipaddressallocation CR is being deleted but its finalizers cannot be recognized", "ipaddressallocation", req.NamespacedName)
+	}
+	return resultNormal, nil
+}
+
+func (r *IPAddressAllocationReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&v1alpha1.IPAddressAllocation{}).
+		WithEventFilter(predicate.Funcs{
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				// Ignore updates to CR status in which case metadata.Generation does not change
+				return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration()
+			},
+			DeleteFunc: func(e event.DeleteEvent) bool {
+				// Suppress Delete events to avoid filtering them out in the Reconcile function
+				return false
+			},
+		}).
+		WithOptions(
+			controller.Options{
+				MaxConcurrentReconciles: common.NumReconcile(),
+			}).
+		Complete(r)
+}
+
+func (r *IPAddressAllocationReconciler) collectGarbage(ctx context.Context) {
+	log.Info("ipaddressallocation garbage collector started")
+	ipAddressAllocationSet := r.Service.ListIPAddressAllocationID()
+	if len(ipAddressAllocationSet) == 0 {
+		return
+	}
+
+	ipAddressAllocationList := &v1alpha1.IPAddressAllocationList{}
+	if err := r.Client.List(ctx, ipAddressAllocationList); err != nil {
+		log.Error(err, "failed to list ipaddressallocation CR")
+		return
+	}
+	CRIPAddressAllocationSet := sets.New[string]()
+	for _, ipa := range ipAddressAllocationList.Items {
+		CRIPAddressAllocationSet.Insert(string(ipa.UID))
+	}
+
+	log.V(2).Info("ipaddressallocation garbage collector", "nsxIPAddressAllocationSet", ipAddressAllocationSet, "CRIPAddressAllocationSet", CRIPAddressAllocationSet)
+
+	diffSet := ipAddressAllocationSet.Difference(CRIPAddressAllocationSet)
+	for elem := range diffSet {
+		log.Info("GC collected ipaddressallocation CR", "UID", elem)
+		if err := r.Service.DeleteIPAddressAllocation(types.UID(elem)); err != nil {
+			log.Error(err, "failed to delete ipaddressallocation CR", "UID", elem)
+		}
+	}
+}

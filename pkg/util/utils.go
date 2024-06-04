@@ -15,7 +15,7 @@ import (
 
 	"github.com/apparentlymart/go-cidr/cidr"
 	mapset "github.com/deckarep/golang-set"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -477,6 +477,10 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeIPPoolCRName), Tag: String(i.ObjectMeta.Name)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeIPPoolCRUID), Tag: String(string(i.UID))})
+	case *v1alpha1.IPAddressAllocation:
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeIPAddressAllocationCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeIPAddressAllocationCRUID), Tag: String(string(i.UID))})
 	default:
 		log.Info("unknown obj type", "obj", obj)
 	}

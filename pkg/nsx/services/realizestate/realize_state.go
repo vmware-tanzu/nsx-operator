@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
 

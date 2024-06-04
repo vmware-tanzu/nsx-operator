@@ -3,7 +3,7 @@ package subnetport
 import (
 	"errors"
 
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
