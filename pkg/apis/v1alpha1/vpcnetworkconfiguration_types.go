@@ -21,6 +21,10 @@ const (
 type VPCNetworkConfigurationSpec struct {
 	// PolicyPath of Tier0 or Tier0 VRF gateway.
 	DefaultGatewayPath string `json:"defaultGatewayPath,omitempty"`
+
+	// VPCConnectivityProfile ID. This profile has configuration related to create VPC transit gateway attachment.
+	VPCConnectivityProfile string `json:"vpc_connectivity_profile,omitempty"`
+
 	// Edge cluster path on which the networking elements will be created.
 	EdgeClusterPath string `json:"edgeClusterPath,omitempty"`
 	// NSX-T Project the Namespace associated with.
@@ -64,9 +68,9 @@ type VPCInfo struct {
 
 // +genclient
 // +genclient:nonNamespaced
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-//+kubebuilder:storageversion
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:storageversion
 
 // VPCNetworkConfiguration is the Schema for the vpcnetworkconfigurations API.
 // +kubebuilder:resource:scope="Cluster"
@@ -81,7 +85,7 @@ type VPCNetworkConfiguration struct {
 	Status VPCNetworkConfigurationStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // VPCNetworkConfigurationList contains a list of VPCNetworkConfiguration.
 type VPCNetworkConfigurationList struct {

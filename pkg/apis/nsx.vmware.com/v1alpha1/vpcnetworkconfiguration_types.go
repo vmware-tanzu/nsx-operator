@@ -21,6 +21,10 @@ const (
 type VPCNetworkConfigurationSpec struct {
 	// PolicyPath of Tier0 or Tier0 VRF gateway.
 	DefaultGatewayPath string `json:"defaultGatewayPath,omitempty"`
+
+	// VPCConnectivityProfile ID. This profile has configuration related to create VPC transit gateway attachment.
+	VPCConnectivityProfile string `json:"vpc_connectivity_profile,omitempty"`
+
 	// Edge cluster path on which the networking elements will be created.
 	EdgeClusterPath string `json:"edgeClusterPath,omitempty"`
 	// NSX-T Project the Namespace associated with.
