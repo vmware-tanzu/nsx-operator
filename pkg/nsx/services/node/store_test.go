@@ -13,7 +13,7 @@ import (
 
 func Test_KeyFunc(t *testing.T) {
 	id := "test_id"
-	node := model.HostTransportNode{Id: &id}
+	node := model.HostTransportNode{UniqueId: &id}
 	t.Run("1", func(t *testing.T) {
 		got, _ := keyFunc(&node)
 		if got != "test_id" {
@@ -34,7 +34,7 @@ func TestSubnetStore_Apply(t *testing.T) {
 	}
 	nodeStore := &NodeStore{ResourceStore: resourceStore}
 	fakeNode := model.HostTransportNode{
-		Id: common.String("node_id"),
+		UniqueId: common.String("node_id"),
 		NodeDeploymentInfo: &model.FabricHostNode{
 			Fqdn: common.String("node_name"),
 		},
