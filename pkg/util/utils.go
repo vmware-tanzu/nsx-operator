@@ -56,7 +56,7 @@ func init() {
 	}
 }
 
-var log = logger.Log
+var log = &logger.Log
 
 func NormalizeLabels(matchLabels *map[string]string) *map[string]string {
 	newLabels := make(map[string]string)

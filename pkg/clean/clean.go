@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -25,11 +24,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
-
-var log = logger.Log
-var once sync.Once
 
 var Backoff = wait.Backoff{
 	Steps:    12,
@@ -48,15 +43,14 @@ var Backoff = wait.Backoff{
 // GetNSXClientFailed  			indicate that could not retrieve nsx client to perform cleanup operation
 // InitCleanupServiceFailed 	indicate that error happened when trying to initialize cleanup service
 // CleanupResourceFailed    	indicate that the cleanup operation failed at some services, the detailed will in the service logs
-func Clean(ctx context.Context, cf *config.NSXOperatorConfig, logg *logr.Logger, debug bool, logLevel int) error {
-	// Clean may be called many times, only init once
-	once.Do(func() {
-		if logg != nil {
-			logf.SetLogger(*logg)
-		} else {
-			logf.SetLogger(logger.ZapLogger(debug, logLevel))
-		}
-	})
+func Clean(ctx context.Context, cf *config.NSXOperatorConfig, log *logr.Logger, debug bool, logLevel int) error {
+	// Clean needs to support many instances which each have its own logger
+	if log == nil {
+		logg := logger.ZapLogger(debug, logLevel)
+		log = &logg
+	}
+	logger.InitLog(log)
+
 	log.Info("starting NSX cleanup")
 	if err := cf.ValidateConfigFromCmd(); err != nil {
 		return errors.Join(nsxutil.ValidationFailed, err)
@@ -73,6 +67,15 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig, logg *logr.Logger,
 		cleanupService, err = InitializeCleanupService(cf, nsxClient)
 		errChan <- err
 	}()
+
+	retriable := func(err error) bool {
+		if err != nil && !errors.As(err, &nsxutil.TimeoutFailed) {
+			log.Info("retrying to clean up NSX resources", "error", err)
+			return true
+		}
+		return false
+	}
+
 	select {
 	case err := <-errChan:
 		if err != nil {
@@ -98,7 +101,7 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig, logg *logr.Logger,
 		}
 		return false
 	}, func() error {
-		if err := CleanDLB(ctx, nsxClient.Cluster, cf); err != nil {
+		if err := CleanDLB(ctx, nsxClient.Cluster, cf, log); err != nil {
 			return fmt.Errorf("failed to clean up specific resource: %w", err)
 		}
 		return nil
@@ -108,14 +111,6 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig, logg *logr.Logger,
 
 	log.Info("cleanup NSX resources successfully")
 	return nil
-}
-
-func retriable(err error) bool {
-	if err != nil && !errors.As(err, &nsxutil.TimeoutFailed) {
-		log.Info("retrying to clean up NSX resources", "error", err)
-		return true
-	}
-	return false
 }
 
 func wrapCleanFunc(ctx context.Context, clean cleanup) func() error {

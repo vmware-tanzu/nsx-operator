@@ -16,7 +16,7 @@ import (
 // APIReduceRateCodes is http status code set which will trigger rate limiter adjust.
 var (
 	APIReduceRateCodes = [2]int{429, 503}
-	log                = logger.Log
+	log                = &logger.Log
 )
 
 const (

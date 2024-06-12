@@ -23,7 +23,7 @@ import (
 )
 
 var (
-	log               = logger.Log
+	log               = &logger.Log
 	MetricResTypeNode = common.MetricResTypeNode
 )
 

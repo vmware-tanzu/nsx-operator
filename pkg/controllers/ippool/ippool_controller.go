@@ -35,7 +35,7 @@ import (
 )
 
 var (
-	log           = logger.Log
+	log           = &logger.Log
 	resultNormal  = common.ResultNormal
 	resultRequeue = common.ResultRequeue
 	MetricResType = common.MetricResTypeIPPool

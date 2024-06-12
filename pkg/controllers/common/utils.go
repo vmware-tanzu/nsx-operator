@@ -19,7 +19,7 @@ import (
 )
 
 var (
-	log  = logger.Log
+	log  = &logger.Log
 	lock = &sync.Mutex{}
 )
 

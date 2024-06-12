@@ -27,7 +27,7 @@ import (
 )
 
 var (
-	log           = logger.Log
+	log           = &logger.Log
 	MetricResType = common.MetricResTypeNetworkInfo
 )
 

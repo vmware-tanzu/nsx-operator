@@ -27,6 +27,10 @@ func init() {
 	Log = logf.Log.WithName("nsx-operator")
 }
 
+func InitLog(log *logr.Logger) {
+	Log = *log
+}
+
 // If debug set in configmap, set log level to 1.
 // If loglevel set in command line and greater than debug log level, set it to command line level.
 func getLogLevel(cfDebug bool, cfLogLevel int) int {
