@@ -91,7 +91,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			log.Error(err, "failed to get node ID for pod", "pod.Name", req.NamespacedName, "pod.UID", pod.UID, "node", pod.Spec.NodeName)
 			return common.ResultRequeue, err
 		}
-		contextID := *node.Id
+		contextID := *node.UniqueId
 		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath)
 		if err != nil {
 			return common.ResultRequeue, err
@@ -143,7 +143,7 @@ func (r *PodReconciler) GetNodeByName(nodeName string) (*model.HostTransportNode
 	if len(nodes) > 1 {
 		var nodeIDs []string
 		for _, node := range nodes {
-			nodeIDs = append(nodeIDs, *node.Id)
+			nodeIDs = append(nodeIDs, *node.UniqueId)
 		}
 		return nil, fmt.Errorf("multiple node IDs found for node %s: %v", nodeName, nodeIDs)
 	}
