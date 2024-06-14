@@ -27,7 +27,7 @@ type Store interface {
 	// to specific nsx-t side resource and then add it to the store.
 	TransResourceToStore(obj *data.StructValue) error
 	// ListIndexFuncValues is the method to list all the values of the index
-	ListIndexFuncValues(key string) sets.Set[string]
+	ListIndexFuncValues(key string) sets.String //nolint:staticcheck // Ignore the deprecation warning for sets.String
 	// Apply is the method to create, update and delete the resource to the store based
 	// on its tag MarkedForDelete.
 	Apply(obj interface{}) error
@@ -65,8 +65,8 @@ func DecrementPageSize(pageSize *int64) {
 	}
 }
 
-func (resourceStore *ResourceStore) ListIndexFuncValues(key string) sets.Set[string] {
-	values := sets.New[string]()
+func (resourceStore *ResourceStore) ListIndexFuncValues(key string) sets.String { //nolint:staticcheck // Ignore the deprecation warning for sets.String
+	values := sets.NewString()
 	entities := resourceStore.Indexer.ListIndexFuncValues(key)
 	for _, entity := range entities {
 		values.Insert(entity)

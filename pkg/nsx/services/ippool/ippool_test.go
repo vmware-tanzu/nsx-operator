@@ -28,9 +28,9 @@ func TestIPPoolService_ListIPPoolID(t *testing.T) {
 
 	tests := []struct {
 		name string
-		want sets.Set[string]
+		want sets.String //nolint:staticcheck // Ignore the deprecation warning for sets.String
 	}{
-		{"test", sets.New[string]("1")},
+		{"test", sets.NewString("1")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

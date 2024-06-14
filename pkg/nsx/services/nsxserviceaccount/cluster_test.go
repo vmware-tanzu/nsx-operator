@@ -1339,13 +1339,13 @@ func TestNSXServiceAccountService_ListNSXServiceAccountRealization(t *testing.T)
 		name    string
 		piKeys  []string
 		ccpKeys []string
-		want    sets.Set[string]
+		want    sets.String //nolint:staticcheck // Ignore the deprecation warning for sets.String
 	}{
 		{
 			name:    "standard",
 			piKeys:  []string{"ns1-name1", "ns2-name2"},
 			ccpKeys: []string{"ns2-name2", "ns3-name3"},
-			want:    sets.New[string]("ns1-name1-uid", "ns2-name2-uid", "ns3-name3-uid"),
+			want:    sets.NewString("ns1-name1-uid", "ns2-name2-uid", "ns3-name3-uid"),
 		},
 	}
 	for _, tt := range tests {

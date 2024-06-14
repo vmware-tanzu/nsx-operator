@@ -267,7 +267,7 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 		time.Sleep(1 * time.Second)
 		cancel <- true
 	}()
-	r.IPPoolGarbageCollector(cancel, time.Second)
+	r.collectGarbage(context.Background())
 
 	// local store has same item as k8s cache
 	patch.Reset()
@@ -291,7 +291,7 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 		time.Sleep(1 * time.Second)
 		cancel <- true
 	}()
-	r.IPPoolGarbageCollector(cancel, time.Second)
+	r.collectGarbage(context.Background())
 
 	// local store has no item
 	patch.Reset()
@@ -308,7 +308,7 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 		time.Sleep(1 * time.Second)
 		cancel <- true
 	}()
-	r.IPPoolGarbageCollector(cancel, time.Second)
+	r.collectGarbage(context.Background())
 }
 
 func TestReconciler_Start(t *testing.T) {

@@ -468,7 +468,7 @@ func (s *NSXServiceAccountService) updatePIAndCCPCert(normalizedClusterName, uid
 }
 
 // ListNSXServiceAccountRealization returns all existing realized or failed NSXServiceAccount on NSXT
-func (s *NSXServiceAccountService) ListNSXServiceAccountRealization() sets.Set[string] {
+func (s *NSXServiceAccountService) ListNSXServiceAccountRealization() sets.String { //nolint:staticcheck // Ignore the deprecation warning for sets.String
 	// List PI
 	uidSet := s.PrincipalIdentityStore.ListIndexFuncValues(common.TagScopeNSXServiceAccountCRUID)
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -140,4 +141,18 @@ func GetVirtualMachineNameForSubnetPort(subnetPort *v1alpha1.SubnetPort) (string
 // NumReconcile now uses the fix number of concurrency
 func NumReconcile() int {
 	return MaxConcurrentReconciles
+}
+
+func GenericGarbageCollector(ctx context.Context, interval time.Duration, gc func(ctx context.Context)) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			gc(ctx)
+		}
+	}
 }

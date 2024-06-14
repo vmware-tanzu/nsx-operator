@@ -221,7 +221,8 @@ func (r *NSXServiceAccountReconciler) validateRealized(count uint16, ca []byte, 
 	return count, ca
 }
 
-func (r *NSXServiceAccountReconciler) garbageCollector(nsxServiceAccountUIDSet sets.Set[string], nsxServiceAccountList *nsxvmwarecomv1alpha1.NSXServiceAccountList) (gcSuccessCount, gcErrorCount uint32) {
+func (r *NSXServiceAccountReconciler) garbageCollector(nsxServiceAccountUIDSet sets.String, //nolint:staticcheck // Ignore the deprecation warning for sets.String
+	nsxServiceAccountList *nsxvmwarecomv1alpha1.NSXServiceAccountList) (gcSuccessCount, gcErrorCount uint32) {
 	nsxServiceAccountCRUIDMap := map[string]types.NamespacedName{}
 	for _, nsxServiceAccount := range nsxServiceAccountList.Items {
 		nsxServiceAccountCRUIDMap[string(nsxServiceAccount.UID)] = types.NamespacedName{

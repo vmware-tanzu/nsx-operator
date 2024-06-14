@@ -258,7 +258,7 @@ func (service *IPPoolService) acquireCidr(obj *v1alpha2.IPPool, subnetRequest *v
 	}
 }
 
-func (service *IPPoolService) ListIPPoolID() sets.Set[string] {
+func (service *IPPoolService) ListIPPoolID() sets.String { //nolint:staticcheck // Ignore the deprecation warning for sets.String
 	ipPoolSet := service.ipPoolStore.ListIndexFuncValues(common.TagScopeIPPoolCRUID)
 	ipPoolSubnetSet := service.ipPoolBlockSubnetStore.ListIndexFuncValues(common.TagScopeIPPoolCRUID)
 	return ipPoolSet.Union(ipPoolSubnetSet)

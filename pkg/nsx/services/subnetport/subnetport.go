@@ -214,13 +214,13 @@ func (service *SubnetPortService) DeleteSubnetPort(uid types.UID) error {
 	return nil
 }
 
-func (service *SubnetPortService) ListNSXSubnetPortIDForCR() sets.Set[string] {
+func (service *SubnetPortService) ListNSXSubnetPortIDForCR() sets.String { //nolint:staticcheck // Ignore the deprecation warning for sets.String
 	log.V(2).Info("listing subnet port CR UIDs")
 	subnetPortSet := service.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopeSubnetPortCRUID)
 	return subnetPortSet
 }
 
-func (service *SubnetPortService) ListNSXSubnetPortIDForPod() sets.Set[string] {
+func (service *SubnetPortService) ListNSXSubnetPortIDForPod() sets.String { //nolint:staticcheck // Ignore the deprecation warning for sets.String
 	log.V(2).Info("listing pod UIDs")
 	subnetPortSet := service.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopePodUID)
 	return subnetPortSet

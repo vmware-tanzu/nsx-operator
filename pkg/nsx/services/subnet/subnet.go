@@ -294,7 +294,7 @@ func (service *SubnetService) GetSubnetByPath(path string) (*model.VpcSubnet, er
 	return nsxSubnet, err
 }
 
-func (service *SubnetService) ListSubnetID() sets.Set[string] {
+func (service *SubnetService) ListSubnetID() sets.String { //nolint:staticcheck // Ignore the deprecation warning for sets.String
 	subnets := service.SubnetStore.ListIndexFuncValues(common.TagScopeSubnetCRUID)
 	subnetSets := service.SubnetStore.ListIndexFuncValues(common.TagScopeSubnetSetCRUID)
 	return subnets.Union(subnetSets)

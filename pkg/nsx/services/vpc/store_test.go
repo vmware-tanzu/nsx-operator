@@ -134,7 +134,7 @@ func Test_InitializeVPCStore(t *testing.T) {
 
 	service.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, vpcStore)
 	assert.Empty(t, fatalErrors)
-	assert.Equal(t, sets.New[string](), vpcStore.ListIndexFuncValues(common.TagScopeNamespaceUID))
+	assert.Equal(t, sets.NewString(), vpcStore.ListIndexFuncValues(common.TagScopeNamespaceUID))
 }
 
 func TestVPCStore_CRUDResource(t *testing.T) {

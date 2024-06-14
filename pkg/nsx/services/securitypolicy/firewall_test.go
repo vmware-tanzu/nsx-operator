@@ -344,7 +344,7 @@ func TestListSecurityPolicyID(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		want    sets.Set[string]
+		want    sets.String //nolint:staticcheck // Ignore the deprecation warning for sets.String
 		wantErr bool
 	}{
 		{
@@ -353,7 +353,7 @@ func TestListSecurityPolicyID(t *testing.T) {
 		},
 	}
 
-	tests[0].want = sets.New[string]()
+	tests[0].want = sets.NewString()
 	tests[0].want.Insert(id)
 	tests[0].want.Insert(id1)
 	tests[0].want.Insert(id2)

@@ -821,7 +821,7 @@ func (service *SecurityPolicyService) createOrUpdateGroups(obj *v1alpha1.Securit
 	return nil
 }
 
-func (service *SecurityPolicyService) ListSecurityPolicyID() sets.Set[string] {
+func (service *SecurityPolicyService) ListSecurityPolicyID() sets.String { //nolint:staticcheck // Ignore the deprecation warning for sets.String
 	indexScope := common.TagValueScopeSecurityPolicyUID
 
 	// List SecurityPolicyID to which groups resources are associated in group store
@@ -833,7 +833,7 @@ func (service *SecurityPolicyService) ListSecurityPolicyID() sets.Set[string] {
 	return groupSet.Union(policySet).Union(shareSet)
 }
 
-func (service *SecurityPolicyService) ListNetworkPolicyID() sets.Set[string] {
+func (service *SecurityPolicyService) ListNetworkPolicyID() sets.String { //nolint:staticcheck // Ignore the deprecation warning for sets.String
 	// List ListNetworkPolicyID to which groups resources are associated in group store
 	groupSet := service.groupStore.ListIndexFuncValues(common.TagScopeNetworkPolicyUID)
 	// List service to which share resources are associated in share store
