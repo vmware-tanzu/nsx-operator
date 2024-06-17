@@ -35,7 +35,7 @@ import (
 )
 
 var (
-	log                     = logger.Log
+	log                     = &logger.Log
 	ResultNormal            = common.ResultNormal
 	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins

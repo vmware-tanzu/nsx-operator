@@ -63,7 +63,7 @@ type NsxVersion struct {
 var (
 	jarCache   = NewJar()
 	nsxVersion = &NsxVersion{}
-	log        = logger.Log
+	log        = &logger.Log
 )
 
 // NewCluster creates a cluster based on nsx Config.

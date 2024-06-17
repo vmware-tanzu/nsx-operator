@@ -42,7 +42,7 @@ import (
 )
 
 var (
-	log                     = logger.Log
+	log                     = &logger.Log
 	MetricResTypeSubnetPort = common.MetricResTypeSubnetPort
 )
 

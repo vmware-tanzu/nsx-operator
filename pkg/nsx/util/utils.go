@@ -31,7 +31,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
-var log = logger.Log
+var log = &logger.Log
 
 // ErrorDetail is error detail which info extracted from http.Response.Body.
 type ErrorDetail struct {

@@ -23,7 +23,7 @@ import (
 )
 
 var (
-	log                        = logger.Log
+	log                        = &logger.Log
 	MarkedForDelete            = true
 	EnforceRevisionCheckParam  = false
 	ResourceTypeSecurityPolicy = common.ResourceTypeSecurityPolicy

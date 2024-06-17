@@ -36,7 +36,7 @@ const (
 )
 
 var (
-	log             = logger.Log
+	log             = &logger.Log
 	ctx             = context.Background()
 	ResourceTypeVPC = common.ResourceTypeVpc
 	NewConverter    = common.NewConverter

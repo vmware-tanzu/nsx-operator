@@ -28,7 +28,7 @@ import (
 
 var (
 	AnnotationNamespaceVPCError = " nsx.vmware.com/vpc_error"
-	log                         = logger.Log
+	log                         = &logger.Log
 )
 
 // NamespaceReconciler process namespace create/delete event
