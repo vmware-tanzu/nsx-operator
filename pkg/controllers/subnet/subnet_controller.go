@@ -157,13 +157,20 @@ func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {
 	if nsxSubnet == nil {
 		return errors.New("failed to get NSX Subnet from store")
 	}
-	obj.Status.IPAddresses = obj.Status.IPAddresses[:0]
+	obj.Status.NetworkAddresses = obj.Status.NetworkAddresses[:0]
+	obj.Status.GatewayAddresses = obj.Status.GatewayAddresses[:0]
+	obj.Status.DHCPServerAddresses = obj.Status.DHCPServerAddresses[:0]
 	statusList, err := r.SubnetService.GetSubnetStatus(nsxSubnet)
 	if err != nil {
 		return err
 	}
 	for _, status := range statusList {
-		obj.Status.IPAddresses = append(obj.Status.IPAddresses, *status.NetworkAddress)
+		obj.Status.NetworkAddresses = append(obj.Status.NetworkAddresses, *status.NetworkAddress)
+		obj.Status.GatewayAddresses = append(obj.Status.GatewayAddresses, *status.GatewayAddress)
+		// DHCPServerAddress is only for the subnet with DHCP enabled
+		if status.DhcpServerAddress != nil {
+			obj.Status.DHCPServerAddresses = append(obj.Status.DHCPServerAddresses, *status.DhcpServerAddress)
+		}
 	}
 	obj.Status.NSXResourcePath = *nsxSubnet.Path
 	return nil

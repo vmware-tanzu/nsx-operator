@@ -51,30 +51,6 @@ spec:
               DHCPConfig:
                 description: DHCPConfig DHCP configuration.
                 properties:
-                  dhcpRelayConfigPath:
-                    description: DHCPRelayConfigPath is policy path of DHCP-relay-config.
-                    type: string
-                  dhcpV4PoolSize:
-                    default: 80
-                    description: DHCPV4PoolSize IPs in % to be reserved for DHCP ranges.
-                      By default, 80% of IPv4 IPs will be reserved for DHCP. Configure
-                      0 if no pool is required.
-                    maximum: 100
-                    minimum: 0
-                    type: integer
-                  dhcpV6PoolSize:
-                    default: 2000
-                    description: DHCPV6PoolSize number of IPs to be reserved for DHCP
-                      ranges. By default, 2000 IPv6 IPs will be reserved for DHCP.
-                    type: integer
-                  dnsClientConfig:
-                    description: DNSClientConfig holds DNS configurations.
-                    properties:
-                      dnsServersIPs:
-                        items:
-                          type: string
-                        type: array
-                    type: object
                   enableDHCP:
                     default: false
                     type: boolean
@@ -116,6 +92,10 @@ spec:
           status:
             description: SubnetStatus defines the observed state of Subnet.
             properties:
+              DHCPServerAddresses:
+                items:
+                  type: string
+                type: array
               conditions:
                 items:
                   description: Condition defines condition of custom resource.
@@ -144,7 +124,11 @@ spec:
                   - type
                   type: object
                 type: array
-              ipAddresses:
+              gatewayAddresses:
+                items:
+                  type: string
+                type: array
+              networkAddreses:
                 items:
                   type: string
                 type: array
