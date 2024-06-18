@@ -9,8 +9,13 @@ import (
 )
 
 const (
-	AccessModePublic  string = "Public"
-	AccessModePrivate string = "Private"
+	AccessModePublic    string = "Public"
+	AccessModePrivate   string = "Private"
+	AccessModeProject   string = "Project"
+	LbServiceSizeSmall  string = "SMALL"
+	LbServiceSizeMedium string = "MEDIUM"
+	LbServiceSizeLarge  string = "LARGE"
+	LbServiceSizeXlarge string = "XLARGE"
 )
 
 // VPCNetworkConfigurationSpec defines the desired state of VPCNetworkConfiguration.
@@ -24,6 +29,9 @@ type VPCNetworkConfigurationSpec struct {
 
 	// VPCConnectivityProfile ID. This profile has configuration related to create VPC transit gateway attachment.
 	VPCConnectivityProfile string `json:"vpc_connectivity_profile,omitempty"`
+
+	// +kubebuilder:validation:Enum=SMALL;MEDIUM;LARGE;XLARGE
+	LbServiceSize string `json:"lb_service_size,omitempty"`
 
 	// Edge cluster path on which the networking elements will be created.
 	EdgeClusterPath string `json:"edgeClusterPath,omitempty"`

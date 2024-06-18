@@ -80,6 +80,13 @@ spec:
                 maxItems: 5
                 minItems: 0
                 type: array
+              lb_service_size:
+                enum:
+                - SMALL
+                - MEDIUM
+                - LARGE
+                - XLARGE
+                type: string
               nsxtProject:
                 description: NSX-T Project the Namespace associated with.
                 type: string
