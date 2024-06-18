@@ -244,7 +244,7 @@ func sharedSubnetSet(t *testing.T) {
 	// 5. Check Subnet CIDR contains SubnetPort IP.
 
 	portIP := net.ParseIP(strings.Split(port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "/")[0])
-	_, subnetCIDR, err := net.ParseCIDR(subnetSet.Status.Subnets[0].IPAddresses[0])
+	_, subnetCIDR, err := net.ParseCIDR(subnetSet.Status.Subnets[0].NetworkAddresses[0])
 	assertNil(t, err)
 	assertTrue(t, subnetCIDR.Contains(portIP))
 }
@@ -270,7 +270,7 @@ func SubnetCIDR(t *testing.T) {
 	assertNil(t, err)
 	allocatedSubnet, err := testData.crdClientset.NsxV1alpha1().Subnets(E2ENamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
 	assertNil(t, err)
-	targetCIDR := allocatedSubnet.Status.IPAddresses[0]
+	targetCIDR := allocatedSubnet.Status.NetworkAddresses[0]
 	err = testData.crdClientset.NsxV1alpha1().Subnets(E2ENamespace).Delete(context.TODO(), subnet.Name, v1.DeleteOptions{})
 	assertNil(t, err)
 
@@ -293,5 +293,5 @@ func SubnetCIDR(t *testing.T) {
 	assertNil(t, err)
 	allocatedSubnet, err = testData.crdClientset.NsxV1alpha1().Subnets(E2ENamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
 	assertNil(t, err)
-	assert.Equal(t, targetCIDR, allocatedSubnet.Status.IPAddresses[0])
+	assert.Equal(t, targetCIDR, allocatedSubnet.Status.NetworkAddresses[0])
 }

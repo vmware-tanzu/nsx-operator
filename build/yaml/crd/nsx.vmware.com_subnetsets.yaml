@@ -51,30 +51,6 @@ spec:
               DHCPConfig:
                 description: DHCPConfig DHCP configuration.
                 properties:
-                  dhcpRelayConfigPath:
-                    description: DHCPRelayConfigPath is policy path of DHCP-relay-config.
-                    type: string
-                  dhcpV4PoolSize:
-                    default: 80
-                    description: DHCPV4PoolSize IPs in % to be reserved for DHCP ranges.
-                      By default, 80% of IPv4 IPs will be reserved for DHCP. Configure
-                      0 if no pool is required.
-                    maximum: 100
-                    minimum: 0
-                    type: integer
-                  dhcpV6PoolSize:
-                    default: 2000
-                    description: DHCPV6PoolSize number of IPs to be reserved for DHCP
-                      ranges. By default, 2000 IPv6 IPs will be reserved for DHCP.
-                    type: integer
-                  dnsClientConfig:
-                    description: DNSClientConfig holds DNS configurations.
-                    properties:
-                      dnsServersIPs:
-                        items:
-                          type: string
-                        type: array
-                    type: object
                   enableDHCP:
                     default: false
                     type: boolean
@@ -142,15 +118,20 @@ spec:
                   description: SubnetInfo defines the observed state of a single Subnet
                     of a SubnetSet.
                   properties:
-                    ipAddresses:
+                    DHCPServerAddresses:
+                      items:
+                        type: string
+                      type: array
+                    gatewayAddresses:
+                      items:
+                        type: string
+                      type: array
+                    networkAddresses:
                       items:
                         type: string
                       type: array
                     nsxResourcePath:
                       type: string
-                  required:
-                  - ipAddresses
-                  - nsxResourcePath
                   type: object
                 type: array
             type: object

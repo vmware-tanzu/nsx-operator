@@ -30,9 +30,11 @@ type SubnetSpec struct {
 
 // SubnetStatus defines the observed state of Subnet.
 type SubnetStatus struct {
-	NSXResourcePath string      `json:"nsxResourcePath,omitempty"`
-	IPAddresses     []string    `json:"ipAddresses,omitempty"`
-	Conditions      []Condition `json:"conditions,omitempty"`
+	NSXResourcePath     string      `json:"nsxResourcePath,omitempty"`
+	NetworkAddresses    []string    `json:"networkAddreses,omitempty"`
+	GatewayAddresses    []string    `json:"gatewayAddresses,omitempty"`
+	DHCPServerAddresses []string    `json:"DHCPServerAddresses,omitempty"`
+	Conditions          []Condition `json:"conditions,omitempty"`
 }
 
 // +genclient
@@ -78,20 +80,6 @@ type StaticIPAllocation struct {
 type DHCPConfig struct {
 	// +kubebuilder:default:=false
 	EnableDHCP bool `json:"enableDHCP,omitempty"`
-	// DHCPRelayConfigPath is policy path of DHCP-relay-config.
-	DHCPRelayConfigPath string `json:"dhcpRelayConfigPath,omitempty"`
-	// DHCPV4PoolSize IPs in % to be reserved for DHCP ranges.
-	// By default, 80% of IPv4 IPs will be reserved for DHCP.
-	// Configure 0 if no pool is required.
-	// +kubebuilder:default:=80
-	// +kubebuilder:validation:Maximum:=100
-	// +kubebuilder:validation:Minimum:=0
-	DHCPV4PoolSize int `json:"dhcpV4PoolSize,omitempty"`
-	// DHCPV6PoolSize number of IPs to be reserved for DHCP ranges.
-	// By default, 2000 IPv6 IPs will be reserved for DHCP.
-	// +kubebuilder:default:=2000
-	DHCPV6PoolSize  int             `json:"dhcpV6PoolSize,omitempty"`
-	DNSClientConfig DNSClientConfig `json:"dnsClientConfig,omitempty"`
 }
 
 // DNSClientConfig holds DNS configurations.
