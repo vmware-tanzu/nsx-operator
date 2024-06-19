@@ -5,6 +5,7 @@ package networkinfo
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -29,6 +30,7 @@ import (
 var (
 	log           = &logger.Log
 	MetricResType = common.MetricResTypeNetworkInfo
+	once          sync.Once
 )
 
 // NetworkInfoReconciler NetworkInfoReconcile reconciles a NetworkInfo object
@@ -41,6 +43,9 @@ type NetworkInfoReconciler struct {
 }
 
 func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	// Use once.Do to ensure gc is called only once
+	once.Do(func() { go r.GarbageCollector(make(chan bool), commonservice.GCInterval) })
+
 	obj := &v1alpha1.NetworkInfo{}
 	log.Info("reconciling NetworkInfo CR", "NetworkInfo", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, common.MetricResTypeNetworkInfo)
@@ -204,8 +209,6 @@ func (r *NetworkInfoReconciler) Start(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-
-	go r.GarbageCollector(make(chan bool), commonservice.GCInterval)
 	return nil
 }
 
@@ -241,7 +244,6 @@ func (r *NetworkInfoReconciler) GarbageCollector(cancel chan bool, timeout time.
 		for _, ns := range namespaces.Items {
 			nsSet.Insert(ns.Name)
 		}
-
 		for _, elem := range nsxVPCList {
 			// for go lint Implicit memory aliasing in for loop
 			// this limitation is fixed after golang 1.22, should remove the temp var after upgrading to 1.22

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -45,6 +46,7 @@ var (
 	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
 	MetricResType           = common.MetricResTypeSecurityPolicy
+	once                    sync.Once
 )
 
 // SecurityPolicyReconciler SecurityPolicyReconcile reconciles a SecurityPolicy object
@@ -87,6 +89,8 @@ func deleteSuccess(r *SecurityPolicyReconciler, _ *context.Context, o *v1alpha1.
 }
 
 func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	// Use once.Do to ensure gc is called only once
+	once.Do(func() { go r.GarbageCollector(make(chan bool), servicecommon.GCInterval) })
 	obj := &v1alpha1.SecurityPolicy{}
 	log.Info("reconciling securitypolicy CR", "securitypolicy", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
@@ -281,8 +285,6 @@ func (r *SecurityPolicyReconciler) Start(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-
-	go r.GarbageCollector(make(chan bool), servicecommon.GCInterval)
 	return nil
 }
 
