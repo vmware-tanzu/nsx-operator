@@ -80,7 +80,7 @@ spec:
                 maxItems: 5
                 minItems: 0
                 type: array
-              lb_service_size:
+              lbServiceSize:
                 enum:
                 - SMALL
                 - MEDIUM
@@ -102,7 +102,7 @@ spec:
                   context in logs. Less than or equal to 8 characters.
                 maxLength: 8
                 type: string
-              vpc_connectivity_profile:
+              vpcConnectivityProfile:
                 description: VPCConnectivityProfile ID. This profile has configuration
                   related to create VPC transit gateway attachment.
                 type: string

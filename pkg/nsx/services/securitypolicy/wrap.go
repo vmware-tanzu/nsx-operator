@@ -84,7 +84,7 @@ func (service *SecurityPolicyService) wrapRules(rules []model.Rule) ([]*data.Str
 	for _, r := range rules {
 		rule := r
 		rule.ResourceType = &common.ResourceTypeRule // need this field to identify the resource type
-		childRule := model.ChildRule{ // We need to put child rule's id into upper level, otherwise, NSX-T will not find the child rule
+		childRule := model.ChildRule{                // We need to put child rule's id into upper level, otherwise, NSX-T will not find the child rule
 			ResourceType:    resourceType, // Children are not allowed for rule, so we don't need to wrap ServiceEntry into Children
 			Id:              rule.Id,
 			Rule:            &rule,

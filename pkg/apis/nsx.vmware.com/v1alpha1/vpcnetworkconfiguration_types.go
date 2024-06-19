@@ -28,10 +28,10 @@ type VPCNetworkConfigurationSpec struct {
 	DefaultGatewayPath string `json:"defaultGatewayPath,omitempty"`
 
 	// VPCConnectivityProfile ID. This profile has configuration related to create VPC transit gateway attachment.
-	VPCConnectivityProfile string `json:"vpc_connectivity_profile,omitempty"`
+	VPCConnectivityProfile string `json:"vpcConnectivityProfile,omitempty"`
 
 	// +kubebuilder:validation:Enum=SMALL;MEDIUM;LARGE;XLARGE
-	LbServiceSize string `json:"lb_service_size,omitempty"`
+	LbServiceSize string `json:"lbServiceSize,omitempty"`
 
 	// Edge cluster path on which the networking elements will be created.
 	EdgeClusterPath string `json:"edgeClusterPath,omitempty"`

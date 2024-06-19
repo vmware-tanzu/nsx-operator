@@ -128,12 +128,12 @@ func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*comm
 		EdgeClusterPath:    vpcConfigCR.Spec.EdgeClusterPath,
 		// VPCConnectivityProfile:  vpcConfigCR.Spec.VPCConnectivityProfile,
 		// VPCServiceProfile:       vpcConfigCR.Spec.VPCServiceProfile,
-		NsxtProject:             project,
-		ExternalIPv4Blocks:      vpcConfigCR.Spec.ExternalIPv4Blocks,
-		PrivateIPv4CIDRs:        vpcConfigCR.Spec.PrivateIPv4CIDRs,
-		DefaultIPv4SubnetSize:   vpcConfigCR.Spec.DefaultIPv4SubnetSize,
-		DefaultSubnetAccessMode: vpcConfigCR.Spec.DefaultSubnetAccessMode,
-		ShortID:                 vpcConfigCR.Spec.ShortID,
+		NsxtProject:                project,
+		ExternalIPv4Blocks:         vpcConfigCR.Spec.ExternalIPv4Blocks,
+		PrivateIPv4CIDRs:           vpcConfigCR.Spec.PrivateIPv4CIDRs,
+		DefaultIPv4SubnetSize:      vpcConfigCR.Spec.DefaultIPv4SubnetSize,
+		DefaultPodSubnetAccessMode: vpcConfigCR.Spec.DefaultPodSubnetAccessMode,
+		ShortID:                    vpcConfigCR.Spec.ShortID,
 	}
 	return ninfo, nil
 }
