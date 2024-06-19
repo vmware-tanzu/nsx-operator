@@ -153,7 +153,11 @@ KUSTOMIZE = $(shell pwd)/bin/kustomize
 kustomize: ## Download kustomize locally if necessary.
 	$(call go-get-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v3@v3.8.7)
 
-generated:
+.PHONY: code-generator
+code-generator: ## Download code-generator locally if necessary.
+	go mod download k8s.io/code-generator@v0.27.1
+
+generated: code-generator
 	./hack/update-codegen.sh
 
 ENVTEST = $(shell pwd)/bin/setup-envtest
