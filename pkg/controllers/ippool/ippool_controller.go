@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -35,10 +36,11 @@ import (
 )
 
 var (
-	log           = logger.Log
+	log           = &logger.Log
 	resultNormal  = common.ResultNormal
 	resultRequeue = common.ResultRequeue
 	MetricResType = common.MetricResTypeIPPool
+	once          sync.Once
 )
 
 // IPPoolReconciler reconciles a IPPool object
@@ -114,6 +116,8 @@ func (r *IPPoolReconciler) setReadyStatusTrue(ctx *context.Context, ippool *v1al
 }
 
 func (r *IPPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	// Use once.Do to ensure gc is called only once
+	once.Do(func() { go r.IPPoolGarbageCollector(make(chan bool), servicecommon.GCInterval) })
 	obj := &v1alpha2.IPPool{}
 	log.Info("reconciling ippool CR", "ippool", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
@@ -260,7 +264,6 @@ func (r *IPPoolReconciler) Start(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-	go r.IPPoolGarbageCollector(make(chan bool), servicecommon.GCInterval)
 	return nil
 }
 

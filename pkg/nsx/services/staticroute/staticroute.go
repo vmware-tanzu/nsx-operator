@@ -23,7 +23,7 @@ type StaticRouteService struct {
 }
 
 var (
-	log                     = logger.Log
+	log                     = &logger.Log
 	resourceTypeStaticRoute = "StaticRoutes"
 	String                  = common.String
 )

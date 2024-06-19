@@ -10,6 +10,8 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+
+	"github.com/go-logr/logr"
 )
 
 type (
@@ -63,7 +65,7 @@ func httpQueryDLBResources(cluster *nsx.Cluster, cf *config.NSXOperatorConfig, r
 	return resourcePath, nil
 }
 
-func CleanDLB(ctx context.Context, cluster *nsx.Cluster, cf *config.NSXOperatorConfig) error {
+func CleanDLB(ctx context.Context, cluster *nsx.Cluster, cf *config.NSXOperatorConfig, log *logr.Logger) error {
 	log.Info("Deleting DLB resources started")
 
 	resources := []string{"Group", "LBVirtualServer", "LBService", "LBPool", "LBCookiePersistenceProfile"}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -32,8 +33,9 @@ import (
 )
 
 var (
-	log              = logger.Log
+	log              = &logger.Log
 	MetricResTypePod = common.MetricResTypePod
+	once             sync.Once
 )
 
 // PodReconciler reconciles a Pod object
@@ -49,6 +51,8 @@ type PodReconciler struct {
 }
 
 func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	// Use once.Do to ensure gc is called only once
+	once.Do(func() { go r.GarbageCollector(make(chan bool), servicecommon.GCInterval) })
 	pod := &v1.Pod{}
 	log.Info("reconciling pod", "pod", req.NamespacedName)
 
@@ -91,7 +95,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			log.Error(err, "failed to get node ID for pod", "pod.Name", req.NamespacedName, "pod.UID", pod.UID, "node", pod.Spec.NodeName)
 			return common.ResultRequeue, err
 		}
-		contextID := *node.Id
+		contextID := *node.UniqueId
 		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath)
 		if err != nil {
 			return common.ResultRequeue, err
@@ -143,7 +147,7 @@ func (r *PodReconciler) GetNodeByName(nodeName string) (*model.HostTransportNode
 	if len(nodes) > 1 {
 		var nodeIDs []string
 		for _, node := range nodes {
-			nodeIDs = append(nodeIDs, *node.Id)
+			nodeIDs = append(nodeIDs, *node.UniqueId)
 		}
 		return nil, fmt.Errorf("multiple node IDs found for node %s: %v", nodeName, nodeIDs)
 	}
@@ -191,7 +195,6 @@ func (r *PodReconciler) Start(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-	go r.GarbageCollector(make(chan bool), servicecommon.GCInterval)
 	return nil
 }
 

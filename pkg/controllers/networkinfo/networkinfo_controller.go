@@ -5,8 +5,10 @@ package networkinfo
 
 import (
 	"context"
+	"sync"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
@@ -17,7 +19,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
@@ -27,8 +28,9 @@ import (
 )
 
 var (
-	log           = logger.Log
+	log           = &logger.Log
 	MetricResType = common.MetricResTypeNetworkInfo
+	once          sync.Once
 )
 
 // NetworkInfoReconciler NetworkInfoReconcile reconciles a NetworkInfo object
@@ -41,6 +43,9 @@ type NetworkInfoReconciler struct {
 }
 
 func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	// Use once.Do to ensure gc is called only once
+	once.Do(func() { go r.GarbageCollector(make(chan bool), commonservice.GCInterval) })
+
 	obj := &v1alpha1.NetworkInfo{}
 	log.Info("reconciling NetworkInfo CR", "NetworkInfo", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, common.MetricResTypeNetworkInfo)
@@ -56,7 +61,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			controllerutil.AddFinalizer(obj, commonservice.NetworkInfoFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "NetworkInfo", req.NamespacedName)
-				updateFail(r, &ctx, obj, &err, r.Client)
+				updateFail(r, &ctx, obj, &err, r.Client, nil)
 				return common.ResultRequeue, err
 			}
 			log.V(1).Info("added finalizer on NetworkInfo CR", "NetworkInfo", req.NamespacedName)
@@ -64,8 +69,8 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		createdVpc, nc, err := r.Service.CreateOrUpdateVPC(obj)
 		if err != nil {
-			log.Error(err, "operate failed, would retry exponentially", "VPC", req.NamespacedName)
-			updateFail(r, &ctx, obj, &err, r.Client)
+			log.Error(err, "create vpc failed, would retry exponentially", "VPC", req.NamespacedName)
+			updateFail(r, &ctx, obj, &err, r.Client, nil)
 			return common.ResultRequeueAfter10sec, err
 		}
 
@@ -77,8 +82,15 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if !isShared {
 			err = r.Service.CreateOrUpdateAVIRule(createdVpc, obj.Namespace)
 			if err != nil {
-				log.Error(err, "operate failed, would retry exponentially", "NetworkInfo", req.NamespacedName)
-				updateFail(r, &ctx, obj, &err, r.Client)
+				state := &v1alpha1.VPCState{
+					Name:                    *createdVpc.DisplayName,
+					VPCPath:                 *createdVpc.Path,
+					DefaultSNATIP:           "",
+					LoadBalancerIPAddresses: "",
+					PrivateIPv4CIDRs:        nc.PrivateIPv4CIDRs,
+				}
+				log.Error(err, "update avi rule failed, would retry exponentially", "NetworkInfo", req.NamespacedName)
+				updateFail(r, &ctx, obj, &err, r.Client, state)
 				return common.ResultRequeueAfter10sec, err
 			}
 		}
@@ -90,6 +102,14 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			snatIP, err = r.Service.GetDefaultSNATIP(*createdVpc)
 			if err != nil {
 				log.Error(err, "failed to read default SNAT ip from VPC", "VPC", createdVpc.Id)
+				state := &v1alpha1.VPCState{
+					Name:                    *createdVpc.DisplayName,
+					VPCPath:                 *createdVpc.Path,
+					DefaultSNATIP:           "",
+					LoadBalancerIPAddresses: "",
+					PrivateIPv4CIDRs:        nc.PrivateIPv4CIDRs,
+				}
+				updateFail(r, &ctx, obj, &err, r.Client, state)
 				return common.ResultRequeueAfter10sec, err
 			}
 		}
@@ -101,11 +121,26 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			path, cidr, err = r.Service.GetAVISubnetInfo(*createdVpc)
 			if err != nil {
 				log.Error(err, "failed to read lb subnet path and cidr", "VPC", createdVpc.Id)
+				state := &v1alpha1.VPCState{
+					Name:                    *createdVpc.DisplayName,
+					VPCPath:                 *createdVpc.Path,
+					DefaultSNATIP:           snatIP,
+					LoadBalancerIPAddresses: "",
+					PrivateIPv4CIDRs:        nc.PrivateIPv4CIDRs,
+				}
+				updateFail(r, &ctx, obj, &err, r.Client, state)
 				return common.ResultRequeueAfter10sec, err
 			}
 		}
 
-		updateSuccess(r, &ctx, obj, r.Client, *createdVpc.DisplayName, *createdVpc.Path, snatIP, path, cidr, nc.PrivateIPv4CIDRs, nc.Name)
+		state := &v1alpha1.VPCState{
+			Name:                    *createdVpc.DisplayName,
+			VPCPath:                 *createdVpc.Path,
+			DefaultSNATIP:           snatIP,
+			LoadBalancerIPAddresses: cidr,
+			PrivateIPv4CIDRs:        nc.PrivateIPv4CIDRs,
+		}
+		updateSuccess(r, &ctx, obj, r.Client, state, nc.Name, path)
 	} else {
 		if controllerutil.ContainsFinalizer(obj, commonservice.NetworkInfoFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNetworkInfo)
@@ -174,13 +209,14 @@ func (r *NetworkInfoReconciler) Start(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-
-	go r.GarbageCollector(make(chan bool), commonservice.GCInterval)
 	return nil
 }
 
-// GarbageCollector collect vpc which has been removed from networkInfo crd.
-// cancel is used to break the loop during UT
+// GarbageCollector logic for nsx-vpc is that:
+// 1. list all current existing namespace in kubernetes
+// 2. list all the nsx-vpc in vpcStore
+// 3. loop all the nsx-vpc to get its namespace, check if the namespace still exist
+// 4. if ns do not exist anymore, delete the nsx-vpc resource
 func (r *NetworkInfoReconciler) GarbageCollector(cancel chan bool, timeout time.Duration) {
 	ctx := context.Background()
 	log.Info("VPC garbage collector started")
@@ -190,31 +226,34 @@ func (r *NetworkInfoReconciler) GarbageCollector(cancel chan bool, timeout time.
 			return
 		case <-time.After(timeout):
 		}
+		// read all nsx-vpc from vpc store
 		nsxVPCList := r.Service.ListVPC()
 		if len(nsxVPCList) == 0 {
 			continue
 		}
 
-		networkInfoList := &v1alpha1.NetworkInfoList{}
-		err := r.Client.List(ctx, networkInfoList)
+		// read all namespaces from k8s
+		namespaces := &corev1.NamespaceList{}
+		err := r.Client.List(ctx, namespaces)
 		if err != nil {
-			log.Error(err, "failed to list NetworkInfo CR")
+			log.Error(err, "failed to list k8s namespaces")
 			continue
 		}
 
-		crdNetworkInfoVPCStateSet := sets.NewString()
-		for _, networkInfo := range networkInfoList.Items {
-			for _, vpcState := range networkInfo.VPCs {
-				crdNetworkInfoVPCStateSet.Insert(vpcState.VPCPath)
-			}
+		nsSet := sets.NewString()
+		for _, ns := range namespaces.Items {
+			nsSet.Insert(ns.Name)
 		}
-
 		for _, elem := range nsxVPCList {
-			if crdNetworkInfoVPCStateSet.Has(*elem.Path) {
+			// for go lint Implicit memory aliasing in for loop
+			// this limitation is fixed after golang 1.22, should remove the temp var after upgrading to 1.22
+			tempElem := elem
+			nsxVPCNamespace := getNamespaceFromNSXVPC(&tempElem)
+			if nsSet.Has(nsxVPCNamespace) {
 				continue
 			}
 
-			log.V(1).Info("GC collected nsx VPC object", "ID", elem.Id)
+			log.V(1).Info("GC collected nsx VPC object", "ID", elem.Id, "Namespace", nsxVPCNamespace)
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNetworkInfo)
 			err = r.Service.DeleteVPC(*elem.Path)
 			if err != nil {

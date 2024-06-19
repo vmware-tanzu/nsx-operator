@@ -9,6 +9,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -35,11 +36,12 @@ import (
 )
 
 var (
-	log                     = logger.Log
+	log                     = &logger.Log
 	ResultNormal            = common.ResultNormal
 	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
 	MetricResType           = common.MetricResTypeStaticRoute
+	once                    sync.Once
 )
 
 // StaticRouteReconciler StaticRouteReconcile reconciles a StaticRoute object
@@ -74,6 +76,8 @@ func deleteSuccess(r *StaticRouteReconciler, _ *context.Context, o *v1alpha1.Sta
 }
 
 func (r *StaticRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	// Use once.Do to ensure gc is called only once
+	once.Do(func() { go r.GarbageCollector(make(chan bool), commonservice.GCInterval) })
 	obj := &v1alpha1.StaticRoute{}
 	log.Info("reconciling staticroute CR", "staticroute", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, common.MetricResTypeStaticRoute)
@@ -218,8 +222,6 @@ func (r *StaticRouteReconciler) Start(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-
-	go r.GarbageCollector(make(chan bool), commonservice.GCInterval)
 	return nil
 }
 

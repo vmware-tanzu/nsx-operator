@@ -36,7 +36,7 @@ const (
 )
 
 var (
-	log             = logger.Log
+	log             = &logger.Log
 	ctx             = context.Background()
 	ResourceTypeVPC = common.ResourceTypeVpc
 	NewConverter    = common.NewConverter
@@ -563,8 +563,6 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 	if err != nil {
 		log.Error(err, "failed to create VPC", "Project", nc.NsxtProject, "Namespace", obj.Namespace)
 		// TODO: this seems to be a nsx bug, in some case, even if nsx returns failed but the object is still created.
-		// in this condition, we still need to read the object and update it into store, or else operator will create multiple
-		// vpcs for this namespace.
 		log.Info("try to read VPC although VPC creation failed", "VPC", *createdVpc.Id)
 		failedVpc, rErr := s.NSXClient.VPCClient.Get(nc.Org, nc.NsxtProject, *createdVpc.Id)
 		if rErr != nil {
@@ -572,10 +570,8 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 			log.Info("confirmed VPC is not created", "VPC", createdVpc.Id)
 			return nil, nil, err
 		} else {
-			// vpc created anyway, update store, and in this scenario, we condsider creating successfully
-			log.Info("read VPCs from NSX after creation failed, still update VPC store", "VPC", *createdVpc.Id)
-			s.VpcStore.Add(&failedVpc)
-			return &failedVpc, &nc, nil
+			// vpc created anyway, in this case, we consider this vpc is created successfully and continue realize process
+			log.Info("vpc created although nsx return error, continue to check realization", "VPC", *failedVpc.Id)
 		}
 	}
 

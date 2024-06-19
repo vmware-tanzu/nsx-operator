@@ -8,39 +8,11 @@ import (
 	"log"
 	"os"
 	"testing"
-)
 
-// setupLogging creates a temporary directory to export the test logs if necessary. If a directory
-// was provided by the user, it checks that the directory exists.
-func (tOptions *TestOptions) setupLogging() func() {
-	if tOptions.logsExportDir == "" {
-		name, err := os.MkdirTemp("", "nsx-operator-e2e-test-")
-		if err != nil {
-			log.Fatalf("Error when creating temporary directory to export logs: %v", err)
-		}
-		log.Printf("Test logs (if any) will be exported under the '%s' directory", name)
-		tOptions.logsExportDir = name
-		// we will delete the temporary directory if no logs are exported
-		return func() {
-			if empty, _ := IsDirEmpty(name); empty {
-				log.Printf("Removing empty logs directory '%s'", name)
-				_ = os.Remove(name)
-			} else {
-				log.Printf("Logs exported under '%s', it is your responsibility to delete the directory when you no longer need it", name)
-			}
-		}
-	} else {
-		fInfo, err := os.Stat(tOptions.logsExportDir)
-		if err != nil {
-			log.Fatalf("Cannot stat provided directory '%s': %v", tOptions.logsExportDir, err)
-		}
-		if !fInfo.Mode().IsDir() {
-			log.Fatalf("'%s' is not a valid directory", tOptions.logsExportDir)
-		}
-	}
-	// no-op cleanup function
-	return func() {}
-}
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+)
 
 // testMain is meant to be called by TestMain and enables the use of defer statements.
 func testMain(m *testing.M) int {
@@ -52,12 +24,11 @@ func testMain(m *testing.M) int {
 	flag.BoolVar(&testOptions.withIPPool, "ippool", false, "Run tests include IPPool tests")
 	flag.Parse()
 
+	logf.SetLogger(logger.ZapLogger(true, 2))
+
 	if err := initProvider(); err != nil {
 		log.Fatalf("Error when initializing provider: %v", err)
 	}
-
-	cleanupLogging := testOptions.setupLogging()
-	defer cleanupLogging()
 
 	log.Println("Creating clientSets")
 

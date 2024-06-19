@@ -25,7 +25,7 @@ import (
 )
 
 var (
-	log           = logger.Log
+	log           = &logger.Log
 	ResultNormal  = common.ResultNormal
 	ResultRequeue = common.ResultRequeue
 	MetricResType = common.MetricResTypeServiceLb

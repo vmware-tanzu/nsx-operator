@@ -25,7 +25,7 @@ import (
 )
 
 var (
-	log                    = logger.Log
+	log                    = &logger.Log
 	ResourceTypeSubnetPort = servicecommon.ResourceTypeSubnetPort
 	MarkedForDelete        = true
 )

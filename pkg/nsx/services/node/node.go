@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	log              = logger.Log
+	log              = &logger.Log
 	ResourceTypeNode = servicecommon.ResourceTypeNode
 	MarkedForDelete  = true
 )
@@ -74,7 +74,7 @@ func (service *NodeService) SyncNodeStore(nodeName string, deleted bool) error {
 	}
 	// TODO: confirm whether we need to resync the node info from NSX
 	if len(nodes) == 1 {
-		log.Info("node alreay cached", "node.Fqdn", nodes[0].NodeDeploymentInfo.Fqdn, "node.Id", *nodes[0].Id)
+		log.Info("node alreay cached", "node.Fqdn", nodes[0].NodeDeploymentInfo.Fqdn, "node.UniqueId", *nodes[0].UniqueId)
 		// updatedNode, err := service.NSXClient.HostTransPortNodesClient.Get("default", "default", nodes[0].Id)
 		// if err != nil {
 		// 	return fmt.Errorf("failed to get HostTransPortNode for node %s: %s", nodeName, err)

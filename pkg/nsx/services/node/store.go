@@ -56,7 +56,7 @@ func (nodeStore *NodeStore) GetByIndex(key string, value string) []*model.HostTr
 func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
 	case *model.HostTransportNode:
-		return *v.Id, nil
+		return *v.UniqueId, nil
 	default:
 		return "", errors.New("keyFunc doesn't support unknown type")
 	}

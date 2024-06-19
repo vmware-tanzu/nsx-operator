@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -31,11 +32,12 @@ import (
 )
 
 var (
-	log                     = logger.Log
+	log                     = &logger.Log
 	ResultNormal            = common.ResultNormal
 	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
 	MetricResType           = common.MetricResTypeNetworkPolicy
+	once                    sync.Once
 )
 
 // NetworkPolicyReconciler reconciles a NetworkPolicy object
@@ -67,6 +69,8 @@ func deleteSuccess(r *NetworkPolicyReconciler, _ *context.Context, o *networking
 }
 
 func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	// Use once.Do to ensure gc is called only once
+	once.Do(func() { go r.GarbageCollector(make(chan bool), servicecommon.GCInterval) })
 	networkPolicy := &networkingv1.NetworkPolicy{}
 	log.Info("reconciling networkpolicy", "networkpolicy", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
@@ -140,8 +144,6 @@ func (r *NetworkPolicyReconciler) Start(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-
-	go r.GarbageCollector(make(chan bool), servicecommon.GCInterval)
 	return nil
 }
 
