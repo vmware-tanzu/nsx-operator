@@ -30,6 +30,13 @@ const (
 	WebhookCertDir        = "/tmp/k8s-webhook-server/serving-certs"
 )
 
+const (
+	LB_SERVICE_SIZE_SMALL  = "SMALL"
+	LB_SERVICE_SIZE_MEDIUM = "MEDIUM"
+	LB_SERVICE_SIZE_LARGE  = "LARGE"
+	LB_SERVICE_SIZE_XLARGE = "XLARGE"
+)
+
 var (
 	LogLevel               int
 	ProbeAddr, MetricsAddr string
@@ -117,6 +124,10 @@ type NsxConfig struct {
 	EnvoyHost                 string   `ini:"envoy_host"`
 	EnvoyPort                 int      `ini:"envoy_port"`
 	LicenseValidationInterval int      `ini:"license_validation_interval"`
+	UseAVILB                  bool     `ini:"use_avi_lb"`
+	UseNativeLoadBalancer     *bool    `ini:"use_native_loadbalancer"`
+	RelaxScaleValidaion       bool     `ini:"relax_scale_validation"`
+	ServiceSize               string   `ini:"service_size"`
 }
 
 type K8sConfig struct {
