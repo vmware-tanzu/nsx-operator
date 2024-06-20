@@ -14,7 +14,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"

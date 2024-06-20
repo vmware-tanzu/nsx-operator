@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/openlyinc/pointy"
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/runtime/bindings"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -200,7 +200,7 @@ type VPCNetworkConfigInfo struct {
 	Name               string
 	DefaultGatewayPath string // deprecated, existing field
 	// VPCServiceProfile       string
-	// VPCConnectivityProfile  string
+	VPCConnectivityProfile     string
 	EdgeClusterPath            string // deprecated, existing field
 	NsxtProject                string
 	ExternalIPv4Blocks         []string // deprecated, existing field

@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	mpmodel "github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/model"
 )
 
 func Test_indexFunc(t *testing.T) {
