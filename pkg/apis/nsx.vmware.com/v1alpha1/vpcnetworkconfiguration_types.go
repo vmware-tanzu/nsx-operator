@@ -65,6 +65,8 @@ type VPCInfo struct {
 	Name string `json:"name"`
 	// AVISESubnetPath is the NSX Policy Path for the AVI SE Subnet.
 	AVISESubnetPath string `json:"lbSubnetPath,omitempty"`
+	// NSXLoadBalancerPath is the NSX Policy path for the NSX Load Balancer.
+	NSXLoadBalancerPath string `json:"nsxLoadBalancerPath,omitempty"`
 }
 
 // +genclient
