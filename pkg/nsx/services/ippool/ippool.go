@@ -137,9 +137,11 @@ func (service *IPPoolService) Apply(nsxIPPool *model.IpAddressPool, nsxIPSubnets
 		} else {
 			err = service.NSXClient.ProjectInfraClient.Patch(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, *infraIPPool,
 				&EnforceRevisionCheckParam)
+			err = util.NSXApiError(err)
 		}
 	} else if IPPoolType == common.IPPoolTypePublic {
 		err = service.NSXClient.InfraClient.Patch(*infraIPPool, &EnforceRevisionCheckParam)
+		err = util.NSXApiError(err)
 	} else {
 		err = util.NoEffectiveOption{Desc: "not valid IPPool type"}
 	}
@@ -233,6 +235,7 @@ func (service *IPPoolService) acquireCidr(obj *v1alpha2.IPPool, subnetRequest *v
 		return "", err
 	}
 	m, err := service.NSXClient.RealizedEntitiesClient.List(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, intentPath, nil)
+	err = util.NSXApiError(err)
 	if err != nil {
 		return "", err
 	}

@@ -248,6 +248,7 @@ func (s *VPCService) DeleteVPC(path string) error {
 	}
 
 	if err := vpcClient.Delete(pathInfo.OrgID, pathInfo.ProjectID, pathInfo.VPCID); err != nil {
+		err = nsxutil.NSXApiError(err)
 		return err
 	}
 	vpc.MarkedForDelete = &MarkedForDelete
@@ -264,6 +265,7 @@ func (s *VPCService) deleteIPBlock(path string) error {
 	parts := strings.Split(path, "/")
 	log.Info("deleting private ip block", "ORG", parts[2], "Project", parts[4], "ID", parts[7])
 	if err := ipblockClient.Delete(parts[2], parts[4], parts[7]); err != nil {
+		err = nsxutil.NSXApiError(err)
 		log.Error(err, "failed to delete ip block", "Path", path)
 		return err
 	}
@@ -326,6 +328,7 @@ func (s *VPCService) CreateOrUpdatePrivateIPBlock(obj *v1alpha1.NetworkInfo, nsO
 				log.Info("creating ip block", "IPBlock", block.Id, "VPC", obj.Name)
 				// can not find private ip block from store, create one
 				_err := s.NSXClient.IPBlockClient.Patch(nc.Org, nc.NsxtProject, *block.Id, block)
+				_err = nsxutil.NSXApiError(_err)
 				if _err != nil {
 					message := fmt.Sprintf("failed to create private ip block for cidr %s for VPC %s", pCidr, obj.Name)
 					ipblockError := errors.New(message)
@@ -334,6 +337,7 @@ func (s *VPCService) CreateOrUpdatePrivateIPBlock(obj *v1alpha1.NetworkInfo, nsO
 				}
 				ignoreIpblockUsage := true
 				createdBlock, err := s.NSXClient.IPBlockClient.Get(nc.Org, nc.NsxtProject, *block.Id, &ignoreIpblockUsage)
+				err = nsxutil.NSXApiError(err)
 				if err != nil {
 					// created by can not get, ignore this error
 					log.Info("failed to read ip blocks from NSX", "Project", nc.NsxtProject, "IPBlock", block.Id)
@@ -372,6 +376,7 @@ func (s *VPCService) getSharedVPCNamespaceFromNS(ns string) (string, error) {
 		Name:      ns,
 		Namespace: ns,
 	}, obj); err != nil {
+		err = nsxutil.NSXApiError(err)
 		log.Error(err, "failed to fetch namespace", "Namespace", ns)
 		return "", err
 	}
@@ -396,6 +401,7 @@ func (s *VPCService) getNetworkconfigNameFromNS(ns string) (string, error) {
 		Name:      ns,
 		Namespace: ns,
 	}, obj); err != nil {
+		err = nsxutil.NSXApiError(err)
 		log.Error(err, "failed to fetch namespace", "Namespace", ns)
 		return "", err
 	}
@@ -436,6 +442,7 @@ func (s *VPCService) GetDefaultSNATIP(vpc model.Vpc) (string, error) {
 	pageSize := int64(1000)
 	markedForDelete := false
 	results, err := ruleClient.List(info.OrgID, info.ProjectID, info.VPCID, common.DefaultSNATID, cursor, &markedForDelete, nil, &pageSize, nil, nil)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to read SNAT rule list to get default SNAT ip", "VPC", vpc.Id)
 		return "", err
@@ -461,6 +468,7 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	}
 
 	subnet, err := subnetsClient.Get(info.OrgID, info.ProjectID, info.VPCID, common.AVISubnetLBID)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to read AVI subnet", "VPC", vpc.Id)
 		return "", "", err
@@ -468,6 +476,7 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	path := *subnet.Path
 
 	statusList, err := statusClient.List(info.OrgID, info.ProjectID, info.VPCID, common.AVISubnetLBID)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to read AVI subnet status", "VPC", vpc.Id)
 		return "", "", err
@@ -490,6 +499,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 	nsObj := &v1.Namespace{}
 	// get name obj
 	if err := s.Client.Get(ctx, types.NamespacedName{Name: obj.Namespace}, nsObj); err != nil {
+		err = nsxutil.NSXApiError(err)
 		log.Error(err, "unable to fetch namespace", "name", obj.Namespace)
 		return nil, nil, err
 	}
@@ -560,11 +570,13 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 
 	log.Info("creating NSX VPC", "VPC", *createdVpc.Id)
 	err = s.NSXClient.VPCClient.Patch(nc.Org, nc.NsxtProject, *createdVpc.Id, *createdVpc)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to create VPC", "Project", nc.NsxtProject, "Namespace", obj.Namespace)
 		// TODO: this seems to be a nsx bug, in some case, even if nsx returns failed but the object is still created.
 		log.Info("try to read VPC although VPC creation failed", "VPC", *createdVpc.Id)
 		failedVpc, rErr := s.NSXClient.VPCClient.Get(nc.Org, nc.NsxtProject, *createdVpc.Id)
+		rErr = nsxutil.NSXApiError(rErr)
 		if rErr != nil {
 			// failed to read, but already created, we consider this scenario as success, but store may not sync with nsx
 			log.Info("confirmed VPC is not created", "VPC", createdVpc.Id)
@@ -577,6 +589,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 
 	// get the created vpc from nsx, it contains the path of the resources
 	newVpc, err := s.NSXClient.VPCClient.Get(nc.Org, nc.NsxtProject, *createdVpc.Id)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		// failed to read, but already created, we consider this scenario as success, but store may not sync with nsx
 		log.Error(err, "failed to read VPC object after creating or updating", "VPC", createdVpc.Id)
@@ -730,11 +743,13 @@ func (service *VPCService) CreateOrUpdateAVIRule(vpc *model.Vpc, namespace strin
 	}
 
 	err = service.NSXClient.VPCRuleClient.Patch(orgId, projectId, *vpc.Id, spId, *newrule.Id, *newrule)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to create avi rule", "rule", newrule)
 		return err
 	}
 	nsxrule, err := service.NSXClient.VPCRuleClient.Get(orgId, projectId, *vpc.Id, spId, *newrule.Id)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to get avi rule", "rule", nsxrule)
 		return err
@@ -783,10 +798,12 @@ func (service *VPCService) createAVIGroup(orgId string, projectId string, vpcId 
 	group.DisplayName = common.String(groupId)
 
 	err := service.NSXClient.VpcGroupClient.Patch(orgId, projectId, vpcId, groupId, group)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		return &group, err
 	}
 	nsxgroup, err := service.NSXClient.VpcGroupClient.Get(orgId, projectId, vpcId, groupId)
+	err = nsxutil.NSXApiError(err)
 	return &nsxgroup, err
 }
 
@@ -862,6 +879,7 @@ func (service *VPCService) checkAVISecurityPolicyExist(orgId string, projectId s
 		return true
 	}
 	nsxtsp, err := service.NSXClient.VPCSecurityClient.Get(orgId, projectId, vpcId, spId)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to get avi security policy", "key", key)
 		return false

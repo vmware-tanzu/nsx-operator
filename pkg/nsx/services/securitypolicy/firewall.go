@@ -499,6 +499,7 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 
 		// 3.Create/update SecurityPolicy together with groups, rules under VPC level and project groups, shares.
 		err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
+		err = nsxutil.NSXApiError(err)
 		if err != nil {
 			log.Error(err, "failed to create or update SecurityPolicy in VPC")
 			return err
@@ -526,6 +527,7 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 			return err
 		}
 		err = service.NSXClient.InfraClient.Patch(*infraSecurityPolicy, &EnforceRevisionCheckParam)
+		err = nsxutil.NSXApiError(err)
 		if err != nil {
 			log.Error(err, "failed to create or update SecurityPolicy")
 			return err
@@ -732,6 +734,7 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(obj interface{}, isVp
 
 		// 3.Create/update SecurityPolicy together with groups, rules under VPC level and project groups, shares.
 		err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
+		err = nsxutil.NSXApiError(err)
 		if err != nil {
 			log.Error(err, "failed to delete SecurityPolicy in VPC")
 			return err
@@ -759,6 +762,7 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(obj interface{}, isVp
 			return err
 		}
 		err = service.NSXClient.InfraClient.Patch(*infraSecurityPolicy, &EnforceRevisionCheckParam)
+		err = nsxutil.NSXApiError(err)
 		if err != nil {
 			log.Error(err, "failed to delete SecurityPolicy")
 			return err
@@ -805,8 +809,10 @@ func (service *SecurityPolicyService) createOrUpdateGroups(obj *v1alpha1.Securit
 			vpcId := (*vpcInfo).VPCID
 
 			err = service.NSXClient.VpcGroupClient.Patch(orgId, projectId, vpcId, *group.Id, *group)
+			err = nsxutil.NSXApiError(err)
 		} else {
 			err = service.NSXClient.GroupClient.Patch(getDomain(service), *group.Id, *group)
+			err = nsxutil.NSXApiError(err)
 		}
 	}
 
