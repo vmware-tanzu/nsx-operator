@@ -568,6 +568,15 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 		return existingVPC[0], &nc, nil
 	}
 
+	if nc.VPCConnectivityProfile != "" {
+		vpcConnectivityProfile, err := s.NSXClient.VpcConnectivityProfilesClient.Get(nc.Org, nc.NsxtProject, nc.VPCConnectivityProfile)
+		if err != nil {
+			log.Error(err, "vpcConnectivityProfile does not exists", "Project", nc.NsxtProject, "VPCConnectivityProfile", nc.VPCConnectivityProfile)
+			return nil, nil, err
+		}
+		createdVpc.ExternalIpv4Blocks = vpcConnectivityProfile.ExternalIpBlocks
+	}
+
 	log.Info("creating NSX VPC", "VPC", *createdVpc.Id)
 	err = s.NSXClient.VPCClient.Patch(nc.Org, nc.NsxtProject, *createdVpc.Id, *createdVpc)
 	err = nsxutil.NSXApiError(err)
