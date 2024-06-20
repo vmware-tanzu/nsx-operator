@@ -1,8 +1,8 @@
 package common
 
 import (
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/data/serializers/cleanjson"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/runtime/data"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/runtime/data/serializers/cleanjson"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )

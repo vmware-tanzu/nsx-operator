@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/openlyinc/pointy"
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/runtime/bindings"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"

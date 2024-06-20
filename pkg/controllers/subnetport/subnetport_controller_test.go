@@ -10,7 +10,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
