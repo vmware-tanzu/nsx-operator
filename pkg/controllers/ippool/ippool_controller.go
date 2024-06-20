@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"regexp"
 	"sync"
-	"time"
 
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
@@ -117,7 +116,8 @@ func (r *IPPoolReconciler) setReadyStatusTrue(ctx *context.Context, ippool *v1al
 
 func (r *IPPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Use once.Do to ensure gc is called only once
-	once.Do(func() { go r.IPPoolGarbageCollector(make(chan bool), servicecommon.GCInterval) })
+	common.GcOnce(r, &once)
+
 	obj := &v1alpha2.IPPool{}
 	log.Info("reconciling ippool CR", "ippool", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
@@ -267,44 +267,31 @@ func (r *IPPoolReconciler) Start(mgr ctrl.Manager) error {
 	return nil
 }
 
-// IPPoolGarbageCollector collect ippool which has been removed from crd.
-// cancel is used to break the loop during UT
-func (r *IPPoolReconciler) IPPoolGarbageCollector(cancel chan bool, timeout time.Duration) {
-	ctx := context.Background()
+// CollectGarbage implements the interface GarbageCollector method.
+func (r *IPPoolReconciler) CollectGarbage(ctx context.Context) {
 	log.Info("ippool garbage collector started")
-	for {
-		select {
-		case <-cancel:
-			return
-		case <-time.After(timeout):
-		}
-		nsxIPPoolSet := r.Service.ListIPPoolID()
-		if len(nsxIPPoolSet) == 0 {
-			continue
-		}
-		ipPoolList := &v1alpha2.IPPoolList{}
-		err := r.Client.List(ctx, ipPoolList)
-		if err != nil {
-			log.Error(err, "failed to list ip pool CR")
-			continue
-		}
+	nsxIPPoolSet := r.Service.ListIPPoolID()
+	if len(nsxIPPoolSet) == 0 {
+		return
+	}
 
-		CRIPPoolSet := sets.NewString()
-		for _, ipp := range ipPoolList.Items {
-			CRIPPoolSet.Insert(string(ipp.UID))
-		}
+	ipPoolList := &v1alpha2.IPPoolList{}
+	if err := r.Client.List(ctx, ipPoolList); err != nil {
+		log.Error(err, "failed to list ippool CR")
+		return
+	}
+	CRIPPoolSet := sets.New[string]()
+	for _, ipa := range ipPoolList.Items {
+		CRIPPoolSet.Insert(string(ipa.UID))
+	}
 
-		log.V(2).Info("ippool garbage collector", "nsxIPPoolSet", nsxIPPoolSet, "CRIPPoolSet", CRIPPoolSet)
+	log.V(2).Info("ippool garbage collector", "nsxIPPoolSet", nsxIPPoolSet, "CRIPPoolSet", CRIPPoolSet)
 
-		for elem := range nsxIPPoolSet {
-			if CRIPPoolSet.Has(elem) {
-				continue
-			}
-			log.Info("GC collected ip pool CR", "UID", elem)
-			err = r.Service.DeleteIPPool(types.UID(elem))
-			if err != nil {
-				log.Error(err, "failed to delete ip pool CR", "UID", elem)
-			}
+	diffSet := nsxIPPoolSet.Difference(CRIPPoolSet)
+	for elem := range diffSet {
+		log.Info("GC collected ippool CR", "UID", elem)
+		if err := r.Service.DeleteIPPool(types.UID(elem)); err != nil {
+			log.Error(err, "failed to delete ippool CR", "UID", elem)
 		}
 	}
 }

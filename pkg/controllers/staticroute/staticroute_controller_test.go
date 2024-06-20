@@ -7,8 +7,8 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sync"
 	"testing"
-	"time"
 
 	gomonkey "github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
@@ -176,6 +176,11 @@ func TestStaticRouteReconciler_Reconcile(t *testing.T) {
 	ctx := context.Background()
 	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
 
+	// common.GcOnce do nothing
+	var once sync.Once
+	pat := gomonkey.ApplyMethod(reflect.TypeOf(&once), "Do", func(_ *sync.Once, _ func()) {})
+	defer pat.Reset()
+
 	// not found
 	errNotFound := errors.New("not found")
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(errNotFound)
@@ -299,7 +304,6 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRouteByPath", func(_ *staticroute.StaticRouteService, orgId string, projectId string, vpcId string, uid string) error {
 		return nil
 	})
-	cancel := make(chan bool)
 	defer patch.Reset()
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
@@ -318,11 +322,7 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 		a.Items[0].UID = "1234"
 		return nil
 	})
-	go func() {
-		time.Sleep(1 * time.Second)
-		cancel <- true
-	}()
-	r.GarbageCollector(cancel, time.Second)
+	r.CollectGarbage(ctx)
 
 	// local store has same item as k8s cache
 	patch.Reset()
@@ -344,11 +344,7 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 		a.Items[0].UID = "1234"
 		return nil
 	})
-	go func() {
-		time.Sleep(1 * time.Second)
-		cancel <- true
-	}()
-	r.GarbageCollector(cancel, time.Second)
+	r.CollectGarbage(ctx)
 
 	// local store has no item
 	patch.Reset()
@@ -360,11 +356,7 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 		return nil
 	})
 	k8sClient.EXPECT().List(ctx, srList).Return(nil).Times(0)
-	go func() {
-		time.Sleep(1 * time.Second)
-		cancel <- true
-	}()
-	r.GarbageCollector(cancel, time.Second)
+	r.CollectGarbage(ctx)
 }
 
 func TestStaticRouteReconciler_Start(t *testing.T) {

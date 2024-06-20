@@ -1,6 +1,7 @@
 package common
 
 import (
+	"context"
 	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -41,3 +42,8 @@ const (
 	ReasonFailDelete       = "FailDelete"
 	ReasonFailUpdate       = "FailUpdate"
 )
+
+// GarbageCollector interface with collectGarbage method
+type GarbageCollector interface {
+	CollectGarbage(ctx context.Context)
+}

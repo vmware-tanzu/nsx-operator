@@ -6,7 +6,6 @@ package networkinfo
 import (
 	"context"
 	"sync"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
@@ -44,7 +43,7 @@ type NetworkInfoReconciler struct {
 
 func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Use once.Do to ensure gc is called only once
-	once.Do(func() { go r.GarbageCollector(make(chan bool), commonservice.GCInterval) })
+	common.GcOnce(r, &once)
 
 	obj := &v1alpha1.NetworkInfo{}
 	log.Info("reconciling NetworkInfo CR", "NetworkInfo", req.NamespacedName)
@@ -212,59 +211,49 @@ func (r *NetworkInfoReconciler) Start(mgr ctrl.Manager) error {
 	return nil
 }
 
-// GarbageCollector logic for nsx-vpc is that:
+// CollectGarbage logic for nsx-vpc is that:
 // 1. list all current existing namespace in kubernetes
 // 2. list all the nsx-vpc in vpcStore
 // 3. loop all the nsx-vpc to get its namespace, check if the namespace still exist
 // 4. if ns do not exist anymore, delete the nsx-vpc resource
-func (r *NetworkInfoReconciler) GarbageCollector(cancel chan bool, timeout time.Duration) {
-	ctx := context.Background()
+// it implements the interface GarbageCollector method.
+func (r *NetworkInfoReconciler) CollectGarbage(ctx context.Context) {
 	log.Info("VPC garbage collector started")
-	for {
-		select {
-		case <-cancel:
-			return
-		case <-time.After(timeout):
-		}
-		// read all nsx-vpc from vpc store
-		nsxVPCList := r.Service.ListVPC()
-		if len(nsxVPCList) == 0 {
+	// read all nsx-vpc from vpc store
+	nsxVPCList := r.Service.ListVPC()
+	if len(nsxVPCList) == 0 {
+		return
+	}
+
+	// read all namespaces from k8s
+	namespaces := &corev1.NamespaceList{}
+	err := r.Client.List(ctx, namespaces)
+	if err != nil {
+		log.Error(err, "failed to list k8s namespaces")
+		return
+	}
+	nsSet := sets.NewString()
+	for _, ns := range namespaces.Items {
+		nsSet.Insert(ns.Name)
+	}
+
+	for i := len(nsxVPCList) - 1; i >= 0; i-- {
+		nsxVPCNamespace := getNamespaceFromNSXVPC(&nsxVPCList[i])
+		if nsSet.Has(nsxVPCNamespace) {
 			continue
 		}
-
-		// read all namespaces from k8s
-		namespaces := &corev1.NamespaceList{}
-		err := r.Client.List(ctx, namespaces)
+		elem := nsxVPCList[i]
+		log.Info("GC collected nsx VPC object", "ID", elem.Id, "Namespace", nsxVPCNamespace)
+		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNetworkInfo)
+		err = r.Service.DeleteVPC(*elem.Path)
 		if err != nil {
-			log.Error(err, "failed to list k8s namespaces")
-			continue
-		}
-
-		nsSet := sets.NewString()
-		for _, ns := range namespaces.Items {
-			nsSet.Insert(ns.Name)
-		}
-		for _, elem := range nsxVPCList {
-			// for go lint Implicit memory aliasing in for loop
-			// this limitation is fixed after golang 1.22, should remove the temp var after upgrading to 1.22
-			tempElem := elem
-			nsxVPCNamespace := getNamespaceFromNSXVPC(&tempElem)
-			if nsSet.Has(nsxVPCNamespace) {
-				continue
+			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeNetworkInfo)
+		} else {
+			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeNetworkInfo)
+			if err := r.Service.DeleteIPBlockInVPC(elem); err != nil {
+				log.Error(err, "failed to delete private ip blocks for VPC", "VPC", *elem.DisplayName)
 			}
-
-			log.V(1).Info("GC collected nsx VPC object", "ID", elem.Id, "Namespace", nsxVPCNamespace)
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNetworkInfo)
-			err = r.Service.DeleteVPC(*elem.Path)
-			if err != nil {
-				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeNetworkInfo)
-			} else {
-				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeNetworkInfo)
-				if err := r.Service.DeleteIPBlockInVPC(elem); err != nil {
-					log.Error(err, "failed to delete private ip blocks for VPC", "VPC", *elem.DisplayName)
-				}
-				log.Info("deleted private ip blocks for VPC", "VPC", *elem.DisplayName)
-			}
+			log.Info("deleted private ip blocks for VPC", "VPC", *elem.DisplayName)
 		}
 	}
 }

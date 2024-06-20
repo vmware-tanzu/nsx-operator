@@ -11,7 +11,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"time"
 
 	vmv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
@@ -63,7 +62,8 @@ type SubnetPortReconciler struct {
 // +kubebuilder:rbac:groups=nsx.vmware.com,resources=subnetports/finalizers,verbs=update
 func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Use once.Do to ensure gc is called only once
-	once.Do(func() { go r.GarbageCollector(make(chan bool), servicecommon.GCInterval) })
+	common.GcOnce(r, &once)
+
 	subnetPort := &v1alpha1.SubnetPort{}
 	log.Info("reconciling subnetport CR", "subnetport", req.NamespacedName)
 
@@ -237,45 +237,35 @@ func (r *SubnetPortReconciler) Start(mgr ctrl.Manager) error {
 	return nil
 }
 
-// GarbageCollector collect SubnetPort which has been removed from crd.
-// cancel is used to break the loop during UT
-func (r *SubnetPortReconciler) GarbageCollector(cancel chan bool, timeout time.Duration) {
-	ctx := context.Background()
+// CollectGarbage collect SubnetPort which has been removed from crd.
+// it implements the interface GarbageCollector method.
+func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) {
 	log.Info("subnetport garbage collector started")
-	for {
-		select {
-		case <-cancel:
-			return
-		case <-time.After(timeout):
-		}
-		nsxSubnetPortSet := r.SubnetPortService.ListNSXSubnetPortIDForCR()
-		if len(nsxSubnetPortSet) == 0 {
-			continue
-		}
-		subnetPortList := &v1alpha1.SubnetPortList{}
-		err := r.Client.List(ctx, subnetPortList)
+	nsxSubnetPortSet := r.SubnetPortService.ListNSXSubnetPortIDForCR()
+	if len(nsxSubnetPortSet) == 0 {
+		return
+	}
+	subnetPortList := &v1alpha1.SubnetPortList{}
+	err := r.Client.List(ctx, subnetPortList)
+	if err != nil {
+		log.Error(err, "failed to list SubnetPort CR")
+		return
+	}
+
+	CRSubnetPortSet := sets.New[string]()
+	for _, subnetPort := range subnetPortList.Items {
+		CRSubnetPortSet.Insert(string(subnetPort.UID))
+	}
+
+	diffSet := nsxSubnetPortSet.Difference(CRSubnetPortSet)
+	for elem := range diffSet {
+		log.V(1).Info("GC collected SubnetPort CR", "UID", elem)
+		metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnetPort)
+		err = r.SubnetPortService.DeleteSubnetPort(types.UID(elem))
 		if err != nil {
-			log.Error(err, "failed to list SubnetPort CR")
-			continue
-		}
-
-		CRSubnetPortSet := sets.NewString()
-		for _, subnetPort := range subnetPortList.Items {
-			CRSubnetPortSet.Insert(string(subnetPort.UID))
-		}
-
-		for elem := range nsxSubnetPortSet {
-			if CRSubnetPortSet.Has(elem) {
-				continue
-			}
-			log.V(1).Info("GC collected SubnetPort CR", "UID", elem)
-			metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnetPort)
-			err = r.SubnetPortService.DeleteSubnetPort(types.UID(elem))
-			if err != nil {
-				metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetPort)
-			} else {
-				metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetPort)
-			}
+			metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetPort)
+		} else {
+			metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetPort)
 		}
 	}
 }

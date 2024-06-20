@@ -513,7 +513,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 				patches := tt.prepareFunc(t, r, ctx)
 				defer patches.Reset()
 			}
-
+			var once sync.Once
 			patches2 := gomonkey.ApplyMethod(reflect.TypeOf(&once), "Do", func(_ *sync.Once, _ func()) {})
 			defer patches2.Reset()
 
@@ -594,17 +594,12 @@ func TestNSXServiceAccountReconciler_GarbageCollector(t *testing.T) {
 			}
 			r.Service.SetUpStore()
 			ctx := context.TODO()
-			cancel := make(chan bool)
 			if tt.prepareFunc != nil {
 				patches := tt.prepareFunc(t, r, ctx)
 				defer patches.Reset()
 			}
 
-			go func() {
-				time.Sleep(50 * time.Millisecond)
-				cancel <- true
-			}()
-			r.GarbageCollector(cancel, 100*time.Millisecond)
+			r.CollectGarbage(ctx)
 		})
 	}
 }
