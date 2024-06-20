@@ -61,12 +61,13 @@ spec:
                 description: Default size of Subnet based upon estimated workload
                   count. Defaults to 26.
                 type: integer
-              defaultSubnetAccessMode:
-                description: DefaultSubnetAccessMode defines the access mode of the
-                  default SubnetSet for PodVM and VM. Must be Public or Private.
+              defaultPodSubnetAccessMode:
+                description: DefaultPodSubnetAccessMode defines the access mode of
+                  the default SubnetSet for PodVM. Must be Public or Private.
                 enum:
                 - Public
                 - Private
+                - Project
                 type: string
               edgeClusterPath:
                 description: Edge cluster path on which the networking elements will
@@ -93,6 +94,10 @@ spec:
                 description: ShortID specifies Identifier to use when displaying VPC
                   context in logs. Less than or equal to 8 characters.
                 maxLength: 8
+                type: string
+              vpc_connectivity_profile:
+                description: VPCConnectivityProfile ID. This profile has configuration
+                  related to create VPC transit gateway attachment.
                 type: string
             type: object
           status:
