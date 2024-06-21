@@ -6,7 +6,7 @@ replace (
 	github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
 	github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1 => ./pkg/apis/v1alpha1
 	github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2 => ./pkg/apis/v1alpha2
-        github.com/vmware-tanzu/nsx-operator/pkg/client => ./pkg/client
+	github.com/vmware-tanzu/nsx-operator/pkg/client => ./pkg/client
 )
 
 require (
@@ -14,6 +14,7 @@ require (
 	github.com/apparentlymart/go-cidr v1.1.0
 	github.com/deckarep/golang-set v1.8.0
 	github.com/go-logr/logr v1.3.0
+	github.com/go-logr/zapr v1.2.4
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/golang/mock v1.6.0
 	github.com/google/uuid v1.3.0
@@ -27,10 +28,10 @@ require (
 	github.com/vmware-tanzu/nsx-operator/pkg/client v0.0.0-20240102061654-537b080e159f
 	github.com/vmware-tanzu/vm-operator/api v1.8.2
 	github.com/vmware/govmomi v0.27.4
-	github.com/vmware/vsphere-automation-sdk-go/lib v0.7.0
-	github.com/vmware/vsphere-automation-sdk-go/runtime v0.7.0
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.12.0
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp v0.6.0
+	github.com/zhengxiexie/vsphere-automation-sdk-go/lib v0.7.2
+	github.com/zhengxiexie/vsphere-automation-sdk-go/runtime v0.7.2
+	github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt v0.12.2
+	github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt-mp v0.6.2
 	go.uber.org/automaxprocs v1.5.3
 	go.uber.org/zap v1.25.0
 	golang.org/x/crypto v0.17.0
@@ -51,9 +52,8 @@ require (
 	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
 	github.com/evanphx/json-patch v5.6.0+incompatible // indirect
 	github.com/evanphx/json-patch/v5 v5.6.0 // indirect
-	github.com/fsnotify/fsnotify v1.7.0 // indirect
+	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/gibson042/canonicaljson-go v1.0.3 // indirect
-	github.com/go-logr/zapr v1.2.4 // indirect
 	github.com/go-openapi/jsonpointer v0.19.6 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
 	github.com/go-openapi/swag v0.22.3 // indirect
@@ -93,8 +93,8 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiextensions-apiserver v0.29.3 // indirect
-	k8s.io/component-base v0.29.3 // indirect
+	k8s.io/apiextensions-apiserver v0.28.0 // indirect
+	k8s.io/component-base v0.28.0 // indirect
 	k8s.io/gengo v0.0.0-20230829151522-9cce18d56c01 // indirect
 	k8s.io/klog/v2 v2.110.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20231010175941-2dd684a91f00 // indirect

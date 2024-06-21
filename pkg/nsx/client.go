@@ -9,25 +9,25 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
-	vspherelog "github.com/vmware/vsphere-automation-sdk-go/runtime/log"
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
-	nsx_policy "github.com/vmware/vsphere-automation-sdk-go/services/nsxt"
-	mpsearch "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/search"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management/principal_identities"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
-	projects "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
-	infra "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs"
-	nat "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/nat"
-	vpc_sp "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/security_policies"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ip_pools"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ports"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
+	vspherelog "github.com/zhengxiexie/vsphere-automation-sdk-go/runtime/log"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/runtime/protocol/client"
+	nsx_policy "github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt"
+	mpsearch "github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt-mp/nsx/search"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management/principal_identities"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/infra/domains"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
+	projects "github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
+	infra "github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs"
+	nat "github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/nat"
+	vpc_sp "github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/security_policies"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ip_pools"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ports"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/search"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
@@ -71,19 +71,20 @@ type Client struct {
 	VPCSecurityClient vpcs.SecurityPoliciesClient
 	VPCRuleClient     vpc_sp.RulesClient
 
-	OrgRootClient       nsx_policy.OrgRootClient
-	ProjectInfraClient  projects.InfraClient
-	VPCClient           projects.VpcsClient
-	IPBlockClient       infra.IpBlocksClient
-	StaticRouteClient   vpcs.StaticRoutesClient
-	NATRuleClient       nat.NatRulesClient
-	VpcGroupClient      vpcs.GroupsClient
-	PortClient          subnets.PortsClient
-	PortStateClient     ports.StateClient
-	IPPoolClient        subnets.IpPoolsClient
-	IPAllocationClient  ip_pools.IpAllocationsClient
-	SubnetsClient       vpcs.SubnetsClient
-	RealizedStateClient realized_state.RealizedEntitiesClient
+	OrgRootClient             nsx_policy.OrgRootClient
+	ProjectInfraClient        projects.InfraClient
+	VPCClient                 projects.VpcsClient
+	IPBlockClient             infra.IpBlocksClient
+	StaticRouteClient         vpcs.StaticRoutesClient
+	NATRuleClient             nat.NatRulesClient
+	VpcGroupClient            vpcs.GroupsClient
+	PortClient                subnets.PortsClient
+	PortStateClient           ports.StateClient
+	IPPoolClient              subnets.IpPoolsClient
+	IPAllocationClient        ip_pools.IpAllocationsClient
+	SubnetsClient             vpcs.SubnetsClient
+	RealizedStateClient       realized_state.RealizedEntitiesClient
+	IPAddressAllocationClient vpcs.IpAddressAllocationsClient
 
 	NSXChecker    NSXHealthChecker
 	NSXVerChecker NSXVersionChecker
@@ -163,6 +164,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	subnetsClient := vpcs.NewSubnetsClient(restConnector(cluster))
 	subnetStatusClient := subnets.NewStatusClient(restConnector(cluster))
 	realizedStateClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
+	ipAddressAllocationClient := vpcs.NewIpAddressAllocationsClient(restConnector(cluster))
 
 	vpcSecurityClient := vpcs.NewSecurityPoliciesClient(restConnector(cluster))
 	vpcRuleClient := vpc_sp.NewRulesClient(restConnector(cluster))
@@ -205,12 +207,13 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		VPCSecurityClient:  vpcSecurityClient,
 		VPCRuleClient:      vpcRuleClient,
 
-		NSXChecker:          *nsxChecker,
-		NSXVerChecker:       *nsxVersionChecker,
-		IPPoolClient:        ipPoolClient,
-		IPAllocationClient:  ipAllocationClient,
-		SubnetsClient:       subnetsClient,
-		RealizedStateClient: realizedStateClient,
+		NSXChecker:                *nsxChecker,
+		NSXVerChecker:             *nsxVersionChecker,
+		IPPoolClient:              ipPoolClient,
+		IPAllocationClient:        ipAllocationClient,
+		SubnetsClient:             subnetsClient,
+		RealizedStateClient:       realizedStateClient,
+		IPAddressAllocationClient: ipAddressAllocationClient,
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time

@@ -6,7 +6,7 @@ package nsx
 import (
 	"net/http"
 
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/runtime/protocol/client"
 )
 
 // HeaderConfig updates http request header.

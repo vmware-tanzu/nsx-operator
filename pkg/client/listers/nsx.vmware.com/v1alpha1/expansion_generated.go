@@ -5,6 +5,14 @@
 
 package v1alpha1
 
+// IPAddressAllocationListerExpansion allows custom methods to be added to
+// IPAddressAllocationLister.
+type IPAddressAllocationListerExpansion interface{}
+
+// IPAddressAllocationNamespaceListerExpansion allows custom methods to be added to
+// IPAddressAllocationNamespaceLister.
+type IPAddressAllocationNamespaceListerExpansion interface{}
+
 // IPPoolListerExpansion allows custom methods to be added to
 // IPPoolLister.
 type IPPoolListerExpansion interface{}
