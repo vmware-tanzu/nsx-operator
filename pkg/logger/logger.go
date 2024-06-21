@@ -65,7 +65,8 @@ func ZapLogger(cfDebug bool, cfLogLevel int) logr.Logger {
 		zapcore.AddSync(zapcore.Lock(os.Stdout)),
 		zapcore.Level(-1*logLevel),
 	)
-	zapLogger := zap.New(core)
+	zapLogger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1))
+
 	defer zapLogger.Sync()
 
 	return zapr.NewLogger(zapLogger)
