@@ -11,7 +11,12 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-const logTmFmtWithMS = "2006-01-02 15:04:05.000"
+const (
+	logTmFmtWithMS = "2006-01-02 15:04:05.000"
+	// ANSI escape codes for coloring
+	colorReset  = "\033[0m"
+	colorYellow = "\033[33m"
+)
 
 var (
 	Log               logr.Logger
@@ -19,7 +24,7 @@ var (
 		enc.AppendString(t.Format(logTmFmtWithMS))
 	}
 	customCallerEncoder = func(caller zapcore.EntryCaller, enc zapcore.PrimitiveArrayEncoder) {
-		enc.AppendString(caller.TrimmedPath())
+		enc.AppendString(colorYellow + caller.TrimmedPath() + colorReset)
 	}
 )
 
@@ -65,7 +70,7 @@ func ZapLogger(cfDebug bool, cfLogLevel int) logr.Logger {
 		zapcore.AddSync(zapcore.Lock(os.Stdout)),
 		zapcore.Level(-1*logLevel),
 	)
-	zapLogger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1))
+	zapLogger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(0))
 
 	defer zapLogger.Sync()
 
