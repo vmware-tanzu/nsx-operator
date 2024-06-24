@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
@@ -35,6 +36,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetset"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/vpcnetwork"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -133,12 +135,13 @@ func StartNetworkInfoController(mgr ctrl.Manager, vpcService *vpc.VPCService) {
 	}
 }
 
-func StartNamespaceController(mgr ctrl.Manager, cf *config.NSXOperatorConfig, vpcService common.VPCServiceProvider) {
+func StartNamespaceController(mgr ctrl.Manager, cf *config.NSXOperatorConfig, vpcService common.VPCServiceProvider, networkProvider vpcnetwork.VPCNetworkProvider) {
 	nsReconciler := &namespacecontroller.NamespaceReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		NSXConfig:  cf,
-		VPCService: vpcService,
+		Client:          mgr.GetClient(),
+		Scheme:          mgr.GetScheme(),
+		NSXConfig:       cf,
+		VPCService:      vpcService,
+		NetworkProvider: networkProvider,
 	}
 
 	if err := nsReconciler.Start(mgr); err != nil {
@@ -149,14 +152,26 @@ func StartNamespaceController(mgr ctrl.Manager, cf *config.NSXOperatorConfig, vp
 
 func main() {
 	log.Info("starting NSX Operator")
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	mgrOptions := ctrl.Options{
 		Scheme:                  scheme,
 		HealthProbeBindAddress:  config.ProbeAddr,
 		Metrics:                 metricsserver.Options{BindAddress: config.MetricsAddr},
 		LeaderElection:          cf.HAEnabled(),
 		LeaderElectionNamespace: nsxOperatorNamespace,
 		LeaderElectionID:        "nsx-operator",
-	})
+	}
+
+	enableWebhook := true
+	if _, err := os.Stat(config.WebhookCertDir); errors.Is(err, os.ErrNotExist) {
+		log.Error(err, "server cert not found, disabling webhook server", "cert", config.WebhookCertDir)
+		enableWebhook = false
+	} else {
+		mgrOptions.WebhookServer = webhook.NewServer(webhook.Options{
+			Port:    config.WebhookServerPort,
+			CertDir: config.WebhookCertDir,
+		})
+	}
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), mgrOptions)
 	if err != nil {
 		log.Error(err, "failed to init manager")
 		os.Exit(1)
@@ -181,6 +196,10 @@ func main() {
 	var vpcService *vpc.VPCService
 
 	if cf.CoeConfig.EnableVPCNetwork {
+		if !enableWebhook {
+			log.Error(nil, "Webhook cert is not provided, can't filter out the CRs in a non-VPC namespace")
+			os.Exit(1)
+		}
 		// Check NSX version for VPC networking mode
 		if !commonService.NSXClient.NSXCheckVersion(nsx.VPC) {
 			log.Error(nil, "VPC mode cannot be enabled if NSX version is lower than 4.1.1")
@@ -218,16 +237,12 @@ func main() {
 			os.Exit(1)
 		}
 		// Start controllers which only supports VPC
+		vpcNetworkProvider := vpcnetwork.StartNetworkController(mgr)
 		StartNetworkInfoController(mgr, vpcService)
-		StartNamespaceController(mgr, cf, vpcService)
+		StartNamespaceController(mgr, cf, vpcService, vpcNetworkProvider)
 		// Start subnet/subnetset controller.
 		if err := subnet.StartSubnetController(mgr, subnetService, subnetPortService, vpcService); err != nil {
 			os.Exit(1)
-		}
-		enableWebhook := true
-		if _, err := os.Stat(config.WebhookCertDir); errors.Is(err, os.ErrNotExist) {
-			log.Error(err, "server cert not found, disabling webhook server", "cert", config.WebhookCertDir)
-			enableWebhook = false
 		}
 		if err := subnetset.StartSubnetSetController(mgr, subnetService, subnetPortService, vpcService, enableWebhook); err != nil {
 			os.Exit(1)
@@ -236,10 +251,10 @@ func main() {
 		node.StartNodeController(mgr, nodeService)
 		staticroutecontroller.StartStaticRouteController(mgr, staticRouteService)
 		subnetport.StartSubnetPortController(mgr, subnetPortService, subnetService, vpcService)
-		pod.StartPodController(mgr, subnetPortService, subnetService, vpcService, nodeService)
+		pod.StartPodController(mgr, subnetPortService, subnetService, vpcService, nodeService, vpcNetworkProvider)
 		StartIPPoolController(mgr, ipPoolService, vpcService)
-		networkpolicycontroller.StartNetworkPolicyController(mgr, commonService, vpcService)
-		service.StartServiceLbController(mgr, commonService)
+		networkpolicycontroller.StartNetworkPolicyController(mgr, commonService, vpcService, vpcNetworkProvider)
+		service.StartServiceLbController(mgr, commonService, vpcNetworkProvider)
 	}
 	// Start controllers which can run in non-VPC mode
 	securitypolicycontroller.StartSecurityPolicyController(mgr, commonService, vpcService)

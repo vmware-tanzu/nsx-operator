@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	vpcnetworktesting "github.com/vmware-tanzu/nsx-operator/pkg/controllers/vpcnetwork/testing"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
@@ -40,9 +41,10 @@ func createNameSpaceReconciler() *NamespaceReconciler {
 	}
 
 	return &NamespaceReconciler{
-		Client:     fake.NewClientBuilder().Build(),
-		Scheme:     fake.NewClientBuilder().Build().Scheme(),
-		VPCService: service,
+		Client:          fake.NewClientBuilder().Build(),
+		Scheme:          fake.NewClientBuilder().Build().Scheme(),
+		VPCService:      service,
+		NetworkProvider: &vpcnetworktesting.FakeVPCNetworkProvider{},
 	}
 }
 

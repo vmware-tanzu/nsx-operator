@@ -22,7 +22,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
@@ -329,13 +328,7 @@ func (r *SubnetSetReconciler) Start(mgr ctrl.Manager, enableWebhook bool) error 
 		return err
 	}
 	if enableWebhook {
-		hookServer := webhook.NewServer(webhook.Options{
-			Port:    config.WebhookServerPort,
-			CertDir: config.WebhookCertDir,
-		})
-		if err := mgr.Add(hookServer); err != nil {
-			return err
-		}
+		hookServer := mgr.GetWebhookServer()
 		hookServer.Register("/validate-nsx-vmware-com-v1alpha1-subnetset",
 			&webhook.Admission{
 				Handler: &SubnetSetValidator{

@@ -30,3 +30,36 @@ webhooks:
     resources:
     - subnetsets
   sideEffects: None
+- admissionReviewVersions:
+    - v1
+  clientConfig:
+    service:
+      name: subnetset
+      namespace: vmware-system-nsx
+      path: /validate-vpc-enablement
+  failurePolicy: Fail
+  name: vpcnetwork.validating.nsx.vmware.com
+  rules:
+    - apiGroups:
+        - nsx.vmware.com
+      apiVersions:
+        - v1alpha1
+      operations:
+        - CREATE
+      resources:
+        - networkinfos
+        - nsxserviceaccount
+        - securitypolicies
+        - staticroutes
+        - subnetports
+        - subnets
+        - subnetsets
+    - apiGroups:
+        - nsx.vmware.com
+      apiVersions:
+        - v1alpha2
+      operations:
+        - CREATE
+      resources:
+        - ippools
+  sideEffects: None
