@@ -139,7 +139,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			LoadBalancerIPAddresses: cidr,
 			PrivateIPv4CIDRs:        nc.PrivateIPv4CIDRs,
 		}
-		updateSuccess(r, &ctx, obj, r.Client, state, nc.Name, path)
+		updateSuccess(r, &ctx, obj, r.Client, state, nc.Name, path, r.Service.GetNSXLBSPath(nc.Org, nc.NsxtProject, *createdVpc.Id, obj.Namespace))
 	} else {
 		if controllerutil.ContainsFinalizer(obj, commonservice.NetworkInfoFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNetworkInfo)

@@ -417,3 +417,10 @@ func (coeConfig *CoeConfig) validate() error {
 func (nsxConfig *NsxConfig) ValidateConfigFromCmd() error {
 	return nsxConfig.validate(true)
 }
+
+func (nsxConfig *NsxConfig) NSXLBEnabled() bool {
+	if nsxConfig.UseAVILB == false && (nsxConfig.UseNativeLoadBalancer == nil || *nsxConfig.UseNativeLoadBalancer == true) {
+		return true
+	}
+	return false
+}
