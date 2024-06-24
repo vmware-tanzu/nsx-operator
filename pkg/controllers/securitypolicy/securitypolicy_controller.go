@@ -10,7 +10,6 @@ import (
 	"os"
 	"reflect"
 	"sync"
-	"time"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -90,7 +89,8 @@ func deleteSuccess(r *SecurityPolicyReconciler, _ *context.Context, o *v1alpha1.
 
 func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Use once.Do to ensure gc is called only once
-	once.Do(func() { go r.GarbageCollector(make(chan bool), servicecommon.GCInterval) })
+	common.GcOnce(r, &once)
+
 	obj := &v1alpha1.SecurityPolicy{}
 	log.Info("reconciling securitypolicy CR", "securitypolicy", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
@@ -288,45 +288,35 @@ func (r *SecurityPolicyReconciler) Start(mgr ctrl.Manager) error {
 	return nil
 }
 
-// GarbageCollector collect securitypolicy which has been removed from k8s.
-// cancel is used to break the loop during UT
-func (r *SecurityPolicyReconciler) GarbageCollector(cancel chan bool, timeout time.Duration) {
-	ctx := context.Background()
-	log.Info("garbage collector started")
-	for {
-		select {
-		case <-cancel:
-			return
-		case <-time.After(timeout):
-		}
-		nsxPolicySet := r.Service.ListSecurityPolicyID()
-		if len(nsxPolicySet) == 0 {
-			continue
-		}
-		policyList := &v1alpha1.SecurityPolicyList{}
-		err := r.Client.List(ctx, policyList)
+// CollectGarbage collect securitypolicy which has been removed from k8s,
+// it implements the interface GarbageCollector method.
+func (r *SecurityPolicyReconciler) CollectGarbage(ctx context.Context) {
+	log.Info("security policy garbage collector started")
+	nsxPolicySet := r.Service.ListSecurityPolicyID()
+	if len(nsxPolicySet) == 0 {
+		return
+	}
+	policyList := &v1alpha1.SecurityPolicyList{}
+	err := r.Client.List(ctx, policyList)
+	if err != nil {
+		log.Error(err, "failed to list SecurityPolicy CR")
+		return
+	}
+
+	CRPolicySet := sets.New[string]()
+	for _, policy := range policyList.Items {
+		CRPolicySet.Insert(string(policy.UID))
+	}
+
+	diffSet := nsxPolicySet.Difference(CRPolicySet)
+	for elem := range diffSet {
+		log.V(1).Info("GC collected SecurityPolicy CR", "UID", elem)
+		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
+		err = r.Service.DeleteSecurityPolicy(types.UID(elem), false, servicecommon.ResourceTypeSecurityPolicy)
 		if err != nil {
-			log.Error(err, "failed to list SecurityPolicy CR")
-			continue
-		}
-
-		CRPolicySet := sets.NewString()
-		for _, policy := range policyList.Items {
-			CRPolicySet.Insert(string(policy.UID))
-		}
-
-		for elem := range nsxPolicySet {
-			if CRPolicySet.Has(elem) {
-				continue
-			}
-			log.V(1).Info("GC collected SecurityPolicy CR", "UID", elem)
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
-			err = r.Service.DeleteSecurityPolicy(types.UID(elem), false, servicecommon.ResourceTypeSecurityPolicy)
-			if err != nil {
-				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
-			} else {
-				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
-			}
+			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
+		} else {
+			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
 		}
 	}
 }

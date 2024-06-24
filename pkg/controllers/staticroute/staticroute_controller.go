@@ -10,7 +10,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"time"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -77,7 +76,8 @@ func deleteSuccess(r *StaticRouteReconciler, _ *context.Context, o *v1alpha1.Sta
 
 func (r *StaticRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Use once.Do to ensure gc is called only once
-	once.Do(func() { go r.GarbageCollector(make(chan bool), commonservice.GCInterval) })
+	common.GcOnce(r, &once)
+
 	obj := &v1alpha1.StaticRoute{}
 	log.Info("reconciling staticroute CR", "staticroute", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, common.MetricResTypeStaticRoute)
@@ -225,54 +225,46 @@ func (r *StaticRouteReconciler) Start(mgr ctrl.Manager) error {
 	return nil
 }
 
-// GarbageCollector collect staticroute which has been removed from crd.
-// cancel is used to break the loop during UT
-func (r *StaticRouteReconciler) GarbageCollector(cancel chan bool, timeout time.Duration) {
-	ctx := context.Background()
-	log.Info("garbage collector started")
-	for {
-		select {
-		case <-cancel:
-			return
-		case <-time.After(timeout):
+// CollectGarbage collect staticroute which has been removed from crd.
+// it implements the interface GarbageCollector method.
+func (r *StaticRouteReconciler) CollectGarbage(ctx context.Context) {
+	log.Info("static route garbage collector started")
+	nsxStaticRouteList := r.Service.ListStaticRoute()
+	if len(nsxStaticRouteList) == 0 {
+		return
+	}
+
+	crdStaticRouteList := &v1alpha1.StaticRouteList{}
+	err := r.Client.List(ctx, crdStaticRouteList)
+	if err != nil {
+		log.Error(err, "failed to list static route CR")
+		return
+	}
+
+	crdStaticRouteSet := sets.NewString()
+	for _, sr := range crdStaticRouteList.Items {
+		crdStaticRouteSet.Insert(string(sr.UID))
+	}
+
+	for _, e := range nsxStaticRouteList {
+		elem := e
+		UID := r.Service.GetUID(elem)
+		if UID == nil {
+			continue
 		}
-		nsxStaticRouteList := r.Service.ListStaticRoute()
-		if len(nsxStaticRouteList) == 0 {
+		if crdStaticRouteSet.Has(*UID) {
 			continue
 		}
 
-		crdStaticRouteList := &v1alpha1.StaticRouteList{}
-		err := r.Client.List(ctx, crdStaticRouteList)
+		log.V(1).Info("GC collected StaticRoute CR", "UID", elem)
+		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeStaticRoute)
+		// get orgId, projectId, staticrouteId from path  "/orgs/<orgId>/projects/<projectId>/vpcs/<vpcId>/static-routes/<srId>"
+		path := strings.Split(*elem.Path, "/")
+		err = r.Service.DeleteStaticRouteByPath(path[2], path[4], path[6], *elem.Id)
 		if err != nil {
-			log.Error(err, "failed to list static route CR")
-			continue
-		}
-
-		crdStaticRouteSet := sets.NewString()
-		for _, sr := range crdStaticRouteList.Items {
-			crdStaticRouteSet.Insert(string(sr.UID))
-		}
-
-		for _, e := range nsxStaticRouteList {
-			elem := e
-			UID := r.Service.GetUID(elem)
-			if UID == nil {
-				continue
-			}
-			if crdStaticRouteSet.Has(*UID) {
-				continue
-			}
-
-			log.V(1).Info("GC collected StaticRoute CR", "UID", elem)
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeStaticRoute)
-			// get orgId, projectId, staticrouteId from path  "/orgs/<orgId>/projects/<projectId>/vpcs/<vpcId>/static-routes/<srId>"
-			path := strings.Split(*elem.Path, "/")
-			err = r.Service.DeleteStaticRouteByPath(path[2], path[4], path[6], *elem.Id)
-			if err != nil {
-				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeStaticRoute)
-			} else {
-				metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeStaticRoute)
-			}
+			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeStaticRoute)
+		} else {
+			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeStaticRoute)
 		}
 	}
 }

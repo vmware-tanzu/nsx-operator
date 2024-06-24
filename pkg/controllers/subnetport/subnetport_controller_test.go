@@ -3,8 +3,9 @@ package subnetport
 import (
 	"context"
 	"errors"
+	"reflect"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
@@ -77,6 +78,11 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			return nsxSubnet, nil
 		})
 	defer patchesGetSubnetByPath.Reset()
+
+	// common.GcOnce do nothing
+	var once sync.Once
+	pat := gomonkey.ApplyMethod(reflect.TypeOf(&once), "Do", func(_ *sync.Once, _ func()) {})
+	defer pat.Reset()
 
 	// not found
 	errNotFound := errors.New("not found")
@@ -292,7 +298,6 @@ func TestSubnetPortReconciler_GarbageCollector(t *testing.T) {
 			return nil
 		})
 	defer patchesDeleteSubnetPort.Reset()
-	cancel := make(chan bool)
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	r := &SubnetPortReconciler{
@@ -308,9 +313,5 @@ func TestSubnetPortReconciler_GarbageCollector(t *testing.T) {
 		a.Items[0].UID = "1234"
 		return nil
 	})
-	go func() {
-		time.Sleep(1 * time.Second)
-		cancel <- true
-	}()
-	r.GarbageCollector(cancel, time.Second)
+	r.CollectGarbage(context.Background())
 }
