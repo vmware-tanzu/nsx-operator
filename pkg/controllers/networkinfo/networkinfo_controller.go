@@ -78,7 +78,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			log.Error(err, "failed to check if namespace is shared", "Namespace", obj.GetNamespace())
 			return common.ResultRequeue, err
 		}
-		if !isShared {
+		if r.Service.NSXConfig.NsxConfig.UseAVILoadBalancer && !isShared {
 			err = r.Service.CreateOrUpdateAVIRule(createdVpc, obj.Namespace)
 			if err != nil {
 				state := &v1alpha1.VPCState{
@@ -116,7 +116,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// if lb vpc enabled, read avi subnet path and cidr
 		// nsx bug, if set LoadBalancerVpcEndpoint.Enabled to false, when read this vpc back,
 		// LoadBalancerVpcEndpoint.Enabled will become a nil pointer.
-		if createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
+		if r.Service.NSXConfig.NsxConfig.UseAVILoadBalancer && createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
 			path, cidr, err = r.Service.GetAVISubnetInfo(*createdVpc)
 			if err != nil {
 				log.Error(err, "failed to read lb subnet path and cidr", "VPC", createdVpc.Id)
@@ -139,7 +139,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			LoadBalancerIPAddresses: cidr,
 			PrivateIPv4CIDRs:        nc.PrivateIPv4CIDRs,
 		}
-		updateSuccess(r, &ctx, obj, r.Client, state, nc.Name, path)
+		updateSuccess(r, &ctx, obj, r.Client, state, nc.Name, path, r.Service.GetNSXLBSPath(*createdVpc.Id))
 	} else {
 		if controllerutil.ContainsFinalizer(obj, commonservice.NetworkInfoFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNetworkInfo)

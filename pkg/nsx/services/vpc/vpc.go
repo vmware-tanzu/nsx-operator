@@ -15,7 +15,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/util/retry"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -30,6 +29,7 @@ const (
 	AviSEIngressAllowRuleId    = "avi-se-ingress-allow-rule"
 	VPCAviSEGroupId            = "avi-se-vms"
 	VpcDefaultSecurityPolicyId = "default-layer3-section"
+	VPCKey                     = "/orgs/%s/projects/%s/vpcs/%s"
 	GroupKey                   = "/orgs/%s/projects/%s/vpcs/%s/groups/%s"
 	SecurityPolicyKey          = "/orgs/%s/projects/%s/vpcs/%s/security-policies/%s"
 	RuleKey                    = "/orgs/%s/projects/%s/vpcs/%s/security-policies/%s/rules/%s"
@@ -41,8 +41,9 @@ var (
 	ResourceTypeVPC = common.ResourceTypeVpc
 	NewConverter    = common.NewConverter
 
-	MarkedForDelete    = true
-	enableAviAllowRule = false
+	MarkedForDelete           = true
+	enableAviAllowRule        = false
+	EnforceRevisionCheckParam = false
 )
 
 type VPCNetworkInfoStore struct {
@@ -58,6 +59,7 @@ type VPCNsNetworkConfigStore struct {
 type VPCService struct {
 	common.Service
 	VpcStore                *VPCStore
+	LbsStore                *LBSStore
 	IpblockStore            *IPBlockStore
 	VPCNetworkConfigStore   VPCNetworkInfoStore
 	VPCNSNetworkConfigStore VPCNsNetworkConfigStore
@@ -161,6 +163,10 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
 		BindingType: model.VpcBindingType(),
 	}}
+	VPCService.LbsStore = &LBSStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.LBServiceBindingType(),
+	}}
 
 	VPCService.IpblockStore = &IPBlockStore{ResourceStore: common.ResourceStore{
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
@@ -173,8 +179,10 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	VPCService.VPCNSNetworkConfigStore = VPCNsNetworkConfigStore{
 		VPCNSNetworkConfigMap: make(map[string]string),
 	}
-	//initialize vpc store and ip blocks store
+	//initialize vpc store, lbs store and ip blocks store
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, VPCService.VpcStore)
+	wg.Add(1)
+	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeLBService, nil, VPCService.LbsStore)
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeIPBlock, nil, VPCService.IpblockStore)
 
 	//initalize avi rule related store
@@ -250,6 +258,10 @@ func (s *VPCService) DeleteVPC(path string) error {
 	if err := vpcClient.Delete(pathInfo.OrgID, pathInfo.ProjectID, pathInfo.VPCID); err != nil {
 		err = nsxutil.NSXApiError(err)
 		return err
+	}
+	lbs := s.LbsStore.GetByKey(pathInfo.VPCID)
+	if lbs != nil {
+		s.LbsStore.Delete(lbs)
 	}
 	vpc.MarkedForDelete = &MarkedForDelete
 	if err := s.VpcStore.Apply(vpc); err != nil {
@@ -556,7 +568,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 		nsxVPC = nil
 	}
 
-	createdVpc, err := buildNSXVPC(obj, nsObj, nc, s.NSXConfig.Cluster, paths, nsxVPC)
+	createdVpc, err := buildNSXVPC(obj, nsObj, nc, s.NSXConfig.Cluster, paths, nsxVPC, s.NSXConfig.NsxConfig.UseAVILoadBalancer)
 	if err != nil {
 		log.Error(err, "failed to build NSX VPC object")
 		return nil, nil, err
@@ -568,8 +580,26 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 		return existingVPC[0], &nc, nil
 	}
 
+	// build NSX LBS
+	var createdLBS *model.LBService
+	if s.NSXConfig.NsxConfig.NSXLBEnabled() {
+		lbsSize := s.NSXConfig.NsxConfig.GetNSXLBSize()
+		vpcPath := fmt.Sprintf(VPCKey, nc.Org, nc.NsxtProject, nc.Name)
+		var relaxScaleValidation *bool
+		if s.NSXConfig.NsxConfig.RelaxNSXLBScaleValication {
+			relaxScaleValidation = common.Bool(true)
+		}
+		createdLBS, _ = buildNSXLBS(obj, nsObj, s.NSXConfig.Cluster, lbsSize, vpcPath, relaxScaleValidation)
+	}
+	// build HAPI request
+	orgRoot, err := s.WrapHierarchyVPC(nc.Org, nc.NsxtProject, createdVpc, createdLBS)
+	if err != nil {
+		log.Error(err, "failed to build HAPI request")
+		return nil, nil, err
+	}
+
 	log.Info("creating NSX VPC", "VPC", *createdVpc.Id)
-	err = s.NSXClient.VPCClient.Patch(nc.Org, nc.NsxtProject, *createdVpc.Id, *createdVpc)
+	err = s.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
 	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to create VPC", "Project", nc.NsxtProject, "Namespace", obj.Namespace)
@@ -596,12 +626,14 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 		return nil, nil, err
 	}
 
+	log.V(2).Info("check VPC realization state", "VPC", *createdVpc.Id)
 	realizeService := realizestate.InitializeRealizeState(s.Service)
-	if err = realizeService.CheckRealizeState(retry.DefaultRetry, *newVpc.Path, "RealizedLogicalRouter"); err != nil {
+	if err = realizeService.CheckRealizeState(util.NSXTDefaultRetry, *newVpc.Path, "RealizedLogicalRouter"); err != nil {
 		log.Error(err, "failed to check VPC realization state", "VPC", *createdVpc.Id)
 		if realizestate.IsRealizeStateError(err) {
 			log.Error(err, "the created VPC is in error realization state, cleaning the resource", "VPC", *createdVpc.Id)
-			// delete the nsx vpc object and re-created in next loop
+			// delete the nsx vpc object and re-create it in the next loop
+			// TODO(gran) DeleteVPC will check VpcStore but new Vpc is not in store at this moment. Is it correct?
 			if err := s.DeleteVPC(*newVpc.Path); err != nil {
 				log.Error(err, "cleanup VPC failed", "VPC", *createdVpc.Id)
 				return nil, nil, err
@@ -611,6 +643,32 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 	}
 
 	s.VpcStore.Add(&newVpc)
+
+	// Check LBS realization
+	if createdLBS != nil {
+		newLBS, err := s.NSXClient.VPCLBSClient.Get(nc.Org, nc.NsxtProject, *createdVpc.Id, *createdLBS.Id)
+		if err != nil {
+			log.Error(err, "failed to read LBS object after creating or updating", "LBS", createdLBS.Id)
+			return nil, nil, err
+		}
+		s.LbsStore.Add(&newLBS)
+
+		log.V(2).Info("check LBS realization state", "LBS", *createdLBS.Id)
+		realizeService := realizestate.InitializeRealizeState(s.Service)
+		if err = realizeService.CheckRealizeState(util.NSXTLBVSDefaultRetry, *newLBS.Path, ""); err != nil {
+			log.Error(err, "failed to check LBS realization state", "LBS", *createdLBS.Id)
+			if realizestate.IsRealizeStateError(err) {
+				log.Error(err, "the created LBS is in error realization state, cleaning the resource", "LBS", *createdLBS.Id)
+				// delete the nsx vpc object and re-create it in the next loop
+				if err := s.DeleteVPC(*newVpc.Path); err != nil {
+					log.Error(err, "cleanup VPC failed", "VPC", *createdVpc.Id)
+					return nil, nil, err
+				}
+			}
+			return nil, nil, err
+		}
+	}
+
 	return &newVpc, &nc, nil
 }
 
@@ -901,4 +959,12 @@ func (service *VPCService) ListVPCInfo(ns string) []common.VPCResourceInfo {
 		VPCInfoList = append(VPCInfoList, vpcResourceInfo)
 	}
 	return VPCInfoList
+}
+
+func (s *VPCService) GetNSXLBSPath(lbsId string) string {
+	vpcLBS := s.LbsStore.GetByKey(lbsId)
+	if vpcLBS == nil {
+		return ""
+	}
+	return *vpcLBS.Path
 }
