@@ -94,8 +94,9 @@ type DefaultConfig struct {
 }
 
 type CoeConfig struct {
-	Cluster          string `ini:"cluster"`
-	EnableVPCNetwork bool   `ini:"enable_vpc_network"`
+	Cluster            string `ini:"cluster"`
+	EnableVPCNetwork   bool   `ini:"enable_vpc_network"`
+	EnableVPCMixedMode bool   `ini:"enable_vpc_mixed_mode"`
 }
 
 type NsxConfig struct {
@@ -237,6 +238,10 @@ func (operatorConfig *NSXOperatorConfig) validate() error {
 	}
 	if err := operatorConfig.NsxConfig.validate(operatorConfig.CoeConfig.EnableVPCNetwork); err != nil {
 		return err
+	}
+	if operatorConfig.CoeConfig.EnableVPCMixedMode && !operatorConfig.CoeConfig.EnableVPCNetwork {
+		configLog.Error("VPC mixed mode is enabled but VPC is not enabled")
+		return errors.New("VPC mixed mode can't be enabled without VPC network enablement")
 	}
 	// TODO, verify if user&pwd, cert, jwt has any of them provided
 	return nil

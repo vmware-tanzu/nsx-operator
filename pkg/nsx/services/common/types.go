@@ -78,6 +78,7 @@ const (
 	AnnotationAttachmentRef            string = "nsx.vmware.com/attachment_ref"
 	AnnotationPodMAC                   string = "nsx.vmware.com/mac"
 	AnnotationPodAttachment            string = "nsx.vmware.com/attachment"
+	LabelWorkloadNamespace             string = "vmware.com/for-user-workloads"
 	TagScopePodName                    string = "nsx-op/pod_name"
 	TagScopePodUID                     string = "nsx-op/pod_uid"
 	ValueMajorVersion                  string = "1"

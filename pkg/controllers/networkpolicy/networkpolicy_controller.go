@@ -10,6 +10,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/vmware-tanzu/net-operator-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
@@ -17,11 +18,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/vpcnetwork"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
@@ -41,10 +44,11 @@ var (
 
 // NetworkPolicyReconciler reconciles a NetworkPolicy object
 type NetworkPolicyReconciler struct {
-	Client   client.Client
-	Scheme   *apimachineryruntime.Scheme
-	Service  *securitypolicy.SecurityPolicyService
-	Recorder record.EventRecorder
+	Client          client.Client
+	Scheme          *apimachineryruntime.Scheme
+	Service         *securitypolicy.SecurityPolicyService
+	Recorder        record.EventRecorder
+	NetworkProvider vpcnetwork.VPCNetworkProvider
 }
 
 func updateFail(r *NetworkPolicyReconciler, c *context.Context, o *networkingv1.NetworkPolicy, e *error) {
@@ -70,6 +74,13 @@ func deleteSuccess(r *NetworkPolicyReconciler, _ *context.Context, o *networking
 func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Use once.Do to ensure gc is called only once
 	common.GcOnce(r, &once)
+	if r.NetworkProvider != nil {
+		return r.NetworkProvider.ReconcileWithVPCFilters("networkpolicy", ctx, req, r.reconcile)
+	}
+	return r.reconcile(ctx, req)
+}
+
+func (r *NetworkPolicyReconciler) reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	networkPolicy := &networkingv1.NetworkPolicy{}
 	log.Info("reconciling networkpolicy", "networkpolicy", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
@@ -134,6 +145,11 @@ func (r *NetworkPolicyReconciler) setupWithManager(mgr ctrl.Manager) error {
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
+		Watches(
+			&v1alpha1.Network{},
+			&vpcnetwork.EnqueueRequestForNetwork{Client: r.Client, Lister: r.listNetworkPolicies},
+			builder.WithPredicates(vpcnetwork.PredicateFuncsByNetwork),
+		).
 		Complete(r)
 }
 
@@ -180,11 +196,28 @@ func (r *NetworkPolicyReconciler) CollectGarbage(ctx context.Context) {
 	}
 }
 
-func StartNetworkPolicyController(mgr ctrl.Manager, commonService servicecommon.Service, vpcService servicecommon.VPCServiceProvider) {
+func (r *NetworkPolicyReconciler) listNetworkPolicies(ns string) ([]types.NamespacedName, error) {
+	npList := &networkingv1.NetworkPolicyList{}
+	err := r.Client.List(context.Background(), npList, client.InNamespace(ns))
+	if err != nil {
+		return nil, err
+	}
+	nsNames := make([]types.NamespacedName, 0)
+	for _, np := range npList.Items {
+		nsNames = append(nsNames, types.NamespacedName{
+			Namespace: np.Namespace,
+			Name:      np.Name,
+		})
+	}
+	return nsNames, nil
+}
+
+func StartNetworkPolicyController(mgr ctrl.Manager, commonService servicecommon.Service, vpcService servicecommon.VPCServiceProvider, networkProvider vpcnetwork.VPCNetworkProvider) {
 	networkPolicyReconcile := NetworkPolicyReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("networkpolicy-controller"),
+		Client:          mgr.GetClient(),
+		Scheme:          mgr.GetScheme(),
+		Recorder:        mgr.GetEventRecorderFor("networkpolicy-controller"),
+		NetworkProvider: networkProvider,
 	}
 	networkPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService, vpcService)
 	if err := networkPolicyReconcile.Start(mgr); err != nil {

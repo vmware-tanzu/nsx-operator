@@ -147,6 +147,19 @@ func IsSystemNamespace(c client.Client, ns string, obj *v1.Namespace) (bool, err
 	return false, nil
 }
 
+func IsVPCSystemNamespace(c client.Client, ns string, obj *v1.Namespace) (bool, error) {
+	nsObj := &v1.Namespace{}
+	if obj != nil {
+		nsObj = obj
+	} else if err := c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: ns}, nsObj); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	if wlNSLabelVal, ok := nsObj.Labels[common.LabelWorkloadNamespace]; ok && strings.ToLower(wlNSLabelVal) == "true" {
+		return false, nil
+	}
+	return true, nil
+}
+
 // CheckPodHasNamedPort checks if the pod has a named port, it filters the pod events
 // we don't want give concern.
 func CheckPodHasNamedPort(pod v1.Pod, reason string) bool {

@@ -6,7 +6,7 @@ replace (
 	github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
 	github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1 => ./pkg/apis/v1alpha1
 	github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2 => ./pkg/apis/v1alpha2
-        github.com/vmware-tanzu/nsx-operator/pkg/client => ./pkg/client
+	github.com/vmware-tanzu/nsx-operator/pkg/client => ./pkg/client
 )
 
 require (
@@ -14,6 +14,7 @@ require (
 	github.com/apparentlymart/go-cidr v1.1.0
 	github.com/deckarep/golang-set v1.8.0
 	github.com/go-logr/logr v1.3.0
+	github.com/go-logr/zapr v1.2.4
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/golang/mock v1.6.0
 	github.com/google/uuid v1.3.0
@@ -23,6 +24,7 @@ require (
 	github.com/prometheus/client_golang v1.16.0
 	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.4
+	github.com/vmware-tanzu/net-operator-api v0.0.0-20240529180459-ccac5a20bda1
 	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-20240305035435-c992c623aad3
 	github.com/vmware-tanzu/nsx-operator/pkg/client v0.0.0-20240102061654-537b080e159f
 	github.com/vmware-tanzu/vm-operator/api v1.8.2
@@ -53,7 +55,6 @@ require (
 	github.com/evanphx/json-patch/v5 v5.6.0 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/gibson042/canonicaljson-go v1.0.3 // indirect
-	github.com/go-logr/zapr v1.2.4 // indirect
 	github.com/go-openapi/jsonpointer v0.19.6 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
 	github.com/go-openapi/swag v0.22.3 // indirect

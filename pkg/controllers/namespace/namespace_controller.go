@@ -8,17 +8,21 @@ import (
 	"errors"
 	"fmt"
 
+	netopv1alpha1 "github.com/vmware-tanzu/net-operator-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/vpcnetwork"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
@@ -35,10 +39,11 @@ var (
 // Using vpcservice provider instead of vpc service to prevent
 // invoking method that should be exposed to other module.
 type NamespaceReconciler struct {
-	Client     client.Client
-	Scheme     *apimachineryruntime.Scheme
-	NSXConfig  *config.NSXOperatorConfig
-	VPCService types.VPCServiceProvider
+	Client          client.Client
+	Scheme          *apimachineryruntime.Scheme
+	NSXConfig       *config.NSXOperatorConfig
+	VPCService      types.VPCServiceProvider
+	NetworkProvider vpcnetwork.VPCNetworkProvider
 }
 
 func (r *NamespaceReconciler) getDefaultNetworkConfigName() (string, error) {
@@ -179,6 +184,13 @@ func (r *NamespaceReconciler) insertNamespaceNetworkconfigBinding(ns string, ann
 	return nil
 }
 
+func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	if r.NetworkProvider != nil {
+		return r.NetworkProvider.ReconcileWithVPCFilters("namespace", ctx, req, r.reconcile)
+	}
+	return r.reconcile(ctx, req)
+}
+
 /*
 	VPC creation strategy:
 
@@ -193,7 +205,7 @@ We suppose namespace should have following annotations:
   - If the ns do not have either of the annotation above, then we believe it is using default VPC, try to search
     default VPC in network config CR store. The default VPC network config CR's name is "default".
 */
-func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *NamespaceReconciler) reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	obj := &v1.Namespace{}
 	log.Info("reconciling K8s namespace", "namespace", req.NamespacedName)
 	metrics.CounterInc(r.NSXConfig, metrics.ControllerSyncTotal, common.MetricResTypeNamespace)
@@ -251,6 +263,14 @@ func (r *NamespaceReconciler) setupWithManager(mgr ctrl.Manager) error {
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
+		Watches(
+			&netopv1alpha1.Network{},
+			&vpcnetwork.EnqueueRequestForNetwork{Client: r.Client, Lister: func(namespace string) ([]apitypes.NamespacedName, error) {
+				obj := apitypes.NamespacedName{Name: namespace, Namespace: namespace}
+				return []apitypes.NamespacedName{obj}, nil
+			}},
+			builder.WithPredicates(vpcnetwork.PredicateFuncsByNetwork),
+		).
 		Complete(r)
 }
 

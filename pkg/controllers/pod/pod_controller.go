@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/vmware-tanzu/net-operator-api/api/v1alpha1"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
@@ -17,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -24,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/vpcnetwork"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -47,12 +50,20 @@ type PodReconciler struct {
 	VPCService        servicecommon.VPCServiceProvider
 	NodeServiceReader servicecommon.NodeServiceReader
 	Recorder          record.EventRecorder
+
+	NetworkProvider vpcnetwork.VPCNetworkProvider
 }
 
 func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Use once.Do to ensure gc is called only once
 	common.GcOnce(r, &once)
+	if r.NetworkProvider != nil {
+		return r.NetworkProvider.ReconcileWithVPCFilters("pod", ctx, req, r.reconcile)
+	}
+	return r.reconcile(ctx, req)
+}
 
+func (r *PodReconciler) reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	pod := &v1.Pod{}
 	log.Info("reconciling pod", "pod", req.NamespacedName)
 
@@ -170,10 +181,31 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
+		Watches(
+			&v1alpha1.Network{},
+			&vpcnetwork.EnqueueRequestForNetwork{Client: r.Client, Lister: r.listPods},
+			builder.WithPredicates(vpcnetwork.PredicateFuncsByNetwork),
+		).
 		Complete(r)
 }
 
-func StartPodController(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPortService, subnetService servicecommon.SubnetServiceProvider, vpcService servicecommon.VPCServiceProvider, nodeService servicecommon.NodeServiceReader) {
+func (r *PodReconciler) listPods(ns string) ([]types.NamespacedName, error) {
+	podList := &v1.PodList{}
+	err := r.Client.List(context.Background(), podList, client.InNamespace(ns))
+	if err != nil {
+		return nil, err
+	}
+	nsNames := make([]types.NamespacedName, 0)
+	for _, pod := range podList.Items {
+		nsNames = append(nsNames, types.NamespacedName{
+			Namespace: pod.Namespace,
+			Name:      pod.Name,
+		})
+	}
+	return nsNames, nil
+}
+
+func StartPodController(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPortService, subnetService servicecommon.SubnetServiceProvider, vpcService servicecommon.VPCServiceProvider, nodeService servicecommon.NodeServiceReader, networkProvider vpcnetwork.VPCNetworkProvider) {
 	podPortReconciler := PodReconciler{
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
@@ -182,6 +214,7 @@ func StartPodController(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPo
 		VPCService:        vpcService,
 		NodeServiceReader: nodeService,
 		Recorder:          mgr.GetEventRecorderFor("pod-controller"),
+		NetworkProvider:   networkProvider,
 	}
 	if err := podPortReconciler.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "Pod")

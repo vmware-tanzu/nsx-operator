@@ -177,8 +177,8 @@ github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO
 github.com/stretchr/testify v1.8.1/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o6fzry7u4=
 github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcUk=
 github.com/stretchr/testify v1.8.4/go.mod h1:sz/lmYIOXD/1dqDmKjjqLyZ2RngseejIcXlSw2iwfAo=
-github.com/vmware-tanzu/nsx-operator/pkg/client v0.0.0-20240102061654-537b080e159f h1:EV4eiUQr3QpUGfTtqdVph0+bmE+3cj0aNJpd9n2qTdo=
-github.com/vmware-tanzu/nsx-operator/pkg/client v0.0.0-20240102061654-537b080e159f/go.mod h1:dzob8tUzpAREQPtbbjQs4b1UyQDR37B2TiIdg8WJSRM=
+github.com/vmware-tanzu/net-operator-api v0.0.0-20240529180459-ccac5a20bda1 h1:r8RuSJnLEStOdGTfaZeOjH4rvRB4Gm/N1+qtU16VrI0=
+github.com/vmware-tanzu/net-operator-api v0.0.0-20240529180459-ccac5a20bda1/go.mod h1:w6QJGm3crIA16ZIz1FVQXD2NVeJhOgGXxW05RbVTSTo=
 github.com/vmware-tanzu/vm-operator/api v1.8.2 h1:7cZHVusqAmAMFWvsiU7X5xontxdjasknI/sVfe0p0Z4=
 github.com/vmware-tanzu/vm-operator/api v1.8.2/go.mod h1:vauVboD3sQxP+pb28TnI9wfrj+0nH2zSEc9Q7AzWJ54=
 github.com/vmware/govmomi v0.27.4 h1:5kY8TAkhB20lsjzrjE073eRb8+HixBI29PVMG5lxq6I=
