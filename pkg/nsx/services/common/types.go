@@ -201,6 +201,7 @@ type VPCNetworkConfigInfo struct {
 	DefaultGatewayPath string // deprecated, existing field
 	// VPCServiceProfile       string
 	VPCConnectivityProfile     string
+	LbServiceSize              string
 	EdgeClusterPath            string // deprecated, existing field
 	NsxtProject                string
 	ExternalIPv4Blocks         []string // deprecated, existing field
