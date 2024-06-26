@@ -83,6 +83,7 @@ func (service *StaticRouteService) CreateOrUpdateStaticRoute(namespace string, o
 		return err
 	}
 	staticRoute, err := service.NSXClient.StaticRouteClient.Get(vpc[0].OrgID, vpc[0].ProjectID, vpc[0].ID, *nsxStaticRoute.Id)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		return err
 	}
@@ -95,6 +96,7 @@ func (service *StaticRouteService) CreateOrUpdateStaticRoute(namespace string, o
 
 func (service *StaticRouteService) patch(orgId string, projectId string, vpcId string, st *model.StaticRoutes) error {
 	err := service.NSXClient.StaticRouteClient.Patch(orgId, projectId, vpcId, *st.Id, *st)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		return err
 	}
@@ -109,6 +111,7 @@ func (service *StaticRouteService) DeleteStaticRouteByPath(orgId string, project
 	}
 
 	if err := staticRouteClient.Delete(orgId, projectId, vpcId, *staticroute.Id); err != nil {
+		err = nsxutil.NSXApiError(err)
 		return err
 	}
 	if err := service.StaticRouteStore.Delete(staticroute); err != nil {

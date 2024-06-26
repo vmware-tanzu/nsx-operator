@@ -103,6 +103,7 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 			return nil, err
 		}
 		err = service.NSXClient.PortClient.Patch(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *nsxSubnetPort.Id, *nsxSubnetPort)
+		err = nsxutil.NSXApiError(err)
 		if err != nil {
 			log.Error(err, "failed to create or update subnet port", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
 			return nil, err
@@ -188,6 +189,7 @@ func (service *SubnetPortService) GetSubnetPortState(obj interface{}, nsxSubnetP
 	}
 	nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID := nsxutil.ParseVPCPath(nsxSubnetPath)
 	nsxSubnetPortState, err := service.NSXClient.PortStateClient.Get(nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID, string(uid), nil, nil)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to get subnet port state", "nsxSubnetPortID", uid, "nsxSubnetPath", nsxSubnetPath)
 		return nil, err
@@ -203,6 +205,7 @@ func (service *SubnetPortService) DeleteSubnetPort(uid types.UID) error {
 	}
 	nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID := nsxutil.ParseVPCPath(*nsxSubnetPort.Path)
 	err := service.NSXClient.PortClient.Delete(nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID, string(uid))
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to delete subnetport", "nsxSubnetPort.Path", *nsxSubnetPort.Path)
 		return err
@@ -234,6 +237,7 @@ func (service *SubnetPortService) GetGatewayPrefixForSubnetPort(obj *v1alpha1.Su
 	}
 	// TODO: if the port is not the first on the same subnet, try to get the info from existing realized subnetport CR to avoid query NSX API again.
 	statusList, err := service.NSXClient.SubnetStatusClient.List(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to get subnet status")
 		return "", -1, err
