@@ -1,0 +1,10 @@
+apiVersion: nsx.vmware.com/v1alpha1
+kind: IPAddressAllocation
+metadata:
+  name: guestcluster-workers-a
+  namespace: sc-a
+spec:
+  ip_address_block_visibility: Private
+  allocation_size: 26
+status:
+  CIDR: 172.26.1.0/28
