@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	NetworkInfoCRType     = "networkinfoes"
+	NetworkInfoCRType     = "networkinfos"
 	NSCRType              = "namespaces"
 	PrivateIPBlockNSXType = "IpAddressBlock"
 
@@ -68,7 +68,6 @@ func TestCustomizedNetworkInfo(t *testing.T) {
 	_ = applyYAML(nsPath, "")
 
 	defer deleteYAML(nsPath, "")
-	defer deleteYAML(ncPath, "")
 
 	ns := "customized-ns"
 
