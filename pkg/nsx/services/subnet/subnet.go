@@ -264,7 +264,12 @@ func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) err
 			NSXResourcePath: *subnet.Path,
 		}
 		for _, status := range statusList {
-			subnetInfo.IPAddresses = append(subnetInfo.IPAddresses, *status.NetworkAddress)
+			subnetInfo.NetworkAddresses = append(subnetInfo.NetworkAddresses, *status.NetworkAddress)
+			subnetInfo.GatewayAddresses = append(subnetInfo.GatewayAddresses, *status.GatewayAddress)
+			// DHCPServerAddress is only for the subnet with DHCP enabled
+			if status.DhcpServerAddress != nil {
+				subnetInfo.DHCPServerAddresses = append(subnetInfo.DHCPServerAddresses, *status.DhcpServerAddress)
+			}
 		}
 		subnetInfoList = append(subnetInfoList, subnetInfo)
 	}
