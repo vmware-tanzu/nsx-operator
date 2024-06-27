@@ -128,7 +128,7 @@ spec:
                 items:
                   type: string
                 type: array
-              networkAddreses:
+              networkAddresses:
                 items:
                   type: string
                 type: array
