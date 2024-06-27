@@ -7,10 +7,10 @@ import (
 	"strings"
 	"sync"
 
-	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	apierrors "github.com/zhengxiexie/vsphere-automation-sdk-go/lib/vapi/std/errors"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/runtime/bindings"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/runtime/data"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 

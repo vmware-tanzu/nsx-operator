@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/model"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"

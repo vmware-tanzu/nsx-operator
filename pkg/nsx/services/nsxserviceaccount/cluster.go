@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	vapierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
-	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	vapierrors "github.com/zhengxiexie/vsphere-automation-sdk-go/lib/vapi/std/errors"
+	mpmodel "github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	policyclient "github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
+	policyclient "github.com/zhengxiexie/vsphere-automation-sdk-go/runtime/protocol/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
