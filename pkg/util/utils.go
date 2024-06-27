@@ -29,10 +29,11 @@ import (
 )
 
 const (
-	wcpSystemResource       = "vmware-system-shared-t1"
-	HashLength          int = 8
-	SubnetTypeSubnet        = "subnet"
-	SubnetTypeSubnetSet     = "subnetset"
+	wcpSystemResource        = "vmware-system-shared-t1"
+	wcpVPCSystemResource     = "nsx.vmware.com/nsx_network_config"
+	HashLength           int = 8
+	SubnetTypeSubnet         = "subnet"
+	SubnetTypeSubnetSet      = "subnetset"
 )
 
 var (
@@ -135,13 +136,21 @@ func CalculateSubnetSize(mask int) int64 {
 }
 
 func IsSystemNamespace(c client.Client, ns string, obj *v1.Namespace) (bool, error) {
+	return namespaceHasSystemAnnotation(c, ns, obj, wcpSystemResource)
+}
+
+func IsVPCSystemNamespace(c client.Client, ns string, obj *v1.Namespace) (bool, error) {
+	return namespaceHasSystemAnnotation(c, ns, obj, wcpVPCSystemResource)
+}
+
+func namespaceHasSystemAnnotation(c client.Client, ns string, obj *v1.Namespace, annotationKey string) (bool, error) {
 	nsObj := &v1.Namespace{}
 	if obj != nil {
 		nsObj = obj
 	} else if err := c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: ns}, nsObj); err != nil {
 		return false, client.IgnoreNotFound(err)
 	}
-	if isSysNs, ok := nsObj.Annotations[wcpSystemResource]; ok && strings.ToLower(isSysNs) == "true" {
+	if isSysNs, ok := nsObj.Annotations[annotationKey]; ok && strings.ToLower(isSysNs) == "true" {
 		return true, nil
 	}
 	return false, nil

@@ -6,6 +6,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 
+	vpcnetworktesting "github.com/vmware-tanzu/nsx-operator/pkg/controllers/vpcnetwork/testing"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
@@ -31,10 +33,11 @@ import (
 
 func NewFakeServiceLbReconciler() *ServiceLbReconciler {
 	return &ServiceLbReconciler{
-		Client:   fake.NewClientBuilder().Build(),
-		Scheme:   fake.NewClientBuilder().Build().Scheme(),
-		Service:  nil,
-		Recorder: fakeRecorder{},
+		Client:          fake.NewClientBuilder().Build(),
+		Scheme:          fake.NewClientBuilder().Build().Scheme(),
+		Service:         nil,
+		Recorder:        fakeRecorder{},
+		NetworkProvider: &vpcnetworktesting.FakeVPCNetworkProvider{},
 	}
 }
 
@@ -146,23 +149,81 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	}
 
 	r := &ServiceLbReconciler{
-		Client:   k8sClient,
-		Scheme:   nil,
-		Service:  service,
-		Recorder: fakeRecorder{},
+		Client:          k8sClient,
+		Scheme:          nil,
+		Service:         service,
+		Recorder:        fakeRecorder{},
+		NetworkProvider: &vpcnetworktesting.FakeVPCNetworkProvider{},
 	}
 	ctx := context.Background()
 	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
 
 	// case not found obj
 	errNotFound := errors.New("not found")
-	k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(errNotFound)
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), &v1.Service{}).Return(errNotFound)
 	_, err := r.Reconcile(ctx, req)
 	assert.Equal(t, err, errNotFound)
 
 	lbService := &v1.Service{}
 
-	// case DeletionTimestamp.IsZero = false and service type is LoadBalancer
+	mockNamespaceGetFunc := func(annotation map[string]string) {
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), &v1.Namespace{}).Return(nil).Do(
+			func(_ context.Context, key client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				nsObj := obj.(*v1.Namespace)
+				nsObj.Namespace = key.Namespace
+				nsObj.Name = key.Name
+				nsObj.Annotations = annotation
+				return nil
+			},
+		)
+	}
+
+	// case service type is LoadBalancer, error when checking system Namespace.
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), lbService).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+		v1lbservice := obj.(*v1.Service)
+		v1lbservice.Spec.Type = v1.ServiceTypeLoadBalancer
+		return nil
+	})
+	k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), &v1.Namespace{}).Return(errors.New("invalid Namespace"))
+	_, err = r.Reconcile(ctx, req)
+	assert.EqualError(t, err, "invalid Namespace")
+
+	// case service type is LoadBalancer in system Namespace, loadBalancerClass is not set
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), lbService).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+		v1lbservice := obj.(*v1.Service)
+		v1lbservice.Spec.Type = v1.ServiceTypeLoadBalancer
+		return nil
+	})
+	mockNamespaceGetFunc(map[string]string{"nsx.vmware.com/nsx_network_config": "true"})
+	_, err = r.Reconcile(ctx, req)
+	assert.Equal(t, err, nil)
+
+	// case service type is LoadBalancer in system Namespace, loadBalancerClass is not VPC
+	nonVPCClass := "not-vpc"
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), lbService).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+		v1lbservice := obj.(*v1.Service)
+		v1lbservice.Spec.Type = v1.ServiceTypeLoadBalancer
+		v1lbservice.Spec.LoadBalancerClass = &nonVPCClass
+		return nil
+	})
+	mockNamespaceGetFunc(map[string]string{"nsx.vmware.com/nsx_network_config": "true"})
+	_, err = r.Reconcile(ctx, req)
+	assert.Equal(t, err, nil)
+
+	// case DeletionTimestamp.IsZero = false and service type is LoadBalancer in system Namespace with VPC
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), lbService).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+		v1lbservice := obj.(*v1.Service)
+		v1lbservice.Spec.Type = v1.ServiceTypeLoadBalancer
+		v1lbservice.Spec.LoadBalancerClass = &LBServiceClassForVPC
+		time := metav1.Now()
+		v1lbservice.ObjectMeta.DeletionTimestamp = &time
+		return nil
+	})
+	mockNamespaceGetFunc(map[string]string{"nsx.vmware.com/nsx_network_config": "true"})
+	_, err = r.Reconcile(ctx, req)
+	assert.Equal(t, err, nil)
+
+	// case DeletionTimestamp.IsZero = false and service type is LoadBalancer in non-system Namespace.
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), lbService).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1lbservice := obj.(*v1.Service)
 		v1lbservice.Spec.Type = v1.ServiceTypeLoadBalancer
@@ -170,6 +231,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		v1lbservice.ObjectMeta.DeletionTimestamp = &time
 		return nil
 	})
+	mockNamespaceGetFunc(nil)
 	_, err = r.Reconcile(ctx, req)
 	assert.Equal(t, err, nil)
 
@@ -191,18 +253,56 @@ func TestSecurityPolicyReconciler_Start(t *testing.T) {
 	service := &servicecommon.Service{}
 	var mgr controllerruntime.Manager
 	r := &ServiceLbReconciler{
-		Client:   k8sClient,
-		Scheme:   nil,
-		Service:  service,
-		Recorder: fakeRecorder{},
+		Client:          k8sClient,
+		Scheme:          nil,
+		Service:         service,
+		Recorder:        fakeRecorder{},
+		NetworkProvider: &vpcnetworktesting.FakeVPCNetworkProvider{},
 	}
-
-	// Case Manager is not initialized
-	err := r.Start(mgr)
-	assert.NotEqual(t, nil, err)
 
 	// Case Manager is initialized
 	mgr, _ = controllerruntime.NewManager(&rest.Config{}, manager.Options{})
-	err = r.Start(mgr)
+	err := r.Start(mgr)
 	assert.Equal(t, nil, err)
+}
+
+func TestListLBServices(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	r := &ServiceLbReconciler{
+		Client: k8sClient,
+		Scheme: nil,
+	}
+	testNS := "ns1"
+	// Validate error case
+	k8sClient.EXPECT().List(gomock.Any(), &v1.ServiceList{}, gomock.Any()).Return(fmt.Errorf("unable to list Services"))
+	_, err := r.listLBServices(testNS)
+	assert.EqualError(t, err, "unable to list Services")
+	// Validate only LoadBalancer type Services are returned
+	k8sClient.EXPECT().List(gomock.Any(), &v1.ServiceList{}, gomock.Any()).Return(nil).Do(
+		func(_ context.Context, obj client.ObjectList, opts ...client.ListOption) error {
+			netList := obj.(*v1.ServiceList)
+			netList.Items = []v1.Service{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "clusterIP-svc", Namespace: testNS},
+					Spec:       v1.ServiceSpec{Type: v1.ServiceTypeClusterIP},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "nodePort-svc", Namespace: testNS},
+					Spec:       v1.ServiceSpec{Type: v1.ServiceTypeNodePort},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "lb-svc", Namespace: testNS},
+					Spec:       v1.ServiceSpec{Type: v1.ServiceTypeLoadBalancer},
+				},
+			}
+			return nil
+		})
+
+	objs, err := r.listLBServices(testNS)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(objs))
+	svc := objs[0]
+	assert.Equal(t, "lb-svc", svc.Name)
+	assert.Equal(t, testNS, svc.Namespace)
 }
