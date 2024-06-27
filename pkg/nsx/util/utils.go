@@ -23,10 +23,10 @@ import (
 	"strconv"
 	"strings"
 
-	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	apierrors "github.com/zhengxiexie/vsphere-automation-sdk-go/lib/vapi/std/errors"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/runtime/bindings"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/runtime/data"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/model"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
@@ -450,7 +450,7 @@ func castApiError(apiErrorDataValue *data.StructValue) *model.ApiError {
 }
 
 func isEmptyAPIError(apiError model.ApiError) bool {
-	return (apiError.ErrorCode == nil && apiError.ErrorMessage == nil)
+	return apiError.ErrorCode == nil && apiError.ErrorMessage == nil
 }
 
 func VerifyNsxCertWithThumbprint(der []byte, thumbprint string) error {

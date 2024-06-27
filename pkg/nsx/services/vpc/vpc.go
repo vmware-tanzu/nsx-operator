@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/runtime/data"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -173,11 +173,11 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	VPCService.VPCNSNetworkConfigStore = VPCNsNetworkConfigStore{
 		VPCNSNetworkConfigMap: make(map[string]string),
 	}
-	//initialize vpc store and ip blocks store
+	// initialize vpc store and ip blocks store
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, VPCService.VpcStore)
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeIPBlock, nil, VPCService.IpblockStore)
 
-	//initalize avi rule related store
+	// initialize avi rule related store
 	if enableAviAllowRule {
 		VPCService.RuleStore = &AviRuleStore{ResourceStore: common.ResourceStore{
 			Indexer:     cache.NewIndexer(keyFuncAVI, nil),
@@ -566,6 +566,15 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 	if createdVpc == nil {
 		log.Info("no VPC changes detect, skip creating or updating process")
 		return existingVPC[0], &nc, nil
+	}
+
+	if nc.VPCConnectivityProfile != "" {
+		vpcConnectivityProfile, err := s.NSXClient.VpcConnectivityProfilesClient.Get(nc.Org, nc.NsxtProject, nc.VPCConnectivityProfile)
+		if err != nil {
+			log.Error(err, "vpcConnectivityProfile does not exists", "Project", nc.NsxtProject, "VPCConnectivityProfile", nc.VPCConnectivityProfile)
+			return nil, nil, err
+		}
+		createdVpc.ExternalIpv4Blocks = vpcConnectivityProfile.ExternalIpBlocks
 	}
 
 	log.Info("creating NSX VPC", "VPC", *createdVpc.Id)

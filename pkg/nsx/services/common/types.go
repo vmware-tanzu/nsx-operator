@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/openlyinc/pointy"
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/runtime/bindings"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -191,19 +191,22 @@ type VPCResourceInfo struct {
 	ID                 string
 	ParentID           string
 	PrivateIpv4Blocks  []string
-	ExternalIPv4Blocks []string
+	ExternalIPv4Blocks []string // deprecated, existing field
 }
 
 type VPCNetworkConfigInfo struct {
-	IsDefault               bool
-	Org                     string
-	Name                    string
-	DefaultGatewayPath      string
-	EdgeClusterPath         string
-	NsxtProject             string
-	ExternalIPv4Blocks      []string
-	PrivateIPv4CIDRs        []string
-	DefaultIPv4SubnetSize   int
-	DefaultSubnetAccessMode string
-	ShortID                 string
+	IsDefault          bool
+	Org                string
+	Name               string
+	DefaultGatewayPath string // deprecated, existing field
+	// VPCServiceProfile       string
+	VPCConnectivityProfile     string
+	LbServiceSize              string
+	EdgeClusterPath            string // deprecated, existing field
+	NsxtProject                string
+	ExternalIPv4Blocks         []string // deprecated, existing field
+	PrivateIPv4CIDRs           []string
+	DefaultIPv4SubnetSize      int
+	DefaultPodSubnetAccessMode string
+	ShortID                    string
 }

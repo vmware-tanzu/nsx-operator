@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
@@ -84,7 +84,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				return ResultRequeue, err
 			}
 			if obj.Spec.AccessMode == "" {
-				obj.Spec.AccessMode = v1alpha1.AccessMode(vpcNetworkConfig.DefaultSubnetAccessMode)
+				obj.Spec.AccessMode = v1alpha1.AccessMode(vpcNetworkConfig.DefaultPodSubnetAccessMode)
 			}
 			if obj.Spec.IPv4SubnetSize == 0 {
 				obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultIPv4SubnetSize

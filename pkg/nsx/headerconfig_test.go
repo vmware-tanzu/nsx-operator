@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	policyclient "github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	policyclient "github.com/zhengxiexie/vsphere-automation-sdk-go/runtime/protocol/client"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/infra"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/model"
 )
 
 func TestHeaderConfig(t *testing.T) {

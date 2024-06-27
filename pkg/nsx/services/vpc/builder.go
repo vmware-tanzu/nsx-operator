@@ -3,7 +3,7 @@ package vpc
 import (
 	"net/netip"
 
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
@@ -83,6 +83,7 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 	// update private/public blocks
 	vpc.ExternalIpv4Blocks = nc.ExternalIPv4Blocks
 	vpc.PrivateIpv4Blocks = util.GetMapValues(pathMap)
+	vpc.VpcConnectivityProfile = &nc.VPCConnectivityProfile
 	if nc.ShortID != "" {
 		vpc.ShortId = &nc.ShortID
 	}

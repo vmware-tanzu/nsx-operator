@@ -3,7 +3,7 @@ package common
 import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt/model"
 )
 
 // VPCServiceProvider provides to methods other controllers and services.

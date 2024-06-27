@@ -172,10 +172,12 @@ spec:
                   type: object
                 type: array
               type:
-                description: Type defines the type of this IPPool, Public or Private.
+                description: Type defines the type of this IPPool, Public, Private
+                  or Project.
                 enum:
                 - Public
                 - Private
+                - Project
                 type: string
             type: object
           status:
