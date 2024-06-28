@@ -20,7 +20,7 @@ var (
 	String = common.String
 )
 
-func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labelTags *map[string]string) (*model.VpcSubnetPort, error) {
+func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labelTags *map[string]string, isVmSubnetPort bool) (*model.VpcSubnetPort, error) {
 	var objName, objNamespace, uid, appId, allocateAddresses string
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
@@ -58,9 +58,20 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	}
 	namespace_uid := namespace.UID
 	tags := util.BuildBasicTags(getCluster(service), obj, namespace_uid)
+	var tagsFiltered []model.Tag
+	for _, tag := range tags {
+		if isVmSubnetPort && *tag.Scope == common.TagScopeNamespaceUID {
+			continue
+		}
+		if !isVmSubnetPort && *tag.Scope == common.TagScopeVMNamespaceUID {
+			continue
+		}
+		tagsFiltered = append(tagsFiltered, tag)
+	}
+
 	if labelTags != nil {
 		for k, v := range *labelTags {
-			tags = append(tags, model.Tag{Scope: String(k), Tag: String(v)})
+			tagsFiltered = append(tagsFiltered, model.Tag{Scope: String(k), Tag: String(v)})
 		}
 	}
 	nsxSubnetPort := &model.VpcSubnetPort{
@@ -72,14 +83,14 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 			TrafficTag:        common.Int64(0),
 			Type_:             String("STATIC"),
 		},
-		Tags:       tags,
+		Tags:       tagsFiltered,
 		Path:       &nsxSubnetPortPath,
 		ParentPath: nsxSubnet.Path,
 	}
 	if appId != "" {
 		nsxSubnetPort.Attachment.AppId = &appId
-		nsxSubnetPort.Attachment.ContextId = &contextID
 	}
+	nsxSubnetPort.Attachment.ContextId = &contextID
 	return nsxSubnetPort, nil
 }
 

@@ -235,7 +235,7 @@ func main() {
 
 		node.StartNodeController(mgr, nodeService)
 		staticroutecontroller.StartStaticRouteController(mgr, staticRouteService)
-		subnetport.StartSubnetPortController(mgr, subnetPortService, subnetService, vpcService)
+		subnetport.StartSubnetPortController(mgr, subnetPortService, subnetService, vpcService, nodeService)
 		pod.StartPodController(mgr, subnetPortService, subnetService, vpcService, nodeService)
 		StartIPPoolController(mgr, ipPoolService, vpcService)
 		networkpolicycontroller.StartNetworkPolicyController(mgr, commonService, vpcService)

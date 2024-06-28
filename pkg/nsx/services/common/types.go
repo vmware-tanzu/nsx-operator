@@ -57,6 +57,8 @@ const (
 	TagScopeVMNamespaceUID             string = "nsx-op/vm_namespace_uid"
 	TagScopeVMNamespace                string = "nsx-op/vm_namespace"
 	LabelDefaultSubnetSet              string = "nsxoperator.vmware.com/default-subnetset-for"
+	LabelImageFetcher                  string = "wcp.vmware.com/image-fetcher"
+	AnnotationHostName                 string = "kubernetes.io/hostname"
 	LabelDefaultVMSubnetSet            string = "VirtualMachine"
 	LabelDefaultPodSubnetSet           string = "Pod"
 	LabelLbIngressIpMode               string = "tanzu.vmware.com/ingress-ip-mode"

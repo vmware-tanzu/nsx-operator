@@ -55,6 +55,7 @@ type SubnetPortReconciler struct {
 	SubnetService     servicecommon.SubnetServiceProvider
 	VPCService        servicecommon.VPCServiceProvider
 	Recorder          record.EventRecorder
+	NodeServiceReader servicecommon.NodeServiceReader
 }
 
 // +kubebuilder:rbac:groups=nsx.vmware.com,resources=subnetports,verbs=get;list;watch;create;update;patch;delete
@@ -107,7 +108,27 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err != nil {
 			return common.ResultRequeue, err
 		}
-		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels)
+
+		isVmSubnetPort := true
+		if subnetPort.Labels[servicecommon.LabelImageFetcher] == "true" {
+			isVmSubnetPort = false
+			if labels == nil {
+				labels = &map[string]string{}
+			}
+			(*labels)[servicecommon.LabelImageFetcher] = "true"
+		}
+		// specified by user, or default to the node name of the VM the pod runs on
+		hostname := subnetPort.Annotations[servicecommon.AnnotationHostName]
+		contextID := ""
+		if hostname != "" {
+			nodes := r.NodeServiceReader.GetNodeByName(hostname)
+			if len(nodes) == 0 {
+				return common.ResultRequeue, fmt.Errorf("node %s not found", hostname)
+			}
+			contextID = *nodes[0].Id
+		}
+
+		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, contextID, labels, isVmSubnetPort)
 		if err != nil {
 			log.Error(err, "failed to create or update NSX subnet port, would retry exponentially", "subnetport", req.NamespacedName)
 			updateFail(r, &ctx, subnetPort, &err)
@@ -213,7 +234,7 @@ func (r *SubnetPortReconciler) vmMapFunc(_ context.Context, vm client.Object) []
 	return requests
 }
 
-func StartSubnetPortController(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPortService, subnetService *subnet.SubnetService, vpcService *vpc.VPCService) {
+func StartSubnetPortController(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPortService, subnetService *subnet.SubnetService, vpcService *vpc.VPCService, nodeService servicecommon.NodeServiceReader) {
 	subnetPortReconciler := SubnetPortReconciler{
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
@@ -221,6 +242,7 @@ func StartSubnetPortController(mgr ctrl.Manager, subnetPortService *subnetport.S
 		SubnetPortService: subnetPortService,
 		VPCService:        vpcService,
 		Recorder:          mgr.GetEventRecorderFor("subnetport-controller"),
+		NodeServiceReader: nodeService,
 	}
 	if err := subnetPortReconciler.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "SubnetPort")
