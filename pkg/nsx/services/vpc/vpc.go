@@ -173,11 +173,11 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	VPCService.VPCNSNetworkConfigStore = VPCNsNetworkConfigStore{
 		VPCNSNetworkConfigMap: make(map[string]string),
 	}
-	//initialize vpc store and ip blocks store
+	// initialize vpc store and ip blocks store
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, VPCService.VpcStore)
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeIPBlock, nil, VPCService.IpblockStore)
 
-	//initalize avi rule related store
+	// initialize avi rule related store
 	if enableAviAllowRule {
 		VPCService.RuleStore = &AviRuleStore{ResourceStore: common.ResourceStore{
 			Indexer:     cache.NewIndexer(keyFuncAVI, nil),
@@ -258,6 +258,44 @@ func (s *VPCService) DeleteVPC(path string) error {
 
 	log.Info("successfully deleted NSX VPC", "VPC", pathInfo.VPCID)
 	return nil
+}
+
+func (s *VPCService) ListCert() []model.TlsCertificate {
+	certStore := &CertStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.TlsCertificateBindingType(),
+	}}
+	query := fmt.Sprintf("%s:%s", common.ResourceType, common.ResourceTypeTlsCertificate)
+	count, searcherr := s.SearchResource(common.ResourceTypeTlsCertificate, query, certStore, nil)
+	if searcherr != nil {
+		log.Error(searcherr, "failed to query certificate", "query", query)
+	} else {
+		log.V(1).Info("query certificate", "count", count)
+	}
+	certs := certStore.List()
+	certsSet := []model.TlsCertificate{}
+	for _, cert := range certs {
+		certsSet = append(certsSet, *cert.(*model.TlsCertificate))
+	}
+	return certsSet
+}
+
+func (s *VPCService) DeleteCert(id string) error {
+	certClient := s.NSXClient.CertificateClient
+	if err := certClient.Delete(id); err != nil {
+		return err
+	}
+	log.Info("successfully deleted NCP created certificate", "certificate", id)
+	return nil
+}
+
+func isNCPCreatedCert(tags []model.Tag) bool {
+	for _, tag := range tags {
+		if *tag.Scope == common.TagScopeNCPDefaultLBCert || *tag.Scope == common.TagScopeNCPSecret {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *VPCService) deleteIPBlock(path string) error {
@@ -646,6 +684,21 @@ func (s *VPCService) Cleanup(ctx context.Context) error {
 		}
 	}
 
+	certs := s.ListCert()
+	log.Info("cleaning up certificates", "Count", len(certs))
+	for _, cert := range certs {
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			if !isNCPCreatedCert(cert.Tags) {
+				continue
+			}
+			if err := s.DeleteCert(*cert.Id); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 

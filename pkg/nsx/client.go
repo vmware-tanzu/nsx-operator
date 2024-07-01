@@ -15,14 +15,15 @@ import (
 	mpsearch "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/search"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management/principal_identities"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
-	projects "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
-	infra "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
+	project_infra "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs"
-	nat "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/nat"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/nat"
 	vpc_sp "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ip_pools"
@@ -74,7 +75,8 @@ type Client struct {
 	OrgRootClient       nsx_policy.OrgRootClient
 	ProjectInfraClient  projects.InfraClient
 	VPCClient           projects.VpcsClient
-	IPBlockClient       infra.IpBlocksClient
+	IPBlockClient       project_infra.IpBlocksClient
+	CertificateClient   infra.CertificatesClient
 	StaticRouteClient   vpcs.StaticRoutesClient
 	NATRuleClient       nat.NatRulesClient
 	VpcGroupClient      vpcs.GroupsClient
@@ -152,7 +154,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	orgRootClient := nsx_policy.NewOrgRootClient(restConnector(cluster))
 	projectInfraClient := projects.NewInfraClient(restConnector(cluster))
 	vpcClient := projects.NewVpcsClient(restConnector(cluster))
-	ipBlockClient := infra.NewIpBlocksClient(restConnector(cluster))
+	ipBlockClient := project_infra.NewIpBlocksClient(restConnector(cluster))
 	staticRouteClient := vpcs.NewStaticRoutesClient(restConnector(cluster))
 	natRulesClient := nat.NewNatRulesClient(restConnector(cluster))
 	vpcGroupClient := vpcs.NewGroupsClient(restConnector(cluster))

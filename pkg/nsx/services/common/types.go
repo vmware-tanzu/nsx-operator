@@ -28,6 +28,8 @@ const (
 	TagScopeNCPVIFProjectUID           string = "ncp/vif_project_uid"
 	TagScopeNCPPod                     string = "ncp/pod"
 	TagScopeNCPVNETInterface           string = "ncp/vnet_interface"
+	TagScopeNCPDefaultLBCert           string = "ncp/lb_default_cert"
+	TagScopeNCPSecret                  string = "ncp/secret"
 	TagScopeVersion                    string = "nsx-op/version"
 	TagScopeCluster                    string = "nsx-op/cluster"
 	TagScopeNamespace                  string = "nsx-op/namespace"
@@ -152,6 +154,7 @@ var (
 	ResourceTypeChildGroup             = "ChildGroup"
 	ResourceTypeChildSecurityPolicy    = "ChildSecurityPolicy"
 	ResourceTypeChildResourceReference = "ChildResourceReference"
+	ResourceTypeTlsCertificate         = "TlsCertificate"
 
 	// ResourceTypeClusterControlPlane is used by NSXServiceAccountController
 	ResourceTypeClusterControlPlane = "clustercontrolplane"

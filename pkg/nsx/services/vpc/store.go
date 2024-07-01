@@ -137,6 +137,15 @@ func (vs *VPCStore) GetByKey(key string) *model.Vpc {
 	return nil
 }
 
+// CertStore is a store to query certificate
+type CertStore struct {
+	common.ResourceStore
+}
+
+func (certStore *CertStore) Apply(i interface{}) error {
+	return nil
+}
+
 func (is *IPBlockStore) GetByIndex(index string, value string) *model.IpAddressBlock {
 	indexResults, err := is.ResourceStore.Indexer.ByIndex(index, value)
 	if err != nil || len(indexResults) == 0 {
