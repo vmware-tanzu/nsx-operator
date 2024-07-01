@@ -15,12 +15,14 @@ import (
 	mpsearch "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/search"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management/principal_identities"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/shares"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
+	project_infra "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/transit_gateways"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs"
@@ -77,7 +79,7 @@ type Client struct {
 	ProjectInfraClient             projects.InfraClient
 	VPCClient                      projects.VpcsClient
 	VPCConnectivityProfilesClient  projects.VpcConnectivityProfilesClient
-	IPBlockClient                  infra.IpBlocksClient
+	IPBlockClient                  project_infra.IpBlocksClient
 	StaticRouteClient              vpcs.StaticRoutesClient
 	NATRuleClient                  nat.NatRulesClient
 	VpcGroupClient                 vpcs.GroupsClient
@@ -92,6 +94,12 @@ type Client struct {
 	ProjectClient                  orgs.ProjectsClient
 	TransitGatewayClient           projects.TransitGatewaysClient
 	TransitGatewayAttachmentClient transit_gateways.AttachmentsClient
+	CertificateClient              infra.CertificatesClient
+	ShareClient                    infra.SharesClient
+	SharedResourceClient           shares.ResourcesClient
+	LbAppProfileClient             infra.LbAppProfilesClient
+	LbPersistenceProfilesClient    infra.LbPersistenceProfilesClient
+	LbMonitorProfilesClient        infra.LbMonitorProfilesClient
 
 	NSXChecker    NSXHealthChecker
 	NSXVerChecker NSXVersionChecker
@@ -162,7 +170,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	projectClient := orgs.NewProjectsClient(restConnector(cluster))
 	vpcClient := projects.NewVpcsClient(restConnector(cluster))
 	vpcConnectivityProfilesClient := projects.NewVpcConnectivityProfilesClient(restConnector(cluster))
-	ipBlockClient := infra.NewIpBlocksClient(restConnector(cluster))
+	ipBlockClient := project_infra.NewIpBlocksClient(restConnector(cluster))
 	staticRouteClient := vpcs.NewStaticRoutesClient(restConnector(cluster))
 	natRulesClient := nat.NewNatRulesClient(restConnector(cluster))
 	vpcGroupClient := vpcs.NewGroupsClient(restConnector(cluster))

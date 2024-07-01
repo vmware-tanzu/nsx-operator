@@ -141,6 +141,15 @@ func (vs *VPCStore) GetByKey(key string) *model.Vpc {
 	return nil
 }
 
+// ResourceStore is a store to query nsx resource
+type ResourceStore struct {
+	common.ResourceStore
+}
+
+func (r *ResourceStore) Apply(i interface{}) error {
+	return nil
+}
+
 func (is *IPBlockStore) GetByIndex(index string, value string) *model.IpAddressBlock {
 	indexResults, err := is.ResourceStore.Indexer.ByIndex(index, value)
 	if err != nil || len(indexResults) == 0 {
