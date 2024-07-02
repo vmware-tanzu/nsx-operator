@@ -144,6 +144,7 @@ var (
 	ResourceTypeVpc                    = "Vpc"
 	ResourceTypeSubnetPort             = "VpcSubnetPort"
 	ResourceTypeVirtualMachine         = "VirtualMachine"
+	ResourceTypeLBService              = "LBService"
 	ResourceTypeShare                  = "Share"
 	ResourceTypeSharedResource         = "SharedResource"
 	ResourceTypeChildSharedResource    = "ChildSharedResource"

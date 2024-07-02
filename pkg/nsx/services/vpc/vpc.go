@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"math"
 	"net"
 	"strings"
@@ -30,6 +31,7 @@ const (
 	AviSEIngressAllowRuleId    = "avi-se-ingress-allow-rule"
 	VPCAviSEGroupId            = "avi-se-vms"
 	VpcDefaultSecurityPolicyId = "default-layer3-section"
+	VPCKey                     = "/orgs/%s/projects/%s/vpcs/%s"
 	GroupKey                   = "/orgs/%s/projects/%s/vpcs/%s/groups/%s"
 	SecurityPolicyKey          = "/orgs/%s/projects/%s/vpcs/%s/security-policies/%s"
 	RuleKey                    = "/orgs/%s/projects/%s/vpcs/%s/security-policies/%s/rules/%s"
@@ -41,8 +43,9 @@ var (
 	ResourceTypeVPC = common.ResourceTypeVpc
 	NewConverter    = common.NewConverter
 
-	MarkedForDelete    = true
-	enableAviAllowRule = false
+	MarkedForDelete           = true
+	enableAviAllowRule        = false
+	EnforceRevisionCheckParam = false
 )
 
 type VPCNetworkInfoStore struct {
@@ -568,8 +571,33 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 		return existingVPC[0], &nc, nil
 	}
 
+	// build NSX LBS
+	var createdLBS *model.LBService
+	// TODO(gran) use switch to enable/disable NSXLB and AVI
+	if s.NSXConfig.NsxConfig.NSXLBEnabled() {
+		lbsSize := s.NSXConfig.NsxConfig.ServiceSize
+		if lbsSize == "" {
+			lbsSize = config.LB_SERVICE_SIZE_SMALL
+		}
+		if nc.LbServiceSize != "" {
+			lbsSize = nc.LbServiceSize
+		}
+		vpcPath := fmt.Sprintf(VPCKey, nc.Org, nc.NsxtProject, nc.Name)
+		var relaxScaleValidation *bool
+		if s.NSXConfig.NsxConfig.RelaxScaleValidaion {
+			relaxScaleValidation = common.Bool(true)
+		}
+		createdLBS, _ = buildNSXLBS(obj, nsObj, s.NSXConfig.Cluster, lbsSize, vpcPath, relaxScaleValidation)
+	}
+	// build HAPI request
+	infra, err := s.WrapHierarchyVPC(createdVpc, createdLBS)
+	if err != nil {
+		log.Error(err, "failed to build HAPI request")
+		return nil, nil, err
+	}
+
 	log.Info("creating NSX VPC", "VPC", *createdVpc.Id)
-	err = s.NSXClient.VPCClient.Patch(nc.Org, nc.NsxtProject, *createdVpc.Id, *createdVpc)
+	err = s.NSXClient.ProjectInfraClient.Patch(nc.Org, nc.NsxtProject, *infra, &EnforceRevisionCheckParam)
 	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to create VPC", "Project", nc.NsxtProject, "Namespace", obj.Namespace)
@@ -611,6 +639,30 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 	}
 
 	s.VpcStore.Add(&newVpc)
+
+	// Check LBS realization
+	if createdLBS != nil {
+		newLBS, err := s.NSXClient.VPCLBSClient.Get(nc.Org, nc.NsxtProject, *createdVpc.Id, *createdLBS.Id)
+		if err != nil {
+			log.Error(err, "failed to read LBS object after creating or updating", "LBS", createdLBS.Id)
+			return nil, nil, err
+		}
+
+		realizeService := realizestate.InitializeRealizeState(s.Service)
+		if err = realizeService.CheckRealizeState(retry.DefaultRetry, *newLBS.Path, ""); err != nil {
+			log.Error(err, "failed to check LBS realization state", "LBS", *createdLBS.Id)
+			if realizestate.IsRealizeStateError(err) {
+				log.Error(err, "the created LBS is in error realization state, cleaning the resource", "LBS", *createdLBS.Id)
+				// delete the nsx vpc object and re-created in next loop
+				if err := s.DeleteVPC(*newVpc.Path); err != nil {
+					log.Error(err, "cleanup VPC failed", "VPC", *createdVpc.Id)
+					return nil, nil, err
+				}
+			}
+			return nil, nil, err
+		}
+	}
+
 	return &newVpc, &nc, nil
 }
 
@@ -901,4 +953,18 @@ func (service *VPCService) ListVPCInfo(ns string) []common.VPCResourceInfo {
 		VPCInfoList = append(VPCInfoList, vpcResourceInfo)
 	}
 	return VPCInfoList
+}
+
+func (s *VPCService) GetNSXLBSPath(org, nsxtProject, vpcId, ns string) string {
+	nsObj := &v1.Namespace{}
+	// get ns obj
+	if err := s.Client.Get(ctx, types.NamespacedName{Name: ns}, nsObj); err != nil {
+		log.Error(err, "unable to fetch namespace", "name", ns)
+		return ""
+	}
+	vpcLBS, err := s.NSXClient.VPCLBSClient.Get(org, nsxtProject, vpcId, string(nsObj.GetUID()))
+	if err != nil {
+		return ""
+	}
+	return *vpcLBS.Path
 }

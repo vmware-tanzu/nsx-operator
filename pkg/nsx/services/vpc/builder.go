@@ -61,7 +61,7 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 			return nil, nil
 		}
 		// for updating vpc case, use current vpc id, name
-		vpc = nsxVPC
+		*vpc = *nsxVPC
 	} else {
 		// for creating vpc case, fill in vpc properties based on networkconfig
 		vpcName := util.GenerateDisplayName("", "vpc", obj.GetNamespace(), "", cluster)
@@ -88,4 +88,17 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 	}
 
 	return vpc, nil
+}
+
+func buildNSXLBS(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster, lbsSize, vpcPath string, relaxScaleValidation *bool) (*model.LBService, error) {
+	lbs := &model.LBService{}
+	lbsName := util.GenerateDisplayName("", "vpc", nsObj.GetName(), "", cluster)
+	lbs.Id = common.String(string(nsObj.GetUID()))
+	lbs.DisplayName = &lbsName
+	// TODO(gran) do we need "created_for" and "lb_t1_link_ip" tag?
+	lbs.Tags = util.BuildBasicTags(cluster, obj, nsObj.GetUID())
+	lbs.Size = &lbsSize
+	lbs.ConnectivityPath = &vpcPath
+	lbs.RelaxScaleValidation = relaxScaleValidation
+	return lbs, nil
 }
