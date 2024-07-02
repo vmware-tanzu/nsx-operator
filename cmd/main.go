@@ -194,6 +194,7 @@ func main() {
 			os.Exit(1)
 		}
 		subnetService, err := subnetservice.InitializeSubnetService(commonService)
+
 		if err != nil {
 			log.Error(err, "failed to initialize subnet commonService")
 			os.Exit(1)
