@@ -112,6 +112,10 @@ spec:
                     name:
                       description: VPC name.
                       type: string
+                    nsxlbspath:
+                      description: NSXLBSPath is the NSX Policy path for the NSX LB
+                        Service path.
+                      type: string
                   required:
                   - name
                   type: object
