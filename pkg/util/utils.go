@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -510,4 +512,10 @@ func Capitalize(s string) string {
 		return ""
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+func CompareStringArrays(arr1, arr2 []string) bool {
+	sort.Strings(arr1)
+	sort.Strings(arr2)
+	return slices.Equal(arr1, arr2)
 }

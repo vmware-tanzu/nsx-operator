@@ -28,6 +28,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
@@ -105,6 +106,19 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			}
 			if err := r.SubnetService.UpdateSubnetSetTags(obj.Namespace, nsxSubnets, tags); err != nil {
 				log.Error(err, "failed to update subnetset tags")
+			}
+
+			// If there is already a nsx subnet allocated from the subnetset,
+			// It's needed to check immutable fields to avoid change.
+			isForVM := true
+			if obj.Name == servicecommon.DefaultPodSubnetSet {
+				isForVM = false
+			}
+			err := r.SubnetService.ValidateSubnetSetImmutableFields(obj, nsxSubnets[0], isForVM)
+			if errors.As(err, &util.ImmutableFieldModifyError{}) {
+				log.Error(err, "not allowed to modify immutable field, would not retry", "subnetset", req.NamespacedName)
+				updateFail(r, &ctx, obj, err.Error())
+				return ResultNormal, nil
 			}
 		}
 		updateSuccess(r, &ctx, obj)
@@ -306,7 +320,8 @@ func (r *SubnetSetReconciler) DeleteSubnetForSubnetSet(obj v1alpha1.SubnetSet, u
 
 func StartSubnetSetController(mgr ctrl.Manager, subnetService *subnet.SubnetService,
 	subnetPortService servicecommon.SubnetPortServiceProvider, vpcService servicecommon.VPCServiceProvider,
-	enableWebhook bool) error {
+	enableWebhook bool,
+) error {
 	subnetsetReconciler := &SubnetSetReconciler{
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),

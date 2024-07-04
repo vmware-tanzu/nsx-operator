@@ -98,7 +98,6 @@ func TestUtil_IsNsInSystemNamespace(t *testing.T) {
 	ns = types.NamespacedName{Namespace: "sys-ns", Name: "dummy"}
 
 	isCRInSysNs, err = IsSystemNamespace(client, ns.Namespace, nil)
-
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
@@ -636,6 +635,27 @@ func Test_calculateOffsetIP(t *testing.T) {
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("%s failed: calculateOffsetIP got %v, want %v", tt.name, got, tt.want)
 			}
+		})
+	}
+}
+
+func Test_CompareStringArrays(t *testing.T) {
+	type args struct {
+		s1 []string
+		s2 []string
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{"1", args{[]string{"172.10.20.0/16", "172.20.30.0/16"}, []string{"172.20.30.0/16", "172.10.20.0/16"}}, true},
+		{"2", args{[]string{"172.10.20.0/16", "172.20.30.0/16"}, []string{"172.10.20.0/16", "172.10.40.0/16"}}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, CompareStringArrays(tt.args.s1, tt.args.s2), "CompareStringArrays(%v, %v)", tt.args.s1, tt.args.s2)
+			assert.Equal(t, tt.want, CompareStringArrays(tt.args.s1, tt.args.s2), "CompareStringArrays(%v, %v)", tt.args.s1, tt.args.s2)
 		})
 	}
 }

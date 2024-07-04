@@ -21,6 +21,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -94,8 +95,16 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 		if existingSubnet == nil {
 			changed = true
 		} else {
+			// If there is already a nsx subnet created,
+			// It's needed to check immutable fields to avoid change.
+			err = service.validateSubnetImmutableFields(existingSubnet, nsxSubnet)
+			if err != nil {
+				log.Error(err, "failed to validate Subnet immutable fields")
+				return "", err
+			}
 			changed = common.CompareResource(SubnetToComparable(existingSubnet), SubnetToComparable(nsxSubnet))
 		}
+
 		if !changed {
 			log.Info("subnet not changed, skip updating", "subnet.Id", uid)
 			return uid, nil
@@ -415,6 +424,57 @@ func (service *SubnetService) UpdateSubnetSetTags(ns string, vpcSubnets []*model
 			}
 			log.Info("successfully updated subnet set tags", "subnetSet", subnetSet)
 		}
+	}
+	return nil
+}
+
+func (service *SubnetService) validateSubnetImmutableFields(existingNsxSubnet *model.VpcSubnet, nsxSubnet *model.VpcSubnet) error {
+	errorMsg := ""
+
+	if *existingNsxSubnet.AccessMode != *nsxSubnet.AccessMode {
+		errorMsg = fmt.Sprintf("Subnet CR AccessMode cannot be modified")
+		return nsxutil.ImmutableFieldModifyError{Desc: errorMsg}
+	}
+
+	if *existingNsxSubnet.DhcpConfig.EnableDhcp != *nsxSubnet.DhcpConfig.EnableDhcp {
+		errorMsg = fmt.Sprintf("Subnet CR DHCPConfig cannot be modified")
+		return nsxutil.ImmutableFieldModifyError{Desc: errorMsg}
+	}
+
+	if existingNsxSubnet.Ipv4SubnetSize != nil && nsxSubnet.Ipv4SubnetSize != nil {
+		if *existingNsxSubnet.Ipv4SubnetSize != *nsxSubnet.Ipv4SubnetSize {
+			errorMsg = fmt.Sprintf("Subnet CR Ipv4SubnetSize cannot be modified")
+			return nsxutil.ImmutableFieldModifyError{Desc: errorMsg}
+		}
+	}
+
+	if !util.CompareStringArrays(existingNsxSubnet.IpAddresses, nsxSubnet.IpAddresses) {
+		errorMsg = fmt.Sprintf("Subnet CR IpAddresses cannot be modified")
+		return nsxutil.ImmutableFieldModifyError{Desc: errorMsg}
+	}
+	return nil
+}
+
+func (service *SubnetService) ValidateSubnetSetImmutableFields(subnetSet *v1alpha1.SubnetSet, nsxSubnet *model.VpcSubnet, isForVM bool) error {
+	errorMsg := ""
+
+	if isForVM {
+		// If allocating the subnet from subnetset for POD, it's allowed to change the AccessMode.
+		// For VM subnet, it's disallowed to change AccessMode
+		if util.Capitalize(string(subnetSet.Spec.AccessMode)) != *(nsxSubnet.AccessMode) {
+			errorMsg = fmt.Sprintf("Subnetset CR AccessMode cannot be modified when VM Subnet exists")
+			return nsxutil.ImmutableFieldModifyError{Desc: errorMsg}
+		}
+	}
+
+	if subnetSet.Spec.DHCPConfig.EnableDHCP != *nsxSubnet.DhcpConfig.EnableDhcp {
+		errorMsg = fmt.Sprintf("Subnetset CR DHCPConfig cannot be modified when Subnet exists")
+		return nsxutil.ImmutableFieldModifyError{Desc: errorMsg}
+	}
+
+	if int64(subnetSet.Spec.IPv4SubnetSize) != *nsxSubnet.Ipv4SubnetSize {
+		errorMsg = fmt.Sprintf("Subnetset CR Ipv4SubnetSize cannot be modified when Subnet exists")
+		return nsxutil.ImmutableFieldModifyError{Desc: errorMsg}
 	}
 	return nil
 }

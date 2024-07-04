@@ -585,6 +585,12 @@ type ExceedTagsError struct {
 
 func (err ExceedTagsError) Error() string { return err.Desc }
 
+type ImmutableFieldModifyError struct {
+	Desc string
+}
+
+func (err ImmutableFieldModifyError) Error() string { return err.Desc }
+
 type Status struct {
 	Code    uint32
 	Message string
