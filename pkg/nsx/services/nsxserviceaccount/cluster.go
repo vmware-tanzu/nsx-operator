@@ -55,6 +55,8 @@ var (
 	revision1                 = int64(1)
 
 	proxyLabels = map[string]string{"mgmt-proxy.antrea-nsx.vmware.com": ""}
+
+	nodeTypeAntrea = "ANTREA_NODE"
 )
 
 type NSXServiceAccountService struct {
@@ -263,6 +265,10 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 			NodeId:       existingClusterId,
 			Tags:         s.buildBasicTags(obj),
 		})
+
+		if s.NSXClient.NSXCheckVersion(nsx.NodeType) {
+			ccp.NodeType = &nodeTypeAntrea
+		}
 		err = nsxutil.NSXApiError(err)
 		if err != nil {
 			return "", err

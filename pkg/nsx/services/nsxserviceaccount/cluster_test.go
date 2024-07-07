@@ -310,6 +310,7 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 						ResourceType: &antreaClusterResourceType,
 						Certificate:  nil,
 						VhcPath:      &vpcPath,
+						NodeType:     &nodeTypeAntrea,
 						Tags: []model.Tag{{
 							Scope: &tagScopeCluster,
 							Tag:   &s.NSXConfig.CoeConfig.Cluster,
@@ -328,7 +329,7 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 				}})
 				patches.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{true},
-					Times:  1,
+					Times:  2,
 				}})
 				return patches
 			},
@@ -446,7 +447,7 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 				}})
 				patches.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{true},
-					Times:  1,
+					Times:  2,
 				}})
 				return patches
 			},
@@ -887,6 +888,10 @@ func TestNSXServiceAccountService_RestoreRealizedNSXServiceAccount(t *testing.T)
 						}},
 					}, nil},
 					Times: 1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{true},
+					Times:  1,
 				}})
 				return patches
 			},
