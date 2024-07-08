@@ -1,7 +1,7 @@
 # This file is used in testing VPC case,
 # it should be applied on testbed setup stage,
 # for system namespaces, they should use this network config.
-apiVersion: nsx.vmware.com/v1alpha1
+apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: VPCNetworkConfiguration
 metadata:
   name: system

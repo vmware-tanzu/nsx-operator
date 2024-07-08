@@ -1,4 +1,4 @@
-apiVersion: nsx.vmware.com/v1alpha1
+apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: SecurityPolicy
 metadata:
   name: egress-policy-1
@@ -22,7 +22,7 @@ spec:
 
 ---
 
-apiVersion: nsx.vmware.com/v1alpha1
+apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: SecurityPolicy
 metadata:
   name: ingress-policy-1

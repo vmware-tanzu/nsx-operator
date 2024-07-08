@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.14.0
-  name: addressbindings.nsx.vmware.com
+  name: addressbindings.crd.nsx.vmware.com
 spec:
-  group: nsx.vmware.com
+  group: crd.nsx.vmware.com
   names:
     kind: AddressBinding
     listKind: AddressBindingList

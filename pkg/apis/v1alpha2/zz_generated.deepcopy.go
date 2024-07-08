@@ -8,7 +8,7 @@
 package v1alpha2
 
 import (
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/crd.nsx.vmware.com/v1alpha1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 

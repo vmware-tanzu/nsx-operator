@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	SP = "securitypolicies.nsx.vmware.com"
+	SP = "securitypolicies.crd.nsx.vmware.com"
 )
 
 // TestSecurityPolicyBasicTraffic verifies that the basic traffic of security policy.

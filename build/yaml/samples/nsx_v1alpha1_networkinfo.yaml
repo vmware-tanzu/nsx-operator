@@ -1,9 +1,9 @@
-apiVersion: nsx.vmware.com/v1alpha1
+apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: NetworkInfo
 metadata:
   creationTimestamp: "2024-05-14T02:14:18Z"
   finalizers:
-  - networkinfo.nsx.vmware.com/finalizer
+  - networkinfo.crd.nsx.vmware.com/finalizer
   generation: 2
   name: kube-system
   namespace: kube-system
