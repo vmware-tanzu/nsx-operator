@@ -1,0 +1,67 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.11.0
+  creationTimestamp: null
+  name: networkinfos.crd.nsx.vmware.com
+spec:
+  group: crd.nsx.vmware.com
+  names:
+    kind: NetworkInfo
+    listKind: NetworkInfoList
+    plural: networkinfos
+    singular: networkinfo
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: NetworkInfo is used to report the network information for a namespace.
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          vpcs:
+            items:
+              description: VPCState defines information for VPC.
+              properties:
+                defaultSNATIP:
+                  description: Default SNAT IP for Private Subnets.
+                  type: string
+                loadBalancerIPAddresses:
+                  description: LoadBalancerIPAddresses (AVI SE Subnet CIDR or NSX
+                    LB SNAT IPs).
+                  type: string
+                name:
+                  description: VPC name.
+                  type: string
+                privateIPv4CIDRs:
+                  description: Private CIDRs used for the VPC.
+                  items:
+                    type: string
+                  type: array
+                vpcPath:
+                  description: NSX Policy path for VPC.
+                  type: string
+              required:
+              - defaultSNATIP
+              - name
+              - vpcPath
+              type: object
+            type: array
+        required:
+        - vpcs
+        type: object
+    served: true
+    storage: true
