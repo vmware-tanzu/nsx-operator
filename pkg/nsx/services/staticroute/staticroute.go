@@ -14,6 +14,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 type StaticRouteService struct {
@@ -134,12 +135,17 @@ func (service *StaticRouteService) GetUID(staticroute *model.StaticRoutes) *stri
 
 }
 
-func (service *StaticRouteService) DeleteStaticRoute(namespace string, uid string) error {
-	vpc := service.VPCService.ListVPCInfo(namespace)
-	if len(vpc) == 0 {
+func (service *StaticRouteService) DeleteStaticRoute(uid string) error {
+	id := String(util.GenerateID(uid, "sr", "", ""))
+	staticroute := service.StaticRouteStore.GetByKey(*id)
+	if staticroute == nil {
 		return nil
 	}
-	return service.DeleteStaticRouteByPath(vpc[0].OrgID, vpc[0].ProjectID, vpc[0].ID, uid)
+	vpcResourceInfo, err := common.ParseVPCResourcePath(*staticroute.Path)
+	if err != nil {
+		return err
+	}
+	return service.DeleteStaticRouteByPath(vpcResourceInfo.OrgID, vpcResourceInfo.ProjectID, vpcResourceInfo.ID, *id)
 }
 
 func (service *StaticRouteService) ListStaticRoute() []*model.StaticRoutes {

@@ -128,25 +128,21 @@ func TestStaticRouteService_DeleteStaticRoute(t *testing.T) {
 		t.Error(err)
 	}
 
-	id := "vpc-1"
-	sr1 := &model.StaticRoutes{Id: &id}
+	uid := "uid-123"
+	id := "sr_uid-123"
+	path := "/orgs/default/projects/project-1/vpcs/vpc-1"
+	sr1 := &model.StaticRoutes{Id: &id, Path: &path}
 
 	returnservice.StaticRouteStore.Add(sr1)
 
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(returnservice.VPCService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
-		id := "vpc-1"
-		return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "project-1", VPCID: "vpc-1", ID: id}}
-	})
-
 	// no record found
 	mockStaticRouteclient.EXPECT().Delete(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Times(0)
-	err = returnservice.DeleteStaticRoute("123", "vpc1")
+	err = returnservice.DeleteStaticRoute(id)
 	assert.Equal(t, err, nil)
-	defer patches.Reset()
 
 	// delete record
 	mockStaticRouteclient.EXPECT().Delete("default", "project-1", "vpc-1", id).Return(nil).Times(1)
-	err = returnservice.DeleteStaticRoute("123", id)
+	err = returnservice.DeleteStaticRoute(uid)
 	assert.Equal(t, err, nil)
 	srs := returnservice.StaticRouteStore.List()
 	assert.Equal(t, len(srs), 0)
