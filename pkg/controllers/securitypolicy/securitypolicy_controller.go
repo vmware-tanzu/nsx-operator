@@ -167,7 +167,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	} else {
 		if controllerutil.ContainsFinalizer(obj, servicecommon.SecurityPolicyFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
-			if err := r.Service.DeleteSecurityPolicy(obj, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
+			if err := r.Service.DeleteSecurityPolicy(obj.UID, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 				deleteFail(r, &ctx, obj, &err)
 				return ResultRequeue, err
