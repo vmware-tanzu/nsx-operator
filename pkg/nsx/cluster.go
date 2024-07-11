@@ -438,7 +438,7 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 		minVersion = nsx411Version
 		validFeature = true
 	case NodeType:
-		minVersion = nsx421Version
+		minVersion = nsxWithNodeTypeVersion
 		validFeature = true
 	}
 

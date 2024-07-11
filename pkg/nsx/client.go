@@ -91,12 +91,12 @@ type Client struct {
 }
 
 var (
-	nsx320Version = [3]int64{3, 2, 0}
-	nsx401Version = [3]int64{4, 0, 1}
-	nsx411Version = [3]int64{4, 1, 1}
-	nsx412Version = [3]int64{4, 1, 2}
-	nsx413Version = [3]int64{4, 1, 3}
-	nsx421Version = [3]int64{4, 2, 1}
+	nsx320Version          = [3]int64{3, 2, 0}
+	nsx401Version          = [3]int64{4, 0, 1}
+	nsx411Version          = [3]int64{4, 1, 1}
+	nsx412Version          = [3]int64{4, 1, 2}
+	nsx413Version          = [3]int64{4, 1, 3}
+	nsxWithNodeTypeVersion = [3]int64{9, 0, 0}
 )
 
 type NSXHealthChecker struct {

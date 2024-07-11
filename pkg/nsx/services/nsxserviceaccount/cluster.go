@@ -257,18 +257,21 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 	hasCCP := len(s.ClusterControlPlaneStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(obj.UID))) > 0
 	clusterId := ""
 	if ccpObj := s.ClusterControlPlaneStore.GetByKey(normalizedClusterName); !hasCCP && ccpObj == nil {
-		ccp, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, normalizedClusterName, model.ClusterControlPlane{
+		modelCCP := model.ClusterControlPlane{
 			Revision:     &revision1,
 			ResourceType: &antreaClusterResourceType,
 			Certificate:  &cert,
 			VhcPath:      &vpcPath,
 			NodeId:       existingClusterId,
 			Tags:         s.buildBasicTags(obj),
-		})
+		}
 
 		if s.NSXClient.NSXCheckVersion(nsx.NodeType) {
-			ccp.NodeType = &nodeTypeAntrea
+			modelCCP.NodeType = &nodeTypeAntrea
 		}
+
+		ccp, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, normalizedClusterName, modelCCP)
+
 		err = nsxutil.NSXApiError(err)
 		if err != nil {
 			return "", err
