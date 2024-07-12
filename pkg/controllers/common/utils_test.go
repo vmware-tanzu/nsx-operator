@@ -28,7 +28,7 @@ func TestGetVirtualMachineNameForSubnetPort(t *testing.T) {
 			args{&v1alpha1.SubnetPort{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
-						"nsx.vmware.com/attachment_ref": "virtualmachine/abc",
+						"nsx.vmware.com/attachment_ref": "virtualmachine/abc/port1",
 					},
 				}}},
 			want{vm: "abc", err: nil},
