@@ -94,6 +94,11 @@ spec:
                   context in logs. Less than or equal to 8 characters.
                 maxLength: 8
                 type: string
+              vpc:
+                description: NSX path of the VPC the Namespace associated with. If
+                  vpc is set, only defaultIPv4SubnetSize and defaultSubnetAccessMode
+                  take effect, other fields are ignored.
+                type: string
             type: object
           status:
             description: VPCNetworkConfigurationStatus defines the observed state

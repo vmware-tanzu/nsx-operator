@@ -13,3 +13,13 @@ spec:
     - 172.26.0.0/16
     - 172.36.0.0/16
   defaultSubnetAccessMode: Private
+---
+# Sample to create VPCNetworkConfiguration CR using a pre-created NSX VPC.
+apiVersion: nsx.vmware.com/v1alpha1
+kind: VPCNetworkConfiguration
+metadata:
+  name: vpc-network-config-with-pre-created-vpc
+spec:
+  vpc: /orgs/default/projects/proj-1/vpcs/vpc-1
+  defaultIPv4SubnetSize: 28
+  defaultSubnetAccessMode: Private

@@ -46,6 +46,11 @@ type VPCNetworkConfigurationSpec struct {
 	// +kubebuilder:validation:MaxLength=8
 	// +optional
 	ShortID string `json:"shortID,omitempty"`
+	// NSX path of the VPC the Namespace associated with.
+	// If vpc is set, only defaultIPv4SubnetSize and defaultSubnetAccessMode
+	// take effect, other fields are ignored.
+	// +optional
+	VPC string `json:"vpc,omitempty"`
 }
 
 // VPCNetworkConfigurationStatus defines the observed state of VPCNetworkConfiguration
