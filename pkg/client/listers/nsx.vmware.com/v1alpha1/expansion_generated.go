@@ -5,6 +5,14 @@
 
 package v1alpha1
 
+// AddressBindingListerExpansion allows custom methods to be added to
+// AddressBindingLister.
+type AddressBindingListerExpansion interface{}
+
+// AddressBindingNamespaceListerExpansion allows custom methods to be added to
+// AddressBindingNamespaceLister.
+type AddressBindingNamespaceListerExpansion interface{}
+
 // IPAddressAllocationListerExpansion allows custom methods to be added to
 // IPAddressAllocationLister.
 type IPAddressAllocationListerExpansion interface{}
