@@ -157,7 +157,3 @@ func GenericGarbageCollector(cancel chan bool, timeout time.Duration, f func(ctx
 		}
 	}
 }
-
-func GcOnce(gc GarbageCollector, once *sync.Once) {
-	once.Do(func() { go GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, gc.CollectGarbage) })
-}

@@ -9,7 +9,6 @@ import (
 	"os"
 	"reflect"
 	"strings"
-	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -40,7 +39,6 @@ var (
 	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
 	MetricResType           = common.MetricResTypeStaticRoute
-	once                    sync.Once
 )
 
 // StaticRouteReconciler StaticRouteReconcile reconciles a StaticRoute object
@@ -75,9 +73,6 @@ func deleteSuccess(r *StaticRouteReconciler, _ *context.Context, o *v1alpha1.Sta
 }
 
 func (r *StaticRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// Use once.Do to ensure gc is called only once
-	common.GcOnce(r, &once)
-
 	obj := &v1alpha1.StaticRoute{}
 	log.Info("reconciling staticroute CR", "staticroute", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, common.MetricResTypeStaticRoute)
@@ -280,4 +275,5 @@ func StartStaticRouteController(mgr ctrl.Manager, staticRouteService *staticrout
 		log.Error(err, "failed to create controller", "controller", "StaticRoute")
 		os.Exit(1)
 	}
+	go common.GenericGarbageCollector(make(chan bool), commonservice.GCInterval, staticRouteReconcile.CollectGarbage)
 }

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"reflect"
-	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -46,7 +45,6 @@ var (
 	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
 	MetricResType           = common.MetricResTypeSecurityPolicy
-	once                    sync.Once
 )
 
 // SecurityPolicyReconciler SecurityPolicyReconcile reconciles a SecurityPolicy object
@@ -89,9 +87,6 @@ func deleteSuccess(r *SecurityPolicyReconciler, _ *context.Context, o *v1alpha1.
 }
 
 func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// Use once.Do to ensure gc is called only once
-	common.GcOnce(r, &once)
-
 	var obj client.Object
 	if r.Service.NSXConfig.EnableVPCNetwork {
 		obj = &crdv1alpha1.SecurityPolicy{}
@@ -445,4 +440,5 @@ func StartSecurityPolicyController(mgr ctrl.Manager, commonService servicecommon
 		log.Error(err, "failed to create controller", "controller", "SecurityPolicy")
 		os.Exit(1)
 	}
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, securityPolicyReconcile.CollectGarbage)
 }

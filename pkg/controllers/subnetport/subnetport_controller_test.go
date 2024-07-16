@@ -3,8 +3,6 @@ package subnetport
 import (
 	"context"
 	"errors"
-	"reflect"
-	"sync"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -78,11 +76,6 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			return nsxSubnet, nil
 		})
 	defer patchesGetSubnetByPath.Reset()
-
-	// common.GcOnce do nothing
-	var once sync.Once
-	pat := gomonkey.ApplyMethod(reflect.TypeOf(&once), "Do", func(_ *sync.Once, _ func()) {})
-	defer pat.Reset()
 
 	// not found
 	errNotFound := errors.New("not found")
