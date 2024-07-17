@@ -328,7 +328,7 @@ func TestRuleStore_Apply(t *testing.T) {
 		args    args
 		wantErr assert.ErrorAssertionFunc
 	}{
-		{"1", args{i: &sp}, assert.NoError},
+		{"1", args{i: &sp.Rules}, assert.NoError},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

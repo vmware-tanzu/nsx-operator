@@ -357,9 +357,9 @@ func (r *SecurityPolicyReconciler) CollectGarbage(ctx context.Context) {
 
 	diffSet := nsxPolicySet.Difference(CRPolicySet)
 	for elem := range diffSet {
-		log.V(1).Info("GC collected SecurityPolicy CR", "UID", elem)
+		log.V(1).Info("GC collected SecurityPolicy CR", "securityPolicyUID", elem)
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
-		err = r.Service.DeleteSecurityPolicy(types.UID(elem), false, servicecommon.ResourceTypeSecurityPolicy)
+		err = r.Service.DeleteSecurityPolicy(types.UID(elem), true, servicecommon.ResourceTypeSecurityPolicy)
 		if err != nil {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 		} else {
