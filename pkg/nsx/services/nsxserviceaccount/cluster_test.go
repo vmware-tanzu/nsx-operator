@@ -551,7 +551,7 @@ func TestNSXServiceAccountService_RestoreRealizedNSXServiceAccount(t *testing.T)
 				vpcPath := "/orgs/default/projects/k8scl-one:test/vpcs/vpc1"
 				piId := "Id1"
 				uid := "00000000-0000-0000-0000-000000000001"
-				s.PrincipalIdentityStore.Add(mpmodel.PrincipalIdentity{
+				s.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{
 					IsProtected: &isProtectedTrue,
 					Name:        &normalizedClusterName,
 					NodeId:      &normalizedClusterName,
@@ -583,7 +583,7 @@ func TestNSXServiceAccountService_RestoreRealizedNSXServiceAccount(t *testing.T)
 					}},
 				})
 				nodeId := "clusterId1"
-				s.ClusterControlPlaneStore.Add(model.ClusterControlPlane{
+				s.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{
 					Id:           &normalizedClusterName,
 					NodeId:       &nodeId,
 					Revision:     &revision1,
@@ -637,7 +637,7 @@ func TestNSXServiceAccountService_RestoreRealizedNSXServiceAccount(t *testing.T)
 				vpcPath := "/orgs/default/projects/k8scl-one:test/vpcs/vpc1"
 				piId := "Id1"
 				uid := "00000000-0000-0000-0000-000000000001"
-				s.PrincipalIdentityStore.Add(mpmodel.PrincipalIdentity{
+				s.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{
 					IsProtected: &isProtectedTrue,
 					Name:        &normalizedClusterName,
 					NodeId:      &normalizedClusterName,
@@ -1130,8 +1130,8 @@ func TestNSXServiceAccountService_ValidateAndUpdateRealizedNSXServiceAccount(t *
 					Scope: &uidScope,
 					Tag:   &uidTag,
 				}}}
-				assert.NoError(t, s.ClusterControlPlaneStore.Add(ccp))
-				assert.NoError(t, s.PrincipalIdentityStore.Add(pi))
+				assert.NoError(t, s.ClusterControlPlaneStore.Add(&ccp))
+				assert.NoError(t, s.PrincipalIdentityStore.Add(&pi))
 
 				patches := gomonkey.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{true},
@@ -1245,8 +1245,8 @@ func TestNSXServiceAccountService_DeleteNSXServiceAccount(t *testing.T) {
 				normalizedClusterName := "k8scl-one_test-ns1-name1"
 				piId := "piId1"
 				certId := "certId1"
-				assert.NoError(t, s.ClusterControlPlaneStore.Add(model.ClusterControlPlane{Id: &normalizedClusterName}))
-				assert.NoError(t, s.PrincipalIdentityStore.Add(mpmodel.PrincipalIdentity{Name: &normalizedClusterName, Id: &piId, CertificateId: &certId}))
+				assert.NoError(t, s.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{Id: &normalizedClusterName}))
+				assert.NoError(t, s.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{Name: &normalizedClusterName, Id: &piId, CertificateId: &certId}))
 				assert.NoError(t, s.Client.Create(ctx, &v1alpha1.NSXServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "name1",
@@ -1285,8 +1285,8 @@ func TestNSXServiceAccountService_DeleteNSXServiceAccount(t *testing.T) {
 				normalizedClusterName := "k8scl-one_test-ns1-name1"
 				piId := "piId1"
 				certId := "certId1"
-				assert.NoError(t, s.ClusterControlPlaneStore.Add(model.ClusterControlPlane{Id: &normalizedClusterName}))
-				assert.NoError(t, s.PrincipalIdentityStore.Add(mpmodel.PrincipalIdentity{Name: &normalizedClusterName, Id: &piId, CertificateId: &certId, Tags: []mpmodel.Tag{{
+				assert.NoError(t, s.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{Id: &normalizedClusterName}))
+				assert.NoError(t, s.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{Name: &normalizedClusterName, Id: &piId, CertificateId: &certId, Tags: []mpmodel.Tag{{
 					Scope: &uidScope,
 					Tag:   &uidTag,
 				}}}))
@@ -1357,7 +1357,7 @@ func TestNSXServiceAccountService_ListNSXServiceAccountRealization(t *testing.T)
 				piName := piKey
 				piId := piKey + "-id"
 				crUID := piKey + "-uid"
-				assert.NoError(t, s.PrincipalIdentityStore.Add(mpmodel.PrincipalIdentity{
+				assert.NoError(t, s.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{
 					Id:   &piId,
 					Name: &piName,
 					Tags: []mpmodel.Tag{{
@@ -1369,7 +1369,7 @@ func TestNSXServiceAccountService_ListNSXServiceAccountRealization(t *testing.T)
 			for _, ccpKey := range tt.ccpKeys {
 				ccpId := ccpKey
 				crUID := ccpKey + "-uid"
-				assert.NoError(t, s.ClusterControlPlaneStore.Add(model.ClusterControlPlane{
+				assert.NoError(t, s.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{
 					Id: &ccpId,
 					Tags: []model.Tag{{
 						Scope: &tagScopeNSXServiceAccountCRUID,
@@ -1448,7 +1448,7 @@ func TestNSXServiceAccountService_GetNSXServiceAccountNameByUID(t *testing.T) {
 				piName := piKey.Namespace + "-" + piKey.Name
 				piId := piName + "-id"
 				crUID := piName + "-uid"
-				assert.NoError(t, s.PrincipalIdentityStore.Add(mpmodel.PrincipalIdentity{
+				assert.NoError(t, s.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{
 					Id:   &piId,
 					Name: &piName,
 					Tags: []mpmodel.Tag{{
@@ -1466,7 +1466,7 @@ func TestNSXServiceAccountService_GetNSXServiceAccountNameByUID(t *testing.T) {
 			for _, ccpKey := range tt.ccpKeys {
 				ccpId := ccpKey.Namespace + "-" + ccpKey.Name
 				crUID := ccpId + "-uid"
-				assert.NoError(t, s.ClusterControlPlaneStore.Add(model.ClusterControlPlane{
+				assert.NoError(t, s.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{
 					Id: &ccpId,
 					Tags: []model.Tag{{
 						Scope: &tagScopeNamespace,

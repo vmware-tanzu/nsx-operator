@@ -27,8 +27,8 @@ func Test_indexFunc(t *testing.T) {
 		want    []string
 		wantErr bool
 	}{
-		{"1", args{obj: ccp}, []string{"11111"}, false},
-		{"2", args{obj: pi}, []string{"11111"}, false},
+		{"1", args{obj: &ccp}, []string{"11111"}, false},
+		{"2", args{obj: &pi}, []string{"11111"}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -49,6 +49,7 @@ func Test_keyFunc(t *testing.T) {
 	ccp := model.ClusterControlPlane{Id: &Id}
 	pi := mpmodel.PrincipalIdentity{Name: &Id}
 	o := model.UserInfo{}
+	var o2 *model.UserInfo
 	type args struct {
 		obj interface{}
 	}
@@ -58,9 +59,11 @@ func Test_keyFunc(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		{"1", args{obj: ccp}, Id, false},
-		{"2", args{obj: pi}, Id, false},
+		{"1", args{obj: &ccp}, Id, false},
+		{"2", args{obj: &pi}, Id, false},
 		{"0", args{obj: o}, "", true},
+		{"typednil", args{obj: o2}, "", true},
+		{"nil", args{obj: nil}, "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
