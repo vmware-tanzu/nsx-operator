@@ -26,6 +26,7 @@ import (
 	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
+	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -547,6 +548,8 @@ func FindTag(tags []model.Tag, tagScope string) string {
 
 func CasttoPointer(obj interface{}) interface{} {
 	switch v := obj.(type) {
+	case mpmodel.PrincipalIdentity:
+		return &v
 	case model.Rule:
 		return &v
 	case model.StaticRoutes:
@@ -578,6 +581,8 @@ func CasttoPointer(obj interface{}) interface{} {
 	case model.IpAddressBlock:
 		return &v
 	default:
+		objType := reflect.TypeOf(obj)
+		log.Info("Unsupported type", "objType", objType)
 		return nil
 	}
 }
