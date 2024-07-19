@@ -1079,9 +1079,9 @@ func TestGetFinalSecurityPolicyResouce(t *testing.T) {
 				spObj:      &spWithPodSelector,
 			},
 			expectedPolicy: &model.SecurityPolicy{
-				DisplayName:    &spName,
-				Id:             &spID,
-				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/sp_uidA_scope"},
+				DisplayName:    common.String("spA"),
+				Id:             common.String("spA-uidA"),
+				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA-uidA_scope"},
 				SequenceNumber: &seq0,
 				Rules:          []model.Rule{},
 				Tags:           basicTags,

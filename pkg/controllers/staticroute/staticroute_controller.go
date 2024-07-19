@@ -113,7 +113,7 @@ func (r *StaticRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if controllerutil.ContainsFinalizer(obj, commonservice.StaticRouteFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeStaticRoute)
 			// TODO, update the value from 'default' to actual value， get OrgID, ProjectID, VPCID depending on obj.Namespace from vpc store
-			if err := r.Service.DeleteStaticRoute(string(obj.UID)); err != nil {
+			if err := r.Service.DeleteStaticRoute(obj); err != nil {
 				log.Error(err, "delete failed, would retry exponentially", "staticroute", req.NamespacedName)
 				deleteFail(r, &ctx, obj, &err)
 				return ResultRequeue, err

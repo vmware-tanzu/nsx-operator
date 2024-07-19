@@ -1,7 +1,9 @@
 package securitypolicy
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	gomonkey "github.com/agiledragon/gomonkey/v2"
@@ -13,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
@@ -805,4 +808,231 @@ func TestBuildRuleDisplayName(t *testing.T) {
 			assert.Equal(t, nil, observedError)
 		})
 	}
+}
+
+func TestBuildSecurityPolicyName(t *testing.T) {
+	svc := &SecurityPolicyService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "cluster1",
+				},
+			},
+		},
+	}
+
+	for _, tc := range []struct {
+		name       string
+		vpcEnabled bool
+		obj        *v1alpha1.SecurityPolicy
+		createdFor string
+		expName    string
+		expId      string
+	}{
+		{
+			name:       "SecurityPolicy with VPC disabled",
+			vpcEnabled: false,
+			obj: &v1alpha1.SecurityPolicy{
+				ObjectMeta: v1.ObjectMeta{
+					UID:       "uid1",
+					Name:      "securitypolicy1",
+					Namespace: "ns1",
+				},
+			},
+			createdFor: common.ResourceTypeSecurityPolicy,
+			expName:    "sp-ns1-securitypolicy1",
+			expId:      "sp_uid1",
+		},
+		{
+			name:       "SecurityPolicy with VPC enabled",
+			vpcEnabled: true,
+			obj: &v1alpha1.SecurityPolicy{
+				ObjectMeta: v1.ObjectMeta{
+					UID:       "uid2",
+					Name:      "securitypolicy2",
+					Namespace: "ns2",
+				},
+			},
+			createdFor: common.ResourceTypeSecurityPolicy,
+			expName:    "securitypolicy2",
+			expId:      "securitypolicy2-uid2",
+		},
+		{
+			name:       "NetworkPolicy with VPC enabled",
+			vpcEnabled: true,
+			obj: &v1alpha1.SecurityPolicy{
+				ObjectMeta: v1.ObjectMeta{
+					UID:       "uid3",
+					Name:      "networkpolicy1",
+					Namespace: "ns3",
+				},
+			},
+			createdFor: common.ResourceTypeNetworkPolicy,
+			expName:    "networkpolicy1",
+			expId:      "networkpolicy1-uid3",
+		},
+		{
+			name:       "NetworkPolicy with VPC enabled with name truncated",
+			vpcEnabled: true,
+			obj: &v1alpha1.SecurityPolicy{
+				ObjectMeta: v1.ObjectMeta{
+					UID:       "67c80acd-019a4886-44ce-11ef-b87a-4a38b420eaae",
+					Name:      strings.Repeat("a", 260),
+					Namespace: strings.Repeat("b", 110),
+				},
+			},
+			createdFor: common.ResourceTypeNetworkPolicy,
+			expName:    fmt.Sprintf("%s-c64163f0", strings.Repeat("a", 246)),
+			expId:      fmt.Sprintf("%s-fb85d834", strings.Repeat("a", 246)),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc.NSXConfig.EnableVPCNetwork = tc.vpcEnabled
+			name := svc.buildSecurityPolicyName(tc.obj, tc.createdFor)
+			assert.Equal(t, tc.expName, name)
+			assert.True(t, len(name) <= common.MaxNameLength)
+			id := svc.buildSecurityPolicyID(tc.obj, tc.createdFor)
+			assert.Equal(t, tc.expId, id)
+		})
+	}
+}
+
+func TestBuildGroupName(t *testing.T) {
+	svc := &SecurityPolicyService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "cluster1",
+				},
+			},
+		},
+	}
+
+	obj := &v1alpha1.SecurityPolicy{
+		ObjectMeta: v1.ObjectMeta{
+			UID:       "c5db1800-ce4c-11de-bedc-84a0de00c35b",
+			Name:      "sp1",
+			Namespace: "ns1",
+		},
+		Spec: v1alpha1.SecurityPolicySpec{
+			Rules: securityPolicyWithMultipleNormalPorts.Spec.Rules,
+		},
+	}
+
+	t.Run("build rule peer group name", func(t *testing.T) {
+		for _, tc := range []struct {
+			name      string
+			ruleIdx   int
+			isSource  bool
+			enableVPC bool
+			expName   string
+			expId     string
+		}{
+			{
+				name:      "src rule without name",
+				ruleIdx:   0,
+				isSource:  true,
+				enableVPC: true,
+				expName:   "sp1-0-src",
+				expId:     "sp1-c5db1800-ce4c-11de-bedc-84a0de00c35b_0_src",
+			},
+			{
+				name:      "dst rule without name",
+				ruleIdx:   0,
+				isSource:  false,
+				enableVPC: true,
+				expName:   "sp1-0-dst",
+				expId:     "sp1-c5db1800-ce4c-11de-bedc-84a0de00c35b_0_dst",
+			},
+			{
+				name:      "dst rule without name with T1",
+				ruleIdx:   0,
+				isSource:  false,
+				enableVPC: false,
+				expName:   "sp1-0-dst",
+				expId:     "sp_c5db1800-ce4c-11de-bedc-84a0de00c35b_0_dst",
+			},
+			{
+				name:      "src rule with name",
+				ruleIdx:   1,
+				isSource:  true,
+				enableVPC: true,
+				expName:   "MultipleNormalPorts-rule1-src",
+				expId:     "sp1-c5db1800-ce4c-11de-bedc-84a0de00c35b_1_src",
+			},
+			{
+				name:      "dst rule with name",
+				ruleIdx:   1,
+				isSource:  false,
+				enableVPC: true,
+				expName:   "MultipleNormalPorts-rule1-dst",
+				expId:     "sp1-c5db1800-ce4c-11de-bedc-84a0de00c35b_1_dst",
+			},
+			{
+				name:      "dst rule with name with T1",
+				ruleIdx:   1,
+				isSource:  false,
+				enableVPC: false,
+				expName:   "MultipleNormalPorts-rule1-dst",
+				expId:     "sp_c5db1800-ce4c-11de-bedc-84a0de00c35b_1_dst",
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				svc.NSXConfig.EnableVPCNetwork = tc.enableVPC
+				dispName := svc.buildRulePeerGroupName(obj, tc.ruleIdx, tc.isSource)
+				assert.Equal(t, tc.expName, dispName)
+				groupID := svc.buildRulePeerGroupID(obj, tc.ruleIdx, tc.isSource)
+				assert.Equal(t, tc.expId, groupID)
+			})
+		}
+
+	})
+
+	t.Run("build applied group name", func(t *testing.T) {
+		createdFor := common.ResourceTypeSecurityPolicy
+		for _, tc := range []struct {
+			name      string
+			ruleIdx   int
+			enableVPC bool
+			expName   string
+			expId     string
+		}{
+			{
+				name:      "rule without name",
+				ruleIdx:   0,
+				enableVPC: true,
+				expName:   "sp1-0-scope",
+				expId:     "sp1-c5db1800-ce4c-11de-bedc-84a0de00c35b_0_scope",
+			},
+			{
+				name:      "rule with name",
+				ruleIdx:   1,
+				enableVPC: true,
+				expName:   "MultipleNormalPorts-rule1-scope",
+				expId:     "sp1-c5db1800-ce4c-11de-bedc-84a0de00c35b_1_scope",
+			},
+			{
+				name:      "policy applied group",
+				ruleIdx:   -1,
+				enableVPC: true,
+				expName:   "ns1-sp1-scope",
+				expId:     "sp1-c5db1800-ce4c-11de-bedc-84a0de00c35b_scope",
+			},
+			{
+				name:      "policy applied group with T1",
+				ruleIdx:   -1,
+				enableVPC: false,
+				expName:   "ns1-sp1-scope",
+				expId:     "sp_c5db1800-ce4c-11de-bedc-84a0de00c35b_scope",
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				svc.NSXConfig.EnableVPCNetwork = tc.enableVPC
+				dispName := svc.buildAppliedGroupName(obj, tc.ruleIdx)
+				assert.Equal(t, dispName, tc.expName)
+				id := svc.buildAppliedGroupID(obj, tc.ruleIdx, createdFor)
+				assert.Equal(t, tc.expId, id)
+			})
+		}
+	})
 }

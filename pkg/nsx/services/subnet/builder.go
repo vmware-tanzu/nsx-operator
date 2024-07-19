@@ -3,7 +3,6 @@ package subnet
 import (
 	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -19,28 +18,30 @@ var (
 	Bool   = common.Bool
 )
 
-const (
-	SUBNETPREFIX = "sub"
-)
-
 func getCluster(service *SubnetService) string {
 	return service.NSXConfig.Cluster
 }
 
 func (service *SubnetService) BuildSubnetID(subnet *v1alpha1.Subnet) string {
-	return util.GenerateID(string(subnet.UID), SUBNETPREFIX, "", "")
+	return util.GenerateIDByObject(subnet)
 }
 
 func (service *SubnetService) buildSubnetSetID(subnetset *v1alpha1.SubnetSet, index string) string {
-	return util.GenerateID(string(subnetset.UID), SUBNETPREFIX, "", index)
+	return util.GenerateIDByObjectWithSuffix(subnetset, index)
 }
 
+// buildSubnetName uses format "subnet.Name-subnet.UUID" to ensure the Subnet's display_name is not
+// conflict with others. This is because VC will use the Subnet's display_name to created folder, so
+// the name string must be unique.
 func (service *SubnetService) buildSubnetName(subnet *v1alpha1.Subnet) string {
-	return util.GenerateTruncName(common.MaxSubnetNameLength, subnet.ObjectMeta.Name, SUBNETPREFIX, "", "", getCluster(service))
+	return util.GenerateIDByObjectByLimit(subnet, common.MaxSubnetNameLength)
 }
 
+// buildSubnetSetName uses format "subnetset.Name-subnetset.UUID-index" to ensure the generated Subnet's
+// display_name is not conflict with others.
 func (service *SubnetService) buildSubnetSetName(subnetset *v1alpha1.SubnetSet, index string) string {
-	return util.GenerateTruncName(common.MaxSubnetNameLength, subnetset.ObjectMeta.Name, SUBNETPREFIX, index, "", getCluster(service))
+	resName := util.GenerateIDByObjectByLimit(subnetset, common.MaxSubnetNameLength-(len(index)+1))
+	return util.GenerateTruncName(common.MaxSubnetNameLength, resName, "", index, "", "")
 }
 
 func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (*model.VpcSubnet, error) {
@@ -59,7 +60,9 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 		staticIpAllocation = o.Spec.AdvancedConfig.StaticIPAllocation.Enable
 		nsxSubnet.IpAddresses = o.Spec.IPAddresses
 	case *v1alpha1.SubnetSet:
-		index := uuid.NewString()
+		// The index is a random string with the length of 8 chars. It is the first 8 chars of the hash
+		// value on a random UUID string.
+		index := util.GetRandomIndexString()
 		nsxSubnet = &model.VpcSubnet{
 			Id:             String(service.buildSubnetSetID(o, index)),
 			AccessMode:     String(util.Capitalize(string(o.Spec.AccessMode))),

@@ -15,7 +15,6 @@
 package e2e
 
 import (
-	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -241,7 +240,6 @@ func TestSecurityPolicyNamedPortWithoutPod(t *testing.T) {
 	nsClient := "client"
 	nsWeb := "web"
 	securityPolicyCRName := "named-port-policy-without-pod"
-	securityPolicyNSXDisplayName := fmt.Sprintf("sp-%s-%s", nsWeb, securityPolicyCRName)
 	webA := "web"
 	labelWeb := "tcp-deployment"
 	ruleName0 := "all-ingress-isolation"
@@ -266,7 +264,7 @@ func TestSecurityPolicyNamedPortWithoutPod(t *testing.T) {
 	assertNil(t, err, "Error when waiting for Security Policy %s", securityPolicyCRName)
 
 	// Check NSX resource existing
-	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyNSXDisplayName, true)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyCRName, true)
 	assertNil(t, err)
 	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName0, true)
 	assertNil(t, err)

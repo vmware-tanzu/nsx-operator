@@ -13,7 +13,6 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -119,7 +118,8 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	} else {
 		if controllerutil.ContainsFinalizer(pod, servicecommon.PodFinalizerName) {
 			metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypePod)
-			if err := r.SubnetPortService.DeleteSubnetPort(pod.UID); err != nil {
+			subnetPortID := r.SubnetPortService.BuildSubnetPortId(&pod.ObjectMeta)
+			if err := r.SubnetPortService.DeleteSubnetPort(subnetPortID); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "pod", req.NamespacedName)
 				deleteFail(r, &ctx, pod, &err)
 				return common.ResultRequeue, err
@@ -214,14 +214,15 @@ func (r *PodReconciler) CollectGarbage(ctx context.Context) {
 
 	PodSet := sets.New[string]()
 	for _, pod := range podList.Items {
-		PodSet.Insert(string(pod.UID))
+		subnetPortID := r.SubnetPortService.BuildSubnetPortId(&pod.ObjectMeta)
+		PodSet.Insert(subnetPortID)
 	}
 
 	diffSet := nsxSubnetPortSet.Difference(PodSet)
 	for elem := range diffSet {
-		log.V(1).Info("GC collected Pod", "UID", elem)
+		log.V(1).Info("GC collected Pod", "NSXSubnetPortID", elem)
 		metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypePod)
-		err = r.SubnetPortService.DeleteSubnetPort(types.UID(elem))
+		err = r.SubnetPortService.DeleteSubnetPort(elem)
 		if err != nil {
 			metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypePod)
 		} else {
@@ -251,7 +252,8 @@ func deleteSuccess(r *PodReconciler, _ *context.Context, o *v1.Pod) {
 }
 
 func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (string, error) {
-	subnetPath := r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(string(pod.UID))
+	subnetPortIDForPod := r.SubnetPortService.BuildSubnetPortId(&pod.ObjectMeta)
+	subnetPath := r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(subnetPortIDForPod)
 	if len(subnetPath) > 0 {
 		log.V(1).Info("NSX subnet port had been created, returning the existing NSX subnet path", "pod.UID", pod.UID, "subnetPath", subnetPath)
 		return subnetPath, nil

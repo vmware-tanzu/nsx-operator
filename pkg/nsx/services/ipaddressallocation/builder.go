@@ -37,11 +37,11 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(IPAddressAll
 }
 
 func (service *IPAddressAllocationService) buildIPAddressAllocationID(IPAddressAllocation *v1alpha1.IPAddressAllocation) string {
-	return util.GenerateID(string(IPAddressAllocation.UID), IPADDRESSALLOCATIONPREFIX, "", "")
+	return util.GenerateIDByObject(IPAddressAllocation)
 }
 
 func (service *IPAddressAllocationService) buildIPAddressAllocationName(IPAddressAllocation *v1alpha1.IPAddressAllocation) string {
-	return util.GenerateDisplayName(IPAddressAllocation.ObjectMeta.Name, IPADDRESSALLOCATIONPREFIX, "", "", service.NSXConfig.Cluster)
+	return util.GenerateTruncName(common.MaxNameLength, IPAddressAllocation.ObjectMeta.Name, "", "", "", service.NSXConfig.Cluster)
 }
 
 func (service *IPAddressAllocationService) buildIPAddressAllocationTags(IPAddressAllocation *v1alpha1.IPAddressAllocation) []model.Tag {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -21,31 +22,28 @@ var (
 )
 
 func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labelTags *map[string]string) (*model.VpcSubnetPort, error) {
-	var objName, objNamespace, uid, appId, allocateAddresses string
-	switch o := obj.(type) {
-	case *v1alpha1.SubnetPort:
-		objName = o.Name
-		objNamespace = o.Namespace
-		uid = string(o.UID)
-	case *corev1.Pod:
-		objName = o.Name
-		objNamespace = o.Namespace
-		uid = string(o.UID)
-		appId = string(o.UID)
+	var objNamespace, appId, allocateAddresses string
+	objMeta := getObjectMeta(obj)
+	if objMeta == nil {
+		return nil, fmt.Errorf("unsupported object: %v", obj)
 	}
-	if *nsxSubnet.DhcpConfig.EnableDhcp {
+	objNamespace = objMeta.Namespace
+	if _, ok := obj.(*corev1.Pod); ok {
+		appId = string(objMeta.UID)
+	}
+	if nsxSubnet.DhcpConfig != nil && nsxSubnet.DhcpConfig.EnableDhcp != nil && *nsxSubnet.DhcpConfig.EnableDhcp {
 		allocateAddresses = "DHCP"
 	} else {
 		allocateAddresses = "BOTH"
 	}
-	nsxSubnetPortName := util.GenerateDisplayName(objName, "port", "", "", "")
-	nsxSubnetPortID := util.GenerateID(uid, "", "", "")
+	nsxSubnetPortName := service.BuildSubnetPortName(objMeta)
+	nsxSubnetPortID := service.BuildSubnetPortId(objMeta)
 	// use the subnetPort CR UID as the attachment uid generation to ensure the latter stable
 	nsxCIFID, err := uuid.NewRandomFromReader(bytes.NewReader([]byte(nsxSubnetPortID)))
 	if err != nil {
 		return nil, err
 	}
-	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", *nsxSubnet.Path, uid)
+	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", *nsxSubnet.Path, nsxSubnetPortID)
 	if err != nil {
 		return nil, err
 	}
@@ -81,6 +79,24 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		nsxSubnetPort.Attachment.ContextId = &contextID
 	}
 	return nsxSubnetPort, nil
+}
+
+func (service *SubnetPortService) BuildSubnetPortId(obj *metav1.ObjectMeta) string {
+	return util.GenerateIDByObject(obj)
+}
+
+func (service *SubnetPortService) BuildSubnetPortName(obj *metav1.ObjectMeta) string {
+	return util.GenerateTruncName(common.MaxNameLength, obj.Name, "", "", "", "")
+}
+
+func getObjectMeta(obj interface{}) *metav1.ObjectMeta {
+	switch o := obj.(type) {
+	case *v1alpha1.SubnetPort:
+		return &o.ObjectMeta
+	case *corev1.Pod:
+		return &o.ObjectMeta
+	}
+	return nil
 }
 
 func getCluster(service *SubnetPortService) string {

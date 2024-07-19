@@ -42,8 +42,8 @@ func (service *StaticRouteService) buildStaticRoute(obj *v1alpha1.StaticRoute) (
 		nexthop.IpAddress = &obj.Spec.NextHops[index].IPAddress
 		sr.NextHops = append(sr.NextHops, nexthop)
 	}
-	sr.Id = String(util.GenerateID(string(obj.UID), "sr", "", ""))
-	sr.DisplayName = String(util.GenerateTruncName(common.MaxNameLength, obj.Name, "sr", "", "", ""))
+	sr.Id = String(util.GenerateIDByObject(obj))
+	sr.DisplayName = String(util.GenerateTruncName(common.MaxNameLength, obj.Name, "", "", "", ""))
 	sr.Tags = service.buildBasicTags(obj)
 	return sr, nil
 }
