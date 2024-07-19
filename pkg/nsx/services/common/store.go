@@ -51,6 +51,9 @@ func (resourceStore *ResourceStore) TransResourceToStore(entity *data.StructValu
 		}
 	}
 	objAddr := nsxutil.CasttoPointer(obj)
+	if objAddr == nil {
+		return fmt.Errorf("failed to cast to pointer")
+	}
 	err2 := resourceStore.Add(objAddr)
 	if err2 != nil {
 		return err2

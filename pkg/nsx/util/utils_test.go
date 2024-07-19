@@ -15,10 +15,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 )
 
 func TestHttpErrortoNSXError(t *testing.T) {
@@ -509,4 +512,37 @@ Hce3uM6Xn8sAglod/r+0onZ09yoiH2Qj5EY50wUIOPtey2ilhuhwoo/M7Nt/yomF
 
 	header = CertPemBytesToHeader("/tmp/test.pem")
 	assert.Equal(t, "", header)
+}
+
+func TestCasttoPointer(t *testing.T) {
+	tests := []struct {
+		name string
+		obj  interface{}
+		want interface{}
+	}{
+		{
+			name: "PrincipalIdentity",
+			obj:  mpmodel.PrincipalIdentity{},
+			want: &mpmodel.PrincipalIdentity{},
+		},
+		{
+			name: "Rule",
+			obj:  model.Rule{},
+			want: &model.Rule{},
+		},
+		// Add more test cases for other types
+		{
+			name: "UnsupportedType",
+			obj:  model.Tag{},
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := CasttoPointer(tt.obj); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("CasttoPointer() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
