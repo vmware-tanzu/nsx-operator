@@ -243,7 +243,7 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 		if err != nil {
 			return "", err
 		}
-		s.PrincipalIdentityStore.Add(pi)
+		s.PrincipalIdentityStore.Add(&pi)
 	} else if !hasPI != (piObj == nil) {
 		return "", fmt.Errorf("old PI exists")
 	}
@@ -263,7 +263,7 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 		if err != nil {
 			return "", err
 		}
-		s.ClusterControlPlaneStore.Add(ccp)
+		s.ClusterControlPlaneStore.Add(&ccp)
 		clusterId = *ccp.NodeId
 	} else if !hasCCP != (ccpObj == nil) {
 		return "", fmt.Errorf("old CCP exists")
@@ -335,12 +335,12 @@ func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, 
 			log.Error(err, "failed to delete", "ClusterControlPlane", normalizedClusterName)
 			return err
 		}
-		s.ClusterControlPlaneStore.Delete(model.ClusterControlPlane{Id: &normalizedClusterName})
+		s.ClusterControlPlaneStore.Delete(&model.ClusterControlPlane{Id: &normalizedClusterName})
 	}
 
 	// delete PI
 	if piobj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName); isDeletePI && (piobj != nil) {
-		pi := piobj.(mpmodel.PrincipalIdentity)
+		pi := piobj.(*mpmodel.PrincipalIdentity)
 		if err := s.NSXClient.PrincipalIdentitiesClient.Delete(*pi.Id); err != nil {
 			log.Error(err, "failed to delete", "PrincipalIdentity", *pi.Name)
 			return err
@@ -430,16 +430,17 @@ func (s *NSXServiceAccountService) updatePIAndCCPCert(normalizedClusterName, uid
 	}
 
 	// update ClusterControlPlane cert
-	ccp := ccpObj.(model.ClusterControlPlane)
+	ccp := ccpObj.(*model.ClusterControlPlane)
 	ccp.Certificate = &cert
-	if ccp, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, normalizedClusterName, ccp); err != nil {
+	if ccp2, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, normalizedClusterName, *ccp); err != nil {
 		return err
 	} else {
+		ccp = &ccp2
 		s.ClusterControlPlaneStore.Add(ccp)
 	}
 
 	// update PI cert
-	pi := piObj.(mpmodel.PrincipalIdentity)
+	pi := piObj.(*mpmodel.PrincipalIdentity)
 	oldCertId := ""
 	if pi.CertificateId != nil {
 		oldCertId = *pi.CertificateId
@@ -451,12 +452,13 @@ func (s *NSXServiceAccountService) updatePIAndCCPCert(normalizedClusterName, uid
 	if err != nil {
 		return err
 	}
-	if pi, err = s.NSXClient.PrincipalIdentitiesClient.Updatecertificate(mpmodel.UpdatePrincipalIdentityCertificateRequest{
+	if pi2, err := s.NSXClient.PrincipalIdentitiesClient.Updatecertificate(mpmodel.UpdatePrincipalIdentityCertificateRequest{
 		CertificateId:       certList.Results[0].Id,
 		PrincipalIdentityId: pi.Id,
 	}); err != nil {
 		return err
 	} else {
+		pi = &pi2
 		s.PrincipalIdentityStore.Add(pi)
 	}
 	if oldCertId != "" {
@@ -484,7 +486,7 @@ func (s *NSXServiceAccountService) GetNSXServiceAccountNameByUID(uid string) (na
 		return
 	}
 	for _, obj := range objs {
-		pi := obj.(mpmodel.PrincipalIdentity)
+		pi := obj.(*mpmodel.PrincipalIdentity)
 		for _, tag := range pi.Tags {
 			switch *tag.Scope {
 			case common.TagScopeNamespace:
@@ -503,7 +505,7 @@ func (s *NSXServiceAccountService) GetNSXServiceAccountNameByUID(uid string) (na
 		return
 	}
 	for _, obj := range objs {
-		ccp := obj.(model.ClusterControlPlane)
+		ccp := obj.(*model.ClusterControlPlane)
 		for _, tag := range ccp.Tags {
 			if tag.Scope != nil {
 				switch *tag.Scope {
