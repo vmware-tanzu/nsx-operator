@@ -36,6 +36,10 @@ func (sp *SubnetPort) Value() data.DataValue {
 			Type_:             sp.Attachment.AllocateAddresses,
 		}
 	}
+	// only check existence of ExternalAddressBinding
+	if sp.ExternalAddressBinding != nil {
+		s.ExternalAddressBinding = &model.ExternalAddressBinding{}
+	}
 	dataValue, _ := ComparableToSubnetPort(s).GetDataValue__()
 	return dataValue
 }
