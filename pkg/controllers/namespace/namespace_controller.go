@@ -210,7 +210,6 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			log.Error(err, "failed to build namespace and network config bindings", "Namepspace", ns)
 			return common.ResultRequeueAfter10sec, nil
 		}
-		// read annotation "nsx.vmware.com/shared_vpc_namespace", if ns contains this annotation, it means it will share infra VPC
 		ncName, ncExist := annotations[types.AnnotationVPCNetworkConfig]
 
 		// If ns do not have network config name tag, then use default vpc network config name

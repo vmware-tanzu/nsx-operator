@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
@@ -52,10 +53,14 @@ func setNetworkInfoVPCStatus(ctx *context.Context, networkInfo *v1alpha1.Network
 	if len(networkInfo.VPCs) > 0 {
 		existingVPC = &networkInfo.VPCs[0]
 	}
-	if !reflect.DeepEqual(*existingVPC, *createdVPC) {
-		networkInfo.VPCs = []v1alpha1.VPCState{*createdVPC}
-		client.Update(*ctx, networkInfo)
+	slices.Sort(existingVPC.PrivateIPs)
+	slices.Sort(createdVPC.PrivateIPs)
+	if reflect.DeepEqual(*existingVPC, *createdVPC) {
+		return
 	}
+	networkInfo.VPCs = []v1alpha1.VPCState{*createdVPC}
+	client.Update(*ctx, networkInfo)
+	return
 }
 
 func setVPCNetworkConfigurationStatusWithLBS(ctx *context.Context, client client.Client, ncName string, vpcName string, aviSubnetPath string, nsxLBSPath string) {

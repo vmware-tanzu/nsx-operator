@@ -85,6 +85,12 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 		PodSubnetAccessMode: "Private",
 		NSXProject:          "/orgs/anotherOrg/projects/anotherProject",
 	}
+	spec3 := v1alpha1.VPCNetworkConfigurationSpec{
+		DefaultSubnetSize:   28,
+		PodSubnetAccessMode: "Private",
+		NSXProject:          "/orgs/anotherOrg/projects/anotherProject",
+		VPC:                 "vpc33",
+	}
 	testCRD1 := v1alpha1.VPCNetworkConfiguration{
 		Spec: spec1,
 	}
@@ -104,6 +110,16 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 	}
 	testCRD3.Name = "test-3"
 
+	testCRD4 := v1alpha1.VPCNetworkConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				types.AnnotationDefaultNetworkConfig: "false",
+			},
+		},
+		Spec: spec3,
+	}
+	testCRD3.Name = "test-4"
+
 	tests := []struct {
 		name                   string
 		nc                     v1alpha1.VPCNetworkConfiguration
@@ -115,10 +131,12 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 		accessMode             string
 		isDefault              bool
 		vpcConnectivityProfile string
+		vpcPath                string
 	}{
-		{"test-nsxtProjectPathToId", testCRD1, "test-gw-path-1", "test-edge-path-1", "default", "nsx_operator_e2e_test", 64, "Public", false, ""},
-		{"with-VPCConnectivityProfile", testCRD2, "test-gw-path-2", "test-edge-path-2", "anotherOrg", "anotherProject", 32, "Private", false, "test-VPCConnectivityProfile"},
-		{"with-defaultNetworkConfig", testCRD3, "test-gw-path-2", "test-edge-path-2", "anotherOrg", "anotherProject", 32, "Private", true, ""},
+		{"test-nsxtProjectPathToId", testCRD1, "test-gw-path-1", "test-edge-path-1", "default", "nsx_operator_e2e_test", 64, "Public", false, "", ""},
+		{"with-VPCConnectivityProfile", testCRD2, "test-gw-path-2", "test-edge-path-2", "anotherOrg", "anotherProject", 32, "Private", false, "test-VPCConnectivityProfile", ""},
+		{"with-defaultNetworkConfig", testCRD3, "test-gw-path-2", "test-edge-path-2", "anotherOrg", "anotherProject", 32, "Private", true, "", ""},
+		{"with-preCreatedVPC", testCRD4, "", "", "anotherOrg", "anotherProject", 28, "Private", false, "", "vpc33"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -131,7 +149,7 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 			assert.Equal(t, tt.subnetSize, nc.DefaultSubnetSize)
 			assert.Equal(t, tt.accessMode, nc.PodSubnetAccessMode)
 			assert.Equal(t, tt.isDefault, nc.IsDefault)
+			assert.Equal(t, tt.vpcPath, nc.VPCPath)
 		})
 	}
-
 }
