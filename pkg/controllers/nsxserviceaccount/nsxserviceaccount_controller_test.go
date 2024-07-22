@@ -559,7 +559,7 @@ func TestNSXServiceAccountReconciler_GarbageCollector(t *testing.T) {
 				name2 := "name2"
 				clusterName2 := "cl1-ns2-name2"
 				uid2 := "00000000-0000-0000-0000-000000000002"
-				assert.NoError(t, r.Service.PrincipalIdentityStore.Add(mpmodel.PrincipalIdentity{
+				assert.NoError(t, r.Service.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{
 					Name: &clusterName2,
 					Tags: []mpmodel.Tag{{
 						Scope: &tagScopeNamespace,
@@ -813,7 +813,7 @@ func TestNSXServiceAccountReconciler_garbageCollector(t *testing.T) {
 				name2 := "name2"
 				clusterName2 := "cl1-ns2-name2"
 				uid2 := "00000000-0000-0000-0000-000000000002"
-				assert.NoError(t, r.Service.PrincipalIdentityStore.Add(mpmodel.PrincipalIdentity{
+				assert.NoError(t, r.Service.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{
 					Name: &clusterName2,
 					Tags: []mpmodel.Tag{{
 						Scope: &tagScopeNamespace,
@@ -830,7 +830,7 @@ func TestNSXServiceAccountReconciler_garbageCollector(t *testing.T) {
 				name3 := "name3"
 				clusterName3 := "cl1-ns3-name3"
 				uid3 := "00000000-0000-0000-0000-000000000003"
-				assert.NoError(t, r.Service.PrincipalIdentityStore.Add(mpmodel.PrincipalIdentity{
+				assert.NoError(t, r.Service.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{
 					Name: &clusterName3,
 					Tags: []mpmodel.Tag{{
 						Scope: &tagScopeNamespace,
@@ -847,7 +847,7 @@ func TestNSXServiceAccountReconciler_garbageCollector(t *testing.T) {
 				name4 := "name4"
 				clusterName4 := "cl1-ns4-name4"
 				uid4 := "00000000-0000-0000-0000-000000000004"
-				assert.NoError(t, r.Service.ClusterControlPlaneStore.Add(model.ClusterControlPlane{
+				assert.NoError(t, r.Service.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{
 					Id: &clusterName4,
 					Tags: []model.Tag{{
 						Scope: &tagScopeNamespace,
