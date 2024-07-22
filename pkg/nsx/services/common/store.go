@@ -215,6 +215,8 @@ func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors ch
 		pathUnescape, _ := url.PathUnescape("path%3A")
 		queryParam += " AND " + pathUnescape + path
 	}
-	queryParam += " AND marked_for_delete:false"
+	if store.IsPolicyAPI() {
+		queryParam += " AND marked_for_delete:false"
+	}
 	service.PopulateResourcetoStore(wg, fatalErrors, resourceTypeValue, queryParam, store, nil)
 }

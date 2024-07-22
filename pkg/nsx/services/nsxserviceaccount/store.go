@@ -4,7 +4,8 @@
 package nsxserviceaccount
 
 import (
-	"errors"
+	"fmt"
+	"reflect"
 
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -18,14 +19,15 @@ type PrincipalIdentityStore struct {
 }
 
 func (s *PrincipalIdentityStore) Apply(i interface{}) error {
-	pis := i.(*[]mpmodel.PrincipalIdentity)
-	for _, pi := range *pis {
-		// MP resource doesn't have MarkedForDelete tag.
-		err := s.Add(pi)
-		log.V(1).Info("add PI to store", "pi", pi)
-		if err != nil {
-			return err
-		}
+	if i == nil {
+		return nil
+	}
+	pi := i.(*mpmodel.PrincipalIdentity)
+	// MP resource doesn't have MarkedForDelete tag.
+	err := s.Add(pi)
+	log.V(1).Info("add PI to store", "pi", pi)
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -40,20 +42,21 @@ type ClusterControlPlaneStore struct {
 }
 
 func (s *ClusterControlPlaneStore) Apply(i interface{}) error {
-	pis := i.(*[]model.ClusterControlPlane)
-	for _, pi := range *pis {
-		if pi.MarkedForDelete != nil && *pi.MarkedForDelete {
-			err := s.Delete(pi)
-			log.V(1).Info("delete PI from store", "pi", pi)
-			if err != nil {
-				return err
-			}
-		} else {
-			err := s.Add(pi)
-			log.V(1).Info("add PI to store", "pi", pi)
-			if err != nil {
-				return err
-			}
+	if i == nil {
+		return nil
+	}
+	ccp := i.(*model.ClusterControlPlane)
+	if ccp.MarkedForDelete != nil && *ccp.MarkedForDelete {
+		err := s.Delete(ccp)
+		log.V(1).Info("delete ClusterCP from store", "ClusterCP", ccp)
+		if err != nil {
+			return err
+		}
+	} else {
+		err := s.Add(ccp)
+		log.V(1).Info("add ClusterCP to store", "ClusterCP", ccp)
+		if err != nil {
+			return err
 		}
 	}
 	return nil
@@ -62,12 +65,12 @@ func (s *ClusterControlPlaneStore) Apply(i interface{}) error {
 // keyFunc returns the key of the object.
 func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
-	case model.ClusterControlPlane:
+	case *model.ClusterControlPlane:
 		return *v.Id, nil
-	case mpmodel.PrincipalIdentity:
+	case *mpmodel.PrincipalIdentity:
 		return *v.Name, nil
 	default:
-		return "", errors.New("keyFunc doesn't support unknown type")
+		return "", fmt.Errorf("keyFunc doesn't support unknown type %v", reflect.TypeOf(obj))
 	}
 }
 
@@ -76,12 +79,12 @@ func keyFunc(obj interface{}) (string, error) {
 func indexFunc(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
 	switch o := obj.(type) {
-	case model.ClusterControlPlane:
+	case *model.ClusterControlPlane:
 		return filterTag(o.Tags), nil
-	case mpmodel.PrincipalIdentity:
+	case *mpmodel.PrincipalIdentity:
 		return filterTag(common.ConvertMPTagsToTags(o.Tags)), nil
 	default:
-		return res, errors.New("indexFunc doesn't support unknown type")
+		return res, fmt.Errorf("indexFunc doesn't support unknown type %v", reflect.TypeOf(obj))
 	}
 }
 
