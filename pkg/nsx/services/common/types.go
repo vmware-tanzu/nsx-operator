@@ -61,7 +61,7 @@ const (
 	LabelDefaultSubnetSet              string = "nsxoperator.vmware.com/default-subnetset-for"
 	LabelDefaultVMSubnetSet            string = "VirtualMachine"
 	LabelDefaultPodSubnetSet           string = "Pod"
-	LabelLbIngressIpMode               string = "tanzu.vmware.com/ingress-ip-mode"
+	LabelLbIngressIpMode               string = "nsx.vmware.com/ingress-ip-mode"
 	LabelLbIngressIpModeVipValue       string = "vip"
 	LabelLbIngressIpModeProxyValue     string = "proxy"
 	DefaultPodSubnetSet                string = "pod-default"
