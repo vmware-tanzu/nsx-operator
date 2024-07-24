@@ -130,7 +130,7 @@ func GetVirtualMachineNameForSubnetPort(subnetPort *v1alpha1.SubnetPort) (string
 		return "", nil
 	}
 	array := strings.Split(attachmentRef, "/")
-	if len(array) != 2 || !strings.EqualFold(array[0], servicecommon.ResourceTypeVirtualMachine) {
+	if len(array) != 3 || !strings.EqualFold(array[0], servicecommon.ResourceTypeVirtualMachine) {
 		err := fmt.Errorf("invalid annotation value of '%s': %s", servicecommon.AnnotationAttachmentRef, attachmentRef)
 		return "", err
 	}
