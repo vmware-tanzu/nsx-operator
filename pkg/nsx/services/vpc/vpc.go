@@ -179,13 +179,13 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	VPCService.VPCNSNetworkConfigStore = VPCNsNetworkConfigStore{
 		VPCNSNetworkConfigMap: make(map[string]string),
 	}
-	//initialize vpc store, lbs store and ip blocks store
+	// initialize vpc store, lbs store and ip blocks store
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, VPCService.VpcStore)
 	wg.Add(1)
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeLBService, nil, VPCService.LbsStore)
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeIPBlock, nil, VPCService.IpblockStore)
 
-	//initalize avi rule related store
+	// initialize avi rule related store
 	if enableAviAllowRule {
 		VPCService.RuleStore = &AviRuleStore{ResourceStore: common.ResourceStore{
 			Indexer:     cache.NewIndexer(keyFuncAVI, nil),
@@ -496,6 +496,12 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 
 	if len(statusList.Results) == 0 {
 		log.Info("AVI subnet status not found", "VPC", vpc.Id)
+		return "", "", err
+	}
+
+	if statusList.Results[0].NetworkAddress == nil {
+		err := fmt.Errorf("invalid status result: %+v", statusList.Results[0])
+		log.Error(err, "subnet status does not have network address", "Subnet", common.AVISubnetLBID)
 		return "", "", err
 	}
 
