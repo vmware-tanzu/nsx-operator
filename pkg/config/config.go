@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/zap"
 	ini "gopkg.in/ini.v1"
 
@@ -117,6 +118,10 @@ type NsxConfig struct {
 	EnvoyHost                 string   `ini:"envoy_host"`
 	EnvoyPort                 int      `ini:"envoy_port"`
 	LicenseValidationInterval int      `ini:"license_validation_interval"`
+	UseAVILoadBalancer        bool     `ini:"use_avi_lb"`
+	UseNSXLoadBalancer        *bool    `ini:"use_native_loadbalancer"`
+	RelaxNSXLBScaleValication bool     `ini:"relax_scale_validation"`
+	NSXLBSize                 string   `ini:"service_size"`
 }
 
 type K8sConfig struct {
@@ -405,4 +410,19 @@ func (coeConfig *CoeConfig) validate() error {
 
 func (nsxConfig *NsxConfig) ValidateConfigFromCmd() error {
 	return nsxConfig.validate(true)
+}
+
+func (nsxConfig *NsxConfig) NSXLBEnabled() bool {
+	if nsxConfig.UseAVILoadBalancer == false && (nsxConfig.UseNSXLoadBalancer == nil || *nsxConfig.UseNSXLoadBalancer == true) {
+		return true
+	}
+	return false
+}
+
+func (nsxConfig *NsxConfig) GetNSXLBSize() string {
+	lbsSize := nsxConfig.NSXLBSize
+	if lbsSize == "" {
+		lbsSize = model.LBService_SIZE_SMALL
+	}
+	return lbsSize
 }
