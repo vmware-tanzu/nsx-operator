@@ -56,7 +56,7 @@ func init() {
 }
 
 func (operatorConfig *NSXOperatorConfig) HAEnabled() bool {
-	if operatorConfig.EnableHA == nil || *operatorConfig.EnableHA == true {
+	if operatorConfig.EnableHA != nil && *operatorConfig.EnableHA == true {
 		return true
 	}
 	return false

@@ -119,7 +119,7 @@ func TestConfig_GetHA(t *testing.T) {
 	configFilePath = "../mock/nsxop.ini"
 	cf, err := NewNSXOperatorConfigFromFile()
 	assert.Equal(t, err, nil)
-	assert.Equal(t, cf.HAEnabled(), true)
+	assert.Equal(t, cf.HAEnabled(), false)
 }
 
 func TestNSXOperatorConfig_GetCACert(t *testing.T) {

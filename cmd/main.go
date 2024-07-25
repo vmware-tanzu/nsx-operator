@@ -166,6 +166,9 @@ func StartIPAddressAllocationController(mgr ctrl.Manager, ipAddressAllocationSer
 
 func main() {
 	log.Info("starting NSX Operator")
+	// see https://github.com/operator-framework/operator-sdk/issues/1813
+	leaseDuration := 30 * time.Second
+	renewDeadline := 20 * time.Second
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                  scheme,
 		HealthProbeBindAddress:  config.ProbeAddr,
@@ -173,6 +176,8 @@ func main() {
 		LeaderElection:          cf.HAEnabled(),
 		LeaderElectionNamespace: nsxOperatorNamespace,
 		LeaderElectionID:        "nsx-operator",
+		LeaseDuration:           &leaseDuration,
+		RenewDeadline:           &renewDeadline,
 	})
 	if err != nil {
 		log.Error(err, "failed to init manager")
