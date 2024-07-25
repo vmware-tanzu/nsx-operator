@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	NetworkInfoCRType     = "networkinfos"
+	NetworkInfoCRType     = "networkinfos.nsx.vmware.com"
 	NSCRType              = "namespaces"
 	PrivateIPBlockNSXType = "IpAddressBlock"
 
