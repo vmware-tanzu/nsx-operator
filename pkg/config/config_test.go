@@ -9,7 +9,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 )
@@ -175,56 +174,6 @@ func TestNSXOperatorConfig_GetCACert(t *testing.T) {
 			}
 			assert.Equalf(t, tt.want, operatorConfig.GetCACert(), "GetCACert()")
 			assert.Equalf(t, tt.want, operatorConfig.configCache.nsxCA, "GetCACert()")
-		})
-	}
-}
-
-func TestNsxConfig_NSXLBEnabled(t *testing.T) {
-	type fields struct {
-		UseAVILB              bool
-		UseNativeLoadBalancer *bool
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		want   bool
-	}{{
-		name: "avilb",
-		fields: fields{
-			UseAVILB:              true,
-			UseNativeLoadBalancer: nil,
-		},
-		want: false,
-	}, {
-		name: "nsxlbnil",
-		fields: fields{
-			UseAVILB:              false,
-			UseNativeLoadBalancer: nil,
-		},
-		want: true,
-	}, {
-		name: "nsxlbtrue",
-		fields: fields{
-			UseAVILB:              false,
-			UseNativeLoadBalancer: pointy.Bool(true),
-		},
-		want: true,
-	}, {
-		name: "nsxlbfalse",
-		fields: fields{
-			UseAVILB:              false,
-			UseNativeLoadBalancer: pointy.Bool(false),
-		},
-		want: false,
-	},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			nsxConfig := &NsxConfig{
-				UseAVILoadBalancer: tt.fields.UseAVILB,
-				UseNSXLoadBalancer: tt.fields.UseNativeLoadBalancer,
-			}
-			assert.Equalf(t, tt.want, nsxConfig.NSXLBEnabled(), "NSXLBEnabled()")
 		})
 	}
 }

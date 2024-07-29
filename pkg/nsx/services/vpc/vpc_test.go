@@ -517,3 +517,75 @@ func TestCreateOrUpdateAVIRule(t *testing.T) {
 	err = service.CreateOrUpdateAVIRule(&vpc1, ns1)
 	assert.Equal(t, err, nil)
 }
+func TestGetLbProvider(t *testing.T) {
+	vpcService := &VPCService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					UseAVILoadBalancer: false,
+				},
+			},
+			NSXClient: &nsx.Client{
+				Cluster: &nsx.Cluster{},
+			},
+		},
+		LbsStore: &LBSStore{ResourceStore: common.ResourceStore{
+			Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+			BindingType: model.LBServiceBindingType(),
+		}},
+	}
+	// Test when UseAVILoadBalancer is false
+	lbProvider := vpcService.getLBProvider()
+	assert.Equal(t, common.NSX_LB, lbProvider)
+
+	vpcService.Service.NSXConfig.NsxConfig.UseAVILoadBalancer = true
+	// Test when UseAVILoadBalancer is true and Alb endpoint found, but no nsx lbs found
+	patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
+		return nil, nil
+	})
+	lbProvider = vpcService.getLBProvider()
+	assert.Equal(t, common.AVI, lbProvider)
+	patch.Reset()
+
+	// Test when UseAVILoadBalancer is true, get alb endpoint common error
+	retry := 0
+	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
+		retry++
+		return nil, util.HttpCommonError
+	})
+	lbProvider = vpcService.getLBProvider()
+	assert.Equal(t, common.NSX_LB, lbProvider)
+	assert.Equal(t, 4, retry)
+	patch.Reset()
+
+	// Test when UseAVILoadBalancer is true, get alb endpoint not found error
+	retry = 0
+	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
+		retry++
+		return nil, util.HttpNotFoundError
+	})
+	lbProvider = vpcService.getLBProvider()
+	assert.Equal(t, common.NSX_LB, lbProvider)
+	assert.Equal(t, 1, retry)
+	patch.Reset()
+
+	// Test when UseAVILoadBalancer is true, Alb endpoint found, and NSX lbs found
+	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
+		return nil, nil
+	})
+	vpcService.LbsStore.Add(&model.LBService{Id: common.String("12345")})
+	lbProvider = vpcService.getLBProvider()
+	assert.Equal(t, common.NSX_LB, lbProvider)
+	patch.Reset()
+
+	// Test when UseAVILoadBalancer is true, Alb endpoint found, and no NSX lbs found
+	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
+		return nil, nil
+	})
+	lbs := vpcService.LbsStore.GetByKey("12345")
+	err := vpcService.LbsStore.Delete(lbs)
+	assert.Equal(t, err, nil)
+	lbProvider = vpcService.getLBProvider()
+	assert.Equal(t, common.AVI, lbProvider)
+	patch.Reset()
+}

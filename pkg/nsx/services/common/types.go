@@ -128,6 +128,8 @@ const (
 	DstGroupSuffix          = "dst"
 	IpSetGroupSuffix        = "ipset"
 	SharePrefix             = "share"
+	NSX_LB                  = "nsx-lb"
+	AVI                     = "avi"
 )
 
 var (
