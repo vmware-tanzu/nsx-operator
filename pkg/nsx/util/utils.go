@@ -580,6 +580,12 @@ func CasttoPointer(obj interface{}) interface{} {
 		return &v
 	case model.IpAddressBlock:
 		return &v
+	case model.LBPersistenceProfile:
+		return &v
+	case model.LBAppProfile:
+		return &v
+	case model.SharedResource:
+		return &v
 	default:
 		objType := reflect.TypeOf(obj)
 		log.Info("Unsupported type", "objType", objType)
