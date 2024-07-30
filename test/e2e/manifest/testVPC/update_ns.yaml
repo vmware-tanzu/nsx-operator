@@ -5,4 +5,4 @@ kind: Namespace
 metadata:
   annotations:
     nsx.vmware.com/vpc_network_config: selfdefinedconfig
-  name: update-ns
+  name: update-ns-lffpb

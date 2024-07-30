@@ -18,7 +18,7 @@ func TestNsxtProjectPathToId(t *testing.T) {
 		project string
 		err     interface{}
 	}{
-		{"1", "/orgs/default/projects/nsx_operator_e2e_test", "default", "nsx_operator_e2e_test", nil},
+		{"1", "/orgs/default/projects/nsx_operator_test", "default", "nsx_operator_test", nil},
 		{"2", "", "", "", "dummy"},
 	}
 	for _, tt := range tests {
@@ -79,7 +79,7 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 		PrivateIPv4CIDRs:        []string{"private-ipb-1", "private-ipb-2"},
 		DefaultIPv4SubnetSize:   64,
 		DefaultSubnetAccessMode: "Public",
-		NSXTProject:             "/orgs/default/projects/nsx_operator_e2e_test",
+		NSXTProject:             "/orgs/default/projects/nsx_operator_test",
 	}
 	spec2 := v1alpha1.VPCNetworkConfigurationSpec{
 		DefaultGatewayPath:      "test-gw-path-2",
@@ -120,7 +120,7 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 		accessMode string
 		isDefault  bool
 	}{
-		{"1", testCRD1, "test-gw-path-1", "test-edge-path-1", "default", "nsx_operator_e2e_test", 64, "Public", false},
+		{"1", testCRD1, "test-gw-path-1", "test-edge-path-1", "default", "nsx_operator_test", 64, "Public", false},
 		{"2", testCRD2, "test-gw-path-2", "test-edge-path-2", "anotherOrg", "anotherProject", 32, "Private", false},
 		{"3", testCRD3, "test-gw-path-2", "test-edge-path-2", "anotherOrg", "anotherProject", 32, "Private", true},
 	}

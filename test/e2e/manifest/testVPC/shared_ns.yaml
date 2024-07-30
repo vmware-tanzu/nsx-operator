@@ -5,7 +5,7 @@ kind: Namespace
 metadata:
   annotations:
     nsx.vmware.com/vpc_network_config: selfdefinedconfig
-  name: shared-vpc-ns-0
+  name: shared-vpc-ns-9qsg6
 
 ---
 apiVersion: v1
@@ -13,5 +13,5 @@ kind: Namespace
 metadata:
   annotations:
     nsx.vmware.com/vpc_network_config: selfdefinedconfig
-    nsx.vmware.com/shared_vpc_namespace: shared-vpc-ns-0
-  name: shared-vpc-ns-1
+    nsx.vmware.com/shared_vpc_namespace: shared-vpc-ns-9qsg6
+  name: shared-vpc-ns-8l99n

@@ -78,7 +78,7 @@ func TestCustomizedNetworkInfo(t *testing.T) {
 	err := testData.waitForResourceExistByPath(vpcPath, true)
 	assertNil(t, err)
 
-	//verify private ipblocks created for vpc
+	// verify private ipblocks created for vpc
 	p_ipb_id1 := ns_uid + "_" + CustomizedPrivateCIDR1
 	p_ipb_id2 := ns_uid + "_" + CustomizedPrivateCIDR2
 
@@ -97,7 +97,7 @@ func TestInfraNetworkInfo(t *testing.T) {
 	err := testData.waitForResourceExistByPath(vpcPath, true)
 	assertNil(t, err)
 
-	//verify private ipblocks created for vpc
+	// verify private ipblocks created for vpc
 	p_ipb_id1 := ns_uid + "_" + InfraPrivateCIDR1
 	p_ipb_id2 := ns_uid + "_" + InfraPrivateCIDR2
 
@@ -128,7 +128,7 @@ func TestDefaultNetworkInfo(t *testing.T) {
 	err := testData.waitForResourceExistByPath(vpcPath, true)
 	assertNil(t, err)
 
-	//verify private ipblocks created for vpc, id is nsuid + cidr
+	// verify private ipblocks created for vpc, id is nsuid + cidr
 	p_ipb_id1 := ns_uid + "_" + DefaultPrivateCIDR1
 	p_ipb_id2 := ns_uid + "_" + DefaultPrivateCIDR2
 
@@ -148,8 +148,8 @@ func TestDefaultNetworkInfo(t *testing.T) {
 
 // ns1 share vpc with ns, delete ns1, vpc should not be deleted
 func TestSharedNetworkInfo(t *testing.T) {
-	ns := "shared-vpc-ns-0"
-	ns1 := "shared-vpc-ns-1"
+	ns := "shared-vpc-ns-9qsg6"
+	ns1 := "shared-vpc-ns-8l99n"
 
 	nsPath, _ := filepath.Abs("./manifest/testVPC/shared_ns.yaml")
 	_ = applyYAML(nsPath, "")
@@ -171,7 +171,7 @@ func TestSharedNetworkInfo(t *testing.T) {
 
 	assertTrue(t, vpcPath == vpcPath1, "vpcPath %s should be the same as vpcPath2 %s", vpcPath, vpcPath1)
 
-	//verify private ipblocks created for vpc, id is nsuid + cidr
+	// verify private ipblocks created for vpc, id is nsuid + cidr
 	p_ipb_id1 := ns_uid + "_" + CustomizedPrivateCIDR1
 	p_ipb_id2 := ns_uid + "_" + CustomizedPrivateCIDR2
 
@@ -191,7 +191,7 @@ func TestSharedNetworkInfo(t *testing.T) {
 
 // update vpcnetworkconfig, and check vpc is updated
 func TestUpdateVPCNetworkconfigNetworkInfo(t *testing.T) {
-	ns := "update-ns"
+	ns := "update-ns-lffpb"
 
 	nsPath, _ := filepath.Abs("./manifest/testVPC/update_ns.yaml")
 	_ = applyYAML(nsPath, "")
@@ -210,7 +210,7 @@ func TestUpdateVPCNetworkconfigNetworkInfo(t *testing.T) {
 	assertTrue(t, strings.Contains(privateIPv4CIDRs, CustomizedPrivateCIDR2), "privateIPv4CIDRs %s should contain %s", privateIPv4CIDRs, CustomizedPrivateCIDR1)
 	assertNil(t, err)
 
-	//verify private ipblocks created for vpc, id is nsuid + cidr
+	// verify private ipblocks created for vpc, id is nsuid + cidr
 	p_ipb_id1 := ns_uid + "_" + CustomizedPrivateCIDR1
 	p_ipb_id2 := ns_uid + "_" + CustomizedPrivateCIDR2
 
