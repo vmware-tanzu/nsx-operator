@@ -11,8 +11,8 @@ import (
 	time "time"
 
 	versioned "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
+	crdnsxvmwarecom "github.com/vmware-tanzu/nsx-operator/pkg/client/informers/externalversions/crd.nsx.vmware.com"
 	internalinterfaces "github.com/vmware-tanzu/nsx-operator/pkg/client/informers/externalversions/internalinterfaces"
-	nsxvmwarecom "github.com/vmware-tanzu/nsx-operator/pkg/client/informers/externalversions/nsx.vmware.com"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
@@ -230,9 +230,9 @@ type SharedInformerFactory interface {
 	// client.
 	InformerFor(obj runtime.Object, newFunc internalinterfaces.NewInformerFunc) cache.SharedIndexInformer
 
-	Nsx() nsxvmwarecom.Interface
+	Crd() crdnsxvmwarecom.Interface
 }
 
-func (f *sharedInformerFactory) Nsx() nsxvmwarecom.Interface {
-	return nsxvmwarecom.New(f, f.namespace, f.tweakListOptions)
+func (f *sharedInformerFactory) Crd() crdnsxvmwarecom.Interface {
+	return crdnsxvmwarecom.New(f, f.namespace, f.tweakListOptions)
 }

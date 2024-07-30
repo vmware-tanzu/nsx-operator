@@ -10,9 +10,8 @@ import (
 type IPAddressVisibility string
 
 const (
-	IPAddressVisibilityExternal = "External"
-	IPAddressVisibilityPrivate  = "Private"
-	IPAddressVisibilityProject  = "Project"
+	IPAddressVisibilityExternal = "EXTERNAL"
+	IPAddressVisibilityPrivate  = "PRIVATE"
 )
 
 // +genclient
@@ -42,8 +41,8 @@ type IPAddressAllocationList struct {
 
 // IPAddressAllocationSpec defines the desired state of IPAddressAllocation.
 type IPAddressAllocationSpec struct {
-	// IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or Project.
-	// +kubebuilder:validation:Enum=External;Private;Project
+	// IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External or Private.
+	// +kubebuilder:validation:Enum=External;Private
 	// +kubebuilder:default=Private
 	// +optional
 	IPAddressBlockVisibility IPAddressVisibility `json:"ip_address_block_visibility,omitempty"`

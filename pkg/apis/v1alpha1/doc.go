@@ -1,4 +1,4 @@
 // +k8s:deepcopy-gen=package
-// +groupName=nsx.vmware.com
+// +groupName=crd.nsx.vmware.com
 
 package v1alpha1

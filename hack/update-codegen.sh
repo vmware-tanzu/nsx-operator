@@ -8,7 +8,7 @@ set -o xtrace
 APIS=./pkg/apis
 APIS_PKG=github.com/vmware-tanzu/nsx-operator/pkg/apis
 OUTPUT_PKG=github.com/vmware-tanzu/nsx-operator/pkg/client
-GROUP=nsx.vmware.com
+GROUP=crd.nsx.vmware.com
 
 SCRIPT_ROOT=$(dirname "${BASH_SOURCE[0]}")/..
 CODEGEN_PKG=$(go env GOMODCACHE)/k8s.io/code-generator@v0.27.1
