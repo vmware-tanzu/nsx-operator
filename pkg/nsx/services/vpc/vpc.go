@@ -498,7 +498,9 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 		log.Info("AVI subnet status not found", "VPC", vpc.Id)
 		return "", "", err
 	}
-
+	if statusList.Results[0].NetworkAddress == nil {
+		return "", "", fmt.Errorf("statusList.Results[0].NetworkAddress is nil pointer")
+	}
 	cidr := *statusList.Results[0].NetworkAddress
 	log.Info("read AVI subnet properties", "Path", path, "CIDR", cidr)
 	return path, cidr, nil

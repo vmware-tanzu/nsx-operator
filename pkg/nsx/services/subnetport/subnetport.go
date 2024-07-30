@@ -6,6 +6,7 @@ package subnetport
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -248,6 +249,9 @@ func (service *SubnetPortService) GetGatewayPrefixForSubnetPort(obj *v1alpha1.Su
 		return "", -1, err
 	}
 	status := statusList.Results[0]
+	if status.GatewayAddress == nil {
+		return "", -1, fmt.Errorf("status.GatewayAddress is nil pointer")
+	}
 	gateway, err := util.RemoveIPPrefix(*status.GatewayAddress)
 	if err != nil {
 		return "", -1, err
