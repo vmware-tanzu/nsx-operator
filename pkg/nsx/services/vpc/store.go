@@ -13,6 +13,8 @@ func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
 	case *model.Vpc:
 		return *v.Id, nil
+	case *model.LBService:
+		return *v.Id, nil
 	case *model.IpAddressBlock:
 		return generateIPBlockKey(*v), nil
 	default:
@@ -26,6 +28,8 @@ func indexFunc(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
 	switch o := obj.(type) {
 	case *model.Vpc:
+		return filterTag(o.Tags), nil
+	case *model.LBService:
 		return filterTag(o.Tags), nil
 	case *model.IpAddressBlock:
 		return filterTag(o.Tags), nil
@@ -146,6 +150,41 @@ func (is *IPBlockStore) GetByIndex(index string, value string) *model.IpAddressB
 
 	block := indexResults[0].((*model.IpAddressBlock))
 	return block
+}
+
+// LBSStore is a store for LBS
+type LBSStore struct {
+	common.ResourceStore
+}
+
+func (ls *LBSStore) Apply(i interface{}) error {
+	if i == nil {
+		return nil
+	}
+	lbs := i.(*model.LBService)
+	if lbs.MarkedForDelete != nil && *lbs.MarkedForDelete {
+		err := ls.Delete(lbs)
+		log.V(1).Info("delete LBS from store", "LBS", lbs)
+		if err != nil {
+			return err
+		}
+	} else {
+		err := ls.Add(lbs)
+		log.V(1).Info("add LBS to store", "LBS", lbs)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (ls *LBSStore) GetByKey(key string) *model.LBService {
+	obj := ls.ResourceStore.GetByKey(key)
+	if obj != nil {
+		lbs := obj.(*model.LBService)
+		return lbs
+	}
+	return nil
 }
 
 // keyFuncAVI is used to get the key of a AVI rule related resource

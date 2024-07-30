@@ -9,6 +9,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
@@ -82,6 +83,7 @@ func (service *NodeService) SyncNodeStore(nodeName string, deleted bool) error {
 		// node.NodeStore.Apply(updatedNode)
 	}
 	nodeResults, err := service.NSXClient.HostTransPortNodesClient.List("default", "default", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		return fmt.Errorf("failed to list HostTransportNodes: %s", err)
 	}

@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	SubnetSetCRType        = "subnetsets"
-	SubnetPortCRType       = "subnetport"
+	SubnetSetCRType        = "subnetsets.nsx.vmware.com"
+	SubnetPortCRType       = "subnetports.nsx.vmware.com"
 	E2ENamespace           = "subnet-e2e"
 	E2ENamespaceShared     = "subnet-e2e-shared"
 	E2ENamespaceTarget     = "target-ns"
@@ -266,7 +266,7 @@ func SubnetCIDR(t *testing.T) {
 		err = nil
 	}
 	assertNil(t, err)
-	err = testData.waitForCRReadyOrDeleted(defaultTimeout, "subnets", E2ENamespace, subnet.Name, Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, "subnets.nsx.vmware.com", E2ENamespace, subnet.Name, Ready)
 	assertNil(t, err)
 	allocatedSubnet, err := testData.crdClientset.NsxV1alpha1().Subnets(E2ENamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
 	assertNil(t, err)
@@ -289,7 +289,7 @@ func SubnetCIDR(t *testing.T) {
 		err = nil
 	}
 	assertNil(t, err)
-	err = testData.waitForCRReadyOrDeleted(defaultTimeout, "subnets", E2ENamespace, subnet.Name, Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, "subnets.nsx.vmware.com", E2ENamespace, subnet.Name, Ready)
 	assertNil(t, err)
 	allocatedSubnet, err = testData.crdClientset.NsxV1alpha1().Subnets(E2ENamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
 	assertNil(t, err)

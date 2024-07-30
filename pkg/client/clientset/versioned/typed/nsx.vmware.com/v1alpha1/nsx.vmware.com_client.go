@@ -15,6 +15,8 @@ import (
 
 type NsxV1alpha1Interface interface {
 	RESTClient() rest.Interface
+	AddressBindingsGetter
+	IPAddressAllocationsGetter
 	IPPoolsGetter
 	NSXServiceAccountsGetter
 	NetworkInfosGetter
@@ -29,6 +31,14 @@ type NsxV1alpha1Interface interface {
 // NsxV1alpha1Client is used to interact with features provided by the nsx.vmware.com group.
 type NsxV1alpha1Client struct {
 	restClient rest.Interface
+}
+
+func (c *NsxV1alpha1Client) AddressBindings(namespace string) AddressBindingInterface {
+	return newAddressBindings(c, namespace)
+}
+
+func (c *NsxV1alpha1Client) IPAddressAllocations(namespace string) IPAddressAllocationInterface {
+	return newIPAddressAllocations(c, namespace)
 }
 
 func (c *NsxV1alpha1Client) IPPools(namespace string) IPPoolInterface {

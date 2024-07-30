@@ -5,6 +5,10 @@
 
 package v1alpha1
 
+type AddressBindingExpansion interface{}
+
+type IPAddressAllocationExpansion interface{}
+
 type IPPoolExpansion interface{}
 
 type NSXServiceAccountExpansion interface{}

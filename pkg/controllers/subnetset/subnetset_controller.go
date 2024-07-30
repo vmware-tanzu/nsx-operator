@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
-	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
@@ -52,7 +51,8 @@ type SubnetSetReconciler struct {
 
 func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Use once.Do to ensure gc is called only once
-	once.Do(func() { go r.GarbageCollector(make(chan bool), servicecommon.GCInterval) })
+	common.GcOnce(r, &once)
+
 	obj := &v1alpha1.SubnetSet{}
 	log.Info("reconciling subnetset CR", "subnetset", req.NamespacedName)
 	metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerSyncTotal, MetricResTypeSubnetSet)
@@ -240,50 +240,41 @@ func (r *SubnetSetReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// GarbageCollector collect Subnet which there is no port attached on it.
-// cancel is used to break the loop during UT
-func (r *SubnetSetReconciler) GarbageCollector(cancel chan bool, timeout time.Duration) {
-	ctx := context.Background()
+// CollectGarbage collect Subnet which there is no port attached on it.
+// it implements the interface GarbageCollector method.
+func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) {
 	log.Info("subnetset garbage collector started")
-	for {
-		select {
-		case <-cancel:
-			return
-		case <-time.After(timeout):
-		}
+	subnetSetList := &v1alpha1.SubnetSetList{}
+	err := r.Client.List(ctx, subnetSetList)
+	if err != nil {
+		log.Error(err, "failed to list SubnetSet CR")
+		return
+	}
+	var nsxSubnetList []*model.VpcSubnet
+	for _, subnetSet := range subnetSetList.Items {
+		nsxSubnetList = append(nsxSubnetList, r.SubnetService.ListSubnetCreatedBySubnetSet(string(subnetSet.UID))...)
+	}
+	if len(nsxSubnetList) == 0 {
+		return
+	}
 
-		subnetSetList := &v1alpha1.SubnetSetList{}
-		err := r.Client.List(ctx, subnetSetList)
-		if err != nil {
-			log.Error(err, "failed to list SubnetSet CR")
+	subnetSetIDs := sets.New[string]()
+	for _, subnetSet := range subnetSetList.Items {
+		if err := r.DeleteSubnetForSubnetSet(subnetSet, true); err != nil {
+			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetSet)
+		} else {
+			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetSet)
+		}
+		subnetSetIDs.Insert(string(subnetSet.UID))
+	}
+	for _, subnet := range nsxSubnetList {
+		if !r.SubnetService.IsOrphanSubnet(*subnet, subnetSetIDs) {
 			continue
 		}
-		var nsxSubnetList []*model.VpcSubnet
-		for _, subnetSet := range subnetSetList.Items {
-			nsxSubnetList = append(nsxSubnetList, r.SubnetService.ListSubnetCreatedBySubnetSet(string(subnetSet.UID))...)
-		}
-		if len(nsxSubnetList) == 0 {
-			continue
-		}
-
-		subnetSetIDs := sets.New[string]()
-		for _, subnetSet := range subnetSetList.Items {
-			if err := r.DeleteSubnetForSubnetSet(subnetSet, true); err != nil {
-				metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetSet)
-			} else {
-				metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetSet)
-			}
-			subnetSetIDs.Insert(string(subnetSet.UID))
-		}
-		for _, subnet := range nsxSubnetList {
-			if !r.SubnetService.IsOrphanSubnet(*subnet, subnetSetIDs) {
-				continue
-			}
-			if err := r.SubnetService.DeleteSubnet(*subnet); err != nil {
-				metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetSet)
-			} else {
-				metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetSet)
-			}
+		if err := r.SubnetService.DeleteSubnet(*subnet); err != nil {
+			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetSet)
+		} else {
+			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetSet)
 		}
 	}
 }

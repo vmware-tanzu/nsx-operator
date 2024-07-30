@@ -7,8 +7,8 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
@@ -113,6 +113,11 @@ func TestIPPoolReconciler_Reconcile(t *testing.T) {
 	}
 	ctx := context.Background()
 	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
+
+	// common.GcOnce do nothing
+	var once sync.Once
+	pat := gomonkey.ApplyMethod(reflect.TypeOf(&once), "Do", func(_ *sync.Once, _ func()) {})
+	defer pat.Reset()
 
 	// not found
 	errNotFound := errors.New("not found")
@@ -244,7 +249,6 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 	patch.ApplyMethod(reflect.TypeOf(service), "DeleteIPPool", func(_ *ippool.IPPoolService, UID interface{}) error {
 		return nil
 	})
-	cancel := make(chan bool)
 	defer patch.Reset()
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
@@ -263,11 +267,7 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 		a.Items[0].UID = "1234"
 		return nil
 	})
-	go func() {
-		time.Sleep(1 * time.Second)
-		cancel <- true
-	}()
-	r.IPPoolGarbageCollector(cancel, time.Second)
+	r.CollectGarbage(ctx)
 
 	// local store has same item as k8s cache
 	patch.Reset()
@@ -287,11 +287,7 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 		a.Items[0].UID = "1234"
 		return nil
 	})
-	go func() {
-		time.Sleep(1 * time.Second)
-		cancel <- true
-	}()
-	r.IPPoolGarbageCollector(cancel, time.Second)
+	r.CollectGarbage(ctx)
 
 	// local store has no item
 	patch.Reset()
@@ -304,11 +300,7 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 		return nil
 	})
 	k8sClient.EXPECT().List(ctx, policyList).Return(nil).Times(0)
-	go func() {
-		time.Sleep(1 * time.Second)
-		cancel <- true
-	}()
-	r.IPPoolGarbageCollector(cancel, time.Second)
+	r.CollectGarbage(ctx)
 }
 
 func TestReconciler_Start(t *testing.T) {

@@ -11,6 +11,10 @@ import (
 
 // Interface provides access to all the informers in this group version.
 type Interface interface {
+	// AddressBindings returns a AddressBindingInformer.
+	AddressBindings() AddressBindingInformer
+	// IPAddressAllocations returns a IPAddressAllocationInformer.
+	IPAddressAllocations() IPAddressAllocationInformer
 	// IPPools returns a IPPoolInformer.
 	IPPools() IPPoolInformer
 	// NSXServiceAccounts returns a NSXServiceAccountInformer.
@@ -40,6 +44,16 @@ type version struct {
 // New returns a new Interface.
 func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakListOptions internalinterfaces.TweakListOptionsFunc) Interface {
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
+}
+
+// AddressBindings returns a AddressBindingInformer.
+func (v *version) AddressBindings() AddressBindingInformer {
+	return &addressBindingInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// IPAddressAllocations returns a IPAddressAllocationInformer.
+func (v *version) IPAddressAllocations() IPAddressAllocationInformer {
+	return &iPAddressAllocationInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // IPPools returns a IPPoolInformer.

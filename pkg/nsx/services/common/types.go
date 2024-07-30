@@ -28,6 +28,7 @@ const (
 	TagScopeNCPVIFProjectUID           string = "ncp/vif_project_uid"
 	TagScopeNCPPod                     string = "ncp/pod"
 	TagScopeNCPVNETInterface           string = "ncp/vnet_interface"
+	TagScopeCreatedFor                 string = "nsx-op/created_for"
 	TagScopeVersion                    string = "nsx-op/version"
 	TagScopeCluster                    string = "nsx-op/cluster"
 	TagScopeNamespace                  string = "nsx-op/namespace"
@@ -53,13 +54,15 @@ const (
 	TagScopeIPPoolCRName               string = "nsx-op/ippool_name"
 	TagScopeIPPoolCRUID                string = "nsx-op/ippool_uid"
 	TagScopeIPPoolCRType               string = "nsx-op/ippool_type"
+	TagScopeIPAddressAllocationCRName  string = "nsx-op/ipaddressallocation_name"
+	TagScopeIPAddressAllocationCRUID   string = "nsx-op/ipaddressallocation_uid"
 	TagScopeIPSubnetName               string = "nsx-op/ipsubnet_name"
 	TagScopeVMNamespaceUID             string = "nsx-op/vm_namespace_uid"
 	TagScopeVMNamespace                string = "nsx-op/vm_namespace"
 	LabelDefaultSubnetSet              string = "nsxoperator.vmware.com/default-subnetset-for"
 	LabelDefaultVMSubnetSet            string = "VirtualMachine"
 	LabelDefaultPodSubnetSet           string = "Pod"
-	LabelLbIngressIpMode               string = "tanzu.vmware.com/ingress-ip-mode"
+	LabelLbIngressIpMode               string = "nsx.vmware.com/ingress-ip-mode"
 	LabelLbIngressIpModeVipValue       string = "vip"
 	LabelLbIngressIpModeProxyValue     string = "proxy"
 	DefaultPodSubnetSet                string = "pod-default"
@@ -72,6 +75,7 @@ const (
 	TagValueGroupSource                string = "source"
 	TagValueGroupDestination           string = "destination"
 	TagValueGroupAvi                   string = "avi"
+	TagValueSLB                        string = "SLB"
 	AnnotationVPCNetworkConfig         string = "nsx.vmware.com/vpc_network_config"
 	AnnotationSharedVPCNamespace       string = "nsx.vmware.com/shared_vpc_namespace"
 	AnnotationDefaultNetworkConfig     string = "nsx.vmware.com/default"
@@ -84,24 +88,25 @@ const (
 	ValueMinorVersion                  string = "0"
 	ValuePatchVersion                  string = "0"
 
-	GCInterval          = 60 * time.Second
-	RealizeTimeout      = 2 * time.Minute
-	RealizeMaxRetries   = 3
-	IPPoolFinalizerName = "ippool.nsx.vmware.com/finalizer"
-	DefaultSNATID       = "DEFAULT"
-	AVISubnetLBID       = "_AVI_SUBNET--LB"
-	IPPoolTypePublic    = "Public"
-	IPPoolTypePrivate   = "Private"
+	GCInterval        = 60 * time.Second
+	RealizeTimeout    = 2 * time.Minute
+	RealizeMaxRetries = 3
+	DefaultSNATID     = "DEFAULT"
+	AVISubnetLBID     = "_AVI_SUBNET--LB"
+	IPPoolTypePublic  = "Public"
+	IPPoolTypePrivate = "Private"
 
-	SecurityPolicyFinalizerName    = "securitypolicy.nsx.vmware.com/finalizer"
-	NetworkPolicyFinalizerName     = "networkpolicy.nsx.vmware.com/finalizer"
-	StaticRouteFinalizerName       = "staticroute.nsx.vmware.com/finalizer"
-	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
-	SubnetFinalizerName            = "subnet.nsx.vmware.com/finalizer"
-	SubnetSetFinalizerName         = "subnetset.nsx.vmware.com/finalizer"
-	SubnetPortFinalizerName        = "subnetport.nsx.vmware.com/finalizer"
-	NetworkInfoFinalizerName       = "networkinfo.nsx.vmware.com/finalizer"
-	PodFinalizerName               = "pod.nsx.vmware.com/finalizer"
+	SecurityPolicyFinalizerName      = "securitypolicy.nsx.vmware.com/finalizer"
+	NetworkPolicyFinalizerName       = "networkpolicy.nsx.vmware.com/finalizer"
+	StaticRouteFinalizerName         = "staticroute.nsx.vmware.com/finalizer"
+	NSXServiceAccountFinalizerName   = "nsxserviceaccount.nsx.vmware.com/finalizer"
+	SubnetFinalizerName              = "subnet.nsx.vmware.com/finalizer"
+	SubnetSetFinalizerName           = "subnetset.nsx.vmware.com/finalizer"
+	SubnetPortFinalizerName          = "subnetport.nsx.vmware.com/finalizer"
+	NetworkInfoFinalizerName         = "networkinfo.nsx.vmware.com/finalizer"
+	PodFinalizerName                 = "pod.nsx.vmware.com/finalizer"
+	IPPoolFinalizerName              = "ippool.nsx.vmware.com/finalizer"
+	IPAddressAllocationFinalizerName = "ipaddressallocation.nsx.vmware.com/finalizer"
 
 	IndexKeySubnetID            = "IndexKeySubnetID"
 	IndexKeyPathPath            = "Path"
@@ -144,6 +149,7 @@ var (
 	ResourceTypeVpc                    = "Vpc"
 	ResourceTypeSubnetPort             = "VpcSubnetPort"
 	ResourceTypeVirtualMachine         = "VirtualMachine"
+	ResourceTypeLBService              = "LBService"
 	ResourceTypeShare                  = "Share"
 	ResourceTypeSharedResource         = "SharedResource"
 	ResourceTypeChildSharedResource    = "ChildSharedResource"
@@ -156,11 +162,12 @@ var (
 	// ResourceTypeClusterControlPlane is used by NSXServiceAccountController
 	ResourceTypeClusterControlPlane = "clustercontrolplane"
 	// ResourceTypePrincipalIdentity is used by NSXServiceAccountController, and it is MP resource type.
-	ResourceTypePrincipalIdentity = "principalidentity"
-	ResourceTypeSubnet            = "VpcSubnet"
-	ResourceTypeIPPool            = "IpAddressPool"
-	ResourceTypeIPPoolBlockSubnet = "IpAddressPoolBlockSubnet"
-	ResourceTypeNode              = "HostTransportNode"
+	ResourceTypePrincipalIdentity   = "principalidentity"
+	ResourceTypeSubnet              = "VpcSubnet"
+	ResourceTypeIPPool              = "IpAddressPool"
+	ResourceTypeIPAddressAllocation = "VpcIpAddressAllocation"
+	ResourceTypeIPPoolBlockSubnet   = "IpAddressPoolBlockSubnet"
+	ResourceTypeNode                = "HostTransportNode"
 )
 
 type Service struct {
