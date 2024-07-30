@@ -564,6 +564,8 @@ func CasttoPointer(obj interface{}) interface{} {
 		return &v
 	case model.Vpc:
 		return &v
+	case model.LBService:
+		return &v
 	case model.IpAddressPoolBlockSubnet:
 		return &v
 	case model.Group:

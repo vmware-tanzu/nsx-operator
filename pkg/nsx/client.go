@@ -85,6 +85,7 @@ type Client struct {
 	SubnetsClient             vpcs.SubnetsClient
 	RealizedStateClient       realized_state.RealizedEntitiesClient
 	IPAddressAllocationClient vpcs.IpAddressAllocationsClient
+	VPCLBSClient              vpcs.VpcLbsClient
 
 	NSXChecker    NSXHealthChecker
 	NSXVerChecker NSXVersionChecker
@@ -165,6 +166,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	subnetStatusClient := subnets.NewStatusClient(restConnector(cluster))
 	realizedStateClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
 	ipAddressAllocationClient := vpcs.NewIpAddressAllocationsClient(restConnector(cluster))
+	vpcLBSClient := vpcs.NewVpcLbsClient(restConnector(cluster))
 
 	vpcSecurityClient := vpcs.NewSecurityPoliciesClient(restConnector(cluster))
 	vpcRuleClient := vpc_sp.NewRulesClient(restConnector(cluster))
@@ -206,6 +208,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		SubnetStatusClient: subnetStatusClient,
 		VPCSecurityClient:  vpcSecurityClient,
 		VPCRuleClient:      vpcRuleClient,
+		VPCLBSClient:       vpcLBSClient,
 
 		NSXChecker:                *nsxChecker,
 		NSXVerChecker:             *nsxVersionChecker,

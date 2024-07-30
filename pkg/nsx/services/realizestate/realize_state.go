@@ -49,7 +49,7 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 			return err
 		}
 		for _, result := range results.Results {
-			if *result.EntityType != entityType {
+			if entityType != "" && result.EntityType != nil && *result.EntityType != entityType {
 				continue
 			}
 			if *result.State == model.GenericPolicyRealizedResource_STATE_REALIZED {

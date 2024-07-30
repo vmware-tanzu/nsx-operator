@@ -8,6 +8,7 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -30,20 +31,6 @@ func (qIface *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ 
 		Results: []*data.StructValue{{}},
 		Cursor:  &cursor, ResultCount: &resultCount,
 	}, nil
-}
-
-func Test_IndexFunc(t *testing.T) {
-	mId, mTag, mScope := "test_id", "test_tag", "nsx-op/namespace_uid"
-	v := &model.Vpc{
-		Id:   &mId,
-		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-	}
-	t.Run("1", func(t *testing.T) {
-		got, _ := indexFunc(v)
-		if !reflect.DeepEqual(got, []string{"test_tag"}) {
-			t.Errorf("NSCRUIDScopeIndexFunc() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
-		}
-	})
 }
 
 func Test_filterTag(t *testing.T) {
@@ -72,17 +59,6 @@ func Test_filterTag(t *testing.T) {
 			}
 		})
 	}
-}
-
-func Test_KeyFunc(t *testing.T) {
-	Id := "test_id"
-	v := &model.Vpc{Id: &Id}
-	t.Run("1", func(t *testing.T) {
-		got, _ := keyFunc(v)
-		if got != "test_id" {
-			t.Errorf("keyFunc() = %v, want %v", got, "test_id")
-		}
-	})
 }
 
 func Test_InitializeVPCStore(t *testing.T) {
@@ -336,4 +312,130 @@ func TestSecurityPolicyStore_GetByKey(t *testing.T) {
 	spStore.Add(&sp2)
 	sp = spStore.GetByKey(path2)
 	assert.Equal(t, sp.Path, sp2.Path)
+}
+
+func Test_keyFunc(t *testing.T) {
+	id := "test_id"
+	type args struct {
+		obj interface{}
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{
+			name:    "vpc",
+			args:    args{obj: &model.Vpc{Id: &id}},
+			want:    id,
+			wantErr: assert.NoError,
+		},
+		{
+			name:    "lbs",
+			args:    args{obj: &model.LBService{Id: &id}},
+			want:    id,
+			wantErr: assert.NoError,
+		},
+		{
+			name:    "invalid",
+			args:    args{obj: &model.AntreaTraceflowConfig{Id: &id}},
+			want:    "",
+			wantErr: assert.Error,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := keyFunc(tt.args.obj)
+			if !tt.wantErr(t, err, fmt.Sprintf("keyFunc(%v)", tt.args.obj)) {
+				return
+			}
+			assert.Equalf(t, tt.want, got, "keyFunc(%v)", tt.args.obj)
+		})
+	}
+}
+
+func Test_indexFunc(t *testing.T) {
+	mId, mTag, mScope := "test_id", "test_tag", "nsx-op/namespace_uid"
+	type args struct {
+		obj interface{}
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    []string
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{
+			name: "vpc",
+			args: args{obj: &model.Vpc{
+				Id:   &mId,
+				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+			}},
+			want:    []string{"test_tag"},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "lbs",
+			args: args{obj: &model.LBService{
+				Id:   &mId,
+				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+			}},
+			want:    []string{"test_tag"},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "lbsnotag",
+			args: args{obj: &model.LBService{
+				Id:   &mId,
+				Tags: []model.Tag{},
+			}},
+			want:    []string{},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "invalid",
+			args: args{obj: &model.AntreaTraceflowConfig{
+				Id:   &mId,
+				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+			}},
+			want:    []string{},
+			wantErr: assert.Error,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := indexFunc(tt.args.obj)
+			if !tt.wantErr(t, err, fmt.Sprintf("indexFunc(%v)", tt.args.obj)) {
+				return
+			}
+			assert.Equalf(t, tt.want, got, "indexFunc(%v)", tt.args.obj)
+		})
+	}
+}
+
+func TestLBSStore_CRUD(t *testing.T) {
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
+	resourceStore := common.ResourceStore{
+		Indexer:     vpcCacheIndexer,
+		BindingType: model.LBServiceBindingType(),
+	}
+	ls := &LBSStore{
+		ResourceStore: resourceStore,
+	}
+	lbs1 := &model.LBService{Id: common.String("1")}
+	lbs2 := &model.LBService{Id: common.String("2")}
+	require.NoError(t, ls.Apply(lbs1))
+	require.Equal(t, 1, len(ls.List()))
+	require.True(t, reflect.DeepEqual(lbs1, ls.GetByKey("1")))
+	require.NoError(t, ls.Apply(lbs2))
+	require.Equal(t, 2, len(ls.List()))
+	lbs2.MarkedForDelete = common.Bool(true)
+	require.NoError(t, ls.Apply(lbs2))
+	require.Equal(t, 1, len(ls.List()))
+	require.Nil(t, ls.GetByKey("2"))
+	defer func() {
+		require.NotNil(t, recover())
+	}()
+	ls.Apply(&model.AntreaTraceflowConfig{Id: common.String("invalid")})
 }
