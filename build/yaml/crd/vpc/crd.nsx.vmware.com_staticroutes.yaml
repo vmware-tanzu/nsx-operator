@@ -1,0 +1,114 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  name: staticroutes.crd.nsx.vmware.com
+spec:
+  group: crd.nsx.vmware.com
+  names:
+    kind: StaticRoute
+    listKind: StaticRouteList
+    plural: staticroutes
+    singular: staticroute
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: Network in CIDR format
+      jsonPath: .spec.network
+      name: Network
+      type: string
+    - description: Next Hops
+      jsonPath: .spec.nextHops[*].ipAddress
+      name: NextHops
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: StaticRoute is the Schema for the staticroutes API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: StaticRouteSpec defines static routes configuration on VPC.
+            properties:
+              network:
+                description: Specify network address in CIDR format.
+                format: cidr
+                type: string
+              nextHops:
+                description: Next hop gateway
+                items:
+                  description: NextHop defines next hop configuration for network.
+                  properties:
+                    ipAddress:
+                      description: Next hop gateway IP address.
+                      format: ip
+                      type: string
+                  required:
+                  - ipAddress
+                  type: object
+                minItems: 1
+                type: array
+            required:
+            - network
+            - nextHops
+            type: object
+          status:
+            description: StaticRouteStatus defines the observed state of StaticRoute.
+            properties:
+              conditions:
+                items:
+                  description: StaticRouteCondition defines condition of StaticRoute.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        Last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed. If that is not known, then using the time when
+                        the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: Message shows a human-readable message about condition.
+                      type: string
+                    reason:
+                      description: Reason shows a brief reason of condition.
+                      type: string
+                    status:
+                      description: Status of the condition, one of True, False, Unknown.
+                      type: string
+                    type:
+                      description: Type defines condition type.
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+              nsxResourcePath:
+                type: string
+            required:
+            - conditions
+            - nsxResourcePath
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

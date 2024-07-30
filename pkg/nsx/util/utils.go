@@ -312,6 +312,63 @@ func DumpHttpRequest(request *http.Request) {
 	log.V(2).Info("http request", "url", request.URL, "body", string(body), "head", request.Header)
 }
 
+// NSXApiError processes an error and returns a formatted NSX API error message if applicable.
+// If the processed API error is nil, return the original error
+func NSXApiError(err error) error {
+	if err == nil {
+		return err
+	}
+	apierror, _ := DumpAPIError(err)
+	if apierror == nil {
+		return err
+	}
+	return fmt.Errorf("nsx error code: %d, message: %s, details: %s, related error: %s",
+		safeInt(apierror.ErrorCode), safeString(apierror.ErrorMessage), safeString(apierror.Details),
+		relatedErrorsToString(apierror.RelatedErrors))
+}
+
+func relatedErrorToString(err *model.RelatedApiError) string {
+	if err == nil {
+		return "nil"
+	}
+
+	return fmt.Sprintf(
+		"{Details: %s, ErrorCode: %d,  ErrorMessage: %s, ModuleName: %s}",
+		safeString(err.Details),
+		safeInt(err.ErrorCode),
+		safeString(err.ErrorMessage),
+		safeString(err.ModuleName),
+	)
+}
+
+func relatedErrorsToString(errors []model.RelatedApiError) string {
+	if errors == nil {
+		return "nil"
+	}
+
+	var errorStrings []string
+	for i := 0; i < len(errors); i++ {
+		currentErr := errors[i]
+		errorStrings = append(errorStrings, relatedErrorToString(&currentErr))
+	}
+
+	return fmt.Sprintf("[%s]", strings.Join(errorStrings, ", "))
+}
+
+func safeString(ptr *string) string {
+	if ptr == nil {
+		return ""
+	}
+	return *ptr
+}
+
+func safeInt(ptr *int64) int64 {
+	if ptr == nil {
+		return 0
+	}
+	return *ptr
+}
+
 // if ApiError is nil, check ErrorTypeEnum, such as ServiceUnavailable
 // if both return value are nil, the error is not on the list
 // there is no httpstatus, ApiError does't include it
@@ -506,6 +563,8 @@ func CasttoPointer(obj interface{}) interface{} {
 	case model.GenericPolicyRealizedResource:
 		return &v
 	case model.Vpc:
+		return &v
+	case model.LBService:
 		return &v
 	case model.IpAddressPoolBlockSubnet:
 		return &v

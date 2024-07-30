@@ -22,10 +22,11 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -191,6 +192,7 @@ func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.
 		return fmt.Errorf("PI/CCP doesn't match")
 	}
 	_, err := s.NSXClient.ClusterControlPlanesClient.Get(siteId, enforcementpointId, normalizedClusterName)
+	err = nsxutil.NSXApiError(err)
 	if err == nil {
 		return fmt.Errorf("CCP store is not synchronized")
 	}
@@ -240,6 +242,7 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 			CertificatePem: &cert,
 			Tags:           common.ConvertTagsToMPTags(s.buildBasicTags(obj)),
 		})
+		err = nsxutil.NSXApiError(err)
 		if err != nil {
 			return "", err
 		}
@@ -260,6 +263,7 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 			NodeId:       existingClusterId,
 			Tags:         s.buildBasicTags(obj),
 		})
+		err = nsxutil.NSXApiError(err)
 		if err != nil {
 			return "", err
 		}
@@ -332,6 +336,7 @@ func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, 
 	if isDeleteCCP {
 		cascade := true
 		if err := s.NSXClient.ClusterControlPlanesClient.Delete(siteId, enforcementpointId, normalizedClusterName, &cascade); err != nil {
+			err = nsxutil.NSXApiError(err)
 			log.Error(err, "failed to delete", "ClusterControlPlane", normalizedClusterName)
 			return err
 		}
@@ -342,11 +347,13 @@ func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, 
 	if piobj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName); isDeletePI && (piobj != nil) {
 		pi := piobj.(*mpmodel.PrincipalIdentity)
 		if err := s.NSXClient.PrincipalIdentitiesClient.Delete(*pi.Id); err != nil {
+			err = nsxutil.NSXApiError(err)
 			log.Error(err, "failed to delete", "PrincipalIdentity", *pi.Name)
 			return err
 		}
 		if pi.CertificateId != nil && *pi.CertificateId != "" {
 			if err := s.NSXClient.CertificatesClient.Delete(*pi.CertificateId); err != nil {
+				err = nsxutil.NSXApiError(err)
 				log.Error(err, "failed to delete", "PrincipalIdentity", *pi.Name, "Certificate", *pi.CertificateId)
 				return err
 			}
@@ -450,12 +457,14 @@ func (s *NSXServiceAccountService) updatePIAndCCPCert(normalizedClusterName, uid
 		PemEncoded:  &cert,
 	})
 	if err != nil {
+		err = nsxutil.NSXApiError(err)
 		return err
 	}
 	if pi2, err := s.NSXClient.PrincipalIdentitiesClient.Updatecertificate(mpmodel.UpdatePrincipalIdentityCertificateRequest{
 		CertificateId:       certList.Results[0].Id,
 		PrincipalIdentityId: pi.Id,
 	}); err != nil {
+		err = nsxutil.NSXApiError(err)
 		return err
 	} else {
 		pi = &pi2
@@ -463,6 +472,7 @@ func (s *NSXServiceAccountService) updatePIAndCCPCert(normalizedClusterName, uid
 	}
 	if oldCertId != "" {
 		if err := s.NSXClient.CertificatesClient.Delete(oldCertId); err != nil {
+			err = nsxutil.NSXApiError(err)
 			log.Error(err, "failed to delete", "PrincipalIdentity", *pi.Name, "Old Certificate", *pi.CertificateId)
 		}
 	}

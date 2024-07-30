@@ -1,0 +1,20 @@
+# This file is used in testing customized VPC case,
+# it support customer to define its own VPC network config.
+apiVersion: nsx.vmware.com/v1alpha1
+kind: VPCNetworkConfiguration
+metadata:
+  name: selfdefinedconfig
+spec:
+  defaultGatewayPath: /infra/tier-0s/PLR
+  # nsx-operator-ci would replace '{edge-cluster-id}' with real edge-cluster-id of testbed
+  edgeClusterPath: /infra/sites/default/enforcement-points/default/edge-clusters/{edge-cluster-id}
+  defaultIPv4SubnetSize: 26
+  nsxtProject: /orgs/default/projects/nsx_operator_e2e_test
+  externalIPv4Blocks:
+    - /infra/ip-blocks/e2e_test_external_ip_blk
+  privateIPv4CIDRs:
+    - 172.29.0.0/16
+    - 172.39.0.0/16
+    - 172.49.0.0/16
+  defaultSubnetAccessMode: Public
+  

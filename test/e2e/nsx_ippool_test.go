@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	IPPool = "ippool"
+	IPPool = "ippools.nsx.vmware.com"
 )
 
 // TestIPPoolBasic verifies that it could successfully realize ippool subnet from ipblock.

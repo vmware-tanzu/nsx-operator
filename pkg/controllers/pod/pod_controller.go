@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
@@ -52,7 +51,8 @@ type PodReconciler struct {
 
 func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Use once.Do to ensure gc is called only once
-	once.Do(func() { go r.GarbageCollector(make(chan bool), servicecommon.GCInterval) })
+	common.GcOnce(r, &once)
+
 	pod := &v1.Pod{}
 	log.Info("reconciling pod", "pod", req.NamespacedName)
 
@@ -198,45 +198,34 @@ func (r *PodReconciler) Start(mgr ctrl.Manager) error {
 	return nil
 }
 
-// GarbageCollector collect Pod which has been removed from crd.
-// cancel is used to break the loop during UT
-func (r *PodReconciler) GarbageCollector(cancel chan bool, timeout time.Duration) {
-	ctx := context.Background()
+// CollectGarbage  collect Pod which has been removed from crd.
+func (r *PodReconciler) CollectGarbage(ctx context.Context) {
 	log.Info("pod garbage collector started")
-	for {
-		select {
-		case <-cancel:
-			return
-		case <-time.After(timeout):
-		}
-		nsxSubnetPortSet := r.SubnetPortService.ListNSXSubnetPortIDForPod()
-		if len(nsxSubnetPortSet) == 0 {
-			continue
-		}
-		podList := &v1.PodList{}
-		err := r.Client.List(ctx, podList)
+	nsxSubnetPortSet := r.SubnetPortService.ListNSXSubnetPortIDForPod()
+	if len(nsxSubnetPortSet) == 0 {
+		return
+	}
+	podList := &v1.PodList{}
+	err := r.Client.List(ctx, podList)
+	if err != nil {
+		log.Error(err, "failed to list Pod")
+		return
+	}
+
+	PodSet := sets.New[string]()
+	for _, pod := range podList.Items {
+		PodSet.Insert(string(pod.UID))
+	}
+
+	diffSet := nsxSubnetPortSet.Difference(PodSet)
+	for elem := range diffSet {
+		log.V(1).Info("GC collected Pod", "UID", elem)
+		metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypePod)
+		err = r.SubnetPortService.DeleteSubnetPort(types.UID(elem))
 		if err != nil {
-			log.Error(err, "failed to list Pod")
-			continue
-		}
-
-		PodSet := sets.NewString()
-		for _, pod := range podList.Items {
-			PodSet.Insert(string(pod.UID))
-		}
-
-		for elem := range nsxSubnetPortSet {
-			if PodSet.Has(elem) {
-				continue
-			}
-			log.V(1).Info("GC collected Pod", "UID", elem)
-			metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypePod)
-			err = r.SubnetPortService.DeleteSubnetPort(types.UID(elem))
-			if err != nil {
-				metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypePod)
-			} else {
-				metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypePod)
-			}
+			metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypePod)
+		} else {
+			metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypePod)
 		}
 	}
 }

@@ -1,0 +1,142 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  name: vpcnetworkconfigurations.crd.nsx.vmware.com
+spec:
+  group: crd.nsx.vmware.com
+  names:
+    kind: VPCNetworkConfiguration
+    listKind: VPCNetworkConfigurationList
+    plural: vpcnetworkconfigurations
+    singular: vpcnetworkconfiguration
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - description: NSXTProject the Namespace associated with
+      jsonPath: .spec.nsxtProject
+      name: NSXTProject
+      type: string
+    - description: ExternalIPv4Blocks assigned to the Namespace
+      jsonPath: .spec.externalIPv4Blocks
+      name: ExternalIPv4Blocks
+      type: string
+    - description: PrivateIPv4CIDRs assigned to the Namespace
+      jsonPath: .spec.privateIPv4CIDRs
+      name: PrivateIPv4CIDRs
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: VPCNetworkConfiguration is the Schema for the vpcnetworkconfigurations
+          API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              VPCNetworkConfigurationSpec defines the desired state of VPCNetworkConfiguration.
+              There is a default VPCNetworkConfiguration that applies to Namespaces
+              do not have a VPCNetworkConfiguration assigned. When a field is not set
+              in a Namespace's VPCNetworkConfiguration, the Namespace will use the value
+              in the default VPCNetworkConfiguration.
+            properties:
+              defaultGatewayPath:
+                description: PolicyPath of Tier0 or Tier0 VRF gateway.
+                type: string
+              defaultIPv4SubnetSize:
+                default: 26
+                description: |-
+                  Default size of Subnet based upon estimated workload count.
+                  Defaults to 26.
+                type: integer
+              defaultSubnetAccessMode:
+                description: |-
+                  DefaultSubnetAccessMode defines the access mode of the default SubnetSet for PodVM and VM.
+                  Must be Public or Private.
+                enum:
+                - Public
+                - Private
+                type: string
+              edgeClusterPath:
+                description: Edge cluster path on which the networking elements will
+                  be created.
+                type: string
+              externalIPv4Blocks:
+                description: NSX-T IPv4 Block paths used to allocate external Subnets.
+                items:
+                  type: string
+                maxItems: 5
+                minItems: 0
+                type: array
+              nsxtProject:
+                description: NSX-T Project the Namespace associated with.
+                type: string
+              privateIPv4CIDRs:
+                description: Private IPv4 CIDRs used to allocate Private Subnets.
+                items:
+                  type: string
+                maxItems: 5
+                minItems: 0
+                type: array
+              shortID:
+                description: |-
+                  ShortID specifies Identifier to use when displaying VPC context in logs.
+                  Less than or equal to 8 characters.
+                maxLength: 8
+                type: string
+              vpc:
+                description: |-
+                  NSX path of the VPC the Namespace associated with.
+                  If vpc is set, only defaultIPv4SubnetSize and defaultSubnetAccessMode
+                  take effect, other fields are ignored.
+                type: string
+            type: object
+          status:
+            description: VPCNetworkConfigurationStatus defines the observed state
+              of VPCNetworkConfiguration
+            properties:
+              vpcs:
+                description: VPCs describes VPC info, now it includes lb Subnet info
+                  which are needed for AKO.
+                items:
+                  description: VPCInfo defines VPC info needed by tenant admin.
+                  properties:
+                    lbSubnetPath:
+                      description: AVISESubnetPath is the NSX Policy Path for the
+                        AVI SE Subnet.
+                      type: string
+                    name:
+                      description: VPC name.
+                      type: string
+                    nsxLoadBalancerPath:
+                      description: NSXLoadBalancerPath is the NSX Policy path for
+                        the NSX Load Balancer.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

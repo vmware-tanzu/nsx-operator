@@ -1,26 +1,28 @@
 package common
 
 import (
+	"context"
 	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 const (
-	MetricResTypeSecurityPolicy    = "securitypolicy"
-	MetricResTypeNetworkPolicy     = "networkpolicy"
-	MetricResTypeIPPool            = "ippool"
-	MetricResTypeNSXServiceAccount = "nsxserviceaccount"
-	MetricResTypeSubnetPort        = "subnetport"
-	MetricResTypeStaticRoute       = "staticroute"
-	MetricResTypeSubnet            = "subnet"
-	MetricResTypeSubnetSet         = "subnetset"
-	MetricResTypeNetworkInfo       = "networkinfo"
-	MetricResTypeNamespace         = "namespace"
-	MetricResTypePod               = "pod"
-	MetricResTypeNode              = "node"
-	MetricResTypeServiceLb         = "servicelb"
-	MaxConcurrentReconciles        = 8
+	MetricResTypeSecurityPolicy      = "securitypolicy"
+	MetricResTypeNetworkPolicy       = "networkpolicy"
+	MetricResTypeIPPool              = "ippool"
+	MetricResTypeIPAddressAllocation = "ipaddressallocation"
+	MetricResTypeNSXServiceAccount   = "nsxserviceaccount"
+	MetricResTypeSubnetPort          = "subnetport"
+	MetricResTypeStaticRoute         = "staticroute"
+	MetricResTypeSubnet              = "subnet"
+	MetricResTypeSubnetSet           = "subnetset"
+	MetricResTypeNetworkInfo         = "networkinfo"
+	MetricResTypeNamespace           = "namespace"
+	MetricResTypePod                 = "pod"
+	MetricResTypeNode                = "node"
+	MetricResTypeServiceLb           = "servicelb"
+	MaxConcurrentReconciles          = 8
 
 	LabelK8sMasterRole  = "node-role.kubernetes.io/master"
 	LabelK8sControlRole = "node-role.kubernetes.io/control-plane"
@@ -41,3 +43,8 @@ const (
 	ReasonFailDelete       = "FailDelete"
 	ReasonFailUpdate       = "FailUpdate"
 )
+
+// GarbageCollector interface with collectGarbage method
+type GarbageCollector interface {
+	CollectGarbage(ctx context.Context)
+}

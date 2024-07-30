@@ -12,6 +12,7 @@ import (
 	"k8s.io/client-go/util/retry"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 type RealizeStateService struct {
@@ -43,11 +44,12 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 		return !IsRealizeStateError(err)
 	}, func() error {
 		results, err := service.NSXClient.RealizedEntitiesClient.List(vpcInfo.OrgID, vpcInfo.ProjectID, intentPath, nil)
+		err = nsxutil.NSXApiError(err)
 		if err != nil {
 			return err
 		}
 		for _, result := range results.Results {
-			if *result.EntityType != entityType {
+			if entityType != "" && result.EntityType != nil && *result.EntityType != entityType {
 				continue
 			}
 			if *result.State == model.GenericPolicyRealizedResource_STATE_REALIZED {

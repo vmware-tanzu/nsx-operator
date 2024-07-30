@@ -71,19 +71,21 @@ type Client struct {
 	VPCSecurityClient vpcs.SecurityPoliciesClient
 	VPCRuleClient     vpc_sp.RulesClient
 
-	OrgRootClient       nsx_policy.OrgRootClient
-	ProjectInfraClient  projects.InfraClient
-	VPCClient           projects.VpcsClient
-	IPBlockClient       infra.IpBlocksClient
-	StaticRouteClient   vpcs.StaticRoutesClient
-	NATRuleClient       nat.NatRulesClient
-	VpcGroupClient      vpcs.GroupsClient
-	PortClient          subnets.PortsClient
-	PortStateClient     ports.StateClient
-	IPPoolClient        subnets.IpPoolsClient
-	IPAllocationClient  ip_pools.IpAllocationsClient
-	SubnetsClient       vpcs.SubnetsClient
-	RealizedStateClient realized_state.RealizedEntitiesClient
+	OrgRootClient             nsx_policy.OrgRootClient
+	ProjectInfraClient        projects.InfraClient
+	VPCClient                 projects.VpcsClient
+	IPBlockClient             infra.IpBlocksClient
+	StaticRouteClient         vpcs.StaticRoutesClient
+	NATRuleClient             nat.NatRulesClient
+	VpcGroupClient            vpcs.GroupsClient
+	PortClient                subnets.PortsClient
+	PortStateClient           ports.StateClient
+	IPPoolClient              subnets.IpPoolsClient
+	IPAllocationClient        ip_pools.IpAllocationsClient
+	SubnetsClient             vpcs.SubnetsClient
+	RealizedStateClient       realized_state.RealizedEntitiesClient
+	IPAddressAllocationClient vpcs.IpAddressAllocationsClient
+	VPCLBSClient              vpcs.VpcLbsClient
 
 	NSXChecker    NSXHealthChecker
 	NSXVerChecker NSXVersionChecker
@@ -163,6 +165,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	subnetsClient := vpcs.NewSubnetsClient(restConnector(cluster))
 	subnetStatusClient := subnets.NewStatusClient(restConnector(cluster))
 	realizedStateClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
+	ipAddressAllocationClient := vpcs.NewIpAddressAllocationsClient(restConnector(cluster))
+	vpcLBSClient := vpcs.NewVpcLbsClient(restConnector(cluster))
 
 	vpcSecurityClient := vpcs.NewSecurityPoliciesClient(restConnector(cluster))
 	vpcRuleClient := vpc_sp.NewRulesClient(restConnector(cluster))
@@ -204,13 +208,15 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		SubnetStatusClient: subnetStatusClient,
 		VPCSecurityClient:  vpcSecurityClient,
 		VPCRuleClient:      vpcRuleClient,
+		VPCLBSClient:       vpcLBSClient,
 
-		NSXChecker:          *nsxChecker,
-		NSXVerChecker:       *nsxVersionChecker,
-		IPPoolClient:        ipPoolClient,
-		IPAllocationClient:  ipAllocationClient,
-		SubnetsClient:       subnetsClient,
-		RealizedStateClient: realizedStateClient,
+		NSXChecker:                *nsxChecker,
+		NSXVerChecker:             *nsxVersionChecker,
+		IPPoolClient:              ipPoolClient,
+		IPAllocationClient:        ipAllocationClient,
+		SubnetsClient:             subnetsClient,
+		RealizedStateClient:       realizedStateClient,
+		IPAddressAllocationClient: ipAddressAllocationClient,
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time

@@ -29,10 +29,10 @@ func updateFail(r *NetworkInfoReconciler, c *context.Context, o *v1alpha1.Networ
 }
 
 func updateSuccess(r *NetworkInfoReconciler, c *context.Context, o *v1alpha1.NetworkInfo, client client.Client,
-	vpcState *v1alpha1.VPCState, ncName string, subnetPath string) {
+	vpcState *v1alpha1.VPCState, ncName string, subnetPath string, nsxLBSPath string) {
 	setNetworkInfoVPCStatus(c, o, client, vpcState)
 	// ako needs to know the avi subnet path created by nsx
-	setVPCNetworkConfigurationStatus(c, client, ncName, vpcState.Name, subnetPath)
+	setVPCNetworkConfigurationStatus(c, client, ncName, vpcState.Name, subnetPath, nsxLBSPath)
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "NetworkInfo CR has been successfully updated")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, common.MetricResTypeNetworkInfo)
 }
@@ -59,7 +59,7 @@ func setNetworkInfoVPCStatus(ctx *context.Context, networkInfo *v1alpha1.Network
 	}
 }
 
-func setVPCNetworkConfigurationStatus(ctx *context.Context, client client.Client, ncName string, vpcName string, aviSubnetPath string) {
+func setVPCNetworkConfigurationStatus(ctx *context.Context, client client.Client, ncName string, vpcName string, aviSubnetPath string, nsxLBSPath string) {
 	// read v1alpha1.VPCNetworkConfiguration by ncName
 	nc := &v1alpha1.VPCNetworkConfiguration{}
 	err := client.Get(*ctx, apitypes.NamespacedName{Name: ncName}, nc)
@@ -67,8 +67,9 @@ func setVPCNetworkConfigurationStatus(ctx *context.Context, client client.Client
 		log.Error(err, "failed to get VPCNetworkConfiguration", "Name", ncName)
 	}
 	createdVPCInfo := &v1alpha1.VPCInfo{
-		Name:            vpcName,
-		AVISESubnetPath: aviSubnetPath,
+		Name:                vpcName,
+		AVISESubnetPath:     aviSubnetPath,
+		NSXLoadBalancerPath: nsxLBSPath,
 	}
 	// iterate through VPCNetworkConfiguration.Status.VPCs, if vpcName already exists, update it
 	for i, vpc := range nc.Status.VPCs {

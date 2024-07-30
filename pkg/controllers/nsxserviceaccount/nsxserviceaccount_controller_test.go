@@ -25,7 +25,7 @@ import (
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	nsxvmwarecomv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	nsxvmwarecomv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
@@ -513,7 +513,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 				patches := tt.prepareFunc(t, r, ctx)
 				defer patches.Reset()
 			}
-
+			var once sync.Once
 			patches2 := gomonkey.ApplyMethod(reflect.TypeOf(&once), "Do", func(_ *sync.Once, _ func()) {})
 			defer patches2.Reset()
 
@@ -594,17 +594,12 @@ func TestNSXServiceAccountReconciler_GarbageCollector(t *testing.T) {
 			}
 			r.Service.SetUpStore()
 			ctx := context.TODO()
-			cancel := make(chan bool)
 			if tt.prepareFunc != nil {
 				patches := tt.prepareFunc(t, r, ctx)
 				defer patches.Reset()
 			}
 
-			go func() {
-				time.Sleep(50 * time.Millisecond)
-				cancel <- true
-			}()
-			r.GarbageCollector(cancel, 100*time.Millisecond)
+			r.CollectGarbage(ctx)
 		})
 	}
 }
@@ -880,7 +875,8 @@ func TestNSXServiceAccountReconciler_garbageCollector(t *testing.T) {
 				})
 			},
 			args: args{
-				nsxServiceAccountUIDSet: sets.New[string]("00000000-0000-0000-0000-000000000002", "00000000-0000-0000-0000-000000000003", "00000000-0000-0000-0000-000000000004"),
+				nsxServiceAccountUIDSet: sets.New[string]("00000000-0000-0000-0000-000000000002", "00000000-0000-0000-0000-000000000003",
+					"00000000-0000-0000-0000-000000000004"),
 				nsxServiceAccountList: &nsxvmwarecomv1alpha1.NSXServiceAccountList{Items: []nsxvmwarecomv1alpha1.NSXServiceAccount{{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace:  "ns1",

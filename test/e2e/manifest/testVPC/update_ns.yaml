@@ -1,0 +1,8 @@
+# This file is used in testing shared VPC case,
+# it create a namespace with customized network config for VPC.
+apiVersion: v1
+kind: Namespace
+metadata:
+  annotations:
+    nsx.vmware.com/vpc_network_config: selfdefinedconfig
+  name: update-ns

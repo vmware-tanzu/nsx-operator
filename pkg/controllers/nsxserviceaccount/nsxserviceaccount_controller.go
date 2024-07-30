@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,7 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	nsxvmwarecomv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	nsxvmwarecomv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -39,6 +38,8 @@ var (
 	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
 	MetricResType           = common.MetricResTypeNSXServiceAccount
+	count                   = uint16(0)
+	ca                      []byte
 	once                    sync.Once
 )
 
@@ -68,7 +69,8 @@ type NSXServiceAccountReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.13.0/pkg/reconcile
 func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Use once.Do to ensure gc is called only once
-	once.Do(func() { go r.GarbageCollector(make(chan bool), servicecommon.GCInterval) })
+	common.GcOnce(r, &once)
+
 	obj := &nsxvmwarecomv1alpha1.NSXServiceAccount{}
 	log.Info("reconciling CR", "nsxserviceaccount", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
@@ -170,36 +172,26 @@ func (r *NSXServiceAccountReconciler) Start(mgr ctrl.Manager) error {
 	return nil
 }
 
-// GarbageCollector collect NSXServiceAccount which has been removed from crd.
-// cancel is used to break the loop during UT
-func (r *NSXServiceAccountReconciler) GarbageCollector(cancel chan bool, timeout time.Duration) {
-	ctx := context.Background()
-	count := uint16(0)
-	ca := r.Service.NSXConfig.GetCACert()
-	log.Info("garbage collector started")
-	for {
-		nsxServiceAccountList := &nsxvmwarecomv1alpha1.NSXServiceAccountList{}
-		var gcSuccessCount, gcErrorCount uint32
-		var err error
-		nsxServiceAccountUIDSet := r.Service.ListNSXServiceAccountRealization()
-		if len(nsxServiceAccountUIDSet) == 0 {
-			goto gcWait
-		}
-		err = r.Client.List(ctx, nsxServiceAccountList)
-		if err != nil {
-			log.Error(err, "failed to list NSXServiceAccount CR")
-			goto gcWait
-		}
-		gcSuccessCount, gcErrorCount = r.garbageCollector(nsxServiceAccountUIDSet, nsxServiceAccountList)
-		log.V(1).Info("gc collects NSXServiceAccount CR", "success", gcSuccessCount, "error", gcErrorCount)
-		count, ca = r.validateRealized(count, ca, nsxServiceAccountList)
-	gcWait:
-		select {
-		case <-cancel:
-			return
-		case <-time.After(timeout):
-		}
+// CollectGarbage collect NSXServiceAccount which has been removed from crd.
+// it implements the interface GarbageCollector method.
+func (r *NSXServiceAccountReconciler) CollectGarbage(ctx context.Context) {
+	log.Info("nsx service account garbage collector started")
+	ca = r.Service.NSXConfig.GetCACert()
+	nsxServiceAccountList := &nsxvmwarecomv1alpha1.NSXServiceAccountList{}
+	var gcSuccessCount, gcErrorCount uint32
+	var err error
+	nsxServiceAccountUIDSet := r.Service.ListNSXServiceAccountRealization()
+	if len(nsxServiceAccountUIDSet) == 0 {
+		return
 	}
+	err = r.Client.List(ctx, nsxServiceAccountList)
+	if err != nil {
+		log.Error(err, "failed to list NSXServiceAccount CR")
+		return
+	}
+	gcSuccessCount, gcErrorCount = r.garbageCollector(nsxServiceAccountUIDSet, nsxServiceAccountList)
+	log.V(1).Info("gc collects NSXServiceAccount CR", "success", gcSuccessCount, "error", gcErrorCount)
+	count, ca = r.validateRealized(count, ca, nsxServiceAccountList)
 }
 
 func (r *NSXServiceAccountReconciler) validateRealized(count uint16, ca []byte, nsxServiceAccountList *nsxvmwarecomv1alpha1.NSXServiceAccountList) (uint16, []byte) {

@@ -51,7 +51,7 @@ func buildPrivateIpBlock(networkInfo *v1alpha1.NetworkInfo, nsObj *v1.Namespace,
 }
 
 func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNetworkConfigInfo, cluster string, pathMap map[string]string,
-	nsxVPC *model.Vpc) (*model.Vpc,
+	nsxVPC *model.Vpc, useAVILB bool) (*model.Vpc,
 	error) {
 	vpc := &model.Vpc{}
 	if nsxVPC != nil {
@@ -61,7 +61,7 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 			return nil, nil
 		}
 		// for updating vpc case, use current vpc id, name
-		vpc = nsxVPC
+		*vpc = *nsxVPC
 	} else {
 		// for creating vpc case, fill in vpc properties based on networkconfig
 		vpcName := util.GenerateDisplayName("", "vpc", obj.GetNamespace(), "", cluster)
@@ -76,7 +76,10 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 			},
 		}
 		vpc.SiteInfos = siteInfos
-		vpc.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &DefaultLoadBalancerVPCEndpointEnabled}
+		if useAVILB {
+			loadBalancerVPCEndpointEnabled := true
+			vpc.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &loadBalancerVPCEndpointEnabled}
+		}
 		vpc.Tags = util.BuildBasicTags(cluster, obj, nsObj.UID)
 	}
 
@@ -88,4 +91,22 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 	}
 
 	return vpc, nil
+}
+
+func buildNSXLBS(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster, lbsSize, vpcPath string, relaxScaleValidation *bool) (*model.LBService, error) {
+	lbs := &model.LBService{}
+	lbsName := util.GenerateDisplayName("", "vpc", nsObj.GetName(), "", cluster)
+	// Use VPC id for auto-created LBS id
+	lbs.Id = common.String(string(nsObj.GetUID()))
+	lbs.DisplayName = &lbsName
+	lbs.Tags = util.BuildBasicTags(cluster, obj, nsObj.GetUID())
+	// "created_for" is required by NCP, and "lb_t1_link_ip" is not needed for VPC
+	lbs.Tags = append(lbs.Tags, model.Tag{
+		Scope: common.String(common.TagScopeCreatedFor),
+		Tag:   common.String(common.TagValueSLB),
+	})
+	lbs.Size = &lbsSize
+	lbs.ConnectivityPath = &vpcPath
+	lbs.RelaxScaleValidation = relaxScaleValidation
+	return lbs, nil
 }
