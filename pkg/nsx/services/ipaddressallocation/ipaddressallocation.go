@@ -117,7 +117,7 @@ func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.V
 	if err != nil {
 		return err
 	}
-	if nsxIPAddressAllocation.AllocationIps == nil {
+	if nsxIPAddressAllocationNew.AllocationIps == nil {
 		err := fmt.Errorf("cidr not realized yet")
 		return err
 	}
