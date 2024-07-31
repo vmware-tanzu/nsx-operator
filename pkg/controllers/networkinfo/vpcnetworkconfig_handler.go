@@ -151,7 +151,7 @@ func isDefaultNetworkConfigCR(vpcConfigCR v1alpha1.VPCNetworkConfiguration) bool
 }
 
 // parse org id and project id from nsxtProject path
-// example /orgs/default/projects/nsx_operator_e2e_test
+// example /orgs/default/projects/nsx_operator_test
 func nsxtProjectPathToId(path string) (string, string, error) {
 	parts := strings.Split(path, "/")
 	if len(parts) < 4 {
