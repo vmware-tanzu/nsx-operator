@@ -29,7 +29,7 @@ var NSXOperatorSA = "system:serviceaccount:vmware-system-nsx:ncp-svc-account"
 
 type SubnetSetValidator struct {
 	Client  client.Client
-	decoder *admission.Decoder
+	decoder admission.Decoder
 }
 
 func defaultSubnetSetLabelChanged(oldSubnetSet, subnetSet *v1alpha1.SubnetSet) bool {

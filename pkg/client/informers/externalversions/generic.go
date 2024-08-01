@@ -8,8 +8,8 @@ package externalversions
 import (
 	"fmt"
 
-	v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
-	v1alpha2 "github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha2"
+	v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/crd.nsx.vmware.com/v1alpha1"
+	v1alpha2 "github.com/vmware-tanzu/nsx-operator/pkg/apis/crd.nsx.vmware.com/v1alpha2"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	cache "k8s.io/client-go/tools/cache"
 )
@@ -40,33 +40,31 @@ func (f *genericInformer) Lister() cache.GenericLister {
 // TODO extend this to unknown resources with a client pool
 func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource) (GenericInformer, error) {
 	switch resource {
-	// Group=nsx.vmware.com, Version=v1alpha1
+	// Group=crd.nsx.vmware.com, Version=v1alpha1
 	case v1alpha1.SchemeGroupVersion.WithResource("addressbindings"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Nsx().V1alpha1().AddressBindings().Informer()}, nil
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().AddressBindings().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("ipaddressallocations"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Nsx().V1alpha1().IPAddressAllocations().Informer()}, nil
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().IPAddressAllocations().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("ippools"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Nsx().V1alpha1().IPPools().Informer()}, nil
-	case v1alpha1.SchemeGroupVersion.WithResource("nsxserviceaccounts"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Nsx().V1alpha1().NSXServiceAccounts().Informer()}, nil
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().IPPools().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("networkinfos"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Nsx().V1alpha1().NetworkInfos().Informer()}, nil
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().NetworkInfos().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("securitypolicies"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Nsx().V1alpha1().SecurityPolicies().Informer()}, nil
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().SecurityPolicies().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("staticroutes"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Nsx().V1alpha1().StaticRoutes().Informer()}, nil
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().StaticRoutes().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("subnets"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Nsx().V1alpha1().Subnets().Informer()}, nil
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().Subnets().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("subnetports"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Nsx().V1alpha1().SubnetPorts().Informer()}, nil
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().SubnetPorts().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("subnetsets"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Nsx().V1alpha1().SubnetSets().Informer()}, nil
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().SubnetSets().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("vpcnetworkconfigurations"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Nsx().V1alpha1().VPCNetworkConfigurations().Informer()}, nil
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().VPCNetworkConfigurations().Informer()}, nil
 
-		// Group=nsx.vmware.com, Version=v1alpha2
+		// Group=crd.nsx.vmware.com, Version=v1alpha2
 	case v1alpha2.SchemeGroupVersion.WithResource("ippools"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Nsx().V1alpha2().IPPools().Informer()}, nil
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha2().IPPools().Informer()}, nil
 
 	}
 

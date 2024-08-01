@@ -153,7 +153,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Namespace:       requestArgs.req.Namespace,
 					Name:            requestArgs.req.Name,
 					ResourceVersion: "2",
-					Finalizers:      []string{"nsxserviceaccount.nsx.vmware.com/finalizer"},
+					Finalizers:      nil,
 				},
 				Spec: nsxvmwarecomv1alpha1.NSXServiceAccountSpec{},
 				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
