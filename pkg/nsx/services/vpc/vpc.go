@@ -388,7 +388,6 @@ func (s *VPCService) getSharedVPCNamespaceFromNS(ns string) (string, error) {
 		Name:      ns,
 		Namespace: ns,
 	}, obj); err != nil {
-		err = nsxutil.NSXApiError(err)
 		log.Error(err, "failed to fetch namespace", "Namespace", ns)
 		return "", err
 	}
@@ -413,7 +412,6 @@ func (s *VPCService) getNetworkconfigNameFromNS(ns string) (string, error) {
 		Name:      ns,
 		Namespace: ns,
 	}, obj); err != nil {
-		err = nsxutil.NSXApiError(err)
 		log.Error(err, "failed to fetch namespace", "Namespace", ns)
 		return "", err
 	}
@@ -517,7 +515,6 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 	nsObj := &v1.Namespace{}
 	// get name obj
 	if err := s.Client.Get(ctx, types.NamespacedName{Name: obj.Namespace}, nsObj); err != nil {
-		err = nsxutil.NSXApiError(err)
 		log.Error(err, "unable to fetch namespace", "name", obj.Namespace)
 		return nil, nil, err
 	}
