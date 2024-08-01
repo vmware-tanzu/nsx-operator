@@ -34,8 +34,8 @@ type VPCNetworkConfigurationSpec struct {
 	// +kubebuilder:validation:MaxItems=5
 	PrivateIPv4CIDRs []string `json:"privateIPv4CIDRs,omitempty"`
 	// Default size of Subnet based upon estimated workload count.
-	// Defaults to 26.
-	// +kubebuilder:default=26
+	// Defaults to 32.
+	// +kubebuilder:default=32
 	DefaultIPv4SubnetSize int `json:"defaultIPv4SubnetSize,omitempty"`
 	// DefaultSubnetAccessMode defines the access mode of the default SubnetSet for PodVM and VM.
 	// Must be Public or Private.
