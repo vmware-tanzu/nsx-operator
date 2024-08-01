@@ -50,20 +50,22 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 	switch o := obj.(type) {
 	case *v1alpha1.Subnet:
 		nsxSubnet = &model.VpcSubnet{
-			Id:          String(service.BuildSubnetID(o)),
-			AccessMode:  String(util.Capitalize(string(o.Spec.AccessMode))),
-			DhcpConfig:  service.buildDHCPConfig(o.Spec.DHCPConfig.EnableDHCP, int64(o.Spec.IPv4SubnetSize-4)),
-			DisplayName: String(service.buildSubnetName(o)),
+			Id:             String(service.BuildSubnetID(o)),
+			AccessMode:     String(util.Capitalize(string(o.Spec.AccessMode))),
+			Ipv4SubnetSize: Int64(int64(o.Spec.IPv4SubnetSize)),
+			DhcpConfig:     service.buildDHCPConfig(o.Spec.DHCPConfig.EnableDHCP, int64(o.Spec.IPv4SubnetSize-4)),
+			DisplayName:    String(service.buildSubnetName(o)),
 		}
 		staticIpAllocation = o.Spec.AdvancedConfig.StaticIPAllocation.Enable
 		nsxSubnet.IpAddresses = o.Spec.IPAddresses
 	case *v1alpha1.SubnetSet:
 		index := uuid.NewString()
 		nsxSubnet = &model.VpcSubnet{
-			Id:          String(service.buildSubnetSetID(o, index)),
-			AccessMode:  String(util.Capitalize(string(o.Spec.AccessMode))),
-			DhcpConfig:  service.buildDHCPConfig(o.Spec.DHCPConfig.EnableDHCP, int64(o.Spec.IPv4SubnetSize-4)),
-			DisplayName: String(service.buildSubnetSetName(o, index)),
+			Id:             String(service.buildSubnetSetID(o, index)),
+			AccessMode:     String(util.Capitalize(string(o.Spec.AccessMode))),
+			Ipv4SubnetSize: Int64(int64(o.Spec.IPv4SubnetSize)),
+			DhcpConfig:     service.buildDHCPConfig(o.Spec.DHCPConfig.EnableDHCP, int64(o.Spec.IPv4SubnetSize-4)),
+			DisplayName:    String(service.buildSubnetSetName(o, index)),
 		}
 		staticIpAllocation = o.Spec.AdvancedConfig.StaticIPAllocation.Enable
 	default:
