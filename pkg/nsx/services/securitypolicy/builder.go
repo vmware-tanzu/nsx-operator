@@ -38,7 +38,7 @@ var (
 	Int64  = common.Int64
 )
 
-func (service *SecurityPolicyService) buildecurityPolicyName(obj *v1alpha1.SecurityPolicy, createdFor string) string {
+func (service *SecurityPolicyService) buildSecurityPolicyName(obj *v1alpha1.SecurityPolicy, createdFor string) string {
 	prefix := common.SecurityPolicyPrefix
 	if createdFor != common.ResourceTypeSecurityPolicy {
 		prefix = common.NetworkPolicyPrefix
@@ -47,7 +47,7 @@ func (service *SecurityPolicyService) buildecurityPolicyName(obj *v1alpha1.Secur
 	return nsxSecurityPolicyName
 }
 
-func (service *SecurityPolicyService) buildecurityPolicyID(obj *v1alpha1.SecurityPolicy, createdFor string) string {
+func (service *SecurityPolicyService) buildSecurityPolicyID(obj *v1alpha1.SecurityPolicy, createdFor string) string {
 	prefix := common.SecurityPolicyPrefix
 	if createdFor != common.ResourceTypeSecurityPolicy {
 		prefix = common.NetworkPolicyPrefix
@@ -66,8 +66,8 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 	log.V(1).Info("building the model SecurityPolicy from CR SecurityPolicy", "object", *obj)
 	nsxSecurityPolicy := &model.SecurityPolicy{}
 
-	nsxSecurityPolicy.Id = String(service.buildecurityPolicyID(obj, createdFor))
-	nsxSecurityPolicy.DisplayName = String(service.buildecurityPolicyName(obj, createdFor))
+	nsxSecurityPolicy.Id = String(service.buildSecurityPolicyID(obj, createdFor))
+	nsxSecurityPolicy.DisplayName = String(service.buildSecurityPolicyName(obj, createdFor))
 	// TODO: confirm the sequence number: offset
 	nsxSecurityPolicy.SequenceNumber = Int64(int64(obj.Spec.Priority))
 
@@ -588,7 +588,7 @@ func (service *SecurityPolicyService) buildRuleID(obj *v1alpha1.SecurityPolicy, 
 	return util.GenerateID(fmt.Sprintf("%s", obj.UID), prefix, fmt.Sprintf("%s", util.Sha1(string(serializedBytes))), fmt.Sprintf("%d", ruleIdx))
 }
 
-func (service *SecurityPolicyService) buildRuleDisplayName(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, portIdx, portNumber int, hasNamedport bool, createdFor string) (string, error) {
+func (service *SecurityPolicyService) buildRuleDisplayName(rule *v1alpha1.SecurityPolicyRule, portIdx, portNumber int, hasNamedport bool, createdFor string) (string, error) {
 	var ruleName string
 	var suffix string
 
@@ -855,7 +855,7 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 		// Build a nsx share resource in project level
 		nsxShare, err := service.buildProjectShare(obj, &rulePeerGroup, []string{rulePeerGroupPath}, *sharedWith, createdFor)
 		if err != nil {
-			log.Error(err, "failed to build nsx project share", "ruleGroupName", rulePeerGroupName)
+			log.Error(err, "failed to build NSX project share", "ruleGroupName", rulePeerGroupName)
 			return nil, "", nil, err
 		}
 
@@ -864,6 +864,10 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 	}
 
 	return &rulePeerGroup, rulePeerGroupPath, nil, err
+}
+
+func (service *SecurityPolicyService) buildExpandedRuleId(ruleBaseId string, portIdx int, portAddressIdx int) string {
+	return fmt.Sprintf("%s_%d_%d", ruleBaseId, portIdx, portAddressIdx)
 }
 
 // Build rule basic info, ruleIdx is the index of the rules of security policy,
@@ -880,13 +884,13 @@ func (service *SecurityPolicyService) buildRuleBasicInfo(obj *v1alpha1.SecurityP
 	if err != nil {
 		return nil, err
 	}
-	displayName, err := service.buildRuleDisplayName(obj, rule, portIdx, portNumber, hasNamedport, createdFor)
+	displayName, err := service.buildRuleDisplayName(rule, portIdx, portNumber, hasNamedport, createdFor)
 	if err != nil {
 		log.Error(err, "failed to build rule's display name", "object.UID", obj.UID, "rule", rule, "createdFor", createdFor)
 	}
 
 	nsxRule := model.Rule{
-		Id:             String(fmt.Sprintf("%s_%d_%d", service.buildRuleID(obj, rule, ruleIdx, createdFor), portIdx, portAddressIdx)),
+		Id:             String(service.buildExpandedRuleId(service.buildRuleID(obj, rule, ruleIdx, createdFor), portIdx, portAddressIdx)),
 		DisplayName:    &displayName,
 		Direction:      &ruleDirection,
 		SequenceNumber: Int64(int64(ruleIdx)),

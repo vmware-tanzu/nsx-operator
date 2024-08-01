@@ -1,7 +1,6 @@
 package securitypolicy
 
 import (
-	"fmt"
 	"reflect"
 	"testing"
 
@@ -32,18 +31,18 @@ func TestBuildSecurityPolicy(t *testing.T) {
 		},
 	)
 
-	podSelectorRule0IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[0], 0, common.ResourceTypeSecurityPolicy), 0, 0)
-	podSelectorRule1IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[1], 1, common.ResourceTypeSecurityPolicy), 0, 0)
-	vmSelectorRule0IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithVMSelector, &spWithVMSelector.Spec.Rules[0], 0, common.ResourceTypeSecurityPolicy), 0, 0)
-	vmSelectorRule1IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithVMSelector, &spWithVMSelector.Spec.Rules[1], 1, common.ResourceTypeSecurityPolicy), 0, 0)
-	vmSelectorRule2IDPort000 := fmt.Sprintf("%s_%d_%d", service.buildRuleID(&spWithVMSelector, &spWithVMSelector.Spec.Rules[2], 2, common.ResourceTypeSecurityPolicy), 0, 0)
+	podSelectorRule0IDPort000 := service.buildExpandedRuleId(service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[0], 0, common.ResourceTypeSecurityPolicy), 0, 0)
+	podSelectorRule1IDPort000 := service.buildExpandedRuleId(service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[1], 1, common.ResourceTypeSecurityPolicy), 0, 0)
+	vmSelectorRule0IDPort000 := service.buildExpandedRuleId(service.buildRuleID(&spWithVMSelector, &spWithVMSelector.Spec.Rules[0], 0, common.ResourceTypeSecurityPolicy), 0, 0)
+	vmSelectorRule1IDPort000 := service.buildExpandedRuleId(service.buildRuleID(&spWithVMSelector, &spWithVMSelector.Spec.Rules[1], 1, common.ResourceTypeSecurityPolicy), 0, 0)
+	vmSelectorRule2IDPort000 := service.buildExpandedRuleId(service.buildRuleID(&spWithVMSelector, &spWithVMSelector.Spec.Rules[2], 2, common.ResourceTypeSecurityPolicy), 0, 0)
 
-	podSelectorRule0Name00, _ := service.buildRuleDisplayName(&spWithPodSelector, &spWithPodSelector.Spec.Rules[0], 0, -1, false, common.ResourceTypeSecurityPolicy)
-	podSelectorRule1Name00, _ := service.buildRuleDisplayName(&spWithPodSelector, &spWithPodSelector.Spec.Rules[1], 0, -1, false, common.ResourceTypeSecurityPolicy)
+	podSelectorRule0Name00, _ := service.buildRuleDisplayName(&spWithPodSelector.Spec.Rules[0], 0, -1, false, common.ResourceTypeSecurityPolicy)
+	podSelectorRule1Name00, _ := service.buildRuleDisplayName(&spWithPodSelector.Spec.Rules[1], 0, -1, false, common.ResourceTypeSecurityPolicy)
 
-	vmSelectorRule0Name00, _ := service.buildRuleDisplayName(&spWithVMSelector, &spWithVMSelector.Spec.Rules[0], 0, -1, false, common.ResourceTypeSecurityPolicy)
-	vmSelectorRule1Name00, _ := service.buildRuleDisplayName(&spWithVMSelector, &spWithVMSelector.Spec.Rules[1], 0, -1, false, common.ResourceTypeSecurityPolicy)
-	vmSelectorRule2Name00, _ := service.buildRuleDisplayName(&spWithVMSelector, &spWithVMSelector.Spec.Rules[2], 0, -1, false, common.ResourceTypeSecurityPolicy)
+	vmSelectorRule0Name00, _ := service.buildRuleDisplayName(&spWithVMSelector.Spec.Rules[0], 0, -1, false, common.ResourceTypeSecurityPolicy)
+	vmSelectorRule1Name00, _ := service.buildRuleDisplayName(&spWithVMSelector.Spec.Rules[1], 0, -1, false, common.ResourceTypeSecurityPolicy)
+	vmSelectorRule2Name00, _ := service.buildRuleDisplayName(&spWithVMSelector.Spec.Rules[2], 0, -1, false, common.ResourceTypeSecurityPolicy)
 
 	tests := []struct {
 		name           string
@@ -801,7 +800,7 @@ func TestBuildRuleDisplayName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observedDisplayName, observedError := service.buildRuleDisplayName(tt.inputSecurityPolicy, tt.inputRule, tt.portIdx, -1, false, tt.createdFor)
+			observedDisplayName, observedError := service.buildRuleDisplayName(tt.inputRule, tt.portIdx, -1, false, tt.createdFor)
 			assert.Equal(t, tt.expectedRuleDisplayName, observedDisplayName)
 			assert.Equal(t, nil, observedError)
 		})
