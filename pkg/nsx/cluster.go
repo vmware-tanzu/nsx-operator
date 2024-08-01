@@ -437,6 +437,9 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 	case VpcAviRule:
 		minVersion = nsx411Version
 		validFeature = true
+	case NodeType:
+		minVersion = nsx900Version
+		validFeature = true
 	}
 
 	if validFeature {

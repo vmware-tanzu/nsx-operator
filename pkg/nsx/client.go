@@ -18,11 +18,11 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
-	projects "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
-	infra "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs"
-	nat "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/nat"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/nat"
 	vpc_sp "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ip_pools"
@@ -42,10 +42,11 @@ const (
 	ServiceAccountCertRotation
 	StaticRoute
 	VpcAviRule
+	NodeType
 	AllFeatures
 )
 
-var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_AVI_RULE"}
+var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_AVI_RULE", "NODE_TYPE"}
 
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
@@ -97,6 +98,7 @@ var (
 	nsx411Version = [3]int64{4, 1, 1}
 	nsx412Version = [3]int64{4, 1, 2}
 	nsx413Version = [3]int64{4, 1, 3}
+	nsx900Version = [3]int64{9, 0, 0}
 )
 
 type NSXHealthChecker struct {
