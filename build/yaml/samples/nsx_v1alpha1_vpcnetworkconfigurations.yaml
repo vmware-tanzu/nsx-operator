@@ -5,7 +5,7 @@ metadata:
 spec:
   defaultGatewayPath: /infra/tier-0s/t0
   edgeClusterPath: /infra/sites/default/enforcement-points/default/edge-clusters/2d9df59f-6dc6-4911-8865-21fadc23d4da
-  defaultIPv4SubnetSize: 26
+  defaultIPv4SubnetSize: 32
   nsxtProject: proj-1
   externalIPv4Blocks:
     - block1
@@ -21,5 +21,5 @@ metadata:
   name: vpc-network-config-with-pre-created-vpc
 spec:
   vpc: /orgs/default/projects/proj-1/vpcs/vpc-1
-  defaultIPv4SubnetSize: 28
+  defaultIPv4SubnetSize: 32
   defaultSubnetAccessMode: Private
