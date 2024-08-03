@@ -1,7 +1,7 @@
 package ippool
 
 import (
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha2"
 )
 
 func (service *IPPoolService) GetUnrealizedSubnetNames(obj *v1alpha2.IPPool) []string {
