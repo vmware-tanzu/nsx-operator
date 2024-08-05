@@ -104,6 +104,12 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				updateFail(r, &ctx, obj, err.Error())
 				return ResultNormal, nil
 			}
+			if errors.As(err, &util.ImmutableFieldModifyError{}) {
+				log.Error(err, "not allowed to modify immutable field, would not retry", "subnet", req.NamespacedName)
+				updateFail(r, &ctx, obj, err.Error())
+				return ResultNormal, nil
+			}
+
 			log.Error(err, "operate failed, would retry exponentially", "subnet", req.NamespacedName)
 			updateFail(r, &ctx, obj, "")
 			return ResultRequeue, err

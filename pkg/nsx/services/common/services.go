@@ -4,6 +4,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
 )
 
 // VPCServiceProvider provides to methods other controllers and services.
@@ -27,6 +29,7 @@ type SubnetServiceProvider interface {
 	GetSubnetsByIndex(key, value string) []*model.VpcSubnet
 	CreateOrUpdateSubnet(obj client.Object, vpcInfo VPCResourceInfo, tags []model.Tag) (string, error)
 	GenerateSubnetNSTags(obj client.Object, nsUID string) []model.Tag
+	ValidateSubnetSetImmutableFields(*v1alpha1.SubnetSet, *model.VpcSubnet, bool) error
 }
 
 type SubnetPortServiceProvider interface {
