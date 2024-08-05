@@ -28,7 +28,7 @@ require (
 	github.com/prometheus/client_golang v1.16.0
 	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.4
-	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-20240730023032-0784c0791081
+	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-20240805022824-6e7c54aba36a
 	github.com/vmware-tanzu/nsx-operator/pkg/client v0.0.0-20240102061654-537b080e159f
 	github.com/vmware-tanzu/vm-operator/api v1.8.2
 	github.com/vmware/govmomi v0.27.4
