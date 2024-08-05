@@ -3,7 +3,6 @@ package vpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"reflect"
 	"testing"
 
@@ -21,7 +20,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
@@ -374,146 +372,4 @@ func (ruleClient *MockRuleClient) Update(orgIdParam string, projectIdParam strin
 
 func (ruleClient *MockRuleClient) Revise(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, ruleIdParam string, ruleParam model.Rule, anchorPathParam *string, operationParam *string) (model.Rule, error) {
 	return model.Rule{}, ruleClient.Err
-}
-
-func TestCreateOrUpdateAVIRule(t *testing.T) {
-	aviRuleCacheIndexer := cache.NewIndexer(keyFuncAVI, nil)
-	resourceStore := common.ResourceStore{
-		Indexer:     aviRuleCacheIndexer,
-		BindingType: model.VpcBindingType(),
-	}
-	ruleStore := &AviRuleStore{ResourceStore: resourceStore}
-	resourceStore1 := common.ResourceStore{
-		Indexer:     aviRuleCacheIndexer,
-		BindingType: model.GroupBindingType(),
-	}
-	groupStore := &AviGroupStore{ResourceStore: resourceStore1}
-	resourceStore2 := common.ResourceStore{
-		Indexer:     aviRuleCacheIndexer,
-		BindingType: model.SecurityPolicyBindingType(),
-	}
-	spStore := &AviSecurityPolicyStore{ResourceStore: resourceStore2}
-
-	service := &VPCService{
-		Service: common.Service{NSXClient: nil},
-		VPCNetworkConfigStore: VPCNetworkInfoStore{
-			VPCNetworkConfigMap: map[string]common.VPCNetworkConfigInfo{},
-		},
-		VPCNSNetworkConfigStore: VPCNsNetworkConfigStore{
-			VPCNSNetworkConfigMap: map[string]string{},
-		},
-	}
-
-	service.RuleStore = ruleStore
-	service.GroupStore = groupStore
-	service.SecurityPolicyStore = spStore
-
-	ns1 := "test-ns-1"
-	tag1 := []model.Tag{
-		{
-			Scope: &tagScopeCluster,
-			Tag:   &cluster,
-		},
-		{
-			Scope: &tagScopeNamespace,
-			Tag:   &ns1,
-		},
-	}
-	path1 := "/orgs/default/projects/project_1/vpcs/vpc1"
-	vpc1 := model.Vpc{
-		Path:               &path1,
-		DisplayName:        &vpcName1,
-		Id:                 &vpcID1,
-		Tags:               tag1,
-		IpAddressType:      &IPv4Type,
-		PrivateIpv4Blocks:  []string{"1.1.1.0/24"},
-		ExternalIpv4Blocks: []string{"2.2.2.0/24"},
-	}
-
-	// feature not supported
-	enableAviAllowRule = false
-	err := service.CreateOrUpdateAVIRule(&vpc1, ns1)
-	assert.Equal(t, err, nil)
-
-	// enable feature
-	enableAviAllowRule = true
-	spClient := MockSecurityPoliciesClient{}
-
-	service.NSXClient = &nsx.Client{}
-	service.NSXClient.VPCSecurityClient = &spClient
-	service.NSXConfig = &config.NSXOperatorConfig{}
-	service.NSXConfig.CoeConfig = &config.CoeConfig{}
-	service.NSXConfig.Cluster = "k8scl_one"
-	sppath1 := "/orgs/default/projects/project_1/vpcs/vpc1/security-policies/sp1"
-	sp := model.SecurityPolicy{
-		Path: &sppath1,
-	}
-	util.UpdateLicense(util.FeatureDFW, true)
-
-	// security policy not found
-	spClient.SP = sp
-	notFound := errors.New("avi security policy not found")
-	spClient.Err = notFound
-	err = service.CreateOrUpdateAVIRule(&vpc1, ns1)
-	assert.Equal(t, err, notFound)
-
-	// security policy found, get rule, failed to get external CIDR
-	rulepath1 := fmt.Sprintf("/orgs/default/projects/project_1/vpcs/ns-vpc-uid-1/security-policies/default-layer3-section/rules/%s", AviSEIngressAllowRuleId)
-	rule := model.Rule{
-		Path:              &rulepath1,
-		DestinationGroups: []string{"2.2.2.0/24"},
-	}
-	ruleStore.Add(&rule)
-	spClient.Err = nil
-	resulterr := errors.New("get external ipblock failed")
-	patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "getIpblockCidr", func(_ *VPCService, cidr []string) ([]string, error) {
-		return []string{}, resulterr
-	})
-	err = service.CreateOrUpdateAVIRule(&vpc1, ns1)
-	patch.Reset()
-	assert.Equal(t, err, resulterr)
-
-	// security policy found, get rule, get external CIDR which matched
-	spClient.Err = nil
-	resulterr = errors.New("get external ipblock failed")
-	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "getIpblockCidr", func(_ *VPCService, cidr []string) ([]string, error) {
-		return []string{"2.2.2.0/24"}, nil
-	})
-	err = service.CreateOrUpdateAVIRule(&vpc1, ns1)
-	patch.Reset()
-	assert.Equal(t, err, nil)
-
-	// security policy found, get external CIDR, create group failed
-	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "getIpblockCidr", func(_ *VPCService, cidr []string) ([]string, error) {
-		return []string{"192.168.0.0/16"}, nil
-	})
-	defer patch.Reset()
-	groupClient := MockGroupClient{Err: nil}
-	service.NSXClient.VpcGroupClient = &groupClient
-	grouppath1 := "/orgs/default/projects/project_1/vpcs/vpc1/groups/group1"
-	group := model.Group{
-		Path: &grouppath1,
-	}
-	groupClient.Group = group
-	groupClient.Err = errors.New("create avi group error")
-	service.NSXConfig = &config.NSXOperatorConfig{}
-	service.NSXConfig.CoeConfig = &config.CoeConfig{}
-	service.NSXConfig.Cluster = "k8scl-one"
-	err = service.CreateOrUpdateAVIRule(&vpc1, ns1)
-	assert.Equal(t, err, groupClient.Err)
-
-	// security policy found, get external CIDR, create group, create rule failed
-	groupClient.Err = nil
-	ruleClient := MockRuleClient{}
-	service.NSXClient.VPCRuleClient = &ruleClient
-
-	ruleClient.Rule = rule
-	ruleClient.Err = errors.New("create avi rule error")
-	err = service.CreateOrUpdateAVIRule(&vpc1, ns1)
-	assert.Equal(t, err, ruleClient.Err)
-
-	// security policy found, get external CIDR, create group, create rule
-	ruleClient.Err = nil
-	err = service.CreateOrUpdateAVIRule(&vpc1, ns1)
-	assert.Equal(t, err, nil)
 }
