@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/crd.nsx.vmware.com/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -91,7 +92,13 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Use once.Do to ensure gc is called only once
 	common.GcOnce(r, &once)
 
-	obj := &v1alpha1.SecurityPolicy{}
+	var obj client.Object
+	if r.Service.NSXConfig.EnableVPCNetwork {
+		obj = &crdv1alpha1.SecurityPolicy{}
+	} else {
+		obj = &v1alpha1.SecurityPolicy{}
+	}
+
 	log.Info("reconciling securitypolicy CR", "securitypolicy", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
 
@@ -100,22 +107,36 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ResultNormal, client.IgnoreNotFound(err)
 	}
 
+	isZero := false
+	finalizerName := servicecommon.T1SecurityPolicyFinalizerName
+	realObj := &v1alpha1.SecurityPolicy{}
+	switch obj.(type) {
+	case *crdv1alpha1.SecurityPolicy:
+		o := obj.(*crdv1alpha1.SecurityPolicy)
+		isZero = o.ObjectMeta.DeletionTimestamp.IsZero()
+		finalizerName = servicecommon.SecurityPolicyFinalizerName
+		realObj = securitypolicy.VPCToT1(o)
+	case *v1alpha1.SecurityPolicy:
+		realObj = obj.(*v1alpha1.SecurityPolicy)
+		isZero = realObj.ObjectMeta.DeletionTimestamp.IsZero()
+	}
+
 	// Since SecurityPolicy service can only be activated from NSX 3.2.0 onwards,
 	// So need to check NSX version before starting SecurityPolicy reconcile
 	if !r.Service.NSXClient.NSXCheckVersion(nsx.SecurityPolicy) {
 		err := errors.New("NSX version check failed, SecurityPolicy feature is not supported")
-		updateFail(r, &ctx, obj, &err)
+		updateFail(r, &ctx, realObj, &err)
 		// if NSX version check fails, it will be put back to reconcile queue and be reconciled after 5 minutes
 		return ResultRequeueAfter5mins, nil
 	}
 
-	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
+	if isZero {
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResType)
-		if !controllerutil.ContainsFinalizer(obj, servicecommon.SecurityPolicyFinalizerName) {
-			controllerutil.AddFinalizer(obj, servicecommon.SecurityPolicyFinalizerName)
+		if !controllerutil.ContainsFinalizer(obj, finalizerName) {
+			controllerutil.AddFinalizer(obj, finalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "securitypolicy", req.NamespacedName)
-				updateFail(r, &ctx, obj, &err)
+				updateFail(r, &ctx, realObj, &err)
 				return ResultRequeue, err
 			}
 			log.V(1).Info("added finalizer on securitypolicy CR", "securitypolicy", req.NamespacedName)
@@ -124,19 +145,19 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if isCRInSysNs, err := util.IsSystemNamespace(r.Client, req.Namespace, nil); err != nil {
 			err = errors.New("fetch namespace associated with security policy CR failed")
 			log.Error(err, "would retry exponentially", "securitypolicy", req.NamespacedName)
-			updateFail(r, &ctx, obj, &err)
+			updateFail(r, &ctx, realObj, &err)
 			return ResultRequeue, err
 		} else if isCRInSysNs {
 			err = errors.New("security Policy CR cannot be created in System Namespace")
 			log.Error(err, "", "securitypolicy", req.NamespacedName)
-			updateFail(r, &ctx, obj, &err)
+			updateFail(r, &ctx, realObj, &err)
 			return ResultNormal, nil
 		}
 
-		if err := r.Service.CreateOrUpdateSecurityPolicy(obj); err != nil {
+		if err := r.Service.CreateOrUpdateSecurityPolicy(realObj); err != nil {
 			if errors.As(err, &nsxutil.RestrictionError{}) {
 				log.Error(err, err.Error(), "securitypolicy", req.NamespacedName)
-				updateFail(r, &ctx, obj, &err)
+				updateFail(r, &ctx, realObj, &err)
 				return ResultNormal, nil
 			}
 			// check if invalid license
@@ -160,26 +181,26 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				}
 			}
 			log.Error(err, "create or update failed, would retry exponentially", "securitypolicy", req.NamespacedName)
-			updateFail(r, &ctx, obj, &err)
+			updateFail(r, &ctx, realObj, &err)
 			return ResultRequeue, err
 		}
-		updateSuccess(r, &ctx, obj)
+		updateSuccess(r, &ctx, realObj)
 	} else {
-		if controllerutil.ContainsFinalizer(obj, servicecommon.SecurityPolicyFinalizerName) {
+		if controllerutil.ContainsFinalizer(obj, finalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
-			if err := r.Service.DeleteSecurityPolicy(obj.UID, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
+			if err := r.Service.DeleteSecurityPolicy(obj, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
-				deleteFail(r, &ctx, obj, &err)
+				deleteFail(r, &ctx, realObj, &err)
 				return ResultRequeue, err
 			}
-			controllerutil.RemoveFinalizer(obj, servicecommon.SecurityPolicyFinalizerName)
+			controllerutil.RemoveFinalizer(obj, finalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
-				deleteFail(r, &ctx, obj, &err)
+				deleteFail(r, &ctx, realObj, &err)
 				return ResultRequeue, err
 			}
 			log.V(1).Info("removed finalizer", "securitypolicy", req.NamespacedName)
-			deleteSuccess(r, &ctx, obj)
+			deleteSuccess(r, &ctx, realObj)
 		} else {
 			// only print a message because it's not a normal case
 			log.Info("finalizers cannot be recognized", "securitypolicy", req.NamespacedName)
@@ -226,7 +247,18 @@ func (r *SecurityPolicyReconciler) updateSecurityPolicyStatusConditions(ctx *con
 		}
 	}
 	if conditionsUpdated {
-		r.Client.Status().Update(*ctx, secPolicy)
+		if r.Service.NSXConfig.EnableVPCNetwork {
+			finalObj := securitypolicy.T1ToVPC(secPolicy)
+			err := r.Client.Status().Update(*ctx, finalObj)
+			if err != nil {
+				log.Error(err, "")
+			}
+		} else {
+			err := r.Client.Status().Update(*ctx, secPolicy)
+			if err != nil {
+				log.Error(err, "")
+			}
+		}
 		log.V(1).Info("updated SecurityPolicy", "Name", secPolicy.Name, "Namespace", secPolicy.Namespace,
 			"New Conditions", newConditions)
 	}
@@ -260,20 +292,25 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 }
 
 func (r *SecurityPolicyReconciler) setupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.SecurityPolicy{}).
+	var blr *builder.Builder
+	if r.Service.NSXConfig.EnableVPCNetwork {
+		blr = ctrl.NewControllerManagedBy(mgr).For(&crdv1alpha1.SecurityPolicy{})
+	} else {
+		blr = ctrl.NewControllerManagedBy(mgr).For(&v1alpha1.SecurityPolicy{})
+	}
+	return blr.
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
 		Watches(
 			&v1.Namespace{},
-			&EnqueueRequestForNamespace{Client: k8sClient(mgr)},
+			&EnqueueRequestForNamespace{Client: k8sClient(mgr), SecurityPolicyReconciler: r},
 			builder.WithPredicates(PredicateFuncsNs),
 		).
 		Watches(
 			&v1.Pod{},
-			&EnqueueRequestForPod{Client: k8sClient(mgr)},
+			&EnqueueRequestForPod{Client: k8sClient(mgr), SecurityPolicyReconciler: r},
 			builder.WithPredicates(PredicateFuncsPod),
 		).
 		Complete(r)
@@ -296,16 +333,31 @@ func (r *SecurityPolicyReconciler) CollectGarbage(ctx context.Context) {
 	if len(nsxPolicySet) == 0 {
 		return
 	}
-	policyList := &v1alpha1.SecurityPolicyList{}
-	err := r.Client.List(ctx, policyList)
+
+	var objectList client.ObjectList
+	if r.Service.NSXConfig.EnableVPCNetwork {
+		objectList = &crdv1alpha1.SecurityPolicyList{}
+	} else {
+		objectList = &v1alpha1.SecurityPolicyList{}
+	}
+	err := r.Client.List(ctx, objectList)
 	if err != nil {
 		log.Error(err, "failed to list SecurityPolicy CR")
 		return
 	}
 
 	CRPolicySet := sets.New[string]()
-	for _, policy := range policyList.Items {
-		CRPolicySet.Insert(string(policy.UID))
+	switch objectList.(type) {
+	case *crdv1alpha1.SecurityPolicyList:
+		o := objectList.(*crdv1alpha1.SecurityPolicyList)
+		for _, policy := range o.Items {
+			CRPolicySet.Insert(string(policy.UID))
+		}
+	case *v1alpha1.SecurityPolicyList:
+		o := objectList.(*v1alpha1.SecurityPolicyList)
+		for _, policy := range o.Items {
+			CRPolicySet.Insert(string(policy.UID))
+		}
 	}
 
 	diffSet := nsxPolicySet.Difference(CRPolicySet)
@@ -322,43 +374,64 @@ func (r *SecurityPolicyReconciler) CollectGarbage(ctx context.Context) {
 }
 
 // It is triggered by associated controller like pod, namespace, etc.
-func reconcileSecurityPolicy(client client.Client, pods []v1.Pod, q workqueue.RateLimitingInterface) error {
+func reconcileSecurityPolicy(r *SecurityPolicyReconciler, pkgclient client.Client, pods []v1.Pod, q workqueue.RateLimitingInterface) error {
 	podPortNames := getAllPodPortNames(pods)
 	log.V(1).Info("pod named port", "podPortNames", podPortNames)
-	spList := &v1alpha1.SecurityPolicyList{}
-	err := client.List(context.Background(), spList)
+	var spList client.ObjectList
+	if r.Service.NSXConfig.EnableVPCNetwork {
+		spList = &crdv1alpha1.SecurityPolicyList{}
+	} else {
+		spList = &v1alpha1.SecurityPolicyList{}
+	}
+	err := pkgclient.List(context.Background(), spList)
 	if err != nil {
 		log.Error(err, "failed to list all the security policy")
 		return err
 	}
 
-	for _, securityPolicy := range spList.Items {
-		shouldReconcile := false
-		for _, rule := range securityPolicy.Spec.Rules {
-			for _, port := range rule.Ports {
-				if port.Port.Type == intstr.String {
-					if podPortNames.Has(port.Port.StrVal) {
-						shouldReconcile = true
-						break
-					}
-				}
-			}
-			if shouldReconcile {
-				break
-			}
+	// find the security policy that needs
+	switch spList.(type) {
+	case *crdv1alpha1.SecurityPolicyList:
+		o := spList.(*crdv1alpha1.SecurityPolicyList)
+		for i := 0; i < len(o.Items); i++ {
+			realObj := securitypolicy.VPCToT1(&o.Items[i])
+			shouldReconcile(realObj, q, podPortNames)
 		}
-		if shouldReconcile {
-			log.Info("reconcile security policy because of associated resource change",
-				"namespace", securityPolicy.Namespace, "name", securityPolicy.Name)
-			q.Add(reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      securityPolicy.Name,
-					Namespace: securityPolicy.Namespace,
-				},
-			})
+	case *v1alpha1.SecurityPolicyList:
+		o := spList.(*v1alpha1.SecurityPolicyList)
+		for i := 0; i < len(o.Items); i++ {
+			shouldReconcile(&o.Items[i], q, podPortNames)
 		}
 	}
 	return nil
+}
+
+func shouldReconcile(securityPolicy *v1alpha1.SecurityPolicy, q workqueue.RateLimitingInterface, podPortNames sets.Set[string]) {
+	shouldReconcile := false
+	for _, rule := range securityPolicy.Spec.Rules {
+		for _, port := range rule.Ports {
+			if port.Port.Type == intstr.String {
+				if podPortNames.Has(port.Port.StrVal) {
+					shouldReconcile = true
+					break
+				}
+			}
+		}
+		if shouldReconcile {
+			break
+		}
+	}
+	if shouldReconcile {
+		log.Info("reconcile security policy because of associated resource change",
+			"namespace", securityPolicy.Namespace, "name", securityPolicy.Name)
+		q.Add(reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      securityPolicy.Name,
+				Namespace: securityPolicy.Namespace,
+			},
+		})
+	}
+
 }
 
 func StartSecurityPolicyController(mgr ctrl.Manager, commonService servicecommon.Service, vpcService servicecommon.VPCServiceProvider) {

@@ -1,6 +1,6 @@
 # This file is used in testing customized VPC case,
 # it support customer to define its own VPC network config.
-apiVersion: nsx.vmware.com/v1alpha1
+apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: VPCNetworkConfiguration
 metadata:
   name: selfdefinedconfig

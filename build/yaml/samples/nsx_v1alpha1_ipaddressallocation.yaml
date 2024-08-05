@@ -1,4 +1,4 @@
-apiVersion: nsx.vmware.com/v1alpha1
+apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: IPAddressAllocation
 metadata:
   name: guestcluster-workers-a

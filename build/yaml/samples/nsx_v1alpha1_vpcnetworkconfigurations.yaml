@@ -1,4 +1,4 @@
-apiVersion: nsx.vmware.com/v1alpha1
+apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: VPCNetworkConfiguration
 metadata:
   name: vpc-network-config1
@@ -15,7 +15,7 @@ spec:
   defaultSubnetAccessMode: Private
 ---
 # Sample to create VPCNetworkConfiguration CR using a pre-created NSX VPC.
-apiVersion: nsx.vmware.com/v1alpha1
+apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: VPCNetworkConfiguration
 metadata:
   name: vpc-network-config-with-pre-created-vpc

@@ -125,7 +125,7 @@ func TestEnqueueRequestForNamespace_Update(t *testing.T) {
 		a.Items = podList.Items
 		return nil
 	})
-	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(client client.Client, pods []v1.Pod,
+	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(r *SecurityPolicyReconciler, client client.Client, pods []v1.Pod,
 		q workqueue.RateLimitingInterface,
 	) error {
 		return nil

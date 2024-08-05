@@ -53,7 +53,7 @@ spec:
           command: ["nc", "-l", "-p", "1234"]
           imagePullPolicy: IfNotPresent
 ---
-apiVersion: nsx.vmware.com/v1alpha1
+apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: SecurityPolicy
 metadata:
   name: named-port-policy

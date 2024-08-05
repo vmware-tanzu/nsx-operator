@@ -2,7 +2,7 @@
 # it should be applied on testbed setup stage,
 # any new created namespace that do not have networkconfig specified on annotations
 # will use this network config by default
-apiVersion: nsx.vmware.com/v1alpha1
+apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: VPCNetworkConfiguration
 metadata:
   name: default

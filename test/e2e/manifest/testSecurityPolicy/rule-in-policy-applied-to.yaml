@@ -39,7 +39,7 @@ spec:
             - containerPort: 80
               name: web-port
 ---
-apiVersion: nsx.vmware.com/v1alpha1
+apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: SecurityPolicy
 metadata:
   name: named-port-policy
