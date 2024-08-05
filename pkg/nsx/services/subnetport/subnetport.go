@@ -75,7 +75,7 @@ func InitializeSubnetPort(service servicecommon.Service) (*SubnetPortService, er
 	return subnetPortService, nil
 }
 
-func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
+func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool) (*model.SegmentPortState, error) {
 	var uid string
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
@@ -84,7 +84,7 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		uid = string(o.UID)
 	}
 	log.Info("creating or updating subnetport", "nsxSubnetPort.Id", uid, "nsxSubnetPath", *nsxSubnet.Path)
-	nsxSubnetPort, err := service.buildSubnetPort(obj, nsxSubnet, contextID, tags)
+	nsxSubnetPort, err := service.buildSubnetPort(obj, nsxSubnet, contextID, tags, isVmSubnetPort)
 	if err != nil {
 		log.Error(err, "failed to build NSX subnet port", "nsxSubnetPort.Id", uid, "*nsxSubnet.Path", *nsxSubnet.Path, "contextID", contextID)
 		return nil, err
