@@ -62,10 +62,10 @@ spec:
                 description: PolicyPath of Tier0 or Tier0 VRF gateway.
                 type: string
               defaultIPv4SubnetSize:
-                default: 26
+                default: 32
                 description: |-
                   Default size of Subnet based upon estimated workload count.
-                  Defaults to 26.
+                  Defaults to 32.
                 type: integer
               defaultSubnetAccessMode:
                 description: |-
