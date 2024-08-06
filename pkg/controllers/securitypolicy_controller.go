@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -90,6 +92,26 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 
 		if err := r.Service.CreateOrUpdateSecurityPolicy(obj); err != nil {
+			// check if invalid license
+			apiErr, _ := nsxutil.DumpAPIError(err)
+			if apiErr != nil {
+				invalidLicense := false
+				errorMessage := ""
+				for _, apiErrItem := range apiErr.RelatedErrors {
+					if *apiErrItem.ErrorCode == nsxutil.InvalidLicenseErrorCode {
+						invalidLicense = true
+						errorMessage = *apiErrItem.ErrorMessage
+					}
+				}
+				if *apiErr.ErrorCode == nsxutil.InvalidLicenseErrorCode {
+					invalidLicense = true
+					errorMessage = *apiErr.ErrorMessage
+				}
+				if invalidLicense {
+					log.Error(err, "Invalid license, nsx-operator will restart", "error message", errorMessage)
+					os.Exit(1)
+				}
+			}
 			log.Error(err, "operate failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 			updateFail(r, &ctx, obj, &err)
 			return ctrl.Result{}, err

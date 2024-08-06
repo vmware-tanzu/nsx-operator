@@ -7,6 +7,10 @@ import (
 	"fmt"
 )
 
+const (
+	InvalidLicenseErrorCode = 505
+)
+
 type NsxError interface {
 	setDetail(detail *ErrorDetail)
 	Error() string
@@ -536,5 +540,13 @@ type PageMaxError struct {
 }
 
 func (err PageMaxError) Error() string {
+	return err.Desc
+}
+
+type RestrictionError struct {
+	Desc string
+}
+
+func (err RestrictionError) Error() string {
 	return err.Desc
 }

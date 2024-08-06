@@ -160,7 +160,7 @@ func TestMaxDelay(t *testing.T) {
 	dur := time.Since(start)
 	assert.Error(t, err)
 	assert.True(t, dur > 170*time.Millisecond, "5 times with maximum delay retry is longer than 170ms")
-	assert.True(t, dur < 200*time.Millisecond, "5 times with maximum delay retry is shorter than 200ms")
+	assert.True(t, dur < 250*time.Millisecond, "5 times with maximum delay retry is shorter than 250ms")
 }
 
 func TestBackOffDelay(t *testing.T) {

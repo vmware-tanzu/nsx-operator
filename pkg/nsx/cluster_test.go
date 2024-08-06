@@ -4,8 +4,11 @@
 package nsx
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -16,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 func TestNewCluster(t *testing.T) {
@@ -228,4 +232,69 @@ func TestCluster_getVersion(t *testing.T) {
 	nsxVersion, err := cluster.GetVersion()
 	assert.True(t, err == nil)
 	assert.Equal(t, nsxVersion.NodeVersion, "3.1.3.3.0.18844962")
+}
+
+func TestFetchLicense(t *testing.T) {
+	address := address{
+		host:   "1.2.3.4",
+		scheme: "https",
+	}
+	// Success case
+	cluster := &Cluster{endpoints: []*Endpoint{{
+		provider: &address,
+	}}}
+	cluster.config = &Config{}
+
+	// Request creation failure
+	patch := gomonkey.ApplyFunc(http.NewRequest,
+		func(method, url string, body io.Reader) (*http.Request, error) {
+			return nil, errors.New("request error")
+		})
+	err := cluster.FetchLicense()
+	assert.Error(t, err)
+	patch.Reset()
+
+	// HTTP error
+	patch = gomonkey.ApplyFunc((*http.Client).Do,
+		func(client *http.Client, req *http.Request) (*http.Response, error) {
+			return nil, errors.New("http error")
+		})
+
+	err = cluster.FetchLicense()
+	assert.Error(t, err)
+	patch.Reset()
+
+	// normal case
+	patch = gomonkey.ApplyFunc((*http.Client).Do,
+		func(client *http.Client, req *http.Request) (*http.Response, error) {
+			res := &nsxutil.NsxLicense{
+				Results: []struct {
+					FeatureName string `json:"feature_name"`
+					IsLicensed  bool   `json:"is_licensed"`
+				}{{
+					FeatureName: "CONTAINER",
+					IsLicensed:  true,
+				},
+					{
+						FeatureName: "DFW",
+						IsLicensed:  true,
+					},
+				},
+				ResultCount: 2,
+			}
+
+			jsonBytes, _ := json.Marshal(res)
+			return &http.Response{
+				StatusCode: 200,
+				Body:       io.NopCloser(bytes.NewReader(jsonBytes)),
+				Header: http.Header{
+					"Content-Type": []string{"application/json"},
+				},
+				Request: req,
+			}, nil
+		})
+	defer patch.Reset()
+	err = cluster.FetchLicense()
+	assert.Nil(t, err)
+
 }

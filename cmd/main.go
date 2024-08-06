@@ -22,6 +22,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
@@ -75,6 +76,7 @@ func main() {
 		log.Error(err, "unable to get nsx client")
 		os.Exit(1)
 	}
+	checkLicense(nsxClient, cf.LicenseValidationInterval)
 	if service, err := services.InitializeSecurityPolicy(nsxClient, cf); err != nil {
 		log.Error(err, "unable to initialize securitypolicy service", "controller", "SecurityPolicy")
 		os.Exit(1)
@@ -126,6 +128,35 @@ func updateHealthMetricsPeriodically(nsxClient *nsx.Client) {
 		}
 		select {
 		case <-time.After(metrics.ScrapeTimeout):
+		}
+	}
+}
+
+func checkLicense(nsxClient *nsx.Client, interval int) {
+	err := nsxClient.ValidateLicense(true)
+	if err != nil {
+		os.Exit(1)
+	}
+	// if there is no dfw license enabled, check license more frequently
+	// if customer set it in config, use it, else use licenseTimeoutNoDFW
+	if interval == 0 {
+		if !util.IsLicensed(util.FeatureDFW) {
+			interval = config.LicenseIntervalForDFW
+		} else {
+			interval = config.LicenseInterval
+		}
+	}
+	go updateLicensePeriodically(nsxClient, time.Duration(interval)*time.Second)
+}
+
+func updateLicensePeriodically(nsxClient *nsx.Client, interval time.Duration) {
+	for {
+		select {
+		case <-time.After(interval):
+		}
+		err := nsxClient.ValidateLicense(false)
+		if err != nil {
+			os.Exit(1)
 		}
 	}
 }
