@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"sync"
 	"testing"
 
 	gomonkey "github.com/agiledragon/gomonkey/v2"
@@ -175,11 +174,6 @@ func TestStaticRouteReconciler_Reconcile(t *testing.T) {
 	}
 	ctx := context.Background()
 	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
-
-	// common.GcOnce do nothing
-	var once sync.Once
-	pat := gomonkey.ApplyMethod(reflect.TypeOf(&once), "Do", func(_ *sync.Once, _ func()) {})
-	defer pat.Reset()
 
 	// not found
 	errNotFound := errors.New("not found")

@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"sync"
 	"testing"
 	"time"
 
@@ -513,9 +512,6 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 				patches := tt.prepareFunc(t, r, ctx)
 				defer patches.Reset()
 			}
-			var once sync.Once
-			patches2 := gomonkey.ApplyMethod(reflect.TypeOf(&once), "Do", func(_ *sync.Once, _ func()) {})
-			defer patches2.Reset()
 
 			got, err := r.Reconcile(ctx, tt.args.req)
 			if (err != nil) != tt.wantErr {

@@ -10,7 +10,6 @@ import (
 	"os"
 	"reflect"
 	"strings"
-	"sync"
 
 	vmv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
@@ -44,7 +43,6 @@ import (
 var (
 	log                     = &logger.Log
 	MetricResTypeSubnetPort = common.MetricResTypeSubnetPort
-	once                    sync.Once
 )
 
 // SubnetPortReconciler reconciles a SubnetPort object
@@ -61,9 +59,6 @@ type SubnetPortReconciler struct {
 // +kubebuilder:rbac:groups=nsx.vmware.com,resources=subnetports/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=nsx.vmware.com,resources=subnetports/finalizers,verbs=update
 func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// Use once.Do to ensure gc is called only once
-	common.GcOnce(r, &once)
-
 	subnetPort := &v1alpha1.SubnetPort{}
 	log.Info("reconciling subnetport CR", "subnetport", req.NamespacedName)
 
@@ -226,6 +221,7 @@ func StartSubnetPortController(mgr ctrl.Manager, subnetPortService *subnetport.S
 		log.Error(err, "failed to create controller", "controller", "SubnetPort")
 		os.Exit(1)
 	}
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, subnetPortReconciler.CollectGarbage)
 }
 
 // Start setup manager and launch GC

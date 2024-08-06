@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -36,7 +35,6 @@ var (
 	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
 	MetricResType           = common.MetricResTypeNetworkPolicy
-	once                    sync.Once
 )
 
 // NetworkPolicyReconciler reconciles a NetworkPolicy object
@@ -68,8 +66,6 @@ func deleteSuccess(r *NetworkPolicyReconciler, _ *context.Context, o *networking
 }
 
 func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// Use once.Do to ensure gc is called only once
-	common.GcOnce(r, &once)
 	networkPolicy := &networkingv1.NetworkPolicy{}
 	log.Info("reconciling networkpolicy", "networkpolicy", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
@@ -191,4 +187,5 @@ func StartNetworkPolicyController(mgr ctrl.Manager, commonService servicecommon.
 		log.Error(err, "failed to create controller", "controller", "NetworkPolicy")
 		os.Exit(1)
 	}
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, networkPolicyReconcile.CollectGarbage)
 }

@@ -5,7 +5,6 @@ package networkinfo
 
 import (
 	"context"
-	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
@@ -29,7 +28,6 @@ import (
 var (
 	log           = &logger.Log
 	MetricResType = common.MetricResTypeNetworkInfo
-	once          sync.Once
 )
 
 // NetworkInfoReconciler NetworkInfoReconcile reconciles a NetworkInfo object
@@ -42,9 +40,6 @@ type NetworkInfoReconciler struct {
 }
 
 func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// Use once.Do to ensure gc is called only once
-	common.GcOnce(r, &once)
-
 	obj := &v1alpha1.NetworkInfo{}
 	log.Info("reconciling NetworkInfo CR", "NetworkInfo", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, common.MetricResTypeNetworkInfo)

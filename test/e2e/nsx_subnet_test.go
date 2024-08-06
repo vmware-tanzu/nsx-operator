@@ -27,7 +27,7 @@ const (
 	VPCNetworkConfigCRName = "default"
 	// SubnetDeletionTimeout requires a bigger value than defaultTimeout, it's because that it takes some time for NSX to
 	// recycle allocated IP addresses and NSX VPCSubnet won't be deleted until all IP addresses have been recycled.
-	SubnetDeletionTimeout = 300 * time.Second
+	SubnetDeletionTimeout = 600 * time.Second
 )
 
 func verifySubnetSetCR(subnetSet string) bool {

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
@@ -34,7 +33,6 @@ import (
 var (
 	log              = &logger.Log
 	MetricResTypePod = common.MetricResTypePod
-	once             sync.Once
 )
 
 // PodReconciler reconciles a Pod object
@@ -50,9 +48,6 @@ type PodReconciler struct {
 }
 
 func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// Use once.Do to ensure gc is called only once
-	common.GcOnce(r, &once)
-
 	pod := &v1.Pod{}
 	log.Info("reconciling pod", "pod", req.NamespacedName)
 
@@ -187,6 +182,7 @@ func StartPodController(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPo
 		log.Error(err, "failed to create controller", "controller", "Pod")
 		os.Exit(1)
 	}
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, podPortReconciler.CollectGarbage)
 }
 
 // Start setup manager and launch GC
