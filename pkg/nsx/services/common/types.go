@@ -67,6 +67,7 @@ const (
 	LabelLbIngressIpModeProxyValue     string = "proxy"
 	DefaultPodSubnetSet                string = "pod-default"
 	DefaultVMSubnetSet                 string = "vm-default"
+	SystemVPCNetworkConfigurationName  string = "system"
 	TagScopeSubnetCRUID                string = "nsx-op/subnet_uid"
 	TagScopeSubnetCRName               string = "nsx-op/subnet_name"
 	TagScopeSubnetSetCRName            string = "nsx-op/subnetset_name"
@@ -170,6 +171,11 @@ var (
 	ResourceTypeIPAddressAllocation = "VpcIpAddressAllocation"
 	ResourceTypeIPPoolBlockSubnet   = "IpAddressPoolBlockSubnet"
 	ResourceTypeNode                = "HostTransportNode"
+
+	// Reasons for verification of gateway connection in day0
+	ReasonEdgeMissingInProject                     = "EdgeMissingInProject"
+	ReasonDistributedGatewayConnectionNotSupported = "DistributedGatewayConnectionNotSupported"
+	ReasonGatewayConnectionNotSet                  = "GatewayConnectionNotSet"
 )
 
 type Service struct {
