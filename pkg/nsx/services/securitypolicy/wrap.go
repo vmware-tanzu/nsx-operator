@@ -139,9 +139,9 @@ func (service *SecurityPolicyService) wrapSecurityPolicy(sp *model.SecurityPolic
 	return securityPolicyChildren, nil
 }
 
-// WrapHierarchyVpcSecurityPolicy wrap the security policy with groups and rules in VPC level and associated project infra children including project shares and groups
+// wrapHierarchyVpcSecurityPolicy wrap the security policy with groups and rules in VPC level and associated project infra children including project shares and groups
 // into one hierarchy resource tree for OrgRootClient to patch.
-func (service *SecurityPolicyService) WrapHierarchyVpcSecurityPolicy(sp *model.SecurityPolicy, gs []model.Group, projectInfraChildren []*data.StructValue,
+func (service *SecurityPolicyService) wrapHierarchyVpcSecurityPolicy(sp *model.SecurityPolicy, gs []model.Group, projectInfraChildren []*data.StructValue,
 	vpcInfo *common.VPCResourceInfo,
 ) (*model.OrgRoot, error) {
 	orgID := (*vpcInfo).OrgID
@@ -287,6 +287,8 @@ func (service *SecurityPolicyService) wrapChildTargetInfra(children []*data.Stru
 	targetType := common.ResourceTypeInfra
 	resourceType := common.ResourceTypeChildResourceReference
 
+	// This is the outermost layer of the hierarchy project child infra in VPC mode.
+	// It doesn't need ID field.
 	childInfra := model.ChildResourceReference{
 		ResourceType: resourceType,
 		TargetType:   &targetType,
@@ -316,18 +318,46 @@ func (service *SecurityPolicyService) wrapHierarchyProjectResources(shares []mod
 		return nil, err
 	}
 	domainReferenceChildren = append(domainReferenceChildren, groupsChildren...)
-	domainId := getVpcProjectDomain()
+	domainId := getVPCProjectDomain()
 	domainTargetChildren, err := service.wrapDomainResource(domainReferenceChildren, domainId)
 	if err != nil {
 		return nil, err
 	}
 	infraChildren = append(infraChildren, domainTargetChildren...)
 
-	// This is the outermost layer of the hierarchy project child infra in VPC mode.
-	// It doesn't need ID field.
-	projectInfraChildren, err := service.wrapChildTargetInfra(infraChildren)
+	wrapProjInfraChildren, err := service.wrapChildTargetInfra(infraChildren)
 	if err != nil {
 		return nil, err
 	}
-	return projectInfraChildren, nil
+	return wrapProjInfraChildren, nil
+}
+
+// wrapHierarchyInfraResources wrap the infra shares and groups into a infra children in VPC mode.
+func (service *SecurityPolicyService) wrapHierarchyInfraResources(shares []model.Share, groups []model.Group) (*model.Infra, error) {
+	var domainReferenceChildren []*data.StructValue
+	var infraChildren []*data.StructValue
+
+	shareChildren, err := service.wrapShares(shares)
+	if err != nil {
+		return nil, err
+	}
+	infraChildren = append(infraChildren, shareChildren...)
+
+	groupsChildren, err := service.wrapGroups(groups)
+	if err != nil {
+		return nil, err
+	}
+	domainReferenceChildren = append(domainReferenceChildren, groupsChildren...)
+	domainId := getDefaultProjectDomain()
+	domainTargetChildren, err := service.wrapDomainResource(domainReferenceChildren, domainId)
+	if err != nil {
+		return nil, err
+	}
+	infraChildren = append(infraChildren, domainTargetChildren...)
+
+	wrapInfra, err := service.wrapInfra(infraChildren)
+	if err != nil {
+		return nil, err
+	}
+	return wrapInfra, nil
 }

@@ -146,8 +146,8 @@ func (securityPolicyStore *SecurityPolicyStore) GetByIndex(key string, value str
 }
 
 func (ruleStore *RuleStore) Apply(i interface{}) error {
-	sp := i.(*model.SecurityPolicy)
-	for _, rule := range sp.Rules {
+	rules := i.(*[]model.Rule)
+	for _, rule := range *rules {
 		tempRule := rule
 		if rule.MarkedForDelete != nil && *rule.MarkedForDelete {
 			err := ruleStore.Delete(&tempRule)
