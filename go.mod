@@ -6,10 +6,10 @@ replace (
 	github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
 	github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1 => ./pkg/apis/vpc/v1alpha1
 	github.com/vmware-tanzu/nsx-operator/pkg/client => ./pkg/client
-	github.com/vmware/vsphere-automation-sdk-go/lib => github.com/zhengxiexie/vsphere-automation-sdk-go/lib v0.7.3-0.20240628090521-3ad1af047210
-	github.com/vmware/vsphere-automation-sdk-go/runtime => github.com/zhengxiexie/vsphere-automation-sdk-go/runtime v0.7.3-0.20240628090521-3ad1af047210
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt => github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt v0.12.3-0.20240628090521-3ad1af047210
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp => github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt-mp v0.6.3-0.20240628090521-3ad1af047210
+	github.com/vmware/vsphere-automation-sdk-go/lib => github.com/zhengxiexie/vsphere-automation-sdk-go/lib v0.7.3-0.20240808083204-389375dc2535
+	github.com/vmware/vsphere-automation-sdk-go/runtime => github.com/zhengxiexie/vsphere-automation-sdk-go/runtime v0.7.3-0.20240808083204-389375dc2535
+	github.com/vmware/vsphere-automation-sdk-go/services/nsxt => github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt v0.12.3-0.20240808083204-389375dc2535
+	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp => github.com/zhengxiexie/vsphere-automation-sdk-go/services/nsxt-mp v0.6.3-0.20240808083204-389375dc2535
 )
 
 require (
@@ -47,6 +47,7 @@ require (
 )
 
 require (
+	github.com/agiledragon/gomonkey v2.0.2+incompatible // indirect
 	github.com/beevik/etree v1.1.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
