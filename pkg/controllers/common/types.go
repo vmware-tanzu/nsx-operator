@@ -33,6 +33,7 @@ var (
 	ResultRequeue = ctrl.Result{Requeue: true}
 	// for k8s events that need to retry in short loop, eg: namespace creation
 	ResultRequeueAfter10sec = ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second}
+	ResultRequeueAfter60sec = ctrl.Result{Requeue: true, RequeueAfter: 60 * time.Second}
 	// for unstable event, eg: failed to k8s resources when reconciling, may due to k8s unstable
 	ResultRequeueAfter5mins = ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Minute}
 )

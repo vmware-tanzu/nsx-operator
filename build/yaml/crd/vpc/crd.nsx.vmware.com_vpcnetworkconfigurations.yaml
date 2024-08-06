@@ -98,6 +98,35 @@ spec:
             description: VPCNetworkConfigurationStatus defines the observed state
               of VPCNetworkConfiguration
             properties:
+              conditions:
+                description: Conditions describe current state of VPCNetworkConfiguration.
+                items:
+                  description: Condition defines condition of custom resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        Last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed. If that is not known, then using the time when
+                        the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: Message shows a human-readable message about condition.
+                      type: string
+                    reason:
+                      description: Reason shows a brief reason of condition.
+                      type: string
+                    status:
+                      description: Status of the condition, one of True, False, Unknown.
+                      type: string
+                    type:
+                      description: Type defines condition type.
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
               vpcs:
                 description: VPCs describes VPC info, now it includes lb Subnet info
                   which are needed for AKO.
@@ -119,6 +148,8 @@ spec:
                   - name
                   type: object
                 type: array
+            required:
+            - conditions
             type: object
         type: object
     served: true
