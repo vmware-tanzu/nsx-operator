@@ -63,31 +63,30 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerUpdateTotal, MetricResTypeSubnet)
 		if !controllerutil.ContainsFinalizer(obj, servicecommon.SubnetFinalizerName) {
 			controllerutil.AddFinalizer(obj, servicecommon.SubnetFinalizerName)
+
+			if obj.Spec.AccessMode == "" || obj.Spec.IPv4SubnetSize == 0 {
+				vpcNetworkConfig := r.VPCService.GetVPCNetworkConfigByNamespace(obj.Namespace)
+				if vpcNetworkConfig == nil {
+					err := fmt.Errorf("operate failed: cannot get configuration for Subnet CR")
+					log.Error(nil, "failed to find VPCNetworkConfig for Subnet CR", "subnet", req.NamespacedName, "namespace %s", obj.Namespace)
+					updateFail(r, &ctx, obj, "")
+					return ResultRequeue, err
+				}
+
+				if obj.Spec.AccessMode == "" {
+					log.Info("aobj.Spec.AccessMode set", "subnet", req.NamespacedName)
+					obj.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
+				}
+				if obj.Spec.IPv4SubnetSize == 0 {
+					obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
+				}
+			}
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "subnet", req.NamespacedName)
 				updateFail(r, &ctx, obj, "")
 				return ResultRequeue, err
 			}
 			log.V(1).Info("added finalizer on subnet CR", "subnet", req.NamespacedName)
-		}
-		if obj.Spec.AccessMode == "" || obj.Spec.IPv4SubnetSize == 0 {
-			vpcNetworkConfig := r.VPCService.GetVPCNetworkConfigByNamespace(obj.Namespace)
-			if vpcNetworkConfig == nil {
-				err := fmt.Errorf("operate failed: cannot get configuration for Subnet CR")
-				log.Error(nil, "failed to find VPCNetworkConfig for Subnet CR", "subnet", req.NamespacedName, "namespace %s", obj.Namespace)
-				updateFail(r, &ctx, obj, "")
-				return ResultRequeue, err
-			}
-
-			if obj.Spec.AccessMode == "" {
-				obj.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
-				if obj.Name == servicecommon.DefaultPodSubnetSet {
-					obj.Spec.AccessMode = v1alpha1.AccessMode(vpcNetworkConfig.PodSubnetAccessMode)
-				}
-			}
-			if obj.Spec.IPv4SubnetSize == 0 {
-				obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
-			}
 		}
 		tags := r.SubnetService.GenerateSubnetNSTags(obj, obj.Namespace)
 		if tags == nil {
