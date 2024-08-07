@@ -80,7 +80,8 @@ func Test_buildNSXLBS(t *testing.T) {
 
 func TestBuildNSXVPC(t *testing.T) {
 	nc := common.VPCNetworkConfigInfo{
-		ShortID: "short1",
+		PrivateIPs: []string{"192.168.1.0/24"},
+		ShortID:    "short1",
 	}
 	netInfoObj := &v1alpha1.NetworkInfo{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "ns1", UID: "netinfouid1"},
@@ -101,23 +102,20 @@ func TestBuildNSXVPC(t *testing.T) {
 		{
 			name: "existing VPC not change",
 			existingVPC: &model.Vpc{
-				ExternalIpv4Blocks: []string{"10.10.0.0/16"},
-				PrivateIpv4Blocks:  []string{"192.168.1.0/24"},
+				PrivateIpv4Blocks: []string{"192.168.1.0/24"},
 			},
 			useAVILB: true,
 		},
 		{
 			name: "existing VPC changes private IPv4 blocks",
 			existingVPC: &model.Vpc{
-				ExternalIpv4Blocks: []string{"10.10.0.0/16"},
-				PrivateIpv4Blocks:  []string{},
+				PrivateIpv4Blocks: []string{},
 			},
 			pathMap:  map[string]string{"vpc1": "192.168.3.0/24"},
 			useAVILB: false,
 			expVPC: &model.Vpc{
-				ExternalIpv4Blocks: []string{"10.10.0.0/16"},
-				PrivateIpv4Blocks:  []string{"192.168.3.0/24"},
-				ShortId:            common.String("short1"),
+				PrivateIpv4Blocks: []string{"192.168.3.0/24"},
+				ShortId:           common.String("short1"),
 			},
 		},
 		{
@@ -125,16 +123,9 @@ func TestBuildNSXVPC(t *testing.T) {
 			pathMap:  map[string]string{"vpc1": "192.168.3.0/24"},
 			useAVILB: true,
 			expVPC: &model.Vpc{
-				Id:                 common.String("ns1-netinfouid1"),
-				DisplayName:        common.String("ns1-netinfouid1"),
-				DefaultGatewayPath: common.String("gw1"),
-				SiteInfos: []model.SiteInfo{
-					{
-						EdgeClusterPaths: []string{"edge1"},
-					},
-				},
+				Id:                      common.String("ns1-netinfouid1"),
+				DisplayName:             common.String("ns1-netinfouid1"),
 				LoadBalancerVpcEndpoint: &model.LoadBalancerVPCEndpoint{Enabled: common.Bool(true)},
-				ExternalIpv4Blocks:      []string{"10.10.0.0/16"},
 				PrivateIpv4Blocks:       []string{"192.168.3.0/24"},
 				IpAddressType:           common.String("IPV4"),
 				ShortId:                 common.String("short1"),
@@ -151,18 +142,11 @@ func TestBuildNSXVPC(t *testing.T) {
 			pathMap:  map[string]string{"vpc1": "192.168.3.0/24"},
 			useAVILB: false,
 			expVPC: &model.Vpc{
-				Id:                 common.String("ns1-netinfouid1"),
-				DisplayName:        common.String("ns1-netinfouid1"),
-				DefaultGatewayPath: common.String("gw1"),
-				SiteInfos: []model.SiteInfo{
-					{
-						EdgeClusterPaths: []string{"edge1"},
-					},
-				},
-				ExternalIpv4Blocks: []string{"10.10.0.0/16"},
-				PrivateIpv4Blocks:  []string{"192.168.3.0/24"},
-				IpAddressType:      common.String("IPV4"),
-				ShortId:            common.String("short1"),
+				Id:                common.String("ns1-netinfouid1"),
+				DisplayName:       common.String("ns1-netinfouid1"),
+				PrivateIpv4Blocks: []string{"192.168.3.0/24"},
+				IpAddressType:     common.String("IPV4"),
+				ShortId:           common.String("short1"),
 				Tags: []model.Tag{
 					{Scope: common.String("nsx-op/cluster"), Tag: common.String("cluster1")},
 					{Scope: common.String("nsx-op/version"), Tag: common.String("1.0.0")},

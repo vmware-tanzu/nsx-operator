@@ -69,7 +69,6 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 		vpc.Id = common.String(util.GenerateIDByObject(obj))
 		vpc.IpAddressType = &DefaultVPCIPAddressType
 
-		vpc.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &DefaultLoadBalancerVPCEndpointEnabled}
 		if useAVILB {
 			loadBalancerVPCEndpointEnabled := true
 			vpc.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &loadBalancerVPCEndpointEnabled}
@@ -77,7 +76,9 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 		vpc.Tags = util.BuildBasicTags(cluster, obj, nsObj.UID)
 	}
 
-	vpc.VpcConnectivityProfile = &nc.VPCConnectivityProfile
+	if nc.VPCConnectivityProfile != "" {
+		vpc.VpcConnectivityProfile = &nc.VPCConnectivityProfile
+	}
 
 	// TODO: add PrivateIps and remove PrivateIpv4Blocks once the NSX VPC API support private_ips field.
 	// vpc.PrivateIps = nc.PrivateIPs
