@@ -33,6 +33,7 @@ func TestBuildStaticRoute(t *testing.T) {
 	obj.Spec.NextHops = []v1alpha1.NextHop{{IPAddress: ip1}, {IPAddress: ip2}}
 	obj.ObjectMeta.Name = "teststaticroute"
 	obj.ObjectMeta.Namespace = "qe"
+	obj.ObjectMeta.UID = "uuid1"
 	service := &StaticRouteService{}
 	service.NSXConfig = &config.NSXOperatorConfig{}
 	service.NSXConfig.CoeConfig = &config.CoeConfig{}
@@ -40,4 +41,8 @@ func TestBuildStaticRoute(t *testing.T) {
 	staticroutes, err := service.buildStaticRoute(obj)
 	assert.Equal(t, err, nil)
 	assert.Equal(t, len(staticroutes.NextHops), 2)
+	expName := "teststaticroute"
+	assert.Equal(t, expName, *staticroutes.DisplayName)
+	expId := "teststaticroute-uuid1"
+	assert.Equal(t, expId, *staticroutes.Id)
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/crd.nsx.vmware.com/v1alpha1"
@@ -102,6 +103,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		ipAlloc := &v1alpha1.IPAddressAllocation{}
 		ipAlloc.Namespace = "default"
 		ipAlloc.Name = "test-ip-alloc"
+		ipAlloc.UID = "uid1"
 
 		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, _ string) []common.VPCResourceInfo {
 			return []common.VPCResourceInfo{}
@@ -111,5 +113,37 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc)
 		assert.Nil(t, result)
 		assert.EqualError(t, err, "failed to find VPCInfo for IPAddressAllocation CR test-ip-alloc in namespace default")
+	})
+
+	t.Run("Success case", func(t *testing.T) {
+		ipAlloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-ip-alloc",
+				Namespace: "default",
+				UID:       "uid1",
+			},
+			Spec: v1alpha1.IPAddressAllocationSpec{
+				IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityExternal,
+				AllocationSize:           10,
+			},
+		}
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, _ string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{
+				{
+					OrgID:     "org1",
+					ProjectID: "proj1",
+					VPCID:     "vpc1",
+				},
+			}
+		})
+		defer patch.Reset()
+
+		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc)
+		assert.Nil(t, err)
+		assert.Equal(t, "test-ip-alloc-uid1", *result.Id)
+		assert.Equal(t, "default-test-ip-alloc", *result.DisplayName)
+		assert.Equal(t, int64(10), *result.AllocationSize)
+		assert.Equal(t, "EXTERNAL", *result.IpAddressBlockVisibility)
+		assert.Equal(t, 5, len(result.Tags))
 	})
 }

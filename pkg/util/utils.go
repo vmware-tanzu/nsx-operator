@@ -15,9 +15,11 @@ import (
 
 	"github.com/apparentlymart/go-cidr/cidr"
 	mapset "github.com/deckarep/golang-set"
+	"github.com/google/uuid"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -73,21 +75,30 @@ func NormalizeLabelKey(key string) string {
 	}
 	splitted := strings.Split(key, "/")
 	key = splitted[len(splitted)-1]
-	return normalizeNamebyLimit(key, common.MaxTagScopeLength)
+	return normalizeNameByLimit(key, "", common.MaxTagScopeLength)
 }
 
 func NormalizeName(name string) string {
-	return normalizeNamebyLimit(name, common.MaxTagValueLength)
+	return normalizeNameByLimit(name, "", common.MaxTagValueLength)
 }
 
-func normalizeNamebyLimit(name string, limit int) string {
-	if len(name) <= limit {
-		return name
+func normalizeNameByLimit(name string, suffix string, limit int) string {
+	newName := connectStrings("-", name, suffix)
+	if len(newName) <= limit {
+		return newName
 	}
-	hashString := Sha1(name)
+
+	var hashString string
+	if len(suffix) > 0 {
+		hashString = Sha1(suffix)
+	} else {
+		hashString = Sha1(name)
+	}
 	nameLength := limit - common.HashLength - 1
-	newName := fmt.Sprintf("%s-%s", name[:nameLength], hashString[:common.HashLength])
-	return newName
+	if len(name) < nameLength {
+		nameLength = len(name)
+	}
+	return strings.Join([]string{name[:nameLength], hashString[:common.HashLength]}, "-")
 }
 
 func NormalizeId(name string) string {
@@ -374,53 +385,49 @@ func UpdateK8sResourceAnnotation(client client.Client, ctx *context.Context, k8s
 	return nil
 }
 
-// GenerateID generate id for nsx resource, some resources has complex index, so set it type to string
+// GenerateIDByObject generate string id for NSX resource using the provided Object's name and uid. Note,
+// this function is used on the resources with VPC scenario, and the provided obj is the K8s CR which is
+// used to generate the NSX resource.
+func GenerateIDByObject(obj metav1.Object) string {
+	return normalizeNameByLimit(obj.GetName(), string(obj.GetUID()), common.MaxIdLength)
+}
+
+// GenerateIDByObjectByLimit generate string id for NSX resource using the provided Object's name and uid,
+// and truncate the string with the given limit length.
+func GenerateIDByObjectByLimit(obj metav1.Object, limit int) string {
+	if limit == 0 {
+		limit = common.MaxIdLength
+	}
+	return normalizeNameByLimit(obj.GetName(), string(obj.GetUID()), limit)
+}
+
+func GenerateIDByObjectWithSuffix(obj metav1.Object, suffix string) string {
+	limit := common.MaxIdLength
+	limit -= len(suffix) + 1
+	return connectStrings("_", normalizeNameByLimit(obj.GetName(), string(obj.GetUID()), limit), suffix)
+}
+
+// GenerateID generate id for NSX resource, some resources has complex index, so set it type to string
 func GenerateID(res_id, prefix, suffix string, index string) string {
-	var id strings.Builder
-	if len(prefix) > 0 {
-		id.WriteString(prefix)
-		id.WriteString("_")
-	}
+	return connectStrings("_", prefix, res_id, index, suffix)
+}
 
-	id.WriteString(res_id)
-	if len(index) > 0 {
-		id.WriteString("_")
-		id.WriteString(index)
-
+func connectStrings(sep string, parts ...string) string {
+	strParts := make([]string, 0)
+	for _, part := range parts {
+		if len(part) > 0 {
+			strParts = append(strParts, part)
+		}
 	}
-	if len(suffix) > 0 {
-		id.WriteString("_")
-		id.WriteString(suffix)
-	}
-	return id.String()
+	return strings.Join(strParts, sep)
 }
 
 func GenerateDisplayName(res_name, prefix, suffix, project, cluster string) string {
-	var name strings.Builder
-	if len(prefix) > 0 {
-		name.WriteString(prefix)
-		name.WriteString("-")
-	}
-	if len(cluster) > 0 {
-		name.WriteString(cluster)
-		name.WriteString("-")
-
-	}
-	name.WriteString(res_name)
-	if len(project) > 0 {
-		name.WriteString("-")
-		name.WriteString(project)
-
-	}
-
-	if len(suffix) > 0 {
-		name.WriteString("-")
-		name.WriteString(suffix)
-	}
-	return name.String()
+	// Return a string in this format: prefix-cluster-res_name-project-suffix.
+	return connectStrings("-", prefix, cluster, res_name, project, suffix)
 }
 
-func GenerateTruncName(limit int, res_name, prefix, suffix, project, cluster string) string {
+func GenerateTruncName(limit int, res_name string, prefix, suffix, project, cluster string) string {
 	adjusted_limit := limit - len(prefix) - len(suffix)
 	for _, i := range []string{prefix, suffix} {
 		if len(i) > 0 {
@@ -429,8 +436,7 @@ func GenerateTruncName(limit int, res_name, prefix, suffix, project, cluster str
 	}
 	old_name := GenerateDisplayName(res_name, "", "", project, cluster)
 	if len(old_name) > adjusted_limit {
-		new_name := normalizeNamebyLimit(
-			old_name, adjusted_limit)
+		new_name := normalizeNameByLimit(old_name, "", adjusted_limit)
 		return GenerateDisplayName(new_name, prefix, suffix, "", "")
 	}
 	return GenerateDisplayName(res_name, prefix, suffix, project, cluster)
@@ -515,4 +521,9 @@ func Capitalize(s string) string {
 		return ""
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+func GetRandomIndexString() string {
+	uuidStr := uuid.NewString()
+	return Sha1(uuidStr)[:HashLength]
 }

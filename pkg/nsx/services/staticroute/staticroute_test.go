@@ -12,6 +12,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 
@@ -128,21 +129,26 @@ func TestStaticRouteService_DeleteStaticRoute(t *testing.T) {
 		t.Error(err)
 	}
 
-	uid := "uid-123"
-	id := "sr_uid-123"
+	srObj := &v1alpha1.StaticRoute{
+		ObjectMeta: v1.ObjectMeta{
+			UID:  "uid-123",
+			Name: "sr",
+		},
+	}
+	id := "sr-uid-123"
 	path := "/orgs/default/projects/project-1/vpcs/vpc-1"
 	sr1 := &model.StaticRoutes{Id: &id, Path: &path}
 
-	returnservice.StaticRouteStore.Add(sr1)
-
 	// no record found
 	mockStaticRouteclient.EXPECT().Delete(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Times(0)
-	err = returnservice.DeleteStaticRoute(id)
+	err = returnservice.DeleteStaticRoute(srObj)
 	assert.Equal(t, err, nil)
+
+	returnservice.StaticRouteStore.Add(sr1)
 
 	// delete record
 	mockStaticRouteclient.EXPECT().Delete("default", "project-1", "vpc-1", id).Return(nil).Times(1)
-	err = returnservice.DeleteStaticRoute(uid)
+	err = returnservice.DeleteStaticRoute(srObj)
 	assert.Equal(t, err, nil)
 	srs := returnservice.StaticRouteStore.List()
 	assert.Equal(t, len(srs), 0)

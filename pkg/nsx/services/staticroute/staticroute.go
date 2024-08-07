@@ -104,9 +104,9 @@ func (service *StaticRouteService) patch(orgId string, projectId string, vpcId s
 	return nil
 }
 
-func (service *StaticRouteService) DeleteStaticRouteByPath(orgId string, projectId string, vpcId string, uid string) error {
+func (service *StaticRouteService) DeleteStaticRouteByPath(orgId string, projectId string, vpcId string, id string) error {
 	staticRouteClient := service.NSXClient.StaticRouteClient
-	staticroute := service.StaticRouteStore.GetByKey(uid)
+	staticroute := service.StaticRouteStore.GetByKey(id)
 	if staticroute == nil {
 		return nil
 	}
@@ -135,9 +135,9 @@ func (service *StaticRouteService) GetUID(staticroute *model.StaticRoutes) *stri
 
 }
 
-func (service *StaticRouteService) DeleteStaticRoute(uid string) error {
-	id := String(util.GenerateID(uid, "sr", "", ""))
-	staticroute := service.StaticRouteStore.GetByKey(*id)
+func (service *StaticRouteService) DeleteStaticRoute(obj *v1alpha1.StaticRoute) error {
+	id := util.GenerateIDByObject(obj)
+	staticroute := service.StaticRouteStore.GetByKey(id)
 	if staticroute == nil {
 		return nil
 	}
@@ -145,7 +145,7 @@ func (service *StaticRouteService) DeleteStaticRoute(uid string) error {
 	if err != nil {
 		return err
 	}
-	return service.DeleteStaticRouteByPath(vpcResourceInfo.OrgID, vpcResourceInfo.ProjectID, vpcResourceInfo.ID, *id)
+	return service.DeleteStaticRouteByPath(vpcResourceInfo.OrgID, vpcResourceInfo.ProjectID, vpcResourceInfo.ID, id)
 }
 
 func (service *StaticRouteService) ListStaticRoute() []*model.StaticRoutes {

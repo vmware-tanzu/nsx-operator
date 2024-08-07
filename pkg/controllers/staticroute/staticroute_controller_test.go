@@ -199,7 +199,7 @@ func TestStaticRouteReconciler_Reconcile(t *testing.T) {
 		return nil
 	})
 
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, uid string) error {
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, obj *v1alpha1.StaticRoute) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
@@ -217,7 +217,7 @@ func TestStaticRouteReconciler_Reconcile(t *testing.T) {
 		v1sp.Finalizers = []string{common.StaticRouteFinalizerName}
 		return nil
 	})
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, uid string) error {
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, obj *v1alpha1.StaticRoute) error {
 		return nil
 	})
 	_, ret = r.Reconcile(ctx, req)
@@ -232,7 +232,7 @@ func TestStaticRouteReconciler_Reconcile(t *testing.T) {
 		v1sp.Finalizers = []string{common.StaticRouteFinalizerName}
 		return nil
 	})
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, uid string) error {
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, obj *v1alpha1.StaticRoute) error {
 		return errors.New("delete failed")
 	})
 
@@ -327,7 +327,7 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 		a = append(a, model.StaticRoutes{Id: &id, Tags: tag2})
 		return a
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, uid string) error {
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, obj *v1alpha1.StaticRoute) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
@@ -345,7 +345,7 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 	patch.ApplyMethod(reflect.TypeOf(service), "ListStaticRoute", func(_ *staticroute.StaticRouteService) []model.StaticRoutes {
 		return []model.StaticRoutes{}
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, uid string) error {
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, obj *v1alpha1.StaticRoute) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
