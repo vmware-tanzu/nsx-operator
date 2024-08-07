@@ -80,11 +80,7 @@ func Test_buildNSXLBS(t *testing.T) {
 
 func TestBuildNSXVPC(t *testing.T) {
 	nc := common.VPCNetworkConfigInfo{
-		ExternalIPv4Blocks: []string{"10.10.0.0/16"},
-		PrivateIPv4CIDRs:   []string{"192.168.1.0/24"},
-		DefaultGatewayPath: "gw1",
-		ShortID:            "short1",
-		EdgeClusterPath:    "edge1",
+		ShortID: "short1",
 	}
 	netInfoObj := &v1alpha1.NetworkInfo{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "ns1", UID: "netinfouid1"},
