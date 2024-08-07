@@ -141,7 +141,7 @@ func (s *VPCService) GetVPCNetworkConfigByNamespace(ns string) *common.VPCNetwor
 // TBD: for now, if network config info do not contains private cidr, we consider this is
 // incorrect configuration, and skip creating this VPC CR
 func (s *VPCService) ValidateNetworkConfig(nc common.VPCNetworkConfigInfo) bool {
-	return nc.PrivateIPv4CIDRs != nil && len(nc.PrivateIPv4CIDRs) != 0
+	return nc.PrivateIPs != nil && len(nc.PrivateIPs) != 0
 }
 
 // InitializeVPC sync NSX resources
@@ -318,8 +318,8 @@ func (s *VPCService) CreateOrUpdatePrivateIPBlock(obj *v1alpha1.NetworkInfo, nsO
 	error) {
 	// if network config contains PrivateIPV4CIDRs section, create private ip block for each cidr
 	path := map[string]string{}
-	if nc.PrivateIPv4CIDRs != nil {
-		for _, pCidr := range nc.PrivateIPv4CIDRs {
+	if nc.PrivateIPs != nil {
+		for _, pCidr := range nc.PrivateIPs {
 			log.Info("start processing private cidr", "cidr", pCidr)
 			// if parse success, then check if private cidr exist, here we suppose it must be a cidr format string
 			ip, _, err := net.ParseCIDR(pCidr)
@@ -336,10 +336,10 @@ func (s *VPCService) CreateOrUpdatePrivateIPBlock(obj *v1alpha1.NetworkInfo, nsO
 			block := s.IpblockStore.GetByKey(key)
 			if block == nil {
 				log.Info("no ip block found in store for cidr", "CIDR", pCidr)
-				block := buildPrivateIpBlock(obj, nsObj, pCidr, ip.String(), nc.NsxtProject, s.NSXConfig.Cluster)
+				block := buildPrivateIpBlock(obj, nsObj, pCidr, ip.String(), nc.NSXProject, s.NSXConfig.Cluster)
 				log.Info("creating ip block", "IPBlock", block.Id, "VPC", obj.Name)
 				// can not find private ip block from store, create one
-				_err := s.NSXClient.IPBlockClient.Patch(nc.Org, nc.NsxtProject, *block.Id, block)
+				_err := s.NSXClient.IPBlockClient.Patch(nc.Org, nc.NSXProject, *block.Id, block)
 				_err = nsxutil.NSXApiError(_err)
 				if _err != nil {
 					message := fmt.Sprintf("failed to create private ip block for cidr %s for VPC %s", pCidr, obj.Name)
@@ -348,11 +348,11 @@ func (s *VPCService) CreateOrUpdatePrivateIPBlock(obj *v1alpha1.NetworkInfo, nsO
 					return nil, ipblockError
 				}
 				ignoreIpblockUsage := true
-				createdBlock, err := s.NSXClient.IPBlockClient.Get(nc.Org, nc.NsxtProject, *block.Id, &ignoreIpblockUsage)
+				createdBlock, err := s.NSXClient.IPBlockClient.Get(nc.Org, nc.NSXProject, *block.Id, &ignoreIpblockUsage)
 				err = nsxutil.NSXApiError(err)
 				if err != nil {
 					// created by can not get, ignore this error
-					log.Info("failed to read ip blocks from NSX", "Project", nc.NsxtProject, "IPBlock", block.Id)
+					log.Info("failed to read ip blocks from NSX", "Project", nc.NSXProject, "IPBlock", block.Id)
 					continue
 				}
 				// update ip block store
@@ -577,7 +577,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 		return nil, nil, err
 	}
 
-	// if there is not change in public cidr and private cidr, build partial vpc will return nil
+	// if there is no change in public cidr and private cidr, build partial vpc will return nil
 	if createdVpc == nil {
 		log.Info("no VPC changes detect, skip creating or updating process")
 		return existingVPC[0], &nc, nil
@@ -587,7 +587,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 	var createdLBS *model.LBService
 	if s.NSXConfig.NsxConfig.NSXLBEnabled() {
 		lbsSize := s.NSXConfig.NsxConfig.GetNSXLBSize()
-		vpcPath := fmt.Sprintf(VPCKey, nc.Org, nc.NsxtProject, nc.Name)
+		vpcPath := fmt.Sprintf(VPCKey, nc.Org, nc.NSXProject, nc.Name)
 		var relaxScaleValidation *bool
 		if s.NSXConfig.NsxConfig.RelaxNSXLBScaleValication {
 			relaxScaleValidation = common.Bool(true)
@@ -595,7 +595,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 		createdLBS, _ = buildNSXLBS(obj, nsObj, s.NSXConfig.Cluster, lbsSize, vpcPath, relaxScaleValidation)
 	}
 	// build HAPI request
-	orgRoot, err := s.WrapHierarchyVPC(nc.Org, nc.NsxtProject, createdVpc, createdLBS)
+	orgRoot, err := s.WrapHierarchyVPC(nc.Org, nc.NSXProject, createdVpc, createdLBS)
 	if err != nil {
 		log.Error(err, "failed to build HAPI request")
 		return nil, nil, err
@@ -605,23 +605,23 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 	err = s.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
 	err = nsxutil.NSXApiError(err)
 	if err != nil {
-		log.Error(err, "failed to create VPC", "Project", nc.NsxtProject, "Namespace", obj.Namespace)
+		log.Error(err, "failed to create VPC", "Project", nc.NSXProject, "Namespace", obj.Namespace)
 		// TODO: this seems to be a nsx bug, in some case, even if nsx returns failed but the object is still created.
 		log.Info("try to read VPC although VPC creation failed", "VPC", *createdVpc.Id)
-		failedVpc, rErr := s.NSXClient.VPCClient.Get(nc.Org, nc.NsxtProject, *createdVpc.Id)
+		failedVpc, rErr := s.NSXClient.VPCClient.Get(nc.Org, nc.NSXProject, *createdVpc.Id)
 		rErr = nsxutil.NSXApiError(rErr)
 		if rErr != nil {
 			// failed to read, but already created, we consider this scenario as success, but store may not sync with nsx
 			log.Info("confirmed VPC is not created", "VPC", createdVpc.Id)
 			return nil, nil, err
 		} else {
-			// vpc created anyway, in this case, we consider this vpc is created successfully and continue realize process
+			// vpc created anyway, in this case, we consider this vpc is created successfully and continue to realize process
 			log.Info("vpc created although nsx return error, continue to check realization", "VPC", *failedVpc.Id)
 		}
 	}
 
 	// get the created vpc from nsx, it contains the path of the resources
-	newVpc, err := s.NSXClient.VPCClient.Get(nc.Org, nc.NsxtProject, *createdVpc.Id)
+	newVpc, err := s.NSXClient.VPCClient.Get(nc.Org, nc.NSXProject, *createdVpc.Id)
 	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		// failed to read, but already created, we consider this scenario as success, but store may not sync with nsx
@@ -649,7 +649,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 
 	// Check LBS realization
 	if createdLBS != nil {
-		newLBS, err := s.NSXClient.VPCLBSClient.Get(nc.Org, nc.NsxtProject, *createdVpc.Id, *createdLBS.Id)
+		newLBS, err := s.NSXClient.VPCLBSClient.Get(nc.Org, nc.NSXProject, *createdVpc.Id, *createdLBS.Id)
 		if err != nil {
 			log.Error(err, "failed to read LBS object after creating or updating", "LBS", createdLBS.Id)
 			return nil, nil, err
@@ -957,7 +957,6 @@ func (service *VPCService) ListVPCInfo(ns string) []common.VPCResourceInfo {
 		if err != nil {
 			log.Error(err, "Failed to get vpc info from vpc path", "vpc path", *v.Path)
 		}
-		vpcResourceInfo.ExternalIPv4Blocks = v.ExternalIpv4Blocks
 		vpcResourceInfo.PrivateIpv4Blocks = v.PrivateIpv4Blocks
 		VPCInfoList = append(VPCInfoList, vpcResourceInfo)
 	}

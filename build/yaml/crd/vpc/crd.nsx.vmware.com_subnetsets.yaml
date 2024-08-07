@@ -60,11 +60,13 @@ spec:
                     type: boolean
                 type: object
               accessMode:
+                default: Private
                 description: Access mode of Subnet, accessible only from within VPC
                   or from outside VPC.
                 enum:
                 - Private
                 - Public
+                - PrivateTGW
                 type: string
               advancedConfig:
                 description: Subnet advanced configuration.

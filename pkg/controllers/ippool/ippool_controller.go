@@ -122,7 +122,7 @@ func (r *IPPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	// TODO: As we do not have base controller in Go, we need to take care of NSX exceptions in each controller separately.
-	//I agree we should not do infinite retry for all errors, but it's ok to add error handling in a following patch
+	// I agree we should not do infinite retry for all errors, but it's ok to add error handling in a following patch
 
 	// TODO: Since only the cloud provider creates it, we can take all the validation logic into consideration later.
 
@@ -140,7 +140,7 @@ func (r *IPPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			updateFail(r, &ctx, obj, &err)
 			return resultRequeue, err
 		}
-		obj.Spec.Type = vpcNetworkConfig.DefaultSubnetAccessMode
+		obj.Spec.Type = vpcNetworkConfig.PodSubnetAccessMode
 	}
 
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {

@@ -54,7 +54,7 @@ func TestIPPoolService_BuildIPPool(t *testing.T) {
 	want2 := model.IpAddressPoolBlockSubnet{
 		DisplayName: String("ibs-k8scl-one:test-ippool1-subnet1"),
 		Id:          String("ibs_uuid1_subnet1"),
-		IpBlockPath: String("/infra/ip-blocks/block-test"),
+		IpBlockPath: String(""),
 		Tags: []model.Tag{
 			{Scope: String("nsx-op/cluster"), Tag: String("k8scl-one:test")},
 			{Scope: String("nsx-op/version"), Tag: String(strings.Join(common.TagValueVersion, "."))},
@@ -66,9 +66,7 @@ func TestIPPoolService_BuildIPPool(t *testing.T) {
 		Size: Int64(256),
 	}
 
-	vpcinfolist := []common.VPCResourceInfo{
-		{ExternalIPv4Blocks: []string{"/infra/ip-blocks/block-test"}},
-	}
+	vpcinfolist := []common.VPCResourceInfo{{}}
 	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
