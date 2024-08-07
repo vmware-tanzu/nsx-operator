@@ -23,10 +23,6 @@ func (c *FakeCrdV1alpha1) IPAddressAllocations(namespace string) v1alpha1.IPAddr
 	return &FakeIPAddressAllocations{c, namespace}
 }
 
-func (c *FakeCrdV1alpha1) IPPools(namespace string) v1alpha1.IPPoolInterface {
-	return &FakeIPPools{c, namespace}
-}
-
 func (c *FakeCrdV1alpha1) NetworkInfos(namespace string) v1alpha1.NetworkInfoInterface {
 	return &FakeNetworkInfos{c, namespace}
 }

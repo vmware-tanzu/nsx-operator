@@ -5,7 +5,6 @@ go 1.22.5
 replace (
 	github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
 	github.com/vmware-tanzu/nsx-operator/pkg/apis/crd.nsx.vmware.com/v1alpha1 => ./pkg/apis/crd.nsx.vmware.com/v1alpha1
-	github.com/vmware-tanzu/nsx-operator/pkg/apis/crd.nsx.vmware.com/v1alpha2 => ./pkg/apis/crd.nsx.vmware.com/v1alpha2
 	github.com/vmware-tanzu/nsx-operator/pkg/client => ./pkg/client
 	github.com/vmware/vsphere-automation-sdk-go/lib => github.com/zhengxiexie/vsphere-automation-sdk-go/lib v0.7.3-0.20240628090521-3ad1af047210
 	github.com/vmware/vsphere-automation-sdk-go/runtime => github.com/zhengxiexie/vsphere-automation-sdk-go/runtime v0.7.3-0.20240628090521-3ad1af047210
@@ -24,11 +23,10 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/kevinburke/ssh_config v1.2.0
 	github.com/openlyinc/pointy v1.1.2
-	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.16.0
 	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.4
-	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-20240805022824-6e7c54aba36a
+	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-20240807075532-2cc0f8de2fc1
 	github.com/vmware-tanzu/nsx-operator/pkg/client v0.0.0-20240102061654-537b080e159f
 	github.com/vmware-tanzu/vm-operator/api v1.8.2
 	github.com/vmware/govmomi v0.27.4
@@ -76,6 +74,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_model v0.4.0 // indirect
 	github.com/prometheus/common v0.44.0 // indirect

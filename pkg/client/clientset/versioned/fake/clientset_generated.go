@@ -9,8 +9,6 @@ import (
 	clientset "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
 	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/crd.nsx.vmware.com/v1alpha1"
 	fakecrdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/crd.nsx.vmware.com/v1alpha1/fake"
-	crdv1alpha2 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/crd.nsx.vmware.com/v1alpha2"
-	fakecrdv1alpha2 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/crd.nsx.vmware.com/v1alpha2/fake"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/discovery"
@@ -71,9 +69,4 @@ var (
 // CrdV1alpha1 retrieves the CrdV1alpha1Client
 func (c *Clientset) CrdV1alpha1() crdv1alpha1.CrdV1alpha1Interface {
 	return &fakecrdv1alpha1.FakeCrdV1alpha1{Fake: &c.Fake}
-}
-
-// CrdV1alpha2 retrieves the CrdV1alpha2Client
-func (c *Clientset) CrdV1alpha2() crdv1alpha2.CrdV1alpha2Interface {
-	return &fakecrdv1alpha2.FakeCrdV1alpha2{Fake: &c.Fake}
 }

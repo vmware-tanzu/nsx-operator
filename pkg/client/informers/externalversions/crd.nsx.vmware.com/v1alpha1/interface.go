@@ -15,8 +15,6 @@ type Interface interface {
 	AddressBindings() AddressBindingInformer
 	// IPAddressAllocations returns a IPAddressAllocationInformer.
 	IPAddressAllocations() IPAddressAllocationInformer
-	// IPPools returns a IPPoolInformer.
-	IPPools() IPPoolInformer
 	// NetworkInfos returns a NetworkInfoInformer.
 	NetworkInfos() NetworkInfoInformer
 	// SecurityPolicies returns a SecurityPolicyInformer.
@@ -52,11 +50,6 @@ func (v *version) AddressBindings() AddressBindingInformer {
 // IPAddressAllocations returns a IPAddressAllocationInformer.
 func (v *version) IPAddressAllocations() IPAddressAllocationInformer {
 	return &iPAddressAllocationInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
-}
-
-// IPPools returns a IPPoolInformer.
-func (v *version) IPPools() IPPoolInformer {
-	return &iPPoolInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // NetworkInfos returns a NetworkInfoInformer.

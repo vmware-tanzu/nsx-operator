@@ -10,7 +10,6 @@ import (
 	"net/http"
 
 	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/crd.nsx.vmware.com/v1alpha1"
-	crdv1alpha2 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/crd.nsx.vmware.com/v1alpha2"
 	discovery "k8s.io/client-go/discovery"
 	rest "k8s.io/client-go/rest"
 	flowcontrol "k8s.io/client-go/util/flowcontrol"
@@ -19,24 +18,17 @@ import (
 type Interface interface {
 	Discovery() discovery.DiscoveryInterface
 	CrdV1alpha1() crdv1alpha1.CrdV1alpha1Interface
-	CrdV1alpha2() crdv1alpha2.CrdV1alpha2Interface
 }
 
 // Clientset contains the clients for groups.
 type Clientset struct {
 	*discovery.DiscoveryClient
 	crdV1alpha1 *crdv1alpha1.CrdV1alpha1Client
-	crdV1alpha2 *crdv1alpha2.CrdV1alpha2Client
 }
 
 // CrdV1alpha1 retrieves the CrdV1alpha1Client
 func (c *Clientset) CrdV1alpha1() crdv1alpha1.CrdV1alpha1Interface {
 	return c.crdV1alpha1
-}
-
-// CrdV1alpha2 retrieves the CrdV1alpha2Client
-func (c *Clientset) CrdV1alpha2() crdv1alpha2.CrdV1alpha2Interface {
-	return c.crdV1alpha2
 }
 
 // Discovery retrieves the DiscoveryClient
@@ -87,10 +79,6 @@ func NewForConfigAndClient(c *rest.Config, httpClient *http.Client) (*Clientset,
 	if err != nil {
 		return nil, err
 	}
-	cs.crdV1alpha2, err = crdv1alpha2.NewForConfigAndClient(&configShallowCopy, httpClient)
-	if err != nil {
-		return nil, err
-	}
 
 	cs.DiscoveryClient, err = discovery.NewDiscoveryClientForConfigAndClient(&configShallowCopy, httpClient)
 	if err != nil {
@@ -113,7 +101,6 @@ func NewForConfigOrDie(c *rest.Config) *Clientset {
 func New(c rest.Interface) *Clientset {
 	var cs Clientset
 	cs.crdV1alpha1 = crdv1alpha1.New(c)
-	cs.crdV1alpha2 = crdv1alpha2.New(c)
 
 	cs.DiscoveryClient = discovery.NewDiscoveryClient(c)
 	return &cs

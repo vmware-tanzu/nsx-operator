@@ -21,14 +21,6 @@ type IPAddressAllocationListerExpansion interface{}
 // IPAddressAllocationNamespaceLister.
 type IPAddressAllocationNamespaceListerExpansion interface{}
 
-// IPPoolListerExpansion allows custom methods to be added to
-// IPPoolLister.
-type IPPoolListerExpansion interface{}
-
-// IPPoolNamespaceListerExpansion allows custom methods to be added to
-// IPPoolNamespaceLister.
-type IPPoolNamespaceListerExpansion interface{}
-
 // NetworkInfoListerExpansion allows custom methods to be added to
 // NetworkInfoLister.
 type NetworkInfoListerExpansion interface{}
