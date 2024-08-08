@@ -233,6 +233,11 @@ func (service *SubnetService) GetSubnetStatus(subnet *model.VpcSubnet) ([]model.
 		log.Error(err, "no subnet status found")
 		return nil, err
 	}
+	if statusList.Results[0].NetworkAddress == nil || statusList.Results[0].GatewayAddress == nil {
+		err := fmt.Errorf("invalid status result: %+v", statusList.Results[0])
+		log.Error(err, "subnet status does not have network address or gateway address", "subnet.Id", subnet.Id)
+		return nil, err
+	}
 	return statusList.Results, nil
 }
 

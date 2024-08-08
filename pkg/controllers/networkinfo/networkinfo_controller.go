@@ -97,7 +97,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		snatIP, path, cidr := "", "", ""
 		// currently, auto snat is not exposed, and use default value True
 		// checking autosnat to support future extension in vpc configuration
-		if *createdVpc.ServiceGateway.AutoSnat {
+		if createdVpc.ServiceGateway != nil && createdVpc.ServiceGateway.AutoSnat != nil && *createdVpc.ServiceGateway.AutoSnat {
 			snatIP, err = r.Service.GetDefaultSNATIP(*createdVpc)
 			if err != nil {
 				log.Error(err, "failed to read default SNAT ip from VPC", "VPC", createdVpc.Id)
