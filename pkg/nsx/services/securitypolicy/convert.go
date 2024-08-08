@@ -3,8 +3,8 @@ package securitypolicy
 import (
 	"unsafe"
 
-	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/crd.nsx.vmware.com/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/t1/v1alpha1"
+	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 )
 
 func T1ToVPC(in *v1alpha1.SecurityPolicy) *crdv1alpha1.SecurityPolicy {

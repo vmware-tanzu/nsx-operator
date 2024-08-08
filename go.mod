@@ -4,7 +4,7 @@ go 1.22.5
 
 replace (
 	github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
-	github.com/vmware-tanzu/nsx-operator/pkg/apis/crd.nsx.vmware.com/v1alpha1 => ./pkg/apis/crd.nsx.vmware.com/v1alpha1
+	github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1 => ./pkg/apis/vpc/v1alpha1
 	github.com/vmware-tanzu/nsx-operator/pkg/client => ./pkg/client
 	github.com/vmware/vsphere-automation-sdk-go/lib => github.com/zhengxiexie/vsphere-automation-sdk-go/lib v0.7.3-0.20240628090521-3ad1af047210
 	github.com/vmware/vsphere-automation-sdk-go/runtime => github.com/zhengxiexie/vsphere-automation-sdk-go/runtime v0.7.3-0.20240628090521-3ad1af047210
@@ -26,7 +26,7 @@ require (
 	github.com/prometheus/client_golang v1.16.0
 	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.4
-	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-20240807075532-2cc0f8de2fc1
+	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-20240809061118-98a84f180b40
 	github.com/vmware-tanzu/nsx-operator/pkg/client v0.0.0-20240102061654-537b080e159f
 	github.com/vmware-tanzu/vm-operator/api v1.8.2
 	github.com/vmware/govmomi v0.27.4

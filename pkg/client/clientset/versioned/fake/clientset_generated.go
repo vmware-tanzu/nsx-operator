@@ -7,8 +7,8 @@ package fake
 
 import (
 	clientset "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
-	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/crd.nsx.vmware.com/v1alpha1"
-	fakecrdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/crd.nsx.vmware.com/v1alpha1/fake"
+	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/vpc/v1alpha1"
+	fakecrdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/vpc/v1alpha1/fake"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/discovery"
