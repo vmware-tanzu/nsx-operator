@@ -5,6 +5,8 @@ package networkinfo
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
@@ -60,8 +62,46 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}
 			log.V(1).Info("added finalizer on NetworkInfo CR", "NetworkInfo", req.NamespacedName)
 		}
+		// TODO:
+		// 1. check whether the logic to get VPC network config can be replaced by GetVPCNetworkConfigByNamespace
+		// 2. sometimes the variable nc points to a VPCNetworkInfo, sometimes it's a VPCNetworkConfiguration, we need to distinguish between them.
+		ncName, err := r.Service.GetNetworkconfigNameFromNS(obj.Namespace)
+		if err != nil {
+			log.Error(err, "failed to get network config name for VPC when creating NSX VPC", "VPC", obj.Name)
+			return common.ResultRequeueAfter10sec, err
+		}
+		nc, _exist := r.Service.GetVPCNetworkConfig(ncName)
+		if !_exist {
+			message := fmt.Sprintf("failed to read network config %s when creating NSX VPC", ncName)
+			log.Info(message)
+			return common.ResultRequeueAfter10sec, errors.New(message)
+		}
+		log.Info("got network config from store", "NetworkConfig", ncName)
+		gatewayConnectionReady := false
+		reason := ""
+		if ncName == commonservice.SystemVPCNetworkConfigurationName {
+			gatewayConnectionReady, reason, err = r.Service.ValidateGatewayConnectionStatus(&nc)
+			if err != nil {
+				log.Error(err, "failed to validate the edge and gateway connection", "org", nc.Org, "project", nc.NsxtProject)
+				updateFail(r, &ctx, obj, &err, r.Client, nil)
+				return common.ResultRequeueAfter10sec, err
+			}
+			setVPCNetworkConfigurationStatusWithGatewayConnection(&ctx, r.Client, ncName, gatewayConnectionReady, reason)
+			if !gatewayConnectionReady {
+				log.Info("gateway connection not ready, waiting and retrying", "org", nc.Org, "project", nc.NsxtProject)
+				return common.ResultRequeueAfter10sec, nil
+			} else {
+				log.Info("gateway connection is ready", "org", nc.Org, "project", nc.NsxtProject)
+			}
+		} else {
+			gatewayConnectionReady, reason, err = getGatewayConnectionStatus(&ctx, r.Client, commonservice.SystemVPCNetworkConfigurationName)
+			if !gatewayConnectionReady {
+				log.Info("skipping reconciling the network info because the system gateway connection is not ready", "NetworkInfo", req.NamespacedName)
+				return common.ResultRequeueAfter10sec, nil
+			}
+		}
 
-		createdVpc, nc, err := r.Service.CreateOrUpdateVPC(obj)
+		createdVpc, err := r.Service.CreateOrUpdateVPC(obj, &nc)
 		if err != nil {
 			log.Error(err, "create vpc failed, would retry exponentially", "VPC", req.NamespacedName)
 			updateFail(r, &ctx, obj, &err, r.Client, nil)
@@ -107,6 +147,15 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				return common.ResultRequeueAfter10sec, err
 			}
 		}
+		if ncName == commonservice.SystemVPCNetworkConfigurationName {
+			if snatIP == "" {
+				log.Info("detected that the AutoSnat is disabled")
+				setVPCNetworkConfigurationStatusWithSnatEnabled(&ctx, r.Client, ncName, false)
+			} else {
+				log.Info("detected that the AutoSnat is enabled")
+				setVPCNetworkConfigurationStatusWithSnatEnabled(&ctx, r.Client, ncName, true)
+			}
+		}
 
 		// if lb vpc enabled, read avi subnet path and cidr
 		// nsx bug, if set LoadBalancerVpcEndpoint.Enabled to false, when read this vpc back,
@@ -134,7 +183,9 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			LoadBalancerIPAddresses: cidr,
 			PrivateIPv4CIDRs:        nc.PrivateIPv4CIDRs,
 		}
-		updateSuccess(r, &ctx, obj, r.Client, state, nc.Name, path, r.Service.GetNSXLBSPath(*createdVpc.Id))
+		// ako needs to know the avi subnet path created by nsx
+		setVPCNetworkConfigurationStatusWithLBS(&ctx, r.Client, ncName, state.Name, path, r.Service.GetNSXLBSPath(*createdVpc.Id))
+		updateSuccess(r, &ctx, obj, r.Client, state, nc.Name, path)
 	} else {
 		if controllerutil.ContainsFinalizer(obj, commonservice.NetworkInfoFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNetworkInfo)

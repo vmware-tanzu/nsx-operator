@@ -7,6 +7,7 @@ import (
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	client "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -29,10 +30,8 @@ func updateFail(r *NetworkInfoReconciler, c *context.Context, o *v1alpha1.Networ
 }
 
 func updateSuccess(r *NetworkInfoReconciler, c *context.Context, o *v1alpha1.NetworkInfo, client client.Client,
-	vpcState *v1alpha1.VPCState, ncName string, subnetPath string, nsxLBSPath string) {
+	vpcState *v1alpha1.VPCState, ncName string, subnetPath string) {
 	setNetworkInfoVPCStatus(c, o, client, vpcState)
-	// ako needs to know the avi subnet path created by nsx
-	setVPCNetworkConfigurationStatus(c, client, ncName, vpcState.Name, subnetPath, nsxLBSPath)
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "NetworkInfo CR has been successfully updated")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, common.MetricResTypeNetworkInfo)
 }
@@ -59,7 +58,7 @@ func setNetworkInfoVPCStatus(ctx *context.Context, networkInfo *v1alpha1.Network
 	}
 }
 
-func setVPCNetworkConfigurationStatus(ctx *context.Context, client client.Client, ncName string, vpcName string, aviSubnetPath string, nsxLBSPath string) {
+func setVPCNetworkConfigurationStatusWithLBS(ctx *context.Context, client client.Client, ncName string, vpcName string, aviSubnetPath string, nsxLBSPath string) {
 	// read v1alpha1.VPCNetworkConfiguration by ncName
 	nc := &v1alpha1.VPCNetworkConfiguration{}
 	err := client.Get(*ctx, apitypes.NamespacedName{Name: ncName}, nc)
@@ -85,6 +84,113 @@ func setVPCNetworkConfigurationStatus(ctx *context.Context, client client.Client
 	}
 	nc.Status.VPCs = append(nc.Status.VPCs, *createdVPCInfo)
 	client.Status().Update(*ctx, nc)
+}
+
+func setVPCNetworkConfigurationStatusWithGatewayConnection(ctx *context.Context, client client.Client, ncName string, gatewayConnectionReady bool, reason string) {
+	// read v1alpha1.VPCNetworkConfiguration by ncName
+	nc := &v1alpha1.VPCNetworkConfiguration{}
+	err := client.Get(*ctx, apitypes.NamespacedName{Name: ncName}, nc)
+	if err != nil {
+		log.Error(err, "failed to get VPCNetworkConfiguration", "Name", ncName)
+	}
+	newConditions := []v1alpha1.Condition{
+		{
+			Type:               v1alpha1.GatewayConnectionReady,
+			Status:             v1.ConditionFalse,
+			Reason:             reason,
+			LastTransitionTime: metav1.Now(),
+		},
+	}
+	if gatewayConnectionReady {
+		newConditions[0].Status = v1.ConditionTrue
+	}
+	conditionsUpdated := false
+	for _, newCondition := range newConditions {
+		if mergeStatusCondition(ctx, &nc.Status.Conditions, &newCondition) {
+			conditionsUpdated = true
+		}
+	}
+	// TODO: Verify if it's really changed.
+	if conditionsUpdated {
+		client.Status().Update(*ctx, nc)
+	}
+}
+
+func setVPCNetworkConfigurationStatusWithSnatEnabled(ctx *context.Context, client client.Client, ncName string, autoSnatEnabled bool) {
+	nc := &v1alpha1.VPCNetworkConfiguration{}
+	err := client.Get(*ctx, apitypes.NamespacedName{Name: ncName}, nc)
+	if err != nil {
+		log.Error(err, "failed to get VPCNetworkConfiguration", "Name", ncName)
+	}
+	newConditions := []v1alpha1.Condition{
+		{
+			Type:               v1alpha1.AutoSnatEnabled,
+			Status:             v1.ConditionFalse,
+			LastTransitionTime: metav1.Now(),
+		},
+	}
+	if autoSnatEnabled {
+		newConditions[0].Status = v1.ConditionTrue
+	}
+	conditionsUpdated := false
+	for _, newCondition := range newConditions {
+		if mergeStatusCondition(ctx, &nc.Status.Conditions, &newCondition) {
+			conditionsUpdated = true
+		}
+	}
+	if conditionsUpdated {
+		client.Status().Update(*ctx, nc)
+	}
+}
+
+// TODO: abstract the logic of merging condition for common, which can be used by the other controller, e.g. security policy
+func mergeStatusCondition(ctx *context.Context, conditions *[]v1alpha1.Condition, newCondition *v1alpha1.Condition) bool {
+	matchedCondition := getExistingConditionOfType(newCondition.Type, *conditions)
+
+	if reflect.DeepEqual(matchedCondition, newCondition) {
+		log.V(2).Info("conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+		return false
+	}
+
+	if matchedCondition != nil {
+		matchedCondition.Reason = newCondition.Reason
+		matchedCondition.Message = newCondition.Message
+		matchedCondition.Status = newCondition.Status
+	} else {
+		*conditions = append(*conditions, *newCondition)
+	}
+	return true
+}
+
+func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingConditions []v1alpha1.Condition) *v1alpha1.Condition {
+	for i := range existingConditions {
+		if existingConditions[i].Type == conditionType {
+			return &existingConditions[i]
+		}
+	}
+	return nil
+}
+
+func getGatewayConnectionStatus(ctx *context.Context, client client.Client, ncName string) (bool, string, error) {
+	nc := &v1alpha1.VPCNetworkConfiguration{}
+	err := client.Get(*ctx, apitypes.NamespacedName{Name: ncName}, nc)
+	if err != nil {
+		log.Error(err, "failed to get VPCNetworkConfiguration", "Name", ncName)
+		return false, "", err
+	}
+	gatewayConnectionReady := true
+	reason := ""
+	for _, condition := range nc.Status.Conditions {
+		if condition.Type != v1alpha1.GatewayConnectionReady {
+			continue
+		}
+		if condition.Status == v1.ConditionFalse {
+			gatewayConnectionReady = false
+			reason = condition.Reason
+			break
+		}
+	}
+	return gatewayConnectionReady, reason, nil
 }
 
 func getNamespaceFromNSXVPC(nsxVPC *model.Vpc) string {

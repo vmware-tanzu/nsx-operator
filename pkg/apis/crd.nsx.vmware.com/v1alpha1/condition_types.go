@@ -8,7 +8,9 @@ import (
 type ConditionType string
 
 const (
-	Ready ConditionType = "Ready"
+	Ready                  ConditionType = "Ready"
+	GatewayConnectionReady ConditionType = "GatewayConnectionReady"
+	AutoSnatEnabled        ConditionType = "AutoSnatEnabled"
 )
 
 // Condition defines condition of custom resource.

@@ -90,14 +90,14 @@ func TestGetNetworkConfigFromNS(t *testing.T) {
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(fakeErr).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		return nil
 	})
-	ns, err := service.getNetworkconfigNameFromNS("test")
+	ns, err := service.GetNetworkconfigNameFromNS("test")
 	assert.Equal(t, fakeErr, err)
 	assert.Equal(t, "", ns)
 
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(nil).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		return nil
 	})
-	ns, err = service.getNetworkconfigNameFromNS("test")
+	ns, err = service.GetNetworkconfigNameFromNS("test")
 	assert.NotNil(t, err)
 	assert.Equal(t, "", ns)
 
@@ -109,7 +109,7 @@ func TestGetNetworkConfigFromNS(t *testing.T) {
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(nil).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		return nil
 	})
-	ns, err = service.getNetworkconfigNameFromNS("test")
+	ns, err = service.GetNetworkconfigNameFromNS("test")
 	assert.Nil(t, err)
 	assert.Equal(t, "test-name", ns)
 
@@ -117,7 +117,7 @@ func TestGetNetworkConfigFromNS(t *testing.T) {
 		obj.SetAnnotations(map[string]string{"nsx.vmware.com/vpc_network_config": "test-nc"})
 		return nil
 	})
-	ns, err = service.getNetworkconfigNameFromNS("test")
+	ns, err = service.GetNetworkconfigNameFromNS("test")
 	assert.Nil(t, err)
 	assert.Equal(t, "test-nc", ns)
 }
