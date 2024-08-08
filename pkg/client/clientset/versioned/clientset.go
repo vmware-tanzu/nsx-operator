@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"net/http"
 
-	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/crd.nsx.vmware.com/v1alpha1"
+	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/vpc/v1alpha1"
 	discovery "k8s.io/client-go/discovery"
 	rest "k8s.io/client-go/rest"
 	flowcontrol "k8s.io/client-go/util/flowcontrol"
