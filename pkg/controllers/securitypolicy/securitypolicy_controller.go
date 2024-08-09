@@ -183,7 +183,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	} else {
 		if controllerutil.ContainsFinalizer(obj, finalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
-			if err := r.Service.DeleteSecurityPolicy(obj, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
+			if err := r.Service.DeleteSecurityPolicy(realObj.UID, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 				deleteFail(r, &ctx, realObj, &err)
 				return ResultRequeue, err
@@ -426,7 +426,6 @@ func shouldReconcile(securityPolicy *v1alpha1.SecurityPolicy, q workqueue.RateLi
 			},
 		})
 	}
-
 }
 
 func StartSecurityPolicyController(mgr ctrl.Manager, commonService servicecommon.Service, vpcService servicecommon.VPCServiceProvider) {
