@@ -88,8 +88,9 @@ func setVPCNetworkConfigurationStatusWithLBS(ctx *context.Context, client client
 	err = client.Status().Update(*ctx, nc)
 	if err != nil {
 		log.Error(err, "Update VPCNetworkConfiguration status failed", "ncName", ncName, "vpcName", vpcName, "nc.Status.VPCs", nc.Status.VPCs)
+		return
 	}
-	log.Info("Update VPCNetworkConfiguration status success", "ncName", ncName, "vpcName", vpcName, "nc.Status.VPCs", nc.Status.VPCs)
+	log.Info("Updated VPCNetworkConfiguration status", "ncName", ncName, "vpcName", vpcName, "nc.Status.VPCs", nc.Status.VPCs)
 }
 
 func setVPCNetworkConfigurationStatusWithGatewayConnection(ctx *context.Context, client client.Client, nc *v1alpha1.VPCNetworkConfiguration, gatewayConnectionReady bool, reason string) {
