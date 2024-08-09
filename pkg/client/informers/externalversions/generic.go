@@ -44,6 +44,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().AddressBindings().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("ipaddressallocations"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().IPAddressAllocations().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("ipblocksinfos"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().IPBlocksInfos().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("networkinfos"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().NetworkInfos().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("securitypolicies"):
