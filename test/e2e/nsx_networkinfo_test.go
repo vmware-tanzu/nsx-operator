@@ -78,7 +78,7 @@ func TestCustomizedNetworkInfo(t *testing.T) {
 	err := testData.waitForResourceExistByPath(vpcPath, true)
 	assertNil(t, err)
 
-	//verify private ipblocks created for vpc
+	// verify private ipblocks created for vpc
 	p_ipb_id1 := ns_uid + "_" + CustomizedPrivateCIDR1
 	p_ipb_id2 := ns_uid + "_" + CustomizedPrivateCIDR2
 
@@ -97,7 +97,7 @@ func TestInfraNetworkInfo(t *testing.T) {
 	err := testData.waitForResourceExistByPath(vpcPath, true)
 	assertNil(t, err)
 
-	//verify private ipblocks created for vpc
+	// verify private ipblocks created for vpc
 	p_ipb_id1 := ns_uid + "_" + InfraPrivateCIDR1
 	p_ipb_id2 := ns_uid + "_" + InfraPrivateCIDR2
 
@@ -128,7 +128,7 @@ func TestDefaultNetworkInfo(t *testing.T) {
 	err := testData.waitForResourceExistByPath(vpcPath, true)
 	assertNil(t, err)
 
-	//verify private ipblocks created for vpc, id is nsuid + cidr
+	// verify private ipblocks created for vpc, id is nsuid + cidr
 	p_ipb_id1 := ns_uid + "_" + DefaultPrivateCIDR1
 	p_ipb_id2 := ns_uid + "_" + DefaultPrivateCIDR2
 
@@ -171,7 +171,7 @@ func TestSharedNetworkInfo(t *testing.T) {
 
 	assertTrue(t, vpcPath == vpcPath1, "vpcPath %s should be the same as vpcPath2 %s", vpcPath, vpcPath1)
 
-	//verify private ipblocks created for vpc, id is nsuid + cidr
+	// verify private ipblocks created for vpc, id is nsuid + cidr
 	p_ipb_id1 := ns_uid + "_" + CustomizedPrivateCIDR1
 	p_ipb_id2 := ns_uid + "_" + CustomizedPrivateCIDR2
 
@@ -205,12 +205,12 @@ func TestUpdateVPCNetworkconfigNetworkInfo(t *testing.T) {
 	// Check networkinfo cr existence
 	networkinfo_name, _ := verifyCRCreated(t, NetworkInfoCRType, ns, 1)
 
-	privateIPv4CIDRs, err := testData.getCRPropertiesByJson(defaultTimeout, NetworkInfoCRType, networkinfo_name, ns, ".vpcs[0].privateIPv4CIDRs")
-	assertTrue(t, strings.Contains(privateIPv4CIDRs, CustomizedPrivateCIDR1), "privateIPv4CIDRs %s should contain %s", privateIPv4CIDRs, CustomizedPrivateCIDR1)
-	assertTrue(t, strings.Contains(privateIPv4CIDRs, CustomizedPrivateCIDR2), "privateIPv4CIDRs %s should contain %s", privateIPv4CIDRs, CustomizedPrivateCIDR1)
+	privateIPs, err := testData.getCRPropertiesByJson(defaultTimeout, NetworkInfoCRType, networkinfo_name, ns, ".vpcs[0].privateIPs")
+	assertTrue(t, strings.Contains(privateIPs, CustomizedPrivateCIDR1), "privateIPs %s should contain %s", privateIPs, CustomizedPrivateCIDR1)
+	assertTrue(t, strings.Contains(privateIPs, CustomizedPrivateCIDR2), "privateIPs %s should contain %s", privateIPs, CustomizedPrivateCIDR1)
 	assertNil(t, err)
 
-	//verify private ipblocks created for vpc, id is nsuid + cidr
+	// verify private ipblocks created for vpc, id is nsuid + cidr
 	p_ipb_id1 := ns_uid + "_" + CustomizedPrivateCIDR1
 	p_ipb_id2 := ns_uid + "_" + CustomizedPrivateCIDR2
 
@@ -220,8 +220,8 @@ func TestUpdateVPCNetworkconfigNetworkInfo(t *testing.T) {
 	vncPath, _ := filepath.Abs("./manifest/testVPC/customize_networkconfig_updated.yaml")
 	_ = applyYAML(vncPath, "")
 
-	privateIPv4CIDRs, err = testData.getCRPropertiesByJson(defaultTimeout, NetworkInfoCRType, networkinfo_name, ns, ".vpcs[0].privateIPv4CIDRs")
-	assertTrue(t, strings.Contains(privateIPv4CIDRs, CustomizedPrivateCIDR3), "privateIPv4CIDRs %s should contain %s", privateIPv4CIDRs, CustomizedPrivateCIDR3)
+	privateIPs, err = testData.getCRPropertiesByJson(defaultTimeout, NetworkInfoCRType, networkinfo_name, ns, ".vpcs[0].privateIPs")
+	assertTrue(t, strings.Contains(privateIPs, CustomizedPrivateCIDR3), "privateIPs %s should contain %s", privateIPs, CustomizedPrivateCIDR3)
 	assertNil(t, err)
 	p_ipb_id3 := ns_uid + "_" + CustomizedPrivateCIDR3
 	verifyPrivateIPBlockCreated(t, ns, p_ipb_id3)

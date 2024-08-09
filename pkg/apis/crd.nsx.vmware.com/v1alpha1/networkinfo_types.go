@@ -8,8 +8,8 @@ import (
 )
 
 // +genclient
-//+kubebuilder:object:root=true
-//+kubebuilder:storageversion
+// +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 
 // NetworkInfo is used to report the network information for a namespace.
 // +kubebuilder:resource:path=networkinfos
@@ -20,7 +20,7 @@ type NetworkInfo struct {
 	VPCs []VPCState `json:"vpcs"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // NetworkInfoList contains a list of NetworkInfo.
 type NetworkInfoList struct {
@@ -40,7 +40,7 @@ type VPCState struct {
 	// LoadBalancerIPAddresses (AVI SE Subnet CIDR or NSX LB SNAT IPs).
 	LoadBalancerIPAddresses string `json:"loadBalancerIPAddresses,omitempty"`
 	// Private CIDRs used for the VPC.
-	PrivateIPv4CIDRs []string `json:"privateIPv4CIDRs,omitempty"`
+	PrivateIPs []string `json:"privateIPs,omitempty"`
 }
 
 func init() {
