@@ -16,7 +16,7 @@ type SubnetSpec struct {
 	// +kubebuilder:validation:Minimum:=16
 	IPv4SubnetSize int `json:"ipv4SubnetSize,omitempty"`
 	// Access mode of Subnet, accessible only from within VPC or from outside VPC.
-	// +kubebuilder:validation:Enum=Private;Public
+	// +kubebuilder:validation:Enum=Private;Public;PrivateTGW
 	AccessMode AccessMode `json:"accessMode,omitempty"`
 	// Subnet CIDRS.
 	// +kubebuilder:validation:MinItems=0
@@ -38,9 +38,9 @@ type SubnetStatus struct {
 }
 
 // +genclient
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-//+kubebuilder:storageversion
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:storageversion
 
 // Subnet is the Schema for the subnets API.
 // +kubebuilder:printcolumn:name="AccessMode",type=string,JSONPath=`.spec.accessMode`,description="Access mode of Subnet"
@@ -54,7 +54,7 @@ type Subnet struct {
 	Status SubnetStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // SubnetList contains a list of Subnet.
 type SubnetList struct {

@@ -50,7 +50,7 @@ spec:
                 name:
                   description: VPC name.
                   type: string
-                privateIPv4CIDRs:
+                privateIPs:
                   description: Private CIDRs used for the VPC.
                   items:
                     type: string
