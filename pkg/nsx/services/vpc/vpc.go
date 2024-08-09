@@ -555,12 +555,6 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 
 	log.Info("read network config from store", "NetworkConfig", ncName)
 
-	paths, err := s.CreateOrUpdatePrivateIPBlock(obj, nsObj, nc)
-	if err != nil {
-		log.Error(err, "failed to process private ip blocks, push event back to queue")
-		return nil, nil, err
-	}
-
 	// if all private ip blocks are created, then create nsx vpc resource.
 	nsxVPC := &model.Vpc{}
 	if updateVpc {
@@ -571,7 +565,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 		nsxVPC = nil
 	}
 
-	createdVpc, err := buildNSXVPC(obj, nsObj, nc, s.NSXConfig.Cluster, paths, nsxVPC, s.NSXConfig.NsxConfig.UseAVILoadBalancer)
+	createdVpc, err := buildNSXVPC(obj, nsObj, nc, s.NSXConfig.Cluster, nsxVPC, s.NSXConfig.NsxConfig.UseAVILoadBalancer)
 	if err != nil {
 		log.Error(err, "failed to build NSX VPC object")
 		return nil, nil, err

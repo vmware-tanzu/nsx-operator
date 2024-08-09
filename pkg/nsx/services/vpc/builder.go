@@ -50,7 +50,7 @@ func buildPrivateIpBlock(networkInfo *v1alpha1.NetworkInfo, nsObj *v1.Namespace,
 	return block
 }
 
-func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNetworkConfigInfo, cluster string, pathMap map[string]string,
+func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNetworkConfigInfo, cluster string,
 	nsxVPC *model.Vpc, useAVILB bool) (*model.Vpc,
 	error) {
 	vpc := &model.Vpc{}
@@ -80,9 +80,7 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 		vpc.VpcConnectivityProfile = &nc.VPCConnectivityProfile
 	}
 
-	// TODO: add PrivateIps and remove PrivateIpv4Blocks once the NSX VPC API support private_ips field.
-	// vpc.PrivateIps = nc.PrivateIPs
-	vpc.PrivateIpv4Blocks = util.GetMapValues(pathMap)
+	vpc.PrivateIps = nc.PrivateIPs
 	if nc.ShortID != "" {
 		vpc.ShortId = &nc.ShortID
 	}
