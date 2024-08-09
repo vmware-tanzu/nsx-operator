@@ -20,13 +20,10 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/crd.nsx.vmware.com/v1alpha1"
-	crdv1alpha2 "github.com/vmware-tanzu/nsx-operator/pkg/apis/crd.nsx.vmware.com/v1alpha2"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha2"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/ipaddressallocation"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	ippool2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/ippool"
 	namespacecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/namespace"
 	networkinfocontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/networkinfo"
 	networkpolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/networkpolicy"
@@ -50,7 +47,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	ipaddressallocationservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ippool"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
@@ -67,9 +63,7 @@ func init() {
 	var err error
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(crdv1alpha1.AddToScheme(scheme))
-	utilruntime.Must(crdv1alpha2.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
-	utilruntime.Must(v1alpha2.AddToScheme(scheme))
 	utilruntime.Must(vmv1alpha1.AddToScheme(scheme))
 	config.AddFlags()
 
@@ -113,22 +107,6 @@ func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Ser
 		os.Exit(1)
 	}
 	go commonctl.GenericGarbageCollector(make(chan bool), common.GCInterval, nsxServiceAccountReconcile.CollectGarbage)
-}
-
-func StartIPPoolController(mgr ctrl.Manager, ipPoolService *ippool.IPPoolService, vpcService common.VPCServiceProvider) {
-	ippoolReconcile := &ippool2.IPPoolReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		Service:    ipPoolService,
-		VPCService: vpcService,
-		Recorder:   mgr.GetEventRecorderFor("ippool-controller"),
-	}
-
-	if err := ippoolReconcile.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "IPPool")
-		os.Exit(1)
-	}
-	go commonctl.GenericGarbageCollector(make(chan bool), common.GCInterval, ippoolReconcile.CollectGarbage)
 }
 
 func StartNetworkInfoController(mgr ctrl.Manager, vpcService *vpc.VPCService) {
@@ -205,10 +183,6 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			log.Error(err, "failed to initialize subnet commonService")
 			os.Exit(1)
 		}
-		ipPoolService, err := ippool.InitializeIPPool(commonService, vpcService)
-		if err != nil {
-			log.Error(err, "failed to initialize ippool commonService", "controller", "IPPool")
-		}
 		ipAddressAllocationService, err := ipaddressallocationservice.InitializeIPAddressAllocation(commonService, vpcService)
 		if err != nil {
 			log.Error(err, "failed to initialize ipaddressallocation commonService", "controller", "IPAddressAllocation")
@@ -248,7 +222,6 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		staticroutecontroller.StartStaticRouteController(mgr, staticRouteService)
 		subnetport.StartSubnetPortController(mgr, subnetPortService, subnetService, vpcService)
 		pod.StartPodController(mgr, subnetPortService, subnetService, vpcService, nodeService)
-		StartIPPoolController(mgr, ipPoolService, vpcService)
 		StartIPAddressAllocationController(mgr, ipAddressAllocationService, vpcService)
 		networkpolicycontroller.StartNetworkPolicyController(mgr, commonService, vpcService)
 		service.StartServiceLbController(mgr, commonService)

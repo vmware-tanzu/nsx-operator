@@ -16,14 +16,15 @@ CODEGEN_PKG=$(go env GOMODCACHE)/k8s.io/code-generator@v0.27.1
 rm -fr "${APIS:?}/${GROUP:?}"
 rm -fr ./pkg/client
 
-for VERSION in v1alpha1 v1alpha2; do
+# shellcheck disable=SC2043
+for VERSION in v1alpha1 ; do
   mkdir -p "${APIS}/${GROUP}/${VERSION}"
   cp -r "${APIS}/${VERSION}"/* "${APIS}/${GROUP}/${VERSION}/"
 done
 
 bash "${CODEGEN_PKG}"/generate-groups.sh "deepcopy,client,informer,lister" \
 ${OUTPUT_PKG} ${APIS_PKG} \
-${GROUP}:v1alpha1,v1alpha2 \
+${GROUP}:v1alpha1 \
 --go-header-file "${SCRIPT_ROOT}"/hack/boilerplate.go.txt \
 --output-base "${SCRIPT_ROOT}" -v 10
 
