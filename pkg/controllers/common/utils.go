@@ -13,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/crd.nsx.vmware.com/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"

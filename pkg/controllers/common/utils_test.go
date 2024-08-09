@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/crd.nsx.vmware.com/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 )
 
 func TestGetVirtualMachineNameForSubnetPort(t *testing.T) {

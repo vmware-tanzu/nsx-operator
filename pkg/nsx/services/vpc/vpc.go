@@ -16,7 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/crd.nsx.vmware.com/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
