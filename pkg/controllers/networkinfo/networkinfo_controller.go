@@ -68,27 +68,6 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return common.ResultRequeueAfter10sec, err
 		}
 
-		isShared, err := r.Service.IsSharedVPCNamespaceByNS(obj.GetNamespace())
-		if err != nil {
-			log.Error(err, "failed to check if namespace is shared", "Namespace", obj.GetNamespace())
-			return common.ResultRequeue, err
-		}
-		if r.Service.NSXConfig.NsxConfig.UseAVILoadBalancer && !isShared {
-			err = r.Service.CreateOrUpdateAVIRule(createdVpc, obj.Namespace)
-			if err != nil {
-				state := &v1alpha1.VPCState{
-					Name:                    *createdVpc.DisplayName,
-					VPCPath:                 *createdVpc.Path,
-					DefaultSNATIP:           "",
-					LoadBalancerIPAddresses: "",
-					PrivateIPv4CIDRs:        nc.PrivateIPv4CIDRs,
-				}
-				log.Error(err, "update avi rule failed, would retry exponentially", "NetworkInfo", req.NamespacedName)
-				updateFail(r, &ctx, obj, &err, r.Client, state)
-				return common.ResultRequeueAfter10sec, err
-			}
-		}
-
 		snatIP, path, cidr := "", "", ""
 		// currently, auto snat is not exposed, and use default value True
 		// checking autosnat to support future extension in vpc configuration
