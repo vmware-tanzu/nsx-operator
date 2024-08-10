@@ -15,17 +15,13 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - description: NSXTProject the Namespace associated with
-      jsonPath: .spec.nsxtProject
-      name: NSXTProject
+    - description: NSXProject the Namespace associated with
+      jsonPath: .spec.nsxProject
+      name: NSXProject
       type: string
-    - description: ExternalIPv4Blocks assigned to the Namespace
-      jsonPath: .spec.externalIPv4Blocks
-      name: ExternalIPv4Blocks
-      type: string
-    - description: PrivateIPv4CIDRs assigned to the Namespace
-      jsonPath: .spec.privateIPv4CIDRs
-      name: PrivateIPv4CIDRs
+    - description: PrivateIPs assigned to the Namespace
+      jsonPath: .spec.privateIPs
+      name: PrivateIPs
       type: string
     name: v1alpha1
     schema:
@@ -58,55 +54,44 @@ spec:
               in a Namespace's VPCNetworkConfiguration, the Namespace will use the value
               in the default VPCNetworkConfiguration.
             properties:
-              defaultGatewayPath:
-                description: PolicyPath of Tier0 or Tier0 VRF gateway.
-                type: string
-              defaultIPv4SubnetSize:
+              defaultSubnetSize:
                 default: 32
                 description: |-
-                  Default size of Subnet based upon estimated workload count.
+                  Default size of Subnets.
                   Defaults to 32.
                 type: integer
-              defaultSubnetAccessMode:
+              nsxProject:
+                description: NSX Project the Namespace associated with.
+                type: string
+              podSubnetAccessMode:
                 description: |-
-                  DefaultSubnetAccessMode defines the access mode of the default SubnetSet for PodVM and VM.
-                  Must be Public or Private.
+                  PodSubnetAccessMode defines the access mode of the default SubnetSet for PodVMs.
+                  Must be Public, Private or PrivateTGW.
                 enum:
                 - Public
                 - Private
+                - PrivateTGW
                 type: string
-              edgeClusterPath:
-                description: Edge cluster path on which the networking elements will
-                  be created.
-                type: string
-              externalIPv4Blocks:
-                description: NSX-T IPv4 Block paths used to allocate external Subnets.
+              privateIPs:
+                description: Private IPs.
                 items:
                   type: string
-                maxItems: 5
-                minItems: 0
-                type: array
-              nsxtProject:
-                description: NSX-T Project the Namespace associated with.
-                type: string
-              privateIPv4CIDRs:
-                description: Private IPv4 CIDRs used to allocate Private Subnets.
-                items:
-                  type: string
-                maxItems: 5
-                minItems: 0
                 type: array
               shortID:
                 description: |-
                   ShortID specifies Identifier to use when displaying VPC context in logs.
-                  Less than or equal to 8 characters.
+                  Less than equal to 8 characters.
                 maxLength: 8
                 type: string
               vpc:
                 description: |-
                   NSX path of the VPC the Namespace associated with.
-                  If vpc is set, only defaultIPv4SubnetSize and defaultSubnetAccessMode
+                  If VPC is set, only defaultIPv4SubnetSize and defaultSubnetAccessMode
                   take effect, other fields are ignored.
+                type: string
+              vpcConnectivityProfile:
+                description: VPCConnectivityProfile ID. This profile has configuration
+                  related to creating VPC transit gateway attachment.
                 type: string
             type: object
           status:

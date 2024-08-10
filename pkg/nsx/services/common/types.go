@@ -197,22 +197,19 @@ type VPCResourceInfo struct {
 	//    ID=port1, ParentID=s1;
 	// 2. For the subnet with path /orgs/o1/projects/p1/vpcs/v1/subnets/s1,
 	//    ID=s1, ParentID=v1 (ParentID==VPCID).
-	ID                 string
-	ParentID           string
-	PrivateIpv4Blocks  []string
-	ExternalIPv4Blocks []string
+	ID                string
+	ParentID          string
+	PrivateIpv4Blocks []string
 }
 
 type VPCNetworkConfigInfo struct {
-	IsDefault               bool
-	Org                     string
-	Name                    string
-	DefaultGatewayPath      string
-	EdgeClusterPath         string
-	NsxtProject             string
-	ExternalIPv4Blocks      []string
-	PrivateIPv4CIDRs        []string
-	DefaultIPv4SubnetSize   int
-	DefaultSubnetAccessMode string
-	ShortID                 string
+	IsDefault              bool
+	Org                    string
+	Name                   string
+	VPCConnectivityProfile string
+	NSXProject             string
+	PrivateIPs             []string
+	DefaultSubnetSize      int
+	PodSubnetAccessMode    string
+	ShortID                string
 }
