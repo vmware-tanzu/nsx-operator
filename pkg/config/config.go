@@ -112,7 +112,6 @@ type NsxConfig struct {
 	SingleTierSrTopology      bool     `ini:"single_tier_sr_topology"`
 	EnforcementPoint          string   `ini:"enforcement_point"`
 	DefaultProject            string   `ini:"default_project"`
-	ExternalIPv4Blocks        []string `ini:"external_ipv4_blocks"`
 	DefaultSubnetSize         int      `ini:"default_subnet_size"`
 	DefaultTimeout            int      `ini:"default_timeout"`
 	EnvoyHost                 string   `ini:"envoy_host"`
