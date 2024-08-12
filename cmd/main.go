@@ -16,19 +16,18 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha2"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/t1/v1alpha1"
+	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/ipaddressallocation"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	ippool2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/ippool"
 	namespacecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/namespace"
 	networkinfocontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/networkinfo"
 	networkpolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/networkpolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/node"
-	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/pod"
 	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/service"
@@ -36,17 +35,19 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetset"
+	nodeservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/node"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
+	subnetservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
+	subnetportservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
+
+	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	ipaddressallocationservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ippool"
-	nodeservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/node"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
-	subnetservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
-	subnetportservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
@@ -61,8 +62,8 @@ var (
 func init() {
 	var err error
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(crdv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
-	utilruntime.Must(v1alpha2.AddToScheme(scheme))
 	utilruntime.Must(vmv1alpha1.AddToScheme(scheme))
 	config.AddFlags()
 
@@ -105,21 +106,7 @@ func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Ser
 		log.Error(err, "failed to create controller", "controller", "NSXServiceAccount")
 		os.Exit(1)
 	}
-}
-
-func StartIPPoolController(mgr ctrl.Manager, ipPoolService *ippool.IPPoolService, vpcService common.VPCServiceProvider) {
-	ippoolReconcile := &ippool2.IPPoolReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		Service:    ipPoolService,
-		VPCService: vpcService,
-		Recorder:   mgr.GetEventRecorderFor("ippool-controller"),
-	}
-
-	if err := ippoolReconcile.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "IPPool")
-		os.Exit(1)
-	}
+	go commonctl.GenericGarbageCollector(make(chan bool), common.GCInterval, nsxServiceAccountReconcile.CollectGarbage)
 }
 
 func StartNetworkInfoController(mgr ctrl.Manager, vpcService *vpc.VPCService) {
@@ -133,6 +120,7 @@ func StartNetworkInfoController(mgr ctrl.Manager, vpcService *vpc.VPCService) {
 		log.Error(err, "failed to create networkinfo controller", "controller", "NetworkInfo")
 		os.Exit(1)
 	}
+	go commonctl.GenericGarbageCollector(make(chan bool), common.GCInterval, networkInfoReconciler.CollectGarbage)
 }
 
 func StartNamespaceController(mgr ctrl.Manager, cf *config.NSXOperatorConfig, vpcService common.VPCServiceProvider) {
@@ -164,28 +152,7 @@ func StartIPAddressAllocationController(mgr ctrl.Manager, ipAddressAllocationSer
 	}
 }
 
-func main() {
-	log.Info("starting NSX Operator")
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                  scheme,
-		HealthProbeBindAddress:  config.ProbeAddr,
-		Metrics:                 metricsserver.Options{BindAddress: config.MetricsAddr},
-		LeaderElection:          cf.HAEnabled(),
-		LeaderElectionNamespace: nsxOperatorNamespace,
-		LeaderElectionID:        "nsx-operator",
-	})
-	if err != nil {
-		log.Error(err, "failed to init manager")
-		os.Exit(1)
-	}
-
-	// nsxClient is used to interact with NSX API.
-	nsxClient := nsx.GetClient(cf)
-	if nsxClient == nil {
-		log.Error(err, "failed to get nsx client")
-		os.Exit(1)
-	}
-
+func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	//  Embed the common commonService to sub-services.
 	commonService := common.Service{
 		Client:    mgr.GetClient(),
@@ -205,6 +172,7 @@ func main() {
 		}
 		log.Info("VPC mode is enabled")
 
+		var err error
 		vpcService, err = vpc.InitializeVPC(commonService)
 		if err != nil {
 			log.Error(err, "failed to initialize vpc commonService", "controller", "VPC")
@@ -214,10 +182,6 @@ func main() {
 		if err != nil {
 			log.Error(err, "failed to initialize subnet commonService")
 			os.Exit(1)
-		}
-		ipPoolService, err := ippool.InitializeIPPool(commonService, vpcService)
-		if err != nil {
-			log.Error(err, "failed to initialize ippool commonService", "controller", "IPPool")
 		}
 		ipAddressAllocationService, err := ipaddressallocationservice.InitializeIPAddressAllocation(commonService, vpcService)
 		if err != nil {
@@ -258,7 +222,6 @@ func main() {
 		staticroutecontroller.StartStaticRouteController(mgr, staticRouteService)
 		subnetport.StartSubnetPortController(mgr, subnetPortService, subnetService, vpcService)
 		pod.StartPodController(mgr, subnetPortService, subnetService, vpcService, nodeService)
-		StartIPPoolController(mgr, ipPoolService, vpcService)
 		StartIPAddressAllocationController(mgr, ipAddressAllocationService, vpcService)
 		networkpolicycontroller.StartNetworkPolicyController(mgr, commonService, vpcService)
 		service.StartServiceLbController(mgr, commonService)
@@ -269,6 +232,43 @@ func main() {
 	// Start the NSXServiceAccount controller.
 	if cf.EnableAntreaNSXInterworking {
 		StartNSXServiceAccountController(mgr, commonService)
+	}
+
+}
+
+func electMaster(mgr manager.Manager, nsxClient *nsx.Client) {
+	log.Info("I'm trying to be elected as master")
+	<-mgr.Elected()
+	log.Info("I'm the master now")
+	startServiceController(mgr, nsxClient)
+}
+
+func main() {
+	log.Info("starting NSX Operator")
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+		Scheme:                  scheme,
+		HealthProbeBindAddress:  config.ProbeAddr,
+		Metrics:                 metricsserver.Options{BindAddress: config.MetricsAddr},
+		LeaderElection:          cf.HAEnabled(),
+		LeaderElectionNamespace: nsxOperatorNamespace,
+		LeaderElectionID:        "nsx-operator",
+	})
+	if err != nil {
+		log.Error(err, "failed to init manager")
+		os.Exit(1)
+	}
+
+	// nsxClient is used to interact with NSX API.
+	nsxClient := nsx.GetClient(cf)
+	if nsxClient == nil {
+		log.Error(nil, "failed to get nsx client")
+		os.Exit(1)
+	}
+
+	if cf.HAEnabled() {
+		go electMaster(mgr, nsxClient)
+	} else {
+		startServiceController(mgr, nsxClient)
 	}
 
 	if metrics.AreMetricsExposed(cf) {

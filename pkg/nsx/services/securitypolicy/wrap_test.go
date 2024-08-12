@@ -14,7 +14,13 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
-type fakeQueryClient struct{}
+type (
+	fakeQueryClient       struct{}
+	fakeInfraClient       struct{}
+	fakeOrgClient         struct{}
+	fakeSecurityClient    struct{}
+	fakeVPCSecurityClient struct{}
+)
 
 func (_ *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
 	cursor := "2"
@@ -25,15 +31,95 @@ func (_ *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool
 	}, nil
 }
 
-func fakeService() *SecurityPolicyService {
+func (f fakeInfraClient) Get(basePathParam *string, filterParam *string, typeFilterParam *string) (model.Infra, error) {
+	return model.Infra{}, nil
+}
+
+func (f fakeInfraClient) Update(infraParam model.Infra) (model.Infra, error) {
+	return model.Infra{}, nil
+}
+
+func (f fakeInfraClient) Patch(infraParam model.Infra, enforceRevisionCheckParam *bool) error {
+	return nil
+}
+
+func (f fakeSecurityClient) Delete(domainIdParam string, securityPolicyIdParam string) error {
+	return nil
+}
+
+func (f fakeSecurityClient) Get(domainIdParam string, securityPolicyIdParam string) (model.SecurityPolicy, error) {
+	return model.SecurityPolicy{}, nil
+}
+
+func (f fakeSecurityClient) List(domainIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includeRuleCountParam *bool, includedFieldsParam *string,
+	pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string,
+) (model.SecurityPolicyListResult, error) {
+	return model.SecurityPolicyListResult{}, nil
+}
+
+func (f fakeSecurityClient) Patch(domainIdParam string, securityPolicyIdParam string, securityPolicyParam model.SecurityPolicy) error {
+	return nil
+}
+
+func (f fakeSecurityClient) Revise(domainIdParam string, securityPolicyIdParam string, securityPolicyParam model.SecurityPolicy,
+	anchorPathParam *string, operationParam *string,
+) (model.SecurityPolicy, error) {
+	return model.SecurityPolicy{}, nil
+}
+
+func (f fakeSecurityClient) Update(domainIdParam string, securityPolicyIdParam string, securityPolicyParam model.SecurityPolicy) (model.SecurityPolicy, error) {
+	return model.SecurityPolicy{}, nil
+}
+
+func (f fakeOrgClient) Get(basePathParam *string, filterParam *string, typeFilterParam *string) (model.OrgRoot, error) {
+	return model.OrgRoot{}, nil
+}
+
+func (f fakeOrgClient) Patch(orgRootParam model.OrgRoot, enforceRevisionCheckParam *bool) error {
+	return nil
+}
+
+func (f fakeVPCSecurityClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string) error {
+	return nil
+}
+
+func (f fakeVPCSecurityClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string) (model.SecurityPolicy, error) {
+	return model.SecurityPolicy{}, nil
+}
+
+func (f fakeVPCSecurityClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool,
+	includeRuleCountParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string,
+) (model.SecurityPolicyListResult, error) {
+	return model.SecurityPolicyListResult{}, nil
+}
+
+func (f fakeVPCSecurityClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, securityPolicyParam model.SecurityPolicy) error {
+	return nil
+}
+
+func (f fakeVPCSecurityClient) Revise(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, securityPolicyParam model.SecurityPolicy,
+	anchorPathParam *string, operationParam *string,
+) (model.SecurityPolicy, error) {
+	return model.SecurityPolicy{}, nil
+}
+
+func (f fakeVPCSecurityClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, securityPolicyParam model.SecurityPolicy) (model.SecurityPolicy, error) {
+	return model.SecurityPolicy{}, nil
+}
+
+func fakeSecurityPolicyService() *SecurityPolicyService {
 	c := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(c)
 	rc, _ := cluster.NewRestConnector()
-	service = &SecurityPolicyService{
+	fakeService := &SecurityPolicyService{
 		Service: common.Service{
 			NSXClient: &nsx.Client{
-				QueryClient:   &fakeQueryClient{},
-				RestConnector: rc,
+				QueryClient:       &fakeQueryClient{},
+				InfraClient:       &fakeInfraClient{},
+				SecurityClient:    &fakeSecurityClient{},
+				OrgRootClient:     &fakeOrgClient{},
+				VPCSecurityClient: &fakeVPCSecurityClient{},
+				RestConnector:     rc,
 				NsxConfig: &config.NSXOperatorConfig{
 					CoeConfig: &config.CoeConfig{
 						Cluster: "k8scl-one:test",
@@ -47,12 +133,12 @@ func fakeService() *SecurityPolicyService {
 			},
 		},
 	}
-	return service
+	return fakeService
 }
 
 func TestSecurityPolicyService_wrapSecurityPolicy(t *testing.T) {
 	Converter := bindings.NewTypeConverter()
-	service := fakeService()
+	service := fakeSecurityPolicyService()
 	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_cr_uid"
 	markDelete := true
 	s := model.SecurityPolicy{
@@ -87,7 +173,7 @@ func TestSecurityPolicyService_wrapSecurityPolicy(t *testing.T) {
 
 func TestSecurityPolicyService_wrapGroups(t *testing.T) {
 	Converter := bindings.NewTypeConverter()
-	service := fakeService()
+	service := fakeSecurityPolicyService()
 	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_cr_uid"
 	markDelete := true
 	m := model.Group{
@@ -123,7 +209,7 @@ func TestSecurityPolicyService_wrapGroups(t *testing.T) {
 
 func TestSecurityPolicyService_wrapRules(t *testing.T) {
 	Converter := bindings.NewTypeConverter()
-	service := fakeService()
+	service := fakeSecurityPolicyService()
 	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_cr_uid"
 	markDelete := true
 	r := model.Rule{
@@ -159,7 +245,7 @@ func TestSecurityPolicyService_wrapRules(t *testing.T) {
 
 func TestSecurityPolicyService_wrapResourceReference(t *testing.T) {
 	Converter := bindings.NewTypeConverter()
-	service := fakeService()
+	service := fakeSecurityPolicyService()
 	type args struct {
 		children []*data.StructValue
 	}

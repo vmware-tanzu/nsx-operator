@@ -25,7 +25,8 @@ import (
 // new pod or old pod, we should reconcile the security policy.
 
 type EnqueueRequestForPod struct {
-	Client client.Client
+	Client                   client.Client
+	SecurityPolicyReconciler *SecurityPolicyReconciler
 }
 
 func (e *EnqueueRequestForPod) Create(_ context.Context, createEvent event.CreateEvent, q workqueue.RateLimitingInterface) {
@@ -70,7 +71,7 @@ func (e *EnqueueRequestForPod) Raw(evt interface{}, q workqueue.RateLimitingInte
 		return
 	}
 	pods = append(pods, *pod)
-	err := reconcileSecurityPolicy(e.Client, pods, q)
+	err := reconcileSecurityPolicy(e.SecurityPolicyReconciler, e.Client, pods, q)
 	if err != nil {
 		log.Error(err, "failed to reconcile security policy")
 	}

@@ -96,17 +96,19 @@ const (
 	IPPoolTypePublic  = "Public"
 	IPPoolTypePrivate = "Private"
 
-	SecurityPolicyFinalizerName      = "securitypolicy.nsx.vmware.com/finalizer"
-	NetworkPolicyFinalizerName       = "networkpolicy.nsx.vmware.com/finalizer"
-	StaticRouteFinalizerName         = "staticroute.nsx.vmware.com/finalizer"
-	NSXServiceAccountFinalizerName   = "nsxserviceaccount.nsx.vmware.com/finalizer"
-	SubnetFinalizerName              = "subnet.nsx.vmware.com/finalizer"
-	SubnetSetFinalizerName           = "subnetset.nsx.vmware.com/finalizer"
-	SubnetPortFinalizerName          = "subnetport.nsx.vmware.com/finalizer"
-	NetworkInfoFinalizerName         = "networkinfo.nsx.vmware.com/finalizer"
-	PodFinalizerName                 = "pod.nsx.vmware.com/finalizer"
-	IPPoolFinalizerName              = "ippool.nsx.vmware.com/finalizer"
-	IPAddressAllocationFinalizerName = "ipaddressallocation.nsx.vmware.com/finalizer"
+	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
+	T1SecurityPolicyFinalizerName  = "securitypolicy.nsx.vmware.com/finalizer"
+
+	SecurityPolicyFinalizerName      = "securitypolicy.crd.nsx.vmware.com/finalizer"
+	NetworkPolicyFinalizerName       = "networkpolicy.crd.nsx.vmware.com/finalizer"
+	StaticRouteFinalizerName         = "staticroute.crd.nsx.vmware.com/finalizer"
+	SubnetFinalizerName              = "subnet.crd.nsx.vmware.com/finalizer"
+	SubnetSetFinalizerName           = "subnetset.crd.nsx.vmware.com/finalizer"
+	SubnetPortFinalizerName          = "subnetport.crd.nsx.vmware.com/finalizer"
+	NetworkInfoFinalizerName         = "networkinfo.crd.nsx.vmware.com/finalizer"
+	PodFinalizerName                 = "pod.crd.nsx.vmware.com/finalizer"
+	IPPoolFinalizerName              = "ippool.crd.nsx.vmware.com/finalizer"
+	IPAddressAllocationFinalizerName = "ipaddressallocation.crd.nsx.vmware.com/finalizer"
 
 	IndexKeySubnetID            = "IndexKeySubnetID"
 	IndexKeyPathPath            = "Path"
@@ -195,22 +197,19 @@ type VPCResourceInfo struct {
 	//    ID=port1, ParentID=s1;
 	// 2. For the subnet with path /orgs/o1/projects/p1/vpcs/v1/subnets/s1,
 	//    ID=s1, ParentID=v1 (ParentID==VPCID).
-	ID                 string
-	ParentID           string
-	PrivateIpv4Blocks  []string
-	ExternalIPv4Blocks []string
+	ID                string
+	ParentID          string
+	PrivateIpv4Blocks []string
 }
 
 type VPCNetworkConfigInfo struct {
-	IsDefault               bool
-	Org                     string
-	Name                    string
-	DefaultGatewayPath      string
-	EdgeClusterPath         string
-	NsxtProject             string
-	ExternalIPv4Blocks      []string
-	PrivateIPv4CIDRs        []string
-	DefaultIPv4SubnetSize   int
-	DefaultSubnetAccessMode string
-	ShortID                 string
+	IsDefault              bool
+	Org                    string
+	Name                   string
+	VPCConnectivityProfile string
+	NSXProject             string
+	PrivateIPs             []string
+	DefaultSubnetSize      int
+	PodSubnetAccessMode    string
+	ShortID                string
 }

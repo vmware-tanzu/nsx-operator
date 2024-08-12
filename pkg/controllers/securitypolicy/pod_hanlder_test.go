@@ -72,7 +72,7 @@ func TestEnqueueRequestForPod_Raw(t *testing.T) {
 	}{
 		{"1", fields{}, args{evt, nil}},
 	}
-	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(client client.Client, pods []v1.Pod,
+	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(r *SecurityPolicyReconciler, client client.Client, pods []v1.Pod,
 		q workqueue.RateLimitingInterface,
 	) error {
 		return nil
@@ -115,7 +115,7 @@ func TestEnqueueRequestForPod_Create(t *testing.T) {
 	}{
 		{"1", fields{}, args{evt, nil}},
 	}
-	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(client client.Client, pods []v1.Pod,
+	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(r *SecurityPolicyReconciler, client client.Client, pods []v1.Pod,
 		q workqueue.RateLimitingInterface,
 	) error {
 		return nil
@@ -163,7 +163,7 @@ func TestEnqueueRequestForPod_Update(t *testing.T) {
 	}{
 		{"1", fields{}, args{evt, nil}},
 	}
-	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(client client.Client, pods []v1.Pod,
+	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(r *SecurityPolicyReconciler, client client.Client, pods []v1.Pod,
 		q workqueue.RateLimitingInterface,
 	) error {
 		return nil
@@ -206,7 +206,7 @@ func TestEnqueueRequestForPod_Delete(t *testing.T) {
 	}{
 		{"1", fields{}, args{evt, nil}},
 	}
-	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(client client.Client, pods []v1.Pod,
+	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(r *SecurityPolicyReconciler, client client.Client, pods []v1.Pod,
 		q workqueue.RateLimitingInterface,
 	) error {
 		return nil
@@ -249,7 +249,7 @@ func TestEnqueueRequestForPod_Generic(t *testing.T) {
 	}{
 		{"1", fields{}, args{evt, nil}},
 	}
-	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(client client.Client, pods []v1.Pod,
+	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(r *SecurityPolicyReconciler, client client.Client, pods []v1.Pod,
 		q workqueue.RateLimitingInterface,
 	) error {
 		return nil

@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"sync"
 	"testing"
 
 	gomonkey "github.com/agiledragon/gomonkey/v2"
@@ -23,7 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
@@ -176,11 +175,6 @@ func TestStaticRouteReconciler_Reconcile(t *testing.T) {
 	ctx := context.Background()
 	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
 
-	// common.GcOnce do nothing
-	var once sync.Once
-	pat := gomonkey.ApplyMethod(reflect.TypeOf(&once), "Do", func(_ *sync.Once, _ func()) {})
-	defer pat.Reset()
-
 	// not found
 	errNotFound := errors.New("not found")
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(errNotFound)
@@ -205,7 +199,7 @@ func TestStaticRouteReconciler_Reconcile(t *testing.T) {
 		return nil
 	})
 
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, uid string) error {
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, obj *v1alpha1.StaticRoute) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
@@ -223,7 +217,7 @@ func TestStaticRouteReconciler_Reconcile(t *testing.T) {
 		v1sp.Finalizers = []string{common.StaticRouteFinalizerName}
 		return nil
 	})
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, uid string) error {
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, obj *v1alpha1.StaticRoute) error {
 		return nil
 	})
 	_, ret = r.Reconcile(ctx, req)
@@ -238,7 +232,7 @@ func TestStaticRouteReconciler_Reconcile(t *testing.T) {
 		v1sp.Finalizers = []string{common.StaticRouteFinalizerName}
 		return nil
 	})
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, uid string) error {
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, obj *v1alpha1.StaticRoute) error {
 		return errors.New("delete failed")
 	})
 
@@ -333,7 +327,7 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 		a = append(a, model.StaticRoutes{Id: &id, Tags: tag2})
 		return a
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, uid string) error {
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, obj *v1alpha1.StaticRoute) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
@@ -351,7 +345,7 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 	patch.ApplyMethod(reflect.TypeOf(service), "ListStaticRoute", func(_ *staticroute.StaticRouteService) []model.StaticRoutes {
 		return []model.StaticRoutes{}
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, uid string) error {
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, obj *v1alpha1.StaticRoute) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})

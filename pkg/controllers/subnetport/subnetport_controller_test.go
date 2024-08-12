@@ -3,8 +3,6 @@ package subnetport
 import (
 	"context"
 	"errors"
-	"reflect"
-	"sync"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -13,8 +11,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
-
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -78,11 +75,6 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			return nsxSubnet, nil
 		})
 	defer patchesGetSubnetByPath.Reset()
-
-	// common.GcOnce do nothing
-	var once sync.Once
-	pat := gomonkey.ApplyMethod(reflect.TypeOf(&once), "Do", func(_ *sync.Once, _ func()) {})
-	defer pat.Reset()
 
 	// not found
 	errNotFound := errors.New("not found")
@@ -199,7 +191,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 	err = errors.New("DeleteSubnetPort failed")
 	patchesDeleteSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).DeleteSubnetPort,
-		func(s *subnetport.SubnetPortService, uid types.UID) error {
+		func(s *subnetport.SubnetPortService, uid string) error {
 			return err
 		})
 	defer patchesDeleteSubnetPort.Reset()
@@ -229,7 +221,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	err = errors.New("Update failed")
 	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(err)
 	patchesDeleteSubnetPort = gomonkey.ApplyFunc((*subnetport.SubnetPortService).DeleteSubnetPort,
-		func(s *subnetport.SubnetPortService, uid types.UID) error {
+		func(s *subnetport.SubnetPortService, uid string) error {
 			return nil
 		})
 	defer patchesDeleteSubnetPort.Reset()
@@ -248,7 +240,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(nil)
 	patchesDeleteSubnetPort = gomonkey.ApplyFunc((*subnetport.SubnetPortService).DeleteSubnetPort,
-		func(s *subnetport.SubnetPortService, uid types.UID) error {
+		func(s *subnetport.SubnetPortService, uid string) error {
 			return nil
 		})
 	defer patchesDeleteSubnetPort.Reset()
@@ -265,7 +257,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			return nil
 		})
 	patchesDeleteSubnetPort = gomonkey.ApplyFunc((*subnetport.SubnetPortService).DeleteSubnetPort,
-		func(s *subnetport.SubnetPortService, uid types.UID) error {
+		func(s *subnetport.SubnetPortService, uid string) error {
 			assert.FailNow(t, "should not be called")
 			return nil
 		})
@@ -294,7 +286,7 @@ func TestSubnetPortReconciler_GarbageCollector(t *testing.T) {
 		})
 	defer patchesListNSXSubnetPortIDForCR.Reset()
 	patchesDeleteSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).DeleteSubnetPort,
-		func(s *subnetport.SubnetPortService, uid types.UID) error {
+		func(s *subnetport.SubnetPortService, uid string) error {
 			return nil
 		})
 	defer patchesDeleteSubnetPort.Reset()
@@ -311,6 +303,7 @@ func TestSubnetPortReconciler_GarbageCollector(t *testing.T) {
 		a.Items = append(a.Items, v1alpha1.SubnetPort{})
 		a.Items[0].ObjectMeta = metav1.ObjectMeta{}
 		a.Items[0].UID = "1234"
+		a.Items[0].Name = "subnetPort1"
 		return nil
 	})
 	r.CollectGarbage(context.Background())

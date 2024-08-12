@@ -6,13 +6,13 @@ package v1alpha2
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 )
 
 // +genclient
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-//+kubebuilder:storageversion
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:storageversion
 
 // IPPool is the Schema for the ippools API.
 // +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.type`,description="Type of IPPool"
@@ -25,7 +25,7 @@ type IPPool struct {
 	Status IPPoolStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // IPPoolList contains a list of IPPool.
 type IPPoolList struct {
