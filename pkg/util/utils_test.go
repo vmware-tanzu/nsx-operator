@@ -639,3 +639,71 @@ func Test_calculateOffsetIP(t *testing.T) {
 		})
 	}
 }
+
+func TestGenerateIDByObject(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		obj   metav1.Object
+		limit int
+		expID string
+	}{
+		{
+			name:  "no limit set",
+			obj:   &metav1.ObjectMeta{Name: "abcdefg", UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
+			limit: 0,
+			expID: "abcdefg-b720ee2c-5788-4680-9796-0f93db33d8a9",
+		},
+		{
+			name:  "truncate with hash on uid",
+			obj:   &metav1.ObjectMeta{Name: "abcdefg", UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
+			limit: 20,
+			expID: "abcdefg-df78acb2",
+		},
+		{
+			name:  "longer name with truncate",
+			obj:   &metav1.ObjectMeta{Name: strings.Repeat("a", 256), UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
+			limit: 0,
+			expID: fmt.Sprintf("%s-df78acb2", strings.Repeat("a", 246)),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var id string
+			if tc.limit == 0 {
+				id = GenerateIDByObject(tc.obj)
+			} else {
+				id = GenerateIDByObjectByLimit(tc.obj, tc.limit)
+			}
+			assert.Equal(t, tc.expID, id)
+		})
+	}
+}
+
+func TestGenerateIDByObjectWithSuffix(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		obj    metav1.Object
+		limit  int
+		suffix string
+		expID  string
+	}{
+		{
+			name:   "no limit set",
+			obj:    &metav1.ObjectMeta{Name: "abcdefg", UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
+			limit:  0,
+			suffix: "2",
+			expID:  "abcdefg-b720ee2c-5788-4680-9796-0f93db33d8a9_2",
+		},
+		{
+			name:   "longer name with truncate",
+			obj:    &metav1.ObjectMeta{Name: strings.Repeat("a", 256), UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
+			limit:  0,
+			suffix: "28e85c0b-21e4-4cab-b1c3-597639dfe752",
+			expID:  fmt.Sprintf("%s-df78acb2_28e85c0b-21e4-4cab-b1c3-597639dfe752", strings.Repeat("a", 209)),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id := GenerateIDByObjectWithSuffix(tc.obj, tc.suffix)
+			assert.Equal(t, tc.expID, id)
+		})
+	}
+}

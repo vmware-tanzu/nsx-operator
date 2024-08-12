@@ -10,7 +10,6 @@ import (
 	"os"
 	"reflect"
 	"strings"
-	"sync"
 
 	vmv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
@@ -30,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -44,7 +43,6 @@ import (
 var (
 	log                     = &logger.Log
 	MetricResTypeSubnetPort = common.MetricResTypeSubnetPort
-	once                    sync.Once
 )
 
 // SubnetPortReconciler reconciles a SubnetPort object
@@ -61,9 +59,6 @@ type SubnetPortReconciler struct {
 // +kubebuilder:rbac:groups=nsx.vmware.com,resources=subnetports/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=nsx.vmware.com,resources=subnetports/finalizers,verbs=update
 func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// Use once.Do to ensure gc is called only once
-	common.GcOnce(r, &once)
-
 	subnetPort := &v1alpha1.SubnetPort{}
 	log.Info("reconciling subnetport CR", "subnetport", req.NamespacedName)
 
@@ -139,7 +134,8 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	} else {
 		if controllerutil.ContainsFinalizer(subnetPort, servicecommon.SubnetPortFinalizerName) {
 			metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnetPort)
-			if err := r.SubnetPortService.DeleteSubnetPort(subnetPort.UID); err != nil {
+			subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
+			if err := r.SubnetPortService.DeleteSubnetPort(subnetPortID); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "subnetport", req.NamespacedName)
 				deleteFail(r, &ctx, subnetPort, &err)
 				return common.ResultRequeue, err
@@ -226,6 +222,7 @@ func StartSubnetPortController(mgr ctrl.Manager, subnetPortService *subnetport.S
 		log.Error(err, "failed to create controller", "controller", "SubnetPort")
 		os.Exit(1)
 	}
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, subnetPortReconciler.CollectGarbage)
 }
 
 // Start setup manager and launch GC
@@ -254,14 +251,15 @@ func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) {
 
 	CRSubnetPortSet := sets.New[string]()
 	for _, subnetPort := range subnetPortList.Items {
-		CRSubnetPortSet.Insert(string(subnetPort.UID))
+		subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
+		CRSubnetPortSet.Insert(subnetPortID)
 	}
 
 	diffSet := nsxSubnetPortSet.Difference(CRSubnetPortSet)
 	for elem := range diffSet {
 		log.V(1).Info("GC collected SubnetPort CR", "UID", elem)
 		metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnetPort)
-		err = r.SubnetPortService.DeleteSubnetPort(types.UID(elem))
+		err = r.SubnetPortService.DeleteSubnetPort(elem)
 		if err != nil {
 			metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetPort)
 		} else {
@@ -364,7 +362,8 @@ func deleteSuccess(r *SubnetPortReconciler, _ *context.Context, o *v1alpha1.Subn
 }
 
 func (r *SubnetPortReconciler) GetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (string, error) {
-	subnetPath := r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(string(subnetPort.UID))
+	subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
+	subnetPath := r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(subnetPortID)
 	if len(subnetPath) > 0 {
 		log.V(1).Info("NSX subnet port had been created, returning the existing NSX subnet path", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
 		return subnetPath, nil

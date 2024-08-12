@@ -5,7 +5,7 @@ package networkinfo
 
 import (
 	"context"
-	"sync"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
@@ -29,7 +29,6 @@ import (
 var (
 	log           = &logger.Log
 	MetricResType = common.MetricResTypeNetworkInfo
-	once          sync.Once
 )
 
 // NetworkInfoReconciler NetworkInfoReconcile reconciles a NetworkInfo object
@@ -42,9 +41,6 @@ type NetworkInfoReconciler struct {
 }
 
 func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// Use once.Do to ensure gc is called only once
-	common.GcOnce(r, &once)
-
 	obj := &v1alpha1.NetworkInfo{}
 	log.Info("reconciling NetworkInfo CR", "NetworkInfo", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, common.MetricResTypeNetworkInfo)
@@ -86,18 +82,41 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					VPCPath:                 *createdVpc.Path,
 					DefaultSNATIP:           "",
 					LoadBalancerIPAddresses: "",
-					PrivateIPv4CIDRs:        nc.PrivateIPv4CIDRs,
+					PrivateIPs:              nc.PrivateIPs,
 				}
-				log.Error(err, "update avi rule failed, would retry exponentially", "NetworkInfo", req.NamespacedName)
-				updateFail(r, &ctx, obj, &err, r.Client, state)
-				return common.ResultRequeueAfter10sec, err
+				log.Error(err, "update avi rule failed, would retry exponentially", "NetworkInfo", req.NamespacedName, "state", state)
+				// updateFail(r, &ctx, obj, &err, r.Client, state)
+				// return common.ResultRequeueAfter10sec, err
 			}
 		}
 
 		snatIP, path, cidr := "", "", ""
+		parts := strings.Split(nc.VPCConnectivityProfile, "/")
+		if len(parts) < 1 {
+			log.Error(err, "failed to check VPCConnectivityProfile length", "VPCConnectivityProfile", nc.VPCConnectivityProfile)
+			return common.ResultRequeue, err
+		}
+		vpcConnectivityProfileName := parts[len(parts)-1]
+		vpcConnectivityProfile, err := r.Service.NSXClient.VPCConnectivityProfilesClient.Get(nc.Org, nc.NSXProject, vpcConnectivityProfileName)
+		if err != nil {
+			log.Error(err, "failed to get NSX VPC ConnectivityProfile object", "vpcConnectivityProfileName", vpcConnectivityProfileName)
+			return common.ResultRequeue, err
+		}
+		isEnableAutoSNAT := func() bool {
+			if vpcConnectivityProfile.ServiceGateway == nil || vpcConnectivityProfile.ServiceGateway.Enable == nil {
+				return false
+			}
+			if *vpcConnectivityProfile.ServiceGateway.Enable {
+				if vpcConnectivityProfile.ServiceGateway.NatConfig == nil || vpcConnectivityProfile.ServiceGateway.NatConfig.EnableDefaultSnat == nil {
+					return false
+				}
+				return *vpcConnectivityProfile.ServiceGateway.NatConfig.EnableDefaultSnat
+			}
+			return false
+		}
 		// currently, auto snat is not exposed, and use default value True
 		// checking autosnat to support future extension in vpc configuration
-		if createdVpc.ServiceGateway != nil && createdVpc.ServiceGateway.AutoSnat != nil && *createdVpc.ServiceGateway.AutoSnat {
+		if isEnableAutoSNAT() {
 			snatIP, err = r.Service.GetDefaultSNATIP(*createdVpc)
 			if err != nil {
 				log.Error(err, "failed to read default SNAT ip from VPC", "VPC", createdVpc.Id)
@@ -106,7 +125,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					VPCPath:                 *createdVpc.Path,
 					DefaultSNATIP:           "",
 					LoadBalancerIPAddresses: "",
-					PrivateIPv4CIDRs:        nc.PrivateIPv4CIDRs,
+					PrivateIPs:              nc.PrivateIPs,
 				}
 				updateFail(r, &ctx, obj, &err, r.Client, state)
 				return common.ResultRequeueAfter10sec, err
@@ -125,7 +144,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					VPCPath:                 *createdVpc.Path,
 					DefaultSNATIP:           snatIP,
 					LoadBalancerIPAddresses: "",
-					PrivateIPv4CIDRs:        nc.PrivateIPv4CIDRs,
+					PrivateIPs:              nc.PrivateIPs,
 				}
 				updateFail(r, &ctx, obj, &err, r.Client, state)
 				return common.ResultRequeueAfter10sec, err
@@ -137,7 +156,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			VPCPath:                 *createdVpc.Path,
 			DefaultSNATIP:           snatIP,
 			LoadBalancerIPAddresses: cidr,
-			PrivateIPv4CIDRs:        nc.PrivateIPv4CIDRs,
+			PrivateIPs:              nc.PrivateIPs,
 		}
 		updateSuccess(r, &ctx, obj, r.Client, state, nc.Name, path, r.Service.GetNSXLBSPath(*createdVpc.Id))
 	} else {

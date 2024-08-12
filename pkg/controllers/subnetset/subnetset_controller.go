@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
@@ -21,7 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -36,7 +35,6 @@ var (
 	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
 	MetricResTypeSubnetSet  = common.MetricResTypeSubnetSet
-	once                    sync.Once
 )
 
 // SubnetSetReconciler reconciles a SubnetSet object
@@ -50,9 +48,6 @@ type SubnetSetReconciler struct {
 }
 
 func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// Use once.Do to ensure gc is called only once
-	common.GcOnce(r, &once)
-
 	obj := &v1alpha1.SubnetSet{}
 	log.Info("reconciling subnetset CR", "subnetset", req.NamespacedName)
 	metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerSyncTotal, MetricResTypeSubnetSet)
@@ -75,10 +70,13 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 					return ResultRequeue, err
 				}
 				if obj.Spec.AccessMode == "" {
-					obj.Spec.AccessMode = v1alpha1.AccessMode(vpcNetworkConfig.DefaultSubnetAccessMode)
+					obj.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
+					if obj.Name == servicecommon.DefaultPodSubnetSet {
+						obj.Spec.AccessMode = v1alpha1.AccessMode(vpcNetworkConfig.PodSubnetAccessMode)
+					}
 				}
 				if obj.Spec.IPv4SubnetSize == 0 {
-					obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultIPv4SubnetSize
+					obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
 				}
 			}
 			if err := r.Client.Update(ctx, obj); err != nil {

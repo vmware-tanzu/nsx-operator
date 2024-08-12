@@ -1,4 +1,4 @@
-apiVersion: nsx.vmware.com/v1alpha1
+apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: SubnetPort
 metadata:
   name: port-in-static-subnetset

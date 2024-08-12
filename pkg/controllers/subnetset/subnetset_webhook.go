@@ -13,7 +13,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
@@ -25,11 +25,11 @@ var NSXOperatorSA = "system:serviceaccount:vmware-system-nsx:ncp-svc-account"
 // Create validator instead of using the existing one in controller-runtime because the existing one can't
 // inspect admission.Request in Handle function.
 
-//+kubebuilder:webhook:path=/validate-nsx-vmware-com-v1alpha1-subnetset,mutating=false,failurePolicy=fail,sideEffects=None,groups=nsx.vmware.com.nsx.vmware.com,resources=subnetsets,verbs=create;update,versions=v1alpha1,name=default.subnetset.validating.nsx.vmware.com,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-nsx-vmware-com-v1alpha1-subnetset,mutating=false,failurePolicy=fail,sideEffects=None,groups=nsx.vmware.com.nsx.vmware.com,resources=subnetsets,verbs=create;update,versions=v1alpha1,name=default.subnetset.validating.nsx.vmware.com,admissionReviewVersions=v1
 
 type SubnetSetValidator struct {
 	Client  client.Client
-	decoder *admission.Decoder
+	decoder admission.Decoder
 }
 
 func defaultSubnetSetLabelChanged(oldSubnetSet, subnetSet *v1alpha1.SubnetSet) bool {

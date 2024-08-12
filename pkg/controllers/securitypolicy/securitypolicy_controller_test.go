@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"sync"
 	"testing"
 	"time"
 
@@ -29,21 +28,50 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/nsx.vmware.com/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/t1/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
-	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 )
+
+func fakeService() *securitypolicy.SecurityPolicyService {
+	c := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	cluster, _ := nsx.NewCluster(c)
+	rc, _ := cluster.NewRestConnector()
+
+	service := &securitypolicy.SecurityPolicyService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				QueryClient:            nil,
+				RestConnector:          rc,
+				RealizedEntitiesClient: nil,
+				ProjectInfraClient:     nil,
+				NsxConfig: &config.NSXOperatorConfig{
+					CoeConfig: &config.CoeConfig{
+						Cluster: "k8scl-one:test",
+					},
+				},
+			},
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster:          "k8scl-one:test",
+					EnableVPCNetwork: false,
+				},
+			},
+		},
+	}
+	return service
+}
 
 func NewFakeSecurityPolicyReconciler() *SecurityPolicyReconciler {
 	return &SecurityPolicyReconciler{
 		Client:  fake.NewClientBuilder().Build(),
 		Scheme:  fake.NewClientBuilder().Build().Scheme(),
-		Service: nil,
+		Service: fakeService(),
 	}
 }
 
@@ -144,6 +172,9 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		Service: common.Service{
 			NSXClient: &nsx.Client{},
 			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					EnableVPCNetwork: false,
+				},
 				NsxConfig: &config.NsxConfig{
 					EnforcementPoint: "vmc-enforcementpoint",
 				},
@@ -158,11 +189,6 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	}
 	ctx := context.Background()
 	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
-
-	// common.GcOnce do nothing
-	var once sync.Once
-	pat := gomonkey.ApplyMethod(reflect.TypeOf(&once), "Do", func(_ *sync.Once, _ func()) {})
-	defer pat.Reset()
 
 	// not found
 	errNotFound := errors.New("not found")
@@ -209,7 +235,6 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
-	k8sClient.EXPECT().Update(ctx, gomock.Any(), gomock.Any()).Return(nil)
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, ret, nil)
 	patch.Reset()
@@ -219,12 +244,13 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		v1sp := obj.(*v1alpha1.SecurityPolicy)
 		time := metav1.Now()
 		v1sp.ObjectMeta.DeletionTimestamp = &time
-		v1sp.Finalizers = []string{common.SecurityPolicyFinalizerName}
+		v1sp.Finalizers = []string{common.T1SecurityPolicyFinalizerName}
 		return nil
 	})
 	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isVpcCleanup bool) error {
 		return nil
 	})
+	k8sClient.EXPECT().Update(ctx, gomock.Any(), gomock.Any()).Return(nil)
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, ret, nil)
 	patch.Reset()
@@ -237,6 +263,9 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 			NSXConfig: &config.NSXOperatorConfig{
 				NsxConfig: &config.NsxConfig{
 					EnforcementPoint: "vmc-enforcementpoint",
+				},
+				CoeConfig: &config.CoeConfig{
+					EnableVPCNetwork: false,
 				},
 			},
 		},
@@ -307,7 +336,18 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 func TestSecurityPolicyReconciler_Start(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
-	service := &securitypolicy.SecurityPolicyService{}
+	service := &securitypolicy.SecurityPolicyService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+				},
+				CoeConfig: &config.CoeConfig{
+					EnableVPCNetwork: false,
+				},
+			},
+		},
+	}
 	mgr, _ := controllerruntime.NewManager(&rest.Config{}, manager.Options{})
 	r := &SecurityPolicyReconciler{
 		Client:  k8sClient,
@@ -385,6 +425,7 @@ func TestReconcileSecurityPolicy(t *testing.T) {
 		return nil
 	})
 
+	r := NewFakeSecurityPolicyReconciler()
 	mockQueue := mock_client.NewMockInterface(mockCtl)
 
 	type args struct {
@@ -401,7 +442,7 @@ func TestReconcileSecurityPolicy(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.wantErr(t, reconcileSecurityPolicy(tt.args.client, tt.args.pods, tt.args.q),
+			tt.wantErr(t, reconcileSecurityPolicy(r, tt.args.client, tt.args.pods, tt.args.q),
 				fmt.Sprintf("reconcileSecurityPolicy(%v, %v, %v)", tt.args.client, tt.args.pods, tt.args.q))
 		})
 	}

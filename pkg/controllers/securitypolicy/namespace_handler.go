@@ -21,7 +21,8 @@ import (
 // we should reconcile the corresponding security policy.
 
 type EnqueueRequestForNamespace struct {
-	Client client.Client
+	Client                   client.Client
+	SecurityPolicyReconciler *SecurityPolicyReconciler
 }
 
 func (e *EnqueueRequestForNamespace) Create(_ context.Context, _ event.CreateEvent, _ workqueue.RateLimitingInterface) {
@@ -65,7 +66,7 @@ func (e *EnqueueRequestForNamespace) Update(_ context.Context, updateEvent event
 		return
 	}
 
-	err = reconcileSecurityPolicy(e.Client, podList.Items, l)
+	err = reconcileSecurityPolicy(e.SecurityPolicyReconciler, e.Client, podList.Items, l)
 	if err != nil {
 		log.Error(err, "failed to reconcile security policy for namedport check")
 	}
