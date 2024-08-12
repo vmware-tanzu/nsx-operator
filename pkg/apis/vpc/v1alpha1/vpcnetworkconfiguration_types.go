@@ -76,7 +76,7 @@ type VPCInfo struct {
 
 // VPCNetworkConfiguration is the Schema for the vpcnetworkconfigurations API.
 // +kubebuilder:resource:scope="Cluster"
-// +kubebuilder:printcolumn:name="NsxProject",type=string,JSONPath=`.spec.nsxProject`,description="NsxProject the Namespace associated with"
+// +kubebuilder:printcolumn:name="NSXProject",type=string,JSONPath=`.spec.nsxProject`,description="NSXProject the Namespace associated with"
 // +kubebuilder:printcolumn:name="PrivateIPs",type=string,JSONPath=`.spec.privateIPs`,description="PrivateIPs assigned to the Namespace"
 type VPCNetworkConfiguration struct {
 	metav1.TypeMeta   `json:",inline"`
