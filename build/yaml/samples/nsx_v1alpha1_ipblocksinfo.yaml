@@ -1,0 +1,9 @@
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: IPBlocksInfo
+metadata:
+  name: ip-blocks-info
+externalIPCIDRs:
+- 192.168.0.0/16
+privateTGWIPCIDRs:
+- 10.172.0.0/16
+- 10.173.0.0/16

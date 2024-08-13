@@ -9,6 +9,8 @@ type AddressBindingExpansion interface{}
 
 type IPAddressAllocationExpansion interface{}
 
+type IPBlocksInfoExpansion interface{}
+
 type NetworkInfoExpansion interface{}
 
 type SecurityPolicyExpansion interface{}
