@@ -6,7 +6,7 @@ package nsxserviceaccount
 import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/t1/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 

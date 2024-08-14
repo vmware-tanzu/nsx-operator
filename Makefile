@@ -41,7 +41,7 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/t1/v1alpha1" output:crd:artifacts:config=build/yaml/crd/t1/
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1" output:crd:artifacts:config=build/yaml/crd/legacy/
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1" output:crd:artifacts:config=build/yaml/crd/vpc/
 
 .PHONY: generate
