@@ -13,7 +13,6 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
@@ -183,18 +182,18 @@ func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubne
 }
 
 func (service *SubnetPortService) GetSubnetPortState(obj interface{}, nsxSubnetPath string) (*model.SegmentPortState, error) {
-	var uid types.UID
+	var nsxSubnetPortID string
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
-		uid = o.UID
+		nsxSubnetPortID = service.BuildSubnetPortId(&o.ObjectMeta)
 	case *v1.Pod:
-		uid = o.UID
+		nsxSubnetPortID = service.BuildSubnetPortId(&o.ObjectMeta)
 	}
 	nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID := nsxutil.ParseVPCPath(nsxSubnetPath)
-	nsxSubnetPortState, err := service.NSXClient.PortStateClient.Get(nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID, string(uid), nil, nil)
+	nsxSubnetPortState, err := service.NSXClient.PortStateClient.Get(nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID, nsxSubnetPortID, nil, nil)
 	err = nsxutil.NSXApiError(err)
 	if err != nil {
-		log.Error(err, "failed to get subnet port state", "nsxSubnetPortID", uid, "nsxSubnetPath", nsxSubnetPath)
+		log.Error(err, "failed to get subnet port state", "nsxSubnetPortID", nsxSubnetPortID, "nsxSubnetPath", nsxSubnetPath)
 		return nil, err
 	}
 	return &nsxSubnetPortState, nil
