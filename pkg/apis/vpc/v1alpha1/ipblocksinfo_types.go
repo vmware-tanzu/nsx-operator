@@ -9,8 +9,7 @@ import (
 
 // +genclient
 //+kubebuilder:object:root=true
-//+kubebuilder:resource:scope="Cluster"
-//+kubebuilder:resource:path=ipblocksinfos
+//+kubebuilder:resource:scope="Cluster",path=ipblocksinfos
 
 // IPBlocksInfo is the Schema for the ipblocksinfo API
 type IPBlocksInfo struct {
