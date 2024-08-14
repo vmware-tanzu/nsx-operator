@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"strings"
 	"sync"
 
@@ -309,60 +308,6 @@ func (s *VPCService) DeleteIPBlockInVPC(vpc model.Vpc) error {
 	}
 	log.Info("successfully deleted all ip blocks")
 	return nil
-}
-
-func (s *VPCService) CreateOrUpdatePrivateIPBlock(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNetworkConfigInfo) (map[string]string,
-	error) {
-	// if network config contains PrivateIPV4CIDRs section, create private ip block for each cidr
-	path := map[string]string{}
-	if nc.PrivateIPs != nil {
-		for _, pCidr := range nc.PrivateIPs {
-			log.Info("start processing private cidr", "cidr", pCidr)
-			// if parse success, then check if private cidr exist, here we suppose it must be a cidr format string
-			ip, _, err := net.ParseCIDR(pCidr)
-			if err != nil {
-				message := fmt.Sprintf("invalid cidr %s for VPC %s", pCidr, obj.Name)
-				fmtError := errors.New(message)
-				log.Error(fmtError, message)
-				return nil, fmtError
-			}
-			// check if private ip block already exist
-			// use cidr_project_ns as search key
-			key := generateIPBlockSearchKey(pCidr, string(nsObj.UID))
-			log.Info("using key to search from ipblock store", "Key", key)
-			block := s.IpblockStore.GetByKey(key)
-			if block == nil {
-				log.Info("no ip block found in store for cidr", "CIDR", pCidr)
-				block := buildPrivateIpBlock(obj, nsObj, pCidr, ip.String(), nc.NSXProject, s.NSXConfig.Cluster)
-				log.Info("creating ip block", "IPBlock", block.Id, "VPC", obj.Name)
-				// can not find private ip block from store, create one
-				_err := s.NSXClient.IPBlockClient.Patch(nc.Org, nc.NSXProject, *block.Id, block)
-				_err = nsxutil.NSXApiError(_err)
-				if _err != nil {
-					message := fmt.Sprintf("failed to create private ip block for cidr %s for VPC %s", pCidr, obj.Name)
-					ipblockError := errors.New(message)
-					log.Error(ipblockError, message)
-					return nil, ipblockError
-				}
-				ignoreIpblockUsage := true
-				createdBlock, err := s.NSXClient.IPBlockClient.Get(nc.Org, nc.NSXProject, *block.Id, &ignoreIpblockUsage)
-				err = nsxutil.NSXApiError(err)
-				if err != nil {
-					// created by can not get, ignore this error
-					log.Info("failed to read ip blocks from NSX", "Project", nc.NSXProject, "IPBlock", block.Id)
-					continue
-				}
-				// update ip block store
-				s.IpblockStore.Add(&createdBlock)
-				path[pCidr] = *createdBlock.Path
-			} else {
-				eBlock := block.(*model.IpAddressBlock)
-				path[pCidr] = *eBlock.Path
-				log.Info("ip block found in store for cidr using key", "CIDR", pCidr, "Key", key)
-			}
-		}
-	}
-	return path, nil
 }
 
 func (s *VPCService) IsSharedVPCNamespaceByNS(ns string) (bool, error) {

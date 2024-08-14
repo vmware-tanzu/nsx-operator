@@ -69,7 +69,6 @@ func TestSubnetSet(t *testing.T) {
 		teardownTest(t, E2ENamespaceTarget, SubnetDeletionTimeout)
 	})
 
-	t.Skip("Skip test")
 	t.Run("case=DefaultSubnetSet", defaultSubnetSet)
 	t.Run("case=UserSubnetSet", UserSubnetSet)
 	t.Run("case=SharedSubnetSet", sharedSubnetSet)

@@ -1,8 +1,6 @@
 package vpc
 
 import (
-	"net/netip"
-
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 
@@ -27,27 +25,6 @@ func generateIPBlockKey(block model.IpAddressBlock) string {
 		}
 	}
 	return *cidr + "_" + nsUID
-}
-
-func generateIPBlockSearchKey(cidr string, nsUID string) string {
-	return cidr + "_" + nsUID
-}
-
-func buildPrivateIpBlock(networkInfo *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cidr, ip, project, cluster string) model.IpAddressBlock {
-	resName := networkInfo.GetNamespace() + "-" + ip
-	addr, _ := netip.ParseAddr(ip)
-	ipType := util.If(addr.Is4(), model.IpAddressBlock_IP_ADDRESS_TYPE_IPV4, model.IpAddressBlock_IP_ADDRESS_TYPE_IPV6).(string)
-	blockType := model.IpAddressBlock_VISIBILITY_PRIVATE
-	block := model.IpAddressBlock{
-		DisplayName:   common.String(util.GenerateTruncName(common.MaxNameLength, resName, "", "", "", cluster)),
-		Id:            common.String(util.GenerateIDByObjectWithSuffix(nsObj, ip)),
-		Tags:          util.BuildBasicTags(cluster, networkInfo, nsObj.UID), // ipblock and vpc can use the same tags
-		Cidr:          &cidr,
-		IpAddressType: &ipType,
-		Visibility:    &blockType,
-	}
-
-	return block
 }
 
 func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNetworkConfigInfo, cluster string,

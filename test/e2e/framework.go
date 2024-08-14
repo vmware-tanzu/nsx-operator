@@ -79,7 +79,7 @@ type TestData struct {
 
 var testData *TestData
 
-//Temporarily disable traffic check
+// Temporarily disable traffic check
 /*
 type PodIPs struct {
 	ipv4      *net.IP
@@ -436,7 +436,7 @@ func (data *TestData) deploymentWaitForNames(timeout time.Duration, namespace, d
 	return podNames, nil
 }
 
-//Temporarily disable traffic check
+// Temporarily disable traffic check
 /*
 // podWaitFor polls the K8s apiServer until the specified Pod is found (in the test Namespace) and
 // the condition predicate is met (or until the provided timeout expires).
@@ -649,7 +649,7 @@ func applyYAML(filename string, ns string) error {
 	return nil
 }
 
-//Temporarily disable traffic check
+// Temporarily disable traffic check
 /*
 func runCommand(cmd string) (string, error) {
 	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (bool, error) {
@@ -721,10 +721,6 @@ func (data *TestData) waitForResourceExist(namespace string, resourceType string
 		return true, nil
 	})
 	return err
-}
-
-func (data *TestData) waitForResourceExistById(namespace string, resourceType string, id string, shouldExist bool) error {
-	return data.waitForResourceExist(namespace, resourceType, "id", id, shouldExist)
 }
 
 func (data *TestData) waitForResourceExistOrNot(namespace string, resourceType string, resourceName string, shouldExist bool) error {
