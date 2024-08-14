@@ -150,6 +150,7 @@ var (
 	ResourceTypeOrg                          = "Org"
 	ResourceTypeProject                      = "Project"
 	ResourceTypeVpc                          = "Vpc"
+	ResourceTypeVpcConnectivityProfile       = "VpcConnectivityProfile"
 	ResourceTypeSubnetPort                   = "VpcSubnetPort"
 	ResourceTypeVirtualMachine               = "VirtualMachine"
 	ResourceTypeLBService                    = "LBService"

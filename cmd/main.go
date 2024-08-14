@@ -35,6 +35,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetset"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
 	nodeservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/node"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
 	subnetservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
@@ -109,13 +110,14 @@ func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Ser
 	go commonctl.GenericGarbageCollector(make(chan bool), common.GCInterval, nsxServiceAccountReconcile.CollectGarbage)
 }
 
-func StartNetworkInfoController(mgr ctrl.Manager, vpcService *vpc.VPCService) {
+func StartNetworkInfoController(mgr ctrl.Manager, vpcService *vpc.VPCService, ipblocksInfoService *ipblocksinfo.IPBlocksInfoService) {
 	networkInfoReconciler := &networkinfocontroller.NetworkInfoReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("networkinfo-controller"),
 	}
 	networkInfoReconciler.Service = vpcService
+	networkInfoReconciler.IPBlocksInfoService = ipblocksInfoService
 	if err := networkInfoReconciler.Start(mgr); err != nil {
 		log.Error(err, "failed to create networkinfo controller", "controller", "NetworkInfo")
 		os.Exit(1)
@@ -203,8 +205,9 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			log.Error(err, "failed to initialize staticroute commonService", "controller", "StaticRoute")
 			os.Exit(1)
 		}
+		ipblocksInfoService := ipblocksinfo.InitializeIPBlocksInfoService(commonService)
 		// Start controllers which only supports VPC
-		StartNetworkInfoController(mgr, vpcService)
+		StartNetworkInfoController(mgr, vpcService, ipblocksInfoService)
 		StartNamespaceController(mgr, cf, vpcService)
 		// Start subnet/subnetset controller.
 		if err := subnet.StartSubnetController(mgr, subnetService, subnetPortService, vpcService); err != nil {
