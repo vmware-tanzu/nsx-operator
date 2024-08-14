@@ -9,9 +9,8 @@ import (
 )
 
 const (
-	NetworkInfoCRType     = "networkinfos.crd.nsx.vmware.com"
-	NSCRType              = "namespaces"
-	PrivateIPBlockNSXType = "IpAddressBlock"
+	NetworkInfoCRType = "networkinfos.crd.nsx.vmware.com"
+	NSCRType          = "namespaces"
 
 	InfraVPCNamespace       = "kube-system"
 	SharedInfraVPCNamespace = "kube-public"
