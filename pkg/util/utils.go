@@ -351,7 +351,7 @@ func GetMapValues(in interface{}) []string {
 
 // the changes map contains key/value map that you want to change.
 // if giving empty value for a key in changes map like: "mykey":"", that means removing this annotation from k8s resource
-func UpdateK8sResourceAnnotation(client client.Client, ctx *context.Context, k8sObj client.Object, changes map[string]string) error {
+func UpdateK8sResourceAnnotation(client client.Client, ctx context.Context, k8sObj client.Object, changes map[string]string) error {
 	needUpdate := false
 	anno := k8sObj.GetAnnotations() // here it may return a nil because ns do not have annotations.
 	newAnno := If(anno == nil, map[string]string{}, anno).(map[string]string)
@@ -376,7 +376,7 @@ func UpdateK8sResourceAnnotation(client client.Client, ctx *context.Context, k8s
 
 	// only send update request when it is needed
 	if needUpdate {
-		err := client.Update(*ctx, k8sObj)
+		err := client.Update(ctx, k8sObj)
 		if err != nil {
 			return err
 		}

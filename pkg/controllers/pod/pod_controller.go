@@ -71,7 +71,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			controllerutil.AddFinalizer(pod, servicecommon.PodFinalizerName)
 			if err := r.Client.Update(ctx, pod); err != nil {
 				log.Error(err, "add finalizer", "pod", req.NamespacedName)
-				updateFail(r, &ctx, pod, &err)
+				updateFail(r, ctx, pod, &err)
 				return common.ResultRequeue, err
 			}
 			log.Info("added finalizer on pod", "pod", req.NamespacedName)
@@ -97,36 +97,36 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(pod, nsxSubnet, contextID, &pod.ObjectMeta.Labels)
 		if err != nil {
 			log.Error(err, "failed to create or update NSX subnet port, would retry exponentially", "pod.Name", req.NamespacedName, "pod.UID", pod.UID)
-			updateFail(r, &ctx, pod, &err)
+			updateFail(r, ctx, pod, &err)
 			return common.ResultRequeue, err
 		}
 		podAnnotationChanges := map[string]string{
 			servicecommon.AnnotationPodMAC:        strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\""),
 			servicecommon.AnnotationPodAttachment: *nsxSubnetPortState.Attachment.Id,
 		}
-		err = util.UpdateK8sResourceAnnotation(r.Client, &ctx, pod, podAnnotationChanges)
+		err = util.UpdateK8sResourceAnnotation(r.Client, ctx, pod, podAnnotationChanges)
 		if err != nil {
 			log.Error(err, "failed to update pod annotation", "pod.Name", req.NamespacedName, "pod.UID", pod.UID, "podAnnotationChanges", podAnnotationChanges)
 			return common.ResultNormal, err
 		}
-		updateSuccess(r, &ctx, pod)
+		updateSuccess(r, ctx, pod)
 	} else {
 		if controllerutil.ContainsFinalizer(pod, servicecommon.PodFinalizerName) {
 			metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypePod)
 			subnetPortID := r.SubnetPortService.BuildSubnetPortId(&pod.ObjectMeta)
 			if err := r.SubnetPortService.DeleteSubnetPort(subnetPortID); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "pod", req.NamespacedName)
-				deleteFail(r, &ctx, pod, &err)
+				deleteFail(r, ctx, pod, &err)
 				return common.ResultRequeue, err
 			}
 			controllerutil.RemoveFinalizer(pod, servicecommon.PodFinalizerName)
 			if err := r.Client.Update(ctx, pod); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "pod", req.NamespacedName)
-				deleteFail(r, &ctx, pod, &err)
+				deleteFail(r, ctx, pod, &err)
 				return common.ResultRequeue, err
 			}
 			log.Info("removed finalizer", "pod", req.NamespacedName)
-			deleteSuccess(r, &ctx, pod)
+			deleteSuccess(r, ctx, pod)
 		} else {
 			log.Info("finalizers cannot be recognized", "pod", req.NamespacedName)
 		}
@@ -227,22 +227,22 @@ func (r *PodReconciler) CollectGarbage(ctx context.Context) {
 	}
 }
 
-func updateFail(r *PodReconciler, c *context.Context, o *v1.Pod, e *error) {
+func updateFail(r *PodReconciler, c context.Context, o *v1.Pod, e *error) {
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResTypePod)
 }
 
-func deleteFail(r *PodReconciler, c *context.Context, o *v1.Pod, e *error) {
+func deleteFail(r *PodReconciler, c context.Context, o *v1.Pod, e *error) {
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypePod)
 }
 
-func updateSuccess(r *PodReconciler, c *context.Context, o *v1.Pod) {
+func updateSuccess(r *PodReconciler, c context.Context, o *v1.Pod) {
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "Pod CR has been successfully updated")
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResTypePod)
 }
 
-func deleteSuccess(r *PodReconciler, _ *context.Context, o *v1.Pod) {
+func deleteSuccess(r *PodReconciler, _ context.Context, o *v1.Pod) {
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "Pod CR has been successfully deleted")
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypePod)
 }
