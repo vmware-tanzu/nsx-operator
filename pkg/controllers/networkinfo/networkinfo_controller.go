@@ -234,16 +234,17 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				// when nsx vpc not found in vpc store, skip deleting NSX VPC
 				log.Info("can not find VPC in store, skip deleting NSX VPC, remove finalizer from NetworkInfo CR")
 			} else if !isShared {
-				vpc := vpcs[0]
-				// first delete vpc and then ipblock or else it will fail arguing it is being referenced by other objects
-				if err := r.Service.DeleteVPC(*vpc.Path); err != nil {
-					log.Error(err, "failed to delete nsx VPC, would retry exponentially", "NetworkInfo", req.NamespacedName)
-					deleteFail(r, ctx, obj, &err, r.Client)
-					return common.ResultRequeueAfter10sec, err
-				}
-				if err := r.Service.DeleteIPBlockInVPC(*vpc); err != nil {
-					log.Error(err, "failed to delete private ip blocks for VPC", "VPC", req.NamespacedName)
-					return common.ResultRequeueAfter10sec, err
+				for _, vpc := range vpcs {
+					// first delete vpc and then ipblock or else it will fail arguing it is being referenced by other objects
+					if err := r.Service.DeleteVPC(*vpc.Path); err != nil {
+						log.Error(err, "failed to delete nsx VPC, would retry exponentially", "NetworkInfo", req.NamespacedName)
+						deleteFail(r, ctx, obj, &err, r.Client)
+						return common.ResultRequeueAfter10sec, err
+					}
+					if err := r.Service.DeleteIPBlockInVPC(*vpc); err != nil {
+						log.Error(err, "failed to delete private ip blocks for VPC", "VPC", req.NamespacedName)
+						return common.ResultRequeueAfter10sec, err
+					}
 				}
 			}
 
@@ -252,8 +253,18 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				deleteFail(r, ctx, obj, &err, r.Client)
 				return common.ResultRequeue, err
 			}
+			ncName, err := r.Service.GetNetworkconfigNameFromNS(obj.Namespace)
+			if err != nil {
+				log.Error(err, "failed to get network config name for VPC when deleting NetworkInfo CR", "NetworkInfo", obj.Name)
+				return common.ResultRequeueAfter10sec, err
+			}
+			allVPCs := r.Service.ListVPC()
+			vpcAlive := sets.New[string]()
+			for _, vpcModel := range allVPCs {
+				vpcAlive.Insert(*vpcModel.DisplayName)
+			}
 			log.V(1).Info("removed finalizer", "NetworkInfo", req.NamespacedName)
-			deleteSuccess(r, ctx, obj)
+			deleteSuccess(r, ctx, obj, r.Client, vpcs, ncName, vpcAlive)
 		} else {
 			// only print a message because it's not a normal case
 			log.Info("finalizers cannot be recognized", "NetworkInfo", req.NamespacedName)
