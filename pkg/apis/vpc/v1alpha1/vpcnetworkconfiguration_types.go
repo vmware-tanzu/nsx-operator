@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	AccessModePublic  string = "Public"
-	AccessModePrivate string = "Private"
-	AccessModeProject string = "PrivateTGW"
+	AccessModePublic       string = "Public"
+	AccessModePrivate      string = "Private"
+	AccessModeProject      string = "PrivateTGW"
+	AccessModeProjectInNSX string = "Private_TGW"
 )
 
 // VPCNetworkConfigurationSpec defines the desired state of VPCNetworkConfiguration.
