@@ -89,7 +89,7 @@ func defaultSubnetSet(t *testing.T) {
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_1.yaml")
 	err = applyYAML(portPath, E2ENamespace)
 	assertNil(t, err)
-	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetPortCRType, E2ENamespace, "port-1", Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetPortCRType, E2ENamespace, "port_e2e_test_1", Ready)
 	assertNil(t, err)
 	defer deleteYAML(portPath, E2ENamespace)
 
@@ -232,7 +232,7 @@ func sharedSubnetSet(t *testing.T) {
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_3.yaml")
 	err = applyYAML(portPath, E2ENamespaceShared)
 	assertNil(t, err)
-	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetPortCRType, E2ENamespaceShared, "port-3", Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetPortCRType, E2ENamespaceShared, "port_e2e_test_3", Ready)
 	assertNil(t, err)
 	defer deleteYAML(portPath, E2ENamespaceShared)
 
@@ -242,7 +242,7 @@ func sharedSubnetSet(t *testing.T) {
 	assert.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
 
 	// 4. Check IP address is allocated to SubnetPort.
-	port, err := testData.crdClientset.CrdV1alpha1().SubnetPorts(E2ENamespaceShared).Get(context.TODO(), "port-3", v1.GetOptions{})
+	port, err := testData.crdClientset.CrdV1alpha1().SubnetPorts(E2ENamespaceShared).Get(context.TODO(), "port_e2e_test_3", v1.GetOptions{})
 	assertNil(t, err)
 	assert.NotEmpty(t, port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "No IP address in SubnetPort")
 
