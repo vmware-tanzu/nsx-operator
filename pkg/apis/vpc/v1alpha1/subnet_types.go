@@ -9,6 +9,13 @@ import (
 
 type AccessMode string
 
+const (
+	AccessModePublic       string = "Public"
+	AccessModePrivate      string = "Private"
+	AccessModeProject      string = "PrivateTGW"
+	AccessModeProjectInNSX string = "Private_TGW"
+)
+
 // SubnetSpec defines the desired state of Subnet.
 type SubnetSpec struct {
 	// Size of Subnet based upon estimated workload count.
