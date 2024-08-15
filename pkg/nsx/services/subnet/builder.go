@@ -12,6 +12,8 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
+const AccessModeProjectInNSX string = "Private_TGW"
+
 var (
 	String = common.String
 	Int64  = common.Int64
@@ -46,7 +48,7 @@ func (service *SubnetService) buildSubnetSetName(subnetset *v1alpha1.SubnetSet, 
 
 func convertAccessMode(accessMode string) string {
 	if accessMode == v1alpha1.AccessModeProject {
-		return v1alpha1.AccessModeProjectInNSX
+		return AccessModeProjectInNSX
 	}
 	return accessMode
 }

@@ -10,10 +10,9 @@ import (
 type AccessMode string
 
 const (
-	AccessModePublic       string = "Public"
-	AccessModePrivate      string = "Private"
-	AccessModeProject      string = "PrivateTGW"
-	AccessModeProjectInNSX string = "Private_TGW"
+	AccessModePublic  string = "Public"
+	AccessModePrivate string = "Private"
+	AccessModeProject string = "PrivateTGW"
 )
 
 // SubnetSpec defines the desired state of Subnet.
