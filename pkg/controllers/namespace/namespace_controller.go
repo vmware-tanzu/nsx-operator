@@ -84,7 +84,7 @@ func (r *NamespaceReconciler) createNetworkInfoCR(ctx *context.Context, obj clie
 	return networkInfoCR, nil
 }
 
-func (r *NamespaceReconciler) createDefaultSubnetSet(ns string, defaultPodAccessMode string) error {
+func (r *NamespaceReconciler) createDefaultSubnetSet(ns string) error {
 	defaultSubnetSets := map[string]string{
 		types.DefaultVMSubnetSet:  types.LabelDefaultVMSubnetSet,
 		types.DefaultPodSubnetSet: types.LabelDefaultPodSubnetSet,
@@ -120,12 +120,12 @@ func (r *NamespaceReconciler) createDefaultSubnetSet(ns string, defaultPodAccess
 					},
 				},
 			}
-			if name == types.DefaultVMSubnetSet {
-				// use "Private" type for VM
-				obj.Spec.AccessMode = v1alpha1.AccessMode("Private")
-			} else if name == types.DefaultPodSubnetSet {
-				obj.Spec.AccessMode = v1alpha1.AccessMode(defaultPodAccessMode)
-			}
+			// if name == types.DefaultVMSubnetSet {
+			// 	// use "Private" type for VM
+			// 	obj.Spec.AccessMode = v1alpha1.AccessMode("Private")
+			// } else if name == types.DefaultPodSubnetSet {
+			// 	obj.Spec.AccessMode = v1alpha1.AccessMode(defaultPodAccessMode)
+			// }
 			if err := r.Client.Create(context.Background(), obj); err != nil {
 				return err
 			}
@@ -238,7 +238,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if _, err := r.createNetworkInfoCR(&ctx, obj, ns, ncName); err != nil {
 			return common.ResultRequeueAfter10sec, nil
 		}
-		if err := r.createDefaultSubnetSet(ns, nc.PodSubnetAccessMode); err != nil {
+		if err := r.createDefaultSubnetSet(ns); err != nil {
 			return common.ResultRequeueAfter10sec, nil
 		}
 		return common.ResultNormal, nil

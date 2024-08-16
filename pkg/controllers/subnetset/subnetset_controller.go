@@ -69,12 +69,6 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 					updateFail(r, &ctx, obj, "")
 					return ResultRequeue, err
 				}
-				if obj.Spec.AccessMode == "" {
-					obj.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
-					if obj.Name == servicecommon.DefaultPodSubnetSet {
-						obj.Spec.AccessMode = v1alpha1.AccessMode(vpcNetworkConfig.PodSubnetAccessMode)
-					}
-				}
 				if obj.Spec.IPv4SubnetSize == 0 {
 					obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
 				}

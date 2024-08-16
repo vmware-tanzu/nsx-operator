@@ -218,7 +218,6 @@ type VPCNetworkConfigInfo struct {
 	NSXProject             string
 	PrivateIPs             []string
 	DefaultSubnetSize      int
-	PodSubnetAccessMode    string
 	ShortID                string
 	VPCPath                string
 }

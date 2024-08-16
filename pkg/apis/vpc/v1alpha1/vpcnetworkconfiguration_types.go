@@ -39,11 +39,6 @@ type VPCNetworkConfigurationSpec struct {
 	// Defaults to 32.
 	// +kubebuilder:default=32
 	DefaultSubnetSize int `json:"defaultSubnetSize,omitempty"`
-
-	// PodSubnetAccessMode defines the access mode of the default SubnetSet for PodVMs.
-	// Must be Public, Private or PrivateTGW.
-	// +kubebuilder:validation:Enum=Public;Private;PrivateTGW
-	PodSubnetAccessMode string `json:"podSubnetAccessMode,omitempty"`
 }
 
 // VPCNetworkConfigurationStatus defines the observed state of VPCNetworkConfiguration
