@@ -22,6 +22,8 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
 
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/test/e2e/providers"
 )
@@ -692,6 +694,32 @@ func deleteYAML(filename string, ns string) error {
 	outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
 	log.Printf("YAML file %s deleted with output: '%s' and error: '%s'", cmd, outStr, errStr)
 	return nil
+}
+
+// queryResource is used to query resource by tags, not handling pagination
+// tags should be present in pairs, the first tag is the scope, the second tag is the value
+// caller should transform the response to the expected resource type
+func (data *TestData) queryResource(resourceType string, tags []string) (model.SearchResponse, error) {
+	tagScopeClusterKey := strings.Replace(common.TagScopeNamespace, "/", "\\/", -1)
+	tagScopeClusterValue := strings.Replace(tags[0], ":", "\\:", -1)
+	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
+	resourceParam := fmt.Sprintf("%s:%s", common.ResourceType, resourceType)
+	queryParam := resourceParam + " AND " + tagParam
+	if len(tags) >= 2 {
+		tagscope := strings.Replace(tags[0], "/", "\\/", -1)
+		tagtag := strings.Replace(tags[1], ":", "\\:", -1)
+		tagParam = fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagscope, tagtag)
+		queryParam = resourceParam + " AND " + tagParam
+	}
+	queryParam += " AND marked_for_delete:false"
+	var cursor *string
+	var pageSize int64 = 500
+	response, err := data.nsxClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
+	if err != nil {
+		log.Printf("Error when querying resource %s: %v", resourceType, err)
+		return model.SearchResponse{}, err
+	}
+	return response, nil
 }
 
 func (data *TestData) waitForResourceExist(namespace string, resourceType string, key string, value string, shouldExist bool) error {

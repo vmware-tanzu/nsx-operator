@@ -138,8 +138,6 @@ spec:
                       items:
                         type: string
                       type: array
-                    nsxResourcePath:
-                      type: string
                   type: object
                 type: array
             type: object
