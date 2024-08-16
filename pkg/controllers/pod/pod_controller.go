@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
@@ -26,7 +25,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -94,20 +92,11 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		if err != nil {
 			return common.ResultRequeue, err
 		}
-		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(pod, nsxSubnet, contextID, &pod.ObjectMeta.Labels)
+		_, err = r.SubnetPortService.CreateOrUpdateSubnetPort(pod, nsxSubnet, contextID, &pod.ObjectMeta.Labels)
 		if err != nil {
 			log.Error(err, "failed to create or update NSX subnet port, would retry exponentially", "pod.Name", req.NamespacedName, "pod.UID", pod.UID)
 			updateFail(r, ctx, pod, &err)
 			return common.ResultRequeue, err
-		}
-		podAnnotationChanges := map[string]string{
-			servicecommon.AnnotationPodMAC:        strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\""),
-			servicecommon.AnnotationPodAttachment: *nsxSubnetPortState.Attachment.Id,
-		}
-		err = util.UpdateK8sResourceAnnotation(r.Client, ctx, pod, podAnnotationChanges)
-		if err != nil {
-			log.Error(err, "failed to update pod annotation", "pod.Name", req.NamespacedName, "pod.UID", pod.UID, "podAnnotationChanges", podAnnotationChanges)
-			return common.ResultNormal, err
 		}
 		updateSuccess(r, ctx, pod)
 	} else {
