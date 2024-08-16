@@ -1,7 +1,7 @@
 apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: SubnetPort
 metadata:
-  name: port-1
+  name: port-e2e-test-1
   namespace: subnet-e2e
 spec:
   subnetSet: pod-default

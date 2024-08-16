@@ -4,5 +4,6 @@ metadata:
   name: user-pod-subnetset-dhcp
   namespace: subnet-e2e
 spec:
+  accessMode: PrivateTGW
   DHCPConfig:
     enableDHCP: true

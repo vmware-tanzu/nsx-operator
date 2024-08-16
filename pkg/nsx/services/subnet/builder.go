@@ -12,6 +12,8 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
+const AccessModeProjectInNSX string = "Private_TGW"
+
 var (
 	String = common.String
 	Int64  = common.Int64
@@ -44,6 +46,13 @@ func (service *SubnetService) buildSubnetSetName(subnetset *v1alpha1.SubnetSet, 
 	return util.GenerateTruncName(common.MaxSubnetNameLength, resName, "", index, "", "")
 }
 
+func convertAccessMode(accessMode string) string {
+	if accessMode == v1alpha1.AccessModeProject {
+		return AccessModeProjectInNSX
+	}
+	return accessMode
+}
+
 func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (*model.VpcSubnet, error) {
 	tags = append(service.buildBasicTags(obj), tags...)
 	var nsxSubnet *model.VpcSubnet
@@ -52,7 +61,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 	case *v1alpha1.Subnet:
 		nsxSubnet = &model.VpcSubnet{
 			Id:             String(service.BuildSubnetID(o)),
-			AccessMode:     String(util.Capitalize(string(o.Spec.AccessMode))),
+			AccessMode:     String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),
 			Ipv4SubnetSize: Int64(int64(o.Spec.IPv4SubnetSize)),
 			DhcpConfig:     service.buildDHCPConfig(o.Spec.DHCPConfig.EnableDHCP, int64(o.Spec.IPv4SubnetSize-4)),
 			DisplayName:    String(service.buildSubnetName(o)),
@@ -65,7 +74,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 		index := util.GetRandomIndexString()
 		nsxSubnet = &model.VpcSubnet{
 			Id:             String(service.buildSubnetSetID(o, index)),
-			AccessMode:     String(util.Capitalize(string(o.Spec.AccessMode))),
+			AccessMode:     String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),
 			Ipv4SubnetSize: Int64(int64(o.Spec.IPv4SubnetSize)),
 			DhcpConfig:     service.buildDHCPConfig(o.Spec.DHCPConfig.EnableDHCP, int64(o.Spec.IPv4SubnetSize-4)),
 			DisplayName:    String(service.buildSubnetSetName(o, index)),

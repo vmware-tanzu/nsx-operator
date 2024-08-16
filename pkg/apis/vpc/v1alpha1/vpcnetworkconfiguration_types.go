@@ -8,12 +8,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const (
-	AccessModePublic  string = "Public"
-	AccessModePrivate string = "Private"
-	AccessModeProject string = "PrivateTGW"
-)
-
 // VPCNetworkConfigurationSpec defines the desired state of VPCNetworkConfiguration.
 // There is a default VPCNetworkConfiguration that applies to Namespaces
 // do not have a VPCNetworkConfiguration assigned. When a field is not set
