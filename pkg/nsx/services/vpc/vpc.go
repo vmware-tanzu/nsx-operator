@@ -459,6 +459,20 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	return path, cidr, nil
 }
 
+func (s *VPCService) GetVpcConnectivityProfile(nc *common.VPCNetworkConfigInfo, vpcConnectivityProfilePath string) (*model.VpcConnectivityProfile, error) {
+	parts := strings.Split(vpcConnectivityProfilePath, "/")
+	if len(parts) < 1 {
+		return nil, fmt.Errorf("failed to check VPCConnectivityProfile(%s) length", nc.VPCConnectivityProfile)
+	}
+	vpcConnectivityProfileName := parts[len(parts)-1]
+	vpcConnectivityProfile, err := s.Service.NSXClient.VPCConnectivityProfilesClient.Get(nc.Org, nc.NSXProject, vpcConnectivityProfileName)
+	if err != nil {
+		log.Error(err, "failed to get NSX VPCConnectivityProfile object", "vpcConnectivityProfileName", vpcConnectivityProfileName)
+		return nil, err
+	}
+	return &vpcConnectivityProfile, nil
+}
+
 func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPCNetworkConfigInfo) (*model.Vpc, error) {
 	// check from VPC store if vpc already exist
 	ns := obj.Namespace

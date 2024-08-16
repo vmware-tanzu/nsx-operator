@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
@@ -135,16 +134,12 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 
 		snatIP, path, cidr := "", "", ""
-		parts := strings.Split(vpcConnectivityProfilePath, "/")
-		if len(parts) < 1 {
-			log.Error(err, "failed to check VPCConnectivityProfile length", "VPCConnectivityProfile", nc.VPCConnectivityProfile)
-			return common.ResultRequeue, err
-		}
-		vpcConnectivityProfileName := parts[len(parts)-1]
-		vpcConnectivityProfile, err := r.Service.NSXClient.VPCConnectivityProfilesClient.Get(nc.Org, nc.NSXProject, vpcConnectivityProfileName)
+
+		vpcConnectivityProfile, err := r.Service.GetVpcConnectivityProfile(&nc, vpcConnectivityProfilePath)
 		if err != nil {
-			log.Error(err, "failed to get NSX VPC ConnectivityProfile object", "vpcConnectivityProfileName", vpcConnectivityProfileName)
-			return common.ResultRequeue, err
+			log.Error(err, "get VpcConnectivityProfile failed, would retry exponentially", "VPC", req.NamespacedName)
+			updateFail(r, ctx, obj, &err, r.Client, nil)
+			return common.ResultRequeueAfter10sec, err
 		}
 		isEnableAutoSNAT := func() bool {
 			if vpcConnectivityProfile.ServiceGateway == nil || vpcConnectivityProfile.ServiceGateway.Enable == nil {
