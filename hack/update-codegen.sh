@@ -5,7 +5,7 @@ set -o nounset
 set -o pipefail
 set -o xtrace
 
-APIS_PKG=github.com/vmware-tanzu/nsx-operator/pkg/apis/
+APIS_PKG=github.com/vmware-tanzu/nsx-operator/pkg/apis
 OUTPUT_PKG=github.com/vmware-tanzu/nsx-operator/pkg/client
 GROUP=vpc
 
