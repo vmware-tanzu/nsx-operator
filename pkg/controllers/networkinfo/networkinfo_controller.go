@@ -114,7 +114,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// if lb vpc enabled, read avi subnet path and cidr
 		// nsx bug, if set LoadBalancerVpcEndpoint.Enabled to false, when read this vpc back,
 		// LoadBalancerVpcEndpoint.Enabled will become a nil pointer.
-		if r.Service.NSXConfig.NsxConfig.UseAVILoadBalancer && createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
+		if !r.Service.NSXLBEnabled() && createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
 			path, cidr, err = r.Service.GetAVISubnetInfo(*createdVpc)
 			if err != nil {
 				log.Error(err, "failed to read lb subnet path and cidr", "VPC", createdVpc.Id)
