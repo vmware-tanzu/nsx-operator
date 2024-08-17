@@ -9,6 +9,12 @@ import (
 
 type AccessMode string
 
+const (
+	AccessModePublic  string = "Public"
+	AccessModePrivate string = "Private"
+	AccessModeProject string = "PrivateTGW"
+)
+
 // SubnetSpec defines the desired state of Subnet.
 type SubnetSpec struct {
 	// Size of Subnet based upon estimated workload count.
@@ -17,6 +23,7 @@ type SubnetSpec struct {
 	IPv4SubnetSize int `json:"ipv4SubnetSize,omitempty"`
 	// Access mode of Subnet, accessible only from within VPC or from outside VPC.
 	// +kubebuilder:validation:Enum=Private;Public;PrivateTGW
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	AccessMode AccessMode `json:"accessMode,omitempty"`
 	// Subnet CIDRS.
 	// +kubebuilder:validation:MinItems=0

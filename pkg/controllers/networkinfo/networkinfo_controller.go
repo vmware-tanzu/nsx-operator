@@ -69,27 +69,6 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return common.ResultRequeueAfter10sec, err
 		}
 
-		isShared, err := r.Service.IsSharedVPCNamespaceByNS(obj.GetNamespace())
-		if err != nil {
-			log.Error(err, "failed to check if namespace is shared", "Namespace", obj.GetNamespace())
-			return common.ResultRequeue, err
-		}
-		if r.Service.NSXConfig.NsxConfig.UseAVILoadBalancer && !isShared {
-			err = r.Service.CreateOrUpdateAVIRule(createdVpc, obj.Namespace)
-			if err != nil {
-				state := &v1alpha1.VPCState{
-					Name:                    *createdVpc.DisplayName,
-					VPCPath:                 *createdVpc.Path,
-					DefaultSNATIP:           "",
-					LoadBalancerIPAddresses: "",
-					PrivateIPs:              nc.PrivateIPs,
-				}
-				log.Error(err, "update avi rule failed, would retry exponentially", "NetworkInfo", req.NamespacedName, "state", state)
-				// updateFail(r, &ctx, obj, &err, r.Client, state)
-				// return common.ResultRequeueAfter10sec, err
-			}
-		}
-
 		snatIP, path, cidr := "", "", ""
 		parts := strings.Split(nc.VPCConnectivityProfile, "/")
 		if len(parts) < 1 {
@@ -135,7 +114,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// if lb vpc enabled, read avi subnet path and cidr
 		// nsx bug, if set LoadBalancerVpcEndpoint.Enabled to false, when read this vpc back,
 		// LoadBalancerVpcEndpoint.Enabled will become a nil pointer.
-		if r.Service.NSXConfig.NsxConfig.UseAVILoadBalancer && createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
+		if !r.Service.NSXLBEnabled() && createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
 			path, cidr, err = r.Service.GetAVISubnetInfo(*createdVpc)
 			if err != nil {
 				log.Error(err, "failed to read lb subnet path and cidr", "VPC", createdVpc.Id)

@@ -1,0 +1,57 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  name: ipblocksinfos.crd.nsx.vmware.com
+spec:
+  group: crd.nsx.vmware.com
+  names:
+    kind: IPBlocksInfo
+    listKind: IPBlocksInfoList
+    plural: ipblocksinfos
+    singular: ipblocksinfo
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: IPBlocksInfo is the Schema for the ipblocksinfo API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          externalIPCIDRs:
+            description: |-
+              ExternalIPCIDRs is a list of CIDR strings. Each CIDR is a contiguous IP address
+              spaces represented by network address and prefix length. The visibility of the
+              IPBlocks is External.
+            items:
+              type: string
+            type: array
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          privateTGWIPCIDRs:
+            description: |-
+              PrivateTGWIPCIDRs is a list of CIDR strings. Each CIDR is a contiguous IP address
+              spaces represented by network address and prefix length. The visibility of the
+              IPBlocks is PrivateTWG. Only IPBlocks in default project will be included.
+            items:
+              type: string
+            type: array
+        type: object
+    served: true
+    storage: true

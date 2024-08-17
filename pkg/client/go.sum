@@ -76,8 +76,8 @@ github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO
 github.com/stretchr/testify v1.8.1/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o6fzry7u4=
 github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcUk=
 github.com/stretchr/testify v1.8.4/go.mod h1:sz/lmYIOXD/1dqDmKjjqLyZ2RngseejIcXlSw2iwfAo=
-github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-20240809061118-98a84f180b40 h1:xHu2h6e+eCkhFwtQ7CkjYBqakTqvbsZYG1F8ZPUHlF0=
-github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-20240809061118-98a84f180b40/go.mod h1:Q4JzNkNMvjo7pXtlB5/R3oME4Nhah7fAObWgghVmtxk=
+github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-20240813023528-cb525458c6ee h1:zbDYJ7kIfZRin5ifeezrLuiNhMezUqEaRtrEcrB5/4M=
+github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-20240813023528-cb525458c6ee/go.mod h1:Q4JzNkNMvjo7pXtlB5/R3oME4Nhah7fAObWgghVmtxk=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=

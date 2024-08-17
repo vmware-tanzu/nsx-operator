@@ -4,17 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"net"
 	"strings"
 	"sync"
 
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/retry"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -33,14 +31,18 @@ const (
 	GroupKey                   = "/orgs/%s/projects/%s/vpcs/%s/groups/%s"
 	SecurityPolicyKey          = "/orgs/%s/projects/%s/vpcs/%s/security-policies/%s"
 	RuleKey                    = "/orgs/%s/projects/%s/vpcs/%s/security-policies/%s/rules/%s"
+	albEndpointPath            = "policy/api/v1/infra/sites/default/enforcement-points/alb-endpoint"
+	LBProviderNSX              = "nsx-lb"
+	LBProviderAVI              = "avi"
 )
 
 var (
-	log             = &logger.Log
-	ctx             = context.Background()
-	ResourceTypeVPC = common.ResourceTypeVpc
-	NewConverter    = common.NewConverter
-
+	log                       = &logger.Log
+	ctx                       = context.Background()
+	ResourceTypeVPC           = common.ResourceTypeVpc
+	NewConverter              = common.NewConverter
+	lbProvider                = ""
+	lbProviderMutex           = &sync.Mutex{}
 	MarkedForDelete           = true
 	enableAviAllowRule        = false
 	EnforceRevisionCheckParam = false
@@ -571,7 +573,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 		nsxVPC = nil
 	}
 
-	createdVpc, err := buildNSXVPC(obj, nsObj, nc, s.NSXConfig.Cluster, paths, nsxVPC, s.NSXConfig.NsxConfig.UseAVILoadBalancer)
+	createdVpc, err := buildNSXVPC(obj, nsObj, nc, s.NSXConfig.Cluster, paths, nsxVPC, !s.NSXLBEnabled())
 	if err != nil {
 		log.Error(err, "failed to build NSX VPC object")
 		return nil, nil, err
@@ -585,7 +587,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 
 	// build NSX LBS
 	var createdLBS *model.LBService
-	if s.NSXConfig.NsxConfig.NSXLBEnabled() {
+	if s.NSXLBEnabled() {
 		lbsSize := s.NSXConfig.NsxConfig.GetNSXLBSize()
 		vpcPath := fmt.Sprintf(VPCKey, nc.Org, nc.NSXProject, nc.Name)
 		var relaxScaleValidation *bool
@@ -684,8 +686,10 @@ func (s *VPCService) Cleanup(ctx context.Context) error {
 			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
 		default:
 			// first clean avi subnet ports, or else vpc delete will fail
-			if err := CleanAviSubnetPorts(ctx, s.NSXClient.Cluster, *vpc.Path); err != nil {
-				return err
+			if !s.NSXLBEnabled() {
+				if err := CleanAviSubnetPorts(ctx, s.NSXClient.Cluster, *vpc.Path); err != nil {
+					return err
+				}
 			}
 			if err := s.DeleteVPC(*vpc.Path); err != nil {
 				return err
@@ -710,245 +714,6 @@ func (s *VPCService) Cleanup(ctx context.Context) error {
 	return nil
 }
 
-func (service *VPCService) needUpdateRule(rule *model.Rule, externalCIDRs []string) bool {
-	des := rule.DestinationGroups
-	currentDesSet := sets.Set[string]{}
-	for _, group := range des {
-		currentDesSet.Insert(group)
-	}
-	if len(externalCIDRs) != len(currentDesSet) {
-		return true
-	}
-	for _, cidr := range externalCIDRs {
-		if !currentDesSet.Has(cidr) {
-			return true
-		}
-	}
-	return false
-}
-
-func (service *VPCService) getIpblockCidr(blocks []string) (result []string, err error) {
-	for _, cidr := range blocks {
-		ipblock := service.PubIpblockStore.GetByKey(cidr)
-		if ipblock == nil {
-			// in case VPC using the new ipblock, search the ipblock from nsxt
-			// return error, and retry next time when the ipblock is synced into store
-			err = errors.New("ipblock not found")
-			log.Error(err, "failed to get public ipblock", "path", cidr)
-			query := fmt.Sprintf("%s:%s AND visibility:EXTERNAL", common.ResourceType, common.ResourceTypeIPBlock)
-			count, searcherr := service.SearchResource(common.ResourceTypeIPBlock, query, service.PubIpblockStore, nil)
-			if searcherr != nil {
-				log.Error(searcherr, "failed to query public ipblock", "query", query)
-			} else {
-				log.V(1).Info("query public ipblock", "count", count)
-			}
-			return
-		} else {
-			result = append(result, *ipblock.Cidr)
-		}
-	}
-	return
-}
-
-func (service *VPCService) CreateOrUpdateAVIRule(vpc *model.Vpc, namespace string) error {
-	if !enableAviAllowRule {
-		return nil
-	}
-	if !nsxutil.IsLicensed(nsxutil.FeatureDFW) {
-		log.Info("avi rule cannot be created or updated due to no DFW license")
-		return nil
-	}
-	vpcInfo, err := common.ParseVPCResourcePath(*vpc.Path)
-	if err != nil {
-		log.Error(err, "failed to parse VPC Resource Path: ", *vpc.Path)
-		return err
-	}
-	orgId := vpcInfo.OrgID
-	projectId := vpcInfo.ProjectID
-	ruleId := AviSEIngressAllowRuleId
-	groupId := VPCAviSEGroupId
-	spId := VpcDefaultSecurityPolicyId
-
-	if !service.checkAVISecurityPolicyExist(orgId, projectId, *vpc.Id, spId) {
-		return errors.New("avi security policy not found")
-	}
-	allowrule, err := service.getAVIAllowRule(orgId, projectId, *vpc.Id, spId, ruleId)
-	if err != nil {
-		log.Info("avi rule is not found, creating")
-	}
-	externalCIDRs, err := service.getIpblockCidr(vpc.ExternalIpv4Blocks)
-	if err != nil {
-		return err
-	}
-	log.Info("avi rule get external cidr", "cidr", externalCIDRs)
-	if allowrule != nil {
-		if !service.needUpdateRule(allowrule, externalCIDRs) {
-			log.Info("avi rule is not changed, skip updating avi rule")
-			return nil
-		} else {
-			log.Info("avi rule changed", "previous", allowrule.DestinationGroups, "current", externalCIDRs)
-		}
-	}
-
-	group, err := service.getorCreateAVIGroup(orgId, projectId, *vpc.Id, groupId)
-	if err != nil {
-		log.Error(err, "failed to get avi group", "group", groupId)
-		return err
-	}
-
-	newrule, err := service.buildAVIAllowRule(vpc, externalCIDRs, *group.Path, ruleId, projectId)
-	log.Info("creating avi rule", "rule", newrule)
-	if err != nil {
-		log.Error(err, "failed to build avi rule", "rule", newrule)
-		return err
-	}
-
-	err = service.NSXClient.VPCRuleClient.Patch(orgId, projectId, *vpc.Id, spId, *newrule.Id, *newrule)
-	err = nsxutil.NSXApiError(err)
-	if err != nil {
-		log.Error(err, "failed to create avi rule", "rule", newrule)
-		return err
-	}
-	nsxrule, err := service.NSXClient.VPCRuleClient.Get(orgId, projectId, *vpc.Id, spId, *newrule.Id)
-	err = nsxutil.NSXApiError(err)
-	if err != nil {
-		log.Error(err, "failed to get avi rule", "rule", nsxrule)
-		return err
-	}
-	service.RuleStore.Add(&nsxrule)
-	log.Info("created avi rule successfully")
-	return nil
-}
-
-func (service *VPCService) getorCreateAVIGroup(orgId string, projectId string, vpcId string, groupId string) (*model.Group, error) {
-	groupPtr, err := service.getAVIGroup(orgId, projectId, vpcId, groupId)
-	if err != nil {
-		log.Info("create avi group", "group", groupId)
-		groupPtr, err = service.createAVIGroup(orgId, projectId, vpcId, groupId)
-		if err != nil {
-			log.Error(err, "failed to create avi group", "group", groupId)
-			return groupPtr, err
-		}
-		service.GroupStore.Add(groupPtr)
-	}
-	return groupPtr, err
-}
-
-func (service *VPCService) buildAVIGroupTag(vpcId string) []model.Tag {
-	return []model.Tag{
-		{
-			Scope: common.String(common.TagScopeCluster),
-			Tag:   common.String(service.NSXConfig.Cluster),
-		},
-		{
-			Scope: common.String(common.TagScopeVersion),
-			Tag:   common.String(strings.Join(common.TagValueVersion, ".")),
-		},
-		{
-			Scope: common.String(common.TagScopeGroupType),
-			Tag:   common.String(common.TagValueGroupAvi),
-		},
-	}
-}
-
-func (service *VPCService) createAVIGroup(orgId string, projectId string, vpcId string, groupId string) (*model.Group, error) {
-	group := model.Group{}
-	group.Tags = service.buildAVIGroupTag(vpcId)
-	expression := service.buildExpression("Condition", "VpcSubnet", "AVI_SUBNET_LB|", "Tag", "EQUALS", "EQUALS")
-	group.Expression = []*data.StructValue{expression}
-	group.DisplayName = common.String(groupId)
-
-	err := service.NSXClient.VpcGroupClient.Patch(orgId, projectId, vpcId, groupId, group)
-	err = nsxutil.NSXApiError(err)
-	if err != nil {
-		return &group, err
-	}
-	nsxgroup, err := service.NSXClient.VpcGroupClient.Get(orgId, projectId, vpcId, groupId)
-	err = nsxutil.NSXApiError(err)
-	return &nsxgroup, err
-}
-
-func (service *VPCService) buildExpression(resource_type, member_type, value, key, operator, scope_op string) *data.StructValue {
-	return data.NewStructValue(
-		"",
-		map[string]data.DataValue{
-			"resource_type":  data.NewStringValue(resource_type),
-			"member_type":    data.NewStringValue(member_type),
-			"value":          data.NewStringValue(value),
-			"key":            data.NewStringValue(key),
-			"operator":       data.NewStringValue(operator),
-			"scope_operator": data.NewStringValue(scope_op),
-		},
-	)
-}
-
-func (service *VPCService) buildAVIAllowRule(obj *model.Vpc, externalCIDRs []string, groupId, ruleId, projectId string) (*model.Rule, error) {
-	rule := &model.Rule{}
-	rule.Action = common.String(model.Rule_ACTION_ALLOW)
-	rule.Direction = common.String(model.Rule_DIRECTION_IN_OUT)
-	rule.Scope = append(rule.Scope, groupId)
-	rule.SequenceNumber = common.Int64(math.MaxInt32 - 1)
-	rule.DestinationGroups = externalCIDRs
-	rule.SourceGroups = append(rule.SourceGroups, "Any")
-	name := fmt.Sprintf("PROJECT-%s-VPC-%s-%s", projectId, *obj.Id, ruleId)
-	rule.DisplayName = common.String(name)
-	rule.Id = common.String(ruleId)
-	rule.Services = []string{"ANY"}
-	rule.IsDefault = common.Bool(true)
-	tags := []model.Tag{
-		{
-			Scope: common.String(common.TagScopeCluster),
-			Tag:   common.String(service.NSXConfig.Cluster),
-		},
-		{
-			Scope: common.String(common.TagScopeVersion),
-			Tag:   common.String(strings.Join(common.TagValueVersion, ".")),
-		},
-	}
-	rule.Tags = tags
-	return rule, nil
-}
-
-func (service *VPCService) getAVIAllowRule(orgId string, projectId string, vpcId string, spId string, ruleId string) (*model.Rule, error) {
-	key := fmt.Sprintf(RuleKey, orgId, projectId, vpcId, spId, ruleId)
-	rule := service.RuleStore.GetByKey(key)
-	if rule == nil {
-		log.Info("avi rule not found", "key", key)
-		return nil, errors.New("avi rule not found")
-	}
-	return rule, nil
-}
-
-func (service *VPCService) getAVIGroup(orgId string, projectId string, vpcId string, groupId string) (*model.Group, error) {
-	key := fmt.Sprintf(GroupKey, orgId, projectId, vpcId, groupId)
-	group := service.GroupStore.GetByKey(key)
-	var err error
-	if group == nil {
-		log.Info("avi se group not found", "key", key)
-		err = errors.New("avi se group not found")
-	}
-	return group, err
-}
-
-// checkAVISecurityPolicyExist returns true if security policy for that VPC already exists
-// this security policy created by NSXT once VPC created
-// if not found, wait until it created
-func (service *VPCService) checkAVISecurityPolicyExist(orgId string, projectId string, vpcId string, spId string) bool {
-	key := fmt.Sprintf(SecurityPolicyKey, orgId, projectId, vpcId, spId)
-	sp := service.SecurityPolicyStore.GetByKey(key)
-	if sp != nil {
-		return true
-	}
-	nsxtsp, err := service.NSXClient.VPCSecurityClient.Get(orgId, projectId, vpcId, spId)
-	err = nsxutil.NSXApiError(err)
-	if err != nil {
-		log.Error(err, "failed to get avi security policy", "key", key)
-		return false
-	}
-	service.SecurityPolicyStore.Add(&nsxtsp)
-	return true
-}
-
 func (service *VPCService) ListVPCInfo(ns string) []common.VPCResourceInfo {
 	var VPCInfoList []common.VPCResourceInfo
 	vpcs := service.GetVPCsByNamespace(ns) // Transparently call the VPCService.GetVPCsByNamespace method
@@ -969,4 +734,50 @@ func (s *VPCService) GetNSXLBSPath(lbsId string) string {
 		return ""
 	}
 	return *vpcLBS.Path
+}
+
+func GetAlbEndpoint(cluster *nsx.Cluster) error {
+	_, err := cluster.HttpGet(albEndpointPath)
+	return err
+}
+
+func (vpcService *VPCService) NSXLBEnabled() bool {
+	lbProviderMutex.Lock()
+	defer lbProviderMutex.Unlock()
+
+	if lbProvider == "" {
+		lbProvider = vpcService.getLBProvider()
+	}
+	return lbProvider == LBProviderNSX
+}
+
+func (vpcService *VPCService) getLBProvider() string {
+	// if no Alb endpoint found, return nsx-lb
+	// if found, and nsx lbs found, return nsx-lb
+	// else return avi
+	if !vpcService.Service.NSXConfig.UseAVILoadBalancer {
+		return LBProviderNSX
+	}
+	albEndpointFound := false
+	if err := retry.OnError(retry.DefaultBackoff, func(err error) bool {
+		if err == nil {
+			return false
+		}
+		if errors.Is(err, nsxutil.HttpCommonError) {
+			return true
+		} else {
+			return false
+		}
+	}, func() error {
+		return GetAlbEndpoint(vpcService.Service.NSXClient.Cluster)
+	}); err == nil {
+		albEndpointFound = true
+	}
+	if !albEndpointFound {
+		return LBProviderNSX
+	}
+	if len(vpcService.LbsStore.List()) > 0 {
+		return LBProviderNSX
+	}
+	return LBProviderAVI
 }

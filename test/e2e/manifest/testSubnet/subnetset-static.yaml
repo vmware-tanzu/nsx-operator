@@ -4,6 +4,7 @@ metadata:
   name: user-pod-subnetset-static
   namespace: subnet-e2e
 spec:
+  accessMode: Private
   advancedConfig:
     staticIPAllocation:
       enable: true

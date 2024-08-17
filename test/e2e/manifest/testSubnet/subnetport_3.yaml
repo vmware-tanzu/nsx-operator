@@ -1,6 +1,6 @@
 apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: SubnetPort
 metadata:
-  name: port-3
+  name: port-e2e-test-3
   namespace: subnet-e2e-shared
 spec:

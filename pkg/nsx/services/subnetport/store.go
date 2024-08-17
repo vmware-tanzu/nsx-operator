@@ -16,6 +16,8 @@ func keyFunc(obj interface{}) (string, error) {
 		return *v.Id, nil
 	case types.UID:
 		return string(v), nil
+	case string:
+		return v, nil
 	default:
 		return "", errors.New("keyFunc doesn't support unknown type")
 	}

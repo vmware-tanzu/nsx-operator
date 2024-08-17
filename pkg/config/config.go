@@ -411,13 +411,6 @@ func (nsxConfig *NsxConfig) ValidateConfigFromCmd() error {
 	return nsxConfig.validate(true)
 }
 
-func (nsxConfig *NsxConfig) NSXLBEnabled() bool {
-	if nsxConfig.UseAVILoadBalancer == false && (nsxConfig.UseNSXLoadBalancer == nil || *nsxConfig.UseNSXLoadBalancer == true) {
-		return true
-	}
-	return false
-}
-
 func (nsxConfig *NsxConfig) GetNSXLBSize() string {
 	lbsSize := nsxConfig.NSXLBSize
 	if lbsSize == "" {
