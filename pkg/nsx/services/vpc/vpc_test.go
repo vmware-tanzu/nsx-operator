@@ -20,6 +20,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
@@ -295,81 +296,98 @@ func TestListVPCInfo(t *testing.T) {
 
 }
 
-type MockSecurityPoliciesClient struct {
-	SP  model.SecurityPolicy
-	Err error
+func TestNSXLBEnabled(t *testing.T) {
+	vpcService := &VPCService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					UseAVILoadBalancer: false,
+				},
+			},
+			NSXClient: &nsx.Client{
+				Cluster: &nsx.Cluster{},
+			},
+		},
+		LbsStore: &LBSStore{ResourceStore: common.ResourceStore{
+			Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+			BindingType: model.LBServiceBindingType(),
+		}},
+	}
+
+	// Test when UseAVILoadBalancer is false
+	vpcService.Service.NSXConfig.UseAVILoadBalancer = false
+	assert.True(t, vpcService.NSXLBEnabled())
 }
 
-func (spClient *MockSecurityPoliciesClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, groupIdParam string) error {
-	return spClient.Err
-}
+func TestGetLbProvider(t *testing.T) {
+	vpcService := &VPCService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					UseAVILoadBalancer: false,
+				},
+			},
+			NSXClient: &nsx.Client{
+				Cluster: &nsx.Cluster{},
+			},
+		},
+		LbsStore: &LBSStore{ResourceStore: common.ResourceStore{
+			Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+			BindingType: model.LBServiceBindingType(),
+		}},
+	}
+	// Test when UseAVILoadBalancer is false
+	lbProvider := vpcService.getLBProvider()
+	assert.Equal(t, LBProviderNSX, lbProvider)
 
-func (spClient *MockSecurityPoliciesClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string) (model.SecurityPolicy, error) {
-	return spClient.SP, spClient.Err
-}
+	vpcService.Service.NSXConfig.NsxConfig.UseAVILoadBalancer = true
+	// Test when UseAVILoadBalancer is true and Alb endpoint found, but no nsx lbs found
+	patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
+		return nil, nil
+	})
+	lbProvider = vpcService.getLBProvider()
+	assert.Equal(t, LBProviderAVI, lbProvider)
+	patch.Reset()
 
-func (spClient *MockSecurityPoliciesClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includeRuleCountParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.SecurityPolicyListResult, error) {
-	return model.SecurityPolicyListResult{}, spClient.Err
-}
+	// Test when UseAVILoadBalancer is true, get alb endpoint common error
+	retry := 0
+	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
+		retry++
+		return nil, util.HttpCommonError
+	})
+	lbProvider = vpcService.getLBProvider()
+	assert.Equal(t, LBProviderNSX, lbProvider)
+	assert.Equal(t, 4, retry)
+	patch.Reset()
 
-func (spClient *MockSecurityPoliciesClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, securityPolicyParam model.SecurityPolicy) error {
-	return spClient.Err
-}
-func (spClient *MockSecurityPoliciesClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, securityPolicyParam model.SecurityPolicy) (model.SecurityPolicy, error) {
-	return spClient.SP, spClient.Err
-}
-func (spClient *MockSecurityPoliciesClient) Revise(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, securityPolicyParam model.SecurityPolicy, anchorPathParam *string, operationParam *string) (model.SecurityPolicy, error) {
-	return model.SecurityPolicy{}, spClient.Err
-}
+	// Test when UseAVILoadBalancer is true, get alb endpoint not found error
+	retry = 0
+	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
+		retry++
+		return nil, util.HttpNotFoundError
+	})
+	lbProvider = vpcService.getLBProvider()
+	assert.Equal(t, LBProviderNSX, lbProvider)
+	assert.Equal(t, 1, retry)
+	patch.Reset()
 
-type MockGroupClient struct {
-	Group model.Group
-	Err   error
-}
+	// Test when UseAVILoadBalancer is true, Alb endpoint found, and NSX lbs found
+	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
+		return nil, nil
+	})
+	vpcService.LbsStore.Add(&model.LBService{Id: common.String("12345")})
+	lbProvider = vpcService.getLBProvider()
+	assert.Equal(t, LBProviderNSX, lbProvider)
+	patch.Reset()
 
-func (groupClient *MockGroupClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, groupIdParam string) error {
-	return groupClient.Err
-}
-
-func (groupClient *MockGroupClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, groupIdParam string) (model.Group, error) {
-	return groupClient.Group, groupClient.Err
-}
-
-func (groupClient *MockGroupClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, memberTypesParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.GroupListResult, error) {
-	return model.GroupListResult{}, groupClient.Err
-}
-
-func (groupClient *MockGroupClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, groupIdParam string, groupParam model.Group) error {
-	return groupClient.Err
-}
-func (groupClient *MockGroupClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, groupIdParam string, groupParam model.Group) (model.Group, error) {
-	return groupClient.Group, groupClient.Err
-}
-
-type MockRuleClient struct {
-	Rule model.Rule
-	Err  error
-}
-
-func (ruleClient *MockRuleClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, ruleIdParam string) error {
-	return ruleClient.Err
-}
-
-func (ruleClient *MockRuleClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, ruleIdParam string) (model.Rule, error) {
-	return ruleClient.Rule, ruleClient.Err
-}
-func (ruleClient *MockRuleClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.RuleListResult, error) {
-	return model.RuleListResult{}, ruleClient.Err
-}
-
-func (ruleClient *MockRuleClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, ruleIdParam string, ruleParam model.Rule) error {
-	return ruleClient.Err
-}
-
-func (ruleClient *MockRuleClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, ruleIdParam string, ruleParam model.Rule) (model.Rule, error) {
-	return ruleClient.Rule, ruleClient.Err
-}
-
-func (ruleClient *MockRuleClient) Revise(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, ruleIdParam string, ruleParam model.Rule, anchorPathParam *string, operationParam *string) (model.Rule, error) {
-	return model.Rule{}, ruleClient.Err
+	// Test when UseAVILoadBalancer is true, Alb endpoint found, and no NSX lbs found
+	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
+		return nil, nil
+	})
+	lbs := vpcService.LbsStore.GetByKey("12345")
+	err := vpcService.LbsStore.Delete(lbs)
+	assert.Equal(t, err, nil)
+	lbProvider = vpcService.getLBProvider()
+	assert.Equal(t, LBProviderAVI, lbProvider)
+	patch.Reset()
 }

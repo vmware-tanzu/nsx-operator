@@ -12,6 +12,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/retry"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -30,14 +31,18 @@ const (
 	GroupKey                   = "/orgs/%s/projects/%s/vpcs/%s/groups/%s"
 	SecurityPolicyKey          = "/orgs/%s/projects/%s/vpcs/%s/security-policies/%s"
 	RuleKey                    = "/orgs/%s/projects/%s/vpcs/%s/security-policies/%s/rules/%s"
+	albEndpointPath            = "policy/api/v1/infra/sites/default/enforcement-points/alb-endpoint"
+	LBProviderNSX              = "nsx-lb"
+	LBProviderAVI              = "avi"
 )
 
 var (
-	log             = &logger.Log
-	ctx             = context.Background()
-	ResourceTypeVPC = common.ResourceTypeVpc
-	NewConverter    = common.NewConverter
-
+	log                       = &logger.Log
+	ctx                       = context.Background()
+	ResourceTypeVPC           = common.ResourceTypeVpc
+	NewConverter              = common.NewConverter
+	lbProvider                = ""
+	lbProviderMutex           = &sync.Mutex{}
 	MarkedForDelete           = true
 	enableAviAllowRule        = false
 	EnforceRevisionCheckParam = false
@@ -568,7 +573,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 		nsxVPC = nil
 	}
 
-	createdVpc, err := buildNSXVPC(obj, nsObj, nc, s.NSXConfig.Cluster, paths, nsxVPC, s.NSXConfig.NsxConfig.UseAVILoadBalancer)
+	createdVpc, err := buildNSXVPC(obj, nsObj, nc, s.NSXConfig.Cluster, paths, nsxVPC, !s.NSXLBEnabled())
 	if err != nil {
 		log.Error(err, "failed to build NSX VPC object")
 		return nil, nil, err
@@ -582,7 +587,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 
 	// build NSX LBS
 	var createdLBS *model.LBService
-	if s.NSXConfig.NsxConfig.NSXLBEnabled() {
+	if s.NSXLBEnabled() {
 		lbsSize := s.NSXConfig.NsxConfig.GetNSXLBSize()
 		vpcPath := fmt.Sprintf(VPCKey, nc.Org, nc.NSXProject, nc.Name)
 		var relaxScaleValidation *bool
@@ -681,8 +686,10 @@ func (s *VPCService) Cleanup(ctx context.Context) error {
 			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
 		default:
 			// first clean avi subnet ports, or else vpc delete will fail
-			if err := CleanAviSubnetPorts(ctx, s.NSXClient.Cluster, *vpc.Path); err != nil {
-				return err
+			if !s.NSXLBEnabled() {
+				if err := CleanAviSubnetPorts(ctx, s.NSXClient.Cluster, *vpc.Path); err != nil {
+					return err
+				}
 			}
 			if err := s.DeleteVPC(*vpc.Path); err != nil {
 				return err
@@ -727,4 +734,50 @@ func (s *VPCService) GetNSXLBSPath(lbsId string) string {
 		return ""
 	}
 	return *vpcLBS.Path
+}
+
+func GetAlbEndpoint(cluster *nsx.Cluster) error {
+	_, err := cluster.HttpGet(albEndpointPath)
+	return err
+}
+
+func (vpcService *VPCService) NSXLBEnabled() bool {
+	lbProviderMutex.Lock()
+	defer lbProviderMutex.Unlock()
+
+	if lbProvider == "" {
+		lbProvider = vpcService.getLBProvider()
+	}
+	return lbProvider == LBProviderNSX
+}
+
+func (vpcService *VPCService) getLBProvider() string {
+	// if no Alb endpoint found, return nsx-lb
+	// if found, and nsx lbs found, return nsx-lb
+	// else return avi
+	if !vpcService.Service.NSXConfig.UseAVILoadBalancer {
+		return LBProviderNSX
+	}
+	albEndpointFound := false
+	if err := retry.OnError(retry.DefaultBackoff, func(err error) bool {
+		if err == nil {
+			return false
+		}
+		if errors.Is(err, nsxutil.HttpCommonError) {
+			return true
+		} else {
+			return false
+		}
+	}, func() error {
+		return GetAlbEndpoint(vpcService.Service.NSXClient.Cluster)
+	}); err == nil {
+		albEndpointFound = true
+	}
+	if !albEndpointFound {
+		return LBProviderNSX
+	}
+	if len(vpcService.LbsStore.List()) > 0 {
+		return LBProviderNSX
+	}
+	return LBProviderAVI
 }
