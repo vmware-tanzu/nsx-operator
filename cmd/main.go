@@ -183,7 +183,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			log.Error(err, "failed to initialize subnet commonService")
 			os.Exit(1)
 		}
-		ipAddressAllocationService, err := ipaddressallocationservice.InitializeIPAddressAllocation(commonService, vpcService)
+		ipAddressAllocationService, err := ipaddressallocationservice.InitializeIPAddressAllocation(commonService, vpcService, false)
 		if err != nil {
 			log.Error(err, "failed to initialize ipaddressallocation commonService", "controller", "IPAddressAllocation")
 		}

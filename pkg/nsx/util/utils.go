@@ -588,6 +588,8 @@ func CasttoPointer(obj interface{}) interface{} {
 		return &v
 	case model.IpAddressBlock:
 		return &v
+	case model.VpcIpAddressAllocation:
+		return &v
 	default:
 		objType := reflect.TypeOf(obj)
 		log.Info("Unsupported type", "objType", objType)
