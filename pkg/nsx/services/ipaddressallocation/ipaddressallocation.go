@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	log                             = logger.Log
+	log                             = &logger.Log
 	MarkedForDelete                 = true
 	ResourceTypeIPAddressAllocation = common.ResourceTypeIPAddressAllocation
 )
@@ -28,12 +28,11 @@ type IPAddressAllocationService struct {
 	VPCService               common.VPCServiceProvider
 }
 
-func InitializeIPAddressAllocation(service common.Service, vpcService common.VPCServiceProvider) (*IPAddressAllocationService, error) {
+func InitializeIPAddressAllocation(service common.Service, vpcService common.VPCServiceProvider, includeNCP bool) (*IPAddressAllocationService,
+	error) {
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
-
-	wg.Add(1)
 
 	ipAddressAllocationService := &IPAddressAllocationService{Service: service, VPCService: vpcService}
 	ipAddressAllocationService.ipAddressAllocationStore = &IPAddressAllocationStore{ResourceStore: common.ResourceStore{
@@ -41,10 +40,17 @@ func InitializeIPAddressAllocation(service common.Service, vpcService common.VPC
 		BindingType: model.VpcIpAddressAllocationBindingType(),
 	}}
 
-	tags := []model.Tag{
-		{Scope: String(common.TagScopeIPAddressAllocationCRUID)},
+	if includeNCP {
+		wg.Add(2)
+		go ipAddressAllocationService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeIPAddressAllocation,
+			[]model.Tag{{Scope: String(common.TagScopeNCPCluster), Tag: String(service.NSXClient.NsxConfig.Cluster)}},
+			ipAddressAllocationService.ipAddressAllocationStore)
+	} else {
+		wg.Add(1)
 	}
-	go ipAddressAllocationService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeIPAddressAllocation, tags, ipAddressAllocationService.ipAddressAllocationStore)
+	go ipAddressAllocationService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeIPAddressAllocation,
+		[]model.Tag{{Scope: String(common.TagScopeCluster), Tag: String(service.NSXClient.NsxConfig.Cluster)}},
+		ipAddressAllocationService.ipAddressAllocationStore)
 
 	go func() {
 		wg.Wait()
@@ -139,13 +145,18 @@ func (service *IPAddressAllocationService) DeleteIPAddressAllocation(obj interfa
 		nsxIPAddressAllocation, err = service.indexedIPAddressAllocation(o.UID)
 		if err != nil {
 			log.Error(err, "failed to get ipaddressallocation", "IPAddressAllocation", o)
-			return err
 		}
 	case types.UID:
 		nsxIPAddressAllocation, err = service.indexedIPAddressAllocation(o)
 		if err != nil {
 			log.Error(err, "failed to get ipaddressallocation by UID", "UID", o)
-			return err
+		}
+	case string:
+		ok := false
+		obj = service.ipAddressAllocationStore.GetByKey(o)
+		nsxIPAddressAllocation, ok = obj.(*model.VpcIpAddressAllocation)
+		if !ok {
+			log.Error(err, "failed to get ipaddressallocation by key", "key", o)
 		}
 	}
 	if nsxIPAddressAllocation == nil {
@@ -156,7 +167,7 @@ func (service *IPAddressAllocationService) DeleteIPAddressAllocation(obj interfa
 	if err != nil {
 		return err
 	}
-	err = service.NSXClient.IPAddressAllocationClient.Delete(vpcResourceInfo.OrgID, vpcResourceInfo.ProjectID, vpcResourceInfo.ID, *nsxIPAddressAllocation.Id)
+	err = service.NSXClient.IPAddressAllocationClient.Delete(vpcResourceInfo.OrgID, vpcResourceInfo.ProjectID, vpcResourceInfo.VPCID, *nsxIPAddressAllocation.Id)
 	if err != nil {
 		return err
 	}
@@ -174,6 +185,11 @@ func (service *IPAddressAllocationService) ListIPAddressAllocationID() sets.Set[
 	return ipAddressAllocationSet
 }
 
+func (service *IPAddressAllocationService) ListIPAddressAllocationKeys() []string {
+	ipAddressAllocationKeys := service.ipAddressAllocationStore.ListKeys()
+	return ipAddressAllocationKeys
+}
+
 func (service *IPAddressAllocationService) GetIPAddressAllocationNamespace(nsxIPAddressAllocation *model.VpcIpAddressAllocation) string {
 	for _, tag := range nsxIPAddressAllocation.Tags {
 		if *tag.Scope == common.TagScopeNamespace {
@@ -184,14 +200,14 @@ func (service *IPAddressAllocationService) GetIPAddressAllocationNamespace(nsxIP
 }
 
 func (service *IPAddressAllocationService) Cleanup(ctx context.Context) error {
-	uids := service.ListIPAddressAllocationID()
-	log.Info("cleaning up ipaddressallocation", "count", len(uids))
-	for uid := range uids {
+	keys := service.ListIPAddressAllocationKeys()
+	log.Info("cleaning up ipaddressallocation", "count", len(keys))
+	for _, key := range keys {
 		select {
 		case <-ctx.Done():
 			return util.TimeoutFailed
 		default:
-			err := service.DeleteIPAddressAllocation(types.UID(uid))
+			err := service.DeleteIPAddressAllocation(key)
 			if err != nil {
 				return err
 			}
