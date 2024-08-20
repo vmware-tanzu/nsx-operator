@@ -61,21 +61,19 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerUpdateTotal, MetricResTypeSubnetSet)
 		if !controllerutil.ContainsFinalizer(obj, servicecommon.SubnetSetFinalizerName) {
 			controllerutil.AddFinalizer(obj, servicecommon.SubnetSetFinalizerName)
-			if obj.Spec.AccessMode == "" || obj.Spec.IPv4SubnetSize == 0 {
-				vpcNetworkConfig := r.VPCService.GetVPCNetworkConfigByNamespace(obj.Namespace)
-				if vpcNetworkConfig == nil {
-					err := fmt.Errorf("failed to find VPCNetworkConfig for namespace %s", obj.Namespace)
-					log.Error(err, "operate failed, would retry exponentially", "subnet", req.NamespacedName)
-					updateFail(r, ctx, obj, "")
-					return ResultRequeue, err
-				}
-				if obj.Spec.AccessMode == "" {
-					obj.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
-				}
-				if obj.Spec.IPv4SubnetSize == 0 {
-					obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
-				}
+			vpcNetworkConfig := r.VPCService.GetVPCNetworkConfigByNamespace(obj.Namespace)
+			if vpcNetworkConfig == nil {
+				err := fmt.Errorf("failed to find VPCNetworkConfig for namespace %s", obj.Namespace)
+				log.Error(err, "operate failed, would retry exponentially", "subnet", req.NamespacedName)
+				updateFail(r, ctx, obj, "")
+				return ResultRequeue, err
 			}
+
+			if obj.Spec.AccessMode == "" {
+				obj.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
+			}
+			obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
+
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "subnetset", req.NamespacedName)
 				updateFail(r, ctx, obj, "")
