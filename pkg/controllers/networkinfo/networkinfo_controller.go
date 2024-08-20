@@ -124,8 +124,18 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return common.ResultRequeueAfter10sec, err
 		}
 
+		var privateIPs []string
+		var vpcConnectivityProfilePath string
+		if vpc.IsPreCreatedVPC(nc) {
+			privateIPs = createdVpc.PrivateIps
+			vpcConnectivityProfilePath = *createdVpc.VpcConnectivityProfile
+		} else {
+			privateIPs = nc.PrivateIPs
+			vpcConnectivityProfilePath = nc.VPCConnectivityProfile
+		}
+
 		snatIP, path, cidr := "", "", ""
-		parts := strings.Split(nc.VPCConnectivityProfile, "/")
+		parts := strings.Split(vpcConnectivityProfilePath, "/")
 		if len(parts) < 1 {
 			log.Error(err, "failed to check VPCConnectivityProfile length", "VPCConnectivityProfile", nc.VPCConnectivityProfile)
 			return common.ResultRequeue, err
@@ -160,7 +170,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					VPCPath:                 *createdVpc.Path,
 					DefaultSNATIP:           "",
 					LoadBalancerIPAddresses: "",
-					PrivateIPs:              nc.PrivateIPs,
+					PrivateIPs:              privateIPs,
 				}
 				updateFail(r, &ctx, obj, &err, r.Client, state)
 				return common.ResultRequeueAfter10sec, err
@@ -196,7 +206,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					VPCPath:                 *createdVpc.Path,
 					DefaultSNATIP:           snatIP,
 					LoadBalancerIPAddresses: "",
-					PrivateIPs:              nc.PrivateIPs,
+					PrivateIPs:              privateIPs,
 				}
 				updateFail(r, &ctx, obj, &err, r.Client, state)
 				return common.ResultRequeueAfter10sec, err
@@ -208,7 +218,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			VPCPath:                 *createdVpc.Path,
 			DefaultSNATIP:           snatIP,
 			LoadBalancerIPAddresses: cidr,
-			PrivateIPs:              nc.PrivateIPs,
+			PrivateIPs:              privateIPs,
 		}
 		// AKO needs to know the AVI subnet path created by NSX
 		setVPCNetworkConfigurationStatusWithLBS(&ctx, r.Client, ncName, state.Name, path, r.Service.GetNSXLBSPath(*createdVpc.Id))

@@ -115,6 +115,7 @@ func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*comm
 		DefaultSubnetSize:      vpcConfigCR.Spec.DefaultSubnetSize,
 		PodSubnetAccessMode:    vpcConfigCR.Spec.PodSubnetAccessMode,
 		ShortID:                vpcConfigCR.Spec.ShortID,
+		VPCPath:                vpcConfigCR.Spec.VPC,
 	}
 	return ninfo, nil
 }
