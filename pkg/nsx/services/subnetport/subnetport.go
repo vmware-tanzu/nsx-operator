@@ -92,6 +92,10 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 	existingSubnetPort := service.SubnetPortStore.GetByKey(*nsxSubnetPort.Id)
 	isChanged := true
 	if existingSubnetPort != nil {
+		// The existing port's attachment ID should not be changed in any case.
+		if existingSubnetPort.Attachment != nil {
+			nsxSubnetPort.Attachment.Id = existingSubnetPort.Attachment.Id
+		}
 		isChanged = servicecommon.CompareResource(SubnetPortToComparable(existingSubnetPort), SubnetPortToComparable(nsxSubnetPort))
 	}
 	if !isChanged {

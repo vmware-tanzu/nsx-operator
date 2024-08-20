@@ -52,7 +52,7 @@ func TestBuildSubnetPort(t *testing.T) {
 		expectedError error
 	}{
 		{
-			name: "01",
+			name: "build-NSX-port-for-subnetport",
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "v1alpha1",
@@ -102,14 +102,14 @@ func TestBuildSubnetPort(t *testing.T) {
 				Attachment: &model.PortAttachment{
 					AllocateAddresses: common.String("DHCP"),
 					Type_:             common.String("STATIC"),
-					Id:                common.String("66616b65-5f73-4562-ae65-74706f72742d"),
+					Id:                common.String("32636365-6333-4239-ad37-3534362d3466"),
 					TrafficTag:        common.Int64(0),
 				},
 			},
 			expectedError: nil,
 		},
 		{
-			name: "02",
+			name: "build-NSX-port-for-pod",
 			obj: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "v1",
@@ -159,7 +159,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Attachment: &model.PortAttachment{
 					AllocateAddresses: common.String("DHCP"),
 					Type_:             common.String("STATIC"),
-					Id:                common.String("66616b65-5f70-4f64-ad63-356462313830"),
+					Id:                common.String("63356462-3138-4030-ad63-6534632d3131"),
 					TrafficTag:        common.Int64(0),
 					AppId:             common.String("c5db1800-ce4c-11de-a935-8105ba7ace78"),
 					ContextId:         common.String("fake_context_id"),
