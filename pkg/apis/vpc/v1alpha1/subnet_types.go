@@ -37,7 +37,6 @@ type SubnetSpec struct {
 
 // SubnetStatus defines the observed state of Subnet.
 type SubnetStatus struct {
-	NSXResourcePath     string      `json:"nsxResourcePath,omitempty"`
 	NetworkAddresses    []string    `json:"networkAddresses,omitempty"`
 	GatewayAddresses    []string    `json:"gatewayAddresses,omitempty"`
 	DHCPServerAddresses []string    `json:"DHCPServerAddresses,omitempty"`
