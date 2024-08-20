@@ -63,7 +63,7 @@ func setNetworkInfoVPCStatus(ctx context.Context, networkInfo *v1alpha1.NetworkI
 	return
 }
 
-func setVPCNetworkConfigurationStatusWithLBS(ctx context.Context, client client.Client, ncName string, vpcName string, aviSubnetPath string, nsxLBSPath string) {
+func setVPCNetworkConfigurationStatusWithLBS(ctx context.Context, client client.Client, ncName, vpcName, aviSubnetPath, nsxLBSPath, vpcPath string) {
 	// read v1alpha1.VPCNetworkConfiguration by ncName
 	nc := &v1alpha1.VPCNetworkConfiguration{}
 	err := client.Get(ctx, apitypes.NamespacedName{Name: ncName}, nc)
@@ -71,26 +71,17 @@ func setVPCNetworkConfigurationStatusWithLBS(ctx context.Context, client client.
 		log.Error(err, "failed to get VPCNetworkConfiguration", "Name", ncName)
 		return
 	}
-	createdVPCInfo := &v1alpha1.VPCInfo{
+
+	// There should only be one vpc info in vpc network config info although it is defined as a list.
+	// Always update vpcs[0] object
+	nc.Status.VPCs = []v1alpha1.VPCInfo{{
 		Name:                vpcName,
 		AVISESubnetPath:     aviSubnetPath,
 		NSXLoadBalancerPath: nsxLBSPath,
-	}
-	// iterate through VPCNetworkConfiguration.Status.VPCs, if vpcName already exists, update it
-	for i, vpc := range nc.Status.VPCs {
-		if vpc.Name == vpcName {
-			nc.Status.VPCs[i] = *createdVPCInfo
-			client.Status().Update(ctx, nc)
-			return
-		}
-	}
-	nc.Status.VPCs = append(nc.Status.VPCs, *createdVPCInfo)
-	err = client.Status().Update(ctx, nc)
-	if err != nil {
-		log.Error(err, "Update VPCNetworkConfiguration status failed", "ncName", ncName, "vpcName", vpcName, "nc.Status.VPCs", nc.Status.VPCs)
-		return
-	}
-	log.Info("Updated VPCNetworkConfiguration status", "ncName", ncName, "vpcName", vpcName, "nc.Status.VPCs", nc.Status.VPCs)
+		VPCPath:             vpcPath,
+	}}
+
+	client.Status().Update(ctx, nc)
 }
 
 func setVPCNetworkConfigurationStatusWithGatewayConnection(ctx context.Context, client client.Client, nc *v1alpha1.VPCNetworkConfiguration, gatewayConnectionReady bool, reason string) {
