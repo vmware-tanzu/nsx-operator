@@ -76,20 +76,17 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 		PrivateIPs:             []string{"private-ipb-1", "private-ipb-2"},
 		DefaultSubnetSize:      64,
 		VPCConnectivityProfile: "test-VPCConnectivityProfile",
-		PodSubnetAccessMode:    "Public",
 		NSXProject:             "/orgs/default/projects/nsx_operator_e2e_test",
 	}
 	spec2 := v1alpha1.VPCNetworkConfigurationSpec{
-		PrivateIPs:          []string{"private-ipb-1", "private-ipb-2"},
-		DefaultSubnetSize:   32,
-		PodSubnetAccessMode: "Private",
-		NSXProject:          "/orgs/anotherOrg/projects/anotherProject",
+		PrivateIPs:        []string{"private-ipb-1", "private-ipb-2"},
+		DefaultSubnetSize: 32,
+		NSXProject:        "/orgs/anotherOrg/projects/anotherProject",
 	}
 	spec3 := v1alpha1.VPCNetworkConfigurationSpec{
-		DefaultSubnetSize:   28,
-		PodSubnetAccessMode: "Private",
-		NSXProject:          "/orgs/anotherOrg/projects/anotherProject",
-		VPC:                 "vpc33",
+		DefaultSubnetSize: 28,
+		NSXProject:        "/orgs/anotherOrg/projects/anotherProject",
+		VPC:               "vpc33",
 	}
 	testCRD1 := v1alpha1.VPCNetworkConfiguration{
 		Spec: spec1,
@@ -147,7 +144,6 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 			assert.Equal(t, tt.org, nc.Org)
 			assert.Equal(t, tt.project, nc.NSXProject)
 			assert.Equal(t, tt.subnetSize, nc.DefaultSubnetSize)
-			assert.Equal(t, tt.accessMode, nc.PodSubnetAccessMode)
 			assert.Equal(t, tt.isDefault, nc.IsDefault)
 			assert.Equal(t, tt.vpcPath, nc.VPCPath)
 		})
