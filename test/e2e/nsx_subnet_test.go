@@ -45,13 +45,6 @@ func verifySubnetSetCR(subnetSet string) bool {
 		return false
 	}
 
-	if subnetSet == common.DefaultPodSubnetSet {
-		if string(subnetSetCR.Spec.AccessMode) != vpcNetworkConfig.Spec.PodSubnetAccessMode {
-			log.Printf("AccessMode is %s, while it's expected to be %s", subnetSetCR.Spec.AccessMode, vpcNetworkConfig.Spec.PodSubnetAccessMode)
-			return false
-		}
-	}
-
 	if subnetSetCR.Spec.IPv4SubnetSize != vpcNetworkConfig.Spec.DefaultSubnetSize {
 		log.Printf("IPv4SubnetSize is %d, while it's expected to be %d", subnetSetCR.Spec.IPv4SubnetSize, vpcNetworkConfig.Spec.DefaultSubnetSize)
 		return false

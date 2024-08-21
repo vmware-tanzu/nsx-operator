@@ -8,7 +8,6 @@ spec:
   privateIPs:
     - 172.26.0.0/16
     - 172.36.0.0/16
-  podSubnetAccessMode: Private
 ---
 # Sample to create VPCNetworkConfiguration CR using a pre-created NSX VPC.
 apiVersion: crd.nsx.vmware.com/v1alpha1
@@ -18,5 +17,4 @@ metadata:
 spec:
   vpc: /orgs/default/projects/proj-1/vpcs/vpc-1
   defaultSubnetSize: 32
-  podSubnetAccessMode: Private
   vpcConnectivityProfile: /orgs/default/projects/wenqi-test/vpc-connectivity-profiles/default

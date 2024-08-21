@@ -69,6 +69,7 @@ func setVPCNetworkConfigurationStatusWithLBS(ctx *context.Context, client client
 	err := client.Get(*ctx, apitypes.NamespacedName{Name: ncName}, nc)
 	if err != nil {
 		log.Error(err, "failed to get VPCNetworkConfiguration", "Name", ncName)
+		return
 	}
 	createdVPCInfo := &v1alpha1.VPCInfo{
 		Name:                vpcName,
@@ -83,12 +84,12 @@ func setVPCNetworkConfigurationStatusWithLBS(ctx *context.Context, client client
 			return
 		}
 	}
-	// else append the new VPCInfo
-	if nc.Status.VPCs == nil {
-		nc.Status.VPCs = []v1alpha1.VPCInfo{}
-	}
 	nc.Status.VPCs = append(nc.Status.VPCs, *createdVPCInfo)
-	client.Status().Update(*ctx, nc)
+	err = client.Status().Update(*ctx, nc)
+	if err != nil {
+		log.Error(err, "Update VPCNetworkConfiguration status failed", "ncName", ncName, "vpcName", vpcName, "nc.Status.VPCs", nc.Status.VPCs)
+	}
+	log.Info("Update VPCNetworkConfiguration status success", "ncName", ncName, "vpcName", vpcName, "nc.Status.VPCs", nc.Status.VPCs)
 }
 
 func setVPCNetworkConfigurationStatusWithGatewayConnection(ctx *context.Context, client client.Client, nc *v1alpha1.VPCNetworkConfiguration, gatewayConnectionReady bool, reason string) {
