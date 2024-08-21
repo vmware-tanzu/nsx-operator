@@ -63,15 +63,6 @@ spec:
               nsxProject:
                 description: NSX Project the Namespace associated with.
                 type: string
-              podSubnetAccessMode:
-                description: |-
-                  PodSubnetAccessMode defines the access mode of the default SubnetSet for PodVMs.
-                  Must be Public, Private or PrivateTGW.
-                enum:
-                - Public
-                - Private
-                - PrivateTGW
-                type: string
               privateIPs:
                 description: Private IPs.
                 items:

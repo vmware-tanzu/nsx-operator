@@ -84,10 +84,9 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 		NSXProject:        "/orgs/anotherOrg/projects/anotherProject",
 	}
 	spec3 := v1alpha1.VPCNetworkConfigurationSpec{
-		DefaultSubnetSize:   28,
-		PodSubnetAccessMode: "Private",
-		NSXProject:          "/orgs/anotherOrg/projects/anotherProject",
-		VPC:                 "vpc33",
+		DefaultSubnetSize: 28,
+		NSXProject:        "/orgs/anotherOrg/projects/anotherProject",
+		VPC:               "vpc33",
 	}
 	testCRD1 := v1alpha1.VPCNetworkConfiguration{
 		Spec: spec1,
