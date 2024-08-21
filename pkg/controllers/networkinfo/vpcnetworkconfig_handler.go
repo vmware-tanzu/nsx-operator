@@ -113,7 +113,6 @@ func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*comm
 		NSXProject:             project,
 		PrivateIPs:             vpcConfigCR.Spec.PrivateIPs,
 		DefaultSubnetSize:      vpcConfigCR.Spec.DefaultSubnetSize,
-		ShortID:                vpcConfigCR.Spec.ShortID,
 		VPCPath:                vpcConfigCR.Spec.VPC,
 	}
 	return ninfo, nil

@@ -218,6 +218,5 @@ type VPCNetworkConfigInfo struct {
 	NSXProject             string
 	PrivateIPs             []string
 	DefaultSubnetSize      int
-	ShortID                string
 	VPCPath                string
 }

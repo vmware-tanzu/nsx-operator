@@ -68,12 +68,6 @@ spec:
                 items:
                   type: string
                 type: array
-              shortID:
-                description: |-
-                  ShortID specifies Identifier to use when displaying VPC context in logs.
-                  Less than equal to 8 characters.
-                maxLength: 8
-                type: string
               vpc:
                 description: |-
                   NSX path of the VPC the Namespace associated with.

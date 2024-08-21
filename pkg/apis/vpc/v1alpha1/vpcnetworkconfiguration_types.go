@@ -29,12 +29,6 @@ type VPCNetworkConfigurationSpec struct {
 	// Private IPs.
 	PrivateIPs []string `json:"privateIPs,omitempty"`
 
-	// ShortID specifies Identifier to use when displaying VPC context in logs.
-	// Less than equal to 8 characters.
-	// +kubebuilder:validation:MaxLength=8
-	// +optional
-	ShortID string `json:"shortID,omitempty"`
-
 	// Default size of Subnets.
 	// Defaults to 32.
 	// +kubebuilder:default=32
