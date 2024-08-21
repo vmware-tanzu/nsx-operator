@@ -314,7 +314,7 @@ func SubnetCIDR(t *testing.T) {
 		err = nil
 	}
 	assertNil(t, err)
-	err = testData.waitForCRReadyOrDeleted(defaultTimeout*2, "subnets.crd.nsx.vmware.com", E2ENamespace, subnet.Name, Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout, "subnets.crd.nsx.vmware.com", E2ENamespace, subnet.Name, Ready)
 	assertNil(t, err)
 	allocatedSubnet, err = testData.crdClientset.CrdV1alpha1().Subnets(E2ENamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
 	assertNil(t, err)
