@@ -378,11 +378,16 @@ func (r *SubnetPortReconciler) GetSubnetPathForSubnetPort(ctx context.Context, s
 			log.Error(err, "subnet CR not found", "subnet CR", namespacedName)
 			return subnetPath, err
 		}
-		subnetPath = subnet.Status.NSXResourcePath
-		if len(subnetPath) == 0 {
-			err := fmt.Errorf("empty NSX resource path from subnet %s", subnet.Name)
+		subnetList := r.SubnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetCRUID, string(subnet.GetUID()))
+		if len(subnetList) == 0 {
+			err := fmt.Errorf("empty NSX resource path for subnet CR %s(%s)", subnet.Name, subnet.GetUID())
+			return subnetPath, err
+		} else if len(subnetList) > 1 {
+			err := fmt.Errorf("multiple NSX subnets found for subnet CR %s(%s)", subnet.Name, subnet.GetUID())
+			log.Error(err, "failed to get NSX subnet by subnet CR UID", "subnetList", subnetList)
 			return subnetPath, err
 		}
+		subnetPath = *subnetList[0].Path
 	} else if len(subnetPort.Spec.SubnetSet) > 0 {
 		subnetSet := &v1alpha1.SubnetSet{}
 		namespacedName := types.NamespacedName{

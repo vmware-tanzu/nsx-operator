@@ -5,10 +5,13 @@ package networkinfo
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -49,7 +52,6 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Error(err, "unable to fetch NetworkInfo CR", "req", req.NamespacedName)
 		return common.ResultNormal, client.IgnoreNotFound(err)
 	}
-
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, common.MetricResTypeNetworkInfo)
 		if !controllerutil.ContainsFinalizer(obj, commonservice.NetworkInfoFinalizerName) {
@@ -61,16 +63,79 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}
 			log.V(1).Info("added finalizer on NetworkInfo CR", "NetworkInfo", req.NamespacedName)
 		}
+		// TODO:
+		// 1. check whether the logic to get VPC network config can be replaced by GetVPCNetworkConfigByNamespace
+		// 2. sometimes the variable nc points to a VPCNetworkInfo, sometimes it's a VPCNetworkConfiguration, we need to distinguish between them.
+		ncName, err := r.Service.GetNetworkconfigNameFromNS(obj.Namespace)
+		if err != nil {
+			log.Error(err, "failed to get network config name for VPC when creating NSX VPC", "VPC", obj.Name)
+			updateFail(r, &ctx, obj, &err, r.Client, nil)
+			return common.ResultRequeueAfter10sec, err
+		}
+		nc, _exist := r.Service.GetVPCNetworkConfig(ncName)
+		if !_exist {
+			message := fmt.Sprintf("failed to read network config %s when creating NSX VPC", ncName)
+			log.Info(message)
+			updateFail(r, &ctx, obj, &err, r.Client, nil)
+			return common.ResultRequeueAfter10sec, errors.New(message)
+		}
+		log.Info("got network config from store", "NetworkConfig", ncName)
+		vpcNetworkConfiguration := &v1alpha1.VPCNetworkConfiguration{}
+		err = r.Client.Get(ctx, types.NamespacedName{Name: commonservice.SystemVPCNetworkConfigurationName}, vpcNetworkConfiguration)
+		if err != nil {
+			log.Error(err, "failed to get system VPCNetworkConfiguration")
+			updateFail(r, &ctx, obj, &err, r.Client, nil)
+			return common.ResultRequeueAfter10sec, err
+		}
+		gatewayConnectionReady, _, err := getGatewayConnectionStatus(&ctx, vpcNetworkConfiguration)
+		if err != nil {
+			log.Error(err, "failed to get the gateway connection status", "req", req.NamespacedName)
+			return common.ResultRequeueAfter10sec, err
+		}
 
-		createdVpc, nc, err := r.Service.CreateOrUpdateVPC(obj)
+		reason := ""
+		if !gatewayConnectionReady {
+			if ncName == commonservice.SystemVPCNetworkConfigurationName {
+				gatewayConnectionReady, reason, err = r.Service.ValidateGatewayConnectionStatus(&nc)
+				log.Info("got the gateway connection status", "gatewayConnectionReady", gatewayConnectionReady, "reason", reason)
+				if err != nil {
+					log.Error(err, "failed to validate the edge and gateway connection", "org", nc.Org, "project", nc.NSXProject)
+					updateFail(r, &ctx, obj, &err, r.Client, nil)
+					return common.ResultRequeueAfter10sec, err
+				}
+				vpcNetworkConfiguration := &v1alpha1.VPCNetworkConfiguration{}
+				err := r.Client.Get(ctx, types.NamespacedName{Name: ncName}, vpcNetworkConfiguration)
+				if err != nil {
+					log.Error(err, "failed to get VPCNetworkConfiguration", "Name", ncName)
+					updateFail(r, &ctx, obj, &err, r.Client, nil)
+					return common.ResultRequeueAfter10sec, err
+				}
+				setVPCNetworkConfigurationStatusWithGatewayConnection(&ctx, r.Client, vpcNetworkConfiguration, gatewayConnectionReady, reason)
+			} else {
+				log.Info("skipping reconciling the network info because the system gateway connection is not ready", "NetworkInfo", req.NamespacedName)
+				return common.ResultRequeueAfter60sec, nil
+			}
+		}
+
+		createdVpc, err := r.Service.CreateOrUpdateVPC(obj, &nc)
 		if err != nil {
 			log.Error(err, "create vpc failed, would retry exponentially", "VPC", req.NamespacedName)
 			updateFail(r, &ctx, obj, &err, r.Client, nil)
 			return common.ResultRequeueAfter10sec, err
 		}
 
+		var privateIPs []string
+		var vpcConnectivityProfilePath string
+		if vpc.IsPreCreatedVPC(nc) {
+			privateIPs = createdVpc.PrivateIps
+			vpcConnectivityProfilePath = *createdVpc.VpcConnectivityProfile
+		} else {
+			privateIPs = nc.PrivateIPs
+			vpcConnectivityProfilePath = nc.VPCConnectivityProfile
+		}
+
 		snatIP, path, cidr := "", "", ""
-		parts := strings.Split(nc.VPCConnectivityProfile, "/")
+		parts := strings.Split(vpcConnectivityProfilePath, "/")
 		if len(parts) < 1 {
 			log.Error(err, "failed to check VPCConnectivityProfile length", "VPCConnectivityProfile", nc.VPCConnectivityProfile)
 			return common.ResultRequeue, err
@@ -95,7 +160,8 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		// currently, auto snat is not exposed, and use default value True
 		// checking autosnat to support future extension in vpc configuration
-		if isEnableAutoSNAT() {
+		autoSnatEnabled := isEnableAutoSNAT()
+		if autoSnatEnabled {
 			snatIP, err = r.Service.GetDefaultSNATIP(*createdVpc)
 			if err != nil {
 				log.Error(err, "failed to read default SNAT ip from VPC", "VPC", createdVpc.Id)
@@ -104,10 +170,27 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					VPCPath:                 *createdVpc.Path,
 					DefaultSNATIP:           "",
 					LoadBalancerIPAddresses: "",
-					PrivateIPs:              nc.PrivateIPs,
+					PrivateIPs:              privateIPs,
 				}
 				updateFail(r, &ctx, obj, &err, r.Client, state)
 				return common.ResultRequeueAfter10sec, err
+			}
+		}
+		if ncName == commonservice.SystemVPCNetworkConfigurationName {
+			vpcNetworkConfiguration := &v1alpha1.VPCNetworkConfiguration{}
+			err := r.Client.Get(ctx, types.NamespacedName{Name: ncName}, vpcNetworkConfiguration)
+			if err != nil {
+				log.Error(err, "failed to get VPCNetworkConfiguration", "Name", ncName)
+				updateFail(r, &ctx, obj, &err, r.Client, nil)
+				return common.ResultRequeueAfter10sec, err
+			}
+			if autoSnatEnabled {
+				log.Info("detected that the AutoSnat is enabled", "req", req.NamespacedName)
+				setVPCNetworkConfigurationStatusWithSnatEnabled(&ctx, r.Client,
+					vpcNetworkConfiguration, true)
+			} else {
+				log.Info("detected that the AutoSnat is disabled", "req", req.NamespacedName)
+				setVPCNetworkConfigurationStatusWithSnatEnabled(&ctx, r.Client, vpcNetworkConfiguration, false)
 			}
 		}
 
@@ -123,7 +206,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					VPCPath:                 *createdVpc.Path,
 					DefaultSNATIP:           snatIP,
 					LoadBalancerIPAddresses: "",
-					PrivateIPs:              nc.PrivateIPs,
+					PrivateIPs:              privateIPs,
 				}
 				updateFail(r, &ctx, obj, &err, r.Client, state)
 				return common.ResultRequeueAfter10sec, err
@@ -135,9 +218,11 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			VPCPath:                 *createdVpc.Path,
 			DefaultSNATIP:           snatIP,
 			LoadBalancerIPAddresses: cidr,
-			PrivateIPs:              nc.PrivateIPs,
+			PrivateIPs:              privateIPs,
 		}
-		updateSuccess(r, &ctx, obj, r.Client, state, nc.Name, path, r.Service.GetNSXLBSPath(*createdVpc.Id))
+		// AKO needs to know the AVI subnet path created by NSX
+		setVPCNetworkConfigurationStatusWithLBS(&ctx, r.Client, ncName, state.Name, path, r.Service.GetNSXLBSPath(*createdVpc.Id))
+		updateSuccess(r, &ctx, obj, r.Client, state, nc.Name, path)
 	} else {
 		if controllerutil.ContainsFinalizer(obj, commonservice.NetworkInfoFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNetworkInfo)

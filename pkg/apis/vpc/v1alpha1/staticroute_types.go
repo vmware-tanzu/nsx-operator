@@ -31,8 +31,7 @@ type NextHop struct {
 
 // StaticRouteStatus defines the observed state of StaticRoute.
 type StaticRouteStatus struct {
-	Conditions      []StaticRouteCondition `json:"conditions"`
-	NSXResourcePath string                 `json:"nsxResourcePath"`
+	Conditions []StaticRouteCondition `json:"conditions"`
 }
 
 // +genclient

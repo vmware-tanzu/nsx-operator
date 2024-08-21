@@ -39,7 +39,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	nsxSubnetPortName := service.BuildSubnetPortName(objMeta)
 	nsxSubnetPortID := service.BuildSubnetPortId(objMeta)
 	// use the subnetPort CR UID as the attachment uid generation to ensure the latter stable
-	nsxCIFID, err := uuid.NewRandomFromReader(bytes.NewReader([]byte(nsxSubnetPortID)))
+	nsxCIFID, err := uuid.NewRandomFromReader(bytes.NewReader([]byte(string(objMeta.UID))))
 	if err != nil {
 		return nil, err
 	}
