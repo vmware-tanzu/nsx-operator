@@ -85,9 +85,6 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 	// TODO: add PrivateIps and remove PrivateIpv4Blocks once the NSX VPC API support private_ips field.
 	// vpc.PrivateIps = nc.PrivateIPs
 	vpc.PrivateIpv4Blocks = util.GetMapValues(pathMap)
-	if nc.ShortID != "" {
-		vpc.ShortId = &nc.ShortID
-	}
 
 	return vpc, nil
 }
