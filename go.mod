@@ -13,6 +13,7 @@ replace (
 )
 
 require (
+	github.com/agiledragon/gomonkey v2.0.2+incompatible
 	github.com/agiledragon/gomonkey/v2 v2.9.0
 	github.com/apparentlymart/go-cidr v1.1.0
 	github.com/deckarep/golang-set v1.8.0
@@ -48,7 +49,6 @@ require (
 )
 
 require (
-	github.com/agiledragon/gomonkey v2.0.2+incompatible // indirect
 	github.com/beevik/etree v1.1.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect

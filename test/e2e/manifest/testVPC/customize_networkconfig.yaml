@@ -10,5 +10,4 @@ spec:
   privateIPs:
     - 172.29.0.0/16
     - 172.39.0.0/16
-  podSubnetAccessMode: Public
   vpcConnectivityProfile: /orgs/default/projects/nsx_operator_e2e_test/vpc-connectivity-profiles/default
