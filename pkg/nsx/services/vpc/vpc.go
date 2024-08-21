@@ -512,7 +512,6 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPC
 	}
 
 	createdVpc, err := buildNSXVPC(obj, nsObj, *nc, s.NSXConfig.Cluster, nsxVPC, !s.NSXLBEnabled())
-	// createdVpc, err := buildNSXVPC(obj, nsObj, nc, s.NSXConfig.Cluster, nsxVPC, s.NSXConfig.NsxConfig.UseAVILoadBalancer)
 	if err != nil {
 		log.Error(err, "failed to build NSX VPC object")
 		return nil, err
