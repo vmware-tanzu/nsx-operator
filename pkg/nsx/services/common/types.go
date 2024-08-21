@@ -59,8 +59,6 @@ const (
 	TagScopeIPSubnetName               string = "nsx-op/ipsubnet_name"
 	TagScopeVMNamespaceUID             string = "nsx-op/vm_namespace_uid"
 	TagScopeVMNamespace                string = "nsx-op/vm_namespace"
-	TagScopeVPCManagedBy               string = "nsx/managed-by"
-	AutoCreatedVPCTagValue             string = "nsx-op"
 	LabelDefaultSubnetSet              string = "nsxoperator.vmware.com/default-subnetset-for"
 	LabelDefaultVMSubnetSet            string = "VirtualMachine"
 	LabelDefaultPodSubnetSet           string = "Pod"
@@ -220,5 +218,4 @@ type VPCNetworkConfigInfo struct {
 	DefaultSubnetSize      int
 	PodSubnetAccessMode    string
 	ShortID                string
-	VPCPath                string
 }
