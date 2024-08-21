@@ -272,9 +272,7 @@ func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) err
 		if err != nil {
 			return err
 		}
-		subnetInfo := v1alpha1.SubnetInfo{
-			NSXResourcePath: *subnet.Path,
-		}
+		subnetInfo := v1alpha1.SubnetInfo{}
 		for _, status := range statusList {
 			subnetInfo.NetworkAddresses = append(subnetInfo.NetworkAddresses, *status.NetworkAddress)
 			subnetInfo.GatewayAddresses = append(subnetInfo.GatewayAddresses, *status.GatewayAddress)

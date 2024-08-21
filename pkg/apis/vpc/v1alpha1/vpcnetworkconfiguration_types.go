@@ -50,6 +50,8 @@ type VPCNetworkConfigurationSpec struct {
 type VPCNetworkConfigurationStatus struct {
 	// VPCs describes VPC info, now it includes lb Subnet info which are needed for AKO.
 	VPCs []VPCInfo `json:"vpcs,omitempty"`
+	// Conditions describe current state of VPCNetworkConfiguration.
+	Conditions []Condition `json:"conditions"`
 }
 
 // VPCInfo defines VPC info needed by tenant admin.

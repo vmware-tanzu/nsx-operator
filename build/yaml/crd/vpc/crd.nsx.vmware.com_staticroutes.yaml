@@ -101,11 +101,8 @@ spec:
                   - type
                   type: object
                 type: array
-              nsxResourcePath:
-                type: string
             required:
             - conditions
-            - nsxResourcePath
             type: object
         type: object
     served: true

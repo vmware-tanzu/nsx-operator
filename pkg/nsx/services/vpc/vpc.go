@@ -49,7 +49,7 @@ var (
 )
 
 type VPCNetworkInfoStore struct {
-	sync.Mutex
+	sync.RWMutex
 	VPCNetworkConfigMap map[string]common.VPCNetworkConfigInfo
 }
 
@@ -143,6 +143,10 @@ func (s *VPCService) GetVPCNetworkConfigByNamespace(ns string) *common.VPCNetwor
 // TBD: for now, if network config info do not contains private cidr, we consider this is
 // incorrect configuration, and skip creating this VPC CR
 func (s *VPCService) ValidateNetworkConfig(nc common.VPCNetworkConfigInfo) bool {
+	if IsPreCreatedVPC(nc) {
+		// if network config is using a pre-created VPC, skip the check on PrivateIPs.
+		return true
+	}
 	return nc.PrivateIPs != nil && len(nc.PrivateIPs) != 0
 }
 
@@ -408,7 +412,7 @@ func (s *VPCService) getSharedVPCNamespaceFromNS(ns string) (string, error) {
 	return shared_ns, nil
 }
 
-func (s *VPCService) getNetworkconfigNameFromNS(ns string) (string, error) {
+func (s *VPCService) GetNetworkconfigNameFromNS(ns string) (string, error) {
 	obj := &v1.Namespace{}
 	if err := s.Client.Get(ctx, types.NamespacedName{
 		Name:      ns,
@@ -510,7 +514,7 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	return path, cidr, nil
 }
 
-func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *common.VPCNetworkConfigInfo, error) {
+func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPCNetworkConfigInfo) (*model.Vpc, error) {
 	// check from VPC store if vpc already exist
 	ns := obj.Namespace
 	updateVpc := false
@@ -518,20 +522,17 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 	// get name obj
 	if err := s.Client.Get(ctx, types.NamespacedName{Name: obj.Namespace}, nsObj); err != nil {
 		log.Error(err, "unable to fetch namespace", "name", obj.Namespace)
-		return nil, nil, err
+		return nil, err
 	}
 
-	// read corresponding vpc network config from store
-	ncName, err := s.getNetworkconfigNameFromNS(obj.Namespace)
-	if err != nil {
-		log.Error(err, "failed to get network config name for VPC when creating NSX VPC", "VPC", obj.Name)
-		return nil, nil, err
-	}
-	nc, _exist := s.GetVPCNetworkConfig(ncName)
-	if !_exist {
-		message := fmt.Sprintf("failed to read network config %s when creating NSX VPC", ncName)
-		log.Info(message)
-		return nil, nil, errors.New(message)
+	// Return pre-created VPC resource if it is used in the VPCNetworkConfiguration
+	if IsPreCreatedVPC(*nc) {
+		preVPC, err := s.GetVPCFromNSXByPath(nc.VPCPath)
+		if err != nil {
+			log.Error(err, "Failed to get existing VPC from NSX", "vpcPath", nc.VPCPath)
+			return nil, err
+		}
+		return preVPC, nil
 	}
 
 	// check if this namespace vpc share from others, if yes
@@ -539,28 +540,26 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 	// then directly return this vpc, if not, requeue
 	isShared, err := s.IsSharedVPCNamespaceByNS(ns)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	existingVPC := s.GetVPCsByNamespace(ns)
 	if len(existingVPC) != 0 { // We now consider only one VPC for one namespace
 		if isShared {
 			log.Info("The shared VPC already exist", "Namespace", ns)
-			return existingVPC[0], &nc, nil
+			return existingVPC[0], nil
 		}
 		updateVpc = true
 		log.Info("VPC already exist, updating NSX VPC object", "VPC", existingVPC[0].Id)
 	} else if isShared {
 		message := fmt.Sprintf("the shared VPC is not created yet, namespace %s", ns)
-		return nil, nil, errors.New(message)
+		return nil, errors.New(message)
 	}
 
-	log.Info("read network config from store", "NetworkConfig", ncName)
-
-	paths, err := s.CreateOrUpdatePrivateIPBlock(obj, nsObj, nc)
+	paths, err := s.CreateOrUpdatePrivateIPBlock(obj, nsObj, *nc)
 	if err != nil {
 		log.Error(err, "failed to process private ip blocks, push event back to queue")
-		return nil, nil, err
+		return nil, err
 	}
 
 	// if all private ip blocks are created, then create nsx vpc resource.
@@ -573,16 +572,16 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 		nsxVPC = nil
 	}
 
-	createdVpc, err := buildNSXVPC(obj, nsObj, nc, s.NSXConfig.Cluster, paths, nsxVPC, !s.NSXLBEnabled())
+	createdVpc, err := buildNSXVPC(obj, nsObj, *nc, s.NSXConfig.Cluster, paths, nsxVPC, !s.NSXLBEnabled())
 	if err != nil {
 		log.Error(err, "failed to build NSX VPC object")
-		return nil, nil, err
+		return nil, err
 	}
 
 	// if there is no change in public cidr and private cidr, build partial vpc will return nil
 	if createdVpc == nil {
 		log.Info("no VPC changes detect, skip creating or updating process")
-		return existingVPC[0], &nc, nil
+		return existingVPC[0], nil
 	}
 
 	// build NSX LBS
@@ -600,7 +599,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 	orgRoot, err := s.WrapHierarchyVPC(nc.Org, nc.NSXProject, createdVpc, createdLBS)
 	if err != nil {
 		log.Error(err, "failed to build HAPI request")
-		return nil, nil, err
+		return nil, err
 	}
 
 	log.Info("creating NSX VPC", "VPC", *createdVpc.Id)
@@ -615,7 +614,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 		if rErr != nil {
 			// failed to read, but already created, we consider this scenario as success, but store may not sync with nsx
 			log.Info("confirmed VPC is not created", "VPC", createdVpc.Id)
-			return nil, nil, err
+			return nil, err
 		} else {
 			// vpc created anyway, in this case, we consider this vpc is created successfully and continue to realize process
 			log.Info("vpc created although nsx return error, continue to check realization", "VPC", *failedVpc.Id)
@@ -628,7 +627,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 	if err != nil {
 		// failed to read, but already created, we consider this scenario as success, but store may not sync with nsx
 		log.Error(err, "failed to read VPC object after creating or updating", "VPC", createdVpc.Id)
-		return nil, nil, err
+		return nil, err
 	}
 
 	log.V(2).Info("check VPC realization state", "VPC", *createdVpc.Id)
@@ -641,10 +640,10 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 			// TODO(gran) DeleteVPC will check VpcStore but new Vpc is not in store at this moment. Is it correct?
 			if err := s.DeleteVPC(*newVpc.Path); err != nil {
 				log.Error(err, "cleanup VPC failed", "VPC", *createdVpc.Id)
-				return nil, nil, err
+				return nil, err
 			}
 		}
-		return nil, nil, err
+		return nil, err
 	}
 
 	s.VpcStore.Add(&newVpc)
@@ -654,7 +653,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 		newLBS, err := s.NSXClient.VPCLBSClient.Get(nc.Org, nc.NSXProject, *createdVpc.Id, *createdLBS.Id)
 		if err != nil {
 			log.Error(err, "failed to read LBS object after creating or updating", "LBS", createdLBS.Id)
-			return nil, nil, err
+			return nil, err
 		}
 		s.LbsStore.Add(&newLBS)
 
@@ -667,14 +666,84 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 				// delete the nsx vpc object and re-create it in the next loop
 				if err := s.DeleteVPC(*newVpc.Path); err != nil {
 					log.Error(err, "cleanup VPC failed", "VPC", *createdVpc.Id)
-					return nil, nil, err
+					return nil, err
 				}
 			}
-			return nil, nil, err
+			return nil, err
 		}
 	}
 
-	return &newVpc, &nc, nil
+	return &newVpc, nil
+}
+
+func (s *VPCService) GetGatewayConnectionTypeFromConnectionPath(connectionPath string) (string, error) {
+	/* examples of connection_path:
+	   /infra/distributed-gateway-connections/gateway-101
+	   /infra/gateway-connections/tenant-1
+	*/
+	parts := strings.Split(connectionPath, "/")
+	if len(parts) != 4 || parts[1] != "infra" {
+		return "", fmt.Errorf("unexpected connectionPath %s", connectionPath)
+	}
+	return parts[2], nil
+}
+
+func (s *VPCService) ValidateGatewayConnectionStatus(nc *common.VPCNetworkConfigInfo) (bool, string, error) {
+	// Case 1: the project has the full list of edge clusters, so if the project doesn't have edge,
+	// we can say that the edge is not deployed.
+	var projectEdges []string
+	project, err := s.NSXClient.ProjectClient.Get(nc.Org, nc.NSXProject, nil)
+	err = nsxutil.NSXApiError(err)
+	if err != nil {
+		return false, "", err
+	}
+	for _, siteInfo := range project.SiteInfos {
+		projectEdges = append(projectEdges, siteInfo.EdgeClusterPaths...)
+	}
+	if len(projectEdges) == 0 {
+		return false, common.ReasonEdgeMissingInProject, nil
+	}
+
+	var connectionPaths []string // i.e. gateway connection paths
+	var profiles []model.VpcConnectivityProfile
+	var cursor *string
+	pageSize := int64(1000)
+	markedForDelete := false
+	res, err := s.NSXClient.VPCConnectivityProfilesClient.List(nc.Org, nc.NSXProject, cursor, &markedForDelete, nil, &pageSize, nil, nil)
+	err = nsxutil.NSXApiError(err)
+	if err != nil {
+		return false, "", err
+	}
+	profiles = append(profiles, res.Results...)
+	for _, profile := range profiles {
+		transitGatewayPath := *profile.TransitGatewayPath
+		parts := strings.Split(transitGatewayPath, "/")
+		transitGatewayId := parts[len(parts)-1]
+		res, err := s.NSXClient.TransitGatewayAttachmentClient.List(nc.Org, nc.NSXProject, transitGatewayId, nil, &markedForDelete, nil, nil, nil, nil)
+		err = nsxutil.NSXApiError(err)
+		if err != nil {
+			return false, "", err
+		}
+		for _, attachment := range res.Results {
+			connectionPaths = append(connectionPaths, *attachment.ConnectionPath)
+		}
+	}
+	// Case 2: there's no gateway connection paths.
+	if len(connectionPaths) == 0 {
+		return false, common.ReasonGatewayConnectionNotSet, nil
+	}
+
+	// Case 3: detected distributed gateway connection which is not supported.
+	for _, connectionPath := range connectionPaths {
+		gatewayConnectionType, err := s.GetGatewayConnectionTypeFromConnectionPath(connectionPath)
+		if err != nil {
+			return false, "", err
+		}
+		if gatewayConnectionType != "gateway-connections" {
+			return false, common.ReasonDistributedGatewayConnectionNotSupported, nil
+		}
+	}
+	return true, "", nil
 }
 
 func (s *VPCService) Cleanup(ctx context.Context) error {
@@ -716,6 +785,19 @@ func (s *VPCService) Cleanup(ctx context.Context) error {
 
 func (service *VPCService) ListVPCInfo(ns string) []common.VPCResourceInfo {
 	var VPCInfoList []common.VPCResourceInfo
+	nc := service.GetVPCNetworkConfigByNamespace(ns)
+	// Return the pre-created VPC resource info if it is set in VPCNetworkConfiguration.
+	if nc != nil && IsPreCreatedVPC(*nc) {
+		vpcResourceInfo, err := common.ParseVPCResourcePath(nc.VPCPath)
+		if err != nil {
+			log.Error(err, "Failed to get vpc info from vpc path", "vpc path", nc.VPCPath)
+		} else {
+			VPCInfoList = append(VPCInfoList, vpcResourceInfo)
+		}
+		return VPCInfoList
+	}
+
+	// List VPCs from local store.
 	vpcs := service.GetVPCsByNamespace(ns) // Transparently call the VPCService.GetVPCsByNamespace method
 	for _, v := range vpcs {
 		vpcResourceInfo, err := common.ParseVPCResourcePath(*v.Path)
@@ -780,4 +862,24 @@ func (vpcService *VPCService) getLBProvider() string {
 		return LBProviderNSX
 	}
 	return LBProviderAVI
+}
+
+func (service *VPCService) GetVPCFromNSXByPath(vpcPath string) (*model.Vpc, error) {
+	vpcResInfo, err := common.ParseVPCResourcePath(vpcPath)
+	if err != nil {
+		log.Error(err, "failed to parse VPCResourceInfo from the given VPC path", "VPC", vpcPath)
+		return nil, err
+	}
+	vpc, err := service.NSXClient.VPCClient.Get(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID)
+	err = nsxutil.NSXApiError(err)
+	if err != nil {
+		log.Error(err, "failed to read VPC object from NSX", "VPC", vpcPath)
+		return nil, err
+	}
+
+	return &vpc, nil
+}
+
+func IsPreCreatedVPC(nc common.VPCNetworkConfigInfo) bool {
+	return nc.VPCPath != ""
 }

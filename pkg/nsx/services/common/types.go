@@ -59,6 +59,8 @@ const (
 	TagScopeIPSubnetName               string = "nsx-op/ipsubnet_name"
 	TagScopeVMNamespaceUID             string = "nsx-op/vm_namespace_uid"
 	TagScopeVMNamespace                string = "nsx-op/vm_namespace"
+	TagScopeVPCManagedBy               string = "nsx/managed-by"
+	AutoCreatedVPCTagValue             string = "nsx-op"
 	LabelDefaultSubnetSet              string = "nsxoperator.vmware.com/default-subnetset-for"
 	LabelDefaultVMSubnetSet            string = "VirtualMachine"
 	LabelDefaultPodSubnetSet           string = "Pod"
@@ -67,6 +69,7 @@ const (
 	LabelLbIngressIpModeProxyValue     string = "proxy"
 	DefaultPodSubnetSet                string = "pod-default"
 	DefaultVMSubnetSet                 string = "vm-default"
+	SystemVPCNetworkConfigurationName  string = "system"
 	TagScopeSubnetCRUID                string = "nsx-op/subnet_uid"
 	TagScopeSubnetCRName               string = "nsx-op/subnet_name"
 	TagScopeSubnetSetCRName            string = "nsx-op/subnetset_name"
@@ -170,6 +173,11 @@ var (
 	ResourceTypeIPAddressAllocation = "VpcIpAddressAllocation"
 	ResourceTypeIPPoolBlockSubnet   = "IpAddressPoolBlockSubnet"
 	ResourceTypeNode                = "HostTransportNode"
+
+	// Reasons for verification of gateway connection in day0
+	ReasonEdgeMissingInProject                     = "EdgeMissingInProject"
+	ReasonDistributedGatewayConnectionNotSupported = "DistributedGatewayConnectionNotSupported"
+	ReasonGatewayConnectionNotSet                  = "GatewayConnectionNotSet"
 )
 
 type Service struct {
@@ -212,4 +220,5 @@ type VPCNetworkConfigInfo struct {
 	DefaultSubnetSize      int
 	PodSubnetAccessMode    string
 	ShortID                string
+	VPCPath                string
 }

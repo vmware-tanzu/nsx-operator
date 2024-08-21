@@ -74,6 +74,8 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 			vpc.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &loadBalancerVPCEndpointEnabled}
 		}
 		vpc.Tags = util.BuildBasicTags(cluster, obj, nsObj.UID)
+		vpc.Tags = append(vpc.Tags, model.Tag{
+			Scope: common.String(common.TagScopeVPCManagedBy), Tag: common.String(common.AutoCreatedVPCTagValue)})
 	}
 
 	if nc.VPCConnectivityProfile != "" {

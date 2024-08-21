@@ -170,7 +170,6 @@ func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {
 			obj.Status.DHCPServerAddresses = append(obj.Status.DHCPServerAddresses, *status.DhcpServerAddress)
 		}
 	}
-	obj.Status.NSXResourcePath = *nsxSubnet.Path
 	return nil
 }
 

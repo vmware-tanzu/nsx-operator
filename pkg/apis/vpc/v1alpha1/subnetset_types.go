@@ -25,7 +25,6 @@ type SubnetSetSpec struct {
 
 // SubnetInfo defines the observed state of a single Subnet of a SubnetSet.
 type SubnetInfo struct {
-	NSXResourcePath     string   `json:"nsxResourcePath,omitempty"`
 	NetworkAddresses    []string `json:"networkAddresses,omitempty"`
 	GatewayAddresses    []string `json:"gatewayAddresses,omitempty"`
 	DHCPServerAddresses []string `json:"DHCPServerAddresses,omitempty"`

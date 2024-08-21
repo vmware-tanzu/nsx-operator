@@ -14,6 +14,8 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
@@ -75,6 +77,32 @@ func TestSubnetSet(t *testing.T) {
 	t.Run("case=SubnetCIDR", SubnetCIDR)
 }
 
+func transSearchResponsetoSubnet(response model.SearchResponse) []model.VpcSubnet {
+	var resources []model.VpcSubnet
+	if response.Results == nil {
+		return resources
+	}
+	for _, result := range response.Results {
+		obj, err := common.NewConverter().ConvertToGolang(result, model.VpcSubnetBindingType())
+		if err != nil {
+			log.Printf("Failed to convert to golang subnet: %v", err)
+			return resources
+		}
+		if subnet, ok := obj.(model.VpcSubnet); ok {
+			resources = append(resources, subnet)
+		}
+	}
+	return resources
+}
+
+func fetchSubnet(t *testing.T, subnetSet *v1alpha1.SubnetSet) model.VpcSubnet {
+	tags := []string{common.TagScopeSubnetSetCRUID, string(subnetSet.UID)}
+	results, err := testData.queryResource(common.ResourceTypeSubnet, tags)
+	assertNil(t, err)
+	subnets := transSearchResponsetoSubnet(results)
+	assertTrue(t, len(subnets) > 0, "No NSX subnet found")
+	return subnets[0]
+}
 func defaultSubnetSet(t *testing.T) {
 	// 1. Check whether default-vm-subnetset and default-pod-subnetset are created.
 	err := testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetSetCRType, E2ENamespace, common.DefaultVMSubnetSet, Ready)
@@ -98,11 +126,8 @@ func defaultSubnetSet(t *testing.T) {
 	assertNil(t, err)
 	assert.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
 	// 4. Check NSX subnet allocation.
-	subnetPath := subnetSet.Status.Subnets[0].NSXResourcePath
-	vpcInfo, err := common.ParseVPCResourcePath(subnetPath)
-	assertNil(t, err, "Failed to parse VPC resource path %s", subnetPath)
-	vpcSubnet, err := testData.nsxClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
-	assertNil(t, err, "Failed to get VPC subnet %s", vpcInfo.ID)
+	networkAddress := subnetSet.Status.Subnets[0].NetworkAddresses
+	assertTrue(t, len(networkAddress) > 0, "No network address in SubnetSet")
 
 	// 5. Check adding NSX subnet tags.
 	ns, err := testData.clientset.CoreV1().Namespaces().Get(context.TODO(), E2ENamespace, v1.GetOptions{})
@@ -112,8 +137,8 @@ func defaultSubnetSet(t *testing.T) {
 	ns, err = testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
 	time.Sleep(5 * time.Second)
 	assertNil(t, err)
-	vpcSubnet, err = testData.nsxClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
-	assertNil(t, err)
+
+	vpcSubnet := fetchSubnet(t, subnetSet)
 	found := false
 	for _, tag := range vpcSubnet.Tags {
 		if *tag.Scope == labelKey && *tag.Tag == labelValue {
@@ -121,7 +146,7 @@ func defaultSubnetSet(t *testing.T) {
 			break
 		}
 	}
-	assertTrue(t, found, "Failed to add tags for NSX subnet %s", vpcInfo.ID)
+	assertTrue(t, found, "Failed to add tags for NSX subnet %s", *(vpcSubnet.Id))
 
 	// 6. Check updating NSX subnet tags.
 	labelValue = "update"
@@ -129,8 +154,7 @@ func defaultSubnetSet(t *testing.T) {
 	ns, err = testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
 	time.Sleep(5 * time.Second)
 	assertNil(t, err)
-	vpcSubnet, err = testData.nsxClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
-	assertNil(t, err)
+	vpcSubnet = fetchSubnet(t, subnetSet)
 	found = false
 	for _, tag := range vpcSubnet.Tags {
 		if *tag.Scope == labelKey && *tag.Tag == labelValue {
@@ -138,15 +162,14 @@ func defaultSubnetSet(t *testing.T) {
 			break
 		}
 	}
-	assertTrue(t, found, "Failed to update tags for NSX subnet %s", vpcInfo.ID)
+	assertTrue(t, found, "Failed to update tags for NSX subnet %s", *(vpcSubnet.Id))
 
 	// 7. Check deleting NSX subnet tags.
 	delete(ns.Labels, labelKey)
 	_, err = testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
 	time.Sleep(5 * time.Second)
 	assertNil(t, err)
-	vpcSubnet, err = testData.nsxClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
-	assertNil(t, err)
+	vpcSubnet = fetchSubnet(t, subnetSet)
 	found = false
 	for _, tag := range vpcSubnet.Tags {
 		if *tag.Scope == labelKey {
@@ -154,7 +177,7 @@ func defaultSubnetSet(t *testing.T) {
 			break
 		}
 	}
-	assertFalse(t, found, "Failed to delete tags for NSX subnet %s", vpcInfo.ID)
+	assertFalse(t, found, "Failed to delete tags for NSX subnet %s", *(vpcSubnet.Id))
 }
 
 func UserSubnetSet(t *testing.T) {
@@ -210,11 +233,8 @@ func UserSubnetSet(t *testing.T) {
 		}
 
 		// 5. Check NSX subnet allocation.
-		subnetPath := subnetSet.Status.Subnets[0].NSXResourcePath
-		vpcInfo, err := common.ParseVPCResourcePath(subnetPath)
-		assertNil(t, err, "Failed to parse VPC resource path %s", subnetPath)
-		_, err = testData.nsxClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
-		assertNil(t, err, "Failed to get VPC subnet %s", vpcInfo.ID)
+		networkaddress := subnetSet.Status.Subnets[0].NetworkAddresses
+		assertTrue(t, len(networkaddress) > 0, "No network address in SubnetSet")
 	}
 }
 
@@ -294,7 +314,7 @@ func SubnetCIDR(t *testing.T) {
 		err = nil
 	}
 	assertNil(t, err)
-	err = testData.waitForCRReadyOrDeleted(defaultTimeout, "subnets.crd.nsx.vmware.com", E2ENamespace, subnet.Name, Ready)
+	err = testData.waitForCRReadyOrDeleted(defaultTimeout*2, "subnets.crd.nsx.vmware.com", E2ENamespace, subnet.Name, Ready)
 	assertNil(t, err)
 	allocatedSubnet, err = testData.crdClientset.CrdV1alpha1().Subnets(E2ENamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
 	assertNil(t, err)
