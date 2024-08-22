@@ -88,11 +88,6 @@ type DHCPConfig struct {
 	EnableDHCP bool `json:"enableDHCP,omitempty"`
 }
 
-// DNSClientConfig holds DNS configurations.
-type DNSClientConfig struct {
-	DNSServersIPs []string `json:"dnsServersIPs,omitempty"`
-}
-
 func init() {
 	SchemeBuilder.Register(&Subnet{}, &SubnetList{})
 }
