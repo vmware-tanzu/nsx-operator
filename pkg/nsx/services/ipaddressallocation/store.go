@@ -84,7 +84,7 @@ func (ipAddressAllocationStore *IPAddressAllocationStore) GetByIndex(uid types.U
 		nsxIPAddressAllocation = t
 	} else {
 		log.Info("did not get ipaddressallocation with index", "UID", string(uid))
-		return nsxIPAddressAllocation, nil
+		return nil, nil
 	}
 	return nsxIPAddressAllocation, nil
 }

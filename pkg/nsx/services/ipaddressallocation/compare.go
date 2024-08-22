@@ -13,12 +13,15 @@ type (
 
 type Comparable = common.Comparable
 
-func (iap *IpAddressAllocation) Key() string {
-	return *iap.Id
+func (ipa *IpAddressAllocation) Key() string {
+	return *ipa.Id
 }
 
-func (iap *IpAddressAllocation) Value() data.DataValue {
-	s := &IpAddressAllocation{Id: iap.Id, DisplayName: iap.DisplayName, Tags: iap.Tags, AllocationSize: iap.AllocationSize, IpAddressBlockVisibility: iap.IpAddressBlockVisibility}
+func (ipa *IpAddressAllocation) Value() data.DataValue {
+	if ipa == nil {
+		return nil
+	}
+	s := &IpAddressAllocation{Id: ipa.Id, DisplayName: ipa.DisplayName, Tags: ipa.Tags, AllocationSize: ipa.AllocationSize, IpAddressBlockVisibility: ipa.IpAddressBlockVisibility}
 	dataValue, _ := ComparableToIpAddressAllocation(s).GetDataValue__()
 	return dataValue
 }
