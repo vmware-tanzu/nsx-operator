@@ -51,7 +51,7 @@ type SubnetStatus struct {
 // Subnet is the Schema for the subnets API.
 // +kubebuilder:printcolumn:name="AccessMode",type=string,JSONPath=`.spec.accessMode`,description="Access mode of Subnet"
 // +kubebuilder:printcolumn:name="IPv4SubnetSize",type=string,JSONPath=`.spec.ipv4SubnetSize`,description="Size of Subnet"
-// +kubebuilder:printcolumn:name="IPAddresses",type=string,JSONPath=`.status.ipAddresses[*]`,description="CIDRs for the Subnet"
+// +kubebuilder:printcolumn:name="NetworkAddresses",type=string,JSONPath=`.status.networkAddresses[*]`,description="CIDRs for the Subnet"
 type Subnet struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

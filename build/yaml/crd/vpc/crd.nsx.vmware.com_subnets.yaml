@@ -24,8 +24,8 @@ spec:
       name: IPv4SubnetSize
       type: string
     - description: CIDRs for the Subnet
-      jsonPath: .status.ipAddresses[*]
-      name: IPAddresses
+      jsonPath: .status.networkAddresses[*]
+      name: NetworkAddresses
       type: string
     name: v1alpha1
     schema:
