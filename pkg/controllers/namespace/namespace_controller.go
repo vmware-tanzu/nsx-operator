@@ -49,9 +49,9 @@ func (r *NamespaceReconciler) getDefaultNetworkConfigName() (string, error) {
 	return nc.Name, nil
 }
 
-func (r *NamespaceReconciler) createNetworkInfoCR(ctx *context.Context, obj client.Object, ns string, ncName string) (*v1alpha1.NetworkInfo, error) {
+func (r *NamespaceReconciler) createNetworkInfoCR(ctx context.Context, obj client.Object, ns string, ncName string) (*v1alpha1.NetworkInfo, error) {
 	networkInfos := &v1alpha1.NetworkInfoList{}
-	r.Client.List(*ctx, networkInfos, client.InNamespace(ns))
+	r.Client.List(ctx, networkInfos, client.InNamespace(ns))
 	if len(networkInfos.Items) > 0 {
 		// if there is already one networkInfo, return this networkInfo
 		log.Info("networkInfo already exists", "networkInfo", networkInfos.Items[0].Name, "Namespace", ns)
@@ -67,7 +67,7 @@ func (r *NamespaceReconciler) createNetworkInfoCR(ctx *context.Context, obj clie
 		},
 		VPCs: []v1alpha1.VPCState{},
 	}
-	err := r.Client.Create(*ctx, networkInfoCR)
+	err := r.Client.Create(ctx, networkInfoCR)
 	if err != nil {
 		message := "failed to create NetworkInfo CR"
 		r.namespaceError(ctx, obj, message, err)
@@ -137,7 +137,7 @@ func (r *NamespaceReconciler) createDefaultSubnetSet(ns string) error {
 	return nil
 }
 
-func (r *NamespaceReconciler) namespaceError(ctx *context.Context, k8sObj client.Object, msg string, err error) {
+func (r *NamespaceReconciler) namespaceError(ctx context.Context, k8sObj client.Object, msg string, err error) {
 	logErr := util.If(err == nil, errors.New(msg), err).(error)
 	log.Error(logErr, msg)
 	changes := map[string]string{AnnotationNamespaceVPCError: msg}
@@ -224,17 +224,17 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		nc, ncExist := r.VPCService.GetVPCNetworkConfig(ncName)
 		if !ncExist {
 			message := fmt.Sprintf("missing network config %s for namespace %s", ncName, ns)
-			r.namespaceError(&ctx, obj, message, nil)
+			r.namespaceError(ctx, obj, message, nil)
 			return common.ResultRequeueAfter10sec, nil
 		}
 		if !r.VPCService.ValidateNetworkConfig(nc) {
 			// if network config is not valid, no need to retry, skip processing
 			message := fmt.Sprintf("invalid network config %s for namespace %s, missing private cidr", ncName, ns)
-			r.namespaceError(&ctx, obj, message, nil)
+			r.namespaceError(ctx, obj, message, nil)
 			return common.ResultRequeueAfter10sec, nil
 		}
 
-		if _, err := r.createNetworkInfoCR(&ctx, obj, ns, ncName); err != nil {
+		if _, err := r.createNetworkInfoCR(ctx, obj, ns, ncName); err != nil {
 			return common.ResultRequeueAfter10sec, nil
 		}
 		if err := r.createDefaultSubnetSet(ns); err != nil {

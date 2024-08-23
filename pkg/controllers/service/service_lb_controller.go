@@ -39,7 +39,7 @@ type ServiceLbReconciler struct {
 	Recorder record.EventRecorder
 }
 
-func updateSuccess(r *ServiceLbReconciler, c *context.Context, lbService *v1.Service) {
+func updateSuccess(r *ServiceLbReconciler, c context.Context, lbService *v1.Service) {
 	r.setServiceLbStatus(c, lbService)
 	r.Recorder.Event(lbService, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "LoadBalancer service has been successfully updated")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
@@ -59,14 +59,14 @@ func (r *ServiceLbReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 		if service.ObjectMeta.DeletionTimestamp.IsZero() {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResType)
-			updateSuccess(r, &ctx, service)
+			updateSuccess(r, ctx, service)
 		}
 	}
 
 	return ResultNormal, nil
 }
 
-func (r *ServiceLbReconciler) setServiceLbStatus(ctx *context.Context, lbService *v1.Service) {
+func (r *ServiceLbReconciler) setServiceLbStatus(ctx context.Context, lbService *v1.Service) {
 	ipMode := v1.LoadBalancerIPModeProxy
 	statusUpdated := false
 	// If nsx.vmware.com/ingress-ip-mode label with values proxy or vip,
@@ -87,7 +87,7 @@ func (r *ServiceLbReconciler) setServiceLbStatus(ctx *context.Context, lbService
 	}
 
 	if statusUpdated {
-		r.Client.Status().Update(*ctx, lbService)
+		r.Client.Status().Update(ctx, lbService)
 		log.V(1).Info("updated LB service status ipMode", "Name", lbService.Name, "Namespace", lbService.Namespace, "ipMode", ipMode)
 	}
 }

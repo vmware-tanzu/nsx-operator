@@ -79,7 +79,7 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// So need to check NSX version before starting NSXServiceAccount reconcile
 	if !r.Service.NSXClient.NSXCheckVersion(nsx.ServiceAccount) {
 		err := errors.New("NSX version check failed, NSXServiceAccount feature is not supported")
-		updateFail(r, &ctx, obj, &err)
+		updateFail(r, ctx, obj, &err)
 		// if NSX version check fails, it will be put back to reconcile queue and be reconciled after 5 minutes
 		return ResultRequeueAfter5mins, nil
 	}
@@ -90,7 +90,7 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			controllerutil.AddFinalizer(obj, servicecommon.NSXServiceAccountFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "nsxserviceaccount", req.NamespacedName)
-				updateFail(r, &ctx, obj, &err)
+				updateFail(r, ctx, obj, &err)
 				return ResultRequeue, err
 			}
 			log.V(1).Info("added finalizer on CR", "nsxserviceaccount", req.NamespacedName)
@@ -109,10 +109,10 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 		if err := r.Service.CreateOrUpdateNSXServiceAccount(ctx, obj); err != nil {
 			log.Error(err, "operate failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
-			updateFail(r, &ctx, obj, &err)
+			updateFail(r, ctx, obj, &err)
 			return ResultRequeue, err
 		}
-		updateSuccess(r, &ctx, obj)
+		updateSuccess(r, ctx, obj)
 	} else {
 		if controllerutil.ContainsFinalizer(obj, servicecommon.NSXServiceAccountFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
@@ -121,17 +121,17 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				Name:      obj.Name,
 			}, obj.UID); err != nil {
 				log.Error(err, "deleting failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
-				deleteFail(r, &ctx, obj, &err)
+				deleteFail(r, ctx, obj, &err)
 				return ResultRequeue, err
 			}
 			controllerutil.RemoveFinalizer(obj, servicecommon.NSXServiceAccountFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "removing finalizer failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
-				deleteFail(r, &ctx, obj, &err)
+				deleteFail(r, ctx, obj, &err)
 				return ResultRequeue, err
 			}
 			log.V(1).Info("removed finalizer", "nsxserviceaccount", req.NamespacedName)
-			deleteSuccess(r, &ctx, obj)
+			deleteSuccess(r, ctx, obj)
 		} else {
 			// only print a message because it's not a normal case
 			log.Info("finalizers cannot be recognized", "nsxserviceaccount", req.NamespacedName)
@@ -242,7 +242,7 @@ func (r *NSXServiceAccountReconciler) garbageCollector(nsxServiceAccountUIDSet s
 	return
 }
 
-func (r *NSXServiceAccountReconciler) updateNSXServiceAccountStatus(ctx *context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount, e *error) {
+func (r *NSXServiceAccountReconciler) updateNSXServiceAccountStatus(ctx context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount, e *error) {
 	obj := o
 	if e != nil && *e != nil {
 		obj = o.DeepCopy()
@@ -250,7 +250,7 @@ func (r *NSXServiceAccountReconciler) updateNSXServiceAccountStatus(ctx *context
 		obj.Status.Reason = fmt.Sprintf("Error: %v", *e)
 		obj.Status.Conditions = nsxserviceaccount.GenerateNSXServiceAccountConditions(obj.Status.Conditions, obj.Generation, metav1.ConditionFalse, nsxvmwarecomv1alpha1.ConditionReasonRealizationError, fmt.Sprintf("Error: %v", *e))
 	}
-	err := r.Client.Status().Update(*ctx, obj)
+	err := r.Client.Status().Update(ctx, obj)
 	if err != nil {
 		log.Error(err, "update NSXServiceAccount failed", "Namespace", obj.Namespace, "Name", obj.Name, "Status", obj.Status)
 	} else {
@@ -258,25 +258,25 @@ func (r *NSXServiceAccountReconciler) updateNSXServiceAccountStatus(ctx *context
 	}
 }
 
-func updateFail(r *NSXServiceAccountReconciler, c *context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount, e *error) {
+func updateFail(r *NSXServiceAccountReconciler, c context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount, e *error) {
 	r.updateNSXServiceAccountStatus(c, o, e)
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
 }
 
-func deleteFail(r *NSXServiceAccountReconciler, c *context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount, e *error) {
+func deleteFail(r *NSXServiceAccountReconciler, c context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount, e *error) {
 	r.updateNSXServiceAccountStatus(c, o, e)
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 }
 
-func updateSuccess(r *NSXServiceAccountReconciler, c *context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount) {
+func updateSuccess(r *NSXServiceAccountReconciler, c context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount) {
 	r.updateNSXServiceAccountStatus(c, o, nil)
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "ServiceAccount CR has been successfully updated")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
 }
 
-func deleteSuccess(r *NSXServiceAccountReconciler, _ *context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount) {
+func deleteSuccess(r *NSXServiceAccountReconciler, _ context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount) {
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "ServiceAccount CR has been successfully deleted")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
 }

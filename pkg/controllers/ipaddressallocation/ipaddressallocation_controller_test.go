@@ -55,7 +55,7 @@ func TestIPAddressAllocationController_setReadyStatusTrue(t *testing.T) {
 			LastTransitionTime: transitionTime,
 		},
 	}
-	r.setReadyStatusTrue(&ctx, dummyIPAddressAllocation, transitionTime)
+	r.setReadyStatusTrue(ctx, dummyIPAddressAllocation, transitionTime)
 
 	if !reflect.DeepEqual(dummyIPAddressAllocation.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
