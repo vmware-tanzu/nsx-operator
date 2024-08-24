@@ -439,8 +439,9 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 		return err
 	}
 
-	// WrapHighLevelSecurityPolicy will modify the input security policy, so we need to make a copy for the following store update.
-	finalSecurityPolicyCopy := *finalSecurityPolicy
+	// WrapHierarchyVpcSecurityPolicy will modify the input security policy rules and move the rules to Children fields for HAPI wrap,
+	// so we need to make a copy for the rules store update.
+	finalRules := finalSecurityPolicy.Rules
 
 	if !isChanged && len(finalSecurityPolicy.Rules) == 0 && len(finalGroups) == 0 {
 		log.Info("securityPolicy, rules, groups are not changed, skip updating them", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
@@ -459,7 +460,7 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 		return err
 	}
 	// Get SecurityPolicy from NSX after HAPI call as NSX renders several fields like `path`/`parent_path`.
-	finalSecurityPolicyCopy, err = service.NSXClient.SecurityClient.Get(getDomain(service), *finalSecurityPolicy.Id)
+	finalGetNSXSecurityPolicy, err := service.NSXClient.SecurityClient.Get(getDomain(service), *finalSecurityPolicy.Id)
 	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to get SecurityPolicy", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
@@ -470,15 +471,15 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 	// The steps below know how to deal with NSX resources, if there is MarkedForDelete, then delete it from store,
 	// otherwise add or update it to store.
 	if isChanged {
-		err = securityPolicyStore.Apply(&finalSecurityPolicyCopy)
+		err = securityPolicyStore.Apply(&finalGetNSXSecurityPolicy)
 		if err != nil {
-			log.Error(err, "failed to apply store", "securityPolicy", finalSecurityPolicyCopy)
+			log.Error(err, "failed to apply store", "securityPolicy", finalGetNSXSecurityPolicy)
 			return err
 		}
 	}
-	err = ruleStore.Apply(&finalSecurityPolicyCopy)
+	err = ruleStore.Apply(&finalRules)
 	if err != nil {
-		log.Error(err, "failed to apply store", "nsxRules", finalSecurityPolicyCopy.Rules)
+		log.Error(err, "failed to apply store", "nsxRules", finalRules)
 		return err
 	}
 	err = groupStore.Apply(&finalGroups)
@@ -486,7 +487,7 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 		log.Error(err, "failed to apply store", "nsxGroups", finalGroups)
 		return err
 	}
-	log.Info("successfully created or updated NSX SecurityPolicy", "nsxSecurityPolicy", finalSecurityPolicyCopy)
+	log.Info("successfully created or updated NSX SecurityPolicy", "nsxSecurityPolicy", finalGetNSXSecurityPolicy)
 	return nil
 }
 
@@ -508,8 +509,9 @@ func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alp
 		indexScope = common.TagScopeNetworkPolicyUID
 	}
 
-	// WrapHierarchyVpcSecurityPolicy will modify the input security policy, so we need to make a copy for the following store update.
-	finalSecurityPolicyCopy := *finalSecurityPolicy
+	// WrapHierarchyVpcSecurityPolicy will modify the input security policy rules and move the rules to Children fields for HAPI wrap,
+	// so we need to make a copy for the rules store update.
+	finalRules := finalSecurityPolicy.Rules
 
 	nsxProjectGroups := make([]model.Group, 0)
 	nsxProjectShares := make([]model.Share, 0)
@@ -542,7 +544,7 @@ func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alp
 	}
 
 	// 2.Wrap SecurityPolicy, groups, rules under VPC level together with project groups and shares into one hierarchy resource tree.
-	orgRoot, err := service.WrapHierarchyVpcSecurityPolicy(&finalSecurityPolicyCopy, finalGroups, projectInfra, vpcInfo)
+	orgRoot, err := service.WrapHierarchyVpcSecurityPolicy(finalSecurityPolicy, finalGroups, projectInfra, vpcInfo)
 	if err != nil {
 		log.Error(err, "failed to wrap SecurityPolicy in VPC", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
 		return err
@@ -557,7 +559,7 @@ func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alp
 	}
 
 	// Get SecurityPolicy from NSX after HAPI call as NSX renders several fields like `path`/`parent_path`.
-	finalSecurityPolicyCopy, err = service.NSXClient.VPCSecurityClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *finalSecurityPolicyCopy.Id)
+	finalGetNSXSecurityPolicy, err := service.NSXClient.VPCSecurityClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *finalSecurityPolicy.Id)
 	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to get SecurityPolicy in VPC", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
@@ -568,16 +570,16 @@ func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alp
 	// The steps below know how to deal with NSX resources, if there is MarkedForDelete, then delete it from store,
 	// otherwise add or update it to store.
 	if isChanged {
-		err = securityPolicyStore.Apply(&finalSecurityPolicyCopy)
+		err = securityPolicyStore.Apply(&finalGetNSXSecurityPolicy)
 		if err != nil {
-			log.Error(err, "failed to apply store", "securityPolicy", finalSecurityPolicyCopy)
+			log.Error(err, "failed to apply store", "securityPolicy", finalGetNSXSecurityPolicy)
 			return err
 		}
 	}
 
-	err = ruleStore.Apply(&finalSecurityPolicyCopy)
+	err = ruleStore.Apply(&finalRules)
 	if err != nil {
-		log.Error(err, "failed to apply store", "nsxRules", finalSecurityPolicyCopy.Rules)
+		log.Error(err, "failed to apply store", "nsxRules", finalRules)
 		return err
 	}
 	err = groupStore.Apply(&finalGroups)
@@ -596,7 +598,7 @@ func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alp
 		return err
 	}
 
-	log.Info("successfully created or updated NSX SecurityPolicy in VPC", "nsxSecurityPolicy", finalSecurityPolicyCopy)
+	log.Info("successfully created or updated NSX SecurityPolicy in VPC", "nsxSecurityPolicy", finalGetNSXSecurityPolicy)
 	return nil
 }
 
@@ -679,7 +681,7 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(sp types.UID) error {
 		log.Error(err, "failed to apply store", "securityPolicy", finalSecurityPolicyCopy)
 		return err
 	}
-	err = ruleStore.Apply(&finalSecurityPolicyCopy)
+	err = ruleStore.Apply(&finalSecurityPolicyCopy.Rules)
 	if err != nil {
 		log.Error(err, "failed to apply store", "nsxRules", finalSecurityPolicyCopy.Rules)
 		return err
@@ -782,7 +784,7 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(sp types.UID, crea
 		log.Error(err, "failed to apply store", "securityPolicy", finalSecurityPolicyCopy)
 		return err
 	}
-	err = ruleStore.Apply(&finalSecurityPolicyCopy)
+	err = ruleStore.Apply(&finalSecurityPolicyCopy.Rules)
 	if err != nil {
 		log.Error(err, "failed to apply store", "nsxRules", finalSecurityPolicyCopy.Rules)
 		return err
@@ -972,8 +974,8 @@ func (service *SecurityPolicyService) markDeleteShares(existingShares []*model.S
 	}
 }
 
-func (s *SecurityPolicyService) getVpcInfo(spNameSpace string) (*common.VPCResourceInfo, error) {
-	VPCInfo := s.vpcService.ListVPCInfo(spNameSpace)
+func (service *SecurityPolicyService) getVpcInfo(spNameSpace string) (*common.VPCResourceInfo, error) {
+	VPCInfo := service.vpcService.ListVPCInfo(spNameSpace)
 	if len(VPCInfo) == 0 {
 		errorMsg := fmt.Sprintf("there is no VPC info found for namespace %s", spNameSpace)
 		err := errors.New(errorMsg)
