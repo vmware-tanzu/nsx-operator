@@ -49,7 +49,7 @@ func (r *NamespaceReconciler) getDefaultNetworkConfigName() (string, error) {
 	return nc.Name, nil
 }
 
-func (r *NamespaceReconciler) createNetworkInfoCR(ctx context.Context, obj client.Object, ns string, ncName string) (*v1alpha1.NetworkInfo, error) {
+func (r *NamespaceReconciler) createNetworkInfoCR(ctx context.Context, obj client.Object, ns string) (*v1alpha1.NetworkInfo, error) {
 	networkInfos := &v1alpha1.NetworkInfoList{}
 	r.Client.List(ctx, networkInfos, client.InNamespace(ns))
 	if len(networkInfos.Items) > 0 {
@@ -234,7 +234,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			return common.ResultRequeueAfter10sec, nil
 		}
 
-		if _, err := r.createNetworkInfoCR(ctx, obj, ns, ncName); err != nil {
+		if _, err := r.createNetworkInfoCR(ctx, obj, ns); err != nil {
 			return common.ResultRequeueAfter10sec, nil
 		}
 		if err := r.createDefaultSubnetSet(ns); err != nil {

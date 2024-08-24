@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,9 +22,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
-
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/test/e2e/providers"
 )
@@ -345,7 +343,13 @@ func (data *TestData) waitForCRReadyOrDeleted(timeout time.Duration, cr string, 
 func (data *TestData) getCRPropertiesByJson(timeout time.Duration, crType, crName, namespace, key string) (string, error) {
 	value := ""
 	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
-		cmd := fmt.Sprintf("kubectl get %s %s -n %s -o json | jq '%s'", crType, crName, namespace, key)
+		cmd := ""
+		// for cluster scope resource, namespace is empty
+		if namespace == "" {
+			cmd = fmt.Sprintf("kubectl get %s %s -o json | jq '%s'", crType, crName, key)
+		} else {
+			cmd = fmt.Sprintf("kubectl get %s %s -n %s -o json | jq '%s'", crType, crName, namespace, key)
+		}
 		log.Printf("%s", cmd)
 		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
 		if err != nil || rc != 0 {
@@ -365,15 +369,17 @@ func (data *TestData) getCRPropertiesByJson(timeout time.Duration, crType, crNam
 	return value, nil
 }
 
-// Check if CR is created under NS, for resources like VPC, we do not know CR name
-// return map structure, key is CR name, value is CR UID
-func (data *TestData) getCRResource(timeout time.Duration, cr string, namespace string) (map[string]string, error) {
+// For CRs that we do not know the name, return the CR list for upper logic to identify
+func (data *TestData) getCRResources(timeout time.Duration, crtype, namespace string) (map[string]string, error) {
 	crs := map[string]string{}
 	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
-		cmd := fmt.Sprintf("kubectl get %s -n %s", cr, namespace)
-		// check if name is nil
-		if cr == "namespaces" {
-			cmd = fmt.Sprintf("kubectl get %s %s", cr, namespace)
+		cmd := ""
+		if namespace == "" { // for cluster scope resources
+			cmd = fmt.Sprintf("kubectl get %s", crtype)
+		} else if crtype == "namespaces" {
+			cmd = fmt.Sprintf("kubectl get %s %s", crtype, namespace)
+		} else {
+			cmd = fmt.Sprintf("kubectl get %s -n %s", crtype, namespace)
 		}
 		log.Printf("%s", cmd)
 		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
@@ -392,9 +398,11 @@ func (data *TestData) getCRResource(timeout time.Duration, cr string, namespace 
 				if len(parts) < 1 { // to avoid empty lines
 					continue
 				}
-				uid_cmd := fmt.Sprintf("kubectl get %s %s -n %s -o yaml | grep uid", cr, parts[0], namespace)
-				if cr == "namespaces" {
-					uid_cmd = fmt.Sprintf("kubectl get %s %s -o yaml | grep uid", cr, parts[0])
+				uid_cmd := ""
+				if namespace == "" || crtype == "namespaces" {
+					uid_cmd = fmt.Sprintf("kubectl get %s %s -o yaml | grep uid", crtype, parts[0])
+				} else {
+					uid_cmd = fmt.Sprintf("kubectl get %s %s -n %s -o yaml | grep uid", crtype, parts[0], namespace)
 				}
 				log.Printf("trying to get uid for cr: %s", uid_cmd)
 				rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, uid_cmd)
@@ -411,6 +419,35 @@ func (data *TestData) getCRResource(timeout time.Duration, cr string, namespace 
 		return crs, err
 	}
 	return crs, nil
+}
+
+// Return a singe CR via CR name
+func (data *TestData) getCRResource(timeout time.Duration, crtype, crname, namespace string) (string, error) {
+	ret := ""
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
+		// If namespace is empty, then this is a cluster scope resource.
+		uid_cmd := ""
+		if namespace == "" {
+			uid_cmd = fmt.Sprintf("kubectl get %s %s -o yaml | grep uid", crtype, crname)
+		} else if crtype == "namespaces" {
+			uid_cmd = fmt.Sprintf("kubectl get %s %s -o yaml | grep uid", crtype, namespace)
+		} else {
+			uid_cmd = fmt.Sprintf("kubectl get %s %s -n %s -o yaml | grep uid", crtype, crname, namespace)
+		}
+		log.Printf("%s", uid_cmd)
+		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, uid_cmd)
+		if err != nil || rc != 0 {
+			return false, fmt.Errorf("error when running the following command `%s` on master Node: %v, %s", uid_cmd, err, stdout)
+		} else {
+			uid := strings.Split(stdout, ":")[1]
+			ret = uid
+		}
+		return true, nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return ret, nil
 }
 
 // deploymentWaitForNames polls the K8s apiServer once the specific pods are created, no matter they are running or not.

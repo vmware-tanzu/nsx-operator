@@ -167,7 +167,6 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				log.Error(err, "failed to read default SNAT ip from VPC", "VPC", createdVpc.Id)
 				state := &v1alpha1.VPCState{
 					Name:                    *createdVpc.DisplayName,
-					VPCPath:                 *createdVpc.Path,
 					DefaultSNATIP:           "",
 					LoadBalancerIPAddresses: "",
 					PrivateIPs:              privateIPs,
@@ -202,7 +201,6 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				log.Error(err, "failed to read lb subnet path and cidr", "VPC", createdVpc.Id)
 				state := &v1alpha1.VPCState{
 					Name:                    *createdVpc.DisplayName,
-					VPCPath:                 *createdVpc.Path,
 					DefaultSNATIP:           snatIP,
 					LoadBalancerIPAddresses: "",
 					PrivateIPs:              privateIPs,
@@ -214,13 +212,13 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		state := &v1alpha1.VPCState{
 			Name:                    *createdVpc.DisplayName,
-			VPCPath:                 *createdVpc.Path,
 			DefaultSNATIP:           snatIP,
 			LoadBalancerIPAddresses: cidr,
 			PrivateIPs:              privateIPs,
+			VPCPath:                 *createdVpc.Path,
 		}
 		// AKO needs to know the AVI subnet path created by NSX
-		setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, path, r.Service.GetNSXLBSPath(*createdVpc.Id))
+		setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, path, r.Service.GetNSXLBSPath(*createdVpc.Id), *createdVpc.Path)
 		updateSuccess(r, ctx, obj, r.Client, state, nc.Name, path)
 	} else {
 		if controllerutil.ContainsFinalizer(obj, commonservice.NetworkInfoFinalizerName) {
