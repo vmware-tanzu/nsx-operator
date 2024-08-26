@@ -6,7 +6,6 @@ package ipaddressallocation
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,7 +30,6 @@ import (
 
 var (
 	log           = logger.Log
-	once          sync.Once
 	resultNormal  = common.ResultNormal
 	resultRequeue = common.ResultRequeue
 	MetricResType = common.MetricResTypeIPAddressAllocation
@@ -107,7 +105,6 @@ func (r *IPAddressAllocationReconciler) setReadyStatusTrue(ctx context.Context, 
 }
 
 func (r *IPAddressAllocationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	once.Do(func() { go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.collectGarbage) })
 	obj := &v1alpha1.IPAddressAllocation{}
 	log.Info("reconciling IPAddressAllocation CR", "IPAddressAllocation", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
@@ -188,7 +185,7 @@ func (r *IPAddressAllocationReconciler) SetupWithManager(mgr ctrl.Manager) error
 		Complete(r)
 }
 
-func (r *IPAddressAllocationReconciler) collectGarbage(ctx context.Context) {
+func (r *IPAddressAllocationReconciler) CollectGarbage(ctx context.Context) {
 	log.Info("IPAddressAllocation garbage collector started")
 	ipAddressAllocationSet := r.Service.ListIPAddressAllocationID()
 	if len(ipAddressAllocationSet) == 0 {

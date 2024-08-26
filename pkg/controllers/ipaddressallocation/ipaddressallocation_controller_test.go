@@ -260,7 +260,7 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 		a.Items[0].UID = "1234"
 		return nil
 	})
-	r.collectGarbage(context.Background())
+	r.CollectGarbage(context.Background())
 
 	// local store has same item as k8s cache
 	patch.Reset()
@@ -281,7 +281,7 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 		a.Items[0].UID = "1234"
 		return nil
 	})
-	r.collectGarbage(context.Background())
+	r.CollectGarbage(context.Background())
 
 	// local store has no item
 	patch.Reset()
@@ -295,7 +295,7 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 		return nil
 	})
 	k8sClient.EXPECT().List(ctx, policyList).Return(nil).Times(0)
-	r.collectGarbage(context.Background())
+	r.CollectGarbage(context.Background())
 
 	patch.Reset()
 }
