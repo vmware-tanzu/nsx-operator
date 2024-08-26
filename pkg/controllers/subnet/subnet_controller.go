@@ -64,7 +64,6 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		if !controllerutil.ContainsFinalizer(obj, servicecommon.SubnetFinalizerName) {
 			controllerutil.AddFinalizer(obj, servicecommon.SubnetFinalizerName)
 
-			// will delete AccessMode
 			if obj.Spec.AccessMode == "" {
 				log.Info("obj.Spec.AccessMode set", "subnet", req.NamespacedName)
 				obj.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
