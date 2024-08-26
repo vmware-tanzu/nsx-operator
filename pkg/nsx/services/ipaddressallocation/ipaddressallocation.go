@@ -98,30 +98,32 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 
 func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.VpcIpAddressAllocation) error {
 	ns := service.GetIPAddressAllocationNamespace(nsxIPAddressAllocation)
-	var err error
 	VPCInfo := service.VPCService.ListVPCInfo(ns)
 	if len(VPCInfo) == 0 {
-		err = util.NoEffectiveOption{Desc: "no valid org and project for ipaddressallocation"}
+		err := util.NoEffectiveOption{Desc: "no valid org and project for ipaddressallocation"}
 		return err
 	}
-	err = service.NSXClient.IPAddressAllocationClient.Patch(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, VPCInfo[0].ID, *nsxIPAddressAllocation.Id, *nsxIPAddressAllocation)
-	err = util.NSXApiError(err)
-	if err != nil {
+	errPatch := service.NSXClient.IPAddressAllocationClient.Patch(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, VPCInfo[0].ID, *nsxIPAddressAllocation.Id, *nsxIPAddressAllocation)
+	errPatch = util.NSXApiError(errPatch)
+	if errPatch != nil {
 		// not return err, try to get it from nsx, in case if cidr not realized at the first time
 		// so it can be patched in the next time and reacquire cidr
-		log.Error(err, "patch failed, try to get it from nsx", "nsxIPAddressAllocation", nsxIPAddressAllocation)
+		log.Error(errPatch, "patch failed, try to get it from nsx", "nsxIPAddressAllocation", nsxIPAddressAllocation)
 	}
 	// get back from nsx, it contains path which is used to parse vpc info when deleting
-	nsxIPAddressAllocationNew, err := service.NSXClient.IPAddressAllocationClient.Get(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, VPCInfo[0].ID, *nsxIPAddressAllocation.Id)
-	err = util.NSXApiError(err)
-	if err != nil {
-		return err
+	nsxIPAddressAllocationNew, errGet := service.NSXClient.IPAddressAllocationClient.Get(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, VPCInfo[0].ID, *nsxIPAddressAllocation.Id)
+	errGet = util.NSXApiError(errGet)
+	if errGet != nil {
+		if errPatch != nil {
+			return fmt.Errorf("error get %s, error patch %s", errGet.Error(), errPatch.Error())
+		}
+		return errGet
 	}
 	if nsxIPAddressAllocationNew.AllocationIps == nil {
 		err := fmt.Errorf("cidr not realized yet")
 		return err
 	}
-	err = service.ipAddressAllocationStore.Apply(&nsxIPAddressAllocationNew)
+	err := service.ipAddressAllocationStore.Apply(&nsxIPAddressAllocationNew)
 	if err != nil {
 		return err
 	}
