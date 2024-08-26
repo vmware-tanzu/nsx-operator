@@ -112,13 +112,7 @@ func (r *NamespaceReconciler) createDefaultSubnetSet(ns string) error {
 						types.LabelDefaultSubnetSet: subnetSetType,
 					},
 				},
-				Spec: v1alpha1.SubnetSetSpec{
-					AdvancedConfig: v1alpha1.AdvancedConfig{
-						StaticIPAllocation: v1alpha1.StaticIPAllocation{
-							Enable: true,
-						},
-					},
-				},
+				Spec: v1alpha1.SubnetSetSpec{},
 			}
 			if name == types.DefaultVMSubnetSet {
 				obj.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)

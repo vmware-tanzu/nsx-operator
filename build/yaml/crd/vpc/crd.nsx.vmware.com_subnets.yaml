@@ -70,20 +70,6 @@ spec:
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self == oldSelf
-              advancedConfig:
-                description: Subnet advanced configuration.
-                properties:
-                  staticIPAllocation:
-                    description: StaticIPAllocation configuration for subnet ports
-                      with VIF attachment.
-                    properties:
-                      enable:
-                        default: false
-                        description: Enable or disable static IP allocation for subnet
-                          ports with VIF attachment.
-                        type: boolean
-                    type: object
-                type: object
               ipAddresses:
                 description: Subnet CIDRS.
                 items:

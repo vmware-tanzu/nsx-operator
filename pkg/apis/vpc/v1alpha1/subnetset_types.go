@@ -17,8 +17,6 @@ type SubnetSetSpec struct {
 	// +kubebuilder:validation:Enum=Private;Public;PrivateTGW
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	AccessMode AccessMode `json:"accessMode,omitempty"`
-	// Subnet advanced configuration.
-	AdvancedConfig AdvancedConfig `json:"advancedConfig,omitempty"`
 	// DHCPConfig DHCP configuration.
 	DHCPConfig DHCPConfig `json:"DHCPConfig,omitempty"`
 }
