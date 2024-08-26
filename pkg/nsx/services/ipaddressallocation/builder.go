@@ -19,6 +19,13 @@ const (
 	IPADDRESSALLOCATIONPREFIX = "ipa"
 )
 
+func convertIpAddressBlockVisibility(visibility v1alpha1.IPAddressVisibility) v1alpha1.IPAddressVisibility {
+	if visibility == v1alpha1.IPAddressVisibilityPrivateTGW {
+		return "PRIVATE_TGW"
+	}
+	return visibility
+}
+
 func (service *IPAddressAllocationService) BuildIPAddressAllocation(IPAddressAllocation *v1alpha1.IPAddressAllocation) (*model.VpcIpAddressAllocation, error) {
 	VPCInfo := service.VPCService.ListVPCInfo(IPAddressAllocation.Namespace)
 	if len(VPCInfo) == 0 {
@@ -26,12 +33,13 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(IPAddressAll
 		return nil, fmt.Errorf("failed to find VPCInfo for IPAddressAllocation CR %s in namespace %s", IPAddressAllocation.Name, IPAddressAllocation.Namespace)
 	}
 
-	ipAddressBlockVisibility := util.ToUpper(IPAddressAllocation.Spec.IPAddressBlockVisibility)
+	ipAddressBlockVisibility := convertIpAddressBlockVisibility(IPAddressAllocation.Spec.IPAddressBlockVisibility)
+	ipAddressBlockVisibilityStr := util.ToUpper(string(ipAddressBlockVisibility))
 	return &model.VpcIpAddressAllocation{
 		Id:                       String(service.buildIPAddressAllocationID(IPAddressAllocation)),
 		DisplayName:              String(service.buildIPAddressAllocationName(IPAddressAllocation)),
 		Tags:                     service.buildIPAddressAllocationTags(IPAddressAllocation),
-		IpAddressBlockVisibility: &ipAddressBlockVisibility,
+		IpAddressBlockVisibility: &ipAddressBlockVisibilityStr,
 		AllocationSize:           Int64(int64(IPAddressAllocation.Spec.AllocationSize)),
 	}, nil
 }

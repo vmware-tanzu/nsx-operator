@@ -3,15 +3,14 @@
 
 package v1alpha1
 
-import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-)
+import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 type IPAddressVisibility string
 
-const (
-	IPAddressVisibilityExternal = "EXTERNAL"
-	IPAddressVisibilityPrivate  = "PRIVATE"
+var (
+	IPAddressVisibilityExternal   IPAddressVisibility = "External"
+	IPAddressVisibilityPrivate    IPAddressVisibility = "Private"
+	IPAddressVisibilityPrivateTGW IPAddressVisibility = "PrivateTGW"
 )
 
 // +genclient
@@ -20,12 +19,12 @@ const (
 //+kubebuilder:storageversion
 
 // IPAddressAllocation is the Schema for the IP allocation API.
-// +kubebuilder:printcolumn:name="IPAddressBlockVisibility",type=string,JSONPath=`.spec.ip_address_block_visibility`,description="IPAddressBlockVisibility of IPAddressAllocation"
-// +kubebuilder:printcolumn:name="CIDR",type=string,JSONPath=`.status.cidr`,description="CIDRs for the IPAddressAllocation"
+// +kubebuilder:printcolumn:name="IPAddressBlockVisibility",type=string,JSONPath=`.spec.ipAddressBlockVisibility`,description="IPAddressBlockVisibility of IPAddressAllocation"
+// +kubebuilder:printcolumn:name="AllocationIPs",type=string,JSONPath=`.status.allocationIPs`, description="AllocationIPs for the IPAddressAllocation"
 type IPAddressAllocation struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata"`
-
+	
 	Spec   IPAddressAllocationSpec   `json:"spec"`
 	Status IPAddressAllocationStatus `json:"status,omitempty"`
 }
@@ -41,20 +40,20 @@ type IPAddressAllocationList struct {
 
 // IPAddressAllocationSpec defines the desired state of IPAddressAllocation.
 type IPAddressAllocationSpec struct {
-	// IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External or Private.
-	// +kubebuilder:validation:Enum=External;Private
+	// IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW.
+	// +kubebuilder:validation:Enum=External;Private;PrivateTGW
 	// +kubebuilder:default=Private
 	// +optional
-	IPAddressBlockVisibility IPAddressVisibility `json:"ip_address_block_visibility,omitempty"`
-	// AllocationSize specifies the size of IP CIDR to be allocated.
-	AllocationSize int `json:"allocation_size,omitempty"`
+	IPAddressBlockVisibility IPAddressVisibility `json:"ipAddressBlockVisibility,omitempty"`
+	// AllocationSize specifies the size of allocationIPs to be allocated.
+	AllocationSize int `json:"allocationSize,omitempty"`
 }
 
 // IPAddressAllocationStatus defines the observed state of IPAddressAllocation.
 type IPAddressAllocationStatus struct {
-	// CIDR is the allocated CIDR
-	CIDR       string      `json:"CIDR"`
-	Conditions []Condition `json:"conditions,omitempty"`
+	// AllocationIPs is the allocated IP addresses
+	AllocationIPs string      `json:"allocationIPs"`
+	Conditions    []Condition `json:"conditions,omitempty"`
 }
 
 func init() {

@@ -88,11 +88,11 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 		log.Error(err, "failed to get created ipaddressallocation", "UID", obj.UID)
 		return false, err
 	}
-	cidr := createdIPAddressAllocation.AllocationIps
-	if cidr == nil {
-		return false, fmt.Errorf("ipaddressallocation %s didn't realize available cidr", obj.UID)
+	allocation_ips := createdIPAddressAllocation.AllocationIps
+	if allocation_ips == nil {
+		return false, fmt.Errorf("ipaddressallocation %s didn't realize available allocation_ips", obj.UID)
 	}
-	obj.Status.CIDR = *cidr
+	obj.Status.AllocationIPs = *allocation_ips
 	return true, nil
 }
 

@@ -16,12 +16,12 @@ spec:
   versions:
   - additionalPrinterColumns:
     - description: IPAddressBlockVisibility of IPAddressAllocation
-      jsonPath: .spec.ip_address_block_visibility
+      jsonPath: .spec.ipAddressBlockVisibility
       name: IPAddressBlockVisibility
       type: string
-    - description: CIDRs for the IPAddressAllocation
-      jsonPath: .status.cidr
-      name: CIDR
+    - description: AllocationIPs for the IPAddressAllocation
+      jsonPath: .status.allocationIPs
+      name: AllocationIPs
       type: string
     name: v1alpha1
     schema:
@@ -48,23 +48,26 @@ spec:
           spec:
             description: IPAddressAllocationSpec defines the desired state of IPAddressAllocation.
             properties:
-              allocation_size:
-                description: AllocationSize specifies the size of IP CIDR to be allocated.
+              allocationSize:
+                description: AllocationSize specifies the size of allocationIPs to
+                  be allocated.
                 type: integer
-              ip_address_block_visibility:
+              ipAddressBlockVisibility:
                 default: Private
                 description: IPAddressBlockVisibility specifies the visibility of
-                  the IPBlocks to allocate IP addresses. Can be External or Private.
+                  the IPBlocks to allocate IP addresses. Can be External, Private
+                  or PrivateTGW.
                 enum:
                 - External
                 - Private
+                - PrivateTGW
                 type: string
             type: object
           status:
             description: IPAddressAllocationStatus defines the observed state of IPAddressAllocation.
             properties:
-              CIDR:
-                description: CIDR is the allocated CIDR
+              allocationIPs:
+                description: AllocationIPs is the allocated IP addresses
                 type: string
               conditions:
                 items:
@@ -95,7 +98,7 @@ spec:
                   type: object
                 type: array
             required:
-            - CIDR
+            - allocationIPs
             type: object
         required:
         - metadata
