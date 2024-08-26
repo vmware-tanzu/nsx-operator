@@ -108,7 +108,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			updateFail(r, ctx, subnetPort, &err)
 			return common.ResultRequeue, err
 		}
-		subnetPort.Status.Attachment = v1alpha1.SegmentPortAttachmentState{ID: *nsxSubnetPortState.Attachment.Id}
+		subnetPort.Status.Attachment = v1alpha1.PortAttachment{ID: *nsxSubnetPortState.Attachment.Id}
 		subnetPort.Status.NetworkInterfaceConfig = v1alpha1.NetworkInterfaceConfig{
 			IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
 				{

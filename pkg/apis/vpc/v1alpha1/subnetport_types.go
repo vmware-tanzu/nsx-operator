@@ -20,12 +20,12 @@ type SubnetPortStatus struct {
 	// Conditions describes current state of SubnetPort.
 	Conditions []Condition `json:"conditions,omitempty"`
 	// Subnet port attachment state.
-	Attachment             SegmentPortAttachmentState `json:"attachment,omitempty"`
-	NetworkInterfaceConfig NetworkInterfaceConfig     `json:"networkInterfaceConfig,omitempty"`
+	Attachment             PortAttachment         `json:"attachment,omitempty"`
+	NetworkInterfaceConfig NetworkInterfaceConfig `json:"networkInterfaceConfig,omitempty"`
 }
 
 // VIF attachment state of a subnet port.
-type SegmentPortAttachmentState struct {
+type PortAttachment struct {
 	ID string `json:"id,omitempty"`
 }
 
