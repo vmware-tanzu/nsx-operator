@@ -76,8 +76,9 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				updateFail(r, ctx, obj, "")
 				return ResultRequeue, err
 			}
-
-			obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
+			if obj.Spec.IPv4SubnetSize == 0 {
+				obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
+			}
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "subnet", req.NamespacedName)
 				updateFail(r, ctx, obj, "")
