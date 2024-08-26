@@ -69,14 +69,14 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				obj.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
 			}
 
-			vpcNetworkConfig := r.VPCService.GetVPCNetworkConfigByNamespace(obj.Namespace)
-			if vpcNetworkConfig == nil {
-				err := fmt.Errorf("operate failed: cannot get configuration for Subnet CR")
-				log.Error(nil, "failed to find VPCNetworkConfig for Subnet CR", "subnet", req.NamespacedName, "namespace %s", obj.Namespace)
-				updateFail(r, ctx, obj, "")
-				return ResultRequeue, err
-			}
 			if obj.Spec.IPv4SubnetSize == 0 {
+				vpcNetworkConfig := r.VPCService.GetVPCNetworkConfigByNamespace(obj.Namespace)
+				if vpcNetworkConfig == nil {
+					err := fmt.Errorf("operate failed: cannot get configuration for Subnet CR")
+					log.Error(nil, "failed to find VPCNetworkConfig for Subnet CR", "subnet", req.NamespacedName, "namespace %s", obj.Namespace)
+					updateFail(r, ctx, obj, "")
+					return ResultRequeue, err
+				}
 				obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
 			}
 			if err := r.Client.Update(ctx, obj); err != nil {
