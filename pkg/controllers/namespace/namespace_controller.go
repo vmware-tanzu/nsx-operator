@@ -84,7 +84,7 @@ func (r *NamespaceReconciler) createNetworkInfoCR(ctx context.Context, obj clien
 	return networkInfoCR, nil
 }
 
-func (r *NamespaceReconciler) createDefaultSubnetSet(ns string) error {
+func (r *NamespaceReconciler) createDefaultSubnetSet(ns string, defaultSubnetSize int) error {
 	defaultSubnetSets := map[string]string{
 		types.DefaultVMSubnetSet:  types.LabelDefaultVMSubnetSet,
 		types.DefaultPodSubnetSet: types.LabelDefaultPodSubnetSet,
@@ -119,6 +119,7 @@ func (r *NamespaceReconciler) createDefaultSubnetSet(ns string) error {
 			} else if name == types.DefaultPodSubnetSet {
 				obj.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModeProject)
 			}
+			obj.Spec.IPv4SubnetSize = defaultSubnetSize
 			if err := r.Client.Create(context.Background(), obj); err != nil {
 				return err
 			}
@@ -231,7 +232,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if _, err := r.createNetworkInfoCR(ctx, obj, ns); err != nil {
 			return common.ResultRequeueAfter10sec, nil
 		}
-		if err := r.createDefaultSubnetSet(ns); err != nil {
+		if err := r.createDefaultSubnetSet(ns, nc.DefaultSubnetSize); err != nil {
 			return common.ResultRequeueAfter10sec, nil
 		}
 		return common.ResultNormal, nil
