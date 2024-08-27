@@ -33,14 +33,14 @@ type NetworkInfoList struct {
 type VPCState struct {
 	// VPC name.
 	Name string `json:"name"`
-	// NSX Policy path for VPC.
-	VPCPath string `json:"vpcPath"`
 	// Default SNAT IP for Private Subnets.
 	DefaultSNATIP string `json:"defaultSNATIP"`
 	// LoadBalancerIPAddresses (AVI SE Subnet CIDR or NSX LB SNAT IPs).
 	LoadBalancerIPAddresses string `json:"loadBalancerIPAddresses,omitempty"`
 	// Private CIDRs used for the VPC.
 	PrivateIPs []string `json:"privateIPs,omitempty"`
+	// NSX Policy path for VPC.
+	VPCPath string `json:"vpcPath,omitempty"`
 }
 
 func init() {

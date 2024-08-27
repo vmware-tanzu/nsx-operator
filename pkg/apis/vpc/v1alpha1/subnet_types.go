@@ -29,8 +29,6 @@ type SubnetSpec struct {
 	// +kubebuilder:validation:MinItems=0
 	// +kubebuilder:validation:MaxItems=2
 	IPAddresses []string `json:"ipAddresses,omitempty"`
-	// Subnet advanced configuration.
-	AdvancedConfig AdvancedConfig `json:"advancedConfig,omitempty"`
 	// DHCPConfig DHCP configuration.
 	DHCPConfig DHCPConfig `json:"DHCPConfig,omitempty"`
 }
@@ -51,7 +49,7 @@ type SubnetStatus struct {
 // Subnet is the Schema for the subnets API.
 // +kubebuilder:printcolumn:name="AccessMode",type=string,JSONPath=`.spec.accessMode`,description="Access mode of Subnet"
 // +kubebuilder:printcolumn:name="IPv4SubnetSize",type=string,JSONPath=`.spec.ipv4SubnetSize`,description="Size of Subnet"
-// +kubebuilder:printcolumn:name="IPAddresses",type=string,JSONPath=`.status.ipAddresses[*]`,description="CIDRs for the Subnet"
+// +kubebuilder:printcolumn:name="NetworkAddresses",type=string,JSONPath=`.status.networkAddresses[*]`,description="CIDRs for the Subnet"
 type Subnet struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -69,28 +67,10 @@ type SubnetList struct {
 	Items           []Subnet `json:"items"`
 }
 
-// AdvancedConfig is Subnet advanced configuration.
-type AdvancedConfig struct {
-	// StaticIPAllocation configuration for subnet ports with VIF attachment.
-	StaticIPAllocation StaticIPAllocation `json:"staticIPAllocation,omitempty"`
-}
-
-// StaticIPAllocation is static IP allocation for subnet ports with VIF attachment.
-type StaticIPAllocation struct {
-	// Enable or disable static IP allocation for subnet ports with VIF attachment.
-	// +kubebuilder:default:=false
-	Enable bool `json:"enable,omitempty"`
-}
-
 // DHCPConfig is DHCP configuration.
 type DHCPConfig struct {
 	// +kubebuilder:default:=false
 	EnableDHCP bool `json:"enableDHCP,omitempty"`
-}
-
-// DNSClientConfig holds DNS configurations.
-type DNSClientConfig struct {
-	DNSServersIPs []string `json:"dnsServersIPs,omitempty"`
 }
 
 func init() {

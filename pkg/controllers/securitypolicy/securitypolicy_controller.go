@@ -55,7 +55,7 @@ type SecurityPolicyReconciler struct {
 	Recorder record.EventRecorder
 }
 
-func updateFail(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
+func updateFail(r *SecurityPolicyReconciler, c context.Context, o *v1alpha1.SecurityPolicy, e *error) {
 	r.setSecurityPolicyReadyStatusFalse(c, o, metav1.Now(), e)
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
@@ -69,19 +69,19 @@ func k8sClient(mgr ctrl.Manager) client.Client {
 	return c
 }
 
-func deleteFail(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
+func deleteFail(r *SecurityPolicyReconciler, c context.Context, o *v1alpha1.SecurityPolicy, e *error) {
 	r.setSecurityPolicyReadyStatusFalse(c, o, metav1.Now(), e)
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 }
 
-func updateSuccess(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy) {
+func updateSuccess(r *SecurityPolicyReconciler, c context.Context, o *v1alpha1.SecurityPolicy) {
 	r.setSecurityPolicyReadyStatusTrue(c, o, metav1.Now())
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "SecurityPolicy CR has been successfully updated")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
 }
 
-func deleteSuccess(r *SecurityPolicyReconciler, _ *context.Context, o *v1alpha1.SecurityPolicy) {
+func deleteSuccess(r *SecurityPolicyReconciler, _ context.Context, o *v1alpha1.SecurityPolicy) {
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "SecurityPolicy CR has been successfully deleted")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
 }
@@ -120,7 +120,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// So need to check NSX version before starting SecurityPolicy reconcile
 	if !r.Service.NSXClient.NSXCheckVersion(nsx.SecurityPolicy) {
 		err := errors.New("NSX version check failed, SecurityPolicy feature is not supported")
-		updateFail(r, &ctx, realObj, &err)
+		updateFail(r, ctx, realObj, &err)
 		// if NSX version check fails, it will be put back to reconcile queue and be reconciled after 5 minutes
 		return ResultRequeueAfter5mins, nil
 	}
@@ -131,7 +131,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			controllerutil.AddFinalizer(obj, finalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "securitypolicy", req.NamespacedName)
-				updateFail(r, &ctx, realObj, &err)
+				updateFail(r, ctx, realObj, &err)
 				return ResultRequeue, err
 			}
 			log.V(1).Info("added finalizer on securitypolicy CR", "securitypolicy", req.NamespacedName)
@@ -140,19 +140,19 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if isCRInSysNs, err := util.IsSystemNamespace(r.Client, req.Namespace, nil); err != nil {
 			err = errors.New("fetch namespace associated with security policy CR failed")
 			log.Error(err, "would retry exponentially", "securitypolicy", req.NamespacedName)
-			updateFail(r, &ctx, realObj, &err)
+			updateFail(r, ctx, realObj, &err)
 			return ResultRequeue, err
 		} else if isCRInSysNs {
 			err = errors.New("security Policy CR cannot be created in System Namespace")
 			log.Error(err, "", "securitypolicy", req.NamespacedName)
-			updateFail(r, &ctx, realObj, &err)
+			updateFail(r, ctx, realObj, &err)
 			return ResultNormal, nil
 		}
 
 		if err := r.Service.CreateOrUpdateSecurityPolicy(realObj); err != nil {
 			if errors.As(err, &nsxutil.RestrictionError{}) {
 				log.Error(err, err.Error(), "securitypolicy", req.NamespacedName)
-				updateFail(r, &ctx, realObj, &err)
+				updateFail(r, ctx, realObj, &err)
 				return ResultNormal, nil
 			}
 			// check if invalid license
@@ -176,26 +176,26 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				}
 			}
 			log.Error(err, "create or update failed, would retry exponentially", "securitypolicy", req.NamespacedName)
-			updateFail(r, &ctx, realObj, &err)
+			updateFail(r, ctx, realObj, &err)
 			return ResultRequeue, err
 		}
-		updateSuccess(r, &ctx, realObj)
+		updateSuccess(r, ctx, realObj)
 	} else {
 		if controllerutil.ContainsFinalizer(obj, finalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
 			if err := r.Service.DeleteSecurityPolicy(realObj.UID, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
-				deleteFail(r, &ctx, realObj, &err)
+				deleteFail(r, ctx, realObj, &err)
 				return ResultRequeue, err
 			}
 			controllerutil.RemoveFinalizer(obj, finalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
-				deleteFail(r, &ctx, realObj, &err)
+				deleteFail(r, ctx, realObj, &err)
 				return ResultRequeue, err
 			}
 			log.V(1).Info("removed finalizer", "securitypolicy", req.NamespacedName)
-			deleteSuccess(r, &ctx, realObj)
+			deleteSuccess(r, ctx, realObj)
 		} else {
 			// only print a message because it's not a normal case
 			log.Info("finalizers cannot be recognized", "securitypolicy", req.NamespacedName)
@@ -205,7 +205,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ResultNormal, nil
 }
 
-func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusTrue(ctx *context.Context, secPolicy *v1alpha1.SecurityPolicy, transitionTime metav1.Time) {
+func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusTrue(ctx context.Context, secPolicy *v1alpha1.SecurityPolicy, transitionTime metav1.Time) {
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:               v1alpha1.Ready,
@@ -218,7 +218,7 @@ func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusTrue(ctx *context
 	r.updateSecurityPolicyStatusConditions(ctx, secPolicy, newConditions)
 }
 
-func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusFalse(ctx *context.Context, secPolicy *v1alpha1.SecurityPolicy, transitionTime metav1.Time, err *error) {
+func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusFalse(ctx context.Context, secPolicy *v1alpha1.SecurityPolicy, transitionTime metav1.Time, err *error) {
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:    v1alpha1.Ready,
@@ -234,7 +234,7 @@ func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusFalse(ctx *contex
 	r.updateSecurityPolicyStatusConditions(ctx, secPolicy, newConditions)
 }
 
-func (r *SecurityPolicyReconciler) updateSecurityPolicyStatusConditions(ctx *context.Context, secPolicy *v1alpha1.SecurityPolicy, newConditions []v1alpha1.Condition) {
+func (r *SecurityPolicyReconciler) updateSecurityPolicyStatusConditions(ctx context.Context, secPolicy *v1alpha1.SecurityPolicy, newConditions []v1alpha1.Condition) {
 	conditionsUpdated := false
 	for i := range newConditions {
 		if r.mergeSecurityPolicyStatusCondition(ctx, secPolicy, &newConditions[i]) {
@@ -244,12 +244,12 @@ func (r *SecurityPolicyReconciler) updateSecurityPolicyStatusConditions(ctx *con
 	if conditionsUpdated {
 		if r.Service.NSXConfig.EnableVPCNetwork {
 			finalObj := securitypolicy.T1ToVPC(secPolicy)
-			err := r.Client.Status().Update(*ctx, finalObj)
+			err := r.Client.Status().Update(ctx, finalObj)
 			if err != nil {
 				log.Error(err, "")
 			}
 		} else {
-			err := r.Client.Status().Update(*ctx, secPolicy)
+			err := r.Client.Status().Update(ctx, secPolicy)
 			if err != nil {
 				log.Error(err, "")
 			}
@@ -259,7 +259,7 @@ func (r *SecurityPolicyReconciler) updateSecurityPolicyStatusConditions(ctx *con
 	}
 }
 
-func (r *SecurityPolicyReconciler) mergeSecurityPolicyStatusCondition(ctx *context.Context, secPolicy *v1alpha1.SecurityPolicy, newCondition *v1alpha1.Condition) bool {
+func (r *SecurityPolicyReconciler) mergeSecurityPolicyStatusCondition(ctx context.Context, secPolicy *v1alpha1.SecurityPolicy, newCondition *v1alpha1.Condition) bool {
 	matchedCondition := getExistingConditionOfType(newCondition.Type, secPolicy.Status.Conditions)
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {

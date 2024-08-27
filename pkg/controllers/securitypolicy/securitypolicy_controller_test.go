@@ -89,7 +89,7 @@ func TestSecurityPolicyController_updateSecurityPolicyStatusConditions(t *testin
 			Reason:  "Error occurred while processing the Security Policy CRD. Please check the config and try again",
 		},
 	}
-	r.updateSecurityPolicyStatusConditions(&ctx, dummySP, newConditions)
+	r.updateSecurityPolicyStatusConditions(ctx, dummySP, newConditions)
 
 	if !reflect.DeepEqual(dummySP.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -115,7 +115,7 @@ func TestSecurityPolicyController_updateSecurityPolicyStatusConditions(t *testin
 		},
 	}
 
-	r.updateSecurityPolicyStatusConditions(&ctx, dummySP, newConditions)
+	r.updateSecurityPolicyStatusConditions(ctx, dummySP, newConditions)
 
 	if !reflect.DeepEqual(dummySP.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -131,7 +131,7 @@ func TestSecurityPolicyController_updateSecurityPolicyStatusConditions(t *testin
 		},
 	}
 
-	r.updateSecurityPolicyStatusConditions(&ctx, dummySP, newConditions)
+	r.updateSecurityPolicyStatusConditions(ctx, dummySP, newConditions)
 
 	if !reflect.DeepEqual(dummySP.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -147,7 +147,7 @@ func TestSecurityPolicyController_updateSecurityPolicyStatusConditions(t *testin
 		},
 	}
 
-	r.updateSecurityPolicyStatusConditions(&ctx, dummySP, newConditions)
+	r.updateSecurityPolicyStatusConditions(ctx, dummySP, newConditions)
 
 	if !reflect.DeepEqual(dummySP.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -203,7 +203,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	})
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
 	patches := gomonkey.ApplyFunc(updateFail,
-		func(r *SecurityPolicyReconciler, c *context.Context, o *v1alpha1.SecurityPolicy, e *error) {
+		func(r *SecurityPolicyReconciler, c context.Context, o *v1alpha1.SecurityPolicy, e *error) {
 		})
 	defer patches.Reset()
 	result, ret := r.Reconcile(ctx, req)

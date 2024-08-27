@@ -81,7 +81,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			controllerutil.AddFinalizer(subnetPort, servicecommon.SubnetPortFinalizerName)
 			if err := r.Client.Update(ctx, subnetPort); err != nil {
 				log.Error(err, "add finalizer", "subnetport", req.NamespacedName)
-				updateFail(r, &ctx, subnetPort, &err)
+				updateFail(r, ctx, subnetPort, &err)
 				return common.ResultRequeue, err
 			}
 			log.Info("added finalizer on subnetport CR", "subnetport", req.NamespacedName)
@@ -105,10 +105,10 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels)
 		if err != nil {
 			log.Error(err, "failed to create or update NSX subnet port, would retry exponentially", "subnetport", req.NamespacedName)
-			updateFail(r, &ctx, subnetPort, &err)
+			updateFail(r, ctx, subnetPort, &err)
 			return common.ResultRequeue, err
 		}
-		subnetPort.Status.Attachment = v1alpha1.SegmentPortAttachmentState{ID: *nsxSubnetPortState.Attachment.Id}
+		subnetPort.Status.Attachment = v1alpha1.PortAttachment{ID: *nsxSubnetPortState.Attachment.Id}
 		subnetPort.Status.NetworkInterfaceConfig = v1alpha1.NetworkInterfaceConfig{
 			IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
 				{
@@ -130,24 +130,24 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			// If the SubnetPort CR's status changed, let's clean the conditions, to ensure the r.Client.Status().Update in the following updateSuccess will be invoked at any time.
 			subnetPort.Status.Conditions = nil
 		}
-		updateSuccess(r, &ctx, subnetPort)
+		updateSuccess(r, ctx, subnetPort)
 	} else {
 		if controllerutil.ContainsFinalizer(subnetPort, servicecommon.SubnetPortFinalizerName) {
 			metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnetPort)
 			subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
 			if err := r.SubnetPortService.DeleteSubnetPort(subnetPortID); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "subnetport", req.NamespacedName)
-				deleteFail(r, &ctx, subnetPort, &err)
+				deleteFail(r, ctx, subnetPort, &err)
 				return common.ResultRequeue, err
 			}
 			controllerutil.RemoveFinalizer(subnetPort, servicecommon.SubnetPortFinalizerName)
 			if err := r.Client.Update(ctx, subnetPort); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "subnetport", req.NamespacedName)
-				deleteFail(r, &ctx, subnetPort, &err)
+				deleteFail(r, ctx, subnetPort, &err)
 				return common.ResultRequeue, err
 			}
 			log.Info("removed finalizer", "subnetport", req.NamespacedName)
-			deleteSuccess(r, &ctx, subnetPort)
+			deleteSuccess(r, ctx, subnetPort)
 		} else {
 			log.Info("finalizers cannot be recognized", "subnetport", req.NamespacedName)
 		}
@@ -268,7 +268,7 @@ func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) {
 	}
 }
 
-func (r *SubnetPortReconciler) setSubnetPortReadyStatusTrue(ctx *context.Context, subnetPort *v1alpha1.SubnetPort, transitionTime metav1.Time) {
+func (r *SubnetPortReconciler) setSubnetPortReadyStatusTrue(ctx context.Context, subnetPort *v1alpha1.SubnetPort, transitionTime metav1.Time) {
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:               v1alpha1.Ready,
@@ -281,7 +281,7 @@ func (r *SubnetPortReconciler) setSubnetPortReadyStatusTrue(ctx *context.Context
 	r.UpdateSubnetPortStatusConditions(ctx, subnetPort, newConditions)
 }
 
-func (r *SubnetPortReconciler) setSubnetPortReadyStatusFalse(ctx *context.Context, subnetPort *v1alpha1.SubnetPort, transitionTime metav1.Time, err *error) {
+func (r *SubnetPortReconciler) setSubnetPortReadyStatusFalse(ctx context.Context, subnetPort *v1alpha1.SubnetPort, transitionTime metav1.Time, err *error) {
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:    v1alpha1.Ready,
@@ -297,7 +297,7 @@ func (r *SubnetPortReconciler) setSubnetPortReadyStatusFalse(ctx *context.Contex
 	r.UpdateSubnetPortStatusConditions(ctx, subnetPort, newConditions)
 }
 
-func (r *SubnetPortReconciler) UpdateSubnetPortStatusConditions(ctx *context.Context, subnetPort *v1alpha1.SubnetPort, newConditions []v1alpha1.Condition) {
+func (r *SubnetPortReconciler) UpdateSubnetPortStatusConditions(ctx context.Context, subnetPort *v1alpha1.SubnetPort, newConditions []v1alpha1.Condition) {
 	conditionsUpdated := false
 	for i := range newConditions {
 		if r.mergeSubnetPortStatusCondition(ctx, subnetPort, &newConditions[i]) {
@@ -305,13 +305,13 @@ func (r *SubnetPortReconciler) UpdateSubnetPortStatusConditions(ctx *context.Con
 		}
 	}
 	if conditionsUpdated {
-		r.Client.Status().Update(*ctx, subnetPort)
+		r.Client.Status().Update(ctx, subnetPort)
 		log.V(1).Info("updated subnet port CR", "Name", subnetPort.Name, "Namespace", subnetPort.Namespace,
 			"New Conditions", newConditions)
 	}
 }
 
-func (r *SubnetPortReconciler) mergeSubnetPortStatusCondition(ctx *context.Context, subnetPort *v1alpha1.SubnetPort, newCondition *v1alpha1.Condition) bool {
+func (r *SubnetPortReconciler) mergeSubnetPortStatusCondition(ctx context.Context, subnetPort *v1alpha1.SubnetPort, newCondition *v1alpha1.Condition) bool {
 	matchedCondition := getExistingConditionOfType(newCondition.Type, subnetPort.Status.Conditions)
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {
@@ -338,25 +338,25 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 	return nil
 }
 
-func updateFail(r *SubnetPortReconciler, c *context.Context, o *v1alpha1.SubnetPort, e *error) {
+func updateFail(r *SubnetPortReconciler, c context.Context, o *v1alpha1.SubnetPort, e *error) {
 	r.setSubnetPortReadyStatusFalse(c, o, metav1.Now(), e)
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResTypeSubnetPort)
 }
 
-func deleteFail(r *SubnetPortReconciler, c *context.Context, o *v1alpha1.SubnetPort, e *error) {
+func deleteFail(r *SubnetPortReconciler, c context.Context, o *v1alpha1.SubnetPort, e *error) {
 	r.setSubnetPortReadyStatusFalse(c, o, metav1.Now(), e)
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetPort)
 }
 
-func updateSuccess(r *SubnetPortReconciler, c *context.Context, o *v1alpha1.SubnetPort) {
+func updateSuccess(r *SubnetPortReconciler, c context.Context, o *v1alpha1.SubnetPort) {
 	r.setSubnetPortReadyStatusTrue(c, o, metav1.Now())
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "SubnetPort CR has been successfully updated")
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResTypeSubnetPort)
 }
 
-func deleteSuccess(r *SubnetPortReconciler, _ *context.Context, o *v1alpha1.SubnetPort) {
+func deleteSuccess(r *SubnetPortReconciler, _ context.Context, o *v1alpha1.SubnetPort) {
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "SubnetPort CR has been successfully deleted")
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetPort)
 }

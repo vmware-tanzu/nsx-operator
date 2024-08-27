@@ -616,7 +616,7 @@ func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatus(t *testing.T)
 	ctx := context.TODO()
 	err := fmt.Errorf("test error")
 	type args struct {
-		ctx *context.Context
+		ctx context.Context
 		o   *nsxvmwarecomv1alpha1.NSXServiceAccount
 		e   *error
 	}
@@ -637,7 +637,7 @@ func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatus(t *testing.T)
 				},
 			},
 			args: args{
-				ctx: &ctx,
+				ctx: ctx,
 				o: &nsxvmwarecomv1alpha1.NSXServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:            "name1",
@@ -711,7 +711,7 @@ func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatus(t *testing.T)
 				},
 			},
 			args: args{
-				ctx: &ctx,
+				ctx: ctx,
 				o: &nsxvmwarecomv1alpha1.NSXServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:            "name1",

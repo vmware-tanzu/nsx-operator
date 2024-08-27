@@ -46,30 +46,30 @@ type IPAddressAllocationReconciler struct {
 	Recorder   record.EventRecorder
 }
 
-func deleteSuccess(r *IPAddressAllocationReconciler, _ *context.Context, o *v1alpha1.IPAddressAllocation) {
+func deleteSuccess(r *IPAddressAllocationReconciler, _ context.Context, o *v1alpha1.IPAddressAllocation) {
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "IPAddressAllocation CR has been successfully deleted")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
 }
 
-func deleteFail(r *IPAddressAllocationReconciler, c *context.Context, o *v1alpha1.IPAddressAllocation, e *error) {
+func deleteFail(r *IPAddressAllocationReconciler, c context.Context, o *v1alpha1.IPAddressAllocation, e *error) {
 	r.setReadyStatusFalse(c, o, metav1.Now(), e)
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 }
 
-func updateSuccess(r *IPAddressAllocationReconciler, c *context.Context, o *v1alpha1.IPAddressAllocation) {
+func updateSuccess(r *IPAddressAllocationReconciler, c context.Context, o *v1alpha1.IPAddressAllocation) {
 	r.setReadyStatusTrue(c, o, metav1.Now())
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "IPAddressAllocation CR has been successfully updated")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
 }
 
-func updateFail(r *IPAddressAllocationReconciler, c *context.Context, o *v1alpha1.IPAddressAllocation, e *error) {
+func updateFail(r *IPAddressAllocationReconciler, c context.Context, o *v1alpha1.IPAddressAllocation, e *error) {
 	r.setReadyStatusFalse(c, o, metav1.Now(), e)
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
 }
 
-func (r *IPAddressAllocationReconciler) setReadyStatusFalse(ctx *context.Context, ipaddressallocation *v1alpha1.IPAddressAllocation, transitionTime metav1.Time, err *error) {
+func (r *IPAddressAllocationReconciler) setReadyStatusFalse(ctx context.Context, ipaddressallocation *v1alpha1.IPAddressAllocation, transitionTime metav1.Time, err *error) {
 	conditions := []v1alpha1.Condition{
 		{
 			Type:    v1alpha1.Ready,
@@ -83,13 +83,13 @@ func (r *IPAddressAllocationReconciler) setReadyStatusFalse(ctx *context.Context
 		},
 	}
 	ipaddressallocation.Status.Conditions = conditions
-	e := r.Client.Status().Update(*ctx, ipaddressallocation)
+	e := r.Client.Status().Update(ctx, ipaddressallocation)
 	if e != nil {
 		log.Error(e, "unable to update IPAddressAllocation status", "IPAddressAllocation", ipaddressallocation)
 	}
 }
 
-func (r *IPAddressAllocationReconciler) setReadyStatusTrue(ctx *context.Context, ipaddressallocation *v1alpha1.IPAddressAllocation, transitionTime metav1.Time) {
+func (r *IPAddressAllocationReconciler) setReadyStatusTrue(ctx context.Context, ipaddressallocation *v1alpha1.IPAddressAllocation, transitionTime metav1.Time) {
 	conditions := []v1alpha1.Condition{
 		{
 			Type:               v1alpha1.Ready,
@@ -100,7 +100,7 @@ func (r *IPAddressAllocationReconciler) setReadyStatusTrue(ctx *context.Context,
 		},
 	}
 	ipaddressallocation.Status.Conditions = conditions
-	e := r.Client.Status().Update(*ctx, ipaddressallocation)
+	e := r.Client.Status().Update(ctx, ipaddressallocation)
 	if e != nil {
 		log.Error(e, "unable to update IPAddressAllocation status", "IPAddressAllocation", ipaddressallocation)
 	}
@@ -127,7 +127,7 @@ func (r *IPAddressAllocationReconciler) handleUpdate(ctx context.Context, req ct
 		controllerutil.AddFinalizer(obj, servicecommon.IPAddressAllocationFinalizerName)
 		if err := r.Client.Update(ctx, obj); err != nil {
 			log.Error(err, "add finalizer", "IPAddressAllocation", req.NamespacedName)
-			updateFail(r, &ctx, obj, &err)
+			updateFail(r, ctx, obj, &err)
 			return resultRequeue, err
 		}
 		log.V(1).Info("added finalizer on IPAddressAllocation CR", "IPAddressAllocation", req.NamespacedName)
@@ -135,11 +135,11 @@ func (r *IPAddressAllocationReconciler) handleUpdate(ctx context.Context, req ct
 
 	updated, err := r.Service.CreateOrUpdateIPAddressAllocation(obj)
 	if err != nil {
-		updateFail(r, &ctx, obj, &err)
+		updateFail(r, ctx, obj, &err)
 		return resultRequeue, err
 	}
 	if updated {
-		updateSuccess(r, &ctx, obj)
+		updateSuccess(r, ctx, obj)
 	}
 	return resultNormal, nil
 }
@@ -149,17 +149,17 @@ func (r *IPAddressAllocationReconciler) handleDeletion(ctx context.Context, req 
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
 		if err := r.Service.DeleteIPAddressAllocation(obj); err != nil {
 			log.Error(err, "deletion failed, would retry exponentially", "IPAddressAllocation", req.NamespacedName)
-			deleteFail(r, &ctx, obj, &err)
+			deleteFail(r, ctx, obj, &err)
 			return resultRequeue, err
 		}
 		controllerutil.RemoveFinalizer(obj, servicecommon.IPAddressAllocationFinalizerName)
 		if err := r.Client.Update(ctx, obj); err != nil {
 			log.Error(err, "deletion failed, would retry exponentially", "IPAddressAllocation", req.NamespacedName)
-			deleteFail(r, &ctx, obj, &err)
+			deleteFail(r, ctx, obj, &err)
 			return resultRequeue, err
 		}
 		log.V(1).Info("removed finalizer on IPAddressAllocation CR", "IPAddressAllocation", req.NamespacedName)
-		deleteSuccess(r, &ctx, obj)
+		deleteSuccess(r, ctx, obj)
 		log.Info("successfully deleted IPAddressAllocation CR and all subnets", "IPAddressAllocation", obj)
 	} else {
 		// only print a message because it's not a normal case

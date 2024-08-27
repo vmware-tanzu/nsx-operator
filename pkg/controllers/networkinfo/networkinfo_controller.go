@@ -58,7 +58,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			controllerutil.AddFinalizer(obj, commonservice.NetworkInfoFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "NetworkInfo", req.NamespacedName)
-				updateFail(r, &ctx, obj, &err, r.Client, nil)
+				updateFail(r, ctx, obj, &err, r.Client, nil)
 				return common.ResultRequeue, err
 			}
 			log.V(1).Info("added finalizer on NetworkInfo CR", "NetworkInfo", req.NamespacedName)
@@ -69,14 +69,14 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		ncName, err := r.Service.GetNetworkconfigNameFromNS(obj.Namespace)
 		if err != nil {
 			log.Error(err, "failed to get network config name for VPC when creating NSX VPC", "VPC", obj.Name)
-			updateFail(r, &ctx, obj, &err, r.Client, nil)
+			updateFail(r, ctx, obj, &err, r.Client, nil)
 			return common.ResultRequeueAfter10sec, err
 		}
 		nc, _exist := r.Service.GetVPCNetworkConfig(ncName)
 		if !_exist {
 			message := fmt.Sprintf("failed to read network config %s when creating NSX VPC", ncName)
 			log.Info(message)
-			updateFail(r, &ctx, obj, &err, r.Client, nil)
+			updateFail(r, ctx, obj, &err, r.Client, nil)
 			return common.ResultRequeueAfter10sec, errors.New(message)
 		}
 		log.Info("got network config from store", "NetworkConfig", ncName)
@@ -84,10 +84,10 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		err = r.Client.Get(ctx, types.NamespacedName{Name: commonservice.SystemVPCNetworkConfigurationName}, vpcNetworkConfiguration)
 		if err != nil {
 			log.Error(err, "failed to get system VPCNetworkConfiguration")
-			updateFail(r, &ctx, obj, &err, r.Client, nil)
+			updateFail(r, ctx, obj, &err, r.Client, nil)
 			return common.ResultRequeueAfter10sec, err
 		}
-		gatewayConnectionReady, _, err := getGatewayConnectionStatus(&ctx, vpcNetworkConfiguration)
+		gatewayConnectionReady, _, err := getGatewayConnectionStatus(ctx, vpcNetworkConfiguration)
 		if err != nil {
 			log.Error(err, "failed to get the gateway connection status", "req", req.NamespacedName)
 			return common.ResultRequeueAfter10sec, err
@@ -100,17 +100,17 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				log.Info("got the gateway connection status", "gatewayConnectionReady", gatewayConnectionReady, "reason", reason)
 				if err != nil {
 					log.Error(err, "failed to validate the edge and gateway connection", "org", nc.Org, "project", nc.NSXProject)
-					updateFail(r, &ctx, obj, &err, r.Client, nil)
+					updateFail(r, ctx, obj, &err, r.Client, nil)
 					return common.ResultRequeueAfter10sec, err
 				}
 				vpcNetworkConfiguration := &v1alpha1.VPCNetworkConfiguration{}
 				err := r.Client.Get(ctx, types.NamespacedName{Name: ncName}, vpcNetworkConfiguration)
 				if err != nil {
 					log.Error(err, "failed to get VPCNetworkConfiguration", "Name", ncName)
-					updateFail(r, &ctx, obj, &err, r.Client, nil)
+					updateFail(r, ctx, obj, &err, r.Client, nil)
 					return common.ResultRequeueAfter10sec, err
 				}
-				setVPCNetworkConfigurationStatusWithGatewayConnection(&ctx, r.Client, vpcNetworkConfiguration, gatewayConnectionReady, reason)
+				setVPCNetworkConfigurationStatusWithGatewayConnection(ctx, r.Client, vpcNetworkConfiguration, gatewayConnectionReady, reason)
 			} else {
 				log.Info("skipping reconciling the network info because the system gateway connection is not ready", "NetworkInfo", req.NamespacedName)
 				return common.ResultRequeueAfter60sec, nil
@@ -120,7 +120,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		createdVpc, err := r.Service.CreateOrUpdateVPC(obj, &nc)
 		if err != nil {
 			log.Error(err, "create vpc failed, would retry exponentially", "VPC", req.NamespacedName)
-			updateFail(r, &ctx, obj, &err, r.Client, nil)
+			updateFail(r, ctx, obj, &err, r.Client, nil)
 			return common.ResultRequeueAfter10sec, err
 		}
 
@@ -167,12 +167,11 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				log.Error(err, "failed to read default SNAT ip from VPC", "VPC", createdVpc.Id)
 				state := &v1alpha1.VPCState{
 					Name:                    *createdVpc.DisplayName,
-					VPCPath:                 *createdVpc.Path,
 					DefaultSNATIP:           "",
 					LoadBalancerIPAddresses: "",
 					PrivateIPs:              privateIPs,
 				}
-				updateFail(r, &ctx, obj, &err, r.Client, state)
+				updateFail(r, ctx, obj, &err, r.Client, state)
 				return common.ResultRequeueAfter10sec, err
 			}
 		}
@@ -181,16 +180,15 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			err := r.Client.Get(ctx, types.NamespacedName{Name: ncName}, vpcNetworkConfiguration)
 			if err != nil {
 				log.Error(err, "failed to get VPCNetworkConfiguration", "Name", ncName)
-				updateFail(r, &ctx, obj, &err, r.Client, nil)
+				updateFail(r, ctx, obj, &err, r.Client, nil)
 				return common.ResultRequeueAfter10sec, err
 			}
 			if autoSnatEnabled {
 				log.Info("detected that the AutoSnat is enabled", "req", req.NamespacedName)
-				setVPCNetworkConfigurationStatusWithSnatEnabled(&ctx, r.Client,
-					vpcNetworkConfiguration, true)
+				setVPCNetworkConfigurationStatusWithSnatEnabled(ctx, r.Client, vpcNetworkConfiguration, true)
 			} else {
 				log.Info("detected that the AutoSnat is disabled", "req", req.NamespacedName)
-				setVPCNetworkConfigurationStatusWithSnatEnabled(&ctx, r.Client, vpcNetworkConfiguration, false)
+				setVPCNetworkConfigurationStatusWithSnatEnabled(ctx, r.Client, vpcNetworkConfiguration, false)
 			}
 		}
 
@@ -203,26 +201,25 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				log.Error(err, "failed to read lb subnet path and cidr", "VPC", createdVpc.Id)
 				state := &v1alpha1.VPCState{
 					Name:                    *createdVpc.DisplayName,
-					VPCPath:                 *createdVpc.Path,
 					DefaultSNATIP:           snatIP,
 					LoadBalancerIPAddresses: "",
 					PrivateIPs:              privateIPs,
 				}
-				updateFail(r, &ctx, obj, &err, r.Client, state)
+				updateFail(r, ctx, obj, &err, r.Client, state)
 				return common.ResultRequeueAfter10sec, err
 			}
 		}
 
 		state := &v1alpha1.VPCState{
 			Name:                    *createdVpc.DisplayName,
-			VPCPath:                 *createdVpc.Path,
 			DefaultSNATIP:           snatIP,
 			LoadBalancerIPAddresses: cidr,
 			PrivateIPs:              privateIPs,
+			VPCPath:                 *createdVpc.Path,
 		}
 		// AKO needs to know the AVI subnet path created by NSX
-		setVPCNetworkConfigurationStatusWithLBS(&ctx, r.Client, ncName, state.Name, path, r.Service.GetNSXLBSPath(*createdVpc.Id))
-		updateSuccess(r, &ctx, obj, r.Client, state, nc.Name, path)
+		setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, path, r.Service.GetNSXLBSPath(*createdVpc.Id), *createdVpc.Path)
+		updateSuccess(r, ctx, obj, r.Client, state, nc.Name, path)
 	} else {
 		if controllerutil.ContainsFinalizer(obj, commonservice.NetworkInfoFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNetworkInfo)
@@ -241,7 +238,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				// first delete vpc and then ipblock or else it will fail arguing it is being referenced by other objects
 				if err := r.Service.DeleteVPC(*vpc.Path); err != nil {
 					log.Error(err, "failed to delete nsx VPC, would retry exponentially", "NetworkInfo", req.NamespacedName)
-					deleteFail(r, &ctx, obj, &err, r.Client)
+					deleteFail(r, ctx, obj, &err, r.Client)
 					return common.ResultRequeueAfter10sec, err
 				}
 				if err := r.Service.DeleteIPBlockInVPC(*vpc); err != nil {
@@ -252,11 +249,11 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 			controllerutil.RemoveFinalizer(obj, commonservice.NetworkInfoFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
-				deleteFail(r, &ctx, obj, &err, r.Client)
+				deleteFail(r, ctx, obj, &err, r.Client)
 				return common.ResultRequeue, err
 			}
 			log.V(1).Info("removed finalizer", "NetworkInfo", req.NamespacedName)
-			deleteSuccess(r, &ctx, obj)
+			deleteSuccess(r, ctx, obj)
 		} else {
 			// only print a message because it's not a normal case
 			log.Info("finalizers cannot be recognized", "NetworkInfo", req.NamespacedName)

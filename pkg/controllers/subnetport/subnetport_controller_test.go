@@ -93,11 +93,11 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	err = errors.New("Update failed")
 	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(err)
 	patchesSuccess := gomonkey.ApplyFunc(updateSuccess,
-		func(r *SubnetPortReconciler, c *context.Context, o *v1alpha1.SubnetPort) {
+		func(r *SubnetPortReconciler, c context.Context, o *v1alpha1.SubnetPort) {
 		})
 	defer patchesSuccess.Reset()
 	patchesUpdateFail := gomonkey.ApplyFunc(updateFail,
-		func(r *SubnetPortReconciler, c *context.Context, o *v1alpha1.SubnetPort, e *error) {
+		func(r *SubnetPortReconciler, c context.Context, o *v1alpha1.SubnetPort, e *error) {
 		})
 	defer patchesUpdateFail.Reset()
 	_, ret := r.Reconcile(ctx, req)
@@ -202,7 +202,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
 	patchesDeleteFail := gomonkey.ApplyFunc(deleteFail,
-		func(r *SubnetPortReconciler, c *context.Context, o *v1alpha1.SubnetPort, e *error) {
+		func(r *SubnetPortReconciler, c context.Context, o *v1alpha1.SubnetPort, e *error) {
 		})
 	defer patchesDeleteFail.Reset()
 	_, ret = r.Reconcile(ctx, req)

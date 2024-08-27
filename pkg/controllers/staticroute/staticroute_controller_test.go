@@ -55,7 +55,7 @@ func TestStaticRouteController_updateStaticRouteStatusConditions(t *testing.T) {
 			Reason:  "Error occurred while processing the Static Route CRD. Please check the config and try again",
 		},
 	}
-	r.updateStaticRouteStatusConditions(&ctx, dummySR, newConditions)
+	r.updateStaticRouteStatusConditions(ctx, dummySR, newConditions)
 
 	if !reflect.DeepEqual(dummySR.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -81,7 +81,7 @@ func TestStaticRouteController_updateStaticRouteStatusConditions(t *testing.T) {
 		},
 	}
 
-	r.updateStaticRouteStatusConditions(&ctx, dummySR, newConditions)
+	r.updateStaticRouteStatusConditions(ctx, dummySR, newConditions)
 
 	if !reflect.DeepEqual(dummySR.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -97,7 +97,7 @@ func TestStaticRouteController_updateStaticRouteStatusConditions(t *testing.T) {
 		},
 	}
 
-	r.updateStaticRouteStatusConditions(&ctx, dummySR, newConditions)
+	r.updateStaticRouteStatusConditions(ctx, dummySR, newConditions)
 
 	if !reflect.DeepEqual(dummySR.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -113,7 +113,7 @@ func TestStaticRouteController_updateStaticRouteStatusConditions(t *testing.T) {
 		},
 	}
 
-	r.updateStaticRouteStatusConditions(&ctx, dummySR, newConditions)
+	r.updateStaticRouteStatusConditions(ctx, dummySR, newConditions)
 
 	if !reflect.DeepEqual(dummySR.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")

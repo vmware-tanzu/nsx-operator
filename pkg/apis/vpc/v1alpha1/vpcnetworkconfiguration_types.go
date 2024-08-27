@@ -51,6 +51,8 @@ type VPCInfo struct {
 	AVISESubnetPath string `json:"lbSubnetPath,omitempty"`
 	// NSXLoadBalancerPath is the NSX Policy path for the NSX Load Balancer.
 	NSXLoadBalancerPath string `json:"nsxLoadBalancerPath,omitempty"`
+	// NSX Policy path for VPC.
+	VPCPath string `json:"vpcPath"`
 }
 
 // +genclient
