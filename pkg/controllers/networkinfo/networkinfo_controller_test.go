@@ -125,7 +125,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					}, true
 
 				})
-				patches.ApplyFunc(getGatewayConnectionStatus, func(_ *context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
+				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
 					return false, "", nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateGatewayConnectionStatus", func(_ *vpc.VPCService, _ *servicecommon.VPCNetworkConfigInfo) (bool, string, error) {
@@ -150,7 +150,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 
 				})
 				patches.ApplyFunc(updateSuccess,
-					func(_ *NetworkInfoReconciler, _ *context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
+					func(_ *NetworkInfoReconciler, _ context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
 					})
 				return patches
 
@@ -185,7 +185,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					}, true
 
 				})
-				patches.ApplyFunc(getGatewayConnectionStatus, func(_ *context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
+				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
 					return true, "", nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateGatewayConnectionStatus", func(_ *vpc.VPCService, _ *servicecommon.VPCNetworkConfigInfo) (bool, string, error) {
@@ -211,7 +211,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 
 				})
 				patches.ApplyFunc(updateSuccess,
-					func(_ *NetworkInfoReconciler, _ *context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
+					func(_ *NetworkInfoReconciler, _ context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
 					})
 				return patches
 
@@ -246,7 +246,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					}, true
 
 				})
-				patches.ApplyFunc(getGatewayConnectionStatus, func(_ *context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
+				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
 					return false, "", nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateGatewayConnectionStatus", func(_ *vpc.VPCService, _ *servicecommon.VPCNetworkConfigInfo) (bool, string, error) {
@@ -290,7 +290,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					}, true
 
 				})
-				patches.ApplyFunc(getGatewayConnectionStatus, func(_ *context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
+				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
 					return false, "", nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateGatewayConnectionStatus", func(_ *vpc.VPCService, _ *servicecommon.VPCNetworkConfigInfo) (bool, string, error) {
@@ -326,10 +326,10 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 
 				})
 				patches.ApplyFunc(updateSuccess,
-					func(_ *NetworkInfoReconciler, _ *context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
+					func(_ *NetworkInfoReconciler, _ context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
 					})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
-					func(_ *context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
+					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
 						if !autoSnatEnabled {
 							assert.FailNow(t, "should set VPCNetworkConfiguration status with AutoSnatEnabled=true")
 						}
@@ -368,7 +368,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					}, true
 
 				})
-				patches.ApplyFunc(getGatewayConnectionStatus, func(_ *context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
+				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
 					return false, "", nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateGatewayConnectionStatus", func(_ *vpc.VPCService, _ *servicecommon.VPCNetworkConfigInfo) (bool, string, error) {
@@ -399,10 +399,10 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 
 				})
 				patches.ApplyFunc(updateSuccess,
-					func(_ *NetworkInfoReconciler, _ *context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
+					func(_ *NetworkInfoReconciler, _ context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
 					})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
-					func(_ *context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
+					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
 						if autoSnatEnabled {
 							assert.FailNow(t, "should set VPCNetworkConfiguration status with AutoSnatEnabled=false")
 						}
@@ -441,7 +441,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					}, true
 
 				})
-				patches.ApplyFunc(getGatewayConnectionStatus, func(_ *context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
+				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
 					return true, "", nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateGatewayConnectionStatus", func(_ *vpc.VPCService, _ *servicecommon.VPCNetworkConfigInfo) (bool, string, error) {
@@ -477,10 +477,10 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 
 				})
 				patches.ApplyFunc(updateSuccess,
-					func(_ *NetworkInfoReconciler, _ *context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
+					func(_ *NetworkInfoReconciler, _ context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
 					})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
-					func(_ *context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
+					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
 						assert.FailNow(t, "should not be called")
 					})
 

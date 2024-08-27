@@ -45,22 +45,22 @@ type NetworkPolicyReconciler struct {
 	Recorder record.EventRecorder
 }
 
-func updateFail(r *NetworkPolicyReconciler, c *context.Context, o *networkingv1.NetworkPolicy, e *error) {
+func updateFail(r *NetworkPolicyReconciler, c context.Context, o *networkingv1.NetworkPolicy, e *error) {
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
 }
 
-func deleteFail(r *NetworkPolicyReconciler, c *context.Context, o *networkingv1.NetworkPolicy, e *error) {
+func deleteFail(r *NetworkPolicyReconciler, c context.Context, o *networkingv1.NetworkPolicy, e *error) {
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 }
 
-func updateSuccess(r *NetworkPolicyReconciler, c *context.Context, o *networkingv1.NetworkPolicy) {
+func updateSuccess(r *NetworkPolicyReconciler, c context.Context, o *networkingv1.NetworkPolicy) {
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "NetworkPolicy has been successfully updated")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
 }
 
-func deleteSuccess(r *NetworkPolicyReconciler, _ *context.Context, o *networkingv1.NetworkPolicy) {
+func deleteSuccess(r *NetworkPolicyReconciler, _ context.Context, o *networkingv1.NetworkPolicy) {
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "NetworkPolicy has been successfully deleted")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
 }
@@ -81,7 +81,7 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			controllerutil.AddFinalizer(networkPolicy, servicecommon.NetworkPolicyFinalizerName)
 			if err := r.Client.Update(ctx, networkPolicy); err != nil {
 				log.Error(err, "add finalizer", "networkpolicy", req.NamespacedName)
-				updateFail(r, &ctx, networkPolicy, &err)
+				updateFail(r, ctx, networkPolicy, &err)
 				return ResultRequeue, err
 			}
 			log.V(1).Info("added finalizer on networkpolicy", "networkpolicy", req.NamespacedName)
@@ -90,30 +90,30 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		if err := r.Service.CreateOrUpdateSecurityPolicy(networkPolicy); err != nil {
 			if errors.As(err, &nsxutil.RestrictionError{}) {
 				log.Error(err, err.Error(), "networkpolicy", req.NamespacedName)
-				updateFail(r, &ctx, networkPolicy, &err)
+				updateFail(r, ctx, networkPolicy, &err)
 				return ResultNormal, nil
 			}
 			log.Error(err, "create or update failed, would retry exponentially", "networkpolicy", req.NamespacedName)
-			updateFail(r, &ctx, networkPolicy, &err)
+			updateFail(r, ctx, networkPolicy, &err)
 			return ResultRequeue, err
 		}
-		updateSuccess(r, &ctx, networkPolicy)
+		updateSuccess(r, ctx, networkPolicy)
 	} else {
 		if controllerutil.ContainsFinalizer(networkPolicy, servicecommon.NetworkPolicyFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
 			if err := r.Service.DeleteSecurityPolicy(networkPolicy, false, servicecommon.ResourceTypeNetworkPolicy); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "networkpolicy", req.NamespacedName)
-				deleteFail(r, &ctx, networkPolicy, &err)
+				deleteFail(r, ctx, networkPolicy, &err)
 				return ResultRequeue, err
 			}
 			controllerutil.RemoveFinalizer(networkPolicy, servicecommon.NetworkPolicyFinalizerName)
 			if err := r.Client.Update(ctx, networkPolicy); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "networkpolicy", req.NamespacedName)
-				deleteFail(r, &ctx, networkPolicy, &err)
+				deleteFail(r, ctx, networkPolicy, &err)
 				return ResultRequeue, err
 			}
 			log.V(1).Info("removed finalizer", "networkpolicy", req.NamespacedName)
-			deleteSuccess(r, &ctx, networkPolicy)
+			deleteSuccess(r, ctx, networkPolicy)
 		} else {
 			// only print a message because it's not a normal case
 			log.Info("finalizers cannot be recognized", "networkpolicy", req.NamespacedName)

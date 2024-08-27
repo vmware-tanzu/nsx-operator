@@ -129,8 +129,12 @@ spec:
                       description: NSXLoadBalancerPath is the NSX Policy path for
                         the NSX Load Balancer.
                       type: string
+                    vpcPath:
+                      description: NSX Policy path for VPC.
+                      type: string
                   required:
                   - name
+                  - vpcPath
                   type: object
                 type: array
             type: object

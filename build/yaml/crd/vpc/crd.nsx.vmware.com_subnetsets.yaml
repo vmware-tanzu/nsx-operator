@@ -23,9 +23,9 @@ spec:
       jsonPath: .spec.ipv4SubnetSize
       name: IPv4SubnetSize
       type: string
-    - description: CIDRs for the Subnet
-      jsonPath: .status.subnets[*].ipAddresses[*]
-      name: IPAddresses
+    - description: CIDRs for the SubnetSet
+      jsonPath: .status.subnets[*].networkAddresses[*]
+      name: NetworkAddresses
       type: string
     name: v1alpha1
     schema:
@@ -70,20 +70,6 @@ spec:
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self == oldSelf
-              advancedConfig:
-                description: Subnet advanced configuration.
-                properties:
-                  staticIPAllocation:
-                    description: StaticIPAllocation configuration for subnet ports
-                      with VIF attachment.
-                    properties:
-                      enable:
-                        default: false
-                        description: Enable or disable static IP allocation for subnet
-                          ports with VIF attachment.
-                        type: boolean
-                    type: object
-                type: object
               ipv4SubnetSize:
                 description: Size of Subnet based upon estimated workload count.
                 maximum: 65536

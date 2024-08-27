@@ -66,7 +66,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 			DhcpConfig:     service.buildDHCPConfig(o.Spec.DHCPConfig.EnableDHCP, int64(o.Spec.IPv4SubnetSize-4)),
 			DisplayName:    String(service.buildSubnetName(o)),
 		}
-		staticIpAllocation = o.Spec.AdvancedConfig.StaticIPAllocation.Enable
+		staticIpAllocation = !o.Spec.DHCPConfig.EnableDHCP
 		nsxSubnet.IpAddresses = o.Spec.IPAddresses
 	case *v1alpha1.SubnetSet:
 		// The index is a random string with the length of 8 chars. It is the first 8 chars of the hash
@@ -79,7 +79,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 			DhcpConfig:     service.buildDHCPConfig(o.Spec.DHCPConfig.EnableDHCP, int64(o.Spec.IPv4SubnetSize-4)),
 			DisplayName:    String(service.buildSubnetSetName(o, index)),
 		}
-		staticIpAllocation = o.Spec.AdvancedConfig.StaticIPAllocation.Enable
+		staticIpAllocation = !o.Spec.DHCPConfig.EnableDHCP
 	default:
 		return nil, SubnetTypeError
 	}

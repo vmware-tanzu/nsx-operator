@@ -61,7 +61,6 @@ spec:
               required:
               - defaultSNATIP
               - name
-              - vpcPath
               type: object
             type: array
         required:

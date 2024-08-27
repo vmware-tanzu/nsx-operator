@@ -17,8 +17,6 @@ type SubnetSetSpec struct {
 	// +kubebuilder:validation:Enum=Private;Public;PrivateTGW
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	AccessMode AccessMode `json:"accessMode,omitempty"`
-	// Subnet advanced configuration.
-	AdvancedConfig AdvancedConfig `json:"advancedConfig,omitempty"`
 	// DHCPConfig DHCP configuration.
 	DHCPConfig DHCPConfig `json:"DHCPConfig,omitempty"`
 }
@@ -44,7 +42,7 @@ type SubnetSetStatus struct {
 // SubnetSet is the Schema for the subnetsets API.
 // +kubebuilder:printcolumn:name="AccessMode",type=string,JSONPath=`.spec.accessMode`,description="Access mode of Subnet"
 // +kubebuilder:printcolumn:name="IPv4SubnetSize",type=string,JSONPath=`.spec.ipv4SubnetSize`,description="Size of Subnet"
-// +kubebuilder:printcolumn:name="IPAddresses",type=string,JSONPath=`.status.subnets[*].ipAddresses[*]`,description="CIDRs for the Subnet"
+// +kubebuilder:printcolumn:name="NetworkAddresses",type=string,JSONPath=`.status.subnets[*].networkAddresses[*]`,description="CIDRs for the SubnetSet"
 type SubnetSet struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

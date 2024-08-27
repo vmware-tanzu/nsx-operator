@@ -5,6 +5,3 @@ metadata:
   namespace: subnet-e2e
 spec:
   accessMode: Private
-  advancedConfig:
-    staticIPAllocation:
-      enable: true
