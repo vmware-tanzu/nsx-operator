@@ -515,26 +515,50 @@ Hce3uM6Xn8sAglod/r+0onZ09yoiH2Qj5EY50wUIOPtey2ilhuhwoo/M7Nt/yomF
 }
 
 func TestCasttoPointer(t *testing.T) {
+	var share *model.Share
+	Id := "test-id"
+	principalI := mpmodel.PrincipalIdentity{Id: &Id}
+	rule := model.Rule{Id: &Id}
+	tag := model.Tag{Scope: &Id}
+	lbs := model.LBService{Id: &Id}
+	share = nil
 	tests := []struct {
 		name string
 		obj  interface{}
 		want interface{}
 	}{
+
 		{
 			name: "PrincipalIdentity",
-			obj:  mpmodel.PrincipalIdentity{},
-			want: &mpmodel.PrincipalIdentity{},
+			obj:  principalI,
+			want: &principalI,
 		},
 		{
 			name: "Rule",
-			obj:  model.Rule{},
-			want: &model.Rule{},
+			obj:  rule,
+			want: &rule,
 		},
 		// Add more test cases for other types
 		{
-			name: "UnsupportedType",
-			obj:  model.Tag{},
+			name: "Tag",
+			obj:  tag,
+			want: &tag,
+		},
+		{
+			name: "LBService pointer",
+			obj:  &lbs,
+			want: &lbs,
+		},
+		{
+			name: "nil",
+			obj:  nil,
 			want: nil,
+		},
+
+		{
+			name: "typed nil",
+			obj:  share,
+			want: share,
 		},
 	}
 
