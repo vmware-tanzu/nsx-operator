@@ -35,6 +35,7 @@ var log = &logger.Log
 
 var HttpCommonError = errors.New("received HTTP Error")
 var HttpNotFoundError = errors.New("received HTTP Not Found Error")
+var HttpBadRequest = errors.New("received HTTP Bad Request Error")
 
 // ErrorDetail is error detail which info extracted from http.Response.Body.
 type ErrorDetail struct {
@@ -252,6 +253,9 @@ func HandleHTTPResponse(response *http.Response, result interface{}, debug bool)
 		err := HttpCommonError
 		if response.StatusCode == http.StatusNotFound {
 			err = HttpNotFoundError
+		}
+		if response.StatusCode == http.StatusBadRequest {
+			err = HttpBadRequest
 		}
 		log.Error(err, "handle http response", "status", response.StatusCode, "request URL", response.Request.URL, "response body", string(body))
 		return err, nil

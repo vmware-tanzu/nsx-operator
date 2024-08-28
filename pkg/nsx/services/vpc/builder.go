@@ -28,16 +28,20 @@ func generateIPBlockKey(block model.IpAddressBlock) string {
 }
 
 func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNetworkConfigInfo, cluster string,
-	nsxVPC *model.Vpc, useAVILB bool) (*model.Vpc,
+	nsxVPC *model.Vpc, useAVILB bool, lbProviderChanged bool) (*model.Vpc,
 	error) {
 	vpc := &model.Vpc{}
 	if nsxVPC != nil {
 		// for upgrade case, only check public/private ip block size changing
-		if !IsVPCChanged(nc, nsxVPC) {
+		if !IsVPCChanged(nc, nsxVPC) && !lbProviderChanged {
 			log.Info("no changes on current NSX VPC, skip updating", "VPC", nsxVPC.Id)
 			return nil, nil
 		}
 		// for updating vpc case, use current vpc id, name
+		if useAVILB && lbProviderChanged {
+			loadBalancerVPCEndpointEnabled := true
+			nsxVPC.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &loadBalancerVPCEndpointEnabled}
+		}
 		*vpc = *nsxVPC
 	} else {
 		// for creating vpc case, fill in vpc properties based on networkconfig

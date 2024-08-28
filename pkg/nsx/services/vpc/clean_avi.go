@@ -38,7 +38,16 @@ func CleanAviSubnetPorts(ctx context.Context, cluster *nsx.Cluster, vpcPath stri
 	log.Info("Deleting Avi subnetports started")
 
 	allPaths, err := httpGetAviPortsPaths(cluster, vpcPath)
+	/*
+	 in the e2e test, this GET operation return 400 instead of 404.
+	 "error": "StatusCode is 400,ErrorCode is 500012,Detail is The path=[/orgs/default/projects/nsx_operator_e2e_test/vpcs/kube-system-c996c9c6-50df-429c-8202-2287c0822791/subnets/_AVI_SUBNET--LB] is invalid
+	 so add checking HttpBadRequest.
+	*/
 	if err != nil {
+		if errors.Is(err, nsxutil.HttpNotFoundError) || errors.Is(err, nsxutil.HttpBadRequest) {
+			log.Info("No Avi subnetports found")
+			return nil
+		}
 		return err
 	}
 

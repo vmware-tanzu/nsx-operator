@@ -108,8 +108,8 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				return common.ResultRequeueAfter60sec, nil
 			}
 		}
-
-		createdVpc, err := r.Service.CreateOrUpdateVPC(obj, &nc)
+		lbProvider := r.Service.GetLBProvider()
+		createdVpc, err := r.Service.CreateOrUpdateVPC(obj, &nc, lbProvider)
 		if err != nil {
 			log.Error(err, "create vpc failed, would retry exponentially", "VPC", req.NamespacedName)
 			updateFail(r, ctx, obj, &err, r.Client, nil)
@@ -143,21 +143,9 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx, r.Client, vpcNetworkConfiguration, true)
 			}
 		}
-		isEnableAutoSNAT := func() bool {
-			if vpcConnectivityProfile.ServiceGateway == nil || vpcConnectivityProfile.ServiceGateway.Enable == nil {
-				return false
-			}
-			if *vpcConnectivityProfile.ServiceGateway.Enable {
-				if vpcConnectivityProfile.ServiceGateway.NatConfig == nil || vpcConnectivityProfile.ServiceGateway.NatConfig.EnableDefaultSnat == nil {
-					return false
-				}
-				return *vpcConnectivityProfile.ServiceGateway.NatConfig.EnableDefaultSnat
-			}
-			return false
-		}
 		// currently, auto snat is not exposed, and use default value True
 		// checking autosnat to support future extension in vpc configuration
-		autoSnatEnabled := isEnableAutoSNAT()
+		autoSnatEnabled := r.Service.IsEnableAutoSNAT(vpcConnectivityProfile)
 		if autoSnatEnabled {
 			snatIP, err = r.Service.GetDefaultSNATIP(*createdVpc)
 			if err != nil {
@@ -192,7 +180,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// if lb vpc enabled, read avi subnet path and cidr
 		// nsx bug, if set LoadBalancerVpcEndpoint.Enabled to false, when read this vpc back,
 		// LoadBalancerVpcEndpoint.Enabled will become a nil pointer.
-		if !r.Service.NSXLBEnabled() && createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
+		if lbProvider == vpc.AVILB && createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
 			path, cidr, err = r.Service.GetAVISubnetInfo(*createdVpc)
 			if err != nil {
 				log.Error(err, "failed to read lb subnet path and cidr", "VPC", createdVpc.Id)
