@@ -143,7 +143,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			if ncName == commonservice.SystemVPCNetworkConfigurationName {
 				setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx, r.Client, vpcNetworkConfiguration)
 				log.Error(err, "there is no ExternalIPBlock in VPC ConnectivityProfile", "VPC", req.NamespacedName)
-				return common.ResultRequeue, err
+				return common.ResultRequeue, fmt.Errorf("no ExternalIPBlock in VPC ConnectivityProfile, VPC: %s", req.NamespacedName)
 			}
 		}
 		isEnableAutoSNAT := func() bool {
