@@ -546,11 +546,29 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, _ bool) {
 						t.Log("setVPCNetworkConfigurationStatusWithNoExternalIPBlock")
 					})
+
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSPath", func(_ *vpc.VPCService, _ string) string {
+					return "lbs-path"
+
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
+					return "snat-ip", nil
+
+				})
+				patches.ApplyFunc(updateSuccess,
+					func(_ *NetworkInfoReconciler, _ context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
+					})
+				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
+					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
+						if autoSnatEnabled {
+							assert.FailNow(t, "should set VPCNetworkConfiguration status with AutoSnatEnabled=false")
+						}
+					})
 				return patches
 			},
 			args:    requestArgs,
-			want:    common.ResultRequeue,
-			wantErr: true,
+			want:    common.ResultNormal,
+			wantErr: false,
 		},
 	}
 
