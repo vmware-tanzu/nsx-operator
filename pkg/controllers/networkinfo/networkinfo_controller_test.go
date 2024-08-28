@@ -543,7 +543,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					Times: 1,
 				}})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithNoExternalIPBlock,
-					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration) {
+					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, _ bool) {
 						t.Log("setVPCNetworkConfigurationStatusWithNoExternalIPBlock")
 					})
 				return patches

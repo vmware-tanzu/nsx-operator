@@ -130,12 +130,17 @@ func setVPCNetworkConfigurationStatusWithSnatEnabled(ctx context.Context, client
 	}
 }
 
-func setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx context.Context, client client.Client, nc *v1alpha1.VPCNetworkConfiguration) {
+func setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx context.Context, client client.Client, nc *v1alpha1.VPCNetworkConfiguration, hasExternalIPs bool) {
 	newCondition := v1alpha1.Condition{
 		Type:               v1alpha1.ExternalIPBlocksConfigured,
-		Status:             v1.ConditionFalse,
 		LastTransitionTime: metav1.Time{},
-		Reason:             "No External IP Blocks exist in VPC Connectivity Profile",
+	}
+	if !hasExternalIPs {
+		newCondition.Status = v1.ConditionFalse
+		newCondition.Reason = "No External IP Blocks exist in VPC Connectivity Profile"
+	} else {
+		newCondition.Status = v1.ConditionTrue
+		newCondition.Reason = "External IP Blocks exist in VPC Connectivity Profile"
 	}
 	if mergeStatusCondition(ctx, &nc.Status.Conditions, &newCondition) {
 		if err := client.Status().Update(ctx, nc); err != nil {
