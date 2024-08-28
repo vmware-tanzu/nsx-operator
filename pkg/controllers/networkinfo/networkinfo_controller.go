@@ -144,7 +144,6 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			if len(vpcConnectivityProfile.ExternalIpBlocks) == 0 {
 				setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx, r.Client, vpcNetworkConfiguration, false)
 				log.Error(err, "there is no ExternalIPBlock in VPC ConnectivityProfile", "VPC", req.NamespacedName)
-				return common.ResultRequeue, fmt.Errorf("no ExternalIPBlock in VPC ConnectivityProfile, VPC: %s", req.NamespacedName)
 			} else {
 				setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx, r.Client, vpcNetworkConfiguration, true)
 			}
