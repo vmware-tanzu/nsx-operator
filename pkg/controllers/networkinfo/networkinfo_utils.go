@@ -38,12 +38,7 @@ func updateSuccess(r *NetworkInfoReconciler, c context.Context, o *v1alpha1.Netw
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, common.MetricResTypeNetworkInfo)
 }
 
-func deleteSuccess(r *NetworkInfoReconciler, c context.Context, o *v1alpha1.NetworkInfo, client client.Client, staleVPCs []*model.Vpc, ncName string, allVPCs sets.Set[string]) {
-	staleVPCNames := sets.New[string]()
-	for _, vpc := range staleVPCs {
-		staleVPCNames.Insert(*vpc.DisplayName)
-	}
-	deleteVPCNetworkConfigurationStatus(c, client, ncName, staleVPCNames, allVPCs)
+func deleteSuccess(r *NetworkInfoReconciler, c context.Context, o *v1alpha1.NetworkInfo) {
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "NetworkInfo CR has been successfully deleted")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeNetworkInfo)
 }
@@ -190,7 +185,15 @@ func getGatewayConnectionStatus(ctx context.Context, nc *v1alpha1.VPCNetworkConf
 	return gatewayConnectionReady, reason, nil
 }
 
-func deleteVPCNetworkConfigurationStatus(ctx context.Context, client client.Client, ncName string, staleVPCNames, allVPCs sets.Set[string]) {
+func deleteVPCNetworkConfigurationStatus(ctx context.Context, client client.Client, ncName string, staleVPCs []*model.Vpc, aliveVPCs []model.Vpc) {
+	aliveVPCNames := sets.New[string]()
+	for _, vpcModel := range aliveVPCs {
+		aliveVPCNames.Insert(*vpcModel.DisplayName)
+	}
+	staleVPCNames := sets.New[string]()
+	for _, vpc := range staleVPCs {
+		staleVPCNames.Insert(*vpc.DisplayName)
+	}
 	// read v1alpha1.VPCNetworkConfiguration by ncName
 	nc := &v1alpha1.VPCNetworkConfiguration{}
 	err := client.Get(ctx, apitypes.NamespacedName{Name: ncName}, nc)
@@ -201,14 +204,16 @@ func deleteVPCNetworkConfigurationStatus(ctx context.Context, client client.Clie
 	// iterate through VPCNetworkConfiguration.Status.VPCs, if vpcName does not exist in the staleVPCNames, append in new VPCs status
 	var newVPCInfos []v1alpha1.VPCInfo
 	for _, vpc := range nc.Status.VPCs {
-		if !staleVPCNames.Has(vpc.Name) && allVPCs.Has(vpc.Name) {
+		if !staleVPCNames.Has(vpc.Name) && aliveVPCNames.Has(vpc.Name) {
 			newVPCInfos = append(newVPCInfos, vpc)
 		}
 	}
 	nc.Status.VPCs = newVPCInfos
 	if err := client.Status().Update(ctx, nc); err != nil {
-		log.Error(err, "failed to update VPCNetworkConfiguration status", "Name", ncName)
+		log.Error(err, "failed to delete stale VPCNetworkConfiguration status", "Name", ncName, "nc.Status.VPCs", nc.Status.VPCs, "staleVPCs", staleVPCNames)
+		return
 	}
+	log.Info("Deleted stale VPCNetworkConfiguration status", "Name", ncName, "nc.Status.VPCs", nc.Status.VPCs, "staleVPCs", staleVPCNames)
 }
 
 func getNamespaceFromNSXVPC(nsxVPC *model.Vpc) string {

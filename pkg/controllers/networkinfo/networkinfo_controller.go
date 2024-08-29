@@ -258,13 +258,9 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				log.Error(err, "failed to get network config name for VPC when deleting NetworkInfo CR", "NetworkInfo", obj.Name)
 				return common.ResultRequeueAfter10sec, err
 			}
-			allVPCs := r.Service.ListVPC()
-			vpcAlive := sets.New[string]()
-			for _, vpcModel := range allVPCs {
-				vpcAlive.Insert(*vpcModel.DisplayName)
-			}
 			log.V(1).Info("removed finalizer", "NetworkInfo", req.NamespacedName)
-			deleteSuccess(r, ctx, obj, r.Client, vpcs, ncName, vpcAlive)
+			deleteVPCNetworkConfigurationStatus(ctx, r.Client, ncName, vpcs, r.Service.ListVPC())
+			deleteSuccess(r, ctx, obj)
 		} else {
 			// only print a message because it's not a normal case
 			log.Info("finalizers cannot be recognized", "NetworkInfo", req.NamespacedName)
