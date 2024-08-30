@@ -43,11 +43,10 @@ const (
 	ServiceAccountRestore
 	ServiceAccountCertRotation
 	StaticRoute
-	VpcAviRule
 	AllFeatures
 )
 
-var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_AVI_RULE"}
+var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE"}
 
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
@@ -245,10 +244,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	if !nsxClient.NSXCheckVersion(ServiceAccountRestore) {
 		err := errors.New("NSXServiceAccountRestore feature support check failed")
 		log.Error(err, "initial NSX version check for NSXServiceAccountRestore got error")
-	}
-	if !nsxClient.NSXCheckVersion(VpcAviRule) {
-		err := errors.New("VpcAviRule feature support check failed")
-		log.Error(err, "initial NSX version check for VpcAviRule got error")
 	}
 	if !nsxClient.NSXCheckVersion(ServiceAccountCertRotation) {
 		err := errors.New("ServiceAccountCertRotation feature support check failed")
