@@ -23,8 +23,6 @@ import (
 )
 
 const (
-	AviSEIngressAllowRuleId    = "avi-se-ingress-allow-rule"
-	VPCAviSEGroupId            = "avi-se-vms"
 	VpcDefaultSecurityPolicyId = "default-layer3-section"
 	VPCKey                     = "/orgs/%s/projects/%s/vpcs/%s"
 	GroupKey                   = "/orgs/%s/projects/%s/vpcs/%s/groups/%s"
@@ -43,7 +41,6 @@ var (
 	lbProvider                = ""
 	lbProviderMutex           = &sync.Mutex{}
 	MarkedForDelete           = true
-	enableAviAllowRule        = false
 	EnforceRevisionCheckParam = false
 )
 
@@ -65,13 +62,6 @@ type VPCService struct {
 	VPCNetworkConfigStore   VPCNetworkInfoStore
 	VPCNSNetworkConfigStore VPCNsNetworkConfigStore
 	defaultNetworkConfigCR  *common.VPCNetworkConfigInfo
-	AVIAllowRule
-}
-type AVIAllowRule struct {
-	GroupStore          *AviGroupStore
-	RuleStore           *AviRuleStore
-	SecurityPolicyStore *AviSecurityPolicyStore
-	PubIpblockStore     *PubIPblockStore
 }
 
 func (s *VPCService) GetDefaultNetworkConfig() (bool, *common.VPCNetworkConfigInfo) {
@@ -156,14 +146,6 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	fatalErrors := make(chan error)
 
 	VPCService := &VPCService{Service: service}
-	enableAviAllowRule = service.NSXClient.FeatureEnabled(nsx.VpcAviRule)
-	if enableAviAllowRule {
-		log.Info("support avi allow rule")
-		wg.Add(5)
-	} else {
-		log.Info("disable avi allow rule")
-		wg.Add(2)
-	}
 	VPCService.VpcStore = &VPCStore{ResourceStore: common.ResourceStore{
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
 		BindingType: model.VpcBindingType(),
@@ -186,35 +168,9 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	}
 	// initialize vpc store, lbs store and ip blocks store
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, VPCService.VpcStore)
-	wg.Add(1)
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeLBService, nil, VPCService.LbsStore)
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeIPBlock, nil, VPCService.IpblockStore)
-
-	// initialize avi rule related store
-	if enableAviAllowRule {
-		VPCService.RuleStore = &AviRuleStore{ResourceStore: common.ResourceStore{
-			Indexer:     cache.NewIndexer(keyFuncAVI, nil),
-			BindingType: model.RuleBindingType(),
-		}}
-		VPCService.GroupStore = &AviGroupStore{ResourceStore: common.ResourceStore{
-			Indexer:     cache.NewIndexer(keyFuncAVI, nil),
-			BindingType: model.GroupBindingType(),
-		}}
-		VPCService.SecurityPolicyStore = &AviSecurityPolicyStore{ResourceStore: common.ResourceStore{
-			Indexer:     cache.NewIndexer(keyFuncAVI, nil),
-			BindingType: model.SecurityPolicyBindingType(),
-		}}
-		VPCService.PubIpblockStore = &PubIPblockStore{ResourceStore: common.ResourceStore{
-			Indexer:     cache.NewIndexer(keyFuncAVI, nil),
-			BindingType: model.IpAddressBlockBindingType(),
-		}}
-		go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeGroup, nil, VPCService.GroupStore)
-		go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeRule, nil, VPCService.RuleStore)
-
-		query := fmt.Sprintf("%s:%s AND visibility:EXTERNAL", common.ResourceType, common.ResourceTypeIPBlock)
-		go VPCService.PopulateResourcetoStore(&wg, fatalErrors, common.ResourceTypeIPBlock, query, VPCService.PubIpblockStore, nil)
-	}
-
+	wg.Add(3)
 	go func() {
 		wg.Wait()
 		close(wgDone)
