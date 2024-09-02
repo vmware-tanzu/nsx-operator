@@ -175,9 +175,10 @@ var (
 	ResourceTypeNode                = "HostTransportNode"
 
 	// Reasons for verification of gateway connection in day0
-	ReasonEdgeMissingInProject                     = "EdgeMissingInProject"
-	ReasonDistributedGatewayConnectionNotSupported = "DistributedGatewayConnectionNotSupported"
-	ReasonGatewayConnectionNotSet                  = "GatewayConnectionNotSet"
+	ReasonEdgeMissingInProject                       = "EdgeMissingInProject"
+	ReasonDistributedGatewayConnectionNotSupported   = "DistributedGatewayConnectionNotSupported"
+	ReasonGatewayConnectionNotSet                    = "GatewayConnectionNotSet"
+	ReasonNoExternalIPBlocksInVPCConnectivityProfile = "No External IP Blocks exist in VPC Connectivity Profile"
 )
 
 type Service struct {

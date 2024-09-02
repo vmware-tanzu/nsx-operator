@@ -137,7 +137,7 @@ func setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx context.Context, 
 	}
 	if !hasExternalIPs {
 		newCondition.Status = v1.ConditionFalse
-		newCondition.Reason = "No External IP Blocks exist in VPC Connectivity Profile"
+		newCondition.Reason = svccommon.ReasonNoExternalIPBlocksInVPCConnectivityProfile
 	} else {
 		newCondition.Status = v1.ConditionTrue
 	}
