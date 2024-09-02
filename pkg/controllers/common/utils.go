@@ -121,21 +121,21 @@ func NodeIsMaster(node *v1.Node) bool {
 	return false
 }
 
-func GetVirtualMachineNameForSubnetPort(subnetPort *v1alpha1.SubnetPort) (string, error) {
+func GetVirtualMachineNameForSubnetPort(subnetPort *v1alpha1.SubnetPort) (string, string, error) {
 	annotations := subnetPort.GetAnnotations()
 	if annotations == nil {
-		return "", nil
+		return "", "", nil
 	}
 	attachmentRef, exist := annotations[servicecommon.AnnotationAttachmentRef]
 	if !exist {
-		return "", nil
+		return "", "", nil
 	}
 	array := strings.Split(attachmentRef, "/")
 	if len(array) != 3 || !strings.EqualFold(array[0], servicecommon.ResourceTypeVirtualMachine) {
 		err := fmt.Errorf("invalid annotation value of '%s': %s", servicecommon.AnnotationAttachmentRef, attachmentRef)
-		return "", err
+		return "", "", err
 	}
-	return array[1], nil
+	return array[1], array[2], nil
 }
 
 // NumReconcile now uses the fix number of concurrency
