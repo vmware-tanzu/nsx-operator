@@ -10,6 +10,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -37,7 +38,7 @@ func updateSuccess(r *NetworkInfoReconciler, c context.Context, o *v1alpha1.Netw
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, common.MetricResTypeNetworkInfo)
 }
 
-func deleteSuccess(r *NetworkInfoReconciler, _ context.Context, o *v1alpha1.NetworkInfo) {
+func deleteSuccess(r *NetworkInfoReconciler, c context.Context, o *v1alpha1.NetworkInfo) {
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "NetworkInfo CR has been successfully deleted")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeNetworkInfo)
 }
@@ -81,7 +82,11 @@ func setVPCNetworkConfigurationStatusWithLBS(ctx context.Context, client client.
 		VPCPath:             vpcPath,
 	}}
 
-	client.Status().Update(ctx, nc)
+	if err := client.Status().Update(ctx, nc); err != nil {
+		log.Error(err, "Update VPCNetworkConfiguration status failed", "ncName", ncName, "vpcName", vpcName, "nc.Status.VPCs", nc.Status.VPCs)
+		return
+	}
+	log.Info("Updated VPCNetworkConfiguration status", "ncName", ncName, "vpcName", vpcName, "nc.Status.VPCs", nc.Status.VPCs)
 }
 
 func setVPCNetworkConfigurationStatusWithGatewayConnection(ctx context.Context, client client.Client, nc *v1alpha1.VPCNetworkConfiguration, gatewayConnectionReady bool, reason string) {
@@ -178,6 +183,37 @@ func getGatewayConnectionStatus(ctx context.Context, nc *v1alpha1.VPCNetworkConf
 		}
 	}
 	return gatewayConnectionReady, reason, nil
+}
+
+func deleteVPCNetworkConfigurationStatus(ctx context.Context, client client.Client, ncName string, staleVPCs []*model.Vpc, aliveVPCs []model.Vpc) {
+	aliveVPCNames := sets.New[string]()
+	for _, vpcModel := range aliveVPCs {
+		aliveVPCNames.Insert(*vpcModel.DisplayName)
+	}
+	staleVPCNames := sets.New[string]()
+	for _, vpc := range staleVPCs {
+		staleVPCNames.Insert(*vpc.DisplayName)
+	}
+	// read v1alpha1.VPCNetworkConfiguration by ncName
+	nc := &v1alpha1.VPCNetworkConfiguration{}
+	err := client.Get(ctx, apitypes.NamespacedName{Name: ncName}, nc)
+	if err != nil {
+		log.Error(err, "failed to get VPCNetworkConfiguration", "Name", ncName)
+		return
+	}
+	// iterate through VPCNetworkConfiguration.Status.VPCs, if vpcName does not exist in the staleVPCNames, append in new VPCs status
+	var newVPCInfos []v1alpha1.VPCInfo
+	for _, vpc := range nc.Status.VPCs {
+		if !staleVPCNames.Has(vpc.Name) && aliveVPCNames.Has(vpc.Name) {
+			newVPCInfos = append(newVPCInfos, vpc)
+		}
+	}
+	nc.Status.VPCs = newVPCInfos
+	if err := client.Status().Update(ctx, nc); err != nil {
+		log.Error(err, "failed to delete stale VPCNetworkConfiguration status", "Name", ncName, "nc.Status.VPCs", nc.Status.VPCs, "staleVPCs", staleVPCNames)
+		return
+	}
+	log.Info("Deleted stale VPCNetworkConfiguration status", "Name", ncName, "nc.Status.VPCs", nc.Status.VPCs, "staleVPCs", staleVPCNames)
 }
 
 func getNamespaceFromNSXVPC(nsxVPC *model.Vpc) string {
