@@ -150,6 +150,7 @@ func StartIPAddressAllocationController(mgr ctrl.Manager, ipAddressAllocationSer
 		log.Error(err, "failed to create ipaddressallocation controller")
 		os.Exit(1)
 	}
+	go commonctl.GenericGarbageCollector(make(chan bool), common.GCInterval, ipAddressAllocationReconciler.CollectGarbage)
 }
 
 func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
