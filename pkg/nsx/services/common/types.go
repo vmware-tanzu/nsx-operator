@@ -178,7 +178,7 @@ var (
 	ReasonEdgeMissingInProject                       = "EdgeMissingInProject"
 	ReasonDistributedGatewayConnectionNotSupported   = "DistributedGatewayConnectionNotSupported"
 	ReasonGatewayConnectionNotSet                    = "GatewayConnectionNotSet"
-	ReasonNoExternalIPBlocksInVPCConnectivityProfile = "No External IP Blocks exist in VPC Connectivity Profile"
+	ReasonNoExternalIPBlocksInVPCConnectivityProfile = "ExternalIPBlockMissingInProfile"
 )
 
 type Service struct {
