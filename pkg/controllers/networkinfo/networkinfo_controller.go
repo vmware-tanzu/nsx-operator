@@ -102,13 +102,6 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					updateFail(r, ctx, obj, &err, r.Client, nil)
 					return common.ResultRequeueAfter10sec, err
 				}
-				vpcNetworkConfiguration := &v1alpha1.VPCNetworkConfiguration{}
-				err := r.Client.Get(ctx, types.NamespacedName{Name: ncName}, vpcNetworkConfiguration)
-				if err != nil {
-					log.Error(err, "failed to get VPCNetworkConfiguration", "Name", ncName)
-					updateFail(r, ctx, obj, &err, r.Client, nil)
-					return common.ResultRequeueAfter10sec, err
-				}
 				setVPCNetworkConfigurationStatusWithGatewayConnection(ctx, r.Client, vpcNetworkConfiguration, gatewayConnectionReady, reason)
 			} else {
 				log.Info("skipping reconciling the network info because the system gateway connection is not ready", "NetworkInfo", req.NamespacedName)
@@ -140,6 +133,15 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			log.Error(err, "get VpcConnectivityProfile failed, would retry exponentially", "VPC", req.NamespacedName)
 			updateFail(r, ctx, obj, &err, r.Client, nil)
 			return common.ResultRequeueAfter10sec, err
+		}
+
+		if ncName == commonservice.SystemVPCNetworkConfigurationName {
+			if len(vpcConnectivityProfile.ExternalIpBlocks) == 0 {
+				setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx, r.Client, vpcNetworkConfiguration, false)
+				log.Error(err, "there is no ExternalIPBlock in VPC ConnectivityProfile", "VPC", req.NamespacedName)
+			} else {
+				setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx, r.Client, vpcNetworkConfiguration, true)
+			}
 		}
 		isEnableAutoSNAT := func() bool {
 			if vpcConnectivityProfile.ServiceGateway == nil || vpcConnectivityProfile.ServiceGateway.Enable == nil {

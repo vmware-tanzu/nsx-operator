@@ -135,6 +135,27 @@ func setVPCNetworkConfigurationStatusWithSnatEnabled(ctx context.Context, client
 	}
 }
 
+func setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx context.Context, client client.Client, nc *v1alpha1.VPCNetworkConfiguration, hasExternalIPs bool) {
+	newCondition := v1alpha1.Condition{
+		Type:               v1alpha1.ExternalIPBlocksConfigured,
+		LastTransitionTime: metav1.Time{},
+	}
+	if !hasExternalIPs {
+		newCondition.Status = v1.ConditionFalse
+		newCondition.Reason = svccommon.ReasonNoExternalIPBlocksInVPCConnectivityProfile
+		newCondition.Message = "No External IP Blocks exist in VPC Connectivity Profile"
+	} else {
+		newCondition.Status = v1.ConditionTrue
+	}
+	if mergeStatusCondition(ctx, &nc.Status.Conditions, &newCondition) {
+		if err := client.Status().Update(ctx, nc); err != nil {
+			log.Error(err, "update VPCNetworkConfiguration status failed", "VPCNetworkConfiguration", nc.Name)
+			return
+		}
+	}
+	log.Info("Updated VPCNetworkConfiguration status", "VPCNetworkConfiguration", nc.Name, "status", newCondition)
+}
+
 // TODO: abstract the logic of merging condition for common, which can be used by the other controller, e.g. security policy
 func mergeStatusCondition(ctx context.Context, conditions *[]v1alpha1.Condition, newCondition *v1alpha1.Condition) bool {
 	existingCondition := getExistingConditionOfType(newCondition.Type, *conditions)
