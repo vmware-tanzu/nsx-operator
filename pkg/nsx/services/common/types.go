@@ -95,7 +95,7 @@ const (
 	RealizeTimeout    = 2 * time.Minute
 	RealizeMaxRetries = 3
 	DefaultSNATID     = "DEFAULT"
-	AVISubnetLBID     = "_AVI_SUBNET--LB"
+	AVISubnetLBID     = "_services"
 	IPPoolTypePublic  = "Public"
 	IPPoolTypePrivate = "Private"
 
