@@ -499,8 +499,16 @@ func (r *SubnetPortReconciler) addressBindingMapFunc(ctx context.Context, obj cl
 		log.Info("Invalid object", "type", reflect.TypeOf(obj))
 		return nil
 	}
+	// skip reconcile if AddressBinding exists and is realized
 	if ab.Status.IPAddress != "" {
-		return nil
+		namespacedName := types.NamespacedName{
+			Name:      ab.Name,
+			Namespace: ab.Namespace,
+		}
+		existingAddressBinding := &v1alpha1.AddressBinding{}
+		if err := r.Client.Get(context.TODO(), namespacedName, existingAddressBinding); err == nil {
+			return nil
+		}
 	}
 	spList := &v1alpha1.SubnetPortList{}
 	spIndexValue := fmt.Sprintf("%s/%s", ab.Namespace, ab.Spec.VMName)
