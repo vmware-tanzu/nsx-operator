@@ -440,7 +440,6 @@ func (s *NSXServiceAccountService) updatePIAndCCPCert(normalizedClusterName, uid
 	ccp := ccpObj.(*model.ClusterControlPlane)
 	ccp.Certificate = &cert
 	if ccp2, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, normalizedClusterName, *ccp); err != nil {
-		err = nsxutil.NSXApiError(err)
 		return err
 	} else {
 		ccp = &ccp2
