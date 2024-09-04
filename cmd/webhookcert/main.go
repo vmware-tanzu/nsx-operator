@@ -98,8 +98,8 @@ func generateWebhookCerts() error {
 		Bytes: caBytes,
 	})
 
-	dnsNames := []string{"subnetset", "subnetset.vmware-system-nsx", "subnetset.vmware-system-nsx.svc"}
-	commonName := "subnetset.vmware-system-nsx.svc"
+	dnsNames := []string{"nsx-operator-validate", "nsx-operator-validate.vmware-system-nsx.svc"}
+	commonName := "nsx-operator-validate.vmware-system-nsx.svc"
 
 	serialNumber, err = rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {

@@ -1,4 +1,4 @@
-
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/created-by: nsx-operator
     app.kubernetes.io/part-of: nsx-operator
     app.kubernetes.io/managed-by: kustomize
-  name: subnetset
+  name: nsx-operator-validate
   namespace: vmware-system-nsx
 spec:
   ports:
