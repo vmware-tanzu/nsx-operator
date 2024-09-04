@@ -139,8 +139,6 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			nc, e := buildNetworkConfigInfo(tt.nc)
 			assert.Nil(t, e)
-			// assert.Equal(t, tt.gw, nc.DefaultGatewayPath)
-			// assert.Equal(t, tt.edge, nc.EdgeClusterPath)
 			assert.Equal(t, tt.org, nc.Org)
 			assert.Equal(t, tt.project, nc.NSXProject)
 			assert.Equal(t, tt.subnetSize, nc.DefaultSubnetSize)

@@ -142,7 +142,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					return false, nil
 				})
 				patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.VpcConnectivityProfile{}, nil},
+					Values: gomonkey.Params{model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil},
 					Times:  1,
 				}})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSPath", func(_ *vpc.VPCService, _ string) string {
@@ -203,7 +203,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					return false, nil
 				})
 				patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.VpcConnectivityProfile{}, nil},
+					Values: gomonkey.Params{model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil},
 					Times:  1,
 				}})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSPath", func(_ *vpc.VPCService, _ string) string {
@@ -308,6 +308,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{model.VpcConnectivityProfile{
+						ExternalIpBlocks: []string{"fake-ip-block"},
 						ServiceGateway: &model.VpcServiceGatewayConfig{
 							Enable: servicecommon.Bool(true),
 							NatConfig: &model.VpcNatConfig{
@@ -386,7 +387,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{model.VpcConnectivityProfile{
-						ServiceGateway: nil,
+						ExternalIpBlocks: []string{"fake-ip-block"},
+						ServiceGateway:   nil,
 					}, nil},
 					Times: 1,
 				}})
@@ -459,6 +461,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{model.VpcConnectivityProfile{
+						ExternalIpBlocks: []string{"fake-ip-block"},
 						ServiceGateway: &model.VpcServiceGatewayConfig{
 							Enable: servicecommon.Bool(true),
 							NatConfig: &model.VpcNatConfig{
@@ -486,6 +489,82 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 
 				return patches
 
+			},
+			args:    requestArgs,
+			want:    common.ResultNormal,
+			wantErr: false,
+		},
+		{
+			name: "VPCNetworkConfigurationStatusWithNoExternalIPBlockInSystemVPC",
+			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: requestArgs.req.Namespace,
+						Name:      requestArgs.req.Name,
+					},
+				}))
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.VPCNetworkConfiguration{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "system",
+					},
+				}))
+				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, _ string) (string, error) {
+					return servicecommon.SystemVPCNetworkConfigurationName, nil
+
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (servicecommon.VPCNetworkConfigInfo, bool) {
+					return servicecommon.VPCNetworkConfigInfo{
+						VPCConnectivityProfile: "/orgs/default/projects/nsx_operator_e2e_test/vpc-connectivity-profiles/default",
+						Org:                    "default",
+						NSXProject:             "project-quality",
+					}, true
+
+				})
+				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
+					return false, "", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateGatewayConnectionStatus", func(_ *vpc.VPCService, _ *servicecommon.VPCNetworkConfigInfo) (bool, string, error) {
+					return true, "", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, _ *v1alpha1.NetworkInfo, _ *servicecommon.VPCNetworkConfigInfo) (*model.Vpc, error) {
+					return &model.Vpc{
+						DisplayName: servicecommon.String("vpc-name"),
+						Path:        servicecommon.String("/orgs/default/projects/project-quality/vpcs/fake-vpc"),
+						Id:          servicecommon.String("vpc-id"),
+					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "IsSharedVPCNamespaceByNS", func(_ *vpc.VPCService, _ string) (bool, error) {
+					return false, nil
+				})
+				patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.VpcConnectivityProfile{
+						ServiceGateway: nil,
+					}, nil},
+					Times: 1,
+				}})
+				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithNoExternalIPBlock,
+					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, _ bool) {
+						t.Log("setVPCNetworkConfigurationStatusWithNoExternalIPBlock")
+					})
+
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSPath", func(_ *vpc.VPCService, _ string) string {
+					return "lbs-path"
+
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
+					return "snat-ip", nil
+
+				})
+				patches.ApplyFunc(updateSuccess,
+					func(_ *NetworkInfoReconciler, _ context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
+					})
+				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
+					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
+						if autoSnatEnabled {
+							assert.FailNow(t, "should set VPCNetworkConfiguration status with AutoSnatEnabled=false")
+						}
+					})
+				return patches
 			},
 			args:    requestArgs,
 			want:    common.ResultNormal,

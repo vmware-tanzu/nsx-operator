@@ -3,10 +3,12 @@ package vpc
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	mapset "github.com/deckarep/golang-set"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
@@ -15,9 +17,10 @@ type (
 )
 
 const (
-	PolicyAPI                = "policy/api/v1"
-	AviSubnetPortsPathSuffix = "/subnets/_AVI_SUBNET--LB/ports/"
+	PolicyAPI = "policy/api/v1"
 )
+
+var AviSubnetPortsPathSuffix = fmt.Sprintf("/subnets/%s/ports/", common.AVISubnetLBID)
 
 func httpGetAviPortsPaths(cluster *nsx.Cluster, vpcPath string) (mapset.Set, error) {
 	aviSubnetPortsPath := vpcPath + AviSubnetPortsPathSuffix

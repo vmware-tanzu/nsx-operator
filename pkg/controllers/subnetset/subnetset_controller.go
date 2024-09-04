@@ -61,7 +61,11 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerUpdateTotal, MetricResTypeSubnetSet)
 		if !controllerutil.ContainsFinalizer(obj, servicecommon.SubnetSetFinalizerName) {
 			controllerutil.AddFinalizer(obj, servicecommon.SubnetSetFinalizerName)
-			if obj.Spec.AccessMode == "" || obj.Spec.IPv4SubnetSize == 0 {
+
+			if obj.Spec.AccessMode == "" {
+				obj.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
+			}
+			if obj.Spec.IPv4SubnetSize == 0 {
 				vpcNetworkConfig := r.VPCService.GetVPCNetworkConfigByNamespace(obj.Namespace)
 				if vpcNetworkConfig == nil {
 					err := fmt.Errorf("failed to find VPCNetworkConfig for namespace %s", obj.Namespace)
@@ -69,12 +73,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 					updateFail(r, ctx, obj, "")
 					return ResultRequeue, err
 				}
-				if obj.Spec.AccessMode == "" {
-					obj.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
-				}
-				if obj.Spec.IPv4SubnetSize == 0 {
-					obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
-				}
+				obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
 			}
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "subnetset", req.NamespacedName)
@@ -106,9 +105,16 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	} else {
 		if controllerutil.ContainsFinalizer(obj, servicecommon.SubnetSetFinalizerName) {
 			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnetSet)
-			if err := r.DeleteSubnetForSubnetSet(*obj, false); err != nil {
+			hasStaleSubnetPorts, err := r.DeleteSubnetForSubnetSet(*obj, false)
+			if err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "subnetset", req.NamespacedName)
 				deleteFail(r, ctx, obj, "")
+				return ResultRequeue, err
+			}
+			if hasStaleSubnetPorts {
+				err := fmt.Errorf("stale subnet ports found while deleting subnetset %v", req.NamespacedName)
+				log.Error(err, "deletion failed, delete all the subnetports first", "subnetset", req.NamespacedName)
+				updateFail(r, ctx, obj, err.Error())
 				return ResultRequeue, err
 			}
 			controllerutil.RemoveFinalizer(obj, servicecommon.SubnetSetFinalizerName)
@@ -255,7 +261,7 @@ func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) {
 
 	subnetSetIDs := sets.New[string]()
 	for _, subnetSet := range subnetSetList.Items {
-		if err := r.DeleteSubnetForSubnetSet(subnetSet, true); err != nil {
+		if _, err := r.DeleteSubnetForSubnetSet(subnetSet, true); err != nil {
 			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetSet)
 		} else {
 			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetSet)
@@ -274,12 +280,14 @@ func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) {
 	}
 }
 
-func (r *SubnetSetReconciler) DeleteSubnetForSubnetSet(obj v1alpha1.SubnetSet, updataStatus bool) error {
+func (r *SubnetSetReconciler) DeleteSubnetForSubnetSet(obj v1alpha1.SubnetSet, updataStatus bool) (bool, error) {
 	nsxSubnets := r.SubnetService.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetSetCRUID, string(obj.GetUID()))
 	hitError := false
+	hasStaleSubnetPorts := false
 	for _, subnet := range nsxSubnets {
 		portNums := len(r.SubnetPortService.GetPortsOfSubnet(*subnet.Id))
 		if portNums > 0 {
+			hasStaleSubnetPorts = true
 			continue
 		}
 		if err := r.SubnetService.DeleteSubnet(*subnet); err != nil {
@@ -290,13 +298,13 @@ func (r *SubnetSetReconciler) DeleteSubnetForSubnetSet(obj v1alpha1.SubnetSet, u
 	}
 	if updataStatus {
 		if err := r.SubnetService.UpdateSubnetSetStatus(&obj); err != nil {
-			return err
+			return hasStaleSubnetPorts, err
 		}
 	}
 	if hitError {
-		return errors.New("error occurs when deleting subnet")
+		return hasStaleSubnetPorts, errors.New("error occurs when deleting subnet")
 	}
-	return nil
+	return hasStaleSubnetPorts, nil
 }
 
 func StartSubnetSetController(mgr ctrl.Manager, subnetService *subnet.SubnetService,

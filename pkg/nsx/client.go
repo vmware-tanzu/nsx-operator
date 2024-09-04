@@ -15,12 +15,14 @@ import (
 	mpsearch "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/search"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management/principal_identities"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/shares"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
+	project_infra "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/transit_gateways"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs"
@@ -43,11 +45,10 @@ const (
 	ServiceAccountRestore
 	ServiceAccountCertRotation
 	StaticRoute
-	VpcAviRule
 	AllFeatures
 )
 
-var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_AVI_RULE"}
+var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE"}
 
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
@@ -77,7 +78,7 @@ type Client struct {
 	ProjectInfraClient             projects.InfraClient
 	VPCClient                      projects.VpcsClient
 	VPCConnectivityProfilesClient  projects.VpcConnectivityProfilesClient
-	IPBlockClient                  infra.IpBlocksClient
+	IPBlockClient                  project_infra.IpBlocksClient
 	StaticRouteClient              vpcs.StaticRoutesClient
 	NATRuleClient                  nat.NatRulesClient
 	VpcGroupClient                 vpcs.GroupsClient
@@ -92,6 +93,12 @@ type Client struct {
 	ProjectClient                  orgs.ProjectsClient
 	TransitGatewayClient           projects.TransitGatewaysClient
 	TransitGatewayAttachmentClient transit_gateways.AttachmentsClient
+	CertificateClient              infra.CertificatesClient
+	ShareClient                    infra.SharesClient
+	SharedResourceClient           shares.ResourcesClient
+	LbAppProfileClient             infra.LbAppProfilesClient
+	LbPersistenceProfilesClient    infra.LbPersistenceProfilesClient
+	LbMonitorProfilesClient        infra.LbMonitorProfilesClient
 
 	NSXChecker    NSXHealthChecker
 	NSXVerChecker NSXVersionChecker
@@ -162,7 +169,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	projectClient := orgs.NewProjectsClient(restConnector(cluster))
 	vpcClient := projects.NewVpcsClient(restConnector(cluster))
 	vpcConnectivityProfilesClient := projects.NewVpcConnectivityProfilesClient(restConnector(cluster))
-	ipBlockClient := infra.NewIpBlocksClient(restConnector(cluster))
+	ipBlockClient := project_infra.NewIpBlocksClient(restConnector(cluster))
 	staticRouteClient := vpcs.NewStaticRoutesClient(restConnector(cluster))
 	natRulesClient := nat.NewNatRulesClient(restConnector(cluster))
 	vpcGroupClient := vpcs.NewGroupsClient(restConnector(cluster))
@@ -245,10 +252,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	if !nsxClient.NSXCheckVersion(ServiceAccountRestore) {
 		err := errors.New("NSXServiceAccountRestore feature support check failed")
 		log.Error(err, "initial NSX version check for NSXServiceAccountRestore got error")
-	}
-	if !nsxClient.NSXCheckVersion(VpcAviRule) {
-		err := errors.New("VpcAviRule feature support check failed")
-		log.Error(err, "initial NSX version check for VpcAviRule got error")
 	}
 	if !nsxClient.NSXCheckVersion(ServiceAccountCertRotation) {
 		err := errors.New("ServiceAccountCertRotation feature support check failed")

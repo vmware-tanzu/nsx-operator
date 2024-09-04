@@ -98,15 +98,16 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		}
 		isChanged = servicecommon.CompareResource(SubnetPortToComparable(existingSubnetPort), SubnetPortToComparable(nsxSubnetPort))
 	}
+	subnetInfo, err := servicecommon.ParseVPCResourcePath(*nsxSubnet.Path)
+	if err != nil {
+		return nil, err
+	}
 	if !isChanged {
 		log.Info("NSX subnet port not changed, skipping the update", "nsxSubnetPort.Id", nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
 		// We don't need to update it but still need to check realized state.
 	} else {
+		nsxSubnetPort = buildSubnetPortExternalAddressBindingFromExisting(nsxSubnetPort, existingSubnetPort)
 		log.Info("updating the NSX subnet port", "existingSubnetPort", existingSubnetPort, "desiredSubnetPort", nsxSubnetPort)
-		subnetInfo, err := servicecommon.ParseVPCResourcePath(*nsxSubnet.Path)
-		if err != nil {
-			return nil, err
-		}
 		err = service.NSXClient.PortClient.Patch(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *nsxSubnetPort.Id, *nsxSubnetPort)
 		err = nsxutil.NSXApiError(err)
 		if err != nil {
@@ -130,6 +131,15 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 	nsxSubnetPortState, err := service.CheckSubnetPortState(obj, *nsxSubnet.Path, enableDHCP)
 	if err != nil {
 		log.Error(err, "check and update NSX subnet port state failed, would retry exponentially", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
+		return nil, err
+	}
+	createdNSXSubnetPort, err := service.NSXClient.PortClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *nsxSubnetPort.Id)
+	if err != nil {
+		log.Error(err, "check and update NSX subnet port failed, would retry exponentially", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
+		return nil, err
+	}
+	err = service.SubnetPortStore.Apply(&createdNSXSubnetPort)
+	if err != nil {
 		return nil, err
 	}
 	if isChanged {

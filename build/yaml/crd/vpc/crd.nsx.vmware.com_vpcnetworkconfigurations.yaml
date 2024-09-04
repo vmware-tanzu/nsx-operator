@@ -59,6 +59,8 @@ spec:
                 description: |-
                   Default size of Subnets.
                   Defaults to 32.
+                maximum: 65536
+                minimum: 16
                 type: integer
               nsxProject:
                 description: NSX Project the Namespace associated with.

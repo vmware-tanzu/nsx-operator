@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
@@ -103,13 +102,6 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					updateFail(r, ctx, obj, &err, r.Client, nil)
 					return common.ResultRequeueAfter10sec, err
 				}
-				vpcNetworkConfiguration := &v1alpha1.VPCNetworkConfiguration{}
-				err := r.Client.Get(ctx, types.NamespacedName{Name: ncName}, vpcNetworkConfiguration)
-				if err != nil {
-					log.Error(err, "failed to get VPCNetworkConfiguration", "Name", ncName)
-					updateFail(r, ctx, obj, &err, r.Client, nil)
-					return common.ResultRequeueAfter10sec, err
-				}
 				setVPCNetworkConfigurationStatusWithGatewayConnection(ctx, r.Client, vpcNetworkConfiguration, gatewayConnectionReady, reason)
 			} else {
 				log.Info("skipping reconciling the network info because the system gateway connection is not ready", "NetworkInfo", req.NamespacedName)
@@ -135,16 +127,21 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 
 		snatIP, path, cidr := "", "", ""
-		parts := strings.Split(vpcConnectivityProfilePath, "/")
-		if len(parts) < 1 {
-			log.Error(err, "failed to check VPCConnectivityProfile length", "VPCConnectivityProfile", nc.VPCConnectivityProfile)
-			return common.ResultRequeue, err
-		}
-		vpcConnectivityProfileName := parts[len(parts)-1]
-		vpcConnectivityProfile, err := r.Service.NSXClient.VPCConnectivityProfilesClient.Get(nc.Org, nc.NSXProject, vpcConnectivityProfileName)
+
+		vpcConnectivityProfile, err := r.Service.GetVpcConnectivityProfile(&nc, vpcConnectivityProfilePath)
 		if err != nil {
-			log.Error(err, "failed to get NSX VPC ConnectivityProfile object", "vpcConnectivityProfileName", vpcConnectivityProfileName)
-			return common.ResultRequeue, err
+			log.Error(err, "get VpcConnectivityProfile failed, would retry exponentially", "VPC", req.NamespacedName)
+			updateFail(r, ctx, obj, &err, r.Client, nil)
+			return common.ResultRequeueAfter10sec, err
+		}
+
+		if ncName == commonservice.SystemVPCNetworkConfigurationName {
+			if len(vpcConnectivityProfile.ExternalIpBlocks) == 0 {
+				setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx, r.Client, vpcNetworkConfiguration, false)
+				log.Error(err, "there is no ExternalIPBlock in VPC ConnectivityProfile", "VPC", req.NamespacedName)
+			} else {
+				setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx, r.Client, vpcNetworkConfiguration, true)
+			}
 		}
 		isEnableAutoSNAT := func() bool {
 			if vpcConnectivityProfile.ServiceGateway == nil || vpcConnectivityProfile.ServiceGateway.Enable == nil {
@@ -234,16 +231,17 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				// when nsx vpc not found in vpc store, skip deleting NSX VPC
 				log.Info("can not find VPC in store, skip deleting NSX VPC, remove finalizer from NetworkInfo CR")
 			} else if !isShared {
-				vpc := vpcs[0]
-				// first delete vpc and then ipblock or else it will fail arguing it is being referenced by other objects
-				if err := r.Service.DeleteVPC(*vpc.Path); err != nil {
-					log.Error(err, "failed to delete nsx VPC, would retry exponentially", "NetworkInfo", req.NamespacedName)
-					deleteFail(r, ctx, obj, &err, r.Client)
-					return common.ResultRequeueAfter10sec, err
-				}
-				if err := r.Service.DeleteIPBlockInVPC(*vpc); err != nil {
-					log.Error(err, "failed to delete private ip blocks for VPC", "VPC", req.NamespacedName)
-					return common.ResultRequeueAfter10sec, err
+				for _, vpc := range vpcs {
+					// first delete vpc and then ipblock or else it will fail arguing it is being referenced by other objects
+					if err := r.Service.DeleteVPC(*vpc.Path); err != nil {
+						log.Error(err, "failed to delete nsx VPC, would retry exponentially", "NetworkInfo", req.NamespacedName)
+						deleteFail(r, ctx, obj, &err, r.Client)
+						return common.ResultRequeueAfter10sec, err
+					}
+					if err := r.Service.DeleteIPBlockInVPC(*vpc); err != nil {
+						log.Error(err, "failed to delete private ip blocks for VPC", "VPC", req.NamespacedName)
+						return common.ResultRequeueAfter10sec, err
+					}
 				}
 			}
 
@@ -252,7 +250,13 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				deleteFail(r, ctx, obj, &err, r.Client)
 				return common.ResultRequeue, err
 			}
+			ncName, err := r.Service.GetNetworkconfigNameFromNS(obj.Namespace)
+			if err != nil {
+				log.Error(err, "failed to get network config name for VPC when deleting NetworkInfo CR", "NetworkInfo", obj.Name)
+				return common.ResultRequeueAfter10sec, err
+			}
 			log.V(1).Info("removed finalizer", "NetworkInfo", req.NamespacedName)
+			deleteVPCNetworkConfigurationStatus(ctx, r.Client, ncName, vpcs, r.Service.ListVPC())
 			deleteSuccess(r, ctx, obj)
 		} else {
 			// only print a message because it's not a normal case

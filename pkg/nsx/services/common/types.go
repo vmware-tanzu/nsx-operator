@@ -95,7 +95,7 @@ const (
 	RealizeTimeout    = 2 * time.Minute
 	RealizeMaxRetries = 3
 	DefaultSNATID     = "DEFAULT"
-	AVISubnetLBID     = "_AVI_SUBNET--LB"
+	AVISubnetLBID     = "_services"
 	IPPoolTypePublic  = "Public"
 	IPPoolTypePrivate = "Private"
 
@@ -140,29 +140,37 @@ var (
 )
 
 var (
-	ResourceType                       = "resource_type"
-	ResourceTypeInfra                  = "Infra"
-	ResourceTypeDomain                 = "Domain"
-	ResourceTypeSecurityPolicy         = "SecurityPolicy"
-	ResourceTypeNetworkPolicy          = "NetworkPolicy"
-	ResourceTypeGroup                  = "Group"
-	ResourceTypeRule                   = "Rule"
-	ResourceTypeIPBlock                = "IpAddressBlock"
-	ResourceTypeOrgRoot                = "OrgRoot"
-	ResourceTypeOrg                    = "Org"
-	ResourceTypeProject                = "Project"
-	ResourceTypeVpc                    = "Vpc"
-	ResourceTypeSubnetPort             = "VpcSubnetPort"
-	ResourceTypeVirtualMachine         = "VirtualMachine"
-	ResourceTypeLBService              = "LBService"
-	ResourceTypeShare                  = "Share"
-	ResourceTypeSharedResource         = "SharedResource"
-	ResourceTypeChildSharedResource    = "ChildSharedResource"
-	ResourceTypeChildShare             = "ChildShare"
-	ResourceTypeChildRule              = "ChildRule"
-	ResourceTypeChildGroup             = "ChildGroup"
-	ResourceTypeChildSecurityPolicy    = "ChildSecurityPolicy"
-	ResourceTypeChildResourceReference = "ChildResourceReference"
+	ResourceType                             = "resource_type"
+	ResourceTypeInfra                        = "Infra"
+	ResourceTypeDomain                       = "Domain"
+	ResourceTypeSecurityPolicy               = "SecurityPolicy"
+	ResourceTypeNetworkPolicy                = "NetworkPolicy"
+	ResourceTypeGroup                        = "Group"
+	ResourceTypeRule                         = "Rule"
+	ResourceTypeIPBlock                      = "IpAddressBlock"
+	ResourceTypeOrgRoot                      = "OrgRoot"
+	ResourceTypeOrg                          = "Org"
+	ResourceTypeProject                      = "Project"
+	ResourceTypeVpc                          = "Vpc"
+	ResourceTypeSubnetPort                   = "VpcSubnetPort"
+	ResourceTypeVirtualMachine               = "VirtualMachine"
+	ResourceTypeLBService                    = "LBService"
+	ResourceTypeShare                        = "Share"
+	ResourceTypeSharedResource               = "SharedResource"
+	ResourceTypeChildSharedResource          = "ChildSharedResource"
+	ResourceTypeChildShare                   = "ChildShare"
+	ResourceTypeChildRule                    = "ChildRule"
+	ResourceTypeChildGroup                   = "ChildGroup"
+	ResourceTypeChildSecurityPolicy          = "ChildSecurityPolicy"
+	ResourceTypeChildResourceReference       = "ChildResourceReference"
+	ResourceTypeTlsCertificate               = "TlsCertificate"
+	ResourceTypeLBHttpProfile                = "LBHttpProfile"
+	ResourceTypeLBFastTcpProfile             = "LBFastTcpProfile"
+	ResourceTypeLBFastUdpProfile             = "LBFastUdpProfile"
+	ResourceTypeLBCookiePersistenceProfile   = "LBCookiePersistenceProfile"
+	ResourceTypeLBSourceIpPersistenceProfile = "LBSourceIpPersistenceProfile"
+	ResourceTypeLBHttpMonitorProfile         = "LBHttpMonitorProfile"
+	ResourceTypeLBTcpMonitorProfile          = "LBTcpMonitorProfile"
 
 	// ResourceTypeClusterControlPlane is used by NSXServiceAccountController
 	ResourceTypeClusterControlPlane = "clustercontrolplane"
@@ -175,9 +183,10 @@ var (
 	ResourceTypeNode                = "HostTransportNode"
 
 	// Reasons for verification of gateway connection in day0
-	ReasonEdgeMissingInProject                     = "EdgeMissingInProject"
-	ReasonDistributedGatewayConnectionNotSupported = "DistributedGatewayConnectionNotSupported"
-	ReasonGatewayConnectionNotSet                  = "GatewayConnectionNotSet"
+	ReasonEdgeMissingInProject                       = "EdgeMissingInProject"
+	ReasonDistributedGatewayConnectionNotSupported   = "DistributedGatewayConnectionNotSupported"
+	ReasonGatewayConnectionNotSet                    = "GatewayConnectionNotSet"
+	ReasonNoExternalIPBlocksInVPCConnectivityProfile = "ExternalIPBlockMissingInProfile"
 )
 
 type Service struct {

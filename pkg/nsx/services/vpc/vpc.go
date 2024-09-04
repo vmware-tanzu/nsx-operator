@@ -23,8 +23,6 @@ import (
 )
 
 const (
-	AviSEIngressAllowRuleId    = "avi-se-ingress-allow-rule"
-	VPCAviSEGroupId            = "avi-se-vms"
 	VpcDefaultSecurityPolicyId = "default-layer3-section"
 	VPCKey                     = "/orgs/%s/projects/%s/vpcs/%s"
 	GroupKey                   = "/orgs/%s/projects/%s/vpcs/%s/groups/%s"
@@ -43,7 +41,6 @@ var (
 	lbProvider                = ""
 	lbProviderMutex           = &sync.Mutex{}
 	MarkedForDelete           = true
-	enableAviAllowRule        = false
 	EnforceRevisionCheckParam = false
 )
 
@@ -65,13 +62,6 @@ type VPCService struct {
 	VPCNetworkConfigStore   VPCNetworkInfoStore
 	VPCNSNetworkConfigStore VPCNsNetworkConfigStore
 	defaultNetworkConfigCR  *common.VPCNetworkConfigInfo
-	AVIAllowRule
-}
-type AVIAllowRule struct {
-	GroupStore          *AviGroupStore
-	RuleStore           *AviRuleStore
-	SecurityPolicyStore *AviSecurityPolicyStore
-	PubIpblockStore     *PubIPblockStore
 }
 
 func (s *VPCService) GetDefaultNetworkConfig() (bool, *common.VPCNetworkConfigInfo) {
@@ -156,14 +146,6 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	fatalErrors := make(chan error)
 
 	VPCService := &VPCService{Service: service}
-	enableAviAllowRule = service.NSXClient.FeatureEnabled(nsx.VpcAviRule)
-	if enableAviAllowRule {
-		log.Info("support avi allow rule")
-		wg.Add(5)
-	} else {
-		log.Info("disable avi allow rule")
-		wg.Add(2)
-	}
 	VPCService.VpcStore = &VPCStore{ResourceStore: common.ResourceStore{
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
 		BindingType: model.VpcBindingType(),
@@ -186,35 +168,9 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	}
 	// initialize vpc store, lbs store and ip blocks store
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, VPCService.VpcStore)
-	wg.Add(1)
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeLBService, nil, VPCService.LbsStore)
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeIPBlock, nil, VPCService.IpblockStore)
-
-	// initialize avi rule related store
-	if enableAviAllowRule {
-		VPCService.RuleStore = &AviRuleStore{ResourceStore: common.ResourceStore{
-			Indexer:     cache.NewIndexer(keyFuncAVI, nil),
-			BindingType: model.RuleBindingType(),
-		}}
-		VPCService.GroupStore = &AviGroupStore{ResourceStore: common.ResourceStore{
-			Indexer:     cache.NewIndexer(keyFuncAVI, nil),
-			BindingType: model.GroupBindingType(),
-		}}
-		VPCService.SecurityPolicyStore = &AviSecurityPolicyStore{ResourceStore: common.ResourceStore{
-			Indexer:     cache.NewIndexer(keyFuncAVI, nil),
-			BindingType: model.SecurityPolicyBindingType(),
-		}}
-		VPCService.PubIpblockStore = &PubIPblockStore{ResourceStore: common.ResourceStore{
-			Indexer:     cache.NewIndexer(keyFuncAVI, nil),
-			BindingType: model.IpAddressBlockBindingType(),
-		}}
-		go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeGroup, nil, VPCService.GroupStore)
-		go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeRule, nil, VPCService.RuleStore)
-
-		query := fmt.Sprintf("%s:%s AND visibility:EXTERNAL", common.ResourceType, common.ResourceTypeIPBlock)
-		go VPCService.PopulateResourcetoStore(&wg, fatalErrors, common.ResourceTypeIPBlock, query, VPCService.PubIpblockStore, nil)
-	}
-
+	wg.Add(3)
 	go func() {
 		wg.Wait()
 		close(wgDone)
@@ -274,6 +230,204 @@ func (s *VPCService) DeleteVPC(path string) error {
 	}
 
 	log.Info("successfully deleted NSX VPC", "VPC", pathInfo.VPCID)
+	return nil
+}
+
+func (s *VPCService) addClusterTag(query string) string {
+	tagScopeClusterKey := strings.Replace(common.TagScopeNCPCluster, "/", "\\/", -1)
+	tagScopeClusterValue := strings.Replace(s.NSXClient.NsxConfig.Cluster, ":", "\\:", -1)
+	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
+	return query + " AND " + tagParam
+}
+
+func (s *VPCService) ListCert() []model.TlsCertificate {
+	store := &ResourceStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.TlsCertificateBindingType(),
+	}}
+	query := fmt.Sprintf("%s:%s", common.ResourceType, common.ResourceTypeTlsCertificate)
+	query = s.addClusterTag(query)
+	count, searcherr := s.SearchResource(common.ResourceTypeTlsCertificate, query, store, nil)
+	if searcherr != nil {
+		log.Error(searcherr, "failed to query certificate", "query", query)
+	} else {
+		log.V(1).Info("query certificate", "count", count)
+	}
+	certs := store.List()
+	certsSet := []model.TlsCertificate{}
+	for _, cert := range certs {
+		certsSet = append(certsSet, *cert.(*model.TlsCertificate))
+	}
+	return certsSet
+}
+
+func (s *VPCService) DeleteCert(id string) error {
+	certClient := s.NSXClient.CertificateClient
+	if err := certClient.Delete(id); err != nil {
+		return err
+	}
+	log.Info("successfully deleted NCP created certificate", "certificate", id)
+	return nil
+}
+
+func (s *VPCService) ListShare() []model.Share {
+	store := &ResourceStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.ShareBindingType(),
+	}}
+	query := fmt.Sprintf("%s:%s", common.ResourceType, common.ResourceTypeShare)
+	query = s.addClusterTag(query)
+	count, searcherr := s.SearchResource(common.ResourceTypeShare, query, store, nil)
+	if searcherr != nil {
+		log.Error(searcherr, "failed to query share", "query", query)
+	} else {
+		log.V(1).Info("query share", "count", count)
+	}
+	shares := store.List()
+	sharesSet := []model.Share{}
+	for _, cert := range shares {
+		sharesSet = append(sharesSet, *cert.(*model.Share))
+	}
+	return sharesSet
+}
+
+func (s *VPCService) DeleteShare(shareId string) error {
+	shareClient := s.NSXClient.ShareClient
+	if err := shareClient.Delete(shareId); err != nil {
+		return err
+	}
+	log.Info("successfully deleted NCP created share", "share", shareId)
+	return nil
+}
+
+func (s *VPCService) ListSharedResource() []model.SharedResource {
+	store := &ResourceStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.SharedResourceBindingType(),
+	}}
+	query := fmt.Sprintf("%s:%s", common.ResourceType, common.ResourceTypeSharedResource)
+	query = s.addClusterTag(query)
+	count, searcherr := s.SearchResource(common.ResourceTypeSharedResource, query, store, nil)
+	if searcherr != nil {
+		log.Error(searcherr, "failed to query sharedResource", "query", query)
+	} else {
+		log.V(1).Info("query sharedResource", "count", count)
+	}
+	sharedResources := store.List()
+	sharedResourcesSet := []model.SharedResource{}
+	for _, sharedResource := range sharedResources {
+		sharedResourcesSet = append(sharedResourcesSet, *sharedResource.(*model.SharedResource))
+	}
+	return sharedResourcesSet
+}
+
+func (s *VPCService) DeleteSharedResource(shareId, id string) error {
+	sharedResourceClient := s.NSXClient.SharedResourceClient
+	if err := sharedResourceClient.Delete(shareId, id); err != nil {
+		return err
+	}
+	log.Info("successfully deleted NCP created sharedResource", "shareId", shareId, "sharedResource", id)
+	return nil
+}
+
+func (s *VPCService) ListLBAppProfile() []model.LBAppProfile {
+	store := &ResourceStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.LBAppProfileBindingType(),
+	}}
+	query := fmt.Sprintf("(%s:%s OR %s:%s OR %s:%s)",
+		common.ResourceType, common.ResourceTypeLBHttpProfile,
+		common.ResourceType, common.ResourceTypeLBFastTcpProfile,
+		common.ResourceType, common.ResourceTypeLBFastUdpProfile)
+	query = s.addClusterTag(query)
+	count, searcherr := s.SearchResource(common.ResourceTypeLBHttpProfile, query, store, nil)
+	if searcherr != nil {
+		log.Error(searcherr, "failed to query LBAppProfile", "query", query)
+	} else {
+		log.V(1).Info("query LBAppProfile", "count", count)
+	}
+	lbAppProfiles := store.List()
+	lbAppProfilesSet := []model.LBAppProfile{}
+	for _, lbAppProfile := range lbAppProfiles {
+		lbAppProfilesSet = append(lbAppProfilesSet, *lbAppProfile.(*model.LBAppProfile))
+	}
+	return lbAppProfilesSet
+}
+
+func (s *VPCService) DeleteLBAppProfile(id string) error {
+	lbAppProfileClient := s.NSXClient.LbAppProfileClient
+	boolValue := false
+	if err := lbAppProfileClient.Delete(id, &boolValue); err != nil {
+		return err
+	}
+	log.Info("successfully deleted NCP created lbAppProfile", "lbAppProfile", id)
+	return nil
+}
+
+func (s *VPCService) ListLBPersistenceProfile() []model.LBPersistenceProfile {
+	store := &ResourceStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.LBPersistenceProfileBindingType(),
+	}}
+	query := fmt.Sprintf("(%s:%s OR %s:%s)",
+		common.ResourceType, common.ResourceTypeLBCookiePersistenceProfile,
+		common.ResourceType, common.ResourceTypeLBSourceIpPersistenceProfile)
+	query = s.addClusterTag(query)
+	count, searcherr := s.SearchResource("", query, store, nil)
+	if searcherr != nil {
+		log.Error(searcherr, "failed to query LBPersistenceProfile", "query", query)
+	} else {
+		log.V(1).Info("query LBPersistenceProfile", "count", count)
+	}
+	lbPersistenceProfiles := store.List()
+	lbPersistenceProfilesSet := []model.LBPersistenceProfile{}
+	for _, lbPersistenceProfile := range lbPersistenceProfiles {
+		lbPersistenceProfilesSet = append(lbPersistenceProfilesSet, *lbPersistenceProfile.(*model.LBPersistenceProfile))
+	}
+	return lbPersistenceProfilesSet
+}
+
+func (s *VPCService) DeleteLBPersistenceProfile(id string) error {
+	lbPersistenceProfilesClient := s.NSXClient.LbPersistenceProfilesClient
+	boolValue := false
+	if err := lbPersistenceProfilesClient.Delete(id, &boolValue); err != nil {
+		return err
+	}
+	log.Info("successfully deleted NCP created lbPersistenceProfile", "lbPersistenceProfile", id)
+	return nil
+}
+
+func (s *VPCService) ListLBMonitorProfile() []model.LBMonitorProfile {
+	store := &ResourceStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.LBMonitorProfileBindingType(),
+	}}
+	query := fmt.Sprintf("(%s:%s OR %s:%s)",
+		common.ResourceType, common.ResourceTypeLBHttpMonitorProfile,
+		common.ResourceType, common.ResourceTypeLBTcpMonitorProfile)
+	query = s.addClusterTag(query)
+	count, searcherr := s.SearchResource("", query, store, nil)
+	if searcherr != nil {
+		log.Error(searcherr, "failed to query LBMonitorProfile", "query", query)
+	} else {
+		log.V(1).Info("query LBMonitorProfile", "count", count)
+	}
+	lbMonitorProfiles := store.List()
+	lbMonitorProfilesSet := []model.LBMonitorProfile{}
+	for _, lbMonitorProfile := range lbMonitorProfiles {
+		lbMonitorProfilesSet = append(lbMonitorProfilesSet, *lbMonitorProfile.(*model.LBMonitorProfile))
+	}
+	return lbMonitorProfilesSet
+}
+
+func (s *VPCService) DeleteLBMonitorProfile(id string) error {
+	lbMonitorProfilesClient := s.NSXClient.LbMonitorProfilesClient
+	boolValue := false
+	//nolint:staticcheck // SA1019 ignore this!
+	if err := lbMonitorProfilesClient.Delete(id, &boolValue); err != nil {
+		return err
+	}
+	log.Info("successfully deleted NCP created lbMonitorProfile", "lbMonitorProfile", id)
 	return nil
 }
 
@@ -457,6 +611,20 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	cidr := *statusList.Results[0].NetworkAddress
 	log.Info("read AVI subnet properties", "Path", path, "CIDR", cidr)
 	return path, cidr, nil
+}
+
+func (s *VPCService) GetVpcConnectivityProfile(nc *common.VPCNetworkConfigInfo, vpcConnectivityProfilePath string) (*model.VpcConnectivityProfile, error) {
+	parts := strings.Split(vpcConnectivityProfilePath, "/")
+	if len(parts) < 1 {
+		return nil, fmt.Errorf("failed to check VPCConnectivityProfile(%s) length", nc.VPCConnectivityProfile)
+	}
+	vpcConnectivityProfileName := parts[len(parts)-1]
+	vpcConnectivityProfile, err := s.Service.NSXClient.VPCConnectivityProfilesClient.Get(nc.Org, nc.NSXProject, vpcConnectivityProfileName)
+	if err != nil {
+		log.Error(err, "failed to get NSX VPCConnectivityProfile object", "vpcConnectivityProfileName", vpcConnectivityProfileName)
+		return nil, err
+	}
+	return &vpcConnectivityProfile, nil
 }
 
 func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPCNetworkConfigInfo) (*model.Vpc, error) {
@@ -719,6 +887,86 @@ func (s *VPCService) Cleanup(ctx context.Context) error {
 		}
 	}
 
+	// Delete NCP created resources (share/sharedResources/cert/LBAppProfile/LBPersistentProfile
+	sharedResources := s.ListSharedResource()
+	log.Info("cleaning up sharedResources", "Count", len(sharedResources))
+	for _, sharedResource := range sharedResources {
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			parentPath := strings.Split(*sharedResource.ParentPath, "/")
+			shareId := parentPath[len(parentPath)-1]
+			if err := s.DeleteSharedResource(shareId, *sharedResource.Id); err != nil {
+				return err
+			}
+		}
+	}
+	shares := s.ListShare()
+	log.Info("cleaning up shares", "Count", len(shares))
+	for _, share := range shares {
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			if err := s.DeleteShare(*share.Id); err != nil {
+				return err
+			}
+		}
+	}
+
+	certs := s.ListCert()
+	log.Info("cleaning up certificates", "Count", len(certs))
+	for _, cert := range certs {
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			if err := s.DeleteCert(*cert.Id); err != nil {
+				return err
+			}
+		}
+	}
+
+	lbAppProfiles := s.ListLBAppProfile()
+	log.Info("cleaning up lbAppProfiles", "Count", len(lbAppProfiles))
+	for _, lbAppProfile := range lbAppProfiles {
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			if err := s.DeleteLBAppProfile(*lbAppProfile.Id); err != nil {
+				return err
+			}
+		}
+	}
+
+	lbPersistenceProfiles := s.ListLBPersistenceProfile()
+	log.Info("cleaning up lbPersistenceProfiles", "Count", len(lbPersistenceProfiles))
+	for _, lbPersistenceProfile := range lbPersistenceProfiles {
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			if err := s.DeleteLBPersistenceProfile(*lbPersistenceProfile.Id); err != nil {
+				return err
+			}
+		}
+	}
+
+	lbMonitorProfiles := s.ListLBMonitorProfile()
+	log.Info("cleaning up lbMonitorProfiles", "Count", len(lbMonitorProfiles))
+	for _, lbMonitorProfile := range lbMonitorProfiles {
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			if err := s.DeleteLBMonitorProfile(*lbMonitorProfile.Id); err != nil {
+				return err
+			}
+		}
+	}
+	// We don't clean client_ssl_profile as client_ssl_profile is not created by ncp or nsx-operator
 	return nil
 }
 
