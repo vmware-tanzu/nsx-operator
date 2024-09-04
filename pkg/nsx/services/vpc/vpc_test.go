@@ -577,7 +577,7 @@ func TestGetLbProvider(t *testing.T) {
 	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
 		return nil, nil
 	})
-	vpcService.LbsStore.Add(&model.LBService{Id: common.String("12345")})
+	vpcService.LbsStore.Add(&model.LBService{Id: &defaultLBSName, ConnectivityPath: common.String("12345")})
 	lbProvider = vpcService.getLBProvider(true)
 	assert.Equal(t, NSXLB, lbProvider)
 	patch.Reset()
@@ -590,7 +590,7 @@ func TestGetLbProvider(t *testing.T) {
 			return nil, util.HttpNotFoundError
 		}
 	})
-	vpcService.LbsStore.Add(&model.LBService{Id: common.String("12345")})
+	vpcService.LbsStore.Add(&model.LBService{Id: &defaultLBSName, ConnectivityPath: common.String("12345")})
 	lbProvider = vpcService.getLBProvider(false)
 	assert.Equal(t, NoneLB, lbProvider)
 	patch.Reset()

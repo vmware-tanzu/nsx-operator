@@ -217,6 +217,7 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 
 func Test_keyFunc(t *testing.T) {
 	id := "test_id"
+	vpcPath := fmt.Sprintf(VPCKey, "fake-org", "fake-project", "fake-vpc-id")
 	type args struct {
 		obj interface{}
 	}
@@ -234,8 +235,8 @@ func Test_keyFunc(t *testing.T) {
 		},
 		{
 			name:    "lbs",
-			args:    args{obj: &model.LBService{Id: &id}},
-			want:    id,
+			args:    args{obj: &model.LBService{Id: &defaultLBSName, ConnectivityPath: &vpcPath}},
+			want:    "fake-vpc-id_default",
 			wantErr: assert.NoError,
 		},
 		{
@@ -324,17 +325,17 @@ func TestLBSStore_CRUD(t *testing.T) {
 	ls := &LBSStore{
 		ResourceStore: resourceStore,
 	}
-	lbs1 := &model.LBService{Id: common.String("1")}
-	lbs2 := &model.LBService{Id: common.String("2")}
+	lbs1 := &model.LBService{Id: &defaultLBSName, ConnectivityPath: &vpcID1}
+	lbs2 := &model.LBService{Id: &defaultLBSName, ConnectivityPath: &vpcID2}
 	require.NoError(t, ls.Apply(lbs1))
 	require.Equal(t, 1, len(ls.List()))
-	require.True(t, reflect.DeepEqual(lbs1, ls.GetByKey("1")))
+	require.True(t, reflect.DeepEqual(lbs1, ls.GetByKey(vpcID1)))
 	require.NoError(t, ls.Apply(lbs2))
 	require.Equal(t, 2, len(ls.List()))
 	lbs2.MarkedForDelete = common.Bool(true)
 	require.NoError(t, ls.Apply(lbs2))
 	require.Equal(t, 1, len(ls.List()))
-	require.Nil(t, ls.GetByKey("2"))
+	require.Nil(t, ls.GetByKey(vpcID2))
 	defer func() {
 		require.NotNil(t, recover())
 	}()
