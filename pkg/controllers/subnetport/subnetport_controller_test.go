@@ -91,6 +91,13 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			v1sp.Spec.Subnet = "subnet1"
 			return nil
 		})
+	subnet := &v1alpha1.Subnet{}
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), subnet).Return(nil).AnyTimes().Do(
+		func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+			s := obj.(*v1alpha1.Subnet)
+			s.Name = sp.Spec.Subnet
+			return nil
+		})
 	err = errors.New("Update failed")
 	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(err)
 	patchesSuccess := gomonkey.ApplyFunc(updateSuccess,

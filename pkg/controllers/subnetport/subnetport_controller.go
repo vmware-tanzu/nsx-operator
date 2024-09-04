@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
@@ -77,6 +76,32 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if subnetPort.ObjectMeta.DeletionTimestamp.IsZero() {
+		if len(subnetPort.Spec.Subnet) != 0 {
+			s := &v1alpha1.Subnet{}
+			if err := r.Client.Get(ctx, req.NamespacedName, s); err != nil {
+				log.Error(err, "unable to fetch subnet CR", "req", req.NamespacedName)
+				return common.ResultNormal, client.IgnoreNotFound(err)
+			}
+			if s != nil && !s.DeletionTimestamp.IsZero() {
+				err := fmt.Errorf("subnet %s is been deleting, cannot operate subnetport %s", s.Name, req.NamespacedName)
+				updateFail(r, ctx, subnetPort, &err)
+				return common.ResultNormal, err
+			}
+		}
+
+		if len(subnetPort.Spec.SubnetSet) != 0 {
+			subnets := &v1alpha1.SubnetSet{}
+			if err := r.Client.Get(ctx, req.NamespacedName, subnets); err != nil {
+				log.Error(err, "unable to fetch SubnetSet CR", "req", req.NamespacedName)
+				return common.ResultNormal, client.IgnoreNotFound(err)
+			}
+			if subnets != nil && !subnets.DeletionTimestamp.IsZero() {
+				err := fmt.Errorf("SubnetSet %s is been deleting, cannot operate subnetport %s", subnets.Name, req.NamespacedName)
+				updateFail(r, ctx, subnetPort, &err)
+				return common.ResultNormal, err
+			}
+		}
+
 		metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerUpdateTotal, MetricResTypeSubnetPort)
 		if !controllerutil.ContainsFinalizer(subnetPort, servicecommon.SubnetPortFinalizerName) {
 			controllerutil.AddFinalizer(subnetPort, servicecommon.SubnetPortFinalizerName)
