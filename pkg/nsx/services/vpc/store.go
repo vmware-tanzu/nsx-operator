@@ -13,6 +13,8 @@ func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
 	case *model.Vpc:
 		return *v.Id, nil
+	case *model.LBService:
+		return *v.Id, nil
 	case *model.IpAddressBlock:
 		return generateIPBlockKey(*v), nil
 	default:
@@ -26,6 +28,8 @@ func indexFunc(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
 	switch o := obj.(type) {
 	case *model.Vpc:
+		return filterTag(o.Tags), nil
+	case *model.LBService:
 		return filterTag(o.Tags), nil
 	case *model.IpAddressBlock:
 		return filterTag(o.Tags), nil
@@ -49,7 +53,7 @@ func indexPathFunc(obj interface{}) ([]string, error) {
 var filterTag = func(v []model.Tag) []string {
 	res := make([]string, 0, 5)
 	for _, tag := range v {
-		if *tag.Scope == common.TagScopeVPCCRUID {
+		if *tag.Scope == common.TagScopeNamespaceUID {
 			res = append(res, *tag.Tag)
 		}
 	}
@@ -137,6 +141,15 @@ func (vs *VPCStore) GetByKey(key string) *model.Vpc {
 	return nil
 }
 
+// ResourceStore is a store to query nsx resource
+type ResourceStore struct {
+	common.ResourceStore
+}
+
+func (r *ResourceStore) Apply(i interface{}) error {
+	return nil
+}
+
 func (is *IPBlockStore) GetByIndex(index string, value string) *model.IpAddressBlock {
 	indexResults, err := is.ResourceStore.Indexer.ByIndex(index, value)
 	if err != nil || len(indexResults) == 0 {
@@ -148,85 +161,37 @@ func (is *IPBlockStore) GetByIndex(index string, value string) *model.IpAddressB
 	return block
 }
 
-// keyFuncAVI is used to get the key of a AVI rule related resource
-func keyFuncAVI(obj interface{}) (string, error) {
-	switch v := obj.(type) {
-	case *model.Rule:
-		return *v.Path, nil
-	case *model.SecurityPolicy:
-		return *v.Path, nil
-	case *model.Group:
-		return *v.Path, nil
-	case *model.IpAddressBlock:
-		return *v.Path, nil
-	default:
-		return "", errors.New("keyFunc doesn't support unknown type")
-	}
-}
-
-// AviRuleStore is a store for saving AVI related Rules in VPCs
-type AviRuleStore struct {
+// LBSStore is a store for LBS
+type LBSStore struct {
 	common.ResourceStore
 }
 
-func (ruleStore *AviRuleStore) Apply(i interface{}) error {
-	return nil
-}
-func (ruleStore *AviRuleStore) GetByKey(key string) *model.Rule {
-	obj := ruleStore.ResourceStore.GetByKey(key)
-	if obj != nil {
-		rule := obj.(*model.Rule)
-		return rule
+func (ls *LBSStore) Apply(i interface{}) error {
+	if i == nil {
+		return nil
+	}
+	lbs := i.(*model.LBService)
+	if lbs.MarkedForDelete != nil && *lbs.MarkedForDelete {
+		err := ls.Delete(lbs)
+		log.V(1).Info("delete LBS from store", "LBS", lbs)
+		if err != nil {
+			return err
+		}
+	} else {
+		err := ls.Add(lbs)
+		log.V(1).Info("add LBS to store", "LBS", lbs)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// PubIPblockStore is a store to query external ip blocks cidr
-type PubIPblockStore struct {
-	common.ResourceStore
-}
-
-func (ipBlockStore *PubIPblockStore) Apply(i interface{}) error {
-	return nil
-}
-func (ipBlockStore *PubIPblockStore) GetByKey(key string) *model.IpAddressBlock {
-	obj := ipBlockStore.ResourceStore.GetByKey(key)
+func (ls *LBSStore) GetByKey(key string) *model.LBService {
+	obj := ls.ResourceStore.GetByKey(key)
 	if obj != nil {
-		ipblock := obj.(*model.IpAddressBlock)
-		return ipblock
-	}
-	return nil
-}
-
-type AviGroupStore struct {
-	common.ResourceStore
-}
-
-func (groupStore *AviGroupStore) Apply(i interface{}) error {
-	return nil
-}
-func (groupStore *AviGroupStore) GetByKey(key string) *model.Group {
-	obj := groupStore.ResourceStore.GetByKey(key)
-	if obj != nil {
-		group := obj.(*model.Group)
-		return group
-	}
-	return nil
-}
-
-type AviSecurityPolicyStore struct {
-	common.ResourceStore
-}
-
-func (securityPolicyStore *AviSecurityPolicyStore) Apply(i interface{}) error {
-	return nil
-}
-
-func (securityPolicyStore *AviSecurityPolicyStore) GetByKey(key string) *model.SecurityPolicy {
-	obj := securityPolicyStore.ResourceStore.GetByKey(key)
-	if obj != nil {
-		sp := obj.(*model.SecurityPolicy)
-		return sp
+		lbs := obj.(*model.LBService)
+		return lbs
 	}
 	return nil
 }

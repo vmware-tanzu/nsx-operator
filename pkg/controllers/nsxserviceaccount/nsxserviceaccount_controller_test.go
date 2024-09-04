@@ -24,7 +24,7 @@ import (
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	nsxvmwarecomv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	nsxvmwarecomv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
@@ -152,7 +152,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Namespace:       requestArgs.req.Namespace,
 					Name:            requestArgs.req.Name,
 					ResourceVersion: "2",
-					Finalizers:      []string{"nsxserviceaccount.nsx.vmware.com/finalizer"},
+					Finalizers:      nil,
 				},
 				Spec: nsxvmwarecomv1alpha1.NSXServiceAccountSpec{},
 				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
@@ -555,7 +555,7 @@ func TestNSXServiceAccountReconciler_GarbageCollector(t *testing.T) {
 				name2 := "name2"
 				clusterName2 := "cl1-ns2-name2"
 				uid2 := "00000000-0000-0000-0000-000000000002"
-				assert.NoError(t, r.Service.PrincipalIdentityStore.Add(mpmodel.PrincipalIdentity{
+				assert.NoError(t, r.Service.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{
 					Name: &clusterName2,
 					Tags: []mpmodel.Tag{{
 						Scope: &tagScopeNamespace,
@@ -590,17 +590,12 @@ func TestNSXServiceAccountReconciler_GarbageCollector(t *testing.T) {
 			}
 			r.Service.SetUpStore()
 			ctx := context.TODO()
-			cancel := make(chan bool)
 			if tt.prepareFunc != nil {
 				patches := tt.prepareFunc(t, r, ctx)
 				defer patches.Reset()
 			}
 
-			go func() {
-				time.Sleep(50 * time.Millisecond)
-				cancel <- true
-			}()
-			r.GarbageCollector(cancel, 100*time.Millisecond)
+			r.CollectGarbage(ctx)
 		})
 	}
 }
@@ -621,7 +616,7 @@ func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatus(t *testing.T)
 	ctx := context.TODO()
 	err := fmt.Errorf("test error")
 	type args struct {
-		ctx *context.Context
+		ctx context.Context
 		o   *nsxvmwarecomv1alpha1.NSXServiceAccount
 		e   *error
 	}
@@ -642,7 +637,7 @@ func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatus(t *testing.T)
 				},
 			},
 			args: args{
-				ctx: &ctx,
+				ctx: ctx,
 				o: &nsxvmwarecomv1alpha1.NSXServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:            "name1",
@@ -716,7 +711,7 @@ func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatus(t *testing.T)
 				},
 			},
 			args: args{
-				ctx: &ctx,
+				ctx: ctx,
 				o: &nsxvmwarecomv1alpha1.NSXServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:            "name1",
@@ -814,7 +809,7 @@ func TestNSXServiceAccountReconciler_garbageCollector(t *testing.T) {
 				name2 := "name2"
 				clusterName2 := "cl1-ns2-name2"
 				uid2 := "00000000-0000-0000-0000-000000000002"
-				assert.NoError(t, r.Service.PrincipalIdentityStore.Add(mpmodel.PrincipalIdentity{
+				assert.NoError(t, r.Service.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{
 					Name: &clusterName2,
 					Tags: []mpmodel.Tag{{
 						Scope: &tagScopeNamespace,
@@ -831,7 +826,7 @@ func TestNSXServiceAccountReconciler_garbageCollector(t *testing.T) {
 				name3 := "name3"
 				clusterName3 := "cl1-ns3-name3"
 				uid3 := "00000000-0000-0000-0000-000000000003"
-				assert.NoError(t, r.Service.PrincipalIdentityStore.Add(mpmodel.PrincipalIdentity{
+				assert.NoError(t, r.Service.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{
 					Name: &clusterName3,
 					Tags: []mpmodel.Tag{{
 						Scope: &tagScopeNamespace,
@@ -848,7 +843,7 @@ func TestNSXServiceAccountReconciler_garbageCollector(t *testing.T) {
 				name4 := "name4"
 				clusterName4 := "cl1-ns4-name4"
 				uid4 := "00000000-0000-0000-0000-000000000004"
-				assert.NoError(t, r.Service.ClusterControlPlaneStore.Add(model.ClusterControlPlane{
+				assert.NoError(t, r.Service.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{
 					Id: &clusterName4,
 					Tags: []model.Tag{{
 						Scope: &tagScopeNamespace,
@@ -876,7 +871,8 @@ func TestNSXServiceAccountReconciler_garbageCollector(t *testing.T) {
 				})
 			},
 			args: args{
-				nsxServiceAccountUIDSet: sets.New[string]("00000000-0000-0000-0000-000000000002", "00000000-0000-0000-0000-000000000003", "00000000-0000-0000-0000-000000000004"),
+				nsxServiceAccountUIDSet: sets.New[string]("00000000-0000-0000-0000-000000000002", "00000000-0000-0000-0000-000000000003",
+					"00000000-0000-0000-0000-000000000004"),
 				nsxServiceAccountList: &nsxvmwarecomv1alpha1.NSXServiceAccountList{Items: []nsxvmwarecomv1alpha1.NSXServiceAccount{{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace:  "ns1",

@@ -10,10 +10,11 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 type StaticRouteService struct {
@@ -23,7 +24,7 @@ type StaticRouteService struct {
 }
 
 var (
-	log                     = logger.Log
+	log                     = &logger.Log
 	resourceTypeStaticRoute = "StaticRoutes"
 	String                  = common.String
 )
@@ -83,6 +84,7 @@ func (service *StaticRouteService) CreateOrUpdateStaticRoute(namespace string, o
 		return err
 	}
 	staticRoute, err := service.NSXClient.StaticRouteClient.Get(vpc[0].OrgID, vpc[0].ProjectID, vpc[0].ID, *nsxStaticRoute.Id)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		return err
 	}
@@ -95,20 +97,22 @@ func (service *StaticRouteService) CreateOrUpdateStaticRoute(namespace string, o
 
 func (service *StaticRouteService) patch(orgId string, projectId string, vpcId string, st *model.StaticRoutes) error {
 	err := service.NSXClient.StaticRouteClient.Patch(orgId, projectId, vpcId, *st.Id, *st)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (service *StaticRouteService) DeleteStaticRouteByPath(orgId string, projectId string, vpcId string, uid string) error {
+func (service *StaticRouteService) DeleteStaticRouteByPath(orgId string, projectId string, vpcId string, id string) error {
 	staticRouteClient := service.NSXClient.StaticRouteClient
-	staticroute := service.StaticRouteStore.GetByKey(uid)
+	staticroute := service.StaticRouteStore.GetByKey(id)
 	if staticroute == nil {
 		return nil
 	}
 
 	if err := staticRouteClient.Delete(orgId, projectId, vpcId, *staticroute.Id); err != nil {
+		err = nsxutil.NSXApiError(err)
 		return err
 	}
 	if err := service.StaticRouteStore.Delete(staticroute); err != nil {
@@ -131,12 +135,17 @@ func (service *StaticRouteService) GetUID(staticroute *model.StaticRoutes) *stri
 
 }
 
-func (service *StaticRouteService) DeleteStaticRoute(namespace string, uid string) error {
-	vpc := service.VPCService.ListVPCInfo(namespace)
-	if len(vpc) == 0 {
+func (service *StaticRouteService) DeleteStaticRoute(obj *v1alpha1.StaticRoute) error {
+	id := util.GenerateIDByObject(obj)
+	staticroute := service.StaticRouteStore.GetByKey(id)
+	if staticroute == nil {
 		return nil
 	}
-	return service.DeleteStaticRouteByPath(vpc[0].OrgID, vpc[0].ProjectID, vpc[0].ID, uid)
+	vpcResourceInfo, err := common.ParseVPCResourcePath(*staticroute.Path)
+	if err != nil {
+		return err
+	}
+	return service.DeleteStaticRouteByPath(vpcResourceInfo.OrgID, vpcResourceInfo.ProjectID, vpcResourceInfo.ID, id)
 }
 
 func (service *StaticRouteService) ListStaticRoute() []*model.StaticRoutes {

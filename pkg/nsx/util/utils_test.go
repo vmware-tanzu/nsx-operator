@@ -15,10 +15,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 )
 
 func TestHttpErrortoNSXError(t *testing.T) {
@@ -509,4 +512,61 @@ Hce3uM6Xn8sAglod/r+0onZ09yoiH2Qj5EY50wUIOPtey2ilhuhwoo/M7Nt/yomF
 
 	header = CertPemBytesToHeader("/tmp/test.pem")
 	assert.Equal(t, "", header)
+}
+
+func TestCasttoPointer(t *testing.T) {
+	var share *model.Share
+	Id := "test-id"
+	principalI := mpmodel.PrincipalIdentity{Id: &Id}
+	rule := model.Rule{Id: &Id}
+	tag := model.Tag{Scope: &Id}
+	lbs := model.LBService{Id: &Id}
+	share = nil
+	tests := []struct {
+		name string
+		obj  interface{}
+		want interface{}
+	}{
+
+		{
+			name: "PrincipalIdentity",
+			obj:  principalI,
+			want: &principalI,
+		},
+		{
+			name: "Rule",
+			obj:  rule,
+			want: &rule,
+		},
+		// Add more test cases for other types
+		{
+			name: "Tag",
+			obj:  tag,
+			want: &tag,
+		},
+		{
+			name: "LBService pointer",
+			obj:  &lbs,
+			want: &lbs,
+		},
+		{
+			name: "nil",
+			obj:  nil,
+			want: nil,
+		},
+
+		{
+			name: "typed nil",
+			obj:  share,
+			want: share,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := CasttoPointer(tt.obj); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("CasttoPointer() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

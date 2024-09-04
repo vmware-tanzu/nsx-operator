@@ -3,9 +3,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
   creationTimestamp: null
-  name: validating-webhook-configuration
-  annotations:
-    cert-manager.io/inject-ca-from: vmware-system-nsx/nsx-operator-webhook-cert
+  name: nsx-operator-validating-webhook-configuration
 webhooks:
 - admissionReviewVersions:
   - v1

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 )
 
 func TestGetVirtualMachineNameForSubnetPort(t *testing.T) {
@@ -15,8 +15,9 @@ func TestGetVirtualMachineNameForSubnetPort(t *testing.T) {
 		subnetPort *v1alpha1.SubnetPort
 	}
 	type want struct {
-		vm  string
-		err error
+		vm   string
+		port string
+		err  error
 	}
 	tests := []struct {
 		name string
@@ -28,15 +29,15 @@ func TestGetVirtualMachineNameForSubnetPort(t *testing.T) {
 			args{&v1alpha1.SubnetPort{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
-						"nsx.vmware.com/attachment_ref": "virtualmachine/abc",
+						"nsx.vmware.com/attachment_ref": "virtualmachine/abc/port1",
 					},
 				}}},
-			want{vm: "abc", err: nil},
+			want{vm: "abc", port: "port1", err: nil},
 		},
 		{
 			"port_without_annotation",
 			args{&v1alpha1.SubnetPort{}},
-			want{vm: "", err: nil},
+			want{vm: "", port: "", err: nil},
 		},
 		{
 			"port_with_invalid_annotation",
@@ -46,14 +47,17 @@ func TestGetVirtualMachineNameForSubnetPort(t *testing.T) {
 						"nsx.vmware.com/attachment_ref": "invalid/abc",
 					},
 				}}},
-			want{vm: "", err: fmt.Errorf("invalid annotation value of 'nsx.vmware.com/attachment_ref': invalid/abc")},
+			want{vm: "", port: "", err: fmt.Errorf("invalid annotation value of 'nsx.vmware.com/attachment_ref': invalid/abc")},
 		},
 	}
 	for _, tt := range tests {
-		got, err := GetVirtualMachineNameForSubnetPort(tt.args.subnetPort)
+		got1, got2, err := GetVirtualMachineNameForSubnetPort(tt.args.subnetPort)
 		assert.Equal(t, err, tt.want.err)
-		if got != tt.want.vm {
-			t.Errorf("%s failed: got %s, want %s", tt.name, got, tt.want.vm)
+		if got1 != tt.want.vm {
+			t.Errorf("%s failed: got %s, want %s", tt.name, got1, tt.want.vm)
+		}
+		if got2 != tt.want.port {
+			t.Errorf("%s failed: got %s, want %s", tt.name, got2, tt.want.port)
 		}
 	}
 }

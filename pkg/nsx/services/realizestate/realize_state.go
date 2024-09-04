@@ -4,7 +4,6 @@
 package realizestate
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -12,6 +11,7 @@ import (
 	"k8s.io/client-go/util/retry"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 type RealizeStateService struct {
@@ -34,6 +34,7 @@ func IsRealizeStateError(err error) bool {
 // CheckRealizeState allows the caller to check realize status of entityType with retries.
 // backoff defines the maximum retries and the wait interval between two retries.
 func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, intentPath, entityType string) error {
+	// TODO， ask NSX if there were multiple realize states could we check only the latest one?
 	vpcInfo, err := common.ParseVPCResourcePath(intentPath)
 	if err != nil {
 		return err
@@ -43,17 +44,17 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 		return !IsRealizeStateError(err)
 	}, func() error {
 		results, err := service.NSXClient.RealizedEntitiesClient.List(vpcInfo.OrgID, vpcInfo.ProjectID, intentPath, nil)
+		err = nsxutil.NSXApiError(err)
 		if err != nil {
 			return err
 		}
 		for _, result := range results.Results {
-			if *result.EntityType != entityType {
+			if entityType != "" && result.EntityType != nil && *result.EntityType != entityType {
 				continue
 			}
 			if *result.State == model.GenericPolicyRealizedResource_STATE_REALIZED {
 				return nil
 			}
-			return errors.New(*result.State)
 		}
 		return fmt.Errorf("%s not realized", entityType)
 	})

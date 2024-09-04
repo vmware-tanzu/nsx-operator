@@ -33,10 +33,6 @@ var (
 	vpcID3            = "ns-vpc-uid-3"
 	IPv4Type          = "IPv4"
 	cluster           = "k8scl-one"
-	tagScopeVPCCRName = common.TagScopeVPCCRName
-	tagScopeVPCCRUID  = common.TagScopeVPCCRUID
-	tagValueVPCCRName = "vpcA"
-	tagValueVPCCRUID  = "uidA"
 	tagScopeCluster   = common.TagScopeCluster
 	tagScopeNamespace = common.TagScopeNamespace
 )
@@ -75,11 +71,81 @@ func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVp
 				},
 			},
 		},
-		VpcStore:              vpcStore,
-		VPCNetworkConfigMap:   map[string]common.VPCNetworkConfigInfo{},
-		VPCNSNetworkConfigMap: map[string]string{},
+		VpcStore: vpcStore,
+		VPCNetworkConfigStore: VPCNetworkInfoStore{
+			VPCNetworkConfigMap: map[string]common.VPCNetworkConfigInfo{},
+		},
+		VPCNSNetworkConfigStore: VPCNsNetworkConfigStore{
+			VPCNSNetworkConfigMap: map[string]string{},
+		},
 	}
 	return service, mockCtrl, mockVpcclient
+}
+
+type fakeProjectClient struct{}
+
+func (c fakeProjectClient) Get(orgIdParam string, projectIdParam string, shortFormatParam *bool) (model.Project, error) {
+	return model.Project{}, nil
+}
+
+func (c fakeProjectClient) Delete(orgIdParam string, projectIdParam string, isRecursiveParam *bool) error {
+	return nil
+}
+
+func (c fakeProjectClient) List(orgIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, instanceIdParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.ProjectListResult, error) {
+	return model.ProjectListResult{}, nil
+}
+
+func (c fakeProjectClient) Patch(orgIdParam string, projectIdParam string, projectParam model.Project) error {
+	return nil
+}
+
+func (c fakeProjectClient) Update(orgIdParam string, projectIdParam string, projectParam model.Project) (model.Project, error) {
+	return model.Project{}, nil
+}
+
+type fakeVPCConnectivityProfilesClient struct{}
+
+func (c fakeVPCConnectivityProfilesClient) Delete(orgIdParam string, projectIdParam string, vpcConnectivityProfileIdParam string) error {
+	return nil
+}
+
+func (c fakeVPCConnectivityProfilesClient) Get(orgIdParam string, projectIdParam string, vpcConnectivityProfileIdParam string) (model.VpcConnectivityProfile, error) {
+	return model.VpcConnectivityProfile{}, nil
+}
+
+func (c fakeVPCConnectivityProfilesClient) List(orgIdParam string, projectIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcConnectivityProfileListResult, error) {
+	return model.VpcConnectivityProfileListResult{}, nil
+}
+
+func (c fakeVPCConnectivityProfilesClient) Patch(orgIdParam string, projectIdParam string, vpcConnectivityProfileIdParam string, vpcConnectivityProfileParam model.VpcConnectivityProfile) error {
+	return nil
+}
+
+func (c fakeVPCConnectivityProfilesClient) Update(orgIdParam string, projectIdParam string, vpcConnectivityProfileIdParam string, vpcConnectivityProfileParam model.VpcConnectivityProfile) (model.VpcConnectivityProfile, error) {
+	return model.VpcConnectivityProfile{}, nil
+}
+
+type fakeTransitGatewayAttachmentClient struct{}
+
+func (c fakeTransitGatewayAttachmentClient) Delete(orgIdParam string, projectIdParam string, transitGatewayIdParam string, attachmentIdParam string) error {
+	return nil
+}
+
+func (c fakeTransitGatewayAttachmentClient) Get(orgIdParam string, projectIdParam string, transitGatewayIdParam string, attachmentIdParam string) (model.TransitGatewayAttachment, error) {
+	return model.TransitGatewayAttachment{}, nil
+}
+
+func (c fakeTransitGatewayAttachmentClient) List(orgIdParam string, projectIdParam string, transitGatewayIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.TransitGatewayAttachmentListResult, error) {
+	return model.TransitGatewayAttachmentListResult{}, nil
+}
+
+func (c fakeTransitGatewayAttachmentClient) Patch(orgIdParam string, projectIdParam string, transitGatewayIdParam string, attachmentIdParam string, transitGatewayAttachmentParam model.TransitGatewayAttachment) error {
+	return nil
+}
+
+func (c fakeTransitGatewayAttachmentClient) Update(orgIdParam string, projectIdParam string, transitGatewayIdParam string, attachmentIdParam string, transitGatewayAttachmentParam model.TransitGatewayAttachment) (model.TransitGatewayAttachment, error) {
+	return model.TransitGatewayAttachment{}, nil
 }
 
 func TestGetNetworkConfigFromNS(t *testing.T) {
@@ -90,14 +156,14 @@ func TestGetNetworkConfigFromNS(t *testing.T) {
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(fakeErr).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		return nil
 	})
-	ns, err := service.getNetworkconfigNameFromNS("test")
+	ns, err := service.GetNetworkconfigNameFromNS("test")
 	assert.Equal(t, fakeErr, err)
 	assert.Equal(t, "", ns)
 
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(nil).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		return nil
 	})
-	ns, err = service.getNetworkconfigNameFromNS("test")
+	ns, err = service.GetNetworkconfigNameFromNS("test")
 	assert.NotNil(t, err)
 	assert.Equal(t, "", ns)
 
@@ -109,7 +175,7 @@ func TestGetNetworkConfigFromNS(t *testing.T) {
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(nil).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		return nil
 	})
-	ns, err = service.getNetworkconfigNameFromNS("test")
+	ns, err = service.GetNetworkconfigNameFromNS("test")
 	assert.Nil(t, err)
 	assert.Equal(t, "test-name", ns)
 
@@ -117,7 +183,7 @@ func TestGetNetworkConfigFromNS(t *testing.T) {
 		obj.SetAnnotations(map[string]string{"nsx.vmware.com/vpc_network_config": "test-nc"})
 		return nil
 	})
-	ns, err = service.getNetworkconfigNameFromNS("test")
+	ns, err = service.GetNetworkconfigNameFromNS("test")
 	assert.Nil(t, err)
 	assert.Equal(t, "test-nc", ns)
 }
@@ -135,7 +201,7 @@ func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
 		expected string
 	}{
 		{"1", "test-ns-1", map[string]string{"nsx.vmware.com/vpc_network_config": "default"}, ""},
-		{"2", "test-ns-2", map[string]string{"nsx.vmware.com/vpc_network_config": "infra", "nsx.vmware.com/vpc_name": "kube-system/fake_vpc"}, "kube-system"},
+		{"2", "test-ns-2", map[string]string{"nsx.vmware.com/vpc_network_config": "infra", "nsx.vmware.com/shared_vpc_namespace": "kube-system"}, "kube-system"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -174,16 +240,20 @@ func TestGetDefaultNetworkConfig(t *testing.T) {
 }
 
 func TestGetVPCsByNamespace(t *testing.T) {
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),
 	}
 	vpcStore := &VPCStore{ResourceStore: resourceStore}
 	service := &VPCService{
-		Service:               common.Service{NSXClient: nil},
-		VPCNetworkConfigMap:   map[string]common.VPCNetworkConfigInfo{},
-		VPCNSNetworkConfigMap: map[string]string{},
+		Service: common.Service{NSXClient: nil},
+		VPCNetworkConfigStore: VPCNetworkInfoStore{
+			VPCNetworkConfigMap: map[string]common.VPCNetworkConfigInfo{},
+		},
+		VPCNSNetworkConfigStore: VPCNsNetworkConfigStore{
+			VPCNSNetworkConfigMap: map[string]string{},
+		},
 	}
 	service.VpcStore = vpcStore
 	type args struct {
@@ -202,14 +272,6 @@ func TestGetVPCsByNamespace(t *testing.T) {
 			Scope: &tagScopeNamespace,
 			Tag:   &ns1,
 		},
-		{
-			Scope: &tagScopeVPCCRName,
-			Tag:   &tagValueVPCCRName,
-		},
-		{
-			Scope: &tagScopeVPCCRUID,
-			Tag:   &tagValueVPCCRUID,
-		},
 	}
 	ns2 := "test-ns-2"
 	tag2 := []model.Tag{
@@ -221,14 +283,6 @@ func TestGetVPCsByNamespace(t *testing.T) {
 			Scope: &tagScopeNamespace,
 			Tag:   &ns2,
 		},
-		{
-			Scope: &tagScopeVPCCRName,
-			Tag:   &tagValueVPCCRName,
-		},
-		{
-			Scope: &tagScopeVPCCRUID,
-			Tag:   &tagValueVPCCRUID,
-		},
 	}
 	infraNs := "kube-system"
 	tag3 := []model.Tag{
@@ -239,14 +293,6 @@ func TestGetVPCsByNamespace(t *testing.T) {
 		{
 			Scope: &tagScopeNamespace,
 			Tag:   &infraNs,
-		},
-		{
-			Scope: &tagScopeVPCCRName,
-			Tag:   &tagValueVPCCRName,
-		},
-		{
-			Scope: &tagScopeVPCCRUID,
-			Tag:   &tagValueVPCCRUID,
 		},
 	}
 	vpc1 := model.Vpc{
@@ -317,227 +363,300 @@ func TestListVPCInfo(t *testing.T) {
 
 }
 
-type MockSecurityPoliciesClient struct {
-	SP  model.SecurityPolicy
-	Err error
-}
-
-func (spClient *MockSecurityPoliciesClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, groupIdParam string) error {
-	return spClient.Err
-}
-
-func (spClient *MockSecurityPoliciesClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string) (model.SecurityPolicy, error) {
-	return spClient.SP, spClient.Err
-}
-
-func (spClient *MockSecurityPoliciesClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includeRuleCountParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.SecurityPolicyListResult, error) {
-	return model.SecurityPolicyListResult{}, spClient.Err
-}
-
-func (spClient *MockSecurityPoliciesClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, securityPolicyParam model.SecurityPolicy) error {
-	return spClient.Err
-}
-func (spClient *MockSecurityPoliciesClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, securityPolicyParam model.SecurityPolicy) (model.SecurityPolicy, error) {
-	return spClient.SP, spClient.Err
-}
-func (spClient *MockSecurityPoliciesClient) Revise(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, securityPolicyParam model.SecurityPolicy, anchorPathParam *string, operationParam *string) (model.SecurityPolicy, error) {
-	return model.SecurityPolicy{}, spClient.Err
-}
-
-type MockGroupClient struct {
-	Group model.Group
-	Err   error
-}
-
-func (groupClient *MockGroupClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, groupIdParam string) error {
-	return groupClient.Err
-}
-
-func (groupClient *MockGroupClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, groupIdParam string) (model.Group, error) {
-	return groupClient.Group, groupClient.Err
-}
-
-func (groupClient *MockGroupClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, memberTypesParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.GroupListResult, error) {
-	return model.GroupListResult{}, groupClient.Err
-}
-
-func (groupClient *MockGroupClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, groupIdParam string, groupParam model.Group) error {
-	return groupClient.Err
-}
-func (groupClient *MockGroupClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, groupIdParam string, groupParam model.Group) (model.Group, error) {
-	return groupClient.Group, groupClient.Err
-}
-
-type MockRuleClient struct {
-	Rule model.Rule
-	Err  error
-}
-
-func (ruleClient *MockRuleClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, ruleIdParam string) error {
-	return ruleClient.Err
-}
-
-func (ruleClient *MockRuleClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, ruleIdParam string) (model.Rule, error) {
-	return ruleClient.Rule, ruleClient.Err
-}
-func (ruleClient *MockRuleClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.RuleListResult, error) {
-	return model.RuleListResult{}, ruleClient.Err
-}
-
-func (ruleClient *MockRuleClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, ruleIdParam string, ruleParam model.Rule) error {
-	return ruleClient.Err
-}
-
-func (ruleClient *MockRuleClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, ruleIdParam string, ruleParam model.Rule) (model.Rule, error) {
-	return ruleClient.Rule, ruleClient.Err
-}
-
-func (ruleClient *MockRuleClient) Revise(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, ruleIdParam string, ruleParam model.Rule, anchorPathParam *string, operationParam *string) (model.Rule, error) {
-	return model.Rule{}, ruleClient.Err
-}
-
-func TestCreateOrUpdateAVIRule(t *testing.T) {
-	aviRuleCacheIndexer := cache.NewIndexer(keyFuncAVI, nil)
-	resourceStore := common.ResourceStore{
-		Indexer:     aviRuleCacheIndexer,
-		BindingType: model.VpcBindingType(),
-	}
-	ruleStore := &AviRuleStore{ResourceStore: resourceStore}
-	resourceStore1 := common.ResourceStore{
-		Indexer:     aviRuleCacheIndexer,
-		BindingType: model.GroupBindingType(),
-	}
-	groupStore := &AviGroupStore{ResourceStore: resourceStore1}
-	resourceStore2 := common.ResourceStore{
-		Indexer:     aviRuleCacheIndexer,
-		BindingType: model.SecurityPolicyBindingType(),
-	}
-	spStore := &AviSecurityPolicyStore{ResourceStore: resourceStore2}
-
-	service := &VPCService{
-		Service:               common.Service{NSXClient: nil},
-		VPCNetworkConfigMap:   map[string]common.VPCNetworkConfigInfo{},
-		VPCNSNetworkConfigMap: map[string]string{},
-	}
-
-	service.RuleStore = ruleStore
-	service.GroupStore = groupStore
-	service.SecurityPolicyStore = spStore
-
-	ns1 := "test-ns-1"
-	tag1 := []model.Tag{
-		{
-			Scope: &tagScopeCluster,
-			Tag:   &cluster,
+func TestNSXLBEnabled(t *testing.T) {
+	vpcService := &VPCService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					UseAVILoadBalancer: false,
+				},
+			},
+			NSXClient: &nsx.Client{
+				Cluster: &nsx.Cluster{},
+			},
 		},
-		{
-			Scope: &tagScopeNamespace,
-			Tag:   &ns1,
+		LbsStore: &LBSStore{ResourceStore: common.ResourceStore{
+			Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+			BindingType: model.LBServiceBindingType(),
+		}},
+	}
+
+	// Test when UseAVILoadBalancer is false
+	vpcService.Service.NSXConfig.UseAVILoadBalancer = false
+	assert.True(t, vpcService.NSXLBEnabled())
+}
+
+func TestGetLbProvider(t *testing.T) {
+	vpcService := &VPCService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					UseAVILoadBalancer: false,
+				},
+			},
+			NSXClient: &nsx.Client{
+				Cluster: &nsx.Cluster{},
+			},
 		},
-		{
-			Scope: &tagScopeVPCCRName,
-			Tag:   &tagValueVPCCRName,
-		},
-		{
-			Scope: &tagScopeVPCCRUID,
-			Tag:   &tagValueVPCCRUID,
-		},
+		LbsStore: &LBSStore{ResourceStore: common.ResourceStore{
+			Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+			BindingType: model.LBServiceBindingType(),
+		}},
 	}
-	path1 := "/orgs/default/projects/project_1/vpcs/vpc1"
-	vpc1 := model.Vpc{
-		Path:               &path1,
-		DisplayName:        &vpcName1,
-		Id:                 &vpcID1,
-		Tags:               tag1,
-		IpAddressType:      &IPv4Type,
-		PrivateIpv4Blocks:  []string{"1.1.1.0/24"},
-		ExternalIpv4Blocks: []string{"2.2.2.0/24"},
-	}
+	// Test when UseAVILoadBalancer is false
+	lbProvider := vpcService.getLBProvider()
+	assert.Equal(t, LBProviderNSX, lbProvider)
 
-	// feature not supported
-	enableAviAllowRule = false
-	err := service.CreateOrUpdateAVIRule(&vpc1, ns1)
-	assert.Equal(t, err, nil)
-
-	// enable feature
-	enableAviAllowRule = true
-	spClient := MockSecurityPoliciesClient{}
-
-	service.NSXClient = &nsx.Client{}
-	service.NSXClient.VPCSecurityClient = &spClient
-	service.NSXConfig = &config.NSXOperatorConfig{}
-	service.NSXConfig.CoeConfig = &config.CoeConfig{}
-	service.NSXConfig.Cluster = "k8scl_one"
-	sppath1 := "/orgs/default/projects/project_1/vpcs/vpc1/security-policies/sp1"
-	sp := model.SecurityPolicy{
-		Path: &sppath1,
-	}
-	util.UpdateLicense(util.FeatureDFW, true)
-
-	// security policy not found
-	spClient.SP = sp
-	notFound := errors.New("avi security policy not found")
-	spClient.Err = notFound
-	err = service.CreateOrUpdateAVIRule(&vpc1, ns1)
-	assert.Equal(t, err, notFound)
-
-	// security policy found, get rule, failed to get external CIDR
-	rulepath1 := fmt.Sprintf("/orgs/default/projects/project_1/vpcs/ns-vpc-uid-1/security-policies/default-layer3-section/rules/%s", AviSEIngressAllowRuleId)
-	rule := model.Rule{
-		Path:              &rulepath1,
-		DestinationGroups: []string{"2.2.2.0/24"},
-	}
-	ruleStore.Add(&rule)
-	spClient.Err = nil
-	resulterr := errors.New("get external ipblock failed")
-	patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "getIpblockCidr", func(_ *VPCService, cidr []string) ([]string, error) {
-		return []string{}, resulterr
+	vpcService.Service.NSXConfig.NsxConfig.UseAVILoadBalancer = true
+	// Test when UseAVILoadBalancer is true and Alb endpoint found, but no nsx lbs found
+	patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
+		return nil, nil
 	})
-	err = service.CreateOrUpdateAVIRule(&vpc1, ns1)
+	lbProvider = vpcService.getLBProvider()
+	assert.Equal(t, LBProviderAVI, lbProvider)
 	patch.Reset()
-	assert.Equal(t, err, resulterr)
 
-	// security policy found, get rule, get external CIDR which matched
-	spClient.Err = nil
-	resulterr = errors.New("get external ipblock failed")
-	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "getIpblockCidr", func(_ *VPCService, cidr []string) ([]string, error) {
-		return []string{"2.2.2.0/24"}, nil
+	// Test when UseAVILoadBalancer is true, get alb endpoint common error
+	retry := 0
+	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
+		retry++
+		return nil, util.HttpCommonError
 	})
-	err = service.CreateOrUpdateAVIRule(&vpc1, ns1)
+	lbProvider = vpcService.getLBProvider()
+	assert.Equal(t, LBProviderNSX, lbProvider)
+	assert.Equal(t, 4, retry)
 	patch.Reset()
-	assert.Equal(t, err, nil)
 
-	// security policy found, get external CIDR, create group failed
-	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "getIpblockCidr", func(_ *VPCService, cidr []string) ([]string, error) {
-		return []string{"192.168.0.0/16"}, nil
+	// Test when UseAVILoadBalancer is true, get alb endpoint not found error
+	retry = 0
+	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
+		retry++
+		return nil, util.HttpNotFoundError
 	})
-	defer patch.Reset()
-	groupClient := MockGroupClient{Err: nil}
-	service.NSXClient.VpcGroupClient = &groupClient
-	grouppath1 := "/orgs/default/projects/project_1/vpcs/vpc1/groups/group1"
-	group := model.Group{
-		Path: &grouppath1,
-	}
-	groupClient.Group = group
-	groupClient.Err = errors.New("create avi group error")
-	service.NSXConfig = &config.NSXOperatorConfig{}
-	service.NSXConfig.CoeConfig = &config.CoeConfig{}
-	service.NSXConfig.Cluster = "k8scl-one"
-	err = service.CreateOrUpdateAVIRule(&vpc1, ns1)
-	assert.Equal(t, err, groupClient.Err)
+	lbProvider = vpcService.getLBProvider()
+	assert.Equal(t, LBProviderNSX, lbProvider)
+	assert.Equal(t, 1, retry)
+	patch.Reset()
 
-	// security policy found, get external CIDR, create group, create rule failed
-	groupClient.Err = nil
-	ruleClient := MockRuleClient{}
-	service.NSXClient.VPCRuleClient = &ruleClient
+	// Test when UseAVILoadBalancer is true, Alb endpoint found, and NSX lbs found
+	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
+		return nil, nil
+	})
+	vpcService.LbsStore.Add(&model.LBService{Id: common.String("12345")})
+	lbProvider = vpcService.getLBProvider()
+	assert.Equal(t, LBProviderNSX, lbProvider)
+	patch.Reset()
 
-	ruleClient.Rule = rule
-	ruleClient.Err = errors.New("create avi rule error")
-	err = service.CreateOrUpdateAVIRule(&vpc1, ns1)
-	assert.Equal(t, err, ruleClient.Err)
-
-	// security policy found, get external CIDR, create group, create rule
-	ruleClient.Err = nil
-	err = service.CreateOrUpdateAVIRule(&vpc1, ns1)
+	// Test when UseAVILoadBalancer is true, Alb endpoint found, and no NSX lbs found
+	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
+		return nil, nil
+	})
+	lbs := vpcService.LbsStore.GetByKey("12345")
+	err := vpcService.LbsStore.Delete(lbs)
 	assert.Equal(t, err, nil)
+	lbProvider = vpcService.getLBProvider()
+	assert.Equal(t, LBProviderAVI, lbProvider)
+	patch.Reset()
+}
+
+func TestGetGatewayConnectionTypeFromConnectionPath(t *testing.T) {
+	tests := []struct {
+		name          string
+		path          string
+		expectedType  string
+		expectedError error
+	}{
+		{
+			name:          "ValidPath",
+			path:          "/infra/distributed-gateway-connections/gateway-101",
+			expectedType:  "distributed-gateway-connections",
+			expectedError: nil,
+		},
+		{
+			name:          "InvalidPath",
+			path:          "invalidPath",
+			expectedType:  "",
+			expectedError: fmt.Errorf("unexpected connectionPath invalidPath"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service, _, _ := createService(t)
+			observedType, observedError := service.GetGatewayConnectionTypeFromConnectionPath(tt.path)
+			assert.Equal(t, tt.expectedType, observedType)
+			assert.Equal(t, tt.expectedError, observedError)
+		})
+	}
+}
+
+func TestValidateGatewayConnectionStatus(t *testing.T) {
+	tests := []struct {
+		name                 string
+		prepareFunc          func(*testing.T, *VPCService) *gomonkey.Patches
+		vpcNetworkConfigInfo common.VPCNetworkConfigInfo
+		expectedReady        bool
+		expectedReason       string
+		expectedError        error
+	}{
+		{
+			name: "EdgeMissingInProject",
+			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.ProjectClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.Project{},
+						nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			vpcNetworkConfigInfo: common.VPCNetworkConfigInfo{
+				Org:        "default",
+				NSXProject: "project-quality",
+			},
+			expectedReady:  false,
+			expectedReason: "EdgeMissingInProject",
+			expectedError:  nil,
+		},
+		{
+			name: "GatewayConnectionNotSet",
+			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.ProjectClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.Project{
+							SiteInfos: []model.SiteInfo{
+								{EdgeClusterPaths: []string{"edge"}},
+							},
+						},
+						nil,
+					},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.VpcConnectivityProfileListResult{
+							Results: []model.VpcConnectivityProfile{
+								{
+									TransitGatewayPath: common.String("a/b"),
+								},
+							},
+						},
+						nil,
+					},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.VpcConnectivityProfileListResult{
+							Results: []model.VpcConnectivityProfile{
+								{
+									TransitGatewayPath: common.String("a/b"),
+								},
+							},
+						},
+						nil,
+					},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.TransitGatewayAttachmentClient), "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.TransitGatewayAttachmentListResult{
+							Results: []model.TransitGatewayAttachment{},
+						},
+						nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			vpcNetworkConfigInfo: common.VPCNetworkConfigInfo{
+				Org:        "default",
+				NSXProject: "project-quality",
+			},
+			expectedReady:  false,
+			expectedReason: "GatewayConnectionNotSet",
+			expectedError:  nil,
+		},
+		{
+			name: "DistributedGatewayConnectionNotSupported",
+			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.ProjectClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.Project{
+							SiteInfos: []model.SiteInfo{
+								{EdgeClusterPaths: []string{"edge"}},
+							},
+						},
+						nil,
+					},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.VpcConnectivityProfileListResult{
+							Results: []model.VpcConnectivityProfile{
+								{
+									TransitGatewayPath: common.String("a/b"),
+								},
+							},
+						},
+						nil,
+					},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.VpcConnectivityProfileListResult{
+							Results: []model.VpcConnectivityProfile{
+								{
+									TransitGatewayPath: common.String("a/b"),
+								},
+							},
+						},
+						nil,
+					},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.TransitGatewayAttachmentClient), "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.TransitGatewayAttachmentListResult{
+							Results: []model.TransitGatewayAttachment{
+								{
+									ConnectionPath: common.String("/infra/distributed-gateway-connections/gateway-101"),
+								},
+							},
+						},
+						nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			vpcNetworkConfigInfo: common.VPCNetworkConfigInfo{
+				Org:        "default",
+				NSXProject: "project-quality",
+			},
+			expectedReady:  false,
+			expectedReason: "DistributedGatewayConnectionNotSupported",
+			expectedError:  nil,
+		},
+	}
+
+	service, _, _ := createService(t)
+	service.NSXClient.ProjectClient = fakeProjectClient{}
+	service.NSXClient.VPCConnectivityProfilesClient = fakeVPCConnectivityProfilesClient{}
+	service.NSXClient.TransitGatewayAttachmentClient = fakeTransitGatewayAttachmentClient{}
+	for _, tt := range tests {
+		t.Run(tt.name, func(*testing.T) {
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc(t, service)
+				defer patches.Reset()
+			}
+			ready, reason, err := service.ValidateGatewayConnectionStatus(&tt.vpcNetworkConfigInfo)
+			assert.Equal(t, tt.expectedReady, ready)
+			assert.Equal(t, tt.expectedReason, reason)
+			assert.Equal(t, tt.expectedError, err)
+			return
+		})
+	}
 }

@@ -9,23 +9,22 @@ import (
 	"fmt"
 	"time"
 
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/util/retry"
-
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ippool"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	sr "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
-)
 
-var log = logger.Log
+	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/retry"
+)
 
 var Backoff = wait.Backoff{
 	Steps:    12,
@@ -44,7 +43,14 @@ var Backoff = wait.Backoff{
 // GetNSXClientFailed  			indicate that could not retrieve nsx client to perform cleanup operation
 // InitCleanupServiceFailed 	indicate that error happened when trying to initialize cleanup service
 // CleanupResourceFailed    	indicate that the cleanup operation failed at some services, the detailed will in the service logs
-func Clean(ctx context.Context, cf *config.NSXOperatorConfig) error {
+func Clean(ctx context.Context, cf *config.NSXOperatorConfig, log *logr.Logger, debug bool, logLevel int) error {
+	// Clean needs to support many instances which each have its own logger
+	if log == nil {
+		logg := logger.ZapLogger(debug, logLevel)
+		log = &logg
+	}
+	logger.InitLog(log)
+
 	log.Info("starting NSX cleanup")
 	if err := cf.ValidateConfigFromCmd(); err != nil {
 		return errors.Join(nsxutil.ValidationFailed, err)
@@ -53,9 +59,32 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig) error {
 	if nsxClient == nil {
 		return nsxutil.GetNSXClientFailed
 	}
-	if cleanupService, err := InitializeCleanupService(cf, nsxClient); err != nil {
-		return errors.Join(nsxutil.InitCleanupServiceFailed, err)
-	} else if cleanupService.err != nil {
+	// add timeout for initialization
+	errChan := make(chan error)
+	var cleanupService *CleanupService
+	var err error
+	go func() {
+		cleanupService, err = InitializeCleanupService(cf, nsxClient)
+		errChan <- err
+	}()
+
+	retriable := func(err error) bool {
+		if err != nil && !errors.As(err, &nsxutil.TimeoutFailed) {
+			log.Info("retrying to clean up NSX resources", "error", err)
+			return true
+		}
+		return false
+	}
+
+	select {
+	case err := <-errChan:
+		if err != nil {
+			return errors.Join(nsxutil.InitCleanupServiceFailed, err)
+		}
+	case <-ctx.Done():
+		return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+	}
+	if cleanupService.err != nil {
 		return errors.Join(nsxutil.InitCleanupServiceFailed, cleanupService.err)
 	} else {
 		for _, clean := range cleanupService.cleans {
@@ -72,7 +101,7 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig) error {
 		}
 		return false
 	}, func() error {
-		if err := CleanDLB(ctx, nsxClient.Cluster, cf); err != nil {
+		if err := CleanDLB(ctx, nsxClient.Cluster, cf, log); err != nil {
 			return fmt.Errorf("failed to clean up specific resource: %w", err)
 		}
 		return nil
@@ -82,14 +111,6 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig) error {
 
 	log.Info("cleanup NSX resources successfully")
 	return nil
-}
-
-func retriable(err error) bool {
-	if err != nil && !errors.As(err, &nsxutil.TimeoutFailed) {
-		log.Info("retrying to clean up NSX resources", "error", err)
-		return true
-	}
-	return false
 }
 
 func wrapCleanFunc(ctx context.Context, clean cleanup) func() error {
@@ -124,12 +145,6 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 			return securitypolicy.InitializeSecurityPolicy(service, vpcService)
 		}
 	}
-	wrapInitializeIPPool := func(service common.Service) cleanupFunc {
-		return func() (cleanup, error) {
-			return ippool.InitializeIPPool(service, vpcService)
-		}
-	}
-
 	wrapInitializeVPC := func(service common.Service) cleanupFunc {
 		return func() (cleanup, error) {
 			return vpcService, vpcErr
@@ -147,13 +162,18 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 			return subnetport.InitializeSubnetPort(service)
 		}
 	}
+	wrapInitializeIPAddressAllocation := func(service common.Service) cleanupFunc {
+		return func() (cleanup, error) {
+			return ipaddressallocation.InitializeIPAddressAllocation(service, vpcService, true)
+		}
+	}
 	// TODO: initialize other CR services
 	cleanupService = cleanupService.
 		AddCleanupService(wrapInitializeSubnetPort(commonService)).
 		AddCleanupService(wrapInitializeSubnetService(commonService)).
 		AddCleanupService(wrapInitializeSecurityPolicy(commonService)).
-		AddCleanupService(wrapInitializeIPPool(commonService)).
 		AddCleanupService(wrapInitializeStaticRoute(commonService)).
+		AddCleanupService(wrapInitializeIPAddressAllocation(commonService)).
 		AddCleanupService(wrapInitializeVPC(commonService))
 
 	return cleanupService, nil

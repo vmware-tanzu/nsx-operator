@@ -55,20 +55,20 @@ func TestServiceLbController_setServiceLbStatus(t *testing.T) {
 	}
 
 	// Case: IPMode is set and ingress-ip-mode label is set as vip.
-	r.setServiceLbStatus(&ctx, lbService)
+	r.setServiceLbStatus(ctx, lbService)
 	assert.Equal(t, v1.LoadBalancerIPModeVIP, *lbService.Status.LoadBalancer.Ingress[0].IPMode)
 
 	// Case: IPMode is set and ingress-ip-mode label is set as proxy.
 	lbService.Labels = map[string]string{
 		servicecommon.LabelLbIngressIpMode: servicecommon.LabelLbIngressIpModeProxyValue,
 	}
-	r.setServiceLbStatus(&ctx, lbService)
+	r.setServiceLbStatus(ctx, lbService)
 	assert.Equal(t, v1.LoadBalancerIPModeProxy, *lbService.Status.LoadBalancer.Ingress[0].IPMode)
 
 	// Case: IPMode is set and ingress-ip-mode label is not set.
 	lbService.Labels = nil
 	lbService.Status.LoadBalancer.Ingress[0].IPMode = &vipIpMode
-	r.setServiceLbStatus(&ctx, lbService)
+	r.setServiceLbStatus(ctx, lbService)
 	assert.Equal(t, v1.LoadBalancerIPModeProxy, *lbService.Status.LoadBalancer.Ingress[0].IPMode)
 
 	// Case IPMode is not set and label is set as VIP.
@@ -81,7 +81,7 @@ func TestServiceLbController_setServiceLbStatus(t *testing.T) {
 			IPMode: nil,
 		},
 	}
-	r.setServiceLbStatus(&ctx, lbService)
+	r.setServiceLbStatus(ctx, lbService)
 	assert.Equal(t, v1.LoadBalancerIPModeVIP, *lbService.Status.LoadBalancer.Ingress[0].IPMode)
 
 	// Case IPMode is not set and label is set as proxy.
@@ -94,7 +94,7 @@ func TestServiceLbController_setServiceLbStatus(t *testing.T) {
 			IPMode: nil,
 		},
 	}
-	r.setServiceLbStatus(&ctx, lbService)
+	r.setServiceLbStatus(ctx, lbService)
 	assert.Equal(t, v1.LoadBalancerIPModeProxy, *lbService.Status.LoadBalancer.Ingress[0].IPMode)
 
 	// Case IPMode is not set and label is not set
@@ -105,7 +105,7 @@ func TestServiceLbController_setServiceLbStatus(t *testing.T) {
 			IPMode: nil,
 		},
 	}
-	r.setServiceLbStatus(&ctx, lbService)
+	r.setServiceLbStatus(ctx, lbService)
 	assert.Equal(t, v1.LoadBalancerIPModeProxy, *lbService.Status.LoadBalancer.Ingress[0].IPMode)
 
 	// Case Ingress.IP is not set
@@ -115,7 +115,7 @@ func TestServiceLbController_setServiceLbStatus(t *testing.T) {
 			IPMode: nil,
 		},
 	}
-	r.setServiceLbStatus(&ctx, lbService)
+	r.setServiceLbStatus(ctx, lbService)
 	assert.Equal(t, (*v1.LoadBalancerIPMode)(nil), lbService.Status.LoadBalancer.Ingress[0].IPMode)
 }
 

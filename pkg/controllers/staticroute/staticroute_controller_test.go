@@ -8,7 +8,6 @@ import (
 	"errors"
 	"reflect"
 	"testing"
-	"time"
 
 	gomonkey "github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
@@ -23,7 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
@@ -56,7 +55,7 @@ func TestStaticRouteController_updateStaticRouteStatusConditions(t *testing.T) {
 			Reason:  "Error occurred while processing the Static Route CRD. Please check the config and try again",
 		},
 	}
-	r.updateStaticRouteStatusConditions(&ctx, dummySR, newConditions)
+	r.updateStaticRouteStatusConditions(ctx, dummySR, newConditions)
 
 	if !reflect.DeepEqual(dummySR.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -82,7 +81,7 @@ func TestStaticRouteController_updateStaticRouteStatusConditions(t *testing.T) {
 		},
 	}
 
-	r.updateStaticRouteStatusConditions(&ctx, dummySR, newConditions)
+	r.updateStaticRouteStatusConditions(ctx, dummySR, newConditions)
 
 	if !reflect.DeepEqual(dummySR.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -98,7 +97,7 @@ func TestStaticRouteController_updateStaticRouteStatusConditions(t *testing.T) {
 		},
 	}
 
-	r.updateStaticRouteStatusConditions(&ctx, dummySR, newConditions)
+	r.updateStaticRouteStatusConditions(ctx, dummySR, newConditions)
 
 	if !reflect.DeepEqual(dummySR.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -114,7 +113,7 @@ func TestStaticRouteController_updateStaticRouteStatusConditions(t *testing.T) {
 		},
 	}
 
-	r.updateStaticRouteStatusConditions(&ctx, dummySR, newConditions)
+	r.updateStaticRouteStatusConditions(ctx, dummySR, newConditions)
 
 	if !reflect.DeepEqual(dummySR.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -200,7 +199,7 @@ func TestStaticRouteReconciler_Reconcile(t *testing.T) {
 		return nil
 	})
 
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, namespace string, uid string) error {
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, obj *v1alpha1.StaticRoute) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
@@ -218,7 +217,7 @@ func TestStaticRouteReconciler_Reconcile(t *testing.T) {
 		v1sp.Finalizers = []string{common.StaticRouteFinalizerName}
 		return nil
 	})
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, namespace string, uid string) error {
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, obj *v1alpha1.StaticRoute) error {
 		return nil
 	})
 	_, ret = r.Reconcile(ctx, req)
@@ -233,7 +232,7 @@ func TestStaticRouteReconciler_Reconcile(t *testing.T) {
 		v1sp.Finalizers = []string{common.StaticRouteFinalizerName}
 		return nil
 	})
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, namespace string, uid string) error {
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, obj *v1alpha1.StaticRoute) error {
 		return errors.New("delete failed")
 	})
 
@@ -299,7 +298,6 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRouteByPath", func(_ *staticroute.StaticRouteService, orgId string, projectId string, vpcId string, uid string) error {
 		return nil
 	})
-	cancel := make(chan bool)
 	defer patch.Reset()
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
@@ -318,11 +316,7 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 		a.Items[0].UID = "1234"
 		return nil
 	})
-	go func() {
-		time.Sleep(1 * time.Second)
-		cancel <- true
-	}()
-	r.GarbageCollector(cancel, time.Second)
+	r.CollectGarbage(ctx)
 
 	// local store has same item as k8s cache
 	patch.Reset()
@@ -333,7 +327,7 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 		a = append(a, model.StaticRoutes{Id: &id, Tags: tag2})
 		return a
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, namespace string, uid string) error {
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, obj *v1alpha1.StaticRoute) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
@@ -344,27 +338,19 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 		a.Items[0].UID = "1234"
 		return nil
 	})
-	go func() {
-		time.Sleep(1 * time.Second)
-		cancel <- true
-	}()
-	r.GarbageCollector(cancel, time.Second)
+	r.CollectGarbage(ctx)
 
 	// local store has no item
 	patch.Reset()
 	patch.ApplyMethod(reflect.TypeOf(service), "ListStaticRoute", func(_ *staticroute.StaticRouteService) []model.StaticRoutes {
 		return []model.StaticRoutes{}
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, namespace string, uid string) error {
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, obj *v1alpha1.StaticRoute) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
 	k8sClient.EXPECT().List(ctx, srList).Return(nil).Times(0)
-	go func() {
-		time.Sleep(1 * time.Second)
-		cancel <- true
-	}()
-	r.GarbageCollector(cancel, time.Second)
+	r.CollectGarbage(ctx)
 }
 
 func TestStaticRouteReconciler_Start(t *testing.T) {

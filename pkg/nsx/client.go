@@ -15,14 +15,18 @@ import (
 	mpsearch "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/search"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management/principal_identities"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/shares"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
-	projects "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
-	infra "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
+	project_infra "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/transit_gateways"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs"
-	nat "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/nat"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/nat"
 	vpc_sp "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ip_pools"
@@ -41,15 +45,14 @@ const (
 	ServiceAccountRestore
 	ServiceAccountCertRotation
 	StaticRoute
-	VpcAviRule
 	AllFeatures
 )
 
-var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_AVI_RULE"}
+var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE"}
 
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
-	RestConnector *client.RestConnector
+	RestConnector client.Connector
 	Cluster       *Cluster
 
 	QueryClient    search.QueryClient
@@ -71,19 +74,31 @@ type Client struct {
 	VPCSecurityClient vpcs.SecurityPoliciesClient
 	VPCRuleClient     vpc_sp.RulesClient
 
-	OrgRootClient       nsx_policy.OrgRootClient
-	ProjectInfraClient  projects.InfraClient
-	VPCClient           projects.VpcsClient
-	IPBlockClient       infra.IpBlocksClient
-	StaticRouteClient   vpcs.StaticRoutesClient
-	NATRuleClient       nat.NatRulesClient
-	VpcGroupClient      vpcs.GroupsClient
-	PortClient          subnets.PortsClient
-	PortStateClient     ports.StateClient
-	IPPoolClient        subnets.IpPoolsClient
-	IPAllocationClient  ip_pools.IpAllocationsClient
-	SubnetsClient       vpcs.SubnetsClient
-	RealizedStateClient realized_state.RealizedEntitiesClient
+	OrgRootClient                  nsx_policy.OrgRootClient
+	ProjectInfraClient             projects.InfraClient
+	VPCClient                      projects.VpcsClient
+	VPCConnectivityProfilesClient  projects.VpcConnectivityProfilesClient
+	IPBlockClient                  project_infra.IpBlocksClient
+	StaticRouteClient              vpcs.StaticRoutesClient
+	NATRuleClient                  nat.NatRulesClient
+	VpcGroupClient                 vpcs.GroupsClient
+	PortClient                     subnets.PortsClient
+	PortStateClient                ports.StateClient
+	IPPoolClient                   subnets.IpPoolsClient
+	IPAllocationClient             ip_pools.IpAllocationsClient
+	SubnetsClient                  vpcs.SubnetsClient
+	RealizedStateClient            realized_state.RealizedEntitiesClient
+	IPAddressAllocationClient      vpcs.IpAddressAllocationsClient
+	VPCLBSClient                   vpcs.VpcLbsClient
+	ProjectClient                  orgs.ProjectsClient
+	TransitGatewayClient           projects.TransitGatewaysClient
+	TransitGatewayAttachmentClient transit_gateways.AttachmentsClient
+	CertificateClient              infra.CertificatesClient
+	ShareClient                    infra.SharesClient
+	SharedResourceClient           shares.ResourcesClient
+	LbAppProfileClient             infra.LbAppProfilesClient
+	LbPersistenceProfilesClient    infra.LbPersistenceProfilesClient
+	LbMonitorProfilesClient        infra.LbMonitorProfilesClient
 
 	NSXChecker    NSXHealthChecker
 	NSXVerChecker NSXVersionChecker
@@ -116,7 +131,7 @@ func (ck *NSXHealthChecker) CheckNSXHealth(req *http.Request) error {
 	}
 }
 
-func restConnector(c *Cluster) *client.RestConnector {
+func restConnector(c *Cluster) client.Connector {
 	connector, _ := c.NewRestConnector()
 	return connector
 }
@@ -151,8 +166,10 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 
 	orgRootClient := nsx_policy.NewOrgRootClient(restConnector(cluster))
 	projectInfraClient := projects.NewInfraClient(restConnector(cluster))
+	projectClient := orgs.NewProjectsClient(restConnector(cluster))
 	vpcClient := projects.NewVpcsClient(restConnector(cluster))
-	ipBlockClient := infra.NewIpBlocksClient(restConnector(cluster))
+	vpcConnectivityProfilesClient := projects.NewVpcConnectivityProfilesClient(restConnector(cluster))
+	ipBlockClient := project_infra.NewIpBlocksClient(restConnector(cluster))
 	staticRouteClient := vpcs.NewStaticRoutesClient(restConnector(cluster))
 	natRulesClient := nat.NewNatRulesClient(restConnector(cluster))
 	vpcGroupClient := vpcs.NewGroupsClient(restConnector(cluster))
@@ -163,9 +180,14 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	subnetsClient := vpcs.NewSubnetsClient(restConnector(cluster))
 	subnetStatusClient := subnets.NewStatusClient(restConnector(cluster))
 	realizedStateClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
+	ipAddressAllocationClient := vpcs.NewIpAddressAllocationsClient(restConnector(cluster))
+	vpcLBSClient := vpcs.NewVpcLbsClient(restConnector(cluster))
 
 	vpcSecurityClient := vpcs.NewSecurityPoliciesClient(restConnector(cluster))
 	vpcRuleClient := vpc_sp.NewRulesClient(restConnector(cluster))
+
+	transitGatewayClient := projects.NewTransitGatewaysClient(restConnector(cluster))
+	transitGatewayAttachmentClient := transit_gateways.NewAttachmentsClient(restConnector(cluster))
 
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
@@ -192,25 +214,30 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		PrincipalIdentitiesClient:  principalIdentitiesClient,
 		WithCertificateClient:      withCertificateClient,
 
-		OrgRootClient:      orgRootClient,
-		ProjectInfraClient: projectInfraClient,
-		VPCClient:          vpcClient,
-		IPBlockClient:      ipBlockClient,
-		StaticRouteClient:  staticRouteClient,
-		NATRuleClient:      natRulesClient,
-		VpcGroupClient:     vpcGroupClient,
-		PortClient:         portClient,
-		PortStateClient:    portStateClient,
-		SubnetStatusClient: subnetStatusClient,
-		VPCSecurityClient:  vpcSecurityClient,
-		VPCRuleClient:      vpcRuleClient,
-
-		NSXChecker:          *nsxChecker,
-		NSXVerChecker:       *nsxVersionChecker,
-		IPPoolClient:        ipPoolClient,
-		IPAllocationClient:  ipAllocationClient,
-		SubnetsClient:       subnetsClient,
-		RealizedStateClient: realizedStateClient,
+		OrgRootClient:                  orgRootClient,
+		ProjectInfraClient:             projectInfraClient,
+		VPCClient:                      vpcClient,
+		VPCConnectivityProfilesClient:  vpcConnectivityProfilesClient,
+		IPBlockClient:                  ipBlockClient,
+		StaticRouteClient:              staticRouteClient,
+		NATRuleClient:                  natRulesClient,
+		VpcGroupClient:                 vpcGroupClient,
+		PortClient:                     portClient,
+		PortStateClient:                portStateClient,
+		SubnetStatusClient:             subnetStatusClient,
+		VPCSecurityClient:              vpcSecurityClient,
+		VPCRuleClient:                  vpcRuleClient,
+		VPCLBSClient:                   vpcLBSClient,
+		ProjectClient:                  projectClient,
+		NSXChecker:                     *nsxChecker,
+		NSXVerChecker:                  *nsxVersionChecker,
+		IPPoolClient:                   ipPoolClient,
+		IPAllocationClient:             ipAllocationClient,
+		SubnetsClient:                  subnetsClient,
+		RealizedStateClient:            realizedStateClient,
+		IPAddressAllocationClient:      ipAddressAllocationClient,
+		TransitGatewayClient:           transitGatewayClient,
+		TransitGatewayAttachmentClient: transitGatewayAttachmentClient,
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time
@@ -225,10 +252,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	if !nsxClient.NSXCheckVersion(ServiceAccountRestore) {
 		err := errors.New("NSXServiceAccountRestore feature support check failed")
 		log.Error(err, "initial NSX version check for NSXServiceAccountRestore got error")
-	}
-	if !nsxClient.NSXCheckVersion(VpcAviRule) {
-		err := errors.New("VpcAviRule feature support check failed")
-		log.Error(err, "initial NSX version check for VpcAviRule got error")
 	}
 	if !nsxClient.NSXCheckVersion(ServiceAccountCertRotation) {
 		err := errors.New("ServiceAccountCertRotation feature support check failed")

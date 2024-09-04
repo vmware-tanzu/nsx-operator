@@ -7,7 +7,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
-var log = logger.Log
+var log = &logger.Log
 
 type Comparable interface {
 	Key() string

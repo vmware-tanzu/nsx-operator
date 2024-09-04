@@ -31,7 +31,10 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
-var log = logger.Log
+var log = &logger.Log
+
+var HttpCommonError = errors.New("received HTTP Error")
+var HttpNotFoundError = errors.New("received HTTP Not Found Error")
 
 // ErrorDetail is error detail which info extracted from http.Response.Body.
 type ErrorDetail struct {
@@ -246,7 +249,10 @@ func HandleHTTPResponse(response *http.Response, result interface{}, debug bool)
 	body, err := io.ReadAll(response.Body)
 	defer response.Body.Close()
 	if !(response.StatusCode == http.StatusOK || response.StatusCode == http.StatusAccepted) {
-		err := errors.New("received HTTP Error")
+		err := HttpCommonError
+		if response.StatusCode == http.StatusNotFound {
+			err = HttpNotFoundError
+		}
 		log.Error(err, "handle http response", "status", response.StatusCode, "request URL", response.Request.URL, "response body", string(body))
 		return err, nil
 	}
@@ -309,6 +315,63 @@ func DumpHttpRequest(request *http.Request) {
 	request.Body.Close()
 	request.Body = io.NopCloser(bytes.NewReader(body))
 	log.V(2).Info("http request", "url", request.URL, "body", string(body), "head", request.Header)
+}
+
+// NSXApiError processes an error and returns a formatted NSX API error message if applicable.
+// If the processed API error is nil, return the original error
+func NSXApiError(err error) error {
+	if err == nil {
+		return err
+	}
+	apierror, _ := DumpAPIError(err)
+	if apierror == nil {
+		return err
+	}
+	return fmt.Errorf("nsx error code: %d, message: %s, details: %s, related error: %s",
+		safeInt(apierror.ErrorCode), safeString(apierror.ErrorMessage), safeString(apierror.Details),
+		relatedErrorsToString(apierror.RelatedErrors))
+}
+
+func relatedErrorToString(err *model.RelatedApiError) string {
+	if err == nil {
+		return "nil"
+	}
+
+	return fmt.Sprintf(
+		"{Details: %s, ErrorCode: %d,  ErrorMessage: %s, ModuleName: %s}",
+		safeString(err.Details),
+		safeInt(err.ErrorCode),
+		safeString(err.ErrorMessage),
+		safeString(err.ModuleName),
+	)
+}
+
+func relatedErrorsToString(errors []model.RelatedApiError) string {
+	if errors == nil {
+		return "nil"
+	}
+
+	var errorStrings []string
+	for i := 0; i < len(errors); i++ {
+		currentErr := errors[i]
+		errorStrings = append(errorStrings, relatedErrorToString(&currentErr))
+	}
+
+	return fmt.Sprintf("[%s]", strings.Join(errorStrings, ", "))
+}
+
+func safeString(ptr *string) string {
+	if ptr == nil {
+		return ""
+	}
+	return *ptr
+}
+
+func safeInt(ptr *int64) int64 {
+	if ptr == nil {
+		return 0
+	}
+	return *ptr
 }
 
 // if ApiError is nil, check ErrorTypeEnum, such as ServiceUnavailable
@@ -489,40 +552,16 @@ func FindTag(tags []model.Tag, tagScope string) string {
 }
 
 func CasttoPointer(obj interface{}) interface{} {
-	switch v := obj.(type) {
-	case model.Rule:
-		return &v
-	case model.StaticRoutes:
-		return &v
-	case model.HostTransportNode:
-		return &v
-	case model.ClusterControlPlane:
-		return &v
-	case model.IpAddressPool:
-		return &v
-	case model.GenericPolicyRealizedResource:
-		return &v
-	case model.Vpc:
-		return &v
-	case model.IpAddressPoolBlockSubnet:
-		return &v
-	case model.Group:
-		return &v
-	case model.SecurityPolicy:
-		return &v
-	case model.Share:
-		return &v
-	case model.SegmentPort:
-		return &v
-	case model.VpcSubnet:
-		return &v
-	case model.VpcSubnetPort:
-		return &v
-	case model.IpAddressBlock:
-		return &v
-	default:
+	if obj == nil {
 		return nil
 	}
+	if reflect.TypeOf(obj).Kind() == reflect.Ptr {
+		return obj
+	}
+
+	pointer := reflect.New(reflect.TypeOf(obj))
+	pointer.Elem().Set(reflect.ValueOf(obj))
+	return pointer.Interface()
 }
 
 func UpdateURL(reqUrl *url.URL, nsxtHost string) {

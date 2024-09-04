@@ -2,21 +2,16 @@
 # it should be applied on testbed setup stage,
 # any new created namespace that do not have networkconfig specified on annotations
 # will use this network config by default
-apiVersion: nsx.vmware.com/v1alpha1
+apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: VPCNetworkConfiguration
 metadata:
   name: default
   annotations:
     nsx.vmware.com/default: "true"
 spec:
-  defaultGatewayPath: /infra/tier-0s/PLR
-  # nsx-operator-ci would replace '{edge-cluster-id}' with real edge-cluster-id of testbed
-  edgeClusterPath: /infra/sites/default/enforcement-points/default/edge-clusters/{edge-cluster-id}
-  defaultIPv4SubnetSize: 26
-  nsxtProject: /orgs/default/projects/nsx_operator_e2e_test
-  externalIPv4Blocks:
-    - /infra/ip-blocks/e2e_test_external_ip_blk
-  privateIPv4CIDRs:
+  defaultSubnetSize: 32
+  nsxProject: /orgs/default/projects/nsx_operator_e2e_test
+  privateIPs:
     - 172.28.0.0/16
     - 172.38.0.0/16
-  defaultSubnetAccessMode: Public
+  vpcConnectivityProfile: /orgs/default/projects/nsx_operator_e2e_test/vpc-connectivity-profiles/default

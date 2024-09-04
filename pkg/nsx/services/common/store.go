@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	vapierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
+	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -51,6 +51,9 @@ func (resourceStore *ResourceStore) TransResourceToStore(entity *data.StructValu
 		}
 	}
 	objAddr := nsxutil.CasttoPointer(obj)
+	if objAddr == nil {
+		return fmt.Errorf("failed to cast to pointer")
+	}
 	err2 := resourceStore.Add(objAddr)
 	if err2 != nil {
 		return err2
@@ -101,22 +104,13 @@ func (resourceStore *ResourceStore) IsPolicyAPI() bool {
 }
 
 func TransError(err error) error {
-	switch err.(type) {
-	case vapierrors.ServiceUnavailable:
-		vApiError, _ := err.(vapierrors.ServiceUnavailable)
-		if vApiError.Data == nil {
-			return err
-		}
-		dataError, errs := NewConverter().ConvertToGolang(vApiError.Data, model.ApiErrorBindingType())
-		if len(errs) > 0 {
-			return err
-		}
-		apiError := dataError.(model.ApiError)
-		if *apiError.ErrorCode == int64(60576) {
+	apierror, errortype := nsxutil.DumpAPIError(err)
+	if apierror != nil {
+		log.Info("translate error", "apierror", apierror, "error type", errortype)
+		if *errortype == apierrors.ErrorType_SERVICE_UNAVAILABLE && *apierror.ErrorCode == int64(60576) ||
+			*errortype == apierrors.ErrorType_INVALID_REQUEST && *apierror.ErrorCode == int64(255) {
 			return nsxutil.PageMaxError{Desc: "page max overflow"}
 		}
-	default:
-		return err
 	}
 	return err
 }
@@ -137,33 +131,34 @@ type Filter func(interface{}) *data.StructValue
 
 func (service *Service) SearchResource(resourceTypeValue string, queryParam string, store Store, filter Filter) (uint64, error) {
 	var cursor *string
+	pagesize := PageSize
 	count := uint64(0)
 	for {
 		var err error
 		var results []*data.StructValue
 		var resultCount *int64
 		if store.IsPolicyAPI() {
-			response, searchEerr := service.NSXClient.QueryClient.List(queryParam, cursor, nil, Int64(PageSize), nil, nil)
+			response, searchEerr := service.NSXClient.QueryClient.List(queryParam, cursor, nil, &pagesize, nil, nil)
 			results = response.Results
 			cursor = response.Cursor
 			resultCount = response.ResultCount
 			err = searchEerr
 		} else {
-			response, searchEerr := service.NSXClient.MPQueryClient.List(queryParam, cursor, nil, Int64(PageSize), nil, nil)
+			response, searchEerr := service.NSXClient.MPQueryClient.List(queryParam, cursor, nil, &pagesize, nil, nil)
 			results = response.Results
 			cursor = response.Cursor
 			resultCount = response.ResultCount
 			err = searchEerr
 		}
-
-		err = TransError(err)
-		if _, ok := err.(nsxutil.PageMaxError); ok == true {
-			DecrementPageSize(Int64(PageSize))
-			continue
-		}
 		if err != nil {
+			err = TransError(err)
+			if _, ok := err.(nsxutil.PageMaxError); ok == true {
+				DecrementPageSize(&pagesize)
+				continue
+			}
 			return count, err
 		}
+
 		for _, entity := range results {
 			if filter != nil {
 				entity = filter(entity)
@@ -197,18 +192,24 @@ func (service *Service) PopulateResourcetoStore(wg *sync.WaitGroup, fatalErrors 
 
 // InitializeCommonStore is the common method used by InitializeResourceStore and InitializeVPCResourceStore
 func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors chan error, org string, project string, resourceTypeValue string, tags []model.Tag, store Store) {
-	tagScopeClusterKey := strings.Replace(TagScopeCluster, "/", "\\/", -1)
-	tagScopeClusterValue := strings.Replace(service.NSXClient.NsxConfig.Cluster, ":", "\\:", -1)
-	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
+	var tagParams []string
+	// Check for specific tag scopes
+	if !containsTagScope(tags, TagScopeCluster, TagScopeNCPCluster) {
+		tagParams = append(tagParams, formatTagParamScope("tags.scope", TagScopeCluster))
+		tagParams = append(tagParams, formatTagParamTag("tags.tag", service.NSXClient.NsxConfig.Cluster))
+	}
 
 	for _, tag := range tags {
-		tagKey := strings.Replace(*tag.Scope, "/", "\\/", -1)
-		tagParam += fmt.Sprintf(" AND tags.scope:%s ", tagKey)
-		if tag.Tag != nil {
-			tagValue := strings.Replace(*tag.Tag, ":", "\\:", -1)
-			tagParam += fmt.Sprintf(" AND tags.tag:%s ", tagValue)
+		if tag.Scope != nil {
+			tagParams = append(tagParams, formatTagParamScope("tags.scope", *tag.Scope))
+			if tag.Tag != nil {
+				tagParams = append(tagParams, formatTagParamTag("tags.tag", *tag.Tag))
+			}
 		}
 	}
+
+	// Join all tag parameters with "AND"
+	tagParam := strings.Join(tagParams, " AND ")
 
 	resourceParam := fmt.Sprintf("%s:%s", ResourceType, resourceTypeValue)
 	queryParam := resourceParam + " AND " + tagParam
@@ -220,6 +221,31 @@ func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors ch
 		pathUnescape, _ := url.PathUnescape("path%3A")
 		queryParam += " AND " + pathUnescape + path
 	}
-	queryParam += " AND marked_for_delete:false"
+	if store.IsPolicyAPI() {
+		queryParam += " AND marked_for_delete:false"
+	}
 	service.PopulateResourcetoStore(wg, fatalErrors, resourceTypeValue, queryParam, store, nil)
+}
+
+// Helper function to check if any tag has the specified scopes
+func containsTagScope(tags []model.Tag, scopes ...string) bool {
+	for _, tag := range tags {
+		for _, scope := range scopes {
+			if tag.Scope != nil && *tag.Scope == scope {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Helper function to format tag parameters
+func formatTagParamScope(paramType, value string) string {
+	valueEscaped := strings.Replace(value, "/", "\\/", -1)
+	return fmt.Sprintf("%s:%s", paramType, valueEscaped)
+}
+
+func formatTagParamTag(paramType, value string) string {
+	valueEscaped := strings.Replace(value, ":", "\\:", -1)
+	return fmt.Sprintf("%s:%s", paramType, valueEscaped)
 }

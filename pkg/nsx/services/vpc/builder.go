@@ -1,11 +1,10 @@
 package vpc
 
 import (
-	"net/netip"
-
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	v1 "k8s.io/api/core/v1"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -19,37 +18,18 @@ var (
 // using cidr_vpccruid as key so that it could quickly check if ipblocks already created.
 func generateIPBlockKey(block model.IpAddressBlock) string {
 	cidr := block.Cidr
-	vpc_uid := ""
+	nsUID := ""
 	for _, tag := range block.Tags {
-		if *tag.Scope == common.TagScopeVPCCRUID {
-			vpc_uid = *tag.Tag
+		if *tag.Scope == common.TagScopeNamespaceUID {
+			nsUID = *tag.Tag
 		}
 	}
-	return *cidr + "_" + vpc_uid
+	return *cidr + "_" + nsUID
 }
 
-func generateIPBlockSearchKey(cidr string, vpcCRUID string) string {
-	return cidr + "_" + vpcCRUID
-}
-
-func buildPrivateIpBlock(vpc *v1alpha1.VPC, cidr, ip, project, cluster string) model.IpAddressBlock {
-	suffix := vpc.GetNamespace() + "-" + vpc.Name + "-" + ip
-	addr, _ := netip.ParseAddr(ip)
-	ipType := util.If(addr.Is4(), model.IpAddressBlock_IP_ADDRESS_TYPE_IPV4, model.IpAddressBlock_IP_ADDRESS_TYPE_IPV6).(string)
-	blockType := model.IpAddressBlock_VISIBILITY_PRIVATE
-	block := model.IpAddressBlock{
-		DisplayName:   common.String(util.GenerateDisplayName("ipblock", "", suffix, "", cluster)),
-		Id:            common.String(string(vpc.UID) + "_" + ip),
-		Tags:          util.BuildBasicTags(cluster, vpc, ""), // ipblock and vpc can use the same tags
-		Cidr:          &cidr,
-		IpAddressType: &ipType,
-		Visibility:    &blockType,
-	}
-
-	return block
-}
-
-func buildNSXVPC(obj *v1alpha1.VPC, nc common.VPCNetworkConfigInfo, cluster string, pathMap map[string]string, nsxVPC *model.Vpc) (*model.Vpc, error) {
+func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNetworkConfigInfo, cluster string,
+	nsxVPC *model.Vpc, useAVILB bool) (*model.Vpc,
+	error) {
 	vpc := &model.Vpc{}
 	if nsxVPC != nil {
 		// for upgrade case, only check public/private ip block size changing
@@ -58,31 +38,45 @@ func buildNSXVPC(obj *v1alpha1.VPC, nc common.VPCNetworkConfigInfo, cluster stri
 			return nil, nil
 		}
 		// for updating vpc case, use current vpc id, name
-		vpc = nsxVPC
+		*vpc = *nsxVPC
 	} else {
 		// for creating vpc case, fill in vpc properties based on networkconfig
-		vpcName := util.GenerateDisplayName(obj.Name, obj.GetNamespace(), cluster, "", "")
+		vpcName := util.GenerateIDByObjectByLimit(obj, common.MaxNameLength)
 		vpc.DisplayName = &vpcName
-		vpc.Id = common.String(string(obj.GetUID()))
-		vpc.DefaultGatewayPath = &nc.DefaultGatewayPath
+		vpc.Id = common.String(util.GenerateIDByObject(obj))
 		vpc.IpAddressType = &DefaultVPCIPAddressType
 
-		siteInfos := []model.SiteInfo{
-			{
-				EdgeClusterPaths: []string{nc.EdgeClusterPath},
-			},
+		if useAVILB {
+			loadBalancerVPCEndpointEnabled := true
+			vpc.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &loadBalancerVPCEndpointEnabled}
 		}
-		vpc.SiteInfos = siteInfos
-		vpc.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &DefaultLoadBalancerVPCEndpointEnabled}
-		vpc.Tags = util.BuildBasicTags(cluster, obj, "")
+		vpc.Tags = util.BuildBasicTags(cluster, obj, nsObj.UID)
+		vpc.Tags = append(vpc.Tags, model.Tag{
+			Scope: common.String(common.TagScopeVPCManagedBy), Tag: common.String(common.AutoCreatedVPCTagValue)})
 	}
 
-	// update private/public blocks
-	vpc.ExternalIpv4Blocks = nc.ExternalIPv4Blocks
-	vpc.PrivateIpv4Blocks = util.GetMapValues(pathMap)
-	if nc.ShortID != "" {
-		vpc.ShortId = &nc.ShortID
+	if nc.VPCConnectivityProfile != "" {
+		vpc.VpcConnectivityProfile = &nc.VPCConnectivityProfile
 	}
 
+	vpc.PrivateIps = nc.PrivateIPs
 	return vpc, nil
+}
+
+func buildNSXLBS(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster, lbsSize, vpcPath string, relaxScaleValidation *bool) (*model.LBService, error) {
+	lbs := &model.LBService{}
+	lbsName := util.GenerateIDByObjectByLimit(obj, common.MaxNameLength)
+	// Use VPC id for auto-created LBS id
+	lbs.Id = common.String(util.GenerateIDByObject(obj))
+	lbs.DisplayName = &lbsName
+	lbs.Tags = util.BuildBasicTags(cluster, obj, nsObj.GetUID())
+	// "created_for" is required by NCP, and "lb_t1_link_ip" is not needed for VPC
+	lbs.Tags = append(lbs.Tags, model.Tag{
+		Scope: common.String(common.TagScopeCreatedFor),
+		Tag:   common.String(common.TagValueSLB),
+	})
+	lbs.Size = &lbsSize
+	lbs.ConnectivityPath = &vpcPath
+	lbs.RelaxScaleValidation = relaxScaleValidation
+	return lbs, nil
 }

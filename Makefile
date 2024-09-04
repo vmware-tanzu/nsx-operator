@@ -41,11 +41,12 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1;github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2" output:crd:artifacts:config=build/yaml/crd/
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1" output:crd:artifacts:config=build/yaml/crd/legacy/
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1" output:crd:artifacts:config=build/yaml/crd/vpc/
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./pkg/apis/..."
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -78,7 +79,7 @@ golangci-fix: $(GOLANGCI_LINT_BIN)
 
 .PHONY: test
 test: manifests generate fmt vet envtest .coverage ## Run tests .
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -gcflags=all=-l ./... -coverprofile $(CURDIR)/.coverage/coverage-unit.out  ## Prohibit inline optimization when using gomonkey
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -gcflags=all=-l ./... -v -coverprofile $(CURDIR)/.coverage/coverage-unit.out  ## Prohibit inline optimization when using gomonkey
 
 ##@ Build
 
@@ -86,6 +87,7 @@ test: manifests generate fmt vet envtest .coverage ## Run tests .
 build: generate fmt vet ## Build manager binary.
 	@mkdir -p $(BINDIR)
 	GOOS=linux go build -o $(BINDIR)/manager $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd/main.go
+	GOOS=linux go build -o $(BINDIR)/webhookcert $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd/webhookcert/main.go
 
 .PHONY: build-clean
 build-clean: generate fmt vet ## Build clean binary.
@@ -145,14 +147,18 @@ undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/confi
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
 .PHONY: controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
-	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.11.0)
+	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.14.0)
 
 KUSTOMIZE = $(shell pwd)/bin/kustomize
 .PHONY: kustomize
 kustomize: ## Download kustomize locally if necessary.
 	$(call go-get-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v3@v3.8.7)
 
-generated:
+.PHONY: code-generator
+code-generator: ## Download code-generator locally if necessary.
+	go mod download k8s.io/code-generator@v0.27.1
+
+generated: code-generator
 	./hack/update-codegen.sh
 
 ENVTEST = $(shell pwd)/bin/setup-envtest

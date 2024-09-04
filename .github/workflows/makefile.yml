@@ -2,9 +2,13 @@ name: Makefile CI
 
 on:
   push:
-    branches: [ main ]
+    branches:
+    - main
+    - 'v[0-9].[0-9]+.[0-9]+'
   pull_request:
-    branches: [ main ]
+    branches:
+    - main
+    - 'v[0-9].[0-9]+.[0-9]+'
 
 jobs:
   build:
@@ -26,3 +30,11 @@ jobs:
 
     - name: Run test
       run: make test
+
+    - name: Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        file: ./.coverage/coverage-unit.out
+        flags: unit-tests
+        name: codecov-unit-test

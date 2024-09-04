@@ -9,10 +9,11 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
-	log              = logger.Log
+	log              = &logger.Log
 	ResourceTypeNode = servicecommon.ResourceTypeNode
 	MarkedForDelete  = true
 )
@@ -74,7 +75,7 @@ func (service *NodeService) SyncNodeStore(nodeName string, deleted bool) error {
 	}
 	// TODO: confirm whether we need to resync the node info from NSX
 	if len(nodes) == 1 {
-		log.Info("node alreay cached", "node.Fqdn", nodes[0].NodeDeploymentInfo.Fqdn, "node.Id", *nodes[0].Id)
+		log.Info("node alreay cached", "node.Fqdn", nodes[0].NodeDeploymentInfo.Fqdn, "node.UniqueId", *nodes[0].UniqueId)
 		// updatedNode, err := service.NSXClient.HostTransPortNodesClient.Get("default", "default", nodes[0].Id)
 		// if err != nil {
 		// 	return fmt.Errorf("failed to get HostTransPortNode for node %s: %s", nodeName, err)
@@ -82,6 +83,7 @@ func (service *NodeService) SyncNodeStore(nodeName string, deleted bool) error {
 		// node.NodeStore.Apply(updatedNode)
 	}
 	nodeResults, err := service.NSXClient.HostTransPortNodesClient.List("default", "default", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		return fmt.Errorf("failed to list HostTransportNodes: %s", err)
 	}

@@ -1,0 +1,17 @@
+# This file is used in testing shared VPC case,
+# it create a namespace with customized network config for VPC.
+apiVersion: v1
+kind: Namespace
+metadata:
+  annotations:
+    nsx.vmware.com/vpc_network_config: selfdefinedconfig
+  name: shared-vpc-ns-0
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  annotations:
+    nsx.vmware.com/vpc_network_config: selfdefinedconfig
+    nsx.vmware.com/shared_vpc_namespace: shared-vpc-ns-0
+  name: shared-vpc-ns-1

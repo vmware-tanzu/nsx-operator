@@ -1,0 +1,14 @@
+# This file is used in testing VPC case,
+# it should be applied on testbed setup stage,
+# for system namespaces, they should use this network config.
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: VPCNetworkConfiguration
+metadata:
+  name: system
+spec:
+  defaultSubnetSize: 32
+  nsxProject: /orgs/default/projects/nsx_operator_e2e_test
+  privateIPs:
+    - 172.27.0.0/16
+    - 172.37.0.0/16
+  vpcConnectivityProfile: /orgs/default/projects/nsx_operator_e2e_test/vpc-connectivity-profiles/default

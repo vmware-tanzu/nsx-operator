@@ -1,0 +1,30 @@
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: IPAddressAllocation
+metadata:
+  name: guestcluster-workers-a
+  namespace: sc-a
+spec:
+  ipAddressBlockVisibility: Private
+  allocationSize: 32
+
+  ---
+
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: IPAddressAllocation
+metadata:
+  name: guestcluster-workers-b
+  namespace: sc-a
+spec:
+  ipAddressBlockVisibility: External
+  allocationSize: 32
+
+  ---
+
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: IPAddressAllocation
+metadata:
+  name: guestcluster-workers-c
+  namespace: sc-a
+spec:
+  ipAddressBlockVisibility: PrivateTGW
+  allocationSize: 32

@@ -8,6 +8,7 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -32,22 +33,8 @@ func (qIface *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ 
 	}, nil
 }
 
-func Test_IndexFunc(t *testing.T) {
-	mId, mTag, mScope := "test_id", "test_tag", "nsx-op/vpc_uid"
-	v := &model.Vpc{
-		Id:   &mId,
-		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-	}
-	t.Run("1", func(t *testing.T) {
-		got, _ := indexFunc(v)
-		if !reflect.DeepEqual(got, []string{"test_tag"}) {
-			t.Errorf("VPCCRUIDScopeIndexFunc() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
-		}
-	})
-}
-
 func Test_filterTag(t *testing.T) {
-	mTag, mScope := "test_tag", "nsx-op/vpc_uid"
+	mTag, mScope := "test_tag", "nsx-op/namespace_uid"
 	mTag2, mScope2 := "test_tag", "nsx"
 	tags := []model.Tag{{Scope: &mScope, Tag: &mTag}}
 	tags2 := []model.Tag{{Scope: &mScope2, Tag: &mTag2}}
@@ -74,22 +61,11 @@ func Test_filterTag(t *testing.T) {
 	}
 }
 
-func Test_KeyFunc(t *testing.T) {
-	Id := "test_id"
-	v := &model.Vpc{Id: &Id}
-	t.Run("1", func(t *testing.T) {
-		got, _ := keyFunc(v)
-		if got != "test_id" {
-			t.Errorf("keyFunc() = %v, want %v", got, "test_id")
-		}
-	})
-}
-
 func Test_InitializeVPCStore(t *testing.T) {
 	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config2)
 	rc, _ := cluster.NewRestConnector()
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
 	vpcStore := &VPCStore{ResourceStore: common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),
@@ -134,11 +110,11 @@ func Test_InitializeVPCStore(t *testing.T) {
 
 	service.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, vpcStore)
 	assert.Empty(t, fatalErrors)
-	assert.Equal(t, sets.New[string](), vpcStore.ListIndexFuncValues(common.TagScopeVPCCRUID))
+	assert.Equal(t, sets.New[string](), vpcStore.ListIndexFuncValues(common.TagScopeNamespaceUID))
 }
 
 func TestVPCStore_CRUDResource(t *testing.T) {
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),
@@ -162,7 +138,7 @@ func TestVPCStore_CRUDResource(t *testing.T) {
 }
 
 func TestVPCStore_CRUDResource_List(t *testing.T) {
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeVPCCRUID: indexFunc})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),
@@ -182,14 +158,6 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 			Scope: &tagScopeNamespace,
 			Tag:   &ns1,
 		},
-		{
-			Scope: &tagScopeVPCCRName,
-			Tag:   &tagValueVPCCRName,
-		},
-		{
-			Scope: &tagScopeVPCCRUID,
-			Tag:   &tagValueVPCCRUID,
-		},
 	}
 	ns2 := "test-ns-2"
 	tag2 := []model.Tag{
@@ -200,14 +168,6 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 		{
 			Scope: &tagScopeNamespace,
 			Tag:   &ns2,
-		},
-		{
-			Scope: &tagScopeVPCCRName,
-			Tag:   &tagValueVPCCRName,
-		},
-		{
-			Scope: &tagScopeVPCCRUID,
-			Tag:   &tagValueVPCCRUID,
 		},
 	}
 	vpc1 := model.Vpc{
@@ -255,101 +215,128 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 	}
 }
 
-func TestRuleStore_GetByKey(t *testing.T) {
-	vpcRuleCacheIndexer := cache.NewIndexer(keyFuncAVI, nil)
-	resourceStore := common.ResourceStore{
-		Indexer:     vpcRuleCacheIndexer,
-		BindingType: model.RuleBindingType(),
+func Test_keyFunc(t *testing.T) {
+	id := "test_id"
+	type args struct {
+		obj interface{}
 	}
-	ruleStore := &AviRuleStore{ResourceStore: resourceStore}
-	service := &VPCService{
-		Service: common.Service{NSXClient: nil},
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{
+			name:    "vpc",
+			args:    args{obj: &model.Vpc{Id: &id}},
+			want:    id,
+			wantErr: assert.NoError,
+		},
+		{
+			name:    "lbs",
+			args:    args{obj: &model.LBService{Id: &id}},
+			want:    id,
+			wantErr: assert.NoError,
+		},
+		{
+			name:    "invalid",
+			args:    args{obj: &model.AntreaTraceflowConfig{Id: &id}},
+			want:    "",
+			wantErr: assert.Error,
+		},
 	}
-	service.RuleStore = ruleStore
-
-	path1 := "/org/default/project/project_1/vpcs/vpc1/security-policies/default-section/rules/rule1"
-	path2 := "/org/default/project/project_1/vpcs/vpc2/security-policies/default-section/rules/rule1"
-	rule1 := model.Rule{
-		Path: &path1,
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := keyFunc(tt.args.obj)
+			if !tt.wantErr(t, err, fmt.Sprintf("keyFunc(%v)", tt.args.obj)) {
+				return
+			}
+			assert.Equalf(t, tt.want, got, "keyFunc(%v)", tt.args.obj)
+		})
 	}
-	rule2 := model.Rule{
-		Path: &path2,
-	}
-	ruleStore.Add(&rule1)
-
-	rule := ruleStore.GetByKey(path1)
-	assert.Equal(t, rule.Path, rule1.Path)
-
-	rule = ruleStore.GetByKey(path2)
-	assert.True(t, rule == nil)
-
-	ruleStore.Add(&rule2)
-	rule = ruleStore.GetByKey(path2)
-	assert.Equal(t, rule.Path, rule2.Path)
 }
 
-func TestGroupStore_GetByKey(t *testing.T) {
-	groupCacheIndexer := cache.NewIndexer(keyFuncAVI, nil)
-	resourceStore := common.ResourceStore{
-		Indexer:     groupCacheIndexer,
-		BindingType: model.GroupBindingType(),
+func Test_indexFunc(t *testing.T) {
+	mId, mTag, mScope := "test_id", "test_tag", "nsx-op/namespace_uid"
+	type args struct {
+		obj interface{}
 	}
-	groupStore := &AviGroupStore{ResourceStore: resourceStore}
-	service := &VPCService{
-		Service: common.Service{NSXClient: nil},
+	tests := []struct {
+		name    string
+		args    args
+		want    []string
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{
+			name: "vpc",
+			args: args{obj: &model.Vpc{
+				Id:   &mId,
+				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+			}},
+			want:    []string{"test_tag"},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "lbs",
+			args: args{obj: &model.LBService{
+				Id:   &mId,
+				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+			}},
+			want:    []string{"test_tag"},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "lbsnotag",
+			args: args{obj: &model.LBService{
+				Id:   &mId,
+				Tags: []model.Tag{},
+			}},
+			want:    []string{},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "invalid",
+			args: args{obj: &model.AntreaTraceflowConfig{
+				Id:   &mId,
+				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+			}},
+			want:    []string{},
+			wantErr: assert.Error,
+		},
 	}
-	service.GroupStore = groupStore
-
-	path1 := "/org/default/project/project_1/vpcs/vpc1/groups/group1"
-	path2 := "/org/default/project/project_1/vpcs/vpc2/groups/group2"
-	group1 := model.Group{
-		Path: &path1,
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := indexFunc(tt.args.obj)
+			if !tt.wantErr(t, err, fmt.Sprintf("indexFunc(%v)", tt.args.obj)) {
+				return
+			}
+			assert.Equalf(t, tt.want, got, "indexFunc(%v)", tt.args.obj)
+		})
 	}
-	group2 := model.Group{
-		Path: &path2,
-	}
-	groupStore.Add(&group1)
-
-	group := groupStore.GetByKey(path1)
-	assert.Equal(t, group.Path, group1.Path)
-
-	group = groupStore.GetByKey(path2)
-	assert.True(t, group == nil)
-
-	groupStore.Add(&group2)
-	group = groupStore.GetByKey(path2)
-	assert.Equal(t, group.Path, group2.Path)
 }
 
-func TestSecurityPolicyStore_GetByKey(t *testing.T) {
-	spCacheIndexer := cache.NewIndexer(keyFuncAVI, nil)
+func TestLBSStore_CRUD(t *testing.T) {
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
 	resourceStore := common.ResourceStore{
-		Indexer:     spCacheIndexer,
-		BindingType: model.SecurityPolicyBindingType(),
+		Indexer:     vpcCacheIndexer,
+		BindingType: model.LBServiceBindingType(),
 	}
-	spStore := &AviSecurityPolicyStore{ResourceStore: resourceStore}
-	service := &VPCService{
-		Service: common.Service{NSXClient: nil},
+	ls := &LBSStore{
+		ResourceStore: resourceStore,
 	}
-	service.SecurityPolicyStore = spStore
-
-	path1 := "/org/default/project/project_1/vpcs/vpc1/security-policies/default-section"
-	path2 := "/org/default/project/project_1/vpcs/vpc2/security-policies/default-section"
-	sp1 := model.SecurityPolicy{
-		Path: &path1,
-	}
-	sp2 := model.SecurityPolicy{
-		Path: &path2,
-	}
-	spStore.Add(&sp1)
-
-	sp := spStore.GetByKey(path1)
-	assert.Equal(t, sp.Path, sp1.Path)
-
-	sp = spStore.GetByKey(path2)
-	assert.True(t, sp == nil)
-
-	spStore.Add(&sp2)
-	sp = spStore.GetByKey(path2)
-	assert.Equal(t, sp.Path, sp2.Path)
+	lbs1 := &model.LBService{Id: common.String("1")}
+	lbs2 := &model.LBService{Id: common.String("2")}
+	require.NoError(t, ls.Apply(lbs1))
+	require.Equal(t, 1, len(ls.List()))
+	require.True(t, reflect.DeepEqual(lbs1, ls.GetByKey("1")))
+	require.NoError(t, ls.Apply(lbs2))
+	require.Equal(t, 2, len(ls.List()))
+	lbs2.MarkedForDelete = common.Bool(true)
+	require.NoError(t, ls.Apply(lbs2))
+	require.Equal(t, 1, len(ls.List()))
+	require.Nil(t, ls.GetByKey("2"))
+	defer func() {
+		require.NotNil(t, recover())
+	}()
+	ls.Apply(&model.AntreaTraceflowConfig{Id: common.String("invalid")})
 }

@@ -6,17 +6,18 @@ package subnetport
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
@@ -25,7 +26,7 @@ import (
 )
 
 var (
-	log                    = logger.Log
+	log                    = &logger.Log
 	ResourceTypeSubnetPort = servicecommon.ResourceTypeSubnetPort
 	MarkedForDelete        = true
 )
@@ -91,18 +92,24 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 	existingSubnetPort := service.SubnetPortStore.GetByKey(*nsxSubnetPort.Id)
 	isChanged := true
 	if existingSubnetPort != nil {
+		// The existing port's attachment ID should not be changed in any case.
+		if existingSubnetPort.Attachment != nil {
+			nsxSubnetPort.Attachment.Id = existingSubnetPort.Attachment.Id
+		}
 		isChanged = servicecommon.CompareResource(SubnetPortToComparable(existingSubnetPort), SubnetPortToComparable(nsxSubnetPort))
+	}
+	subnetInfo, err := servicecommon.ParseVPCResourcePath(*nsxSubnet.Path)
+	if err != nil {
+		return nil, err
 	}
 	if !isChanged {
 		log.Info("NSX subnet port not changed, skipping the update", "nsxSubnetPort.Id", nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
 		// We don't need to update it but still need to check realized state.
 	} else {
+		nsxSubnetPort = buildSubnetPortExternalAddressBindingFromExisting(nsxSubnetPort, existingSubnetPort)
 		log.Info("updating the NSX subnet port", "existingSubnetPort", existingSubnetPort, "desiredSubnetPort", nsxSubnetPort)
-		subnetInfo, err := servicecommon.ParseVPCResourcePath(*nsxSubnet.Path)
-		if err != nil {
-			return nil, err
-		}
 		err = service.NSXClient.PortClient.Patch(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *nsxSubnetPort.Id, *nsxSubnetPort)
+		err = nsxutil.NSXApiError(err)
 		if err != nil {
 			log.Error(err, "failed to create or update subnet port", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
 			return nil, err
@@ -126,6 +133,15 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		log.Error(err, "check and update NSX subnet port state failed, would retry exponentially", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
 		return nil, err
 	}
+	createdNSXSubnetPort, err := service.NSXClient.PortClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *nsxSubnetPort.Id)
+	if err != nil {
+		log.Error(err, "check and update NSX subnet port failed, would retry exponentially", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
+		return nil, err
+	}
+	err = service.SubnetPortStore.Apply(&createdNSXSubnetPort)
+	if err != nil {
+		return nil, err
+	}
 	if isChanged {
 		log.Info("successfully created or updated subnetport", "nsxSubnetPort.Id", *nsxSubnetPort.Id)
 	} else {
@@ -136,14 +152,15 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 
 // CheckSubnetPortState will check the port realized status then get the port state to prepare the CR status.
 func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubnetPath string, enableDHCP bool) (*model.SegmentPortState, error) {
-	var uid types.UID
+	var objMeta metav1.ObjectMeta
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
-		uid = o.UID
+		objMeta = o.ObjectMeta
 	case *v1.Pod:
-		uid = o.UID
+		objMeta = o.ObjectMeta
 	}
-	nsxSubnetPort := service.SubnetPortStore.GetByKey(string(uid))
+	portID := util.GenerateIDByObject(&objMeta)
+	nsxSubnetPort := service.SubnetPortStore.GetByKey(portID)
 	if nsxSubnetPort == nil {
 		return nil, errors.New("failed to get subnet port from store")
 	}
@@ -157,10 +174,10 @@ func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubne
 	if err := realizeService.CheckRealizeState(backoff, *nsxSubnetPort.Path, "RealizedLogicalPort"); err != nil {
 		log.Error(err, "failed to get realized status", "subnetport path", *nsxSubnetPort.Path)
 		if realizestate.IsRealizeStateError(err) {
-			log.Error(err, "the created subnet port is in error realization state, cleaning the resource", "subnetport", uid)
+			log.Error(err, "the created subnet port is in error realization state, cleaning the resource", "subnetport", portID)
 			// only recreate subnet port on RealizationErrorStateError.
-			if err := service.DeleteSubnetPort(uid); err != nil {
-				log.Error(err, "cleanup error subnetport failed", "subnetport", uid)
+			if err := service.DeleteSubnetPort(portID); err != nil {
+				log.Error(err, "cleanup error subnetport failed", "subnetport", portID)
 				return nil, err
 			}
 		}
@@ -171,7 +188,7 @@ func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubne
 	if err != nil {
 		return nil, err
 	}
-	log.Info("got the NSX subnet port state", "nsxPortState.RealizedBindings", nsxPortState.RealizedBindings, "uid", uid)
+	log.Info("got the NSX subnet port state", "nsxPortState.RealizedBindings", nsxPortState.RealizedBindings, "uid", portID)
 	if len(nsxPortState.RealizedBindings) == 0 && !enableDHCP {
 		return nsxPortState, errors.New("empty realized bindings")
 	}
@@ -179,50 +196,60 @@ func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubne
 }
 
 func (service *SubnetPortService) GetSubnetPortState(obj interface{}, nsxSubnetPath string) (*model.SegmentPortState, error) {
-	var uid types.UID
+	var nsxSubnetPortID string
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
-		uid = o.UID
+		nsxSubnetPortID = service.BuildSubnetPortId(&o.ObjectMeta)
 	case *v1.Pod:
-		uid = o.UID
+		nsxSubnetPortID = service.BuildSubnetPortId(&o.ObjectMeta)
 	}
 	nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID := nsxutil.ParseVPCPath(nsxSubnetPath)
-	nsxSubnetPortState, err := service.NSXClient.PortStateClient.Get(nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID, string(uid), nil, nil)
+	nsxSubnetPortState, err := service.NSXClient.PortStateClient.Get(nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID, nsxSubnetPortID, nil, nil)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
-		log.Error(err, "failed to get subnet port state", "nsxSubnetPortID", uid, "nsxSubnetPath", nsxSubnetPath)
+		log.Error(err, "failed to get subnet port state", "nsxSubnetPortID", nsxSubnetPortID, "nsxSubnetPath", nsxSubnetPath)
 		return nil, err
 	}
 	return &nsxSubnetPortState, nil
 }
 
-func (service *SubnetPortService) DeleteSubnetPort(uid types.UID) error {
-	nsxSubnetPort := service.SubnetPortStore.GetByKey(string(uid))
+func (service *SubnetPortService) DeleteSubnetPort(portID string) error {
+	nsxSubnetPort := service.SubnetPortStore.GetByKey(portID)
 	if nsxSubnetPort == nil || nsxSubnetPort.Id == nil {
-		log.Info("NSX subnet port is not found in store, skip deleting it", "uid", uid)
+		log.Info("NSX subnet port is not found in store, skip deleting it", "id", portID)
 		return nil
 	}
 	nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID := nsxutil.ParseVPCPath(*nsxSubnetPort.Path)
-	err := service.NSXClient.PortClient.Delete(nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID, string(uid))
+	err := service.NSXClient.PortClient.Delete(nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID, portID)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to delete subnetport", "nsxSubnetPort.Path", *nsxSubnetPort.Path)
 		return err
 	}
-	if err = service.SubnetPortStore.Delete(uid); err != nil {
+	if err = service.SubnetPortStore.Delete(portID); err != nil {
 		return err
 	}
-	log.Info("successfully deleted nsxSubnetPort", "nsxSubnetPortID", uid)
+	log.Info("successfully deleted nsxSubnetPort", "nsxSubnetPortID", portID)
 	return nil
 }
 
 func (service *SubnetPortService) ListNSXSubnetPortIDForCR() sets.Set[string] {
 	log.V(2).Info("listing subnet port CR UIDs")
-	subnetPortSet := service.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopeSubnetPortCRUID)
+	subnetPortSet := sets.New[string]()
+	for _, subnetPortCRUid := range service.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopeSubnetPortCRUID).UnsortedList() {
+		subnetPortIDs, _ := service.SubnetPortStore.IndexKeys(servicecommon.TagScopeSubnetPortCRUID, subnetPortCRUid)
+		subnetPortSet.Insert(subnetPortIDs...)
+	}
 	return subnetPortSet
 }
 
 func (service *SubnetPortService) ListNSXSubnetPortIDForPod() sets.Set[string] {
 	log.V(2).Info("listing pod UIDs")
-	subnetPortSet := service.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopePodUID)
+	subnetPortSet := sets.New[string]()
+	for _, podUID := range service.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopePodUID).UnsortedList() {
+		subnetPortIDs, _ := service.SubnetPortStore.IndexKeys(servicecommon.TagScopePodUID, podUID)
+		subnetPortSet.Insert(subnetPortIDs...)
+	}
 	return subnetPortSet
 }
 
@@ -234,6 +261,7 @@ func (service *SubnetPortService) GetGatewayPrefixForSubnetPort(obj *v1alpha1.Su
 	}
 	// TODO: if the port is not the first on the same subnet, try to get the info from existing realized subnetport CR to avoid query NSX API again.
 	statusList, err := service.NSXClient.SubnetStatusClient.List(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to get subnet status")
 		return "", -1, err
@@ -244,6 +272,11 @@ func (service *SubnetPortService) GetGatewayPrefixForSubnetPort(obj *v1alpha1.Su
 		return "", -1, err
 	}
 	status := statusList.Results[0]
+	if status.GatewayAddress == nil {
+		err := fmt.Errorf("invalid status result: %+v", status)
+		log.Error(err, "subnet status does not have gateway address", "nsxSubnetPath", nsxSubnetPath)
+		return "", -1, err
+	}
 	gateway, err := util.RemoveIPPrefix(*status.GatewayAddress)
 	if err != nil {
 		return "", -1, err
@@ -276,7 +309,7 @@ func (service *SubnetPortService) Cleanup(ctx context.Context) error {
 	subnetPorts := service.SubnetPortStore.List()
 	log.Info("cleanup subnetports", "count", len(subnetPorts))
 	for _, subnetPort := range subnetPorts {
-		subnetPortID := types.UID(*subnetPort.(*model.VpcSubnetPort).Id)
+		subnetPortID := *subnetPort.(*model.VpcSubnetPort).Id
 		select {
 		case <-ctx.Done():
 			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())

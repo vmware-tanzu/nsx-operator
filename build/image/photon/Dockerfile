@@ -1,9 +1,10 @@
-FROM golang:1.21.9 as golang-build
+FROM golang:1.22.5 as golang-build
 
 WORKDIR /source
 
 COPY . /source
 RUN CGO_ENABLED=0 go build -o manager cmd/main.go
+RUN CGO_ENABLED=0 go build -o webhookcert cmd/webhookcert/main.go
 RUN CGO_ENABLED=0 go build -o clean cmd_clean/main.go
 
 FROM photon
@@ -12,6 +13,7 @@ RUN tdnf -y install shadow && \
     useradd -s /bin/bash nsx-operator
 
 COPY --from=golang-build /source/manager /usr/local/bin/
+COPY --from=golang-build /source/webhookcert /usr/local/bin/
 COPY --from=golang-build /source/clean /usr/local/bin/
 
 USER nsx-operator

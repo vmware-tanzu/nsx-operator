@@ -17,7 +17,7 @@ const (
 )
 
 var (
-	log = logger.Log
+	log = &logger.Log
 )
 
 type JWTTokenProvider struct {

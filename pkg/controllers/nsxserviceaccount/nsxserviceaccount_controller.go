@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,7 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	nsxvmwarecomv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	nsxvmwarecomv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -33,11 +32,13 @@ import (
 )
 
 var (
-	log                     = logger.Log
+	log                     = &logger.Log
 	ResultNormal            = common.ResultNormal
 	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
 	MetricResType           = common.MetricResTypeNSXServiceAccount
+	count                   = uint16(0)
+	ca                      []byte
 )
 
 // NSXServiceAccountReconciler reconciles a NSXServiceAccount object.
@@ -78,7 +79,7 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// So need to check NSX version before starting NSXServiceAccount reconcile
 	if !r.Service.NSXClient.NSXCheckVersion(nsx.ServiceAccount) {
 		err := errors.New("NSX version check failed, NSXServiceAccount feature is not supported")
-		updateFail(r, &ctx, obj, &err)
+		updateFail(r, ctx, obj, &err)
 		// if NSX version check fails, it will be put back to reconcile queue and be reconciled after 5 minutes
 		return ResultRequeueAfter5mins, nil
 	}
@@ -89,7 +90,7 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			controllerutil.AddFinalizer(obj, servicecommon.NSXServiceAccountFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "nsxserviceaccount", req.NamespacedName)
-				updateFail(r, &ctx, obj, &err)
+				updateFail(r, ctx, obj, &err)
 				return ResultRequeue, err
 			}
 			log.V(1).Info("added finalizer on CR", "nsxserviceaccount", req.NamespacedName)
@@ -108,10 +109,10 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 		if err := r.Service.CreateOrUpdateNSXServiceAccount(ctx, obj); err != nil {
 			log.Error(err, "operate failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
-			updateFail(r, &ctx, obj, &err)
+			updateFail(r, ctx, obj, &err)
 			return ResultRequeue, err
 		}
-		updateSuccess(r, &ctx, obj)
+		updateSuccess(r, ctx, obj)
 	} else {
 		if controllerutil.ContainsFinalizer(obj, servicecommon.NSXServiceAccountFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
@@ -120,17 +121,17 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				Name:      obj.Name,
 			}, obj.UID); err != nil {
 				log.Error(err, "deleting failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
-				deleteFail(r, &ctx, obj, &err)
+				deleteFail(r, ctx, obj, &err)
 				return ResultRequeue, err
 			}
 			controllerutil.RemoveFinalizer(obj, servicecommon.NSXServiceAccountFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "removing finalizer failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
-				deleteFail(r, &ctx, obj, &err)
+				deleteFail(r, ctx, obj, &err)
 				return ResultRequeue, err
 			}
 			log.V(1).Info("removed finalizer", "nsxserviceaccount", req.NamespacedName)
-			deleteSuccess(r, &ctx, obj)
+			deleteSuccess(r, ctx, obj)
 		} else {
 			// only print a message because it's not a normal case
 			log.Info("finalizers cannot be recognized", "nsxserviceaccount", req.NamespacedName)
@@ -163,41 +164,29 @@ func (r *NSXServiceAccountReconciler) Start(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-
-	go r.GarbageCollector(make(chan bool), servicecommon.GCInterval)
 	return nil
 }
 
-// GarbageCollector collect NSXServiceAccount which has been removed from crd.
-// cancel is used to break the loop during UT
-func (r *NSXServiceAccountReconciler) GarbageCollector(cancel chan bool, timeout time.Duration) {
-	ctx := context.Background()
-	count := uint16(0)
-	ca := r.Service.NSXConfig.GetCACert()
-	log.Info("garbage collector started")
-	for {
-		nsxServiceAccountList := &nsxvmwarecomv1alpha1.NSXServiceAccountList{}
-		var gcSuccessCount, gcErrorCount uint32
-		var err error
-		nsxServiceAccountUIDSet := r.Service.ListNSXServiceAccountRealization()
-		if len(nsxServiceAccountUIDSet) == 0 {
-			goto gcWait
-		}
-		err = r.Client.List(ctx, nsxServiceAccountList)
-		if err != nil {
-			log.Error(err, "failed to list NSXServiceAccount CR")
-			goto gcWait
-		}
-		gcSuccessCount, gcErrorCount = r.garbageCollector(nsxServiceAccountUIDSet, nsxServiceAccountList)
-		log.V(1).Info("gc collects NSXServiceAccount CR", "success", gcSuccessCount, "error", gcErrorCount)
-		count, ca = r.validateRealized(count, ca, nsxServiceAccountList)
-	gcWait:
-		select {
-		case <-cancel:
-			return
-		case <-time.After(timeout):
-		}
+// CollectGarbage collect NSXServiceAccount which has been removed from crd.
+// it implements the interface GarbageCollector method.
+func (r *NSXServiceAccountReconciler) CollectGarbage(ctx context.Context) {
+	log.Info("nsx service account garbage collector started")
+	ca = r.Service.NSXConfig.GetCACert()
+	nsxServiceAccountList := &nsxvmwarecomv1alpha1.NSXServiceAccountList{}
+	var gcSuccessCount, gcErrorCount uint32
+	var err error
+	nsxServiceAccountUIDSet := r.Service.ListNSXServiceAccountRealization()
+	if len(nsxServiceAccountUIDSet) == 0 {
+		return
 	}
+	err = r.Client.List(ctx, nsxServiceAccountList)
+	if err != nil {
+		log.Error(err, "failed to list NSXServiceAccount CR")
+		return
+	}
+	gcSuccessCount, gcErrorCount = r.garbageCollector(nsxServiceAccountUIDSet, nsxServiceAccountList)
+	log.V(1).Info("gc collects NSXServiceAccount CR", "success", gcSuccessCount, "error", gcErrorCount)
+	count, ca = r.validateRealized(count, ca, nsxServiceAccountList)
 }
 
 func (r *NSXServiceAccountReconciler) validateRealized(count uint16, ca []byte, nsxServiceAccountList *nsxvmwarecomv1alpha1.NSXServiceAccountList) (uint16, []byte) {
@@ -253,7 +242,7 @@ func (r *NSXServiceAccountReconciler) garbageCollector(nsxServiceAccountUIDSet s
 	return
 }
 
-func (r *NSXServiceAccountReconciler) updateNSXServiceAccountStatus(ctx *context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount, e *error) {
+func (r *NSXServiceAccountReconciler) updateNSXServiceAccountStatus(ctx context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount, e *error) {
 	obj := o
 	if e != nil && *e != nil {
 		obj = o.DeepCopy()
@@ -261,7 +250,7 @@ func (r *NSXServiceAccountReconciler) updateNSXServiceAccountStatus(ctx *context
 		obj.Status.Reason = fmt.Sprintf("Error: %v", *e)
 		obj.Status.Conditions = nsxserviceaccount.GenerateNSXServiceAccountConditions(obj.Status.Conditions, obj.Generation, metav1.ConditionFalse, nsxvmwarecomv1alpha1.ConditionReasonRealizationError, fmt.Sprintf("Error: %v", *e))
 	}
-	err := r.Client.Status().Update(*ctx, obj)
+	err := r.Client.Status().Update(ctx, obj)
 	if err != nil {
 		log.Error(err, "update NSXServiceAccount failed", "Namespace", obj.Namespace, "Name", obj.Name, "Status", obj.Status)
 	} else {
@@ -269,25 +258,25 @@ func (r *NSXServiceAccountReconciler) updateNSXServiceAccountStatus(ctx *context
 	}
 }
 
-func updateFail(r *NSXServiceAccountReconciler, c *context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount, e *error) {
+func updateFail(r *NSXServiceAccountReconciler, c context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount, e *error) {
 	r.updateNSXServiceAccountStatus(c, o, e)
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
 }
 
-func deleteFail(r *NSXServiceAccountReconciler, c *context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount, e *error) {
+func deleteFail(r *NSXServiceAccountReconciler, c context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount, e *error) {
 	r.updateNSXServiceAccountStatus(c, o, e)
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 }
 
-func updateSuccess(r *NSXServiceAccountReconciler, c *context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount) {
+func updateSuccess(r *NSXServiceAccountReconciler, c context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount) {
 	r.updateNSXServiceAccountStatus(c, o, nil)
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "ServiceAccount CR has been successfully updated")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
 }
 
-func deleteSuccess(r *NSXServiceAccountReconciler, _ *context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount) {
+func deleteSuccess(r *NSXServiceAccountReconciler, _ context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount) {
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "ServiceAccount CR has been successfully deleted")
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
 }

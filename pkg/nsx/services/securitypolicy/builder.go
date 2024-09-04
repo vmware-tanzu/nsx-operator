@@ -15,7 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
@@ -38,16 +38,25 @@ var (
 	Int64  = common.Int64
 )
 
-func (service *SecurityPolicyService) buildecurityPolicyName(obj *v1alpha1.SecurityPolicy, createdFor string) string {
+func (service *SecurityPolicyService) buildSecurityPolicyName(obj *v1alpha1.SecurityPolicy, createdFor string) string {
+	if isVpcEnabled(service) {
+		// For VPC scenario, we use obj.Name as the NSX resource display name for both SecurityPolicy and NetworkPolicy.
+		return util.GenerateTruncName(common.MaxNameLength, obj.Name, "", "", "", "")
+
+	}
 	prefix := common.SecurityPolicyPrefix
 	if createdFor != common.ResourceTypeSecurityPolicy {
 		prefix = common.NetworkPolicyPrefix
 	}
-	nsxSecurityPolicyName := util.GenerateTruncName(common.MaxNameLength, fmt.Sprintf("%s-%s", obj.Namespace, obj.Name), prefix, "", "", "")
-	return nsxSecurityPolicyName
+	// For T1 scenario, we use ns-name as the key resource name for SecurityPolicy, it is to be consistent with the
+	// previous solutions.
+	return util.GenerateTruncName(common.MaxNameLength, fmt.Sprintf("%s-%s", obj.Namespace, obj.Name), prefix, "", "", "")
 }
 
-func (service *SecurityPolicyService) buildecurityPolicyID(obj *v1alpha1.SecurityPolicy, createdFor string) string {
+func (service *SecurityPolicyService) buildSecurityPolicyID(obj *v1alpha1.SecurityPolicy, createdFor string) string {
+	if isVpcEnabled(service) {
+		return util.GenerateIDByObject(obj)
+	}
 	prefix := common.SecurityPolicyPrefix
 	if createdFor != common.ResourceTypeSecurityPolicy {
 		prefix = common.NetworkPolicyPrefix
@@ -66,8 +75,8 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 	log.V(1).Info("building the model SecurityPolicy from CR SecurityPolicy", "object", *obj)
 	nsxSecurityPolicy := &model.SecurityPolicy{}
 
-	nsxSecurityPolicy.Id = String(service.buildecurityPolicyID(obj, createdFor))
-	nsxSecurityPolicy.DisplayName = String(service.buildecurityPolicyName(obj, createdFor))
+	nsxSecurityPolicy.Id = String(service.buildSecurityPolicyID(obj, createdFor))
+	nsxSecurityPolicy.DisplayName = String(service.buildSecurityPolicyName(obj, createdFor))
 	// TODO: confirm the sequence number: offset
 	nsxSecurityPolicy.SequenceNumber = Int64(int64(obj.Spec.Priority))
 
@@ -366,16 +375,22 @@ func (service *SecurityPolicyService) buildExpressionsMatchExpression(matchExpre
 
 // build appliedTo group ID for both policy and rule levels.
 func (service *SecurityPolicyService) buildAppliedGroupID(obj *v1alpha1.SecurityPolicy, ruleIdx int, createdFor string) string {
-	prefix := common.SecurityPolicyPrefix
-	if createdFor == common.ResourceTypeNetworkPolicy {
-		prefix = common.NetworkPolicyPrefix
+	if isVpcEnabled(service) {
+		suffix := common.TargetGroupSuffix
+		if ruleIdx != -1 {
+			suffix = fmt.Sprintf("%d_%s", ruleIdx, suffix)
+		}
+		return util.GenerateIDByObjectWithSuffix(obj, suffix)
 	}
 
 	ruleIdxStr := ""
 	if ruleIdx != -1 {
 		ruleIdxStr = fmt.Sprintf("%d", ruleIdx)
 	}
-
+	prefix := common.SecurityPolicyPrefix
+	if createdFor == common.ResourceTypeNetworkPolicy {
+		prefix = common.NetworkPolicyPrefix
+	}
 	return util.GenerateID(string(obj.UID), prefix, common.TargetGroupSuffix, ruleIdxStr)
 }
 
@@ -580,15 +595,21 @@ func (service *SecurityPolicyService) buildRuleOutGroup(obj *v1alpha1.SecurityPo
 }
 
 func (service *SecurityPolicyService) buildRuleID(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int, createdFor string) string {
+	serializedBytes, _ := json.Marshal(rule)
+	ruleHash := fmt.Sprintf("%s", util.Sha1(string(serializedBytes)))
+	ruleIdxStr := fmt.Sprintf("%d", ruleIdx)
+	if isVpcEnabled(service) {
+		suffix := fmt.Sprintf("%s_%s", ruleIdxStr, ruleHash)
+		return util.GenerateIDByObjectWithSuffix(obj, suffix)
+	}
 	prefix := common.SecurityPolicyPrefix
 	if createdFor == common.ResourceTypeNetworkPolicy {
 		prefix = common.NetworkPolicyPrefix
 	}
-	serializedBytes, _ := json.Marshal(rule)
-	return util.GenerateID(fmt.Sprintf("%s", obj.UID), prefix, fmt.Sprintf("%s", util.Sha1(string(serializedBytes))), fmt.Sprintf("%d", ruleIdx))
+	return util.GenerateID(fmt.Sprintf("%s", obj.UID), prefix, ruleHash, ruleIdxStr)
 }
 
-func (service *SecurityPolicyService) buildRuleDisplayName(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, portIdx, portNumber int, hasNamedport bool, createdFor string) (string, error) {
+func (service *SecurityPolicyService) buildRuleDisplayName(rule *v1alpha1.SecurityPolicyRule, portIdx, portNumber int, hasNamedport bool, createdFor string) (string, error) {
 	var ruleName string
 	var suffix string
 
@@ -620,19 +641,19 @@ func (service *SecurityPolicyService) buildRuleDisplayName(obj *v1alpha1.Securit
 			suffix = common.RuleSuffixEgressReject
 		}
 	}
-	ruleName = service.buildRulePortsString(&rule.Ports, suffix)
 
 	if len(rule.Name) > 0 {
 		// For the internal security policy rule converted from network policy, skipping to add suffix for the rule name
 		// if it has its own name generated, usually, it's for the internal isolation security policy rule created for network policy.
-		if createdFor == common.ResourceTypeNetworkPolicy {
-			ruleName = rule.Name
-		} else {
+		ruleName = rule.Name
+		if createdFor != common.ResourceTypeNetworkPolicy {
 			// If user defines the rule name, the generated NSX security policy rule will also be added with the same suffix: "-direction-action" as building rulePortsString
 			// e.g. input security policy's rule name: sp-rule,
 			// the generated NSX security policy rule name: sp-rule-ingress-allow
-			ruleName = rule.Name + "-" + suffix
+			ruleName = ruleName + "-" + suffix
 		}
+	} else {
+		ruleName = service.buildRulePortsString(&rule.Ports, suffix)
 	}
 
 	if !hasNamedport {
@@ -727,6 +748,9 @@ func (service *SecurityPolicyService) buildRulePeerGroupID(obj *v1alpha1.Securit
 	suffix := common.DstGroupSuffix
 	if isSource == true {
 		suffix = common.SrcGroupSuffix
+	}
+	if isVpcEnabled(service) {
+		return util.GenerateIDByObjectWithSuffix(obj, fmt.Sprintf("%d_%s", ruleIdx, suffix))
 	}
 	return util.GenerateID(string(obj.UID), common.SecurityPolicyPrefix, suffix, fmt.Sprintf("%d", ruleIdx))
 }
@@ -855,7 +879,7 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 		// Build a nsx share resource in project level
 		nsxShare, err := service.buildProjectShare(obj, &rulePeerGroup, []string{rulePeerGroupPath}, *sharedWith, createdFor)
 		if err != nil {
-			log.Error(err, "failed to build nsx project share", "ruleGroupName", rulePeerGroupName)
+			log.Error(err, "failed to build NSX project share", "ruleGroupName", rulePeerGroupName)
 			return nil, "", nil, err
 		}
 
@@ -864,6 +888,10 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 	}
 
 	return &rulePeerGroup, rulePeerGroupPath, nil, err
+}
+
+func (service *SecurityPolicyService) buildExpandedRuleId(ruleBaseId string, portIdx int, portAddressIdx int) string {
+	return fmt.Sprintf("%s_%d_%d", ruleBaseId, portIdx, portAddressIdx)
 }
 
 // Build rule basic info, ruleIdx is the index of the rules of security policy,
@@ -880,13 +908,13 @@ func (service *SecurityPolicyService) buildRuleBasicInfo(obj *v1alpha1.SecurityP
 	if err != nil {
 		return nil, err
 	}
-	displayName, err := service.buildRuleDisplayName(obj, rule, portIdx, portNumber, hasNamedport, createdFor)
+	displayName, err := service.buildRuleDisplayName(rule, portIdx, portNumber, hasNamedport, createdFor)
 	if err != nil {
 		log.Error(err, "failed to build rule's display name", "object.UID", obj.UID, "rule", rule, "createdFor", createdFor)
 	}
 
 	nsxRule := model.Rule{
-		Id:             String(fmt.Sprintf("%s_%d_%d", service.buildRuleID(obj, rule, ruleIdx, createdFor), portIdx, portAddressIdx)),
+		Id:             String(service.buildExpandedRuleId(service.buildRuleID(obj, rule, ruleIdx, createdFor), portIdx, portAddressIdx)),
 		DisplayName:    &displayName,
 		Direction:      &ruleDirection,
 		SequenceNumber: Int64(int64(ruleIdx)),
@@ -1764,7 +1792,7 @@ func (service *SecurityPolicyService) buildProjectShare(obj *v1alpha1.SecurityPo
 func (service *SecurityPolicyService) buildSharedWith(sharedNamespace *[]string) (*[]string, error) {
 	var sharedWith []string
 	for _, ns := range *sharedNamespace {
-		log.V(1).Info("building sharedwith in nameSpace", "sharedNamespace", ns)
+		log.V(1).Info("building shared with in Namespace", "sharedNamespace", ns)
 
 		vpcInfo, err := service.getVpcInfo(ns)
 		if err != nil {

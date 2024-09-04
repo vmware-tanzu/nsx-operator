@@ -16,17 +16,18 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha2"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
+	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/ipaddressallocation"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	ippool2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/ippool"
 	namespacecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/namespace"
+	networkinfocontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/networkinfo"
 	networkpolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/networkpolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/node"
-	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/pod"
 	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/service"
@@ -34,17 +35,19 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetset"
-	vpccontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/vpc"
+	nodeservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/node"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
+	subnetservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
+	subnetportservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
+
+	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ippool"
-	nodeservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/node"
+	ipaddressallocationservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
-	subnetservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
-	subnetportservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
@@ -59,8 +62,8 @@ var (
 func init() {
 	var err error
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(crdv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
-	utilruntime.Must(v1alpha2.AddToScheme(scheme))
 	utilruntime.Must(vmv1alpha1.AddToScheme(scheme))
 	config.AddFlags()
 
@@ -103,34 +106,21 @@ func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Ser
 		log.Error(err, "failed to create controller", "controller", "NSXServiceAccount")
 		os.Exit(1)
 	}
+	go commonctl.GenericGarbageCollector(make(chan bool), common.GCInterval, nsxServiceAccountReconcile.CollectGarbage)
 }
 
-func StartIPPoolController(mgr ctrl.Manager, ipPoolService *ippool.IPPoolService, vpcService common.VPCServiceProvider) {
-	ippoolReconcile := &ippool2.IPPoolReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		Service:    ipPoolService,
-		VPCService: vpcService,
-		Recorder:   mgr.GetEventRecorderFor("ippool-controller"),
-	}
-
-	if err := ippoolReconcile.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "IPPool")
-		os.Exit(1)
-	}
-}
-
-func StartVPCController(mgr ctrl.Manager, vpcService *vpc.VPCService) {
-	vpcReconciler := &vpccontroller.VPCReconciler{
+func StartNetworkInfoController(mgr ctrl.Manager, vpcService *vpc.VPCService) {
+	networkInfoReconciler := &networkinfocontroller.NetworkInfoReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("vpc-controller"),
+		Recorder: mgr.GetEventRecorderFor("networkinfo-controller"),
 	}
-	vpcReconciler.Service = vpcService
-	if err := vpcReconciler.Start(mgr); err != nil {
-		log.Error(err, "failed to create vpc controller", "controller", "VPC")
+	networkInfoReconciler.Service = vpcService
+	if err := networkInfoReconciler.Start(mgr); err != nil {
+		log.Error(err, "failed to create networkinfo controller", "controller", "NetworkInfo")
 		os.Exit(1)
 	}
+	go commonctl.GenericGarbageCollector(make(chan bool), common.GCInterval, networkInfoReconciler.CollectGarbage)
 }
 
 func StartNamespaceController(mgr ctrl.Manager, cf *config.NSXOperatorConfig, vpcService common.VPCServiceProvider) {
@@ -145,6 +135,113 @@ func StartNamespaceController(mgr ctrl.Manager, cf *config.NSXOperatorConfig, vp
 		log.Error(err, "failed to create namespace controller", "controller", "Namespace")
 		os.Exit(1)
 	}
+}
+
+func StartIPAddressAllocationController(mgr ctrl.Manager, ipAddressAllocationService *ipaddressallocationservice.IPAddressAllocationService, vpcService common.VPCServiceProvider) {
+	ipAddressAllocationReconciler := &ipaddressallocation.IPAddressAllocationReconciler{
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		Service:    ipAddressAllocationService,
+		VPCService: vpcService,
+		Recorder:   mgr.GetEventRecorderFor("ipaddressallocation-controller"),
+	}
+
+	if err := ipAddressAllocationReconciler.SetupWithManager(mgr); err != nil {
+		log.Error(err, "failed to create ipaddressallocation controller")
+		os.Exit(1)
+	}
+	go commonctl.GenericGarbageCollector(make(chan bool), common.GCInterval, ipAddressAllocationReconciler.CollectGarbage)
+}
+
+func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
+	//  Embed the common commonService to sub-services.
+	commonService := common.Service{
+		Client:    mgr.GetClient(),
+		NSXClient: nsxClient,
+		NSXConfig: cf,
+	}
+
+	checkLicense(nsxClient, cf.LicenseValidationInterval)
+
+	var vpcService *vpc.VPCService
+
+	if cf.CoeConfig.EnableVPCNetwork {
+		// Check NSX version for VPC networking mode
+		if !commonService.NSXClient.NSXCheckVersion(nsx.VPC) {
+			log.Error(nil, "VPC mode cannot be enabled if NSX version is lower than 4.1.1")
+			os.Exit(1)
+		}
+		log.Info("VPC mode is enabled")
+
+		var err error
+		vpcService, err = vpc.InitializeVPC(commonService)
+		if err != nil {
+			log.Error(err, "failed to initialize vpc commonService", "controller", "VPC")
+			os.Exit(1)
+		}
+		subnetService, err := subnetservice.InitializeSubnetService(commonService)
+		if err != nil {
+			log.Error(err, "failed to initialize subnet commonService")
+			os.Exit(1)
+		}
+		ipAddressAllocationService, err := ipaddressallocationservice.InitializeIPAddressAllocation(commonService, vpcService, false)
+		if err != nil {
+			log.Error(err, "failed to initialize ipaddressallocation commonService", "controller", "IPAddressAllocation")
+		}
+		subnetPortService, err := subnetportservice.InitializeSubnetPort(commonService)
+		if err != nil {
+			log.Error(err, "failed to initialize subnetport commonService", "controller", "SubnetPort")
+			os.Exit(1)
+		}
+		nodeService, err := nodeservice.InitializeNode(commonService)
+		if err != nil {
+			log.Error(err, "failed to initialize node commonService", "controller", "Node")
+			os.Exit(1)
+		}
+		staticRouteService, err := staticroute.InitializeStaticRoute(commonService, vpcService)
+		if err != nil {
+			log.Error(err, "failed to initialize staticroute commonService", "controller", "StaticRoute")
+			os.Exit(1)
+		}
+		// Start controllers which only supports VPC
+		StartNetworkInfoController(mgr, vpcService)
+		StartNamespaceController(mgr, cf, vpcService)
+		// Start subnet/subnetset controller.
+		if err := subnet.StartSubnetController(mgr, subnetService, subnetPortService, vpcService); err != nil {
+			os.Exit(1)
+		}
+		enableWebhook := true
+		if _, err := os.Stat(config.WebhookCertDir); errors.Is(err, os.ErrNotExist) {
+			log.Error(err, "server cert not found, disabling webhook server", "cert", config.WebhookCertDir)
+			enableWebhook = false
+		}
+		if err := subnetset.StartSubnetSetController(mgr, subnetService, subnetPortService, vpcService, enableWebhook); err != nil {
+			os.Exit(1)
+		}
+
+		node.StartNodeController(mgr, nodeService)
+		staticroutecontroller.StartStaticRouteController(mgr, staticRouteService)
+		subnetport.StartSubnetPortController(mgr, subnetPortService, subnetService, vpcService)
+		pod.StartPodController(mgr, subnetPortService, subnetService, vpcService, nodeService)
+		StartIPAddressAllocationController(mgr, ipAddressAllocationService, vpcService)
+		networkpolicycontroller.StartNetworkPolicyController(mgr, commonService, vpcService)
+		service.StartServiceLbController(mgr, commonService)
+	}
+	// Start controllers which can run in non-VPC mode
+	securitypolicycontroller.StartSecurityPolicyController(mgr, commonService, vpcService)
+
+	// Start the NSXServiceAccount controller.
+	if cf.EnableAntreaNSXInterworking {
+		StartNSXServiceAccountController(mgr, commonService)
+	}
+
+}
+
+func electMaster(mgr manager.Manager, nsxClient *nsx.Client) {
+	log.Info("I'm trying to be elected as master")
+	<-mgr.Elected()
+	log.Info("I'm the master now")
+	startServiceController(mgr, nsxClient)
 }
 
 func main() {
@@ -165,88 +262,14 @@ func main() {
 	// nsxClient is used to interact with NSX API.
 	nsxClient := nsx.GetClient(cf)
 	if nsxClient == nil {
-		log.Error(err, "failed to get nsx client")
+		log.Error(nil, "failed to get nsx client")
 		os.Exit(1)
 	}
 
-	//  Embed the common commonService to sub-services.
-	commonService := common.Service{
-		Client:    mgr.GetClient(),
-		NSXClient: nsxClient,
-		NSXConfig: cf,
-	}
-
-	checkLicense(nsxClient, cf.LicenseValidationInterval)
-
-	var vpcService *vpc.VPCService
-
-	if cf.CoeConfig.EnableVPCNetwork {
-		// Check NSX version for VPC networking mode
-		if !commonService.NSXClient.NSXCheckVersion(nsx.VPC) {
-			log.Error(nil, "VPC mode cannot be enabled if NSX version is lower than 4.1.1")
-			os.Exit(1)
-		}
-		log.Info("VPC mode is enabled")
-
-		vpcService, err = vpc.InitializeVPC(commonService)
-		if err != nil {
-			log.Error(err, "failed to initialize vpc commonService", "controller", "VPC")
-			os.Exit(1)
-		}
-		subnetService, err := subnetservice.InitializeSubnetService(commonService)
-		if err != nil {
-			log.Error(err, "failed to initialize subnet commonService")
-			os.Exit(1)
-		}
-		ipPoolService, err := ippool.InitializeIPPool(commonService, vpcService)
-		if err != nil {
-			log.Error(err, "failed to initialize ippool commonService", "controller", "IPPool")
-		}
-		subnetPortService, err := subnetportservice.InitializeSubnetPort(commonService)
-		if err != nil {
-			log.Error(err, "failed to initialize subnetport commonService", "controller", "SubnetPort")
-			os.Exit(1)
-		}
-		nodeService, err := nodeservice.InitializeNode(commonService)
-		if err != nil {
-			log.Error(err, "failed to initialize node commonService", "controller", "Node")
-			os.Exit(1)
-		}
-		staticRouteService, err := staticroute.InitializeStaticRoute(commonService, vpcService)
-		if err != nil {
-			log.Error(err, "failed to initialize staticroute commonService", "controller", "StaticRoute")
-			os.Exit(1)
-		}
-		// Start controllers which only supports VPC
-		StartVPCController(mgr, vpcService)
-		StartNamespaceController(mgr, cf, vpcService)
-		// Start subnet/subnetset controller.
-		if err := subnet.StartSubnetController(mgr, subnetService, subnetPortService, vpcService); err != nil {
-			os.Exit(1)
-		}
-		enableWebhook := true
-		if _, err := os.Stat(config.WebhookCertDir); errors.Is(err, os.ErrNotExist) {
-			log.Error(err, "server cert not found, disabling webhook server", "cert", config.WebhookCertDir)
-			enableWebhook = false
-		}
-		if err := subnetset.StartSubnetSetController(mgr, subnetService, subnetPortService, vpcService, enableWebhook); err != nil {
-			os.Exit(1)
-		}
-
-		node.StartNodeController(mgr, nodeService)
-		staticroutecontroller.StartStaticRouteController(mgr, staticRouteService)
-		subnetport.StartSubnetPortController(mgr, subnetPortService, subnetService, vpcService)
-		pod.StartPodController(mgr, subnetPortService, subnetService, vpcService, nodeService)
-		StartIPPoolController(mgr, ipPoolService, vpcService)
-		networkpolicycontroller.StartNetworkPolicyController(mgr, commonService, vpcService)
-		service.StartServiceLbController(mgr, commonService)
-	}
-	// Start controllers which can run in non-VPC mode
-	securitypolicycontroller.StartSecurityPolicyController(mgr, commonService, vpcService)
-
-	// Start the NSXServiceAccount controller.
-	if cf.EnableAntreaNSXInterworking {
-		StartNSXServiceAccountController(mgr, commonService)
+	if cf.HAEnabled() {
+		go electMaster(mgr, nsxClient)
+	} else {
+		startServiceController(mgr, nsxClient)
 	}
 
 	if metrics.AreMetricsExposed(cf) {

@@ -6,20 +6,21 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
-	log  = logger.Log
+	log  = &logger.Log
 	lock = &sync.Mutex{}
 )
 
@@ -53,29 +54,23 @@ func AllocateSubnetFromSubnetSet(subnetSet *v1alpha1.SubnetSet, vpcService servi
 	return subnetService.CreateOrUpdateSubnet(subnetSet, vpcInfoList[0], tags)
 }
 
-func getSharedNamespaceAndVpcForNamespace(client k8sclient.Client, ctx context.Context, namespaceName string) (string, string, error) {
+func getSharedNamespaceForNamespace(client k8sclient.Client, ctx context.Context, namespaceName string) (string, error) {
 	namespace := &v1.Namespace{}
 	namespacedName := types.NamespacedName{Name: namespaceName}
 	if err := client.Get(ctx, namespacedName, namespace); err != nil {
 		log.Error(err, "failed to get target namespace during getting VPC for namespace")
-		return "", "", err
+		return "", err
 	}
-	vpcAnnotation, exists := namespace.Annotations[servicecommon.AnnotationVPCName]
+	sharedNamespaceName, exists := namespace.Annotations[servicecommon.AnnotationSharedVPCNamespace]
 	if !exists {
-		return "", "", nil
+		return "", nil
 	}
-	array := strings.Split(vpcAnnotation, "/")
-	if len(array) != 2 {
-		err := fmt.Errorf("invalid annotation value of '%s': %s", servicecommon.AnnotationVPCName, vpcAnnotation)
-		return "", "", err
-	}
-	sharedNamespaceName, sharedVpcName := array[0], array[1]
-	log.Info("got shared VPC for namespace", "current namespace", namespaceName, "shared VPC", sharedVpcName, "shared namespace", sharedNamespaceName)
-	return sharedNamespaceName, sharedVpcName, nil
+	log.Info("got shared VPC namespace", "current namespace", namespaceName, "shared namespace", sharedNamespaceName)
+	return sharedNamespaceName, nil
 }
 
 func GetDefaultSubnetSet(client k8sclient.Client, ctx context.Context, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
-	targetNamespace, _, err := getSharedNamespaceAndVpcForNamespace(client, ctx, namespace)
+	targetNamespace, err := getSharedNamespaceForNamespace(client, ctx, namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -126,24 +121,39 @@ func NodeIsMaster(node *v1.Node) bool {
 	return false
 }
 
-func GetVirtualMachineNameForSubnetPort(subnetPort *v1alpha1.SubnetPort) (string, error) {
+func GetVirtualMachineNameForSubnetPort(subnetPort *v1alpha1.SubnetPort) (string, string, error) {
 	annotations := subnetPort.GetAnnotations()
 	if annotations == nil {
-		return "", nil
+		return "", "", nil
 	}
 	attachmentRef, exist := annotations[servicecommon.AnnotationAttachmentRef]
 	if !exist {
-		return "", nil
+		return "", "", nil
 	}
 	array := strings.Split(attachmentRef, "/")
-	if len(array) != 2 || !strings.EqualFold(array[0], servicecommon.ResourceTypeVirtualMachine) {
+	if len(array) != 3 || !strings.EqualFold(array[0], servicecommon.ResourceTypeVirtualMachine) {
 		err := fmt.Errorf("invalid annotation value of '%s': %s", servicecommon.AnnotationAttachmentRef, attachmentRef)
-		return "", err
+		return "", "", err
 	}
-	return array[1], nil
+	return array[1], array[2], nil
 }
 
 // NumReconcile now uses the fix number of concurrency
 func NumReconcile() int {
 	return MaxConcurrentReconciles
+}
+
+func GenericGarbageCollector(cancel chan bool, timeout time.Duration, f func(ctx context.Context)) {
+	ctx := context.Background()
+	ticker := time.NewTicker(timeout)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-cancel:
+			return
+		case <-ticker.C:
+			f(ctx)
+		}
+	}
 }

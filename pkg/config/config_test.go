@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 )
 
 func TestConfig_VCConfig(t *testing.T) {
@@ -173,6 +174,38 @@ func TestNSXOperatorConfig_GetCACert(t *testing.T) {
 			}
 			assert.Equalf(t, tt.want, operatorConfig.GetCACert(), "GetCACert()")
 			assert.Equalf(t, tt.want, operatorConfig.configCache.nsxCA, "GetCACert()")
+		})
+	}
+}
+
+func TestNsxConfig_GetServiceSize(t *testing.T) {
+	type fields struct {
+		ServiceSize string
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		want   string
+	}{{
+		name: "default",
+		fields: fields{
+			ServiceSize: "",
+		},
+		want: model.LBService_SIZE_SMALL,
+	}, {
+		name: "large",
+		fields: fields{
+			ServiceSize: model.LBService_SIZE_LARGE,
+		},
+		want: model.LBService_SIZE_LARGE,
+	},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nsxConfig := &NsxConfig{
+				NSXLBSize: tt.fields.ServiceSize,
+			}
+			assert.Equalf(t, tt.want, nsxConfig.GetNSXLBSize(), "GetNSXLBSize()")
 		})
 	}
 }

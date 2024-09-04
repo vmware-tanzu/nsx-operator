@@ -63,7 +63,7 @@ type NsxVersion struct {
 var (
 	jarCache   = NewJar()
 	nsxVersion = &NsxVersion{}
-	log        = logger.Log
+	log        = &logger.Log
 )
 
 // NewCluster creates a cluster based on nsx Config.
@@ -156,16 +156,17 @@ func (cluster *Cluster) CreateServerUrl(host string, scheme string) string {
 	} else {
 		serverUrl = fmt.Sprintf("%s://%s", scheme, host)
 	}
-	log.Info("create serverUrl", "serverUrl", serverUrl)
+	log.V(1).Info("create serverUrl", "serverUrl", serverUrl)
 	return serverUrl
 }
 
 // NewRestConnector creates a RestConnector used for SDK client.
 // HeaderConfig is used to use http header for request, it could be ignored if no extra header needed.
-func (cluster *Cluster) NewRestConnector() (*policyclient.RestConnector, *HeaderConfig) {
+func (cluster *Cluster) NewRestConnector() (policyclient.Connector, *HeaderConfig) {
 	nsxtUrl := cluster.CreateServerUrl(cluster.endpoints[0].Host(), cluster.endpoints[0].Scheme())
-	connector := policyclient.NewRestConnector(nsxtUrl, *cluster.client)
+	connector := policyclient.NewConnector(nsxtUrl, policyclient.UsingRest(nil), policyclient.WithHttpClient(cluster.client))
 	header := CreateHeaderConfig(false, false, cluster.config.AllowOverwriteHeader)
+	connector.NewExecutionContext()
 	return connector, header
 }
 
@@ -432,9 +433,6 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 		validFeature = true
 	case ServiceAccountCertRotation:
 		minVersion = nsx413Version
-		validFeature = true
-	case VpcAviRule:
-		minVersion = nsx411Version
 		validFeature = true
 	}
 

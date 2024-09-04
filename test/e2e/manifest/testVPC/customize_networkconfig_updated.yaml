@@ -1,0 +1,14 @@
+# This file is used in testing customized VPC case,
+# it support customer to define its own VPC network config.
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: VPCNetworkConfiguration
+metadata:
+  name: selfdefinedconfig
+spec:
+  defaultSubnetSize: 32
+  nsxProject: /orgs/default/projects/nsx_operator_e2e_test
+  privateIPs:
+    - 172.29.0.0/16
+    - 172.39.0.0/16
+    - 172.49.0.0/16
+  vpcConnectivityProfile: /orgs/default/projects/nsx_operator_e2e_test/vpc-connectivity-profiles/default

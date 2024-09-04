@@ -16,7 +16,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	log                       = logger.Log
+	log                       = &logger.Log
 	MarkedForDelete           = true
 	EnforceRevisionCheckParam = false
 	ResourceTypeSubnet        = common.ResourceTypeSubnet
@@ -111,10 +111,12 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 		return "", err
 	}
 	if err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam); err != nil {
+		err = nsxutil.NSXApiError(err)
 		return "", err
 	}
 	// Get Subnet from NSX after patch operation as NSX renders several fields like `path`/`parent_path`.
 	if *nsxSubnet, err = service.NSXClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *nsxSubnet.Id); err != nil {
+		err = nsxutil.NSXApiError(err)
 		return "", err
 	}
 	realizeService := realizestate.InitializeRealizeState(service.Service)
@@ -151,6 +153,7 @@ func (service *SubnetService) DeleteSubnet(nsxSubnet model.VpcSubnet) error {
 		return err
 	}
 	if err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam); err != nil {
+		err = nsxutil.NSXApiError(err)
 		// Subnets that are not deleted successfully will finally be deleted by GC.
 		log.Error(err, "failed to delete Subnet", "ID", *nsxSubnet.Id)
 		return err
@@ -198,12 +201,14 @@ func (service *SubnetService) IsOrphanSubnet(subnet model.VpcSubnet, subnetsetID
 func (service *SubnetService) DeleteIPAllocation(orgID, projectID, vpcID, subnetID string) error {
 	ipAllocations, err := service.NSXClient.IPAllocationClient.List(orgID, projectID, vpcID, subnetID, ipPoolID,
 		nil, nil, nil, nil, nil, nil)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to get ip-allocations", "Subnet", subnetID)
 		return err
 	}
 	for _, alloc := range ipAllocations.Results {
 		if err = service.NSXClient.IPAllocationClient.Delete(orgID, projectID, vpcID, subnetID, ipPoolID, *alloc.Id); err != nil {
+			err = nsxutil.NSXApiError(err)
 			log.Error(err, "failed to delete ip-allocation", "Subnet", subnetID, "ip-alloc", *alloc.Id)
 			return err
 		}
@@ -218,6 +223,7 @@ func (service *SubnetService) GetSubnetStatus(subnet *model.VpcSubnet) ([]model.
 		return nil, err
 	}
 	statusList, err := service.NSXClient.SubnetStatusClient.List(param.OrgID, param.ProjectID, param.VPCID, *subnet.Id)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to get subnet status")
 		return nil, err
@@ -225,6 +231,11 @@ func (service *SubnetService) GetSubnetStatus(subnet *model.VpcSubnet) ([]model.
 	if len(statusList.Results) == 0 {
 		err := errors.New("empty status result")
 		log.Error(err, "no subnet status found")
+		return nil, err
+	}
+	if statusList.Results[0].NetworkAddress == nil || statusList.Results[0].GatewayAddress == nil {
+		err := fmt.Errorf("invalid status result: %+v", statusList.Results[0])
+		log.Error(err, "subnet status does not have network address or gateway address", "subnet.Id", subnet.Id)
 		return nil, err
 	}
 	return statusList.Results, nil
@@ -236,6 +247,7 @@ func (service *SubnetService) getIPPoolUsage(nsxSubnet *model.VpcSubnet) (*model
 		return nil, err
 	}
 	ipPool, err := service.NSXClient.IPPoolClient.Get(param.OrgID, param.ProjectID, param.VPCID, *nsxSubnet.Id, ipPoolID)
+	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to get ip-pool", "Subnet", *nsxSubnet.Id)
 		return nil, err
@@ -260,11 +272,14 @@ func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) err
 		if err != nil {
 			return err
 		}
-		subnetInfo := v1alpha1.SubnetInfo{
-			NSXResourcePath: *subnet.Path,
-		}
+		subnetInfo := v1alpha1.SubnetInfo{}
 		for _, status := range statusList {
-			subnetInfo.IPAddresses = append(subnetInfo.IPAddresses, *status.NetworkAddress)
+			subnetInfo.NetworkAddresses = append(subnetInfo.NetworkAddresses, *status.NetworkAddress)
+			subnetInfo.GatewayAddresses = append(subnetInfo.GatewayAddresses, *status.GatewayAddress)
+			// DHCPServerAddress is only for the subnet with DHCP enabled
+			if status.DhcpServerAddress != nil {
+				subnetInfo.DHCPServerAddresses = append(subnetInfo.DHCPServerAddresses, *status.DhcpServerAddress)
+			}
 		}
 		subnetInfoList = append(subnetInfoList, subnetInfo)
 	}

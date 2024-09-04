@@ -10,7 +10,6 @@ import (
 	"os"
 	"reflect"
 	"strings"
-	"time"
 
 	vmv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
@@ -30,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -39,10 +38,11 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
-	log                     = logger.Log
+	log                     = &logger.Log
 	MetricResTypeSubnetPort = common.MetricResTypeSubnetPort
 )
 
@@ -82,7 +82,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			controllerutil.AddFinalizer(subnetPort, servicecommon.SubnetPortFinalizerName)
 			if err := r.Client.Update(ctx, subnetPort); err != nil {
 				log.Error(err, "add finalizer", "subnetport", req.NamespacedName)
-				updateFail(r, &ctx, subnetPort, &err)
+				updateFail(r, ctx, subnetPort, &err)
 				return common.ResultRequeue, err
 			}
 			log.Info("added finalizer on subnetport CR", "subnetport", req.NamespacedName)
@@ -106,10 +106,10 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels)
 		if err != nil {
 			log.Error(err, "failed to create or update NSX subnet port, would retry exponentially", "subnetport", req.NamespacedName)
-			updateFail(r, &ctx, subnetPort, &err)
+			updateFail(r, ctx, subnetPort, &err)
 			return common.ResultRequeue, err
 		}
-		subnetPort.Status.Attachment = v1alpha1.SegmentPortAttachmentState{ID: *nsxSubnetPortState.Attachment.Id}
+		subnetPort.Status.Attachment = v1alpha1.PortAttachment{ID: *nsxSubnetPortState.Attachment.Id}
 		subnetPort.Status.NetworkInterfaceConfig = v1alpha1.NetworkInterfaceConfig{
 			IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
 				{
@@ -131,23 +131,24 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			// If the SubnetPort CR's status changed, let's clean the conditions, to ensure the r.Client.Status().Update in the following updateSuccess will be invoked at any time.
 			subnetPort.Status.Conditions = nil
 		}
-		updateSuccess(r, &ctx, subnetPort)
+		updateSuccess(r, ctx, subnetPort)
 	} else {
 		if controllerutil.ContainsFinalizer(subnetPort, servicecommon.SubnetPortFinalizerName) {
 			metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnetPort)
-			if err := r.SubnetPortService.DeleteSubnetPort(subnetPort.UID); err != nil {
+			subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
+			if err := r.SubnetPortService.DeleteSubnetPort(subnetPortID); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "subnetport", req.NamespacedName)
-				deleteFail(r, &ctx, subnetPort, &err)
+				deleteFail(r, ctx, subnetPort, &err)
 				return common.ResultRequeue, err
 			}
 			controllerutil.RemoveFinalizer(subnetPort, servicecommon.SubnetPortFinalizerName)
 			if err := r.Client.Update(ctx, subnetPort); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "subnetport", req.NamespacedName)
-				deleteFail(r, &ctx, subnetPort, &err)
+				deleteFail(r, ctx, subnetPort, &err)
 				return common.ResultRequeue, err
 			}
 			log.Info("removed finalizer", "subnetport", req.NamespacedName)
-			deleteSuccess(r, &ctx, subnetPort)
+			deleteSuccess(r, ctx, subnetPort)
 		} else {
 			log.Info("finalizers cannot be recognized", "subnetport", req.NamespacedName)
 		}
@@ -155,14 +156,47 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return ctrl.Result{}, nil
 }
 
+func subnetPortNamespaceVMIndexFunc(obj client.Object) []string {
+	if sp, ok := obj.(*v1alpha1.SubnetPort); !ok {
+		log.Info("Invalid object", "type", reflect.TypeOf(obj))
+		return []string{}
+	} else {
+		vm, _, err := common.GetVirtualMachineNameForSubnetPort(sp)
+		if vm == "" || err != nil {
+			log.Info("No proper annotation found", "annotations", sp.Annotations)
+			return []string{}
+		}
+		return []string{fmt.Sprintf("%s/%s", sp.Namespace, vm)}
+	}
+}
+
+func addressBindingNamespaceVMIndexFunc(obj client.Object) []string {
+	if ab, ok := obj.(*v1alpha1.AddressBinding); !ok {
+		log.Info("Invalid object", "type", reflect.TypeOf(obj))
+		return []string{}
+	} else {
+		return []string{fmt.Sprintf("%s/%s", ab.Namespace, ab.Spec.VMName)}
+	}
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *SubnetPortReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.SubnetPort{}, util.SubnetPortNamespaceVMIndexKey, subnetPortNamespaceVMIndexFunc); err != nil {
+		return err
+	}
+	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.AddressBinding{}, util.AddressBindingNamespaceVMIndexKey, addressBindingNamespaceVMIndexFunc); err != nil {
+		return err
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.SubnetPort{}).
 		WithEventFilter(
 			predicate.Funcs{
 				DeleteFunc: func(e event.DeleteEvent) bool {
 					// Suppress Delete events to avoid filtering them out in the Reconcile function
+					switch e.Object.(type) {
+					case *v1alpha1.AddressBinding:
+						return true
+					}
 					return false
 				},
 			},
@@ -172,8 +206,10 @@ func (r *SubnetPortReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
 		Watches(&vmv1alpha1.VirtualMachine{},
-				handler.EnqueueRequestsFromMapFunc(r.vmMapFunc),
-				builder.WithPredicates(predicate.LabelChangedPredicate{})).
+			handler.EnqueueRequestsFromMapFunc(r.vmMapFunc),
+			builder.WithPredicates(predicate.LabelChangedPredicate{})).
+		Watches(&v1alpha1.AddressBinding{},
+				handler.EnqueueRequestsFromMapFunc(r.addressBindingMapFunc)).
 		Complete(r) // TODO: watch the virtualmachine event and update the labels on NSX subnet port.
 }
 
@@ -192,7 +228,7 @@ func (r *SubnetPortReconciler) vmMapFunc(_ context.Context, vm client.Object) []
 	}
 	for _, subnetPort := range subnetPortList.Items {
 		port := subnetPort
-		vmName, err := common.GetVirtualMachineNameForSubnetPort(&port)
+		vmName, _, err := common.GetVirtualMachineNameForSubnetPort(&port)
 		if err != nil {
 			// not block the subnetport visiting because of invalid annotations
 			log.Error(err, "failed to get virtualmachine name from subnetport", "subnetPort.UID", subnetPort.UID)
@@ -222,6 +258,7 @@ func StartSubnetPortController(mgr ctrl.Manager, subnetPortService *subnetport.S
 		log.Error(err, "failed to create controller", "controller", "SubnetPort")
 		os.Exit(1)
 	}
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, subnetPortReconciler.CollectGarbage)
 }
 
 // Start setup manager and launch GC
@@ -230,54 +267,44 @@ func (r *SubnetPortReconciler) Start(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-	go r.GarbageCollector(make(chan bool), servicecommon.GCInterval)
 	return nil
 }
 
-// GarbageCollector collect SubnetPort which has been removed from crd.
-// cancel is used to break the loop during UT
-func (r *SubnetPortReconciler) GarbageCollector(cancel chan bool, timeout time.Duration) {
-	ctx := context.Background()
+// CollectGarbage collect SubnetPort which has been removed from crd.
+// it implements the interface GarbageCollector method.
+func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) {
 	log.Info("subnetport garbage collector started")
-	for {
-		select {
-		case <-cancel:
-			return
-		case <-time.After(timeout):
-		}
-		nsxSubnetPortSet := r.SubnetPortService.ListNSXSubnetPortIDForCR()
-		if len(nsxSubnetPortSet) == 0 {
-			continue
-		}
-		subnetPortList := &v1alpha1.SubnetPortList{}
-		err := r.Client.List(ctx, subnetPortList)
+	nsxSubnetPortSet := r.SubnetPortService.ListNSXSubnetPortIDForCR()
+	if len(nsxSubnetPortSet) == 0 {
+		return
+	}
+	subnetPortList := &v1alpha1.SubnetPortList{}
+	err := r.Client.List(ctx, subnetPortList)
+	if err != nil {
+		log.Error(err, "failed to list SubnetPort CR")
+		return
+	}
+
+	CRSubnetPortSet := sets.New[string]()
+	for _, subnetPort := range subnetPortList.Items {
+		subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
+		CRSubnetPortSet.Insert(subnetPortID)
+	}
+
+	diffSet := nsxSubnetPortSet.Difference(CRSubnetPortSet)
+	for elem := range diffSet {
+		log.V(1).Info("GC collected SubnetPort CR", "UID", elem)
+		metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnetPort)
+		err = r.SubnetPortService.DeleteSubnetPort(elem)
 		if err != nil {
-			log.Error(err, "failed to list SubnetPort CR")
-			continue
-		}
-
-		CRSubnetPortSet := sets.NewString()
-		for _, subnetPort := range subnetPortList.Items {
-			CRSubnetPortSet.Insert(string(subnetPort.UID))
-		}
-
-		for elem := range nsxSubnetPortSet {
-			if CRSubnetPortSet.Has(elem) {
-				continue
-			}
-			log.V(1).Info("GC collected SubnetPort CR", "UID", elem)
-			metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnetPort)
-			err = r.SubnetPortService.DeleteSubnetPort(types.UID(elem))
-			if err != nil {
-				metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetPort)
-			} else {
-				metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetPort)
-			}
+			metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetPort)
+		} else {
+			metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetPort)
 		}
 	}
 }
 
-func (r *SubnetPortReconciler) setSubnetPortReadyStatusTrue(ctx *context.Context, subnetPort *v1alpha1.SubnetPort, transitionTime metav1.Time) {
+func (r *SubnetPortReconciler) setSubnetPortReadyStatusTrue(ctx context.Context, subnetPort *v1alpha1.SubnetPort, transitionTime metav1.Time) {
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:               v1alpha1.Ready,
@@ -290,7 +317,7 @@ func (r *SubnetPortReconciler) setSubnetPortReadyStatusTrue(ctx *context.Context
 	r.UpdateSubnetPortStatusConditions(ctx, subnetPort, newConditions)
 }
 
-func (r *SubnetPortReconciler) setSubnetPortReadyStatusFalse(ctx *context.Context, subnetPort *v1alpha1.SubnetPort, transitionTime metav1.Time, err *error) {
+func (r *SubnetPortReconciler) setSubnetPortReadyStatusFalse(ctx context.Context, subnetPort *v1alpha1.SubnetPort, transitionTime metav1.Time, err *error) {
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:    v1alpha1.Ready,
@@ -306,7 +333,7 @@ func (r *SubnetPortReconciler) setSubnetPortReadyStatusFalse(ctx *context.Contex
 	r.UpdateSubnetPortStatusConditions(ctx, subnetPort, newConditions)
 }
 
-func (r *SubnetPortReconciler) UpdateSubnetPortStatusConditions(ctx *context.Context, subnetPort *v1alpha1.SubnetPort, newConditions []v1alpha1.Condition) {
+func (r *SubnetPortReconciler) UpdateSubnetPortStatusConditions(ctx context.Context, subnetPort *v1alpha1.SubnetPort, newConditions []v1alpha1.Condition) {
 	conditionsUpdated := false
 	for i := range newConditions {
 		if r.mergeSubnetPortStatusCondition(ctx, subnetPort, &newConditions[i]) {
@@ -314,13 +341,13 @@ func (r *SubnetPortReconciler) UpdateSubnetPortStatusConditions(ctx *context.Con
 		}
 	}
 	if conditionsUpdated {
-		r.Client.Status().Update(*ctx, subnetPort)
+		r.Client.Status().Update(ctx, subnetPort)
 		log.V(1).Info("updated subnet port CR", "Name", subnetPort.Name, "Namespace", subnetPort.Namespace,
 			"New Conditions", newConditions)
 	}
 }
 
-func (r *SubnetPortReconciler) mergeSubnetPortStatusCondition(ctx *context.Context, subnetPort *v1alpha1.SubnetPort, newCondition *v1alpha1.Condition) bool {
+func (r *SubnetPortReconciler) mergeSubnetPortStatusCondition(ctx context.Context, subnetPort *v1alpha1.SubnetPort, newCondition *v1alpha1.Condition) bool {
 	matchedCondition := getExistingConditionOfType(newCondition.Type, subnetPort.Status.Conditions)
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {
@@ -347,31 +374,33 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 	return nil
 }
 
-func updateFail(r *SubnetPortReconciler, c *context.Context, o *v1alpha1.SubnetPort, e *error) {
+func updateFail(r *SubnetPortReconciler, c context.Context, o *v1alpha1.SubnetPort, e *error) {
 	r.setSubnetPortReadyStatusFalse(c, o, metav1.Now(), e)
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResTypeSubnetPort)
 }
 
-func deleteFail(r *SubnetPortReconciler, c *context.Context, o *v1alpha1.SubnetPort, e *error) {
+func deleteFail(r *SubnetPortReconciler, c context.Context, o *v1alpha1.SubnetPort, e *error) {
 	r.setSubnetPortReadyStatusFalse(c, o, metav1.Now(), e)
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetPort)
 }
 
-func updateSuccess(r *SubnetPortReconciler, c *context.Context, o *v1alpha1.SubnetPort) {
+func updateSuccess(r *SubnetPortReconciler, c context.Context, o *v1alpha1.SubnetPort) {
 	r.setSubnetPortReadyStatusTrue(c, o, metav1.Now())
+	r.setAddressBindingStatus(c, o)
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "SubnetPort CR has been successfully updated")
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResTypeSubnetPort)
 }
 
-func deleteSuccess(r *SubnetPortReconciler, _ *context.Context, o *v1alpha1.SubnetPort) {
+func deleteSuccess(r *SubnetPortReconciler, _ context.Context, o *v1alpha1.SubnetPort) {
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "SubnetPort CR has been successfully deleted")
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetPort)
 }
 
 func (r *SubnetPortReconciler) GetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (string, error) {
-	subnetPath := r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(string(subnetPort.UID))
+	subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
+	subnetPath := r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(subnetPortID)
 	if len(subnetPath) > 0 {
 		log.V(1).Info("NSX subnet port had been created, returning the existing NSX subnet path", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
 		return subnetPath, nil
@@ -386,11 +415,16 @@ func (r *SubnetPortReconciler) GetSubnetPathForSubnetPort(ctx context.Context, s
 			log.Error(err, "subnet CR not found", "subnet CR", namespacedName)
 			return subnetPath, err
 		}
-		subnetPath = subnet.Status.NSXResourcePath
-		if len(subnetPath) == 0 {
-			err := fmt.Errorf("empty NSX resource path from subnet %s", subnet.Name)
+		subnetList := r.SubnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetCRUID, string(subnet.GetUID()))
+		if len(subnetList) == 0 {
+			err := fmt.Errorf("empty NSX resource path for subnet CR %s(%s)", subnet.Name, subnet.GetUID())
+			return subnetPath, err
+		} else if len(subnetList) > 1 {
+			err := fmt.Errorf("multiple NSX subnets found for subnet CR %s(%s)", subnet.Name, subnet.GetUID())
+			log.Error(err, "failed to get NSX subnet by subnet CR UID", "subnetList", subnetList)
 			return subnetPath, err
 		}
+		subnetPath = *subnetList[0].Path
 	} else if len(subnetPort.Spec.SubnetSet) > 0 {
 		subnetSet := &v1alpha1.SubnetSet{}
 		namespacedName := types.NamespacedName{
@@ -430,7 +464,9 @@ func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alph
 		return err
 	}
 	// For now, we have an assumption that one subnetport only have one IP address
-	subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress += fmt.Sprintf("/%d", prefix)
+	if len(subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress) > 0 {
+		subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress += fmt.Sprintf("/%d", prefix)
+	}
 	subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway = gateway
 	nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath)
 	if err != nil {
@@ -441,7 +477,7 @@ func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alph
 }
 
 func (r *SubnetPortReconciler) getLabelsFromVirtualMachine(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (*map[string]string, error) {
-	vmName, err := common.GetVirtualMachineNameForSubnetPort(subnetPort)
+	vmName, _, err := common.GetVirtualMachineNameForSubnetPort(subnetPort)
 	if vmName == "" {
 		return nil, err
 	}
@@ -455,4 +491,86 @@ func (r *SubnetPortReconciler) getLabelsFromVirtualMachine(ctx context.Context, 
 	}
 	log.Info("got labels from virtualmachine for subnetport", "subnetPort.UID", subnetPort.UID, "vmName", vmName, "labels", vm.ObjectMeta.Labels)
 	return &vm.ObjectMeta.Labels, nil
+}
+
+func (r *SubnetPortReconciler) addressBindingMapFunc(ctx context.Context, obj client.Object) []reconcile.Request {
+	ab, ok := obj.(*v1alpha1.AddressBinding)
+	if !ok {
+		log.Info("Invalid object", "type", reflect.TypeOf(obj))
+		return nil
+	}
+	// skip reconcile if AddressBinding exists and is realized
+	if ab.Status.IPAddress != "" {
+		namespacedName := types.NamespacedName{
+			Name:      ab.Name,
+			Namespace: ab.Namespace,
+		}
+		existingAddressBinding := &v1alpha1.AddressBinding{}
+		if err := r.Client.Get(context.TODO(), namespacedName, existingAddressBinding); err == nil {
+			return nil
+		}
+	}
+	spList := &v1alpha1.SubnetPortList{}
+	spIndexValue := fmt.Sprintf("%s/%s", ab.Namespace, ab.Spec.VMName)
+	err := r.Client.List(context.TODO(), spList, client.MatchingFields{util.SubnetPortNamespaceVMIndexKey: spIndexValue})
+	if err != nil || len(spList.Items) == 0 {
+		log.Error(err, "Failed to list SubnetPort from cache", "indexValue", spIndexValue)
+		return nil
+	}
+	if ab.Spec.InterfaceName == "" {
+		if len(spList.Items) == 1 {
+			log.V(1).Info("Enqueue SubnetPort for default AddressBinding", "namespace", ab.Namespace, "name", ab.Name, "SubnetPortName", spList.Items[0].Name, "VM", ab.Spec.VMName)
+			return []reconcile.Request{{
+				NamespacedName: types.NamespacedName{
+					Name:      spList.Items[0].Name,
+					Namespace: spList.Items[0].Namespace,
+				},
+			}}
+		} else {
+			log.Info("Found multiple SubnetPorts for a VM, ignore default AddressBinding for SubnetPort", "namespace", ab.Namespace, "name", ab.Name, "subnetPortCount", len(spList.Items), "VM", ab.Spec.VMName)
+			return nil
+		}
+	}
+	for i, sp := range spList.Items {
+		vm, port, err := common.GetVirtualMachineNameForSubnetPort(&spList.Items[i])
+		if err != nil || vm == "" {
+			log.Error(err, "Failed to get VM name from SubnetPort", "namespace", sp.Namespace, "name", sp.Name, "annotations", sp.Annotations)
+			continue
+		}
+		if ab.Spec.InterfaceName == port {
+			log.V(1).Info("Enqueue SubnetPort for AddressBinding", "namespace", ab.Namespace, "name", ab.Name, "SubnetPortName", spList.Items[0].Name, "VM", ab.Spec.VMName, "port", port)
+
+			return []reconcile.Request{{
+				NamespacedName: types.NamespacedName{
+					Name:      sp.Name,
+					Namespace: sp.Namespace,
+				},
+			}}
+		}
+	}
+	log.Info("No SubnetPort found for AddressBinding", "namespace", ab.Namespace, "name", ab.Name, "VM", ab.Spec.VMName)
+	return nil
+}
+
+func (r *SubnetPortReconciler) setAddressBindingStatus(ctx context.Context, subnetPort *v1alpha1.SubnetPort) {
+	subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
+	nsxSubnetPort := r.SubnetPortService.SubnetPortStore.GetByKey(subnetPortID)
+	if nsxSubnetPort == nil {
+		log.Info("Missing SubnetPort", "id", subnetPort.UID)
+		return
+	}
+	if nsxSubnetPort.ExternalAddressBinding == nil || nsxSubnetPort.ExternalAddressBinding.ExternalIpAddress == nil {
+		return
+	}
+	ab := r.SubnetPortService.GetAddressBindingBySubnetPort(subnetPort)
+	if ab == nil {
+		log.Info("Missing AddressBinding for SubnetPort", "namespace", subnetPort.Namespace, "name", subnetPort.Name)
+		return
+	}
+	if ab.Status.IPAddress != *nsxSubnetPort.ExternalAddressBinding.ExternalIpAddress {
+		ab = ab.DeepCopy()
+		ab.Status.IPAddress = *nsxSubnetPort.ExternalAddressBinding.ExternalIpAddress
+		r.Client.Status().Update(ctx, ab)
+		log.V(1).Info("Updated AddressBinding CR status", "namespace", ab.Namespace, "name", ab.Name, "status", ab.Status)
+	}
 }

@@ -3,15 +3,16 @@ package subnet
 import (
 	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	util2 "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
+
+const AccessModeProjectInNSX string = "Private_TGW"
 
 var (
 	String = common.String
@@ -19,28 +20,37 @@ var (
 	Bool   = common.Bool
 )
 
-const (
-	SUBNETPREFIX = "sub"
-)
-
 func getCluster(service *SubnetService) string {
 	return service.NSXConfig.Cluster
 }
 
 func (service *SubnetService) BuildSubnetID(subnet *v1alpha1.Subnet) string {
-	return util.GenerateID(string(subnet.UID), SUBNETPREFIX, "", "")
+	return util.GenerateIDByObject(subnet)
 }
 
 func (service *SubnetService) buildSubnetSetID(subnetset *v1alpha1.SubnetSet, index string) string {
-	return util.GenerateID(string(subnetset.UID), SUBNETPREFIX, "", index)
+	return util.GenerateIDByObjectWithSuffix(subnetset, index)
 }
 
+// buildSubnetName uses format "subnet.Name-subnet.UUID" to ensure the Subnet's display_name is not
+// conflict with others. This is because VC will use the Subnet's display_name to created folder, so
+// the name string must be unique.
 func (service *SubnetService) buildSubnetName(subnet *v1alpha1.Subnet) string {
-	return util.GenerateTruncName(common.MaxSubnetNameLength, subnet.ObjectMeta.Name, SUBNETPREFIX, "", "", getCluster(service))
+	return util.GenerateIDByObjectByLimit(subnet, common.MaxSubnetNameLength)
 }
 
+// buildSubnetSetName uses format "subnetset.Name-subnetset.UUID-index" to ensure the generated Subnet's
+// display_name is not conflict with others.
 func (service *SubnetService) buildSubnetSetName(subnetset *v1alpha1.SubnetSet, index string) string {
-	return util.GenerateTruncName(common.MaxSubnetNameLength, subnetset.ObjectMeta.Name, SUBNETPREFIX, index, "", getCluster(service))
+	resName := util.GenerateIDByObjectByLimit(subnetset, common.MaxSubnetNameLength-(len(index)+1))
+	return util.GenerateTruncName(common.MaxSubnetNameLength, resName, "", index, "", "")
+}
+
+func convertAccessMode(accessMode string) string {
+	if accessMode == v1alpha1.AccessModeProject {
+		return AccessModeProjectInNSX
+	}
+	return accessMode
 }
 
 func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (*model.VpcSubnet, error) {
@@ -50,22 +60,26 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 	switch o := obj.(type) {
 	case *v1alpha1.Subnet:
 		nsxSubnet = &model.VpcSubnet{
-			Id:          String(service.BuildSubnetID(o)),
-			AccessMode:  String(util.Capitalize(string(o.Spec.AccessMode))),
-			DhcpConfig:  service.buildDHCPConfig(o.Spec.DHCPConfig.EnableDHCP, int64(o.Spec.IPv4SubnetSize-4)),
-			DisplayName: String(service.buildSubnetName(o)),
+			Id:             String(service.BuildSubnetID(o)),
+			AccessMode:     String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),
+			Ipv4SubnetSize: Int64(int64(o.Spec.IPv4SubnetSize)),
+			DhcpConfig:     service.buildDHCPConfig(o.Spec.DHCPConfig.EnableDHCP, int64(o.Spec.IPv4SubnetSize-4)),
+			DisplayName:    String(service.buildSubnetName(o)),
 		}
-		staticIpAllocation = o.Spec.AdvancedConfig.StaticIPAllocation.Enable
+		staticIpAllocation = !o.Spec.DHCPConfig.EnableDHCP
 		nsxSubnet.IpAddresses = o.Spec.IPAddresses
 	case *v1alpha1.SubnetSet:
-		index := uuid.NewString()
+		// The index is a random string with the length of 8 chars. It is the first 8 chars of the hash
+		// value on a random UUID string.
+		index := util.GetRandomIndexString()
 		nsxSubnet = &model.VpcSubnet{
-			Id:          String(service.buildSubnetSetID(o, index)),
-			AccessMode:  String(util.Capitalize(string(o.Spec.AccessMode))),
-			DhcpConfig:  service.buildDHCPConfig(o.Spec.DHCPConfig.EnableDHCP, int64(o.Spec.IPv4SubnetSize-4)),
-			DisplayName: String(service.buildSubnetSetName(o, index)),
+			Id:             String(service.buildSubnetSetID(o, index)),
+			AccessMode:     String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),
+			Ipv4SubnetSize: Int64(int64(o.Spec.IPv4SubnetSize)),
+			DhcpConfig:     service.buildDHCPConfig(o.Spec.DHCPConfig.EnableDHCP, int64(o.Spec.IPv4SubnetSize-4)),
+			DisplayName:    String(service.buildSubnetSetName(o, index)),
 		}
-		staticIpAllocation = o.Spec.AdvancedConfig.StaticIPAllocation.Enable
+		staticIpAllocation = !o.Spec.DHCPConfig.EnableDHCP
 	default:
 		return nil, SubnetTypeError
 	}
@@ -88,12 +102,14 @@ func (service *SubnetService) buildDHCPConfig(enableDHCP bool, poolSize int64) *
 	// otherwise Subnet will use DhcpConfig inherited from VPC.
 	dhcpConfig := &model.VpcSubnetDhcpConfig{
 		EnableDhcp: Bool(enableDHCP),
-		StaticPoolConfig: &model.StaticPoolConfig{
+	}
+	if !enableDHCP {
+		dhcpConfig.StaticPoolConfig = &model.StaticPoolConfig{
 			// Number of IPs to be reserved in static ip pool.
 			// By default, if dhcp is enabled then static ipv4 pool size will be zero and all available IPs will be
 			// reserved in local dhcp pool. Maximum allowed value is 'subnet size - 4'.
 			Ipv4PoolSize: Int64(poolSize),
-		},
+		}
 	}
 	return dhcpConfig
 }

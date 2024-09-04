@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/url"
 	"os/exec"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,9 +27,8 @@ import (
 )
 
 const (
-	defaultTimeout         = 100 * time.Second
-	verifyNoneExistTimeout = 15 * time.Second
-	crdVersion             = "v1alpha1"
+	defaultTimeout = 200 * time.Second
+	PolicyAPI      = "policy/api/v1"
 )
 
 type Status int
@@ -78,7 +79,7 @@ type TestData struct {
 
 var testData *TestData
 
-//Temporarily disable traffic check
+// Temporarily disable traffic check
 /*
 type PodIPs struct {
 	ipv4      *net.IP
@@ -339,22 +340,27 @@ func (data *TestData) waitForCRReadyOrDeleted(timeout time.Duration, cr string, 
 	return nil
 }
 
-func (data *TestData) getCRProperties(timeout time.Duration, crType, crName, namespace, key string) (string, error) {
+func (data *TestData) getCRPropertiesByJson(timeout time.Duration, crType, crName, namespace, key string) (string, error) {
 	value := ""
 	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
-		cmd := fmt.Sprintf("kubectl get %s %s -n %s -o yaml | grep %s", crType, crName, namespace, key)
+		cmd := ""
+		// for cluster scope resource, namespace is empty
+		if namespace == "" {
+			cmd = fmt.Sprintf("kubectl get %s %s -o json | jq '%s'", crType, crName, key)
+		} else {
+			cmd = fmt.Sprintf("kubectl get %s %s -n %s -o json | jq '%s'", crType, crName, namespace, key)
+		}
 		log.Printf("%s", cmd)
 		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
 		if err != nil || rc != 0 {
 			return false, fmt.Errorf("error when running the following command `%s` on master Node: %v, %s", cmd, err, stdout)
 		} else {
-			parts := strings.Split(stdout, ":")
-			if len(parts) != 2 {
-				return false, fmt.Errorf("failed to read attribute from output %s", stdout)
-			} else {
-				value = parts[1]
-				return true, nil
+			// check if 'null' in stdout
+			if strings.Contains(stdout, "null") {
+				return false, nil
 			}
+			value = stdout
+			return true, nil
 		}
 	})
 	if err != nil {
@@ -363,12 +369,18 @@ func (data *TestData) getCRProperties(timeout time.Duration, crType, crName, nam
 	return value, nil
 }
 
-// Check if CR is created under NS, for resources like VPC, we do not know CR name
-// return map structure, key is CR name, value is CR UID
-func (data *TestData) getCRResource(timeout time.Duration, cr string, namespace string) (map[string]string, error) {
+// For CRs that we do not know the name, return the CR list for upper logic to identify
+func (data *TestData) getCRResources(timeout time.Duration, crtype, namespace string) (map[string]string, error) {
 	crs := map[string]string{}
 	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
-		cmd := fmt.Sprintf("kubectl get %s -n %s", cr, namespace)
+		cmd := ""
+		if namespace == "" { // for cluster scope resources
+			cmd = fmt.Sprintf("kubectl get %s", crtype)
+		} else if crtype == "namespaces" {
+			cmd = fmt.Sprintf("kubectl get %s %s", crtype, namespace)
+		} else {
+			cmd = fmt.Sprintf("kubectl get %s -n %s", crtype, namespace)
+		}
 		log.Printf("%s", cmd)
 		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
 		if err != nil || rc != 0 {
@@ -386,7 +398,12 @@ func (data *TestData) getCRResource(timeout time.Duration, cr string, namespace 
 				if len(parts) < 1 { // to avoid empty lines
 					continue
 				}
-				uid_cmd := fmt.Sprintf("kubectl get %s %s -n %s -o yaml | grep uid", cr, parts[0], namespace)
+				uid_cmd := ""
+				if namespace == "" || crtype == "namespaces" {
+					uid_cmd = fmt.Sprintf("kubectl get %s %s -o yaml | grep uid", crtype, parts[0])
+				} else {
+					uid_cmd = fmt.Sprintf("kubectl get %s %s -n %s -o yaml | grep uid", crtype, parts[0], namespace)
+				}
 				log.Printf("trying to get uid for cr: %s", uid_cmd)
 				rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, uid_cmd)
 				if err != nil || rc != 0 {
@@ -402,6 +419,35 @@ func (data *TestData) getCRResource(timeout time.Duration, cr string, namespace 
 		return crs, err
 	}
 	return crs, nil
+}
+
+// Return a singe CR via CR name
+func (data *TestData) getCRResource(timeout time.Duration, crtype, crname, namespace string) (string, error) {
+	ret := ""
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
+		// If namespace is empty, then this is a cluster scope resource.
+		uid_cmd := ""
+		if namespace == "" {
+			uid_cmd = fmt.Sprintf("kubectl get %s %s -o yaml | grep uid", crtype, crname)
+		} else if crtype == "namespaces" {
+			uid_cmd = fmt.Sprintf("kubectl get %s %s -o yaml | grep uid", crtype, namespace)
+		} else {
+			uid_cmd = fmt.Sprintf("kubectl get %s %s -n %s -o yaml | grep uid", crtype, crname, namespace)
+		}
+		log.Printf("%s", uid_cmd)
+		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, uid_cmd)
+		if err != nil || rc != 0 {
+			return false, fmt.Errorf("error when running the following command `%s` on master Node: %v, %s", uid_cmd, err, stdout)
+		} else {
+			uid := strings.Split(stdout, ":")[1]
+			ret = uid
+		}
+		return true, nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return ret, nil
 }
 
 // deploymentWaitForNames polls the K8s apiServer once the specific pods are created, no matter they are running or not.
@@ -429,7 +475,7 @@ func (data *TestData) deploymentWaitForNames(timeout time.Duration, namespace, d
 	return podNames, nil
 }
 
-//Temporarily disable traffic check
+// Temporarily disable traffic check
 /*
 // podWaitFor polls the K8s apiServer until the specified Pod is found (in the test Namespace) and
 // the condition predicate is met (or until the provided timeout expires).
@@ -642,7 +688,7 @@ func applyYAML(filename string, ns string) error {
 	return nil
 }
 
-//Temporarily disable traffic check
+// Temporarily disable traffic check
 /*
 func runCommand(cmd string) (string, error) {
 	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (bool, error) {
@@ -687,6 +733,32 @@ func deleteYAML(filename string, ns string) error {
 	return nil
 }
 
+// queryResource is used to query resource by tags, not handling pagination
+// tags should be present in pairs, the first tag is the scope, the second tag is the value
+// caller should transform the response to the expected resource type
+func (data *TestData) queryResource(resourceType string, tags []string) (model.SearchResponse, error) {
+	tagScopeClusterKey := strings.Replace(common.TagScopeNamespace, "/", "\\/", -1)
+	tagScopeClusterValue := strings.Replace(tags[0], ":", "\\:", -1)
+	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
+	resourceParam := fmt.Sprintf("%s:%s", common.ResourceType, resourceType)
+	queryParam := resourceParam + " AND " + tagParam
+	if len(tags) >= 2 {
+		tagscope := strings.Replace(tags[0], "/", "\\/", -1)
+		tagtag := strings.Replace(tags[1], ":", "\\:", -1)
+		tagParam = fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagscope, tagtag)
+		queryParam = resourceParam + " AND " + tagParam
+	}
+	queryParam += " AND marked_for_delete:false"
+	var cursor *string
+	var pageSize int64 = 500
+	response, err := data.nsxClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
+	if err != nil {
+		log.Printf("Error when querying resource %s: %v", resourceType, err)
+		return model.SearchResponse{}, err
+	}
+	return response, nil
+}
+
 func (data *TestData) waitForResourceExist(namespace string, resourceType string, key string, value string, shouldExist bool) error {
 	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (bool, error) {
 		exist := true
@@ -716,10 +788,39 @@ func (data *TestData) waitForResourceExist(namespace string, resourceType string
 	return err
 }
 
-func (data *TestData) waitForResourceExistById(namespace string, resourceType string, id string, shouldExist bool) error {
-	return data.waitForResourceExist(namespace, resourceType, "id", id, shouldExist)
-}
-
 func (data *TestData) waitForResourceExistOrNot(namespace string, resourceType string, resourceName string, shouldExist bool) error {
 	return data.waitForResourceExist(namespace, resourceType, "display_name", resourceName, shouldExist)
+}
+
+func (data *TestData) waitForResourceExistByPath(pathPolicy string, shouldExist bool) error {
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (bool, error) {
+		exist := true
+
+		fullURL := PolicyAPI + pathPolicy
+		fullURL = strings.ReplaceAll(fullURL, "\"", "")
+		fullURL = strings.ReplaceAll(fullURL, "\n", "")
+		fullURL = strings.ReplaceAll(fullURL, "\r", "")
+		_, err := url.Parse(fullURL)
+		if err != nil {
+			fmt.Println("Invalid URL:", err)
+			return false, err
+		}
+
+		resp, err := testData.nsxClient.Client.Cluster.HttpGet(fullURL)
+		if err != nil {
+			if !shouldExist {
+				return true, nil
+			}
+			return false, err
+		}
+		id, ok := resp["id"].(string)
+		if !ok || id == "" {
+			exist = false
+		}
+		if exist != shouldExist {
+			return false, nil
+		}
+		return true, nil
+	})
+	return err
 }

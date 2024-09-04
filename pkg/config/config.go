@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/zap"
 	ini "gopkg.in/ini.v1"
 
@@ -25,16 +26,15 @@ const (
 	// LicenseInterval is the timeout for checking license status
 	LicenseInterval = 86400
 	// LicenseIntervalForDFW is the timeout for checking license status while no DFW license enabled
-	LicenseIntervalForDFW  = 1800
-	defaultWebhookPort     = 9981
-	defaultWebhookCertPath = "/tmp/k8s-webhook-server/serving-certs"
+	LicenseIntervalForDFW = 1800
+	defaultWebhookPort    = 9981
+	WebhookCertDir        = "/tmp/k8s-webhook-server/serving-certs"
 )
 
 var (
 	LogLevel               int
 	ProbeAddr, MetricsAddr string
 	WebhookServerPort      int
-	WebhookCertDir         string
 	configFilePath         = ""
 	configLog              *zap.SugaredLogger
 	tokenProvider          auth.TokenProvider
@@ -112,12 +112,15 @@ type NsxConfig struct {
 	SingleTierSrTopology      bool     `ini:"single_tier_sr_topology"`
 	EnforcementPoint          string   `ini:"enforcement_point"`
 	DefaultProject            string   `ini:"default_project"`
-	ExternalIPv4Blocks        []string `ini:"external_ipv4_blocks"`
 	DefaultSubnetSize         int      `ini:"default_subnet_size"`
 	DefaultTimeout            int      `ini:"default_timeout"`
 	EnvoyHost                 string   `ini:"envoy_host"`
 	EnvoyPort                 int      `ini:"envoy_port"`
 	LicenseValidationInterval int      `ini:"license_validation_interval"`
+	UseAVILoadBalancer        bool     `ini:"use_avi_lb"`
+	UseNSXLoadBalancer        *bool    `ini:"use_native_loadbalancer"`
+	RelaxNSXLBScaleValication bool     `ini:"relax_scale_validation"`
+	NSXLBSize                 string   `ini:"service_size"`
 }
 
 type K8sConfig struct {
@@ -158,7 +161,6 @@ func AddFlags() {
 	flag.StringVar(&MetricsAddr, "metrics-bind-address", ":8093", "The address the metrics endpoint binds to.")
 	flag.IntVar(&LogLevel, "log-level", 0, "Use zap-core log system.")
 	flag.IntVar(&WebhookServerPort, "webhook-server-port", defaultWebhookPort, "Port number to expose the controller webhook server")
-	flag.StringVar(&WebhookCertDir, "webhook-cert-dir", defaultWebhookCertPath, "Directory for certificate for webhook server")
 	flag.Parse()
 }
 
@@ -407,4 +409,12 @@ func (coeConfig *CoeConfig) validate() error {
 
 func (nsxConfig *NsxConfig) ValidateConfigFromCmd() error {
 	return nsxConfig.validate(true)
+}
+
+func (nsxConfig *NsxConfig) GetNSXLBSize() string {
+	lbsSize := nsxConfig.NSXLBSize
+	if lbsSize == "" {
+		lbsSize = model.LBService_SIZE_SMALL
+	}
+	return lbsSize
 }
