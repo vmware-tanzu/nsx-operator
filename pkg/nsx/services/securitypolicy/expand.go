@@ -33,6 +33,7 @@ func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, r
 			return nil, nil, err
 		}
 		nsxRules = append(nsxRules, nsxRule)
+		return nsxGroups, nsxRules, nil
 	}
 
 	// Check if there is a namedport in the rule

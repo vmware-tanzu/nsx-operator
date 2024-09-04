@@ -860,7 +860,7 @@ func TestDleleteVPCSecurityPolicy(t *testing.T) {
 			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
 
 			assert.NoError(t, fakeService.securityPolicyStore.Apply(tt.inputPolicy))
-			assert.NoError(t, fakeService.ruleStore.Apply(tt.inputPolicy))
+			assert.NoError(t, fakeService.ruleStore.Apply(&tt.inputPolicy.Rules))
 
 			patches := tt.prepareFunc(t, fakeService)
 			defer patches.Reset()
