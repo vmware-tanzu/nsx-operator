@@ -3,20 +3,19 @@ package networkinfo
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strconv"
 	"strings"
-
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-
-	commontypes "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	commontypes "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 // VPCNetworkConfigurationHandler handles VPC NetworkConfiguration event, and reconcile VPC event:
@@ -53,6 +52,12 @@ func (h *VPCNetworkConfigurationHandler) Generic(_ context.Context, _ event.Gene
 func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	log.V(1).Info("start processing VPC network config update event")
 	newNc := e.ObjectNew.(*v1alpha1.VPCNetworkConfiguration)
+
+	oldNc := e.ObjectOld.(*v1alpha1.VPCNetworkConfiguration)
+	if reflect.DeepEqual(oldNc.Spec, newNc.Spec) {
+		log.Info("Skip processing VPC network config update event", "newNc", newNc, "oldNc", oldNc)
+		return
+	}
 
 	// update network config info in store
 	info, err := buildNetworkConfigInfo(*newNc)
