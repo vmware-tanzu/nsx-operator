@@ -80,7 +80,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			s := &v1alpha1.Subnet{}
 			if err := r.Client.Get(ctx, req.NamespacedName, s); err != nil {
 				log.Error(err, "unable to fetch subnet CR", "req", req.NamespacedName)
-				return common.ResultNormal, client.IgnoreNotFound(err)
+				return common.ResultRequeueAfter10sec, err
 			}
 			if s != nil && !s.DeletionTimestamp.IsZero() {
 				err := fmt.Errorf("subnet %s is been deleting, cannot operate subnetport %s", s.Name, req.NamespacedName)
@@ -93,7 +93,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			subnets := &v1alpha1.SubnetSet{}
 			if err := r.Client.Get(ctx, req.NamespacedName, subnets); err != nil {
 				log.Error(err, "unable to fetch SubnetSet CR", "req", req.NamespacedName)
-				return common.ResultNormal, client.IgnoreNotFound(err)
+				return common.ResultRequeueAfter10sec, err
 			}
 			if subnets != nil && !subnets.DeletionTimestamp.IsZero() {
 				err := fmt.Errorf("SubnetSet %s is been deleting, cannot operate subnetport %s", subnets.Name, req.NamespacedName)
