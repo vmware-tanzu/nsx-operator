@@ -90,7 +90,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		old_status := subnetPort.Status.DeepCopy()
 		isParentResourceTerminating, nsxSubnetPath, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort)
 		if isParentResourceTerminating {
-
+			updateFail(r, ctx, subnetPort, &err)
 			return common.ResultNormal, err
 		}
 		if err != nil {
@@ -405,8 +405,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 	subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
 	subnetPath = r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(subnetPortID)
 	if len(subnetPath) > 0 {
-		// If there is a SubnetPath in store?
-
+		// If there is a SubnetPath in store, there is a subnetport in NSX, the subnetport is not created first time.
 		log.V(1).Info("NSX subnet port had been created, returning the existing NSX subnet path", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
 		return
 	}
@@ -422,7 +421,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		}
 		if subnet != nil && !subnet.DeletionTimestamp.IsZero() {
 			isStale = true
-			err := fmt.Errorf("subnet %s is been deleting, cannot operate subnetport %s", namespacedName, subnetPort.Name)
+			err := fmt.Errorf("subnet %s is being deleted, cannot operate subnetport %s", namespacedName, subnetPort.Name)
 			return true, "", err
 		}
 		subnetList := r.SubnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetCRUID, string(subnet.GetUID()))
@@ -447,7 +446,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		}
 		if subnetSet != nil && !subnetSet.DeletionTimestamp.IsZero() {
 			isStale = true
-			err = fmt.Errorf("subnetset %s is been deleting, cannot operate subnetport %s", namespacedName, subnetPort.Name)
+			err = fmt.Errorf("subnetset %s is being deleted, cannot operate subnetport %s", namespacedName, subnetPort.Name)
 			return
 		}
 		log.Info("got subnetset for subnetport CR, allocating the NSX subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
