@@ -5,28 +5,34 @@ metadata:
   creationTimestamp: null
   name: nsx-operator-validating-webhook-configuration
 webhooks:
-- admissionReviewVersions:
-  - v1
+- name: default.subnetset.validating.nsx.vmware.com
+  admissionReviewVersions: ["v1"]
+  rules:
+    - apiGroups: ["crd.nsx.vmware.com"]
+      apiVersions: ["v1alpha1"]
+      operations: ["CREATE", "UPDATE", "DELETE"]
+      resources: ["subnetsets"]
   clientConfig:
     service:
-      name: subnetset
+      name: nsx-operator-validate
       namespace: vmware-system-nsx
       # kubebuilder webhookpath.
       path: /validate-nsx-vmware-com-v1alpha1-subnetset
   failurePolicy: Fail
-  name: default.subnetset.validating.nsx.vmware.com
   objectSelector:
     matchExpressions:
     - { key: nsxoperator.vmware.com/default-subnetset-for, operator: In, values: ["Pod", "VirtualMachine"] }
+  sideEffects: None
+- name: default.subnetport.validating.nsx.vmware.com
+  clientConfig:
+    service:
+      name: nsx-operator-validate
+      namespace: vmware-system-nsx
+      path: /validate-nsx-vmware-com-v1alpha1-subnetport
   rules:
-  - apiGroups:
-    - nsx.vmware.com
-    apiVersions:
-    - v1alpha1
-    operations:
-    - CREATE
-    - UPDATE
-    - DELETE
-    resources:
-    - subnetsets
+    - apiGroups: ["crd.nsx.vmware.com"]
+      apiVersions: ["v1alpha1"]
+      operations: ["CREATE"]
+      resources: ["subnetports/*"]
+  admissionReviewVersions: ["v1"]
   sideEffects: None

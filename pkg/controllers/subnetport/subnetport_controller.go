@@ -28,9 +28,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
@@ -74,6 +76,28 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		err := errors.New("subnet and subnetset should not be configured at the same time")
 		log.Error(err, "failed to get subnet/subnetset of the subnetport", "subnetport", req.NamespacedName)
 		return common.ResultNormal, err
+	}
+
+	if len(subnetPort.Spec.Subnet) != 0 {
+		s := &v1alpha1.Subnet{}
+		if err := r.Client.Get(ctx, req.NamespacedName, s); err != nil {
+			log.Error(err, "unable to fetch subnet CR", "req", req.NamespacedName)
+			return common.ResultNormal, client.IgnoreNotFound(err)
+		}
+		if s != nil && !s.DeletionTimestamp.IsZero() {
+			return common.ResultNormal, fmt.Errorf("subnet %s is been deleting, cannot operate subnetport %s", s.Name, req.NamespacedName)
+		}
+	}
+
+	if len(subnetPort.Spec.SubnetSet) != 0 {
+		subnets := &v1alpha1.SubnetSet{}
+		if err := r.Client.Get(ctx, req.NamespacedName, subnets); err != nil {
+			log.Error(err, "unable to fetch SubnetSet CR", "req", req.NamespacedName)
+			return common.ResultNormal, client.IgnoreNotFound(err)
+		}
+		if subnets != nil && !subnets.DeletionTimestamp.IsZero() {
+			return common.ResultNormal, fmt.Errorf("SubnetSet %s is been deleting, cannot operate subnetport %s", subnets.Name, req.NamespacedName)
+		}
 	}
 
 	if subnetPort.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -245,7 +269,7 @@ func (r *SubnetPortReconciler) vmMapFunc(_ context.Context, vm client.Object) []
 	return requests
 }
 
-func StartSubnetPortController(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPortService, subnetService *subnet.SubnetService, vpcService *vpc.VPCService) {
+func StartSubnetPortController(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPortService, subnetService *subnet.SubnetService, vpcService *vpc.VPCService, enableWebhook bool) {
 	subnetPortReconciler := SubnetPortReconciler{
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
@@ -254,7 +278,7 @@ func StartSubnetPortController(mgr ctrl.Manager, subnetPortService *subnetport.S
 		VPCService:        vpcService,
 		Recorder:          mgr.GetEventRecorderFor("subnetport-controller"),
 	}
-	if err := subnetPortReconciler.Start(mgr); err != nil {
+	if err := subnetPortReconciler.Start(mgr, enableWebhook); err != nil {
 		log.Error(err, "failed to create controller", "controller", "SubnetPort")
 		os.Exit(1)
 	}
@@ -262,10 +286,26 @@ func StartSubnetPortController(mgr ctrl.Manager, subnetPortService *subnetport.S
 }
 
 // Start setup manager and launch GC
-func (r *SubnetPortReconciler) Start(mgr ctrl.Manager) error {
+func (r *SubnetPortReconciler) Start(mgr ctrl.Manager, enableWebhook bool) error {
 	err := r.SetupWithManager(mgr)
 	if err != nil {
 		return err
+	}
+	if enableWebhook {
+		hookServer := webhook.NewServer(webhook.Options{
+			Port:    config.WebhookServerPort,
+			CertDir: config.WebhookCertDir,
+		})
+		if err := mgr.Add(hookServer); err != nil {
+			return err
+		}
+		hookServer.Register("/validate-nsx-vmware-com-v1alpha1-subnetport",
+			&webhook.Admission{
+				Handler: &Validator{
+					Client:  mgr.GetClient(),
+					decoder: admission.NewDecoder(mgr.GetScheme()),
+				},
+			})
 	}
 	return nil
 }
