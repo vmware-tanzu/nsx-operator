@@ -108,8 +108,8 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				return common.ResultRequeueAfter60sec, nil
 			}
 		}
-
-		createdVpc, err := r.Service.CreateOrUpdateVPC(obj, &nc)
+		lbProvider := r.Service.GetLBProvider()
+		createdVpc, err := r.Service.CreateOrUpdateVPC(obj, &nc, lbProvider)
 		if err != nil {
 			log.Error(err, "create vpc failed, would retry exponentially", "VPC", req.NamespacedName)
 			updateFail(r, ctx, obj, &err, r.Client, nil)
@@ -118,9 +118,21 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		var privateIPs []string
 		var vpcConnectivityProfilePath string
-		if vpc.IsPreCreatedVPC(nc) {
+		var nsxLBSPath string
+		isPreCreatedVPC := vpc.IsPreCreatedVPC(nc)
+		if isPreCreatedVPC {
 			privateIPs = createdVpc.PrivateIps
 			vpcConnectivityProfilePath = *createdVpc.VpcConnectivityProfile
+			// Retrieve NSX lbs path if Avi is not used with the pre-created VPC.
+			if createdVpc.LoadBalancerVpcEndpoint == nil || createdVpc.LoadBalancerVpcEndpoint.Enabled == nil ||
+				!*createdVpc.LoadBalancerVpcEndpoint.Enabled {
+				nsxLBSPath, err = r.Service.GetLBSsFromNSXByVPC(*createdVpc.Path)
+				if err != nil {
+					log.Error(err, "failed to get NSX LBS path with pre-created VPC", "VPC", createdVpc.Path)
+					updateFail(r, ctx, obj, &err, r.Client, nil)
+					return common.ResultRequeueAfter10sec, err
+				}
+			}
 		} else {
 			privateIPs = nc.PrivateIPs
 			vpcConnectivityProfilePath = nc.VPCConnectivityProfile
@@ -143,21 +155,9 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx, r.Client, vpcNetworkConfiguration, true)
 			}
 		}
-		isEnableAutoSNAT := func() bool {
-			if vpcConnectivityProfile.ServiceGateway == nil || vpcConnectivityProfile.ServiceGateway.Enable == nil {
-				return false
-			}
-			if *vpcConnectivityProfile.ServiceGateway.Enable {
-				if vpcConnectivityProfile.ServiceGateway.NatConfig == nil || vpcConnectivityProfile.ServiceGateway.NatConfig.EnableDefaultSnat == nil {
-					return false
-				}
-				return *vpcConnectivityProfile.ServiceGateway.NatConfig.EnableDefaultSnat
-			}
-			return false
-		}
 		// currently, auto snat is not exposed, and use default value True
 		// checking autosnat to support future extension in vpc configuration
-		autoSnatEnabled := isEnableAutoSNAT()
+		autoSnatEnabled := r.Service.IsEnableAutoSNAT(vpcConnectivityProfile)
 		if autoSnatEnabled {
 			snatIP, err = r.Service.GetDefaultSNATIP(*createdVpc)
 			if err != nil {
@@ -192,7 +192,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// if lb vpc enabled, read avi subnet path and cidr
 		// nsx bug, if set LoadBalancerVpcEndpoint.Enabled to false, when read this vpc back,
 		// LoadBalancerVpcEndpoint.Enabled will become a nil pointer.
-		if !r.Service.NSXLBEnabled() && createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
+		if lbProvider == vpc.AVILB && createdVpc.LoadBalancerVpcEndpoint != nil && createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
 			path, cidr, err = r.Service.GetAVISubnetInfo(*createdVpc)
 			if err != nil {
 				log.Error(err, "failed to read lb subnet path and cidr", "VPC", createdVpc.Id)
@@ -214,8 +214,12 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			PrivateIPs:              privateIPs,
 			VPCPath:                 *createdVpc.Path,
 		}
+
+		if !isPreCreatedVPC {
+			nsxLBSPath = r.Service.GetNSXLBSPath(*createdVpc.Id)
+		}
 		// AKO needs to know the AVI subnet path created by NSX
-		setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, path, r.Service.GetNSXLBSPath(*createdVpc.Id), *createdVpc.Path)
+		setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, path, nsxLBSPath, *createdVpc.Path)
 		updateSuccess(r, ctx, obj, r.Client, state, nc.Name, path)
 	} else {
 		if controllerutil.ContainsFinalizer(obj, commonservice.NetworkInfoFinalizerName) {
