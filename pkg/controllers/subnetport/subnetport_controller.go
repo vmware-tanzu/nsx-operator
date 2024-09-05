@@ -212,7 +212,7 @@ func (r *SubnetPortReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.vmMapFunc),
 			builder.WithPredicates(predicate.LabelChangedPredicate{})).
 		Watches(&v1alpha1.AddressBinding{},
-			handler.EnqueueRequestsFromMapFunc(r.addressBindingMapFunc)).
+				handler.EnqueueRequestsFromMapFunc(r.addressBindingMapFunc)).
 		Complete(r) // TODO: watch the virtualmachine event and update the labels on NSX subnet port.
 }
 
@@ -459,6 +459,11 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		subnetSet := &v1alpha1.SubnetSet{}
 		subnetSet, err = common.GetDefaultSubnetSet(r.Client, ctx, subnetPort.Namespace, servicecommon.LabelDefaultVMSubnetSet)
 		if err != nil {
+			return
+		}
+		if subnetSet != nil && !subnetSet.DeletionTimestamp.IsZero() {
+			isStale = true
+			err = fmt.Errorf("default subnetset %s is being deleted, cannot operate subnetport %s", subnetSet.Name, subnetPort.Name)
 			return
 		}
 		log.Info("got default subnetset for subnetport CR, allocating the NSX subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
