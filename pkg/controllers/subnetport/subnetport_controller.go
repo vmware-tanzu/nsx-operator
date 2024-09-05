@@ -78,7 +78,11 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if subnetPort.ObjectMeta.DeletionTimestamp.IsZero() {
 		if len(subnetPort.Spec.Subnet) != 0 {
 			s := &v1alpha1.Subnet{}
-			if err := r.Client.Get(ctx, req.NamespacedName, s); err != nil {
+			sNamespacedName := types.NamespacedName{
+				Namespace: subnetPort.Namespace,
+				Name:      subnetPort.Spec.Subnet,
+			}
+			if err := r.Client.Get(ctx, sNamespacedName, s); err != nil {
 				log.Error(err, "unable to fetch subnet CR", "req", req.NamespacedName)
 				return common.ResultRequeueAfter10sec, err
 			}
@@ -91,7 +95,11 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 		if len(subnetPort.Spec.SubnetSet) != 0 {
 			subnets := &v1alpha1.SubnetSet{}
-			if err := r.Client.Get(ctx, req.NamespacedName, subnets); err != nil {
+			sNamespacedName := types.NamespacedName{
+				Namespace: subnetPort.Namespace,
+				Name:      subnetPort.Spec.SubnetSet,
+			}
+			if err := r.Client.Get(ctx, sNamespacedName, subnets); err != nil {
 				log.Error(err, "unable to fetch SubnetSet CR", "req", req.NamespacedName)
 				return common.ResultRequeueAfter10sec, err
 			}
