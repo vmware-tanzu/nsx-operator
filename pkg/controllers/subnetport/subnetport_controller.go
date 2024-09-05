@@ -76,40 +76,6 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if subnetPort.ObjectMeta.DeletionTimestamp.IsZero() {
-		if len(subnetPort.Spec.Subnet) != 0 {
-			s := &v1alpha1.Subnet{}
-			sNamespacedName := types.NamespacedName{
-				Namespace: subnetPort.Namespace,
-				Name:      subnetPort.Spec.Subnet,
-			}
-			if err := r.Client.Get(ctx, sNamespacedName, s); err != nil {
-				log.Error(err, "unable to fetch subnet CR", "req", req.NamespacedName)
-				return common.ResultRequeueAfter10sec, err
-			}
-			if s != nil && !s.DeletionTimestamp.IsZero() {
-				err := fmt.Errorf("subnet %s is been deleting, cannot operate subnetport %s", s.Name, req.NamespacedName)
-				updateFail(r, ctx, subnetPort, &err)
-				return common.ResultNormal, err
-			}
-		}
-
-		if len(subnetPort.Spec.SubnetSet) != 0 {
-			subnets := &v1alpha1.SubnetSet{}
-			sNamespacedName := types.NamespacedName{
-				Namespace: subnetPort.Namespace,
-				Name:      subnetPort.Spec.SubnetSet,
-			}
-			if err := r.Client.Get(ctx, sNamespacedName, subnets); err != nil {
-				log.Error(err, "unable to fetch SubnetSet CR", "req", req.NamespacedName)
-				return common.ResultRequeueAfter10sec, err
-			}
-			if subnets != nil && !subnets.DeletionTimestamp.IsZero() {
-				err := fmt.Errorf("SubnetSet %s is been deleting, cannot operate subnetport %s", subnets.Name, req.NamespacedName)
-				updateFail(r, ctx, subnetPort, &err)
-				return common.ResultNormal, err
-			}
-		}
-
 		metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerUpdateTotal, MetricResTypeSubnetPort)
 		if !controllerutil.ContainsFinalizer(subnetPort, servicecommon.SubnetPortFinalizerName) {
 			controllerutil.AddFinalizer(subnetPort, servicecommon.SubnetPortFinalizerName)
@@ -122,7 +88,11 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 
 		old_status := subnetPort.Status.DeepCopy()
-		nsxSubnetPath, err := r.GetSubnetPathForSubnetPort(ctx, subnetPort)
+		isParentResourceTerminating, nsxSubnetPath, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort)
+		if isParentResourceTerminating {
+
+			return common.ResultNormal, err
+		}
 		if err != nil {
 			log.Error(err, "failed to get NSX resource path from subnet", "subnetport", subnetPort)
 			return common.ResultRequeue, err
@@ -242,7 +212,7 @@ func (r *SubnetPortReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.vmMapFunc),
 			builder.WithPredicates(predicate.LabelChangedPredicate{})).
 		Watches(&v1alpha1.AddressBinding{},
-				handler.EnqueueRequestsFromMapFunc(r.addressBindingMapFunc)).
+			handler.EnqueueRequestsFromMapFunc(r.addressBindingMapFunc)).
 		Complete(r) // TODO: watch the virtualmachine event and update the labels on NSX subnet port.
 }
 
@@ -431,12 +401,14 @@ func deleteSuccess(r *SubnetPortReconciler, _ context.Context, o *v1alpha1.Subne
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetPort)
 }
 
-func (r *SubnetPortReconciler) GetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (string, error) {
+func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (isStale bool, subnetPath string, err error) {
 	subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
-	subnetPath := r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(subnetPortID)
+	subnetPath = r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(subnetPortID)
 	if len(subnetPath) > 0 {
+		// If there is a SubnetPath in store?
+
 		log.V(1).Info("NSX subnet port had been created, returning the existing NSX subnet path", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
-		return subnetPath, nil
+		return
 	}
 	if len(subnetPort.Spec.Subnet) > 0 {
 		subnet := &v1alpha1.Subnet{}
@@ -444,18 +416,23 @@ func (r *SubnetPortReconciler) GetSubnetPathForSubnetPort(ctx context.Context, s
 			Name:      subnetPort.Spec.Subnet,
 			Namespace: subnetPort.Namespace,
 		}
-		if err := r.Client.Get(ctx, namespacedName, subnet); err != nil {
+		if err = r.Client.Get(ctx, namespacedName, subnet); err != nil {
 			log.Error(err, "subnet CR not found", "subnet CR", namespacedName)
-			return subnetPath, err
+			return
+		}
+		if subnet != nil && !subnet.DeletionTimestamp.IsZero() {
+			isStale = true
+			err := fmt.Errorf("subnet %s is been deleting, cannot operate subnetport %s", namespacedName, subnetPort.Name)
+			return true, "", err
 		}
 		subnetList := r.SubnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetCRUID, string(subnet.GetUID()))
 		if len(subnetList) == 0 {
-			err := fmt.Errorf("empty NSX resource path for subnet CR %s(%s)", subnet.Name, subnet.GetUID())
-			return subnetPath, err
+			err = fmt.Errorf("empty NSX resource path for subnet CR %s(%s)", subnet.Name, subnet.GetUID())
+			return
 		} else if len(subnetList) > 1 {
-			err := fmt.Errorf("multiple NSX subnets found for subnet CR %s(%s)", subnet.Name, subnet.GetUID())
+			err = fmt.Errorf("multiple NSX subnets found for subnet CR %s(%s)", subnet.Name, subnet.GetUID())
 			log.Error(err, "failed to get NSX subnet by subnet CR UID", "subnetList", subnetList)
-			return subnetPath, err
+			return
 		}
 		subnetPath = *subnetList[0].Path
 	} else if len(subnetPort.Spec.SubnetSet) > 0 {
@@ -464,31 +441,35 @@ func (r *SubnetPortReconciler) GetSubnetPathForSubnetPort(ctx context.Context, s
 			Name:      subnetPort.Spec.SubnetSet,
 			Namespace: subnetPort.Namespace,
 		}
-		if err := r.Client.Get(context.Background(), namespacedName, subnetSet); err != nil {
+		if err = r.Client.Get(context.Background(), namespacedName, subnetSet); err != nil {
 			log.Error(err, "subnetSet CR not found", "subnet CR", namespacedName)
-			return subnetPath, err
+			return
+		}
+		if subnetSet != nil && !subnetSet.DeletionTimestamp.IsZero() {
+			isStale = true
+			err = fmt.Errorf("subnetset %s is been deleting, cannot operate subnetport %s", namespacedName, subnetPort.Name)
+			return
 		}
 		log.Info("got subnetset for subnetport CR, allocating the NSX subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
-		subnetPath, err := common.AllocateSubnetFromSubnetSet(subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService)
+		subnetPath, err = common.AllocateSubnetFromSubnetSet(subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService)
 		log.Info("allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 		if err != nil {
-			return subnetPath, err
+			return
 		}
-		return subnetPath, nil
 	} else {
-		subnetSet, err := common.GetDefaultSubnetSet(r.Client, ctx, subnetPort.Namespace, servicecommon.LabelDefaultVMSubnetSet)
+		subnetSet := &v1alpha1.SubnetSet{}
+		subnetSet, err = common.GetDefaultSubnetSet(r.Client, ctx, subnetPort.Namespace, servicecommon.LabelDefaultVMSubnetSet)
 		if err != nil {
-			return "", err
+			return
 		}
 		log.Info("got default subnetset for subnetport CR, allocating the NSX subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
-		subnetPath, err := common.AllocateSubnetFromSubnetSet(subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService)
+		subnetPath, err = common.AllocateSubnetFromSubnetSet(subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService)
 		log.Info("allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 		if err != nil {
-			return subnetPath, err
+			return
 		}
-		return subnetPath, nil
 	}
-	return subnetPath, nil
+	return
 }
 
 func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alpha1.SubnetPort, nsxSubnetPath string) error {
