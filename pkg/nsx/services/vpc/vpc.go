@@ -1141,6 +1141,27 @@ func (service *VPCService) GetVPCFromNSXByPath(vpcPath string) (*model.Vpc, erro
 	return &vpc, nil
 }
 
+func (service *VPCService) GetLBSsFromNSXByVPC(vpcPath string) (string, error) {
+	vpcResInfo, err := common.ParseVPCResourcePath(vpcPath)
+	if err != nil {
+		log.Error(err, "failed to parse VPCResourceInfo from the given VPC path", "VPC", vpcPath)
+		return "", err
+	}
+	includeMarkForDeleted := false
+	lbs, err := service.NSXClient.VPCLBSClient.List(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID, nil, &includeMarkForDeleted, nil, nil, nil, nil)
+	err = nsxutil.NSXApiError(err)
+	if err != nil {
+		log.Error(err, "failed to read LB services in VPC under from NSX", "VPC", vpcPath)
+		return "", err
+	}
+
+	if len(lbs.Results) == 0 {
+		return "", nil
+	}
+	lbsPath := *lbs.Results[0].Path
+	return lbsPath, nil
+}
+
 func IsPreCreatedVPC(nc common.VPCNetworkConfigInfo) bool {
 	return nc.VPCPath != ""
 }
