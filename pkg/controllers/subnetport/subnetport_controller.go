@@ -73,6 +73,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if len(subnetPort.Spec.SubnetSet) > 0 && len(subnetPort.Spec.Subnet) > 0 {
 		err := errors.New("subnet and subnetset should not be configured at the same time")
 		log.Error(err, "failed to get subnet/subnetset of the subnetport", "subnetport", req.NamespacedName)
+		updateFail(r, ctx, subnetPort, &err)
 		return common.ResultNormal, err
 	}
 
@@ -92,15 +93,18 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		nsxSubnetPath, err := r.GetSubnetPathForSubnetPort(ctx, subnetPort)
 		if err != nil {
 			log.Error(err, "failed to get NSX resource path from subnet", "subnetport", subnetPort)
+			updateFail(r, ctx, subnetPort, &err)
 			return common.ResultRequeue, err
 		}
 		labels, err := r.getLabelsFromVirtualMachine(ctx, subnetPort)
 		if err != nil {
 			log.Error(err, "failed to get labels from virtualmachine", "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
+			updateFail(r, ctx, subnetPort, &err)
 			return common.ResultRequeue, err
 		}
 		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath)
 		if err != nil {
+			updateFail(r, ctx, subnetPort, &err)
 			return common.ResultRequeue, err
 		}
 		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels)
