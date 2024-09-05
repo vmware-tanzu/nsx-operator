@@ -317,8 +317,8 @@ type PodCondition func(*corev1.Pod) (bool, error)
 func (data *TestData) waitForCRReadyOrDeleted(timeout time.Duration, cr string, namespace string, name string, status Status) error {
 	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
 		cmd := fmt.Sprintf("kubectl get %s %s -n %s -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}'", cr, name, namespace)
-		log.Printf("%s", cmd)
-		rc, stdout, _, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
+		rc, stdout, stderr, err := RunCommandOnNode(clusterInfo.masterNodeName, cmd)
+		log.Printf("Command: %s\n, result: %d, stdout: %s, stderr:%s, error: %+v\n", cmd, rc, stdout, stderr, err)
 		if err != nil || rc != 0 {
 			if status == Deleted {
 				return true, nil
