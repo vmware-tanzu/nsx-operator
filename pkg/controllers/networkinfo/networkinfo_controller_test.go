@@ -641,6 +641,64 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			args:    requestArgs,
 			want:    common.ResultNormal,
 			wantErr: false,
+		}, {
+			name: "Pre-create VPC success case",
+			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: requestArgs.req.Namespace,
+						Name:      requestArgs.req.Name,
+					},
+				}))
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.VPCNetworkConfiguration{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "system",
+					},
+				}))
+				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "pre-vpc-nc", nil
+
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (servicecommon.VPCNetworkConfigInfo, bool) {
+					return servicecommon.VPCNetworkConfigInfo{
+						Org:        "default",
+						NSXProject: "project-quality",
+						VPCPath:    "/orgs/default/projects/nsx_operator_e2e_test/vpcs/pre-vpc",
+					}, true
+
+				})
+				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
+					return true, "", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) vpc.LBProvider {
+					return vpc.AVILB
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, _ *v1alpha1.NetworkInfo, _ *servicecommon.VPCNetworkConfigInfo, _ vpc.LBProvider) (*model.Vpc, error) {
+					return &model.Vpc{
+						DisplayName:            servicecommon.String("vpc-name"),
+						Path:                   servicecommon.String("/orgs/default/projects/project-quality/vpcs/fake-vpc"),
+						Id:                     servicecommon.String("vpc-id"),
+						VpcConnectivityProfile: servicecommon.String("/orgs/default/projects/nsx_operator_e2e_test/vpc-connectivity-profiles/default"),
+					}, nil
+				})
+
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBSsFromNSXByVPC", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "/orgs/default/projects/project-quality/vpcs/fake-vpc/vpc-lbs/lbs", nil
+				})
+				patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.VpcConnectivityProfile{
+						ServiceGateway: nil,
+					}, nil},
+					Times: 1,
+				}})
+				patches.ApplyFunc(updateSuccess,
+					func(_ *NetworkInfoReconciler, _ context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
+					})
+				return patches
+			},
+			args:    requestArgs,
+			want:    common.ResultNormal,
+			wantErr: false,
 		},
 	}
 

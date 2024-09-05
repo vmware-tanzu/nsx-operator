@@ -118,9 +118,21 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		var privateIPs []string
 		var vpcConnectivityProfilePath string
-		if vpc.IsPreCreatedVPC(nc) {
+		var nsxLBSPath string
+		isPreCreatedVPC := vpc.IsPreCreatedVPC(nc)
+		if isPreCreatedVPC {
 			privateIPs = createdVpc.PrivateIps
 			vpcConnectivityProfilePath = *createdVpc.VpcConnectivityProfile
+			// Retrieve NSX lbs path if Avi is not used with the pre-created VPC.
+			if createdVpc.LoadBalancerVpcEndpoint == nil || createdVpc.LoadBalancerVpcEndpoint.Enabled == nil ||
+				!*createdVpc.LoadBalancerVpcEndpoint.Enabled {
+				nsxLBSPath, err = r.Service.GetLBSsFromNSXByVPC(*createdVpc.Path)
+				if err != nil {
+					log.Error(err, "failed to get NSX LBS path with pre-created VPC", "VPC", createdVpc.Path)
+					updateFail(r, ctx, obj, &err, r.Client, nil)
+					return common.ResultRequeueAfter10sec, err
+				}
+			}
 		} else {
 			privateIPs = nc.PrivateIPs
 			vpcConnectivityProfilePath = nc.VPCConnectivityProfile
@@ -180,7 +192,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// if lb vpc enabled, read avi subnet path and cidr
 		// nsx bug, if set LoadBalancerVpcEndpoint.Enabled to false, when read this vpc back,
 		// LoadBalancerVpcEndpoint.Enabled will become a nil pointer.
-		if lbProvider == vpc.AVILB && createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
+		if lbProvider == vpc.AVILB && createdVpc.LoadBalancerVpcEndpoint != nil && createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
 			path, cidr, err = r.Service.GetAVISubnetInfo(*createdVpc)
 			if err != nil {
 				log.Error(err, "failed to read lb subnet path and cidr", "VPC", createdVpc.Id)
@@ -202,8 +214,12 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			PrivateIPs:              privateIPs,
 			VPCPath:                 *createdVpc.Path,
 		}
+
+		if !isPreCreatedVPC {
+			nsxLBSPath = r.Service.GetNSXLBSPath(*createdVpc.Id)
+		}
 		// AKO needs to know the AVI subnet path created by NSX
-		setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, path, r.Service.GetNSXLBSPath(*createdVpc.Id), *createdVpc.Path)
+		setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, path, nsxLBSPath, *createdVpc.Path)
 		updateSuccess(r, ctx, obj, r.Client, state, nc.Name, path)
 	} else {
 		if controllerutil.ContainsFinalizer(obj, commonservice.NetworkInfoFinalizerName) {

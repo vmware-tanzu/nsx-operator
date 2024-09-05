@@ -151,6 +151,28 @@ func (c fakeTransitGatewayAttachmentClient) Update(orgIdParam string, projectIdP
 	return model.TransitGatewayAttachment{}, nil
 }
 
+type fakeVPCLBSClient struct{}
+
+func (c fakeVPCLBSClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, vpcLbIdParam string, forceParam *bool) error {
+	return nil
+}
+
+func (c fakeVPCLBSClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, vpcLbIdParam string) (model.LBService, error) {
+	return model.LBService{}, nil
+}
+
+func (c fakeVPCLBSClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.LBServiceListResult, error) {
+	return model.LBServiceListResult{}, nil
+}
+
+func (c fakeVPCLBSClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, vpcLbIdParam string, lbServiceParam model.LBService, actionParam *string) error {
+	return nil
+}
+
+func (c fakeVPCLBSClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, vpcLbIdParam string, lbServiceParam model.LBService, actionParam *string) (model.LBService, error) {
+	return model.LBService{}, nil
+}
+
 func TestGetNetworkConfigFromNS(t *testing.T) {
 	service, _, _ := createService(t)
 	k8sClient := service.Client.(*mock_client.MockClient)
@@ -874,6 +896,113 @@ func TestIsLBProviderChanged(t *testing.T) {
 			}
 			result := vpcService.IsLBProviderChanged(tt.existingVPC, tt.lbProvider)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestGetLBSsFromNSXByVPC(t *testing.T) {
+	vpcService := &VPCService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				Cluster:      &nsx.Cluster{},
+				VPCLBSClient: &fakeVPCLBSClient{},
+			},
+		},
+	}
+	vpcPath := "/orgs/default/projects/p1/vpcs/pre-vpc"
+
+	for _, tt := range []struct {
+		name          string
+		prepareFunc   func(*testing.T, *VPCService) *gomonkey.Patches
+		expectErr     bool
+		expectLBSPath string
+	}{
+		{
+			name: "error when listing LBS under pre-created VPC",
+			prepareFunc: func(t *testing.T, service *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCLBSClient), "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.LBServiceListResult{
+							Results: []model.LBService{},
+						},
+						fmt.Errorf("failed to list LBS under VPC"),
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			expectErr: true,
+		}, {
+			name: "no LBS exist under VPC",
+			prepareFunc: func(t *testing.T, service *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCLBSClient), "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.LBServiceListResult{
+							Results: []model.LBService{},
+						},
+						nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			expectErr:     false,
+			expectLBSPath: "",
+		}, {
+			name: "one LBS exists under VPC",
+			prepareFunc: func(t *testing.T, service *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCLBSClient), "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.LBServiceListResult{
+							Results: []model.LBService{
+								{
+									Path: common.String("lbs-1"),
+								},
+							},
+						},
+						nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			expectErr:     false,
+			expectLBSPath: "lbs-1",
+		}, {
+			name: "multiple LBS exists under VPC, return the first",
+			prepareFunc: func(t *testing.T, service *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCLBSClient), "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.LBServiceListResult{
+							Results: []model.LBService{
+								{
+									Path: common.String("lbs-1"),
+								}, {
+									Path: common.String("lbs-2"),
+								},
+							},
+						},
+						nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			expectErr:     false,
+			expectLBSPath: "lbs-1",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc(t, vpcService)
+				defer patches.Reset()
+			}
+			lbsPath, err := vpcService.GetLBSsFromNSXByVPC(vpcPath)
+			if tt.expectErr {
+				assert.NotNil(t, err)
+			} else {
+				assert.Equal(t, tt.expectLBSPath, lbsPath)
+			}
 		})
 	}
 }
