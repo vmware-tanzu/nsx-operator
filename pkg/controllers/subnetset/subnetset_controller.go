@@ -160,8 +160,8 @@ func (r *SubnetSetReconciler) setSubnetSetReadyStatusTrue(ctx context.Context, s
 		{
 			Type:               v1alpha1.Ready,
 			Status:             v1.ConditionTrue,
-			Message:            "NSX SubnetSet has been successfully created/updated",
-			Reason:             "SubnetsReady",
+			Message:            "SubnetSet CR has been successfully created/updated",
+			Reason:             "SubnetSetReady",
 			LastTransitionTime: transitionTime,
 		},
 	}
@@ -173,8 +173,8 @@ func (r *SubnetSetReconciler) setSubnetSetReadyStatusFalse(ctx context.Context, 
 		{
 			Type:               v1alpha1.Ready,
 			Status:             v1.ConditionFalse,
-			Message:            "NSX SubnetSet could not be created/updated",
-			Reason:             "SubnetNotReady",
+			Message:            "SubnetSet CR could not be created/updated",
+			Reason:             "SubnetSetNotReady",
 			LastTransitionTime: transitionTime,
 		},
 	}
