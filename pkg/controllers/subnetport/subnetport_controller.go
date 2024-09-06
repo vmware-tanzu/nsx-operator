@@ -410,8 +410,19 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 	subnetPath = r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(subnetPortID)
 	if len(subnetPath) > 0 {
 		// If there is a SubnetPath in store, there is a subnetport in NSX, the subnetport is not created first time.
-		log.V(1).Info("NSX subnet port had been created, returning the existing NSX subnet path", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
-		return
+		// Check if the Subnet is deleted due to race condition, in which case the stale
+		// subnetport is needed to be deleted.
+		_, err = r.SubnetService.GetSubnetByPath(subnetPath)
+		if err != nil {
+			log.Info("previous NSX subnet is deleted, deleting the stale subnet port", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
+			if err = r.SubnetPortService.DeleteSubnetPort(subnetPortID); err != nil {
+				log.Error(err, "failed to delete the stale subnetport", "subnetport.UID", subnetPort.UID)
+				return
+			}
+		} else {
+			log.V(1).Info("NSX subnet port had been created, returning the existing NSX subnet path", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
+			return
+		}
 	}
 	if len(subnetPort.Spec.Subnet) > 0 {
 		subnet := &v1alpha1.Subnet{}
