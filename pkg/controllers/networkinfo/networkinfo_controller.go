@@ -25,6 +25,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
@@ -36,10 +37,11 @@ var (
 // NetworkInfoReconciler NetworkInfoReconcile reconciles a NetworkInfo object
 // Actually it is more like a shell, which is used to manage nsx VPC
 type NetworkInfoReconciler struct {
-	Client   client.Client
-	Scheme   *apimachineryruntime.Scheme
-	Service  *vpc.VPCService
-	Recorder record.EventRecorder
+	Client              client.Client
+	Scheme              *apimachineryruntime.Scheme
+	Service             *vpc.VPCService
+	IPBlocksInfoService *ipblocksinfo.IPBlocksInfoService
+	Recorder            record.EventRecorder
 }
 
 func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -278,13 +280,15 @@ func (r *NetworkInfoReconciler) setupWithManager(mgr ctrl.Manager) error {
 				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
 		Watches(
-			// For created/removed network config, add/remove from vpc network config cache.
+			// For created/removed network config, add/remove from vpc network config cache,
+			// and update IPBlocksInfo.
 			// For modified network config, currently only support appending ips to public ip blocks,
 			// update network config in cache and update nsx vpc object.
 			&v1alpha1.VPCNetworkConfiguration{},
 			&VPCNetworkConfigurationHandler{
-				Client:     mgr.GetClient(),
-				vpcService: r.Service,
+				Client:              mgr.GetClient(),
+				vpcService:          r.Service,
+				ipBlocksInfoService: r.IPBlocksInfoService,
 			},
 			builder.WithPredicates(VPCNetworkConfigurationPredicate)).
 		Complete(r)

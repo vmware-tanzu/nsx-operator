@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
@@ -18,31 +19,45 @@ import (
 	commontypes "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
+var (
+	retryInterval = 10 * time.Second
+)
+
 // VPCNetworkConfigurationHandler handles VPC NetworkConfiguration event, and reconcile VPC event:
 // - VPC Network Configuration creation: Add VPC Network Configuration into cache.
 // - VPC Network Configuration deletion: Delete VPC Network Configuration from cache.
 // - VPC Network Configuration update:	Only support updating external/private ipblocks, update values in cache
 
 type VPCNetworkConfigurationHandler struct {
-	Client     client.Client
-	vpcService commontypes.VPCServiceProvider
+	Client              client.Client
+	vpcService          commontypes.VPCServiceProvider
+	ipBlocksInfoService commontypes.IPBlocksInfoServiceProvider
 }
 
-func (h *VPCNetworkConfigurationHandler) Create(_ context.Context, e event.CreateEvent, _ workqueue.RateLimitingInterface) {
+func (h *VPCNetworkConfigurationHandler) Create(ctx context.Context, e event.CreateEvent, _ workqueue.RateLimitingInterface) {
 	vpcConfigCR := e.Object.(*v1alpha1.VPCNetworkConfiguration)
 	vname := vpcConfigCR.GetName()
-	ninfo, _err := buildNetworkConfigInfo(*vpcConfigCR)
-	if _err != nil {
-		log.Error(_err, "processing network config add event failed")
+	ninfo, err := buildNetworkConfigInfo(*vpcConfigCR)
+	if err != nil {
+		log.Error(err, "processing network config add event failed")
 		return
 	}
 	log.Info("create network config and update to store", "NetworkConfigInfo", ninfo)
 	h.vpcService.RegisterVPCNetworkConfig(vname, *ninfo)
+	// Update IPBlocks info
+	if err = h.ipBlocksInfoService.UpdateIPBlocksInfo(ctx, vpcConfigCR); err != nil {
+		log.Error(err, "failed to update the IPBblocksInfo", "VPCNetworkConfiguration", vname)
+	}
 }
 
-func (h *VPCNetworkConfigurationHandler) Delete(_ context.Context, e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
-	// Currently we do not support deleting networkconfig
-	log.V(1).Info("do not support VPC network config deletion")
+func (h *VPCNetworkConfigurationHandler) Delete(ctx context.Context, e event.DeleteEvent, w workqueue.RateLimitingInterface) {
+	vpcConfigCR := e.Object.(*v1alpha1.VPCNetworkConfiguration)
+	if err := h.ipBlocksInfoService.SyncIPBlocksInfo(ctx); err != nil {
+		log.Error(err, "failed to synchronize IPBlocksInfo when deleting %s", vpcConfigCR.Name)
+		w.AddAfter(e.Object.GetName(), retryInterval)
+	} else {
+		h.ipBlocksInfoService.ResetPeriodicSync()
+	}
 }
 
 func (h *VPCNetworkConfigurationHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
@@ -96,7 +111,7 @@ var VPCNetworkConfigurationPredicate = predicate.Funcs{
 		return true
 	},
 	DeleteFunc: func(e event.DeleteEvent) bool {
-		return false
+		return true
 	},
 	GenericFunc: func(genericEvent event.GenericEvent) bool {
 		return false
