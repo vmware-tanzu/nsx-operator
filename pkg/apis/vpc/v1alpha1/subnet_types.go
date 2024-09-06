@@ -20,6 +20,7 @@ type SubnetSpec struct {
 	// Size of Subnet based upon estimated workload count.
 	// +kubebuilder:validation:Maximum:=65536
 	// +kubebuilder:validation:Minimum:=16
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPv4SubnetSize int `json:"ipv4SubnetSize,omitempty"`
 	// Access mode of Subnet, accessible only from within VPC or from outside VPC.
 	// +kubebuilder:validation:Enum=Private;Public;PrivateTGW
@@ -28,6 +29,7 @@ type SubnetSpec struct {
 	// Subnet CIDRS.
 	// +kubebuilder:validation:MinItems=0
 	// +kubebuilder:validation:MaxItems=2
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPAddresses []string `json:"ipAddresses,omitempty"`
 	// DHCPConfig DHCP configuration.
 	DHCPConfig DHCPConfig `json:"DHCPConfig,omitempty"`

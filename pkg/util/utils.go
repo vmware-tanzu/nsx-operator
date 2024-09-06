@@ -522,3 +522,8 @@ func GetRandomIndexString() string {
 	uuidStr := uuid.NewString()
 	return Sha1(uuidStr)[:HashLength]
 }
+
+// IsPowerOfTwo checks if a given number is a power of 2
+func IsPowerOfTwo(n int) bool {
+	return n > 0 && (n&(n-1)) == 0
+}
