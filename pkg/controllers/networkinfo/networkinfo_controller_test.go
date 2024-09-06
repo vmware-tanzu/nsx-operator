@@ -160,7 +160,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 
 			},
 			args:    requestArgs,
-			want:    common.ResultNormal,
+			want:    common.ResultRequeueAfter60sec,
 			wantErr: false,
 		},
 		{
@@ -224,7 +224,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 
 			},
 			args:    requestArgs,
-			want:    common.ResultNormal,
+			want:    common.ResultRequeueAfter60sec,
 			wantErr: false,
 		},
 		{
@@ -480,7 +480,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 
 			},
 			args:    requestArgs,
-			want:    common.ResultNormal,
+			want:    common.ResultRequeueAfter60sec,
 			wantErr: false,
 		},
 		{
@@ -639,7 +639,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				return patches
 			},
 			args:    requestArgs,
-			want:    common.ResultNormal,
+			want:    common.ResultRequeueAfter60sec,
 			wantErr: false,
 		}, {
 			name: "Pre-create VPC success case",
