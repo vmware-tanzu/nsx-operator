@@ -75,6 +75,9 @@ spec:
                 maximum: 65536
                 minimum: 16
                 type: integer
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
             type: object
           status:
             description: SubnetSetStatus defines the observed state of SubnetSet.
