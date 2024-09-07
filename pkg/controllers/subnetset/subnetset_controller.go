@@ -27,6 +27,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -69,12 +70,19 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				vpcNetworkConfig := r.VPCService.GetVPCNetworkConfigByNamespace(obj.Namespace)
 				if vpcNetworkConfig == nil {
 					err := fmt.Errorf("failed to find VPCNetworkConfig for namespace %s", obj.Namespace)
-					log.Error(err, "operate failed, would retry exponentially", "subnet", req.NamespacedName)
+					log.Error(err, "operate failed, would retry exponentially", "subnetset", req.NamespacedName)
 					updateFail(r, ctx, obj, "")
 					return ResultRequeue, err
 				}
 				obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
 			}
+			if !util.IsPowerOfTwo(obj.Spec.IPv4SubnetSize) {
+				errorMsg := fmt.Sprintf("ipv4SubnetSize has invalid size %d,  which needs to be >= 16 and power of 2", obj.Spec.IPv4SubnetSize)
+				log.Error(nil, errorMsg, "subnetset", req.NamespacedName)
+				updateFail(r, ctx, obj, errorMsg)
+				return ResultNormal, nil
+			}
+
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "subnetset", req.NamespacedName)
 				updateFail(r, ctx, obj, "")
@@ -309,7 +317,8 @@ func (r *SubnetSetReconciler) DeleteSubnetForSubnetSet(obj v1alpha1.SubnetSet, u
 
 func StartSubnetSetController(mgr ctrl.Manager, subnetService *subnet.SubnetService,
 	subnetPortService servicecommon.SubnetPortServiceProvider, vpcService servicecommon.VPCServiceProvider,
-	enableWebhook bool) error {
+	enableWebhook bool,
+) error {
 	subnetsetReconciler := &SubnetSetReconciler{
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),

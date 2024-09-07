@@ -27,6 +27,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
@@ -635,4 +636,26 @@ func UpdateRequestURL(reqUrl *url.URL, nsxtHost string, thumbprint string) {
 		}
 		reqUrl.Path = strings.Join(urls, "/")
 	}
+}
+
+func MergeArraysWithoutDuplicate(oldArray []string, newArray []string) []string {
+	if len(oldArray) == 0 {
+		return newArray
+	}
+	if len(newArray) == 0 {
+		return oldArray
+	}
+	set := sets.New(oldArray...)
+	set.Insert(newArray...)
+
+	return set.UnsortedList()
+}
+
+func CompareArraysWithoutOrder(oldArray []string, newArray []string) bool {
+	if len(oldArray) != len(newArray) {
+		return false
+	}
+	oldSet := sets.New(oldArray...)
+	newSet := sets.New(newArray...)
+	return oldSet.Equal(newSet)
 }
