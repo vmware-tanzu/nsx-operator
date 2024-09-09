@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
@@ -309,6 +310,29 @@ func (r *NetworkInfoReconciler) Start(mgr ctrl.Manager) error {
 // it implements the interface GarbageCollector method.
 func (r *NetworkInfoReconciler) CollectGarbage(ctx context.Context) {
 	log.Info("VPC garbage collector started")
+
+	// In case of VPC realization failure and VPC store not storing it,
+	// there are residual resources in NSX, we should initialize and sync the VPC store again,
+	// VpcStore is thread safe.
+	wg := sync.WaitGroup{}
+	wgDone := make(chan bool)
+	fatalErrors := make(chan error)
+	go r.Service.InitializeResourceStore(&wg, fatalErrors, commonservice.ResourceTypeVpc, nil, r.Service.VpcStore)
+	wg.Add(1)
+	go func() {
+		wg.Wait()
+		close(wgDone)
+	}()
+
+	select {
+	case <-wgDone:
+		break
+	case err := <-fatalErrors:
+		close(fatalErrors)
+		log.Error(err, "failed to initialize VPC store")
+		return
+	}
+
 	// read all nsx-vpc from vpc store
 	nsxVPCList := r.Service.ListVPC()
 	if len(nsxVPCList) == 0 {
