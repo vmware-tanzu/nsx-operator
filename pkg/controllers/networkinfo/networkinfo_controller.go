@@ -212,7 +212,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 
 		if !isPreCreatedVPC {
-			nsxLBSPath = r.Service.GetNSXLBSPath(*createdVpc.Id)
+			nsxLBSPath = r.Service.GetDefaultNSXLBSPathByVPC(*createdVpc.Id)
 		}
 		// AKO needs to know the AVI subnet path created by NSX
 		setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, path, nsxLBSPath, *createdVpc.Path)

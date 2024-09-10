@@ -45,8 +45,8 @@ func Test_buildNSXLBS(t *testing.T) {
 				relaxScaleValidation: nil,
 			},
 			want: &model.LBService{
-				Id:          common.String("ns1-netinfouid1"),
-				DisplayName: common.String("ns1-netinfouid1"),
+				Id:          common.String(defaultLBSName),
+				DisplayName: common.String(defaultLBSName),
 				Tags: []model.Tag{
 					{
 						Scope: common.String(common.TagScopeCluster),
