@@ -92,7 +92,6 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 func buildNSXLBS(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster, lbsSize, vpcPath string, relaxScaleValidation *bool) (*model.LBService, error) {
 	lbs := &model.LBService{}
 	lbsName := defaultLBSName
-	// Use VPC id for auto-created LBS id
 	lbs.Id = common.String(defaultLBSName)
 	lbs.DisplayName = &lbsName
 	lbs.Tags = util.BuildBasicTags(cluster, obj, nsObj.GetUID())
