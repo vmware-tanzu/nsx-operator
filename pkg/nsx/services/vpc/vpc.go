@@ -849,12 +849,12 @@ func (s *VPCService) ValidateGatewayConnectionStatus(nc *common.VPCNetworkConfig
 			connectionPaths = append(connectionPaths, *attachment.ConnectionPath)
 		}
 	}
-	// Case 2: there's no gateway connection paths.
+	// Case 1: there's no gateway connection paths.
 	if len(connectionPaths) == 0 {
 		return false, common.ReasonGatewayConnectionNotSet, nil
 	}
 
-	// Case 3: detected distributed gateway connection which is not supported.
+	// Case 2: detected distributed gateway connection which is not supported.
 	for _, connectionPath := range connectionPaths {
 		gatewayConnectionType, err := s.GetGatewayConnectionTypeFromConnectionPath(connectionPath)
 		if err != nil {
