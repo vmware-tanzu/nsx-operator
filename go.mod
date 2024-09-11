@@ -31,8 +31,8 @@ require (
 	github.com/vmware-tanzu/nsx-operator/pkg/client v0.0.0-20240102061654-537b080e159f
 	github.com/vmware-tanzu/vm-operator/api v1.8.2
 	github.com/vmware/govmomi v0.27.4
-	github.com/vmware/vsphere-automation-sdk-go/lib v0.7.0
-	github.com/vmware/vsphere-automation-sdk-go/runtime v0.7.1-0.20240611083326-25a4e1834c4d
+	github.com/vmware/vsphere-automation-sdk-go/lib v0.7.1
+	github.com/vmware/vsphere-automation-sdk-go/runtime v0.7.1
 	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.12.0
 	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp v0.6.0
 	go.uber.org/automaxprocs v1.5.3
