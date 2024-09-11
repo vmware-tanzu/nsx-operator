@@ -500,6 +500,14 @@ func TestEdgeClusterEnabled(t *testing.T) {
 	enable = vpcService.EdgeClusterEnabled(&nc)
 	assert.Equal(t, false, enable)
 	patch.Reset()
+
+	// Simulate the scenario when the VpcConnectivityProfile value returned by NSX is nil.
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVpcConnectivityProfile", func(_ *VPCService, _ *common.VPCNetworkConfigInfo, _ string) (*model.VpcConnectivityProfile, error) {
+		return &model.VpcConnectivityProfile{}, nil
+	})
+	enable = vpcService.EdgeClusterEnabled(&nc)
+	assert.Equal(t, false, enable)
+	patch.Reset()
 }
 
 func TestGetLbProvider(t *testing.T) {

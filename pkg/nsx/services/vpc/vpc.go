@@ -1048,7 +1048,7 @@ func (vpcService *VPCService) EdgeClusterEnabled(nc *common.VPCNetworkConfigInfo
 		if getErr != nil {
 			return getErr
 		}
-		log.Info("VPC connectivity profile retrieved", "serviceGateway", *vpcConnectivityProfile.ServiceGateway)
+		log.Info("VPC connectivity profile retrieved", "profile", *vpcConnectivityProfile)
 		return nil
 	}); err != nil {
 		log.Error(err, "Failed to retrieve VPC connectivity profile", "profile", nc.VPCConnectivityProfile)
@@ -1096,6 +1096,7 @@ func (vpcService *VPCService) GetLBProvider() LBProvider {
 	log.Info("lb provider", "provider", globalLbProvider)
 	return globalLbProvider
 }
+
 func (vpcService *VPCService) getLBProvider(edgeEnable bool) LBProvider {
 	// if no Alb endpoint found, return nsx-lb
 	// if found, and nsx lbs found, return nsx-lb
