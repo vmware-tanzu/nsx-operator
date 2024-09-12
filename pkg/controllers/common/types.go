@@ -23,6 +23,9 @@ const (
 	MetricResTypeNode                = "node"
 	MetricResTypeServiceLb           = "servicelb"
 	MaxConcurrentReconciles          = 8
+	NSXOperatorError                 = "nsx-op/error"
+	//sync the error with NCP side
+	ErrorNoDFWLicense = "NO_DFW_LICENSE"
 
 	LabelK8sMasterRole  = "node-role.kubernetes.io/master"
 	LabelK8sControlRole = "node-role.kubernetes.io/control-plane"

@@ -222,7 +222,7 @@ func (s *VPCService) DeleteVPC(path string) error {
 	}
 
 	if err := vpcClient.Delete(pathInfo.OrgID, pathInfo.ProjectID, pathInfo.VPCID); err != nil {
-		err = nsxutil.NSXApiError(err)
+		err = nsxutil.TransNSXApiError(err)
 		return err
 	}
 	lbs := s.LbsStore.GetByKey(pathInfo.VPCID)
@@ -441,7 +441,7 @@ func (s *VPCService) deleteIPBlock(path string) error {
 	parts := strings.Split(path, "/")
 	log.Info("deleting private ip block", "ORG", parts[2], "Project", parts[4], "ID", parts[7])
 	if err := ipblockClient.Delete(parts[2], parts[4], parts[7]); err != nil {
-		err = nsxutil.NSXApiError(err)
+		err = nsxutil.TransNSXApiError(err)
 		log.Error(err, "failed to delete ip block", "Path", path)
 		return err
 	}
@@ -562,7 +562,7 @@ func (s *VPCService) GetDefaultSNATIP(vpc model.Vpc) (string, error) {
 	pageSize := int64(1000)
 	markedForDelete := false
 	results, err := ruleClient.List(info.OrgID, info.ProjectID, info.VPCID, common.DefaultSNATID, cursor, &markedForDelete, nil, &pageSize, nil, nil)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to read SNAT rule list to get default SNAT ip", "VPC", vpc.Id)
 		return "", err
@@ -588,7 +588,7 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	}
 
 	subnet, err := subnetsClient.Get(info.OrgID, info.ProjectID, info.VPCID, common.AVISubnetLBID)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to read AVI subnet", "VPC", vpc.Id)
 		return "", "", err
@@ -596,7 +596,7 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	path := *subnet.Path
 
 	statusList, err := statusClient.List(info.OrgID, info.ProjectID, info.VPCID, common.AVISubnetLBID)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to read AVI subnet status", "VPC", vpc.Id)
 		return "", "", err
@@ -740,13 +740,13 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPC
 
 	log.Info("creating NSX VPC", "VPC", *createdVpc.Id)
 	err = s.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to create VPC", "Project", nc.NSXProject, "Namespace", obj.Namespace)
 		// TODO: this seems to be a nsx bug, in some case, even if nsx returns failed but the object is still created.
 		log.Info("try to read VPC although VPC creation failed", "VPC", *createdVpc.Id)
 		failedVpc, rErr := s.NSXClient.VPCClient.Get(nc.Org, nc.NSXProject, *createdVpc.Id)
-		rErr = nsxutil.NSXApiError(rErr)
+		rErr = nsxutil.TransNSXApiError(rErr)
 		if rErr != nil {
 			// failed to read, but already created, we consider this scenario as success, but store may not sync with nsx
 			log.Info("confirmed VPC is not created", "VPC", createdVpc.Id)
@@ -759,7 +759,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPC
 
 	// get the created vpc from nsx, it contains the path of the resources
 	newVpc, err := s.NSXClient.VPCClient.Get(nc.Org, nc.NSXProject, *createdVpc.Id)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		// failed to read, but already created, we consider this scenario as success, but store may not sync with nsx
 		log.Error(err, "failed to read VPC object after creating or updating", "VPC", createdVpc.Id)
@@ -831,7 +831,7 @@ func (s *VPCService) ValidateGatewayConnectionStatus(nc *common.VPCNetworkConfig
 	pageSize := int64(1000)
 	markedForDelete := false
 	res, err := s.NSXClient.VPCConnectivityProfilesClient.List(nc.Org, nc.NSXProject, cursor, &markedForDelete, nil, &pageSize, nil, nil)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		return false, "", err
 	}
@@ -841,7 +841,7 @@ func (s *VPCService) ValidateGatewayConnectionStatus(nc *common.VPCNetworkConfig
 		parts := strings.Split(transitGatewayPath, "/")
 		transitGatewayId := parts[len(parts)-1]
 		res, err := s.NSXClient.TransitGatewayAttachmentClient.List(nc.Org, nc.NSXProject, transitGatewayId, nil, &markedForDelete, nil, nil, nil, nil)
-		err = nsxutil.NSXApiError(err)
+		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
 			return false, "", err
 		}
@@ -1117,7 +1117,7 @@ func (s *VPCService) GetVPCFromNSXByPath(vpcPath string) (*model.Vpc, error) {
 		return nil, err
 	}
 	vpc, err := s.NSXClient.VPCClient.Get(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to read VPC object from NSX", "VPC", vpcPath)
 		return nil, err
@@ -1134,7 +1134,7 @@ func (service *VPCService) GetLBSsFromNSXByVPC(vpcPath string) (string, error) {
 	}
 	includeMarkForDeleted := false
 	lbs, err := service.NSXClient.VPCLBSClient.List(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID, nil, &includeMarkForDeleted, nil, nil, nil, nil)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to read LB services in VPC under from NSX", "VPC", vpcPath)
 		return "", err

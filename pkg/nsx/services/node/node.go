@@ -83,7 +83,7 @@ func (service *NodeService) SyncNodeStore(nodeName string, deleted bool) error {
 		// node.NodeStore.Apply(updatedNode)
 	}
 	nodeResults, err := service.NSXClient.HostTransPortNodesClient.List("default", "default", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		return fmt.Errorf("failed to list HostTransportNodes: %s", err)
 	}

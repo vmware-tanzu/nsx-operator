@@ -110,7 +110,7 @@ func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.V
 		return err
 	}
 	errPatch := service.NSXClient.IPAddressAllocationClient.Patch(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, VPCInfo[0].ID, *nsxIPAddressAllocation.Id, *nsxIPAddressAllocation)
-	errPatch = util.NSXApiError(errPatch)
+	errPatch = util.TransNSXApiError(errPatch)
 	if errPatch != nil {
 		// not return err, try to get it from nsx, in case if cidr not realized at the first time
 		// so it can be patched in the next time and reacquire cidr
@@ -118,7 +118,7 @@ func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.V
 	}
 	// get back from nsx, it contains path which is used to parse vpc info when deleting
 	nsxIPAddressAllocationNew, errGet := service.NSXClient.IPAddressAllocationClient.Get(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, VPCInfo[0].ID, *nsxIPAddressAllocation.Id)
-	errGet = util.NSXApiError(errGet)
+	errGet = util.TransNSXApiError(errGet)
 	if errGet != nil {
 		if errPatch != nil {
 			return fmt.Errorf("error get %s, error patch %s", errGet.Error(), errPatch.Error())
