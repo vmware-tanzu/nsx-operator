@@ -71,7 +71,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				if vpcNetworkConfig == nil {
 					err := fmt.Errorf("failed to find VPCNetworkConfig for namespace %s", obj.Namespace)
 					log.Error(err, "operate failed, would retry exponentially", "subnetset", req.NamespacedName)
-					updateFail(r, ctx, obj, "")
+					updateFail(r, ctx, obj, err.Error())
 					return ResultRequeue, err
 				}
 				obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
@@ -85,7 +85,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "subnetset", req.NamespacedName)
-				updateFail(r, ctx, obj, "")
+				updateFail(r, ctx, obj, err.Error())
 				return ResultRequeue, err
 			}
 			log.V(1).Info("added finalizer on subnetset CR", "subnetset", req.NamespacedName)
@@ -116,7 +116,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			hasStaleSubnetPorts, err := r.DeleteSubnetForSubnetSet(*obj, false)
 			if err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "subnetset", req.NamespacedName)
-				deleteFail(r, ctx, obj, "")
+				deleteFail(r, ctx, obj, err.Error())
 				return ResultRequeue, err
 			}
 			if hasStaleSubnetPorts {
@@ -128,7 +128,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			controllerutil.RemoveFinalizer(obj, servicecommon.SubnetSetFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "subnetset", req.NamespacedName)
-				deleteFail(r, ctx, obj, "")
+				deleteFail(r, ctx, obj, err.Error())
 				return ResultRequeue, err
 			}
 			log.V(1).Info("removed finalizer", "subnetset", req.NamespacedName)
