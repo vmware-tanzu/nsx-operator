@@ -31,19 +31,19 @@ func TestSecurityPolicyService_buildRuleIPGroup(t *testing.T) {
 		DisplayName:       &ruleNameWithPodSelector00,
 		Id:                &ruleIDPort000,
 		DestinationGroups: []string{"ANY"},
-		Direction:         &nsxDirectionIn,
+		Direction:         &nsxRuleDirectionIn,
 		Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_scope"},
 		SequenceNumber:    &seq0,
 		Services:          []string{"ANY"},
 		SourceGroups:      []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_src"},
-		Action:            &nsxActionAllow,
+		Action:            &nsxRuleActionAllow,
 		ServiceEntries:    []*data.StructValue{},
 		Tags:              basicTags,
 	}
 	ips := []string{"1.1.1.1", "2.2.2.2"}
 
 	policyGroupID := fmt.Sprintf("%s_ipset", ruleIDPort000)
-	policyGroupName := fmt.Sprintf("%s-ipset", ruleNameWithPodSelector00)
+	policyGroupName := fmt.Sprintf("%s_ipset", ruleNameWithPodSelector00)
 	addresses := data.NewListValue()
 	for _, ip := range ips {
 		addresses.Add(data.NewStringValue(ip))

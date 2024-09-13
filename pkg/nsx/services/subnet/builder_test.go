@@ -28,10 +28,10 @@ func TestBuildSubnetName(t *testing.T) {
 		},
 	}
 	name := svc.buildSubnetName(subnet)
-	expName := "subnet1-uuid1"
+	expName := "subnet1_uuid1"
 	assert.Equal(t, expName, name)
 	id := svc.BuildSubnetID(subnet)
-	expId := "subnet1-uuid1"
+	expId := "subnet1_uuid1"
 	assert.Equal(t, expId, id)
 }
 
@@ -53,10 +53,10 @@ func TestBuildSubnetSetName(t *testing.T) {
 	}
 	index := "0c5d588b"
 	name := svc.buildSubnetSetName(subnetset, index)
-	expName := "pod-default-28e85c0b-21e4-4cab-b1c3-597639dfe752-0c5d588b"
+	expName := "pod-default_28e85c0b-21e4-4cab-b1c3-597639dfe752_0c5d588b"
 	assert.Equal(t, expName, name)
 	assert.True(t, len(name) <= 80)
 	id := svc.buildSubnetSetID(subnetset, index)
-	expId := "pod-default-28e85c0b-21e4-4cab-b1c3-597639dfe752_0c5d588b"
+	expId := "pod-default_28e85c0b-21e4-4cab-b1c3-597639dfe752_0c5d588b"
 	assert.Equal(t, expId, id)
 }

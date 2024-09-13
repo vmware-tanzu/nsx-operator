@@ -23,6 +23,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -40,8 +41,7 @@ var (
 	tagScopeNamespace         = common.TagScopeNamespace
 )
 
-type fakeQueryClient struct {
-}
+type fakeQueryClient struct{}
 
 func (qIface *fakeQueryClient) List(queryParam string, cursorParam *string, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.SearchResponse, error) {
 	resultCount := int64(1)
@@ -93,7 +93,8 @@ func Test_InitializeStaticRouteStore(t *testing.T) {
 	defer mockController.Finish()
 	commonService := service.Service
 	patch := gomonkey.ApplyMethod(reflect.TypeOf(&commonService), "InitializeResourceStore", func(_ *common.Service, wg *sync.WaitGroup,
-		fatalErrors chan error, resourceTypeValue string, tags []model.Tag, store common.Store) {
+		fatalErrors chan error, resourceTypeValue string, tags []model.Tag, store common.Store,
+	) {
 		wg.Done()
 		return
 	})
@@ -135,7 +136,7 @@ func TestStaticRouteService_DeleteStaticRoute(t *testing.T) {
 			Name: "sr",
 		},
 	}
-	id := "sr-uid-123"
+	id := util.GenerateIDByObject(srObj)
 	path := "/orgs/default/projects/project-1/vpcs/vpc-1"
 	sr1 := &model.StaticRoutes{Id: &id, Path: &path}
 
@@ -173,7 +174,6 @@ func TestStaticRouteService_CreateorUpdateStaticRoute(t *testing.T) {
 
 	vpcService := &vpc.VPCService{}
 	returnservice, err := InitializeStaticRoute(service.Service, vpcService)
-
 	if err != nil {
 		t.Error(err)
 	}

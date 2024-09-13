@@ -137,7 +137,7 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	} else {
 		if controllerutil.ContainsFinalizer(networkPolicy, servicecommon.NetworkPolicyFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
-			if err := r.Service.DeleteSecurityPolicy(networkPolicy, false, servicecommon.ResourceTypeNetworkPolicy); err != nil {
+			if err := r.Service.DeleteSecurityPolicy(networkPolicy, false, false, servicecommon.ResourceTypeNetworkPolicy); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "networkpolicy", req.NamespacedName)
 				deleteFail(r, ctx, networkPolicy, &err)
 				return ResultRequeue, err
@@ -203,7 +203,7 @@ func (r *NetworkPolicyReconciler) CollectGarbage(ctx context.Context) {
 	for elem := range diffSet {
 		log.V(1).Info("GC collected NetworkPolicy", "ID", elem)
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
-		err = r.Service.DeleteSecurityPolicy(types.UID(elem), true, servicecommon.ResourceTypeNetworkPolicy)
+		err = r.Service.DeleteSecurityPolicy(types.UID(elem), true, false, servicecommon.ResourceTypeNetworkPolicy)
 		if err != nil {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 		} else {

@@ -136,7 +136,7 @@ func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.Security
 		ruleIPSetGroup := service.buildRuleIPSetGroup(obj, rule, nsxRule, portAddress.IPs, ruleIdx, createdFor)
 
 		// In VPC network, NSGroup with IPAddressExpression type can be supported in VPC level as well.
-		IPSetGroupPath, err := service.buildRuleIPSetGroupPath(obj, nsxRule, false)
+		IPSetGroupPath, err := service.buildRuleIPSetGroupPath(obj, nsxRule)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -216,7 +216,7 @@ func (service *SecurityPolicyService) buildRuleIPSetGroupName(ruleModel *model.R
 	return util.GenerateTruncName(common.MaxNameLength, *ruleModel.DisplayName, "", common.IpSetGroupSuffix, "", "")
 }
 
-func (service *SecurityPolicyService) buildRuleIPSetGroupPath(obj *v1alpha1.SecurityPolicy, ruleModel *model.Rule, groupShared bool) (string, error) {
+func (service *SecurityPolicyService) buildRuleIPSetGroupPath(obj *v1alpha1.SecurityPolicy, ruleModel *model.Rule) (string, error) {
 	ipSetGroupID := service.buildRuleIPSetGroupID(ruleModel)
 
 	if IsVPCEnabled(service) {
@@ -224,14 +224,10 @@ func (service *SecurityPolicyService) buildRuleIPSetGroupPath(obj *v1alpha1.Secu
 		if err != nil {
 			return "", err
 		}
-		orgId := (*vpcInfo).OrgID
-		projectId := (*vpcInfo).ProjectID
-		vpcId := (*vpcInfo).VPCID
-
-		if groupShared {
-			return fmt.Sprintf("/orgs/%s/projects/%s/infra/domains/%s/groups/%s", orgId, projectId, getVPCProjectDomain(), ipSetGroupID), nil
-		}
-		return fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s/groups/%s", orgId, projectId, vpcId, ipSetGroupID), nil
+		orgID := (*vpcInfo).OrgID
+		projectID := (*vpcInfo).ProjectID
+		vpcID := (*vpcInfo).VPCID
+		return fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s/groups/%s", orgID, projectID, vpcID, ipSetGroupID), nil
 	}
 
 	return fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), ipSetGroupID), nil

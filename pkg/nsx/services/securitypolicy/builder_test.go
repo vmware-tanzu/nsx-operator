@@ -34,18 +34,20 @@ func TestBuildSecurityPolicy(t *testing.T) {
 		},
 	)
 
-	podSelectorRule0IDPort000 := service.buildExpandedRuleId(service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[0], 0, common.ResourceTypeSecurityPolicy), 0, 0)
-	podSelectorRule1IDPort000 := service.buildExpandedRuleId(service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[1], 1, common.ResourceTypeSecurityPolicy), 0, 0)
-	vmSelectorRule0IDPort000 := service.buildExpandedRuleId(service.buildRuleID(&spWithVMSelector, &spWithVMSelector.Spec.Rules[0], 0, common.ResourceTypeSecurityPolicy), 0, 0)
-	vmSelectorRule1IDPort000 := service.buildExpandedRuleId(service.buildRuleID(&spWithVMSelector, &spWithVMSelector.Spec.Rules[1], 1, common.ResourceTypeSecurityPolicy), 0, 0)
-	vmSelectorRule2IDPort000 := service.buildExpandedRuleId(service.buildRuleID(&spWithVMSelector, &spWithVMSelector.Spec.Rules[2], 2, common.ResourceTypeSecurityPolicy), 0, 0)
+	podSelectorRule0Name00 := "rule-with-pod-ns-selector_ingress_allow"
+	podSelectorRule0IDPort000 := "sp_uidA_0_2c822e90b1377b346014adfa583f08a99dee52a8_0_0"
 
-	podSelectorRule0Name00, _ := service.buildRuleDisplayName(&spWithPodSelector.Spec.Rules[0], 0, -1, false, common.ResourceTypeSecurityPolicy)
-	podSelectorRule1Name00, _ := service.buildRuleDisplayName(&spWithPodSelector.Spec.Rules[1], 0, -1, false, common.ResourceTypeSecurityPolicy)
+	podSelectorRule1Name00 := "rule-with-ns-selector_ingress_allow"
+	podSelectorRule1IDPort000 := "sp_uidA_1_2a4595d0dd582c2ae5613245ad7b39de5ade2e20_0_0"
 
-	vmSelectorRule0Name00, _ := service.buildRuleDisplayName(&spWithVMSelector.Spec.Rules[0], 0, -1, false, common.ResourceTypeSecurityPolicy)
-	vmSelectorRule1Name00, _ := service.buildRuleDisplayName(&spWithVMSelector.Spec.Rules[1], 0, -1, false, common.ResourceTypeSecurityPolicy)
-	vmSelectorRule2Name00, _ := service.buildRuleDisplayName(&spWithVMSelector.Spec.Rules[2], 0, -1, false, common.ResourceTypeSecurityPolicy)
+	vmSelectorRule0Name00 := "rule-with-VM-selector_egress_isolation"
+	vmSelectorRule0IDPort000 := "sp_uidB_0_67410606c486d2ba38002ed076a2a4211c9d49b5_0_0"
+
+	vmSelectorRule1Name00 := "rule-with-ns-selector_egress_isolation"
+	vmSelectorRule1IDPort000 := "sp_uidB_1_7d721f087be35f0bf318f4847b5acdc3d2b91446_0_0"
+
+	vmSelectorRule2Name00 := "all_egress_isolation"
+	vmSelectorRule2IDPort000 := "sp_uidB_2_a40c813916cc397fcd2260e48cc773d4c9b08565_0_0"
 
 	tests := []struct {
 		name           string
@@ -53,7 +55,7 @@ func TestBuildSecurityPolicy(t *testing.T) {
 		expectedPolicy *model.SecurityPolicy
 	}{
 		{
-			name:        "security-policy-with-pod-selector",
+			name:        "security-policy-with-pod-selector For T1",
 			inputPolicy: &spWithPodSelector,
 			expectedPolicy: &model.SecurityPolicy{
 				DisplayName:    &spName,
@@ -65,24 +67,24 @@ func TestBuildSecurityPolicy(t *testing.T) {
 						DisplayName:       &podSelectorRule0Name00,
 						Id:                &podSelectorRule0IDPort000,
 						DestinationGroups: []string{"ANY"},
-						Direction:         &nsxDirectionIn,
+						Direction:         &nsxRuleDirectionIn,
 						Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_scope"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_src"},
-						Action:            &nsxActionAllow,
+						Action:            &nsxRuleActionAllow,
 						Tags:              basicTags,
 					},
 					{
 						DisplayName:       &podSelectorRule1Name00,
 						Id:                &podSelectorRule1IDPort000,
 						DestinationGroups: []string{"ANY"},
-						Direction:         &nsxDirectionIn,
+						Direction:         &nsxRuleDirectionIn,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq1,
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"/infra/domains/k8scl-one/groups/sp_uidA_1_src"},
-						Action:            &nsxActionAllow,
+						Action:            &nsxRuleActionAllow,
 						ServiceEntries:    []*data.StructValue{serviceEntry},
 						Tags:              basicTags,
 					},
@@ -91,53 +93,53 @@ func TestBuildSecurityPolicy(t *testing.T) {
 			},
 		},
 		{
-			name:        "security-policy-with-VM-selector",
+			name:        "security-policy-with-VM-selector For T1",
 			inputPolicy: &spWithVMSelector,
 			expectedPolicy: &model.SecurityPolicy{
-				DisplayName:    &spName,
-				Id:             &spID,
-				Scope:          []string{"/infra/domains/k8scl-one/groups/sp_uidA_scope"},
+				DisplayName:    common.String("sp_ns1_spB"),
+				Id:             common.String("sp_uidB"),
+				Scope:          []string{"/infra/domains/k8scl-one/groups/sp_uidB_scope"},
 				SequenceNumber: &seq0,
 				Rules: []model.Rule{
 					{
 						DisplayName:       &vmSelectorRule0Name00,
 						Id:                &vmSelectorRule0IDPort000,
-						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_dst"},
-						Direction:         &nsxDirectionOut,
-						Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_scope"},
+						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidB_0_dst"},
+						Direction:         &nsxRuleDirectionOut,
+						Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidB_0_scope"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
-						Action:            &nsxActionDrop,
-						Tags:              basicTags,
+						Action:            &nsxRuleActionDrop,
+						Tags:              basicTagsForSpWithVMSelector,
 					},
 					{
 						DisplayName:       &vmSelectorRule1Name00,
 						Id:                &vmSelectorRule1IDPort000,
-						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidA_1_dst"},
-						Direction:         &nsxDirectionOut,
+						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidB_1_dst"},
+						Direction:         &nsxRuleDirectionOut,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq1,
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
-						Action:            &nsxActionDrop,
-						Tags:              basicTags,
+						Action:            &nsxRuleActionDrop,
+						Tags:              basicTagsForSpWithVMSelector,
 					},
 
 					{
 						DisplayName:       &vmSelectorRule2Name00,
 						Id:                &vmSelectorRule2IDPort000,
-						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidA_2_dst"},
-						Direction:         &nsxDirectionOut,
+						DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uidB_2_dst"},
+						Direction:         &nsxRuleDirectionOut,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq2,
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
-						Action:            &nsxActionDrop,
-						Tags:              basicTags,
+						Action:            &nsxRuleActionDrop,
+						Tags:              basicTagsForSpWithVMSelector,
 					},
 				},
-				Tags: basicTags,
+				Tags: basicTagsForSpWithVMSelector,
 			},
 		},
 	}
@@ -152,6 +154,165 @@ func TestBuildSecurityPolicy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			observedPolicy, _, _, _ := service.buildSecurityPolicy(tt.inputPolicy, common.ResourceTypeSecurityPolicy)
+			assert.Equal(t, tt.expectedPolicy, observedPolicy)
+		})
+	}
+}
+
+func TestBuildSecurityPolicyForVPC(t *testing.T) {
+	VPCInfo := make([]common.VPCResourceInfo, 1)
+	VPCInfo[0].OrgID = "default"
+	VPCInfo[0].ProjectID = "projectQuality"
+	VPCInfo[0].VPCID = "vpc1"
+
+	fakeService := fakeSecurityPolicyService()
+	fakeService.NSXConfig.EnableVPCNetwork = true
+	mockVPCService := common.MockVPCServiceProvider{}
+	fakeService.vpcService = &mockVPCService
+
+	// For VPC mode
+	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
+	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
+
+	destinationPorts := data.NewListValue()
+	destinationPorts.Add(data.NewStringValue("53"))
+	serviceEntry := data.NewStructValue(
+		"",
+		map[string]data.DataValue{
+			"source_ports":      data.NewListValue(),
+			"destination_ports": destinationPorts,
+			"l4_protocol":       data.NewStringValue("UDP"),
+			"resource_type":     data.NewStringValue("L4PortSetServiceEntry"),
+			"marked_for_delete": data.NewBooleanValue(false),
+			"overridden":        data.NewBooleanValue(false),
+		},
+	)
+
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(fakeService), "getVPCInfo",
+		func(s *SecurityPolicyService, spNameSpace string) (*common.VPCResourceInfo, error) {
+			return &VPCInfo[0], nil
+		})
+
+	patches.ApplyPrivateMethod(reflect.TypeOf(fakeService), "getNamespaceUID",
+		func(s *SecurityPolicyService, ns string) types.UID {
+			return types.UID(tagValueNSUID)
+		})
+
+	defer patches.Reset()
+
+	podSelectorRule0Name00 := "rule-with-pod-ns-selector_ingress_allow"
+	podSelectorRule0IDPort000 := "spA_uidA_0_2c822e90b1377b346014adfa583f08a99dee52a8_0_0"
+
+	podSelectorRule1Name00 := "rule-with-ns-selector_ingress_allow"
+	podSelectorRule1IDPort000 := "spA_uidA_1_2a4595d0dd582c2ae5613245ad7b39de5ade2e20_0_0"
+
+	vmSelectorRule0Name00 := "rule-with-VM-selector_egress_isolation"
+	vmSelectorRule0IDPort000 := "spB_uidB_0_67410606c486d2ba38002ed076a2a4211c9d49b5_0_0"
+
+	vmSelectorRule1Name00 := "rule-with-ns-selector_egress_isolation"
+	vmSelectorRule1IDPort000 := "spB_uidB_1_7d721f087be35f0bf318f4847b5acdc3d2b91446_0_0"
+
+	vmSelectorRule2Name00 := "all_egress_isolation"
+	vmSelectorRule2IDPort000 := "spB_uidB_2_a40c813916cc397fcd2260e48cc773d4c9b08565_0_0"
+
+	tests := []struct {
+		name           string
+		inputPolicy    *v1alpha1.SecurityPolicy
+		expectedPolicy *model.SecurityPolicy
+	}{
+		{
+			name:        "security-policy-with-pod-selector For VPC",
+			inputPolicy: &spWithPodSelector,
+			expectedPolicy: &model.SecurityPolicy{
+				DisplayName:    common.String("spA"),
+				Id:             common.String("spA_uidA"),
+				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA_uidA_scope"},
+				SequenceNumber: &seq0,
+				Rules: []model.Rule{
+					{
+						DisplayName:       &podSelectorRule0Name00,
+						Id:                &podSelectorRule0IDPort000,
+						DestinationGroups: []string{"ANY"},
+						Direction:         &nsxRuleDirectionIn,
+						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA_uidA_0_scope"},
+						SequenceNumber:    &seq0,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA_uidA_0_src"},
+						Action:            &nsxRuleActionAllow,
+						Tags:              vpcBasicTags,
+					},
+					{
+						DisplayName:       &podSelectorRule1Name00,
+						Id:                &podSelectorRule1IDPort000,
+						DestinationGroups: []string{"ANY"},
+						Direction:         &nsxRuleDirectionIn,
+						Scope:             []string{"ANY"},
+						SequenceNumber:    &seq1,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA_uidA_1_src"},
+						Action:            &nsxRuleActionAllow,
+						ServiceEntries:    []*data.StructValue{serviceEntry},
+						Tags:              vpcBasicTags,
+					},
+				},
+				Tags: vpcBasicTags,
+			},
+		},
+		{
+			name:        "security-policy-with-VM-selector For VPC",
+			inputPolicy: &spWithVMSelector,
+			expectedPolicy: &model.SecurityPolicy{
+				DisplayName:    common.String("spB"),
+				Id:             common.String("spB_uidB"),
+				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spB_uidB_scope"},
+				SequenceNumber: &seq0,
+				Rules: []model.Rule{
+					{
+						DisplayName:       &vmSelectorRule0Name00,
+						Id:                &vmSelectorRule0IDPort000,
+						DestinationGroups: []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spB_uidB_0_dst"},
+						Direction:         &nsxRuleDirectionOut,
+						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spB_uidB_0_scope"},
+						SequenceNumber:    &seq0,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"ANY"},
+						Action:            &nsxRuleActionDrop,
+						Tags:              vpcBasicTagsForSpWithVMSelector,
+					},
+					{
+						DisplayName:       &vmSelectorRule1Name00,
+						Id:                &vmSelectorRule1IDPort000,
+						DestinationGroups: []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spB_uidB_1_dst"},
+						Direction:         &nsxRuleDirectionOut,
+						Scope:             []string{"ANY"},
+						SequenceNumber:    &seq1,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"ANY"},
+						Action:            &nsxRuleActionDrop,
+						Tags:              vpcBasicTagsForSpWithVMSelector,
+					},
+
+					{
+						DisplayName:       &vmSelectorRule2Name00,
+						Id:                &vmSelectorRule2IDPort000,
+						DestinationGroups: []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spB_uidB_2_dst"},
+						Direction:         &nsxRuleDirectionOut,
+						Scope:             []string{"ANY"},
+						SequenceNumber:    &seq2,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"ANY"},
+						Action:            &nsxRuleActionDrop,
+						Tags:              vpcBasicTagsForSpWithVMSelector,
+					},
+				},
+				Tags: vpcBasicTagsForSpWithVMSelector,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			observedPolicy, _, _, _ := fakeService.buildSecurityPolicy(tt.inputPolicy, common.ResourceTypeSecurityPolicy)
 			assert.Equal(t, tt.expectedPolicy, observedPolicy)
 		})
 	}
@@ -190,6 +351,9 @@ func TestBuildPolicyGroup(t *testing.T) {
 }
 
 func TestBuildTargetTags(t *testing.T) {
+	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyCRName
+	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyCRUID
+
 	ruleTagID0 := service.buildRuleID(&spWithPodSelector, &spWithPodSelector.Spec.Rules[0], 0, common.ResourceTypeSecurityPolicy)
 	tests := []struct {
 		name         string
@@ -234,7 +398,7 @@ func TestBuildTargetTags(t *testing.T) {
 				},
 				{
 					Scope: &tagScopeCluster,
-					Tag:   &cluster,
+					Tag:   &clusterName,
 				},
 				{
 					Scope: &tagScopeNamespace,
@@ -303,7 +467,7 @@ func TestBuildPeerTags(t *testing.T) {
 				},
 				{
 					Scope: &tagScopeCluster,
-					Tag:   &cluster,
+					Tag:   &clusterName,
 				},
 				{
 					Scope: &tagScopeNamespace,
@@ -710,7 +874,7 @@ var securityPolicyWithOneNamedPort = v1alpha1.SecurityPolicy{
 	Spec: v1alpha1.SecurityPolicySpec{
 		Rules: []v1alpha1.SecurityPolicyRule{
 			{
-				Name:      "TCP.http-UDP.1234.1235-ingress-allow",
+				Name:      "TCP.http_UDP.1234.1235_ingress_allow",
 				Action:    &allowAction,
 				Direction: &directionIn,
 				Ports: []v1alpha1.SecurityPolicyPort{
@@ -739,20 +903,20 @@ func TestBuildRulePortsString(t *testing.T) {
 		{
 			name:                    "build-string-for-multiple-ports-without-named-port",
 			inputPorts:              &securityPolicyWithMultipleNormalPorts.Spec.Rules[0].Ports,
-			suffix:                  "ingress-allow",
-			expectedRulePortsString: "TCP.80-UDP.1234.1235-ingress-allow",
+			suffix:                  "ingress_allow",
+			expectedRulePortsString: "TCP.80_UDP.1234.1235_ingress_allow",
 		},
 		{
 			name:                    "build-string-for-multiple-ports-without-one-named-port",
 			inputPorts:              &securityPolicyWithOneNamedPort.Spec.Rules[0].Ports,
-			suffix:                  "ingress-allow",
-			expectedRulePortsString: "TCP.http-UDP.1234.1235-ingress-allow",
+			suffix:                  "ingress_allow",
+			expectedRulePortsString: "TCP.http_UDP.1234.1235_ingress_allow",
 		},
 		{
 			name:                    "build-string-for-nil-ports",
 			inputPorts:              nil,
-			suffix:                  "ingress-allow",
-			expectedRulePortsString: "all-ingress-allow",
+			suffix:                  "ingress_allow",
+			expectedRulePortsString: "all_ingress_allow",
 		},
 	}
 	for _, tt := range tests {
@@ -780,7 +944,7 @@ func TestBuildRuleDisplayName(t *testing.T) {
 			ruleIdx:                 0,
 			portIdx:                 0,
 			createdFor:              common.ResourceTypeNetworkPolicy,
-			expectedRuleDisplayName: "TCP.80-UDP.1234.1235-ingress-allow",
+			expectedRuleDisplayName: "TCP.80_UDP.1234.1235_ingress_allow",
 		},
 		{
 			name:                    "build-display-name-for-multiple-ports-1",
@@ -798,7 +962,7 @@ func TestBuildRuleDisplayName(t *testing.T) {
 			ruleIdx:                 1,
 			portIdx:                 0,
 			createdFor:              common.ResourceTypeSecurityPolicy,
-			expectedRuleDisplayName: "MultipleNormalPorts-rule1-egress-isolation",
+			expectedRuleDisplayName: "MultipleNormalPorts-rule1_egress_isolation",
 		},
 	}
 	for _, tt := range tests {
@@ -840,7 +1004,7 @@ func TestBuildSecurityPolicyName(t *testing.T) {
 				},
 			},
 			createdFor: common.ResourceTypeSecurityPolicy,
-			expName:    "sp-ns1-securitypolicy1",
+			expName:    "sp_ns1_securitypolicy1",
 			expId:      "sp_uid1",
 		},
 		{
@@ -855,7 +1019,7 @@ func TestBuildSecurityPolicyName(t *testing.T) {
 			},
 			createdFor: common.ResourceTypeSecurityPolicy,
 			expName:    "securitypolicy2",
-			expId:      "securitypolicy2-uid2",
+			expId:      "securitypolicy2_uid2",
 		},
 		{
 			name:       "NetworkPolicy with VPC enabled",
@@ -869,7 +1033,7 @@ func TestBuildSecurityPolicyName(t *testing.T) {
 			},
 			createdFor: common.ResourceTypeNetworkPolicy,
 			expName:    "networkpolicy1",
-			expId:      "networkpolicy1-uid3",
+			expId:      "networkpolicy1_uid3",
 		},
 		{
 			name:       "NetworkPolicy with VPC enabled with name truncated",
@@ -882,8 +1046,8 @@ func TestBuildSecurityPolicyName(t *testing.T) {
 				},
 			},
 			createdFor: common.ResourceTypeNetworkPolicy,
-			expName:    fmt.Sprintf("%s-c64163f0", strings.Repeat("a", 246)),
-			expId:      fmt.Sprintf("%s-fb85d834", strings.Repeat("a", 246)),
+			expName:    fmt.Sprintf("%s_c64163f0", strings.Repeat("a", 246)),
+			expId:      fmt.Sprintf("%s_fb85d834", strings.Repeat("a", 246)),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -933,23 +1097,23 @@ func TestBuildGroupName(t *testing.T) {
 				ruleIdx:   0,
 				isSource:  true,
 				enableVPC: true,
-				expName:   "sp1-0-src",
-				expId:     "sp1-c5db1800-ce4c-11de-bedc-84a0de00c35b_0_src",
+				expName:   "sp1_0_src",
+				expId:     "sp1_c5db1800-ce4c-11de-bedc-84a0de00c35b_0_src",
 			},
 			{
 				name:      "dst rule without name",
 				ruleIdx:   0,
 				isSource:  false,
 				enableVPC: true,
-				expName:   "sp1-0-dst",
-				expId:     "sp1-c5db1800-ce4c-11de-bedc-84a0de00c35b_0_dst",
+				expName:   "sp1_0_dst",
+				expId:     "sp1_c5db1800-ce4c-11de-bedc-84a0de00c35b_0_dst",
 			},
 			{
 				name:      "dst rule without name with T1",
 				ruleIdx:   0,
 				isSource:  false,
 				enableVPC: false,
-				expName:   "sp1-0-dst",
+				expName:   "sp1_0_dst",
 				expId:     "sp_c5db1800-ce4c-11de-bedc-84a0de00c35b_0_dst",
 			},
 			{
@@ -957,23 +1121,23 @@ func TestBuildGroupName(t *testing.T) {
 				ruleIdx:   1,
 				isSource:  true,
 				enableVPC: true,
-				expName:   "MultipleNormalPorts-rule1-src",
-				expId:     "sp1-c5db1800-ce4c-11de-bedc-84a0de00c35b_1_src",
+				expName:   "MultipleNormalPorts-rule1_src",
+				expId:     "sp1_c5db1800-ce4c-11de-bedc-84a0de00c35b_1_src",
 			},
 			{
 				name:      "dst rule with name",
 				ruleIdx:   1,
 				isSource:  false,
 				enableVPC: true,
-				expName:   "MultipleNormalPorts-rule1-dst",
-				expId:     "sp1-c5db1800-ce4c-11de-bedc-84a0de00c35b_1_dst",
+				expName:   "MultipleNormalPorts-rule1_dst",
+				expId:     "sp1_c5db1800-ce4c-11de-bedc-84a0de00c35b_1_dst",
 			},
 			{
 				name:      "dst rule with name with T1",
 				ruleIdx:   1,
 				isSource:  false,
 				enableVPC: false,
-				expName:   "MultipleNormalPorts-rule1-dst",
+				expName:   "MultipleNormalPorts-rule1_dst",
 				expId:     "sp_c5db1800-ce4c-11de-bedc-84a0de00c35b_1_dst",
 			},
 		} {
@@ -1000,28 +1164,28 @@ func TestBuildGroupName(t *testing.T) {
 				name:      "rule without name",
 				ruleIdx:   0,
 				enableVPC: true,
-				expName:   "sp1-0-scope",
-				expId:     "sp1-c5db1800-ce4c-11de-bedc-84a0de00c35b_0_scope",
+				expName:   "sp1_0_scope",
+				expId:     "sp1_c5db1800-ce4c-11de-bedc-84a0de00c35b_0_scope",
 			},
 			{
 				name:      "rule with name",
 				ruleIdx:   1,
 				enableVPC: true,
-				expName:   "MultipleNormalPorts-rule1-scope",
-				expId:     "sp1-c5db1800-ce4c-11de-bedc-84a0de00c35b_1_scope",
+				expName:   "MultipleNormalPorts-rule1_scope",
+				expId:     "sp1_c5db1800-ce4c-11de-bedc-84a0de00c35b_1_scope",
 			},
 			{
 				name:      "policy applied group",
 				ruleIdx:   -1,
 				enableVPC: true,
-				expName:   "ns1-sp1-scope",
-				expId:     "sp1-c5db1800-ce4c-11de-bedc-84a0de00c35b_scope",
+				expName:   "ns1_sp1_scope",
+				expId:     "sp1_c5db1800-ce4c-11de-bedc-84a0de00c35b_scope",
 			},
 			{
 				name:      "policy applied group with T1",
 				ruleIdx:   -1,
 				enableVPC: false,
-				expName:   "ns1-sp1-scope",
+				expName:   "ns1_sp1_scope",
 				expId:     "sp_c5db1800-ce4c-11de-bedc-84a0de00c35b_scope",
 			},
 		} {

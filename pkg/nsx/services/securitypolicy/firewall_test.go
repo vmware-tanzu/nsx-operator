@@ -11,8 +11,10 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -36,10 +38,12 @@ var (
 	tagScopeNamespaceUID         = common.TagScopeNamespaceUID
 	tagScopeSecurityPolicyCRName = common.TagValueScopeSecurityPolicyName
 	tagScopeSecurityPolicyCRUID  = common.TagValueScopeSecurityPolicyUID
+	tagScopeSecurityPolicyName   = common.TagScopeSecurityPolicyName
+	tagScopeSecurityPolicyUID    = common.TagScopeSecurityPolicyUID
 	tagScopeRuleID               = common.TagScopeRuleID
 	tagScopeSelectorHash         = common.TagScopeSelectorHash
-	spName                       = "sp-ns1-spA"
-	spGroupName                  = "ns1-spA-scope"
+	spName                       = "sp_ns1_spA"
+	spGroupName                  = "ns1_spA_scope"
 	spID                         = "sp_uidA"
 	spID2                        = "sp_uidB"
 	spGroupID                    = "sp_uidA_scope"
@@ -53,11 +57,11 @@ var (
 	ruleID1                      = "sp_uidA_1"
 	ruleIDPort000                = "sp_uidA_0_0_0"
 	ruleIDPort100                = "sp_uidA_1_0_0"
-	nsxDirectionIn               = "IN"
-	nsxActionAllow               = "ALLOW"
-	nsxDirectionOut              = "OUT"
-	nsxActionDrop                = "DROP"
-	cluster                      = "k8scl-one"
+	nsxRuleDirectionIn           = "IN"
+	nsxRuleActionAllow           = "ALLOW"
+	nsxRuleDirectionOut          = "OUT"
+	nsxRuleActionDrop            = "DROP"
+	clusterName                  = "k8scl-one"
 	tagValueVersion              = strings.Join(common.TagValueVersion, ".")
 	tagValueGroupScope           = common.TagValueGroupScope
 	tagValueGroupSource          = common.TagValueGroupSource
@@ -143,7 +147,7 @@ var (
 				{
 					Action:    &allowAction,
 					Direction: &directionIn,
-					Name:      "rule-with-pod-selector",
+					Name:      "rule-with-pod-ns-selector",
 					AppliedTo: []v1alpha1.SecurityPolicyTarget{
 						{
 							PodSelector: &metav1.LabelSelector{
@@ -190,7 +194,7 @@ var (
 	}
 
 	spWithVMSelector = v1alpha1.SecurityPolicy{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "spA", UID: "uidA"},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "spB", UID: "uidB"},
 		Spec: v1alpha1.SecurityPolicySpec{
 			AppliedTo: []v1alpha1.SecurityPolicyTarget{
 				{
@@ -237,7 +241,6 @@ var (
 				{
 					Action:    &allowDrop,
 					Direction: &directionOut,
-					Name:      "rule-with-ip-block",
 					Destinations: []v1alpha1.SecurityPolicyPeer{
 						{
 							IPBlocks: []v1alpha1.IPBlock{
@@ -251,10 +254,37 @@ var (
 		},
 	}
 
+	basicTagsForSpWithVMSelector = []model.Tag{
+		{
+			Scope: &tagScopeCluster,
+			Tag:   &clusterName,
+		},
+		{
+			Scope: &tagScopeVersion,
+			Tag:   &tagValueVersion,
+		},
+		{
+			Scope: &tagScopeNamespace,
+			Tag:   &tagValueNS,
+		},
+		{
+			Scope: &tagScopeNamespaceUID,
+			Tag:   &tagValueNSUID,
+		},
+		{
+			Scope: &tagScopeSecurityPolicyCRName,
+			Tag:   String(spWithVMSelector.Name),
+		},
+		{
+			Scope: &tagScopeSecurityPolicyCRUID,
+			Tag:   String(string(spWithVMSelector.UID)),
+		},
+	}
+
 	basicTags = []model.Tag{
 		{
 			Scope: &tagScopeCluster,
-			Tag:   &cluster,
+			Tag:   &clusterName,
 		},
 		{
 			Scope: &tagScopeVersion,
@@ -275,6 +305,165 @@ var (
 		{
 			Scope: &tagScopeSecurityPolicyCRUID,
 			Tag:   &tagValuePolicyCRUID,
+		},
+	}
+
+	vpcBasicTags = []model.Tag{
+		{
+			Scope: &tagScopeCluster,
+			Tag:   &clusterName,
+		},
+		{
+			Scope: &tagScopeVersion,
+			Tag:   &tagValueVersion,
+		},
+		{
+			Scope: &tagScopeNamespace,
+			Tag:   &tagValueNS,
+		},
+		{
+			Scope: &tagScopeNamespaceUID,
+			Tag:   &tagValueNSUID,
+		},
+		{
+			Scope: &tagScopeSecurityPolicyName,
+			Tag:   &tagValuePolicyCRName,
+		},
+		{
+			Scope: &tagScopeSecurityPolicyUID,
+			Tag:   &tagValuePolicyCRUID,
+		},
+	}
+
+	vpcBasicTagsForSpWithVMSelector = []model.Tag{
+		{
+			Scope: &tagScopeCluster,
+			Tag:   &clusterName,
+		},
+		{
+			Scope: &tagScopeVersion,
+			Tag:   &tagValueVersion,
+		},
+		{
+			Scope: &tagScopeNamespace,
+			Tag:   &tagValueNS,
+		},
+		{
+			Scope: &tagScopeNamespaceUID,
+			Tag:   &tagValueNSUID,
+		},
+		{
+			Scope: &tagScopeSecurityPolicyName,
+			Tag:   String(spWithVMSelector.Name),
+		},
+		{
+			Scope: &tagScopeSecurityPolicyUID,
+			Tag:   String(string(spWithVMSelector.UID)),
+		},
+	}
+
+	// Create the NetworkPolicy object
+	npWithNsSelecotr = networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "np-app-access",
+			Namespace: "ns1",
+			UID:       "uidNP",
+		},
+
+		Spec: networkingv1.NetworkPolicySpec{
+			PolicyTypes: []networkingv1.PolicyType{
+				networkingv1.PolicyTypeIngress,
+			},
+			PodSelector: metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"role": "db",
+				},
+			},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				{
+					From: []networkingv1.NetworkPolicyPeer{
+						{
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"app": "coffee",
+								},
+							},
+						},
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"ns-name": "ns-3",
+								},
+							},
+						},
+					},
+					Ports: []networkingv1.NetworkPolicyPort{
+						{
+							Protocol: func() *corev1.Protocol {
+								proto := corev1.ProtocolTCP
+								return &proto
+							}(),
+							Port: &intstr.IntOrString{
+								IntVal: 6001,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	npAllowBasicTags = []model.Tag{
+		{
+			Scope: &tagScopeCluster,
+			Tag:   &clusterName,
+		},
+		{
+			Scope: &tagScopeVersion,
+			Tag:   &tagValueVersion,
+		},
+		{
+			Scope: &tagScopeNamespace,
+			Tag:   &tagValueNS,
+		},
+		{
+			Scope: &tagScopeNamespaceUID,
+			Tag:   &tagValueNSUID,
+		},
+		{
+			Scope: common.String(common.TagScopeNetworkPolicyName),
+			Tag:   String(npWithNsSelecotr.Name),
+		},
+		{
+			Scope: common.String(common.TagScopeNetworkPolicyUID),
+			Tag:   String(string(npWithNsSelecotr.UID + "_allow")),
+		},
+	}
+
+	npIsolationBasicTags = []model.Tag{
+		{
+			Scope: &tagScopeCluster,
+			Tag:   &clusterName,
+		},
+		{
+			Scope: &tagScopeVersion,
+			Tag:   &tagValueVersion,
+		},
+		{
+			Scope: &tagScopeNamespace,
+			Tag:   &tagValueNS,
+		},
+		{
+			Scope: &tagScopeNamespaceUID,
+			Tag:   &tagValueNSUID,
+		},
+		{
+			Scope: common.String(common.TagScopeNetworkPolicyName),
+			Tag:   String(npWithNsSelecotr.Name),
+		},
+		{
+			Scope: common.String(common.TagScopeNetworkPolicyUID),
+			Tag:   String(string(npWithNsSelecotr.UID + "_isolation")),
 		},
 	}
 )
@@ -373,12 +562,12 @@ func TestGetUpdateRules(t *testing.T) {
 		DisplayName:       String("nsxrule1"),
 		Id:                String("nsxrule_1"),
 		DestinationGroups: []string{"ANY"},
-		Direction:         &nsxDirectionIn,
+		Direction:         &nsxRuleDirectionIn,
 		Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_scope"},
 		SequenceNumber:    &seq0,
 		Services:          []string{"ANY"},
 		SourceGroups:      []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_src"},
-		Action:            &nsxActionAllow,
+		Action:            &nsxRuleActionAllow,
 	}
 
 	tests := []struct {
@@ -397,12 +586,12 @@ func TestGetUpdateRules(t *testing.T) {
 					DisplayName:       String("nsxrule1"),
 					Id:                String("nsxrule_1"),
 					DestinationGroups: []string{"ANY"},
-					Direction:         &nsxDirectionIn,
+					Direction:         &nsxRuleDirectionIn,
 					Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_scope"},
 					SequenceNumber:    &seq0,
 					Services:          []string{"ANY"},
 					SourceGroups:      []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_src"},
-					Action:            &nsxActionAllow,
+					Action:            &nsxRuleActionAllow,
 				},
 			},
 			finalRulesLen: 0,
@@ -417,12 +606,12 @@ func TestGetUpdateRules(t *testing.T) {
 					DisplayName:       String("nsxrule1"),
 					Id:                String("nsxrule_1"),
 					DestinationGroups: []string{"ANY"},
-					Direction:         &nsxDirectionIn,
+					Direction:         &nsxRuleDirectionIn,
 					Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_1_scope"},
 					SequenceNumber:    &seq0,
 					Services:          []string{"ANY"},
 					SourceGroups:      []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_src"},
-					Action:            &nsxActionAllow,
+					Action:            &nsxRuleActionAllow,
 				},
 			},
 			finalRulesLen: 1,
@@ -582,12 +771,12 @@ func TestListMarkDeleteRules(t *testing.T) {
 		DisplayName:       String("nsxrule1"),
 		Id:                String("nsxrule_1"),
 		DestinationGroups: []string{"ANY"},
-		Direction:         &nsxDirectionIn,
+		Direction:         &nsxRuleDirectionIn,
 		Scope:             []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_scope"},
 		SequenceNumber:    &seq0,
 		Services:          []string{"ANY"},
 		SourceGroups:      []string{"/infra/domains/k8scl-one/groups/sp_uidA_0_src"},
-		Action:            &nsxActionAllow,
+		Action:            &nsxRuleActionAllow,
 		MarkedForDelete:   &markNoDelete,
 	}
 
@@ -764,24 +953,24 @@ func TestDleleteVPCSecurityPolicy(t *testing.T) {
 						DisplayName:       &ruleNameWithPodSelector00,
 						Id:                &ruleID0,
 						DestinationGroups: []string{"ANY"},
-						Direction:         &nsxDirectionIn,
+						Direction:         &nsxRuleDirectionIn,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
-						Action:            &nsxActionAllow,
+						Action:            &nsxRuleActionAllow,
 						Tags:              basicTags,
 					},
 					{
 						DisplayName:       &ruleNameWithNsSelector00,
 						Id:                &ruleID1,
 						DestinationGroups: []string{"ANY"},
-						Direction:         &nsxDirectionIn,
+						Direction:         &nsxRuleDirectionIn,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq1,
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/sp_uidA_1_src"},
-						Action:            &nsxActionAllow,
+						Action:            &nsxRuleActionAllow,
 						Tags:              basicTags,
 					},
 				},
@@ -829,12 +1018,12 @@ func TestDleleteVPCSecurityPolicy(t *testing.T) {
 						DisplayName:       &ruleNameWithPodSelector00,
 						Id:                &ruleID0,
 						DestinationGroups: []string{"ANY"},
-						Direction:         &nsxDirectionIn,
+						Direction:         &nsxRuleDirectionIn,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
-						Action:            &nsxActionAllow,
+						Action:            &nsxRuleActionAllow,
 						Tags:              basicTags,
 					},
 				},
@@ -933,31 +1122,27 @@ func TestCreateOrUpdateSecurityPolicy(t *testing.T) {
 			expectedPolicy: &model.SecurityPolicy{
 				DisplayName:    &spName,
 				Id:             &spID,
-				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/sp_uidA_scope"},
 				SequenceNumber: &seq0,
 				Rules: []model.Rule{
 					{
 						DisplayName:       &podSelectorRule0Name00,
 						Id:                &podSelectorRule0IDPort000,
 						DestinationGroups: []string{"ANY"},
-						Direction:         &nsxDirectionIn,
-						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/sp_uidA_0_scope"},
+						Direction:         &nsxRuleDirectionIn,
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/sp_uidA_0_src"},
-						Action:            &nsxActionAllow,
+						Action:            &nsxRuleActionAllow,
 						Tags:              basicTags,
 					},
 					{
 						DisplayName:       &podSelectorRule1Name00,
 						Id:                &podSelectorRule1IDPort000,
 						DestinationGroups: []string{"ANY"},
-						Direction:         &nsxDirectionIn,
+						Direction:         &nsxRuleDirectionIn,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq1,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/sp_uidA_1_src"},
-						Action:            &nsxActionAllow,
+						Action:            &nsxRuleActionAllow,
 						Tags:              basicTags,
 					},
 				},
@@ -1077,8 +1262,8 @@ func TestGetFinalSecurityPolicyResouce(t *testing.T) {
 			},
 			expectedPolicy: &model.SecurityPolicy{
 				DisplayName:    common.String("spA"),
-				Id:             common.String("spA-uidA"),
-				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA-uidA_scope"},
+				Id:             common.String("spA_uidA"),
+				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA_uidA_scope"},
 				SequenceNumber: &seq0,
 				Rules:          []model.Rule{},
 				Tags:           basicTags,
@@ -1114,7 +1299,7 @@ func TestGetFinalSecurityPolicyResouce(t *testing.T) {
 			expectedPolicy: &model.SecurityPolicy{
 				DisplayName:    &spName,
 				Id:             &spID,
-				Scope:          []string{"/infra/domains/k8scl-one:test/groups/sp_uidA_scope"},
+				Scope:          []string{"/infra/domains/k8scl-one/groups/sp_uidA_scope"},
 				SequenceNumber: &seq0,
 				Rules:          []model.Rule{},
 				Tags:           basicTags,
@@ -1158,6 +1343,211 @@ func TestGetFinalSecurityPolicyResouce(t *testing.T) {
 			} else {
 				assert.Equal(t, ([]model.Share)(nil), finalShares)
 			}
+		})
+	}
+}
+
+func TestConvertNetworkPolicyToInternalSecurityPolicies(t *testing.T) {
+	VPCInfo := make([]common.VPCResourceInfo, 1)
+	VPCInfo[0].OrgID = "default"
+	VPCInfo[0].ProjectID = "projectQuality"
+	VPCInfo[0].VPCID = "vpc1"
+
+	fakeService := fakeSecurityPolicyService()
+	fakeService.NSXConfig.EnableVPCNetwork = true
+	mockVPCService := common.MockVPCServiceProvider{}
+	fakeService.vpcService = &mockVPCService
+
+	tests := []struct {
+		name                      string
+		inputPolicy               *networkingv1.NetworkPolicy
+		expPolicyAllowSection     *v1alpha1.SecurityPolicy
+		expPolicyIsolationSection *v1alpha1.SecurityPolicy
+	}{
+		{
+			name:        "Convert NetworkPolicy",
+			inputPolicy: &npWithNsSelecotr,
+			expPolicyAllowSection: &v1alpha1.SecurityPolicy{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "np-app-access", UID: "uidNP_allow"},
+				Spec: v1alpha1.SecurityPolicySpec{
+					AppliedTo: []v1alpha1.SecurityPolicyTarget{
+						{
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{"role": "db"},
+							},
+						},
+					},
+					Rules: []v1alpha1.SecurityPolicyRule{
+						{
+							Action:    &allowAction,
+							Direction: &directionIn,
+							Sources: []v1alpha1.SecurityPolicyPeer{
+								{
+									PodSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{"app": "coffee"},
+									},
+								},
+								{
+									PodSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{},
+									},
+									NamespaceSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{"ns-name": "ns-3"},
+									},
+								},
+							},
+							Ports: []v1alpha1.SecurityPolicyPort{
+								{
+									Protocol: corev1.ProtocolTCP,
+									Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 6001},
+								},
+							},
+						},
+					},
+					Priority: common.PriorityNetworkPolicyAllowRule,
+				},
+			},
+			expPolicyIsolationSection: &v1alpha1.SecurityPolicy{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "np-app-access", UID: "uidNP_isolation"},
+				Spec: v1alpha1.SecurityPolicySpec{
+					AppliedTo: []v1alpha1.SecurityPolicyTarget{
+						{
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{"role": "db"},
+							},
+						},
+					},
+					Rules: []v1alpha1.SecurityPolicyRule{
+						{
+							Action:    &allowDrop,
+							Direction: &directionIn,
+							Name:      "ingress_isolation",
+						},
+					},
+					Priority: common.PriorityNetworkPolicyIsolationRule,
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			observedPolicy, err := fakeService.convertNetworkPolicyToInternalSecurityPolicies(tt.inputPolicy)
+			assert.Equal(t, nil, err)
+			assert.Equal(t, tt.expPolicyAllowSection, observedPolicy[0])
+			assert.Equal(t, tt.expPolicyIsolationSection, observedPolicy[1])
+		})
+	}
+}
+
+func TestGetFinalSecurityPolicyResouceFromNetworkPolicy(t *testing.T) {
+	VPCInfo := make([]common.VPCResourceInfo, 1)
+	VPCInfo[0].OrgID = "default"
+	VPCInfo[0].ProjectID = "projectQuality"
+	VPCInfo[0].VPCID = "vpc1"
+
+	fakeService := fakeSecurityPolicyService()
+	fakeService.NSXConfig.EnableVPCNetwork = true
+	mockVPCService := common.MockVPCServiceProvider{}
+	fakeService.vpcService = &mockVPCService
+
+	destinationPorts := data.NewListValue()
+	destinationPorts.Add(data.NewStringValue("6001"))
+	serviceEntry := data.NewStructValue(
+		"",
+		map[string]data.DataValue{
+			"source_ports":      data.NewListValue(),
+			"destination_ports": destinationPorts,
+			"l4_protocol":       data.NewStringValue("TCP"),
+			"resource_type":     data.NewStringValue("L4PortSetServiceEntry"),
+			"marked_for_delete": data.NewBooleanValue(false),
+			"overridden":        data.NewBooleanValue(false),
+		},
+	)
+
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(fakeService), "getVPCInfo",
+		func(s *SecurityPolicyService, spNameSpace string) (*common.VPCResourceInfo, error) {
+			return &VPCInfo[0], nil
+		})
+
+	patches.ApplyPrivateMethod(reflect.TypeOf(fakeService), "getNamespaceUID",
+		func(s *SecurityPolicyService, ns string) types.UID {
+			return types.UID(tagValueNSUID)
+		})
+
+	defer patches.Reset()
+
+	tests := []struct {
+		name               string
+		inputPolicy        *networkingv1.NetworkPolicy
+		expAllowPolicy     *model.SecurityPolicy
+		expIsolationPolicy *model.SecurityPolicy
+	}{
+		{
+			name:        "Get SecurityPolicy from NetworkPolicy",
+			inputPolicy: &npWithNsSelecotr,
+			expAllowPolicy: &model.SecurityPolicy{
+				DisplayName:    common.String("np-app-access"),
+				Id:             common.String("np-app-access_uidNP_allow"),
+				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access_uidNP_allow_scope"},
+				SequenceNumber: Int64(int64(common.PriorityNetworkPolicyAllowRule)),
+				Rules: []model.Rule{
+					{
+						DisplayName:       common.String("TCP.6001_ingress_allow"),
+						Id:                common.String("np-app-access_uidNP_allow_0_6c2a026ca143812daa72699fb924ee36b33b5cdc_0_0"),
+						DestinationGroups: []string{"ANY"},
+						Direction:         &nsxRuleDirectionIn,
+						Scope:             []string{"ANY"},
+						SequenceNumber:    &seq0,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/np-app-access_uidNP_allow_0_src"},
+						Action:            &nsxRuleActionAllow,
+						ServiceEntries:    []*data.StructValue{serviceEntry},
+						Tags:              npAllowBasicTags,
+					},
+				},
+				Tags: npAllowBasicTags,
+			},
+			expIsolationPolicy: &model.SecurityPolicy{
+				DisplayName:    common.String("np-app-access"),
+				Id:             common.String("np-app-access_uidNP_isolation"),
+				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access_uidNP_isolation_scope"},
+				SequenceNumber: Int64(int64(common.PriorityNetworkPolicyIsolationRule)),
+				Rules: []model.Rule{
+					{
+						DisplayName:       common.String("ingress_isolation"),
+						Id:                common.String("np-app-access_uidNP_isolation_0_114fed106ef3b5eae2a583f312435e84c02ca97f_0_0"),
+						DestinationGroups: []string{"ANY"},
+						Direction:         &nsxRuleDirectionIn,
+						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access_uidNP_isolation_scope"},
+						SequenceNumber:    &seq0,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"ANY"},
+						Action:            &nsxRuleActionDrop,
+						Tags:              npIsolationBasicTags,
+					},
+				},
+				Tags: npIsolationBasicTags,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fakeService.setUpStore(common.TagScopeSecurityPolicyUID)
+
+			convertSecurityPolicy, err := fakeService.convertNetworkPolicyToInternalSecurityPolicies(tt.inputPolicy)
+			assert.Equal(t, nil, err)
+
+			finalAllowSecurityPolicy, _, _, _, _, err := fakeService.getFinalSecurityPolicyResource(convertSecurityPolicy[0], common.ResourceTypeNetworkPolicy, false)
+			assert.Equal(t, nil, err)
+
+			assert.Equal(t, tt.expAllowPolicy, finalAllowSecurityPolicy)
+
+			finalIsolationSecurityPolicy, _, _, _, _, err := fakeService.getFinalSecurityPolicyResource(convertSecurityPolicy[1], common.ResourceTypeNetworkPolicy, false)
+			assert.Equal(t, nil, err)
+
+			assert.Equal(t, tt.expIsolationPolicy, finalIsolationSecurityPolicy)
 		})
 	}
 }

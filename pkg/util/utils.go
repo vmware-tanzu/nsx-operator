@@ -82,7 +82,7 @@ func NormalizeName(name string) string {
 }
 
 func normalizeNameByLimit(name string, suffix string, limit int) string {
-	newName := connectStrings("-", name, suffix)
+	newName := connectStrings(common.ConnectorUnderline, name, suffix)
 	if len(newName) <= limit {
 		return newName
 	}
@@ -97,7 +97,7 @@ func normalizeNameByLimit(name string, suffix string, limit int) string {
 	if len(name) < nameLength {
 		nameLength = len(name)
 	}
-	return strings.Join([]string{name[:nameLength], hashString[:common.HashLength]}, "-")
+	return strings.Join([]string{name[:nameLength], hashString[:common.HashLength]}, common.ConnectorUnderline)
 }
 
 func NormalizeId(name string) string {
@@ -403,12 +403,12 @@ func GenerateIDByObjectByLimit(obj metav1.Object, limit int) string {
 func GenerateIDByObjectWithSuffix(obj metav1.Object, suffix string) string {
 	limit := common.MaxIdLength
 	limit -= len(suffix) + 1
-	return connectStrings("_", normalizeNameByLimit(obj.GetName(), string(obj.GetUID()), limit), suffix)
+	return connectStrings(common.ConnectorUnderline, normalizeNameByLimit(obj.GetName(), string(obj.GetUID()), limit), suffix)
 }
 
 // GenerateID generate id for NSX resource, some resources has complex index, so set it type to string
-func GenerateID(res_id, prefix, suffix string, index string) string {
-	return connectStrings("_", prefix, res_id, index, suffix)
+func GenerateID(resID, prefix, suffix string, index string) string {
+	return connectStrings(common.ConnectorUnderline, prefix, resID, index, suffix)
 }
 
 func connectStrings(sep string, parts ...string) string {
@@ -421,24 +421,25 @@ func connectStrings(sep string, parts ...string) string {
 	return strings.Join(strParts, sep)
 }
 
-func GenerateDisplayName(res_name, prefix, suffix, project, cluster string) string {
-	// Return a string in this format: prefix-cluster-res_name-project-suffix.
-	return connectStrings("-", prefix, cluster, res_name, project, suffix)
+func generateDisplayName(connector, resName, prefix, suffix, project, cluster string) string {
+	// Return a string in this format:
+	// prefix<connector>cluster<connector>resName<connector>project<connector>suffix.
+	return connectStrings(connector, prefix, cluster, resName, project, suffix)
 }
 
-func GenerateTruncName(limit int, res_name string, prefix, suffix, project, cluster string) string {
-	adjusted_limit := limit - len(prefix) - len(suffix)
+func GenerateTruncName(limit int, resName string, prefix, suffix, project, cluster string) string {
+	adjustedLimit := limit - len(prefix) - len(suffix)
 	for _, i := range []string{prefix, suffix} {
 		if len(i) > 0 {
-			adjusted_limit -= 1
+			adjustedLimit -= 1
 		}
 	}
-	old_name := GenerateDisplayName(res_name, "", "", project, cluster)
-	if len(old_name) > adjusted_limit {
-		new_name := normalizeNameByLimit(old_name, "", adjusted_limit)
-		return GenerateDisplayName(new_name, prefix, suffix, "", "")
+	oldName := generateDisplayName(common.ConnectorUnderline, resName, "", "", project, cluster)
+	if len(oldName) > adjustedLimit {
+		newName := normalizeNameByLimit(oldName, "", adjustedLimit)
+		return generateDisplayName(common.ConnectorUnderline, newName, prefix, suffix, "", "")
 	}
-	return GenerateDisplayName(res_name, prefix, suffix, project, cluster)
+	return generateDisplayName(common.ConnectorUnderline, resName, prefix, suffix, project, cluster)
 }
 
 func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []model.Tag {

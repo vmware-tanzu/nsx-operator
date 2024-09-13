@@ -43,6 +43,6 @@ func TestBuildStaticRoute(t *testing.T) {
 	assert.Equal(t, len(staticroutes.NextHops), 2)
 	expName := "teststaticroute"
 	assert.Equal(t, expName, *staticroutes.DisplayName)
-	expId := "teststaticroute-uuid1"
+	expId := "teststaticroute_uuid1"
 	assert.Equal(t, expId, *staticroutes.Id)
 }

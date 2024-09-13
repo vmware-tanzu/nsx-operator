@@ -30,8 +30,8 @@ const (
 func TestSecurityPolicyBasicTraffic(t *testing.T) {
 	ns := "test-security-policy-1"
 	securityPolicyName := "isolate-policy-1"
-	ruleName0 := "all-ingress-isolation"
-	ruleName1 := "all-egress-isolation"
+	ruleName0 := "all_ingress_isolation"
+	ruleName1 := "all_egress_isolation"
 	var err error
 	setupTest(t, ns)
 	defer teardownTest(t, ns, defaultTimeout)
@@ -107,8 +107,8 @@ func TestSecurityPolicyBasicTraffic(t *testing.T) {
 func TestSecurityPolicyAddDeleteRule(t *testing.T) {
 	ns := "test-security-policy-2"
 	securityPolicyName := "isolate-policy-1"
-	ruleName0 := "all-ingress-isolation"
-	ruleName1 := "all-egress-isolation"
+	ruleName0 := "all_ingress_isolation"
+	ruleName1 := "all_egress_isolation"
 	setupTest(t, ns)
 	defer teardownTest(t, ns, defaultTimeout)
 
@@ -242,8 +242,8 @@ func TestSecurityPolicyNamedPortWithoutPod(t *testing.T) {
 	securityPolicyCRName := "named-port-policy-without-pod"
 	webA := "web"
 	labelWeb := "tcp-deployment"
-	ruleName0 := "all-ingress-isolation"
-	ruleName1 := "all-egress-isolation"
+	ruleName0 := "all_ingress_isolation"
+	ruleName1 := "all_egress_isolation"
 
 	testData.deleteNamespace(nsClient, defaultTimeout)
 	testData.deleteNamespace(nsWeb, defaultTimeout)
