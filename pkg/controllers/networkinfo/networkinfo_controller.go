@@ -93,22 +93,20 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			log.Error(err, "failed to get the gateway connection status", "req", req.NamespacedName)
 			return common.ResultRequeueAfter10sec, err
 		}
-
 		gatewayConnectionReason := ""
-		if !gatewayConnectionReady {
-			if ncName == commonservice.SystemVPCNetworkConfigurationName {
-				gatewayConnectionReady, gatewayConnectionReason, err = r.Service.ValidateGatewayConnectionStatus(&nc)
-				log.Info("got the gateway connection status", "gatewayConnectionReady", gatewayConnectionReady, "gatewayConnectionReason", gatewayConnectionReason)
-				if err != nil {
-					log.Error(err, "failed to validate the edge and gateway connection", "org", nc.Org, "project", nc.NSXProject)
-					updateFail(r, ctx, obj, &err, r.Client, nil)
-					return common.ResultRequeueAfter10sec, err
-				}
-				setVPCNetworkConfigurationStatusWithGatewayConnection(ctx, r.Client, vpcNetworkConfiguration, gatewayConnectionReady, gatewayConnectionReason)
-			} else {
-				log.Info("skipping reconciling the network info because the system gateway connection is not ready", "NetworkInfo", req.NamespacedName)
-				return common.ResultRequeueAfter60sec, nil
+		if ncName == commonservice.SystemVPCNetworkConfigurationName {
+			gatewayConnectionReady, gatewayConnectionReason, err = r.Service.ValidateGatewayConnectionStatus(&nc)
+			log.Info("got the gateway connection status", "gatewayConnectionReady", gatewayConnectionReady, "gatewayConnectionReason", gatewayConnectionReason)
+			if err != nil {
+				log.Error(err, "failed to validate the edge and gateway connection", "org", nc.Org, "project", nc.NSXProject)
+				updateFail(r, ctx, obj, &err, r.Client, nil)
+				return common.ResultRequeueAfter10sec, err
 			}
+			setVPCNetworkConfigurationStatusWithGatewayConnection(ctx, r.Client, vpcNetworkConfiguration, gatewayConnectionReady, gatewayConnectionReason)
+		}
+		if !gatewayConnectionReady && ncName != commonservice.SystemVPCNetworkConfigurationName {
+			log.Info("skipping reconciling the network info because the system gateway connection is not ready", "NetworkInfo", req.NamespacedName)
+			return common.ResultRequeueAfter60sec, nil
 		}
 		lbProvider := r.Service.GetLBProvider()
 		createdVpc, err := r.Service.CreateOrUpdateVPC(obj, &nc, lbProvider)

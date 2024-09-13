@@ -193,7 +193,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					return true, "", nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateGatewayConnectionStatus", func(_ *vpc.VPCService, _ *servicecommon.VPCNetworkConfigInfo) (bool, string, error) {
-					assert.FailNow(t, "should not be called")
 					return true, "", nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, _ *v1alpha1.NetworkInfo, _ *servicecommon.VPCNetworkConfigInfo, _ vpc.LBProvider) (*model.Vpc, error) {
