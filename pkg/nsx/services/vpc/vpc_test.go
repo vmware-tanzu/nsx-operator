@@ -647,26 +647,6 @@ func TestValidateGatewayConnectionStatus(t *testing.T) {
 		expectedError        error
 	}{
 		{
-			name: "EdgeMissingInProject",
-			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
-				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.ProjectClient), "Get", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{
-						model.Project{},
-						nil,
-					},
-					Times: 1,
-				}})
-				return patches
-			},
-			vpcNetworkConfigInfo: common.VPCNetworkConfigInfo{
-				Org:        "default",
-				NSXProject: "project-quality",
-			},
-			expectedReady:  false,
-			expectedReason: "EdgeMissingInProject",
-			expectedError:  nil,
-		},
-		{
 			name: "GatewayConnectionNotSet",
 			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
 				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.ProjectClient), "Get", []gomonkey.OutputCell{{
@@ -728,18 +708,7 @@ func TestValidateGatewayConnectionStatus(t *testing.T) {
 		{
 			name: "DistributedGatewayConnectionNotSupported",
 			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
-				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.ProjectClient), "Get", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{
-						model.Project{
-							SiteInfos: []model.SiteInfo{
-								{EdgeClusterPaths: []string{"edge"}},
-							},
-						},
-						nil,
-					},
-					Times: 1,
-				}})
-				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "List", []gomonkey.OutputCell{{
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{
 						model.VpcConnectivityProfileListResult{
 							Results: []model.VpcConnectivityProfile{

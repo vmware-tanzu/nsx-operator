@@ -825,21 +825,6 @@ func (s *VPCService) GetGatewayConnectionTypeFromConnectionPath(connectionPath s
 }
 
 func (s *VPCService) ValidateGatewayConnectionStatus(nc *common.VPCNetworkConfigInfo) (bool, string, error) {
-	// Case 1: the project has the full list of edge clusters, so if the project doesn't have edge,
-	// we can say that the edge is not deployed.
-	var projectEdges []string
-	project, err := s.NSXClient.ProjectClient.Get(nc.Org, nc.NSXProject, nil)
-	err = nsxutil.NSXApiError(err)
-	if err != nil {
-		return false, "", err
-	}
-	for _, siteInfo := range project.SiteInfos {
-		projectEdges = append(projectEdges, siteInfo.EdgeClusterPaths...)
-	}
-	if len(projectEdges) == 0 {
-		return false, common.ReasonEdgeMissingInProject, nil
-	}
-
 	var connectionPaths []string // i.e. gateway connection paths
 	var profiles []model.VpcConnectivityProfile
 	var cursor *string
@@ -864,12 +849,12 @@ func (s *VPCService) ValidateGatewayConnectionStatus(nc *common.VPCNetworkConfig
 			connectionPaths = append(connectionPaths, *attachment.ConnectionPath)
 		}
 	}
-	// Case 2: there's no gateway connection paths.
+	// Case 1: there's no gateway connection paths.
 	if len(connectionPaths) == 0 {
 		return false, common.ReasonGatewayConnectionNotSet, nil
 	}
 
-	// Case 3: detected distributed gateway connection which is not supported.
+	// Case 2: detected distributed gateway connection which is not supported.
 	for _, connectionPath := range connectionPaths {
 		gatewayConnectionType, err := s.GetGatewayConnectionTypeFromConnectionPath(connectionPath)
 		if err != nil {
