@@ -27,6 +27,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
@@ -35,6 +36,7 @@ var log = &logger.Log
 
 var HttpCommonError = errors.New("received HTTP Error")
 var HttpNotFoundError = errors.New("received HTTP Not Found Error")
+var HttpBadRequest = errors.New("received HTTP Bad Request Error")
 
 // ErrorDetail is error detail which info extracted from http.Response.Body.
 type ErrorDetail struct {
@@ -252,6 +254,9 @@ func HandleHTTPResponse(response *http.Response, result interface{}, debug bool)
 		err := HttpCommonError
 		if response.StatusCode == http.StatusNotFound {
 			err = HttpNotFoundError
+		}
+		if response.StatusCode == http.StatusBadRequest {
+			err = HttpBadRequest
 		}
 		log.Error(err, "handle http response", "status", response.StatusCode, "request URL", response.Request.URL, "response body", string(body))
 		return err, nil
@@ -631,4 +636,26 @@ func UpdateRequestURL(reqUrl *url.URL, nsxtHost string, thumbprint string) {
 		}
 		reqUrl.Path = strings.Join(urls, "/")
 	}
+}
+
+func MergeArraysWithoutDuplicate(oldArray []string, newArray []string) []string {
+	if len(oldArray) == 0 {
+		return newArray
+	}
+	if len(newArray) == 0 {
+		return oldArray
+	}
+	set := sets.New(oldArray...)
+	set.Insert(newArray...)
+
+	return set.UnsortedList()
+}
+
+func CompareArraysWithoutOrder(oldArray []string, newArray []string) bool {
+	if len(oldArray) != len(newArray) {
+		return false
+	}
+	oldSet := sets.New(oldArray...)
+	newSet := sets.New(newArray...)
+	return oldSet.Equal(newSet)
 }

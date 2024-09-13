@@ -145,7 +145,7 @@ func (service *StaticRouteService) DeleteStaticRoute(obj *v1alpha1.StaticRoute) 
 	if err != nil {
 		return err
 	}
-	return service.DeleteStaticRouteByPath(vpcResourceInfo.OrgID, vpcResourceInfo.ProjectID, vpcResourceInfo.ID, id)
+	return service.DeleteStaticRouteByPath(vpcResourceInfo.OrgID, vpcResourceInfo.ProjectID, vpcResourceInfo.VPCID, id)
 }
 
 func (service *StaticRouteService) ListStaticRoute() []*model.StaticRoutes {

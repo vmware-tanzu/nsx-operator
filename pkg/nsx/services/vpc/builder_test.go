@@ -45,8 +45,8 @@ func Test_buildNSXLBS(t *testing.T) {
 				relaxScaleValidation: nil,
 			},
 			want: &model.LBService{
-				Id:          common.String("ns1-netinfouid1"),
-				DisplayName: common.String("ns1-netinfouid1"),
+				Id:          common.String(defaultLBSName),
+				DisplayName: common.String(defaultLBSName),
 				Tags: []model.Tag{
 					{
 						Scope: common.String(common.TagScopeCluster),
@@ -92,11 +92,12 @@ func TestBuildNSXVPC(t *testing.T) {
 	clusterStr := "cluster1"
 
 	for _, tc := range []struct {
-		name         string
-		existingVPC  *model.Vpc
-		ncPrivateIps []string
-		useAVILB     bool
-		expVPC       *model.Vpc
+		name              string
+		existingVPC       *model.Vpc
+		ncPrivateIps      []string
+		useAVILB          bool
+		expVPC            *model.Vpc
+		lbProviderChanged bool
 	}{
 		{
 			name:         "existing VPC not change",
@@ -104,7 +105,8 @@ func TestBuildNSXVPC(t *testing.T) {
 			existingVPC: &model.Vpc{
 				PrivateIps: []string{"192.168.1.0/24"},
 			},
-			useAVILB: true,
+			useAVILB:          true,
+			lbProviderChanged: false,
 		},
 		{
 			name: "existing VPC changes private IPv4 blocks",
@@ -116,11 +118,13 @@ func TestBuildNSXVPC(t *testing.T) {
 			expVPC: &model.Vpc{
 				PrivateIps: []string{"192.168.3.0/24"},
 			},
+			lbProviderChanged: false,
 		},
 		{
-			name:         "create new VPC with AVI load balancer enabled",
-			ncPrivateIps: []string{"192.168.3.0/24"},
-			useAVILB:     true,
+			name:              "create new VPC with AVI load balancer enabled",
+			ncPrivateIps:      []string{"192.168.3.0/24"},
+			useAVILB:          true,
+			lbProviderChanged: false,
 			expVPC: &model.Vpc{
 				Id:                      common.String("ns1-netinfouid1"),
 				DisplayName:             common.String("ns1-netinfouid1"),
@@ -137,9 +141,10 @@ func TestBuildNSXVPC(t *testing.T) {
 			},
 		},
 		{
-			name:         "create new VPC with AVI load balancer disabled",
-			ncPrivateIps: []string{"192.168.3.0/24"},
-			useAVILB:     false,
+			name:              "create new VPC with AVI load balancer disabled",
+			ncPrivateIps:      []string{"192.168.3.0/24"},
+			useAVILB:          false,
+			lbProviderChanged: false,
 			expVPC: &model.Vpc{
 				Id:            common.String("ns1-netinfouid1"),
 				DisplayName:   common.String("ns1-netinfouid1"),
@@ -154,10 +159,47 @@ func TestBuildNSXVPC(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:         "update VPC with AVI load balancer disabled -> enabled",
+			ncPrivateIps: []string{"192.168.3.0/24"},
+			existingVPC: &model.Vpc{
+				Id:            common.String("ns1-netinfouid1"),
+				DisplayName:   common.String("ns1-netinfouid1"),
+				PrivateIps:    []string{"192.168.3.0/24"},
+				IpAddressType: common.String("IPV4"),
+			},
+			useAVILB:          true,
+			lbProviderChanged: true,
+			expVPC: &model.Vpc{
+				Id:                      common.String("ns1-netinfouid1"),
+				DisplayName:             common.String("ns1-netinfouid1"),
+				LoadBalancerVpcEndpoint: &model.LoadBalancerVPCEndpoint{Enabled: common.Bool(true)},
+				PrivateIps:              []string{"192.168.3.0/24"},
+				IpAddressType:           common.String("IPV4"),
+			},
+		},
+		{
+			name:         "update VPC with NSX load balancer disabled -> enabled",
+			ncPrivateIps: []string{"192.168.3.0/24"},
+			existingVPC: &model.Vpc{
+				Id:            common.String("ns1-netinfouid1"),
+				DisplayName:   common.String("ns1-netinfouid1"),
+				PrivateIps:    []string{"192.168.3.0/24"},
+				IpAddressType: common.String("IPV4"),
+			},
+			useAVILB:          false,
+			lbProviderChanged: true,
+			expVPC: &model.Vpc{
+				Id:            common.String("ns1-netinfouid1"),
+				DisplayName:   common.String("ns1-netinfouid1"),
+				PrivateIps:    []string{"192.168.3.0/24"},
+				IpAddressType: common.String("IPV4"),
+			},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			nc.PrivateIPs = tc.ncPrivateIps
-			got, err := buildNSXVPC(netInfoObj, nsObj, nc, clusterStr, tc.existingVPC, tc.useAVILB)
+			got, err := buildNSXVPC(netInfoObj, nsObj, nc, clusterStr, tc.existingVPC, tc.useAVILB, tc.lbProviderChanged)
 			assert.Nil(t, err)
 			assert.Equal(t, tc.expVPC, got)
 		})

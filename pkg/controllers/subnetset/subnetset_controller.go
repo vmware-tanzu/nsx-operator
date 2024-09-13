@@ -27,6 +27,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -69,15 +70,22 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				vpcNetworkConfig := r.VPCService.GetVPCNetworkConfigByNamespace(obj.Namespace)
 				if vpcNetworkConfig == nil {
 					err := fmt.Errorf("failed to find VPCNetworkConfig for namespace %s", obj.Namespace)
-					log.Error(err, "operate failed, would retry exponentially", "subnet", req.NamespacedName)
-					updateFail(r, ctx, obj, "")
+					log.Error(err, "operate failed, would retry exponentially", "subnetset", req.NamespacedName)
+					updateFail(r, ctx, obj, err.Error())
 					return ResultRequeue, err
 				}
 				obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
 			}
+			if !util.IsPowerOfTwo(obj.Spec.IPv4SubnetSize) {
+				errorMsg := fmt.Sprintf("ipv4SubnetSize has invalid size %d,  which needs to be >= 16 and power of 2", obj.Spec.IPv4SubnetSize)
+				log.Error(nil, errorMsg, "subnetset", req.NamespacedName)
+				updateFail(r, ctx, obj, errorMsg)
+				return ResultNormal, nil
+			}
+
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "subnetset", req.NamespacedName)
-				updateFail(r, ctx, obj, "")
+				updateFail(r, ctx, obj, err.Error())
 				return ResultRequeue, err
 			}
 			log.V(1).Info("added finalizer on subnetset CR", "subnetset", req.NamespacedName)
@@ -108,7 +116,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			hasStaleSubnetPorts, err := r.DeleteSubnetForSubnetSet(*obj, false)
 			if err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "subnetset", req.NamespacedName)
-				deleteFail(r, ctx, obj, "")
+				deleteFail(r, ctx, obj, err.Error())
 				return ResultRequeue, err
 			}
 			if hasStaleSubnetPorts {
@@ -120,7 +128,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			controllerutil.RemoveFinalizer(obj, servicecommon.SubnetSetFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "subnetset", req.NamespacedName)
-				deleteFail(r, ctx, obj, "")
+				deleteFail(r, ctx, obj, err.Error())
 				return ResultRequeue, err
 			}
 			log.V(1).Info("removed finalizer", "subnetset", req.NamespacedName)
@@ -160,8 +168,8 @@ func (r *SubnetSetReconciler) setSubnetSetReadyStatusTrue(ctx context.Context, s
 		{
 			Type:               v1alpha1.Ready,
 			Status:             v1.ConditionTrue,
-			Message:            "NSX SubnetSet has been successfully created/updated",
-			Reason:             "SubnetsReady",
+			Message:            "SubnetSet CR has been successfully created/updated",
+			Reason:             "SubnetSetReady",
 			LastTransitionTime: transitionTime,
 		},
 	}
@@ -173,8 +181,8 @@ func (r *SubnetSetReconciler) setSubnetSetReadyStatusFalse(ctx context.Context, 
 		{
 			Type:               v1alpha1.Ready,
 			Status:             v1.ConditionFalse,
-			Message:            "NSX SubnetSet could not be created/updated",
-			Reason:             "SubnetNotReady",
+			Message:            "SubnetSet CR could not be created/updated",
+			Reason:             "SubnetSetNotReady",
 			LastTransitionTime: transitionTime,
 		},
 	}
@@ -309,7 +317,8 @@ func (r *SubnetSetReconciler) DeleteSubnetForSubnetSet(obj v1alpha1.SubnetSet, u
 
 func StartSubnetSetController(mgr ctrl.Manager, subnetService *subnet.SubnetService,
 	subnetPortService servicecommon.SubnetPortServiceProvider, vpcService servicecommon.VPCServiceProvider,
-	enableWebhook bool) error {
+	enableWebhook bool,
+) error {
 	subnetsetReconciler := &SubnetSetReconciler{
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),

@@ -570,3 +570,42 @@ func TestCasttoPointer(t *testing.T) {
 		})
 	}
 }
+
+func TestCompareArraysWithoutOrder(t *testing.T) {
+	assert.True(t, CompareArraysWithoutOrder([]string{"str1", "str2", "str3"}, []string{"str3", "str2", "str1"}))
+	assert.False(t, CompareArraysWithoutOrder([]string{"str1", "str2", "str3", "str4"}, []string{"str3", "str2", "str1"}))
+}
+
+func TestMergeArraysWithoutDuplicate(t *testing.T) {
+	tests := []struct {
+		name           string
+		old            []string
+		new            []string
+		expectedMerged []string
+	}{
+		{
+			name:           "MergeEmptyNew",
+			old:            []string{"str1", "str2"},
+			new:            nil,
+			expectedMerged: []string{"str1", "str2"},
+		},
+		{
+			name:           "MergeEmptyOld",
+			old:            []string{},
+			new:            []string{"str1", "str2"},
+			expectedMerged: []string{"str1", "str2"},
+		},
+		{
+			name:           "CommonMerge",
+			old:            []string{"str1", "str2", "str5"},
+			new:            []string{"str2", "str3", "str4", "str5"},
+			expectedMerged: []string{"str1", "str2", "str3", "str4", "str5"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actualMerged := MergeArraysWithoutDuplicate(tt.old, tt.new)
+			assert.True(t, CompareArraysWithoutOrder(tt.expectedMerged, actualMerged))
+		})
+	}
+}

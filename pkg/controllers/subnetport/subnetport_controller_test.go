@@ -91,6 +91,13 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			v1sp.Spec.Subnet = "subnet1"
 			return nil
 		})
+	subnet := &v1alpha1.Subnet{}
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), subnet).Return(nil).AnyTimes().Do(
+		func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+			s := obj.(*v1alpha1.Subnet)
+			s.Name = sp.Spec.Subnet
+			return nil
+		})
 	err = errors.New("Update failed")
 	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(err)
 	patchesSuccess := gomonkey.ApplyFunc(updateSuccess,
@@ -136,9 +143,9 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			return nil
 		})
 	err = errors.New("CreateOrUpdateSubnetPort failed")
-	patchesGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).GetSubnetPathForSubnetPort,
-		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort) (string, error) {
-			return "", nil
+	patchesGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
+		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort) (bool, string, error) {
+			return false, "", nil
 		})
 	defer patchesGetSubnetPathForSubnetPort.Reset()
 	patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,

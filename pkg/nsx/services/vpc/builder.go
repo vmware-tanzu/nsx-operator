@@ -1,6 +1,9 @@
 package vpc
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 
@@ -10,8 +13,8 @@ import (
 )
 
 var (
-	DefaultVPCIPAddressType               = "IPV4"
-	DefaultLoadBalancerVPCEndpointEnabled = true
+	DefaultVPCIPAddressType = "IPV4"
+	defaultLBSName          = "default"
 )
 
 // private ip block cidr is not unique, there maybe different ip blocks using same cidr, but for different vpc cr
@@ -27,17 +30,40 @@ func generateIPBlockKey(block model.IpAddressBlock) string {
 	return *cidr + "_" + nsUID
 }
 
+func generateLBSKey(lbs model.LBService) (string, error) {
+	if lbs.ConnectivityPath == nil || *lbs.ConnectivityPath == "" {
+		return "", fmt.Errorf("ConnectivityPath is nil or empty")
+	}
+	pathParts := strings.Split(*lbs.ConnectivityPath, "/")
+	vpcID := pathParts[len(pathParts)-1]
+	if vpcID == "" {
+		return "", fmt.Errorf("invalid VPC ID extracted from ConnectivityPath")
+	}
+	if lbs.Id == nil || *lbs.Id == "" {
+		return "", fmt.Errorf("the LBS ID is nil or empty")
+	}
+	return combineVPCIDAndLBSID(vpcID, *lbs.Id), nil
+}
+
+func combineVPCIDAndLBSID(vpcID, lbsID string) string {
+	return fmt.Sprintf("%s_%s", vpcID, lbsID)
+}
+
 func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNetworkConfigInfo, cluster string,
-	nsxVPC *model.Vpc, useAVILB bool) (*model.Vpc,
+	nsxVPC *model.Vpc, useAVILB bool, lbProviderChanged bool) (*model.Vpc,
 	error) {
 	vpc := &model.Vpc{}
 	if nsxVPC != nil {
 		// for upgrade case, only check public/private ip block size changing
-		if !IsVPCChanged(nc, nsxVPC) {
+		if !IsVPCChanged(nc, nsxVPC) && !lbProviderChanged {
 			log.Info("no changes on current NSX VPC, skip updating", "VPC", nsxVPC.Id)
 			return nil, nil
 		}
 		// for updating vpc case, use current vpc id, name
+		if useAVILB && lbProviderChanged {
+			loadBalancerVPCEndpointEnabled := true
+			nsxVPC.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &loadBalancerVPCEndpointEnabled}
+		}
 		*vpc = *nsxVPC
 	} else {
 		// for creating vpc case, fill in vpc properties based on networkconfig
@@ -65,9 +91,8 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 
 func buildNSXLBS(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster, lbsSize, vpcPath string, relaxScaleValidation *bool) (*model.LBService, error) {
 	lbs := &model.LBService{}
-	lbsName := util.GenerateIDByObjectByLimit(obj, common.MaxNameLength)
-	// Use VPC id for auto-created LBS id
-	lbs.Id = common.String(util.GenerateIDByObject(obj))
+	lbsName := defaultLBSName
+	lbs.Id = common.String(defaultLBSName)
 	lbs.DisplayName = &lbsName
 	lbs.Tags = util.BuildBasicTags(cluster, obj, nsObj.GetUID())
 	// "created_for" is required by NCP, and "lb_t1_link_ip" is not needed for VPC

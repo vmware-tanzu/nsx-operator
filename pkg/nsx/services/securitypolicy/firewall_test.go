@@ -17,7 +17,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -284,22 +283,7 @@ func TestListSecurityPolicyID(t *testing.T) {
 	service := &SecurityPolicyService{
 		Service: common.Service{NSXClient: nil},
 	}
-	service.securityPolicyStore = &SecurityPolicyStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagValueScopeSecurityPolicyUID: indexBySecurityPolicyUID}),
-		BindingType: model.SecurityPolicyBindingType(),
-	}}
-	service.groupStore = &GroupStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagValueScopeSecurityPolicyUID: indexBySecurityPolicyUID}),
-		BindingType: model.GroupBindingType(),
-	}}
-	service.ruleStore = &RuleStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagValueScopeSecurityPolicyUID: indexBySecurityPolicyUID}),
-		BindingType: model.RuleBindingType(),
-	}}
-	service.shareStore = &ShareStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagValueScopeSecurityPolicyUID: indexBySecurityPolicyUID}),
-		BindingType: model.ShareBindingType(),
-	}}
+	service.setUpStore(common.TagValueScopeSecurityPolicyUID)
 
 	group := model.Group{}
 	scope := "nsx-op/security_policy_cr_uid"
@@ -335,13 +319,24 @@ func TestListSecurityPolicyID(t *testing.T) {
 		t.Fatalf("Failed to add policy to store: %v", err)
 	}
 
-	id3 := "shareId"
-	uuid3 := "shareIdUID"
+	id3 := "projectShareId"
+	uuid3 := "projectShareIdUID"
 	share := model.Share{}
-	share.Id = &id1
+	share.Id = &id3
 	share.UniqueId = &uuid3
 	share.Tags = []model.Tag{{Scope: &scope, Tag: &id3}}
-	err = service.shareStore.Add(&share)
+	err = service.projectShareStore.Add(&share)
+	if err != nil {
+		t.Fatalf("Failed to add share to store: %v", err)
+	}
+
+	id4 := "infraShareId"
+	uuid4 := "infraShareIdUID"
+	share1 := model.Share{}
+	share1.Id = &id4
+	share1.UniqueId = &uuid4
+	share1.Tags = []model.Tag{{Scope: &scope, Tag: &id4}}
+	err = service.infraShareStore.Add(&share1)
 	if err != nil {
 		t.Fatalf("Failed to add share to store: %v", err)
 	}
@@ -362,6 +357,7 @@ func TestListSecurityPolicyID(t *testing.T) {
 	tests[0].want.Insert(id1)
 	tests[0].want.Insert(id2)
 	tests[0].want.Insert(id3)
+	tests[0].want.Insert(id4)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := service.ListSecurityPolicyID()
@@ -372,7 +368,7 @@ func TestListSecurityPolicyID(t *testing.T) {
 	}
 }
 
-func TestListUpdateRules(t *testing.T) {
+func TestGetUpdateRules(t *testing.T) {
 	r1 := model.Rule{
 		DisplayName:       String("nsxrule1"),
 		Id:                String("nsxrule_1"),
@@ -435,13 +431,13 @@ func TestListUpdateRules(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			finalRules := service.updateRules(tt.existingRules, tt.expectedRules)
+			finalRules := service.getUpdateRules(tt.existingRules, tt.expectedRules)
 			assert.Equal(t, tt.finalRulesLen, len(finalRules))
 		})
 	}
 }
 
-func TestListUpdateGroups(t *testing.T) {
+func TestGetUpdateGroups(t *testing.T) {
 	mId, mTag, mTag2, mScope := "11111", "11111", "22222", "nsx-op/security_policy_cr_uid"
 	markDelete := true
 
@@ -503,13 +499,13 @@ func TestListUpdateGroups(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			finalGroups := service.updateGroups(tt.existingGroups, tt.expectedGroups)
+			finalGroups := service.getUpdateGroups(tt.existingGroups, tt.expectedGroups)
 			assert.Equal(t, tt.finalGroupsLen, len(finalGroups))
 		})
 	}
 }
 
-func TestListUpdateShares(t *testing.T) {
+func TestGetUpdateShares(t *testing.T) {
 	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_cr_uid"
 
 	s1 := model.Share{
@@ -570,7 +566,7 @@ func TestListUpdateShares(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			finalShares := service.updateShares(tt.existingShares, tt.expectedShares)
+			finalShares := service.getUpdateShares(tt.existingShares, tt.expectedShares)
 			assert.Equal(t, tt.finalSharesLen, len(finalShares))
 		})
 	}
@@ -746,7 +742,7 @@ func TestDleleteVPCSecurityPolicy(t *testing.T) {
 					SharedWith: []string{"/org/default/project/projectQuality/vpcs/vpc1"},
 				}
 				*s1 = append(*s1, projectShare)
-				assert.NoError(t, s.shareStore.Apply(s1))
+				assert.NoError(t, s.projectShareStore.Apply(s1))
 
 				patches := gomonkey.ApplyMethodSeq(s.NSXClient.OrgRootClient, "Patch", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
@@ -860,19 +856,19 @@ func TestDleleteVPCSecurityPolicy(t *testing.T) {
 			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
 
 			assert.NoError(t, fakeService.securityPolicyStore.Apply(tt.inputPolicy))
-			assert.NoError(t, fakeService.ruleStore.Apply(tt.inputPolicy))
+			assert.NoError(t, fakeService.ruleStore.Apply(&tt.inputPolicy.Rules))
 
 			patches := tt.prepareFunc(t, fakeService)
 			defer patches.Reset()
 
-			if err := fakeService.deleteVPCSecurityPolicy(tt.args.uid, tt.args.createdFor); (err != nil) != tt.wantErr {
+			if err := fakeService.deleteVPCSecurityPolicy(tt.args.uid, false, tt.args.createdFor); (err != nil) != tt.wantErr {
 				t.Errorf("deleteVPCSecurityPolicy error = %v, wantErr %v", err, tt.wantErr)
 			}
 			assert.Equal(t, tt.wantSecurityPolicyStoreCount, len(fakeService.securityPolicyStore.ListKeys()))
 			assert.Equal(t, tt.wantRuleStoreCount, len(fakeService.ruleStore.ListKeys()))
 			assert.Equal(t, tt.wantGroupStoreCount, len(fakeService.groupStore.ListKeys()))
 			assert.Equal(t, tt.wantProjectGroupStoreCount, len(fakeService.projectGroupStore.ListKeys()))
-			assert.Equal(t, tt.wantProjectShareStoreCount, len(fakeService.shareStore.ListKeys()))
+			assert.Equal(t, tt.wantProjectShareStoreCount, len(fakeService.projectShareStore.ListKeys()))
 		})
 	}
 }
@@ -913,7 +909,7 @@ func TestCreateOrUpdateSecurityPolicy(t *testing.T) {
 		{
 			name: "successCreateUpdateVPCSecurityPolicy",
 			prepareFunc: func(t *testing.T, s *SecurityPolicyService) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getVpcInfo",
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getVPCInfo",
 					func(s *SecurityPolicyService, spNameSpace string) (*common.VPCResourceInfo, error) {
 						return &VPCInfo[0], nil
 					})
@@ -977,7 +973,7 @@ func TestCreateOrUpdateSecurityPolicy(t *testing.T) {
 		{
 			name: "errorCreateUpdateVPCSecurityPolicy",
 			prepareFunc: func(t *testing.T, s *SecurityPolicyService) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getVpcInfo",
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getVPCInfo",
 					func(s *SecurityPolicyService, spNameSpace string) (*common.VPCResourceInfo, error) {
 						return &VPCInfo[0], nil
 					})
@@ -1027,7 +1023,7 @@ func TestCreateOrUpdateSecurityPolicy(t *testing.T) {
 			assert.Equal(t, tt.wantRuleStoreCount, len(fakeService.ruleStore.ListKeys()))
 			assert.Equal(t, tt.wantGroupStoreCount, len(fakeService.groupStore.ListKeys()))
 			assert.Equal(t, tt.wantProjectGroupStoreCount, len(fakeService.projectGroupStore.ListKeys()))
-			assert.Equal(t, tt.wantProjectShareStoreCount, len(fakeService.shareStore.ListKeys()))
+			assert.Equal(t, tt.wantProjectShareStoreCount, len(fakeService.projectShareStore.ListKeys()))
 		})
 	}
 }
@@ -1047,22 +1043,23 @@ func TestGetFinalSecurityPolicyResouce(t *testing.T) {
 		createdFor string
 	}
 	tests := []struct {
-		name                       string
-		prepareFunc                func(*testing.T, *SecurityPolicyService) *gomonkey.Patches
-		args                       args
-		expectedPolicy             *model.SecurityPolicy
-		wantErr                    bool
-		wantSecurityPolicyChanged  bool
-		wantRuleStoreCount         int
-		wantGroupStoreCount        int
-		wantProjectGroupStoreCount int
+		name                      string
+		prepareFunc               func(*testing.T, *SecurityPolicyService) *gomonkey.Patches
+		args                      args
+		expectedPolicy            *model.SecurityPolicy
+		wantErr                   bool
+		wantSecurityPolicyChanged bool
+		wantRuleStoreCount        int
+		wantGroupStoreCount       int
+		wantShareStoreCount       int
+		wantShareGroupStoreCount  int
 	}{
 		{
 			name: "getFinalSecurityPolicyResouceForVPCMode",
 			prepareFunc: func(t *testing.T, s *SecurityPolicyService) *gomonkey.Patches {
 				s.NSXConfig.EnableVPCNetwork = true
 
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getVpcInfo",
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getVPCInfo",
 					func(s *SecurityPolicyService, spNameSpace string) (*common.VPCResourceInfo, error) {
 						return &VPCInfo[0], nil
 					})
@@ -1086,18 +1083,19 @@ func TestGetFinalSecurityPolicyResouce(t *testing.T) {
 				Rules:          []model.Rule{},
 				Tags:           basicTags,
 			},
-			wantErr:                    false,
-			wantSecurityPolicyChanged:  true,
-			wantRuleStoreCount:         2,
-			wantGroupStoreCount:        2,
-			wantProjectGroupStoreCount: 2,
+			wantErr:                   false,
+			wantSecurityPolicyChanged: true,
+			wantRuleStoreCount:        2,
+			wantGroupStoreCount:       2,
+			wantShareStoreCount:       2,
+			wantShareGroupStoreCount:  2,
 		},
 		{
 			name: "getFinalSecurityPolicyResouceForT1",
 			prepareFunc: func(t *testing.T, s *SecurityPolicyService) *gomonkey.Patches {
 				s.NSXConfig.EnableVPCNetwork = false
 
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getVpcInfo",
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getVPCInfo",
 					func(s *SecurityPolicyService, spNameSpace string) (*common.VPCResourceInfo, error) {
 						return &VPCInfo[0], nil
 					})
@@ -1121,11 +1119,12 @@ func TestGetFinalSecurityPolicyResouce(t *testing.T) {
 				Rules:          []model.Rule{},
 				Tags:           basicTags,
 			},
-			wantErr:                    false,
-			wantSecurityPolicyChanged:  true,
-			wantRuleStoreCount:         2,
-			wantGroupStoreCount:        4,
-			wantProjectGroupStoreCount: 0,
+			wantErr:                   false,
+			wantSecurityPolicyChanged: true,
+			wantRuleStoreCount:        2,
+			wantGroupStoreCount:       4,
+			wantShareStoreCount:       0,
+			wantShareGroupStoreCount:  0,
 		},
 	}
 
@@ -1138,11 +1137,12 @@ func TestGetFinalSecurityPolicyResouce(t *testing.T) {
 
 			var finalSecurityPolicy *model.SecurityPolicy
 			var finalGroups []model.Group
-			var projectShares *[]ProjectShare
+			var finalShares []model.Share
+			var finalShareGroups []model.Group
 			var isChanged bool
 			var err error
 
-			if finalSecurityPolicy, finalGroups, projectShares, isChanged, err = fakeService.getFinalSecurityPolicyResource(tt.args.spObj, tt.args.createdFor); (err != nil) != tt.wantErr {
+			if finalSecurityPolicy, finalGroups, finalShares, finalShareGroups, isChanged, err = fakeService.getFinalSecurityPolicyResource(tt.args.spObj, tt.args.createdFor, false); (err != nil) != tt.wantErr {
 				t.Errorf("getFinalSecurityPolicyResouce error = %v, wantErr %v", err, tt.wantErr)
 			}
 
@@ -1153,9 +1153,10 @@ func TestGetFinalSecurityPolicyResouce(t *testing.T) {
 			assert.Equal(t, tt.wantRuleStoreCount, len(finalSecurityPolicy.Rules))
 
 			if fakeService.NSXConfig.EnableVPCNetwork {
-				assert.Equal(t, tt.wantProjectGroupStoreCount, len(*projectShares))
+				assert.Equal(t, tt.wantShareStoreCount, len(finalShares))
+				assert.Equal(t, tt.wantShareGroupStoreCount, len(finalShareGroups))
 			} else {
-				assert.Equal(t, (*[]ProjectShare)(nil), projectShares)
+				assert.Equal(t, ([]model.Share)(nil), finalShares)
 			}
 		})
 	}

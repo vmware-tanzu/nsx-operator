@@ -25,6 +25,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
@@ -36,10 +37,11 @@ var (
 // NetworkInfoReconciler NetworkInfoReconcile reconciles a NetworkInfo object
 // Actually it is more like a shell, which is used to manage nsx VPC
 type NetworkInfoReconciler struct {
-	Client   client.Client
-	Scheme   *apimachineryruntime.Scheme
-	Service  *vpc.VPCService
-	Recorder record.EventRecorder
+	Client              client.Client
+	Scheme              *apimachineryruntime.Scheme
+	Service             *vpc.VPCService
+	IPBlocksInfoService *ipblocksinfo.IPBlocksInfoService
+	Recorder            record.EventRecorder
 }
 
 func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -92,24 +94,24 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return common.ResultRequeueAfter10sec, err
 		}
 
-		reason := ""
+		gatewayConnectionReason := ""
 		if !gatewayConnectionReady {
 			if ncName == commonservice.SystemVPCNetworkConfigurationName {
-				gatewayConnectionReady, reason, err = r.Service.ValidateGatewayConnectionStatus(&nc)
-				log.Info("got the gateway connection status", "gatewayConnectionReady", gatewayConnectionReady, "reason", reason)
+				gatewayConnectionReady, gatewayConnectionReason, err = r.Service.ValidateGatewayConnectionStatus(&nc)
+				log.Info("got the gateway connection status", "gatewayConnectionReady", gatewayConnectionReady, "gatewayConnectionReason", gatewayConnectionReason)
 				if err != nil {
 					log.Error(err, "failed to validate the edge and gateway connection", "org", nc.Org, "project", nc.NSXProject)
 					updateFail(r, ctx, obj, &err, r.Client, nil)
 					return common.ResultRequeueAfter10sec, err
 				}
-				setVPCNetworkConfigurationStatusWithGatewayConnection(ctx, r.Client, vpcNetworkConfiguration, gatewayConnectionReady, reason)
+				setVPCNetworkConfigurationStatusWithGatewayConnection(ctx, r.Client, vpcNetworkConfiguration, gatewayConnectionReady, gatewayConnectionReason)
 			} else {
 				log.Info("skipping reconciling the network info because the system gateway connection is not ready", "NetworkInfo", req.NamespacedName)
 				return common.ResultRequeueAfter60sec, nil
 			}
 		}
-
-		createdVpc, err := r.Service.CreateOrUpdateVPC(obj, &nc)
+		lbProvider := r.Service.GetLBProvider()
+		createdVpc, err := r.Service.CreateOrUpdateVPC(obj, &nc, lbProvider)
 		if err != nil {
 			log.Error(err, "create vpc failed, would retry exponentially", "VPC", req.NamespacedName)
 			updateFail(r, ctx, obj, &err, r.Client, nil)
@@ -118,9 +120,21 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		var privateIPs []string
 		var vpcConnectivityProfilePath string
-		if vpc.IsPreCreatedVPC(nc) {
+		var nsxLBSPath string
+		isPreCreatedVPC := vpc.IsPreCreatedVPC(nc)
+		if isPreCreatedVPC {
 			privateIPs = createdVpc.PrivateIps
 			vpcConnectivityProfilePath = *createdVpc.VpcConnectivityProfile
+			// Retrieve NSX lbs path if Avi is not used with the pre-created VPC.
+			if createdVpc.LoadBalancerVpcEndpoint == nil || createdVpc.LoadBalancerVpcEndpoint.Enabled == nil ||
+				!*createdVpc.LoadBalancerVpcEndpoint.Enabled {
+				nsxLBSPath, err = r.Service.GetLBSsFromNSXByVPC(*createdVpc.Path)
+				if err != nil {
+					log.Error(err, "failed to get NSX LBS path with pre-created VPC", "VPC", createdVpc.Path)
+					updateFail(r, ctx, obj, &err, r.Client, nil)
+					return common.ResultRequeueAfter10sec, err
+				}
+			}
 		} else {
 			privateIPs = nc.PrivateIPs
 			vpcConnectivityProfilePath = nc.VPCConnectivityProfile
@@ -134,30 +148,17 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			updateFail(r, ctx, obj, &err, r.Client, nil)
 			return common.ResultRequeueAfter10sec, err
 		}
-
+		hasExternalIPs := true
 		if ncName == commonservice.SystemVPCNetworkConfigurationName {
 			if len(vpcConnectivityProfile.ExternalIpBlocks) == 0 {
-				setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx, r.Client, vpcNetworkConfiguration, false)
+				hasExternalIPs = false
 				log.Error(err, "there is no ExternalIPBlock in VPC ConnectivityProfile", "VPC", req.NamespacedName)
-			} else {
-				setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx, r.Client, vpcNetworkConfiguration, true)
 			}
-		}
-		isEnableAutoSNAT := func() bool {
-			if vpcConnectivityProfile.ServiceGateway == nil || vpcConnectivityProfile.ServiceGateway.Enable == nil {
-				return false
-			}
-			if *vpcConnectivityProfile.ServiceGateway.Enable {
-				if vpcConnectivityProfile.ServiceGateway.NatConfig == nil || vpcConnectivityProfile.ServiceGateway.NatConfig.EnableDefaultSnat == nil {
-					return false
-				}
-				return *vpcConnectivityProfile.ServiceGateway.NatConfig.EnableDefaultSnat
-			}
-			return false
+			setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx, r.Client, vpcNetworkConfiguration, hasExternalIPs)
 		}
 		// currently, auto snat is not exposed, and use default value True
 		// checking autosnat to support future extension in vpc configuration
-		autoSnatEnabled := isEnableAutoSNAT()
+		autoSnatEnabled := r.Service.IsEnableAutoSNAT(vpcConnectivityProfile)
 		if autoSnatEnabled {
 			snatIP, err = r.Service.GetDefaultSNATIP(*createdVpc)
 			if err != nil {
@@ -180,19 +181,14 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				updateFail(r, ctx, obj, &err, r.Client, nil)
 				return common.ResultRequeueAfter10sec, err
 			}
-			if autoSnatEnabled {
-				log.Info("detected that the AutoSnat is enabled", "req", req.NamespacedName)
-				setVPCNetworkConfigurationStatusWithSnatEnabled(ctx, r.Client, vpcNetworkConfiguration, true)
-			} else {
-				log.Info("detected that the AutoSnat is disabled", "req", req.NamespacedName)
-				setVPCNetworkConfigurationStatusWithSnatEnabled(ctx, r.Client, vpcNetworkConfiguration, false)
-			}
+			log.Info("got the AutoSnat status", "autoSnatEnabled", autoSnatEnabled, "req", req.NamespacedName)
+			setVPCNetworkConfigurationStatusWithSnatEnabled(ctx, r.Client, vpcNetworkConfiguration, autoSnatEnabled)
 		}
 
 		// if lb vpc enabled, read avi subnet path and cidr
 		// nsx bug, if set LoadBalancerVpcEndpoint.Enabled to false, when read this vpc back,
 		// LoadBalancerVpcEndpoint.Enabled will become a nil pointer.
-		if !r.Service.NSXLBEnabled() && createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
+		if lbProvider == vpc.AVILB && createdVpc.LoadBalancerVpcEndpoint != nil && createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
 			path, cidr, err = r.Service.GetAVISubnetInfo(*createdVpc)
 			if err != nil {
 				log.Error(err, "failed to read lb subnet path and cidr", "VPC", createdVpc.Id)
@@ -214,9 +210,17 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			PrivateIPs:              privateIPs,
 			VPCPath:                 *createdVpc.Path,
 		}
+
+		if !isPreCreatedVPC {
+			nsxLBSPath = r.Service.GetDefaultNSXLBSPathByVPC(*createdVpc.Id)
+		}
 		// AKO needs to know the AVI subnet path created by NSX
-		setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, path, r.Service.GetNSXLBSPath(*createdVpc.Id), *createdVpc.Path)
+		setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, path, nsxLBSPath, *createdVpc.Path)
 		updateSuccess(r, ctx, obj, r.Client, state, nc.Name, path)
+		if ncName == commonservice.SystemVPCNetworkConfigurationName && (!gatewayConnectionReady || !autoSnatEnabled || !hasExternalIPs) {
+			log.Info("requeuing the NetworkInfo CR because VPCNetworkConfiguration system is not ready", "gatewayConnectionReason", gatewayConnectionReason, "autoSnatEnabled", autoSnatEnabled, "hasExternalIPs", hasExternalIPs, "req", req)
+			return common.ResultRequeueAfter60sec, nil
+		}
 	} else {
 		if controllerutil.ContainsFinalizer(obj, commonservice.NetworkInfoFinalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNetworkInfo)
@@ -274,13 +278,15 @@ func (r *NetworkInfoReconciler) setupWithManager(mgr ctrl.Manager) error {
 				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
 		Watches(
-			// For created/removed network config, add/remove from vpc network config cache.
+			// For created/removed network config, add/remove from vpc network config cache,
+			// and update IPBlocksInfo.
 			// For modified network config, currently only support appending ips to public ip blocks,
 			// update network config in cache and update nsx vpc object.
 			&v1alpha1.VPCNetworkConfiguration{},
 			&VPCNetworkConfigurationHandler{
-				Client:     mgr.GetClient(),
-				vpcService: r.Service,
+				Client:              mgr.GetClient(),
+				vpcService:          r.Service,
+				ipBlocksInfoService: r.IPBlocksInfoService,
 			},
 			builder.WithPredicates(VPCNetworkConfigurationPredicate)).
 		Complete(r)
