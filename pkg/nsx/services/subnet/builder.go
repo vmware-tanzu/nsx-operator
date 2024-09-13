@@ -117,3 +117,23 @@ func (service *SubnetService) buildDHCPConfig(enableDHCP bool, poolSize int64) *
 func (service *SubnetService) buildBasicTags(obj client.Object) []model.Tag {
 	return util.BuildBasicTags(getCluster(service), obj, "")
 }
+
+func (service *SubnetService) updateSubnet(existingSubnet *model.VpcSubnet, nsxSubnet *model.VpcSubnet) *model.VpcSubnet {
+	// Only tags and dhcp config are expected to be updated
+	// inherit other fields from the existing Subnet
+	existingSubnet.Tags = nsxSubnet.Tags
+	if existingSubnet.DhcpConfig != nil {
+		if existingSubnet.DhcpConfig.EnableDhcp != nsxSubnet.DhcpConfig.EnableDhcp {
+			existingSubnet.DhcpConfig = nsxSubnet.DhcpConfig
+			// Change the AdvancedConfig for StaticIpAllocation
+			// TODO: waiting for NSX fixes the gateway/dhcp server missing issue
+			existingSubnet.AdvancedConfig.StaticIpAllocation = nsxSubnet.AdvancedConfig.StaticIpAllocation
+			// existingSubnet.AdvancedConfig = nsxSubnet.AdvancedConfig
+		}
+	} else {
+		existingSubnet.DhcpConfig = &model.VpcSubnetDhcpConfig{
+			EnableDhcp: nsxSubnet.DhcpConfig.EnableDhcp,
+		}
+	}
+	return existingSubnet
+}

@@ -91,9 +91,9 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			log.V(1).Info("added finalizer on subnetset CR", "subnetset", req.NamespacedName)
 		}
 
-		// update subnetset tags if labels of namespace changed
 		nsxSubnets := r.SubnetService.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetSetCRUID, string(obj.UID))
 		if len(nsxSubnets) > 0 {
+			// update subnetset tags if labels of namespace changed
 			tags := r.SubnetService.GenerateSubnetNSTags(obj, obj.Namespace)
 			if tags == nil {
 				return ResultRequeue, errors.New("failed to generate subnet tags")
@@ -107,6 +107,10 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			}
 			if err := r.SubnetService.UpdateSubnetSetTags(obj.Namespace, nsxSubnets, tags); err != nil {
 				log.Error(err, "failed to update subnetset tags")
+			}
+			// update dhcp config if changes
+			if err := r.SubnetService.UpdateSubnetSetDHCPConfig(nsxSubnets, obj); err != nil {
+				log.Error(err, "failed to update subnetset DHCP config")
 			}
 		}
 		updateSuccess(r, ctx, obj)
