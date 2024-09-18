@@ -15,13 +15,9 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - description: NSXProject the Namespace associated with
-      jsonPath: .spec.nsxProject
-      name: NSXProject
-      type: string
-    - description: PrivateIPs assigned to the Namespace
-      jsonPath: .spec.privateIPs
-      name: PrivateIPs
+    - description: NSX VPC path the Namespace is associated with
+      jsonPath: .status.vpcs[0].vpcPath
+      name: VPCPath
       type: string
     name: v1alpha1
     schema:
