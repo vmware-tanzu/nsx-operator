@@ -787,7 +787,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPC
 	// Check LBS realization
 	if createdLBS != nil {
 		newLBS, err := s.NSXClient.VPCLBSClient.Get(nc.Org, nc.NSXProject, *createdVpc.Id, *createdLBS.Id)
-		if err != nil {
+		if err != nil || newLBS.ConnectivityPath == nil {
 			log.Error(err, "failed to read LBS object after creating or updating", "LBS", createdLBS.Id)
 			return nil, err
 		}
@@ -825,21 +825,6 @@ func (s *VPCService) GetGatewayConnectionTypeFromConnectionPath(connectionPath s
 }
 
 func (s *VPCService) ValidateGatewayConnectionStatus(nc *common.VPCNetworkConfigInfo) (bool, string, error) {
-	// Case 1: the project has the full list of edge clusters, so if the project doesn't have edge,
-	// we can say that the edge is not deployed.
-	var projectEdges []string
-	project, err := s.NSXClient.ProjectClient.Get(nc.Org, nc.NSXProject, nil)
-	err = nsxutil.NSXApiError(err)
-	if err != nil {
-		return false, "", err
-	}
-	for _, siteInfo := range project.SiteInfos {
-		projectEdges = append(projectEdges, siteInfo.EdgeClusterPaths...)
-	}
-	if len(projectEdges) == 0 {
-		return false, common.ReasonEdgeMissingInProject, nil
-	}
-
 	var connectionPaths []string // i.e. gateway connection paths
 	var profiles []model.VpcConnectivityProfile
 	var cursor *string
@@ -864,12 +849,12 @@ func (s *VPCService) ValidateGatewayConnectionStatus(nc *common.VPCNetworkConfig
 			connectionPaths = append(connectionPaths, *attachment.ConnectionPath)
 		}
 	}
-	// Case 2: there's no gateway connection paths.
+	// Case 1: there's no gateway connection paths.
 	if len(connectionPaths) == 0 {
 		return false, common.ReasonGatewayConnectionNotSet, nil
 	}
 
-	// Case 3: detected distributed gateway connection which is not supported.
+	// Case 2: detected distributed gateway connection which is not supported.
 	for _, connectionPath := range connectionPaths {
 		gatewayConnectionType, err := s.GetGatewayConnectionTypeFromConnectionPath(connectionPath)
 		if err != nil {
@@ -997,9 +982,9 @@ func (s *VPCService) Cleanup(ctx context.Context) error {
 	return nil
 }
 
-func (service *VPCService) ListVPCInfo(ns string) []common.VPCResourceInfo {
+func (s *VPCService) ListVPCInfo(ns string) []common.VPCResourceInfo {
 	var VPCInfoList []common.VPCResourceInfo
-	nc := service.GetVPCNetworkConfigByNamespace(ns)
+	nc := s.GetVPCNetworkConfigByNamespace(ns)
 	// Return the pre-created VPC resource info if it is set in VPCNetworkConfiguration.
 	if nc != nil && IsPreCreatedVPC(*nc) {
 		vpcResourceInfo, err := common.ParseVPCResourcePath(nc.VPCPath)
@@ -1012,7 +997,7 @@ func (service *VPCService) ListVPCInfo(ns string) []common.VPCResourceInfo {
 	}
 
 	// List VPCs from local store.
-	vpcs := service.GetVPCsByNamespace(ns) // Transparently call the VPCService.GetVPCsByNamespace method
+	vpcs := s.GetVPCsByNamespace(ns) // Transparently call the VPCService.GetVPCsByNamespace method
 	for _, v := range vpcs {
 		vpcResourceInfo, err := common.ParseVPCResourcePath(*v.Path)
 		if err != nil {
@@ -1024,8 +1009,8 @@ func (service *VPCService) ListVPCInfo(ns string) []common.VPCResourceInfo {
 	return VPCInfoList
 }
 
-func (s *VPCService) GetNSXLBSPath(lbsId string) string {
-	vpcLBS := s.LbsStore.GetByKey(lbsId)
+func (s *VPCService) GetDefaultNSXLBSPathByVPC(vpcID string) string {
+	vpcLBS := s.LbsStore.GetByKey(vpcID)
 	if vpcLBS == nil {
 		return ""
 	}
@@ -1125,13 +1110,13 @@ func (vpcService *VPCService) getLBProvider(edgeEnable bool) LBProvider {
 	return NoneLB
 }
 
-func (service *VPCService) GetVPCFromNSXByPath(vpcPath string) (*model.Vpc, error) {
+func (s *VPCService) GetVPCFromNSXByPath(vpcPath string) (*model.Vpc, error) {
 	vpcResInfo, err := common.ParseVPCResourcePath(vpcPath)
 	if err != nil {
 		log.Error(err, "failed to parse VPCResourceInfo from the given VPC path", "VPC", vpcPath)
 		return nil, err
 	}
-	vpc, err := service.NSXClient.VPCClient.Get(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID)
+	vpc, err := s.NSXClient.VPCClient.Get(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID)
 	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to read VPC object from NSX", "VPC", vpcPath)

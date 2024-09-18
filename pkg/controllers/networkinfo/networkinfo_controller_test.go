@@ -149,7 +149,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					return vpc.NSXLB
 				})
 
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSPath", func(_ *vpc.VPCService, _ string) string {
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
 
 				})
@@ -213,7 +213,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) vpc.LBProvider {
 					return vpc.NSXLB
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSPath", func(_ *vpc.VPCService, _ string) string {
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
 
 				})
@@ -378,7 +378,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					}, nil},
 					Times: 1,
 				}})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSPath", func(_ *vpc.VPCService, _ string) string {
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
 
 				})
@@ -458,7 +458,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					}, nil},
 					Times: 1,
 				}})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSPath", func(_ *vpc.VPCService, _ string) string {
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
 
 				})
@@ -540,7 +540,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					}, nil},
 					Times: 1,
 				}})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSPath", func(_ *vpc.VPCService, _ string) string {
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
 
 				})
@@ -619,7 +619,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						t.Log("setVPCNetworkConfigurationStatusWithNoExternalIPBlock")
 					})
 
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSPath", func(_ *vpc.VPCService, _ string) string {
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
 
 				})

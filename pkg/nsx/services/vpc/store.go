@@ -14,7 +14,7 @@ func keyFunc(obj interface{}) (string, error) {
 	case *model.Vpc:
 		return *v.Id, nil
 	case *model.LBService:
-		return *v.Id, nil
+		return generateLBSKey(*v)
 	case *model.IpAddressBlock:
 		return generateIPBlockKey(*v), nil
 	default:
@@ -187,7 +187,8 @@ func (ls *LBSStore) Apply(i interface{}) error {
 	return nil
 }
 
-func (ls *LBSStore) GetByKey(key string) *model.LBService {
+func (ls *LBSStore) GetByKey(vpcID string) *model.LBService {
+	key := combineVPCIDAndLBSID(vpcID, defaultLBSName)
 	obj := ls.ResourceStore.GetByKey(key)
 	if obj != nil {
 		lbs := obj.(*model.LBService)
