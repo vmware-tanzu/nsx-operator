@@ -1048,7 +1048,7 @@ func (vpcService *VPCService) EdgeClusterEnabled(nc *common.VPCNetworkConfigInfo
 		if getErr != nil {
 			return getErr
 		}
-		log.Info("VPC connectivity profile retrieved", "profile", *vpcConnectivityProfile)
+		log.V(1).Info("VPC connectivity profile retrieved", "profile", *vpcConnectivityProfile)
 		return nil
 	}); err != nil {
 		log.Error(err, "Failed to retrieve VPC connectivity profile", "profile", nc.VPCConnectivityProfile)
