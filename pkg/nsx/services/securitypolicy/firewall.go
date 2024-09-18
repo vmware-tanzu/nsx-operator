@@ -38,12 +38,14 @@ type SecurityPolicyService struct {
 	securityPolicyStore *SecurityPolicyStore
 	ruleStore           *RuleStore
 	groupStore          *GroupStore
+	infraGroupStore     *GroupStore
+	infraShareStore     *ShareStore
 	projectGroupStore   *GroupStore
-	shareStore          *ShareStore
+	projectShareStore   *ShareStore
 	vpcService          common.VPCServiceProvider
 }
 
-type ProjectShare struct {
+type GroupShare struct {
 	shareGroup *model.Group
 	share      *model.Share
 }
@@ -53,7 +55,7 @@ var (
 	lock            = &sync.Mutex{}
 )
 
-// GetSecurityService get singleton SecurityPolicyService instance, networkpolicy/securitypolicy controller share the same instance.
+// GetSecurityService get singleton SecurityPolicy Service instance, NetworkPolicy/SecurityPolicy controller share the same instance.
 func GetSecurityService(service common.Service, vpcService common.VPCServiceProvider) *SecurityPolicyService {
 	if securityService == nil {
 		lock.Lock()
@@ -75,39 +77,47 @@ func InitializeSecurityPolicy(service common.Service, vpcService common.VPCServi
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
 
-	wg.Add(5)
+	wg.Add(7)
 
 	securityPolicyService := &SecurityPolicyService{Service: service}
 
-	if isVpcEnabled(securityPolicyService) {
+	if IsVPCEnabled(securityPolicyService) {
 		common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
 		common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 	}
 	indexScope := common.TagValueScopeSecurityPolicyUID
-
 	securityPolicyService.setUpStore(indexScope)
 	securityPolicyService.vpcService = vpcService
 
-	projectGroupShareTag := []model.Tag{
+	infraShareTag := []model.Tag{
 		{
-			Scope: String(common.TagScopeProjectGroupShared),
-			Tag:   String("true"),
+			Scope: String(common.TagScopeNSXShareCreatedFor),
+			Tag:   String(common.TagValueShareCreatedForInfra),
 		},
 	}
-	projectGroupNotShareTag := []model.Tag{
+	projectShareTag := []model.Tag{
 		{
-			Scope: String(common.TagScopeProjectGroupShared),
-			Tag:   String("false"),
+			Scope: String(common.TagScopeNSXShareCreatedFor),
+			Tag:   String(common.TagValueShareCreatedForProject),
 		},
 	}
-	if isVpcEnabled(securityPolicyService) {
-		go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, projectGroupNotShareTag, securityPolicyService.groupStore)
+	notShareTag := []model.Tag{
+		{
+			Scope: String(common.TagScopeNSXShareCreatedFor),
+			Tag:   String(common.TagValueShareNotCreated),
+		},
+	}
+
+	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, infraShareTag, securityPolicyService.infraGroupStore)
+	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeShare, infraShareTag, securityPolicyService.infraShareStore)
+	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, projectShareTag, securityPolicyService.projectGroupStore)
+	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeShare, projectShareTag, securityPolicyService.projectShareStore)
+
+	if IsVPCEnabled(securityPolicyService) {
+		go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, notShareTag, securityPolicyService.groupStore)
 	} else {
 		go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, nil, securityPolicyService.groupStore)
 	}
-
-	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, projectGroupShareTag, securityPolicyService.projectGroupStore)
-	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeShare, nil, securityPolicyService.shareStore)
 	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSecurityPolicy, nil, securityPolicyService.securityPolicyStore)
 	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, nil, securityPolicyService.ruleStore)
 
@@ -151,7 +161,20 @@ func (s *SecurityPolicyService) setUpStore(indexScope string) {
 		}),
 		BindingType: model.RuleBindingType(),
 	}}
-
+	s.infraGroupStore = &GroupStore{ResourceStore: common.ResourceStore{
+		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+			indexScope:                      indexBySecurityPolicyUID,
+			common.TagScopeNetworkPolicyUID: indexByNetworkPolicyUID,
+		}),
+		BindingType: model.GroupBindingType(),
+	}}
+	s.infraShareStore = &ShareStore{ResourceStore: common.ResourceStore{
+		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+			indexScope:                      indexBySecurityPolicyUID,
+			common.TagScopeNetworkPolicyUID: indexByNetworkPolicyUID,
+		}),
+		BindingType: model.ShareBindingType(),
+	}}
 	s.projectGroupStore = &GroupStore{ResourceStore: common.ResourceStore{
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
 			indexScope:                      indexBySecurityPolicyUID,
@@ -159,7 +182,7 @@ func (s *SecurityPolicyService) setUpStore(indexScope string) {
 		}),
 		BindingType: model.GroupBindingType(),
 	}}
-	s.shareStore = &ShareStore{ResourceStore: common.ResourceStore{
+	s.projectShareStore = &ShareStore{ResourceStore: common.ResourceStore{
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
 			indexScope:                      indexBySecurityPolicyUID,
 			common.TagScopeNetworkPolicyUID: indexByNetworkPolicyUID,
@@ -187,7 +210,7 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj interface
 			}
 		}
 	case *v1alpha1.SecurityPolicy:
-		if isVpcEnabled(service) {
+		if IsVPCEnabled(service) {
 			err = service.createOrUpdateVPCSecurityPolicy(obj.(*v1alpha1.SecurityPolicy), common.ResourceTypeSecurityPolicy)
 		} else {
 			// For T1 network SecurityPolicy create/update
@@ -385,21 +408,55 @@ func (service *SecurityPolicyService) convertNetworkPolicyPortToSecurityPolicyPo
 	return spPort, nil
 }
 
-func (service *SecurityPolicyService) getStores() (*SecurityPolicyStore, *RuleStore, *GroupStore, *GroupStore, *ShareStore) {
-	return service.securityPolicyStore, service.ruleStore, service.groupStore, service.projectGroupStore, service.shareStore
+func (service *SecurityPolicyService) getSecurityPolicyResourceStores() (*SecurityPolicyStore, *RuleStore, *GroupStore) {
+	return service.securityPolicyStore, service.ruleStore, service.groupStore
 }
 
-func (service *SecurityPolicyService) getFinalSecurityPolicyResource(obj *v1alpha1.SecurityPolicy, createdFor string) (*model.SecurityPolicy, []model.Group, *[]ProjectShare, bool, error) {
-	securityPolicyStore, ruleStore, groupStore, _, _ := service.getStores()
+func (service *SecurityPolicyService) getVPCShareResourceStores() (*GroupStore, *ShareStore, *GroupStore, *ShareStore) {
+	return service.infraGroupStore, service.infraShareStore, service.projectGroupStore, service.projectShareStore
+}
 
-	nsxSecurityPolicy, nsxGroups, projectShares, err := service.buildSecurityPolicy(obj, createdFor)
+func (service *SecurityPolicyService) getFinalVPCShareResources(obj *v1alpha1.SecurityPolicy, indexScope string, nsxGroupShares *[]GroupShare, isDefaultProject bool) ([]model.Share, []model.Group) {
+	var finalShares []model.Share
+	var finalShareGroups []model.Group
+	nsxShares := make([]model.Share, 0)
+	nsxShareGroups := make([]model.Group, 0)
+
+	infraGroupStore, infraShareStore, projectGroupStore, projectShareStore := service.getVPCShareResourceStores()
+
+	// Create/Update NSX shares and NSX share groups
+	for i := len(*nsxGroupShares) - 1; i >= 0; i-- {
+		nsxShareGroups = append(nsxShareGroups, *((*nsxGroupShares)[i].shareGroup))
+		nsxShares = append(nsxShares, *((*nsxGroupShares)[i].share))
+	}
+	if isDefaultProject {
+		existingNsxShareGroups := infraGroupStore.GetByIndex(indexScope, string(obj.UID))
+		finalShareGroups = service.getUpdateGroups(existingNsxShareGroups, nsxShareGroups)
+
+		existingNsxShares := infraShareStore.GetByIndex(indexScope, string(obj.UID))
+		finalShares = service.getUpdateShares(existingNsxShares, nsxShares)
+	} else {
+		existingNsxShareGroups := projectGroupStore.GetByIndex(indexScope, string(obj.UID))
+		finalShareGroups = service.getUpdateGroups(existingNsxShareGroups, nsxShareGroups)
+
+		existingNsxShares := projectShareStore.GetByIndex(indexScope, string(obj.UID))
+		finalShares = service.getUpdateShares(existingNsxShares, nsxShares)
+	}
+
+	return finalShares, finalShareGroups
+}
+
+func (service *SecurityPolicyService) getFinalSecurityPolicyResource(obj *v1alpha1.SecurityPolicy, createdFor string, isDefaultProject bool) (*model.SecurityPolicy, []model.Group, []model.Share, []model.Group, bool, error) {
+	securityPolicyStore, ruleStore, groupStore := service.getSecurityPolicyResourceStores()
+
+	nsxSecurityPolicy, nsxGroups, nsxGroupShares, err := service.buildSecurityPolicy(obj, createdFor)
 	if err != nil {
-		log.Error(err, "failed to build SecurityPolicy from CR", "ID", obj.UID)
-		return nil, nil, nil, false, err
+		log.Error(err, "failed to build SecurityPolicy from CR", "securityPolicyUID", obj.UID)
+		return nil, nil, nil, nil, false, err
 	}
 
 	if len(nsxSecurityPolicy.Scope) == 0 {
-		log.Info("SecurityPolicy has empty policy-level appliedTo")
+		log.Info("securityPolicy has empty policy-level appliedTo")
 	}
 	indexScope := common.TagValueScopeSecurityPolicyUID
 	if createdFor == common.ResourceTypeNetworkPolicy {
@@ -419,23 +476,24 @@ func (service *SecurityPolicyService) getFinalSecurityPolicyResource(obj *v1alph
 	}
 
 	existingRules := ruleStore.GetByIndex(indexScope, string(obj.UID))
-	finalRules := service.updateRules(existingRules, nsxSecurityPolicy.Rules)
+	finalRules := service.getUpdateRules(existingRules, nsxSecurityPolicy.Rules)
 	finalSecurityPolicy.Rules = finalRules
 
 	existingGroups := groupStore.GetByIndex(indexScope, string(obj.UID))
-	finalGroups := service.updateGroups(existingGroups, *nsxGroups)
+	finalGroups := service.getUpdateGroups(existingGroups, *nsxGroups)
 
-	if isVpcEnabled(service) {
-		return finalSecurityPolicy, finalGroups, projectShares, isChanged, nil
+	if IsVPCEnabled(service) {
+		finalShares, finalShareGroups := service.getFinalVPCShareResources(obj, indexScope, nsxGroupShares, isDefaultProject)
+		return finalSecurityPolicy, finalGroups, finalShares, finalShareGroups, isChanged, nil
 	} else {
-		return finalSecurityPolicy, finalGroups, nil, isChanged, nil
+		return finalSecurityPolicy, finalGroups, nil, nil, isChanged, nil
 	}
 }
 
 func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1.SecurityPolicy, createdFor string) error {
-	finalSecurityPolicy, finalGroups, _, isChanged, err := service.getFinalSecurityPolicyResource(obj, createdFor)
+	finalSecurityPolicy, finalGroups, _, _, isChanged, err := service.getFinalSecurityPolicyResource(obj, createdFor, false)
 	if err != nil {
-		log.Error(err, "failed to get FinalSecurityPolicy from CR", "ID", obj.UID)
+		log.Error(err, "failed to get SecurityPolicy resources from CR", "securityPolicyUID", obj.UID)
 		return err
 	}
 
@@ -467,7 +525,7 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 		return err
 	}
 
-	securityPolicyStore, ruleStore, groupStore, _, _ := service.getStores()
+	securityPolicyStore, ruleStore, groupStore := service.getSecurityPolicyResourceStores()
 	// The steps below know how to deal with NSX resources, if there is MarkedForDelete, then delete it from store,
 	// otherwise add or update it to store.
 	if isChanged {
@@ -492,109 +550,46 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 }
 
 func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alpha1.SecurityPolicy, createdFor string) error {
-	vpcInfo, err := service.getVpcInfo(obj.ObjectMeta.Namespace)
+	var err error
+	var finalGetNSXSecurityPolicy model.SecurityPolicy
+	isDefaultProject := false
+	vpcInfo, err := service.getVPCInfo(obj.ObjectMeta.Namespace)
 	if err != nil {
 		return err
 	}
-
-	finalSecurityPolicy, finalGroups, projectShares, isChanged, err := service.getFinalSecurityPolicyResource(obj, createdFor)
-	if err != nil {
-		log.Error(err, "failed to get FinalSecurityPolicy from CR", "ID", obj.UID)
-		return err
+	if vpcInfo.ProjectID == common.DefaultProject {
+		isDefaultProject = true
 	}
 
-	securityPolicyStore, ruleStore, groupStore, projectGroupStore, shareStore := service.getStores()
-	indexScope := common.TagValueScopeSecurityPolicyUID
-	if createdFor == common.ResourceTypeNetworkPolicy {
-		indexScope = common.TagScopeNetworkPolicyUID
+	finalSecurityPolicy, finalGroups, finalShares, finalShareGroups, isChanged, err := service.getFinalSecurityPolicyResource(obj, createdFor, isDefaultProject)
+	if err != nil {
+		log.Error(err, "failed to get SecurityPolicy resources from CR", "securityPolicyUID", obj.UID)
+		return err
 	}
 
 	// WrapHierarchyVpcSecurityPolicy will modify the input security policy rules and move the rules to Children fields for HAPI wrap,
 	// so we need to make a copy for the rules store update.
 	finalRules := finalSecurityPolicy.Rules
 
-	nsxProjectGroups := make([]model.Group, 0)
-	nsxProjectShares := make([]model.Share, 0)
-	for i := len(*projectShares) - 1; i >= 0; i-- {
-		nsxProjectGroups = append(nsxProjectGroups, *((*projectShares)[i].shareGroup))
-		nsxProjectShares = append(nsxProjectShares, *((*projectShares)[i].share))
-	}
-
-	// Create/Update nsx project shares and nsx project level groups
-	existingNsxProjectGroups := projectGroupStore.GetByIndex(indexScope, string(obj.UID))
-	finalProjectGroups := service.updateGroups(existingNsxProjectGroups, nsxProjectGroups)
-
-	existingNsxProjectShares := shareStore.GetByIndex(indexScope, string(obj.UID))
-	finalProjectShares := service.updateShares(existingNsxProjectShares, nsxProjectShares)
-
-	if !isChanged && len(finalSecurityPolicy.Rules) == 0 && len(finalGroups) == 0 && len(finalProjectGroups) == 0 && len(finalProjectShares) == 0 {
+	if !isChanged && len(finalSecurityPolicy.Rules) == 0 && len(finalGroups) == 0 && len(finalShares) == 0 {
 		log.Info("securityPolicy, rules, groups and shares are not changed, skip updating them", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
 		return nil
 	}
-
-	// TODO: Simplify resource wrap and patch for both create/delete.
-	// 1.Wrap project groups and shares into project child infra.
-	var projectInfra []*data.StructValue
-	if len(finalProjectGroups) != 0 || len(finalProjectShares) != 0 {
-		projectInfra, err = service.wrapHierarchyProjectResources(finalProjectShares, finalProjectGroups)
-		if err != nil {
-			log.Error(err, "failed to wrap project groups and shares", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
-			return err
-		}
+	if !isDefaultProject {
+		finalGetNSXSecurityPolicy, err = service.manipulateSecurityPolicy(finalSecurityPolicy, finalGroups, finalShares, finalShareGroups, false, vpcInfo)
+	} else {
+		finalGetNSXSecurityPolicy, err = service.manipulateSecurityPolicyForDefaultProject(finalSecurityPolicy, finalGroups, finalShares, finalShareGroups, false, vpcInfo)
 	}
-
-	// 2.Wrap SecurityPolicy, groups, rules under VPC level together with project groups and shares into one hierarchy resource tree.
-	orgRoot, err := service.WrapHierarchyVpcSecurityPolicy(finalSecurityPolicy, finalGroups, projectInfra, vpcInfo)
 	if err != nil {
-		log.Error(err, "failed to wrap SecurityPolicy in VPC", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
 		return err
 	}
 
-	// 3.Create/update SecurityPolicy together with groups, rules under VPC level and project groups, shares.
-	err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
-	err = nsxutil.NSXApiError(err)
+	err = service.applySecurityPolicyStore(finalGetNSXSecurityPolicy, finalRules, finalGroups, isChanged)
 	if err != nil {
-		log.Error(err, "failed to create or update SecurityPolicy in VPC", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
 		return err
 	}
-
-	// Get SecurityPolicy from NSX after HAPI call as NSX renders several fields like `path`/`parent_path`.
-	finalGetNSXSecurityPolicy, err := service.NSXClient.VPCSecurityClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *finalSecurityPolicy.Id)
-	err = nsxutil.NSXApiError(err)
+	err = service.applyVPCShareResourceStore(finalShares, finalShareGroups, isDefaultProject)
 	if err != nil {
-		log.Error(err, "failed to get SecurityPolicy in VPC", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
-		return err
-	}
-
-	// TODO: Simplify resource store update for both create/delete.
-	// The steps below know how to deal with NSX resources, if there is MarkedForDelete, then delete it from store,
-	// otherwise add or update it to store.
-	if isChanged {
-		err = securityPolicyStore.Apply(&finalGetNSXSecurityPolicy)
-		if err != nil {
-			log.Error(err, "failed to apply store", "securityPolicy", finalGetNSXSecurityPolicy)
-			return err
-		}
-	}
-
-	err = ruleStore.Apply(&finalRules)
-	if err != nil {
-		log.Error(err, "failed to apply store", "nsxRules", finalRules)
-		return err
-	}
-	err = groupStore.Apply(&finalGroups)
-	if err != nil {
-		log.Error(err, "failed to apply store", "nsxGroups", finalGroups)
-		return err
-	}
-	err = projectGroupStore.Apply(&finalProjectGroups)
-	if err != nil {
-		log.Error(err, "failed to apply store", "nsxProjectGroups", finalProjectGroups)
-		return err
-	}
-	err = shareStore.Apply(&finalProjectShares)
-	if err != nil {
-		log.Error(err, "failed to apply store", "nsxProjectShares", finalProjectShares)
 		return err
 	}
 
@@ -602,7 +597,7 @@ func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alp
 	return nil
 }
 
-func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}, isVpcCleanup bool, createdFor string) error {
+func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}, isVPCCleanupOrGC bool, createdFor string) error {
 	var err error
 	switch sp := obj.(type) {
 	case *networkingv1.NetworkPolicy:
@@ -610,11 +605,11 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}, isVp
 		CRPolicySet.Insert(service.BuildNetworkPolicyAllowPolicyID(string(sp.UID)))
 		CRPolicySet.Insert(service.BuildNetworkPolicyIsolationPolicyID(string(sp.UID)))
 		for elem := range CRPolicySet {
-			err = service.deleteVPCSecurityPolicy(types.UID(elem), createdFor)
+			err = service.deleteVPCSecurityPolicy(types.UID(elem), isVPCCleanupOrGC, createdFor)
 		}
 	case types.UID:
-		if isVpcEnabled(service) || isVpcCleanup {
-			err = service.deleteVPCSecurityPolicy(sp, createdFor)
+		if IsVPCEnabled(service) || isVPCCleanupOrGC {
+			err = service.deleteVPCSecurityPolicy(sp, isVPCCleanupOrGC, createdFor)
 		} else {
 			// For T1 network SecurityPolicy deletion
 			err = service.deleteSecurityPolicy(sp)
@@ -630,16 +625,16 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(sp types.UID) error {
 	nsxGroups := &g
 	r := make([]model.Rule, 0)
 	nsxRules := &r
-	securityPolicyStore, ruleStore, groupStore, _, _ := service.getStores()
+	securityPolicyStore, ruleStore, groupStore := service.getSecurityPolicyResourceStores()
 
-	// For normal SecurityPolicy deletion process, which means that SecurityPolicy has corresponding nsx SecurityPolicy object
+	// For normal SecurityPolicy deletion process, which means that SecurityPolicy has corresponding NSX SecurityPolicy object
 	// And for SecurityPolicy GC or cleanup process, which means that SecurityPolicy doesn't exist in K8s any more
-	// but still has corresponding nsx SecurityPolicy object.
+	// but still has corresponding NSX SecurityPolicy object.
 	// We use SecurityPolicy's UID from store to get NSX SecurityPolicy object
 	indexScope := common.TagValueScopeSecurityPolicyUID
 	existingSecurityPolices := securityPolicyStore.GetByIndex(indexScope, string(sp))
 	if len(existingSecurityPolices) == 0 {
-		log.Info("NSX security policy is not found in store, skip deleting it", "nsxSecurityPolicyUID", sp)
+		log.Info("NSX SecurityPolicy is not found in store, skip deleting it", "nsxSecurityPolicyUID", sp)
 		return nil
 	}
 	nsxSecurityPolicy = existingSecurityPolices[0]
@@ -651,7 +646,7 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(sp types.UID) error {
 
 	nsxSecurityPolicy.MarkedForDelete = &MarkedForDelete
 
-	// There is no nsx groups/rules in the security policy retrieved from securityPolicy store.
+	// There is no NSX groups/rules in the security policy retrieved from securityPolicy store.
 	// The groups/rules associated the deleting security policy can only be gotten from group/rule store.
 	existingGroups := groupStore.GetByIndex(indexScope, string(sp))
 	service.markDeleteGroups(existingGroups, nsxGroups, sp)
@@ -696,7 +691,7 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(sp types.UID) error {
 	return nil
 }
 
-func (service *SecurityPolicyService) deleteVPCSecurityPolicy(sp types.UID, createdFor string) error {
+func (service *SecurityPolicyService) deleteVPCSecurityPolicy(sp types.UID, isVPCCleanupOrGC bool, createdFor string) error {
 	var nsxSecurityPolicy *model.SecurityPolicy
 	var err error
 	g := make([]model.Group, 0)
@@ -705,21 +700,33 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(sp types.UID, crea
 	nsxRules := &r
 	g1 := make([]model.Group, 0)
 	s := make([]model.Share, 0)
-	nsxProjectGroups := &g1
-	nsxProjectShares := &s
-	securityPolicyStore, ruleStore, groupStore, projectGroupStore, shareStore := service.getStores()
+	nsxShares := &s
+	nsxShareGroups := &g1
 
-	// For normal SecurityPolicy deletion process, which means that SecurityPolicy has corresponding nsx SecurityPolicy object
+	securityPolicyStore, ruleStore, groupStore := service.getSecurityPolicyResourceStores()
+	infraGroupStore, infraShareStore, projectGroupStore, projectShareStore := service.getVPCShareResourceStores()
+
+	// For normal SecurityPolicy deletion process, which means that SecurityPolicy has corresponding NSX SecurityPolicy object
 	// And for SecurityPolicy GC or cleanup process, which means that SecurityPolicy doesn't exist in K8s any more
-	// but still has corresponding nsx SecurityPolicy object.
+	// but still has corresponding NSX SecurityPolicy object.
 	// We use SecurityPolicy's UID from store to get NSX SecurityPolicy object
 	indexScope := common.TagValueScopeSecurityPolicyUID
 	if createdFor == common.ResourceTypeNetworkPolicy {
 		indexScope = common.TagScopeNetworkPolicyUID
 	}
 	existingSecurityPolices := securityPolicyStore.GetByIndex(indexScope, string(sp))
+	existingNsxInfraShares := infraShareStore.GetByIndex(indexScope, string(sp))
+	existingNsxInfraShareGroups := infraGroupStore.GetByIndex(indexScope, string(sp))
+	if isVPCCleanupOrGC && len(existingSecurityPolices) == 0 && (len(existingNsxInfraShares) != 0 || len(existingNsxInfraShareGroups) != 0) {
+		// There is a specific case that needs to be handle in GC process, that is,
+		// When the NSX security policy, rules, and groups at the VPC level are deleted,
+		// The following infra API call to delete infra share resources fail or NSX Operator restarts suddenly.
+		// So, there are no more NSX security policy but the related NSX infra share resources became stale.
+		log.Info("NSX SecurityPolicy is not found in store, but there are stale NSX infra share resource to be GC", "nsxSecurityPolicyUID", sp, "createdFor", createdFor)
+		return service.gcInfraSharesGroups(sp, indexScope)
+	}
 	if len(existingSecurityPolices) == 0 {
-		log.Info("NSX security policy is not found in store, skip deleting it", "nsxSecurityPolicyUID", sp, "createdFor", createdFor)
+		log.Info("NSX SecurityPolicy is not found in store, skip deleting it", "nsxSecurityPolicyUID", sp, "createdFor", createdFor)
 		return nil
 	}
 	nsxSecurityPolicy = existingSecurityPolices[0]
@@ -732,10 +739,14 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(sp types.UID, crea
 		return err
 	}
 	vpcInfo, _ := common.ParseVPCResourcePath(*(nsxSecurityPolicy.Path))
+	isDefaultProject := false
+	if vpcInfo.ProjectID == common.DefaultProject {
+		isDefaultProject = true
+	}
 
 	nsxSecurityPolicy.MarkedForDelete = &MarkedForDelete
 
-	// There is no nsx groups/rules in the security policy retrieved from securityPolicy store.
+	// There is no NSX groups/rules in the security policy retrieved from securityPolicy store.
 	// The groups/rules associated the deleting security policy can only be gotten from group/rule store.
 	existingGroups := groupStore.GetByIndex(indexScope, string(sp))
 	service.markDeleteGroups(existingGroups, nsxGroups, sp)
@@ -744,64 +755,36 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(sp types.UID, crea
 	service.markDeleteRules(existingRules, nsxRules, sp)
 	nsxSecurityPolicy.Rules = *nsxRules
 
-	existingNsxProjectGroups := projectGroupStore.GetByIndex(indexScope, string(sp))
-	service.markDeleteGroups(existingNsxProjectGroups, nsxProjectGroups, sp)
+	var existingNsxShares []*model.Share
+	var existingNsxGroups []*model.Group
+	if isDefaultProject {
+		existingNsxShares = infraShareStore.GetByIndex(indexScope, string(sp))
+		existingNsxGroups = infraGroupStore.GetByIndex(indexScope, string(sp))
+	} else {
+		existingNsxShares = projectShareStore.GetByIndex(indexScope, string(sp))
+		existingNsxGroups = projectGroupStore.GetByIndex(indexScope, string(sp))
+	}
+	service.markDeleteShares(existingNsxShares, nsxShares, sp)
+	service.markDeleteGroups(existingNsxGroups, nsxShareGroups, sp)
 
-	existingNsxProjectShares := shareStore.GetByIndex(indexScope, string(sp))
-	service.markDeleteShares(existingNsxProjectShares, nsxProjectShares, sp)
-
-	// WrapHierarchyVpcSecurityPolicy will modify the input security policy, so we need to make a copy for the following store update.
+	// wrapHierarchyVpcSecurityPolicy will modify the input security policy, so we need to make a copy for the following store update.
 	finalSecurityPolicyCopy := *nsxSecurityPolicy
 	finalSecurityPolicyCopy.Rules = nsxSecurityPolicy.Rules
 
-	// 1.Wrap project groups and shares into project child infra.
-	var projectInfra []*data.StructValue
-	if len(*nsxProjectShares) != 0 || len(*nsxProjectGroups) != 0 {
-		projectInfra, err = service.wrapHierarchyProjectResources(*nsxProjectShares, *nsxProjectGroups)
-		if err != nil {
-			log.Error(err, "failed to wrap project groups and shares", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
-			return err
-		}
+	if !isDefaultProject {
+		_, err = service.manipulateSecurityPolicy(nsxSecurityPolicy, *nsxGroups, *nsxShares, *nsxShareGroups, true, &vpcInfo)
+	} else {
+		_, err = service.manipulateSecurityPolicyForDefaultProject(nsxSecurityPolicy, *nsxGroups, *nsxShares, *nsxShareGroups, true, &vpcInfo)
 	}
-
-	// 2.Wrap SecurityPolicy, groups, rules under VPC level together with project groups and shares into one hierarchy resource tree.
-	orgRoot, err := service.WrapHierarchyVpcSecurityPolicy(nsxSecurityPolicy, *nsxGroups, projectInfra, &vpcInfo)
 	if err != nil {
-		log.Error(err, "failed to wrap SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 		return err
 	}
-
-	// 3.Create/update SecurityPolicy together with groups, rules under VPC level and project groups, shares.
-	err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
-	err = nsxutil.NSXApiError(err)
+	err = service.applySecurityPolicyStore(finalSecurityPolicyCopy, finalSecurityPolicyCopy.Rules, *nsxGroups, true)
 	if err != nil {
-		log.Error(err, "failed to delete SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 		return err
 	}
-
-	err = securityPolicyStore.Apply(&finalSecurityPolicyCopy)
+	err = service.applyVPCShareResourceStore(*nsxShares, *nsxShareGroups, isDefaultProject)
 	if err != nil {
-		log.Error(err, "failed to apply store", "securityPolicy", finalSecurityPolicyCopy)
-		return err
-	}
-	err = ruleStore.Apply(&finalSecurityPolicyCopy.Rules)
-	if err != nil {
-		log.Error(err, "failed to apply store", "nsxRules", finalSecurityPolicyCopy.Rules)
-		return err
-	}
-	err = groupStore.Apply(nsxGroups)
-	if err != nil {
-		log.Error(err, "failed to apply store", "nsxGroups", nsxGroups)
-		return err
-	}
-	err = projectGroupStore.Apply(nsxProjectGroups)
-	if err != nil {
-		log.Error(err, "failed to apply store", "nsxProjectGroups", nsxProjectGroups)
-		return err
-	}
-	err = shareStore.Apply(nsxProjectShares)
-	if err != nil {
-		log.Error(err, "failed to apply store", "nsxProjectShares", nsxProjectShares)
 		return err
 	}
 
@@ -816,8 +799,8 @@ func (service *SecurityPolicyService) createOrUpdateGroups(obj *v1alpha1.Securit
 	for _, group := range nsxGroups {
 		group.MarkedForDelete = nil
 		finalGroups = append(finalGroups, *group)
-		if isVpcEnabled(service) {
-			vpcInfo, err = service.getVpcInfo(obj.ObjectMeta.Namespace)
+		if IsVPCEnabled(service) {
+			vpcInfo, err = service.getVPCInfo(obj.ObjectMeta.Namespace)
 			if err != nil {
 				return err
 			}
@@ -844,74 +827,19 @@ func (service *SecurityPolicyService) createOrUpdateGroups(obj *v1alpha1.Securit
 	return nil
 }
 
-func (service *SecurityPolicyService) ListSecurityPolicyID() sets.Set[string] {
-	indexScope := common.TagValueScopeSecurityPolicyUID
-
-	// List SecurityPolicyID to which groups resources are associated in group store
-	groupSet := service.groupStore.ListIndexFuncValues(indexScope)
-	// List SecurityPolicyID to which share resources are associated in share store
-	shareSet := service.shareStore.ListIndexFuncValues(indexScope)
-	policySet := service.securityPolicyStore.ListIndexFuncValues(indexScope)
-
-	return groupSet.Union(policySet).Union(shareSet)
-}
-
-func (service *SecurityPolicyService) ListNetworkPolicyID() sets.Set[string] {
-	// List ListNetworkPolicyID to which groups resources are associated in group store
-	groupSet := service.groupStore.ListIndexFuncValues(common.TagScopeNetworkPolicyUID)
-	// List service to which share resources are associated in share store
-	shareSet := service.shareStore.ListIndexFuncValues(common.TagScopeNetworkPolicyUID)
-	policySet := service.securityPolicyStore.ListIndexFuncValues(common.TagScopeNetworkPolicyUID)
-
-	return groupSet.Union(policySet).Union(shareSet)
-}
-
-func (service *SecurityPolicyService) Cleanup(ctx context.Context) error {
-	// Delete all the security policies in store
-	uids := service.ListSecurityPolicyID()
-	log.Info("cleaning up security policies created for CR", "count", len(uids))
-	for uid := range uids {
-		select {
-		case <-ctx.Done():
-			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
-		default:
-			err := service.DeleteSecurityPolicy(types.UID(uid), true, common.ResourceTypeSecurityPolicy)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	// Delete all the security policies created for network policy in store
-	uids = service.ListNetworkPolicyID()
-	log.Info("cleaning up security policies created for network policy", "count", len(uids))
-	for uid := range uids {
-		select {
-		case <-ctx.Done():
-			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
-		default:
-			err := service.DeleteSecurityPolicy(types.UID(uid), true, common.ResourceTypeNetworkPolicy)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func (service *SecurityPolicyService) updateRules(existingRules []*model.Rule, expectedRules []model.Rule) []model.Rule {
+func (service *SecurityPolicyService) getUpdateRules(existingRules []*model.Rule, expectedRules []model.Rule) []model.Rule {
 	changed, stale := common.CompareResources(RulesPtrToComparable(existingRules), RulesToComparable(expectedRules))
 	changedRules, staleRules := ComparableToRules(changed), ComparableToRules(stale)
 	finalRules := make([]model.Rule, 0)
 	for i := len(staleRules) - 1; i >= 0; i-- { // Don't use range, it would copy the element
-		staleRules[i].MarkedForDelete = &MarkedForDelete // nsx clients need this field to delete the rules
+		staleRules[i].MarkedForDelete = &MarkedForDelete // NSX clients need this field to delete the rules
 	}
 	finalRules = append(finalRules, staleRules...)
 	finalRules = append(finalRules, changedRules...)
 	return finalRules
 }
 
-func (service *SecurityPolicyService) updateGroups(existingGroups []*model.Group, expectedGroups []model.Group) []model.Group {
+func (service *SecurityPolicyService) getUpdateGroups(existingGroups []*model.Group, expectedGroups []model.Group) []model.Group {
 	changed, stale := common.CompareResources(GroupsPtrToComparable(existingGroups), GroupsToComparable(expectedGroups))
 	changedGroups, staleGroups := ComparableToGroups(changed), ComparableToGroups(stale)
 	finalGroups := make([]model.Group, 0)
@@ -923,7 +851,7 @@ func (service *SecurityPolicyService) updateGroups(existingGroups []*model.Group
 	return finalGroups
 }
 
-func (service *SecurityPolicyService) updateShares(existingShares []*model.Share, expectedShares []model.Share) []model.Share {
+func (service *SecurityPolicyService) getUpdateShares(existingShares []*model.Share, expectedShares []model.Share) []model.Share {
 	changed, stale := common.CompareResources(SharesPtrToComparable(existingShares), SharesToComparable(expectedShares))
 	changedShares, staleShares := ComparableToShares(changed), ComparableToShares(stale)
 	for i := len(staleShares) - 1; i >= 0; i-- {
@@ -974,12 +902,293 @@ func (service *SecurityPolicyService) markDeleteShares(existingShares []*model.S
 	}
 }
 
-func (service *SecurityPolicyService) getVpcInfo(spNameSpace string) (*common.VPCResourceInfo, error) {
-	VPCInfo := service.vpcService.ListVPCInfo(spNameSpace)
-	if len(VPCInfo) == 0 {
+// Using hierarchy API call to manipulate SecurityPolicy CRUD on the whole resource tree for non-Default Project.
+func (service *SecurityPolicyService) manipulateSecurityPolicy(nsxSecurityPolicy *model.SecurityPolicy, nsxGroups []model.Group,
+	nsxShares []model.Share, nsxShareGroups []model.Group, isDelete bool, vpcInfo *common.VPCResourceInfo,
+) (model.SecurityPolicy, error) {
+	var err error
+	var projectInfraResource []*data.StructValue
+	nsxGetSecurityPolicy := model.SecurityPolicy{}
+
+	if len(nsxShares) != 0 {
+		// Wrap project groups and shares into project child infra.
+		projectInfraResource, err = service.wrapHierarchyProjectResources(nsxShares, nsxShareGroups)
+		if err != nil {
+			log.Error(err, "failed to wrap NSX project groups and shares", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+			return nsxGetSecurityPolicy, err
+		}
+	}
+
+	// Wrap SecurityPolicy, groups, rules under VPC level together with project groups and shares into one hierarchy resource tree.
+	orgRoot, err := service.wrapHierarchyVpcSecurityPolicy(nsxSecurityPolicy, nsxGroups, projectInfraResource, vpcInfo)
+	if err != nil {
+		log.Error(err, "failed to wrap SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+		return nsxGetSecurityPolicy, err
+	}
+
+	// Create/update or delete SecurityPolicy together with groups, rules under VPC level and project groups, shares.
+	err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
+	err = nsxutil.NSXApiError(err)
+	if err != nil {
+		log.Error(err, "failed to create/update or delete SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+		return nsxGetSecurityPolicy, err
+	}
+
+	if !isDelete {
+		// Get SecurityPolicy from NSX after HAPI call as NSX renders several fields like `path`/`parent_path`.
+		nsxGetSecurityPolicy, err = service.NSXClient.VPCSecurityClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *nsxSecurityPolicy.Id)
+		err = nsxutil.NSXApiError(err)
+		if err != nil {
+			log.Error(err, "failed to get SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+			return nsxGetSecurityPolicy, err
+		}
+	}
+
+	return nsxGetSecurityPolicy, nil
+}
+
+// Using hierarchy API call to manipulate SecurityPolicy CRUD on the whole resource tree for Default Project
+func (service *SecurityPolicyService) manipulateSecurityPolicyForDefaultProject(nsxSecurityPolicy *model.SecurityPolicy, nsxGroups []model.Group,
+	nsxShares []model.Share, nsxShareGroups []model.Group, isDelete bool, vpcInfo *common.VPCResourceInfo,
+) (model.SecurityPolicy, error) {
+	var err error
+	var infraResource *model.Infra
+	var projectInfraResource []*data.StructValue
+	nsxGetSecurityPolicy := model.SecurityPolicy{}
+
+	finalStaleShares := make([]model.Share, 0)
+	finalChangedShares := make([]model.Share, 0)
+	finalStaleShareGroups := make([]model.Group, 0)
+	finalChangedShareGroups := make([]model.Group, 0)
+
+	for i := len(nsxShares) - 1; i >= 0; i-- {
+		if nsxShares[i].MarkedForDelete != nil && (*nsxShares[i].MarkedForDelete == MarkedForDelete) {
+			finalStaleShares = append(finalStaleShares, nsxShares[i])
+		} else {
+			finalChangedShares = append(finalChangedShares, nsxShares[i])
+		}
+	}
+	for i := len(nsxShareGroups) - 1; i >= 0; i-- {
+		if nsxShareGroups[i].MarkedForDelete != nil && (*nsxShareGroups[i].MarkedForDelete == MarkedForDelete) {
+			finalStaleShareGroups = append(finalStaleShareGroups, nsxShareGroups[i])
+		} else {
+			finalChangedShareGroups = append(finalChangedShareGroups, nsxShareGroups[i])
+		}
+	}
+
+	// For create/update case,
+	// It's needed to create/update the infra resources before these resources are referred by VPC resources.
+	if !isDelete && (len(finalChangedShares) != 0 || len(finalChangedShareGroups) != 0) {
+		// Wrap infra groups and shares into infra child infra.
+		infraResource, err = service.wrapHierarchyInfraResources(finalChangedShares, finalChangedShareGroups)
+		if err != nil {
+			log.Error(err, "failed to wrap NSX infra changed groups and shares", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+			return nsxGetSecurityPolicy, err
+		}
+
+		err = service.NSXClient.InfraClient.Patch(*infraResource, &EnforceRevisionCheckParam)
+		err = nsxutil.NSXApiError(err)
+		if err != nil {
+			log.Error(err, "failed to create or update NSX infra Resource", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+			return nsxGetSecurityPolicy, err
+		}
+
+	}
+
+	// Wrap SecurityPolicy, groups, rules under VPC level into one hierarchy resource tree.
+	orgRoot, err := service.wrapHierarchyVpcSecurityPolicy(nsxSecurityPolicy, nsxGroups, projectInfraResource, vpcInfo)
+	if err != nil {
+		log.Error(err, "failed to wrap SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+		return nsxGetSecurityPolicy, err
+	}
+
+	// Create/update or delete SecurityPolicy together with groups, rules under VPC level.
+	err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
+	err = nsxutil.NSXApiError(err)
+	if err != nil {
+		log.Error(err, "failed to create/update or delete SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+		return nsxGetSecurityPolicy, err
+	}
+
+	// For delete/update case,
+	// The infra share resources can be deleted only after the rules under VPC level which are referring the share resources have been deleted.
+	if len(finalStaleShares) != 0 || len(finalStaleShareGroups) != 0 {
+		// Wrap infra groups and shares into infra child infra.
+		infraResource, err = service.wrapHierarchyInfraResources(finalStaleShares, finalStaleShareGroups)
+		if err != nil {
+			log.Error(err, "failed to wrap NSX infra stale groups and shares", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+			return nsxGetSecurityPolicy, err
+		}
+		err = service.NSXClient.InfraClient.Patch(*infraResource, &EnforceRevisionCheckParam)
+		err = nsxutil.NSXApiError(err)
+		if err != nil {
+			log.Error(err, "failed to delete NSX infra Resource", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+			return nsxGetSecurityPolicy, err
+		}
+	}
+
+	if !isDelete {
+		// Get SecurityPolicy from NSX after HAPI call as NSX renders several fields like `path`/`parent_path`.
+		nsxGetSecurityPolicy, err = service.NSXClient.VPCSecurityClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *nsxSecurityPolicy.Id)
+		err = nsxutil.NSXApiError(err)
+		if err != nil {
+			log.Error(err, "failed to get SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+			return nsxGetSecurityPolicy, err
+		}
+	}
+
+	return nsxGetSecurityPolicy, nil
+}
+
+func (service *SecurityPolicyService) applySecurityPolicyStore(nsxSecurityPolicy model.SecurityPolicy, nsxRules []model.Rule, nsxGroups []model.Group, isChanged bool) error {
+	var err error
+	securityPolicyStore, ruleStore, groupStore := service.getSecurityPolicyResourceStores()
+	if isChanged {
+		err = securityPolicyStore.Apply(&nsxSecurityPolicy)
+		if err != nil {
+			log.Error(err, "failed to apply store", "securityPolicy", nsxSecurityPolicy)
+			return err
+		}
+	}
+
+	err = ruleStore.Apply(&nsxRules)
+	if err != nil {
+		log.Error(err, "failed to apply store", "nsxRules", nsxRules)
+		return err
+	}
+	err = groupStore.Apply(&nsxGroups)
+	if err != nil {
+		log.Error(err, "failed to apply store", "nsxGroups", nsxGroups)
+		return err
+	}
+	return nil
+}
+
+func (service *SecurityPolicyService) applyVPCShareResourceStore(nsxShares []model.Share, nsxShareGroups []model.Group, isDefaultProject bool) error {
+	var err error
+	infraGroupStore, infraShareStore, projectGroupStore, projectShareStore := service.getVPCShareResourceStores()
+	if isDefaultProject {
+		err = infraGroupStore.Apply(&nsxShareGroups)
+		if err != nil {
+			log.Error(err, "failed to apply store", "nsxInfraGroups", nsxShareGroups)
+			return err
+		}
+		err = infraShareStore.Apply(&nsxShares)
+		if err != nil {
+			log.Error(err, "failed to apply store", "nsxInfraShares", nsxShares)
+			return err
+		}
+	} else {
+		err = projectGroupStore.Apply(&nsxShareGroups)
+		if err != nil {
+			log.Error(err, "failed to apply store", "nsxProjectGroups", nsxShareGroups)
+			return err
+		}
+		err = projectShareStore.Apply(&nsxShares)
+		if err != nil {
+			log.Error(err, "failed to apply store", "nsxProjectShares", nsxShares)
+			return err
+		}
+	}
+	return nil
+}
+
+func (service *SecurityPolicyService) ListSecurityPolicyID() sets.Set[string] {
+	indexScope := common.TagValueScopeSecurityPolicyUID
+	return service.getGCSecurityPolicyIDSet(indexScope)
+}
+
+func (service *SecurityPolicyService) ListNetworkPolicyID() sets.Set[string] {
+	indexScope := common.TagScopeNetworkPolicyUID
+	return service.getGCSecurityPolicyIDSet(indexScope)
+}
+
+func (service *SecurityPolicyService) Cleanup(ctx context.Context) error {
+	// Delete all the security policies in store
+	uids := service.ListSecurityPolicyID()
+	log.Info("cleaning up security policies created for CR", "count", len(uids))
+	for uid := range uids {
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			err := service.DeleteSecurityPolicy(types.UID(uid), true, common.ResourceTypeSecurityPolicy)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// Delete all the security policies created for network policy in store
+	uids = service.ListNetworkPolicyID()
+	log.Info("cleaning up security policies created for network policy", "count", len(uids))
+	for uid := range uids {
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			err := service.DeleteSecurityPolicy(types.UID(uid), true, common.ResourceTypeNetworkPolicy)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (service *SecurityPolicyService) gcInfraSharesGroups(sp types.UID, indexScope string) error {
+	var err error
+	var infraResource *model.Infra
+	var existingNsxShares []*model.Share
+	var existingNsxGroups []*model.Group
+	g1 := make([]model.Group, 0)
+	s := make([]model.Share, 0)
+	nsxShares := &s
+	nsxShareGroups := &g1
+
+	infraGroupStore, infraShareStore, _, _ := service.getVPCShareResourceStores()
+	existingNsxShares = infraShareStore.GetByIndex(indexScope, string(sp))
+	existingNsxGroups = infraGroupStore.GetByIndex(indexScope, string(sp))
+
+	service.markDeleteShares(existingNsxShares, nsxShares, sp)
+	service.markDeleteGroups(existingNsxGroups, nsxShareGroups, sp)
+
+	infraResource, err = service.wrapHierarchyInfraResources(*nsxShares, *nsxShareGroups)
+	if err != nil {
+		log.Error(err, "failed to wrap NSX infra groups and shares", "securityPolicyUID", sp)
+		return err
+	}
+	err = service.NSXClient.InfraClient.Patch(*infraResource, &EnforceRevisionCheckParam)
+	err = nsxutil.NSXApiError(err)
+	if err != nil {
+		log.Error(err, "failed to delete NSX infra Resource in GC", "securityPolicyUID", sp)
+		return err
+	}
+	return nil
+}
+
+func (service *SecurityPolicyService) getGCSecurityPolicyIDSet(indexScope string) sets.Set[string] {
+	// List SecurityPolicyID to which groups resources are associated in group store
+	groupSet := service.groupStore.ListIndexFuncValues(indexScope)
+
+	policySet := service.securityPolicyStore.ListIndexFuncValues(indexScope)
+
+	// List SecurityPolicyID to which share resources are associated in project share/group store
+	projectShareSet := service.projectShareStore.ListIndexFuncValues(indexScope)
+	projectGroupSet := service.projectGroupStore.ListIndexFuncValues(indexScope)
+	// List SecurityPolicyID to which share resources are associated in infra share/group store
+	infraShareSet := service.infraShareStore.ListIndexFuncValues(indexScope)
+	infraGroupSet := service.infraGroupStore.ListIndexFuncValues(indexScope)
+
+	return groupSet.Union(policySet).Union(projectShareSet).Union(projectGroupSet).Union(infraShareSet).Union(infraGroupSet)
+}
+
+func (service *SecurityPolicyService) getVPCInfo(spNameSpace string) (*common.VPCResourceInfo, error) {
+	vpcInfo := service.vpcService.ListVPCInfo(spNameSpace)
+	if len(vpcInfo) == 0 {
 		errorMsg := fmt.Sprintf("there is no VPC info found for namespace %s", spNameSpace)
 		err := errors.New(errorMsg)
 		return nil, err
 	}
-	return &VPCInfo[0], nil
+	return &vpcInfo[0], nil
 }

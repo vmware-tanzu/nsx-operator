@@ -49,16 +49,20 @@ func getDomain(service *SecurityPolicyService) string {
 	return getCluster(service)
 }
 
-func getVpcProjectDomain() string {
+func getVPCProjectDomain() string {
 	return "default"
 }
 
-func isVpcEnabled(service *SecurityPolicyService) bool {
+func getDefaultProjectDomain() string {
+	return "default"
+}
+
+func IsVPCEnabled(service *SecurityPolicyService) bool {
 	return service.NSXConfig.EnableVPCNetwork
 }
 
 func getScopeCluserTag(service *SecurityPolicyService) string {
-	if isVpcEnabled(service) {
+	if IsVPCEnabled(service) {
 		return common.TagScopeCluster
 	} else {
 		return common.TagScopeNCPCluster
@@ -66,7 +70,7 @@ func getScopeCluserTag(service *SecurityPolicyService) string {
 }
 
 func getScopePodTag(service *SecurityPolicyService) string {
-	if isVpcEnabled(service) {
+	if IsVPCEnabled(service) {
 		return common.TagScopePodUID
 	} else {
 		return common.TagScopeNCPPod
@@ -74,7 +78,7 @@ func getScopePodTag(service *SecurityPolicyService) string {
 }
 
 func getScopeVMInterfaceTag(service *SecurityPolicyService) string {
-	if isVpcEnabled(service) {
+	if IsVPCEnabled(service) {
 		return common.TagScopeSubnetPortCRUID
 	} else {
 		return common.TagScopeNCPVNETInterface
@@ -82,7 +86,7 @@ func getScopeVMInterfaceTag(service *SecurityPolicyService) string {
 }
 
 func getScopeNamespaceUIDTag(service *SecurityPolicyService, isVMNameSpace bool) string {
-	if isVpcEnabled(service) {
+	if IsVPCEnabled(service) {
 		if isVMNameSpace {
 			return common.TagScopeVMNamespaceUID
 		} else {

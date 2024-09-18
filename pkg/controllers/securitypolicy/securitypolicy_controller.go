@@ -88,7 +88,7 @@ func deleteSuccess(r *SecurityPolicyReconciler, _ context.Context, o *v1alpha1.S
 
 func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var obj client.Object
-	if r.Service.NSXConfig.EnableVPCNetwork {
+	if securitypolicy.IsVPCEnabled(r.Service) {
 		obj = &crdv1alpha1.SecurityPolicy{}
 	} else {
 		obj = &v1alpha1.SecurityPolicy{}
@@ -149,6 +149,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			return ResultNormal, nil
 		}
 
+		log.Info("reconciling CR to create or update securitypolicy", "securitypolicy", req.NamespacedName)
 		if err := r.Service.CreateOrUpdateSecurityPolicy(realObj); err != nil {
 			if errors.As(err, &nsxutil.RestrictionError{}) {
 				log.Error(err, err.Error(), "securitypolicy", req.NamespacedName)
@@ -181,6 +182,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 		updateSuccess(r, ctx, realObj)
 	} else {
+		log.Info("reconciling CR to delete securitypolicy", "securitypolicy", req.NamespacedName)
 		if controllerutil.ContainsFinalizer(obj, finalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
 			if err := r.Service.DeleteSecurityPolicy(realObj.UID, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
@@ -242,7 +244,7 @@ func (r *SecurityPolicyReconciler) updateSecurityPolicyStatusConditions(ctx cont
 		}
 	}
 	if conditionsUpdated {
-		if r.Service.NSXConfig.EnableVPCNetwork {
+		if securitypolicy.IsVPCEnabled(r.Service) {
 			finalObj := securitypolicy.T1ToVPC(secPolicy)
 			err := r.Client.Status().Update(ctx, finalObj)
 			if err != nil {
@@ -288,7 +290,7 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 
 func (r *SecurityPolicyReconciler) setupWithManager(mgr ctrl.Manager) error {
 	var blr *builder.Builder
-	if r.Service.NSXConfig.EnableVPCNetwork {
+	if securitypolicy.IsVPCEnabled(r.Service) {
 		blr = ctrl.NewControllerManagedBy(mgr).For(&crdv1alpha1.SecurityPolicy{})
 	} else {
 		blr = ctrl.NewControllerManagedBy(mgr).For(&v1alpha1.SecurityPolicy{})
@@ -330,7 +332,7 @@ func (r *SecurityPolicyReconciler) CollectGarbage(ctx context.Context) {
 	}
 
 	var objectList client.ObjectList
-	if r.Service.NSXConfig.EnableVPCNetwork {
+	if securitypolicy.IsVPCEnabled(r.Service) {
 		objectList = &crdv1alpha1.SecurityPolicyList{}
 	} else {
 		objectList = &v1alpha1.SecurityPolicyList{}
@@ -357,9 +359,9 @@ func (r *SecurityPolicyReconciler) CollectGarbage(ctx context.Context) {
 
 	diffSet := nsxPolicySet.Difference(CRPolicySet)
 	for elem := range diffSet {
-		log.V(1).Info("GC collected SecurityPolicy CR", "UID", elem)
+		log.V(1).Info("GC collected SecurityPolicy CR", "securityPolicyUID", elem)
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
-		err = r.Service.DeleteSecurityPolicy(types.UID(elem), false, servicecommon.ResourceTypeSecurityPolicy)
+		err = r.Service.DeleteSecurityPolicy(types.UID(elem), true, servicecommon.ResourceTypeSecurityPolicy)
 		if err != nil {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 		} else {
@@ -373,7 +375,7 @@ func reconcileSecurityPolicy(r *SecurityPolicyReconciler, pkgclient client.Clien
 	podPortNames := getAllPodPortNames(pods)
 	log.V(1).Info("pod named port", "podPortNames", podPortNames)
 	var spList client.ObjectList
-	if r.Service.NSXConfig.EnableVPCNetwork {
+	if securitypolicy.IsVPCEnabled(r.Service) {
 		spList = &crdv1alpha1.SecurityPolicyList{}
 	} else {
 		spList = &v1alpha1.SecurityPolicyList{}

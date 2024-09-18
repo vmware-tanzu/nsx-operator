@@ -74,14 +74,14 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				if vpcNetworkConfig == nil {
 					err := fmt.Errorf("operate failed: cannot get configuration for Subnet CR")
 					log.Error(nil, "failed to find VPCNetworkConfig for Subnet CR", "subnet", req.NamespacedName, "namespace %s", obj.Namespace)
-					updateFail(r, ctx, obj, "")
+					updateFail(r, ctx, obj, err.Error())
 					return ResultRequeue, err
 				}
 				obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
 			}
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "subnet", req.NamespacedName)
-				updateFail(r, ctx, obj, "")
+				updateFail(r, ctx, obj, err.Error())
 				return ResultRequeue, err
 			}
 			log.V(1).Info("added finalizer on subnet CR", "subnet", req.NamespacedName)
@@ -101,12 +101,12 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				return ResultNormal, nil
 			}
 			log.Error(err, "operate failed, would retry exponentially", "subnet", req.NamespacedName)
-			updateFail(r, ctx, obj, "")
+			updateFail(r, ctx, obj, err.Error())
 			return ResultRequeue, err
 		}
 		if err := r.updateSubnetStatus(obj); err != nil {
 			log.Error(err, "update subnet status failed, would retry exponentially", "subnet", req.NamespacedName)
-			updateFail(r, ctx, obj, "")
+			updateFail(r, ctx, obj, err.Error())
 			return ResultRequeue, err
 		}
 		updateSuccess(r, ctx, obj)
@@ -115,13 +115,13 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnet)
 			if err := r.DeleteSubnet(*obj); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "subnet", req.NamespacedName)
-				deleteFail(r, ctx, obj, "")
+				deleteFail(r, ctx, obj, err.Error())
 				return ResultRequeue, err
 			}
 			controllerutil.RemoveFinalizer(obj, servicecommon.SubnetFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "subnet", req.NamespacedName)
-				deleteFail(r, ctx, obj, "")
+				deleteFail(r, ctx, obj, err.Error())
 				return ResultRequeue, err
 			}
 			log.V(1).Info("removed finalizer", "subnet", req.NamespacedName)

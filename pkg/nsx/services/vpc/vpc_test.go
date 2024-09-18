@@ -577,7 +577,7 @@ func TestGetLbProvider(t *testing.T) {
 	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
 		return nil, nil
 	})
-	vpcService.LbsStore.Add(&model.LBService{Id: common.String("12345")})
+	vpcService.LbsStore.Add(&model.LBService{Id: &defaultLBSName, ConnectivityPath: common.String("12345")})
 	lbProvider = vpcService.getLBProvider(true)
 	assert.Equal(t, NSXLB, lbProvider)
 	patch.Reset()
@@ -590,7 +590,7 @@ func TestGetLbProvider(t *testing.T) {
 			return nil, util.HttpNotFoundError
 		}
 	})
-	vpcService.LbsStore.Add(&model.LBService{Id: common.String("12345")})
+	vpcService.LbsStore.Add(&model.LBService{Id: &defaultLBSName, ConnectivityPath: common.String("12345")})
 	lbProvider = vpcService.getLBProvider(false)
 	assert.Equal(t, NoneLB, lbProvider)
 	patch.Reset()
@@ -646,26 +646,6 @@ func TestValidateGatewayConnectionStatus(t *testing.T) {
 		expectedReason       string
 		expectedError        error
 	}{
-		{
-			name: "EdgeMissingInProject",
-			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
-				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.ProjectClient), "Get", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{
-						model.Project{},
-						nil,
-					},
-					Times: 1,
-				}})
-				return patches
-			},
-			vpcNetworkConfigInfo: common.VPCNetworkConfigInfo{
-				Org:        "default",
-				NSXProject: "project-quality",
-			},
-			expectedReady:  false,
-			expectedReason: "EdgeMissingInProject",
-			expectedError:  nil,
-		},
 		{
 			name: "GatewayConnectionNotSet",
 			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
@@ -728,18 +708,7 @@ func TestValidateGatewayConnectionStatus(t *testing.T) {
 		{
 			name: "DistributedGatewayConnectionNotSupported",
 			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
-				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.ProjectClient), "Get", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{
-						model.Project{
-							SiteInfos: []model.SiteInfo{
-								{EdgeClusterPaths: []string{"edge"}},
-							},
-						},
-						nil,
-					},
-					Times: 1,
-				}})
-				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "List", []gomonkey.OutputCell{{
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{
 						model.VpcConnectivityProfileListResult{
 							Results: []model.VpcConnectivityProfile{
