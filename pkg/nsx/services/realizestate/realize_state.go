@@ -44,7 +44,7 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 		return !IsRealizeStateError(err)
 	}, func() error {
 		results, err := service.NSXClient.RealizedEntitiesClient.List(vpcInfo.OrgID, vpcInfo.ProjectID, intentPath, nil)
-		err = nsxutil.NSXApiError(err)
+		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
 			return err
 		}

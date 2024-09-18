@@ -512,14 +512,14 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 		return err
 	}
 	err = service.NSXClient.InfraClient.Patch(*infraSecurityPolicy, &EnforceRevisionCheckParam)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to create or update SecurityPolicy", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
 		return err
 	}
 	// Get SecurityPolicy from NSX after HAPI call as NSX renders several fields like `path`/`parent_path`.
 	finalGetNSXSecurityPolicy, err := service.NSXClient.SecurityClient.Get(getDomain(service), *finalSecurityPolicy.Id)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to get SecurityPolicy", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
 		return err
@@ -665,7 +665,7 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(sp types.UID) error {
 		return err
 	}
 	err = service.NSXClient.InfraClient.Patch(*infraSecurityPolicy, &EnforceRevisionCheckParam)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to delete SecurityPolicy", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 		return err
@@ -809,10 +809,10 @@ func (service *SecurityPolicyService) createOrUpdateGroups(obj *v1alpha1.Securit
 			vpcId := (*vpcInfo).VPCID
 
 			err = service.NSXClient.VpcGroupClient.Patch(orgId, projectId, vpcId, *group.Id, *group)
-			err = nsxutil.NSXApiError(err)
+			err = nsxutil.TransNSXApiError(err)
 		} else {
 			err = service.NSXClient.GroupClient.Patch(getDomain(service), *group.Id, *group)
-			err = nsxutil.NSXApiError(err)
+			err = nsxutil.TransNSXApiError(err)
 		}
 	}
 
@@ -928,7 +928,7 @@ func (service *SecurityPolicyService) manipulateSecurityPolicy(nsxSecurityPolicy
 
 	// Create/update or delete SecurityPolicy together with groups, rules under VPC level and project groups, shares.
 	err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to create/update or delete SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 		return nsxGetSecurityPolicy, err
@@ -937,7 +937,7 @@ func (service *SecurityPolicyService) manipulateSecurityPolicy(nsxSecurityPolicy
 	if !isDelete {
 		// Get SecurityPolicy from NSX after HAPI call as NSX renders several fields like `path`/`parent_path`.
 		nsxGetSecurityPolicy, err = service.NSXClient.VPCSecurityClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *nsxSecurityPolicy.Id)
-		err = nsxutil.NSXApiError(err)
+		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
 			log.Error(err, "failed to get SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 			return nsxGetSecurityPolicy, err
@@ -987,7 +987,7 @@ func (service *SecurityPolicyService) manipulateSecurityPolicyForDefaultProject(
 		}
 
 		err = service.NSXClient.InfraClient.Patch(*infraResource, &EnforceRevisionCheckParam)
-		err = nsxutil.NSXApiError(err)
+		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
 			log.Error(err, "failed to create or update NSX infra Resource", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 			return nsxGetSecurityPolicy, err
@@ -1004,7 +1004,7 @@ func (service *SecurityPolicyService) manipulateSecurityPolicyForDefaultProject(
 
 	// Create/update or delete SecurityPolicy together with groups, rules under VPC level.
 	err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to create/update or delete SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 		return nsxGetSecurityPolicy, err
@@ -1020,7 +1020,7 @@ func (service *SecurityPolicyService) manipulateSecurityPolicyForDefaultProject(
 			return nsxGetSecurityPolicy, err
 		}
 		err = service.NSXClient.InfraClient.Patch(*infraResource, &EnforceRevisionCheckParam)
-		err = nsxutil.NSXApiError(err)
+		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
 			log.Error(err, "failed to delete NSX infra Resource", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 			return nsxGetSecurityPolicy, err
@@ -1030,7 +1030,7 @@ func (service *SecurityPolicyService) manipulateSecurityPolicyForDefaultProject(
 	if !isDelete {
 		// Get SecurityPolicy from NSX after HAPI call as NSX renders several fields like `path`/`parent_path`.
 		nsxGetSecurityPolicy, err = service.NSXClient.VPCSecurityClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *nsxSecurityPolicy.Id)
-		err = nsxutil.NSXApiError(err)
+		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
 			log.Error(err, "failed to get SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 			return nsxGetSecurityPolicy, err
@@ -1159,7 +1159,7 @@ func (service *SecurityPolicyService) gcInfraSharesGroups(sp types.UID, indexSco
 		return err
 	}
 	err = service.NSXClient.InfraClient.Patch(*infraResource, &EnforceRevisionCheckParam)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to delete NSX infra Resource in GC", "securityPolicyUID", sp)
 		return err

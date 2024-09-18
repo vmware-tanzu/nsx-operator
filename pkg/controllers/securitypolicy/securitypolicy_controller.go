@@ -86,6 +86,35 @@ func deleteSuccess(r *SecurityPolicyReconciler, _ context.Context, o *v1alpha1.S
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
 }
 
+func setSecurityPolicyErrorAnnotation(ctx context.Context, securityPolicy *v1alpha1.SecurityPolicy, client client.Client, info string) {
+	if securityPolicy.Annotations == nil {
+		securityPolicy.Annotations = make(map[string]string)
+	}
+	if securityPolicy.Annotations[common.NSXOperatorError] == info {
+		return
+	}
+	securityPolicy.Annotations[common.NSXOperatorError] = info
+	updateErr := client.Update(ctx, securityPolicy)
+	if updateErr != nil {
+		log.Error(updateErr, "Failed to update SecurityPolicy with error annotation")
+	}
+	log.Info("update SecurityPolicy with error annotation", "error", info)
+}
+
+func cleanSecurityPolicyErrorAnnotation(ctx context.Context, securityPolicy *v1alpha1.SecurityPolicy, client client.Client) {
+	if securityPolicy.Annotations == nil {
+		return
+	}
+	if _, exists := securityPolicy.Annotations[common.NSXOperatorError]; exists {
+		delete(securityPolicy.Annotations, common.NSXOperatorError)
+	}
+	updateErr := client.Update(ctx, securityPolicy)
+	if updateErr != nil {
+		log.Error(updateErr, "Failed to clean SecurityPolicy annotation")
+	}
+	log.Info("clean SecurityPolicy annotation")
+}
+
 func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var obj client.Object
 	if securitypolicy.IsVPCEnabled(r.Service) {
@@ -153,34 +182,21 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if err := r.Service.CreateOrUpdateSecurityPolicy(realObj); err != nil {
 			if errors.As(err, &nsxutil.RestrictionError{}) {
 				log.Error(err, err.Error(), "securitypolicy", req.NamespacedName)
+				setSecurityPolicyErrorAnnotation(ctx, realObj, r.Client, common.ErrorNoDFWLicense)
 				updateFail(r, ctx, realObj, &err)
 				return ResultNormal, nil
 			}
-			// check if invalid license
-			apiErr, _ := nsxutil.DumpAPIError(err)
-			if apiErr != nil {
-				invalidLicense := false
-				errorMessage := ""
-				for _, apiErrItem := range apiErr.RelatedErrors {
-					if *apiErrItem.ErrorCode == nsxutil.InvalidLicenseErrorCode {
-						invalidLicense = true
-						errorMessage = *apiErrItem.ErrorMessage
-					}
-				}
-				if *apiErr.ErrorCode == nsxutil.InvalidLicenseErrorCode {
-					invalidLicense = true
-					errorMessage = *apiErr.ErrorMessage
-				}
-				if invalidLicense {
-					log.Error(err, "Invalid license, nsx-operator will restart", "error message", errorMessage)
-					os.Exit(1)
-				}
+			if nsxutil.IsInvalidLicense(err) {
+				log.Error(err, err.Error(), "securitypolicy", req.NamespacedName)
+				setSecurityPolicyErrorAnnotation(ctx, realObj, r.Client, common.ErrorNoDFWLicense)
+				os.Exit(1)
 			}
 			log.Error(err, "create or update failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 			updateFail(r, ctx, realObj, &err)
 			return ResultRequeue, err
 		}
 		updateSuccess(r, ctx, realObj)
+		cleanSecurityPolicyErrorAnnotation(ctx, realObj, r.Client)
 	} else {
 		log.Info("reconciling CR to delete securitypolicy", "securitypolicy", req.NamespacedName)
 		if controllerutil.ContainsFinalizer(obj, finalizerName) {
