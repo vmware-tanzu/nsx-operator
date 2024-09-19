@@ -32,4 +32,4 @@ flag_management:
     carryforward: true
 
 ignore:
-  - "**/testing/*.go"
+  - "**/test/*.go"
