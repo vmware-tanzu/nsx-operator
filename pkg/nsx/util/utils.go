@@ -322,9 +322,28 @@ func DumpHttpRequest(request *http.Request) {
 	log.V(2).Info("http request", "url", request.URL, "body", string(body), "head", request.Header)
 }
 
-// NSXApiError processes an error and returns a formatted NSX API error message if applicable.
+type NSXApiError struct {
+	*model.ApiError
+}
+
+func NewNSXApiError(apiError *model.ApiError) *NSXApiError {
+	return &NSXApiError{
+		ApiError: apiError,
+	}
+}
+func (e *NSXApiError) Error() string {
+	if e.ApiError != nil {
+		apierror := e.ApiError
+		return fmt.Sprintf("nsx error code: %d, message: %s, details: %s, related error: %s",
+			safeInt(apierror.ErrorCode), safeString(apierror.ErrorMessage), safeString(apierror.Details),
+			relatedErrorsToString(apierror.RelatedErrors))
+	}
+	return "SDKError: unknown error"
+}
+
+// TransNSXApiError processes an error and returns a formatted NSX API error message if applicable.
 // If the processed API error is nil, return the original error
-func NSXApiError(err error) error {
+func TransNSXApiError(err error) error {
 	if err == nil {
 		return err
 	}
@@ -332,9 +351,7 @@ func NSXApiError(err error) error {
 	if apierror == nil {
 		return err
 	}
-	return fmt.Errorf("nsx error code: %d, message: %s, details: %s, related error: %s",
-		safeInt(apierror.ErrorCode), safeString(apierror.ErrorMessage), safeString(apierror.Details),
-		relatedErrorsToString(apierror.RelatedErrors))
+	return NewNSXApiError(apierror)
 }
 
 func relatedErrorToString(err *model.RelatedApiError) string {
@@ -658,4 +675,26 @@ func CompareArraysWithoutOrder(oldArray []string, newArray []string) bool {
 	oldSet := sets.New(oldArray...)
 	newSet := sets.New(newArray...)
 	return oldSet.Equal(newSet)
+}
+
+func IsInvalidLicense(err error) bool {
+	invalidLicense := false
+	if apiErr, ok := err.(*NSXApiError); ok {
+		errorMessage := ""
+		for _, apiErrItem := range apiErr.RelatedErrors {
+			if *apiErrItem.ErrorCode == InvalidLicenseErrorCode {
+				invalidLicense = true
+				errorMessage = *apiErrItem.ErrorMessage
+			}
+		}
+		if *apiErr.ErrorCode == InvalidLicenseErrorCode {
+			invalidLicense = true
+			errorMessage = *apiErr.ErrorMessage
+		}
+		if invalidLicense {
+			UpdateLicense(FeatureDFW, false)
+			log.Error(err, "Invalid license, nsx-operator will restart", "error message", errorMessage)
+		}
+	}
+	return invalidLicense
 }

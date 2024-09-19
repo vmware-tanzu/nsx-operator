@@ -111,12 +111,12 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 		return "", err
 	}
 	if err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam); err != nil {
-		err = nsxutil.NSXApiError(err)
+		err = nsxutil.TransNSXApiError(err)
 		return "", err
 	}
 	// Get Subnet from NSX after patch operation as NSX renders several fields like `path`/`parent_path`.
 	if *nsxSubnet, err = service.NSXClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *nsxSubnet.Id); err != nil {
-		err = nsxutil.NSXApiError(err)
+		err = nsxutil.TransNSXApiError(err)
 		return "", err
 	}
 	realizeService := realizestate.InitializeRealizeState(service.Service)
@@ -153,7 +153,7 @@ func (service *SubnetService) DeleteSubnet(nsxSubnet model.VpcSubnet) error {
 		return err
 	}
 	if err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam); err != nil {
-		err = nsxutil.NSXApiError(err)
+		err = nsxutil.TransNSXApiError(err)
 		// Subnets that are not deleted successfully will finally be deleted by GC.
 		log.Error(err, "failed to delete Subnet", "ID", *nsxSubnet.Id)
 		return err
@@ -201,14 +201,14 @@ func (service *SubnetService) IsOrphanSubnet(subnet model.VpcSubnet, subnetsetID
 func (service *SubnetService) DeleteIPAllocation(orgID, projectID, vpcID, subnetID string) error {
 	ipAllocations, err := service.NSXClient.IPAllocationClient.List(orgID, projectID, vpcID, subnetID, ipPoolID,
 		nil, nil, nil, nil, nil, nil)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to get ip-allocations", "Subnet", subnetID)
 		return err
 	}
 	for _, alloc := range ipAllocations.Results {
 		if err = service.NSXClient.IPAllocationClient.Delete(orgID, projectID, vpcID, subnetID, ipPoolID, *alloc.Id); err != nil {
-			err = nsxutil.NSXApiError(err)
+			err = nsxutil.TransNSXApiError(err)
 			log.Error(err, "failed to delete ip-allocation", "Subnet", subnetID, "ip-alloc", *alloc.Id)
 			return err
 		}
@@ -223,7 +223,7 @@ func (service *SubnetService) GetSubnetStatus(subnet *model.VpcSubnet) ([]model.
 		return nil, err
 	}
 	statusList, err := service.NSXClient.SubnetStatusClient.List(param.OrgID, param.ProjectID, param.VPCID, *subnet.Id)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to get subnet status")
 		return nil, err
@@ -247,7 +247,7 @@ func (service *SubnetService) getIPPoolUsage(nsxSubnet *model.VpcSubnet) (*model
 		return nil, err
 	}
 	ipPool, err := service.NSXClient.IPPoolClient.Get(param.OrgID, param.ProjectID, param.VPCID, *nsxSubnet.Id, ipPoolID)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to get ip-pool", "Subnet", *nsxSubnet.Id)
 		return nil, err
