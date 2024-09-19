@@ -49,7 +49,7 @@ func Test_IndexFunc(t *testing.T) {
 func Test_KeyFunc(t *testing.T) {
 	id := "test_id"
 	subnet := model.VpcSubnet{Id: &id}
-	t.Run("1", func(t *testing.T) {
+	t.Run("subnetKeyFunc", func(t *testing.T) {
 		got, _ := keyFunc(&subnet)
 		if got != "test_id" {
 			t.Errorf("keyFunc() = %v, want %v", got, "test_id")
@@ -62,7 +62,9 @@ func Test_InitializeSubnetStore(t *testing.T) {
 	cluster, _ := nsx.NewCluster(config2)
 	rc, _ := cluster.NewRestConnector()
 
-	subnetCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSubnetCRUID: subnetIndexFunc})
+	subnetCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{
+		common.TagScopeSubnetCRUID: subnetIndexFunc,
+	})
 	service := SubnetService{
 		Service: common.Service{
 			NSXClient: &nsx.Client{
@@ -107,25 +109,27 @@ func Test_InitializeSubnetStore(t *testing.T) {
 }
 
 func TestSubnetStore_Apply(t *testing.T) {
-	subnetCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSubnetCRUID: subnetIndexFunc})
+	subnetCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{
+		common.TagScopeSubnetCRUID: subnetIndexFunc,
+	})
 	resourceStore := common.ResourceStore{
 		Indexer:     subnetCacheIndexer,
 		BindingType: model.SecurityPolicyBindingType(),
 	}
 	subnetStore := &SubnetStore{ResourceStore: resourceStore}
 	type args struct {
-		i interface{}
+		subnetVPC interface{}
 	}
 	tests := []struct {
 		name    string
 		args    args
 		wantErr assert.ErrorAssertionFunc
 	}{
-		{"1", args{i: &model.VpcSubnet{Id: common.String("1")}}, assert.NoError},
+		{"subnet with id", args{subnetVPC: &model.VpcSubnet{Id: common.String("fake-subnet-id")}}, assert.NoError},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.wantErr(t, subnetStore.Apply(tt.args.i), fmt.Sprintf("Apply(%v)", tt.args.i))
+			tt.wantErr(t, subnetStore.Apply(tt.args.subnetVPC), fmt.Sprintf("Apply(%v)", tt.args.subnetVPC))
 		})
 	}
 }

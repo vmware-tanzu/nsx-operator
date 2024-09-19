@@ -29,7 +29,7 @@ type SubnetServiceProvider interface {
 	GetSubnetByPath(path string) (*model.VpcSubnet, error)
 	GetSubnetsByIndex(key, value string) []*model.VpcSubnet
 	CreateOrUpdateSubnet(obj client.Object, vpcInfo VPCResourceInfo, tags []model.Tag) (string, error)
-	GenerateSubnetNSTags(obj client.Object, nsUID string) []model.Tag
+	GenerateSubnetNSTags(obj client.Object) []model.Tag
 	LockSubnet(path *string)
 	UnlockSubnet(path *string)
 }

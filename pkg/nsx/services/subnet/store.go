@@ -39,6 +39,24 @@ func subnetIndexFunc(obj interface{}) ([]string, error) {
 	}
 }
 
+func subnetIndexVMNamespaceFunc(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case *model.VpcSubnet:
+		return filterTag(o.Tags, common.TagScopeVMNamespace), nil
+	default:
+		return nil, errors.New("subnetIndexVMNamespaceFunc doesn't support unknown type")
+	}
+}
+
+func subnetIndexNamespaceFunc(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case *model.VpcSubnet:
+		return filterTag(o.Tags, common.TagScopeNamespace), nil
+	default:
+		return nil, errors.New("subnetIndexNamespaceFunc doesn't support unknown type")
+	}
+}
+
 // subnetIndexFunc is used to filter out NSX Subnets which are tagged with CR UID.
 func subnetSetIndexFunc(obj interface{}) ([]string, error) {
 	switch o := obj.(type) {
