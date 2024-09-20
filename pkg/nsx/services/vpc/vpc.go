@@ -1018,29 +1018,30 @@ func (s *VPCService) GetDefaultNSXLBSPathByVPC(vpcID string) string {
 }
 
 func (vpcService *VPCService) EdgeClusterEnabled(nc *common.VPCNetworkConfigInfo) bool {
-	var vpcConnectivityProfile *model.VpcConnectivityProfile
-	var getErr error
-	if err := retry.OnError(retry.DefaultBackoff, func(err error) bool {
+	isRetryableError := func(err error) bool {
 		if err == nil {
 			return false
 		}
-		_, errortype := nsxutil.DumpAPIError(err)
-		if errortype != nil && (*errortype == apierrors.ErrorType_SERVICE_UNAVAILABLE || *errortype == apierrors.ErrorType_TIMED_OUT) {
-			return true
-		} else {
-			return false
-		}
-	}, func() error {
+		_, errorType := nsxutil.DumpAPIError(err)
+		return errorType != nil && (*errorType == apierrors.ErrorType_SERVICE_UNAVAILABLE || *errorType == apierrors.ErrorType_TIMED_OUT)
+	}
+
+	var vpcConnectivityProfile *model.VpcConnectivityProfile
+	if err := retry.OnError(retry.DefaultBackoff, isRetryableError, func() error {
+		var getErr error
 		vpcConnectivityProfile, getErr = vpcService.GetVpcConnectivityProfile(nc, nc.VPCConnectivityProfile)
-		return getErr
-	}); err == nil {
-		log.Info("vpc connectivity profile", "service gateway enable", *vpcConnectivityProfile.ServiceGateway.Enable)
-		return vpcService.IsEnableAutoSNAT(vpcConnectivityProfile)
-	} else {
-		log.Error(getErr, "failed to get vpc connectivity profile", "vpc connectivity profile", nc.VPCConnectivityProfile)
+		if getErr != nil {
+			return getErr
+		}
+		log.V(1).Info("VPC connectivity profile retrieved", "profile", *vpcConnectivityProfile)
+		return nil
+	}); err != nil {
+		log.Error(err, "Failed to retrieve VPC connectivity profile", "profile", nc.VPCConnectivityProfile)
 		return false
 	}
+	return vpcService.IsEnableAutoSNAT(vpcConnectivityProfile)
 }
+
 func GetAlbEndpoint(cluster *nsx.Cluster) error {
 	_, err := cluster.HttpGet(albEndpointPath)
 	return err
@@ -1058,6 +1059,7 @@ func (vpcService *VPCService) IsEnableAutoSNAT(vpcConnectivityProfile *model.Vpc
 	}
 	return false
 }
+
 func (vpcService *VPCService) GetLBProvider() LBProvider {
 	lbProviderMutex.Lock()
 	defer lbProviderMutex.Unlock()
@@ -1079,6 +1081,7 @@ func (vpcService *VPCService) GetLBProvider() LBProvider {
 	log.Info("lb provider", "provider", globalLbProvider)
 	return globalLbProvider
 }
+
 func (vpcService *VPCService) getLBProvider(edgeEnable bool) LBProvider {
 	// if no Alb endpoint found, return nsx-lb
 	// if found, and nsx lbs found, return nsx-lb
