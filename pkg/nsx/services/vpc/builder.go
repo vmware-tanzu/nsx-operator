@@ -17,19 +17,6 @@ var (
 	defaultLBSName          = "default"
 )
 
-// private ip block cidr is not unique, there maybe different ip blocks using same cidr, but for different vpc cr
-// using cidr_vpccruid as key so that it could quickly check if ipblocks already created.
-func generateIPBlockKey(block model.IpAddressBlock) string {
-	cidr := block.Cidr
-	nsUID := ""
-	for _, tag := range block.Tags {
-		if *tag.Scope == common.TagScopeNamespaceUID {
-			nsUID = *tag.Tag
-		}
-	}
-	return *cidr + "_" + nsUID
-}
-
 func generateLBSKey(lbs model.LBService) (string, error) {
 	if lbs.ConnectivityPath == nil || *lbs.ConnectivityPath == "" {
 		return "", fmt.Errorf("ConnectivityPath is nil or empty")
