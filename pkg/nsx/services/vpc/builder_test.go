@@ -205,3 +205,108 @@ func TestBuildNSXVPC(t *testing.T) {
 		})
 	}
 }
+
+func Test_combineVPCIDAndLBSID(t *testing.T) {
+	type args struct {
+		vpcID string
+		lbsID string
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{
+			name: "pass",
+			args: args{
+				vpcID: "fakeVpc",
+				lbsID: "fakeLbs",
+			},
+			want: "fakeVpc_fakeLbs",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := combineVPCIDAndLBSID(tt.args.vpcID, tt.args.lbsID); got != tt.want {
+				t.Errorf("combineVPCIDAndLBSID() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_generateLBSKey(t *testing.T) {
+	emptyPath := ""
+	emptyVpcPath := "/fake/path/empty/vpc/"
+	okPath := "/fake/path/vpc/fake-vpc"
+	okId := "fake-id"
+	type args struct {
+		lbs model.LBService
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "nil connectivity path",
+			args: args{
+				lbs: model.LBService{ConnectivityPath: nil},
+			},
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name: "empty connectivity path",
+			args: args{
+				lbs: model.LBService{ConnectivityPath: &emptyPath},
+			},
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name: "empty vpc id",
+			args: args{
+				lbs: model.LBService{ConnectivityPath: &emptyVpcPath},
+			},
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name: "nil lbs id",
+			args: args{
+				lbs: model.LBService{ConnectivityPath: &okPath, Id: nil},
+			},
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name: "empty lbs id",
+			args: args{
+				lbs: model.LBService{ConnectivityPath: &okPath, Id: &emptyPath},
+			},
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name: "empty lbs id",
+			args: args{
+				lbs: model.LBService{ConnectivityPath: &okPath, Id: &okId},
+			},
+			want:    "fake-vpc_fake-id",
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := generateLBSKey(tt.args.lbs)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("generateLBSKey() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("generateLBSKey() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
