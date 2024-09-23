@@ -201,7 +201,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		log.Info("reconciling CR to delete securitypolicy", "securitypolicy", req.NamespacedName)
 		if controllerutil.ContainsFinalizer(obj, finalizerName) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
-			if err := r.Service.DeleteSecurityPolicy(realObj.UID, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
+			if err := r.Service.DeleteSecurityPolicy(realObj.UID, false, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
 				log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
 				deleteFail(r, ctx, realObj, &err)
 				return ResultRequeue, err
@@ -377,7 +377,7 @@ func (r *SecurityPolicyReconciler) CollectGarbage(ctx context.Context) {
 	for elem := range diffSet {
 		log.V(1).Info("GC collected SecurityPolicy CR", "securityPolicyUID", elem)
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
-		err = r.Service.DeleteSecurityPolicy(types.UID(elem), true, servicecommon.ResourceTypeSecurityPolicy)
+		err = r.Service.DeleteSecurityPolicy(types.UID(elem), true, false, servicecommon.ResourceTypeSecurityPolicy)
 		if err != nil {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 		} else {

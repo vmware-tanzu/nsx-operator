@@ -79,31 +79,31 @@ func (f fakeOrgClient) Patch(orgRootParam model.OrgRoot, enforceRevisionCheckPar
 	return nil
 }
 
-func (f fakeVPCSecurityClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string) error {
+func (f fakeVPCSecurityClient) Delete(orgIDParam string, projectIDParam string, vpcIDParam string, securityPolicyIdParam string) error {
 	return nil
 }
 
-func (f fakeVPCSecurityClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string) (model.SecurityPolicy, error) {
+func (f fakeVPCSecurityClient) Get(orgIDParam string, projectIDParam string, vpcIDParam string, securityPolicyIdParam string) (model.SecurityPolicy, error) {
 	return model.SecurityPolicy{}, nil
 }
 
-func (f fakeVPCSecurityClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool,
+func (f fakeVPCSecurityClient) List(orgIDParam string, projectIDParam string, vpcIDParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool,
 	includeRuleCountParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string,
 ) (model.SecurityPolicyListResult, error) {
 	return model.SecurityPolicyListResult{}, nil
 }
 
-func (f fakeVPCSecurityClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, securityPolicyParam model.SecurityPolicy) error {
+func (f fakeVPCSecurityClient) Patch(orgIDParam string, projectIDParam string, vpcIDParam string, securityPolicyIdParam string, securityPolicyParam model.SecurityPolicy) error {
 	return nil
 }
 
-func (f fakeVPCSecurityClient) Revise(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, securityPolicyParam model.SecurityPolicy,
+func (f fakeVPCSecurityClient) Revise(orgIDParam string, projectIDParam string, vpcIDParam string, securityPolicyIdParam string, securityPolicyParam model.SecurityPolicy,
 	anchorPathParam *string, operationParam *string,
 ) (model.SecurityPolicy, error) {
 	return model.SecurityPolicy{}, nil
 }
 
-func (f fakeVPCSecurityClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, securityPolicyIdParam string, securityPolicyParam model.SecurityPolicy) (model.SecurityPolicy, error) {
+func (f fakeVPCSecurityClient) Update(orgIDParam string, projectIDParam string, vpcIDParam string, securityPolicyIdParam string, securityPolicyParam model.SecurityPolicy) (model.SecurityPolicy, error) {
 	return model.SecurityPolicy{}, nil
 }
 
@@ -122,13 +122,13 @@ func fakeSecurityPolicyService() *SecurityPolicyService {
 				RestConnector:     rc,
 				NsxConfig: &config.NSXOperatorConfig{
 					CoeConfig: &config.CoeConfig{
-						Cluster: "k8scl-one:test",
+						Cluster: clusterName,
 					},
 				},
 			},
 			NSXConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
-					Cluster: "k8scl-one:test",
+					Cluster: clusterName,
 				},
 			},
 		},
@@ -265,7 +265,7 @@ func TestSecurityPolicyService_wrapResourceReference(t *testing.T) {
 			for _, v := range got {
 				r, _ := Converter.ConvertToGolang(v, model.ChildResourceReferenceBindingType())
 				rc := r.(model.ChildResourceReference)
-				assert.Equal(t, "k8scl-one:test", *rc.Id)
+				assert.Equal(t, "k8scl-one", *rc.Id)
 				assert.Equal(t, "ChildResourceReference", rc.ResourceType)
 				assert.NotNil(t, "Domain", rc.TargetType)
 			}

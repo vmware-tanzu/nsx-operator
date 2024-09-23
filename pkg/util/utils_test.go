@@ -8,10 +8,14 @@ import (
 	"fmt"
 	"net"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -26,7 +30,7 @@ func TestNormalizeName(t *testing.T) {
 	shortName := strings.Repeat("a", 256)
 	assert.Equal(t, NormalizeName(shortName), shortName)
 	longName := strings.Repeat("a", 257)
-	assert.Equal(t, NormalizeName(longName), fmt.Sprintf("%s-%s", strings.Repeat("a", 256-HashLength-1), "0c103888"))
+	assert.Equal(t, NormalizeName(longName), fmt.Sprintf("%s_%s", strings.Repeat("a", 256-HashLength-1), "0c103888"))
 }
 
 func TestNormalizeLabelKey(t *testing.T) {
@@ -98,7 +102,6 @@ func TestUtil_IsNsInSystemNamespace(t *testing.T) {
 	ns = types.NamespacedName{Namespace: "sys-ns", Name: "dummy"}
 
 	isCRInSysNs, err = IsSystemNamespace(client, ns.Namespace, nil)
-
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
@@ -410,8 +413,8 @@ func TestGenerateDisplayName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := GenerateDisplayName(tt.args.res_name, tt.args.prefix, tt.args.suffix, tt.args.project, tt.args.cluster); got != tt.want {
-				t.Errorf("GenerateDisplayName() = %v, want %v", got, tt.want)
+			if got := generateDisplayName("-", tt.args.res_name, tt.args.prefix, tt.args.suffix, tt.args.project, tt.args.cluster); got != tt.want {
+				t.Errorf("generateDisplayName() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -440,7 +443,7 @@ func TestGenerateTruncName(t *testing.T) {
 				suffix:   "",
 				project:  "",
 			},
-			want: "sp-1234-456",
+			want: "sp_1234-456",
 		},
 		{
 			name: "test-only-name",
@@ -462,7 +465,7 @@ func TestGenerateTruncName(t *testing.T) {
 				suffix:   "scope",
 				project:  "",
 			},
-			want: "sp-1234-456-scope",
+			want: "sp_1234-456_scope",
 		},
 		{
 			name: "test-index",
@@ -473,7 +476,7 @@ func TestGenerateTruncName(t *testing.T) {
 				suffix:   "scope",
 				project:  "test",
 			},
-			want: "sp-1234-456-test-scope",
+			want: "sp_1234-456_test_scope",
 		},
 		{
 			name: "test-cluster",
@@ -485,7 +488,7 @@ func TestGenerateTruncName(t *testing.T) {
 				project:  "",
 				cluster:  "k8scl-one",
 			},
-			want: "k8scl-one-1234-456-scope",
+			want: "k8scl-one_1234-456_scope",
 		},
 		{
 			name: "test-project-cluster",
@@ -497,7 +500,7 @@ func TestGenerateTruncName(t *testing.T) {
 				project:  strings.Repeat("s", 300),
 				cluster:  "k8scl-one",
 			},
-			want: "sr-k8scl-one-1234-456-ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss-813dffe8-scope",
+			want: "sr_k8scl-one_1234-456_ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss_e89b45cc_scope",
 		},
 	}
 	for _, tt := range tests {
@@ -651,19 +654,19 @@ func TestGenerateIDByObject(t *testing.T) {
 			name:  "no limit set",
 			obj:   &metav1.ObjectMeta{Name: "abcdefg", UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
 			limit: 0,
-			expID: "abcdefg-b720ee2c-5788-4680-9796-0f93db33d8a9",
+			expID: "abcdefg_b720ee2c-5788-4680-9796-0f93db33d8a9",
 		},
 		{
 			name:  "truncate with hash on uid",
 			obj:   &metav1.ObjectMeta{Name: "abcdefg", UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
 			limit: 20,
-			expID: "abcdefg-df78acb2",
+			expID: "abcdefg_df78acb2",
 		},
 		{
 			name:  "longer name with truncate",
 			obj:   &metav1.ObjectMeta{Name: strings.Repeat("a", 256), UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
 			limit: 0,
-			expID: fmt.Sprintf("%s-df78acb2", strings.Repeat("a", 246)),
+			expID: fmt.Sprintf("%s_df78acb2", strings.Repeat("a", 246)),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -691,14 +694,14 @@ func TestGenerateIDByObjectWithSuffix(t *testing.T) {
 			obj:    &metav1.ObjectMeta{Name: "abcdefg", UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
 			limit:  0,
 			suffix: "2",
-			expID:  "abcdefg-b720ee2c-5788-4680-9796-0f93db33d8a9_2",
+			expID:  "abcdefg_b720ee2c-5788-4680-9796-0f93db33d8a9_2",
 		},
 		{
 			name:   "longer name with truncate",
 			obj:    &metav1.ObjectMeta{Name: strings.Repeat("a", 256), UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
 			limit:  0,
 			suffix: "28e85c0b-21e4-4cab-b1c3-597639dfe752",
-			expID:  fmt.Sprintf("%s-df78acb2_28e85c0b-21e4-4cab-b1c3-597639dfe752", strings.Repeat("a", 209)),
+			expID:  fmt.Sprintf("%s_df78acb2_28e85c0b-21e4-4cab-b1c3-597639dfe752", strings.Repeat("a", 209)),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -706,4 +709,28 @@ func TestGenerateIDByObjectWithSuffix(t *testing.T) {
 			assert.Equal(t, tc.expID, id)
 		})
 	}
+}
+
+func TestConnectStrings(t *testing.T) {
+	string1 := "aa"
+	string2 := "bb"
+	connectString := connectStrings(common.ConnectorUnderline, string1, string2)
+	expString := "aa" + common.ConnectorUnderline + "bb"
+	assert.Equal(t, connectString, expString)
+
+	connectString = connectStrings("-", string1, string2)
+	expString = "aa" + "-" + "bb"
+	assert.Equal(t, connectString, expString)
+
+	int1 := 11
+	int2 := 22
+	connectString = connectStrings(common.ConnectorUnderline, strconv.Itoa(int1), strconv.Itoa(int2))
+	expString = "11" + common.ConnectorUnderline + "22"
+	expString = fmt.Sprintf("%d%s%d", int1, common.ConnectorUnderline, int2)
+	assert.Equal(t, connectString, expString)
+
+	connectString = connectStrings(common.ConnectorUnderline, string1, strconv.Itoa(int2))
+	expString = "aa" + common.ConnectorUnderline + "22"
+	expString = fmt.Sprintf("%s%s%d", string1, common.ConnectorUnderline, int2)
+	assert.Equal(t, connectString, expString)
 }

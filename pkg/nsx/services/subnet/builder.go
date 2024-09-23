@@ -32,14 +32,14 @@ func (service *SubnetService) buildSubnetSetID(subnetset *v1alpha1.SubnetSet, in
 	return util.GenerateIDByObjectWithSuffix(subnetset, index)
 }
 
-// buildSubnetName uses format "subnet.Name-subnet.UUID" to ensure the Subnet's display_name is not
+// buildSubnetName uses format "subnet.Name_subnet.UUID" to ensure the Subnet's display_name is not
 // conflict with others. This is because VC will use the Subnet's display_name to created folder, so
 // the name string must be unique.
 func (service *SubnetService) buildSubnetName(subnet *v1alpha1.Subnet) string {
 	return util.GenerateIDByObjectByLimit(subnet, common.MaxSubnetNameLength)
 }
 
-// buildSubnetSetName uses format "subnetset.Name-subnetset.UUID-index" to ensure the generated Subnet's
+// buildSubnetSetName uses format "subnetset.Name_subnetset.UUID_index" to ensure the generated Subnet's
 // display_name is not conflict with others.
 func (service *SubnetService) buildSubnetSetName(subnetset *v1alpha1.SubnetSet, index string) string {
 	resName := util.GenerateIDByObjectByLimit(subnetset, common.MaxSubnetNameLength-(len(index)+1))

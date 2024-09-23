@@ -231,7 +231,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		v1sp.ObjectMeta.DeletionTimestamp = &time
 		return nil
 	})
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isVPCCleanupOrGC bool) error {
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isGc bool, isVPCCleanup bool) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
@@ -247,7 +247,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		v1sp.Finalizers = []string{common.T1SecurityPolicyFinalizerName}
 		return nil
 	})
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isVPCCleanupOrGC bool) error {
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isGc bool, isVPCCleanup bool) error {
 		return nil
 	})
 	k8sClient.EXPECT().Update(ctx, gomock.Any(), gomock.Any()).Return(nil)
@@ -276,7 +276,7 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 		a.Insert("2345")
 		return a
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isVPCCleanupOrGC bool) error {
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isGc bool, isVPCCleanup bool) error {
 		return nil
 	})
 	defer patch.Reset()
@@ -325,7 +325,7 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 		a := sets.New[string]()
 		return a
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isVPCCleanupOrGC bool) error {
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isGc bool, isVPCCleanup bool) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})

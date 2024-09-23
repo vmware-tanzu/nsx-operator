@@ -83,7 +83,7 @@ func TestBuildNSXVPC(t *testing.T) {
 		PrivateIPs: []string{"192.168.1.0/24"},
 	}
 	netInfoObj := &v1alpha1.NetworkInfo{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "ns1", UID: "netinfouid1"},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "netinfo1", UID: "netinfouid1"},
 		VPCs:       nil,
 	}
 	nsObj := &v1.Namespace{
@@ -126,8 +126,8 @@ func TestBuildNSXVPC(t *testing.T) {
 			useAVILB:          true,
 			lbProviderChanged: false,
 			expVPC: &model.Vpc{
-				Id:                      common.String("ns1-netinfouid1"),
-				DisplayName:             common.String("ns1-netinfouid1"),
+				Id:                      common.String("netinfo1_netinfouid1"),
+				DisplayName:             common.String("netinfo1_netinfouid1"),
 				LoadBalancerVpcEndpoint: &model.LoadBalancerVPCEndpoint{Enabled: common.Bool(true)},
 				PrivateIps:              []string{"192.168.3.0/24"},
 				IpAddressType:           common.String("IPV4"),
@@ -146,8 +146,8 @@ func TestBuildNSXVPC(t *testing.T) {
 			useAVILB:          false,
 			lbProviderChanged: false,
 			expVPC: &model.Vpc{
-				Id:            common.String("ns1-netinfouid1"),
-				DisplayName:   common.String("ns1-netinfouid1"),
+				Id:            common.String("netinfo1_netinfouid1"),
+				DisplayName:   common.String("netinfo1_netinfouid1"),
 				PrivateIps:    []string{"192.168.3.0/24"},
 				IpAddressType: common.String("IPV4"),
 				Tags: []model.Tag{
@@ -163,16 +163,16 @@ func TestBuildNSXVPC(t *testing.T) {
 			name:         "update VPC with AVI load balancer disabled -> enabled",
 			ncPrivateIps: []string{"192.168.3.0/24"},
 			existingVPC: &model.Vpc{
-				Id:            common.String("ns1-netinfouid1"),
-				DisplayName:   common.String("ns1-netinfouid1"),
+				Id:            common.String("netinfo1_netinfouid1"),
+				DisplayName:   common.String("netinfo1_netinfouid1"),
 				PrivateIps:    []string{"192.168.3.0/24"},
 				IpAddressType: common.String("IPV4"),
 			},
 			useAVILB:          true,
 			lbProviderChanged: true,
 			expVPC: &model.Vpc{
-				Id:                      common.String("ns1-netinfouid1"),
-				DisplayName:             common.String("ns1-netinfouid1"),
+				Id:                      common.String("netinfo1_netinfouid1"),
+				DisplayName:             common.String("netinfo1_netinfouid1"),
 				LoadBalancerVpcEndpoint: &model.LoadBalancerVPCEndpoint{Enabled: common.Bool(true)},
 				PrivateIps:              []string{"192.168.3.0/24"},
 				IpAddressType:           common.String("IPV4"),
@@ -182,16 +182,16 @@ func TestBuildNSXVPC(t *testing.T) {
 			name:         "update VPC with NSX load balancer disabled -> enabled",
 			ncPrivateIps: []string{"192.168.3.0/24"},
 			existingVPC: &model.Vpc{
-				Id:            common.String("ns1-netinfouid1"),
-				DisplayName:   common.String("ns1-netinfouid1"),
+				Id:            common.String("netinfo1_netinfouid1"),
+				DisplayName:   common.String("netinfo1_netinfouid1"),
 				PrivateIps:    []string{"192.168.3.0/24"},
 				IpAddressType: common.String("IPV4"),
 			},
 			useAVILB:          false,
 			lbProviderChanged: true,
 			expVPC: &model.Vpc{
-				Id:            common.String("ns1-netinfouid1"),
-				DisplayName:   common.String("ns1-netinfouid1"),
+				Id:            common.String("netinfo1_netinfouid1"),
+				DisplayName:   common.String("netinfo1_netinfouid1"),
 				PrivateIps:    []string{"192.168.3.0/24"},
 				IpAddressType: common.String("IPV4"),
 			},

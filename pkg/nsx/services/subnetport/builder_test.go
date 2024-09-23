@@ -74,7 +74,7 @@ func TestBuildSubnetPort(t *testing.T) {
 			labelTags: nil,
 			expectedPort: &model.VpcSubnetPort{
 				DisplayName: common.String("fake_subnetport"),
-				Id:          common.String("fake_subnetport-2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				Id:          common.String("fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
 				Tags: []model.Tag{
 					{
 						Scope: common.String("nsx-op/cluster"),
@@ -97,7 +97,7 @@ func TestBuildSubnetPort(t *testing.T) {
 						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
 					},
 				},
-				Path:       common.String("fake_path/ports/fake_subnetport-2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				Path:       common.String("fake_path/ports/fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
 					AllocateAddresses: common.String("DHCP"),
@@ -131,7 +131,7 @@ func TestBuildSubnetPort(t *testing.T) {
 			labelTags: nil,
 			expectedPort: &model.VpcSubnetPort{
 				DisplayName: common.String("fake_pod"),
-				Id:          common.String("fake_pod-c5db1800-ce4c-11de-a935-8105ba7ace78"),
+				Id:          common.String("fake_pod_c5db1800-ce4c-11de-a935-8105ba7ace78"),
 				Tags: []model.Tag{
 					{
 						Scope: common.String("nsx-op/cluster"),
@@ -154,7 +154,7 @@ func TestBuildSubnetPort(t *testing.T) {
 						Tag:   common.String("c5db1800-ce4c-11de-a935-8105ba7ace78"),
 					},
 				},
-				Path:       common.String("fake_path/ports/fake_pod-c5db1800-ce4c-11de-a935-8105ba7ace78"),
+				Path:       common.String("fake_path/ports/fake_pod_c5db1800-ce4c-11de-a935-8105ba7ace78"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
 					AllocateAddresses: common.String("DHCP"),

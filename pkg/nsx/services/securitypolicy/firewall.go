@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
@@ -286,14 +287,14 @@ func (service *SecurityPolicyService) populateRulesForIsolationSection(spIsolati
 			spIsolation.Spec.Rules = append(spIsolation.Spec.Rules, v1alpha1.SecurityPolicyRule{
 				Action:    &actionDrop,
 				Direction: &directionIn,
-				Name:      "ingress-isolation",
+				Name:      strings.Join([]string{common.RuleIngress, common.RuleActionDrop}, common.ConnectorUnderline),
 			})
 		} else if policyType == networkingv1.PolicyTypeEgress {
 			// Generating egress deny rule in isolation section.
 			spIsolation.Spec.Rules = append(spIsolation.Spec.Rules, v1alpha1.SecurityPolicyRule{
 				Action:    &actionDrop,
 				Direction: &directionOut,
-				Name:      "egress-isolation",
+				Name:      strings.Join([]string{common.RuleEgress, common.RuleActionDrop}, common.ConnectorUnderline),
 			})
 		} else {
 			// This logic branch is impossible, leave it just for following the coding rules.
@@ -304,11 +305,10 @@ func (service *SecurityPolicyService) populateRulesForIsolationSection(spIsolati
 }
 
 func (service *SecurityPolicyService) generateSectionForNetworkPolicy(networkPolicy *networkingv1.NetworkPolicy, sectionType string) (*v1alpha1.SecurityPolicy, error) {
-	name := service.BuildNetworkPolicyAllowPolicyName(networkPolicy.Name)
+	name := networkPolicy.Name
 	uid := types.UID(service.BuildNetworkPolicyAllowPolicyID(string(networkPolicy.UID)))
 	priority := common.PriorityNetworkPolicyAllowRule
-	if sectionType == "isolation" {
-		name = service.BuildNetworkPolicyIsolationPolicyName(networkPolicy.Name)
+	if sectionType == common.RuleActionDrop {
 		uid = types.UID(service.BuildNetworkPolicyIsolationPolicyID(string(networkPolicy.UID)))
 		priority = common.PriorityNetworkPolicyIsolationRule
 	}
@@ -334,7 +334,7 @@ func (service *SecurityPolicyService) convertNetworkPolicyToInternalSecurityPoli
 	securityPolicies := []*v1alpha1.SecurityPolicy{}
 
 	// Generating allow section.
-	spAllow, err := service.generateSectionForNetworkPolicy(networkPolicy, "allow")
+	spAllow, err := service.generateSectionForNetworkPolicy(networkPolicy, common.RuleActionAllow)
 	if err != nil {
 		return nil, err
 	}
@@ -344,7 +344,7 @@ func (service *SecurityPolicyService) convertNetworkPolicyToInternalSecurityPoli
 	}
 
 	// Generating isolation section.
-	spIsolation, err := service.generateSectionForNetworkPolicy(networkPolicy, "isolation")
+	spIsolation, err := service.generateSectionForNetworkPolicy(networkPolicy, common.RuleActionDrop)
 	if err != nil {
 		return nil, err
 	}
@@ -597,7 +597,7 @@ func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alp
 	return nil
 }
 
-func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}, isVPCCleanupOrGC bool, createdFor string) error {
+func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}, isGC, isVPCCleanup bool, createdFor string) error {
 	var err error
 	switch sp := obj.(type) {
 	case *networkingv1.NetworkPolicy:
@@ -605,13 +605,14 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}, isVP
 		CRPolicySet.Insert(service.BuildNetworkPolicyAllowPolicyID(string(sp.UID)))
 		CRPolicySet.Insert(service.BuildNetworkPolicyIsolationPolicyID(string(sp.UID)))
 		for elem := range CRPolicySet {
-			err = service.deleteVPCSecurityPolicy(types.UID(elem), isVPCCleanupOrGC, createdFor)
+			err = service.deleteVPCSecurityPolicy(types.UID(elem), isGC, createdFor)
 		}
 	case types.UID:
-		if IsVPCEnabled(service) || isVPCCleanupOrGC {
-			err = service.deleteVPCSecurityPolicy(sp, isVPCCleanupOrGC, createdFor)
+		// For VPC network, SecurityPolicy normal deletion, GC deletion and cleanup
+		if IsVPCEnabled(service) || isVPCCleanup {
+			err = service.deleteVPCSecurityPolicy(sp, isGC, createdFor)
 		} else {
-			// For T1 network SecurityPolicy deletion
+			// For T1 network, SecurityPolicy normal deletion and GC deletion
 			err = service.deleteSecurityPolicy(sp)
 		}
 	}
@@ -691,7 +692,7 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(sp types.UID) error {
 	return nil
 }
 
-func (service *SecurityPolicyService) deleteVPCSecurityPolicy(sp types.UID, isVPCCleanupOrGC bool, createdFor string) error {
+func (service *SecurityPolicyService) deleteVPCSecurityPolicy(sp types.UID, isGC bool, createdFor string) error {
 	var nsxSecurityPolicy *model.SecurityPolicy
 	var err error
 	g := make([]model.Group, 0)
@@ -717,7 +718,7 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(sp types.UID, isVP
 	existingSecurityPolices := securityPolicyStore.GetByIndex(indexScope, string(sp))
 	existingNsxInfraShares := infraShareStore.GetByIndex(indexScope, string(sp))
 	existingNsxInfraShareGroups := infraGroupStore.GetByIndex(indexScope, string(sp))
-	if isVPCCleanupOrGC && len(existingSecurityPolices) == 0 && (len(existingNsxInfraShares) != 0 || len(existingNsxInfraShareGroups) != 0) {
+	if isGC && len(existingSecurityPolices) == 0 && (len(existingNsxInfraShares) != 0 || len(existingNsxInfraShareGroups) != 0) {
 		// There is a specific case that needs to be handle in GC process, that is,
 		// When the NSX security policy, rules, and groups at the VPC level are deleted,
 		// The following infra API call to delete infra share resources fail or NSX Operator restarts suddenly.
@@ -732,7 +733,7 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(sp types.UID, isVP
 	nsxSecurityPolicy = existingSecurityPolices[0]
 
 	// vpcInfo should be listed directly from security policy store to avoid calling VPC service.
-	// Get orgId, projectId, vpcId from security policy path "/orgs/<orgId>/projects/<projectId>/vpcs/<vpcId>/security-policies/<spId>"
+	// Get orgID, projectID, vpcID from security policy path "/orgs/<orgID>/projects/<projectID>/vpcs/<vpcID>/security-policies/<spID>"
 	if nsxSecurityPolicy.Path == nil {
 		err = errors.New("nsxSecurityPolicy path is empty")
 		log.Error(err, "failed to delete SecurityPolicy in VPC", "nsxSecurityPolicyUID", sp)
@@ -804,11 +805,11 @@ func (service *SecurityPolicyService) createOrUpdateGroups(obj *v1alpha1.Securit
 			if err != nil {
 				return err
 			}
-			orgId := (*vpcInfo).OrgID
-			projectId := (*vpcInfo).ProjectID
-			vpcId := (*vpcInfo).VPCID
+			orgID := (*vpcInfo).OrgID
+			projectID := (*vpcInfo).ProjectID
+			vpcID := (*vpcInfo).VPCID
 
-			err = service.NSXClient.VpcGroupClient.Patch(orgId, projectId, vpcId, *group.Id, *group)
+			err = service.NSXClient.VpcGroupClient.Patch(orgID, projectID, vpcID, *group.Id, *group)
 			err = nsxutil.TransNSXApiError(err)
 		} else {
 			err = service.NSXClient.GroupClient.Patch(getDomain(service), *group.Id, *group)
@@ -1112,7 +1113,7 @@ func (service *SecurityPolicyService) Cleanup(ctx context.Context) error {
 		case <-ctx.Done():
 			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
 		default:
-			err := service.DeleteSecurityPolicy(types.UID(uid), true, common.ResourceTypeSecurityPolicy)
+			err := service.DeleteSecurityPolicy(types.UID(uid), false, true, common.ResourceTypeSecurityPolicy)
 			if err != nil {
 				return err
 			}
@@ -1127,7 +1128,7 @@ func (service *SecurityPolicyService) Cleanup(ctx context.Context) error {
 		case <-ctx.Done():
 			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
 		default:
-			err := service.DeleteSecurityPolicy(types.UID(uid), true, common.ResourceTypeNetworkPolicy)
+			err := service.DeleteSecurityPolicy(types.UID(uid), false, true, common.ResourceTypeNetworkPolicy)
 			if err != nil {
 				return err
 			}

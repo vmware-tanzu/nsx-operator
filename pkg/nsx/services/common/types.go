@@ -91,6 +91,7 @@ const (
 	ValueMajorVersion                  string = "1"
 	ValueMinorVersion                  string = "0"
 	ValuePatchVersion                  string = "0"
+	ConnectorUnderline                 string = "_"
 
 	GCInterval        = 60 * time.Second
 	RealizeTimeout    = 2 * time.Minute
@@ -119,20 +120,20 @@ const (
 	IndexKeyNodeName            = "IndexKeyNodeName"
 	GCValidationInterval uint16 = 720
 
-	RuleSuffixIngressAllow  = "ingress-allow"
-	RuleSuffixEgressAllow   = "egress-allow"
-	RuleSuffixIngressDrop   = "ingress-isolation"
-	RuleSuffixEgressDrop    = "egress-isolation"
-	RuleSuffixIngressReject = "ingress-reject"
-	RuleSuffixEgressReject  = "egress-reject"
-	DefaultProject          = "default"
-	SecurityPolicyPrefix    = "sp"
-	NetworkPolicyPrefix     = "np"
-	TargetGroupSuffix       = "scope"
-	SrcGroupSuffix          = "src"
-	DstGroupSuffix          = "dst"
-	IpSetGroupSuffix        = "ipset"
-	ShareSuffix             = "share"
+	RuleIngress          = "ingress"
+	RuleEgress           = "egress"
+	RuleActionAllow      = "allow"
+	RuleActionDrop       = "isolation"
+	RuleActionReject     = "reject"
+	RuleAnyPorts         = "all"
+	DefaultProject       = "default"
+	SecurityPolicyPrefix = "sp"
+	NetworkPolicyPrefix  = "np"
+	TargetGroupSuffix    = "scope"
+	SrcGroupSuffix       = "src"
+	DstGroupSuffix       = "dst"
+	IpSetGroupSuffix     = "ipset"
+	ShareSuffix          = "share"
 )
 
 var (
