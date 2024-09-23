@@ -79,7 +79,7 @@ golangci-fix: $(GOLANGCI_LINT_BIN)
 
 .PHONY: test
 test: manifests generate fmt vet envtest .coverage ## Run tests .
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -gcflags=all=-l ./... -v -coverprofile $(CURDIR)/.coverage/coverage-unit.out  ## Prohibit inline optimization when using gomonkey
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -gcflags=all=-l $$(go list ./... | grep -v mock | grep -v e2e | grep -v hack) -v -coverprofile $(CURDIR)/.coverage/coverage-unit.out  ## Prohibit inline optimization when using gomonkey
 
 ##@ Build
 
