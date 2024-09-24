@@ -31,10 +31,11 @@ jobs:
     - name: Run test
       run: make test
 
-    - name: Codecov
-      uses: codecov/codecov-action@v3
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       with:
-        token: ${{ secrets.CODECOV_TOKEN }}
         file: ./.coverage/coverage-unit.out
         flags: unit-tests
         name: codecov-unit-test
