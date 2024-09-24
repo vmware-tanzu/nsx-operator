@@ -293,16 +293,18 @@ func (r *SubnetSetReconciler) DeleteSubnetForSubnetSet(obj v1alpha1.SubnetSet, u
 	hitError := false
 	hasStaleSubnetPorts := false
 	for _, subnet := range nsxSubnets {
+		r.SubnetService.LockSubnet(subnet.Path)
 		portNums := len(r.SubnetPortService.GetPortsOfSubnet(*subnet.Id))
 		if portNums > 0 {
 			hasStaleSubnetPorts = true
+			r.SubnetService.UnlockSubnet(subnet.Path)
 			continue
 		}
 		if err := r.SubnetService.DeleteSubnet(*subnet); err != nil {
 			log.Error(err, "fail to delete subnet from subnetset cr", "ID", *subnet.Id)
 			hitError = true
 		}
-
+		r.SubnetService.UnlockSubnet(subnet.Path)
 	}
 	if updataStatus {
 		if err := r.SubnetService.UpdateSubnetSetStatus(&obj); err != nil {

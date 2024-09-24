@@ -105,6 +105,11 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			updateFail(r, ctx, subnetPort, &err)
 			return common.ResultRequeue, err
 		}
+		// There is a race condition that the subnetset controller may delete the
+		// subnet during CollectGarbage. So check the subnet under lock.
+		r.SubnetService.LockSubnet(&nsxSubnetPath)
+		defer r.SubnetService.UnlockSubnet(&nsxSubnetPath)
+
 		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath)
 		if err != nil {
 			updateFail(r, ctx, subnetPort, &err)
