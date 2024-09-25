@@ -30,9 +30,7 @@ import (
 )
 
 const (
-	wcpSystemResource   = "vmware-system-shared-t1"
-	SubnetTypeSubnet    = "subnet"
-	SubnetTypeSubnetSet = "subnetset"
+	wcpSystemResource = "vmware-system-shared-t1"
 )
 
 var (
@@ -312,24 +310,6 @@ func If(condition bool, trueVal, falseVal interface{}) interface{} {
 	}
 }
 
-func GetMapValues(in interface{}) []string {
-	if in == nil {
-		return make([]string, 0)
-	}
-	switch in.(type) {
-	case map[string]string:
-		ssMap := in.(map[string]string)
-		values := make([]string, 0, len(ssMap))
-		for _, v := range ssMap {
-			values = append(values, v)
-		}
-		return values
-	default:
-		log.Info("Unsupported map format")
-		return nil
-	}
-}
-
 // the changes map contains key/value map that you want to change.
 // if giving empty value for a key in changes map like: "mykey":"", that means removing this annotation from k8s resource
 func UpdateK8sResourceAnnotation(client client.Client, ctx context.Context, k8sObj client.Object, changes map[string]string) error {
@@ -421,10 +401,6 @@ func GenerateTruncName(limit int, resName string, prefix, suffix, project, clust
 		return generateDisplayName(common.ConnectorUnderline, newName, prefix, suffix, "", "")
 	}
 	return generateDisplayName(common.ConnectorUnderline, resName, prefix, suffix, project, cluster)
-}
-
-func CombineNamespaceName(name, namespace string) string {
-	return fmt.Sprintf("%s/%s", namespace, name)
 }
 
 func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []model.Tag {

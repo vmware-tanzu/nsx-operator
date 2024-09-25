@@ -237,10 +237,10 @@ func deleteVPCNetworkConfigurationStatus(ctx context.Context, client client.Clie
 	log.Info("Deleted stale VPCNetworkConfiguration status", "Name", ncName, "nc.Status.VPCs", nc.Status.VPCs, "staleVPCs", staleVPCNames)
 }
 
-func getNamespaceFromNSXVPC(nsxVPC *model.Vpc) string {
+func filterTagFromNSXVPC(nsxVPC *model.Vpc, tagName string) string {
 	tags := nsxVPC.Tags
 	for _, tag := range tags {
-		if *tag.Scope == svccommon.TagScopeNamespace {
+		if *tag.Scope == tagName {
 			return *tag.Tag
 		}
 	}
