@@ -421,3 +421,17 @@ func (service *SubnetService) UpdateSubnetSetTags(ns string, vpcSubnets []*model
 	}
 	return nil
 }
+
+func (service *SubnetService) LockSubnet(path *string) {
+	if path != nil && *path != "" {
+		log.V(1).Info("locked subnet", "path", *path)
+		service.SubnetStore.Lock(*path)
+	}
+}
+
+func (service *SubnetService) UnlockSubnet(path *string) {
+	if path != nil && *path != "" {
+		log.V(1).Info("unlocked subnet", "path", *path)
+		service.SubnetStore.Unlock(*path)
+	}
+}
