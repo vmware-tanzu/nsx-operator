@@ -63,7 +63,6 @@ type VPCService struct {
 	common.Service
 	VpcStore                *VPCStore
 	LbsStore                *LBSStore
-	IpblockStore            *IPBlockStore
 	VPCNetworkConfigStore   VPCNetworkInfoStore
 	VPCNSNetworkConfigStore VPCNsNetworkConfigStore
 	defaultNetworkConfigCR  *common.VPCNetworkConfigInfo
@@ -160,22 +159,17 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 		BindingType: model.LBServiceBindingType(),
 	}}
 
-	VPCService.IpblockStore = &IPBlockStore{ResourceStore: common.ResourceStore{
-		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
-			common.IndexKeyPathPath: indexPathFunc}),
-		BindingType: model.IpAddressBlockBindingType(),
-	}}
 	VPCService.VPCNetworkConfigStore = VPCNetworkInfoStore{
 		VPCNetworkConfigMap: make(map[string]common.VPCNetworkConfigInfo),
 	}
 	VPCService.VPCNSNetworkConfigStore = VPCNsNetworkConfigStore{
 		VPCNSNetworkConfigMap: make(map[string]string),
 	}
-	// initialize vpc store, lbs store and ip blocks store
+	// initialize vpc store, lbs store
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, VPCService.VpcStore)
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeLBService, nil, VPCService.LbsStore)
-	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeIPBlock, nil, VPCService.IpblockStore)
-	wg.Add(3)
+
+	wg.Add(2)
 	go func() {
 		wg.Wait()
 		close(wgDone)
@@ -433,48 +427,6 @@ func (s *VPCService) DeleteLBMonitorProfile(id string) error {
 		return err
 	}
 	log.Info("successfully deleted NCP created lbMonitorProfile", "lbMonitorProfile", id)
-	return nil
-}
-
-func (s *VPCService) deleteIPBlock(path string) error {
-	ipblockClient := s.NSXClient.IPBlockClient
-	parts := strings.Split(path, "/")
-	log.Info("deleting private ip block", "ORG", parts[2], "Project", parts[4], "ID", parts[7])
-	if err := ipblockClient.Delete(parts[2], parts[4], parts[7]); err != nil {
-		err = nsxutil.TransNSXApiError(err)
-		log.Error(err, "failed to delete ip block", "Path", path)
-		return err
-	}
-	return nil
-}
-
-func (s *VPCService) DeleteIPBlockInVPC(vpc model.Vpc) error {
-	blocks := vpc.PrivateIpv4Blocks
-	if len(blocks) == 0 {
-		log.Info("no private cidr list, skip deleting private ip blocks")
-		return nil
-	}
-
-	for _, block := range blocks {
-		if err := s.deleteIPBlock(block); err != nil {
-			return err
-		}
-		nsUID := ""
-		for _, tag := range vpc.Tags {
-			if *tag.Scope == common.TagScopeNamespaceUID {
-				nsUID = *tag.Tag
-			}
-		}
-		log.V(2).Info("search ip block from store using index and path", "index", common.TagScopeNamespaceUID, "Value", nsUID, "Path", block)
-		// using index vpc cr id may get multiple ipblocks, add path to filter the correct one
-		ipblock := s.IpblockStore.GetByIndex(common.IndexKeyPathPath, block)
-		if ipblock != nil {
-			log.Info("deleting ip blocks", "IPBlock", ipblock)
-			ipblock.MarkedForDelete = &MarkedForDelete
-			s.IpblockStore.Apply(ipblock)
-		}
-	}
-	log.Info("successfully deleted all ip blocks")
 	return nil
 }
 
@@ -886,19 +838,6 @@ func (s *VPCService) Cleanup(ctx context.Context) error {
 		}
 	}
 
-	ipblocks := s.IpblockStore.List()
-	log.Info("cleaning up ipblocks", "Count", len(ipblocks))
-	for _, ipblock := range ipblocks {
-		ipb := ipblock.(*model.IpAddressBlock)
-		select {
-		case <-ctx.Done():
-			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
-		default:
-			if err := s.deleteIPBlock(*ipb.Path); err != nil {
-				return err
-			}
-		}
-	}
 	// Delete NCP created resources (share/sharedResources/cert/LBAppProfile/LBPersistentProfile
 	sharedResources := s.ListSharedResource()
 	log.Info("cleaning up sharedResources", "Count", len(sharedResources))
