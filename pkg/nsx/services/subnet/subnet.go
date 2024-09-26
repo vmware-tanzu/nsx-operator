@@ -128,6 +128,12 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 	}
 	if err = realizeService.CheckRealizeState(backoff, *nsxSubnet.Path, "RealizedLogicalSwitch"); err != nil {
 		log.Error(err, "failed to check subnet realization state", "ID", *nsxSubnet.Id)
+		// Delete the subnet if realization check fails, avoiding creating duplicate subnets continuously.
+		deleteErr := service.DeleteSubnet(*nsxSubnet)
+		if deleteErr != nil {
+			log.Error(deleteErr, "failed to delete subnet after realization check failure", "ID", *nsxSubnet.Id)
+			return "", fmt.Errorf("realization check failed: %v; deletion failed: %v", err, deleteErr)
+		}
 		return "", err
 	}
 	if err = service.SubnetStore.Apply(nsxSubnet); err != nil {
