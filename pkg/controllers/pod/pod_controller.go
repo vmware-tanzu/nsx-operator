@@ -54,10 +54,6 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		log.Error(err, "unable to fetch pod", "req", req.NamespacedName)
 		return common.ResultNormal, client.IgnoreNotFound(err)
 	}
-	if pod.Spec.HostNetwork {
-		log.Info("skipping handling hostnetwork pod", "pod", req.NamespacedName)
-		return common.ResultNormal, nil
-	}
 	if len(pod.Spec.NodeName) == 0 {
 		log.Info("pod is not scheduled on node yet, skipping", "pod", req.NamespacedName)
 		return common.ResultNormal, nil
@@ -147,14 +143,7 @@ func (r *PodReconciler) GetNodeByName(nodeName string) (*model.HostTransportNode
 func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Pod{}).
-		WithEventFilter(
-			predicate.Funcs{
-				DeleteFunc: func(e event.DeleteEvent) bool {
-					// Suppress Delete events to avoid filtering them out in the Reconcile function
-					return false
-				},
-			},
-		).
+		WithEventFilter(PredicateFuncsPod).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
@@ -263,4 +252,35 @@ func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (s
 
 func podIsDeleted(pod *v1.Pod) bool {
 	return !pod.ObjectMeta.DeletionTimestamp.IsZero() || pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed"
+}
+
+// PredicateFuncsPod filters out events where pod.Spec.HostNetwork is true
+var PredicateFuncsPod = predicate.Funcs{
+	UpdateFunc: func(e event.UpdateEvent) bool {
+		oldPod, okOld := e.ObjectOld.(*v1.Pod)
+		newPod, okNew := e.ObjectNew.(*v1.Pod)
+		if !okOld || !okNew {
+			return true
+		}
+
+		if oldPod.Spec.HostNetwork && newPod.Spec.HostNetwork {
+			return false
+		}
+		return true
+	},
+	CreateFunc: func(e event.CreateEvent) bool {
+		pod, ok := e.Object.(*v1.Pod)
+		if !ok {
+			return true
+		}
+
+		if pod.Spec.HostNetwork {
+			return false
+		}
+		return true
+	},
+	DeleteFunc: func(e event.DeleteEvent) bool { return false },
+	GenericFunc: func(e event.GenericEvent) bool {
+		return true
+	},
 }

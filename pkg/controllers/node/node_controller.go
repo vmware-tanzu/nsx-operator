@@ -97,7 +97,6 @@ func (r *NodeReconciler) Start(mgr ctrl.Manager) error {
 	return nil
 }
 
-// PredicateFuncsNode filters out events where only resourceVersion, lastHeartbeatTime, or lastTransitionTime have changed
 var PredicateFuncsNode = predicate.Funcs{
 	UpdateFunc: func(e event.UpdateEvent) bool {
 		oldNode, okOld := e.ObjectOld.(*v1.Node)
@@ -106,13 +105,12 @@ var PredicateFuncsNode = predicate.Funcs{
 			return true
 		}
 
-		// If only the heartbeat time, transition time and resource version has changed, and other properties unchanged, ignore the update
+		// If only the condition, resource version, allocatable, capacity have changed, and other properties unchanged, ignore the update
 		if len(newNode.Status.Conditions) > 0 && len(oldNode.Status.Conditions) > 0 {
-			if newNode.ResourceVersion != oldNode.ResourceVersion &&
-				newNode.Status.Conditions[0].LastHeartbeatTime != oldNode.Status.Conditions[0].LastHeartbeatTime &&
-				newNode.Status.Conditions[0].LastTransitionTime != oldNode.Status.Conditions[0].LastTransitionTime {
-				oldNode.Status.Conditions[0].LastHeartbeatTime = newNode.Status.Conditions[0].LastHeartbeatTime
-				oldNode.Status.Conditions[0].LastTransitionTime = newNode.Status.Conditions[0].LastTransitionTime
+			if newNode.ResourceVersion != oldNode.ResourceVersion {
+				oldNode.Status.Allocatable = newNode.Status.Allocatable
+				oldNode.Status.Capacity = newNode.Status.Capacity
+				oldNode.Status.Conditions = newNode.Status.Conditions
 				return !reflect.DeepEqual(oldNode.Status, newNode.Status)
 			}
 		}
