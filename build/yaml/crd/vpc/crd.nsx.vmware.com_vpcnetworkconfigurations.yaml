@@ -59,7 +59,7 @@ spec:
                 minimum: 16
                 type: integer
               nsxProject:
-                description: NSX Project the Namespace associated with.
+                description: NSX Project the Namespace is associated with.
                 type: string
               privateIPs:
                 description: Private IPs.
@@ -68,7 +68,7 @@ spec:
                 type: array
               vpc:
                 description: |-
-                  NSX path of the VPC the Namespace associated with.
+                  NSX path of the VPC the Namespace is associated with.
                   If VPC is set, only defaultIPv4SubnetSize and defaultSubnetAccessMode
                   take effect, other fields are ignored.
                 type: string
@@ -111,8 +111,9 @@ spec:
                   type: object
                 type: array
               vpcs:
-                description: VPCs describes VPC info, now it includes lb Subnet info
-                  which are needed for AKO.
+                description: |-
+                  VPCs describes VPC info, now it includes Load Balancer Subnet info which are needed
+                  for the Avi Kubernetes Operator (AKO).
                 items:
                   description: VPCInfo defines VPC info needed by tenant admin.
                   properties:

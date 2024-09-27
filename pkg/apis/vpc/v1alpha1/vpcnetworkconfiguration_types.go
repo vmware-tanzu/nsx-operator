@@ -14,13 +14,13 @@ import (
 // in a Namespace's VPCNetworkConfiguration, the Namespace will use the value
 // in the default VPCNetworkConfiguration.
 type VPCNetworkConfigurationSpec struct {
-	// NSX path of the VPC the Namespace associated with.
+	// NSX path of the VPC the Namespace is associated with.
 	// If VPC is set, only defaultIPv4SubnetSize and defaultSubnetAccessMode
 	// take effect, other fields are ignored.
 	// +optional
 	VPC string `json:"vpc,omitempty"`
 
-	// NSX Project the Namespace associated with.
+	// NSX Project the Namespace is associated with.
 	NSXProject string `json:"nsxProject,omitempty"`
 
 	// VPCConnectivityProfile ID. This profile has configuration related to creating VPC transit gateway attachment.
@@ -39,7 +39,8 @@ type VPCNetworkConfigurationSpec struct {
 
 // VPCNetworkConfigurationStatus defines the observed state of VPCNetworkConfiguration
 type VPCNetworkConfigurationStatus struct {
-	// VPCs describes VPC info, now it includes lb Subnet info which are needed for AKO.
+	// VPCs describes VPC info, now it includes Load Balancer Subnet info which are needed
+	// for the Avi Kubernetes Operator (AKO).
 	VPCs []VPCInfo `json:"vpcs,omitempty"`
 	// Conditions describe current state of VPCNetworkConfiguration.
 	Conditions []Condition `json:"conditions,omitempty"`
