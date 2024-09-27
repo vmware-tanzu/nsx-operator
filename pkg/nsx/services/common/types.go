@@ -21,10 +21,12 @@ const (
 	MaxIdLength                        int    = 255
 	MaxNameLength                      int    = 255
 	MaxSubnetNameLength                int    = 80
+	VPCLbResourcePathMinSegments       int    = 8
 	PriorityNetworkPolicyAllowRule     int    = 2010
 	PriorityNetworkPolicyIsolationRule int    = 2090
 	TagScopeNCPCluster                 string = "ncp/cluster"
 	TagScopeNCPProjectUID              string = "ncp/project_uid"
+	TagScopeNCPCreateFor               string = "ncp/created_for"
 	TagScopeNCPVIFProjectUID           string = "ncp/vif_project_uid"
 	TagScopeNCPPod                     string = "ncp/pod"
 	TagScopeNCPVNETInterface           string = "ncp/vnet_interface"
@@ -175,6 +177,8 @@ var (
 	ResourceTypeLBSourceIpPersistenceProfile = "LBSourceIpPersistenceProfile"
 	ResourceTypeLBHttpMonitorProfile         = "LBHttpMonitorProfile"
 	ResourceTypeLBTcpMonitorProfile          = "LBTcpMonitorProfile"
+	ResourceTypeLBVirtualServer              = "LBVirtualServer"
+	ResourceTypeLBPool                       = "LBPool"
 
 	// ResourceTypeClusterControlPlane is used by NSXServiceAccountController
 	ResourceTypeClusterControlPlane = "clustercontrolplane"

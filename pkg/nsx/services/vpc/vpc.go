@@ -239,6 +239,13 @@ func (s *VPCService) addClusterTag(query string) string {
 	return query + " AND " + tagParam
 }
 
+func (s *VPCService) addNCPCreatedForTag(query string) string {
+	tagScopeClusterKey := strings.Replace(common.TagScopeNCPCreateFor, "/", "\\/", -1)
+	tagScopeClusterValue := strings.Replace(common.TagValueSLB, ":", "\\:", -1)
+	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
+	return query + " AND " + tagParam
+}
+
 func (s *VPCService) ListCert() []model.TlsCertificate {
 	store := &ResourceStore{ResourceStore: common.ResourceStore{
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
@@ -429,7 +436,84 @@ func (s *VPCService) DeleteLBMonitorProfile(id string) error {
 	log.Info("successfully deleted NCP created lbMonitorProfile", "lbMonitorProfile", id)
 	return nil
 }
+func (s *VPCService) ListLBVirtualServer() []model.LBVirtualServer {
+	store := &ResourceStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.LBVirtualServerBindingType(),
+	}}
+	query := fmt.Sprintf("(%s:%s)",
+		common.ResourceType, common.ResourceTypeLBVirtualServer)
+	query = s.addClusterTag(query)
+	query = s.addNCPCreatedForTag(query)
+	count, searcherr := s.SearchResource("", query, store, nil)
+	if searcherr != nil {
+		log.Error(searcherr, "failed to query LBVirtualServer", "query", query)
+	} else {
+		log.V(1).Info("query LBVirtualServer", "count", count)
+	}
+	lbVirtualServers := store.List()
+	lbVirtualServersSet := []model.LBVirtualServer{}
+	for _, lbVirtualServer := range lbVirtualServers {
+		lbVirtualServersSet = append(lbVirtualServersSet, *lbVirtualServer.(*model.LBVirtualServer))
+	}
+	return lbVirtualServersSet
+}
 
+func (s *VPCService) DeleteLBVirtualServer(path string) error {
+	lbVirtualServersClient := s.NSXClient.VpcLbVirtualServersClient
+	boolValue := false
+	paths := strings.Split(path, "/")
+
+	if len(paths) < common.VPCLbResourcePathMinSegments {
+		// skip virtual server under infra
+		log.Info("failed to parse virtual server path", "path", path)
+		return nil
+	}
+	if err := lbVirtualServersClient.Delete(paths[2], paths[4], paths[6], paths[8], &boolValue); err != nil {
+		return err
+	}
+	log.Info("successfully deleted NCP created lbVirtualServer", "lbVirtualServer", path)
+	return nil
+}
+
+func (s *VPCService) ListLBPool() []model.LBPool {
+	store := &ResourceStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.LBPoolBindingType(),
+	}}
+	query := fmt.Sprintf("(%s:%s)",
+		common.ResourceType, common.ResourceTypeLBPool)
+	query = s.addClusterTag(query)
+	query = s.addNCPCreatedForTag(query)
+	count, searcherr := s.SearchResource("", query, store, nil)
+	if searcherr != nil {
+		log.Error(searcherr, "failed to query LBPool", "query", query)
+	} else {
+		log.V(1).Info("query LBPool", "count", count)
+	}
+	lbPools := store.List()
+	lbPoolsSet := []model.LBPool{}
+	for _, lbPool := range lbPools {
+		lbPoolsSet = append(lbPoolsSet, *lbPool.(*model.LBPool))
+	}
+	return lbPoolsSet
+}
+
+func (s *VPCService) DeleteLBPool(path string) error {
+	lbPoolsClient := s.NSXClient.VpcLbPoolsClient
+	boolValue := false
+	paths := strings.Split(path, "/")
+	if len(paths) < 8 {
+		// skip lb pool under infra
+		log.Info("failed to parse lb pool path", "path", path)
+		return nil
+	}
+	if err := lbPoolsClient.Delete(paths[2], paths[4], paths[6], paths[8], &boolValue); err != nil {
+		return err
+	}
+	log.Info("successfully deleted NCP created lbPool", "lbPool", path)
+	return nil
+}
 func (s *VPCService) IsSharedVPCNamespaceByNS(ns string) (bool, error) {
 	shared_ns, err := s.getSharedVPCNamespaceFromNS(ns)
 	if err != nil {
@@ -913,6 +997,33 @@ func (s *VPCService) Cleanup(ctx context.Context) error {
 			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
 		default:
 			if err := s.DeleteLBMonitorProfile(*lbMonitorProfile.Id); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Clean vs/lb pool created for pre-created vpc
+	lbVirtualServers := s.ListLBVirtualServer()
+	log.Info("cleaning up lbVirtualServers", "Count", len(lbVirtualServers))
+	for _, lbVirtualServer := range lbVirtualServers {
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			if err := s.DeleteLBVirtualServer(*lbVirtualServer.Path); err != nil {
+				return err
+			}
+		}
+	}
+
+	lbPools := s.ListLBPool()
+	log.Info("cleaning up lbPools", "Count", len(lbPools))
+	for _, lbPool := range lbPools {
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			if err := s.DeleteLBPool(*lbPool.Path); err != nil {
 				return err
 			}
 		}
