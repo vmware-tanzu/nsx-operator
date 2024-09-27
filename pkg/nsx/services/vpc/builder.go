@@ -32,6 +32,20 @@ func generateLBSKey(lbs model.LBService) (string, error) {
 	return combineVPCIDAndLBSID(vpcID, *lbs.Id), nil
 }
 
+func generateVirtualServerKey(vs model.LBVirtualServer) (string, error) {
+	if vs.Path == nil || *vs.Path == "" {
+		return "", fmt.Errorf("LBVirtualServer path is nil or empty")
+	}
+	return *vs.Path, nil
+}
+
+func generatePoolKey(pool model.LBPool) (string, error) {
+	if pool.Path == nil || *pool.Path == "" {
+		return "", fmt.Errorf("LBPool path is nil or empty")
+	}
+	return *pool.Path, nil
+}
+
 func combineVPCIDAndLBSID(vpcID, lbsID string) string {
 	return fmt.Sprintf("%s_%s", vpcID, lbsID)
 }

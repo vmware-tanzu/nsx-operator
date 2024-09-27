@@ -174,8 +174,8 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 		AddCleanupService(wrapInitializeSubnetService(commonService)).
 		AddCleanupService(wrapInitializeSecurityPolicy(commonService)).
 		AddCleanupService(wrapInitializeStaticRoute(commonService)).
-		AddCleanupService(wrapInitializeIPAddressAllocation(commonService)).
-		AddCleanupService(wrapInitializeVPC(commonService))
+		AddCleanupService(wrapInitializeVPC(commonService)).
+		AddCleanupService(wrapInitializeIPAddressAllocation(commonService))
 
 	return cleanupService, nil
 }
