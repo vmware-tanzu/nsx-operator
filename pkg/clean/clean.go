@@ -55,6 +55,7 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig, log *logr.Logger, 
 	if err := cf.ValidateConfigFromCmd(); err != nil {
 		return errors.Join(nsxutil.ValidationFailed, err)
 	}
+	cf.LibMode = true
 	nsxClient := nsx.GetClient(cf)
 	if nsxClient == nil {
 		return nsxutil.GetNSXClientFailed
