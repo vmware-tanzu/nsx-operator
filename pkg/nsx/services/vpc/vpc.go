@@ -204,16 +204,13 @@ func (s *VPCService) ListVPC() []model.Vpc {
 	return vpcSet
 }
 
+// DeleteVPC will try to delete VPC resource from NSX.
 func (s *VPCService) DeleteVPC(path string) error {
 	pathInfo, err := common.ParseVPCResourcePath(path)
 	if err != nil {
 		return err
 	}
 	vpcClient := s.NSXClient.VPCClient
-	vpc := s.VpcStore.GetByKey(pathInfo.VPCID)
-	if vpc == nil {
-		return nil
-	}
 
 	if err := vpcClient.Delete(pathInfo.OrgID, pathInfo.ProjectID, pathInfo.VPCID); err != nil {
 		err = nsxutil.TransNSXApiError(err)
@@ -222,6 +219,14 @@ func (s *VPCService) DeleteVPC(path string) error {
 	lbs := s.LbsStore.GetByKey(pathInfo.VPCID)
 	if lbs != nil {
 		s.LbsStore.Delete(lbs)
+	}
+
+	vpc := s.VpcStore.GetByKey(pathInfo.VPCID)
+	// When deleting vpc due to realization failure in VPC creation process. the VPC is created on NSX side,
+	// but not insert in to VPC store, in this condition, the vpc could not be found in vpc store.
+	if vpc == nil {
+		log.Info("VPC not found in vpc store, skip cleaning VPC store", "VPC", pathInfo.VPCID)
+		return nil
 	}
 	vpc.MarkedForDelete = &MarkedForDelete
 	if err := s.VpcStore.Apply(vpc); err != nil {
@@ -725,7 +730,6 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPC
 		if realizestate.IsRealizeStateError(err) {
 			log.Error(err, "the created VPC is in error realization state, cleaning the resource", "VPC", *createdVpc.Id)
 			// delete the nsx vpc object and re-create it in the next loop
-			// TODO(gran) DeleteVPC will check VpcStore but new Vpc is not in store at this moment. Is it correct?
 			if err := s.DeleteVPC(*newVpc.Path); err != nil {
 				log.Error(err, "cleanup VPC failed", "VPC", *createdVpc.Id)
 				return nil, err

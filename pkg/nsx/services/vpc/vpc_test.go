@@ -55,6 +55,11 @@ func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVp
 		BindingType: model.VpcBindingType(),
 	}}
 
+	lbsStore := &LBSStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.LBServiceBindingType(),
+	}}
+
 	service := &VPCService{
 		Service: common.Service{
 			Client: k8sClient,
@@ -75,6 +80,7 @@ func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVp
 			},
 		},
 		VpcStore: vpcStore,
+		LbsStore: lbsStore,
 		VPCNetworkConfigStore: VPCNetworkInfoStore{
 			VPCNetworkConfigMap: map[string]common.VPCNetworkConfigInfo{},
 		},
@@ -1169,6 +1175,177 @@ func TestVPCService_ValidateNetworkConfig(t *testing.T) {
 			if got := service.ValidateNetworkConfig(tt.nc); got != tt.want {
 				t.Errorf("VPCService.ValidateNetworkConfig() = %v, want %v", got, tt.want)
 			}
+		})
+	}
+}
+
+func TestVPCService_DeleteVPC(t *testing.T) {
+	mockVpc := "mockVpc"
+	mockLb := "mockLb"
+	mockConnectityPath := fmt.Sprintf("/org/default/projects/proj1/vpcs/%s/connectivity", mockVpc)
+	mockLBKey := combineVPCIDAndLBSID(mockVpc, mockLb)
+	service, _, _ := createService(t)
+	fakeErr := errors.New("fake-errors")
+	tests := []struct {
+		name          string
+		prepareFunc   func(*testing.T, *VPCService) *gomonkey.Patches
+		LbsStore      *LBSStore
+		path          string
+		Lb            *model.LBService
+		Vpc           *model.Vpc
+		checkLBStore  bool
+		checkVPCStore bool
+		wantErr       bool
+		want          error
+	}{
+		{
+			name:          "parse vpc info error",
+			path:          "/in/correct/path",
+			Lb:            nil,
+			Vpc:           nil,
+			want:          nil,
+			wantErr:       true,
+			checkLBStore:  false,
+			checkVPCStore: false,
+		},
+		{
+			name: "delete vpc error",
+			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Delete", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						fakeErr,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			path:          "/orgs/default/projects/proj1/vpcs/mockVpc",
+			Lb:            nil,
+			Vpc:           nil,
+			wantErr:       true,
+			want:          nsxUtil.TransNSXApiError(fakeErr),
+			checkLBStore:  false,
+			checkVPCStore: false,
+		},
+		{name: "lb in store but vpc not",
+			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Delete", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			path: "/orgs/default/projects/proj1/vpcs/mockVpc",
+			Lb: &model.LBService{
+				Id:               &mockLb,
+				ConnectivityPath: &mockConnectityPath,
+			},
+			Vpc:           nil,
+			wantErr:       false,
+			want:          nil,
+			checkLBStore:  true,
+			checkVPCStore: false,
+		},
+		{name: "delete vpc store fail",
+			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Delete", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						nil,
+					},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(reflect.TypeOf(service.VpcStore), "Apply", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						fakeErr,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			Lb: &model.LBService{
+				Id:               &mockLb,
+				ConnectivityPath: &mockConnectityPath,
+			},
+			Vpc: &model.Vpc{
+				Id: &mockVpc,
+			},
+			path:          "/orgs/default/projects/proj1/vpcs/mockVpc",
+			want:          fakeErr,
+			wantErr:       true,
+			checkLBStore:  true,
+			checkVPCStore: false,
+		},
+		{name: "happy pass",
+			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Delete", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						nil,
+					},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(reflect.TypeOf(service.VpcStore), "Apply", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			Lb: &model.LBService{
+				Id:               &mockLb,
+				ConnectivityPath: &mockConnectityPath,
+			},
+			Vpc: &model.Vpc{
+				Id: &mockVpc,
+			},
+			path:          "/orgs/default/projects/proj1/vpcs/mockVpc",
+			want:          nil,
+			wantErr:       false,
+			checkLBStore:  true,
+			checkVPCStore: true,
+		},
+	}
+	// We do not need to verify copylocks for test case.
+	//nolint: copylocks
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc(t, service)
+				defer patches.Reset()
+			}
+
+			if tt.Lb != nil {
+				service.LbsStore.Add(tt.Lb)
+			}
+
+			if tt.Vpc != nil {
+				service.VpcStore.Add(tt.Vpc)
+			}
+
+			err := service.DeleteVPC(tt.path)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("VPCService.DeleteVPC() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if tt.want != nil {
+				assert.Equal(t, err, tt.want)
+			}
+
+			if tt.checkLBStore {
+				//if prepare func executed, then lb store should be empty
+				lb := service.LbsStore.GetByKey(mockLBKey)
+				assert.Nil(t, lb)
+			}
+
+			if tt.checkVPCStore {
+				//if prepare func executed, then vpc store should be empty
+				lb := service.LbsStore.GetByKey(mockLBKey)
+				assert.Nil(t, lb)
+			}
+
 		})
 	}
 }
