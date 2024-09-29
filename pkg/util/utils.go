@@ -31,10 +31,9 @@ import (
 )
 
 const (
-	wcpSystemResource       = "vmware-system-shared-t1"
-	HashLength          int = 8
-	SubnetTypeSubnet        = "subnet"
-	SubnetTypeSubnetSet     = "subnetset"
+	wcpSystemResource   = "vmware-system-shared-t1"
+	SubnetTypeSubnet    = "subnet"
+	SubnetTypeSubnetSet = "subnetset"
 )
 
 var (
@@ -106,11 +105,11 @@ func NormalizeId(name string) string {
 		return newName
 	}
 	hashString := Sha1(name)
-	nameLength := common.MaxIdLength - HashLength - 1
+	nameLength := common.MaxIdLength - common.HashLength - 1
 	for strings.ContainsAny(string(newName[nameLength-1]), "-._") {
 		nameLength--
 	}
-	newName = fmt.Sprintf("%s-%s", newName[:nameLength], hashString[:HashLength])
+	newName = fmt.Sprintf("%s-%s", newName[:nameLength], hashString[:common.HashLength])
 	return newName
 }
 
@@ -521,7 +520,7 @@ func Capitalize(s string) string {
 
 func GetRandomIndexString() string {
 	uuidStr := uuid.NewString()
-	return Sha1(uuidStr)[:HashLength]
+	return Sha1(uuidStr)[:common.HashLength]
 }
 
 // IsPowerOfTwo checks if a given number is a power of 2

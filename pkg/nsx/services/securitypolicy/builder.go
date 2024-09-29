@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -14,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
@@ -39,24 +39,15 @@ var (
 	Int64  = common.Int64
 )
 
-func (service *SecurityPolicyService) buildSecurityPolicyName(obj *v1alpha1.SecurityPolicy, createdFor string) string {
-	if IsVPCEnabled(service) {
-		// For VPC scenario, we use obj.Name as the NSX resource display name for both SecurityPolicy and NetworkPolicy.
-		return util.GenerateTruncName(common.MaxNameLength, obj.Name, "", "", "", "")
-	}
-	prefix := common.SecurityPolicyPrefix
-	if createdFor != common.ResourceTypeSecurityPolicy {
-		prefix = common.NetworkPolicyPrefix
-	}
-	// For T1 scenario, we use ns-name as the key resource name for SecurityPolicy, it is to be consistent with the
-	// previous solutions.
-	return util.GenerateTruncName(common.MaxNameLength, strings.Join([]string{obj.Namespace, obj.Name}, common.ConnectorUnderline), prefix, "", "", "")
+func (service *SecurityPolicyService) buildSecurityPolicyName(obj *v1alpha1.SecurityPolicy) string {
+	return util.GenerateTruncName(common.MaxNameLength, obj.Name, "", "", "", "")
 }
 
 func (service *SecurityPolicyService) buildSecurityPolicyID(obj *v1alpha1.SecurityPolicy, createdFor string) string {
 	if IsVPCEnabled(service) {
 		return util.GenerateIDByObject(obj)
 	}
+
 	prefix := common.SecurityPolicyPrefix
 	if createdFor != common.ResourceTypeSecurityPolicy {
 		prefix = common.NetworkPolicyPrefix
@@ -76,7 +67,7 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 	nsxSecurityPolicy := &model.SecurityPolicy{}
 
 	nsxSecurityPolicy.Id = String(service.buildSecurityPolicyID(obj, createdFor))
-	nsxSecurityPolicy.DisplayName = String(service.buildSecurityPolicyName(obj, createdFor))
+	nsxSecurityPolicy.DisplayName = String(service.buildSecurityPolicyName(obj))
 	// TODO: confirm the sequence number: offset
 	nsxSecurityPolicy.SequenceNumber = Int64(int64(obj.Spec.Priority))
 
@@ -93,7 +84,7 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 	currentSet := sets.Set[string]{}
 	for ruleIdx, r := range obj.Spec.Rules {
 		rule := r
-		// A rule containing named port may expand to multiple rules if the name maps to multiple port numbers.
+		// A rule containing named port may be expanded to multiple rules if the named ports map to multiple port numbers.
 		expandRules, buildGroups, buildGroupShares, err := service.buildRuleAndGroups(obj, &rule, ruleIdx, createdFor)
 		if err != nil {
 			log.Error(err, "failed to build rule and groups", "rule", rule, "ruleIndex", ruleIdx)
@@ -204,11 +195,6 @@ func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPoli
 	rule *v1alpha1.SecurityPolicyRule, ruleIdx int, createdFor string,
 ) []model.Tag {
 	basicTags := service.buildBasicTags(obj, createdFor)
-	sort.Slice(*targets, func(i, j int) bool {
-		k1, _ := json.Marshal((*targets)[i])
-		k2, _ := json.Marshal((*targets)[j])
-		return string(k1) < string(k2)
-	})
 	serializedBytes, _ := json.Marshal(*targets)
 	targetTags := []model.Tag{
 		{
@@ -242,7 +228,7 @@ func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPoli
 		targetTags = append(targetTags,
 			model.Tag{
 				Scope: String(common.TagScopeRuleID),
-				Tag:   String(service.buildRuleID(obj, rule, ruleIdx, createdFor)),
+				Tag:   String(service.buildRuleID(obj, ruleIdx, createdFor)),
 			},
 		)
 	}
@@ -379,7 +365,8 @@ func (service *SecurityPolicyService) buildAppliedGroupID(obj *v1alpha1.Security
 	if IsVPCEnabled(service) {
 		suffix := common.TargetGroupSuffix
 		if ruleIdx != -1 {
-			suffix = strings.Join([]string{strconv.Itoa(ruleIdx), suffix}, common.ConnectorUnderline)
+			ruleHash := service.buildLimitedRuleHashString(&(obj.Spec.Rules[ruleIdx]))
+			suffix = strings.Join([]string{ruleHash, suffix}, common.ConnectorUnderline)
 		}
 		return util.GenerateIDByObjectWithSuffix(obj, suffix)
 	}
@@ -415,17 +402,13 @@ func (service *SecurityPolicyService) buildAppliedGroupPath(obj *v1alpha1.Securi
 
 // build appliedTo group display name for both policy and rule levels.
 func (service *SecurityPolicyService) buildAppliedGroupName(obj *v1alpha1.SecurityPolicy, ruleIdx int) string {
-	var rule *v1alpha1.SecurityPolicyRule
 	if ruleIdx != -1 {
-		rule = &(obj.Spec.Rules[ruleIdx])
-		ruleName := strings.Join([]string{obj.Name, strconv.Itoa(ruleIdx)}, common.ConnectorUnderline)
-		if len(rule.Name) > 0 {
-			ruleName = rule.Name
-		}
-		return util.GenerateTruncName(common.MaxNameLength, ruleName, "", common.TargetGroupSuffix, "", "")
+		ruleHash := service.buildLimitedRuleHashString(&(obj.Spec.Rules[ruleIdx]))
+		suffix := strings.Join([]string{ruleHash, common.TargetGroupSuffix}, common.ConnectorUnderline)
+		return util.GenerateTruncName(common.MaxNameLength, obj.Name, "", suffix, "", "")
 	}
-	ruleName := strings.Join([]string{obj.Namespace, obj.Name}, common.ConnectorUnderline)
-	return util.GenerateTruncName(common.MaxNameLength, ruleName, "", common.TargetGroupSuffix, "", "")
+
+	return util.GenerateTruncName(common.MaxNameLength, obj.Name, "", common.TargetGroupSuffix, "", "")
 }
 
 func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
@@ -598,22 +581,44 @@ func (service *SecurityPolicyService) buildRuleOutGroup(obj *v1alpha1.SecurityPo
 	return nsxRuleDstGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, nsxGroupShare, nil
 }
 
-func (service *SecurityPolicyService) buildRuleID(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int, createdFor string) string {
-	serializedBytes, _ := json.Marshal(rule)
-	ruleHash := fmt.Sprintf("%s", util.Sha1(string(serializedBytes)))
-	ruleIdxStr := fmt.Sprintf("%d", ruleIdx)
+func (service *SecurityPolicyService) buildRuleID(obj *v1alpha1.SecurityPolicy, ruleIdx int, createdFor string) string {
+	ruleIndexHash := service.buildRuleHashString(&(obj.Spec.Rules[ruleIdx]))
+
 	if IsVPCEnabled(service) {
-		suffix := strings.Join([]string{ruleIdxStr, ruleHash}, common.ConnectorUnderline)
-		return util.GenerateIDByObjectWithSuffix(obj, suffix)
+		ruleIndexHash = service.buildLimitedRuleHashString(&(obj.Spec.Rules[ruleIdx]))
+		return util.GenerateIDByObjectWithSuffix(obj, ruleIndexHash)
 	}
+
 	prefix := common.SecurityPolicyPrefix
 	if createdFor == common.ResourceTypeNetworkPolicy {
 		prefix = common.NetworkPolicyPrefix
 	}
-	return util.GenerateID(fmt.Sprintf("%s", obj.UID), prefix, ruleHash, ruleIdxStr)
+	ruleIdxStr := fmt.Sprintf("%d", ruleIdx)
+	return strings.Join([]string{prefix, string(obj.UID), ruleIndexHash, ruleIdxStr}, common.ConnectorUnderline)
 }
 
-func (service *SecurityPolicyService) buildRuleDisplayName(rule *v1alpha1.SecurityPolicyRule, portIdx, portNumber int, hasNamedport bool, createdFor string) (string, error) {
+// A rule containing named port may be expanded to multiple NSX rules if the name ports map to multiple port numbers.
+// So, in VPC network, the rule port numbers, which either are defined in rule Port or resolved from named port, will be appended as CR rule baseID to distinguish them.
+// For T1, the portIdx and portAddressIdx are appended as suffix.
+func (service *SecurityPolicyService) buildExpandedRuleID(obj *v1alpha1.SecurityPolicy, ruleIdx int, portIdx, portAddressIdx int,
+	hasNamedport bool, portNumber int, createdFor string,
+) string {
+	ruleBaseID := service.buildRuleID(obj, ruleIdx, createdFor)
+
+	if IsVPCEnabled(service) {
+		portNumberSuffix := ""
+		if !hasNamedport {
+			portNumberSuffix = service.buildRulePortsNumberString(obj.Spec.Rules[ruleIdx].Ports)
+		} else {
+			portNumberSuffix = service.buildRulePortNumberString(obj.Spec.Rules[ruleIdx].Ports[portIdx], portNumber)
+		}
+		return strings.Join([]string{ruleBaseID, portNumberSuffix}, common.ConnectorUnderline)
+	}
+
+	return strings.Join([]string{ruleBaseID, strconv.Itoa(portIdx), strconv.Itoa(portAddressIdx)}, common.ConnectorUnderline)
+}
+
+func (service *SecurityPolicyService) buildRuleDisplayName(rule *v1alpha1.SecurityPolicyRule, portIdx int, hasNamedport bool, portNumber int, createdFor string) (string, error) {
 	var ruleName string
 	var ruleAct string
 
@@ -651,7 +656,7 @@ func (service *SecurityPolicyService) buildRuleDisplayName(rule *v1alpha1.Securi
 			ruleName = strings.Join([]string{ruleName, suffix}, common.ConnectorUnderline)
 		}
 	} else {
-		ruleName = service.buildRulePortsString(&rule.Ports, suffix)
+		ruleName = service.buildRulePortsString(rule.Ports, suffix)
 	}
 
 	if !hasNamedport {
@@ -659,11 +664,11 @@ func (service *SecurityPolicyService) buildRuleDisplayName(rule *v1alpha1.Securi
 	} else {
 		// For the security policy rule with namedPort, it will be expanded to the multiple security policy rules based on resolution of named port.
 		// e.g. input: security policy's rule name: TCP.http_UDP.1234_ingress_allow,
-		// expand to NSX security policy rules with name TCP.http_UDP.1234_TCP.80_ingress_allow and TCP.http_UDP.1234_UDP.1234_ingress_allow.
+		// expand to NSX security policy rules with name TCP.http_UDP.1234.TCP.80_ingress_allow and TCP.http_UDP.1234.UDP.1234_ingress_allow.
 		// in case that user defined input security policy's rule name: sp_namedport_rule,
 		// expand to NSX security policy rules with name sp_namedport_rule.TCP.80_ingress_allow and sp_namedport_rule.UDP.1234_ingress_allow.
 		index := strings.Index(ruleName, common.ConnectorUnderline+suffix)
-		return util.GenerateTruncName(common.MaxNameLength, ruleName[:index]+"."+service.buildRulePortString(&rule.Ports[portIdx], true, portNumber), "", suffix, "", ""), nil
+		return util.GenerateTruncName(common.MaxNameLength, ruleName[:index]+"."+service.buildRulePortString(rule.Ports[portIdx], portNumber), "", suffix, "", ""), nil
 	}
 }
 
@@ -747,24 +752,25 @@ func (service *SecurityPolicyService) buildRulePeerGroupID(obj *v1alpha1.Securit
 	if isSource == true {
 		suffix = common.SrcGroupSuffix
 	}
+
 	if IsVPCEnabled(service) {
-		suffix = strings.Join([]string{strconv.Itoa(ruleIdx), suffix}, common.ConnectorUnderline)
+		ruleHash := service.buildLimitedRuleHashString(&(obj.Spec.Rules[ruleIdx]))
+		suffix = strings.Join([]string{ruleHash, suffix}, common.ConnectorUnderline)
 		return util.GenerateIDByObjectWithSuffix(obj, suffix)
 	}
+
 	return util.GenerateID(string(obj.UID), common.SecurityPolicyPrefix, suffix, strconv.Itoa(ruleIdx))
 }
 
 func (service *SecurityPolicyService) buildRulePeerGroupName(obj *v1alpha1.SecurityPolicy, ruleIdx int, isSource bool) string {
-	rule := &(obj.Spec.Rules[ruleIdx])
 	suffix := common.DstGroupSuffix
 	if isSource == true {
 		suffix = common.SrcGroupSuffix
 	}
-	ruleName := strings.Join([]string{obj.Name, strconv.Itoa(ruleIdx)}, common.ConnectorUnderline)
-	if len(rule.Name) > 0 {
-		ruleName = rule.Name
-	}
-	return util.GenerateTruncName(common.MaxNameLength, ruleName, "", suffix, "", "")
+	ruleHash := service.buildLimitedRuleHashString(&(obj.Spec.Rules[ruleIdx]))
+	suffix = strings.Join([]string{ruleHash, suffix}, common.ConnectorUnderline)
+
+	return util.GenerateTruncName(common.MaxNameLength, obj.Name, "", suffix, "", "")
 }
 
 func (service *SecurityPolicyService) buildRulePeerGroupPath(obj *v1alpha1.SecurityPolicy, ruleIdx int, isSource, infraGroupShared, projectGroupShared bool, vpcInfo *common.VPCResourceInfo) (string, error) {
@@ -913,15 +919,11 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 	return &rulePeerGroup, rulePeerGroupPath, nil, err
 }
 
-func (service *SecurityPolicyService) buildExpandedRuleId(ruleBaseId string, portIdx int, portAddressIdx int) string {
-	return strings.Join([]string{ruleBaseId, strconv.Itoa(portIdx), strconv.Itoa(portAddressIdx)}, common.ConnectorUnderline)
-}
-
 // Build rule basic info, ruleIdx is the index of the rules of security policy,
 // portIdx is the index of rule's ports, portAddressIdx is the index
 // of multiple port number if one named port maps to multiple port numbers.
 func (service *SecurityPolicyService) buildRuleBasicInfo(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int, portIdx int, portAddressIdx int,
-	portNumber int, hasNamedport bool, createdFor string,
+	hasNamedport bool, portNumber int, createdFor string,
 ) (*model.Rule, error) {
 	ruleAction, err := getRuleAction(rule)
 	if err != nil {
@@ -931,13 +933,13 @@ func (service *SecurityPolicyService) buildRuleBasicInfo(obj *v1alpha1.SecurityP
 	if err != nil {
 		return nil, err
 	}
-	displayName, err := service.buildRuleDisplayName(rule, portIdx, portNumber, hasNamedport, createdFor)
+	displayName, err := service.buildRuleDisplayName(rule, portIdx, hasNamedport, portNumber, createdFor)
 	if err != nil {
 		log.Error(err, "failed to build rule's display name", "securityPolicyUID", obj.UID, "rule", rule, "createdFor", createdFor)
 	}
 
 	nsxRule := model.Rule{
-		Id:             String(service.buildExpandedRuleId(service.buildRuleID(obj, rule, ruleIdx, createdFor), portIdx, portAddressIdx)),
+		Id:             String(service.buildExpandedRuleID(obj, ruleIdx, portIdx, portAddressIdx, hasNamedport, portNumber, createdFor)),
 		DisplayName:    &displayName,
 		Direction:      &ruleDirection,
 		SequenceNumber: Int64(int64(ruleIdx)),
@@ -957,13 +959,6 @@ func (service *SecurityPolicyService) buildPeerTags(obj *v1alpha1.SecurityPolicy
 		groupTypeTag = String(common.TagValueGroupSource)
 		peers = &rule.Sources
 	}
-
-	// TODO: abstract sort func for both peers and targets
-	sort.Slice(*peers, func(i, j int) bool {
-		k1, _ := json.Marshal((*peers)[i])
-		k2, _ := json.Marshal((*peers)[j])
-		return string(k1) < string(k2)
-	})
 	serializedBytes, _ := json.Marshal(*peers)
 
 	peerTags := []model.Tag{
@@ -973,7 +968,7 @@ func (service *SecurityPolicyService) buildPeerTags(obj *v1alpha1.SecurityPolicy
 		},
 		{
 			Scope: String(common.TagScopeRuleID),
-			Tag:   String(service.buildRuleID(obj, rule, ruleIdx, createdFor)),
+			Tag:   String(service.buildRuleID(obj, ruleIdx, createdFor)),
 		},
 		{
 			Scope: String(common.TagScopeSelectorHash),
@@ -1009,6 +1004,7 @@ func (service *SecurityPolicyService) buildPeerTags(obj *v1alpha1.SecurityPolicy
 			)
 		}
 	}
+
 	return peerTags
 }
 
@@ -1847,7 +1843,7 @@ func (service *SecurityPolicyService) getNamespaceUID(ns string) (nsUid types.UI
 	return namespace_uid
 }
 
-func (service *SecurityPolicyService) buildRulePortString(port *v1alpha1.SecurityPolicyPort, hasNamedport bool, portNumber int) string {
+func (service *SecurityPolicyService) buildRulePortString(port v1alpha1.SecurityPolicyPort, portNumber int) string {
 	protocol := string(port.Protocol)
 	// Build the rule port string name for non named port.
 	// This is a common case where the string is built from port definition. For instance,
@@ -1858,34 +1854,75 @@ func (service *SecurityPolicyService) buildRulePortString(port *v1alpha1.Securit
 	// - protocol: UDP
 	//   port: 3308
 	// The built port string is: UDP.3308
-	if !hasNamedport {
-		if port.EndPort != 0 {
-			return fmt.Sprintf("%s.%s.%d", protocol, (port.Port).String(), port.EndPort)
-		}
-		return fmt.Sprintf("%s.%s", protocol, (port.Port).String())
-	} else {
+	if port.Port.Type == intstr.String && portNumber > 0 {
 		// Build the rule port string name for named port.
 		// The port string is built from specific port number resolved from named port.
 		return fmt.Sprintf("%s.%d", protocol, portNumber)
 	}
+	if port.EndPort != 0 {
+		return fmt.Sprintf("%s.%s.%d", protocol, (port.Port).String(), port.EndPort)
+	}
+	return fmt.Sprintf("%s.%s", protocol, (port.Port).String())
 }
 
-func (service *SecurityPolicyService) buildRulePortsString(ports *[]v1alpha1.SecurityPolicyPort, suffix string) string {
+func (service *SecurityPolicyService) buildRulePortsString(ports []v1alpha1.SecurityPolicyPort, suffix string) string {
 	portsString := ""
-	if ports == nil || len(*ports) == 0 {
+	if ports == nil || len(ports) == 0 {
 		portsString = common.RuleAnyPorts
 	} else {
-		for idx, p := range *ports {
+		portStrings := make([]string, len(ports))
+		for idx, p := range ports {
 			port := p
-			portString := service.buildRulePortString(&port, false, -1)
-			if idx == 0 {
-				portsString = portString
-			} else {
-				portsString = strings.Join([]string{portsString, portString}, common.ConnectorUnderline)
-			}
+			portStrings[idx] = service.buildRulePortString(port, -1)
 		}
+		portsString = strings.Join(portStrings, common.ConnectorUnderline)
 	}
+
 	return util.GenerateTruncName(common.MaxNameLength, portsString, "", suffix, "", "")
+}
+
+func (service *SecurityPolicyService) buildRulePortNumberString(port v1alpha1.SecurityPolicyPort, portNumber int) string {
+	// Build the rule port number string name for non named port.
+	// This is a common case where the string is built from port definition. For instance,
+	// - protocol: TCP
+	//   port: 8282
+	//   endPort: 8286
+	// The built port number string is: 8282.8286
+	// - protocol: UDP
+	//   port: 3308
+	// The built port number string is: 3308
+	if port.Port.Type == intstr.String && portNumber > 0 {
+		// Build the rule port number string name for named port.
+		// The port number string is built from specific port number resolved from named port.
+		return fmt.Sprintf("%d", portNumber)
+	}
+	if port.EndPort != 0 {
+		return fmt.Sprintf("%s.%d", (port.Port).String(), port.EndPort)
+	}
+	return (port.Port).String()
+}
+
+func (service *SecurityPolicyService) buildRulePortsNumberString(ports []v1alpha1.SecurityPolicyPort) string {
+	if ports == nil || len(ports) == 0 {
+		return common.RuleAnyPorts
+	}
+
+	portNumStrings := make([]string, len(ports))
+	for idx, p := range ports {
+		port := p
+		portNumStrings[idx] = service.buildRulePortNumberString(port, -1)
+	}
+	return strings.Join(portNumStrings, common.ConnectorUnderline)
+}
+
+func (service *SecurityPolicyService) buildLimitedRuleHashString(rule *v1alpha1.SecurityPolicyRule) string {
+	serializedBytes, _ := json.Marshal(rule)
+	return util.Sha1(string(serializedBytes))[:common.HashLength]
+}
+
+func (service *SecurityPolicyService) buildRuleHashString(rule *v1alpha1.SecurityPolicyRule) string {
+	serializedBytes, _ := json.Marshal(rule)
+	return util.Sha1(string(serializedBytes))
 }
 
 func (service *SecurityPolicyService) BuildNetworkPolicyAllowPolicyID(uid string) string {
