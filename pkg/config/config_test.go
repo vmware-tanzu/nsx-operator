@@ -111,9 +111,18 @@ func TestConfig_GetTokenProvider(t *testing.T) {
 	vcConfig.VCEndPoint = "127.0.0.1"
 	vcConfig.SsoDomain = "vsphere@local"
 	vcConfig.HttpsPort = 443
+	vcConfig.VCUser = "admin"
+	vcConfig.VCPassword = "password"
 	nsxConfig := &NSXOperatorConfig{VCConfig: vcConfig, NsxConfig: &NsxConfig{}}
 	tokenProvider := nsxConfig.GetTokenProvider()
 	assert.NotNil(t, tokenProvider)
+
+	newTokenProvider := nsxConfig.GetTokenProvider()
+	assert.Equal(t, tokenProvider, newTokenProvider)
+
+	nsxConfig.LibMode = true
+	newTokenProvider = nsxConfig.GetTokenProvider()
+	assert.True(t, tokenProvider != newTokenProvider)
 }
 
 func TestConfig_GetHA(t *testing.T) {

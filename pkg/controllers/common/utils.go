@@ -36,7 +36,9 @@ func AllocateSubnetFromSubnetSet(subnetSet *v1alpha1.SubnetSet, vpcService servi
 			// totalIP will be overrided if IpAddresses are specified.
 			totalIP, _ = util.CalculateIPFromCIDRs(nsxSubnet.IpAddresses)
 		}
-		if portNums < totalIP-3 {
+		// NSX reserves 4 ip addresses in each subnet for network address, gateway address,
+		// dhcp server address and broadcast address.
+		if portNums < totalIP-4 {
 			return *nsxSubnet.Path, nil
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
@@ -49,7 +50,7 @@ func (service *SecurityPolicyService) buildSecurityPolicyName(obj *v1alpha1.Secu
 	}
 	// For T1 scenario, we use ns-name as the key resource name for SecurityPolicy, it is to be consistent with the
 	// previous solutions.
-	return util.GenerateTruncName(common.MaxNameLength, fmt.Sprintf("%s-%s", obj.Namespace, obj.Name), prefix, "", "", "")
+	return util.GenerateTruncName(common.MaxNameLength, strings.Join([]string{obj.Namespace, obj.Name}, common.ConnectorUnderline), prefix, "", "", "")
 }
 
 func (service *SecurityPolicyService) buildSecurityPolicyID(obj *v1alpha1.SecurityPolicy, createdFor string) string {
@@ -378,7 +379,7 @@ func (service *SecurityPolicyService) buildAppliedGroupID(obj *v1alpha1.Security
 	if IsVPCEnabled(service) {
 		suffix := common.TargetGroupSuffix
 		if ruleIdx != -1 {
-			suffix = fmt.Sprintf("%d_%s", ruleIdx, suffix)
+			suffix = strings.Join([]string{strconv.Itoa(ruleIdx), suffix}, common.ConnectorUnderline)
 		}
 		return util.GenerateIDByObjectWithSuffix(obj, suffix)
 	}
@@ -403,10 +404,10 @@ func (service *SecurityPolicyService) buildAppliedGroupPath(obj *v1alpha1.Securi
 		if err != nil {
 			return "", err
 		}
-		orgId := (*vpcInfo).OrgID
-		projectId := (*vpcInfo).ProjectID
-		vpcId := (*vpcInfo).VPCID
-		return fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s/groups/%s", orgId, projectId, vpcId, groupID), nil
+		orgID := (*vpcInfo).OrgID
+		projectID := (*vpcInfo).ProjectID
+		vpcID := (*vpcInfo).VPCID
+		return fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s/groups/%s", orgID, projectID, vpcID, groupID), nil
 	}
 
 	return fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), groupID), nil
@@ -417,13 +418,13 @@ func (service *SecurityPolicyService) buildAppliedGroupName(obj *v1alpha1.Securi
 	var rule *v1alpha1.SecurityPolicyRule
 	if ruleIdx != -1 {
 		rule = &(obj.Spec.Rules[ruleIdx])
-		ruleName := fmt.Sprintf("%s-%d", obj.Name, ruleIdx)
+		ruleName := strings.Join([]string{obj.Name, strconv.Itoa(ruleIdx)}, common.ConnectorUnderline)
 		if len(rule.Name) > 0 {
 			ruleName = rule.Name
 		}
 		return util.GenerateTruncName(common.MaxNameLength, ruleName, "", common.TargetGroupSuffix, "", "")
 	}
-	ruleName := fmt.Sprintf("%s-%s", obj.Namespace, obj.Name)
+	ruleName := strings.Join([]string{obj.Namespace, obj.Name}, common.ConnectorUnderline)
 	return util.GenerateTruncName(common.MaxNameLength, ruleName, "", common.TargetGroupSuffix, "", "")
 }
 
@@ -602,7 +603,7 @@ func (service *SecurityPolicyService) buildRuleID(obj *v1alpha1.SecurityPolicy, 
 	ruleHash := fmt.Sprintf("%s", util.Sha1(string(serializedBytes)))
 	ruleIdxStr := fmt.Sprintf("%d", ruleIdx)
 	if IsVPCEnabled(service) {
-		suffix := fmt.Sprintf("%s_%s", ruleIdxStr, ruleHash)
+		suffix := strings.Join([]string{ruleIdxStr, ruleHash}, common.ConnectorUnderline)
 		return util.GenerateIDByObjectWithSuffix(obj, suffix)
 	}
 	prefix := common.SecurityPolicyPrefix
@@ -614,7 +615,7 @@ func (service *SecurityPolicyService) buildRuleID(obj *v1alpha1.SecurityPolicy, 
 
 func (service *SecurityPolicyService) buildRuleDisplayName(rule *v1alpha1.SecurityPolicyRule, portIdx, portNumber int, hasNamedport bool, createdFor string) (string, error) {
 	var ruleName string
-	var suffix string
+	var ruleAct string
 
 	ruleDirection, err := getRuleDirection(rule)
 	if err != nil {
@@ -625,35 +626,29 @@ func (service *SecurityPolicyService) buildRuleDisplayName(rule *v1alpha1.Securi
 		return "", err
 	}
 
-	if ruleDirection == "IN" {
-		switch ruleAction {
-		case util.ToUpper(v1alpha1.RuleActionAllow):
-			suffix = common.RuleSuffixIngressAllow
-		case util.ToUpper(v1alpha1.RuleActionDrop):
-			suffix = common.RuleSuffixIngressDrop
-		case util.ToUpper(v1alpha1.RuleActionReject):
-			suffix = common.RuleSuffixIngressReject
-		}
-	} else {
-		switch ruleAction {
-		case util.ToUpper(v1alpha1.RuleActionAllow):
-			suffix = common.RuleSuffixEgressAllow
-		case util.ToUpper(v1alpha1.RuleActionDrop):
-			suffix = common.RuleSuffixEgressDrop
-		case util.ToUpper(v1alpha1.RuleActionReject):
-			suffix = common.RuleSuffixEgressReject
-		}
+	switch ruleAction {
+	case util.ToUpper(v1alpha1.RuleActionAllow):
+		ruleAct = common.RuleActionAllow
+	case util.ToUpper(v1alpha1.RuleActionDrop):
+		ruleAct = common.RuleActionDrop
+	case util.ToUpper(v1alpha1.RuleActionReject):
+		ruleAct = common.RuleActionReject
 	}
+	ruleDir := common.RuleEgress
+	if ruleDirection == "IN" {
+		ruleDir = common.RuleIngress
+	}
+	suffix := strings.Join([]string{ruleDir, ruleAct}, common.ConnectorUnderline)
 
 	if len(rule.Name) > 0 {
 		// For the internal security policy rule converted from network policy, skipping to add suffix for the rule name
 		// if it has its own name generated, usually, it's for the internal isolation security policy rule created for network policy.
 		ruleName = rule.Name
 		if createdFor != common.ResourceTypeNetworkPolicy {
-			// If user defines the rule name, the generated NSX security policy rule will also be added with the same suffix: "-direction-action" as building rulePortsString
-			// e.g. input security policy's rule name: sp-rule,
-			// the generated NSX security policy rule name: sp-rule-ingress-allow
-			ruleName = ruleName + "-" + suffix
+			// If user defines the rule name, the generated NSX security policy rule will also be added with the same suffix: "_direction_action" as building rulePortsString
+			// e.g. input security policy's rule name: sp_rule,
+			// the generated NSX security policy rule name: sp_rule_ingress_allow
+			ruleName = strings.Join([]string{ruleName, suffix}, common.ConnectorUnderline)
 		}
 	} else {
 		ruleName = service.buildRulePortsString(&rule.Ports, suffix)
@@ -663,11 +658,11 @@ func (service *SecurityPolicyService) buildRuleDisplayName(rule *v1alpha1.Securi
 		return util.GenerateTruncName(common.MaxNameLength, ruleName, "", "", "", ""), nil
 	} else {
 		// For the security policy rule with namedPort, it will be expanded to the multiple security policy rules based on resolution of named port.
-		// e.g. input: security policy's rule name: TCP.http-UDP.1234-ingress-allow,
-		// expand to NSX security policy rules with name TCP.http-UDP.1234.TCP.80-ingress-allow and TCP.http-UDP.1234.UDP.1234-ingress-allow.
-		// in case that user defined input security policy's rule name: sp-namedport-rule,
-		// expand to NSX security policy rules with name sp-namedport-rule.TCP.80-ingress-allow and sp-namedport-rule.UDP.1234-ingress-allow.
-		index := strings.Index(ruleName, "-"+suffix)
+		// e.g. input: security policy's rule name: TCP.http_UDP.1234_ingress_allow,
+		// expand to NSX security policy rules with name TCP.http_UDP.1234_TCP.80_ingress_allow and TCP.http_UDP.1234_UDP.1234_ingress_allow.
+		// in case that user defined input security policy's rule name: sp_namedport_rule,
+		// expand to NSX security policy rules with name sp_namedport_rule.TCP.80_ingress_allow and sp_namedport_rule.UDP.1234_ingress_allow.
+		index := strings.Index(ruleName, common.ConnectorUnderline+suffix)
 		return util.GenerateTruncName(common.MaxNameLength, ruleName[:index]+"."+service.buildRulePortString(&rule.Ports[portIdx], true, portNumber), "", suffix, "", ""), nil
 	}
 }
@@ -753,9 +748,10 @@ func (service *SecurityPolicyService) buildRulePeerGroupID(obj *v1alpha1.Securit
 		suffix = common.SrcGroupSuffix
 	}
 	if IsVPCEnabled(service) {
-		return util.GenerateIDByObjectWithSuffix(obj, fmt.Sprintf("%d_%s", ruleIdx, suffix))
+		suffix = strings.Join([]string{strconv.Itoa(ruleIdx), suffix}, common.ConnectorUnderline)
+		return util.GenerateIDByObjectWithSuffix(obj, suffix)
 	}
-	return util.GenerateID(string(obj.UID), common.SecurityPolicyPrefix, suffix, fmt.Sprintf("%d", ruleIdx))
+	return util.GenerateID(string(obj.UID), common.SecurityPolicyPrefix, suffix, strconv.Itoa(ruleIdx))
 }
 
 func (service *SecurityPolicyService) buildRulePeerGroupName(obj *v1alpha1.SecurityPolicy, ruleIdx int, isSource bool) string {
@@ -764,7 +760,7 @@ func (service *SecurityPolicyService) buildRulePeerGroupName(obj *v1alpha1.Secur
 	if isSource == true {
 		suffix = common.SrcGroupSuffix
 	}
-	ruleName := fmt.Sprintf("%s-%d", obj.Name, ruleIdx)
+	ruleName := strings.Join([]string{obj.Name, strconv.Itoa(ruleIdx)}, common.ConnectorUnderline)
 	if len(rule.Name) > 0 {
 		ruleName = rule.Name
 	}
@@ -918,7 +914,7 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 }
 
 func (service *SecurityPolicyService) buildExpandedRuleId(ruleBaseId string, portIdx int, portAddressIdx int) string {
-	return fmt.Sprintf("%s_%d_%d", ruleBaseId, portIdx, portAddressIdx)
+	return strings.Join([]string{ruleBaseId, strconv.Itoa(portIdx), strconv.Itoa(portAddressIdx)}, common.ConnectorUnderline)
 }
 
 // Build rule basic info, ruleIdx is the index of the rules of security policy,
@@ -1709,13 +1705,15 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 	return totalCriteriaCount, totalExprCount, nil
 }
 
-func (service *SecurityPolicyService) buildShareName(nsxResourceID, groupName string) string {
-	nsxShareName := util.GenerateTruncName(common.MaxNameLength, fmt.Sprintf("%s-group-%s", nsxResourceID, groupName), "", common.ShareSuffix, "", "")
+func (service *SecurityPolicyService) buildShareName(nsxProjectID, groupName string) string {
+	resName := strings.Join([]string{nsxProjectID, "group", groupName}, common.ConnectorUnderline)
+	nsxShareName := util.GenerateTruncName(common.MaxNameLength, resName, "", common.ShareSuffix, "", "")
 	return nsxShareName
 }
 
-func (service *SecurityPolicyService) buildShareID(nsxResourceID, groupID string) string {
-	nsxShareId := util.GenerateID(fmt.Sprintf("%s_group_%s", nsxResourceID, groupID), "", common.ShareSuffix, "")
+func (service *SecurityPolicyService) buildShareID(nsxProjectID, groupID string) string {
+	resID := strings.Join([]string{nsxProjectID, "group", groupID}, common.ConnectorUnderline)
+	nsxShareId := util.GenerateID(resID, "", common.ShareSuffix, "")
 	return nsxShareId
 }
 
@@ -1795,9 +1793,9 @@ func (service *SecurityPolicyService) buildGroupShare(obj *v1alpha1.SecurityPoli
 	var shareName string
 
 	resourceType := common.ResourceTypeShare
-	projectId := vpcInfo.ProjectID
-	shareId = service.buildShareID(projectId, *group.Id)
-	shareName = service.buildShareName(projectId, *group.DisplayName)
+	projectID := vpcInfo.ProjectID
+	shareId = service.buildShareID(projectID, *group.Id)
+	shareName = service.buildShareName(projectID, *group.DisplayName)
 	shareTags = service.buildShareTags(obj, infraGroupShared, projectGroupShared, createdFor)
 	childSharedResource, err := service.buildChildSharedResource(shareId, sharedGroupPath)
 	if err != nil {
@@ -1875,7 +1873,7 @@ func (service *SecurityPolicyService) buildRulePortString(port *v1alpha1.Securit
 func (service *SecurityPolicyService) buildRulePortsString(ports *[]v1alpha1.SecurityPolicyPort, suffix string) string {
 	portsString := ""
 	if ports == nil || len(*ports) == 0 {
-		portsString = "all"
+		portsString = common.RuleAnyPorts
 	} else {
 		for idx, p := range *ports {
 			port := p
@@ -1883,25 +1881,17 @@ func (service *SecurityPolicyService) buildRulePortsString(ports *[]v1alpha1.Sec
 			if idx == 0 {
 				portsString = portString
 			} else {
-				portsString = portsString + "-" + portString
+				portsString = strings.Join([]string{portsString, portString}, common.ConnectorUnderline)
 			}
 		}
 	}
 	return util.GenerateTruncName(common.MaxNameLength, portsString, "", suffix, "", "")
 }
 
-func (service *SecurityPolicyService) BuildNetworkPolicyAllowPolicyName(uid string) string {
-	return fmt.Sprintf("%s-allow", uid)
-}
-
 func (service *SecurityPolicyService) BuildNetworkPolicyAllowPolicyID(uid string) string {
-	return fmt.Sprintf("%s_allow", uid)
-}
-
-func (service *SecurityPolicyService) BuildNetworkPolicyIsolationPolicyName(uid string) string {
-	return fmt.Sprintf("%s-isolation", uid)
+	return strings.Join([]string{uid, common.RuleActionAllow}, common.ConnectorUnderline)
 }
 
 func (service *SecurityPolicyService) BuildNetworkPolicyIsolationPolicyID(uid string) string {
-	return fmt.Sprintf("%s_isolation", uid)
+	return strings.Join([]string{uid, common.RuleActionDrop}, common.ConnectorUnderline)
 }

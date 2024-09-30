@@ -70,6 +70,20 @@ func TestIPAddressAllocationStore_GetByIndex(t *testing.T) {
 			}
 		})
 	}
+	markForDelete := true
+	p.MarkedForDelete = &markForDelete
+	err := ipAddressAllocationStore.Apply(p)
+	if err != nil {
+		t.Errorf("failed to apply: %v", err)
+	}
+	_ = ipAddressAllocationStore.Apply(p)
+	got, er := ipAddressAllocationStore.GetByIndex("1")
+	if er != nil {
+		t.Errorf("failed to get: %v", er)
+	}
+	if got != nil {
+		t.Errorf("got != nil")
+	}
 }
 
 func Test_indexFunc(t *testing.T) {
@@ -78,10 +92,30 @@ func Test_indexFunc(t *testing.T) {
 		Id:   &mId,
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
 	}
-	t.Run("1", func(t *testing.T) {
+	t.Run("IndexFuncVpcIpAddressAllocation", func(t *testing.T) {
 		got, _ := indexFunc(m)
 		if !reflect.DeepEqual(got, []string{"11111"}) {
 			t.Errorf("indexFunc() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
+		}
+	})
+	modelGenericPolicyRealizedResource := model.GenericPolicyRealizedResource{
+		Id:   &mId,
+		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+	}
+	t.Run("IndexFuncGenericPolicyRealizedResource", func(t *testing.T) {
+		got, _ := indexFunc(&modelGenericPolicyRealizedResource)
+		if !reflect.DeepEqual(got, []string{"11111"}) {
+			t.Errorf("indexFunc() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
+		}
+	})
+	modelUnknown := model.SecurityPolicy{
+		Id:   &mId,
+		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+	}
+	t.Run("IndexFuncUnknown", func(t *testing.T) {
+		_, err := indexFunc(&modelUnknown)
+		if err == nil {
+			t.Errorf("err should not be nil")
 		}
 	})
 }
@@ -89,10 +123,24 @@ func Test_indexFunc(t *testing.T) {
 func Test_keyFunc(t *testing.T) {
 	Id := "11111"
 	g := &model.VpcIpAddressAllocation{Id: &Id}
-	t.Run("2", func(t *testing.T) {
+	t.Run("KeyFuncVpcIpAddressAllocation", func(t *testing.T) {
 		got, _ := keyFunc(g)
 		if got != "11111" {
 			t.Errorf("keyFunc() = %v, want %v", got, "11111")
+		}
+	})
+	modelGenericPolicyRealizedResource := model.GenericPolicyRealizedResource{Id: &Id}
+	t.Run("KeyFuncGenericPolicyRealizedResource", func(t *testing.T) {
+		got, _ := keyFunc(&modelGenericPolicyRealizedResource)
+		if got != "11111" {
+			t.Errorf("keyFunc() = %v, want %v", got, "11111")
+		}
+	})
+	modelUnknown := model.SecurityPolicy{Id: &Id}
+	t.Run("KeyFuncUnknown", func(t *testing.T) {
+		_, err := keyFunc(&modelUnknown)
+		if err == nil {
+			t.Errorf("err should not be nil")
 		}
 	})
 }

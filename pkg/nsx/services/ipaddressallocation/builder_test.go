@@ -23,8 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type fakeQueryClient struct {
-}
+type fakeQueryClient struct{}
 
 func (qIface *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
 	cursor := "2"
@@ -140,8 +139,8 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 
 		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc)
 		assert.Nil(t, err)
-		assert.Equal(t, "test-ip-alloc-uid1", *result.Id)
-		assert.Equal(t, "default-test-ip-alloc", *result.DisplayName)
+		assert.Equal(t, "test-ip-alloc_uid1", *result.Id)
+		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
 		assert.Equal(t, int64(10), *result.AllocationSize)
 		assert.Equal(t, "EXTERNAL", *result.IpAddressBlockVisibility)
 		assert.Equal(t, 5, len(result.Tags))

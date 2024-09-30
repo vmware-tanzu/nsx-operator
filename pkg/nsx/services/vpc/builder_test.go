@@ -83,7 +83,7 @@ func TestBuildNSXVPC(t *testing.T) {
 		PrivateIPs: []string{"192.168.1.0/24"},
 	}
 	netInfoObj := &v1alpha1.NetworkInfo{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "ns1", UID: "netinfouid1"},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "netinfo1", UID: "netinfouid1"},
 		VPCs:       nil,
 	}
 	nsObj := &v1.Namespace{
@@ -126,8 +126,8 @@ func TestBuildNSXVPC(t *testing.T) {
 			useAVILB:          true,
 			lbProviderChanged: false,
 			expVPC: &model.Vpc{
-				Id:                      common.String("ns1-netinfouid1"),
-				DisplayName:             common.String("ns1-netinfouid1"),
+				Id:                      common.String("netinfo1_netinfouid1"),
+				DisplayName:             common.String("netinfo1_netinfouid1"),
 				LoadBalancerVpcEndpoint: &model.LoadBalancerVPCEndpoint{Enabled: common.Bool(true)},
 				PrivateIps:              []string{"192.168.3.0/24"},
 				IpAddressType:           common.String("IPV4"),
@@ -146,8 +146,8 @@ func TestBuildNSXVPC(t *testing.T) {
 			useAVILB:          false,
 			lbProviderChanged: false,
 			expVPC: &model.Vpc{
-				Id:            common.String("ns1-netinfouid1"),
-				DisplayName:   common.String("ns1-netinfouid1"),
+				Id:            common.String("netinfo1_netinfouid1"),
+				DisplayName:   common.String("netinfo1_netinfouid1"),
 				PrivateIps:    []string{"192.168.3.0/24"},
 				IpAddressType: common.String("IPV4"),
 				Tags: []model.Tag{
@@ -163,16 +163,16 @@ func TestBuildNSXVPC(t *testing.T) {
 			name:         "update VPC with AVI load balancer disabled -> enabled",
 			ncPrivateIps: []string{"192.168.3.0/24"},
 			existingVPC: &model.Vpc{
-				Id:            common.String("ns1-netinfouid1"),
-				DisplayName:   common.String("ns1-netinfouid1"),
+				Id:            common.String("netinfo1_netinfouid1"),
+				DisplayName:   common.String("netinfo1_netinfouid1"),
 				PrivateIps:    []string{"192.168.3.0/24"},
 				IpAddressType: common.String("IPV4"),
 			},
 			useAVILB:          true,
 			lbProviderChanged: true,
 			expVPC: &model.Vpc{
-				Id:                      common.String("ns1-netinfouid1"),
-				DisplayName:             common.String("ns1-netinfouid1"),
+				Id:                      common.String("netinfo1_netinfouid1"),
+				DisplayName:             common.String("netinfo1_netinfouid1"),
 				LoadBalancerVpcEndpoint: &model.LoadBalancerVPCEndpoint{Enabled: common.Bool(true)},
 				PrivateIps:              []string{"192.168.3.0/24"},
 				IpAddressType:           common.String("IPV4"),
@@ -182,16 +182,16 @@ func TestBuildNSXVPC(t *testing.T) {
 			name:         "update VPC with NSX load balancer disabled -> enabled",
 			ncPrivateIps: []string{"192.168.3.0/24"},
 			existingVPC: &model.Vpc{
-				Id:            common.String("ns1-netinfouid1"),
-				DisplayName:   common.String("ns1-netinfouid1"),
+				Id:            common.String("netinfo1_netinfouid1"),
+				DisplayName:   common.String("netinfo1_netinfouid1"),
 				PrivateIps:    []string{"192.168.3.0/24"},
 				IpAddressType: common.String("IPV4"),
 			},
 			useAVILB:          false,
 			lbProviderChanged: true,
 			expVPC: &model.Vpc{
-				Id:            common.String("ns1-netinfouid1"),
-				DisplayName:   common.String("ns1-netinfouid1"),
+				Id:            common.String("netinfo1_netinfouid1"),
+				DisplayName:   common.String("netinfo1_netinfouid1"),
 				PrivateIps:    []string{"192.168.3.0/24"},
 				IpAddressType: common.String("IPV4"),
 			},
@@ -202,6 +202,111 @@ func TestBuildNSXVPC(t *testing.T) {
 			got, err := buildNSXVPC(netInfoObj, nsObj, nc, clusterStr, tc.existingVPC, tc.useAVILB, tc.lbProviderChanged)
 			assert.Nil(t, err)
 			assert.Equal(t, tc.expVPC, got)
+		})
+	}
+}
+
+func Test_combineVPCIDAndLBSID(t *testing.T) {
+	type args struct {
+		vpcID string
+		lbsID string
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{
+			name: "pass",
+			args: args{
+				vpcID: "fakeVpc",
+				lbsID: "fakeLbs",
+			},
+			want: "fakeVpc_fakeLbs",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := combineVPCIDAndLBSID(tt.args.vpcID, tt.args.lbsID); got != tt.want {
+				t.Errorf("combineVPCIDAndLBSID() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_generateLBSKey(t *testing.T) {
+	emptyPath := ""
+	emptyVpcPath := "/fake/path/empty/vpc/"
+	okPath := "/fake/path/vpc/fake-vpc"
+	okId := "fake-id"
+	type args struct {
+		lbs model.LBService
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "nil connectivity path",
+			args: args{
+				lbs: model.LBService{ConnectivityPath: nil},
+			},
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name: "empty connectivity path",
+			args: args{
+				lbs: model.LBService{ConnectivityPath: &emptyPath},
+			},
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name: "empty vpc id",
+			args: args{
+				lbs: model.LBService{ConnectivityPath: &emptyVpcPath},
+			},
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name: "nil lbs id",
+			args: args{
+				lbs: model.LBService{ConnectivityPath: &okPath, Id: nil},
+			},
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name: "empty lbs id",
+			args: args{
+				lbs: model.LBService{ConnectivityPath: &okPath, Id: &emptyPath},
+			},
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name: "empty lbs id",
+			args: args{
+				lbs: model.LBService{ConnectivityPath: &okPath, Id: &okId},
+			},
+			want:    "fake-vpc_fake-id",
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := generateLBSKey(tt.args.lbs)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("generateLBSKey() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("generateLBSKey() = %v, want %v", got, tt.want)
+			}
 		})
 	}
 }

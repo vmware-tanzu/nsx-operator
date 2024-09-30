@@ -32,14 +32,14 @@ func (service *SubnetService) buildSubnetSetID(subnetset *v1alpha1.SubnetSet, in
 	return util.GenerateIDByObjectWithSuffix(subnetset, index)
 }
 
-// buildSubnetName uses format "subnet.Name-subnet.UUID" to ensure the Subnet's display_name is not
+// buildSubnetName uses format "subnet.Name_subnet.UUID" to ensure the Subnet's display_name is not
 // conflict with others. This is because VC will use the Subnet's display_name to created folder, so
 // the name string must be unique.
 func (service *SubnetService) buildSubnetName(subnet *v1alpha1.Subnet) string {
 	return util.GenerateIDByObjectByLimit(subnet, common.MaxSubnetNameLength)
 }
 
-// buildSubnetSetName uses format "subnetset.Name-subnetset.UUID-index" to ensure the generated Subnet's
+// buildSubnetSetName uses format "subnetset.Name_subnetset.UUID_index" to ensure the generated Subnet's
 // display_name is not conflict with others.
 func (service *SubnetService) buildSubnetSetName(subnetset *v1alpha1.SubnetSet, index string) string {
 	resName := util.GenerateIDByObjectByLimit(subnetset, common.MaxSubnetNameLength-(len(index)+1))
@@ -63,7 +63,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 			Id:             String(service.BuildSubnetID(o)),
 			AccessMode:     String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),
 			Ipv4SubnetSize: Int64(int64(o.Spec.IPv4SubnetSize)),
-			DhcpConfig:     service.buildDHCPConfig(o.Spec.DHCPConfig.EnableDHCP, int64(o.Spec.IPv4SubnetSize-4)),
+			DhcpConfig:     service.buildDHCPConfig(o.Spec.DHCPConfig.EnableDHCP),
 			DisplayName:    String(service.buildSubnetName(o)),
 		}
 		staticIpAllocation = !o.Spec.DHCPConfig.EnableDHCP
@@ -76,7 +76,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 			Id:             String(service.buildSubnetSetID(o, index)),
 			AccessMode:     String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),
 			Ipv4SubnetSize: Int64(int64(o.Spec.IPv4SubnetSize)),
-			DhcpConfig:     service.buildDHCPConfig(o.Spec.DHCPConfig.EnableDHCP, int64(o.Spec.IPv4SubnetSize-4)),
+			DhcpConfig:     service.buildDHCPConfig(o.Spec.DHCPConfig.EnableDHCP),
 			DisplayName:    String(service.buildSubnetSetName(o, index)),
 		}
 		staticIpAllocation = !o.Spec.DHCPConfig.EnableDHCP
@@ -97,19 +97,11 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 	return nsxSubnet, nil
 }
 
-func (service *SubnetService) buildDHCPConfig(enableDHCP bool, poolSize int64) *model.VpcSubnetDhcpConfig {
+func (service *SubnetService) buildDHCPConfig(enableDHCP bool) *model.VpcSubnetDhcpConfig {
 	// Subnet DHCP is used by AVI, not needed for now. We need to explicitly mark enableDhcp = false,
 	// otherwise Subnet will use DhcpConfig inherited from VPC.
 	dhcpConfig := &model.VpcSubnetDhcpConfig{
 		EnableDhcp: Bool(enableDHCP),
-	}
-	if !enableDHCP {
-		dhcpConfig.StaticPoolConfig = &model.StaticPoolConfig{
-			// Number of IPs to be reserved in static ip pool.
-			// By default, if dhcp is enabled then static ipv4 pool size will be zero and all available IPs will be
-			// reserved in local dhcp pool. Maximum allowed value is 'subnet size - 4'.
-			Ipv4PoolSize: Int64(poolSize),
-		}
 	}
 	return dhcpConfig
 }

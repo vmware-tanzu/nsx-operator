@@ -244,6 +244,15 @@ func electMaster(mgr manager.Manager, nsxClient *nsx.Client) {
 	log.Info("I'm trying to be elected as master")
 	<-mgr.Elected()
 	log.Info("I'm the master now")
+	// In HA mode, there can be a brief period where both the old and new leader
+	// operators are active simultaneously. After a time synchronization by NTP,
+	// the new operator may acquire the lease before the old operator recognizes
+	// it has lost the lease, leading to a potential race condition. To mitigate this,
+	// the new master operator is configured to wait for 15 seconds, which is
+	// slightly longer than the default Leader Election Renew Deadline (10 seconds),
+	// ensuring a smooth transition.
+	log.Info("waiting a 15-second delay to let the old instance know that it has lost its lease")
+	time.Sleep(15 * time.Second)
 	startServiceController(mgr, nsxClient)
 }
 

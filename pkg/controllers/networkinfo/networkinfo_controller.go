@@ -242,10 +242,6 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 						deleteFail(r, ctx, obj, &err, r.Client)
 						return common.ResultRequeueAfter10sec, err
 					}
-					if err := r.Service.DeleteIPBlockInVPC(*vpc); err != nil {
-						log.Error(err, "failed to delete private ip blocks for VPC", "VPC", req.NamespacedName)
-						return common.ResultRequeueAfter10sec, err
-					}
 				}
 			}
 
@@ -340,10 +336,6 @@ func (r *NetworkInfoReconciler) CollectGarbage(ctx context.Context) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeNetworkInfo)
 		} else {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeNetworkInfo)
-			if err := r.Service.DeleteIPBlockInVPC(elem); err != nil {
-				log.Error(err, "failed to delete private ip blocks for VPC", "VPC", *elem.DisplayName)
-			}
-			log.Info("deleted private ip blocks for VPC", "VPC", *elem.DisplayName)
 		}
 	}
 }

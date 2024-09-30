@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -13,7 +14,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -24,7 +24,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	nsxUtil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
@@ -55,6 +55,11 @@ func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVp
 		BindingType: model.VpcBindingType(),
 	}}
 
+	lbsStore := &LBSStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.LBServiceBindingType(),
+	}}
+
 	service := &VPCService{
 		Service: common.Service{
 			Client: k8sClient,
@@ -75,6 +80,7 @@ func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVp
 			},
 		},
 		VpcStore: vpcStore,
+		LbsStore: lbsStore,
 		VPCNetworkConfigStore: VPCNetworkInfoStore{
 			VPCNetworkConfigMap: map[string]common.VPCNetworkConfigInfo{},
 		},
@@ -219,14 +225,21 @@ func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
 
 	ctx := context.Background()
 
+	mockNs := &v1.Namespace{}
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(errors.New("fake-error"))
+	got, err := service.getSharedVPCNamespaceFromNS("fake-ns")
+	assert.NotNil(t, err)
+	assert.Equal(t, "", got)
+
 	tests := []struct {
 		name     string
 		ns       string
 		anno     map[string]string
 		expected string
 	}{
-		{"1", "test-ns-1", map[string]string{"nsx.vmware.com/vpc_network_config": "default"}, ""},
-		{"2", "test-ns-2", map[string]string{"nsx.vmware.com/vpc_network_config": "infra", "nsx.vmware.com/shared_vpc_namespace": "kube-system"}, "kube-system"},
+		{"1", "test-ns-1", map[string]string{}, ""},
+		{"2", "test-ns-2", map[string]string{"nsx.vmware.com/vpc_network_config": "default"}, ""},
+		{"3", "test-ns-3", map[string]string{"nsx.vmware.com/vpc_network_config": "infra", "nsx.vmware.com/shared_vpc_namespace": "kube-system"}, "kube-system"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -238,7 +251,8 @@ func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
 			})
 			ns, _err := service.getSharedVPCNamespaceFromNS(tt.ns)
 			assert.Equal(t, tt.expected, ns)
-			assert.Equal(t, nil, _err)
+			assert.Nil(t, _err)
+
 		})
 	}
 
@@ -500,6 +514,14 @@ func TestEdgeClusterEnabled(t *testing.T) {
 	enable = vpcService.EdgeClusterEnabled(&nc)
 	assert.Equal(t, false, enable)
 	patch.Reset()
+
+	// Simulate the scenario when the VpcConnectivityProfile value returned by NSX is nil.
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVpcConnectivityProfile", func(_ *VPCService, _ *common.VPCNetworkConfigInfo, _ string) (*model.VpcConnectivityProfile, error) {
+		return &model.VpcConnectivityProfile{}, nil
+	})
+	enable = vpcService.EdgeClusterEnabled(&nc)
+	assert.Equal(t, false, enable)
+	patch.Reset()
 }
 
 func TestGetLbProvider(t *testing.T) {
@@ -548,7 +570,7 @@ func TestGetLbProvider(t *testing.T) {
 	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
 		retry++
 		if strings.Contains(path, "alb-endpoint") {
-			return nil, util.HttpCommonError
+			return nil, nsxUtil.HttpCommonError
 		} else {
 			return nil, nil
 		}
@@ -563,7 +585,7 @@ func TestGetLbProvider(t *testing.T) {
 	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
 		retry++
 		if strings.Contains(path, "alb-endpoint") {
-			return nil, util.HttpNotFoundError
+			return nil, nsxUtil.HttpNotFoundError
 		} else {
 			return nil, nil
 		}
@@ -587,7 +609,7 @@ func TestGetLbProvider(t *testing.T) {
 		if strings.Contains(path, "alb-endpoint") {
 			return nil, nil
 		} else {
-			return nil, util.HttpNotFoundError
+			return nil, nsxUtil.HttpNotFoundError
 		}
 	})
 	vpcService.LbsStore.Add(&model.LBService{Id: &defaultLBSName, ConnectivityPath: common.String("12345")})
@@ -972,6 +994,358 @@ func TestGetLBSsFromNSXByVPC(t *testing.T) {
 			} else {
 				assert.Equal(t, tt.expectLBSPath, lbsPath)
 			}
+		})
+	}
+}
+
+func TestVPCService_RegisterVPCNetworkConfig(t *testing.T) {
+	service, _, _ := createService(t)
+
+	info := common.VPCNetworkConfigInfo{
+		IsDefault:              false,
+		Org:                    "fake-org",
+		Name:                   "fake-name",
+		VPCConnectivityProfile: "fake-file",
+		NSXProject:             "fake-project",
+		PrivateIPs:             []string{"1.1.1.1/16"},
+		DefaultSubnetSize:      16,
+		VPCPath:                "fake-path",
+	}
+
+	service.RegisterVPCNetworkConfig("fake-name", info)
+	_, exist := service.GetVPCNetworkConfig("non-exist")
+	assert.False(t, exist)
+	got, exist := service.GetVPCNetworkConfig("fake-name")
+	assert.True(t, exist)
+	reflect.DeepEqual(got, info)
+
+}
+
+func TestVPCService_UnRegisterVPCNetworkConfig(t *testing.T) {
+	service, _, _ := createService(t)
+
+	info := common.VPCNetworkConfigInfo{
+		IsDefault:              false,
+		Org:                    "fake-org",
+		Name:                   "fake-name",
+		VPCConnectivityProfile: "fake-file",
+		NSXProject:             "fake-project",
+		PrivateIPs:             []string{"1.1.1.1/16"},
+		DefaultSubnetSize:      16,
+		VPCPath:                "fake-path",
+	}
+
+	service.RegisterVPCNetworkConfig("fake-name", info)
+	got, exist := service.GetVPCNetworkConfig("fake-name")
+	assert.True(t, exist)
+	reflect.DeepEqual(got, info)
+	service.UnregisterVPCNetworkConfig("non-exist")
+	got, exist = service.GetVPCNetworkConfig("fake-name")
+	assert.True(t, exist)
+	reflect.DeepEqual(got, info)
+	service.UnregisterVPCNetworkConfig("fake-name")
+	got, exist = service.GetVPCNetworkConfig("fake-name")
+	assert.False(t, exist)
+	assert.Equal(t, common.VPCNetworkConfigInfo{}, got)
+
+}
+
+func TestVPCService_RegisterNamespaceNetworkconfigBinding(t *testing.T) {
+
+	service, _, _ := createService(t)
+
+	info := common.VPCNetworkConfigInfo{
+		IsDefault:              false,
+		Org:                    "fake-org",
+		Name:                   "fake-name",
+		VPCConnectivityProfile: "fake-file",
+		NSXProject:             "fake-project",
+		PrivateIPs:             []string{"1.1.1.1/16"},
+		DefaultSubnetSize:      16,
+		VPCPath:                "fake-path",
+	}
+
+	service.RegisterVPCNetworkConfig("fake-name", info)
+	service.RegisterNamespaceNetworkconfigBinding("fake-ns", "fake-name")
+	got := service.GetVPCNetworkConfigByNamespace("fake-ns")
+	reflect.DeepEqual(info, got)
+	got = service.GetVPCNetworkConfigByNamespace("non-exist")
+	assert.Nil(t, got)
+
+}
+
+func TestVPCService_UnRegisterNamespaceNetworkconfigBinding(t *testing.T) {
+
+	service, _, _ := createService(t)
+
+	info := common.VPCNetworkConfigInfo{
+		IsDefault:              false,
+		Org:                    "fake-org",
+		Name:                   "fake-name",
+		VPCConnectivityProfile: "fake-file",
+		NSXProject:             "fake-project",
+		PrivateIPs:             []string{"1.1.1.1/16"},
+		DefaultSubnetSize:      16,
+		VPCPath:                "fake-path",
+	}
+
+	service.RegisterVPCNetworkConfig("fake-name", info)
+	service.RegisterNamespaceNetworkconfigBinding("fake-ns", "fake-name")
+	got := service.GetVPCNetworkConfigByNamespace("fake-ns")
+	reflect.DeepEqual(info, got)
+	got = service.GetVPCNetworkConfigByNamespace("non-exist")
+	assert.Nil(t, got)
+	service.UnRegisterNamespaceNetworkconfigBinding("fake-ns")
+	got = service.GetVPCNetworkConfigByNamespace("fake-ns")
+	assert.Nil(t, got)
+
+}
+
+func TestVPCService_GetNamespacesByNetworkconfigName(t *testing.T) {
+	service, _, _ := createService(t)
+	service.RegisterNamespaceNetworkconfigBinding("ns1", "fake-config")
+	service.RegisterNamespaceNetworkconfigBinding("ns2", "fake-config")
+	service.RegisterNamespaceNetworkconfigBinding("ns3", "dummy-config")
+	ret := service.GetNamespacesByNetworkconfigName("dummy-config")
+	assert.Equal(t, 1, len(ret))
+	assert.Equal(t, "ns3", ret[0])
+	ret = service.GetNamespacesByNetworkconfigName("non-exist")
+	assert.Equal(t, 0, len(ret))
+	ret = service.GetNamespacesByNetworkconfigName("fake-config")
+	assert.Equal(t, 2, len(ret))
+	assert.True(t, slices.Contains(ret, "ns1"))
+	assert.True(t, slices.Contains(ret, "ns2"))
+}
+
+func TestVPCService_GetVPCNetworkConfigByNamespace(t *testing.T) {
+	service, _, _ := createService(t)
+
+	info := common.VPCNetworkConfigInfo{
+		IsDefault:              false,
+		Org:                    "fake-org",
+		Name:                   "fake-name",
+		VPCConnectivityProfile: "fake-file",
+		NSXProject:             "fake-project",
+		PrivateIPs:             []string{"1.1.1.1/16"},
+		DefaultSubnetSize:      16,
+		VPCPath:                "fake-path",
+	}
+
+	service.RegisterNamespaceNetworkconfigBinding("fake-ns", "fake-name")
+	got := service.GetVPCNetworkConfigByNamespace("non-exist")
+	assert.Nil(t, got)
+	got = service.GetVPCNetworkConfigByNamespace("fake-ns")
+	assert.Nil(t, got)
+	service.RegisterVPCNetworkConfig("fake-name", info)
+	got = service.GetVPCNetworkConfigByNamespace("fake-ns")
+	reflect.DeepEqual(info, got)
+}
+
+func TestVPCService_ValidateNetworkConfig(t *testing.T) {
+	service, _, _ := createService(t)
+
+	tests := []struct {
+		name string
+		nc   common.VPCNetworkConfigInfo
+		want bool
+	}{
+		{
+			name: "is pre-created vpc",
+			nc:   common.VPCNetworkConfigInfo{VPCPath: "fake-path"},
+			want: true,
+		},
+		{
+			name: "pre-created vpc with nil private ips",
+			nc:   common.VPCNetworkConfigInfo{VPCPath: "", PrivateIPs: nil},
+			want: false,
+		},
+		{
+			name: "pre-created vpc with empty private ips",
+			nc:   common.VPCNetworkConfigInfo{VPCPath: "", PrivateIPs: []string{}},
+			want: false,
+		},
+		{
+			name: "pre-created vpc with valid private ips",
+			nc:   common.VPCNetworkConfigInfo{VPCPath: "", PrivateIPs: []string{"1.1.1.1/16"}},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := service.ValidateNetworkConfig(tt.nc); got != tt.want {
+				t.Errorf("VPCService.ValidateNetworkConfig() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestVPCService_DeleteVPC(t *testing.T) {
+	mockVpc := "mockVpc"
+	mockLb := "mockLb"
+	mockConnectityPath := fmt.Sprintf("/org/default/projects/proj1/vpcs/%s/connectivity", mockVpc)
+	mockLBKey := combineVPCIDAndLBSID(mockVpc, mockLb)
+	service, _, _ := createService(t)
+	fakeErr := errors.New("fake-errors")
+	tests := []struct {
+		name          string
+		prepareFunc   func(*testing.T, *VPCService) *gomonkey.Patches
+		LbsStore      *LBSStore
+		path          string
+		Lb            *model.LBService
+		Vpc           *model.Vpc
+		checkLBStore  bool
+		checkVPCStore bool
+		wantErr       bool
+		want          error
+	}{
+		{
+			name:          "parse vpc info error",
+			path:          "/in/correct/path",
+			Lb:            nil,
+			Vpc:           nil,
+			want:          nil,
+			wantErr:       true,
+			checkLBStore:  false,
+			checkVPCStore: false,
+		},
+		{
+			name: "delete vpc error",
+			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Delete", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						fakeErr,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			path:          "/orgs/default/projects/proj1/vpcs/mockVpc",
+			Lb:            nil,
+			Vpc:           nil,
+			wantErr:       true,
+			want:          nsxUtil.TransNSXApiError(fakeErr),
+			checkLBStore:  false,
+			checkVPCStore: false,
+		},
+		{name: "lb in store but vpc not",
+			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Delete", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			path: "/orgs/default/projects/proj1/vpcs/mockVpc",
+			Lb: &model.LBService{
+				Id:               &mockLb,
+				ConnectivityPath: &mockConnectityPath,
+			},
+			Vpc:           nil,
+			wantErr:       false,
+			want:          nil,
+			checkLBStore:  true,
+			checkVPCStore: false,
+		},
+		{name: "delete vpc store fail",
+			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Delete", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						nil,
+					},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(reflect.TypeOf(service.VpcStore), "Apply", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						fakeErr,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			Lb: &model.LBService{
+				Id:               &mockLb,
+				ConnectivityPath: &mockConnectityPath,
+			},
+			Vpc: &model.Vpc{
+				Id: &mockVpc,
+			},
+			path:          "/orgs/default/projects/proj1/vpcs/mockVpc",
+			want:          fakeErr,
+			wantErr:       true,
+			checkLBStore:  true,
+			checkVPCStore: false,
+		},
+		{name: "happy pass",
+			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Delete", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						nil,
+					},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(reflect.TypeOf(service.VpcStore), "Apply", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			Lb: &model.LBService{
+				Id:               &mockLb,
+				ConnectivityPath: &mockConnectityPath,
+			},
+			Vpc: &model.Vpc{
+				Id: &mockVpc,
+			},
+			path:          "/orgs/default/projects/proj1/vpcs/mockVpc",
+			want:          nil,
+			wantErr:       false,
+			checkLBStore:  true,
+			checkVPCStore: true,
+		},
+	}
+	// We do not need to verify copylocks for test case.
+	//nolint: copylocks
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc(t, service)
+				defer patches.Reset()
+			}
+
+			if tt.Lb != nil {
+				service.LbsStore.Add(tt.Lb)
+			}
+
+			if tt.Vpc != nil {
+				service.VpcStore.Add(tt.Vpc)
+			}
+
+			err := service.DeleteVPC(tt.path)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("VPCService.DeleteVPC() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if tt.want != nil {
+				assert.Equal(t, err, tt.want)
+			}
+
+			if tt.checkLBStore {
+				//if prepare func executed, then lb store should be empty
+				lb := service.LbsStore.GetByKey(mockLBKey)
+				assert.Nil(t, lb)
+			}
+
+			if tt.checkVPCStore {
+				//if prepare func executed, then vpc store should be empty
+				lb := service.LbsStore.GetByKey(mockLBKey)
+				assert.Nil(t, lb)
+			}
+
 		})
 	}
 }

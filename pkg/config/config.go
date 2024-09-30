@@ -49,6 +49,7 @@ type NSXOperatorConfig struct {
 	*VCConfig
 	*HAConfig
 	configCache configCache
+	LibMode     bool
 }
 
 func init() {
@@ -231,6 +232,7 @@ func NewNSXOpertorConfig() *NSXOperatorConfig {
 		&VCConfig{},
 		&HAConfig{},
 		configCache{},
+		false,
 	}
 	return defaultNSXOperatorConfig
 }
@@ -248,13 +250,16 @@ func (operatorConfig *NSXOperatorConfig) validate() error {
 
 // it's not thread safe
 func (operatorConfig *NSXOperatorConfig) GetTokenProvider() auth.TokenProvider {
+	if operatorConfig.LibMode {
+		return operatorConfig.createTokenProvider()
+	}
 	if tokenProvider == nil {
 		operatorConfig.createTokenProvider()
 	}
 	return tokenProvider
 }
 
-func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
+func (operatorConfig *NSXOperatorConfig) createTokenProvider() auth.TokenProvider {
 	configLog.Info("try to load VC host CA")
 	var vcCaCert []byte
 	var err error
@@ -270,15 +275,19 @@ func (operatorConfig *NSXOperatorConfig) createTokenProvider() error {
 			configLog.Info("fail to load CA cert from file.", " error: ", err)
 		}
 	}
-
-	if err := operatorConfig.VCConfig.validate(); err == nil {
+	var provider auth.TokenProvider
+	if err = operatorConfig.VCConfig.validate(); err == nil {
 		if operatorConfig.EnvoyPort != 0 {
-			tokenProvider, _ = jwt.NewTokenProvider(operatorConfig.EnvoyHost, operatorConfig.EnvoyPort, operatorConfig.SsoDomain, operatorConfig.VCUser, operatorConfig.VCPassword, vcCaCert, operatorConfig.Insecure, "http")
+			provider, _ = jwt.NewTokenProvider(operatorConfig.EnvoyHost, operatorConfig.EnvoyPort, operatorConfig.SsoDomain, operatorConfig.VCUser, operatorConfig.VCPassword, vcCaCert, operatorConfig.Insecure, "http")
 		} else {
-			tokenProvider, _ = jwt.NewTokenProvider(operatorConfig.VCEndPoint, operatorConfig.HttpsPort, operatorConfig.SsoDomain, operatorConfig.VCUser, operatorConfig.VCPassword, vcCaCert, operatorConfig.Insecure, "https")
+			provider, _ = jwt.NewTokenProvider(operatorConfig.VCEndPoint, operatorConfig.HttpsPort, operatorConfig.SsoDomain, operatorConfig.VCUser, operatorConfig.VCPassword, vcCaCert, operatorConfig.Insecure, "https")
 		}
+	} else {
+		tokenProvider = nil
+		return nil
 	}
-	return nil
+	tokenProvider = provider
+	return provider
 }
 
 func (vcConfig *VCConfig) validate() error {
@@ -374,7 +383,7 @@ func (nsxConfig *NsxConfig) validateCert() error {
 			}
 		}
 	} else {
-		configLog.Infof("validate thumbprint: %s", tpCount)
+		configLog.Infof("validate thumbprint: %d", tpCount)
 		if tpCount > 1 && tpCount != mCount {
 			err := errors.New("thumbprint count not match manager count")
 			configLog.Error(err, "validate NsxConfig failed", "thumbprint count", tpCount, "manager count", mCount)

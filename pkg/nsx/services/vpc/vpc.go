@@ -63,7 +63,6 @@ type VPCService struct {
 	common.Service
 	VpcStore                *VPCStore
 	LbsStore                *LBSStore
-	IpblockStore            *IPBlockStore
 	VPCNetworkConfigStore   VPCNetworkInfoStore
 	VPCNSNetworkConfigStore VPCNsNetworkConfigStore
 	defaultNetworkConfigCR  *common.VPCNetworkConfigInfo
@@ -160,22 +159,17 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 		BindingType: model.LBServiceBindingType(),
 	}}
 
-	VPCService.IpblockStore = &IPBlockStore{ResourceStore: common.ResourceStore{
-		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
-			common.IndexKeyPathPath: indexPathFunc}),
-		BindingType: model.IpAddressBlockBindingType(),
-	}}
 	VPCService.VPCNetworkConfigStore = VPCNetworkInfoStore{
 		VPCNetworkConfigMap: make(map[string]common.VPCNetworkConfigInfo),
 	}
 	VPCService.VPCNSNetworkConfigStore = VPCNsNetworkConfigStore{
 		VPCNSNetworkConfigMap: make(map[string]string),
 	}
-	// initialize vpc store, lbs store and ip blocks store
+	// initialize vpc store, lbs store
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, VPCService.VpcStore)
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeLBService, nil, VPCService.LbsStore)
-	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeIPBlock, nil, VPCService.IpblockStore)
-	wg.Add(3)
+
+	wg.Add(2)
 	go func() {
 		wg.Wait()
 		close(wgDone)
@@ -210,24 +204,29 @@ func (s *VPCService) ListVPC() []model.Vpc {
 	return vpcSet
 }
 
+// DeleteVPC will try to delete VPC resource from NSX.
 func (s *VPCService) DeleteVPC(path string) error {
 	pathInfo, err := common.ParseVPCResourcePath(path)
 	if err != nil {
 		return err
 	}
 	vpcClient := s.NSXClient.VPCClient
-	vpc := s.VpcStore.GetByKey(pathInfo.VPCID)
-	if vpc == nil {
-		return nil
-	}
 
 	if err := vpcClient.Delete(pathInfo.OrgID, pathInfo.ProjectID, pathInfo.VPCID); err != nil {
-		err = nsxutil.NSXApiError(err)
+		err = nsxutil.TransNSXApiError(err)
 		return err
 	}
 	lbs := s.LbsStore.GetByKey(pathInfo.VPCID)
 	if lbs != nil {
 		s.LbsStore.Delete(lbs)
+	}
+
+	vpc := s.VpcStore.GetByKey(pathInfo.VPCID)
+	// When deleting vpc due to realization failure in VPC creation process. the VPC is created on NSX side,
+	// but not insert in to VPC store, in this condition, the vpc could not be found in vpc store.
+	if vpc == nil {
+		log.Info("VPC not found in vpc store, skip cleaning VPC store", "VPC", pathInfo.VPCID)
+		return nil
 	}
 	vpc.MarkedForDelete = &MarkedForDelete
 	if err := s.VpcStore.Apply(vpc); err != nil {
@@ -436,48 +435,6 @@ func (s *VPCService) DeleteLBMonitorProfile(id string) error {
 	return nil
 }
 
-func (s *VPCService) deleteIPBlock(path string) error {
-	ipblockClient := s.NSXClient.IPBlockClient
-	parts := strings.Split(path, "/")
-	log.Info("deleting private ip block", "ORG", parts[2], "Project", parts[4], "ID", parts[7])
-	if err := ipblockClient.Delete(parts[2], parts[4], parts[7]); err != nil {
-		err = nsxutil.NSXApiError(err)
-		log.Error(err, "failed to delete ip block", "Path", path)
-		return err
-	}
-	return nil
-}
-
-func (s *VPCService) DeleteIPBlockInVPC(vpc model.Vpc) error {
-	blocks := vpc.PrivateIpv4Blocks
-	if len(blocks) == 0 {
-		log.Info("no private cidr list, skip deleting private ip blocks")
-		return nil
-	}
-
-	for _, block := range blocks {
-		if err := s.deleteIPBlock(block); err != nil {
-			return err
-		}
-		nsUID := ""
-		for _, tag := range vpc.Tags {
-			if *tag.Scope == common.TagScopeNamespaceUID {
-				nsUID = *tag.Tag
-			}
-		}
-		log.V(2).Info("search ip block from store using index and path", "index", common.TagScopeNamespaceUID, "Value", nsUID, "Path", block)
-		// using index vpc cr id may get multiple ipblocks, add path to filter the correct one
-		ipblock := s.IpblockStore.GetByIndex(common.IndexKeyPathPath, block)
-		if ipblock != nil {
-			log.Info("deleting ip blocks", "IPBlock", ipblock)
-			ipblock.MarkedForDelete = &MarkedForDelete
-			s.IpblockStore.Apply(ipblock)
-		}
-	}
-	log.Info("successfully deleted all ip blocks")
-	return nil
-}
-
 func (s *VPCService) IsSharedVPCNamespaceByNS(ns string) (bool, error) {
 	shared_ns, err := s.getSharedVPCNamespaceFromNS(ns)
 	if err != nil {
@@ -562,7 +519,7 @@ func (s *VPCService) GetDefaultSNATIP(vpc model.Vpc) (string, error) {
 	pageSize := int64(1000)
 	markedForDelete := false
 	results, err := ruleClient.List(info.OrgID, info.ProjectID, info.VPCID, common.DefaultSNATID, cursor, &markedForDelete, nil, &pageSize, nil, nil)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to read SNAT rule list to get default SNAT ip", "VPC", vpc.Id)
 		return "", err
@@ -588,7 +545,7 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	}
 
 	subnet, err := subnetsClient.Get(info.OrgID, info.ProjectID, info.VPCID, common.AVISubnetLBID)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to read AVI subnet", "VPC", vpc.Id)
 		return "", "", err
@@ -596,7 +553,7 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	path := *subnet.Path
 
 	statusList, err := statusClient.List(info.OrgID, info.ProjectID, info.VPCID, common.AVISubnetLBID)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to read AVI subnet status", "VPC", vpc.Id)
 		return "", "", err
@@ -740,13 +697,13 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPC
 
 	log.Info("creating NSX VPC", "VPC", *createdVpc.Id)
 	err = s.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to create VPC", "Project", nc.NSXProject, "Namespace", obj.Namespace)
 		// TODO: this seems to be a nsx bug, in some case, even if nsx returns failed but the object is still created.
 		log.Info("try to read VPC although VPC creation failed", "VPC", *createdVpc.Id)
 		failedVpc, rErr := s.NSXClient.VPCClient.Get(nc.Org, nc.NSXProject, *createdVpc.Id)
-		rErr = nsxutil.NSXApiError(rErr)
+		rErr = nsxutil.TransNSXApiError(rErr)
 		if rErr != nil {
 			// failed to read, but already created, we consider this scenario as success, but store may not sync with nsx
 			log.Info("confirmed VPC is not created", "VPC", createdVpc.Id)
@@ -759,7 +716,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPC
 
 	// get the created vpc from nsx, it contains the path of the resources
 	newVpc, err := s.NSXClient.VPCClient.Get(nc.Org, nc.NSXProject, *createdVpc.Id)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		// failed to read, but already created, we consider this scenario as success, but store may not sync with nsx
 		log.Error(err, "failed to read VPC object after creating or updating", "VPC", createdVpc.Id)
@@ -773,7 +730,6 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPC
 		if realizestate.IsRealizeStateError(err) {
 			log.Error(err, "the created VPC is in error realization state, cleaning the resource", "VPC", *createdVpc.Id)
 			// delete the nsx vpc object and re-create it in the next loop
-			// TODO(gran) DeleteVPC will check VpcStore but new Vpc is not in store at this moment. Is it correct?
 			if err := s.DeleteVPC(*newVpc.Path); err != nil {
 				log.Error(err, "cleanup VPC failed", "VPC", *createdVpc.Id)
 				return nil, err
@@ -831,7 +787,7 @@ func (s *VPCService) ValidateGatewayConnectionStatus(nc *common.VPCNetworkConfig
 	pageSize := int64(1000)
 	markedForDelete := false
 	res, err := s.NSXClient.VPCConnectivityProfilesClient.List(nc.Org, nc.NSXProject, cursor, &markedForDelete, nil, &pageSize, nil, nil)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		return false, "", err
 	}
@@ -841,7 +797,7 @@ func (s *VPCService) ValidateGatewayConnectionStatus(nc *common.VPCNetworkConfig
 		parts := strings.Split(transitGatewayPath, "/")
 		transitGatewayId := parts[len(parts)-1]
 		res, err := s.NSXClient.TransitGatewayAttachmentClient.List(nc.Org, nc.NSXProject, transitGatewayId, nil, &markedForDelete, nil, nil, nil, nil)
-		err = nsxutil.NSXApiError(err)
+		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
 			return false, "", err
 		}
@@ -886,19 +842,6 @@ func (s *VPCService) Cleanup(ctx context.Context) error {
 		}
 	}
 
-	ipblocks := s.IpblockStore.List()
-	log.Info("cleaning up ipblocks", "Count", len(ipblocks))
-	for _, ipblock := range ipblocks {
-		ipb := ipblock.(*model.IpAddressBlock)
-		select {
-		case <-ctx.Done():
-			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
-		default:
-			if err := s.deleteIPBlock(*ipb.Path); err != nil {
-				return err
-			}
-		}
-	}
 	// Delete NCP created resources (share/sharedResources/cert/LBAppProfile/LBPersistentProfile
 	sharedResources := s.ListSharedResource()
 	log.Info("cleaning up sharedResources", "Count", len(sharedResources))
@@ -1018,29 +961,30 @@ func (s *VPCService) GetDefaultNSXLBSPathByVPC(vpcID string) string {
 }
 
 func (vpcService *VPCService) EdgeClusterEnabled(nc *common.VPCNetworkConfigInfo) bool {
-	var vpcConnectivityProfile *model.VpcConnectivityProfile
-	var getErr error
-	if err := retry.OnError(retry.DefaultBackoff, func(err error) bool {
+	isRetryableError := func(err error) bool {
 		if err == nil {
 			return false
 		}
-		_, errortype := nsxutil.DumpAPIError(err)
-		if errortype != nil && (*errortype == apierrors.ErrorType_SERVICE_UNAVAILABLE || *errortype == apierrors.ErrorType_TIMED_OUT) {
-			return true
-		} else {
-			return false
-		}
-	}, func() error {
+		_, errorType := nsxutil.DumpAPIError(err)
+		return errorType != nil && (*errorType == apierrors.ErrorType_SERVICE_UNAVAILABLE || *errorType == apierrors.ErrorType_TIMED_OUT)
+	}
+
+	var vpcConnectivityProfile *model.VpcConnectivityProfile
+	if err := retry.OnError(retry.DefaultBackoff, isRetryableError, func() error {
+		var getErr error
 		vpcConnectivityProfile, getErr = vpcService.GetVpcConnectivityProfile(nc, nc.VPCConnectivityProfile)
-		return getErr
-	}); err == nil {
-		log.Info("vpc connectivity profile", "service gateway enable", *vpcConnectivityProfile.ServiceGateway.Enable)
-		return vpcService.IsEnableAutoSNAT(vpcConnectivityProfile)
-	} else {
-		log.Error(getErr, "failed to get vpc connectivity profile", "vpc connectivity profile", nc.VPCConnectivityProfile)
+		if getErr != nil {
+			return getErr
+		}
+		log.V(1).Info("VPC connectivity profile retrieved", "profile", *vpcConnectivityProfile)
+		return nil
+	}); err != nil {
+		log.Error(err, "Failed to retrieve VPC connectivity profile", "profile", nc.VPCConnectivityProfile)
 		return false
 	}
+	return vpcService.IsEnableAutoSNAT(vpcConnectivityProfile)
 }
+
 func GetAlbEndpoint(cluster *nsx.Cluster) error {
 	_, err := cluster.HttpGet(albEndpointPath)
 	return err
@@ -1058,6 +1002,7 @@ func (vpcService *VPCService) IsEnableAutoSNAT(vpcConnectivityProfile *model.Vpc
 	}
 	return false
 }
+
 func (vpcService *VPCService) GetLBProvider() LBProvider {
 	lbProviderMutex.Lock()
 	defer lbProviderMutex.Unlock()
@@ -1079,6 +1024,7 @@ func (vpcService *VPCService) GetLBProvider() LBProvider {
 	log.Info("lb provider", "provider", globalLbProvider)
 	return globalLbProvider
 }
+
 func (vpcService *VPCService) getLBProvider(edgeEnable bool) LBProvider {
 	// if no Alb endpoint found, return nsx-lb
 	// if found, and nsx lbs found, return nsx-lb
@@ -1117,7 +1063,7 @@ func (s *VPCService) GetVPCFromNSXByPath(vpcPath string) (*model.Vpc, error) {
 		return nil, err
 	}
 	vpc, err := s.NSXClient.VPCClient.Get(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to read VPC object from NSX", "VPC", vpcPath)
 		return nil, err
@@ -1134,7 +1080,7 @@ func (service *VPCService) GetLBSsFromNSXByVPC(vpcPath string) (string, error) {
 	}
 	includeMarkForDeleted := false
 	lbs, err := service.NSXClient.VPCLBSClient.List(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID, nil, &includeMarkForDeleted, nil, nil, nil, nil)
-	err = nsxutil.NSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to read LB services in VPC under from NSX", "VPC", vpcPath)
 		return "", err

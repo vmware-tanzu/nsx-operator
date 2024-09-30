@@ -30,6 +30,8 @@ type SubnetServiceProvider interface {
 	GetSubnetsByIndex(key, value string) []*model.VpcSubnet
 	CreateOrUpdateSubnet(obj client.Object, vpcInfo VPCResourceInfo, tags []model.Tag) (string, error)
 	GenerateSubnetNSTags(obj client.Object, nsUID string) []model.Tag
+	LockSubnet(path *string)
+	UnlockSubnet(path *string)
 }
 
 type SubnetPortServiceProvider interface {

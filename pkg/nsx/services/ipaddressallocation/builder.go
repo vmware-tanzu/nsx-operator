@@ -49,7 +49,7 @@ func (service *IPAddressAllocationService) buildIPAddressAllocationID(IPAddressA
 }
 
 func (service *IPAddressAllocationService) buildIPAddressAllocationName(IPAddressAllocation *v1alpha1.IPAddressAllocation) string {
-	return util.GenerateTruncName(common.MaxNameLength, IPAddressAllocation.ObjectMeta.Name, "", "", "", service.NSXConfig.Cluster)
+	return util.GenerateTruncName(common.MaxNameLength, IPAddressAllocation.ObjectMeta.Name, "", "", "", "")
 }
 
 func (service *IPAddressAllocationService) buildIPAddressAllocationTags(IPAddressAllocation *v1alpha1.IPAddressAllocation) []model.Tag {
