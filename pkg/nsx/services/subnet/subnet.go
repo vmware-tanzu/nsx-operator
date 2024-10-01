@@ -95,6 +95,12 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 			changed = true
 		} else {
 			changed = common.CompareResource(SubnetToComparable(existingSubnet), SubnetToComparable(nsxSubnet))
+			if changed {
+				// Only tags are expected to be updated
+				// inherit other fields from the existing Subnet
+				existingSubnet.Tags = nsxSubnet.Tags
+				nsxSubnet = existingSubnet
+			}
 		}
 		if !changed {
 			log.Info("subnet not changed, skip updating", "subnet.Id", uid)

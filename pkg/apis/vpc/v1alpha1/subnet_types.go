@@ -16,6 +16,10 @@ const (
 )
 
 // SubnetSpec defines the desired state of Subnet.
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.DHCPConfig) || has(self.DHCPConfig)", message="DHCPConfig is required once set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipv4SubnetSize) || has(self.ipv4SubnetSize)", message="ipv4SubnetSize is required once set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.accessMode) || has(self.accessMode)", message="accessMode is required once set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipAddresses) || has(self.ipAddresses)", message="ipAddresses is required once set"
 type SubnetSpec struct {
 	// Size of Subnet based upon estimated workload count.
 	// +kubebuilder:validation:Maximum:=65536
@@ -32,6 +36,7 @@ type SubnetSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPAddresses []string `json:"ipAddresses,omitempty"`
 	// DHCPConfig DHCP configuration.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	DHCPConfig DHCPConfig `json:"DHCPConfig,omitempty"`
 }
 
