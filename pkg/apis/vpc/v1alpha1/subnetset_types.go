@@ -8,6 +8,9 @@ import (
 )
 
 // SubnetSetSpec defines the desired state of SubnetSet.
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.DHCPConfig) || has(self.DHCPConfig)", message="DHCPConfig is required once set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.accessMode) || has(self.accessMode)", message="accessMode is required once set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipv4SubnetSize) || has(self.ipv4SubnetSize)", message="ipv4SubnetSize is required once set"
 type SubnetSetSpec struct {
 	// Size of Subnet based upon estimated workload count.
 	// +kubebuilder:validation:Maximum:=65536
@@ -19,6 +22,7 @@ type SubnetSetSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	AccessMode AccessMode `json:"accessMode,omitempty"`
 	// DHCPConfig DHCP configuration.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	DHCPConfig DHCPConfig `json:"DHCPConfig,omitempty"`
 }
 

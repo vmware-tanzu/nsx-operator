@@ -59,6 +59,9 @@ spec:
                     default: false
                     type: boolean
                 type: object
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
               accessMode:
                 description: Access mode of Subnet, accessible only from within VPC
                   or from outside VPC.
@@ -79,6 +82,13 @@ spec:
                 - message: Value is immutable
                   rule: self == oldSelf
             type: object
+            x-kubernetes-validations:
+            - message: DHCPConfig is required once set
+              rule: '!has(oldSelf.DHCPConfig) || has(self.DHCPConfig)'
+            - message: accessMode is required once set
+              rule: '!has(oldSelf.accessMode) || has(self.accessMode)'
+            - message: ipv4SubnetSize is required once set
+              rule: '!has(oldSelf.ipv4SubnetSize) || has(self.ipv4SubnetSize)'
           status:
             description: SubnetSetStatus defines the observed state of SubnetSet.
             properties:
