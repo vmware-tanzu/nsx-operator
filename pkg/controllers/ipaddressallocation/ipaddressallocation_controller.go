@@ -70,13 +70,13 @@ func updateFail(r *IPAddressAllocationReconciler, c context.Context, o *v1alpha1
 func (r *IPAddressAllocationReconciler) setReadyStatusFalse(ctx context.Context, ipaddressallocation *v1alpha1.IPAddressAllocation, transitionTime metav1.Time, err *error) {
 	conditions := []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.Ready,
-			Status:  v1.ConditionFalse,
-			Message: "NSX IPAddressAllocation could not be created or updated",
-			Reason: fmt.Sprintf(
+			Type:   v1alpha1.Ready,
+			Status: v1.ConditionFalse,
+			Message: fmt.Sprintf(
 				"error occurred while processing the IPAddressAllocation CR. Error: %v",
 				*err,
 			),
+			Reason:             "IPAddressAllocationNotReady",
 			LastTransitionTime: transitionTime,
 		},
 	}
@@ -93,7 +93,7 @@ func (r *IPAddressAllocationReconciler) setReadyStatusTrue(ctx context.Context, 
 			Type:               v1alpha1.Ready,
 			Status:             v1.ConditionTrue,
 			Message:            "NSX IPAddressAllocation has been successfully created/updated",
-			Reason:             "",
+			Reason:             "IPAddressAllocationReady",
 			LastTransitionTime: transitionTime,
 		},
 	}

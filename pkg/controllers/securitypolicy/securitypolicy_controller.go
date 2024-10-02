@@ -243,7 +243,7 @@ func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusTrue(ctx context.
 			Type:               v1alpha1.Ready,
 			Status:             v1.ConditionTrue,
 			Message:            "NSX Security Policy has been successfully created/updated",
-			Reason:             "NSX API returned 200 response code for PATCH",
+			Reason:             "SecurityPolicyReady",
 			LastTransitionTime: transitionTime,
 		},
 	}
@@ -253,13 +253,13 @@ func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusTrue(ctx context.
 func (r *SecurityPolicyReconciler) setSecurityPolicyReadyStatusFalse(ctx context.Context, secPolicy *v1alpha1.SecurityPolicy, transitionTime metav1.Time, err *error) {
 	newConditions := []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.Ready,
-			Status:  v1.ConditionFalse,
-			Message: "NSX Security Policy could not be created/updated",
-			Reason: fmt.Sprintf(
+			Type:   v1alpha1.Ready,
+			Status: v1.ConditionFalse,
+			Message: fmt.Sprintf(
 				"error occurred while processing the SecurityPolicy CR. Error: %v",
 				*err,
 			),
+			Reason:             "SecurityPolicyNotReady",
 			LastTransitionTime: transitionTime,
 		},
 	}
