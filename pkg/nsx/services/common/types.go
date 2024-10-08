@@ -108,7 +108,6 @@ const (
 
 	SecurityPolicyFinalizerName      = "securitypolicy.crd.nsx.vmware.com/finalizer"
 	NetworkPolicyFinalizerName       = "networkpolicy.crd.nsx.vmware.com/finalizer"
-	StaticRouteFinalizerName         = "staticroute.crd.nsx.vmware.com/finalizer"
 	SubnetFinalizerName              = "subnet.crd.nsx.vmware.com/finalizer"
 	SubnetSetFinalizerName           = "subnetset.crd.nsx.vmware.com/finalizer"
 	SubnetPortFinalizerName          = "subnetport.crd.nsx.vmware.com/finalizer"
