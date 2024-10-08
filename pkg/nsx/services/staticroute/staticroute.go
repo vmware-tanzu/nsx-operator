@@ -147,7 +147,18 @@ func (service *StaticRouteService) DeleteStaticRoute(obj *v1alpha1.StaticRoute) 
 	}
 	return service.DeleteStaticRouteByPath(vpcResourceInfo.OrgID, vpcResourceInfo.ProjectID, vpcResourceInfo.VPCID, id)
 }
-
+func (service *StaticRouteService) ListStaticRouteByName(ns, name string) []*model.StaticRoutes {
+	var result []*model.StaticRoutes
+	staticroutes := service.StaticRouteStore.GetByIndex(common.TagScopeNamespace, ns)
+	for _, staticroute := range staticroutes {
+		sr := staticroute.(*model.StaticRoutes)
+		tagname := nsxutil.FindTag(sr.Tags, common.TagScopeStaticRouteCRName)
+		if tagname == name {
+			result = append(result, staticroute.(*model.StaticRoutes))
+		}
+	}
+	return result
+}
 func (service *StaticRouteService) ListStaticRoute() []*model.StaticRoutes {
 	staticRoutes := service.StaticRouteStore.List()
 	staticRouteSet := []*model.StaticRoutes{}
