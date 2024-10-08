@@ -29,17 +29,26 @@ func indexFunc(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
 	switch v := obj.(type) {
 	case *model.StaticRoutes:
-		return filterTag(v.Tags), nil
+		return filterTag(v.Tags, common.TagScopeStaticRouteCRUID), nil
 	default:
 		break
 	}
 	return res, nil
 }
 
-var filterTag = func(v []model.Tag) []string {
+func indexStaticRouteNamespace(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case *model.StaticRoutes:
+		return filterTag(o.Tags, common.TagScopeNamespace), nil
+	default:
+		return nil, errors.New("indexByStaticRouteNamespace doesn't support unknown type")
+	}
+}
+
+var filterTag = func(v []model.Tag, tagScope string) []string {
 	res := make([]string, 0, 5)
 	for _, tag := range v {
-		if *tag.Scope == common.TagScopeStaticRouteCRUID {
+		if *tag.Scope == tagScope {
 			res = append(res, *tag.Tag)
 		}
 	}
