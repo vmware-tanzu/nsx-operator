@@ -90,6 +90,8 @@ type Client struct {
 	RealizedStateClient            realized_state.RealizedEntitiesClient
 	IPAddressAllocationClient      vpcs.IpAddressAllocationsClient
 	VPCLBSClient                   vpcs.VpcLbsClient
+	VpcLbVirtualServersClient      vpcs.VpcLbVirtualServersClient
+	VpcLbPoolsClient               vpcs.VpcLbPoolsClient
 	ProjectClient                  orgs.ProjectsClient
 	TransitGatewayClient           projects.TransitGatewaysClient
 	TransitGatewayAttachmentClient transit_gateways.AttachmentsClient
@@ -182,6 +184,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	realizedStateClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
 	ipAddressAllocationClient := vpcs.NewIpAddressAllocationsClient(restConnector(cluster))
 	vpcLBSClient := vpcs.NewVpcLbsClient(restConnector(cluster))
+	vpcLbVirtualServersClient := vpcs.NewVpcLbVirtualServersClient(restConnector(cluster))
+	vpcLbPoolsClient := vpcs.NewVpcLbPoolsClient(restConnector(cluster))
 
 	vpcSecurityClient := vpcs.NewSecurityPoliciesClient(restConnector(cluster))
 	vpcRuleClient := vpc_sp.NewRulesClient(restConnector(cluster))
@@ -228,6 +232,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		VPCSecurityClient:              vpcSecurityClient,
 		VPCRuleClient:                  vpcRuleClient,
 		VPCLBSClient:                   vpcLBSClient,
+		VpcLbVirtualServersClient:      vpcLbVirtualServersClient,
+		VpcLbPoolsClient:               vpcLbPoolsClient,
 		ProjectClient:                  projectClient,
 		NSXChecker:                     *nsxChecker,
 		NSXVerChecker:                  *nsxVersionChecker,
