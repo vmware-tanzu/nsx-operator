@@ -67,6 +67,24 @@ func subnetPortIndexBySubnetID(obj interface{}) ([]string, error) {
 	}
 }
 
+func subnetPortIndexNamespace(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case *model.VpcSubnetPort:
+		return filterTag(o.Tags, common.TagScopeVMNamespace), nil
+	default:
+		return nil, errors.New("subnetPortIndexNamespace doesn't support unknown type")
+	}
+}
+
+func subnetPortIndexPodNamespace(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case *model.VpcSubnetPort:
+		return filterTag(o.Tags, common.TagScopeNamespace), nil
+	default:
+		return nil, errors.New("subnetPortIndexPodNamespace doesn't support unknown type")
+	}
+}
+
 // SubnetPortStore is a store for SubnetPorts
 type SubnetPortStore struct {
 	common.ResourceStore

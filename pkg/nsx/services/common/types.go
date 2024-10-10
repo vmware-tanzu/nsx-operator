@@ -111,9 +111,7 @@ const (
 	StaticRouteFinalizerName         = "staticroute.crd.nsx.vmware.com/finalizer"
 	SubnetFinalizerName              = "subnet.crd.nsx.vmware.com/finalizer"
 	SubnetSetFinalizerName           = "subnetset.crd.nsx.vmware.com/finalizer"
-	SubnetPortFinalizerName          = "subnetport.crd.nsx.vmware.com/finalizer"
 	NetworkInfoFinalizerName         = "networkinfo.crd.nsx.vmware.com/finalizer"
-	PodFinalizerName                 = "pod.crd.nsx.vmware.com/finalizer"
 	IPPoolFinalizerName              = "ippool.crd.nsx.vmware.com/finalizer"
 	IPAddressAllocationFinalizerName = "ipaddressallocation.crd.nsx.vmware.com/finalizer"
 
