@@ -480,17 +480,18 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 	return nsxRules, ruleGroups, nsxGroupShares, nil
 }
 
-func (service *SecurityPolicyService) buildRuleServiceEntries(port v1alpha1.SecurityPolicyPort, portAddress nsxutil.PortAddress) *data.StructValue {
+func buildRuleServiceEntries(port v1alpha1.SecurityPolicyPort) *data.StructValue {
 	var portRange string
 	sourcePorts := data.NewListValue()
 	destinationPorts := data.NewListValue()
 
+	// Note: the caller ensures the given port.Port type is Int. For named port case, the caller should
+	// convert to a new SecurityPolicyPort using the correct port number.
 	// In case that the destination_port in NSX-T is 0.
-	endPort := port.EndPort
-	if endPort == 0 {
-		portRange = fmt.Sprint(portAddress.Port)
+	if port.EndPort == 0 {
+		portRange = port.Port.String()
 	} else {
-		portRange = fmt.Sprintf("%d-%d", portAddress.Port, endPort)
+		portRange = fmt.Sprintf("%s-%d", port.Port.String(), port.EndPort)
 	}
 	destinationPorts.Add(data.NewStringValue(portRange))
 
@@ -600,25 +601,32 @@ func (service *SecurityPolicyService) buildRuleID(obj *v1alpha1.SecurityPolicy, 
 // A rule containing named port may be expanded to multiple NSX rules if the name ports map to multiple port numbers.
 // So, in VPC network, the rule port numbers, which either are defined in rule Port or resolved from named port, will be appended as CR rule baseID to distinguish them.
 // For T1, the portIdx and portAddressIdx are appended as suffix.
-func (service *SecurityPolicyService) buildExpandedRuleID(obj *v1alpha1.SecurityPolicy, ruleIdx int, portIdx, portAddressIdx int,
-	hasNamedport bool, portNumber int, createdFor string,
+func (service *SecurityPolicyService) buildExpandedRuleID(obj *v1alpha1.SecurityPolicy, ruleIdx int,
+	createdFor string, namedPort *portInfo,
 ) string {
 	ruleBaseID := service.buildRuleID(obj, ruleIdx, createdFor)
 
 	if IsVPCEnabled(service) {
 		portNumberSuffix := ""
-		if !hasNamedport {
-			portNumberSuffix = service.buildRulePortsNumberString(obj.Spec.Rules[ruleIdx].Ports)
+		if namedPort != nil {
+			portNumberSuffix = service.buildRulePortNumberString(namedPort.port)
 		} else {
-			portNumberSuffix = service.buildRulePortNumberString(obj.Spec.Rules[ruleIdx].Ports[portIdx], portNumber)
+			portNumberSuffix = service.buildRulePortsNumberString(obj.Spec.Rules[ruleIdx].Ports)
 		}
 		return strings.Join([]string{ruleBaseID, portNumberSuffix}, common.ConnectorUnderline)
 	}
 
-	return strings.Join([]string{ruleBaseID, strconv.Itoa(portIdx), strconv.Itoa(portAddressIdx)}, common.ConnectorUnderline)
+	// With T1 topology, the NSX Rule ID includes the index of the rule's SecurityPolicyPort and the
+	// index of the PortAddress, this is to make ID format consistent with named port case. For a Rule
+	// without any named ports, 0 is used for both SecurityPolicyPort and PortAddress indexes.
+	idSuffix := "0_0"
+	if namedPort != nil {
+		idSuffix = namedPort.idSuffix
+	}
+	return strings.Join([]string{ruleBaseID, idSuffix}, common.ConnectorUnderline)
 }
 
-func (service *SecurityPolicyService) buildRuleDisplayName(rule *v1alpha1.SecurityPolicyRule, portIdx int, hasNamedport bool, portNumber int, createdFor string) (string, error) {
+func (service *SecurityPolicyService) buildRuleDisplayName(rule *v1alpha1.SecurityPolicyRule, createdFor string, namedPortInfo *portInfo) (string, error) {
 	var ruleName string
 	var ruleAct string
 
@@ -649,27 +657,27 @@ func (service *SecurityPolicyService) buildRuleDisplayName(rule *v1alpha1.Securi
 		// For the internal security policy rule converted from network policy, skipping to add suffix for the rule name
 		// if it has its own name generated, usually, it's for the internal isolation security policy rule created for network policy.
 		ruleName = rule.Name
-		if createdFor != common.ResourceTypeNetworkPolicy {
-			// If user defines the rule name, the generated NSX security policy rule will also be added with the same suffix: "_direction_action" as building rulePortsString
-			// e.g. input security policy's rule name: sp_rule,
-			// the generated NSX security policy rule name: sp_rule_ingress_allow
-			ruleName = strings.Join([]string{ruleName, suffix}, common.ConnectorUnderline)
+		// We don't append the suffix to display name if the NSX security rule is created for a NetworkPolicy and
+		// its rule.Name is set. This is applicable for the internally generated "isolation" SecurityPolicy from a
+		// user created NetworkPolicy.
+		if createdFor == common.ResourceTypeNetworkPolicy {
+			suffix = ""
 		}
 	} else {
-		ruleName = service.buildRulePortsString(rule.Ports, suffix)
+		ruleName = service.buildRulePortsString(rule.Ports)
 	}
 
-	if !hasNamedport {
-		return util.GenerateTruncName(common.MaxNameLength, ruleName, "", "", "", ""), nil
-	} else {
-		// For the security policy rule with namedPort, it will be expanded to the multiple security policy rules based on resolution of named port.
-		// e.g. input: security policy's rule name: TCP.http_UDP.1234_ingress_allow,
-		// expand to NSX security policy rules with name TCP.http_UDP.1234.TCP.80_ingress_allow and TCP.http_UDP.1234.UDP.1234_ingress_allow.
-		// in case that user defined input security policy's rule name: sp_namedport_rule,
-		// expand to NSX security policy rules with name sp_namedport_rule.TCP.80_ingress_allow and sp_namedport_rule.UDP.1234_ingress_allow.
-		index := strings.Index(ruleName, common.ConnectorUnderline+suffix)
-		return util.GenerateTruncName(common.MaxNameLength, ruleName[:index]+"."+service.buildRulePortString(rule.Ports[portIdx], portNumber), "", suffix, "", ""), nil
+	if namedPortInfo == nil {
+		return util.GenerateTruncName(common.MaxNameLength, ruleName, "", suffix, "", ""), nil
 	}
+
+	// For the security policy rule with namedPort, it will be expanded to the multiple security policy rules based on resolution of named port.
+	// e.g. input: security policy's rule name: TCP.http_UDP.1234_ingress_allow,
+	// expand to NSX security policy rules with name TCP.http_UDP.1234.TCP.80_ingress_allow and TCP.http_UDP.1234.UDP.1234_ingress_allow.
+	// in case that user defined input security policy's rule name: sp_namedport_rule,
+	// expand to NSX security policy rules with name sp_namedport_rule.TCP.80_ingress_allow and sp_namedport_rule.UDP.1234_ingress_allow.
+
+	return util.GenerateTruncName(common.MaxNameLength, ruleName+"."+service.buildRulePortString(namedPortInfo.port), "", suffix, "", ""), nil
 }
 
 func (service *SecurityPolicyService) buildRuleAppliedGroupByPolicy(obj *v1alpha1.SecurityPolicy, nsxRuleSrcGroupPath string, nsxRuleDstGroupPath string, createdFor string) (string, error) {
@@ -922,8 +930,8 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 // Build rule basic info, ruleIdx is the index of the rules of security policy,
 // portIdx is the index of rule's ports, portAddressIdx is the index
 // of multiple port number if one named port maps to multiple port numbers.
-func (service *SecurityPolicyService) buildRuleBasicInfo(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int, portIdx int, portAddressIdx int,
-	hasNamedport bool, portNumber int, createdFor string,
+func (service *SecurityPolicyService) buildRuleBasicInfo(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int,
+	createdFor string, namedPortInfo *portInfo,
 ) (*model.Rule, error) {
 	ruleAction, err := getRuleAction(rule)
 	if err != nil {
@@ -933,13 +941,13 @@ func (service *SecurityPolicyService) buildRuleBasicInfo(obj *v1alpha1.SecurityP
 	if err != nil {
 		return nil, err
 	}
-	displayName, err := service.buildRuleDisplayName(rule, portIdx, hasNamedport, portNumber, createdFor)
+	displayName, err := service.buildRuleDisplayName(rule, createdFor, namedPortInfo)
 	if err != nil {
 		log.Error(err, "failed to build rule's display name", "securityPolicyUID", obj.UID, "rule", rule, "createdFor", createdFor)
 	}
 
 	nsxRule := model.Rule{
-		Id:             String(service.buildExpandedRuleID(obj, ruleIdx, portIdx, portAddressIdx, hasNamedport, portNumber, createdFor)),
+		Id:             String(service.buildExpandedRuleID(obj, ruleIdx, createdFor, namedPortInfo)),
 		DisplayName:    &displayName,
 		Direction:      &ruleDirection,
 		SequenceNumber: Int64(int64(ruleIdx)),
@@ -1843,45 +1851,22 @@ func (service *SecurityPolicyService) getNamespaceUID(ns string) (nsUid types.UI
 	return namespace_uid
 }
 
-func (service *SecurityPolicyService) buildRulePortString(port v1alpha1.SecurityPolicyPort, portNumber int) string {
-	protocol := string(port.Protocol)
-	// Build the rule port string name for non named port.
-	// This is a common case where the string is built from port definition. For instance,
-	// - protocol: TCP
-	//   port: 8282
-	//   endPort: 8286
-	// The built port string is: TCP.8282.8286
-	// - protocol: UDP
-	//   port: 3308
-	// The built port string is: UDP.3308
-	if port.Port.Type == intstr.String && portNumber > 0 {
-		// Build the rule port string name for named port.
-		// The port string is built from specific port number resolved from named port.
-		return fmt.Sprintf("%s.%d", protocol, portNumber)
-	}
-	if port.EndPort != 0 {
-		return fmt.Sprintf("%s.%s.%d", protocol, (port.Port).String(), port.EndPort)
-	}
-	return fmt.Sprintf("%s.%s", protocol, (port.Port).String())
+func (service *SecurityPolicyService) buildRulePortString(port v1alpha1.SecurityPolicyPort) string {
+	return fmt.Sprintf("%s.%s", port.Protocol, service.buildRulePortNumberString(port))
 }
 
-func (service *SecurityPolicyService) buildRulePortsString(ports []v1alpha1.SecurityPolicyPort, suffix string) string {
-	portsString := ""
+func (service *SecurityPolicyService) buildRulePortsString(ports []v1alpha1.SecurityPolicyPort) string {
 	if ports == nil || len(ports) == 0 {
-		portsString = common.RuleAnyPorts
-	} else {
-		portStrings := make([]string, len(ports))
-		for idx, p := range ports {
-			port := p
-			portStrings[idx] = service.buildRulePortString(port, -1)
-		}
-		portsString = strings.Join(portStrings, common.ConnectorUnderline)
+		return common.RuleAnyPorts
 	}
-
-	return util.GenerateTruncName(common.MaxNameLength, portsString, "", suffix, "", "")
+	portStrings := make([]string, len(ports))
+	for idx := range ports {
+		portStrings[idx] = service.buildRulePortString(ports[idx])
+	}
+	return strings.Join(portStrings, common.ConnectorUnderline)
 }
 
-func (service *SecurityPolicyService) buildRulePortNumberString(port v1alpha1.SecurityPolicyPort, portNumber int) string {
+func (service *SecurityPolicyService) buildRulePortNumberString(port v1alpha1.SecurityPolicyPort) string {
 	// Build the rule port number string name for non named port.
 	// This is a common case where the string is built from port definition. For instance,
 	// - protocol: TCP
@@ -1891,11 +1876,6 @@ func (service *SecurityPolicyService) buildRulePortNumberString(port v1alpha1.Se
 	// - protocol: UDP
 	//   port: 3308
 	// The built port number string is: 3308
-	if port.Port.Type == intstr.String && portNumber > 0 {
-		// Build the rule port number string name for named port.
-		// The port number string is built from specific port number resolved from named port.
-		return fmt.Sprintf("%d", portNumber)
-	}
 	if port.EndPort != 0 {
 		return fmt.Sprintf("%s.%d", (port.Port).String(), port.EndPort)
 	}
@@ -1910,7 +1890,7 @@ func (service *SecurityPolicyService) buildRulePortsNumberString(ports []v1alpha
 	portNumStrings := make([]string, len(ports))
 	for idx, p := range ports {
 		port := p
-		portNumStrings[idx] = service.buildRulePortNumberString(port, -1)
+		portNumStrings[idx] = service.buildRulePortNumberString(port)
 	}
 	return strings.Join(portNumStrings, common.ConnectorUnderline)
 }
@@ -1931,4 +1911,37 @@ func (service *SecurityPolicyService) BuildNetworkPolicyAllowPolicyID(uid string
 
 func (service *SecurityPolicyService) BuildNetworkPolicyIsolationPolicyID(uid string) string {
 	return strings.Join([]string{uid, common.RuleActionDrop}, common.ConnectorUnderline)
+}
+
+type portInfo struct {
+	port v1alpha1.SecurityPolicyPort
+	ips  []string
+
+	// idSuffix is used in T1 environment to generate the NSX rule ID. It is constructed by
+	// SecurityPolicyPortIdx_PortAddressIdx.
+	// TODO: Remove this field after we don't use the SecurityPolicyPort index in NSX rule ID with T1 topology.
+	idSuffix string
+}
+
+func newPortInfo(port v1alpha1.SecurityPolicyPort) *portInfo {
+	return &portInfo{
+		port:     port,
+		idSuffix: fmt.Sprintf("0%s0", common.ConnectorUnderline),
+	}
+}
+
+// newPortInfoForNamedPort constructs a new SecurityPolicyPort object using the provided protocol and
+// portAddr, and the generated SecurityPolicyPort.Port type is Int.
+// Note, we don't support the case a SecurityPolicyPort is configured with a named port and end port at the
+// same time, so we don't set the generated SecurityPolicyPort.EndPort in this function. The caller has a
+// pre-check on that case.
+func newPortInfoForNamedPort(portAddr nsxutil.PortAddress, protocol corev1.Protocol) *portInfo {
+	return &portInfo{
+		port: v1alpha1.SecurityPolicyPort{
+			Protocol: protocol,
+			Port:     intstr.FromInt32(int32(portAddr.Port)),
+		},
+		ips:      portAddr.IPs,
+		idSuffix: fmt.Sprintf("0%s0", common.ConnectorUnderline),
+	}
 }
