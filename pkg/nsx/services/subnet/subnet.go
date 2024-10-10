@@ -58,6 +58,8 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
 					common.TagScopeSubnetCRUID:    subnetIndexFunc,
 					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
 				}),
 				BindingType: model.VpcSubnetBindingType(),
 			},
@@ -84,10 +86,10 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 	uid := string(obj.GetUID())
 	nsxSubnet, err := service.buildSubnet(obj, tags)
 	if err != nil {
-		log.Error(err, "failed to build Subnet")
+		log.Error(err, "Failed to build Subnet")
 		return "", err
 	}
-	// Only check whether needs update when obj is v1alpha1.Subnet
+	// Only check whether it needs update when obj is v1alpha1.Subnet
 	if subnet, ok := obj.(*v1alpha1.Subnet); ok {
 		existingSubnet := service.SubnetStore.GetByKey(service.BuildSubnetID(subnet))
 		changed := false
@@ -103,7 +105,7 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 			}
 		}
 		if !changed {
-			log.Info("subnet not changed, skip updating", "subnet.Id", uid)
+			log.Info("Subnet not changed, skip updating", "SubnetId", uid)
 			return uid, nil
 		}
 	}
@@ -132,6 +134,9 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 		Jitter:   0,
 		Steps:    6,
 	}
+	// Failure of CheckRealizeState may result in the creation of an existing Subnet.
+	// For Subnets, it's important to reuse the already created NSXSubnet.
+	// For SubnetSets, since the ID includes a random value, the created NSX Subnet needs to be deleted and recreated.
 	if err = realizeService.CheckRealizeState(backoff, *nsxSubnet.Path, "RealizedLogicalSwitch"); err != nil {
 		log.Error(err, "failed to check subnet realization state", "ID", *nsxSubnet.Id)
 		return "", err
@@ -192,6 +197,32 @@ func (service *SubnetService) ListSubnetSetID(ctx context.Context) sets.Set[stri
 		subnetsetIDs.Insert(string(subnetset.UID))
 	}
 	return subnetsetIDs
+}
+
+func (service *SubnetService) ListSubnetByName(ns, name string) []*model.VpcSubnet {
+	nsxSubnets := service.SubnetStore.GetByIndex(common.TagScopeVMNamespace, ns)
+	res := make([]*model.VpcSubnet, 0, len(nsxSubnets))
+	for _, nsxSubnet := range nsxSubnets {
+		tagName := nsxutil.FindTag(nsxSubnet.Tags, common.TagScopeSubnetCRName)
+		if tagName == name {
+			res = append(res, nsxSubnet)
+		}
+	}
+	return res
+}
+
+func (service *SubnetService) ListSubnetBySubnetSetName(ns, subnetSetName string) []*model.VpcSubnet {
+	nsxSubnets := service.SubnetStore.GetByIndex(common.TagScopeVMNamespace, ns)
+	nsxSubnetsOfDefaultPodSubnetSet := service.SubnetStore.GetByIndex(common.TagScopeNamespace, ns)
+	nsxSubnets = append(nsxSubnets, nsxSubnetsOfDefaultPodSubnetSet...)
+	res := make([]*model.VpcSubnet, 0, len(nsxSubnets))
+	for _, nsxSubnet := range nsxSubnets {
+		tagName := nsxutil.FindTag(nsxSubnet.Tags, common.TagScopeSubnetSetCRName)
+		if tagName == subnetSetName {
+			res = append(res, nsxSubnet)
+		}
+	}
+	return res
 }
 
 // check if subnet belongs to a subnetset, if yes, check if that subnetset still exists
@@ -345,12 +376,15 @@ func (service *SubnetService) GetSubnetsByIndex(key, value string) []*model.VpcS
 	return service.SubnetStore.GetByIndex(key, value)
 }
 
-func (service *SubnetService) GenerateSubnetNSTags(obj client.Object, ns string) []model.Tag {
+func (service *SubnetService) GenerateSubnetNSTags(obj client.Object) []model.Tag {
+	ns := obj.GetNamespace()
 	namespace := &v1.Namespace{}
 	namespacedName := types.NamespacedName{
 		Name: ns,
 	}
+	// Get the namespace object from the Kubernetes API
 	if err := service.Client.Get(context.Background(), namespacedName, namespace); err != nil {
+		log.Error(err, "Failed to get Namespace", "Namespace", ns)
 		return nil
 	}
 	nsUID := string(namespace.UID)
@@ -361,14 +395,8 @@ func (service *SubnetService) GenerateSubnetNSTags(obj client.Object, ns string)
 			model.Tag{Scope: String(common.TagScopeVMNamespaceUID), Tag: String(nsUID)},
 			model.Tag{Scope: String(common.TagScopeVMNamespace), Tag: String(obj.GetNamespace())})
 	case *v1alpha1.SubnetSet:
-		findLabelDefaultPodSubnetSet := false
-		for k, v := range o.Labels {
-			if k == common.LabelDefaultSubnetSet && v == common.LabelDefaultPodSubnetSet {
-				findLabelDefaultPodSubnetSet = true
-				break
-			}
-		}
-		if findLabelDefaultPodSubnetSet {
+		isDefaultPodSubnetSet := o.Labels[common.LabelDefaultSubnetSet] == common.LabelDefaultPodSubnetSet
+		if isDefaultPodSubnetSet {
 			tags = append(tags,
 				model.Tag{Scope: common.String(common.TagScopeNamespaceUID), Tag: common.String(nsUID)},
 				model.Tag{Scope: common.String(common.TagScopeNamespace), Tag: common.String(obj.GetNamespace())})
@@ -378,6 +406,7 @@ func (service *SubnetService) GenerateSubnetNSTags(obj client.Object, ns string)
 				model.Tag{Scope: common.String(common.TagScopeVMNamespace), Tag: common.String(obj.GetNamespace())})
 		}
 	}
+	// Append Namespace labels as tags
 	for k, v := range namespace.Labels {
 		tags = append(tags, model.Tag{Scope: common.String(k), Tag: common.String(v)})
 	}
@@ -385,7 +414,7 @@ func (service *SubnetService) GenerateSubnetNSTags(obj client.Object, ns string)
 }
 
 func (service *SubnetService) UpdateSubnetSetTags(ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag) error {
-	for i := range vpcSubnets {
+	for i, vpcSubnet := range vpcSubnets {
 		subnetSet := &v1alpha1.SubnetSet{}
 		var name string
 
@@ -403,27 +432,32 @@ func (service *SubnetService) UpdateSubnetSetTags(ns string, vpcSubnets []*model
 			}
 		}
 
-		if matchNamespace {
-			if err := service.Client.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: name}, subnetSet); err != nil {
-				return err
-			}
-			newTags := append(service.buildBasicTags(subnetSet), tags...)
-			changed := common.CompareResource(SubnetToComparable(vpcSubnets[i]), SubnetToComparable(&model.VpcSubnet{Tags: newTags}))
-			if !changed {
-				log.Info("NSX subnet tags unchanged, skip updating")
-				continue
-			}
-			vpcSubnets[i].Tags = newTags
-			vpcInfo, err := common.ParseVPCResourcePath(*vpcSubnets[i].Path)
-			if err != nil {
-				err := fmt.Errorf("failed to parse NSX VPC path for Subnet %s: %s", *vpcSubnets[i].Path, err)
-				return err
-			}
-			if _, err := service.createOrUpdateSubnet(subnetSet, vpcSubnets[i], &vpcInfo); err != nil {
-				return err
-			}
-			log.Info("successfully updated subnet set tags", "subnetSet", subnetSet)
+		// Skip this subnet if the Namespace doesn't match
+		if !matchNamespace {
+			log.Info("Namespace mismatch, skipping subnet", "Subnet", *vpcSubnet.Id, "Namespace", ns)
+			continue
 		}
+
+		if err := service.Client.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: name}, subnetSet); err != nil {
+			return fmt.Errorf("failed to get SubnetSet %s in Namespace %s: %w", name, ns, err)
+		}
+		newTags := append(service.buildBasicTags(subnetSet), tags...)
+		changed := common.CompareResource(SubnetToComparable(vpcSubnets[i]), SubnetToComparable(&model.VpcSubnet{Tags: newTags}))
+		if !changed {
+			log.Info("NSX Subnet tags unchanged, skipping update", "subnet", *vpcSubnet.Id)
+			continue
+		}
+		vpcSubnets[i].Tags = newTags
+
+		vpcInfo, err := common.ParseVPCResourcePath(*vpcSubnets[i].Path)
+		if err != nil {
+			err := fmt.Errorf("failed to parse NSX VPC path for Subnet %s: %s", *vpcSubnets[i].Path, err)
+			return err
+		}
+		if _, err := service.createOrUpdateSubnet(subnetSet, vpcSubnets[i], &vpcInfo); err != nil {
+			return fmt.Errorf("failed to update Subnet %s in SubnetSet %s: %w", *vpcSubnet.Id, subnetSet.Name, err)
+		}
+		log.Info("Successfully updated SubnetSet tags", "subnetSet", subnetSet, "Subnet", *vpcSubnet.Id)
 	}
 	return nil
 }

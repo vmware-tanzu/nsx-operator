@@ -88,7 +88,7 @@ func transSearchResponsetoSubnet(response model.SearchResponse) []model.VpcSubne
 	return resources
 }
 
-func fetchSubnet(t *testing.T, subnetSet *v1alpha1.SubnetSet) model.VpcSubnet {
+func fetchSubnetBySubnetSet(t *testing.T, subnetSet *v1alpha1.SubnetSet) model.VpcSubnet {
 	tags := []string{common.TagScopeSubnetSetCRUID, string(subnetSet.UID)}
 	results, err := testData.queryResource(common.ResourceTypeSubnet, tags)
 	assertNil(t, err)
@@ -96,6 +96,7 @@ func fetchSubnet(t *testing.T, subnetSet *v1alpha1.SubnetSet) model.VpcSubnet {
 	assertTrue(t, len(subnets) > 0, "No NSX subnet found")
 	return subnets[0]
 }
+
 func defaultSubnetSet(t *testing.T) {
 	// 1. Check whether default-vm-subnetset and default-pod-subnetset are created.
 	err := testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetSetCRType, E2ENamespace, common.DefaultVMSubnetSet, Ready)
@@ -127,11 +128,11 @@ func defaultSubnetSet(t *testing.T) {
 	assertNil(t, err)
 	labelKey, labelValue := "subnet-e2e", "add"
 	ns.Labels[labelKey] = labelValue
-	ns, err = testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
+	_, err = testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
 	time.Sleep(5 * time.Second)
 	assertNil(t, err)
 
-	vpcSubnet := fetchSubnet(t, subnetSet)
+	vpcSubnet := fetchSubnetBySubnetSet(t, subnetSet)
 	found := false
 	for _, tag := range vpcSubnet.Tags {
 		if *tag.Scope == labelKey && *tag.Tag == labelValue {
@@ -142,12 +143,14 @@ func defaultSubnetSet(t *testing.T) {
 	assertTrue(t, found, "Failed to add tags for NSX subnet %s", *(vpcSubnet.Id))
 
 	// 6. Check updating NSX subnet tags.
+	ns, err = testData.clientset.CoreV1().Namespaces().Get(context.TODO(), E2ENamespace, v1.GetOptions{})
+	assertNil(t, err)
 	labelValue = "update"
 	ns.Labels[labelKey] = labelValue
-	ns, err = testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
+	_, err = testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
 	time.Sleep(5 * time.Second)
 	assertNil(t, err)
-	vpcSubnet = fetchSubnet(t, subnetSet)
+	vpcSubnet = fetchSubnetBySubnetSet(t, subnetSet)
 	found = false
 	for _, tag := range vpcSubnet.Tags {
 		if *tag.Scope == labelKey && *tag.Tag == labelValue {
@@ -158,11 +161,14 @@ func defaultSubnetSet(t *testing.T) {
 	assertTrue(t, found, "Failed to update tags for NSX subnet %s", *(vpcSubnet.Id))
 
 	// 7. Check deleting NSX subnet tags.
+	ns, err = testData.clientset.CoreV1().Namespaces().Get(context.TODO(), E2ENamespace, v1.GetOptions{})
+	assertNil(t, err)
 	delete(ns.Labels, labelKey)
-	_, err = testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
+	newNs, err := testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
 	time.Sleep(5 * time.Second)
 	assertNil(t, err)
-	vpcSubnet = fetchSubnet(t, subnetSet)
+	t.Logf("new Namespace: %+v", newNs)
+	vpcSubnet = fetchSubnetBySubnetSet(t, subnetSet)
 	found = false
 	for _, tag := range vpcSubnet.Tags {
 		if *tag.Scope == labelKey {
@@ -288,6 +294,9 @@ func SubnetCIDR(t *testing.T) {
 	assertNil(t, err)
 	allocatedSubnet, err := testData.crdClientset.CrdV1alpha1().Subnets(E2ENamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
 	assertNil(t, err)
+	nsxSubnets := testData.fetchSubnetByNamespace(t, E2ENamespace, false)
+	assert.Equal(t, 1, len(nsxSubnets))
+
 	targetCIDR := allocatedSubnet.Status.NetworkAddresses[0]
 	err = testData.crdClientset.CrdV1alpha1().Subnets(E2ENamespace).Delete(context.TODO(), subnet.Name, v1.DeleteOptions{})
 	assertNil(t, err)
@@ -300,10 +309,13 @@ func SubnetCIDR(t *testing.T) {
 		return false, err
 	})
 	assertNil(t, err)
+	nsxSubnets = testData.fetchSubnetByNamespace(t, E2ENamespace, true)
+	assert.Equal(t, true, len(nsxSubnets) <= 1)
 
 	subnet.Spec.IPAddresses = []string{targetCIDR}
 	_, err = testData.crdClientset.CrdV1alpha1().Subnets(E2ENamespace).Create(context.TODO(), subnet, v1.CreateOptions{})
 	if err != nil && errors.IsAlreadyExists(err) {
+		t.Logf("Create Subnet error: %+v", err)
 		err = nil
 	}
 	assertNil(t, err)
@@ -312,4 +324,35 @@ func SubnetCIDR(t *testing.T) {
 	allocatedSubnet, err = testData.crdClientset.CrdV1alpha1().Subnets(E2ENamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
 	assertNil(t, err)
 	assert.Equal(t, targetCIDR, allocatedSubnet.Status.NetworkAddresses[0])
+
+	nsxSubnets = testData.fetchSubnetByNamespace(t, E2ENamespace, false)
+	assert.Equal(t, 1, len(nsxSubnets))
+
+	err = testData.crdClientset.CrdV1alpha1().Subnets(E2ENamespace).Delete(context.TODO(), subnet.Name, v1.DeleteOptions{})
+	assertNil(t, err)
+
+	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 100*time.Second, false, func(ctx context.Context) (bool, error) {
+		_, err := testData.crdClientset.CrdV1alpha1().Subnets(E2ENamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
+		if err != nil && errors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	})
+	assertNil(t, err)
+
+	nsxSubnets = testData.fetchSubnetByNamespace(t, E2ENamespace, true)
+	assert.Equal(t, true, len(nsxSubnets) <= 1)
+}
+
+func (data *TestData) fetchSubnetByNamespace(t *testing.T, ns string, isMarkForDelete bool) (res []model.VpcSubnet) {
+	tags := []string{common.TagScopeNamespace, ns}
+	results, err := testData.queryResource(common.ResourceTypeSubnet, tags)
+	assertNil(t, err)
+	subnets := transSearchResponsetoSubnet(results)
+	for _, subnet := range subnets {
+		if *subnet.MarkedForDelete == isMarkForDelete {
+			res = append(res, subnet)
+		}
+	}
+	return
 }

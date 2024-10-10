@@ -21,7 +21,6 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	t1v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
@@ -37,25 +36,8 @@ const (
 )
 
 var (
-	String    = common.String
-	basicTags = []string{
-		common.TagScopeCluster, common.TagScopeVersion,
-		common.TagScopeStaticRouteCRName, common.TagScopeStaticRouteCRUID,
-		common.TagValueScopeSecurityPolicyName, common.TagValueScopeSecurityPolicyUID,
-		common.TagScopeNetworkPolicyName, common.TagScopeNetworkPolicyUID,
-		common.TagScopeSubnetCRName, common.TagScopeSubnetCRUID,
-		common.TagScopeSubnetPortCRName, common.TagScopeSubnetPortCRUID,
-		common.TagScopeIPPoolCRName, common.TagScopeIPPoolCRUID,
-		common.TagScopeSubnetSetCRName, common.TagScopeSubnetSetCRUID,
-	}
-	tagsScopeSet = sets.New[string]()
+	String = common.String
 )
-
-func init() {
-	for _, tag := range basicTags {
-		tagsScopeSet.Insert(tag)
-	}
-}
 
 var log = &logger.Log
 
@@ -441,6 +423,10 @@ func GenerateTruncName(limit int, resName string, prefix, suffix, project, clust
 	return generateDisplayName(common.ConnectorUnderline, resName, prefix, suffix, project, cluster)
 }
 
+func CombineNamespaceName(name, namespace string) string {
+	return fmt.Sprintf("%s/%s", namespace, name)
+}
+
 func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []model.Tag {
 	tags := []model.Tag{
 		{
@@ -496,19 +482,6 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 		}
 	}
 	return tags
-}
-
-func AppendTags(basicTags, extraTags []model.Tag) []model.Tag {
-	if basicTags == nil {
-		log.Info("AppendTags", "basicTags", basicTags, "extra tags", extraTags)
-		return nil
-	}
-	for _, tag := range extraTags {
-		if !tagsScopeSet.Has(*tag.Scope) {
-			basicTags = append(basicTags, tag)
-		}
-	}
-	return basicTags
 }
 
 func Capitalize(s string) string {
