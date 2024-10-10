@@ -144,6 +144,7 @@ func (s *SecurityPolicyService) setUpStore(indexScope string) {
 			keyFunc, cache.Indexers{
 				indexScope:                      indexBySecurityPolicyUID,
 				common.TagScopeNetworkPolicyUID: indexByNetworkPolicyUID,
+				common.TagScopeNamespace:        indexBySecurityPolicyNamespace,
 			}),
 		BindingType: model.SecurityPolicyBindingType(),
 	}}
@@ -1102,6 +1103,30 @@ func (service *SecurityPolicyService) ListSecurityPolicyID() sets.Set[string] {
 func (service *SecurityPolicyService) ListNetworkPolicyID() sets.Set[string] {
 	indexScope := common.TagScopeNetworkPolicyUID
 	return service.getGCSecurityPolicyIDSet(indexScope)
+}
+
+func (service *SecurityPolicyService) ListSecurityPolicyByName(ns, name string) []*model.SecurityPolicy {
+	var result []*model.SecurityPolicy
+	securityPolicies := service.securityPolicyStore.GetByIndex(common.TagScopeNamespace, ns)
+	for _, securityPolicy := range securityPolicies {
+		securityPolicyCRName := nsxutil.FindTag(securityPolicy.Tags, common.TagValueScopeSecurityPolicyName)
+		if securityPolicyCRName == name {
+			result = append(result, securityPolicy)
+		}
+	}
+	return result
+}
+
+func (service *SecurityPolicyService) ListNetworkPolicyByName(ns, name string) []*model.SecurityPolicy {
+	var result []*model.SecurityPolicy
+	securityPolicies := service.securityPolicyStore.GetByIndex(common.TagScopeNamespace, ns)
+	for _, securityPolicy := range securityPolicies {
+		securityPolicyCRName := nsxutil.FindTag(securityPolicy.Tags, common.TagScopeNetworkPolicyName)
+		if securityPolicyCRName == name {
+			result = append(result, securityPolicy)
+		}
+	}
+	return result
 }
 
 func (service *SecurityPolicyService) Cleanup(ctx context.Context) error {

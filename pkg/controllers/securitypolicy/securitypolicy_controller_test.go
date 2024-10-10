@@ -36,6 +36,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func fakeService() *securitypolicy.SecurityPolicyService {
@@ -193,8 +194,13 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	// not found
 	errNotFound := errors.New("not found")
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(errNotFound)
-	_, err := r.Reconcile(ctx, req)
+	deleteSecurityPolicyByNamePatch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "deleteSecurityPolicyByName", func(_ *SecurityPolicyReconciler, name, ns string) error {
+		return nil
+	})
+	defer deleteSecurityPolicyByNamePatch.Reset()
+	result, err := r.Reconcile(ctx, req)
 	assert.Equal(t, err, errNotFound)
+	assert.Equal(t, ResultRequeue, result)
 
 	// NSX version check failed case
 	sp := &v1alpha1.SecurityPolicy{}
@@ -202,10 +208,10 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		return false
 	})
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
-	patches := gomonkey.ApplyFunc(updateFail,
+	updateFailPatch := gomonkey.ApplyFunc(updateFail,
 		func(r *SecurityPolicyReconciler, c context.Context, o *v1alpha1.SecurityPolicy, e *error) {
 		})
-	defer patches.Reset()
+	defer updateFailPatch.Reset()
 	result, ret := r.Reconcile(ctx, req)
 	resultRequeueAfter5mins := controllerruntime.Result{Requeue: true, RequeueAfter: 5 * time.Minute}
 	assert.Equal(t, nil, ret)
@@ -217,29 +223,60 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	})
 	defer checkNsxVersionPatch.Reset()
 
-	// DeletionTimestamp.IsZero = ture, client update failed
+	// DeletionTimestamp.IsZero = ture, create security policy in SystemNamespace
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
-	err = errors.New("Update failed")
-	k8sClient.EXPECT().Update(ctx, gomock.Any(), gomock.Any()).Return(err)
-	_, ret = r.Reconcile(ctx, req)
-	assert.Equal(t, err, ret)
+	err = errors.New("fetch namespace associated with security policy CR failed")
+	IsSystemNamespacePatch := gomonkey.ApplyFunc(util.IsSystemNamespace, func(client client.Client, ns string, obj *v1.Namespace,
+	) (bool, error) {
+		return true, errors.New("fetch namespace associated with security policy CR failed")
+	})
 
-	//  DeletionTimestamp.IsZero = false, Finalizers doesn't include util.SecurityPolicyFinalizerName
+	result, ret = r.Reconcile(ctx, req)
+	IsSystemNamespacePatch.Reset()
+	assert.Equal(t, err, ret)
+	assert.Equal(t, ResultRequeue, result)
+
+	// DeletionTimestamp.IsZero = false, Finalizers include util.SecurityPolicyFinalizerName and update fails
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+		v1sp := obj.(*v1alpha1.SecurityPolicy)
+		time := metav1.Now()
+		v1sp.ObjectMeta.DeletionTimestamp = &time
+		v1sp.Finalizers = []string{common.T1SecurityPolicyFinalizerName}
+		return nil
+	})
+
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isGc bool, isVPCCleanup bool) error {
+		assert.FailNow(t, "should not be called")
+		return nil
+	})
+
+	err = errors.New("finalizer remove failed, would retry exponentially")
+	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(err)
+	deleteFailPatch := gomonkey.ApplyFunc(deleteFail,
+		func(r *SecurityPolicyReconciler, c context.Context, o *v1alpha1.SecurityPolicy, e *error) {
+		})
+	defer deleteFailPatch.Reset()
+	result, ret = r.Reconcile(ctx, req)
+	assert.Equal(t, ret, err)
+	assert.Equal(t, ResultRequeue, result)
+	patch.Reset()
+
+	// DeletionTimestamp.IsZero = false, Finalizers doesn't include util.SecurityPolicyFinalizerName
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1sp := obj.(*v1alpha1.SecurityPolicy)
 		time := metav1.Now()
 		v1sp.ObjectMeta.DeletionTimestamp = &time
 		return nil
 	})
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isGc bool, isVPCCleanup bool) error {
-		assert.FailNow(t, "should not be called")
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, UID interface{}, isGc bool, isVPCCleanup bool) error {
 		return nil
 	})
-	_, ret = r.Reconcile(ctx, req)
+	result, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, ret, nil)
+	assert.Equal(t, ResultNormal, result)
 	patch.Reset()
 
-	//  DeletionTimestamp.IsZero = false, Finalizers include util.SecurityPolicyFinalizerName
+	// DeletionTimestamp.IsZero = false, Finalizers include util.SecurityPolicyFinalizerName
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1sp := obj.(*v1alpha1.SecurityPolicy)
 		time := metav1.Now()
@@ -251,8 +288,9 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		return nil
 	})
 	k8sClient.EXPECT().Update(ctx, gomock.Any(), gomock.Any()).Return(nil)
-	_, ret = r.Reconcile(ctx, req)
+	result, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, ret, nil)
+	assert.Equal(t, ResultNormal, result)
 	patch.Reset()
 }
 

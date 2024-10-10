@@ -76,6 +76,15 @@ func indexGroupFunc(obj interface{}) ([]string, error) {
 	}
 }
 
+func indexBySecurityPolicyNamespace(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case *model.SecurityPolicy:
+		return filterTag(o.Tags, common.TagScopeNamespace), nil
+	default:
+		return nil, errors.New("indexBySecurityPolicyNamespace doesn't support unknown type")
+	}
+}
+
 var filterRuleTag = func(v []model.Tag) []string {
 	res := make([]string, 0, 5)
 	for _, tag := range v {
