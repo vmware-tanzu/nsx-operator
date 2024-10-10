@@ -6,6 +6,7 @@ import (
 
 type MockVPCServiceProvider struct {
 	mock.Mock
+	VPCResource *VPCResourceInfo
 }
 
 func (m *MockVPCServiceProvider) GetNamespacesByNetworkconfigName(nc string) []string {
@@ -44,6 +45,9 @@ func (m *MockVPCServiceProvider) GetDefaultNetworkConfig() (bool, *VPCNetworkCon
 }
 
 func (m *MockVPCServiceProvider) ListVPCInfo(ns string) []VPCResourceInfo {
-	m.Called()
+	m.Called(ns)
+	if m.VPCResource != nil {
+		return []VPCResourceInfo{*m.VPCResource}
+	}
 	return []VPCResourceInfo{}
 }
