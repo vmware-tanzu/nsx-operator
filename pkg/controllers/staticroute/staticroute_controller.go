@@ -135,7 +135,7 @@ func (r *StaticRouteReconciler) setStaticRouteReadyStatusTrue(ctx context.Contex
 			Type:               v1alpha1.Ready,
 			Status:             v1.ConditionTrue,
 			Message:            "NSX Static Route has been successfully created/updated",
-			Reason:             "NSX API returned 200 response code for PATCH",
+			Reason:             "StaticRouteReady",
 			LastTransitionTime: transitionTime,
 		},
 	}
@@ -147,8 +147,8 @@ func (r *StaticRouteReconciler) setStaticRouteReadyStatusFalse(ctx context.Conte
 		{
 			Type:               v1alpha1.Ready,
 			Status:             v1.ConditionFalse,
-			Message:            "NSX Static Route could not be created/updated/deleted",
-			Reason:             fmt.Sprintf("Error occurred while processing the Static Route CR. Please check the config and try again. Error: %v", *err),
+			Message:            fmt.Sprintf("Error occurred while processing the Static Route CR. Please check the config and try again. Error: %v", *err),
+			Reason:             "StaticRouteNotReady",
 			LastTransitionTime: transitionTime,
 		},
 	}

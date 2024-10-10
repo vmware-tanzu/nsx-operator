@@ -51,7 +51,7 @@ func TestIPAddressAllocationController_setReadyStatusTrue(t *testing.T) {
 			Type:               v1alpha1.Ready,
 			Status:             v1.ConditionTrue,
 			Message:            "NSX IPAddressAllocation has been successfully created/updated",
-			Reason:             "",
+			Reason:             "IPAddressAllocationReady",
 			LastTransitionTime: transitionTime,
 		},
 	}

@@ -177,7 +177,7 @@ func (r *SubnetReconciler) setSubnetReadyStatusTrue(ctx context.Context, subnet 
 			Type:               v1alpha1.Ready,
 			Status:             v1.ConditionTrue,
 			Message:            "NSX Subnet has been successfully created/updated",
-			Reason:             "SubnetCreated",
+			Reason:             "SubnetReady",
 			LastTransitionTime: transitionTime,
 		},
 	}

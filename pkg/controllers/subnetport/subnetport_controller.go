@@ -322,7 +322,7 @@ func (r *SubnetPortReconciler) setSubnetPortReadyStatusTrue(ctx context.Context,
 			Type:               v1alpha1.Ready,
 			Status:             v1.ConditionTrue,
 			Message:            "NSX subnet port has been successfully created/updated",
-			Reason:             "NSX API returned 200 response code for PATCH",
+			Reason:             "SubnetPortReady",
 			LastTransitionTime: transitionTime,
 		},
 	}
@@ -332,13 +332,13 @@ func (r *SubnetPortReconciler) setSubnetPortReadyStatusTrue(ctx context.Context,
 func (r *SubnetPortReconciler) setSubnetPortReadyStatusFalse(ctx context.Context, subnetPort *v1alpha1.SubnetPort, transitionTime metav1.Time, err *error) {
 	newConditions := []v1alpha1.Condition{
 		{
-			Type:    v1alpha1.Ready,
-			Status:  v1.ConditionFalse,
-			Message: "NSX subnet port could not be created/updated",
-			Reason: fmt.Sprintf(
+			Type:   v1alpha1.Ready,
+			Status: v1.ConditionFalse,
+			Message: fmt.Sprintf(
 				"error occurred while processing the SubnetPort CR. Error: %v",
 				*err,
 			),
+			Reason:             "SubnetPortNotReady",
 			LastTransitionTime: transitionTime,
 		},
 	}
