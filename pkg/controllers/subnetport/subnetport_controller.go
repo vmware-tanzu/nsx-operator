@@ -433,8 +433,8 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		}
 		if !subnet.DeletionTimestamp.IsZero() {
 			isStale = true
-			err := fmt.Errorf("subnet %s is being deleted, cannot operate subnetport %s", namespacedName, subnetPort.Name)
-			return true, "", err
+			err = fmt.Errorf("subnet %s is being deleted, cannot operate subnetport %s", namespacedName, subnetPort.Name)
+			return
 		}
 		subnetList := r.SubnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetCRUID, string(subnet.GetUID()))
 		if len(subnetList) == 0 {
@@ -453,7 +453,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			Namespace: subnetPort.Namespace,
 		}
 		if err = r.Client.Get(context.Background(), namespacedName, subnetSet); err != nil {
-			log.Error(err, "subnetSet CR not found", "subnet CR", namespacedName)
+			log.Error(err, "subnetSet CR not found", "subnetSet CR", namespacedName)
 			return
 		}
 		if !subnetSet.DeletionTimestamp.IsZero() {
