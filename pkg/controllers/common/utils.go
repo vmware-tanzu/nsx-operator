@@ -42,7 +42,7 @@ func AllocateSubnetFromSubnetSet(subnetSet *v1alpha1.SubnetSet, vpcService servi
 			return *nsxSubnet.Path, nil
 		}
 	}
-	tags := subnetService.GenerateSubnetNSTags(subnetSet, subnetSet.Namespace)
+	tags := subnetService.GenerateSubnetNSTags(subnetSet)
 	if tags == nil {
 		return "", errors.New("failed to generate subnet tags")
 	}

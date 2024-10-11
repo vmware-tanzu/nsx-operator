@@ -18,7 +18,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 )
 
-// SubnetSet controller should watch event of namespace, when there are some updates of namespace labels,
+// SubnetSet controller should watch event of Namespace, when there are some updates of Namespace labels,
 // controller should build tags and update VpcSubnetSetSet according to new labels.
 
 type EnqueueRequestForNamespace struct {
@@ -26,20 +26,20 @@ type EnqueueRequestForNamespace struct {
 }
 
 func (e *EnqueueRequestForNamespace) Create(_ context.Context, _ event.CreateEvent, _ workqueue.RateLimitingInterface) {
-	log.V(1).Info("namespace create event, do nothing")
+	log.V(1).Info("Namespace create event, do nothing")
 }
 
 func (e *EnqueueRequestForNamespace) Delete(_ context.Context, _ event.DeleteEvent, _ workqueue.RateLimitingInterface) {
-	log.V(1).Info("namespace delete event, do nothing")
+	log.V(1).Info("Namespace delete event, do nothing")
 }
 
 func (e *EnqueueRequestForNamespace) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
-	log.V(1).Info("namespace generic event, do nothing")
+	log.V(1).Info("Namespace generic event, do nothing")
 }
 
 func (e *EnqueueRequestForNamespace) Update(_ context.Context, updateEvent event.UpdateEvent, l workqueue.RateLimitingInterface) {
 	obj := updateEvent.ObjectNew.(*v1.Namespace)
-	err := reconcileSubnetSet(e.Client, obj.Name, l)
+	err := requeueSubnetSet(e.Client, obj.Name, l)
 	if err != nil {
 		log.Error(err, "failed to reconcile subnet")
 	}
@@ -52,9 +52,9 @@ var PredicateFuncsNs = predicate.Funcs{
 	UpdateFunc: func(e event.UpdateEvent) bool {
 		oldObj := e.ObjectOld.(*v1.Namespace)
 		newObj := e.ObjectNew.(*v1.Namespace)
-		log.V(1).Info("receive namespace update event", "name", oldObj.Name)
+		log.V(1).Info("Receive Namespace update event", "name", oldObj.Name)
 		if reflect.DeepEqual(oldObj.ObjectMeta.Labels, newObj.ObjectMeta.Labels) {
-			log.Info("label of namespace is not changed, ignore it", "name", oldObj.Name)
+			log.Info("label of Namespace is not changed, ignore it", "name", oldObj.Name)
 			return false
 		}
 		return true
@@ -64,21 +64,20 @@ var PredicateFuncsNs = predicate.Funcs{
 	},
 }
 
-func reconcileSubnetSet(c client.Client, namespace string, q workqueue.RateLimitingInterface) error {
+func requeueSubnetSet(c client.Client, namespace string, q workqueue.RateLimitingInterface) error {
 	subnetSetList := &v1alpha1.SubnetSetList{}
 	err := c.List(context.Background(), subnetSetList, client.InNamespace(namespace))
 	if err != nil {
-		log.Error(err, "failed to list all the subnets")
+		log.Error(err, "Failed to list all the Subnets")
 		return err
 	}
 
-	for _, subnet_set_item := range subnetSetList.Items {
-		log.Info("reconcile subnet set because namespace update",
-			"namespace", subnet_set_item.Namespace, "name", subnet_set_item.Name)
+	for _, subnetSet := range subnetSetList.Items {
+		log.Info("Requeue SubnetSet because Namespace updated", "Namespace", subnetSet.Namespace, "Name", subnetSet.Name)
 		q.Add(reconcile.Request{
 			NamespacedName: types.NamespacedName{
-				Name:      subnet_set_item.Name,
-				Namespace: subnet_set_item.Namespace,
+				Name:      subnetSet.Name,
+				Namespace: subnetSet.Namespace,
 			},
 		})
 	}
