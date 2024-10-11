@@ -72,7 +72,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 	if !subnetsetCR.ObjectMeta.DeletionTimestamp.IsZero() {
 		metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnetSet)
-		err := r.deleteSubnetForSubnetSet(*subnetsetCR, false)
+		err := r.deleteSubnetForSubnetSet(*subnetsetCR, false, false)
 		if err != nil {
 			log.Error(err, "Failed to delete NSX Subnet, retrying", "SubnetSet", req.NamespacedName)
 			deleteFail(r, ctx, subnetsetCR, err.Error())
@@ -261,36 +261,34 @@ func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) {
 	defer func() {
 		log.Info("SubnetSet garbage collection completed", "duration(ms)", time.Since(startTime).Milliseconds())
 	}()
-	subnetSetList := &v1alpha1.SubnetSetList{}
-	err := r.Client.List(ctx, subnetSetList)
+
+	crdSubnetSetList := &v1alpha1.SubnetSetList{}
+	err := r.Client.List(ctx, crdSubnetSetList)
 	if err != nil {
-		log.Error(err, "Failed to list SubnetSet CR")
-		return
-	}
-	var nsxSubnetList []*model.VpcSubnet
-	for _, subnetSet := range subnetSetList.Items {
-		nsxSubnetList = append(nsxSubnetList, r.SubnetService.ListSubnetCreatedBySubnetSet(string(subnetSet.UID))...)
-	}
-	if len(nsxSubnetList) == 0 {
+		log.Error(err, "Failed to list Subnet CRs")
 		return
 	}
 
-	subnetSetIDs := sets.New[string]()
-	for _, subnetSet := range subnetSetList.Items {
-		if err := r.deleteSubnetForSubnetSet(subnetSet, true); err != nil {
+	crdSubnetSetIDsSet := sets.New[string]()
+	for _, subnetSet := range crdSubnetSetList.Items {
+		crdSubnetSetIDsSet.Insert(string(subnetSet.UID))
+		if err := r.deleteSubnetForSubnetSet(subnetSet, true, true); err != nil {
 			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetSet)
 		} else {
 			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetSet)
 		}
-		subnetSetIDs.Insert(string(subnetSet.UID))
 	}
-	for _, subnet := range nsxSubnetList {
-		if !r.SubnetService.IsOrphanSubnet(*subnet, subnetSetIDs) {
-			continue
-		}
-		if err := r.SubnetService.DeleteSubnet(*subnet); err != nil {
+
+	subnetSetIDs := r.SubnetService.ListSubnetSetIDsFromNSXSubnets()
+	subnetSetIDsToDelete := subnetSetIDs.Difference(crdSubnetSetIDsSet)
+	for subnetSetID := range subnetSetIDsToDelete {
+		nsxSubnets := r.SubnetService.ListSubnetCreatedBySubnetSet(subnetSetID)
+		log.Info("SubnetSet garbage collection, cleaning stale Subnets for SubnetSet", "Count", len(nsxSubnets))
+		if _, err := r.deleteSubnets(nsxSubnets); err != nil {
+			log.Error(err, "SubnetSet garbage collection, failed to delete NSX subnet", "SubnetSetUID", subnetSetID)
 			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetSet)
 		} else {
+			log.Info("SubnetSet garbage collection, successfully deleted NSX subnet", "SubnetSetUID", subnetSetID)
 			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnetSet)
 		}
 	}
@@ -301,59 +299,60 @@ func (r *SubnetSetReconciler) deleteSubnetBySubnetSetName(ctx context.Context, s
 	return r.deleteStaleSubnets(ctx, nsxSubnets)
 }
 
-func (r *SubnetSetReconciler) deleteSubnetForSubnetSet(obj v1alpha1.SubnetSet, updateStatus bool) error {
-	nsxSubnets := r.SubnetService.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetSetCRUID, string(obj.GetUID()))
-	if err := r.deleteSubnets(nsxSubnets); err != nil {
-		return err
-	}
+func (r *SubnetSetReconciler) deleteSubnetForSubnetSet(subnetSet v1alpha1.SubnetSet, updateStatus, ignoreStaleSubnetPort bool) error {
+	nsxSubnets := r.SubnetService.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.GetUID()))
+	hasStaleSubnetPort, deleteErr := r.deleteSubnets(nsxSubnets)
 	if updateStatus {
-		err := r.SubnetService.UpdateSubnetSetStatus(&obj)
-		if err != nil {
+		if err := r.SubnetService.UpdateSubnetSetStatus(&subnetSet); err != nil {
 			return err
 		}
 	}
+	if deleteErr != nil {
+		return deleteErr
+	}
+	if hasStaleSubnetPort && !ignoreStaleSubnetPort {
+		return fmt.Errorf("stale Subnet ports found while deleting Subnet for SubnetSet %s/%s", subnetSet.Name, subnetSet.Namespace)
+	}
 	return nil
 }
 
-func (r *SubnetSetReconciler) listSubnetSetIDsFromCRs(ctx context.Context) ([]string, error) {
-	crdSubnetSetList := &v1alpha1.SubnetSetList{}
-	err := r.Client.List(ctx, crdSubnetSetList)
-	if err != nil {
-		return nil, err
-	}
-
-	crdSubnetSetIDs := make([]string, 0, len(crdSubnetSetList.Items))
-	for _, sr := range crdSubnetSetList.Items {
-		crdSubnetSetIDs = append(crdSubnetSetIDs, string(sr.UID))
-	}
-	return crdSubnetSetIDs, nil
-}
-
-func (r *SubnetSetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet) error {
+// deleteSubnets deletes all the specified NSX Subnets.
+// If any of the Subnets have stale SubnetPorts, they are skipped. The final result returns true.
+// If there is an error while deleting any NSX Subnet, it is skipped, and the final result returns an error.
+func (r *SubnetSetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet) (hasStalePort bool, err error) {
+	hitError := false
 	for _, nsxSubnet := range nsxSubnets {
+		r.SubnetService.LockSubnet(nsxSubnet.Path)
 		portNums := len(r.SubnetPortService.GetPortsOfSubnet(*nsxSubnet.Id))
 		if portNums > 0 {
-			return fmt.Errorf("fail to delete Subnet/%s from SubnetSet CR, there is stale ports", *nsxSubnet.Id)
+			r.SubnetService.UnlockSubnet(nsxSubnet.Path)
+			hasStalePort = true
+			log.Info("Skipped deleting NSX Subnet due to stale ports", "nsxSubnet", *nsxSubnet.Id)
+			continue
 		}
-		r.SubnetService.LockSubnet(nsxSubnet.Path)
 		err := r.SubnetService.DeleteSubnet(*nsxSubnet)
 		if err != nil {
+			hitError = true
 			r.SubnetService.UnlockSubnet(nsxSubnet.Path)
-			return fmt.Errorf("fail to delete Subnet/%s from SubnetSet CR: %+v", *nsxSubnet.Id, err)
+			log.Error(fmt.Errorf("failed to delete NSX Subnet/%s: %+v", *nsxSubnet.Id, err), "Skipping to next subnet")
+			continue
 		}
 		r.SubnetService.UnlockSubnet(nsxSubnet.Path)
 	}
-	log.Info("Successfully deleted all Subnets", "subnetCount", len(nsxSubnets))
-	return nil
+	if hitError {
+		err = errors.New("one or more errors occurred while deleting subnets, ")
+		return
+	}
+	log.Info("Successfully deleted all specified NSX Subnets", "subnetCount", len(nsxSubnets))
+	return
 }
 
 func (r *SubnetSetReconciler) deleteStaleSubnets(ctx context.Context, nsxSubnets []*model.VpcSubnet) error {
-	crdSubnetSetIDs, err := r.listSubnetSetIDsFromCRs(ctx)
+	crdSubnetSetIDsSet, err := r.SubnetService.ListSubnetSetID(ctx)
 	if err != nil {
 		log.Error(err, "Failed to list Subnet CRs")
 		return err
 	}
-	crdSubnetSetIDsSet := sets.NewString(crdSubnetSetIDs...)
 	nsxSubnetsToDelete := make([]*model.VpcSubnet, 0, len(nsxSubnets))
 	for _, nsxSubnet := range nsxSubnets {
 		uid := nsxutil.FindTag(nsxSubnet.Tags, servicecommon.TagScopeSubnetSetCRUID)
@@ -364,7 +363,11 @@ func (r *SubnetSetReconciler) deleteStaleSubnets(ctx context.Context, nsxSubnets
 		nsxSubnetsToDelete = append(nsxSubnetsToDelete, nsxSubnet)
 	}
 	log.Info("Cleaning stale Subnets for SubnetSet", "Count", len(nsxSubnetsToDelete))
-	return r.deleteSubnets(nsxSubnetsToDelete)
+	hasStaleSubnetPort, err := r.deleteSubnets(nsxSubnetsToDelete)
+	if err != nil || hasStaleSubnetPort {
+		return fmt.Errorf("failed to delete stale Subnets, error: %v, hasStaleSubnetPort: %t", err, hasStaleSubnetPort)
+	}
+	return nil
 }
 
 func StartSubnetSetController(mgr ctrl.Manager, subnetService *subnet.SubnetService,

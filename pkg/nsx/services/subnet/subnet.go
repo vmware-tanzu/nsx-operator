@@ -191,18 +191,18 @@ func (service *SubnetService) ListSubnetCreatedBySubnetSet(id string) []*model.V
 	return service.SubnetStore.GetByIndex(common.TagScopeSubnetSetCRUID, id)
 }
 
-func (service *SubnetService) ListSubnetSetID(ctx context.Context) sets.Set[string] {
+func (service *SubnetService) ListSubnetSetID(ctx context.Context) (sets.Set[string], error) {
 	crdSubnetSetList := &v1alpha1.SubnetSetList{}
-	subnetsetIDs := sets.New[string]()
 	err := service.Client.List(ctx, crdSubnetSetList)
 	if err != nil {
-		log.Error(err, "failed to list subnetset CR")
-		return subnetsetIDs
+		return nil, err
 	}
+
+	crdSubnetSetIDs := sets.New[string]()
 	for _, subnetset := range crdSubnetSetList.Items {
-		subnetsetIDs.Insert(string(subnetset.UID))
+		crdSubnetSetIDs.Insert(string(subnetset.UID))
 	}
-	return subnetsetIDs
+	return crdSubnetSetIDs, nil
 }
 
 func (service *SubnetService) ListSubnetByName(ns, name string) []*model.VpcSubnet {
@@ -229,16 +229,6 @@ func (service *SubnetService) ListSubnetBySubnetSetName(ns, subnetSetName string
 		}
 	}
 	return res
-}
-
-// check if subnet belongs to a subnetset, if yes, check if that subnetset still exists
-func (service *SubnetService) IsOrphanSubnet(subnet model.VpcSubnet, subnetsetIDs sets.Set[string]) bool {
-	for _, tag := range subnet.Tags {
-		if *tag.Scope == common.TagScopeSubnetSetCRUID && subnetsetIDs.Has(*tag.Tag) {
-			return false
-		}
-	}
-	return true
 }
 
 func (service *SubnetService) DeleteIPAllocation(orgID, projectID, vpcID, subnetID string) error {
@@ -352,26 +342,56 @@ func (service *SubnetService) GetSubnetByPath(path string) (*model.VpcSubnet, er
 	return nsxSubnet, err
 }
 
-func (service *SubnetService) ListSubnetID() sets.Set[string] {
+func (service *SubnetService) ListSubnetSetIDsFromNSXSubnets() sets.Set[string] {
+	subnetSetIDs := service.SubnetStore.ListIndexFuncValues(common.TagScopeSubnetSetCRUID)
+	return subnetSetIDs
+}
+
+func (service *SubnetService) ListSubnetIDsFromNSXSubnets() sets.Set[string] {
+	subnetIDs := service.SubnetStore.ListIndexFuncValues(common.TagScopeSubnetCRUID)
+	return subnetIDs
+}
+
+// ListIndexFuncValues returns all the indexed values of the given index
+// // Index maps the indexed value to a set of keys in the store that match on that value
+// type Index map[string]sets.String
+//
+//	func (i *storeIndex) getIndexValues(indexName string) []string {
+//		index := i.indices[indexName]
+//		names := make([]string, 0, len(index))
+//		for key := range index {
+//			names = append(names, key)
+//		}
+//		return names
+//	}
+func (service *SubnetService) ListAllSubnet() []*model.VpcSubnet {
+	var allNSXSubnets []*model.VpcSubnet
+	// ListSubnetCreatedBySubnet
 	subnets := service.SubnetStore.ListIndexFuncValues(common.TagScopeSubnetCRUID)
+	for subnetID := range subnets {
+		nsxSubnets := service.ListSubnetCreatedBySubnet(string(subnetID))
+		allNSXSubnets = append(allNSXSubnets, nsxSubnets...)
+	}
+	// ListSubnetCreatedBySubnetSet
 	subnetSets := service.SubnetStore.ListIndexFuncValues(common.TagScopeSubnetSetCRUID)
-	return subnets.Union(subnetSets)
+	for subnetSetID := range subnetSets {
+		nsxSubnets := service.ListSubnetCreatedBySubnetSet(string(subnetSetID))
+		allNSXSubnets = append(allNSXSubnets, nsxSubnets...)
+	}
+	return allNSXSubnets
 }
 
 func (service *SubnetService) Cleanup(ctx context.Context) error {
-	uids := service.ListSubnetID()
-	log.Info("cleaning up subnet", "count", len(uids))
-	for uid := range uids {
-		nsxSubnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetCRUID, string(uid))
-		for _, nsxSubnet := range nsxSubnets {
-			select {
-			case <-ctx.Done():
-				return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
-			default:
-				err := service.DeleteSubnet(*nsxSubnet)
-				if err != nil {
-					return err
-				}
+	allNSXSubnets := service.ListAllSubnet()
+	log.Info("cleaning up Subnet", "Count", len(allNSXSubnets))
+	for _, nsxSubnet := range allNSXSubnets {
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			err := service.DeleteSubnet(*nsxSubnet)
+			if err != nil {
+				return err
 			}
 		}
 	}

@@ -379,31 +379,20 @@ func (r *SubnetReconciler) collectGarbage(ctx context.Context) {
 		log.Error(err, "Failed to list Subnet CRs")
 		return
 	}
+	crdSubnetIDsSet := sets.New[string](crdSubnetIDs...)
 
-	var nsxSubnetList []*model.VpcSubnet
-	for _, crdSubnetID := range crdSubnetIDs {
-		nsxSubnetList = append(nsxSubnetList, r.SubnetService.ListSubnetCreatedBySubnet(crdSubnetID)...)
-	}
-	if len(nsxSubnetList) == 0 {
-		log.Info("No Subnets found in NSX, garbage collection complete")
-		return
-	}
-
-	crdSubnetIDsSet := sets.NewString(crdSubnetIDs...)
-	for _, nsxSubnet := range nsxSubnetList {
-		uid := nsxutil.FindTag(nsxSubnet.Tags, servicecommon.TagScopeSubnetCRUID)
-		if crdSubnetIDsSet.Has(uid) {
-			continue
-		}
-
-		log.Info("GC collected Subnet CR", "UID", uid)
+	subnetUIDs := r.SubnetService.ListSubnetIDsFromNSXSubnets()
+	subnetSetIDsToDelete := subnetUIDs.Difference(crdSubnetIDsSet)
+	for subnetSetID := range subnetSetIDsToDelete {
+		nsxSubnets := r.SubnetService.ListSubnetCreatedBySubnet(string(subnetSetID))
 		metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeSubnet)
 
-		if err := r.SubnetService.DeleteSubnet(*nsxSubnet); err != nil {
-			log.Error(err, "Failed to delete NSX subnet", "NSX Subnet UID", uid)
+		log.Info("Subnet garbage collection, cleaning stale Subnets", "Count", len(nsxSubnets))
+		if err := r.deleteSubnets(nsxSubnets); err != nil {
+			log.Error(err, "Subnet garbage collection, failed to delete NSX subnet", "SubnetUID", subnetSetID)
 			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeSubnet)
 		} else {
-			log.Info("Successfully deleted NSX subnet", "NSX Subnet UID", uid)
+			log.Info("Subnet garbage collection, successfully deleted NSX subnet", "SubnetUID", subnetSetID)
 			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeSubnet)
 		}
 	}
