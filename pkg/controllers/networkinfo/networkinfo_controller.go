@@ -268,7 +268,7 @@ func (r *NetworkInfoReconciler) Start(mgr ctrl.Manager) error {
 	return nil
 }
 
-func (r *NetworkInfoReconciler) listNamespaceCRsName(ctx context.Context) (sets.Set[string], sets.Set[string], error) {
+func (r *NetworkInfoReconciler) listNamespaceCRsNameIDSet(ctx context.Context) (sets.Set[string], sets.Set[string], error) {
 	// read all Namespaces from K8s
 	namespaces := &corev1.NamespaceList{}
 	err := r.Client.List(ctx, namespaces)
@@ -293,7 +293,7 @@ func (r *NetworkInfoReconciler) listNamespaceCRsName(ctx context.Context) (sets.
 func (r *NetworkInfoReconciler) CollectGarbage(ctx context.Context) {
 	startTime := time.Now()
 	defer func() {
-		log.Info("VPC garbage collection completed", "time", time.Since(startTime))
+		log.Info("VPC garbage collection completed", "duration(ms)", time.Since(startTime).Milliseconds())
 	}()
 	// read all NSX VPC from VPC store
 	nsxVPCList := r.Service.ListVPC()
@@ -302,7 +302,7 @@ func (r *NetworkInfoReconciler) CollectGarbage(ctx context.Context) {
 		return
 	}
 
-	nsSet, idSet, err := r.listNamespaceCRsName(ctx)
+	nsSet, idSet, err := r.listNamespaceCRsNameIDSet(ctx)
 	if err != nil {
 		log.Error(err, "Failed to list Kubernetes Namespaces")
 		return
@@ -337,7 +337,7 @@ func (r *NetworkInfoReconciler) deleteStaleVPCs(ctx context.Context, ns, id stri
 		log.Info("Shared Namespace, skipping deletion of NSX VPC", "Namespace", ns)
 		return nil
 	}
-	nsSet, idSet, err := r.listNamespaceCRsName(ctx)
+	nsSet, idSet, err := r.listNamespaceCRsNameIDSet(ctx)
 	if err != nil {
 		log.Error(err, "Failed to list Kubernetes Namespaces")
 		return fmt.Errorf("failed to list Kubernetes Namespaces while deleting VPCs: %v", err)
