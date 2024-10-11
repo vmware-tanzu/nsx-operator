@@ -132,6 +132,33 @@ func (r *NamespaceReconciler) createDefaultSubnetSet(ns string, defaultSubnetSiz
 	return nil
 }
 
+func (r *NamespaceReconciler) deleteDefaultSubnetSet(ns string) error {
+	subnetSets := []string{
+		types.DefaultVMSubnetSet,
+		types.DefaultPodSubnetSet,
+	}
+	for _, name := range subnetSets {
+		if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+			return err != nil
+		}, func() error {
+			obj := &v1alpha1.SubnetSet{}
+			err := r.Client.Get(context.Background(), client.ObjectKey{
+				Namespace: ns,
+				Name:      name,
+			}, obj)
+			if err != nil {
+				return client.IgnoreNotFound(err)
+			}
+			log.Info("delete default SubnetSet", "Namespace", ns, "Name", name)
+			return r.Client.Delete(context.Background(), obj)
+		}); err != nil {
+			log.Error(err, "failed to delete SubnetSet", "Namespace", ns, "Name", name)
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *NamespaceReconciler) namespaceError(ctx context.Context, k8sObj client.Object, msg string, err error) {
 	logErr := util.If(err == nil, errors.New(msg), err).(error)
 	log.Error(logErr, msg)
@@ -237,9 +264,12 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 		return common.ResultNormal, nil
 	} else {
-		log.Info("skip ns deletion event for ns", "Namespace", ns)
 		metrics.CounterInc(r.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNamespace)
 		r.VPCService.UnRegisterNamespaceNetworkconfigBinding(obj.GetNamespace())
+		// actively delete default subnet set, so that subnetset webhook can admit the delete request
+		if err := r.deleteDefaultSubnetSet(ns); err != nil {
+			return common.ResultRequeueAfter10sec, nil
+		}
 		return common.ResultNormal, nil
 	}
 }
