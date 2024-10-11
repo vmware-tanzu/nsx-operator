@@ -103,11 +103,8 @@ const (
 	IPPoolTypePublic  = "Public"
 	IPPoolTypePrivate = "Private"
 
-	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
-	T1SecurityPolicyFinalizerName  = "securitypolicy.nsx.vmware.com/finalizer"
-
-	SecurityPolicyFinalizerName      = "securitypolicy.crd.nsx.vmware.com/finalizer"
-	NetworkPolicyFinalizerName       = "networkpolicy.crd.nsx.vmware.com/finalizer"
+	NSXServiceAccountFinalizerName   = "nsxserviceaccount.nsx.vmware.com/finalizer"
+	T1SecurityPolicyFinalizerName    = "securitypolicy.nsx.vmware.com/finalizer"
 	StaticRouteFinalizerName         = "staticroute.crd.nsx.vmware.com/finalizer"
 	SubnetFinalizerName              = "subnet.crd.nsx.vmware.com/finalizer"
 	SubnetSetFinalizerName           = "subnetset.crd.nsx.vmware.com/finalizer"
