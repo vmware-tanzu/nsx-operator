@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
@@ -55,7 +56,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	networkInfoCR := &v1alpha1.NetworkInfo{}
 	if err := r.Client.Get(ctx, req.NamespacedName, networkInfoCR); err != nil {
 		if apierrors.IsNotFound(err) {
-			if err := r.deleteStaleVPCs(ctx, req.Namespace, ""); err != nil {
+			if err := r.deleteVPCsByName(ctx, req.Namespace); err != nil {
 				log.Error(err, "Failed to delete stale NSX VPC", "NetworkInfo", req.NamespacedName)
 				return common.ResultRequeue, err
 			}
@@ -68,7 +69,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Check if the CR is marked for deletion
 	if !networkInfoCR.ObjectMeta.DeletionTimestamp.IsZero() {
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNetworkInfo)
-		if err := r.deleteStaleVPCs(ctx, networkInfoCR.GetNamespace(), string(networkInfoCR.UID)); err != nil {
+		if err := r.deleteVPCsByID(ctx, networkInfoCR.GetNamespace(), string(networkInfoCR.UID)); err != nil {
 			deleteFail(r, ctx, networkInfoCR, &err, r.Client)
 			log.Error(err, "Failed to delete stale NSX VPC, retrying", "NetworkInfo", req.NamespacedName)
 			return common.ResultRequeue, err
@@ -295,6 +296,7 @@ func (r *NetworkInfoReconciler) CollectGarbage(ctx context.Context) {
 	defer func() {
 		log.Info("VPC garbage collection completed", "duration(ms)", time.Since(startTime).Milliseconds())
 	}()
+
 	// read all NSX VPC from VPC store
 	nsxVPCList := r.Service.ListVPC()
 	if len(nsxVPCList) == 0 {
@@ -302,16 +304,16 @@ func (r *NetworkInfoReconciler) CollectGarbage(ctx context.Context) {
 		return
 	}
 
-	nsSet, idSet, err := r.listNamespaceCRsNameIDSet(ctx)
+	_, idSet, err := r.listNamespaceCRsNameIDSet(ctx)
 	if err != nil {
-		log.Error(err, "Failed to list Kubernetes Namespaces")
+		log.Error(err, "Failed to list Kubernetes Namespaces for VPC garbage collection")
 		return
 	}
 
 	for i, nsxVPC := range nsxVPCList {
 		nsxVPCNamespaceName := filterTagFromNSXVPC(&nsxVPCList[i], commonservice.TagScopeNamespace)
 		nsxVPCNamespaceID := filterTagFromNSXVPC(&nsxVPCList[i], commonservice.TagScopeNamespaceUID)
-		if nsSet.Has(nsxVPCNamespaceName) && idSet.Has(nsxVPCNamespaceID) {
+		if idSet.Has(nsxVPCNamespaceID) {
 			continue
 		}
 		log.Info("Garbage collecting NSX VPC object", "VPC", nsxVPC.Id, "Namespace", nsxVPCNamespaceName)
@@ -328,7 +330,7 @@ func (r *NetworkInfoReconciler) CollectGarbage(ctx context.Context) {
 	}
 }
 
-func (r *NetworkInfoReconciler) deleteStaleVPCs(ctx context.Context, ns, id string) error {
+func (r *NetworkInfoReconciler) deleteVPCsByName(ctx context.Context, ns string) error {
 	isShared, err := r.Service.IsSharedVPCNamespaceByNS(ns)
 	if err != nil {
 		return fmt.Errorf("failed to check if Namespace is shared for NS %s: %w", ns, err)
@@ -337,7 +339,8 @@ func (r *NetworkInfoReconciler) deleteStaleVPCs(ctx context.Context, ns, id stri
 		log.Info("Shared Namespace, skipping deletion of NSX VPC", "Namespace", ns)
 		return nil
 	}
-	nsSet, idSet, err := r.listNamespaceCRsNameIDSet(ctx)
+
+	_, idSet, err := r.listNamespaceCRsNameIDSet(ctx)
 	if err != nil {
 		log.Error(err, "Failed to list Kubernetes Namespaces")
 		return fmt.Errorf("failed to list Kubernetes Namespaces while deleting VPCs: %v", err)
@@ -348,16 +351,52 @@ func (r *NetworkInfoReconciler) deleteStaleVPCs(ctx context.Context, ns, id stri
 		log.Info("There is no VPCs found in store, skipping deletion of NSX VPC", "Namespace", ns)
 		return nil
 	}
-	var deleteErrs []error
+
+	var vpcToDelete []*model.Vpc
 	for _, nsxVPC := range staleVPCs {
 		namespaceIDofVPC := filterTagFromNSXVPC(nsxVPC, commonservice.TagScopeNamespaceUID)
-		namespaceNameofVPC := filterTagFromNSXVPC(nsxVPC, commonservice.TagScopeNamespace)
-		// if delete with Name, the id is "", `id != namespaceIDofVPC` will always be true
-		// if delete with Name and id, namespaceNameofVPC and namespaceIDofVPC will in K8s, if id == namespaceIDofVPC, we should delete it, otherwise skip deleting it
-		if nsSet.Has(namespaceNameofVPC) && idSet.Has(namespaceIDofVPC) && id != namespaceIDofVPC {
-			log.Info("Namespace still exists in Kubernetes, skipping deletion of NSX VPC", "Namespace", ns)
+		if idSet.Has(namespaceIDofVPC) {
+			log.Info("Skipping deletion, Namespace still exists in K8s", "Namespace", ns)
 			continue
 		}
+		vpcToDelete = append(vpcToDelete, nsxVPC)
+	}
+	return r.deleteVPCs(ctx, vpcToDelete, ns)
+}
+
+func (r *NetworkInfoReconciler) deleteVPCsByID(ctx context.Context, ns, id string) error {
+	isShared, err := r.Service.IsSharedVPCNamespaceByNS(ns)
+	if err != nil {
+		return fmt.Errorf("failed to check if Namespace is shared for NS %s: %w", ns, err)
+	}
+	if isShared {
+		log.Info("Shared Namespace, skipping deletion of NSX VPC", "Namespace", ns)
+		return nil
+	}
+
+	staleVPCs := r.Service.GetVPCsByNamespace(ns)
+	if len(staleVPCs) == 0 {
+		log.Info("There is no VPCs found in store, skipping deletion of NSX VPC", "Namespace", ns)
+		return nil
+	}
+
+	var vpcToDelete []*model.Vpc
+	for _, nsxVPC := range staleVPCs {
+		namespaceIDofVPC := filterTagFromNSXVPC(nsxVPC, commonservice.TagScopeNamespaceUID)
+		if namespaceIDofVPC == id {
+			vpcToDelete = append(vpcToDelete, nsxVPC)
+		}
+	}
+	return r.deleteVPCs(ctx, vpcToDelete, ns)
+}
+
+func (r *NetworkInfoReconciler) deleteVPCs(ctx context.Context, staleVPCs []*model.Vpc, ns string) error {
+	if len(staleVPCs) == 0 {
+		log.Info("There is no VPCs found in store, skipping deletion of NSX VPC", "Namespace", ns)
+		return nil
+	}
+	var deleteErrs []error
+	for _, nsxVPC := range staleVPCs {
 		if nsxVPC.Path == nil {
 			log.Error(nil, "VPC path is nil, skipping", "VPC", nsxVPC)
 			continue

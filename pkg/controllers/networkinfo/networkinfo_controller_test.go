@@ -754,7 +754,7 @@ func TestNetworkInfoReconciler_deleteStaleVPCs(t *testing.T) {
 		})
 		defer patches.Reset()
 
-		err := r.deleteStaleVPCs(ctx, namespace, "")
+		err := r.deleteVPCsByName(ctx, namespace)
 		require.NoError(t, err)
 	})
 
@@ -767,7 +767,7 @@ func TestNetworkInfoReconciler_deleteStaleVPCs(t *testing.T) {
 		})
 		defer patches.Reset()
 
-		err := r.deleteStaleVPCs(ctx, namespace, "")
+		err := r.deleteVPCsByName(ctx, namespace)
 		require.NoError(t, err)
 	})
 
@@ -784,7 +784,7 @@ func TestNetworkInfoReconciler_deleteStaleVPCs(t *testing.T) {
 		})
 		defer patches.Reset()
 
-		err := r.deleteStaleVPCs(ctx, namespace, "")
+		err := r.deleteVPCsByName(ctx, namespace)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "delete failed")
 	})
@@ -812,7 +812,7 @@ func TestNetworkInfoReconciler_deleteStaleVPCs(t *testing.T) {
 		})
 		defer patches.Reset()
 
-		err := r.deleteStaleVPCs(ctx, namespace, "")
+		err := r.deleteVPCsByName(ctx, namespace)
 		require.NoError(t, err)
 	})
 }
@@ -856,8 +856,6 @@ func TestNetworkInfoReconciler_CollectGarbage(t *testing.T) {
 			return errors.New("deletion error")
 		})
 		defer patches.Reset()
-
 		r.CollectGarbage(ctx)
 	})
-
 }
