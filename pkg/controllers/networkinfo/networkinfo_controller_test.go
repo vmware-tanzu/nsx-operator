@@ -11,18 +11,22 @@ import (
 	"testing"
 
 	"github.com/agiledragon/gomonkey"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
@@ -676,7 +680,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				}))
 				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, _ string) (string, error) {
 					return "pre-vpc-nc", nil
-
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (servicecommon.VPCNetworkConfigInfo, bool) {
 					return servicecommon.VPCNetworkConfigInfo{
@@ -858,4 +861,106 @@ func TestNetworkInfoReconciler_CollectGarbage(t *testing.T) {
 		defer patches.Reset()
 		r.CollectGarbage(ctx)
 	})
+}
+
+func TestSyncPreCreatedVpcIPs(t *testing.T) {
+	stopSig := "stop"
+	getQueuedReqs := func(queue workqueue.RateLimitingInterface) []reconcile.Request {
+		var requests []reconcile.Request
+		for {
+			obj, shutdown := queue.Get()
+			if shutdown {
+				return requests
+			}
+			if val, ok := obj.(string); ok && val == stopSig {
+				return requests
+			}
+			req, _ := obj.(reconcile.Request)
+			requests = append(requests, req)
+		}
+	}
+
+	r := createNetworkInfoReconciler()
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	r.Client = k8sClient
+	r.queue = workqueue.NewRateLimitingQueueWithConfig(workqueue.DefaultControllerRateLimiter(),
+		workqueue.RateLimitingQueueConfig{
+			Name: "test",
+		})
+	defer r.queue.ShuttingDown()
+
+	v1alpha1.AddToScheme(r.Scheme)
+	ctx := context.TODO()
+
+	k8sClient.EXPECT().List(ctx, gomock.Any()).Return(nil).Do(
+		func(_ context.Context, list client.ObjectList, opts ...*client.ListOption) error {
+			networkInfos, _ := list.(*v1alpha1.NetworkInfoList)
+			networkInfos.Items = []v1alpha1.NetworkInfo{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "net1", Namespace: "ns1"},
+					VPCs: []v1alpha1.VPCState{
+						{PrivateIPs: []string{"1.1.1.0/24"}},
+					},
+				}, {
+					ObjectMeta: metav1.ObjectMeta{Name: "net1", Namespace: "ns2"},
+					VPCs: []v1alpha1.VPCState{
+						{PrivateIPs: []string{"1.1.1.0/24"}},
+					},
+				}, {
+					ObjectMeta: metav1.ObjectMeta{Name: "net1", Namespace: "ns3"},
+					VPCs: []v1alpha1.VPCState{
+						{PrivateIPs: []string{"1.1.1.0/24", "1.1.2.0/24"}},
+					},
+				}, {
+					ObjectMeta: metav1.ObjectMeta{Name: "net1", Namespace: "ns5"},
+				}, {
+					ObjectMeta: metav1.ObjectMeta{Name: "net1", Namespace: "ns6"},
+					VPCs: []v1alpha1.VPCState{
+						{PrivateIPs: []string{"1.1.1.0/24"}},
+					},
+				},
+			}
+
+			return nil
+		})
+
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "ListAllVPCsFromNSX", func(_ *vpc.VPCService) map[string]model.Vpc {
+		return map[string]model.Vpc{
+			"/orgs/default/projects/p1/vpcs/vpc1": {
+				PrivateIps: []string{"1.1.1.0/24"},
+			},
+			"/orgs/default/projects/p1/vpcs/vpc2": {
+				PrivateIps: []string{"1.1.1.0/24", "1.1.2.0/24"},
+			},
+			"/orgs/default/projects/p1/vpcs/vpc3": {
+				PrivateIps: []string{"1.1.1.0/24", "1.1.3.0/24"},
+			},
+			"/orgs/default/projects/p1/vpcs/vpc5": {
+				PrivateIps: []string{"1.1.1.0/24"},
+			},
+		}
+	})
+	patches.ApplyMethod(reflect.TypeOf(r.Service), "ListNamespacesWithPreCreatedVPCs", func(_ *vpc.VPCService) map[string]string {
+		return map[string]string{
+			"ns1": "/orgs/default/projects/p1/vpcs/vpc1",
+			"ns2": "/orgs/default/projects/p1/vpcs/vpc2",
+			"ns3": "/orgs/default/projects/p1/vpcs/vpc3",
+			"ns4": "/orgs/default/projects/p1/vpcs/vpc4",
+			"ns5": "/orgs/default/projects/p1/vpcs/vpc5",
+			"ns6": "/orgs/default/projects/p1/vpcs/vpc6",
+		}
+	})
+	defer patches.Reset()
+
+	expRequests := []reconcile.Request{
+		{NamespacedName: types.NamespacedName{Name: "net1", Namespace: "ns2"}},
+		{NamespacedName: types.NamespacedName{Name: "net1", Namespace: "ns3"}},
+		{NamespacedName: types.NamespacedName{Name: "net1", Namespace: "ns6"}},
+	}
+
+	r.syncPreCreatedVpcIPs(ctx)
+	r.queue.Add(stopSig)
+	requests := getQueuedReqs(r.queue)
+	assert.ElementsMatch(t, expRequests, requests)
 }

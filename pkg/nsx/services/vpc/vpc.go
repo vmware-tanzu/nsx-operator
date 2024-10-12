@@ -1183,14 +1183,14 @@ func (s *VPCService) GetVPCFromNSXByPath(vpcPath string) (*model.Vpc, error) {
 	return &vpc, nil
 }
 
-func (service *VPCService) GetLBSsFromNSXByVPC(vpcPath string) (string, error) {
+func (s *VPCService) GetLBSsFromNSXByVPC(vpcPath string) (string, error) {
 	vpcResInfo, err := common.ParseVPCResourcePath(vpcPath)
 	if err != nil {
 		log.Error(err, "failed to parse VPCResourceInfo from the given VPC path", "VPC", vpcPath)
 		return "", err
 	}
 	includeMarkForDeleted := false
-	lbs, err := service.NSXClient.VPCLBSClient.List(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID, nil, &includeMarkForDeleted, nil, nil, nil, nil)
+	lbs, err := s.NSXClient.VPCLBSClient.List(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID, nil, &includeMarkForDeleted, nil, nil, nil, nil)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to read LB services in VPC under from NSX", "VPC", vpcPath)
@@ -1202,6 +1202,42 @@ func (service *VPCService) GetLBSsFromNSXByVPC(vpcPath string) (string, error) {
 	}
 	lbsPath := *lbs.Results[0].Path
 	return lbsPath, nil
+}
+
+func (s *VPCService) ListAllVPCsFromNSX() map[string]model.Vpc {
+	store := &ResourceStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.VpcBindingType(),
+	}}
+	query := fmt.Sprintf("(%s:%s)", common.ResourceType, common.ResourceTypeVpc)
+	count, searcherr := s.SearchResource("", query, store, nil)
+	if searcherr != nil {
+		log.Error(searcherr, "failed to query VPC from NSX", "query", query)
+	} else {
+		log.V(1).Info("query VPC", "count", count)
+	}
+	vpcMap := make(map[string]model.Vpc)
+	for _, obj := range store.List() {
+		vpc := *obj.(*model.Vpc)
+		vpcPath := vpc.Path
+		vpcMap[*vpcPath] = vpc
+	}
+	return vpcMap
+}
+
+// ListNamespacesWithPreCreatedVPCs returns a map of the Namespaces which use the pre-created VPCs. The
+// key of the map is the Namespace name, and the value is the pre-created VPC path used in the NetworkInfo
+// within this Namespace.
+func (s *VPCService) ListNamespacesWithPreCreatedVPCs() map[string]string {
+	nsVpcMap := make(map[string]string)
+	for ncName, cfg := range s.VPCNetworkConfigStore.VPCNetworkConfigMap {
+		if IsPreCreatedVPC(cfg) {
+			for _, ns := range s.GetNamespacesByNetworkconfigName(ncName) {
+				nsVpcMap[ns] = cfg.VPCPath
+			}
+		}
+	}
+	return nsVpcMap
 }
 
 func IsPreCreatedVPC(nc common.VPCNetworkConfigInfo) bool {
