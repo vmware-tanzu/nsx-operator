@@ -105,9 +105,7 @@ const (
 	NSXServiceAccountFinalizerName   = "nsxserviceaccount.nsx.vmware.com/finalizer"
 	T1SecurityPolicyFinalizerName    = "securitypolicy.nsx.vmware.com/finalizer"
 	StaticRouteFinalizerName         = "staticroute.crd.nsx.vmware.com/finalizer"
-	SubnetPortFinalizerName          = "subnetport.crd.nsx.vmware.com/finalizer"
 	NetworkInfoFinalizerName         = "networkinfo.crd.nsx.vmware.com/finalizer"
-	PodFinalizerName                 = "pod.crd.nsx.vmware.com/finalizer"
 	IPPoolFinalizerName              = "ippool.crd.nsx.vmware.com/finalizer"
 	IPAddressAllocationFinalizerName = "ipaddressallocation.crd.nsx.vmware.com/finalizer"
 

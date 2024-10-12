@@ -51,9 +51,6 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		return nil, err
 	}
 	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", *nsxSubnet.Path, nsxSubnetPortID)
-	if err != nil {
-		return nil, err
-	}
 	namespace := &corev1.Namespace{}
 	namespacedName := types.NamespacedName{
 		Name: objNamespace,

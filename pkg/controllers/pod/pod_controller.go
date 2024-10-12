@@ -7,18 +7,17 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -45,14 +44,25 @@ type PodReconciler struct {
 }
 
 func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	pod := &v1.Pod{}
 	log.Info("reconciling pod", "pod", req.NamespacedName)
+	startTime := time.Now()
+	defer func() {
+		log.Info("finished reconciling Pod", "Pod", req.NamespacedName, "duration", time.Since(startTime))
+	}()
 
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerSyncTotal, MetricResTypePod)
 
+	pod := &v1.Pod{}
 	if err := r.Client.Get(ctx, req.NamespacedName, pod); err != nil {
-		log.Error(err, "unable to fetch pod", "req", req.NamespacedName)
-		return common.ResultNormal, client.IgnoreNotFound(err)
+		if apierrors.IsNotFound(err) {
+			if err := r.deleteSubnetPortByPodName(ctx, req.Namespace, req.Name); err != nil {
+				log.Error(err, "failed to delete NSX SubnetPort", "SubnetPort", req.NamespacedName)
+				return common.ResultRequeue, err
+			}
+			return common.ResultNormal, nil
+		}
+		log.Error(err, "unable to fetch Pod", "Pod", req.NamespacedName)
+		return common.ResultRequeue, err
 	}
 	if pod.Spec.HostNetwork {
 		log.Info("skipping handling hostnetwork pod", "pod", req.NamespacedName)
@@ -65,16 +75,6 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	if !podIsDeleted(pod) {
 		metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerUpdateTotal, MetricResTypePod)
-		if !controllerutil.ContainsFinalizer(pod, servicecommon.PodFinalizerName) {
-			controllerutil.AddFinalizer(pod, servicecommon.PodFinalizerName)
-			if err := r.Client.Update(ctx, pod); err != nil {
-				log.Error(err, "add finalizer", "pod", req.NamespacedName)
-				updateFail(r, ctx, pod, &err)
-				return common.ResultRequeue, err
-			}
-			log.Info("added finalizer on pod", "pod", req.NamespacedName)
-		}
-
 		nsxSubnetPath, err := r.GetSubnetPathForPod(ctx, pod)
 		if err != nil {
 			log.Error(err, "failed to get NSX resource path from subnet", "pod.Name", pod.Name, "pod.UID", pod.UID)
@@ -105,25 +105,13 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 		updateSuccess(r, ctx, pod)
 	} else {
-		if controllerutil.ContainsFinalizer(pod, servicecommon.PodFinalizerName) {
-			metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypePod)
-			subnetPortID := r.SubnetPortService.BuildSubnetPortId(&pod.ObjectMeta)
-			if err := r.SubnetPortService.DeleteSubnetPort(subnetPortID); err != nil {
-				log.Error(err, "deletion failed, would retry exponentially", "pod", req.NamespacedName)
-				deleteFail(r, ctx, pod, &err)
-				return common.ResultRequeue, err
-			}
-			controllerutil.RemoveFinalizer(pod, servicecommon.PodFinalizerName)
-			if err := r.Client.Update(ctx, pod); err != nil {
-				log.Error(err, "deletion failed, would retry exponentially", "pod", req.NamespacedName)
-				deleteFail(r, ctx, pod, &err)
-				return common.ResultRequeue, err
-			}
-			log.Info("removed finalizer", "pod", req.NamespacedName)
-			deleteSuccess(r, ctx, pod)
-		} else {
-			log.Info("finalizers cannot be recognized", "pod", req.NamespacedName)
+		subnetPortID := r.SubnetPortService.BuildSubnetPortId(&pod.ObjectMeta)
+		if err := r.SubnetPortService.DeleteSubnetPortById(subnetPortID); err != nil {
+			log.Error(err, "deletion failed, would retry exponentially", "pod", req.NamespacedName)
+			deleteFail(r, ctx, pod, &err)
+			return common.ResultRequeue, err
 		}
+		deleteSuccess(r, ctx, pod)
 	}
 	return ctrl.Result{}, nil
 }
@@ -147,14 +135,6 @@ func (r *PodReconciler) GetNodeByName(nodeName string) (*model.HostTransportNode
 func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Pod{}).
-		WithEventFilter(
-			predicate.Funcs{
-				DeleteFunc: func(e event.DeleteEvent) bool {
-					// Suppress Delete events to avoid filtering them out in the Reconcile function
-					return false
-				},
-			},
-		).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
@@ -212,7 +192,7 @@ func (r *PodReconciler) CollectGarbage(ctx context.Context) {
 	for elem := range diffSet {
 		log.V(1).Info("GC collected Pod", "NSXSubnetPortID", elem)
 		metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypePod)
-		err = r.SubnetPortService.DeleteSubnetPort(elem)
+		err = r.SubnetPortService.DeleteSubnetPortById(elem)
 		if err != nil {
 			metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypePod)
 		} else {
@@ -221,17 +201,17 @@ func (r *PodReconciler) CollectGarbage(ctx context.Context) {
 	}
 }
 
-func updateFail(r *PodReconciler, c context.Context, o *v1.Pod, e *error) {
+func updateFail(r *PodReconciler, _ context.Context, o *v1.Pod, e *error) {
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResTypePod)
 }
 
-func deleteFail(r *PodReconciler, c context.Context, o *v1.Pod, e *error) {
+func deleteFail(r *PodReconciler, _ context.Context, o *v1.Pod, e *error) {
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypePod)
 }
 
-func updateSuccess(r *PodReconciler, c context.Context, o *v1.Pod) {
+func updateSuccess(r *PodReconciler, _ context.Context, o *v1.Pod) {
 	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "Pod CR has been successfully updated")
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResTypePod)
 }
@@ -263,4 +243,27 @@ func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (s
 
 func podIsDeleted(pod *v1.Pod) bool {
 	return !pod.ObjectMeta.DeletionTimestamp.IsZero() || pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed"
+}
+
+func (r *PodReconciler) deleteSubnetPortByPodName(ctx context.Context, ns string, name string) error {
+	// When deleting SubnetPort by Name and Namespace, skip the SubnetPort belonging to the existed SubnetPort CR
+	nsxSubnetPorts := r.SubnetPortService.ListSubnetPortByPodName(ns, name)
+
+	crSubnetPortIDsSet, err := r.SubnetPortService.ListSubnetPortIDsFromCRs(ctx)
+	if err != nil {
+		log.Error(err, "failed to list SubnetPort CRs")
+		return err
+	}
+
+	for _, nsxSubnetPort := range nsxSubnetPorts {
+		if crSubnetPortIDsSet.Has(*nsxSubnetPort.Id) {
+			log.Info("skipping deletion, Pod CR still exists in K8s", "ID", *nsxSubnetPort.Id)
+			continue
+		}
+		if err := r.SubnetPortService.DeleteSubnetPort(nsxSubnetPort); err != nil {
+			return err
+		}
+	}
+	log.Info("successfully deleted nsxSubnetPort for Pod", "namespace", ns, "name", name)
+	return nil
 }
