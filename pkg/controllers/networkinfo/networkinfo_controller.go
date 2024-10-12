@@ -15,11 +15,15 @@ import (
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -29,6 +33,11 @@ import (
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+)
+
+const (
+	preVPCSyncInterval = time.Minute * 10
 )
 
 var (
@@ -44,6 +53,7 @@ type NetworkInfoReconciler struct {
 	Service             *vpc.VPCService
 	IPBlocksInfoService *ipblocksinfo.IPBlocksInfoService
 	Recorder            record.EventRecorder
+	queue               workqueue.RateLimitingInterface
 }
 
 func (r *NetworkInfoReconciler) GetVpcConnectivityProfilePathByVpcPath(vpcPath string) (string, error) {
@@ -274,6 +284,7 @@ func (r *NetworkInfoReconciler) setupWithManager(mgr ctrl.Manager) error {
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
+				NewQueue:                r.getQueue,
 			}).
 		Watches(
 			// For created/removed network config, add/remove from VPC network config cache,
@@ -296,6 +307,10 @@ func (r *NetworkInfoReconciler) Start(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
+
+	// Start a goroutine to periodically sync the pre-created VPC's private IPs to NetworkInfo CR if used.
+	go wait.UntilWithContext(context.Background(), r.syncPreCreatedVpcIPs, preVPCSyncInterval)
+
 	return nil
 }
 
@@ -440,4 +455,67 @@ func (r *NetworkInfoReconciler) deleteVPCs(ctx context.Context, staleVPCs []*mod
 	}
 	deleteVPCNetworkConfigurationStatus(ctx, r.Client, ncName, staleVPCs, r.Service.ListVPC())
 	return nil
+}
+
+func (r *NetworkInfoReconciler) syncPreCreatedVpcIPs(ctx context.Context) {
+	// Construct a map for the existing NetworkInfo CRs, the key is its Namespace, and the value is
+	// the NetworkInfo CR.
+	networkInfos := &v1alpha1.NetworkInfoList{}
+	err := r.Client.List(ctx, networkInfos)
+	if err != nil {
+		log.Error(err, "failed to list NetworkInfos")
+		return
+	}
+	networkInfoMap := make(map[string]v1alpha1.NetworkInfo)
+	for _, netInfo := range networkInfos.Items {
+		networkInfoMap[netInfo.Namespace] = netInfo
+	}
+
+	// Read all VPCs from NSX. Note, we can't use the cached VPC from local store for pre-created VPC case.
+	vpcPathMap := r.Service.GetAllVPCsFromNSX()
+
+	for ns, vpcPath := range r.Service.GetNamespacesWithPreCreatedVPCs() {
+		// Continue if no NetworkInfo exists in the Namespace.
+		netInfo, found := networkInfoMap[ns]
+		if !found {
+			continue
+		}
+
+		// Note: we don't process the case in this routine if VPC is not ready in a NetworkInfo. The reconciler
+		// shall handle this case.
+		if len(netInfo.VPCs) == 0 {
+			continue
+		}
+
+		req := reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      netInfo.Name,
+				Namespace: netInfo.Namespace,
+			},
+		}
+
+		preVPC, found := vpcPathMap[vpcPath]
+		if !found {
+			// Notify Reconciler that the pre-created VPC does not exit.
+			r.queue.Add(req)
+			continue
+		}
+
+		vpcState := netInfo.VPCs[0]
+		if !util.CompareArraysWithoutOrder(preVPC.PrivateIps, vpcState.PrivateIPs) {
+			// Notify Reconciler that the pre-created VPC has changed private IPs.
+			r.queue.Add(req)
+			continue
+		}
+		// TODO: add the check on SNAT IP changed, and LB type changed in future if needed.
+	}
+}
+
+func (r *NetworkInfoReconciler) getQueue(controllerName string, rateLimiter ratelimiter.RateLimiter) workqueue.RateLimitingInterface {
+	if r.queue == nil {
+		r.queue = workqueue.NewRateLimitingQueueWithConfig(rateLimiter, workqueue.RateLimitingQueueConfig{
+			Name: controllerName,
+		})
+	}
+	return r.queue
 }
