@@ -92,6 +92,7 @@ type Client struct {
 	VPCLBSClient                   vpcs.VpcLbsClient
 	VpcLbVirtualServersClient      vpcs.VpcLbVirtualServersClient
 	VpcLbPoolsClient               vpcs.VpcLbPoolsClient
+	VpcAttachmentClient            vpcs.AttachmentsClient
 	ProjectClient                  orgs.ProjectsClient
 	TransitGatewayClient           projects.TransitGatewaysClient
 	TransitGatewayAttachmentClient transit_gateways.AttachmentsClient
@@ -186,6 +187,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	vpcLBSClient := vpcs.NewVpcLbsClient(restConnector(cluster))
 	vpcLbVirtualServersClient := vpcs.NewVpcLbVirtualServersClient(restConnector(cluster))
 	vpcLbPoolsClient := vpcs.NewVpcLbPoolsClient(restConnector(cluster))
+	vpcAttachmentClient := vpcs.NewAttachmentsClient(restConnector(cluster))
 
 	vpcSecurityClient := vpcs.NewSecurityPoliciesClient(restConnector(cluster))
 	vpcRuleClient := vpc_sp.NewRulesClient(restConnector(cluster))
@@ -234,6 +236,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		VPCLBSClient:                   vpcLBSClient,
 		VpcLbVirtualServersClient:      vpcLbVirtualServersClient,
 		VpcLbPoolsClient:               vpcLbPoolsClient,
+		VpcAttachmentClient:            vpcAttachmentClient,
 		ProjectClient:                  projectClient,
 		NSXChecker:                     *nsxChecker,
 		NSXVerChecker:                  *nsxVersionChecker,

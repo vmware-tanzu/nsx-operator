@@ -13,8 +13,9 @@ import (
 )
 
 var (
-	DefaultVPCIPAddressType = "IPV4"
-	defaultLBSName          = "default"
+	DefaultVPCIPAddressType  = "IPV4"
+	defaultLBSName           = "default"
+	defaultVpcAttachmentName = "default"
 )
 
 func generateLBSKey(lbs model.LBService) (string, error) {
@@ -82,10 +83,6 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 			Scope: common.String(common.TagScopeVPCManagedBy), Tag: common.String(common.AutoCreatedVPCTagValue)})
 	}
 
-	if nc.VPCConnectivityProfile != "" {
-		vpc.VpcConnectivityProfile = &nc.VPCConnectivityProfile
-	}
-
 	vpc.PrivateIps = nc.PrivateIPs
 	return vpc, nil
 }
@@ -105,4 +102,13 @@ func buildNSXLBS(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster, lbsSiz
 	lbs.ConnectivityPath = &vpcPath
 	lbs.RelaxScaleValidation = relaxScaleValidation
 	return lbs, nil
+}
+
+func buildVpcAttachment(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster string, vpcconnectiveprofile string) (*model.VpcAttachment, error) {
+	attachment := &model.VpcAttachment{}
+	attachment.VpcConnectivityProfile = &vpcconnectiveprofile
+	attachment.DisplayName = common.String(common.DefaultVpcAttachmentId)
+	attachment.Id = common.String(common.DefaultVpcAttachmentId)
+	attachment.Tags = util.BuildBasicTags(cluster, obj, nsObj.GetUID())
+	return attachment, nil
 }
