@@ -50,12 +50,32 @@ func (c *fakeVPCConnectivityProfilesClient) Update(orgIdParam string, projectIdP
 	return model.VpcConnectivityProfile{}, nil
 }
 
+type fakeVpcAttachmentClient struct{}
+
+func (c *fakeVpcAttachmentClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcAttachmentListResult, error) {
+	return model.VpcAttachmentListResult{}, nil
+}
+
+func (c *fakeVpcAttachmentClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, vpcAttachmentIdParam string) (model.VpcAttachment, error) {
+	return model.VpcAttachment{}, nil
+}
+
+func (c *fakeVpcAttachmentClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, vpcAttachmentIdParam string, vpcAttachmentParam model.VpcAttachment) error {
+	return nil
+}
+func (c *fakeVpcAttachmentClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, vpcAttachmentIdParam string, vpcAttachmentParam model.VpcAttachment) (model.VpcAttachment, error) {
+	return model.VpcAttachment{}, nil
+}
+
+var fakeAttachmentClient = &fakeVpcAttachmentClient{}
+
 func createNetworkInfoReconciler() *NetworkInfoReconciler {
 	service := &vpc.VPCService{
 		Service: servicecommon.Service{
 			Client: nil,
 			NSXClient: &nsx.Client{
 				VPCConnectivityProfilesClient: &fakeVPCConnectivityProfilesClient{},
+				VpcAttachmentClient:           fakeAttachmentClient,
 			},
 
 			NSXConfig: &config.NSXOperatorConfig{
@@ -264,6 +284,10 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					return "non-system", nil
 
 				})
+				patches.ApplyMethod(reflect.TypeOf(r), "GetVpcConnectivityProfilePathByVpcPath", func(_ *NetworkInfoReconciler, _ string) (string, error) {
+					return "connectivity_profile", nil
+				})
+
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (servicecommon.VPCNetworkConfigInfo, bool) {
 					return servicecommon.VPCNetworkConfigInfo{
 						VPCConnectivityProfile: "/orgs/default/projects/nsx_operator_e2e_test/vpc-connectivity-profiles/default",
@@ -678,6 +702,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					return "pre-vpc-nc", nil
 
 				})
+				patches.ApplyMethod(reflect.TypeOf(r), "GetVpcConnectivityProfilePathByVpcPath", func(_ *NetworkInfoReconciler, _ string) (string, error) {
+					return "connectivity_profile", nil
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (servicecommon.VPCNetworkConfigInfo, bool) {
 					return servicecommon.VPCNetworkConfigInfo{
 						Org:        "default",
@@ -858,4 +885,86 @@ func TestNetworkInfoReconciler_CollectGarbage(t *testing.T) {
 		defer patches.Reset()
 		r.CollectGarbage(ctx)
 	})
+}
+func TestNetworkInfoReconciler_GetVpcConnectivityProfilePathByVpcPath(t *testing.T) {
+	tests := []struct {
+		name        string
+		vpcPath     string
+		prepareFunc func(*testing.T, *NetworkInfoReconciler, context.Context) *gomonkey.Patches
+		want        string
+		wantErr     bool
+	}{
+		{
+			name:    "Invalid VPC Path",
+			vpcPath: "/invalid/path",
+			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) *gomonkey.Patches {
+				return nil
+			},
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name:    "Failed to list VPC attachment",
+			vpcPath: "/orgs/default/projects/project-quality/vpcs/fake-vpc",
+			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service.NSXClient.VpcAttachmentClient), "List", func(_ *fakeVpcAttachmentClient, _ string, _ string, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcAttachmentListResult, error) {
+					return model.VpcAttachmentListResult{}, fmt.Errorf("list error")
+				})
+				return patches
+			},
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name:    "No VPC attachment found",
+			vpcPath: "/orgs/default/projects/project-quality/vpcs/fake-vpc",
+			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service.NSXClient.VpcAttachmentClient), "List", func(_ *fakeVpcAttachmentClient, _ string, _ string, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcAttachmentListResult, error) {
+					return model.VpcAttachmentListResult{Results: []model.VpcAttachment{}}, nil
+				})
+				return patches
+			},
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name:    "Successful VPC attachment retrieval",
+			vpcPath: "/orgs/default/projects/project-quality/vpcs/fake-vpc",
+			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(fakeAttachmentClient), "List", func(_ *fakeVpcAttachmentClient, _ string, _ string, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcAttachmentListResult, error) {
+					return model.VpcAttachmentListResult{
+						Results: []model.VpcAttachment{
+							{VpcConnectivityProfile: servicecommon.String("/orgs/default/projects/project-quality/vpc-connectivity-profiles/default"),
+								ParentPath: servicecommon.String("/orgs/default/projects/project-quality/vpcs/fake-vpc"),
+								Path:       servicecommon.String("/orgs/default/projects/project-quality/vpcs/fake-vpc/attachments/default")},
+						},
+					}, nil
+				})
+				return patches
+			},
+			want:    "/orgs/default/projects/project-quality/vpc-connectivity-profiles/default",
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := createNetworkInfoReconciler()
+			ctx := context.TODO()
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc(t, r, ctx)
+				if patches != nil {
+					defer patches.Reset()
+				}
+			}
+			got, err := r.GetVpcConnectivityProfilePathByVpcPath(tt.vpcPath)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetVpcConnectivityProfilePathByVpcPath() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("GetVpcConnectivityProfilePathByVpcPath() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

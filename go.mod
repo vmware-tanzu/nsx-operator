@@ -6,10 +6,10 @@ replace (
 	github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
 	github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1 => ./pkg/apis/vpc/v1alpha1
 	github.com/vmware-tanzu/nsx-operator/pkg/client => ./pkg/client
-	github.com/vmware/vsphere-automation-sdk-go/lib => github.com/yanjunz97/vsphere-automation-sdk-go/lib v0.0.0-20240823072631-de1833ffcf2a
-	github.com/vmware/vsphere-automation-sdk-go/runtime => github.com/yanjunz97/vsphere-automation-sdk-go/runtime v0.0.0-20240823072631-de1833ffcf2a
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt => github.com/yanjunz97/vsphere-automation-sdk-go/services/nsxt v0.0.0-20240823072631-de1833ffcf2a
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp => github.com/yanjunz97/vsphere-automation-sdk-go/services/nsxt-mp v0.0.0-20240823072631-de1833ffcf2a
+	github.com/vmware/vsphere-automation-sdk-go/lib => github.com/TaoZou1/vsphere-automation-sdk-go/lib v0.0.0-20241014012640-c5c5c9408962
+	github.com/vmware/vsphere-automation-sdk-go/runtime => github.com/TaoZou1/vsphere-automation-sdk-go/runtime v0.0.0-20241014012640-c5c5c9408962
+	github.com/vmware/vsphere-automation-sdk-go/services/nsxt => github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt v0.0.0-20241014012640-c5c5c9408962
+	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp => github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt-mp v0.0.0-20241014012640-c5c5c9408962
 )
 
 require (

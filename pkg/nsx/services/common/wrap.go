@@ -82,3 +82,18 @@ func (service *Service) WrapLBS(lbs *model.LBService) ([]*data.StructValue, erro
 	}
 	return []*data.StructValue{dataValue.(*data.StructValue)}, nil
 }
+
+func (service *Service) WrapAttachment(attachment *model.VpcAttachment) ([]*data.StructValue, error) {
+	attachment.ResourceType = pointy.String(ResourceTypeVpcAttachment)
+	childVpcAttachment := model.ChildVpcAttachment{
+		Id:              attachment.Id,
+		MarkedForDelete: attachment.MarkedForDelete,
+		ResourceType:    ResourceTypeChildVpcAttachment,
+		VpcAttachment:   attachment,
+	}
+	dataValue, errs := NewConverter().ConvertToVapi(childVpcAttachment, childVpcAttachment.GetType__())
+	if len(errs) > 0 {
+		return nil, errs[0]
+	}
+	return []*data.StructValue{dataValue.(*data.StructValue)}, nil
+}
