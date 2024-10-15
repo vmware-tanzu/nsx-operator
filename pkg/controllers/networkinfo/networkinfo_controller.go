@@ -330,26 +330,29 @@ func (r *NetworkInfoReconciler) CollectGarbage(ctx context.Context) {
 	}
 }
 
-func (r *NetworkInfoReconciler) deleteVPCsByName(ctx context.Context, ns string) error {
+func (r *NetworkInfoReconciler) fetchStaleVPCsByNamespace(ctx context.Context, ns string) ([]*model.Vpc, error) {
 	isShared, err := r.Service.IsSharedVPCNamespaceByNS(ns)
 	if err != nil {
-		return fmt.Errorf("failed to check if Namespace is shared for NS %s: %w", ns, err)
+		return nil, fmt.Errorf("failed to check if Namespace is shared for NS %s: %w", ns, err)
 	}
 	if isShared {
 		log.Info("Shared Namespace, skipping deletion of NSX VPC", "Namespace", ns)
-		return nil
+		return nil, nil
 	}
 
+	return r.Service.GetVPCsByNamespace(ns), nil
+}
+
+func (r *NetworkInfoReconciler) deleteVPCsByName(ctx context.Context, ns string) error {
 	_, idSet, err := r.listNamespaceCRsNameIDSet(ctx)
 	if err != nil {
 		log.Error(err, "Failed to list Kubernetes Namespaces")
 		return fmt.Errorf("failed to list Kubernetes Namespaces while deleting VPCs: %v", err)
 	}
-	// Retrieve stale VPCs associated with the Namespace
-	staleVPCs := r.Service.GetVPCsByNamespace(ns)
-	if len(staleVPCs) == 0 {
-		log.Info("There is no VPCs found in store, skipping deletion of NSX VPC", "Namespace", ns)
-		return nil
+
+	staleVPCs, err := r.fetchStaleVPCsByNamespace(ctx, ns)
+	if err != nil {
+		return err
 	}
 
 	var vpcToDelete []*model.Vpc
@@ -365,19 +368,9 @@ func (r *NetworkInfoReconciler) deleteVPCsByName(ctx context.Context, ns string)
 }
 
 func (r *NetworkInfoReconciler) deleteVPCsByID(ctx context.Context, ns, id string) error {
-	isShared, err := r.Service.IsSharedVPCNamespaceByNS(ns)
+	staleVPCs, err := r.fetchStaleVPCsByNamespace(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("failed to check if Namespace is shared for NS %s: %w", ns, err)
-	}
-	if isShared {
-		log.Info("Shared Namespace, skipping deletion of NSX VPC", "Namespace", ns)
-		return nil
-	}
-
-	staleVPCs := r.Service.GetVPCsByNamespace(ns)
-	if len(staleVPCs) == 0 {
-		log.Info("There is no VPCs found in store, skipping deletion of NSX VPC", "Namespace", ns)
-		return nil
+		return err
 	}
 
 	var vpcToDelete []*model.Vpc
