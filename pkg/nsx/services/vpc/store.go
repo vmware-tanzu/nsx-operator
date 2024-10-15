@@ -15,6 +15,10 @@ func keyFunc(obj interface{}) (string, error) {
 		return *v.Id, nil
 	case *model.LBService:
 		return generateLBSKey(*v)
+	case *model.LBVirtualServer:
+		return generateVirtualServerKey(*v)
+	case *model.LBPool:
+		return generatePoolKey(*v)
 	default:
 		return "", errors.New("keyFunc doesn't support unknown type")
 	}
