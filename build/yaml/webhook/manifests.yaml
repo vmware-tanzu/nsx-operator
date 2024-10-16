@@ -30,3 +30,23 @@ webhooks:
     resources:
     - subnetsets
   sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: subnetset
+      namespace: vmware-system-nsx
+      path: /validate-crd-nsx-vmware-com-v1alpha1-addressbinding
+  failurePolicy: Fail
+  name: addressbinding.validating.crd.nsx.vmware.com
+  rules:
+  - apiGroups:
+    - crd.nsx.vmware.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - addressbindings
+  sideEffects: None
