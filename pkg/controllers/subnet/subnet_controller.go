@@ -382,8 +382,8 @@ func (r *SubnetReconciler) collectGarbage(ctx context.Context) {
 	crdSubnetIDsSet := sets.New[string](crdSubnetIDs...)
 
 	subnetUIDs := r.SubnetService.ListSubnetIDsFromNSXSubnets()
-	subnetSetIDsToDelete := subnetUIDs.Difference(crdSubnetIDsSet)
-	for subnetSetID := range subnetSetIDsToDelete {
+	subnetIDsToDelete := subnetUIDs.Difference(crdSubnetIDsSet)
+	for subnetSetID := range subnetIDsToDelete {
 		nsxSubnets := r.SubnetService.ListSubnetCreatedBySubnet(string(subnetSetID))
 		metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeSubnet)
 

@@ -67,7 +67,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			}
 			return ResultNormal, nil
 		}
-		log.Error(err, "Unable to fetch SubnetSet CR", "req", req.NamespacedName)
+		log.Error(err, "Unable to fetch SubnetSet CR", "SubnetSet", req.NamespacedName)
 		return ResultRequeue, err
 	}
 	if !subnetsetCR.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -97,7 +97,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if subnetsetCR.Spec.IPv4SubnetSize == 0 {
 		vpcNetworkConfig := r.VPCService.GetVPCNetworkConfigByNamespace(subnetsetCR.Namespace)
 		if vpcNetworkConfig == nil {
-			err := fmt.Errorf("failed to find VPCNetworkConfig for namespace %s", subnetsetCR.Namespace)
+			err := fmt.Errorf("failed to find VPCNetworkConfig for Namespace %s", subnetsetCR.Namespace)
 			log.Error(err, "Operate failed, would retry exponentially", "SubnetSet", req.NamespacedName)
 			updateFail(r, ctx, subnetsetCR, err.Error())
 			return ResultRequeue, err
@@ -106,7 +106,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		specChanged = true
 	}
 	if !util.IsPowerOfTwo(subnetsetCR.Spec.IPv4SubnetSize) {
-		errorMsg := fmt.Sprintf("ipv4SubnetSize has invalid size %d,  which needs to be >= 16 and power of 2", subnetsetCR.Spec.IPv4SubnetSize)
+		errorMsg := fmt.Sprintf("ipv4SubnetSize has invalid size %d, which needs to be >= 16 and power of 2", subnetsetCR.Spec.IPv4SubnetSize)
 		log.Error(nil, errorMsg, "SubnetSet", req.NamespacedName)
 		updateFail(r, ctx, subnetsetCR, errorMsg)
 		return ResultNormal, nil
@@ -265,7 +265,7 @@ func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) {
 	crdSubnetSetList := &v1alpha1.SubnetSetList{}
 	err := r.Client.List(ctx, crdSubnetSetList)
 	if err != nil {
-		log.Error(err, "Failed to list Subnet CRs")
+		log.Error(err, "Failed to list SubnetSet CRs")
 		return
 	}
 
@@ -320,7 +320,7 @@ func (r *SubnetSetReconciler) deleteSubnetForSubnetSet(subnetSet v1alpha1.Subnet
 // If any of the Subnets have stale SubnetPorts, they are skipped. The final result returns true.
 // If there is an error while deleting any NSX Subnet, it is skipped, and the final result returns an error.
 func (r *SubnetSetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet) (hasStalePort bool, err error) {
-	hitError := false
+	var deleteErrs []error
 	for _, nsxSubnet := range nsxSubnets {
 		r.SubnetService.LockSubnet(nsxSubnet.Path)
 		portNums := len(r.SubnetPortService.GetPortsOfSubnet(*nsxSubnet.Id))
@@ -330,17 +330,17 @@ func (r *SubnetSetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet) (hasS
 			log.Info("Skipped deleting NSX Subnet due to stale ports", "nsxSubnet", *nsxSubnet.Id)
 			continue
 		}
-		err := r.SubnetService.DeleteSubnet(*nsxSubnet)
-		if err != nil {
-			hitError = true
+		if err := r.SubnetService.DeleteSubnet(*nsxSubnet); err != nil {
 			r.SubnetService.UnlockSubnet(nsxSubnet.Path)
-			log.Error(fmt.Errorf("failed to delete NSX Subnet/%s: %+v", *nsxSubnet.Id, err), "Skipping to next subnet")
+			deleteErr := fmt.Errorf("failed to delete NSX Subnet/%s: %+v", *nsxSubnet.Id, err)
+			deleteErrs = append(deleteErrs, deleteErr)
+			log.Error(deleteErr, "Skipping to next Subnet")
 			continue
 		}
 		r.SubnetService.UnlockSubnet(nsxSubnet.Path)
 	}
-	if hitError {
-		err = errors.New("one or more errors occurred while deleting subnets, ")
+	if len(deleteErrs) > 0 {
+		err = fmt.Errorf("multiple errors occurred while deleting Subnets: %v", deleteErrs)
 		return
 	}
 	log.Info("Successfully deleted all specified NSX Subnets", "subnetCount", len(nsxSubnets))
@@ -350,7 +350,7 @@ func (r *SubnetSetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet) (hasS
 func (r *SubnetSetReconciler) deleteStaleSubnets(ctx context.Context, nsxSubnets []*model.VpcSubnet) error {
 	crdSubnetSetIDsSet, err := r.SubnetService.ListSubnetSetID(ctx)
 	if err != nil {
-		log.Error(err, "Failed to list Subnet CRs")
+		log.Error(err, "Failed to list SubnetSet CRs")
 		return err
 	}
 	nsxSubnetsToDelete := make([]*model.VpcSubnet, 0, len(nsxSubnets))

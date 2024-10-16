@@ -353,17 +353,8 @@ func (service *SubnetService) ListSubnetIDsFromNSXSubnets() sets.Set[string] {
 }
 
 // ListIndexFuncValues returns all the indexed values of the given index
-// // Index maps the indexed value to a set of keys in the store that match on that value
-// type Index map[string]sets.String
-//
-//	func (i *storeIndex) getIndexValues(indexName string) []string {
-//		index := i.indices[indexName]
-//		names := make([]string, 0, len(index))
-//		for key := range index {
-//			names = append(names, key)
-//		}
-//		return names
-//	}
+// Index maps the indexed value to a set of keys in the store that match on that value: type Index map[string]sets.String
+// see the getIndexValues function in k8s.io/client-go/tools/cache/thread_safe_store.go
 func (service *SubnetService) ListAllSubnet() []*model.VpcSubnet {
 	var allNSXSubnets []*model.VpcSubnet
 	// ListSubnetCreatedBySubnet
