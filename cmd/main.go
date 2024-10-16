@@ -52,6 +52,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	pkgutil "github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -157,6 +158,16 @@ func StartIPAddressAllocationController(mgr ctrl.Manager, ipAddressAllocationSer
 }
 
 func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
+	// Generate webhook certificates, and start refreshing webhook certificates periodically
+	if cf.CoeConfig.EnableVPCNetwork {
+		if err := pkgutil.GenerateWebhookCerts(); err != nil {
+			log.Error(err, "Failed to generate webhook certificates")
+		} else {
+			log.Info("Successfully generated webhook certificates")
+		}
+		go refreshCertPeriodically()
+	}
+
 	//  Embed the common commonService to sub-services.
 	commonService := common.Service{
 		Client:    mgr.GetClient(),
@@ -361,6 +372,23 @@ func updateLicensePeriodically(nsxClient *nsx.Client, interval time.Duration) {
 		err := nsxClient.ValidateLicense(false)
 		if err != nil {
 			os.Exit(1)
+		}
+	}
+}
+
+func refreshCertPeriodically() {
+	ticker := time.NewTicker(30 * 24 * time.Hour) // 30 days
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			log.Info("Refreshing webhook certificates...")
+			if err := pkgutil.GenerateWebhookCerts(); err != nil {
+				log.Error(err, "Failed to refresh webhook certificates")
+			} else {
+				log.Info("Successfully refreshed webhook certificates")
+			}
 		}
 	}
 }
