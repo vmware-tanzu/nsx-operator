@@ -698,13 +698,13 @@ func (s *VPCService) IsLBProviderChanged(existingVPC *model.Vpc, lbProvider LBPr
 	return false
 }
 func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPCNetworkConfigInfo, lbProvider LBProvider) (*model.Vpc, error) {
-	// check from VPC store if vpc already exist
+	// check from VPC store if VPC already exist
 	ns := obj.Namespace
 	updateVpc := false
 	nsObj := &v1.Namespace{}
-	// get name obj
+	// get Namespace
 	if err := s.Client.Get(ctx, types.NamespacedName{Name: obj.Namespace}, nsObj); err != nil {
-		log.Error(err, "unable to fetch namespace", "name", obj.Namespace)
+		log.Error(err, "unable to fetch Namespace", "Name", obj.Namespace)
 		return nil, err
 	}
 
