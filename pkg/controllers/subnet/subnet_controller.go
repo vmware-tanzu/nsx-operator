@@ -383,16 +383,16 @@ func (r *SubnetReconciler) collectGarbage(ctx context.Context) {
 
 	subnetUIDs := r.SubnetService.ListSubnetIDsFromNSXSubnets()
 	subnetIDsToDelete := subnetUIDs.Difference(crdSubnetIDsSet)
-	for subnetSetID := range subnetIDsToDelete {
-		nsxSubnets := r.SubnetService.ListSubnetCreatedBySubnet(string(subnetSetID))
+	for subnetID := range subnetIDsToDelete {
+		nsxSubnets := r.SubnetService.ListSubnetCreatedBySubnet(string(subnetID))
 		metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeSubnet)
 
 		log.Info("Subnet garbage collection, cleaning stale Subnets", "Count", len(nsxSubnets))
 		if err := r.deleteSubnets(nsxSubnets); err != nil {
-			log.Error(err, "Subnet garbage collection, failed to delete NSX subnet", "SubnetUID", subnetSetID)
+			log.Error(err, "Subnet garbage collection, failed to delete NSX subnet", "SubnetUID", subnetID)
 			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeSubnet)
 		} else {
-			log.Info("Subnet garbage collection, successfully deleted NSX subnet", "SubnetUID", subnetSetID)
+			log.Info("Subnet garbage collection, successfully deleted NSX subnet", "SubnetUID", subnetID)
 			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeSubnet)
 		}
 	}
