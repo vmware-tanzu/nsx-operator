@@ -51,6 +51,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	pkgutil "github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -297,6 +298,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	if cf.CoeConfig.EnableVPCNetwork {
+		go refreshCertPeriodically()
+	}
+
 	log.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		log.Error(err, "failed to start manager")
@@ -352,6 +357,23 @@ func updateLicensePeriodically(nsxClient *nsx.Client, interval time.Duration) {
 		err := nsxClient.ValidateLicense(false)
 		if err != nil {
 			os.Exit(1)
+		}
+	}
+}
+
+func refreshCertPeriodically() {
+	ticker := time.NewTicker(30 * 24 * time.Hour) // 30 days
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			log.Info("Refreshing webhook certificates...")
+			if err := pkgutil.GenerateWebhookCerts(); err != nil {
+				log.Error(err, "Failed to refresh webhook certificates")
+			} else {
+				log.Info("Successfully refreshed webhook certificates")
+			}
 		}
 	}
 }
