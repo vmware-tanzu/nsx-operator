@@ -25,7 +25,7 @@ var NSXOperatorSA = "system:serviceaccount:vmware-system-nsx:ncp-svc-account"
 // Create validator instead of using the existing one in controller-runtime because the existing one can't
 // inspect admission.Request in Handle function.
 
-//+kubebuilder:webhook:path=/validate-nsx-vmware-com-v1alpha1-subnetset,mutating=false,failurePolicy=fail,sideEffects=None,groups=nsx.vmware.com.nsx.vmware.com,resources=subnetsets,verbs=create;update,versions=v1alpha1,name=default.subnetset.validating.nsx.vmware.com,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-nsx-vmware-com-v1alpha1-subnetset,mutating=false,failurePolicy=fail,sideEffects=None,groups=nsx.vmware.com.nsx.vmware.com,resources=subnetsets,verbs=create;update,versions=v1alpha1,name=default.subnetset.validating.nsx.vmware.com,admissionReviewVersions=v1
 
 type SubnetSetValidator struct {
 	Client  client.Client
@@ -37,24 +37,15 @@ func defaultSubnetSetLabelChanged(oldSubnetSet, subnetSet *v1alpha1.SubnetSet) b
 	oldValue, oldExists := oldSubnetSet.ObjectMeta.Labels[common.LabelDefaultSubnetSet]
 	value, exists := subnetSet.ObjectMeta.Labels[common.LabelDefaultSubnetSet]
 	// add or remove "default-subnetset-for" label
-	if oldExists != exists {
-		return true
-	}
 	// update "default-subnetset-for" label
-	if oldValue != value {
-		return true
-	}
-	return false
+	return oldExists != exists || oldValue != value
 }
 
 func isDefaultSubnetSet(s *v1alpha1.SubnetSet) bool {
 	if _, ok := s.Labels[common.LabelDefaultSubnetSet]; ok {
 		return true
 	}
-	if s.Name == common.DefaultVMSubnetSet || s.Name == common.DefaultPodSubnetSet {
-		return true
-	}
-	return false
+	return s.Name == common.DefaultVMSubnetSet || s.Name == common.DefaultPodSubnetSet
 }
 
 // Handle handles admission requests.
@@ -73,6 +64,7 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 			return admission.Errored(http.StatusBadRequest, err)
 		}
 	}
+
 	subnetsetlog.Info("request user-info", "name", req.UserInfo.Username)
 	switch req.Operation {
 	case admissionv1.Create:
