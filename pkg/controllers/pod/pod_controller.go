@@ -111,7 +111,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 		deleteSuccess(r, ctx, pod)
 	}
-	return ctrl.Result{}, nil
+	return common.ResultNormal, nil
 }
 
 func (r *PodReconciler) GetNodeByName(nodeName string) (*model.HostTransportNode, error) {
