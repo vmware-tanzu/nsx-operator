@@ -360,13 +360,13 @@ func (service *SubnetService) ListAllSubnet() []*model.VpcSubnet {
 	// ListSubnetCreatedBySubnet
 	subnets := service.SubnetStore.ListIndexFuncValues(common.TagScopeSubnetCRUID)
 	for subnetID := range subnets {
-		nsxSubnets := service.ListSubnetCreatedBySubnet(string(subnetID))
+		nsxSubnets := service.ListSubnetCreatedBySubnet(subnetID)
 		allNSXSubnets = append(allNSXSubnets, nsxSubnets...)
 	}
 	// ListSubnetCreatedBySubnetSet
 	subnetSets := service.SubnetStore.ListIndexFuncValues(common.TagScopeSubnetSetCRUID)
 	for subnetSetID := range subnetSets {
-		nsxSubnets := service.ListSubnetCreatedBySubnetSet(string(subnetSetID))
+		nsxSubnets := service.ListSubnetCreatedBySubnetSet(subnetSetID)
 		allNSXSubnets = append(allNSXSubnets, nsxSubnets...)
 	}
 	return allNSXSubnets
