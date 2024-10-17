@@ -12,7 +12,9 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/cache"
@@ -1347,5 +1349,115 @@ func TestVPCService_DeleteVPC(t *testing.T) {
 			}
 
 		})
+	}
+}
+
+func TestListAllVPCsFromNSX(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		vpcs      []*data.StructValue
+		err       error
+		expVpcMap map[string]model.Vpc
+	}{
+		{
+			name: "Failed to list VPC from NSX",
+			err:  fmt.Errorf("connection issue"),
+		},
+		{
+			name: "success",
+			vpcs: []*data.StructValue{
+				data.NewStructValue("",
+					map[string]data.DataValue{
+						"resource_type": data.NewStringValue("Vpc"),
+						"id":            data.NewStringValue("vpc1"),
+						"path":          data.NewStringValue("/orgs/default/projects/default/vpcs/vpc1"),
+					}),
+				data.NewStructValue("",
+					map[string]data.DataValue{
+						"resource_type": data.NewStringValue("Vpc"),
+						"id":            data.NewStringValue("vpc2"),
+						"path":          data.NewStringValue("/orgs/default/projects/default/vpcs/vpc2"),
+					}),
+			},
+			expVpcMap: map[string]model.Vpc{
+				"/orgs/default/projects/default/vpcs/vpc1": {
+					Id:           common.String("vpc1"),
+					Path:         common.String("/orgs/default/projects/default/vpcs/vpc1"),
+					ResourceType: common.String("Vpc"),
+				},
+				"/orgs/default/projects/default/vpcs/vpc2": {
+					Id:           common.String("vpc2"),
+					Path:         common.String("/orgs/default/projects/default/vpcs/vpc2"),
+					ResourceType: common.String("Vpc"),
+				},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &VPCService{
+				Service: common.Service{},
+			}
+			searchResourcePatch := gomonkey.ApplyMethod(reflect.TypeOf(&s.Service), "SearchResource",
+				func(_ *common.Service, resourceTypeValue string, _ string, store common.Store, _ common.Filter) (uint64, error) {
+					for i := range tc.vpcs {
+						vpc := tc.vpcs[i]
+						store.TransResourceToStore(vpc)
+					}
+					return uint64(len(tc.vpcs)), tc.err
+				})
+			defer searchResourcePatch.Reset()
+			vpcMap := s.ListAllVPCsFromNSX()
+			require.Equal(t, len(tc.expVpcMap), len(vpcMap))
+			for k, v := range tc.expVpcMap {
+				actVpc, ok := vpcMap[k]
+				require.True(t, ok)
+				require.Equal(t, v, actVpc)
+			}
+		})
+	}
+}
+
+func TestListNamespacesWithPreCreatedVPCs(t *testing.T) {
+	svc := &VPCService{
+		VPCNetworkConfigStore: VPCNetworkInfoStore{
+			VPCNetworkConfigMap: map[string]common.VPCNetworkConfigInfo{
+				"net1": {
+					Name: "auto-vpc1",
+				},
+				"net2": {
+					Name:    "pre-vpc1",
+					VPCPath: "/orgs/default/projects/default/vpcs/vpc1",
+				},
+				"net3": {
+					Name:    "pre-vpc2",
+					VPCPath: "/orgs/default/projects/default/vpcs/vpc2",
+				},
+				"net4": {
+					Name:    "unknown-vpc",
+					VPCPath: "/orgs/default/projects/default/vpcs/vpc3",
+				},
+			},
+		},
+		VPCNSNetworkConfigStore: VPCNsNetworkConfigStore{
+			VPCNSNetworkConfigMap: map[string]string{
+				"ns1": "net1",
+				"ns2": "net2",
+				"ns3": "net3",
+				"ns4": "net3",
+			},
+		},
+	}
+	expVpcMap := map[string]string{
+		"ns2": "/orgs/default/projects/default/vpcs/vpc1",
+		"ns3": "/orgs/default/projects/default/vpcs/vpc2",
+		"ns4": "/orgs/default/projects/default/vpcs/vpc2",
+	}
+
+	nsVpcMap := svc.ListNamespacesWithPreCreatedVPCs()
+	require.Equal(t, len(expVpcMap), len(nsVpcMap))
+	for k, v := range expVpcMap {
+		vpcPath, ok := nsVpcMap[k]
+		require.True(t, ok)
+		require.Equal(t, v, vpcPath)
 	}
 }
