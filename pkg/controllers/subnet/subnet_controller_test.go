@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -29,7 +30,9 @@ import (
 )
 
 func TestSubnetReconciler_GarbageCollector(t *testing.T) {
+	subnetStore := &subnet.SubnetStore{}
 	service := &subnet.SubnetService{
+		SubnetStore: subnetStore,
 		Service: common.Service{
 			NSXConfig: &config.NSXOperatorConfig{
 				NsxConfig: &config.NsxConfig{
@@ -38,36 +41,54 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 			},
 		},
 	}
+	serviceSubnetPort := &subnetport.SubnetPortService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+				},
+			},
+		},
+	}
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	r := &SubnetReconciler{
+		Client:            k8sClient,
+		Scheme:            nil,
+		SubnetService:     service,
+		SubnetPortService: serviceSubnetPort,
+	}
+
 	// Subnet doesn't have TagScopeSubnetSetCRId (not  belong to SubnetSet)
-	// gc collect item "2345", local store has more item than k8s cache
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, uid string) []*model.VpcSubnet {
-		tags1 := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("2345")}}
-		tags2 := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("1234")}}
+	// gc collect item "fake-id1", local store has more item than k8s cache
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(&common.ResourceStore{}), "ListIndexFuncValues", func(_ *common.ResourceStore, _ string) sets.Set[string] {
+		res := sets.New[string]("fake-id1", "fake-id2")
+		return res
+	})
+	patch.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string) []*model.VpcSubnet {
+		tags1 := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-id1")}}
+		tags2 := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-id2")}}
 		var a []*model.VpcSubnet
-		id1 := "2345"
+		id1 := "fake-id1"
 		a = append(a, &model.VpcSubnet{Id: &id1, Tags: tags1})
-		id2 := "1234"
+		id2 := "fake-id2"
 		a = append(a, &model.VpcSubnet{Id: &id2, Tags: tags2})
 		return a
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+	patch.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
 		return nil
 	})
-	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
+	patch.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+		return nil
+	})
 
-	r := &SubnetReconciler{
-		Client:        k8sClient,
-		Scheme:        nil,
-		SubnetService: service,
-	}
 	ctx := context.Background()
 	srList := &v1alpha1.SubnetList{}
 	k8sClient.EXPECT().List(ctx, srList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 		a := list.(*v1alpha1.SubnetList)
 		a.Items = append(a.Items, v1alpha1.Subnet{})
 		a.Items[0].ObjectMeta = metav1.ObjectMeta{}
-		a.Items[0].UID = "1234"
+		a.Items[0].UID = "fake-id2"
 		return nil
 	})
 
@@ -75,12 +96,9 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has same item as k8s cache
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, uid string) []*model.VpcSubnet {
-		tags := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("1234")}}
-		var a []*model.VpcSubnet
-		id := "1234"
-		a = append(a, &model.VpcSubnet{Id: &id, Tags: tags})
-		return a
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(&common.ResourceStore{}), "ListIndexFuncValues", func(_ *common.ResourceStore, _ string) sets.Set[string] {
+		res := sets.New[string]("fake-id2")
+		return res
 	})
 	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
 		assert.FailNow(t, "should not be called")
@@ -90,15 +108,15 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 		a := list.(*v1alpha1.SubnetList)
 		a.Items = append(a.Items, v1alpha1.Subnet{})
 		a.Items[0].ObjectMeta = metav1.ObjectMeta{}
-		a.Items[0].UID = "1234"
+		a.Items[0].UID = "fake-id2"
 		return nil
 	})
 	r.collectGarbage(ctx)
 
 	// local store has no item
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, uid string) []*model.VpcSubnet {
-		return []*model.VpcSubnet{}
+	patch = patch.ApplyMethod(reflect.TypeOf(&common.ResourceStore{}), "ListIndexFuncValues", func(_ *common.ResourceStore, _ string) sets.Set[string] {
+		return nil
 	})
 	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
 		assert.FailNow(t, "should not be called")
