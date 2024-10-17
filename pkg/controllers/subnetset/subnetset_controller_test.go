@@ -2,6 +2,7 @@ package subnetset
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -84,79 +85,176 @@ func createFakeSubnetSetReconciler(objs []client.Object) *SubnetSetReconciler {
 	}
 }
 
-// Test Reconcile - Create SubnetSet
-func TestReconcile_CreateSubnetSet(t *testing.T) {
+func TestReconcile(t *testing.T) {
 	subnetsetName := "test-subnetset"
 	ns := "test-namespace"
-	ctx := context.TODO()
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: subnetsetName, Namespace: ns}}
 
-	subnetset := &v1alpha1.SubnetSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      subnetsetName,
-			Namespace: ns,
+	testCases := []struct {
+		name         string
+		expectRes    ctrl.Result
+		expectErrStr string
+		patches      func(r *SubnetSetReconciler) *gomonkey.Patches
+	}{
+		{
+			name:         "Create a SubnetSet with find VPCNetworkConfig error",
+			expectRes:    ResultRequeue,
+			expectErrStr: "failed to find VPCNetworkConfig for Namespace",
+			patches:      nil,
 		},
-		Spec: v1alpha1.SubnetSetSpec{},
+		{
+			// TODO: should check the SubnetSet status has error message, which contains 'ipv4SubnetSize has invalid size'
+			name:         "Create a SubnetSet with invalid IPv4SubnetSize",
+			expectRes:    ResultNormal,
+			expectErrStr: "",
+			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
+				vpcnetworkInfo := &common.VPCNetworkConfigInfo{DefaultSubnetSize: 15}
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) *common.VPCNetworkConfigInfo {
+					return vpcnetworkInfo
+				})
+				return patches
+			},
+		},
+		{
+			name:         "Create a SubnetSet with error failed to generate SubnetSet tags",
+			expectRes:    ResultRequeue,
+			expectErrStr: "failed to generate SubnetSet tags",
+			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
+				vpcnetworkInfo := &common.VPCNetworkConfigInfo{DefaultSubnetSize: 32}
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) *common.VPCNetworkConfigInfo {
+					return vpcnetworkInfo
+				})
+
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+					id1 := "fake-id"
+					path := "fake-path"
+					vpcSubnet := model.VpcSubnet{Id: &id1, Path: &path}
+					return []*model.VpcSubnet{
+						&vpcSubnet,
+					}
+				})
+				return patches
+			},
+		},
+		{
+			// return nil and not requeue when UpdateSubnetSetTags failed
+			name:         "Create a SubnetSet failed to UpdateSubnetSetTags",
+			expectRes:    ResultNormal,
+			expectErrStr: "",
+			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
+				vpcnetworkInfo := &common.VPCNetworkConfigInfo{DefaultSubnetSize: 32}
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) *common.VPCNetworkConfigInfo {
+					return vpcnetworkInfo
+				})
+
+				tags := []model.Tag{{Scope: common.String(common.TagScopeVMNamespace), Tag: common.String(ns)}}
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+					id1 := "fake-id"
+					path := "fake-path"
+					vpcSubnet := model.VpcSubnet{Id: &id1, Path: &path, Tags: tags}
+					return []*model.VpcSubnet{
+						&vpcSubnet,
+					}
+				})
+
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GenerateSubnetNSTags", func(_ *subnet.SubnetService, obj client.Object) []model.Tag {
+					return tags
+				})
+				return patches
+			},
+		},
+		{
+			name:         "Create a SubnetSet with exceed tags",
+			expectRes:    ResultNormal,
+			expectErrStr: "",
+			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
+				vpcnetworkInfo := &common.VPCNetworkConfigInfo{DefaultSubnetSize: 32}
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) *common.VPCNetworkConfigInfo {
+					return vpcnetworkInfo
+				})
+
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+					id1 := "fake-id"
+					path := "fake-path"
+					vpcSubnet := model.VpcSubnet{Id: &id1, Path: &path}
+					return []*model.VpcSubnet{
+						&vpcSubnet,
+					}
+				})
+
+				tags := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-tag")}}
+				for i := 0; i < common.TagsCountMax; i++ {
+					key := fmt.Sprintf("fake-tag-key-%d", i)
+					value := common.String(fmt.Sprintf("fake-tag-value-%d", i))
+					tags = append(tags, model.Tag{Scope: &key, Tag: value})
+				}
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GenerateSubnetNSTags", func(_ *subnet.SubnetService, obj client.Object) []model.Tag {
+					return tags
+				})
+				return patches
+			},
+		},
+		{
+			name:         "Create a SubnetSet success",
+			expectRes:    ResultNormal,
+			expectErrStr: "",
+			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
+				vpcnetworkInfo := &common.VPCNetworkConfigInfo{DefaultSubnetSize: 32}
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) *common.VPCNetworkConfigInfo {
+					return vpcnetworkInfo
+				})
+
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+					id1 := "fake-id"
+					path := "fake-path"
+					vpcSubnet := model.VpcSubnet{Id: &id1, Path: &path}
+					return []*model.VpcSubnet{
+						&vpcSubnet,
+					}
+				})
+
+				tags := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-tag")}}
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GenerateSubnetNSTags", func(_ *subnet.SubnetService, obj client.Object) []model.Tag {
+					return tags
+				})
+
+				// UpdateSubnetSetTags
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "UpdateSubnetSetTags", func(_ *subnet.SubnetService, ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag) error {
+					return nil
+				})
+				return patches
+			},
+		},
 	}
-	namespace := &v12.Namespace{
-		ObjectMeta: metav1.ObjectMeta{Name: ns, Namespace: ns},
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx := context.TODO()
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: subnetsetName, Namespace: ns}}
+
+			subnetset := &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      subnetsetName,
+					Namespace: ns,
+				},
+				Spec: v1alpha1.SubnetSetSpec{},
+			}
+			namespace := &v12.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: ns, Namespace: ns},
+			}
+
+			r := createFakeSubnetSetReconciler([]client.Object{subnetset, namespace})
+			if testCase.patches != nil {
+				patches := testCase.patches(r)
+				defer patches.Reset()
+			}
+
+			res, err := r.Reconcile(ctx, req)
+
+			if testCase.expectErrStr != "" {
+				assert.ErrorContains(t, err, testCase.expectErrStr)
+			}
+			assert.Equal(t, testCase.expectRes, res)
+		})
 	}
-
-	r := createFakeSubnetSetReconciler([]client.Object{subnetset, namespace})
-
-	res, err := r.Reconcile(ctx, req)
-
-	// failed to find VPCNetworkConfig for Namespace
-	assert.ErrorContains(t, err, "failed to find VPCNetworkConfig for Namespace")
-	assert.Equal(t, ResultRequeue, res)
-
-	// /GetVPCNetworkConfigByNamespace(ns string) *VPCNetworkConfigInfo
-	vpcnetworkInfo := &common.VPCNetworkConfigInfo{
-		IsDefault:              false,
-		Name:                   "",
-		VPCConnectivityProfile: "",
-		NSXProject:             "",
-		PrivateIPs:             nil,
-		DefaultSubnetSize:      32,
-		VPCPath:                "",
-	}
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) *common.VPCNetworkConfigInfo {
-		return vpcnetworkInfo
-	})
-	defer patches.Reset()
-
-	patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
-		id1 := "fake-id"
-		path := "fake-path"
-		vpcSubnet := model.VpcSubnet{Id: &id1, Path: &path}
-		return []*model.VpcSubnet{
-			&vpcSubnet,
-		}
-	})
-
-	tags := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-tag")}}
-	patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GenerateSubnetNSTags", func(_ *subnet.SubnetService, obj client.Object) []model.Tag {
-		return tags
-	})
-
-	// UpdateSubnetSetTags
-	patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "UpdateSubnetSetTags", func(_ *subnet.SubnetService, ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag) error {
-		return nil
-	})
-
-	res, err = r.Reconcile(ctx, req)
-	// TODO: add test case to cover failed to find VPCNetworkConfig for Namespace
-	//	assert.ErrorContains(t, err, "failed to find VPCNetworkConfig for Namespace")
-	//	assert.Equal(t, ResultRequeue, res)
-
-	assert.NoError(t, err)
-	assert.Equal(t, ctrl.Result{}, res)
-
-	subnetSetCR := &v1alpha1.SubnetSet{}
-	err = r.Client.Get(ctx, req.NamespacedName, subnetSetCR)
-	assert.NoError(t, err)
-	t.Logf("subnetSetCR: %+v", subnetSetCR)
-	// TODO: assert.Contains(t, subnetSetCR.Status.Conditions[0].Message, "")
 }
 
 // Test Reconcile - SubnetSet Deletion
