@@ -18,6 +18,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -63,10 +65,6 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 		log.Error(err, "unable to fetch Pod", "Pod", req.NamespacedName)
 		return common.ResultRequeue, err
-	}
-	if pod.Spec.HostNetwork {
-		log.Info("skipping handling hostnetwork pod", "pod", req.NamespacedName)
-		return common.ResultNormal, nil
 	}
 	if len(pod.Spec.NodeName) == 0 {
 		log.Info("pod is not scheduled on node yet, skipping", "pod", req.NamespacedName)
@@ -135,6 +133,7 @@ func (r *PodReconciler) GetNodeByName(nodeName string) (*model.HostTransportNode
 func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Pod{}).
+		WithEventFilter(PredicateFuncsPod).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
@@ -266,4 +265,35 @@ func (r *PodReconciler) deleteSubnetPortByPodName(ctx context.Context, ns string
 	}
 	log.Info("successfully deleted nsxSubnetPort for Pod", "namespace", ns, "name", name)
 	return nil
+}
+
+// PredicateFuncsPod filters out events where pod.Spec.HostNetwork is true
+var PredicateFuncsPod = predicate.Funcs{
+	UpdateFunc: func(e event.UpdateEvent) bool {
+		oldPod, okOld := e.ObjectOld.(*v1.Pod)
+		newPod, okNew := e.ObjectNew.(*v1.Pod)
+		if !okOld || !okNew {
+			return true
+		}
+
+		if oldPod.Spec.HostNetwork && newPod.Spec.HostNetwork {
+			return false
+		}
+		return true
+	},
+	CreateFunc: func(e event.CreateEvent) bool {
+		pod, ok := e.Object.(*v1.Pod)
+		if !ok {
+			return true
+		}
+
+		if pod.Spec.HostNetwork {
+			return false
+		}
+		return true
+	},
+	DeleteFunc: func(e event.DeleteEvent) bool { return true },
+	GenericFunc: func(e event.GenericEvent) bool {
+		return true
+	},
 }
