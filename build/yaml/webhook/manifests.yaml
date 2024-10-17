@@ -14,10 +14,7 @@ webhooks:
       # kubebuilder webhookpath.
       path: /validate-crd-nsx-vmware-com-v1alpha1-subnetset
   failurePolicy: Fail
-  name: default.subnetset.validating.crd.nsx.vmware.com
-  objectSelector:
-    matchExpressions:
-    - { key: nsxoperator.vmware.com/default-subnetset-for, operator: In, values: ["Pod", "VirtualMachine"] }
+  name: subnetset.validating.crd.nsx.vmware.com
   rules:
   - apiGroups:
     - crd.nsx.vmware.com
@@ -49,4 +46,23 @@ webhooks:
     - UPDATE
     resources:
     - addressbindings
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: vmware-system-nsx-operator-webhook-service
+      namespace: vmware-system-nsx
+      path: /validate-crd-nsx-vmware-com-v1alpha1-subnet
+  failurePolicy: Fail
+  name: subnet.validating.crd.nsx.vmware.com
+  rules:
+  - apiGroups:
+    - crd.nsx.vmware.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - DELETE
+    resources:
+    - subnets
   sideEffects: None
