@@ -3,12 +3,12 @@ package subnet
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,13 +17,16 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	common2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
@@ -32,101 +35,101 @@ import (
 )
 
 func TestSubnetReconciler_GarbageCollector(t *testing.T) {
-	subnetStore := &subnet.SubnetStore{}
-	service := &subnet.SubnetService{
-		SubnetStore: subnetStore,
-		Service: common.Service{
-			NSXConfig: &config.NSXOperatorConfig{
-				NsxConfig: &config.NsxConfig{
-					EnforcementPoint: "vmc-enforcementpoint",
+	testCases := []struct {
+		name             string
+		patches          func(r *SubnetReconciler) *gomonkey.Patches
+		existingSubnetCR *v1alpha1.Subnet
+	}{
+		{
+			name: "Delete stale NSX Subnets success",
+			patches: func(r *SubnetReconciler) *gomonkey.Patches {
+				patch := gomonkey.ApplyMethod(reflect.TypeOf(&common.ResourceStore{}), "ListIndexFuncValues", func(_ *common.ResourceStore, _ string) sets.Set[string] {
+					res := sets.New[string]("fake-id1", "fake-id2")
+					return res
+				})
+				patch.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string) []*model.VpcSubnet {
+					tags1 := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-id1")}}
+					tags2 := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-id2")}}
+					var nsxSubnets []*model.VpcSubnet
+					id1 := "fake-id1"
+					nsxSubnets = append(nsxSubnets, &model.VpcSubnet{Id: &id1, Tags: tags1})
+					id2 := "fake-id2"
+					nsxSubnets = append(nsxSubnets, &model.VpcSubnet{Id: &id2, Tags: tags2})
+					return nsxSubnets
+				})
+				patch.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patch.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				return patch
+			},
+		},
+		{
+			name: "Should not delete NSX Subnet when the Subnet CR existes",
+			patches: func(r *SubnetReconciler) *gomonkey.Patches {
+				// local store has same item as k8s cache
+				patch := gomonkey.ApplyMethod(reflect.TypeOf(&common.ResourceStore{}), "ListIndexFuncValues", func(_ *common.ResourceStore, _ string) sets.Set[string] {
+					res := sets.New[string]("fake-id2")
+					return res
+				})
+				patch.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					assert.FailNow(t, "should not be called")
+					return nil
+				})
+				return patch
+			},
+			existingSubnetCR: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetName",
+					Namespace: "default",
+					UID:       types.UID("fake-id2"),
 				},
 			},
 		},
-	}
-	serviceSubnetPort := &subnetport.SubnetPortService{
-		Service: common.Service{
-			NSXConfig: &config.NSXOperatorConfig{
-				NsxConfig: &config.NsxConfig{
-					EnforcementPoint: "vmc-enforcementpoint",
-				},
+		{
+			name: "Delete NSX Subnet error",
+			patches: func(r *SubnetReconciler) *gomonkey.Patches {
+				patch := gomonkey.ApplyMethod(reflect.TypeOf(&common.ResourceStore{}), "ListIndexFuncValues", func(_ *common.ResourceStore, _ string) sets.Set[string] {
+					res := sets.New[string]("fake-id1", "fake-id2")
+					return res
+				})
+				patch.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string) []*model.VpcSubnet {
+					tags1 := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-id1")}}
+					tags2 := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-id2")}}
+					var nsxSubnets []*model.VpcSubnet
+					id1 := "fake-id1"
+					nsxSubnets = append(nsxSubnets, &model.VpcSubnet{Id: &id1, Tags: tags1})
+					id2 := "fake-id2"
+					nsxSubnets = append(nsxSubnets, &model.VpcSubnet{Id: &id2, Tags: tags2})
+					return nsxSubnets
+				})
+				patch.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patch.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return errors.New("delete failed")
+				})
+				return patch
 			},
 		},
 	}
-	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
-	r := &SubnetReconciler{
-		Client:            k8sClient,
-		Scheme:            nil,
-		SubnetService:     service,
-		SubnetPortService: serviceSubnetPort,
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			objs := []client.Object{}
+			if testCase.existingSubnetCR != nil {
+				objs = append(objs, testCase.existingSubnetCR)
+			}
+			r := createFakeSubnetReconciler(objs)
+			ctx := context.Background()
+
+			patches := testCase.patches(r)
+			defer patches.Reset()
+
+			r.collectGarbage(ctx)
+		})
 	}
-
-	// Subnet doesn't have TagScopeSubnetSetCRId (not  belong to SubnetSet)
-	// gc collect item "fake-id1", local store has more item than k8s cache
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(&common.ResourceStore{}), "ListIndexFuncValues", func(_ *common.ResourceStore, _ string) sets.Set[string] {
-		res := sets.New[string]("fake-id1", "fake-id2")
-		return res
-	})
-	patch.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string) []*model.VpcSubnet {
-		tags1 := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-id1")}}
-		tags2 := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-id2")}}
-		var a []*model.VpcSubnet
-		id1 := "fake-id1"
-		a = append(a, &model.VpcSubnet{Id: &id1, Tags: tags1})
-		id2 := "fake-id2"
-		a = append(a, &model.VpcSubnet{Id: &id2, Tags: tags2})
-		return a
-	})
-	patch.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
-		return nil
-	})
-	patch.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
-		return nil
-	})
-
-	ctx := context.Background()
-	srList := &v1alpha1.SubnetList{}
-	k8sClient.EXPECT().List(ctx, srList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		a := list.(*v1alpha1.SubnetList)
-		a.Items = append(a.Items, v1alpha1.Subnet{})
-		a.Items[0].ObjectMeta = metav1.ObjectMeta{}
-		a.Items[0].UID = "fake-id2"
-		return nil
-	})
-
-	r.collectGarbage(ctx)
-
-	// local store has same item as k8s cache
-	patch.Reset()
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(&common.ResourceStore{}), "ListIndexFuncValues", func(_ *common.ResourceStore, _ string) sets.Set[string] {
-		res := sets.New[string]("fake-id2")
-		return res
-	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
-		assert.FailNow(t, "should not be called")
-		return nil
-	})
-	k8sClient.EXPECT().List(gomock.Any(), srList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		a := list.(*v1alpha1.SubnetList)
-		a.Items = append(a.Items, v1alpha1.Subnet{})
-		a.Items[0].ObjectMeta = metav1.ObjectMeta{}
-		a.Items[0].UID = "fake-id2"
-		return nil
-	})
-	r.collectGarbage(ctx)
-
-	// local store has no item
-	patch.Reset()
-	patch = patch.ApplyMethod(reflect.TypeOf(&common.ResourceStore{}), "ListIndexFuncValues", func(_ *common.ResourceStore, _ string) sets.Set[string] {
-		return nil
-	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
-		assert.FailNow(t, "should not be called")
-		return nil
-	})
-	k8sClient.EXPECT().List(ctx, srList).Return(nil).Times(1)
-	r.collectGarbage(ctx)
-	patch.Reset()
 }
 
 type fakeRecorder struct{}
@@ -187,6 +190,8 @@ func createFakeSubnetReconciler(objs []client.Object) *SubnetReconciler {
 func TestSubnetReconciler_Reconcile(t *testing.T) {
 	subnetName := "test-subnet"
 	subnetID := "fake-subnet-uid"
+	ns := "default"
+	subnetName1 := "test-subnet1"
 	createNewSubnet := func(specs ...bool) *v1alpha1.Subnet {
 		subnetCR := &v1alpha1.Subnet{
 			ObjectMeta: metav1.ObjectMeta{
@@ -228,7 +233,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 		},
 		{
 			name: "Delete Subnet CR success",
-			req:  ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "test-subnet"}},
+			req:  ctrl.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: subnetName1}},
 			patches: func(r *SubnetReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "deleteSubnetByID", func(_ *SubnetReconciler, id string) error {
 					return nil
@@ -237,8 +242,9 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					id1 := "fake-id"
 					path := "fake-path"
 					tags := []model.Tag{
-						{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-subnet-uid-2")},
-						{Scope: common.String(common.TagScopeSubnetCRName), Tag: common.String(subnetName)},
+						{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String(subnetID)},
+						{Scope: common.String(common.TagScopeSubnetCRName), Tag: common.String(subnetName1)},
+						{Scope: common.String(common.TagScopeVMNamespace), Tag: common.String(ns)},
 					}
 					vpcSubnetSkip := model.VpcSubnet{Id: &id1, Path: &path, Tags: tags}
 
@@ -246,7 +252,8 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					path2 := "fake-path-2"
 					tagStale := []model.Tag{
 						{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-subnet-uid-stale")},
-						{Scope: common.String(common.TagScopeSubnetCRName), Tag: common.String(subnetName)},
+						{Scope: common.String(common.TagScopeSubnetCRName), Tag: common.String(subnetName1)},
+						{Scope: common.String(common.TagScopeVMNamespace), Tag: common.String(ns)},
 					}
 					vpcSubnetDelete := model.VpcSubnet{Id: &id2, Path: &path2, Tags: tagStale}
 					return []*model.VpcSubnet{
@@ -261,7 +268,8 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				})
 				return patches
 			},
-			expectRes: ResultNormal,
+			expectRes:        ResultNormal,
+			existingSubnetCR: createNewSubnet(),
 		},
 		{
 			name: "Delete Subnet CR failed to delete NSX Subnet",
@@ -297,6 +305,42 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			},
 			expectRes:    ResultRequeue,
 			expectErrStr: "failed to delete NSX Subnet",
+		},
+		{
+			name: "Delete Subnet CR with stale SubnetPort",
+			req:  ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "test-subnet"}},
+			patches: func(r *SubnetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+					id1 := "fake-id"
+					path := "fake-path"
+					tags := []model.Tag{
+						{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-subnet-uid-2")},
+						{Scope: common.String(common.TagScopeSubnetCRName), Tag: common.String(subnetName)},
+					}
+					vpcSubnetSkip := model.VpcSubnet{Id: &id1, Path: &path, Tags: tags}
+
+					id2 := "fake-id-1"
+					path2 := "fake-path-2"
+					tagStale := []model.Tag{
+						{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-subnet-uid-stale")},
+						{Scope: common.String(common.TagScopeSubnetCRName), Tag: common.String(subnetName)},
+					}
+					vpcSubnetDelete := model.VpcSubnet{Id: &id2, Path: &path2, Tags: tagStale}
+					return []*model.VpcSubnet{
+						&vpcSubnetSkip, &vpcSubnetDelete,
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					id := "fake-subnetport-0"
+					return []*model.VpcSubnetPort{{Id: &id}}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				return patches
+			},
+			expectRes:    ResultRequeue,
+			expectErrStr: "cannot delete Subnet fake-id, still attached by 1 port(s)",
 		},
 		{
 			name: "Get Subnet CR return other error should retry",
@@ -398,7 +442,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			existingSubnetCR: createNewSubnet(true),
 		},
 		{
-			name: "Create or Update Subnet Failure",
+			name: "Create or Update Subnet with create NSX Subnet failure",
 			req:  ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "test-subnet"}},
 			patches: func(r *SubnetReconciler) *gomonkey.Patches {
 				vpcConfig := &common.VPCNetworkConfigInfo{DefaultSubnetSize: 16}
@@ -449,8 +493,23 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return "", nil
 				})
 
-				patches.ApplyPrivateMethod(reflect.TypeOf(r), "updateSubnetStatus", func(_ *SubnetReconciler, obj *v1alpha1.Subnet) error {
-					return nil
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByKey", func(_ *subnet.SubnetService, key string) (*model.VpcSubnet, error) {
+					id1 := "fake-id"
+					path := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9/subnets/subnet_fake-path"
+					tags := []model.Tag{
+						{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-subnet-uid-2")},
+						{Scope: common.String(common.TagScopeSubnetCRName), Tag: common.String(subnetName)},
+					}
+					return &model.VpcSubnet{Id: &id1, Path: &path, Tags: tags}, nil
+				})
+
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetStatus", func(_ *subnet.SubnetService) ([]model.VpcSubnetStatus, error) {
+					fakeStatus := model.VpcSubnetStatus{}
+					value := ""
+					fakeStatus.GatewayAddress = &value
+					fakeStatus.DhcpServerAddress = &value
+					fakeStatus.NetworkAddress = &value
+					return []model.VpcSubnetStatus{fakeStatus}, nil
 				})
 				return patches
 			},
@@ -459,6 +518,96 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				Spec:   v1alpha1.SubnetSpec{IPv4SubnetSize: 16, AccessMode: "Private", IPAddresses: []string(nil), DHCPConfig: v1alpha1.DHCPConfig{EnableDHCP: false}},
 				Status: v1alpha1.SubnetStatus{},
 			},
+		},
+		{
+			name: "Update Subnet CR with update status error",
+			req:  ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "test-subnet"}},
+			patches: func(r *SubnetReconciler) *gomonkey.Patches {
+				vpcConfig := &common.VPCNetworkConfigInfo{DefaultSubnetSize: 16}
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) *common.VPCNetworkConfigInfo {
+					return vpcConfig
+				})
+
+				tags := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-tag")}}
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GenerateSubnetNSTags", func(_ *subnet.SubnetService, obj client.Object) []model.Tag {
+					return tags
+				})
+
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "CreateOrUpdateSubnet", func(_ *subnet.SubnetService, obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (string, error) {
+					return "", nil
+				})
+
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByKey", func(_ *subnet.SubnetService, key string) (*model.VpcSubnet, error) {
+					return nil, fmt.Errorf("failed to get NSX Subnet from store")
+				})
+				return patches
+			},
+			existingSubnetCR: createNewSubnet(),
+			expectSubnetCR: &v1alpha1.Subnet{
+				Spec:   v1alpha1.SubnetSpec{IPv4SubnetSize: 16, AccessMode: "Private", IPAddresses: []string(nil), DHCPConfig: v1alpha1.DHCPConfig{EnableDHCP: false}},
+				Status: v1alpha1.SubnetStatus{},
+			},
+			expectRes:    ResultRequeue,
+			expectErrStr: "failed to get NSX Subnet from store",
+		},
+		{
+			name: "Create or Update Subnet with VPCNetworkConfig not found failure",
+			req:  ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "test-subnet"}},
+			patches: func(r *SubnetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) *common.VPCNetworkConfigInfo {
+					return nil
+				})
+				return patches
+			},
+			existingSubnetCR: createNewSubnet(),
+			expectErrStr:     "VPCNetworkConfig not found for Subnet CR",
+			expectRes:        ResultRequeue,
+		},
+		{
+			name: "Create or Update Subnet with generate Subnet tags failure",
+			req:  ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "test-subnet"}},
+			patches: func(r *SubnetReconciler) *gomonkey.Patches {
+				vpcConfig := &common.VPCNetworkConfigInfo{DefaultSubnetSize: 16}
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) *common.VPCNetworkConfigInfo {
+					return vpcConfig
+				})
+
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GenerateSubnetNSTags", func(_ *subnet.SubnetService, obj client.Object) []model.Tag {
+					return nil
+				})
+				return patches
+			},
+			existingSubnetCR: createNewSubnet(),
+			expectErrStr:     "failed to generate Subnet tags",
+			expectRes:        ResultRequeue,
+		},
+		{
+			name: "Create or Update Subnet with No VPC info found failure",
+			req:  ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "test-subnet"}},
+			patches: func(r *SubnetReconciler) *gomonkey.Patches {
+				vpcConfig := &common.VPCNetworkConfigInfo{DefaultSubnetSize: 16}
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) *common.VPCNetworkConfigInfo {
+					return vpcConfig
+				})
+
+				tags := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-tag")}}
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GenerateSubnetNSTags", func(_ *subnet.SubnetService, obj client.Object) []model.Tag {
+					return tags
+				})
+
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return nil
+				})
+				return patches
+			},
+			existingSubnetCR: createNewSubnet(),
+			expectRes:        ResultRequeueAfter10sec,
 		},
 	}
 	for _, testCase := range testCases {
@@ -486,6 +635,107 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				actualSubnetCR := &v1alpha1.Subnet{}
 				assert.NoError(t, reconciler.Client.Get(ctx, testCase.req.NamespacedName, actualSubnetCR))
 				assert.Equal(t, testCase.expectSubnetCR.Spec, actualSubnetCR.Spec)
+			}
+		})
+	}
+}
+
+type MockManager struct {
+	ctrl.Manager
+	client client.Client
+	scheme *runtime.Scheme
+}
+
+func (m *MockManager) GetClient() client.Client {
+	return m.client
+}
+
+func (m *MockManager) GetScheme() *runtime.Scheme {
+	return m.scheme
+}
+
+func (m *MockManager) GetEventRecorderFor(name string) record.EventRecorder {
+	return nil
+}
+
+func (m *MockManager) Add(runnable manager.Runnable) error {
+	return nil
+}
+
+func (m *MockManager) Start(context.Context) error {
+	return nil
+}
+
+func TestStartSubnetController(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().WithObjects().Build()
+	vpcService := &vpc.VPCService{
+		Service: common.Service{
+			Client: fakeClient,
+		},
+	}
+	subnetService := &subnet.SubnetService{
+		Service: common.Service{
+			Client: fakeClient,
+		},
+		SubnetStore: &subnet.SubnetStore{},
+	}
+	subnetPortService := &subnetport.SubnetPortService{
+		Service:         common.Service{},
+		SubnetPortStore: nil,
+	}
+
+	mockMgr := &MockManager{scheme: runtime.NewScheme()}
+
+	testCases := []struct {
+		name         string
+		expectErrStr string
+		patches      func() *gomonkey.Patches
+	}{
+		// expected no error when starting the SubnetSet controller with webhook
+		{
+			name: "StartSubnetController with webhook",
+			patches: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(common2.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context)) {
+					return
+				})
+				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(&SubnetReconciler{}), "setupWithManager", func(_ *SubnetReconciler, mgr ctrl.Manager) error {
+					return nil
+				})
+				return patches
+			},
+		},
+		{
+			name:         "StartSubnetController return error",
+			expectErrStr: "failed to setupWithManager",
+			patches: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(common2.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context)) {
+					return
+				})
+				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(&SubnetReconciler{}), "setupWithManager", func(_ *SubnetReconciler, mgr ctrl.Manager) error {
+					return errors.New("failed to setupWithManager")
+				})
+				return patches
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			patches := testCase.patches()
+			defer patches.Reset()
+
+			err := StartSubnetController(mockMgr, subnetService, subnetPortService, vpcService)
+
+			if testCase.expectErrStr != "" {
+				assert.ErrorContains(t, err, testCase.expectErrStr)
+			} else {
+				assert.NoError(t, err, "expected no error when starting the SubnetSet controller")
 			}
 		})
 	}
