@@ -63,6 +63,7 @@ type VPCService struct {
 	common.Service
 	VpcStore                *VPCStore
 	LbsStore                *LBSStore
+	VpcAttachmentStore      *VpcAttachmentStore
 	VPCNetworkConfigStore   VPCNetworkInfoStore
 	VPCNSNetworkConfigStore VPCNsNetworkConfigStore
 	defaultNetworkConfigCR  *common.VPCNetworkConfigInfo
@@ -773,7 +774,8 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPC
 		createdLBS, _ = buildNSXLBS(obj, nsObj, s.NSXConfig.Cluster, lbsSize, vpcPath, relaxScaleValidation)
 	}
 	// build HAPI request
-	orgRoot, err := s.WrapHierarchyVPC(nc.Org, nc.NSXProject, createdVpc, createdLBS)
+	createdAttachment, _ := buildVpcAttachment(obj, nsObj, s.NSXConfig.Cluster, nc.VPCConnectivityProfile)
+	orgRoot, err := s.WrapHierarchyVPC(nc.Org, nc.NSXProject, createdVpc, createdLBS, createdAttachment)
 	if err != nil {
 		log.Error(err, "failed to build HAPI request")
 		return nil, err
@@ -849,6 +851,28 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPC
 		}
 	}
 
+	// Check VpcAttachment realization
+	if createdAttachment != nil {
+		newAttachment, err := s.NSXClient.VpcAttachmentClient.Get(nc.Org, nc.NSXProject, *createdVpc.Id, *createdAttachment.Id)
+		if err != nil || newAttachment.VpcConnectivityProfile == nil {
+			log.Error(err, "failed to read Vpc attachment object after creating or updating", "VpcAttachment", createdAttachment.Id)
+			return nil, err
+		}
+		log.V(2).Info("check Vpc attachment realization state", "VpcAttachment", *createdAttachment.Id)
+		realizeService := realizestate.InitializeRealizeState(s.Service)
+		if err = realizeService.CheckRealizeState(util.NSXTLBVSDefaultRetry, *newAttachment.Path, ""); err != nil {
+			log.Error(err, "failed to check Vpc attachment realization state", "VpcAttachment", *createdAttachment.Id)
+			if realizestate.IsRealizeStateError(err) {
+				log.Error(err, "the created Vpc attachment is in error realization state, cleaning the resource", "VpcAttachment", *createdAttachment.Id)
+				// delete the nsx vpc object and re-create it in the next loop
+				if err := s.DeleteVPC(*newVpc.Path); err != nil {
+					log.Error(err, "cleanup VPC failed", "VPC", *createdVpc.Id)
+					return nil, err
+				}
+			}
+			return nil, err
+		}
+	}
 	return &newVpc, nil
 }
 

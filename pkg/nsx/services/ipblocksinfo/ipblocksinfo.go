@@ -208,36 +208,38 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha
 		return externalIPCIDRs, privateTGWIPCIDRs, fmt.Errorf("default project not found, try later")
 	}
 
-	// for all VPC path, get VPCConnectivityProfile from VPC
-	vpcStore := &VPCStore{ResourceStore: common.ResourceStore{
+	// for all VPC path, get VPCConnectivityProfile from VPC attachment
+	vpcAttachmentStore := &VpcAttachmentStore{ResourceStore: common.ResourceStore{
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
-		BindingType: model.VpcBindingType(),
+		BindingType: model.VpcAttachmentBindingType(),
 	}}
-	queryParam := fmt.Sprintf("%s:%s", common.ResourceType, common.ResourceTypeVpc)
-	count, err := s.SearchResource(common.ResourceTypeVpc, queryParam, vpcStore, nil)
+	queryParam := fmt.Sprintf("%s:%s", common.ResourceType, common.ResourceTypeVpcAttachment)
+	count, err := s.SearchResource(common.ResourceTypeVpcAttachment, queryParam, vpcAttachmentStore, nil)
 	if err != nil {
+		log.Error(err, "failed to query vpc attachment")
 		return externalIPCIDRs, privateTGWIPCIDRs, err
 	}
-	log.V(2).Info("successfully fetch all Vpc from NSX", "count", count)
+	log.V(2).Info("successfully fetch all Vpc Attachment from NSX", "count", count)
 
 	for vpcPath := range vpcs {
 		vpcResInfo, err := common.ParseVPCResourcePath(vpcPath)
 		if err != nil {
 			return externalIPCIDRs, privateTGWIPCIDRs, fmt.Errorf("invalid VPC path %s", vpcPath)
 		}
-
-		obj := vpcStore.GetByKey(vpcPath)
-		if obj == nil {
-			return externalIPCIDRs, privateTGWIPCIDRs, fmt.Errorf("failed to get VPC %s from NSX", vpcPath)
-		}
-		vpc := obj.(*model.Vpc)
-		log.V(2).Info("successfully fetch VPC", "path", vpcPath)
 		// for pre-created vpc, mark as default for those under default project
 		vpcProjectPath := fmt.Sprintf("/orgs/%s/projects/%s", vpcResInfo.OrgID, vpcResInfo.ProjectID)
+		vpcAttachmentPath := fmt.Sprintf("%s/attachments/%s", vpcPath, common.DefaultVpcAttachmentId)
+		vpcAttachment := vpcAttachmentStore.GetByKey(vpcAttachmentPath)
+		if vpcAttachment == nil {
+			log.Error(err, "failed to get vpc attachment", "vpcAttachmentPath", vpcAttachmentPath)
+			return externalIPCIDRs, privateTGWIPCIDRs, err
+		}
+		log.V(2).Info("successfully fetch VPC attachment", "path", vpcPath)
+		vpcConnectivityProfile := vpcAttachment.VpcConnectivityProfile
 		if vpcProjectPath == s.defaultProject {
-			vpcConnectivityProfileProjectMap[*vpc.VpcConnectivityProfile] = true
+			vpcConnectivityProfileProjectMap[*vpcConnectivityProfile] = true
 		} else {
-			vpcConnectivityProfileProjectMap[*vpc.VpcConnectivityProfile] = false
+			vpcConnectivityProfileProjectMap[*vpcConnectivityProfile] = false
 		}
 	}
 

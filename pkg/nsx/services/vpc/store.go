@@ -2,6 +2,7 @@ package vpc
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
@@ -144,6 +145,41 @@ func (ls *LBSStore) GetByKey(vpcID string) *model.LBService {
 	if obj != nil {
 		lbs := obj.(*model.LBService)
 		return lbs
+	}
+	return nil
+}
+
+type VpcAttachmentStore struct {
+	common.ResourceStore
+}
+
+func (vas *VpcAttachmentStore) Apply(i interface{}) error {
+	if i == nil {
+		return nil
+	}
+	attachment := i.(*model.VpcAttachment)
+	if attachment.MarkedForDelete != nil && *attachment.MarkedForDelete {
+		err := vas.Delete(attachment)
+		log.V(1).Info("delete Vpc attachment from store", "VpcAttachment", attachment)
+		if err != nil {
+			return err
+		}
+	} else {
+		err := vas.Add(attachment)
+		log.V(1).Info("add Vpc attachment to store", "VpcAttachment", attachment)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (vas *VpcAttachmentStore) GetByKey(vpcID string) *model.VpcAttachment {
+	key := fmt.Sprintf("%s_%s", vpcID, defaultVpcAttachmentName)
+	obj := vas.ResourceStore.GetByKey(key)
+	if obj != nil {
+		attachment := obj.(*model.VpcAttachment)
+		return attachment
 	}
 	return nil
 }

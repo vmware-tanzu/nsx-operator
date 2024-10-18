@@ -17,6 +17,8 @@ func keyFunc(obj interface{}) (string, error) {
 		return *v.Path, nil
 	case *model.IpAddressBlock:
 		return *v.Path, nil
+	case *model.VpcAttachment:
+		return *v.Path, nil
 	default:
 		return "", fmt.Errorf("keyFunc doesn't support unknown type %s", v)
 	}
@@ -93,6 +95,40 @@ func (vs *VPCStore) Apply(i interface{}) error {
 		if err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+type VpcAttachmentStore struct {
+	common.ResourceStore
+}
+
+func (vas *VpcAttachmentStore) Apply(i interface{}) error {
+	if i == nil {
+		return nil
+	}
+	attachment := i.(*model.VpcAttachment)
+	if attachment.MarkedForDelete != nil && *attachment.MarkedForDelete {
+		err := vas.Delete(attachment)
+		log.V(1).Info("delete Vpc attachment from store", "VpcAttachment", attachment)
+		if err != nil {
+			return err
+		}
+	} else {
+		err := vas.Add(attachment)
+		log.V(1).Info("add Vpc attachment to store", "VpcAttachment", attachment)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (vas *VpcAttachmentStore) GetByKey(path string) *model.VpcAttachment {
+	obj := vas.ResourceStore.GetByKey(path)
+	if obj != nil {
+		attachment := obj.(*model.VpcAttachment)
+		return attachment
 	}
 	return nil
 }
