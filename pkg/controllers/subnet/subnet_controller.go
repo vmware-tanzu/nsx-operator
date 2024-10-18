@@ -354,8 +354,7 @@ func (r *SubnetReconciler) setupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *SubnetReconciler) listSubnetIDsFromCRs(ctx context.Context) ([]string, error) {
-	crdSubnetList := &v1alpha1.SubnetList{}
-	err := r.Client.List(ctx, crdSubnetList)
+	crdSubnetList, err := listSubnet(r.Client, ctx)
 	if err != nil {
 		return nil, err
 	}

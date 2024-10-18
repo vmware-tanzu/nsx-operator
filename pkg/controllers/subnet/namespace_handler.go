@@ -64,9 +64,17 @@ var PredicateFuncsNs = predicate.Funcs{
 	},
 }
 
-func requeueSubnet(c client.Client, ns string, q workqueue.RateLimitingInterface) error {
+func listSubnet(c client.Client, ctx context.Context, options ...client.ListOption) (*v1alpha1.SubnetList, error) {
 	subnetList := &v1alpha1.SubnetList{}
-	err := c.List(context.Background(), subnetList, client.InNamespace(ns))
+	err := c.List(ctx, subnetList, options...)
+	if err != nil {
+		return nil, err
+	}
+	return subnetList, nil
+}
+
+func requeueSubnet(c client.Client, ns string, q workqueue.RateLimitingInterface) error {
+	subnetList, err := listSubnet(c, context.Background(), client.InNamespace(ns))
 	if err != nil {
 		log.Error(err, "Failed to list all the Subnets")
 		return err
