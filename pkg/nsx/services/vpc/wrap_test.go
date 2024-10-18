@@ -15,6 +15,7 @@ func TestVPCService_WrapHierarchyVPC(t *testing.T) {
 		nsxtProject string
 		vpc         *model.Vpc
 		lbs         *model.LBService
+		attachment  *model.VpcAttachment
 	}
 	tests := []struct {
 		name         string
@@ -30,6 +31,7 @@ func TestVPCService_WrapHierarchyVPC(t *testing.T) {
 				nsxtProject: "testproject",
 				vpc:         &model.Vpc{},
 				lbs:         &model.LBService{},
+				attachment:  &model.VpcAttachment{},
 			},
 			want:         &model.OrgRoot{ResourceType: pointy.String("OrgRoot")},
 			wantChildren: 1,
@@ -39,7 +41,7 @@ func TestVPCService_WrapHierarchyVPC(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &VPCService{}
-			got, err := s.WrapHierarchyVPC(tt.args.org, tt.args.nsxtProject, tt.args.vpc, tt.args.lbs)
+			got, err := s.WrapHierarchyVPC(tt.args.org, tt.args.nsxtProject, tt.args.vpc, tt.args.lbs, tt.args.attachment)
 			if !tt.wantErr(t, err, fmt.Sprintf("WrapHierarchyVPC(%v, %v, %v, %v)", tt.args.org, tt.args.nsxtProject, tt.args.vpc, tt.args.lbs)) {
 				return
 			}

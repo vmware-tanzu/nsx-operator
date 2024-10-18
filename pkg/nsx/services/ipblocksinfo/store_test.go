@@ -11,10 +11,11 @@ import (
 )
 
 var (
-	fakeVpcPath        = "vpc-path"
-	fakeVpcProfilePath = "vpc-connectivity-profile-path"
-	fakeIpBlockPath    = "ip-block-path"
-	fakeDeleted        = true
+	fakeVpcPath           = "vpc-path"
+	fakeVpcProfilePath    = "vpc-connectivity-profile-path"
+	fakeIpBlockPath       = "ip-block-path"
+	fakeVpcAttachmentPath = fakeVpcPath + "/attachments/defaults"
+	fakeDeleted           = true
 )
 
 func Test_KeyFunc(t *testing.T) {
@@ -104,38 +105,6 @@ func TestVPCConnectivityProfileStore_Apply(t *testing.T) {
 	}
 }
 
-func TestVPCStore_Apply(t *testing.T) {
-	vpcStore := &VPCStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
-		BindingType: model.VpcBindingType(),
-	}}
-
-	vpc1 := model.Vpc{
-		Path: &fakeVpcPath,
-	}
-	vpc2 := model.Vpc{
-		Path:            &fakeVpcPath,
-		MarkedForDelete: &fakeDeleted,
-	}
-
-	type args struct {
-		i interface{}
-	}
-	tests := []struct {
-		name string
-		args args
-	}{
-		{"Add", args{i: &vpc1}},
-		{"Delete", args{i: &vpc2}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := vpcStore.Apply(tt.args.i)
-			assert.Nil(t, err)
-		})
-	}
-}
-
 func TestIPBlockStore_Apply(t *testing.T) {
 	ipBlockStore := &IPBlockStore{ResourceStore: common.ResourceStore{
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
@@ -166,4 +135,77 @@ func TestIPBlockStore_Apply(t *testing.T) {
 			assert.Nil(t, err)
 		})
 	}
+}
+func TestVpcAttachmentStore_Apply(t *testing.T) {
+	vpcAttachmentStore := NewVpcAttachmentStore()
+
+	attachment1 := model.VpcAttachment{
+		Path:       &fakeVpcAttachmentPath,
+		ParentPath: &fakeVpcPath,
+	}
+	attachment2 := model.VpcAttachment{
+		Path:            &fakeVpcAttachmentPath,
+		ParentPath:      &fakeVpcPath,
+		MarkedForDelete: &fakeDeleted,
+	}
+
+	type args struct {
+		i interface{}
+	}
+	tests := []struct {
+		name string
+		args args
+	}{
+		{"Add", args{i: &attachment1}},
+		{"Delete", args{i: &attachment2}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := vpcAttachmentStore.Apply(tt.args.i)
+			assert.Nil(t, err)
+		})
+	}
+}
+func TestVpcAttachmentStore_GetByKey(t *testing.T) {
+	vpcAttachmentStore := NewVpcAttachmentStore()
+
+	attachment := model.VpcAttachment{
+		Path:       &fakeVpcAttachmentPath,
+		ParentPath: &fakeVpcPath,
+	}
+
+	err := vpcAttachmentStore.Apply(&attachment)
+	assert.Nil(t, err)
+
+	t.Run("GetByKey", func(t *testing.T) {
+		got := vpcAttachmentStore.GetByKey(fakeVpcAttachmentPath)
+		assert.NotNil(t, got)
+		assert.Equal(t, &attachment, got)
+	})
+}
+
+func TestVpcAttachmentStore_GetByVpcPath(t *testing.T) {
+	vpcAttachmentStore := NewVpcAttachmentStore()
+
+	attachment1 := model.VpcAttachment{
+		Path:       &fakeVpcAttachmentPath,
+		ParentPath: &fakeVpcPath,
+	}
+	attachment2 := model.VpcAttachment{
+		Path:       common.String(fakeVpcAttachmentPath + "2"),
+		ParentPath: &fakeVpcPath,
+	}
+
+	err := vpcAttachmentStore.Apply(&attachment1)
+	assert.Nil(t, err)
+	err = vpcAttachmentStore.Apply(&attachment2)
+	assert.Nil(t, err)
+
+	t.Run("GetByVpcPath", func(t *testing.T) {
+		got := vpcAttachmentStore.GetByVpcPath(fakeVpcPath)
+		assert.NotNil(t, got)
+		assert.Equal(t, 2, len(got))
+		assert.Contains(t, got, &attachment1)
+		assert.Contains(t, got, &attachment2)
+	})
 }

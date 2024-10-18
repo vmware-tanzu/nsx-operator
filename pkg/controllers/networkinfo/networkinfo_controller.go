@@ -46,6 +46,29 @@ type NetworkInfoReconciler struct {
 	Recorder            record.EventRecorder
 }
 
+func (r *NetworkInfoReconciler) GetVpcConnectivityProfilePathByVpcPath(vpcPath string) (string, error) {
+	// TODO, if needs to add a cache for it
+	VPCResourceInfo, err := commonservice.ParseVPCResourcePath(vpcPath)
+	if err != nil {
+		log.Error(err, "failed to parse VPC path", "VPC Path", vpcPath)
+		return "", err
+	}
+	// pre created VPC may have more than one attachment, list all the attachment and select the first one
+	vpcAttachmentsListResult, err := r.Service.NSXClient.VpcAttachmentClient.List(VPCResourceInfo.OrgID, VPCResourceInfo.ProjectID, VPCResourceInfo.VPCID, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		log.Error(err, "failed to list VPC attachment", "VPC Path", vpcPath)
+		return "", err
+	}
+	vpcAttachments := vpcAttachmentsListResult.Results
+	if len(vpcAttachments) > 0 {
+		log.V(1).Info("found VPC attachment", "VPC Path", vpcPath, "VPC connectivity profile", vpcAttachments[0].VpcConnectivityProfile)
+		return *vpcAttachments[0].VpcConnectivityProfile, nil
+	} else {
+		err := fmt.Errorf("no VPC attachment found")
+		log.Error(err, "list VPC attachment", "VPC Path", vpcPath)
+		return "", err
+	}
+}
 func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	startTime := time.Now()
 	defer func() {
@@ -133,17 +156,24 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	var privateIPs []string
-	var vpcConnectivityProfilePath, nsxLBSPath string
+	var vpcConnectivityProfilePath string
+	var nsxLBSPath string
 	isPreCreatedVPC := vpc.IsPreCreatedVPC(nc)
 	if isPreCreatedVPC {
 		privateIPs = createdVpc.PrivateIps
-		vpcConnectivityProfilePath = *createdVpc.VpcConnectivityProfile
+		vpcPath := *createdVpc.Path
+		vpcConnectivityProfilePath, err = r.GetVpcConnectivityProfilePathByVpcPath(vpcPath)
+		if err != nil {
+			log.Error(err, "failed to get VPC connectivity profile path", "path", vpcPath)
+			updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
+			return common.ResultRequeueAfter10sec, err
+		}
 		// Retrieve NSX lbs path if Avi is not used with the pre-created VPC.
 		if createdVpc.LoadBalancerVpcEndpoint == nil || createdVpc.LoadBalancerVpcEndpoint.Enabled == nil ||
 			!*createdVpc.LoadBalancerVpcEndpoint.Enabled {
-			nsxLBSPath, err = r.Service.GetLBSsFromNSXByVPC(*createdVpc.Path)
+			nsxLBSPath, err = r.Service.GetLBSsFromNSXByVPC(vpcPath)
 			if err != nil {
-				log.Error(err, "Failed to get NSX LBS path with pre-created VPC", "VPC", createdVpc.Path)
+				log.Error(err, "failed to get NSX LBS path with pre-created VPC", "VPC", createdVpc.Path)
 				updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
 				return common.ResultRequeueAfter10sec, err
 			}

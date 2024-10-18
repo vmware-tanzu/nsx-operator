@@ -1,3 +1,11 @@
+github.com/TaoZou1/vsphere-automation-sdk-go/lib v0.0.0-20241014012640-c5c5c9408962 h1:+nbR8Qgl96Ba0/gMnCGQasrUb7F7XRj+OxdfLyl8r7w=
+github.com/TaoZou1/vsphere-automation-sdk-go/lib v0.0.0-20241014012640-c5c5c9408962/go.mod h1:ADkX8BkdnvT1Kc9ZfqHaV4qzaaD+9L8Ok2+pxK4xoD8=
+github.com/TaoZou1/vsphere-automation-sdk-go/runtime v0.0.0-20241014012640-c5c5c9408962 h1:WjS+j/Y6wWU74RKx6c0IBTNZ3g3fah5X8z/c4KXA2us=
+github.com/TaoZou1/vsphere-automation-sdk-go/runtime v0.0.0-20241014012640-c5c5c9408962/go.mod h1:DzLetYAmw1+vj7bqElRWEpuy40WYE/woL3alsymYa/c=
+github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt v0.0.0-20241014012640-c5c5c9408962 h1:b5AQfl/tH4rr0OCg/hD9ARka5vJwvC2l26zAQ4dGXMA=
+github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt v0.0.0-20241014012640-c5c5c9408962/go.mod h1:NSjO9WqelbsTEDb3pVxpYYz4zjgX0XPp43dKNT4Y+9k=
+github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt-mp v0.0.0-20241014012640-c5c5c9408962 h1:KIFv8/EpZd9DJPBeLcUjPfDNoF2EU72nJ7GbHei1XGg=
+github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt-mp v0.0.0-20241014012640-c5c5c9408962/go.mod h1:ugk9I4YM62SSAox57l5NAVBCRIkPQ1RNLb3URxyTADc=
 github.com/a8m/tree v0.0.0-20210115125333-10a5fd5b637d/go.mod h1:FSdwKX97koS5efgm8WevNf7XS3PqtyFkKDDXrz778cg=
 github.com/agiledragon/gomonkey v2.0.2+incompatible h1:eXKi9/piiC3cjJD1658mEE2o3NjkJ5vDLgYjCQu0Xlw=
 github.com/agiledragon/gomonkey v2.0.2+incompatible/go.mod h1:2NGfXu1a80LLr2cmWXGBDaHEjb1idR6+FVlX5T3D9hw=
@@ -143,14 +151,6 @@ github.com/vmware-tanzu/vm-operator/api v1.8.2/go.mod h1:vauVboD3sQxP+pb28TnI9wf
 github.com/vmware/govmomi v0.27.4 h1:5kY8TAkhB20lsjzrjE073eRb8+HixBI29PVMG5lxq6I=
 github.com/vmware/govmomi v0.27.4/go.mod h1:daTuJEcQosNMXYJOeku0qdBJP9SOLLWB3Mqz8THtv6o=
 github.com/vmware/vmw-guestinfo v0.0.0-20170707015358-25eff159a728/go.mod h1:x9oS4Wk2s2u4tS29nEaDLdzvuHdB19CvSGJjPgkZJNk=
-github.com/yanjunz97/vsphere-automation-sdk-go/lib v0.0.0-20240823072631-de1833ffcf2a h1:nF3PigKL+lN4ECHkgVJIZgLbpLrV6U6wkKHnIHOU9kA=
-github.com/yanjunz97/vsphere-automation-sdk-go/lib v0.0.0-20240823072631-de1833ffcf2a/go.mod h1:ysW7/EqFugBY2TcbvlDeRGaYIoG7Cs0i4l4WsMI/RmQ=
-github.com/yanjunz97/vsphere-automation-sdk-go/runtime v0.0.0-20240823072631-de1833ffcf2a h1:b08LCEgSR6GSsvQzx2fxVbEXSKRnaGcMUqKjlgwR6xM=
-github.com/yanjunz97/vsphere-automation-sdk-go/runtime v0.0.0-20240823072631-de1833ffcf2a/go.mod h1:DzLetYAmw1+vj7bqElRWEpuy40WYE/woL3alsymYa/c=
-github.com/yanjunz97/vsphere-automation-sdk-go/services/nsxt v0.0.0-20240823072631-de1833ffcf2a h1:XEgprSLuSKIxr7OPEzBWrlo39ra7pDaWFwAIjK0VV7s=
-github.com/yanjunz97/vsphere-automation-sdk-go/services/nsxt v0.0.0-20240823072631-de1833ffcf2a/go.mod h1:aJtyfDKvGyuP1ieRHCLoYjo2XtNZ401XfS7lCd43Bqs=
-github.com/yanjunz97/vsphere-automation-sdk-go/services/nsxt-mp v0.0.0-20240823072631-de1833ffcf2a h1:4FmesihC1B7udmKl7B2giLydxibViMdyldSforV5qbU=
-github.com/yanjunz97/vsphere-automation-sdk-go/services/nsxt-mp v0.0.0-20240823072631-de1833ffcf2a/go.mod h1:FX8UiCgNEOxweA73VZsyKZvMLPFfc70GBc1d4dj0nXI=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.3.5/go.mod h1:mwnBkeHKe2W/ZEtQ+71ViKU8L12m81fl3OWwC1Zlc8k=

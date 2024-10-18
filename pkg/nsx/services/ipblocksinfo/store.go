@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
@@ -16,6 +17,8 @@ func keyFunc(obj interface{}) (string, error) {
 	case *model.Vpc:
 		return *v.Path, nil
 	case *model.IpAddressBlock:
+		return *v.Path, nil
+	case *model.VpcAttachment:
 		return *v.Path, nil
 	default:
 		return "", fmt.Errorf("keyFunc doesn't support unknown type %s", v)
@@ -72,27 +75,55 @@ func (is *IPBlockStore) Apply(i interface{}) error {
 	return nil
 }
 
-type VPCStore struct {
+type VpcAttachmentStore struct {
 	common.ResourceStore
 }
 
-func (vs *VPCStore) Apply(i interface{}) error {
+func NewVpcAttachmentStore() *VpcAttachmentStore {
+	return &VpcAttachmentStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.VpcAttachmentBindingType(),
+	}}
+}
+
+func (vas *VpcAttachmentStore) Apply(i interface{}) error {
 	if i == nil {
 		return nil
 	}
-	vpc := i.(*model.Vpc)
-	if vpc.MarkedForDelete != nil && *vpc.MarkedForDelete {
-		err := vs.Delete(vpc)
-		log.V(1).Info("delete VPC from store", "VPC", vpc)
+	attachment := i.(*model.VpcAttachment)
+	if attachment.MarkedForDelete != nil && *attachment.MarkedForDelete {
+		err := vas.Delete(attachment)
+		log.V(1).Info("delete VPC attachment from store", "VpcAttachment", attachment)
 		if err != nil {
 			return err
 		}
 	} else {
-		err := vs.Add(vpc)
-		log.V(1).Info("add VPC to store", "VPC", vpc)
+		err := vas.Add(attachment)
+		log.V(1).Info("add VPC attachment to store", "VpcAttachment", attachment)
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (vas *VpcAttachmentStore) GetByKey(path string) *model.VpcAttachment {
+	obj := vas.ResourceStore.GetByKey(path)
+	if obj != nil {
+		attachment := obj.(*model.VpcAttachment)
+		return attachment
+	}
+	return nil
+}
+
+func (vas *VpcAttachmentStore) GetByVpcPath(vpcPath string) []*model.VpcAttachment {
+	result := []*model.VpcAttachment{}
+	attachments := vas.ResourceStore.List()
+	for _, item := range attachments {
+		attachment := item.(*model.VpcAttachment)
+		if attachment != nil && *attachment.ParentPath == vpcPath {
+			result = append(result, attachment)
+		}
+	}
+	return result
 }
