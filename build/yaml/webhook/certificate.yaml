@@ -31,8 +31,8 @@ metadata:
 spec:
   # $(SERVICE_NAME) and $(SERVICE_NAMESPACE) will be substituted by kustomize
   dnsNames:
-    - subnetset.vmware-system-nsx.svc
-    - subnetset.vmware-system-nsx.svc.cluster.local
+    - vmware-system-nsx-operator-webhook-service.vmware-system-nsx.svc
+    - vmware-system-nsx-operator-webhook-service.vmware-system-nsx.svc.cluster.local
   issuerRef:
     kind: Issuer
     name: selfsigned-issuer

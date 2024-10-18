@@ -18,6 +18,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -213,18 +214,26 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		if err := subnet.StartSubnetController(mgr, subnetService, subnetPortService, vpcService); err != nil {
 			os.Exit(1)
 		}
-		enableWebhook := true
+		var hookServer webhook.Server
 		if _, err := os.Stat(config.WebhookCertDir); errors.Is(err, os.ErrNotExist) {
 			log.Error(err, "server cert not found, disabling webhook server", "cert", config.WebhookCertDir)
-			enableWebhook = false
+		} else {
+			hookServer = webhook.NewServer(webhook.Options{
+				Port:    config.WebhookServerPort,
+				CertDir: config.WebhookCertDir,
+			})
+			if err := mgr.Add(hookServer); err != nil {
+				log.Error(err, "failed to add hook server")
+				os.Exit(1)
+			}
 		}
-		if err := subnetset.StartSubnetSetController(mgr, subnetService, subnetPortService, vpcService, enableWebhook); err != nil {
+		if err := subnetset.StartSubnetSetController(mgr, subnetService, subnetPortService, vpcService, hookServer); err != nil {
 			os.Exit(1)
 		}
 
 		node.StartNodeController(mgr, nodeService)
 		staticroutecontroller.StartStaticRouteController(mgr, staticRouteService)
-		subnetport.StartSubnetPortController(mgr, subnetPortService, subnetService, vpcService)
+		subnetport.StartSubnetPortController(mgr, subnetPortService, subnetService, vpcService, hookServer)
 		pod.StartPodController(mgr, subnetPortService, subnetService, vpcService, nodeService)
 		StartIPAddressAllocationController(mgr, ipAddressAllocationService, vpcService)
 		networkpolicycontroller.StartNetworkPolicyController(mgr, commonService, vpcService)
