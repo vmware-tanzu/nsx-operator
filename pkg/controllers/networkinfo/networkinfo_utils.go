@@ -190,7 +190,7 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 	return nil
 }
 
-func getGatewayConnectionStatus(ctx context.Context, nc *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
+func getGatewayConnectionStatus(ctx context.Context, nc *v1alpha1.VPCNetworkConfiguration) (bool, string) {
 	gatewayConnectionReady := false
 	reason := ""
 	for _, condition := range nc.Status.Conditions {
@@ -203,7 +203,7 @@ func getGatewayConnectionStatus(ctx context.Context, nc *v1alpha1.VPCNetworkConf
 			break
 		}
 	}
-	return gatewayConnectionReady, reason, nil
+	return gatewayConnectionReady, reason
 }
 
 func deleteVPCNetworkConfigurationStatus(ctx context.Context, client client.Client, ncName string, staleVPCs []*model.Vpc, aliveVPCs []model.Vpc) {
@@ -245,4 +245,61 @@ func filterTagFromNSXVPC(nsxVPC *model.Vpc, tagName string) string {
 		}
 	}
 	return ""
+}
+
+func setNSNetworkReadyCondition(ctx context.Context, client client.Client, nsName string, condition *v1.NamespaceCondition) {
+	obj := &v1.Namespace{}
+	if err := client.Get(ctx, apitypes.NamespacedName{Name: nsName}, obj); err != nil {
+		log.Error(err, "unable to fetch namespace", "Namespace", nsName)
+		return
+	}
+
+	updatedConditions := make([]v1.NamespaceCondition, 0)
+	existingConditions := obj.Status.Conditions
+	var extCondition *v1.NamespaceCondition
+	for i := range existingConditions {
+		cond := obj.Status.Conditions[i]
+		if cond.Type == NamespaceNetworkReady {
+			extCondition = &cond
+		} else {
+			updatedConditions = append(updatedConditions, cond)
+		}
+	}
+	// Return if the failure (reason/message) is already added on Namespace condition.
+	if extCondition != nil && nsConditionEquals(*extCondition, *condition) {
+		return
+	}
+
+	updatedConditions = append(updatedConditions, v1.NamespaceCondition{
+		Type:               condition.Type,
+		Status:             condition.Status,
+		Reason:             condition.Reason,
+		Message:            condition.Message,
+		LastTransitionTime: metav1.Now(),
+	})
+	obj.Status.Conditions = updatedConditions
+	if err := client.Update(ctx, obj); err != nil {
+		log.Error(err, "update Namespace status failed", "Namespace", nsName)
+		return
+	}
+	log.Info("Updated Namespace network condition", "Namespace", nsName, "status", condition.Status, "reason", condition.Reason, "Message", condition.Message)
+}
+
+// nsConditionEquals compares the old and new Namespace condition. The compare ignores the differences in field
+// "LastTransitionTime". It returns true all other fields in the two Conditions are the same, otherwise, it returns
+// false. Ignoring the difference on LastTransitionTime may reduce the number of the Namespace update events.
+func nsConditionEquals(old, new v1.NamespaceCondition) bool {
+	if old.Type != new.Type {
+		return false
+	}
+	if old.Status != new.Status {
+		return false
+	}
+	if old.Reason != new.Reason {
+		return false
+	}
+	if old.Message != new.Message {
+		return false
+	}
+	return true
 }
