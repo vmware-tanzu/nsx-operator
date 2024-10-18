@@ -24,44 +24,40 @@ import (
 func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
 	ruleIdx int, createdFor string,
 ) ([]*model.Group, []*model.Rule, error) {
-	var nsxRules []*model.Rule
-	var nsxGroups []*model.Group
-
 	if len(rule.Ports) == 0 {
-		nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, 0, 0, false, -1, createdFor)
+		nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, createdFor, nil)
 		if err != nil {
 			return nil, nil, err
 		}
-		nsxRules = append(nsxRules, nsxRule)
-		return nsxGroups, nsxRules, nil
+		return nil, []*model.Rule{nsxRule}, nil
 	}
 
 	// Check if there is a namedport in the rule
 	hasNamedPort := service.hasNamedPort(rule)
 	if !hasNamedPort {
-		nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, 0, 0, false, -1, createdFor)
+		nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, createdFor, nil)
 		if err != nil {
 			return nil, nil, err
 		}
 		var ruleServiceEntries []*data.StructValue
 		for _, port := range rule.Ports {
-			portAddress := nsxutil.PortAddress{Port: port.Port.IntValue()}
-			serviceEntry := service.buildRuleServiceEntries(port, portAddress)
+			serviceEntry := buildRuleServiceEntries(port)
 			ruleServiceEntries = append(ruleServiceEntries, serviceEntry)
 		}
 		nsxRule.ServiceEntries = ruleServiceEntries
-		nsxRules = append(nsxRules, nsxRule)
+		return nil, []*model.Rule{nsxRule}, nil
 	}
 
-	if hasNamedPort {
-		for portIdx, port := range rule.Ports {
-			nsxGroups2, nsxRules2, err := service.expandRuleByPort(obj, rule, ruleIdx, port, portIdx, createdFor)
-			if err != nil {
-				return nil, nil, err
-			}
-			nsxGroups = append(nsxGroups, nsxGroups2...)
-			nsxRules = append(nsxRules, nsxRules2...)
+	var nsxRules []*model.Rule
+	// nsxGroups is a slice for the IPSet groups referred by a security Rule if named port is configured.
+	var nsxGroups []*model.Group
+	for portIdx, port := range rule.Ports {
+		nsxGroups2, nsxRules2, err := service.expandRuleByPort(obj, rule, ruleIdx, port, portIdx, createdFor)
+		if err != nil {
+			return nil, nil, err
 		}
+		nsxGroups = append(nsxGroups, nsxGroups2...)
+		nsxRules = append(nsxRules, nsxRules2...)
 	}
 
 	return nsxGroups, nsxRules, nil
@@ -70,21 +66,20 @@ func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, r
 func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
 	ruleIdx int, port v1alpha1.SecurityPolicyPort, portIdx int, createdFor string,
 ) ([]*model.Group, []*model.Rule, error) {
-	var err error
-	var startPort []nsxutil.PortAddress
-	var nsxGroups []*model.Group
-	var nsxRules []*model.Rule
+	var portInfos []*portInfo
 
 	// Use PortAddress to handle normal port and named port, if it only contains int value Port,
 	// then it is a normal port. If it contains a list of IPs, it is a named port.
 	if port.Port.Type == intstr.Int {
-		startPort = append(startPort, nsxutil.PortAddress{Port: port.Port.IntValue()})
+		portInfo := newPortInfo(port)
+		portInfo.idSuffix = fmt.Sprintf("%d%s0", portIdx, common.ConnectorUnderline)
+		portInfos = append(portInfos, portInfo)
 	} else {
 		// endPort can only be defined if port is also defined. Both ports must be numeric.
 		if port.EndPort != 0 {
 			return nil, nil, nsxutil.RestrictionError{Desc: "endPort can only be defined if port is also numeric."}
 		}
-		startPort, err = service.resolveNamedPort(obj, rule, port)
+		startPort, err := service.resolveNamedPort(obj, rule, port)
 		if err != nil {
 			// In case there is no more valid ip set selected, so clear the stale ip set group in NSX if stale ips exist
 			if errors.As(err, &nsxutil.NoEffectiveOption{}) {
@@ -103,10 +98,18 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 			}
 			return nil, nil, err
 		}
+
+		for addrIdx, portAddr := range startPort {
+			portInfo := newPortInfoForNamedPort(portAddr, port.Protocol)
+			portInfo.idSuffix = fmt.Sprintf("%d%s%d", portIdx, common.ConnectorUnderline, addrIdx)
+			portInfos = append(portInfos, portInfo)
+		}
 	}
 
-	for portAddressIdx, portAddress := range startPort {
-		gs, r, err := service.expandRuleByService(obj, rule, ruleIdx, port, portIdx, portAddress, portAddressIdx, createdFor)
+	var nsxGroups []*model.Group
+	var nsxRules []*model.Rule
+	for _, portInfo := range portInfos {
+		gs, r, err := service.expandRuleByService(obj, rule, ruleIdx, createdFor, portInfo)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -117,23 +120,23 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 }
 
 func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int,
-	port v1alpha1.SecurityPolicyPort, portIdx int, portAddress nsxutil.PortAddress, portAddressIdx int, createdFor string,
+	createdFor string, namedPort *portInfo,
 ) ([]*model.Group, *model.Rule, error) {
 	var nsxGroups []*model.Group
 
-	nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, portIdx, portAddressIdx, true, portAddress.Port, createdFor)
+	nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, createdFor, namedPort)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	var ruleServiceEntries []*data.StructValue
-	serviceEntry := service.buildRuleServiceEntries(port, portAddress)
+	serviceEntry := buildRuleServiceEntries(namedPort.port)
 	ruleServiceEntries = append(ruleServiceEntries, serviceEntry)
 	nsxRule.ServiceEntries = ruleServiceEntries
 
 	// If portAddress contains a list of IPs, we should build an ip set group for the rule.
-	if len(portAddress.IPs) > 0 {
-		ruleIPSetGroup := service.buildRuleIPSetGroup(obj, rule, nsxRule, portAddress.IPs, ruleIdx, createdFor)
+	if len(namedPort.ips) > 0 {
+		ruleIPSetGroup := service.buildRuleIPSetGroup(obj, rule, nsxRule, namedPort.ips, ruleIdx, createdFor)
 
 		// In VPC network, NSGroup with IPAddressExpression type can be supported in VPC level as well.
 		IPSetGroupPath, err := service.buildRuleIPSetGroupPath(obj, nsxRule)
