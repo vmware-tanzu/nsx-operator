@@ -39,6 +39,7 @@ var (
 	vpcConnectivityProfilePath1 = "/orgs/default/projects/default/vpc-connectivity-profiles/vpc-connectivity-profile-1"
 	vpcConnectivityProfilePath2 = "/orgs/default/projects/default/vpc-connectivity-profiles/vpc-connectivity-profile-2"
 	vpcPath                     = "/orgs/default/projects/default/vpcs/vpc-1"
+	vpcAttachmentPath           = vpcPath + "/attachments/default"
 	projectPath                 = "/orgs/default/projects/default"
 )
 
@@ -58,12 +59,13 @@ func createService(t *testing.T) (*IPBlocksInfoService, *gomock.Controller, *moc
 func fakeSearchResource(_ *common.Service, resourceTypeValue string, _ string, store common.Store, _ common.Filter) (uint64, error) {
 	var count uint64
 	switch resourceTypeValue {
-	case common.ResourceTypeVpc:
-		vpc := &model.Vpc{
-			Path:                   &vpcPath,
+	case common.ResourceTypeVpcAttachment:
+		vpcAttachment := &model.VpcAttachment{
+			ParentPath:             &vpcPath,
+			Path:                   &vpcAttachmentPath,
 			VpcConnectivityProfile: &vpcConnectivityProfilePath2,
 		}
-		store.Apply(vpc)
+		store.Apply(vpcAttachment)
 		count = 1
 	case common.ResourceTypeVpcConnectivityProfile:
 		vpcConnectivityProfile1 := &model.VpcConnectivityProfile{

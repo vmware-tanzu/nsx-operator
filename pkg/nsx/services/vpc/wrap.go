@@ -5,14 +5,22 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 )
 
-func (s *VPCService) WrapHierarchyVPC(org, nsxtProject string, vpc *model.Vpc, lbs *model.LBService) (*model.OrgRoot, error) {
+func (s *VPCService) WrapHierarchyVPC(org, nsxtProject string, vpc *model.Vpc, lbs *model.LBService, attachment *model.VpcAttachment) (*model.OrgRoot, error) {
+	var vpcChildren []*data.StructValue
 	if lbs != nil {
-		var vpcChildren []*data.StructValue
 		childrenLBS, err := s.WrapLBS(lbs)
 		if err != nil {
 			return nil, err
 		}
 		vpcChildren = append(vpcChildren, childrenLBS...)
+		vpc.Children = vpcChildren
+	}
+	if attachment != nil {
+		childrenAttachment, err := s.WrapAttachment(attachment)
+		if err != nil {
+			return nil, err
+		}
+		vpcChildren = append(vpcChildren, childrenAttachment...)
 		vpc.Children = vpcChildren
 	}
 	var projectChildren []*data.StructValue

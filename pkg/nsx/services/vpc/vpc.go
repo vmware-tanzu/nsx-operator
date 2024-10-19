@@ -441,6 +441,7 @@ func (s *VPCService) DeleteLBMonitorProfile(id string) error {
 	log.Info("successfully deleted NCP created lbMonitorProfile", "lbMonitorProfile", id)
 	return nil
 }
+
 func (s *VPCService) ListLBVirtualServer() []model.LBVirtualServer {
 	store := &ResourceStore{ResourceStore: common.ResourceStore{
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
@@ -519,6 +520,7 @@ func (s *VPCService) DeleteLBPool(path string) error {
 	log.Info("successfully deleted NCP created lbPool", "lbPool", path)
 	return nil
 }
+
 func (s *VPCService) IsSharedVPCNamespaceByNS(ns string) (bool, error) {
 	shared_ns, err := s.getSharedVPCNamespaceFromNS(ns)
 	if err != nil {
@@ -623,7 +625,6 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	subnetsClient := s.NSXClient.SubnetsClient
 	statusClient := s.NSXClient.SubnetStatusClient
 	info, err := common.ParseVPCResourcePath(*vpc.Path)
-
 	if err != nil {
 		return "", "", err
 	}
@@ -697,6 +698,7 @@ func (s *VPCService) IsLBProviderChanged(existingVPC *model.Vpc, lbProvider LBPr
 	}
 	return false
 }
+
 func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPCNetworkConfigInfo, lbProvider LBProvider) (*model.Vpc, error) {
 	// check from VPC store if VPC already exist
 	ns := obj.Namespace
@@ -773,7 +775,8 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPC
 		createdLBS, _ = buildNSXLBS(obj, nsObj, s.NSXConfig.Cluster, lbsSize, vpcPath, relaxScaleValidation)
 	}
 	// build HAPI request
-	orgRoot, err := s.WrapHierarchyVPC(nc.Org, nc.NSXProject, createdVpc, createdLBS)
+	createdAttachment, _ := buildVpcAttachment(obj, nsObj, s.NSXConfig.Cluster, nc.VPCConnectivityProfile)
+	orgRoot, err := s.WrapHierarchyVPC(nc.Org, nc.NSXProject, createdVpc, createdLBS, createdAttachment)
 	if err != nil {
 		log.Error(err, "failed to build HAPI request")
 		return nil, err
@@ -849,6 +852,28 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPC
 		}
 	}
 
+	// Check VpcAttachment realization
+	if createdAttachment != nil {
+		newAttachment, err := s.NSXClient.VpcAttachmentClient.Get(nc.Org, nc.NSXProject, *createdVpc.Id, *createdAttachment.Id)
+		if err != nil || newAttachment.VpcConnectivityProfile == nil {
+			log.Error(err, "failed to read VPC attachment object after creating or updating", "VpcAttachment", createdAttachment.Id)
+			return nil, err
+		}
+		log.V(2).Info("check VPC attachment realization state", "VpcAttachment", *createdAttachment.Id)
+		realizeService := realizestate.InitializeRealizeState(s.Service)
+		if err = realizeService.CheckRealizeState(util.NSXTLBVSDefaultRetry, *newAttachment.Path, ""); err != nil {
+			log.Error(err, "failed to check VPC attachment realization state", "VpcAttachment", *createdAttachment.Id)
+			if realizestate.IsRealizeStateError(err) {
+				log.Error(err, "the created VPC attachment is in error realization state, cleaning the resource", "VpcAttachment", *createdAttachment.Id)
+				// delete the nsx vpc object and re-create it in the next loop
+				if err := s.DeleteVPC(*newVpc.Path); err != nil {
+					log.Error(err, "cleanup VPC failed", "VPC", *createdVpc.Id)
+					return nil, err
+				}
+			}
+			return nil, err
+		}
+	}
 	return &newVpc, nil
 }
 
