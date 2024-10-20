@@ -12,15 +12,15 @@ webhooks:
       name: subnetset
       namespace: vmware-system-nsx
       # kubebuilder webhookpath.
-      path: /validate-nsx-vmware-com-v1alpha1-subnetset
+      path: /validate-crd-nsx-vmware-com-v1alpha1-subnetset
   failurePolicy: Fail
-  name: default.subnetset.validating.nsx.vmware.com
+  name: default.subnetset.validating.crd.nsx.vmware.com
   objectSelector:
     matchExpressions:
     - { key: nsxoperator.vmware.com/default-subnetset-for, operator: In, values: ["Pod", "VirtualMachine"] }
   rules:
   - apiGroups:
-    - nsx.vmware.com
+    - crd.nsx.vmware.com
     apiVersions:
     - v1alpha1
     operations:

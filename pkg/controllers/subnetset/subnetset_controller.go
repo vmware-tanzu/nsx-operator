@@ -404,7 +404,7 @@ func (r *SubnetSetReconciler) Start(mgr ctrl.Manager, enableWebhook bool) error 
 		if err := mgr.Add(hookServer); err != nil {
 			return err
 		}
-		hookServer.Register("/validate-nsx-vmware-com-v1alpha1-subnetset",
+		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-subnetset",
 			&webhook.Admission{
 				Handler: &SubnetSetValidator{
 					Client:  mgr.GetClient(),
