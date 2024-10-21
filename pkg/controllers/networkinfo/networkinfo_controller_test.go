@@ -721,10 +721,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, _ *v1alpha1.NetworkInfo, _ *servicecommon.VPCNetworkConfigInfo, _ vpc.LBProvider) (*model.Vpc, error) {
 					return &model.Vpc{
-						DisplayName:            servicecommon.String("vpc-name"),
-						Path:                   servicecommon.String("/orgs/default/projects/project-quality/vpcs/fake-vpc"),
-						Id:                     servicecommon.String("vpc-id"),
-						VpcConnectivityProfile: servicecommon.String("/orgs/default/projects/nsx_operator_e2e_test/vpc-connectivity-profiles/default"),
+						DisplayName: servicecommon.String("vpc-name"),
+						Path:        servicecommon.String("/orgs/default/projects/project-quality/vpcs/fake-vpc"),
+						Id:          servicecommon.String("vpc-id"),
 					}, nil
 				})
 
