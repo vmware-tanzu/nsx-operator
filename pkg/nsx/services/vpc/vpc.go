@@ -441,6 +441,7 @@ func (s *VPCService) DeleteLBMonitorProfile(id string) error {
 	log.Info("successfully deleted NCP created lbMonitorProfile", "lbMonitorProfile", id)
 	return nil
 }
+
 func (s *VPCService) ListLBVirtualServer() []model.LBVirtualServer {
 	store := &ResourceStore{ResourceStore: common.ResourceStore{
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
@@ -519,6 +520,7 @@ func (s *VPCService) DeleteLBPool(path string) error {
 	log.Info("successfully deleted NCP created lbPool", "lbPool", path)
 	return nil
 }
+
 func (s *VPCService) IsSharedVPCNamespaceByNS(ns string) (bool, error) {
 	shared_ns, err := s.getSharedVPCNamespaceFromNS(ns)
 	if err != nil {
