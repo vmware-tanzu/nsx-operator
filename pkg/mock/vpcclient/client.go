@@ -35,7 +35,7 @@ func (m *MockVpcsClient) EXPECT() *MockVpcsClientMockRecorder {
 }
 
 // Delete mocks base method.
-func (m *MockVpcsClient) Delete(arg0, arg1, arg2 string) error {
+func (m *MockVpcsClient) Delete(arg0, arg1, arg2 string, is_recurse *bool) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Delete", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)

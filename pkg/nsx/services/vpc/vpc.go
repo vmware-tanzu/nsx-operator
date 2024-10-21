@@ -212,7 +212,7 @@ func (s *VPCService) DeleteVPC(path string) error {
 	}
 	vpcClient := s.NSXClient.VPCClient
 
-	if err := vpcClient.Delete(pathInfo.OrgID, pathInfo.ProjectID, pathInfo.VPCID); err != nil {
+	if err := vpcClient.Delete(pathInfo.OrgID, pathInfo.ProjectID, pathInfo.VPCID, common.Bool(true)); err != nil {
 		err = nsxutil.TransNSXApiError(err)
 		return err
 	}
