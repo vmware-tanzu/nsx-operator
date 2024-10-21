@@ -10,15 +10,11 @@ import (
 
 	admissionv1 "k8s.io/api/admission/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
-
-// log is for logging in this package.
-var subnetsetlog = logf.Log.WithName("subnetset-webhook")
 
 var NSXOperatorSA = "system:serviceaccount:vmware-system-nsx:ncp-svc-account"
 
@@ -63,17 +59,17 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 	if req.Operation == admissionv1.Delete {
 		err := v.decoder.DecodeRaw(req.OldObject, subnetSet)
 		if err != nil {
-			subnetsetlog.Error(err, "error while decoding SubnetSet", "SubnetSet", req.Namespace+"/"+req.Name)
+			log.Error(err, "error while decoding SubnetSet", "SubnetSet", req.Namespace+"/"+req.Name)
 			return admission.Errored(http.StatusBadRequest, err)
 		}
 	} else {
 		err := v.decoder.Decode(req, subnetSet)
 		if err != nil {
-			subnetsetlog.Error(err, "error while decoding SubnetSet", "SubnetSet", req.Namespace+"/"+req.Name)
+			log.Error(err, "error while decoding SubnetSet", "SubnetSet", req.Namespace+"/"+req.Name)
 			return admission.Errored(http.StatusBadRequest, err)
 		}
 	}
-	subnetsetlog.Info("request user-info", "name", req.UserInfo.Username)
+	log.V(1).Info("request user-info", "name", req.UserInfo.Username)
 	switch req.Operation {
 	case admissionv1.Create:
 		if !isDefaultSubnetSet(subnetSet) {
@@ -86,7 +82,7 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 	case admissionv1.Update:
 		oldSubnetSet := &v1alpha1.SubnetSet{}
 		if err := v.decoder.DecodeRaw(req.OldObject, oldSubnetSet); err != nil {
-			subnetsetlog.Error(err, "error while decoding SubnetSet", "SubnetSet", req.Namespace+"/"+req.Name)
+			log.Error(err, "error while decoding SubnetSet", "SubnetSet", req.Namespace+"/"+req.Name)
 			return admission.Errored(http.StatusBadRequest, err)
 		}
 		if defaultSubnetSetLabelChanged(oldSubnetSet, subnetSet) {
