@@ -22,7 +22,7 @@ var NSXOperatorSA = "system:serviceaccount:vmware-system-nsx:ncp-svc-account"
 // inspect admission.Request in Handle function.
 
 // +kubebuilder:webhook:path=/validate-crd-nsx-vmware-com-v1alpha1-subnetset,mutating=false,failurePolicy=fail,sideEffects=None,
-//groups=nsx.vmware.com.nsx.vmware.com,resources=subnetsets,verbs=create;update,versions=v1alpha1,
+//groups=crd.nsx.vmware.com,resources=subnetsets,verbs=create;update,versions=v1alpha1,
 //name=default.subnetset.validating.crd.nsx.vmware.com,admissionReviewVersions=v1
 
 type SubnetSetValidator struct {

@@ -28,7 +28,7 @@ func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, r
 	var nsxGroups []*model.Group
 
 	if len(rule.Ports) == 0 {
-		nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, 0, 0, -1, false, createdFor)
+		nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, 0, 0, false, -1, createdFor)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -39,7 +39,7 @@ func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, r
 	// Check if there is a namedport in the rule
 	hasNamedPort := service.hasNamedPort(rule)
 	if !hasNamedPort {
-		nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, 0, 0, -1, false, createdFor)
+		nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, 0, 0, false, -1, createdFor)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -88,7 +88,7 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 		if err != nil {
 			// In case there is no more valid ip set selected, so clear the stale ip set group in NSX if stale ips exist
 			if errors.As(err, &nsxutil.NoEffectiveOption{}) {
-				groups := service.groupStore.GetByIndex(common.TagScopeRuleID, service.buildRuleID(obj, rule, ruleIdx, createdFor))
+				groups := service.groupStore.GetByIndex(common.TagScopeRuleID, service.buildRuleID(obj, ruleIdx, createdFor))
 				var ipSetGroup *model.Group
 				for _, group := range groups {
 					ipSetGroup = group
@@ -121,7 +121,7 @@ func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.Security
 ) ([]*model.Group, *model.Rule, error) {
 	var nsxGroups []*model.Group
 
-	nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, portIdx, portAddressIdx, portAddress.Port, true, createdFor)
+	nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, portIdx, portAddressIdx, true, portAddress.Port, createdFor)
 	if err != nil {
 		return nil, nil, err
 	}

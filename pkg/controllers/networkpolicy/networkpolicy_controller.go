@@ -18,7 +18,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -100,21 +99,21 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
 
 	if err := r.Client.Get(ctx, req.NamespacedName, networkPolicy); err != nil {
-		log.Error(err, "unable to fetch network policy", "req", req.NamespacedName)
-		return ResultNormal, client.IgnoreNotFound(err)
+		// IgnoreNotFound returns nil on NotFound errors.
+		if client.IgnoreNotFound(err) == nil {
+			if err := r.deleteNetworkPolicyByName(req.Namespace, req.Name); err != nil {
+				log.Error(err, "failed to delete NetworkPolicy", "networkpolicy", req.NamespacedName)
+				return ResultRequeue, err
+			}
+			return ResultNormal, nil
+		}
+		// In case that client is unable to check CR
+		log.Error(err, "client is unable to fetch NetworkPolicy CR", "req", req.NamespacedName)
+		return ResultRequeue, err
 	}
 
 	if networkPolicy.ObjectMeta.DeletionTimestamp.IsZero() {
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResType)
-		if !controllerutil.ContainsFinalizer(networkPolicy, servicecommon.NetworkPolicyFinalizerName) {
-			controllerutil.AddFinalizer(networkPolicy, servicecommon.NetworkPolicyFinalizerName)
-			if err := r.Client.Update(ctx, networkPolicy); err != nil {
-				log.Error(err, "add finalizer", "networkpolicy", req.NamespacedName)
-				updateFail(r, ctx, networkPolicy, &err)
-				return ResultRequeue, err
-			}
-			log.V(1).Info("added finalizer on networkpolicy", "networkpolicy", req.NamespacedName)
-		}
 
 		if err := r.Service.CreateOrUpdateSecurityPolicy(networkPolicy); err != nil {
 			if errors.As(err, &nsxutil.RestrictionError{}) {
@@ -135,25 +134,14 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		updateSuccess(r, ctx, networkPolicy)
 		cleanNetworkPolicyErrorAnnotation(ctx, networkPolicy, r.Client)
 	} else {
-		if controllerutil.ContainsFinalizer(networkPolicy, servicecommon.NetworkPolicyFinalizerName) {
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
-			if err := r.Service.DeleteSecurityPolicy(networkPolicy, false, false, servicecommon.ResourceTypeNetworkPolicy); err != nil {
-				log.Error(err, "deletion failed, would retry exponentially", "networkpolicy", req.NamespacedName)
-				deleteFail(r, ctx, networkPolicy, &err)
-				return ResultRequeue, err
-			}
-			controllerutil.RemoveFinalizer(networkPolicy, servicecommon.NetworkPolicyFinalizerName)
-			if err := r.Client.Update(ctx, networkPolicy); err != nil {
-				log.Error(err, "deletion failed, would retry exponentially", "networkpolicy", req.NamespacedName)
-				deleteFail(r, ctx, networkPolicy, &err)
-				return ResultRequeue, err
-			}
-			log.V(1).Info("removed finalizer", "networkpolicy", req.NamespacedName)
-			deleteSuccess(r, ctx, networkPolicy)
-		} else {
-			// only print a message because it's not a normal case
-			log.Info("finalizers cannot be recognized", "networkpolicy", req.NamespacedName)
+		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
+
+		if err := r.Service.DeleteSecurityPolicy(networkPolicy, false, false, servicecommon.ResourceTypeNetworkPolicy); err != nil {
+			log.Error(err, "deletion failed, would retry exponentially", "networkpolicy", req.NamespacedName)
+			deleteFail(r, ctx, networkPolicy, &err)
+			return ResultRequeue, err
 		}
+		deleteSuccess(r, ctx, networkPolicy)
 	}
 
 	return ResultNormal, nil
@@ -186,17 +174,10 @@ func (r *NetworkPolicyReconciler) CollectGarbage(ctx context.Context) {
 	if len(nsxPolicySet) == 0 {
 		return
 	}
-	policyList := &networkingv1.NetworkPolicyList{}
-	err := r.Client.List(ctx, policyList)
-	if err != nil {
-		log.Error(err, "failed to list NetworkPolicy")
-		return
-	}
 
-	CRPolicySet := sets.New[string]()
-	for _, policy := range policyList.Items {
-		CRPolicySet.Insert(r.Service.BuildNetworkPolicyAllowPolicyID(string(policy.UID)))
-		CRPolicySet.Insert(r.Service.BuildNetworkPolicyIsolationPolicyID(string(policy.UID)))
+	CRPolicySet, err := r.listNetworkPolciyCRIDs()
+	if err != nil {
+		return
 	}
 
 	diffSet := nsxPolicySet.Difference(CRPolicySet)
@@ -210,6 +191,46 @@ func (r *NetworkPolicyReconciler) CollectGarbage(ctx context.Context) {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
 		}
 	}
+}
+
+func (r *NetworkPolicyReconciler) deleteNetworkPolicyByName(ns, name string) error {
+	nsxSecurityPolicies := r.Service.ListNetworkPolicyByName(ns, name)
+
+	CRPolicySet, err := r.listNetworkPolciyCRIDs()
+	if err != nil {
+		return err
+	}
+	for _, item := range nsxSecurityPolicies {
+		uid := nsxutil.FindTag(item.Tags, servicecommon.TagScopeNetworkPolicyUID)
+		if CRPolicySet.Has(uid) {
+			log.Info("skipping deletion, NetworkPolicy CR still exists in K8s", "networkPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
+			continue
+		}
+
+		log.Info("deleting NetworkPolicy", "networkPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
+		if err := r.Service.DeleteSecurityPolicy(types.UID(uid), false, false, servicecommon.ResourceTypeNetworkPolicy); err != nil {
+			log.Error(err, "failed to delete NetworkPolicy", "networkPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
+			return err
+		}
+		log.Info("successfully deleted NetworkPolicy", "networkPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
+	}
+	return nil
+}
+
+func (r *NetworkPolicyReconciler) listNetworkPolciyCRIDs() (sets.Set[string], error) {
+	networkPolicyList := &networkingv1.NetworkPolicyList{}
+	err := r.Client.List(context.Background(), networkPolicyList)
+	if err != nil {
+		log.Error(err, "failed to list NetworkPolicy CRs")
+		return nil, err
+	}
+
+	CRPolicySet := sets.New[string]()
+	for _, policy := range networkPolicyList.Items {
+		CRPolicySet.Insert(r.Service.BuildNetworkPolicyAllowPolicyID(string(policy.UID)))
+		CRPolicySet.Insert(r.Service.BuildNetworkPolicyIsolationPolicyID(string(policy.UID)))
+	}
+	return CRPolicySet, nil
 }
 
 func StartNetworkPolicyController(mgr ctrl.Manager, commonService servicecommon.Service, vpcService servicecommon.VPCServiceProvider) {

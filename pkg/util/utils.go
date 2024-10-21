@@ -21,7 +21,6 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	t1v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
@@ -31,32 +30,12 @@ import (
 )
 
 const (
-	wcpSystemResource       = "vmware-system-shared-t1"
-	HashLength          int = 8
-	SubnetTypeSubnet        = "subnet"
-	SubnetTypeSubnetSet     = "subnetset"
+	wcpSystemResource = "vmware-system-shared-t1"
 )
 
 var (
-	String    = common.String
-	basicTags = []string{
-		common.TagScopeCluster, common.TagScopeVersion,
-		common.TagScopeStaticRouteCRName, common.TagScopeStaticRouteCRUID,
-		common.TagValueScopeSecurityPolicyName, common.TagValueScopeSecurityPolicyUID,
-		common.TagScopeNetworkPolicyName, common.TagScopeNetworkPolicyUID,
-		common.TagScopeSubnetCRName, common.TagScopeSubnetCRUID,
-		common.TagScopeSubnetPortCRName, common.TagScopeSubnetPortCRUID,
-		common.TagScopeIPPoolCRName, common.TagScopeIPPoolCRUID,
-		common.TagScopeSubnetSetCRName, common.TagScopeSubnetSetCRUID,
-	}
-	tagsScopeSet = sets.New[string]()
+	String = common.String
 )
-
-func init() {
-	for _, tag := range basicTags {
-		tagsScopeSet.Insert(tag)
-	}
-}
 
 var log = &logger.Log
 
@@ -106,11 +85,11 @@ func NormalizeId(name string) string {
 		return newName
 	}
 	hashString := Sha1(name)
-	nameLength := common.MaxIdLength - HashLength - 1
+	nameLength := common.MaxIdLength - common.HashLength - 1
 	for strings.ContainsAny(string(newName[nameLength-1]), "-._") {
 		nameLength--
 	}
-	newName = fmt.Sprintf("%s-%s", newName[:nameLength], hashString[:HashLength])
+	newName = fmt.Sprintf("%s-%s", newName[:nameLength], hashString[:common.HashLength])
 	return newName
 }
 
@@ -331,24 +310,6 @@ func If(condition bool, trueVal, falseVal interface{}) interface{} {
 	}
 }
 
-func GetMapValues(in interface{}) []string {
-	if in == nil {
-		return make([]string, 0)
-	}
-	switch in.(type) {
-	case map[string]string:
-		ssMap := in.(map[string]string)
-		values := make([]string, 0, len(ssMap))
-		for _, v := range ssMap {
-			values = append(values, v)
-		}
-		return values
-	default:
-		log.Info("Unsupported map format")
-		return nil
-	}
-}
-
 // the changes map contains key/value map that you want to change.
 // if giving empty value for a key in changes map like: "mykey":"", that means removing this annotation from k8s resource
 func UpdateK8sResourceAnnotation(client client.Client, ctx context.Context, k8sObj client.Object, changes map[string]string) error {
@@ -499,19 +460,6 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 	return tags
 }
 
-func AppendTags(basicTags, extraTags []model.Tag) []model.Tag {
-	if basicTags == nil {
-		log.Info("AppendTags", "basicTags", basicTags, "extra tags", extraTags)
-		return nil
-	}
-	for _, tag := range extraTags {
-		if !tagsScopeSet.Has(*tag.Scope) {
-			basicTags = append(basicTags, tag)
-		}
-	}
-	return basicTags
-}
-
 func Capitalize(s string) string {
 	if s == "" {
 		return ""
@@ -521,7 +469,7 @@ func Capitalize(s string) string {
 
 func GetRandomIndexString() string {
 	uuidStr := uuid.NewString()
-	return Sha1(uuidStr)[:HashLength]
+	return Sha1(uuidStr)[:common.HashLength]
 }
 
 // IsPowerOfTwo checks if a given number is a power of 2
