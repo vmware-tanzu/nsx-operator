@@ -21,7 +21,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
@@ -319,7 +318,7 @@ func (r *SubnetSetReconciler) DeleteSubnetForSubnetSet(obj v1alpha1.SubnetSet, u
 
 func StartSubnetSetController(mgr ctrl.Manager, subnetService *subnet.SubnetService,
 	subnetPortService servicecommon.SubnetPortServiceProvider, vpcService servicecommon.VPCServiceProvider,
-	enableWebhook bool,
+	hookServer webhook.Server,
 ) error {
 	subnetsetReconciler := &SubnetSetReconciler{
 		Client:            mgr.GetClient(),
@@ -329,7 +328,7 @@ func StartSubnetSetController(mgr ctrl.Manager, subnetService *subnet.SubnetServ
 		VPCService:        vpcService,
 		Recorder:          mgr.GetEventRecorderFor("subnetset-controller"),
 	}
-	if err := subnetsetReconciler.Start(mgr, enableWebhook); err != nil {
+	if err := subnetsetReconciler.Start(mgr, hookServer); err != nil {
 		log.Error(err, "failed to create controller", "controller", "Subnet")
 		return err
 	}
@@ -338,19 +337,12 @@ func StartSubnetSetController(mgr ctrl.Manager, subnetService *subnet.SubnetServ
 }
 
 // Start setup manager
-func (r *SubnetSetReconciler) Start(mgr ctrl.Manager, enableWebhook bool) error {
+func (r *SubnetSetReconciler) Start(mgr ctrl.Manager, hookServer webhook.Server) error {
 	err := r.setupWithManager(mgr)
 	if err != nil {
 		return err
 	}
-	if enableWebhook {
-		hookServer := webhook.NewServer(webhook.Options{
-			Port:    config.WebhookServerPort,
-			CertDir: config.WebhookCertDir,
-		})
-		if err := mgr.Add(hookServer); err != nil {
-			return err
-		}
+	if hookServer != nil {
 		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-subnetset",
 			&webhook.Admission{
 				Handler: &SubnetSetValidator{
