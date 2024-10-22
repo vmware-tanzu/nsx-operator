@@ -49,7 +49,7 @@ func subnetPortIndexByPodUID(obj interface{}) ([]string, error) {
 	case *model.VpcSubnetPort:
 		return filterTag(o.Tags, common.TagScopePodUID), nil
 	default:
-		return nil, errors.New("subnetPortIndexByCRUID doesn't support unknown type")
+		return nil, errors.New("subnetPortIndexByPodUID doesn't support unknown type")
 	}
 }
 
@@ -127,25 +127,4 @@ func (subnetPortStore *SubnetPortStore) GetByIndex(key string, value string) []*
 		subnetPorts = append(subnetPorts, subnetPort.(*model.VpcSubnetPort))
 	}
 	return subnetPorts
-}
-
-func (vs *SubnetPortStore) GetSubnetPortsByNamespace(ns string) []*model.VpcSubnetPort {
-	var ret []*model.VpcSubnetPort
-	subnetPorts := vs.List()
-	if len(subnetPorts) == 0 {
-		log.V(1).Info("No subnet port found in SubnetPort store")
-		return ret
-	}
-
-	for _, subnetPort := range subnetPorts {
-		msubnetport := subnetPort.(*model.VpcSubnetPort)
-		tags := msubnetport.Tags
-		for _, tag := range tags {
-			// TODO: consider to create index for common.TagScopeNamespace like common.TagScopeSubnetPortCRUID, and leverage functions like getByIndex to perform searches.
-			if *tag.Scope == common.TagScopeNamespace && *tag.Tag == ns {
-				ret = append(ret, msubnetport)
-			}
-		}
-	}
-	return ret
 }
