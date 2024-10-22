@@ -138,17 +138,17 @@ func (service *Service) SearchResource(resourceTypeValue string, queryParam stri
 		var results []*data.StructValue
 		var resultCount *int64
 		if store.IsPolicyAPI() {
-			response, searchEerr := service.NSXClient.QueryClient.List(queryParam, cursor, nil, &pagesize, nil, nil)
+			response, searchErr := service.NSXClient.QueryClient.List(queryParam, cursor, nil, &pagesize, nil, nil)
 			results = response.Results
 			cursor = response.Cursor
 			resultCount = response.ResultCount
-			err = searchEerr
+			err = searchErr
 		} else {
-			response, searchEerr := service.NSXClient.MPQueryClient.List(queryParam, cursor, nil, &pagesize, nil, nil)
+			response, searchErr := service.NSXClient.MPQueryClient.List(queryParam, cursor, nil, &pagesize, nil, nil)
 			results = response.Results
 			cursor = response.Cursor
 			resultCount = response.ResultCount
-			err = searchEerr
+			err = searchErr
 		}
 		if err != nil {
 			err = TransError(err)
@@ -183,7 +183,7 @@ func (service *Service) SearchResource(resourceTypeValue string, queryParam stri
 // PopulateResourcetoStore is the method used by populating resources created not by nsx-operator
 func (service *Service) PopulateResourcetoStore(wg *sync.WaitGroup, fatalErrors chan error, resourceTypeValue string, queryParam string, store Store, filter Filter) {
 	defer wg.Done()
-	count, err := service.SearchResource(resourceTypeValue, queryParam, store, filter)
+	count, err := service.SearchResource("", queryParam, store, filter)
 	if err != nil {
 		fatalErrors <- err
 	}
@@ -216,7 +216,7 @@ func (service *Service) InitializeCommonStore(wg *sync.WaitGroup, fatalErrors ch
 
 	if org != "" || project != "" {
 		// QueryClient.List() will escape the path, "path:" then will be "path%25%3A" instead of "path:3A",
-		//"path%25%3A" would fail to get response. Hack it here.
+		// "path%25%3A" would fail to get response. Hack it here.
 		path := "\\/orgs\\/" + org + "\\/projects\\/" + project + "\\/*"
 		pathUnescape, _ := url.PathUnescape("path%3A")
 		queryParam += " AND " + pathUnescape + path

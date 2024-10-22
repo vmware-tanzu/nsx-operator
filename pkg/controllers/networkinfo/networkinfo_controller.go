@@ -162,7 +162,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// TODO:
 	// 1. check whether the logic to get VPC network config can be replaced by GetVPCNetworkConfigByNamespace
 	// 2. sometimes the variable nc points to a VPCNetworkInfo, sometimes it's a VPCNetworkConfiguration, we need to distinguish between them.
-	nc, err := r.getNetworkConfigInfo(networkInfoCR)
+	nc, err := r.getNetworkConfigInfo(ctx, networkInfoCR)
 	if err != nil {
 		updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCNetCfgGetError.getNSNetworkCondition(err))
@@ -214,7 +214,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	lbProvider := r.Service.GetLBProvider()
-	createdVpc, err := r.Service.CreateOrUpdateVPC(networkInfoCR, &nc, lbProvider)
+	createdVpc, err := r.Service.CreateOrUpdateVPC(ctx, networkInfoCR, &nc, lbProvider)
 	if err != nil {
 		log.Error(err, "Failed to create or update VPC", "NetworkInfo", req.NamespacedName)
 		updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
@@ -443,7 +443,7 @@ func (r *NetworkInfoReconciler) CollectGarbage(ctx context.Context) {
 }
 
 func (r *NetworkInfoReconciler) fetchStaleVPCsByNamespace(ctx context.Context, ns string) ([]*model.Vpc, error) {
-	isShared, err := r.Service.IsSharedVPCNamespaceByNS(ns)
+	isShared, err := r.Service.IsSharedVPCNamespaceByNS(ctx, ns)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if Namespace is shared for NS %s: %w", ns, err)
 	}
@@ -452,7 +452,7 @@ func (r *NetworkInfoReconciler) fetchStaleVPCsByNamespace(ctx context.Context, n
 		return nil, nil
 	}
 
-	return r.Service.GetVPCsByNamespace(ns), nil
+	return r.Service.GetVPCsByNamespace(ctx, ns), nil
 }
 
 func (r *NetworkInfoReconciler) deleteVPCsByName(ctx context.Context, ns string) error {
@@ -516,7 +516,7 @@ func (r *NetworkInfoReconciler) deleteVPCs(ctx context.Context, staleVPCs []*mod
 	}
 
 	// Update the VPCNetworkConfiguration Status
-	ncName, err := r.Service.GetNetworkconfigNameFromNS(ns)
+	ncName, err := r.Service.GetNetworkconfigNameFromNS(ctx, ns)
 	if err != nil {
 		return fmt.Errorf("failed to get VPCNetworkConfiguration for Namespace when deleting stale VPCs %s: %w", ns, err)
 	}
@@ -587,8 +587,8 @@ func (r *NetworkInfoReconciler) getQueue(controllerName string, rateLimiter rate
 	return r.queue
 }
 
-func (r *NetworkInfoReconciler) getNetworkConfigInfo(networkInfoCR *v1alpha1.NetworkInfo) (commonservice.VPCNetworkConfigInfo, error) {
-	ncName, err := r.Service.GetNetworkconfigNameFromNS(networkInfoCR.Namespace)
+func (r *NetworkInfoReconciler) getNetworkConfigInfo(ctx context.Context, networkInfoCR *v1alpha1.NetworkInfo) (commonservice.VPCNetworkConfigInfo, error) {
+	ncName, err := r.Service.GetNetworkconfigNameFromNS(ctx, networkInfoCR.Namespace)
 	if err != nil {
 		log.Error(err, "Failed to get network config name for VPC when creating NSX VPC", "NetworkInfo", networkInfoCR.Name)
 		return commonservice.VPCNetworkConfigInfo{}, err

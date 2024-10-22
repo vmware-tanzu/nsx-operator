@@ -39,14 +39,14 @@ func (h *VPCNetworkConfigurationHandler) Create(ctx context.Context, e event.Cre
 	vname := vpcConfigCR.GetName()
 	ninfo, err := buildNetworkConfigInfo(*vpcConfigCR)
 	if err != nil {
-		log.Error(err, "processing network config add event failed")
+		log.Error(err, "Processing network config add event failed")
 		return
 	}
-	log.Info("create network config and update to store", "NetworkConfigInfo", ninfo)
+	log.Info("Create network config and update to store", "NetworkConfigInfo", ninfo)
 	h.vpcService.RegisterVPCNetworkConfig(vname, *ninfo)
 	// Update IPBlocks info
 	if err = h.ipBlocksInfoService.UpdateIPBlocksInfo(ctx, vpcConfigCR); err != nil {
-		log.Error(err, "failed to update the IPBblocksInfo", "VPCNetworkConfiguration", vname)
+		log.Error(err, "Failed to update the IPBlocksInfo", "VPCNetworkConfiguration", vname)
 	}
 }
 
@@ -65,7 +65,7 @@ func (h *VPCNetworkConfigurationHandler) Generic(_ context.Context, _ event.Gene
 }
 
 func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
-	log.V(1).Info("start processing VPC network config update event")
+	log.V(1).Info("Start processing VPC network config update event")
 	newNc := e.ObjectNew.(*v1alpha1.VPCNetworkConfiguration)
 
 	oldNc := e.ObjectOld.(*v1alpha1.VPCNetworkConfiguration)
@@ -77,7 +77,7 @@ func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.Upd
 	// update network config info in store
 	info, err := buildNetworkConfigInfo(*newNc)
 	if err != nil {
-		log.Error(err, "failed to process network config update event")
+		log.Error(err, "Failed to process network config update event")
 		return
 	}
 	h.vpcService.RegisterVPCNetworkConfig(newNc.Name, *info)
@@ -87,12 +87,12 @@ func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.Upd
 		networkInfos := &v1alpha1.NetworkInfoList{}
 		err := h.Client.List(ctx, networkInfos, client.InNamespace(ns))
 		if err != nil {
-			log.Error(err, "failed to list VPCs in namespace", "Namespace", ns)
+			log.Error(err, "Failed to list VPCs in namespace", "Namespace", ns)
 			continue
 		}
 
 		for _, networkInfo := range networkInfos.Items {
-			log.Info("reconcile NetworkInfo CR due to modifying network config CR", "NetworkInfo", networkInfo.Name, "Namespace", ns, "NetworkConfig", newNc.Name)
+			log.Info("Requeue NetworkInfo CR due to modifying network config CR", "NetworkInfo", networkInfo.Name, "Namespace", ns, "NetworkConfig", newNc.Name)
 			q.Add(reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      networkInfo.Name,
@@ -119,7 +119,7 @@ var VPCNetworkConfigurationPredicate = predicate.Funcs{
 }
 
 func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*commontypes.VPCNetworkConfigInfo, error) {
-	org, project, err := nsxtProjectPathToId(vpcConfigCR.Spec.NSXProject)
+	org, project, err := nsxProjectPathToId(vpcConfigCR.Spec.NSXProject)
 	if err != nil {
 		log.Error(err, "failed to parse NSX project in network config", "Project Path", vpcConfigCR.Spec.NSXProject)
 		return nil, err
@@ -154,10 +154,10 @@ func isDefaultNetworkConfigCR(vpcConfigCR v1alpha1.VPCNetworkConfiguration) bool
 
 // parse org id and project id from nsxProject path
 // example /orgs/default/projects/nsx_operator_e2e_test
-func nsxtProjectPathToId(path string) (string, string, error) {
+func nsxProjectPathToId(path string) (string, string, error) {
 	parts := strings.Split(path, "/")
 	if len(parts) < 4 {
-		return "", "", errors.New("invalid NSXT project path")
+		return "", "", errors.New("invalid NSX project path")
 	}
 	return parts[2], parts[len(parts)-1], nil
 }
