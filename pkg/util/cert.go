@@ -1,7 +1,7 @@
-/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
+/* Copyright © 2024 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
-package main
+package util
 
 import (
 	"bytes"
@@ -24,22 +24,13 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
 var (
-	log                            = logger.Log
 	validatingWebhookConfiguration = "nsx-operator-validating-webhook-configuration"
 	namespace                      = "vmware-system-nsx"
 	certName                       = "nsx-operator-webhook-cert"
 )
-
-func main() {
-	log.Info("Generating webhook certificates...")
-	if err := generateWebhookCerts(); err != nil {
-		panic(err)
-	}
-}
 
 // WriteFile writes data in the file at the given path
 func writeFile(filepath string, cert []byte) error {
@@ -56,7 +47,7 @@ func writeFile(filepath string, cert []byte) error {
 	return nil
 }
 
-func generateWebhookCerts() error {
+func GenerateWebhookCerts() error {
 	var caPEM, serverCertPEM, serverKeyPEM *bytes.Buffer
 	// CA config
 	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
@@ -164,22 +155,28 @@ func generateWebhookCerts() error {
 	}, func() error {
 		if _, err := kubeClient.CoreV1().Secrets(namespace).Create(context.TODO(), certSecret, v1.CreateOptions{}); err != nil {
 			if errors.IsAlreadyExists(err) {
-				// In HA mode, there are multiple nsx-operator instances trying to create webhook certificates, this
-				// guarantees that only one instance can create webhook certificates.
-				log.Info("Secret already existed, skip creating", "name", certName)
-				certSecret, err = kubeClient.CoreV1().Secrets(namespace).Get(context.TODO(), certName, v1.GetOptions{})
+				existingSecret, err := kubeClient.CoreV1().Secrets(namespace).Get(context.TODO(), certName, v1.GetOptions{})
 				if err != nil {
 					return err
 				}
+
+				// Update the existing secret with new data
+				existingSecret.Data = certSecret.Data
+
+				_, err = kubeClient.CoreV1().Secrets(namespace).Update(context.TODO(), existingSecret, v1.UpdateOptions{})
+				if err != nil {
+					log.Error(err, "Failed to update secret", "name", certName)
+					return err
+				}
+				log.Info("Secret updated successfully", "name", certName)
 			} else {
 				log.Error(err, "Failed to create secret", "name", certName)
 				return err
 			}
-		} else {
-			if err = updateWebhookConfig(kubeClient, caPEM); err != nil {
-				log.Error(err, "Failed to update webhook configuration", "name", validatingWebhookConfiguration)
-				return err
-			}
+		}
+		if err = updateWebhookConfig(kubeClient, caPEM); err != nil {
+			log.Error(err, "Failed to update webhook configuration", "name", validatingWebhookConfiguration)
+			return err
 		}
 		return nil
 	}); err != nil {
