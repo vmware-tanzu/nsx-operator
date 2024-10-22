@@ -5,18 +5,22 @@ package networkinfo
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/agiledragon/gomonkey"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apitypes "k8s.io/apimachinery/pkg/types"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 )
 
 func TestSetVPCNetworkConfigurationStatusWithGatewayConnection(t *testing.T) {
@@ -194,9 +198,153 @@ func TestGetGatewayConnectionStatus(t *testing.T) {
 					Conditions: tt.conditions,
 				},
 			}
-			gatewayConnectionReady, reason, _ := getGatewayConnectionStatus(ctx, &vpcNetworkConfiguration)
+			gatewayConnectionReady, reason := getGatewayConnectionStatus(ctx, &vpcNetworkConfiguration)
 			assert.Equal(t, tt.expectedReason, reason)
 			assert.Equal(t, tt.expectedStatus, gatewayConnectionReady)
 		})
 	}
+}
+
+func TestSetNSNetworkReadyCondition(t *testing.T) {
+	nsName := "test-ns"
+	msg := nsMsgVPCCreateUpdateError
+	msgErr := fmt.Errorf("failed to connect to NSX")
+	nsNotReadyCondition := corev1.NamespaceCondition{
+		Type:    NamespaceNetworkReady,
+		Status:  corev1.ConditionFalse,
+		Reason:  NSReasonVPCNotReady,
+		Message: fmt.Sprintf("Error happened to create or update VPC: failed to connect to NSX"),
+	}
+
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name    string
+		testFn  func(k8sclient *mock_client.MockClient)
+		addCond bool
+	}{
+		{
+			name: "Failed to get K8s Namespace",
+			testFn: func(k8sClient *mock_client.MockClient) {
+				k8sClient.EXPECT().Get(ctx, apitypes.NamespacedName{Name: nsName}, gomock.Any()).Return(fmt.Errorf("failed"))
+			},
+			addCond: false,
+		}, {
+			name: "Add failed condition on K8s Namespace",
+			testFn: func(k8sClient *mock_client.MockClient) {
+				k8sClient.EXPECT().Get(ctx, apitypes.NamespacedName{Name: nsName}, gomock.Any()).Return(nil).Do(
+					func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...*client.GetOption) error {
+						ns := obj.(*corev1.Namespace)
+						ns.ObjectMeta = metav1.ObjectMeta{Name: nsName}
+						return nil
+					})
+			},
+			addCond: true,
+		}, {
+			name: "Update condition on K8s Namespace",
+			testFn: func(k8sClient *mock_client.MockClient) {
+				k8sClient.EXPECT().Get(ctx, apitypes.NamespacedName{Name: nsName}, gomock.Any()).Return(nil).Do(
+					func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...*client.GetOption) error {
+						ns := obj.(*corev1.Namespace)
+						ns.ObjectMeta = metav1.ObjectMeta{Name: nsName}
+						ns.Status = corev1.NamespaceStatus{
+							Conditions: []corev1.NamespaceCondition{
+								{
+									Type:    NamespaceNetworkReady,
+									Status:  corev1.ConditionFalse,
+									Reason:  NSReasonVPCNetConfigNotReady,
+									Message: fmt.Sprintf("Error happened to get system VPC network configuration: failed to connect to NSX"),
+								},
+							},
+						}
+						return nil
+					})
+			},
+			addCond: true,
+		}, {
+			name: "Not update condition on K8s Namespace if it already exists",
+			testFn: func(k8sClient *mock_client.MockClient) {
+				k8sClient.EXPECT().Get(ctx, apitypes.NamespacedName{Name: nsName}, gomock.Any()).Return(nil).Do(
+					func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...*client.GetOption) error {
+						ns := obj.(*corev1.Namespace)
+						ns.ObjectMeta = metav1.ObjectMeta{Name: nsName}
+						ns.Status = corev1.NamespaceStatus{
+							Conditions: []corev1.NamespaceCondition{
+								nsNotReadyCondition,
+							},
+						}
+						return nil
+					})
+			},
+			addCond: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			k8sClient := mock_client.NewMockClient(ctrl)
+			if tc.testFn != nil {
+				tc.testFn(k8sClient)
+			}
+			if tc.addCond {
+				statusClient := fakeStatusWriter{t: t, conditionMatcher: conditionMatcher(nsNotReadyCondition)}
+				k8sClient.EXPECT().Status().Return(statusClient).Times(1)
+			}
+			setNSNetworkReadyCondition(ctx, k8sClient, nsName, msg.getNSNetworkCondition(msgErr))
+		})
+	}
+}
+
+type fakeStatusWriter struct {
+	t                *testing.T
+	conditionMatcher gomock.Matcher
+}
+
+func (writer fakeStatusWriter) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
+	return nil
+}
+func (writer fakeStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	require.True(writer.t, writer.conditionMatcher.Matches(obj))
+	return nil
+}
+func (writer fakeStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+	return nil
+}
+
+type hasCondition struct {
+	condition corev1.NamespaceCondition
+}
+
+func (m hasCondition) Matches(arg interface{}) bool {
+	ns := arg.(*corev1.Namespace)
+	for _, extCond := range ns.Status.Conditions {
+		if nsConditionEquals(extCond, m.condition) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m hasCondition) String() string {
+	return fmt.Sprintf("Condition: type=%s, status=%v, reason=%s, message=%s",
+		m.condition.Type, m.condition.Status, m.condition.Reason, m.condition.Message)
+}
+
+func conditionMatcher(cond corev1.NamespaceCondition) gomock.Matcher {
+	return &hasCondition{condition: cond}
+}
+
+func TestGetNSNetworkCondition(t *testing.T) {
+	networkReadyCondition := corev1.NamespaceCondition{
+		Type:   NamespaceNetworkReady,
+		Status: corev1.ConditionTrue,
+	}
+	require.True(t, nsConditionEquals(networkReadyCondition, *nsMsgVPCIsReady.getNSNetworkCondition()))
+
+	msgErr := fmt.Errorf("failed to connect to NSX")
+	vpcNotReadyCondition := corev1.NamespaceCondition{
+		Type:    NamespaceNetworkReady,
+		Status:  corev1.ConditionFalse,
+		Reason:  NSReasonVPCNotReady,
+		Message: "Error happened to create or update VPC: failed to connect to NSX",
+	}
+	require.True(t, nsConditionEquals(vpcNotReadyCondition, *nsMsgVPCCreateUpdateError.getNSNetworkCondition(msgErr)))
 }

@@ -5,7 +5,6 @@ package networkinfo
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -45,6 +44,54 @@ var (
 	MetricResType = common.MetricResTypeNetworkInfo
 )
 
+const (
+	NamespaceNetworkReady corev1.NamespaceConditionType = "NamespaceNetworkReady"
+
+	NSReasonVPCNetConfigNotReady string = "VPCNetworkConfigurationNotReady"
+	NSReasonVPCNotReady          string = "VPCNotReady"
+	NSReasonVPCSnatNotReady      string = "VPCSnatNotReady"
+)
+
+var (
+	nsMsgVPCNetCfgGetError        = newNsUnreadyMessage("Error happened to get VPC network configuration: %v", NSReasonVPCNetConfigNotReady)
+	nsMsgSystemVPCNetCfgNotFound  = newNsUnreadyMessage("Error happened to get system VPC network configuration: %v", NSReasonVPCNetConfigNotReady)
+	nsMsgVPCGwConnectionGetError  = newNsUnreadyMessage("Error happened to validate system VPC gateway connection readiness: %v", NSReasonVPCNetConfigNotReady)
+	nsMsgVPCGwConnectionNotReady  = newNsUnreadyMessage("System VPC gateway connection is not ready", NSReasonVPCNetConfigNotReady)
+	nsMsgVPCCreateUpdateError     = newNsUnreadyMessage("Error happened to create or update VPC: %v", NSReasonVPCNotReady)
+	nsMsgVPCNsxLBSNotReady        = newNsUnreadyMessage("Error happened to get NSX LBS path in VPC: %v", NSReasonVPCNotReady)
+	nsMsgVPCAviSubnetError        = newNsUnreadyMessage("Error happened to get Avi Load balancer Subnet info: %v", NSReasonVPCNotReady)
+	nsMsgVPCGetExtIPBlockError    = newNsUnreadyMessage("Error happened to get external IP blocks: %v", NSReasonVPCNotReady)
+	nsMsgVPCNoExternalIPBlock     = newNsUnreadyMessage("System VPC has no external IP blocks", NSReasonVPCNotReady)
+	nsMsgVPCAutoSNATDisabled      = newNsUnreadyMessage("SNAT is not enabled in System VPC", NSReasonVPCSnatNotReady)
+	nsMsgVPCDefaultSNATIPGetError = newNsUnreadyMessage("Default SNAT IP is not allocated in VPC: %v", NSReasonVPCSnatNotReady)
+	nsMsgVPCIsReady               = newNsUnreadyMessage("", "")
+)
+
+type nsUnreadyMessage struct {
+	reason string
+	msg    string
+}
+
+func newNsUnreadyMessage(msg string, reason string) *nsUnreadyMessage {
+	return &nsUnreadyMessage{
+		msg:    msg,
+		reason: reason,
+	}
+}
+
+func (m *nsUnreadyMessage) getNSNetworkCondition(options ...interface{}) *corev1.NamespaceCondition {
+	cond := &corev1.NamespaceCondition{
+		Type:   NamespaceNetworkReady,
+		Status: corev1.ConditionTrue,
+	}
+	if m.reason != "" {
+		cond.Status = corev1.ConditionFalse
+		cond.Reason = m.reason
+		cond.Message = fmt.Sprintf(m.msg, options...)
+	}
+	return cond
+}
+
 // NetworkInfoReconciler NetworkInfoReconcile reconciles a NetworkInfo object
 // Actually it is more like a shell, which is used to manage nsx VPC
 type NetworkInfoReconciler struct {
@@ -60,13 +107,13 @@ func (r *NetworkInfoReconciler) GetVpcConnectivityProfilePathByVpcPath(vpcPath s
 	// TODO, if needs to add a cache for it
 	VPCResourceInfo, err := commonservice.ParseVPCResourcePath(vpcPath)
 	if err != nil {
-		log.Error(err, "failed to parse VPC path", "VPC Path", vpcPath)
+		log.Error(err, "Failed to parse VPC path", "VPC Path", vpcPath)
 		return "", err
 	}
 	// pre created VPC may have more than one attachment, list all the attachment and select the first one
 	vpcAttachmentsListResult, err := r.Service.NSXClient.VpcAttachmentClient.List(VPCResourceInfo.OrgID, VPCResourceInfo.ProjectID, VPCResourceInfo.VPCID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
-		log.Error(err, "failed to list VPC attachment", "VPC Path", vpcPath)
+		log.Error(err, "Failed to list VPC attachment", "VPC Path", vpcPath)
 		return "", err
 	}
 	vpcAttachments := vpcAttachmentsListResult.Results
@@ -75,7 +122,7 @@ func (r *NetworkInfoReconciler) GetVpcConnectivityProfilePathByVpcPath(vpcPath s
 		return *vpcAttachments[0].VpcConnectivityProfile, nil
 	} else {
 		err := fmt.Errorf("no VPC attachment found")
-		log.Error(err, "list VPC attachment", "VPC Path", vpcPath)
+		log.Error(err, "List VPC attachment", "VPC Path", vpcPath)
 		return "", err
 	}
 }
@@ -110,58 +157,68 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		deleteSuccess(r, ctx, networkInfoCR)
 		return common.ResultNormal, nil
 	}
+
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, common.MetricResTypeNetworkInfo)
 	// TODO:
 	// 1. check whether the logic to get VPC network config can be replaced by GetVPCNetworkConfigByNamespace
 	// 2. sometimes the variable nc points to a VPCNetworkInfo, sometimes it's a VPCNetworkConfiguration, we need to distinguish between them.
-	ncName, err := r.Service.GetNetworkconfigNameFromNS(networkInfoCR.Namespace)
+	nc, err := r.getNetworkConfigInfo(networkInfoCR)
 	if err != nil {
-		log.Error(err, "Failed to get network config name for VPC when creating NSX VPC", "NetworkInfo", networkInfoCR.Name)
 		updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
-		return common.ResultRequeueAfter10sec, err
-	}
-	nc, _exist := r.Service.GetVPCNetworkConfig(ncName)
-	if !_exist {
-		message := fmt.Sprintf("Failed to read network config %s when creating NSX VPC", ncName)
-		log.Info(message)
-		updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
-		return common.ResultRequeueAfter10sec, errors.New(message)
-	}
-	log.Info("Fetched network config from store", "NetworkConfig", ncName)
-	vpcNetworkConfiguration := &v1alpha1.VPCNetworkConfiguration{}
-	err = r.Client.Get(ctx, types.NamespacedName{Name: commonservice.SystemVPCNetworkConfigurationName}, vpcNetworkConfiguration)
-	if err != nil {
-		log.Error(err, "Failed to get system VPCNetworkConfiguration")
-		updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
-		return common.ResultRequeueAfter10sec, err
-	}
-	gatewayConnectionReady, _, err := getGatewayConnectionStatus(ctx, vpcNetworkConfiguration)
-	if err != nil {
-		log.Error(err, "Failed to get the gateway connection status", "NetworkInfo", req.NamespacedName)
+		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCNetCfgGetError.getNSNetworkCondition(err))
 		return common.ResultRequeueAfter10sec, err
 	}
 
+	ncName := nc.Name
+	log.Info("Fetched network config from store", "NetworkConfig", ncName)
+
+	systemVpcNetCfg := &v1alpha1.VPCNetworkConfiguration{}
+	err = r.Client.Get(ctx, types.NamespacedName{Name: commonservice.SystemVPCNetworkConfigurationName}, systemVpcNetCfg)
+	if err != nil {
+		log.Error(err, "Failed to get system VPCNetworkConfiguration")
+		updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
+		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgSystemVPCNetCfgNotFound.getNSNetworkCondition(err))
+		return common.ResultRequeueAfter10sec, err
+	}
+
+	retryWithSystemVPC := false
+	var systemNSCondition *corev1.NamespaceCondition
+
+	gatewayConnectionReady, _ := getGatewayConnectionStatus(ctx, systemVpcNetCfg)
 	gatewayConnectionReason := ""
 	if !gatewayConnectionReady {
-		if ncName == commonservice.SystemVPCNetworkConfigurationName {
-			gatewayConnectionReady, gatewayConnectionReason, err = r.Service.ValidateGatewayConnectionStatus(&nc)
-			log.Info("got the gateway connection status", "gatewayConnectionReady", gatewayConnectionReady, "gatewayConnectionReason", gatewayConnectionReason)
-			if err != nil {
-				log.Error(err, "Failed to validate the edge and gateway connection", "Org", nc.Org, "Project", nc.NSXProject)
-				updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
-				return common.ResultRequeueAfter10sec, err
-			}
-			setVPCNetworkConfigurationStatusWithGatewayConnection(ctx, r.Client, vpcNetworkConfiguration, gatewayConnectionReady, gatewayConnectionReason)
-		} else {
+		// Retry after 60s if the gateway connection is not ready in system VPC.
+		if ncName != commonservice.SystemVPCNetworkConfigurationName {
 			log.Info("Skipping reconciliation due to unready system gateway connection", "NetworkInfo", req.NamespacedName)
+			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCGwConnectionNotReady.getNSNetworkCondition())
 			return common.ResultRequeueAfter60sec, nil
 		}
+
+		// Re-check the gateway connection readiness in system VPC on NSX.
+		gatewayConnectionReady, gatewayConnectionReason, err = r.Service.ValidateGatewayConnectionStatus(&nc)
+		log.Info("Got the gateway connection status", "gatewayConnectionReady", gatewayConnectionReady, "gatewayConnectionReason", gatewayConnectionReason)
+		if err != nil {
+			log.Error(err, "Failed to validate the edge and gateway connection", "Org", nc.Org, "Project", nc.NSXProject)
+			updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
+			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCGwConnectionGetError.getNSNetworkCondition(err))
+			return common.ResultRequeueAfter10sec, err
+		}
+		setVPCNetworkConfigurationStatusWithGatewayConnection(ctx, r.Client, systemVpcNetCfg, gatewayConnectionReady, gatewayConnectionReason)
+
+		// Retry after 60s if the gateway connection is still not ready in system VPC.
+		if !gatewayConnectionReady {
+			log.Info("Requeue NetworkInfo CR because VPCNetworkConfiguration system is not ready", "gatewayConnectionReason", gatewayConnectionReason, "req", req)
+			retryWithSystemVPC = true
+			systemNSCondition = nsMsgVPCGwConnectionNotReady.getNSNetworkCondition()
+		}
 	}
+
 	lbProvider := r.Service.GetLBProvider()
 	createdVpc, err := r.Service.CreateOrUpdateVPC(networkInfoCR, &nc, lbProvider)
 	if err != nil {
 		log.Error(err, "Failed to create or update VPC", "NetworkInfo", req.NamespacedName)
 		updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
+		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
 		return common.ResultRequeueAfter10sec, err
 	}
 
@@ -174,23 +231,30 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		vpcPath := *createdVpc.Path
 		vpcConnectivityProfilePath, err = r.GetVpcConnectivityProfilePathByVpcPath(vpcPath)
 		if err != nil {
-			log.Error(err, "failed to get VPC connectivity profile path", "path", vpcPath)
+			log.Error(err, "Failed to get VPC connectivity profile path", "path", vpcPath)
 			updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
 			return common.ResultRequeueAfter10sec, err
 		}
-		// Retrieve NSX lbs path if Avi is not used with the pre-created VPC.
-		if createdVpc.LoadBalancerVpcEndpoint == nil || createdVpc.LoadBalancerVpcEndpoint.Enabled == nil ||
-			!*createdVpc.LoadBalancerVpcEndpoint.Enabled {
+		// Retrieve NSX lbs path if Supervisor is configuring with NSX LB.
+		if lbProvider == vpc.NSXLB {
 			nsxLBSPath, err = r.Service.GetLBSsFromNSXByVPC(vpcPath)
 			if err != nil {
-				log.Error(err, "failed to get NSX LBS path with pre-created VPC", "VPC", createdVpc.Path)
+				log.Error(err, "Failed to get NSX LBS path with pre-created VPC", "VPC", vpcPath)
 				updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
+				setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCNsxLBSNotReady.getNSNetworkCondition(err))
+				return common.ResultRequeueAfter10sec, err
+			}
+			if nsxLBSPath == "" {
+				log.Error(nil, "NSX LB path is not set with pre-created VPC", "VPC", vpcPath)
+				err = fmt.Errorf("NSX LB does not exist")
+				setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCNsxLBSNotReady.getNSNetworkCondition(err))
 				return common.ResultRequeueAfter10sec, err
 			}
 		}
 	} else {
 		privateIPs = nc.PrivateIPs
 		vpcConnectivityProfilePath = nc.VPCConnectivityProfile
+		nsxLBSPath = r.Service.GetDefaultNSXLBSPathByVPC(*createdVpc.Id)
 	}
 
 	snatIP, path, cidr := "", "", ""
@@ -199,16 +263,20 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		log.Error(err, "Failed to get VPC connectivity profile", "NetworkInfo", req.NamespacedName)
 		updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
+		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCGetExtIPBlockError.getNSNetworkCondition(err))
 		return common.ResultRequeueAfter10sec, err
 	}
-	hasExternalIPs := true
+	// Check external IP blocks on system VPC network config.
 	if ncName == commonservice.SystemVPCNetworkConfigurationName {
-		if len(vpcConnectivityProfile.ExternalIpBlocks) == 0 {
-			hasExternalIPs = false
+		hasExternalIPs := len(vpcConnectivityProfile.ExternalIpBlocks) > 0
+		setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx, r.Client, systemVpcNetCfg, hasExternalIPs)
+		if !hasExternalIPs && !retryWithSystemVPC {
 			log.Error(err, "There is no ExternalIPBlock in VPC ConnectivityProfile", "NetworkInfo", req.NamespacedName)
+			retryWithSystemVPC = true
+			systemNSCondition = nsMsgVPCNoExternalIPBlock.getNSNetworkCondition()
 		}
-		setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx, r.Client, vpcNetworkConfiguration, hasExternalIPs)
 	}
+
 	// currently, auto snat is not exposed, and use default value True
 	// checking autosnat to support future extension in VPC configuration
 	autoSnatEnabled := r.Service.IsEnableAutoSNAT(vpcConnectivityProfile)
@@ -223,19 +291,18 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				PrivateIPs:              privateIPs,
 			}
 			updateFail(r, ctx, networkInfoCR, &err, r.Client, state)
+			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCDefaultSNATIPGetError.getNSNetworkCondition(err))
 			return common.ResultRequeueAfter10sec, err
 		}
 	}
 	if ncName == commonservice.SystemVPCNetworkConfigurationName {
-		vpcNetworkConfiguration := &v1alpha1.VPCNetworkConfiguration{}
-		err := r.Client.Get(ctx, types.NamespacedName{Name: ncName}, vpcNetworkConfiguration)
-		if err != nil {
-			log.Error(err, "Failed to get VPCNetworkConfiguration", "Name", ncName)
-			updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
-			return common.ResultRequeueAfter10sec, err
-		}
 		log.Info("Got the AutoSnat status", "autoSnatEnabled", autoSnatEnabled, "NetworkInfo", req.NamespacedName)
-		setVPCNetworkConfigurationStatusWithSnatEnabled(ctx, r.Client, vpcNetworkConfiguration, autoSnatEnabled)
+		setVPCNetworkConfigurationStatusWithSnatEnabled(ctx, r.Client, systemVpcNetCfg, autoSnatEnabled)
+		if !autoSnatEnabled && !retryWithSystemVPC {
+			log.Info("Requeue NetworkInfo CR because VPCNetworkConfiguration system is not ready", "autoSnatEnabled", autoSnatEnabled, "req", req)
+			retryWithSystemVPC = true
+			systemNSCondition = nsMsgVPCAutoSNATDisabled.getNSNetworkCondition()
+		}
 	}
 
 	// if lb VPC enabled, read avi subnet path and cidr
@@ -252,6 +319,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				PrivateIPs:              privateIPs,
 			}
 			updateFail(r, ctx, networkInfoCR, &err, r.Client, state)
+			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCAviSubnetError.getNSNetworkCondition(err))
 			return common.ResultRequeueAfter10sec, err
 		}
 	}
@@ -264,17 +332,16 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		VPCPath:                 *createdVpc.Path,
 	}
 
-	if !isPreCreatedVPC {
-		nsxLBSPath = r.Service.GetDefaultNSXLBSPathByVPC(*createdVpc.Id)
-	}
 	// AKO needs to know the AVI subnet path created by NSX
 	setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, path, nsxLBSPath, *createdVpc.Path)
 	updateSuccess(r, ctx, networkInfoCR, r.Client, state, nc.Name, path)
-	if ncName == commonservice.SystemVPCNetworkConfigurationName && (!gatewayConnectionReady || !autoSnatEnabled || !hasExternalIPs) {
-		log.Info("Requeue NetworkInfo CR because VPCNetworkConfiguration system is not ready", "gatewayConnectionReason", gatewayConnectionReason, "autoSnatEnabled", autoSnatEnabled, "hasExternalIPs", hasExternalIPs, "req", req)
+
+	if retryWithSystemVPC {
+		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, systemNSCondition)
 		return common.ResultRequeueAfter60sec, nil
 	}
 
+	setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCIsReady.getNSNetworkCondition())
 	return common.ResultNormal, nil
 }
 
@@ -463,7 +530,7 @@ func (r *NetworkInfoReconciler) syncPreCreatedVpcIPs(ctx context.Context) {
 	networkInfos := &v1alpha1.NetworkInfoList{}
 	err := r.Client.List(ctx, networkInfos)
 	if err != nil {
-		log.Error(err, "failed to list NetworkInfos")
+		log.Error(err, "Failed to list NetworkInfos")
 		return
 	}
 	networkInfoMap := make(map[string]v1alpha1.NetworkInfo)
@@ -518,4 +585,18 @@ func (r *NetworkInfoReconciler) getQueue(controllerName string, rateLimiter rate
 		})
 	}
 	return r.queue
+}
+
+func (r *NetworkInfoReconciler) getNetworkConfigInfo(networkInfoCR *v1alpha1.NetworkInfo) (commonservice.VPCNetworkConfigInfo, error) {
+	ncName, err := r.Service.GetNetworkconfigNameFromNS(networkInfoCR.Namespace)
+	if err != nil {
+		log.Error(err, "Failed to get network config name for VPC when creating NSX VPC", "NetworkInfo", networkInfoCR.Name)
+		return commonservice.VPCNetworkConfigInfo{}, err
+	}
+	nc, _exist := r.Service.GetVPCNetworkConfig(ncName)
+	if !_exist {
+		log.Error(nil, fmt.Sprintf("network config %s does not exist when creating NSX VPC", ncName))
+		return commonservice.VPCNetworkConfigInfo{}, fmt.Errorf("VPCNetworkConfig %s not found", ncName)
+	}
+	return nc, nil
 }

@@ -69,7 +69,7 @@ func setVPCNetworkConfigurationStatusWithLBS(ctx context.Context, client client.
 	nc := &v1alpha1.VPCNetworkConfiguration{}
 	err := client.Get(ctx, apitypes.NamespacedName{Name: ncName}, nc)
 	if err != nil {
-		log.Error(err, "failed to get VPCNetworkConfiguration", "Name", ncName)
+		log.Error(err, "Failed to get VPCNetworkConfiguration", "Name", ncName)
 		return
 	}
 
@@ -109,7 +109,7 @@ func setVPCNetworkConfigurationStatusWithGatewayConnection(ctx context.Context, 
 	}
 	if conditionsUpdated {
 		client.Status().Update(ctx, nc)
-		log.Info("set VPCNetworkConfiguration status", "ncName", nc.Name, "condition", newConditions[0])
+		log.Info("Set VPCNetworkConfiguration status", "ncName", nc.Name, "condition", newConditions[0])
 	}
 }
 
@@ -149,7 +149,7 @@ func setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx context.Context, 
 	}
 	if mergeStatusCondition(ctx, &nc.Status.Conditions, &newCondition) {
 		if err := client.Status().Update(ctx, nc); err != nil {
-			log.Error(err, "update VPCNetworkConfiguration status failed", "VPCNetworkConfiguration", nc.Name)
+			log.Error(err, "Update VPCNetworkConfiguration status failed", "VPCNetworkConfiguration", nc.Name)
 			return
 		}
 	}
@@ -190,7 +190,7 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 	return nil
 }
 
-func getGatewayConnectionStatus(ctx context.Context, nc *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
+func getGatewayConnectionStatus(ctx context.Context, nc *v1alpha1.VPCNetworkConfiguration) (bool, string) {
 	gatewayConnectionReady := false
 	reason := ""
 	for _, condition := range nc.Status.Conditions {
@@ -203,7 +203,7 @@ func getGatewayConnectionStatus(ctx context.Context, nc *v1alpha1.VPCNetworkConf
 			break
 		}
 	}
-	return gatewayConnectionReady, reason, nil
+	return gatewayConnectionReady, reason
 }
 
 func deleteVPCNetworkConfigurationStatus(ctx context.Context, client client.Client, ncName string, staleVPCs []*model.Vpc, aliveVPCs []model.Vpc) {
@@ -219,7 +219,7 @@ func deleteVPCNetworkConfigurationStatus(ctx context.Context, client client.Clie
 	nc := &v1alpha1.VPCNetworkConfiguration{}
 	err := client.Get(ctx, apitypes.NamespacedName{Name: ncName}, nc)
 	if err != nil {
-		log.Error(err, "failed to get VPCNetworkConfiguration", "Name", ncName)
+		log.Error(err, "Failed to get VPCNetworkConfiguration", "Name", ncName)
 		return
 	}
 	// iterate through VPCNetworkConfiguration.Status.VPCs, if vpcName does not exist in the staleVPCNames, append in new VPCs status
@@ -231,7 +231,7 @@ func deleteVPCNetworkConfigurationStatus(ctx context.Context, client client.Clie
 	}
 	nc.Status.VPCs = newVPCInfos
 	if err := client.Status().Update(ctx, nc); err != nil {
-		log.Error(err, "failed to delete stale VPCNetworkConfiguration status", "Name", ncName, "nc.Status.VPCs", nc.Status.VPCs, "staleVPCs", staleVPCNames)
+		log.Error(err, "Failed to delete stale VPCNetworkConfiguration status", "Name", ncName, "nc.Status.VPCs", nc.Status.VPCs, "staleVPCs", staleVPCNames)
 		return
 	}
 	log.Info("Deleted stale VPCNetworkConfiguration status", "Name", ncName, "nc.Status.VPCs", nc.Status.VPCs, "staleVPCs", staleVPCNames)
@@ -245,4 +245,50 @@ func filterTagFromNSXVPC(nsxVPC *model.Vpc, tagName string) string {
 		}
 	}
 	return ""
+}
+
+func setNSNetworkReadyCondition(ctx context.Context, kubeClient client.Client, nsName string, condition *v1.NamespaceCondition) {
+	obj := &v1.Namespace{}
+	if err := kubeClient.Get(ctx, apitypes.NamespacedName{Name: nsName}, obj); err != nil {
+		log.Error(err, "Unable to fetch Namespace", "Namespace", nsName)
+		return
+	}
+
+	updatedConditions := make([]v1.NamespaceCondition, 0)
+	existingConditions := obj.Status.Conditions
+	var extCondition *v1.NamespaceCondition
+	for i := range existingConditions {
+		cond := obj.Status.Conditions[i]
+		if cond.Type == NamespaceNetworkReady {
+			extCondition = &cond
+		} else {
+			updatedConditions = append(updatedConditions, cond)
+		}
+	}
+	// Return if the failure (reason/message) is already added on Namespace condition.
+	if extCondition != nil && nsConditionEquals(*extCondition, *condition) {
+		return
+	}
+
+	updatedConditions = append(updatedConditions, v1.NamespaceCondition{
+		Type:               condition.Type,
+		Status:             condition.Status,
+		Reason:             condition.Reason,
+		Message:            condition.Message,
+		LastTransitionTime: metav1.Now(),
+	})
+	obj.Status.Conditions = updatedConditions
+	if err := kubeClient.Status().Update(ctx, obj, &client.SubResourceUpdateOptions{}); err != nil {
+		log.Error(err, "Failed to update Namespace status", "Namespace", nsName)
+		return
+	}
+	log.Info("Updated Namespace network condition", "Namespace", nsName, "status", condition.Status, "reason", condition.Reason, "message", condition.Message)
+}
+
+// nsConditionEquals compares the old and new Namespace condition. The compare ignores the differences in field
+// "LastTransitionTime". It returns true if all other fields in the two Conditions are the same, otherwise, it returns
+// false. Ignoring the difference on LastTransitionTime may reduce the number of the Namespace update events.
+func nsConditionEquals(old, new v1.NamespaceCondition) bool {
+	return old.Type == new.Type && old.Status == new.Status &&
+		old.Reason == new.Reason && old.Message == new.Message
 }
