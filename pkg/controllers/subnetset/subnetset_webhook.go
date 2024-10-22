@@ -22,8 +22,8 @@ var NSXOperatorSA = "system:serviceaccount:vmware-system-nsx:ncp-svc-account"
 // inspect admission.Request in Handle function.
 
 // +kubebuilder:webhook:path=/validate-crd-nsx-vmware-com-v1alpha1-subnetset,mutating=false,failurePolicy=fail,sideEffects=None,
-//groups=crd.nsx.vmware.com,resources=subnetsets,verbs=create;update,versions=v1alpha1,
-//name=default.subnetset.validating.crd.nsx.vmware.com,admissionReviewVersions=v1
+//groups=crd.nsx.vmware.com,resources=subnetsets,verbs=create;update;delete,versions=v1alpha1,
+//name=subnetset.validating.crd.nsx.vmware.com,admissionReviewVersions=v1
 
 type SubnetSetValidator struct {
 	Client  client.Client
@@ -92,6 +92,13 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		}
 	case admissionv1.Delete:
 		if !isDefaultSubnetSet(subnetSet) {
+			hasSubnetPort, err := v.checkSubnetPort(ctx, subnetSet.Namespace, subnetSet.Name)
+			if err != nil {
+				return admission.Errored(http.StatusBadRequest, err)
+			}
+			if hasSubnetPort {
+				return admission.Denied(fmt.Sprintf("SubnetSet %s/%s with stale SubnetPorts cannot be deleted", subnetSet.Namespace, subnetSet.Name))
+			}
 			return admission.Allowed("")
 		}
 		if req.UserInfo.Username == NSXOperatorSA {
@@ -100,4 +107,18 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		return admission.Denied("default SubnetSet only can be deleted by nsx-operator")
 	}
 	return admission.Allowed("")
+}
+
+func (v *SubnetSetValidator) checkSubnetPort(ctx context.Context, ns string, subnetSetName string) (bool, error) {
+	crdSubnetPorts := &v1alpha1.SubnetPortList{}
+	err := v.Client.List(ctx, crdSubnetPorts)
+	if err != nil {
+		return false, fmt.Errorf("failed to list SubnetPort: %v", err)
+	}
+	for _, crdSubnetPort := range crdSubnetPorts.Items {
+		if crdSubnetPort.Namespace == ns && crdSubnetPort.Spec.SubnetSet == subnetSetName {
+			return true, nil
+		}
+	}
+	return false, nil
 }
