@@ -95,7 +95,6 @@ func fakeSearchResource(_ *common.Service, resourceTypeValue string, _ string, s
 		return count, fmt.Errorf("unsupported search type %s", resourceTypeValue)
 	}
 	return count, nil
-
 }
 
 func TestIPBlocksInfoService_UpdateIPBlocksInfo(t *testing.T) {
