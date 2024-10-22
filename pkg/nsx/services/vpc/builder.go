@@ -51,8 +51,7 @@ func combineVPCIDAndLBSID(vpcID, lbsID string) string {
 }
 
 func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNetworkConfigInfo, cluster string,
-	nsxVPC *model.Vpc, useAVILB bool, lbProviderChanged bool) (*model.Vpc,
-	error) {
+	nsxVPC *model.Vpc, useAVILB bool, lbProviderChanged bool) (*model.Vpc, error) {
 	vpc := &model.Vpc{}
 	if nsxVPC != nil {
 		// for upgrade case, only check public/private ip block size changing
