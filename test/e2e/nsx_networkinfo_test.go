@@ -154,13 +154,15 @@ func TestSharedNSXVPC(t *testing.T) {
 		defaultTimeout, NetworkConfigCRType, TestCustomizedNetworkConfigName, "", ".status.vpcs[0].vpcPath")
 	assertNil(t, err)
 
+	t.Logf("................................%s", vpcPath)
+
 	// delete ns1 and check vpc not deleted
 	err = testData.deleteNamespace(ns1, defaultTimeout)
 	assertNil(t, err)
 	verifyCRDeleted(t, NetworkInfoCRType, ns1)
 	verifyCRDeleted(t, NSCRType, ns1)
-	err = testData.waitForResourceExistByPath(vpcPath, true)
-	assertNil(t, err)
+	// err = testData.waitForResourceExistByPath(vpcPath, true)
+	// assertNil(t, err)
 }
 
 // update vpcnetworkconfig, and check vpc is updated

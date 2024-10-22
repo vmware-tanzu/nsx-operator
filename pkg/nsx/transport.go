@@ -36,7 +36,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 		func() error {
 			ep, err := t.selectEndpoint()
 			if err != nil {
-				log.Error(err, "endpoint is unavailable")
+				log.Error(err, "Endpoint is unavailable")
 				return err
 			}
 			ep.increaseConnNumber()
@@ -64,7 +64,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			resp.Body = io.NopCloser(bytes.NewReader(body))
 
 			if err != nil {
-				log.Error(err, "failed to extract HTTP body")
+				log.Error(err, "Failed to extract HTTP body")
 				return util.CreateGeneralManagerError(ep.Host(), "extract http", err.Error())
 			}
 

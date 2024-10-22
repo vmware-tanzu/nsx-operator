@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	mapset "github.com/deckarep/golang-set"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -17,28 +17,42 @@ type (
 )
 
 const (
-	PolicyAPI = "policy/api/v1"
+	PolicyAPI                = "policy/api/v1"
+	AviSubnetPortsPathSuffix = "/subnets/%s/ports/"
 )
 
-var AviSubnetPortsPathSuffix = fmt.Sprintf("/subnets/%s/ports/", common.AVISubnetLBID)
+var aviSubnetPortsPathSuffix = fmt.Sprintf(AviSubnetPortsPathSuffix, common.AVISubnetLBID)
 
-func httpGetAviPortsPaths(cluster *nsx.Cluster, vpcPath string) (mapset.Set, error) {
-	aviSubnetPortsPath := vpcPath + AviSubnetPortsPathSuffix
+func httpGetAviPortsPaths(cluster *nsx.Cluster, vpcPath string) (sets.Set[string], error) {
+	aviSubnetPortsPath := vpcPath + aviSubnetPortsPathSuffix
 	url := PolicyAPI + aviSubnetPortsPath
 
 	resp, err := cluster.HttpGet(url)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to fetch Avi Subnet ports paths: %w", err)
 	}
-	aviPathSet := mapset.NewSet()
-	for _, item := range resp["results"].([]interface{}) {
-		aviPathSet.Add(item.(mapInterface)["path"].(string))
+
+	aviPathSet := sets.New[string]()
+	results, ok := resp["results"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("unexpected type for results: %T", resp["results"])
+	}
+
+	for _, item := range results {
+		itemMap, ok := item.(mapInterface)
+		if !ok {
+			continue
+		}
+		path, ok := itemMap["path"].(string)
+		if ok {
+			aviPathSet.Insert(path)
+		}
 	}
 	return aviPathSet, nil
 }
 
 func CleanAviSubnetPorts(ctx context.Context, cluster *nsx.Cluster, vpcPath string) error {
-	log.Info("Deleting Avi subnetports started")
+	log.Info("Deleting Avi Subnet ports started", "vpcPath", vpcPath)
 
 	allPaths, err := httpGetAviPortsPaths(cluster, vpcPath)
 	/*
@@ -48,21 +62,21 @@ func CleanAviSubnetPorts(ctx context.Context, cluster *nsx.Cluster, vpcPath stri
 	*/
 	if err != nil {
 		if errors.Is(err, nsxutil.HttpNotFoundError) || errors.Is(err, nsxutil.HttpBadRequest) {
-			log.Info("No Avi subnetports found")
+			log.Info("No Avi Subnet ports found", "vpcPath", vpcPath)
 			return nil
 		}
-		return err
+		return fmt.Errorf("error getting Avi Subnet ports: %w", err)
 	}
 
-	log.Info("Deleting Avi subnetport", "paths", allPaths)
-	for _, path := range allPaths.ToSlice() {
-		url := PolicyAPI + path.(string)
+	log.Info("Deleting Avi Subnet port", "paths", allPaths)
+	for path := range allPaths {
+		url := PolicyAPI + path
 		select {
 		case <-ctx.Done():
 			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
 		default:
 			if err := cluster.HttpDelete(url); err != nil {
-				return err
+				return fmt.Errorf("failed to delete Avi Subnet port at %s: %w", url, err)
 			}
 		}
 	}

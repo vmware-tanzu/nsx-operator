@@ -7,12 +7,14 @@ import (
 	"strings"
 	"sync"
 
-	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
+	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
+	apirrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -26,21 +28,15 @@ import (
 type LBProvider string
 
 const (
-	VpcDefaultSecurityPolicyId = "default-layer3-section"
-	VPCKey                     = "/orgs/%s/projects/%s/vpcs/%s"
-	GroupKey                   = "/orgs/%s/projects/%s/vpcs/%s/groups/%s"
-	SecurityPolicyKey          = "/orgs/%s/projects/%s/vpcs/%s/security-policies/%s"
-	RuleKey                    = "/orgs/%s/projects/%s/vpcs/%s/security-policies/%s/rules/%s"
-	albEndpointPath            = "policy/api/v1/infra/sites/default/enforcement-points/alb-endpoint"
-	edgeClusterPath            = "api/v1/edge-clusters"
-	NSXLB                      = LBProvider("nsx-lb")
-	AVILB                      = LBProvider("avi")
-	NoneLB                     = LBProvider("none")
+	VPCKey          = "/orgs/%s/projects/%s/vpcs/%s"
+	albEndpointPath = "policy/api/v1/infra/sites/default/enforcement-points/alb-endpoint"
+	NSXLB           = LBProvider("nsx-lb")
+	AVILB           = LBProvider("avi")
+	NoneLB          = LBProvider("none")
 )
 
 var (
 	log                       = &logger.Log
-	ctx                       = context.Background()
 	ResourceTypeVPC           = common.ResourceTypeVpc
 	NewConverter              = common.NewConverter
 	globalLbProvider          = NoneLB
@@ -186,10 +182,10 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	return VPCService, nil
 }
 
-func (s *VPCService) GetVPCsByNamespace(namespace string) []*model.Vpc {
-	sns, err := s.getSharedVPCNamespaceFromNS(namespace)
+func (s *VPCService) GetVPCsByNamespace(ctx context.Context, namespace string) []*model.Vpc {
+	sns, err := s.getSharedVPCNamespaceFromNS(ctx, namespace)
 	if err != nil {
-		log.Error(err, "Failed to get namespace.")
+		log.Error(err, "Failed to get Namespace.")
 		return nil
 	}
 	return s.VpcStore.GetVPCsByNamespace(util.If(sns == "", namespace, sns).(string))
@@ -197,7 +193,7 @@ func (s *VPCService) GetVPCsByNamespace(namespace string) []*model.Vpc {
 
 func (s *VPCService) ListVPC() []model.Vpc {
 	vpcs := s.VpcStore.List()
-	vpcSet := []model.Vpc{}
+	var vpcSet []model.Vpc
 	for _, vpc := range vpcs {
 		vpcSet = append(vpcSet, *vpc.(*model.Vpc))
 	}
@@ -441,6 +437,7 @@ func (s *VPCService) DeleteLBMonitorProfile(id string) error {
 	log.Info("successfully deleted NCP created lbMonitorProfile", "lbMonitorProfile", id)
 	return nil
 }
+
 func (s *VPCService) ListLBVirtualServer() []model.LBVirtualServer {
 	store := &ResourceStore{ResourceStore: common.ResourceStore{
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
@@ -519,27 +516,36 @@ func (s *VPCService) DeleteLBPool(path string) error {
 	log.Info("successfully deleted NCP created lbPool", "lbPool", path)
 	return nil
 }
-func (s *VPCService) IsSharedVPCNamespaceByNS(ns string) (bool, error) {
-	shared_ns, err := s.getSharedVPCNamespaceFromNS(ns)
+
+func (s *VPCService) IsSharedVPCNamespaceByNS(ctx context.Context, ns string) (bool, error) {
+	sharedNS, err := s.getSharedVPCNamespaceFromNS(ctx, ns)
 	if err != nil {
+		if apirrors.IsNotFound(err) {
+			return false, nil
+		}
 		return false, err
 	}
-	if shared_ns == "" {
+	if sharedNS == "" {
 		return false, nil
 	}
-	if shared_ns != ns {
+	if sharedNS != ns {
 		return true, nil
 	}
 	return false, err
 }
 
-func (s *VPCService) getSharedVPCNamespaceFromNS(ns string) (string, error) {
+func getNamespace(c client.Client, ctx context.Context, ns string) (*v1.Namespace, error) {
 	obj := &v1.Namespace{}
-	if err := s.Client.Get(ctx, types.NamespacedName{
-		Name:      ns,
-		Namespace: ns,
-	}, obj); err != nil {
-		log.Error(err, "failed to fetch namespace", "Namespace", ns)
+	if err := c.Get(ctx, types.NamespacedName{Name: ns}, obj); err != nil {
+		log.Error(err, "Failed to fetch Namespace", "Namespace", ns)
+		return nil, err
+	}
+	return obj, nil
+}
+
+func (s *VPCService) getSharedVPCNamespaceFromNS(ctx context.Context, ns string) (string, error) {
+	obj, err := getNamespace(s.Client, ctx, ns)
+	if err != nil {
 		return "", err
 	}
 
@@ -557,13 +563,9 @@ func (s *VPCService) getSharedVPCNamespaceFromNS(ns string) (string, error) {
 	return shared_ns, nil
 }
 
-func (s *VPCService) GetNetworkconfigNameFromNS(ns string) (string, error) {
-	obj := &v1.Namespace{}
-	if err := s.Client.Get(ctx, types.NamespacedName{
-		Name:      ns,
-		Namespace: ns,
-	}, obj); err != nil {
-		log.Error(err, "failed to fetch namespace", "Namespace", ns)
+func (s *VPCService) GetNetworkconfigNameFromNS(ctx context.Context, ns string) (string, error) {
+	obj, err := getNamespace(s.Client, ctx, ns)
+	if err != nil {
 		return "", err
 	}
 
@@ -697,16 +699,18 @@ func (s *VPCService) IsLBProviderChanged(existingVPC *model.Vpc, lbProvider LBPr
 	}
 	return false
 }
-func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPCNetworkConfigInfo, lbProvider LBProvider) (*model.Vpc, error) {
+
+func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.NetworkInfo, nc *common.VPCNetworkConfigInfo, lbProvider LBProvider) (*model.Vpc, error) {
 	// check from VPC store if VPC already exist
 	ns := obj.Namespace
-	updateVpc := false
 	nsObj := &v1.Namespace{}
 	// get Namespace
 	if err := s.Client.Get(ctx, types.NamespacedName{Name: obj.Namespace}, nsObj); err != nil {
-		log.Error(err, "unable to fetch Namespace", "Name", obj.Namespace)
+		log.Error(err, "Unable to fetch Namespace", "Name", obj.Namespace)
 		return nil, err
 	}
+
+	updateVpc := false
 
 	// Return pre-created VPC resource if it is used in the VPCNetworkConfiguration
 	if IsPreCreatedVPC(*nc) {
@@ -721,12 +725,12 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPC
 	// check if this namespace vpc share from others, if yes
 	// then check if the shared vpc created or not, if yes
 	// then directly return this vpc, if not, requeue
-	isShared, err := s.IsSharedVPCNamespaceByNS(ns)
+	isShared, err := s.IsSharedVPCNamespaceByNS(ctx, ns)
 	if err != nil {
 		return nil, err
 	}
 
-	existingVPC := s.GetVPCsByNamespace(ns)
+	existingVPC := s.GetVPCsByNamespace(ctx, ns)
 	if len(existingVPC) != 0 { // We now consider only one VPC for one namespace
 		if isShared {
 			log.Info("The shared VPC already exist", "Namespace", ns)
@@ -889,7 +893,7 @@ func (s *VPCService) GetGatewayConnectionTypeFromConnectionPath(connectionPath s
 
 func (s *VPCService) ValidateGatewayConnectionStatus(nc *common.VPCNetworkConfigInfo) (bool, string, error) {
 	var connectionPaths []string // i.e. gateway connection paths
-	var profiles []model.VpcConnectivityProfile
+	// var profiles []model.VpcConnectivityProfile
 	var cursor *string
 	pageSize := int64(1000)
 	markedForDelete := false
@@ -898,13 +902,14 @@ func (s *VPCService) ValidateGatewayConnectionStatus(nc *common.VPCNetworkConfig
 	if err != nil {
 		return false, "", err
 	}
-	profiles = append(profiles, res.Results...)
-	for _, profile := range profiles {
+	// profiles = append(profiles, res.Results...)
+	for _, profile := range res.Results {
 		transitGatewayPath := *profile.TransitGatewayPath
 		parts := strings.Split(transitGatewayPath, "/")
 		transitGatewayId := parts[len(parts)-1]
 		res, err := s.NSXClient.TransitGatewayAttachmentClient.List(nc.Org, nc.NSXProject, transitGatewayId, nil, &markedForDelete, nil, nil, nil, nil)
 		err = nsxutil.TransNSXApiError(err)
+
 		if err != nil {
 			return false, "", err
 		}
@@ -1074,11 +1079,11 @@ func (s *VPCService) ListVPCInfo(ns string) []common.VPCResourceInfo {
 	}
 
 	// List VPCs from local store.
-	vpcs := s.GetVPCsByNamespace(ns) // Transparently call the VPCService.GetVPCsByNamespace method
+	vpcs := s.GetVPCsByNamespace(context.Background(), ns) // Transparently call the VPCService.GetVPCsByNamespace method
 	for _, v := range vpcs {
 		vpcResourceInfo, err := common.ParseVPCResourcePath(*v.Path)
 		if err != nil {
-			log.Error(err, "Failed to get vpc info from vpc path", "vpc path", *v.Path)
+			log.Error(err, "Failed to get VPC info from VPC path", "VPCPath", *v.Path)
 		}
 		vpcResourceInfo.PrivateIpv4Blocks = v.PrivateIpv4Blocks
 		VPCInfoList = append(VPCInfoList, vpcResourceInfo)
@@ -1094,19 +1099,19 @@ func (s *VPCService) GetDefaultNSXLBSPathByVPC(vpcID string) string {
 	return *vpcLBS.Path
 }
 
-func (vpcService *VPCService) EdgeClusterEnabled(nc *common.VPCNetworkConfigInfo) bool {
+func (s *VPCService) EdgeClusterEnabled(nc *common.VPCNetworkConfigInfo) bool {
 	isRetryableError := func(err error) bool {
 		if err == nil {
 			return false
 		}
 		_, errorType := nsxutil.DumpAPIError(err)
-		return errorType != nil && (*errorType == apierrors.ErrorType_SERVICE_UNAVAILABLE || *errorType == apierrors.ErrorType_TIMED_OUT)
+		return errorType != nil && (*errorType == stderrors.ErrorType_SERVICE_UNAVAILABLE || *errorType == stderrors.ErrorType_TIMED_OUT)
 	}
 
 	var vpcConnectivityProfile *model.VpcConnectivityProfile
 	if err := retry.OnError(retry.DefaultBackoff, isRetryableError, func() error {
 		var getErr error
-		vpcConnectivityProfile, getErr = vpcService.GetVpcConnectivityProfile(nc, nc.VPCConnectivityProfile)
+		vpcConnectivityProfile, getErr = s.GetVpcConnectivityProfile(nc, nc.VPCConnectivityProfile)
 		if getErr != nil {
 			return getErr
 		}
@@ -1116,7 +1121,7 @@ func (vpcService *VPCService) EdgeClusterEnabled(nc *common.VPCNetworkConfigInfo
 		log.Error(err, "Failed to retrieve VPC connectivity profile", "profile", nc.VPCConnectivityProfile)
 		return false
 	}
-	return vpcService.IsEnableAutoSNAT(vpcConnectivityProfile)
+	return s.IsEnableAutoSNAT(vpcConnectivityProfile)
 }
 
 func GetAlbEndpoint(cluster *nsx.Cluster) error {
@@ -1124,7 +1129,7 @@ func GetAlbEndpoint(cluster *nsx.Cluster) error {
 	return err
 }
 
-func (vpcService *VPCService) IsEnableAutoSNAT(vpcConnectivityProfile *model.VpcConnectivityProfile) bool {
+func (s *VPCService) IsEnableAutoSNAT(vpcConnectivityProfile *model.VpcConnectivityProfile) bool {
 	if vpcConnectivityProfile.ServiceGateway == nil || vpcConnectivityProfile.ServiceGateway.Enable == nil {
 		return false
 	}
@@ -1137,34 +1142,34 @@ func (vpcService *VPCService) IsEnableAutoSNAT(vpcConnectivityProfile *model.Vpc
 	return false
 }
 
-func (vpcService *VPCService) GetLBProvider() LBProvider {
+func (s *VPCService) GetLBProvider() LBProvider {
 	lbProviderMutex.Lock()
 	defer lbProviderMutex.Unlock()
 	if globalLbProvider != NoneLB {
-		log.V(1).Info("lb provider", "current provider", globalLbProvider)
+		log.V(1).Info("LB provider", "current provider", globalLbProvider)
 		return globalLbProvider
 	}
 
 	ncName := common.SystemVPCNetworkConfigurationName
-	netConfig, found := vpcService.GetVPCNetworkConfig(ncName)
+	netConfig, found := s.GetVPCNetworkConfig(ncName)
 	if !found {
-		log.Info("get lb provider", "No system network config found", ncName)
+		log.Info("Get lb provider", "No system network config found", ncName)
 		return NoneLB
 	}
 	nc := &netConfig
 
-	edgeEnable := vpcService.EdgeClusterEnabled(nc)
-	globalLbProvider = vpcService.getLBProvider(edgeEnable)
+	edgeEnable := s.EdgeClusterEnabled(nc)
+	globalLbProvider = s.getLBProvider(edgeEnable)
 	log.Info("lb provider", "provider", globalLbProvider)
 	return globalLbProvider
 }
 
-func (vpcService *VPCService) getLBProvider(edgeEnable bool) LBProvider {
+func (s *VPCService) getLBProvider(edgeEnable bool) LBProvider {
 	// if no Alb endpoint found, return nsx-lb
 	// if found, and nsx lbs found, return nsx-lb
 	// else return avi
 	log.Info("checking lb provider")
-	if vpcService.Service.NSXConfig.UseAVILoadBalancer {
+	if s.Service.NSXConfig.UseAVILoadBalancer {
 		albEndpointFound := false
 		if err := retry.OnError(retry.DefaultBackoff, func(err error) bool {
 			if err == nil {
@@ -1176,11 +1181,11 @@ func (vpcService *VPCService) getLBProvider(edgeEnable bool) LBProvider {
 				return false
 			}
 		}, func() error {
-			return GetAlbEndpoint(vpcService.Service.NSXClient.Cluster)
+			return GetAlbEndpoint(s.Service.NSXClient.Cluster)
 		}); err == nil {
 			albEndpointFound = true
 		}
-		if albEndpointFound && len(vpcService.LbsStore.List()) == 0 {
+		if albEndpointFound && len(s.LbsStore.List()) == 0 {
 			return AVILB
 		}
 	}

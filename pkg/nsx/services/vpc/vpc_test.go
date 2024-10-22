@@ -186,17 +186,18 @@ func TestGetNetworkConfigFromNS(t *testing.T) {
 	k8sClient := service.Client.(*mock_client.MockClient)
 	fakeErr := errors.New("fake error")
 	mockNs := &v1.Namespace{}
+	ctx := context.Background()
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(fakeErr).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		return nil
 	})
-	ns, err := service.GetNetworkconfigNameFromNS("test")
+	ns, err := service.GetNetworkconfigNameFromNS(ctx, "test")
 	assert.Equal(t, fakeErr, err)
 	assert.Equal(t, "", ns)
 
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(nil).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		return nil
 	})
-	ns, err = service.GetNetworkconfigNameFromNS("test")
+	ns, err = service.GetNetworkconfigNameFromNS(ctx, "test")
 	assert.NotNil(t, err)
 	assert.Equal(t, "", ns)
 
@@ -208,7 +209,7 @@ func TestGetNetworkConfigFromNS(t *testing.T) {
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(nil).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		return nil
 	})
-	ns, err = service.GetNetworkconfigNameFromNS("test")
+	ns, err = service.GetNetworkconfigNameFromNS(ctx, "test")
 	assert.Nil(t, err)
 	assert.Equal(t, "test-name", ns)
 
@@ -216,7 +217,7 @@ func TestGetNetworkConfigFromNS(t *testing.T) {
 		obj.SetAnnotations(map[string]string{"nsx.vmware.com/vpc_network_config": "test-nc"})
 		return nil
 	})
-	ns, err = service.GetNetworkconfigNameFromNS("test")
+	ns, err = service.GetNetworkconfigNameFromNS(ctx, "test")
 	assert.Nil(t, err)
 	assert.Equal(t, "test-nc", ns)
 }
@@ -229,7 +230,7 @@ func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
 
 	mockNs := &v1.Namespace{}
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(errors.New("fake-error"))
-	got, err := service.getSharedVPCNamespaceFromNS("fake-ns")
+	got, err := service.getSharedVPCNamespaceFromNS(ctx, "fake-ns")
 	assert.NotNil(t, err)
 	assert.Equal(t, "", got)
 
@@ -251,7 +252,7 @@ func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
 				v1ns.ObjectMeta.Annotations = tt.anno
 				return nil
 			})
-			ns, _err := service.getSharedVPCNamespaceFromNS(tt.ns)
+			ns, _err := service.getSharedVPCNamespaceFromNS(ctx, tt.ns)
 			assert.Equal(t, tt.expected, ns)
 			assert.Nil(t, _err)
 
@@ -281,6 +282,7 @@ func TestGetDefaultNetworkConfig(t *testing.T) {
 }
 
 func TestGetVPCsByNamespace(t *testing.T) {
+	ctx := context.Background()
 	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
@@ -386,7 +388,7 @@ func TestGetVPCsByNamespace(t *testing.T) {
 			patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "getSharedVPCNamespaceFromNS", func(_ *VPCService, ns string) (string, error) {
 				return tt.args.infra, nil
 			})
-			vpc_list_1 := service.GetVPCsByNamespace(tt.args.ns)
+			vpc_list_1 := service.GetVPCsByNamespace(ctx, tt.args.ns)
 			if len(vpc_list_1) != tt.args.size {
 				t.Errorf("size = %v, want %v", len(vpc_list_1), tt.args.size)
 			}
@@ -398,10 +400,6 @@ func TestGetVPCsByNamespace(t *testing.T) {
 			patch.Reset()
 		})
 	}
-}
-
-func TestListVPCInfo(t *testing.T) {
-
 }
 
 func TestGetLBProvider(t *testing.T) {
@@ -422,42 +420,65 @@ func TestGetLBProvider(t *testing.T) {
 		}},
 	}
 
-	// Test when globalLbProvider is avi lb
-	vpcService.Service.NSXConfig.UseAVILoadBalancer = false
-	globalLbProvider = AVILB
-	lbProvider := vpcService.GetLBProvider()
-	assert.True(t, lbProvider == AVILB)
+	testCases := []struct {
+		name             string
+		prepareFuncs     func() *gomonkey.Patches
+		lbprovider       LBProvider
+		expectLBProvider LBProvider
+	}{
+		{
+			name:             "Test when globalLbProvider is avi lb",
+			lbprovider:       AVILB,
+			expectLBProvider: AVILB,
+		},
+		{
+			name:             "Test when globalLbProvider is nsx lb",
+			lbprovider:       NSXLB,
+			expectLBProvider: NSXLB,
+		},
+		{
+			name:             "Test when globalLbProvider is none lb and GetVPCNetworkConfig",
+			lbprovider:       NoneLB,
+			expectLBProvider: NSXLB,
+			prepareFuncs: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&VPCService{}), "EdgeClusterEnabled", func(_ *VPCService, _ *common.VPCNetworkConfigInfo) bool {
+					return false
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(&VPCService{}), "getLBProvider", func(_ *VPCService, _ bool) LBProvider {
+					return NSXLB
+				})
+				patches.ApplyMethod(reflect.TypeOf(&VPCService{}), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (common.VPCNetworkConfigInfo, bool) {
+					return common.VPCNetworkConfigInfo{}, true
+				})
+				return patches
+			},
+		},
+		{
+			name:             "Test when globalLbProvider is none lb GetVPCNetworkConfig none",
+			lbprovider:       NoneLB,
+			expectLBProvider: NoneLB,
+			prepareFuncs: func() *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (common.VPCNetworkConfigInfo, bool) {
+					return common.VPCNetworkConfigInfo{}, false
+				})
+			},
+		},
+	}
 
-	// Test when globalLbProvider is nsx lb
-	globalLbProvider = NSXLB
-	lbProvider = vpcService.GetLBProvider()
-	assert.True(t, lbProvider == NSXLB)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			globalLbProvider = testCase.lbprovider
+			vpcService.Service.NSXConfig.UseAVILoadBalancer = false
 
-	// Test when globalLbProvider is none lb
-	globalLbProvider = NoneLB
-	patch1 := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "EdgeClusterEnabled", func(_ *VPCService, _ *common.VPCNetworkConfigInfo) bool {
-		return false
-	})
-	patch2 := gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService), "getLBProvider", func(_ *VPCService, _ bool) LBProvider {
-		return NSXLB
-	})
-	patch3 := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (common.VPCNetworkConfigInfo, bool) {
-		return common.VPCNetworkConfigInfo{}, true
-	})
-	lbProvider = vpcService.GetLBProvider()
-	assert.True(t, lbProvider == NSXLB)
+			if testCase.prepareFuncs != nil {
+				patches := testCase.prepareFuncs()
+				defer patches.Reset()
+			}
 
-	patch3.Reset()
-	globalLbProvider = NoneLB
-	patch3 = gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (common.VPCNetworkConfigInfo, bool) {
-		return common.VPCNetworkConfigInfo{}, false
-	})
-	lbProvider = vpcService.GetLBProvider()
-	assert.True(t, lbProvider == NoneLB)
-	patch2.Reset()
-	patch1.Reset()
-	patch3.Reset()
-
+			lbProvider := vpcService.GetLBProvider()
+			assert.Equal(t, testCase.expectLBProvider, lbProvider)
+		})
+	}
 }
 
 func TestEdgeClusterEnabled(t *testing.T) {
@@ -732,7 +753,7 @@ func TestValidateGatewayConnectionStatus(t *testing.T) {
 		{
 			name: "DistributedGatewayConnectionNotSupported",
 			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
-				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "List", []gomonkey.OutputCell{{
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(fakeVPCConnectivityProfilesClient{}), "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{
 						model.VpcConnectivityProfileListResult{
 							Results: []model.VpcConnectivityProfile{
@@ -1310,7 +1331,7 @@ func TestVPCService_DeleteVPC(t *testing.T) {
 		},
 	}
 	// We do not need to verify copylocks for test case.
-	//nolint: copylocks
+	// nolint: copylocks
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 
@@ -1337,13 +1358,13 @@ func TestVPCService_DeleteVPC(t *testing.T) {
 			}
 
 			if tt.checkLBStore {
-				//if prepare func executed, then lb store should be empty
+				// if prepare func executed, then lb store should be empty
 				lb := service.LbsStore.GetByKey(mockLBKey)
 				assert.Nil(t, lb)
 			}
 
 			if tt.checkVPCStore {
-				//if prepare func executed, then vpc store should be empty
+				// if prepare func executed, then vpc store should be empty
 				lb := service.LbsStore.GetByKey(mockLBKey)
 				assert.Nil(t, lb)
 			}
