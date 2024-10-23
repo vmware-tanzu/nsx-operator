@@ -193,9 +193,10 @@ func (r *SubnetReconciler) deleteSubnetByName(name, ns string) error {
 }
 
 func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {
-	nsxSubnet := r.SubnetService.SubnetStore.GetByKey(r.SubnetService.BuildSubnetID(obj))
-	if nsxSubnet == nil {
-		return errors.New("failed to get NSX Subnet from store")
+	// if the nsxSubnet is nil, GetSubnetByKey will return error: NSX subnet not found in store
+	nsxSubnet, err := r.SubnetService.GetSubnetByKey(r.SubnetService.BuildSubnetID(obj))
+	if err != nil {
+		return fmt.Errorf("failed to get NSX Subnet from store: %v", err)
 	}
 	obj.Status.NetworkAddresses = obj.Status.NetworkAddresses[:0]
 	obj.Status.GatewayAddresses = obj.Status.GatewayAddresses[:0]
@@ -354,8 +355,7 @@ func (r *SubnetReconciler) setupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *SubnetReconciler) listSubnetIDsFromCRs(ctx context.Context) ([]string, error) {
-	crdSubnetList := &v1alpha1.SubnetList{}
-	err := r.Client.List(ctx, crdSubnetList)
+	crdSubnetList, err := listSubnet(r.Client, ctx)
 	if err != nil {
 		return nil, err
 	}
