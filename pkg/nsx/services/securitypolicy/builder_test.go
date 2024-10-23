@@ -17,6 +17,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 func TestBuildSecurityPolicy(t *testing.T) {
@@ -945,61 +946,52 @@ func TestBuildRulePortsString(t *testing.T) {
 	tests := []struct {
 		name                    string
 		inputPorts              []v1alpha1.SecurityPolicyPort
-		suffix                  string
 		expectedRulePortsString string
 	}{
 		{
 			name:                    "build-string-for-multiple-ports-without-named-port",
 			inputPorts:              securityPolicyWithMultipleNormalPorts.Spec.Rules[0].Ports,
-			suffix:                  "ingress_allow",
-			expectedRulePortsString: "TCP.80_UDP.1234.1235_ingress_allow",
+			expectedRulePortsString: "TCP.80_UDP.1234.1235",
 		},
 		{
 			name:                    "build-string-for-multiple-ports-userdefinedrule-without-named-port",
 			inputPorts:              securityPolicyWithMultipleNormalPorts.Spec.Rules[1].Ports,
-			suffix:                  "egress_drop",
-			expectedRulePortsString: "TCP.88_UDP.1236.1237_egress_drop",
+			expectedRulePortsString: "TCP.88_UDP.1236.1237",
 		},
 		{
 			name:                    "build-string-for-multiple-ports-start-end-port-same-without-named-port",
 			inputPorts:              securityPolicyWithMultipleNormalPorts.Spec.Rules[2].Ports,
-			suffix:                  "egress_allow",
-			expectedRulePortsString: "TCP.80_UDP.1234.1234_egress_allow",
+			expectedRulePortsString: "TCP.80_UDP.1234.1234",
 		},
 		{
 			name:                    "build-string-for-multiple-ports-with-http-named-port",
 			inputPorts:              securityPolicyWithOneNamedPort.Spec.Rules[0].Ports,
-			suffix:                  "ingress_allow",
-			expectedRulePortsString: "TCP.http_UDP.1234.1235_ingress_allow",
+			expectedRulePortsString: "TCP.http_UDP.1234.1235",
 		},
 		{
 			name:                    "build-string-for-multiple-ports-with-https-named-port",
 			inputPorts:              securityPolicyWithOneNamedPort.Spec.Rules[1].Ports,
-			suffix:                  "ingress_allow",
-			expectedRulePortsString: "TCP.https_UDP.1236.1237_ingress_allow",
+			expectedRulePortsString: "TCP.https_UDP.1236.1237",
 		},
 		{
 			name:                    "build-string-for-multiple-ports-with-web-named-port",
 			inputPorts:              securityPolicyWithOneNamedPort.Spec.Rules[2].Ports,
-			suffix:                  "ingress_allow",
-			expectedRulePortsString: "TCP.web_UDP.533_ingress_allow",
+			expectedRulePortsString: "TCP.web_UDP.533",
 		},
 		{
 			name:                    "build-string-for-multiple-ports-with-db-named-port",
 			inputPorts:              securityPolicyWithOneNamedPort.Spec.Rules[3].Ports,
-			suffix:                  "ingress_allow",
-			expectedRulePortsString: "TCP.db_ingress_allow",
+			expectedRulePortsString: "TCP.db",
 		},
 		{
 			name:                    "build-string-for-nil-ports",
 			inputPorts:              nil,
-			suffix:                  "ingress_allow",
-			expectedRulePortsString: "all_ingress_allow",
+			expectedRulePortsString: "all",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observedString := service.buildRulePortsString(tt.inputPorts, tt.suffix)
+			observedString := service.buildRulePortsString(tt.inputPorts)
 			assert.Equal(t, tt.expectedRulePortsString, observedString)
 		})
 	}
@@ -1066,10 +1058,8 @@ func TestBuildRuleDisplayName(t *testing.T) {
 		inputSecurityPolicy     *v1alpha1.SecurityPolicy
 		inputRule               *v1alpha1.SecurityPolicyRule
 		ruleIdx                 int
-		portIdx                 int
-		hasNamedPort            bool
-		portNumber              int
 		createdFor              string
+		namedPort               *portInfo
 		expectedRuleDisplayName string
 	}{
 		{
@@ -1077,10 +1067,8 @@ func TestBuildRuleDisplayName(t *testing.T) {
 			inputSecurityPolicy:     &securityPolicyWithMultipleNormalPorts,
 			inputRule:               &securityPolicyWithMultipleNormalPorts.Spec.Rules[0],
 			ruleIdx:                 0,
-			portIdx:                 0,
-			hasNamedPort:            false,
-			portNumber:              -1,
 			createdFor:              common.ResourceTypeNetworkPolicy,
+			namedPort:               nil,
 			expectedRuleDisplayName: "TCP.80_UDP.1234.1235_ingress_allow",
 		},
 		{
@@ -1088,10 +1076,8 @@ func TestBuildRuleDisplayName(t *testing.T) {
 			inputSecurityPolicy:     &securityPolicyWithMultipleNormalPorts,
 			inputRule:               &securityPolicyWithMultipleNormalPorts.Spec.Rules[1],
 			ruleIdx:                 1,
-			portIdx:                 0,
-			hasNamedPort:            false,
-			portNumber:              -1,
 			createdFor:              common.ResourceTypeNetworkPolicy,
+			namedPort:               nil,
 			expectedRuleDisplayName: "MultipleNormalPorts-rule1",
 		},
 		{
@@ -1099,10 +1085,8 @@ func TestBuildRuleDisplayName(t *testing.T) {
 			inputSecurityPolicy:     &securityPolicyWithMultipleNormalPorts,
 			inputRule:               &securityPolicyWithMultipleNormalPorts.Spec.Rules[1],
 			ruleIdx:                 1,
-			portIdx:                 0,
-			hasNamedPort:            false,
-			portNumber:              -1,
 			createdFor:              common.ResourceTypeSecurityPolicy,
+			namedPort:               nil,
 			expectedRuleDisplayName: "MultipleNormalPorts-rule1_egress_isolation",
 		},
 		{
@@ -1110,10 +1094,8 @@ func TestBuildRuleDisplayName(t *testing.T) {
 			inputSecurityPolicy:     &securityPolicyWithOneNamedPort,
 			inputRule:               &securityPolicyWithOneNamedPort.Spec.Rules[0],
 			ruleIdx:                 0,
-			portIdx:                 0,
-			hasNamedPort:            true,
-			portNumber:              80,
 			createdFor:              common.ResourceTypeSecurityPolicy,
+			namedPort:               newPortInfoForNamedPort(nsxutil.PortAddress{Port: 80}, "TCP"),
 			expectedRuleDisplayName: "user-defined-rule-namedport.TCP.80_ingress_allow",
 		},
 		{
@@ -1121,16 +1103,14 @@ func TestBuildRuleDisplayName(t *testing.T) {
 			inputSecurityPolicy:     &securityPolicyWithOneNamedPort,
 			inputRule:               &securityPolicyWithOneNamedPort.Spec.Rules[1],
 			ruleIdx:                 1,
-			portIdx:                 0,
-			hasNamedPort:            true,
-			portNumber:              443,
 			createdFor:              common.ResourceTypeSecurityPolicy,
+			namedPort:               newPortInfoForNamedPort(nsxutil.PortAddress{Port: 443}, "TCP"),
 			expectedRuleDisplayName: "TCP.https_UDP.1236.1237.TCP.443_ingress_allow",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observedDisplayName, observedError := service.buildRuleDisplayName(tt.inputRule, tt.portIdx, tt.hasNamedPort, tt.portNumber, tt.createdFor)
+			observedDisplayName, observedError := service.buildRuleDisplayName(tt.inputRule, tt.createdFor, tt.namedPort)
 			assert.Equal(t, tt.expectedRuleDisplayName, observedDisplayName)
 			assert.Equal(t, nil, observedError)
 		})
@@ -1154,11 +1134,8 @@ func TestBuildExpandedRuleID(t *testing.T) {
 		inputSecurityPolicy *v1alpha1.SecurityPolicy
 		inputRule           *v1alpha1.SecurityPolicyRule
 		ruleIdx             int
-		portIdx             int
-		portAddressIdx      int
-		hasNamedPort        bool
-		portNumber          int
 		createdFor          string
+		namedPort           *portInfo
 		expectedRuleID      string
 	}{
 		{
@@ -1167,11 +1144,8 @@ func TestBuildExpandedRuleID(t *testing.T) {
 			inputSecurityPolicy: &securityPolicyWithMultipleNormalPorts,
 			inputRule:           &securityPolicyWithMultipleNormalPorts.Spec.Rules[0],
 			ruleIdx:             0,
-			portIdx:             0,
-			portAddressIdx:      0,
-			hasNamedPort:        false,
-			portNumber:          -1,
 			createdFor:          common.ResourceTypeSecurityPolicy,
+			namedPort:           nil,
 			expectedRuleID:      "spMulPorts_spMulPortsuidA_d0b8e36c_80_1234.1235",
 		},
 		{
@@ -1180,11 +1154,8 @@ func TestBuildExpandedRuleID(t *testing.T) {
 			inputSecurityPolicy: &securityPolicyWithMultipleNormalPorts,
 			inputRule:           &securityPolicyWithMultipleNormalPorts.Spec.Rules[0],
 			ruleIdx:             0,
-			portIdx:             0,
-			portAddressIdx:      0,
-			hasNamedPort:        false,
-			portNumber:          -1,
 			createdFor:          common.ResourceTypeSecurityPolicy,
+			namedPort:           nil,
 			expectedRuleID:      "sp_spMulPortsuidA_d0b8e36cf858e76624b9706c3c8e77b6006c0e10_0_0_0",
 		},
 		{
@@ -1193,11 +1164,8 @@ func TestBuildExpandedRuleID(t *testing.T) {
 			inputSecurityPolicy: &securityPolicyWithMultipleNormalPorts,
 			inputRule:           &securityPolicyWithMultipleNormalPorts.Spec.Rules[1],
 			ruleIdx:             1,
-			portIdx:             0,
-			portAddressIdx:      0,
-			hasNamedPort:        false,
-			portNumber:          -1,
 			createdFor:          common.ResourceTypeNetworkPolicy,
+			namedPort:           nil,
 			expectedRuleID:      "spMulPorts_spMulPortsuidA_555356be_88_1236.1237",
 		},
 		{
@@ -1206,11 +1174,8 @@ func TestBuildExpandedRuleID(t *testing.T) {
 			inputSecurityPolicy: &securityPolicyWithOneNamedPort,
 			inputRule:           &securityPolicyWithOneNamedPort.Spec.Rules[0],
 			ruleIdx:             0,
-			portIdx:             0,
-			portAddressIdx:      0,
-			hasNamedPort:        true,
-			portNumber:          80,
 			createdFor:          common.ResourceTypeSecurityPolicy,
+			namedPort:           newPortInfoForNamedPort(nsxutil.PortAddress{Port: 80}, "TCP"),
 			expectedRuleID:      "spNamedPorts_spNamedPortsuidA_3f7c7d8c_80",
 		},
 		{
@@ -1219,11 +1184,8 @@ func TestBuildExpandedRuleID(t *testing.T) {
 			inputSecurityPolicy: &securityPolicyWithOneNamedPort,
 			inputRule:           &securityPolicyWithOneNamedPort.Spec.Rules[0],
 			ruleIdx:             0,
-			portIdx:             0,
-			portAddressIdx:      0,
-			hasNamedPort:        true,
-			portNumber:          80,
 			createdFor:          common.ResourceTypeSecurityPolicy,
+			namedPort:           newPortInfoForNamedPort(nsxutil.PortAddress{Port: 80}, "TCP"),
 			expectedRuleID:      "sp_spNamedPortsuidA_3f7c7d8c8449687178002f23599add04bf0c3250_0_0_0",
 		},
 	}
@@ -1231,7 +1193,7 @@ func TestBuildExpandedRuleID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc.NSXConfig.EnableVPCNetwork = tt.vpcEnabled
-			observedRuleID := svc.buildExpandedRuleID(tt.inputSecurityPolicy, tt.ruleIdx, tt.portIdx, tt.portAddressIdx, tt.hasNamedPort, tt.portNumber, tt.createdFor)
+			observedRuleID := svc.buildExpandedRuleID(tt.inputSecurityPolicy, tt.ruleIdx, tt.createdFor, tt.namedPort)
 			assert.Equal(t, tt.expectedRuleID, observedRuleID)
 		})
 	}

@@ -1073,11 +1073,11 @@ func TestCreateOrUpdateSecurityPolicy(t *testing.T) {
 	mockVPCService := common.MockVPCServiceProvider{}
 	fakeService.vpcService = &mockVPCService
 
-	podSelectorRule0IDPort000 := fakeService.buildExpandedRuleID(&spWithPodSelector, 0, 0, 0, false, -1, common.ResourceTypeSecurityPolicy)
-	podSelectorRule1IDPort000 := fakeService.buildExpandedRuleID(&spWithPodSelector, 1, 0, 0, false, -1, common.ResourceTypeSecurityPolicy)
+	podSelectorRule0IDPort000 := fakeService.buildExpandedRuleID(&spWithPodSelector, 0, common.ResourceTypeSecurityPolicy, nil)
+	podSelectorRule1IDPort000 := fakeService.buildExpandedRuleID(&spWithPodSelector, 1, common.ResourceTypeSecurityPolicy, nil)
 
-	podSelectorRule0Name00, _ := fakeService.buildRuleDisplayName(&spWithPodSelector.Spec.Rules[0], 0, false, -1, common.ResourceTypeSecurityPolicy)
-	podSelectorRule1Name00, _ := fakeService.buildRuleDisplayName(&spWithPodSelector.Spec.Rules[1], 0, false, -1, common.ResourceTypeSecurityPolicy)
+	podSelectorRule0Name00, _ := fakeService.buildRuleDisplayName(&spWithPodSelector.Spec.Rules[0], common.ResourceTypeSecurityPolicy, nil)
+	podSelectorRule1Name00, _ := fakeService.buildRuleDisplayName(&spWithPodSelector.Spec.Rules[1], common.ResourceTypeSecurityPolicy, nil)
 
 	type args struct {
 		spObj      *v1alpha1.SecurityPolicy
