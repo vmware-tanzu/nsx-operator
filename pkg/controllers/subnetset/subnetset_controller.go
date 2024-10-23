@@ -261,8 +261,7 @@ func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) {
 		log.Info("SubnetSet garbage collection completed", "duration(ms)", time.Since(startTime).Milliseconds())
 	}()
 
-	crdSubnetSetList := &v1alpha1.SubnetSetList{}
-	err := r.Client.List(ctx, crdSubnetSetList)
+	crdSubnetSetList, err := listSubnetSet(r.Client, ctx)
 	if err != nil {
 		log.Error(err, "Failed to list SubnetSet CRs")
 		return
