@@ -9,6 +9,13 @@ import (
 	"testing"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
@@ -17,14 +24,9 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -39,6 +41,7 @@ import (
 var (
 	vpcName1             = "ns1-vpc-1"
 	vpcName2             = "ns1-vpc-2"
+	vpcName3             = "ns1-vpc-3"
 	infraVPCName         = "infra-vpc"
 	vpcID1               = "ns-vpc-uid-1"
 	vpcID2               = "ns-vpc-uid-2"
@@ -231,39 +234,93 @@ func TestGetNetworkConfigFromNS(t *testing.T) {
 }
 
 func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
-	service, _, _ := createService(t)
-	k8sClient := service.Client.(*mock_client.MockClient)
-
-	ctx := context.Background()
-
-	mockNs := &v1.Namespace{}
-	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(errors.New("fake-error"))
-	got, err := service.getSharedVPCNamespaceFromNS(ctx, "fake-ns")
-	assert.NotNil(t, err)
-	assert.Equal(t, "", got)
-
 	tests := []struct {
-		name     string
-		ns       string
-		anno     map[string]string
-		expected string
+		name                    string
+		ns                      string
+		existingNames           []*v1.Namespace
+		expectedNS              string
+		expectedSharedNamespace string
+		expectedErrStr          string
 	}{
-		{"1", "test-ns-1", map[string]string{}, ""},
-		{"2", "test-ns-2", map[string]string{"nsx.vmware.com/vpc_network_config": "default"}, ""},
-		{"3", "test-ns-3", map[string]string{"nsx.vmware.com/vpc_network_config": "infra", "nsx.vmware.com/shared_vpc_namespace": "kube-system"}, "kube-system"},
+		{
+			name:                    "Test the Namespace not found",
+			ns:                      "test-ns-1",
+			existingNames:           nil,
+			expectedNS:              "",
+			expectedSharedNamespace: "",
+			expectedErrStr:          "not found",
+		},
+		{
+			name: "Not shared Namespace",
+			ns:   "test-ns-2",
+			existingNames: []*v1.Namespace{
+				{
+					TypeMeta:   metav1.TypeMeta{},
+					ObjectMeta: metav1.ObjectMeta{Name: "test-ns-2", Annotations: map[string]string{"nsx.vmware.com/vpc_network_config": "default"}},
+					Spec:       v1.NamespaceSpec{},
+					Status:     v1.NamespaceStatus{},
+				},
+			},
+			expectedNS:              "test-ns-2",
+			expectedSharedNamespace: "",
+		},
+		{
+			name: "Got the shared Namespace",
+			ns:   "test-ns-1",
+			existingNames: []*v1.Namespace{
+				{
+					TypeMeta: metav1.TypeMeta{},
+					ObjectMeta: metav1.ObjectMeta{Name: "test-ns-1",
+						Annotations: map[string]string{"nsx.vmware.com/vpc_network_config": "default", "nsx.vmware.com/shared_vpc_namespace": "test-ns-2"}},
+					Spec:   v1.NamespaceSpec{},
+					Status: v1.NamespaceStatus{},
+				},
+				{
+					TypeMeta: metav1.TypeMeta{},
+					ObjectMeta: metav1.ObjectMeta{Name: "test-ns-2",
+						Annotations: map[string]string{"nsx.vmware.com/vpc_network_config": "default"}},
+					Spec:   v1.NamespaceSpec{},
+					Status: v1.NamespaceStatus{},
+				},
+			},
+			expectedNS:              "test-ns-1",
+			expectedSharedNamespace: "test-ns-2",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockNs := &v1.Namespace{}
-			k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(nil).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
-				v1ns := obj.(*v1.Namespace)
-				v1ns.ObjectMeta.Annotations = tt.anno
-				return nil
-			})
-			ns, _err := service.getSharedVPCNamespaceFromNS(ctx, tt.ns)
-			assert.Equal(t, tt.expected, ns)
-			assert.Nil(t, _err)
+			service, _, _ := createService(t)
+			newScheme := runtime.NewScheme()
+			utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
+			fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects().Build()
+			service.Client = fakeClient
 
+			for _, ns := range tt.existingNames {
+				err := service.Client.Create(context.TODO(), ns)
+				assert.NoError(t, err)
+			}
+
+			ns, sharedNS, _err := service.resolveSharedVPCNamespace(context.Background(), tt.ns)
+
+			if tt.expectedSharedNamespace != "" {
+				assert.NotNil(t, sharedNS)
+				assert.Equal(t, tt.expectedSharedNamespace, sharedNS.Name)
+			} else {
+				assert.Nil(t, sharedNS)
+			}
+
+			if tt.expectedNS != "" {
+				assert.NotNil(t, ns)
+				assert.Equal(t, tt.expectedNS, ns.Name)
+			} else {
+				assert.Nil(t, ns)
+			}
+
+			if tt.expectedErrStr != "" {
+				assert.ErrorContains(t, _err, tt.expectedErrStr)
+			} else {
+				assert.NoError(t, _err)
+			}
 		})
 	}
 }
@@ -312,7 +369,7 @@ func TestGetVPCsByNamespace(t *testing.T) {
 	type args struct {
 		ns       string
 		size     int
-		expected string
+		expected []string
 		infra    string
 	}
 	ns1 := "test-ns-1"
@@ -323,6 +380,10 @@ func TestGetVPCsByNamespace(t *testing.T) {
 		},
 		{
 			Scope: &tagScopeNamespace,
+			Tag:   &ns1,
+		},
+		{
+			Scope: &tagScopeNamespaceUID,
 			Tag:   &ns1,
 		},
 	}
@@ -336,6 +397,10 @@ func TestGetVPCsByNamespace(t *testing.T) {
 			Scope: &tagScopeNamespace,
 			Tag:   &ns2,
 		},
+		{
+			Scope: &tagScopeNamespaceUID,
+			Tag:   &ns2,
+		},
 	}
 	infraNs := "kube-system"
 	tag3 := []model.Tag{
@@ -347,9 +412,12 @@ func TestGetVPCsByNamespace(t *testing.T) {
 			Scope: &tagScopeNamespace,
 			Tag:   &infraNs,
 		},
+		{
+			Scope: &tagScopeNamespaceUID,
+			Tag:   &infraNs,
+		},
 	}
 	vpc1 := model.Vpc{
-
 		DisplayName:        &vpcName1,
 		Id:                 &vpcID1,
 		Tags:               tag1,
@@ -358,7 +426,6 @@ func TestGetVPCsByNamespace(t *testing.T) {
 		ExternalIpv4Blocks: []string{"2.2.2.0/24"},
 	}
 	vpc2 := model.Vpc{
-
 		DisplayName:        &vpcName2,
 		Id:                 &vpcID2,
 		Tags:               tag2,
@@ -366,6 +433,10 @@ func TestGetVPCsByNamespace(t *testing.T) {
 		PrivateIpv4Blocks:  []string{"3.3.3.0/24"},
 		ExternalIpv4Blocks: []string{"4.4.4.0/24"},
 	}
+	vpc3 := vpc2
+	vpc3.DisplayName = &vpcName3
+	fakeVPCID := "fakeVPCID"
+	vpc3.Id = &fakeVPCID
 	infravpc := model.Vpc{
 		DisplayName:        &infraVPCName,
 		Id:                 &vpcID3,
@@ -379,28 +450,37 @@ func TestGetVPCsByNamespace(t *testing.T) {
 		args    args
 		wantErr assert.ErrorAssertionFunc
 	}{
-		{"1", args{ns: "invalid", size: 0, expected: "", infra: ""}, assert.NoError},
-		{"2", args{ns: "test-ns-1", size: 1, expected: vpcName1, infra: ""}, assert.NoError},
-		{"3", args{ns: "test-ns-2", size: 1, expected: vpcName2, infra: ""}, assert.NoError},
-		{"4", args{ns: "test-ns-1", size: 1, expected: infraVPCName, infra: "kube-system"}, assert.NoError},
+		{"Namespace not found", args{ns: "invalid", size: 0, expected: nil, infra: ""}, assert.NoError},
+		{"Get VPC by Namespace", args{ns: "test-ns-1", size: 1, expected: []string{vpcName1}, infra: ""}, assert.NoError},
+		// It can support multiple VPCs for one Namespace at the code level
+		{"One Namespace has two VPC", args{ns: "test-ns-2", size: 2, expected: []string{vpcName2, vpcName3}, infra: ""}, assert.NoError},
+		{"Shared Namespace", args{ns: "test-ns-1", size: 1, expected: []string{infraVPCName}, infra: "kube-system"}, assert.NoError},
 	}
 
 	vpcStore.Apply(&vpc1)
 	vpcStore.Apply(&vpc2)
+	vpcStore.Apply(&vpc3)
 	vpcStore.Apply(&infravpc)
 	got := vpcStore.List()
-	assert.Equal(t, 3, len(got))
+	assert.Equal(t, 4, len(got))
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "getSharedVPCNamespaceFromNS", func(_ *VPCService, ns string) (string, error) {
-				return tt.args.infra, nil
+			patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "resolveSharedVPCNamespace", func(_ *VPCService, ns string) (*v1.Namespace, *v1.Namespace, error) {
+				if tt.args.infra != "" {
+					return nil, &v1.Namespace{
+						ObjectMeta: metav1.ObjectMeta{Name: tt.args.infra, UID: types.UID(tt.args.infra)},
+					}, nil
+				}
+				return &v1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{Name: tt.args.ns, UID: types.UID(tt.args.ns)},
+				}, nil, nil
 			})
 			vpc_list_1 := service.GetVPCsByNamespace(ctx, tt.args.ns)
 			assert.Equal(t, tt.args.size, len(vpc_list_1))
 
-			if tt.args.size != 0 && *vpc_list_1[0].DisplayName != tt.args.expected {
-				t.Errorf("name = %v, want %v", vpc_list_1[0].DisplayName, tt.args.expected)
+			for _, vpc := range vpc_list_1 {
+				assert.Contains(t, tt.args.expected, *vpc.DisplayName)
 			}
 
 			patch.Reset()
@@ -1737,7 +1817,7 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "IsSharedVPCNamespaceByNS", func(_ *VPCService, ctx context.Context, _ string) (bool, error) {
 					return true, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByNamespace", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
+				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByFreshNamespace", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
 					vpcPath := "/vpc/1"
 					return []*model.Vpc{{Path: &vpcPath, Id: &fakeVPCID}}
 				})
@@ -1762,7 +1842,7 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "IsSharedVPCNamespaceByNS", func(_ *VPCService, ctx context.Context, _ string) (bool, error) {
 					return true, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByNamespace", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
+				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByFreshNamespace", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
 					return []*model.Vpc{}
 				})
 				return patches
@@ -1794,7 +1874,7 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "IsSharedVPCNamespaceByNS", func(_ *VPCService, ctx context.Context, _ string) (bool, error) {
 					return false, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByNamespace", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
+				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByFreshNamespace", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
 					vpcPath := "/vpc/1"
 					return []*model.Vpc{
 						{Path: &vpcPath, Id: &fakeVPCID},
@@ -1829,13 +1909,12 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "IsSharedVPCNamespaceByNS", func(_ *VPCService, ctx context.Context, _ string) (bool, error) {
 					return false, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByNamespace", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
+				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByFreshNamespace", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
 					return []*model.Vpc{}
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "createNSXVPC", func(_ *VPCService, createdVpc *model.Vpc, nc *common.VPCNetworkConfigInfo, orgRoot *model.OrgRoot) error {
 					return nil
 				})
-				// checkVPCRealizationState
 				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "checkVPCRealizationState", func(_ *VPCService, createdVpc *model.Vpc, newVpcPath string) error {
 					return nil
 				})
