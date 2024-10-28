@@ -7,7 +7,7 @@ spec:
   ipAddressBlockVisibility: Private
   allocationSize: 32
 
-  ---
+---
 
 apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: IPAddressAllocation
@@ -18,7 +18,7 @@ spec:
   ipAddressBlockVisibility: External
   allocationSize: 32
 
-  ---
+---
 
 apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: IPAddressAllocation
