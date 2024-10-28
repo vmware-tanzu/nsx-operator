@@ -48,7 +48,6 @@ type StaticRouteReconciler struct {
 }
 
 func deleteFail(r *StaticRouteReconciler, c context.Context, o *v1alpha1.StaticRoute, e *error) {
-	r.setStaticRouteReadyStatusFalse(c, o, metav1.Now(), e)
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeStaticRoute)
 }
