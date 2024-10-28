@@ -123,58 +123,29 @@ func TestIPAddressAllocationReconciler_Reconcile(t *testing.T) {
 	_, err := r.Reconcile(ctx, req)
 	assert.Equal(t, err, errNotFound)
 
-	// DeletionTimestamp.IsZero = ture, client update failed
 	sp := &v1alpha1.IPAddressAllocation{}
-	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
-		return nil
-	})
-	err = errors.New("Update failed")
-	k8sClient.EXPECT().Update(ctx, gomock.Any(), gomock.Any()).Return(err)
 	fakewriter := fakeStatusWriter{}
-	k8sClient.EXPECT().Status().Return(fakewriter)
+
+	//  DeletionTimestamp.IsZero = false, DeleteIPAddressAllocation success
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+		v1sp := obj.(*v1alpha1.IPAddressAllocation)
+		time := metav1.Now()
+		v1sp.ObjectMeta.DeletionTimestamp = &time
+		return nil
+	})
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteIPAddressAllocation",
+		func(_ *ipaddressallocation.IPAddressAllocationService, uid interface{}) error {
+			return nil
+		})
 	_, ret := r.Reconcile(ctx, req)
-	assert.Equal(t, err, ret)
-
-	//  DeletionTimestamp.IsZero = false, Finalizers doesn't include util.FinalizerName
-	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
-		v1sp := obj.(*v1alpha1.IPAddressAllocation)
-		time := metav1.Now()
-		v1sp.ObjectMeta.DeletionTimestamp = &time
-		return nil
-	})
-
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteIPAddressAllocation", func(_ *ipaddressallocation.IPAddressAllocationService,
-		uid interface{}) error {
-		assert.FailNow(t, "should not be called")
-		return nil
-	})
-
-	k8sClient.EXPECT().Update(ctx, gomock.Any(), gomock.Any()).Return(nil)
-	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, ret, nil)
 	patch.Reset()
 
-	//  DeletionTimestamp.IsZero = false, Finalizers include util.FinalizerName
+	//  DeletionTimestamp.IsZero = false, DeleteIPAddressAllocation fail
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1sp := obj.(*v1alpha1.IPAddressAllocation)
 		time := metav1.Now()
 		v1sp.ObjectMeta.DeletionTimestamp = &time
-		v1sp.Finalizers = []string{common.IPAddressAllocationFinalizerName}
-		return nil
-	})
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteIPAddressAllocation", func(_ *ipaddressallocation.IPAddressAllocationService, uid interface{}) error {
-		return nil
-	})
-	_, ret = r.Reconcile(ctx, req)
-	assert.Equal(t, ret, nil)
-	patch.Reset()
-
-	//  DeletionTimestamp.IsZero = false, Finalizers include util.FinalizerName, DeleteIPAddressAllocation fail
-	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
-		v1sp := obj.(*v1alpha1.IPAddressAllocation)
-		time := metav1.Now()
-		v1sp.ObjectMeta.DeletionTimestamp = &time
-		v1sp.Finalizers = []string{common.IPAddressAllocationFinalizerName}
 		return nil
 	})
 	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteIPAddressAllocation", func(_ *ipaddressallocation.IPAddressAllocationService,
@@ -187,11 +158,10 @@ func TestIPAddressAllocationReconciler_Reconcile(t *testing.T) {
 	assert.NotEqual(t, ret, nil)
 	patch.Reset()
 
-	//  DeletionTimestamp.IsZero = true, Finalizers include util.FinalizerName, CreateorUpdateIPAddressAllocation fail
+	//  DeletionTimestamp.IsZero = true, CreateOrUpdateIPAddressAllocation fail
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1sp := obj.(*v1alpha1.IPAddressAllocation)
 		v1sp.ObjectMeta.DeletionTimestamp = nil
-		v1sp.Finalizers = []string{common.IPAddressAllocationFinalizerName}
 		return nil
 	})
 
@@ -204,11 +174,10 @@ func TestIPAddressAllocationReconciler_Reconcile(t *testing.T) {
 	assert.NotEqual(t, ret, nil)
 	patch.Reset()
 
-	//  DeletionTimestamp.IsZero = true, Finalizers include util.FinalizerName, CreateorUpdateIPAddressAllocation succ
+	//  DeletionTimestamp.IsZero = true, CreateOrUpdateIPAddressAllocation success
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1sp := obj.(*v1alpha1.IPAddressAllocation)
 		v1sp.ObjectMeta.DeletionTimestamp = nil
-		v1sp.Finalizers = []string{common.IPAddressAllocationFinalizerName}
 		return nil
 	})
 
@@ -216,7 +185,7 @@ func TestIPAddressAllocationReconciler_Reconcile(t *testing.T) {
 		obj *v1alpha1.IPAddressAllocation) (bool, error) {
 		return true, nil
 	})
-	k8sClient.EXPECT().Status().Times(1).Return(fakewriter)
+	k8sClient.EXPECT().Status().Times(0).Return(fakewriter)
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, ret, nil)
 	patch.Reset()

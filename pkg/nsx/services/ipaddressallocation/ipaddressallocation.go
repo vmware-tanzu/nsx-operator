@@ -158,6 +158,8 @@ func (service *IPAddressAllocationService) DeleteIPAddressAllocation(obj interfa
 		if !ok {
 			log.Error(err, "failed to get ipaddressallocation by key", "key", o)
 		}
+	case model.VpcIpAddressAllocation:
+		nsxIPAddressAllocation = &o
 	}
 	if nsxIPAddressAllocation == nil {
 		log.Error(nil, "failed to get ipaddressallocation from store, skip")
@@ -177,6 +179,39 @@ func (service *IPAddressAllocationService) DeleteIPAddressAllocation(obj interfa
 		return err
 	}
 	log.V(1).Info("successfully deleted nsxIPAddressAllocation", "nsxIPAddressAllocation", nsxIPAddressAllocation)
+	return nil
+}
+
+func (service *IPAddressAllocationService) DeleteIPAddressAllocationByNamespacedName(namespace, name string) error {
+	// First, we need to find the IPAddressAllocation in our store
+	allIPAddressAllocations := service.ipAddressAllocationStore.List()
+	var targetIPAddressAllocation *model.VpcIpAddressAllocation
+
+	for _, obj := range allIPAddressAllocations {
+		ipAddressAllocation, ok := obj.(*model.VpcIpAddressAllocation)
+		if !ok {
+			continue
+		}
+
+		for _, tag := range ipAddressAllocation.Tags {
+			if *tag.Scope == common.TagScopeNamespace && *tag.Tag == namespace {
+				targetIPAddressAllocation = ipAddressAllocation
+				break
+			}
+		}
+
+	}
+
+	if targetIPAddressAllocation == nil {
+		log.Error(nil, "IPAddressAllocation with namespace %s and name %s not found", namespace, name)
+		return nil
+	}
+	err := service.DeleteIPAddressAllocation(*targetIPAddressAllocation)
+	if err != nil {
+		log.Error(err, "failed to delete IPAddressAllocation with namespace %s and name %s", namespace, name)
+		return err
+	}
+
 	return nil
 }
 
