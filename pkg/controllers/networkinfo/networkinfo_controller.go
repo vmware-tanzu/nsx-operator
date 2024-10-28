@@ -329,7 +329,6 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		DefaultSNATIP:           snatIP,
 		LoadBalancerIPAddresses: cidr,
 		PrivateIPs:              privateIPs,
-		VPCPath:                 *createdVpc.Path,
 	}
 
 	// AKO needs to know the AVI subnet path created by NSX
