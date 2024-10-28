@@ -236,7 +236,6 @@ func TestStaticRouteReconciler_Reconcile(t *testing.T) {
 		return nil
 	})
 
-	k8sClient.EXPECT().Status().Times(1).Return(fakewriter)
 	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "CreateOrUpdateStaticRoute", func(_ *staticroute.StaticRouteService, namespace string, obj *v1alpha1.StaticRoute) error {
 		return nil
 	})
