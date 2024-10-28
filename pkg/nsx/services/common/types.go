@@ -102,10 +102,8 @@ const (
 	IPPoolTypePublic  = "Public"
 	IPPoolTypePrivate = "Private"
 
-	NSXServiceAccountFinalizerName   = "nsxserviceaccount.nsx.vmware.com/finalizer"
-	T1SecurityPolicyFinalizerName    = "securitypolicy.nsx.vmware.com/finalizer"
-	IPPoolFinalizerName              = "ippool.crd.nsx.vmware.com/finalizer"
-	IPAddressAllocationFinalizerName = "ipaddressallocation.crd.nsx.vmware.com/finalizer"
+	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
+	T1SecurityPolicyFinalizerName  = "securitypolicy.nsx.vmware.com/finalizer"
 
 	IndexKeySubnetID            = "IndexKeySubnetID"
 	IndexKeyPathPath            = "Path"
