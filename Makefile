@@ -87,7 +87,6 @@ test: manifests generate fmt vet envtest .coverage ## Run tests .
 build: generate fmt vet ## Build manager binary.
 	@mkdir -p $(BINDIR)
 	GOOS=linux go build -o $(BINDIR)/manager $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd/main.go
-	GOOS=linux go build -o $(BINDIR)/webhookcert $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd/webhookcert/main.go
 
 .PHONY: build-clean
 build-clean: generate fmt vet ## Build clean binary.
