@@ -41,7 +41,7 @@ func (e *EnqueueRequestForNamespace) Update(_ context.Context, updateEvent event
 	obj := updateEvent.ObjectNew.(*v1.Namespace)
 	err := requeueSubnetSet(e.Client, obj.Name, l)
 	if err != nil {
-		log.Error(err, "failed to reconcile subnet")
+		log.Error(err, "Failed to requeue subnet")
 	}
 }
 
@@ -52,9 +52,9 @@ var PredicateFuncsNs = predicate.Funcs{
 	UpdateFunc: func(e event.UpdateEvent) bool {
 		oldObj := e.ObjectOld.(*v1.Namespace)
 		newObj := e.ObjectNew.(*v1.Namespace)
-		log.V(1).Info("Receive Namespace update event", "name", oldObj.Name)
+		log.V(1).Info("Receive Namespace update event", "Name", oldObj.Name)
 		if reflect.DeepEqual(oldObj.ObjectMeta.Labels, newObj.ObjectMeta.Labels) {
-			log.Info("label of Namespace is not changed, ignore it", "name", oldObj.Name)
+			log.Info("Label of Namespace is not changed, ignore it", "name", oldObj.Name)
 			return false
 		}
 		return true
@@ -64,14 +64,21 @@ var PredicateFuncsNs = predicate.Funcs{
 	},
 }
 
-func requeueSubnetSet(c client.Client, namespace string, q workqueue.RateLimitingInterface) error {
+func listSubnetSet(c client.Client, ctx context.Context, options ...client.ListOption) (*v1alpha1.SubnetSetList, error) {
 	subnetSetList := &v1alpha1.SubnetSetList{}
-	err := c.List(context.Background(), subnetSetList, client.InNamespace(namespace))
+	err := c.List(ctx, subnetSetList, options...)
 	if err != nil {
-		log.Error(err, "Failed to list all the Subnets")
+		return nil, err
+	}
+	return subnetSetList, nil
+}
+
+func requeueSubnetSet(c client.Client, namespace string, q workqueue.RateLimitingInterface) error {
+	subnetSetList, err := listSubnetSet(c, context.Background(), client.InNamespace(namespace))
+	if err != nil {
+		log.Error(err, "Failed to list all the SubnetSets")
 		return err
 	}
-
 	for _, subnetSet := range subnetSetList.Items {
 		log.Info("Requeue SubnetSet because Namespace updated", "Namespace", subnetSet.Namespace, "Name", subnetSet.Name)
 		q.Add(reconcile.Request{

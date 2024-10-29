@@ -1,4 +1,4 @@
-package subnet
+package subnetset
 
 import (
 	"context"
@@ -69,23 +69,23 @@ func TestEnqueueRequestForNamespace_Update(t *testing.T) {
 		ObjectNew: newNamespace,
 	}
 
-	subnet := v1alpha1.Subnet{
+	subnetSet := v1alpha1.SubnetSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-subnet",
+			Name:      "test-subnetset",
 			Namespace: "test-namespace",
 		},
 	}
-	subnetList := &v1alpha1.SubnetList{
+	subnetSetList := &v1alpha1.SubnetSetList{
 		TypeMeta: metav1.TypeMeta{},
 		ListMeta: metav1.ListMeta{},
-		Items:    []v1alpha1.Subnet{subnet},
+		Items:    []v1alpha1.SubnetSet{subnetSet},
 	}
 
 	e.Update(context.TODO(), updateEvent, queue)
 	assert.Equal(t, 0, queue.Len(), "Expected 1 item to be requeued")
 
-	patches := gomonkey.ApplyFunc(listSubnet, func(c ctlclient.Client, ctx context.Context, options ...ctlclient.ListOption) (*v1alpha1.SubnetList, error) {
-		return subnetList, nil
+	patches := gomonkey.ApplyFunc(listSubnetSet, func(c ctlclient.Client, ctx context.Context, options ...ctlclient.ListOption) (*v1alpha1.SubnetSetList, error) {
+		return subnetSetList, nil
 	})
 	defer patches.Reset()
 
@@ -135,9 +135,9 @@ func TestPredicateFuncsNs_UpdateFunc(t *testing.T) {
 
 func TestRequeueSubnetSet(t *testing.T) {
 	// Prepare test data
-	subnet := &v1alpha1.Subnet{
+	subnetSet := &v1alpha1.SubnetSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-subnet",
+			Name:      "test-subnetset",
 			Namespace: "test-namespace",
 		},
 	}
@@ -148,14 +148,14 @@ func TestRequeueSubnetSet(t *testing.T) {
 	// Test for empty namespace (no SubnetSets found)
 	emptyClient := fake.NewClientBuilder().Build()
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
-	err := requeueSubnet(emptyClient, "empty-namespace", queue)
+	err := requeueSubnetSet(emptyClient, "empty-namespace", queue)
 	assert.NoError(t, err, "Expected no error with empty namespace")
 	assert.Equal(t, 0, queue.Len(), "Expected no items to be requeued for empty namespace")
 
-	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(subnet).Build()
+	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(subnetSet).Build()
 	queue = workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 
-	err = requeueSubnet(client, "test-namespace", queue)
+	err = requeueSubnetSet(client, "test-namespace", queue)
 	assert.NoError(t, err, "Expected no error while requeueing SubnetSets")
 	assert.Equal(t, 1, queue.Len(), "Expected 1 item to be requeued")
 }
