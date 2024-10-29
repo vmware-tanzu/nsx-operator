@@ -203,6 +203,9 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			Spec: v1alpha1.SubnetSpec{
 				IPv4SubnetSize: 0,
 				AccessMode:     "",
+				SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+					Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+				},
 			},
 		}
 		if len(specs) > 0 && specs[0] {
@@ -516,7 +519,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			},
 			existingSubnetCR: createNewSubnet(),
 			expectSubnetCR: &v1alpha1.Subnet{
-				Spec:   v1alpha1.SubnetSpec{IPv4SubnetSize: 16, AccessMode: "Private", IPAddresses: []string(nil), DHCPConfig: v1alpha1.DHCPConfig{EnableDHCP: false}},
+				Spec:   v1alpha1.SubnetSpec{IPv4SubnetSize: 16, AccessMode: "Private", IPAddresses: []string(nil), SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)}},
 				Status: v1alpha1.SubnetStatus{},
 			},
 		},
@@ -551,7 +554,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			},
 			existingSubnetCR: createNewSubnet(),
 			expectSubnetCR: &v1alpha1.Subnet{
-				Spec:   v1alpha1.SubnetSpec{IPv4SubnetSize: 16, AccessMode: "Private", IPAddresses: []string(nil), DHCPConfig: v1alpha1.DHCPConfig{EnableDHCP: false}},
+				Spec:   v1alpha1.SubnetSpec{IPv4SubnetSize: 16, AccessMode: "Private", IPAddresses: []string(nil), SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)}},
 				Status: v1alpha1.SubnetStatus{},
 			},
 			expectRes:    ResultRequeue,

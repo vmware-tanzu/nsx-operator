@@ -52,16 +52,6 @@ spec:
           spec:
             description: SubnetSpec defines the desired state of Subnet.
             properties:
-              DHCPConfig:
-                description: DHCPConfig DHCP configuration.
-                properties:
-                  enableDHCP:
-                    default: false
-                    type: boolean
-                type: object
-                x-kubernetes-validations:
-                - message: Value is immutable
-                  rule: self == oldSelf
               accessMode:
                 description: Access mode of Subnet, accessible only from within VPC
                   or from outside VPC.
@@ -91,10 +81,29 @@ spec:
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self == oldSelf
+              subnetDHCPConfig:
+                description: DHCP configuration for Subnet.
+                properties:
+                  mode:
+                    description: |-
+                      DHCP Mode. DHCPDeactivated will be used if it is not defined.
+                      It cannot switch from DHCPDeactivated to DHCPServer or DHCPRelay.
+                    enum:
+                    - DHCPServer
+                    - DHCPRelay
+                    - DHCPDeactivated
+                    type: string
+                    x-kubernetes-validations:
+                    - message: subnetDHCPConfig cannot switch from DHCPDeactivated
+                        to other modes
+                      rule: oldSelf!='DHCPDeactivated' || oldSelf==self
+                type: object
             type: object
             x-kubernetes-validations:
-            - message: DHCPConfig is required once set
-              rule: '!has(oldSelf.DHCPConfig) || has(self.DHCPConfig)'
+            - message: subnetDHCPConfig cannot switch from DHCPDeactivated to other
+                modes
+              rule: has(oldSelf.subnetDHCPConfig) || !has(self.subnetDHCPConfig) ||
+                self.subnetDHCPConfig.mode=='DHCPDeactivated'
             - message: ipv4SubnetSize is required once set
               rule: '!has(oldSelf.ipv4SubnetSize) || has(self.ipv4SubnetSize)'
             - message: accessMode is required once set

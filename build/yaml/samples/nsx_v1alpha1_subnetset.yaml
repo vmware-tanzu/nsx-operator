@@ -3,5 +3,5 @@ kind: SubnetSet
 metadata:
   name: subnetset-sample
 spec:
-  accessMode: private
+  accessMode: Private
   ipv4SubnetSize: 64
