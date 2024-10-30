@@ -18,6 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -311,7 +313,7 @@ func deleteSuccess(r *SubnetReconciler, _ context.Context, o *v1alpha1.Subnet) {
 	metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnet)
 }
 
-func StartSubnetController(mgr ctrl.Manager, subnetService *subnet.SubnetService, subnetPortService servicecommon.SubnetPortServiceProvider, vpcService servicecommon.VPCServiceProvider) error {
+func StartSubnetController(mgr ctrl.Manager, subnetService *subnet.SubnetService, subnetPortService servicecommon.SubnetPortServiceProvider, vpcService servicecommon.VPCServiceProvider, hookServer webhook.Server) error {
 	// Create the Subnet Reconciler with the necessary services and configuration
 	subnetReconciler := &SubnetReconciler{
 		Client:            mgr.GetClient(),
@@ -322,7 +324,7 @@ func StartSubnetController(mgr ctrl.Manager, subnetService *subnet.SubnetService
 		Recorder:          mgr.GetEventRecorderFor("subnet-controller"),
 	}
 	// Start the controller
-	if err := subnetReconciler.start(mgr); err != nil {
+	if err := subnetReconciler.start(mgr, hookServer); err != nil {
 		log.Error(err, "Failed to create controller", "controller", "Subnet")
 		return err
 	}
@@ -332,8 +334,21 @@ func StartSubnetController(mgr ctrl.Manager, subnetService *subnet.SubnetService
 }
 
 // start sets up the manager for the Subnet Reconciler
-func (r *SubnetReconciler) start(mgr ctrl.Manager) error {
-	return r.setupWithManager(mgr)
+func (r *SubnetReconciler) start(mgr ctrl.Manager, hookServer webhook.Server) error {
+	err := r.setupWithManager(mgr)
+	if err != nil {
+		return err
+	}
+	if hookServer != nil {
+		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-subnet",
+			&webhook.Admission{
+				Handler: &SubnetValidator{
+					Client:  mgr.GetClient(),
+					decoder: admission.NewDecoder(mgr.GetScheme()),
+				},
+			})
+	}
+	return nil
 }
 
 // setupWithManager configures the controller to watch Subnet resources
