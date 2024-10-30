@@ -158,7 +158,6 @@ func (service *Service) SearchResource(resourceTypeValue string, queryParam stri
 			}
 			return count, err
 		}
-
 		for _, entity := range results {
 			if filter != nil {
 				entity = filter(entity)
