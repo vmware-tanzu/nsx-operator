@@ -221,10 +221,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		// Start controllers which only supports VPC
 		StartNetworkInfoController(mgr, vpcService, ipblocksInfoService)
 		StartNamespaceController(mgr, cf, vpcService)
-		// Start subnet/subnetset controller.
-		if err := subnet.StartSubnetController(mgr, subnetService, subnetPortService, vpcService); err != nil {
-			os.Exit(1)
-		}
+
 		var hookServer webhook.Server
 		if _, err := os.Stat(config.WebhookCertDir); errors.Is(err, os.ErrNotExist) {
 			log.Error(err, "server cert not found, disabling webhook server", "cert", config.WebhookCertDir)
@@ -237,6 +234,10 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 				log.Error(err, "failed to add hook server")
 				os.Exit(1)
 			}
+		}
+		// Start Subnet/SubnetSet controller.
+		if err := subnet.StartSubnetController(mgr, subnetService, subnetPortService, vpcService, hookServer); err != nil {
+			os.Exit(1)
 		}
 		if err := subnetset.StartSubnetSetController(mgr, subnetService, subnetPortService, vpcService, hookServer); err != nil {
 			os.Exit(1)

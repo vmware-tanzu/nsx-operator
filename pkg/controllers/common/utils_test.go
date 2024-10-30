@@ -207,14 +207,20 @@ func TestGetDefaultSubnetSet(t *testing.T) {
 					return nil
 				})
 			},
-			expectedErr: "default subnetset multiple default subnetsets found",
+			expectedErr: "multiple default subnetsets found",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.prepareFunc(t)
-			GetDefaultSubnetSet(k8sClient, context.TODO(), "ns-1", "")
+			result, err := GetDefaultSubnetSet(k8sClient, context.TODO(), "ns-1", "")
+			if tt.expectedErr != "" {
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			} else {
+				assert.Nil(t, err)
+				assert.Equal(t, tt.expectedResult, result)
+			}
 		})
 	}
 

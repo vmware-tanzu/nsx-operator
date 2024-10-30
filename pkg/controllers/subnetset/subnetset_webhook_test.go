@@ -49,6 +49,20 @@ func TestSubnetSetValidator(t *testing.T) {
 		},
 	}
 
+	subnetSetWithStalePorts := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "subnetset-1",
+			Namespace: "ns-1",
+		},
+	}
+
+	fakeClient.Create(context.TODO(), &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{Name: "subnetport-1", Namespace: "ns-1"},
+		Spec: v1alpha1.SubnetPortSpec{
+			SubnetSet: "subnetset-1",
+		},
+	})
+
 	testcases := []struct {
 		name         string
 		op           admissionv1.Operation
@@ -114,6 +128,21 @@ func TestSubnetSetValidator(t *testing.T) {
 			op:           admissionv1.Delete,
 			oldSubnetSet: subnetSet,
 			user:         "fake-user",
+			isAllowed:    true,
+		},
+		{
+			name:         "Delete SubnetSet with stale SubnetPort",
+			op:           admissionv1.Delete,
+			oldSubnetSet: subnetSetWithStalePorts,
+			user:         "fake-user",
+			isAllowed:    false,
+			msg:          "SubnetSet ns-1/subnetset-1 with stale SubnetPorts cannot be deleted",
+		},
+		{
+			name:         "Delete SubnetSet with stale SubnetPort by nsx-operator",
+			op:           admissionv1.Delete,
+			oldSubnetSet: subnetSetWithStalePorts,
+			user:         NSXOperatorSA,
 			isAllowed:    true,
 		},
 		{
