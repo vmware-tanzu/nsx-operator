@@ -1,16 +1,20 @@
 package common
 
 import (
+	"fmt"
 	"reflect"
 	"sync"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
+	mp_model "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -186,4 +190,272 @@ func Test_InitializeResourceStore(t *testing.T) {
 	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, []model.Tag{{Tag: &mTag, Scope: &mScope}}, ruleStore)
 	assert.Empty(t, fatalErrors)
 	assert.Equal(t, []string{"11111"}, ruleStore.ListKeys())
+}
+
+func TestService_SearchResource(t *testing.T) {
+	type args struct {
+		resourceTypeValue string
+		queryParam        string
+		store             Store
+		filter            Filter
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    uint64
+		wantErr bool
+	}{
+		{
+			name: "Policy API with results",
+			args: args{
+				resourceTypeValue: "testResourceType",
+				queryParam:        "testQueryParam",
+				store: &fakeStore{
+					isPolicyAPI: true,
+				},
+				filter: nil,
+			},
+			want:    1,
+			wantErr: false,
+		},
+		{
+			name: "MP API with results",
+			args: args{
+				resourceTypeValue: "testResourceType",
+				queryParam:        "testQueryParam",
+				store: &fakeStore{
+					isPolicyAPI: false,
+				},
+				filter: nil,
+			},
+			want:    1,
+			wantErr: false,
+		},
+		{
+			name: "Policy API with error",
+			args: args{
+				resourceTypeValue: "testResourceType",
+				queryParam:        "testQueryParam",
+				store: &fakeStore{
+					isPolicyAPI: true,
+					transError:  true,
+				},
+				filter: nil,
+			},
+			want:    0,
+			wantErr: true,
+		},
+		{
+			name: "MP API with error",
+			args: args{
+				resourceTypeValue: "testResourceType",
+				queryParam:        "testQueryParam",
+				store: &fakeStore{
+					isPolicyAPI: false,
+					transError:  true,
+				},
+				filter: nil,
+			},
+			want:    0,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &Service{
+				NSXClient: &nsx.Client{
+					QueryClient:   &fakeQueryClient{},
+					MPQueryClient: &fakeMPQueryClient{},
+				},
+			}
+			got, err := service.SearchResource(tt.args.resourceTypeValue, tt.args.queryParam, tt.args.store, tt.args.filter)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SearchResource() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("SearchResource() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_containsTagScope(t *testing.T) {
+	tests := []struct {
+		name   string
+		tags   []model.Tag
+		scopes []string
+		want   bool
+	}{
+		{
+			name: "Tag with matching scope",
+			tags: []model.Tag{
+				{Scope: pointy.String("scope1")},
+				{Scope: pointy.String("scope2")},
+			},
+			scopes: []string{"scope1"},
+			want:   true,
+		},
+		{
+			name: "Tag without matching scope",
+			tags: []model.Tag{
+				{Scope: pointy.String("scope1")},
+				{Scope: pointy.String("scope2")},
+			},
+			scopes: []string{"scope3"},
+			want:   false,
+		},
+		{
+			name:   "Empty tags",
+			tags:   []model.Tag{},
+			scopes: []string{"scope1"},
+			want:   false,
+		},
+		{
+			name: "Empty scopes",
+			tags: []model.Tag{
+				{Scope: pointy.String("scope1")},
+				{Scope: pointy.String("scope2")},
+			},
+			scopes: []string{},
+			want:   false,
+		},
+		{
+			name: "Nil scope in tag",
+			tags: []model.Tag{
+				{Scope: nil},
+				{Scope: pointy.String("scope2")},
+			},
+			scopes: []string{"scope1"},
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := containsTagScope(tt.tags, tt.scopes...); got != tt.want {
+				t.Errorf("containsTagScope() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+type fakeStore struct {
+	isPolicyAPI bool
+	transError  bool
+}
+
+func (f *fakeStore) TransResourceToStore(obj *data.StructValue) error {
+	if f.transError {
+		return fmt.Errorf("transformation error")
+	}
+	return nil
+}
+
+func (f *fakeStore) ListIndexFuncValues(key string) sets.Set[string] {
+	return sets.New[string]()
+}
+
+func (f *fakeStore) Apply(obj interface{}) error {
+	return nil
+}
+
+func (f *fakeStore) IsPolicyAPI() bool {
+	return f.isPolicyAPI
+}
+
+type fakeMPQueryClient struct{}
+
+func (_ *fakeMPQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (mp_model.SearchResponse, error) {
+	cursor := "2"
+	resultCount := int64(2)
+	return mp_model.SearchResponse{
+		Results: []*data.StructValue{{}},
+		Cursor:  &cursor, ResultCount: &resultCount,
+	}, nil
+}
+
+func Test_formatTagParamScope(t *testing.T) {
+	tests := []struct {
+		name      string
+		paramType string
+		value     string
+		want      string
+	}{
+		{
+			name:      "Simple value",
+			paramType: "tags.scope",
+			value:     "simpleValue",
+			want:      "tags.scope:simpleValue",
+		},
+		{
+			name:      "Value with slash",
+			paramType: "tags.scope",
+			value:     "value/with/slash",
+			want:      "tags.scope:value\\/with\\/slash",
+		},
+		{
+			name:      "Empty value",
+			paramType: "tags.scope",
+			value:     "",
+			want:      "tags.scope:",
+		},
+		{
+			name:      "Value with multiple slashes",
+			paramType: "tags.scope",
+			value:     "value/with/multiple/slashes",
+			want:      "tags.scope:value\\/with\\/multiple\\/slashes",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatTagParamScope(tt.paramType, tt.value); got != tt.want {
+				t.Errorf("formatTagParamScope() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_formatTagParamTag(t *testing.T) {
+	tests := []struct {
+		name      string
+		paramType string
+		value     string
+		want      string
+	}{
+		{
+			name:      "Simple value",
+			paramType: "tags.tag",
+			value:     "simpleValue",
+			want:      "tags.tag:simpleValue",
+		},
+		{
+			name:      "Value with colon",
+			paramType: "tags.tag",
+			value:     "value:with:colon",
+			want:      "tags.tag:value\\:with\\:colon",
+		},
+		{
+			name:      "Empty value",
+			paramType: "tags.tag",
+			value:     "",
+			want:      "tags.tag:",
+		},
+		{
+			name:      "Value with multiple colons",
+			paramType: "tags.tag",
+			value:     "value:with:multiple:colons",
+			want:      "tags.tag:value\\:with\\:multiple\\:colons",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatTagParamTag(tt.paramType, tt.value); got != tt.want {
+				t.Errorf("formatTagParamTag() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
