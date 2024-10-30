@@ -730,7 +730,7 @@ func TestStartSubnetController(t *testing.T) {
 			patches := testCase.patches()
 			defer patches.Reset()
 
-			err := StartSubnetController(mockMgr, subnetService, subnetPortService, vpcService)
+			err := StartSubnetController(mockMgr, subnetService, subnetPortService, vpcService, nil)
 
 			if testCase.expectErrStr != "" {
 				assert.ErrorContains(t, err, testCase.expectErrStr)
