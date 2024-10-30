@@ -160,6 +160,7 @@ func createFakeSubnetReconciler(objs []client.Object) *SubnetReconciler {
 			NSXClient: &nsx.Client{},
 
 			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{Cluster: "fakeCluster"},
 				NsxConfig: &config.NsxConfig{
 					EnforcementPoint:   "vmc-enforcementpoint",
 					UseAVILoadBalancer: false,
