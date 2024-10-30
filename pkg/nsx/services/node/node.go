@@ -44,7 +44,7 @@ func InitializeNode(service servicecommon.Service) (*NodeService, error) {
 			},
 		},
 	}
-	// TODO: confirm whether we can remove the following intialization because node doesn't have the cluster tag so it's a dry run
+	// TODO: confirm whether we can remove the following initialization because node doesn't have the cluster tag so it's a dry run
 	go nodeService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeNode, nil, nodeService.NodeStore)
 
 	go func() {
@@ -94,7 +94,7 @@ func (service *NodeService) SyncNodeStore(nodeName string, deleted bool) error {
 			return nil
 		}
 		for _, node := range nodes {
-			*node.MarkedForDelete = true
+			node.MarkedForDelete = servicecommon.Bool(true)
 			service.NodeStore.Apply(node)
 		}
 	}
