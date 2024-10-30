@@ -1,4 +1,4 @@
-/* Copyright © 2022-2023 VMware, Inc. All Rights Reserved.
+/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package securitypolicy
@@ -26,15 +26,15 @@ type EnqueueRequestForNamespace struct {
 }
 
 func (e *EnqueueRequestForNamespace) Create(_ context.Context, _ event.CreateEvent, _ workqueue.RateLimitingInterface) {
-	log.V(1).Info("namespace create event, do nothing")
+	log.V(1).Info("NameSpace create event, do nothing")
 }
 
 func (e *EnqueueRequestForNamespace) Delete(_ context.Context, _ event.DeleteEvent, _ workqueue.RateLimitingInterface) {
-	log.V(1).Info("namespace delete event, do nothing")
+	log.V(1).Info("NameSpace delete event, do nothing")
 }
 
 func (e *EnqueueRequestForNamespace) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
-	log.V(1).Info("namespace generic event, do nothing")
+	log.V(1).Info("NameSpace generic event, do nothing")
 }
 
 func (e *EnqueueRequestForNamespace) Update(_ context.Context, updateEvent event.UpdateEvent, l workqueue.RateLimitingInterface) {
@@ -43,7 +43,7 @@ func (e *EnqueueRequestForNamespace) Update(_ context.Context, updateEvent event
 		log.Error(err, "failed to fetch namespace", "namespace", obj.Name)
 		return
 	} else if isInSysNs {
-		log.V(2).Info("namespace is in system namespace, ignore it", "namespace", obj.Name)
+		log.V(2).Info("NameSpace is in system namespace, ignore it", "namespace", obj.Name)
 		return
 	}
 
@@ -62,7 +62,7 @@ func (e *EnqueueRequestForNamespace) Update(_ context.Context, updateEvent event
 		}
 	}
 	if !shouldReconcile {
-		log.Info("no pod in namespace is relevant", "namespace", obj.Name)
+		log.Info("No pod in namespace is relevant", "namespace", obj.Name)
 		return
 	}
 
@@ -79,9 +79,9 @@ var PredicateFuncsNs = predicate.Funcs{
 	UpdateFunc: func(e event.UpdateEvent) bool {
 		oldObj := e.ObjectOld.(*v1.Namespace)
 		newObj := e.ObjectNew.(*v1.Namespace)
-		log.V(1).Info("receive namespace update event", "name", oldObj.Name)
+		log.V(1).Info("Receive namespace update event", "name", oldObj.Name)
 		if reflect.DeepEqual(oldObj.ObjectMeta.Labels, newObj.ObjectMeta.Labels) {
-			log.Info("label of namespace is not changed, ignore it", "name", oldObj.Name)
+			log.Info("Label of namespace is not changed, ignore it", "name", oldObj.Name)
 			return false
 		}
 		return true

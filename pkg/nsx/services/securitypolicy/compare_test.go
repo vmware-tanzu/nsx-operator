@@ -1,3 +1,6 @@
+/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
+   SPDX-License-Identifier: Apache-2.0 */
+
 package securitypolicy
 
 import (
@@ -9,7 +12,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
-func TestGroupsEqual(t *testing.T) {
+func Test_GroupsEqual(t *testing.T) {
 	spNewGroupID := "spNewGroupID"
 	tests := []struct {
 		name            string
@@ -84,7 +87,7 @@ func TestGroupsEqual(t *testing.T) {
 	}
 }
 
-func TestRulesEqual(t *testing.T) {
+func Test_RulesEqual(t *testing.T) {
 	tests := []struct {
 		name            string
 		inputRule1      []model.Rule
@@ -158,7 +161,7 @@ func TestRulesEqual(t *testing.T) {
 	}
 }
 
-func TestSecurityPolicyEqual(t *testing.T) {
+func Test_SecurityPolicyEqual(t *testing.T) {
 	tests := []struct {
 		name            string
 		inputPolicy1    *model.SecurityPolicy

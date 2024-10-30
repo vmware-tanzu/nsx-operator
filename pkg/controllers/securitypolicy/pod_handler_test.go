@@ -1,3 +1,6 @@
+/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
+   SPDX-License-Identifier: Apache-2.0 */
+
 package securitypolicy
 
 import (
@@ -266,6 +269,185 @@ func TestEnqueueRequestForPod_Generic(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &EnqueueRequestForPod{}
 			e.Generic(context.TODO(), tt.args.evt, tt.args.q)
+		})
+	}
+}
+
+func TestGetAllPodPortNames(t *testing.T) {
+	// Define test cases with different pod configurations
+	testCases := []struct {
+		name          string
+		pods          []v1.Pod
+		expectedNames sets.Set[string]
+	}{
+		{
+			name:          "Empty pods",
+			pods:          []v1.Pod{},
+			expectedNames: sets.New[string](),
+		},
+		{
+			name: "Single pod with named ports",
+			pods: []v1.Pod{
+				{
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Ports: []v1.ContainerPort{
+									{Name: "http", ContainerPort: 80},
+									{Name: "db", ContainerPort: 5432},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedNames: sets.New[string]("http", "db"),
+		},
+		{
+			name: "Multiple pods with mixed named and unnamed ports",
+			pods: []v1.Pod{
+				{
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Ports: []v1.ContainerPort{
+									{Name: "http", ContainerPort: 80},
+									{ContainerPort: 22}, // Unnamed port
+								},
+							},
+						},
+					},
+				},
+				{
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Ports: []v1.ContainerPort{
+									{Name: "db", ContainerPort: 5432},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedNames: sets.New[string]("http", "db"),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			actualNames := getAllPodPortNames(tc.pods)
+			assert.Equal(t, tc.expectedNames, actualNames)
+		})
+	}
+}
+
+func TestPredicateFuncsPod(t *testing.T) {
+	tests := []struct {
+		name       string
+		event      interface{}
+		expectPass bool
+	}{
+		{
+			name: "Create event with named port",
+			event: event.CreateEvent{
+				Object: &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod",
+						Namespace: "default",
+						Labels:    map[string]string{"checkNamedPort": "create"},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Ports: []v1.ContainerPort{
+									{
+										Name:          "http",
+										Protocol:      "TCP",
+										ContainerPort: 8080,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectPass: true,
+		},
+		{
+			name: "Update event with phase change",
+			event: event.UpdateEvent{
+				ObjectOld: &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod-old",
+						Namespace: "default",
+						Labels:    map[string]string{"checkNamedPort": "update"},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Ports: []v1.ContainerPort{
+									{
+										Name:          "http",
+										Protocol:      "TCP",
+										ContainerPort: 8080,
+									},
+								},
+							},
+						},
+					},
+					Status: v1.PodStatus{Phase: v1.PodPending},
+				},
+				ObjectNew: &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod-new",
+						Namespace: "default",
+						Labels:    map[string]string{"checkNamedPort": "update"},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Ports: []v1.ContainerPort{
+									{
+										Name:          "http",
+										Protocol:      "TCP",
+										ContainerPort: 8080,
+									},
+								},
+							},
+						},
+					},
+					Status: v1.PodStatus{Phase: v1.PodRunning},
+				},
+			},
+			expectPass: true,
+		},
+		{
+			name: "Delete event without named port",
+			event: event.DeleteEvent{
+				Object: &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod",
+						Namespace: "default",
+					},
+				},
+			},
+			expectPass: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var pass bool
+			switch e := tt.event.(type) {
+			case event.CreateEvent:
+				pass = PredicateFuncsPod.CreateFunc(e)
+			case event.UpdateEvent:
+				pass = PredicateFuncsPod.UpdateFunc(e)
+			case event.DeleteEvent:
+				pass = PredicateFuncsPod.DeleteFunc(e)
+			}
+			assert.Equal(t, tt.expectPass, pass)
 		})
 	}
 }

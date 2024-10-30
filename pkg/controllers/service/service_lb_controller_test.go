@@ -6,18 +6,23 @@ package service
 import (
 	"context"
 	"errors"
+	"os"
+	"reflect"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	gomonkey "github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	controllerruntime "sigs.k8s.io/controller-runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -25,8 +30,7 @@ import (
 
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
-	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
-	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 func NewFakeServiceLbReconciler() *ServiceLbReconciler {
@@ -38,13 +42,55 @@ func NewFakeServiceLbReconciler() *ServiceLbReconciler {
 	}
 }
 
-func TestServiceLbController_setServiceLbStatus(t *testing.T) {
+type fakeRecorder struct{}
+
+func (recorder fakeRecorder) Event(object runtime.Object, eventtype, reason, message string) {
+}
+
+func (recorder fakeRecorder) Eventf(object runtime.Object, eventtype, reason, messageFmt string, args ...interface{}) {
+}
+
+func (recorder fakeRecorder) AnnotatedEventf(object runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
+}
+
+type MockManager struct {
+	ctrl.Manager
+	client client.Client
+	scheme *runtime.Scheme
+	config *rest.Config
+}
+
+func (m *MockManager) GetClient() client.Client {
+	return m.client
+}
+
+func (m *MockManager) GetScheme() *runtime.Scheme {
+	return m.scheme
+}
+
+func (m *MockManager) GetConfig() *rest.Config {
+	return m.config
+}
+
+func (m *MockManager) GetEventRecorderFor(name string) record.EventRecorder {
+	return nil
+}
+
+func (m *MockManager) Add(runnable manager.Runnable) error {
+	return nil
+}
+
+func (m *MockManager) Start(context.Context) error {
+	return nil
+}
+
+func TestServiceLbReconciler_setServiceLbStatus(t *testing.T) {
 	r := NewFakeServiceLbReconciler()
 	ctx := context.TODO()
 	lbService := &v1.Service{}
 	lbService.Spec.Type = v1.ServiceTypeLoadBalancer
 	lbService.Labels = map[string]string{
-		servicecommon.LabelLbIngressIpMode: servicecommon.LabelLbIngressIpModeVipValue,
+		common.LabelLbIngressIpMode: common.LabelLbIngressIpModeVipValue,
 	}
 	vipIpMode := v1.LoadBalancerIPModeVIP
 	lbService.Status.LoadBalancer.Ingress = []v1.LoadBalancerIngress{
@@ -60,7 +106,7 @@ func TestServiceLbController_setServiceLbStatus(t *testing.T) {
 
 	// Case: IPMode is set and ingress-ip-mode label is set as proxy.
 	lbService.Labels = map[string]string{
-		servicecommon.LabelLbIngressIpMode: servicecommon.LabelLbIngressIpModeProxyValue,
+		common.LabelLbIngressIpMode: common.LabelLbIngressIpModeProxyValue,
 	}
 	r.setServiceLbStatus(ctx, lbService)
 	assert.Equal(t, v1.LoadBalancerIPModeProxy, *lbService.Status.LoadBalancer.Ingress[0].IPMode)
@@ -73,7 +119,7 @@ func TestServiceLbController_setServiceLbStatus(t *testing.T) {
 
 	// Case IPMode is not set and label is set as VIP.
 	lbService.Labels = map[string]string{
-		servicecommon.LabelLbIngressIpMode: servicecommon.LabelLbIngressIpModeVipValue,
+		common.LabelLbIngressIpMode: common.LabelLbIngressIpModeVipValue,
 	}
 	lbService.Status.LoadBalancer.Ingress = []v1.LoadBalancerIngress{
 		{
@@ -86,7 +132,7 @@ func TestServiceLbController_setServiceLbStatus(t *testing.T) {
 
 	// Case IPMode is not set and label is set as proxy.
 	lbService.Labels = map[string]string{
-		servicecommon.LabelLbIngressIpMode: servicecommon.LabelLbIngressIpModeProxyValue,
+		common.LabelLbIngressIpMode: common.LabelLbIngressIpModeProxyValue,
 	}
 	lbService.Status.LoadBalancer.Ingress = []v1.LoadBalancerIngress{
 		{
@@ -119,21 +165,10 @@ func TestServiceLbController_setServiceLbStatus(t *testing.T) {
 	assert.Equal(t, (*v1.LoadBalancerIPMode)(nil), lbService.Status.LoadBalancer.Ingress[0].IPMode)
 }
 
-type fakeRecorder struct{}
-
-func (recorder fakeRecorder) Event(object runtime.Object, eventtype, reason, message string) {
-}
-
-func (recorder fakeRecorder) Eventf(object runtime.Object, eventtype, reason, messageFmt string, args ...interface{}) {
-}
-
-func (recorder fakeRecorder) AnnotatedEventf(object runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
-}
-
-func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
+func TestServiceLbReconciler_Reconcile(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
-	service := &servicecommon.Service{
+	service := &common.Service{
 		NSXClient: &nsx.Client{},
 		NSXConfig: &config.NSXOperatorConfig{
 			CoeConfig: &config.CoeConfig{
@@ -152,17 +187,25 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		Recorder: fakeRecorder{},
 	}
 	ctx := context.Background()
-	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
 
-	// case not found obj
+	// lb service not found obj case
 	errNotFound := errors.New("not found")
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(errNotFound)
 	_, err := r.Reconcile(ctx, req)
 	assert.Equal(t, err, errNotFound)
 
+	// DeletionTimestamp.IsZero = true and service type is LoadBalancer
 	lbService := &v1.Service{}
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), lbService).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+		v1lbservice := obj.(*v1.Service)
+		v1lbservice.Spec.Type = v1.ServiceTypeLoadBalancer
+		return nil
+	})
+	_, err = r.Reconcile(ctx, req)
+	assert.Equal(t, err, nil)
 
-	// case DeletionTimestamp.IsZero = false and service type is LoadBalancer
+	// DeletionTimestamp.IsZero = false and service type is LoadBalancer
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), lbService).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1lbservice := obj.(*v1.Service)
 		v1lbservice.Spec.Type = v1.ServiceTypeLoadBalancer
@@ -185,24 +228,70 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	assert.Equal(t, err, nil)
 }
 
-func TestSecurityPolicyReconciler_Start(t *testing.T) {
-	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
-	service := &servicecommon.Service{}
-	var mgr controllerruntime.Manager
-	r := &ServiceLbReconciler{
-		Client:   k8sClient,
-		Scheme:   nil,
-		Service:  service,
-		Recorder: fakeRecorder{},
+func TestStartServiceLbController(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().WithObjects().Build()
+	commonService := common.Service{
+		Client: fakeClient,
+	}
+	mockMgr := &MockManager{
+		scheme: runtime.NewScheme(),
+		config: &rest.Config{},
 	}
 
-	// Case Manager is not initialized
-	err := r.Start(mgr)
-	assert.NotEqual(t, nil, err)
+	exitCalled := false // Variable to check if osExit was called
+	testCases := []struct {
+		name         string
+		expectErrStr string
+		patches      func() *gomonkey.Patches
+	}{
+		// expected no error when starting the serviceLb controller
+		{
+			name: "Start serviceLb Controller",
+			patches: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(os.Exit, func(code int) {
+					assert.FailNow(t, "os.Exit should not be called")
+					return
+				})
+				patches.ApplyFunc(isServiceLbStatusIpModeSupported, func(c *rest.Config) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
+					return nil
+				})
+				return patches
+			},
+		},
+		{
+			name:         "Start serviceLb controller return error",
+			expectErrStr: "failed to setupWithManager",
+			patches: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(os.Exit, func(code int) {
+					exitCalled = true
+					return
+				})
+				patches.ApplyFunc(isServiceLbStatusIpModeSupported, func(c *rest.Config) bool {
+					return true
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(&ServiceLbReconciler{}), "setupWithManager", func(_ *ServiceLbReconciler, mgr ctrl.Manager) error {
+					return errors.New("failed to setupWithManager")
+				})
+				return patches
+			},
+		},
+	}
 
-	// Case Manager is initialized
-	mgr, _ = controllerruntime.NewManager(&rest.Config{}, manager.Options{})
-	err = r.Start(mgr)
-	assert.Equal(t, nil, err)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			patches := testCase.patches()
+			defer patches.Reset()
+
+			StartServiceLbController(mockMgr, commonService)
+
+			if testCase.expectErrStr != "" {
+				assert.Equal(t, exitCalled, true)
+			} else {
+				assert.Equal(t, exitCalled, false)
+			}
+		})
+	}
 }

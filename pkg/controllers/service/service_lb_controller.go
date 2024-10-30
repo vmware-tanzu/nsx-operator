@@ -6,6 +6,7 @@ package service
 import (
 	"context"
 	"os"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
@@ -47,6 +48,11 @@ func updateSuccess(r *ServiceLbReconciler, c context.Context, lbService *v1.Serv
 
 func (r *ServiceLbReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	service := &v1.Service{}
+	log.Info("Reconciling LB CR", "service", req.NamespacedName)
+	startTime := time.Now()
+	defer func() {
+		log.Info("Finished reconciling LB service", "lbService", req.NamespacedName, "duration(ms)", time.Since(startTime).Milliseconds())
+	}()
 
 	if err := r.Client.Get(ctx, req.NamespacedName, service); err != nil {
 		log.Error(err, "unable to fetch lb service", "req", req.NamespacedName)
@@ -54,7 +60,7 @@ func (r *ServiceLbReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	if service.Spec.Type == v1.ServiceTypeLoadBalancer {
-		log.Info("reconciling lb service", "lbService", req.NamespacedName)
+		log.Info("Reconciling lb service", "lbService", req.NamespacedName)
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
 
 		if service.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -88,7 +94,7 @@ func (r *ServiceLbReconciler) setServiceLbStatus(ctx context.Context, lbService 
 
 	if statusUpdated {
 		r.Client.Status().Update(ctx, lbService)
-		log.V(1).Info("updated LB service status ipMode", "Name", lbService.Name, "Namespace", lbService.Namespace, "ipMode", ipMode)
+		log.V(1).Info("Updated LB service status ipMode", "Name", lbService.Name, "Namespace", lbService.Namespace, "ipMode", ipMode)
 	}
 }
 
@@ -133,7 +139,7 @@ func isServiceLbStatusIpModeSupported(c *rest.Config) bool {
 		return false
 	}
 
-	log.Info("running server Kubernetes version is", "K8sVersion", runningVersion.String())
+	log.Info("Running server Kubernetes version is", "K8sVersion", runningVersion.String())
 	return runningVersion.AtLeast(version129)
 }
 
@@ -151,6 +157,6 @@ func StartServiceLbController(mgr ctrl.Manager, commonService servicecommon.Serv
 			os.Exit(1)
 		}
 	} else {
-		log.Info("service Lb controller isn't started since load balancer service ipMode supporting needs K8s version at least 1.29.0")
+		log.Info("Service Lb controller isn't started since load balancer service ipMode supporting needs K8s version at least 1.29.0")
 	}
 }
