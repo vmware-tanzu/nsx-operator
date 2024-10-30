@@ -269,13 +269,20 @@ func TestReconcile(t *testing.T) {
 func TestReconcile_DeleteSubnetSet(t *testing.T) {
 	subnetSetName := "test-subnetset"
 	testCases := []struct {
-		name         string
-		expectRes    ctrl.Result
-		expectErrStr string
-		patches      func(r *SubnetSetReconciler) *gomonkey.Patches
+		name              string
+		existingSubnetSet *v1alpha1.SubnetSet
+		expectRes         ctrl.Result
+		expectErrStr      string
+		patches           func(r *SubnetSetReconciler) *gomonkey.Patches
 	}{
 		{
 			name: "Delete success",
+			existingSubnetSet: &v1alpha1.SubnetSet{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Name: "fake-subnetSet-uid-2"},
+				Spec:       v1alpha1.SubnetSetSpec{},
+				Status:     v1alpha1.SubnetSetStatus{},
+			},
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
 					id1 := "fake-id"
@@ -303,10 +310,6 @@ func TestReconcile_DeleteSubnetSet(t *testing.T) {
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
 					return nil
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetSetID", func(_ *subnet.SubnetService, ctx context.Context) (sets.Set[string], error) {
-					res := sets.New[string]("fake-subnetSet-uid-2")
-					return res, nil
 				})
 				return patches
 			},
@@ -400,7 +403,11 @@ func TestReconcile_DeleteSubnetSet(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx := context.TODO()
 			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: subnetSetName, Namespace: "default"}}
-			r := createFakeSubnetSetReconciler(nil)
+			var objs []client.Object
+			if testCase.existingSubnetSet != nil {
+				objs = append(objs, testCase.existingSubnetSet)
+			}
+			r := createFakeSubnetSetReconciler(objs)
 			patches := testCase.patches(r)
 			defer patches.Reset()
 
