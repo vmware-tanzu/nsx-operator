@@ -25,10 +25,15 @@ type fakeQueryClient struct {
 
 func (qIface *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
 	cursor := "2"
-	resultCount := int64(2)
+	resultCount := int64(1)
 	return model.SearchResponse{
-		Results: []*data.StructValue{{}},
-		Cursor:  &cursor, ResultCount: &resultCount,
+		Results: []*data.StructValue{data.NewStructValue("",
+			map[string]data.DataValue{
+				"resource_type": data.NewStringValue("VpcSubnet"),
+				"id":            data.NewStringValue("subnet1"),
+				"path":          data.NewStringValue("/orgs/default/projects/default/vpcs/vpc2/subnets/subnet2"),
+			})},
+		Cursor: &cursor, ResultCount: &resultCount,
 	}, nil
 }
 
