@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
@@ -328,6 +329,53 @@ func TestGetAddressBindingBySubnetPort(t *testing.T) {
 					Name:      "AddressBinding-1",
 				},
 				Spec: v1alpha1.AddressBindingSpec{
+					InterfaceName: "port",
+				},
+			},
+		},
+		{
+			name: "MultipleAddressBinding",
+			sp: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{"nsx.vmware.com/attachment_ref": "VirtualMachine/vm/port"},
+				},
+			},
+			preFunc: func() {
+				abList := &v1alpha1.AddressBindingList{}
+				k8sClient.EXPECT().List(gomock.Any(), abList, gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					a := list.(*v1alpha1.AddressBindingList)
+					a.Items = append(a.Items, v1alpha1.AddressBinding{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace:         "ns",
+							Name:              "AddressBinding-1",
+							CreationTimestamp: metav1.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
+						},
+						Spec: v1alpha1.AddressBindingSpec{
+							VMName:        "vm",
+							InterfaceName: "port",
+						},
+					}, v1alpha1.AddressBinding{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace:         "ns",
+							Name:              "AddressBinding-2",
+							CreationTimestamp: metav1.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC),
+						},
+						Spec: v1alpha1.AddressBindingSpec{
+							VMName:        "vm",
+							InterfaceName: "port",
+						},
+					})
+					return nil
+				})
+			},
+			ab: &v1alpha1.AddressBinding{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace:         "ns",
+					Name:              "AddressBinding-2",
+					CreationTimestamp: metav1.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC),
+				},
+				Spec: v1alpha1.AddressBindingSpec{
+					VMName:        "vm",
 					InterfaceName: "port",
 				},
 			},
