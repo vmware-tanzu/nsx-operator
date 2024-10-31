@@ -33,3 +33,9 @@ flag_management:
 
 ignore:
   - "**/test/*.go"
+  - "**/mock_*.go"
+  - "**/*generate*.go"
+  - "pkg/client"
+  - "pkg/mock"
+  - "**/pkg/client"
+  - "**/*.pb.go"

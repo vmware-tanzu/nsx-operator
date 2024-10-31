@@ -60,7 +60,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, u
 	var staticIpAllocation bool
 	switch o := obj.(type) {
 	case *v1alpha1.Subnet:
-		staticIpAllocation = (o.Spec.SubnetDHCPConfig.Mode == "" || o.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated))
+		staticIpAllocation = o.Spec.SubnetDHCPConfig.Mode == "" || o.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
 		nsxSubnet = &model.VpcSubnet{
 			Id:             String(service.BuildSubnetID(o)),
 			AccessMode:     String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),
@@ -80,7 +80,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, u
 	case *v1alpha1.SubnetSet:
 		// The index is a random string with the length of 8 chars. It is the first 8 chars of the hash
 		// value on a random UUID string.
-		staticIpAllocation = (o.Spec.SubnetDHCPConfig.Mode == "" || o.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated))
+		staticIpAllocation = o.Spec.SubnetDHCPConfig.Mode == "" || o.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
 		index := util.GetRandomIndexString()
 		nsxSubnet = &model.VpcSubnet{
 			Id:             String(service.buildSubnetSetID(o, index)),
@@ -124,7 +124,7 @@ func (service *SubnetService) buildDHCPConfig(enableDHCP bool) *model.VpcSubnetD
 }
 
 func (service *SubnetService) buildSubnetDHCPConfig(mode string) *model.SubnetDhcpConfig {
-	// Trasfer DHCPDeactivated to DHCP_DEACTIVATED
+	// Transfer DHCPDeactivated to DHCP_DEACTIVATED
 	nsxMode := strings.ToUpper(mode)
 	nsxMode = nsxMode[:4] + "_" + nsxMode[4:]
 
