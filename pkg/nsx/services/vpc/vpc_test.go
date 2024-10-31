@@ -292,7 +292,7 @@ func TestGetVPCsByNamespace(t *testing.T) {
 	ctx := context.Background()
 	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{
 		common.TagScopeNamespaceUID: vpcIndexNamespaceIDFunc,
-		common.TagScopeNamespace:    vpcIndexNamespaceFunc,
+		common.TagScopeNamespace:    vpcIndexNamespaceNameFunc,
 	})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,

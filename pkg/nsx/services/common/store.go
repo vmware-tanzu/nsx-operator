@@ -180,7 +180,7 @@ func (service *Service) SearchResource(resourceTypeValue string, queryParam stri
 // PopulateResourcetoStore is the method used by populating resources created not by nsx-operator
 func (service *Service) PopulateResourcetoStore(wg *sync.WaitGroup, fatalErrors chan error, resourceTypeValue string, queryParam string, store Store, filter Filter) {
 	defer wg.Done()
-	count, err := service.SearchResource(resourceTypeValue, queryParam, store, filter)
+	count, err := service.SearchResource("", queryParam, store, filter)
 	if err != nil {
 		fatalErrors <- err
 	}

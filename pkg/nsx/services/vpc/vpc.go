@@ -149,7 +149,7 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	VPCService.VpcStore = &VPCStore{ResourceStore: common.ResourceStore{
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
 			common.TagScopeNamespaceUID: vpcIndexNamespaceIDFunc,
-			common.TagScopeNamespace:    vpcIndexNamespaceFunc,
+			common.TagScopeNamespace:    vpcIndexNamespaceNameFunc,
 		}),
 		BindingType: model.VpcBindingType(),
 	}}

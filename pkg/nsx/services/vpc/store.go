@@ -30,18 +30,18 @@ func indexFunc(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
 	switch o := obj.(type) {
 	case *model.Vpc:
-		return filterTag(o.Tags, common.TagScopeNamespaceUID), nil
+		return filterTagBy(o.Tags, common.TagScopeNamespaceUID), nil
 	case *model.LBService:
-		return filterTag(o.Tags, common.TagScopeNamespaceUID), nil
+		return filterTagBy(o.Tags, common.TagScopeNamespaceUID), nil
 	default:
 		return res, errors.New("indexFunc doesn't support unknown type")
 	}
 }
 
-func vpcIndexNamespaceFunc(obj interface{}) ([]string, error) {
+func vpcIndexNamespaceNameFunc(obj interface{}) ([]string, error) {
 	switch o := obj.(type) {
 	case *model.Vpc:
-		return filterTag(o.Tags, common.TagScopeNamespace), nil
+		return filterTagBy(o.Tags, common.TagScopeNamespace), nil
 	default:
 		return nil, errors.New("VPCIndexNamespaceFunc doesn't support unknown type")
 	}
@@ -50,13 +50,13 @@ func vpcIndexNamespaceFunc(obj interface{}) ([]string, error) {
 func vpcIndexNamespaceIDFunc(obj interface{}) ([]string, error) {
 	switch o := obj.(type) {
 	case *model.Vpc:
-		return filterTag(o.Tags, common.TagScopeNamespaceUID), nil
+		return filterTagBy(o.Tags, common.TagScopeNamespaceUID), nil
 	default:
 		return nil, errors.New("VPCIndexNamespaceFunc doesn't support unknown type")
 	}
 }
 
-var filterTag = func(v []model.Tag, tagScope string) []string {
+func filterTagBy(v []model.Tag, tagScope string) []string {
 	res := make([]string, 0, 5)
 	for _, tag := range v {
 		if *tag.Scope == tagScope {

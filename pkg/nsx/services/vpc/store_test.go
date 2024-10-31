@@ -60,7 +60,7 @@ func Test_filterTag(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := filterTag(tt.args.v, common.TagScopeNamespaceUID); !reflect.DeepEqual(got, tt.want) {
+			if got := filterTagBy(tt.args.v, common.TagScopeNamespaceUID); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("filterTag() = %v, want %v", got, tt.want)
 			}
 		})
@@ -146,7 +146,7 @@ func TestVPCStore_CRUDResource(t *testing.T) {
 func TestVPCStore_CRUDResource_List(t *testing.T) {
 	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{
 		common.TagScopeNamespaceUID: vpcIndexNamespaceIDFunc,
-		common.TagScopeNamespace:    vpcIndexNamespaceFunc,
+		common.TagScopeNamespace:    vpcIndexNamespaceNameFunc,
 	})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
