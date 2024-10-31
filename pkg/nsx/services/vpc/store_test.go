@@ -309,65 +309,6 @@ func Test_keyFunc(t *testing.T) {
 	}
 }
 
-func Test_indexFunc(t *testing.T) {
-	mId, mTag, mScope := "test_id", "test_tag", "nsx-op/namespace_uid"
-	type args struct {
-		obj interface{}
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    []string
-		wantErr assert.ErrorAssertionFunc
-	}{
-		{
-			name: "vpc",
-			args: args{obj: &model.Vpc{
-				Id:   &mId,
-				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-			}},
-			want:    []string{"test_tag"},
-			wantErr: assert.NoError,
-		},
-		{
-			name: "lbs",
-			args: args{obj: &model.LBService{
-				Id:   &mId,
-				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-			}},
-			want:    []string{"test_tag"},
-			wantErr: assert.NoError,
-		},
-		{
-			name: "lbsnotag",
-			args: args{obj: &model.LBService{
-				Id:   &mId,
-				Tags: []model.Tag{},
-			}},
-			want:    []string{},
-			wantErr: assert.NoError,
-		},
-		{
-			name: "invalid",
-			args: args{obj: &model.AntreaTraceflowConfig{
-				Id:   &mId,
-				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-			}},
-			want:    []string{},
-			wantErr: assert.Error,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := indexFunc(tt.args.obj)
-			if !tt.wantErr(t, err, fmt.Sprintf("indexFunc(%v)", tt.args.obj)) {
-				return
-			}
-			assert.Equalf(t, tt.want, got, "indexFunc(%v)", tt.args.obj)
-		})
-	}
-}
-
 func TestLBSStore_CRUD(t *testing.T) {
 	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
 	resourceStore := common.ResourceStore{

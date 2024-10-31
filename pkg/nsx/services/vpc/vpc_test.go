@@ -61,7 +61,7 @@ func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVp
 	k8sClient := mock_client.NewMockClient(mockCtrl)
 
 	vpcStore := &VPCStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeStaticRouteCRUID: indexFunc}),
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
 		BindingType: model.VpcBindingType(),
 	}}
 
@@ -1570,7 +1570,7 @@ func createFakeVPCService(t *testing.T, objs []client.Object) *VPCService {
 	mockVpcClient := mocks.NewMockVpcsClient(mockCtrl)
 
 	vpcStore := &VPCStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeStaticRouteCRUID: indexFunc}),
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
 		BindingType: model.VpcBindingType(),
 	}}
 

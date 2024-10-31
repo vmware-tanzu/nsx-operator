@@ -24,20 +24,6 @@ func keyFunc(obj interface{}) (string, error) {
 	}
 }
 
-// indexFunc is used to get index of a resource, usually, which is the UID of the CR controller reconciles,
-// index is used to filter out resources which are related to the CR
-func indexFunc(obj interface{}) ([]string, error) {
-	res := make([]string, 0, 5)
-	switch o := obj.(type) {
-	case *model.Vpc:
-		return filterTagBy(o.Tags, common.TagScopeNamespaceUID), nil
-	case *model.LBService:
-		return filterTagBy(o.Tags, common.TagScopeNamespaceUID), nil
-	default:
-		return res, errors.New("indexFunc doesn't support unknown type")
-	}
-}
-
 func vpcIndexNamespaceNameFunc(obj interface{}) ([]string, error) {
 	switch o := obj.(type) {
 	case *model.Vpc:
