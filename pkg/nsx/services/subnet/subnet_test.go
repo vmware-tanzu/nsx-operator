@@ -5,8 +5,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -87,4 +90,115 @@ func TestGenerateSubnetNSTags(t *testing.T) {
 	assert.Equal(t, 3, len(tagsSet)) // 3 tags should be generated
 	assert.Equal(t, "namespace-uid", *tagsSet[0].Tag)
 	assert.Equal(t, "test-ns", *tagsSet[1].Tag)
+}
+
+type fakeOrgRootClient struct {
+}
+
+func (f fakeOrgRootClient) Get(basePathParam *string, filterParam *string, typeFilterParam *string) (model.OrgRoot, error) {
+	return model.OrgRoot{}, nil
+}
+
+func (f fakeOrgRootClient) Patch(orgRootParam model.OrgRoot, enforceRevisionCheckParam *bool) error {
+	return nil
+}
+
+type fakeSubnetsClient struct {
+}
+
+func (f fakeSubnetsClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) error {
+	return nil
+}
+
+var fakeSubnetPath = "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9/subnets/subnet-1"
+var fakeSubnetID = "fakeSubnetID"
+var fakeVpcSubnet = model.VpcSubnet{Path: &fakeSubnetPath, Id: &fakeSubnetID}
+
+func (f fakeSubnetsClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnet, error) {
+	return fakeVpcSubnet, nil
+}
+
+func (f fakeSubnetsClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcSubnetListResult, error) {
+	return model.VpcSubnetListResult{}, nil
+}
+
+func (f fakeSubnetsClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, vpcSubnetParam model.VpcSubnet) error {
+	return nil
+}
+
+func (f fakeSubnetsClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, vpcSubnetParam model.VpcSubnet) (model.VpcSubnet, error) {
+	return model.VpcSubnet{}, nil
+}
+
+type fakeRealizedEntitiesClient struct {
+}
+
+func (f fakeRealizedEntitiesClient) List(orgIdParam string, projectIdParam string, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+	// GenericPolicyRealizedResource
+	state := model.GenericPolicyRealizedResource_STATE_REALIZED
+	return model.GenericPolicyRealizedResourceListResult{
+		Results: []model.GenericPolicyRealizedResource{
+			{
+				State: &state,
+			},
+		},
+	}, nil
+}
+
+func TestInitializeSubnetService(t *testing.T) {
+	newScheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
+	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
+	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).Build()
+	// SubnetsClient
+	commonService := common.Service{
+		Client: fakeClient,
+		NSXClient: &nsx.Client{
+			OrgRootClient:          &fakeOrgRootClient{},
+			SubnetsClient:          &fakeSubnetsClient{},
+			QueryClient:            &fakeQueryClient{},
+			RealizedEntitiesClient: &fakeRealizedEntitiesClient{},
+			// VPCClient:     mockVpcclient,
+			// RestConnector: rc,
+			NsxConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		NSXConfig: &config.NSXOperatorConfig{
+			CoeConfig: &config.CoeConfig{
+				Cluster: "k8scl-one:test",
+			},
+		},
+	}
+	service, err := InitializeSubnetService(commonService)
+	assert.NoError(t, err)
+	res := service.ListAllSubnet()
+	assert.Equal(t, 0, len(res))
+
+	subnetCR := &v1alpha1.Subnet{
+		TypeMeta:   metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{},
+		Spec:       v1alpha1.SubnetSpec{},
+		Status:     v1alpha1.SubnetStatus{},
+	}
+	vpcInfo := common.VPCResourceInfo{
+		OrgID:             "",
+		ProjectID:         "",
+		VPCID:             "",
+		ID:                "",
+		ParentID:          "",
+		PrivateIpv4Blocks: nil,
+	}
+	tags := []model.Tag{{}}
+	nsxSubnet, err := service.CreateOrUpdateSubnet(subnetCR, vpcInfo, tags)
+	assert.NoError(t, err)
+	assert.Equal(t, nsxSubnet, nsxSubnet)
+
+	err = service.DeleteSubnet(fakeVpcSubnet)
+	assert.NoError(t, err)
+
+	err = service.Cleanup(context.TODO())
+	assert.NoError(t, err)
 }

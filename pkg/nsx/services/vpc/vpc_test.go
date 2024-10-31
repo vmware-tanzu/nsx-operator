@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
@@ -17,9 +17,16 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/vpcclient"
@@ -186,17 +193,18 @@ func TestGetNetworkConfigFromNS(t *testing.T) {
 	k8sClient := service.Client.(*mock_client.MockClient)
 	fakeErr := errors.New("fake error")
 	mockNs := &v1.Namespace{}
+	ctx := context.Background()
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(fakeErr).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		return nil
 	})
-	ns, err := service.GetNetworkconfigNameFromNS("test")
+	ns, err := service.GetNetworkconfigNameFromNS(ctx, "test")
 	assert.Equal(t, fakeErr, err)
 	assert.Equal(t, "", ns)
 
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(nil).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		return nil
 	})
-	ns, err = service.GetNetworkconfigNameFromNS("test")
+	ns, err = service.GetNetworkconfigNameFromNS(ctx, "test")
 	assert.NotNil(t, err)
 	assert.Equal(t, "", ns)
 
@@ -208,7 +216,7 @@ func TestGetNetworkConfigFromNS(t *testing.T) {
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(nil).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		return nil
 	})
-	ns, err = service.GetNetworkconfigNameFromNS("test")
+	ns, err = service.GetNetworkconfigNameFromNS(ctx, "test")
 	assert.Nil(t, err)
 	assert.Equal(t, "test-name", ns)
 
@@ -216,7 +224,7 @@ func TestGetNetworkConfigFromNS(t *testing.T) {
 		obj.SetAnnotations(map[string]string{"nsx.vmware.com/vpc_network_config": "test-nc"})
 		return nil
 	})
-	ns, err = service.GetNetworkconfigNameFromNS("test")
+	ns, err = service.GetNetworkconfigNameFromNS(ctx, "test")
 	assert.Nil(t, err)
 	assert.Equal(t, "test-nc", ns)
 }
@@ -229,7 +237,7 @@ func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
 
 	mockNs := &v1.Namespace{}
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(errors.New("fake-error"))
-	got, err := service.getSharedVPCNamespaceFromNS("fake-ns")
+	got, err := service.getSharedVPCNamespaceFromNS(ctx, "fake-ns")
 	assert.NotNil(t, err)
 	assert.Equal(t, "", got)
 
@@ -251,7 +259,7 @@ func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
 				v1ns.ObjectMeta.Annotations = tt.anno
 				return nil
 			})
-			ns, _err := service.getSharedVPCNamespaceFromNS(tt.ns)
+			ns, _err := service.getSharedVPCNamespaceFromNS(ctx, tt.ns)
 			assert.Equal(t, tt.expected, ns)
 			assert.Nil(t, _err)
 
@@ -281,6 +289,7 @@ func TestGetDefaultNetworkConfig(t *testing.T) {
 }
 
 func TestGetVPCsByNamespace(t *testing.T) {
+	ctx := context.Background()
 	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
@@ -386,7 +395,7 @@ func TestGetVPCsByNamespace(t *testing.T) {
 			patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "getSharedVPCNamespaceFromNS", func(_ *VPCService, ns string) (string, error) {
 				return tt.args.infra, nil
 			})
-			vpc_list_1 := service.GetVPCsByNamespace(tt.args.ns)
+			vpc_list_1 := service.GetVPCsByNamespace(ctx, tt.args.ns)
 			if len(vpc_list_1) != tt.args.size {
 				t.Errorf("size = %v, want %v", len(vpc_list_1), tt.args.size)
 			}
@@ -398,10 +407,6 @@ func TestGetVPCsByNamespace(t *testing.T) {
 			patch.Reset()
 		})
 	}
-}
-
-func TestListVPCInfo(t *testing.T) {
-
 }
 
 func TestGetLBProvider(t *testing.T) {
@@ -422,42 +427,65 @@ func TestGetLBProvider(t *testing.T) {
 		}},
 	}
 
-	// Test when globalLbProvider is avi lb
-	vpcService.Service.NSXConfig.UseAVILoadBalancer = false
-	globalLbProvider = AVILB
-	lbProvider := vpcService.GetLBProvider()
-	assert.True(t, lbProvider == AVILB)
+	testCases := []struct {
+		name             string
+		prepareFuncs     func() *gomonkey.Patches
+		lbprovider       LBProvider
+		expectLBProvider LBProvider
+	}{
+		{
+			name:             "Test when globalLbProvider is avi lb",
+			lbprovider:       AVILB,
+			expectLBProvider: AVILB,
+		},
+		{
+			name:             "Test when globalLbProvider is nsx lb",
+			lbprovider:       NSXLB,
+			expectLBProvider: NSXLB,
+		},
+		{
+			name:             "Test when globalLbProvider is none lb and GetVPCNetworkConfig",
+			lbprovider:       NoneLB,
+			expectLBProvider: NSXLB,
+			prepareFuncs: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&VPCService{}), "EdgeClusterEnabled", func(_ *VPCService, _ *common.VPCNetworkConfigInfo) bool {
+					return false
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(&VPCService{}), "getLBProvider", func(_ *VPCService, _ bool) LBProvider {
+					return NSXLB
+				})
+				patches.ApplyMethod(reflect.TypeOf(&VPCService{}), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (common.VPCNetworkConfigInfo, bool) {
+					return common.VPCNetworkConfigInfo{}, true
+				})
+				return patches
+			},
+		},
+		{
+			name:             "Test when globalLbProvider is none lb GetVPCNetworkConfig none",
+			lbprovider:       NoneLB,
+			expectLBProvider: NoneLB,
+			prepareFuncs: func() *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (common.VPCNetworkConfigInfo, bool) {
+					return common.VPCNetworkConfigInfo{}, false
+				})
+			},
+		},
+	}
 
-	// Test when globalLbProvider is nsx lb
-	globalLbProvider = NSXLB
-	lbProvider = vpcService.GetLBProvider()
-	assert.True(t, lbProvider == NSXLB)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			globalLbProvider = testCase.lbprovider
+			vpcService.Service.NSXConfig.UseAVILoadBalancer = false
 
-	// Test when globalLbProvider is none lb
-	globalLbProvider = NoneLB
-	patch1 := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "EdgeClusterEnabled", func(_ *VPCService, _ *common.VPCNetworkConfigInfo) bool {
-		return false
-	})
-	patch2 := gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService), "getLBProvider", func(_ *VPCService, _ bool) LBProvider {
-		return NSXLB
-	})
-	patch3 := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (common.VPCNetworkConfigInfo, bool) {
-		return common.VPCNetworkConfigInfo{}, true
-	})
-	lbProvider = vpcService.GetLBProvider()
-	assert.True(t, lbProvider == NSXLB)
+			if testCase.prepareFuncs != nil {
+				patches := testCase.prepareFuncs()
+				defer patches.Reset()
+			}
 
-	patch3.Reset()
-	globalLbProvider = NoneLB
-	patch3 = gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (common.VPCNetworkConfigInfo, bool) {
-		return common.VPCNetworkConfigInfo{}, false
-	})
-	lbProvider = vpcService.GetLBProvider()
-	assert.True(t, lbProvider == NoneLB)
-	patch2.Reset()
-	patch1.Reset()
-	patch3.Reset()
-
+			lbProvider := vpcService.GetLBProvider()
+			assert.Equal(t, testCase.expectLBProvider, lbProvider)
+		})
+	}
 }
 
 func TestEdgeClusterEnabled(t *testing.T) {
@@ -732,7 +760,7 @@ func TestValidateGatewayConnectionStatus(t *testing.T) {
 		{
 			name: "DistributedGatewayConnectionNotSupported",
 			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
-				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "List", []gomonkey.OutputCell{{
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(fakeVPCConnectivityProfilesClient{}), "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{
 						model.VpcConnectivityProfileListResult{
 							Results: []model.VpcConnectivityProfile{
@@ -1115,8 +1143,8 @@ func TestVPCService_GetNamespacesByNetworkconfigName(t *testing.T) {
 	assert.Equal(t, 0, len(ret))
 	ret = service.GetNamespacesByNetworkconfigName("fake-config")
 	assert.Equal(t, 2, len(ret))
-	assert.True(t, slices.Contains(ret, "ns1"))
-	assert.True(t, slices.Contains(ret, "ns2"))
+	assert.Contains(t, ret, "ns1")
+	assert.Contains(t, ret, "ns2")
 }
 
 func TestVPCService_GetVPCNetworkConfigByNamespace(t *testing.T) {
@@ -1310,7 +1338,7 @@ func TestVPCService_DeleteVPC(t *testing.T) {
 		},
 	}
 	// We do not need to verify copylocks for test case.
-	//nolint: copylocks
+	// nolint: copylocks
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 
@@ -1337,13 +1365,13 @@ func TestVPCService_DeleteVPC(t *testing.T) {
 			}
 
 			if tt.checkLBStore {
-				//if prepare func executed, then lb store should be empty
+				// if prepare func executed, then lb store should be empty
 				lb := service.LbsStore.GetByKey(mockLBKey)
 				assert.Nil(t, lb)
 			}
 
 			if tt.checkVPCStore {
-				//if prepare func executed, then vpc store should be empty
+				// if prepare func executed, then vpc store should be empty
 				lb := service.LbsStore.GetByKey(mockLBKey)
 				assert.Nil(t, lb)
 			}
@@ -1398,7 +1426,7 @@ func TestListAllVPCsFromNSX(t *testing.T) {
 				Service: common.Service{},
 			}
 			searchResourcePatch := gomonkey.ApplyMethod(reflect.TypeOf(&s.Service), "SearchResource",
-				func(_ *common.Service, resourceTypeValue string, _ string, store common.Store, _ common.Filter) (uint64, error) {
+				func(_ *common.Service, _ string, _ string, store common.Store, _ common.Filter) (uint64, error) {
 					for i := range tc.vpcs {
 						vpc := tc.vpcs[i]
 						store.TransResourceToStore(vpc)
@@ -1459,5 +1487,402 @@ func TestListNamespacesWithPreCreatedVPCs(t *testing.T) {
 		vpcPath, ok := nsVpcMap[k]
 		require.True(t, ok)
 		require.Equal(t, v, vpcPath)
+	}
+}
+
+func TestVPCService_Cleanup(t *testing.T) {
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
+	resourceStore := common.ResourceStore{
+		Indexer:     vpcCacheIndexer,
+		BindingType: model.VpcBindingType(),
+	}
+
+	mockCtrl := gomock.NewController(t)
+	mockVpcclient := mocks.NewMockVpcsClient(mockCtrl)
+
+	vpcService := &VPCService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					UseAVILoadBalancer: false,
+				},
+			},
+			NSXClient: &nsx.Client{
+				Cluster:   &nsx.Cluster{},
+				VPCClient: mockVpcclient,
+				NsxConfig: &config.NSXOperatorConfig{
+					DefaultConfig: nil,
+					CoeConfig: &config.CoeConfig{
+						Cluster:          "",
+						EnableVPCNetwork: false,
+					},
+					NsxConfig: nil,
+					K8sConfig: nil,
+					VCConfig:  nil,
+					HAConfig:  nil,
+					LibMode:   false,
+				},
+			},
+		},
+
+		LbsStore: &LBSStore{ResourceStore: common.ResourceStore{
+			Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+			BindingType: model.LBServiceBindingType(),
+		}},
+		VpcStore: &VPCStore{resourceStore},
+	}
+
+	fakeVPCID := "fakeID"
+	vpcPath := "/orgs/default/projects/default/vpcs/vpc2"
+	err := vpcService.VpcStore.Add(&model.Vpc{Id: &fakeVPCID, Path: &vpcPath})
+	assert.NoError(t, err)
+
+	mockCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	patches := gomonkey.ApplyFunc(httpGetAviPortsPaths, func(cluster *nsx.Cluster, vpcPath string) (sets.Set[string], error) {
+		return nil, nil
+	})
+	patches.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VPCClient), "Delete", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{
+			nil,
+		},
+		Times: 1,
+	}})
+
+	patches.ApplyMethod(reflect.TypeOf(&common.Service{}), "SearchResource", func(_ *common.Service, _ string, _ string, store common.Store, _ common.Filter) (uint64, error) {
+		return 0, nil
+	})
+
+	defer patches.Reset()
+
+	err = vpcService.Cleanup(mockCtx)
+
+	assert.NoError(t, err)
+}
+
+func createFakeVPCService(t *testing.T, objs []client.Object) *VPCService {
+	newScheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
+	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
+	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objs...).Build()
+
+	mockCtrl := gomock.NewController(t)
+	mockVpcClient := mocks.NewMockVpcsClient(mockCtrl)
+
+	vpcStore := &VPCStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeStaticRouteCRUID: indexFunc}),
+		BindingType: model.VpcBindingType(),
+	}}
+
+	service := &VPCService{
+		Service: common.Service{
+			Client: fakeClient,
+			NSXClient: &nsx.Client{
+				VPCClient: mockVpcClient,
+			},
+			NSXConfig: &config.NSXOperatorConfig{
+				DefaultConfig: nil,
+				CoeConfig: &config.CoeConfig{
+					Cluster:          "fakeCluster",
+					EnableVPCNetwork: false,
+				},
+			},
+		},
+	}
+	service.VpcStore = vpcStore
+	return service
+}
+
+func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
+	fakeVPCID := "fakeVPCID"
+	testCases := []struct {
+		name                         string
+		exitingNamespace             *v1.Namespace
+		existingNetworkInfo          *v1alpha1.NetworkInfo
+		existingVPCNetworkConfigInfo *common.VPCNetworkConfigInfo
+		lbProvider                   LBProvider
+		prepareFunc                  func(service *VPCService) *gomonkey.Patches
+		expectErrStr                 string
+		expectVPCModel               *model.Vpc
+	}{
+		{
+			name: "Unable to get Namespace",
+			existingNetworkInfo: &v1alpha1.NetworkInfo{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Namespace: "testNamespace"},
+				VPCs:       nil,
+			},
+			expectErrStr: "namespaces \"testNamespace\" not found",
+		},
+		{
+			name: "IsPreCreatedVPC",
+			existingNetworkInfo: &v1alpha1.NetworkInfo{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Namespace: "testNamespace"},
+				VPCs:       nil,
+			},
+			exitingNamespace: &v1.Namespace{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Name: "testNamespace"},
+				Spec:       v1.NamespaceSpec{},
+				Status:     v1.NamespaceStatus{},
+			},
+			existingVPCNetworkConfigInfo: &common.VPCNetworkConfigInfo{
+				Name:    "fakeVPCNetworkConfigInfo",
+				VPCPath: "/orgs/default/projects/default/vpcs/vpc3",
+			},
+			prepareFunc: func(vpcService *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.Vpc{Id: &fakeVPCID}, nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			expectErrStr:   "",
+			expectVPCModel: &model.Vpc{Id: &fakeVPCID},
+		},
+		{
+			name: "IsPreCreatedVPC with invalid VPC path",
+			existingNetworkInfo: &v1alpha1.NetworkInfo{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Namespace: "testNamespace"},
+				VPCs:       nil,
+			},
+			exitingNamespace: &v1.Namespace{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Name: "testNamespace"},
+				Spec:       v1.NamespaceSpec{},
+				Status:     v1.NamespaceStatus{},
+			},
+			existingVPCNetworkConfigInfo: &common.VPCNetworkConfigInfo{
+				Name:    "fakeVPCNetworkConfigInfo",
+				VPCPath: "vpc3",
+			},
+			prepareFunc: func(vpcService *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.Vpc{Id: &fakeVPCID}, nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			expectErrStr: "invalid path",
+		},
+		{
+			name: "IsPreCreatedVPC and GetVPCFromNSXByPath error",
+			existingNetworkInfo: &v1alpha1.NetworkInfo{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Namespace: "testNamespace"},
+				VPCs:       nil,
+			},
+			exitingNamespace: &v1.Namespace{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Name: "testNamespace"},
+				Spec:       v1.NamespaceSpec{},
+				Status:     v1.NamespaceStatus{},
+			},
+			existingVPCNetworkConfigInfo: &common.VPCNetworkConfigInfo{
+				Name:    "fakeVPCNetworkConfigInfo",
+				VPCPath: "/orgs/default/projects/default/vpcs/vpc3",
+			},
+			prepareFunc: func(vpcService *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						nil, errors.New("get VPC error"),
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			expectErrStr: "get VPC error",
+		},
+		{
+			name: "Check IsSharedVPCNamespaceByNS error",
+			existingNetworkInfo: &v1alpha1.NetworkInfo{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Namespace: "testNamespace"},
+				VPCs:       nil,
+			},
+			exitingNamespace: &v1.Namespace{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Name: "testNamespace"},
+				Spec:       v1.NamespaceSpec{},
+				Status:     v1.NamespaceStatus{},
+			},
+			prepareFunc: func(vpcService *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "IsSharedVPCNamespaceByNS", func(_ *VPCService, ctx context.Context, _ string) (bool, error) {
+					return false, errors.New("check IsSharedVPCNamespaceByNS error")
+				})
+				return patches
+			},
+			expectErrStr: "check IsSharedVPCNamespaceByNS error",
+		},
+		{
+			name: "Shared Namespace and VPC existing",
+			existingNetworkInfo: &v1alpha1.NetworkInfo{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Namespace: "testNamespace"},
+				VPCs:       nil,
+			},
+			exitingNamespace: &v1.Namespace{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Name: "testNamespace"},
+				Spec:       v1.NamespaceSpec{},
+				Status:     v1.NamespaceStatus{},
+			},
+			prepareFunc: func(vpcService *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "IsSharedVPCNamespaceByNS", func(_ *VPCService, ctx context.Context, _ string) (bool, error) {
+					return true, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByNamespace", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
+					vpcPath := "/vpc/1"
+					return []*model.Vpc{{Path: &vpcPath, Id: &fakeVPCID}}
+				})
+				return patches
+			},
+			expectVPCModel: &model.Vpc{Id: &fakeVPCID},
+		},
+		{
+			name: "is Shared Namespace but VPC not existing",
+			existingNetworkInfo: &v1alpha1.NetworkInfo{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Namespace: "testNamespace"},
+				VPCs:       nil,
+			},
+			exitingNamespace: &v1.Namespace{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Name: "testNamespace"},
+				Spec:       v1.NamespaceSpec{},
+				Status:     v1.NamespaceStatus{},
+			},
+			prepareFunc: func(vpcService *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "IsSharedVPCNamespaceByNS", func(_ *VPCService, ctx context.Context, _ string) (bool, error) {
+					return true, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByNamespace", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
+					return []*model.Vpc{}
+				})
+				return patches
+			},
+			expectErrStr: "the shared VPC is not created yet",
+		},
+		{
+			name: "is not Shared Namespace should update the VPC",
+			existingNetworkInfo: &v1alpha1.NetworkInfo{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Namespace: "testNamespace"},
+				VPCs:       nil,
+			},
+			exitingNamespace: &v1.Namespace{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Name: "testNamespace"},
+				Spec:       v1.NamespaceSpec{},
+				Status:     v1.NamespaceStatus{},
+			},
+			existingVPCNetworkConfigInfo: &common.VPCNetworkConfigInfo{
+				IsDefault:         false,
+				Name:              "fakeVPCNetworkConfigInfo",
+				NSXProject:        "",
+				PrivateIPs:        nil,
+				DefaultSubnetSize: 0,
+				VPCPath:           "",
+			},
+			prepareFunc: func(vpcService *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "IsSharedVPCNamespaceByNS", func(_ *VPCService, ctx context.Context, _ string) (bool, error) {
+					return false, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByNamespace", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
+					vpcPath := "/vpc/1"
+					return []*model.Vpc{
+						{Path: &vpcPath, Id: &fakeVPCID},
+					}
+				})
+				return patches
+			},
+			expectVPCModel: &model.Vpc{Id: &fakeVPCID},
+		},
+		{
+			name: "is not Shared Namespace should create new VPC",
+			existingNetworkInfo: &v1alpha1.NetworkInfo{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Namespace: "testNamespace"},
+				VPCs:       nil,
+			},
+			exitingNamespace: &v1.Namespace{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Name: "testNamespace"},
+				Spec:       v1.NamespaceSpec{},
+				Status:     v1.NamespaceStatus{},
+			},
+			existingVPCNetworkConfigInfo: &common.VPCNetworkConfigInfo{
+				IsDefault:         false,
+				Name:              "fakeVPCNetworkConfigInfo",
+				NSXProject:        "",
+				PrivateIPs:        nil,
+				DefaultSubnetSize: 0,
+				VPCPath:           "",
+			},
+			prepareFunc: func(vpcService *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "IsSharedVPCNamespaceByNS", func(_ *VPCService, ctx context.Context, _ string) (bool, error) {
+					return false, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByNamespace", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
+					return []*model.Vpc{}
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "createNSXVPC", func(_ *VPCService, createdVpc *model.Vpc, nc *common.VPCNetworkConfigInfo, orgRoot *model.OrgRoot) error {
+					return nil
+				})
+				// checkVPCRealizationState
+				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "checkVPCRealizationState", func(_ *VPCService, createdVpc *model.Vpc, newVpcPath string) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "checkLBSRealization", func(_ *VPCService, createdLBS *model.LBService, createdVpc *model.Vpc, nc *common.VPCNetworkConfigInfo, newVpcPath string) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "checkVpcAttachmentRealization", func(_ *VPCService, createdAttachment *model.VpcAttachment, createdVpc *model.Vpc, nc *common.VPCNetworkConfigInfo, newVpcPath string) error {
+					return nil
+				})
+				vpcPath := "/vpc/1"
+				patches.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.Vpc{Id: &fakeVPCID, Path: &vpcPath}, nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			expectVPCModel: &model.Vpc{Id: &fakeVPCID},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var objs []client.Object
+			if tc.exitingNamespace != nil {
+				objs = append(objs, tc.exitingNamespace)
+			}
+			service := createFakeVPCService(t, objs)
+			ctx := context.Background()
+
+			if tc.prepareFunc != nil {
+				patches := tc.prepareFunc(service)
+				defer patches.Reset()
+			}
+
+			newVPCModel, err := service.CreateOrUpdateVPC(ctx, tc.existingNetworkInfo, tc.existingVPCNetworkConfigInfo, tc.lbProvider)
+
+			if tc.expectErrStr != "" {
+				assert.ErrorContains(t, err, tc.expectErrStr)
+			} else {
+				assert.NoError(t, err)
+			}
+
+			if tc.expectVPCModel != nil {
+				assert.Equal(t, *tc.expectVPCModel.Id, *newVPCModel.Id)
+			}
+		})
 	}
 }
