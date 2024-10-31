@@ -17,9 +17,7 @@ import (
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
-const (
-	PageSize int64 = 1000
-)
+var pageSize = int64(1000)
 
 // Store is the interface for store, it should be implemented by subclass
 type Store interface {
@@ -130,21 +128,21 @@ func (service *Service) InitializeVPCResourceStore(wg *sync.WaitGroup, fatalErro
 type Filter func(interface{}) *data.StructValue
 
 func (service *Service) SearchResource(resourceTypeValue string, queryParam string, store Store, filter Filter) (uint64, error) {
+	// TODO: resourceTypeValue is not used in this function, but cannot be deleted, as the `fakeSearchResource` use the parameter
 	var cursor *string
-	pagesize := PageSize
 	count := uint64(0)
 	for {
 		var err error
 		var results []*data.StructValue
 		var resultCount *int64
 		if store.IsPolicyAPI() {
-			response, searchErr := service.NSXClient.QueryClient.List(queryParam, cursor, nil, &pagesize, nil, nil)
+			response, searchErr := service.NSXClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
 			results = response.Results
 			cursor = response.Cursor
 			resultCount = response.ResultCount
 			err = searchErr
 		} else {
-			response, searchErr := service.NSXClient.MPQueryClient.List(queryParam, cursor, nil, &pagesize, nil, nil)
+			response, searchErr := service.NSXClient.MPQueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
 			results = response.Results
 			cursor = response.Cursor
 			resultCount = response.ResultCount
@@ -153,7 +151,7 @@ func (service *Service) SearchResource(resourceTypeValue string, queryParam stri
 		if err != nil {
 			err = TransError(err)
 			if _, ok := err.(nsxutil.PageMaxError); ok == true {
-				DecrementPageSize(&pagesize)
+				DecrementPageSize(&pageSize)
 				continue
 			}
 			return count, err
@@ -182,7 +180,7 @@ func (service *Service) SearchResource(resourceTypeValue string, queryParam stri
 // PopulateResourcetoStore is the method used by populating resources created not by nsx-operator
 func (service *Service) PopulateResourcetoStore(wg *sync.WaitGroup, fatalErrors chan error, resourceTypeValue string, queryParam string, store Store, filter Filter) {
 	defer wg.Done()
-	count, err := service.SearchResource("", queryParam, store, filter)
+	count, err := service.SearchResource(resourceTypeValue, queryParam, store, filter)
 	if err != nil {
 		fatalErrors <- err
 	}

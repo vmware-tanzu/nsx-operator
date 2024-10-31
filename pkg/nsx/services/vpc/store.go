@@ -30,18 +30,36 @@ func indexFunc(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
 	switch o := obj.(type) {
 	case *model.Vpc:
-		return filterTag(o.Tags), nil
+		return filterTag(o.Tags, common.TagScopeNamespaceUID), nil
 	case *model.LBService:
-		return filterTag(o.Tags), nil
+		return filterTag(o.Tags, common.TagScopeNamespaceUID), nil
 	default:
 		return res, errors.New("indexFunc doesn't support unknown type")
 	}
 }
 
-var filterTag = func(v []model.Tag) []string {
+func vpcIndexNamespaceFunc(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case *model.Vpc:
+		return filterTag(o.Tags, common.TagScopeNamespace), nil
+	default:
+		return nil, errors.New("VPCIndexNamespaceFunc doesn't support unknown type")
+	}
+}
+
+func vpcIndexNamespaceIDFunc(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case *model.Vpc:
+		return filterTag(o.Tags, common.TagScopeNamespaceUID), nil
+	default:
+		return nil, errors.New("VPCIndexNamespaceFunc doesn't support unknown type")
+	}
+}
+
+var filterTag = func(v []model.Tag, tagScope string) []string {
 	res := make([]string, 0, 5)
 	for _, tag := range v {
-		if *tag.Scope == common.TagScopeNamespaceUID {
+		if *tag.Scope == tagScope {
 			res = append(res, *tag.Tag)
 		}
 	}
@@ -53,19 +71,19 @@ type VPCStore struct {
 	common.ResourceStore
 }
 
-func (vs *VPCStore) Apply(i interface{}) error {
+func (s *VPCStore) Apply(i interface{}) error {
 	if i == nil {
 		return nil
 	}
 	vpc := i.(*model.Vpc)
 	if vpc.MarkedForDelete != nil && *vpc.MarkedForDelete {
-		err := vs.Delete(vpc)
+		err := s.Delete(vpc)
 		log.V(1).Info("delete VPC from store", "VPC", vpc)
 		if err != nil {
 			return err
 		}
 	} else {
-		err := vs.Add(vpc)
+		err := s.Add(vpc)
 		log.V(1).Info("add VPC to store", "VPC", vpc)
 		if err != nil {
 			return err
@@ -74,28 +92,25 @@ func (vs *VPCStore) Apply(i interface{}) error {
 	return nil
 }
 
-func (vs *VPCStore) GetVPCsByNamespace(ns string) []*model.Vpc {
-	var ret []*model.Vpc
-	vpcs := vs.List()
-	if len(vpcs) == 0 {
-		log.V(1).Info("No vpc found in vpc store")
-		return ret
+func (s *VPCStore) GetByIndex(key string, value string) []*model.Vpc {
+	vpcs := make([]*model.Vpc, 0)
+	objs := s.ResourceStore.GetByIndex(key, value)
+	for _, vpc := range objs {
+		vpcs = append(vpcs, vpc.(*model.Vpc))
 	}
-
-	for _, vpc := range vpcs {
-		mvpc := vpc.(*model.Vpc)
-		tags := mvpc.Tags
-		for _, tag := range tags {
-			if *tag.Scope == common.TagScopeNamespace && *tag.Tag == ns {
-				ret = append(ret, mvpc)
-			}
-		}
-	}
-	return ret
+	return vpcs
 }
 
-func (vs *VPCStore) GetByKey(key string) *model.Vpc {
-	obj := vs.ResourceStore.GetByKey(key)
+func (s *VPCStore) GetVPCsByNamespace(ns string) []*model.Vpc {
+	return s.GetByIndex(common.TagScopeNamespace, ns)
+}
+
+func (s *VPCStore) GetVPCsByNamespaceID(namespaceID string) []*model.Vpc {
+	return s.GetByIndex(common.TagScopeNamespaceUID, namespaceID)
+}
+
+func (s *VPCStore) GetByKey(key string) *model.Vpc {
+	obj := s.ResourceStore.GetByKey(key)
 	if obj != nil {
 		vpc := obj.(*model.Vpc)
 		return vpc

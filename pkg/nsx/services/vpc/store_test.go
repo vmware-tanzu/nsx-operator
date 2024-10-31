@@ -25,11 +25,17 @@ type fakeQueryClient struct {
 }
 
 func (qIface *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
-	cursor := "2"
-	resultCount := int64(2)
+	cursor := "1"
+	resultCount := int64(1)
 	return model.SearchResponse{
-		Results: []*data.StructValue{{}},
-		Cursor:  &cursor, ResultCount: &resultCount,
+		Results: []*data.StructValue{data.NewStructValue("",
+			map[string]data.DataValue{
+				"resource_type":     data.NewStringValue("Vpc"),
+				"id":                data.NewStringValue("vpc1"),
+				"path":              data.NewStringValue("/orgs/default/projects/default/vpcs/vpc1"),
+				"connectivity_path": data.NewStringValue("/orgs/default/projects/project-quality/vpc-connectivity-profiles/default"),
+			})},
+		Cursor: &cursor, ResultCount: &resultCount,
 	}, nil
 }
 
@@ -54,7 +60,7 @@ func Test_filterTag(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := filterTag(tt.args.v); !reflect.DeepEqual(got, tt.want) {
+			if got := filterTag(tt.args.v, common.TagScopeNamespaceUID); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("filterTag() = %v, want %v", got, tt.want)
 			}
 		})
@@ -138,17 +144,17 @@ func TestVPCStore_CRUDResource(t *testing.T) {
 }
 
 func TestVPCStore_CRUDResource_List(t *testing.T) {
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{
+		common.TagScopeNamespaceUID: vpcIndexNamespaceIDFunc,
+		common.TagScopeNamespace:    vpcIndexNamespaceFunc,
+	})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),
 	}
 	vpcStore := &VPCStore{ResourceStore: resourceStore}
-	type args struct {
-		i interface{}
-		j interface{}
-	}
 	ns1 := "test-ns-1"
+	ns1UID := "fakeNamespace1UID"
 	tag1 := []model.Tag{
 		{
 			Scope: &tagScopeCluster,
@@ -158,8 +164,13 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 			Scope: &tagScopeNamespace,
 			Tag:   &ns1,
 		},
+		{
+			Scope: &tagScopeNamespaceUID,
+			Tag:   &ns1UID,
+		},
 	}
 	ns2 := "test-ns-2"
+	ns2UID := "fakeNamespace2UID"
 	tag2 := []model.Tag{
 		{
 			Scope: &tagScopeCluster,
@@ -168,6 +179,10 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 		{
 			Scope: &tagScopeNamespace,
 			Tag:   &ns2,
+		},
+		{
+			Scope: &tagScopeNamespaceUID,
+			Tag:   &ns2UID,
 		},
 	}
 	vpc1 := model.Vpc{
@@ -188,28 +203,65 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 		PrivateIpv4Blocks:  []string{"3.3.3.0/24"},
 		ExternalIpv4Blocks: []string{"4.4.4.0/24"},
 	}
-	tests := []struct {
-		name    string
-		args    args
-		wantErr assert.ErrorAssertionFunc
+	testCases := []struct {
+		name             string
+		existingVPC      []*model.Vpc
+		expectVPCInStore int
+		searchNameKey    string
+		searchIDKey      string
+		expectResVPC     []string
+		expectErrStr     string
 	}{
-		{"1", args{i: vpc1, j: vpc2}, assert.NoError},
+		{
+			name:             "GetVPCsByNamespace with invalid name",
+			existingVPC:      []*model.Vpc{&vpc1, &vpc2},
+			expectVPCInStore: 2,
+			searchNameKey:    "invalid",
+			expectResVPC:     nil,
+		},
+		{
+			name:             "GetVPCsByNamespace with valid name",
+			existingVPC:      []*model.Vpc{&vpc1, &vpc2},
+			expectVPCInStore: 2,
+			searchNameKey:    ns2,
+			expectResVPC:     []string{vpcName2},
+		},
+		{
+			name:             "GetVPCsByNamespaceID with invalid ID",
+			existingVPC:      []*model.Vpc{&vpc1, &vpc2},
+			expectVPCInStore: 2,
+			searchIDKey:      "invalid",
+			expectResVPC:     nil,
+		},
+		{
+			name:             "GetVPCsByNamespaceID with valid ID",
+			existingVPC:      []*model.Vpc{&vpc1, &vpc2},
+			expectVPCInStore: 2,
+			searchIDKey:      ns2UID,
+			expectResVPC:     []string{vpcName2},
+		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			vpcStore.Apply(&vpc1)
-			vpcStore.Apply(&vpc2)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, vpc := range tc.existingVPC {
+				err := vpcStore.Apply(vpc)
+				assert.NoError(t, err)
+			}
 			got := vpcStore.List()
-			if len(got) != 2 {
-				t.Errorf("size = %v, want %v", len(got), 2)
+			assert.Equal(t, tc.expectVPCInStore, len(got))
+			if tc.searchNameKey != "" {
+				vpcRes := vpcStore.GetVPCsByNamespace(tc.searchNameKey)
+				assert.Equal(t, len(tc.expectResVPC), len(vpcRes))
+				for _, vpc := range vpcRes {
+					assert.Contains(t, tc.expectResVPC, *vpc.DisplayName)
+				}
 			}
-			vpc_list_1 := vpcStore.GetVPCsByNamespace("invalid")
-			if len(vpc_list_1) != 0 {
-				t.Errorf("size = %v, want %v", len(vpc_list_1), 0)
-			}
-			vpc_list_2 := vpcStore.GetVPCsByNamespace(ns2)
-			if len(vpc_list_2) != 1 && *vpc_list_2[0].DisplayName != vpcName2 {
-				t.Errorf("size = %v, want %v, display = %s, want %s", len(vpc_list_2), 1, *vpc_list_2[0].DisplayName, vpcName2)
+			if tc.searchIDKey != "" {
+				vpcRes := vpcStore.GetVPCsByNamespaceID(tc.searchIDKey)
+				assert.Equal(t, len(tc.expectResVPC), len(vpcRes))
+				for _, vpc := range vpcRes {
+					assert.Contains(t, tc.expectResVPC, *vpc.DisplayName)
+				}
 			}
 		})
 	}

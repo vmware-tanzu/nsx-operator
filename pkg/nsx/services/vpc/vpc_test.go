@@ -37,16 +37,17 @@ import (
 )
 
 var (
-	vpcName1          = "ns1-vpc-1"
-	vpcName2          = "ns1-vpc-2"
-	infraVPCName      = "infra-vpc"
-	vpcID1            = "ns-vpc-uid-1"
-	vpcID2            = "ns-vpc-uid-2"
-	vpcID3            = "ns-vpc-uid-3"
-	IPv4Type          = "IPv4"
-	cluster           = "k8scl-one"
-	tagScopeCluster   = common.TagScopeCluster
-	tagScopeNamespace = common.TagScopeNamespace
+	vpcName1             = "ns1-vpc-1"
+	vpcName2             = "ns1-vpc-2"
+	infraVPCName         = "infra-vpc"
+	vpcID1               = "ns-vpc-uid-1"
+	vpcID2               = "ns-vpc-uid-2"
+	vpcID3               = "ns-vpc-uid-3"
+	IPv4Type             = "IPv4"
+	cluster              = "k8scl-one"
+	tagScopeCluster      = common.TagScopeCluster
+	tagScopeNamespace    = common.TagScopeNamespace
+	tagScopeNamespaceUID = common.TagScopeNamespaceUID
 )
 
 func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVpcsClient) {
@@ -265,7 +266,6 @@ func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
 
 		})
 	}
-
 }
 
 func TestGetDefaultNetworkConfig(t *testing.T) {
@@ -290,7 +290,10 @@ func TestGetDefaultNetworkConfig(t *testing.T) {
 
 func TestGetVPCsByNamespace(t *testing.T) {
 	ctx := context.Background()
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
+	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{
+		common.TagScopeNamespaceUID: vpcIndexNamespaceIDFunc,
+		common.TagScopeNamespace:    vpcIndexNamespaceFunc,
+	})
 	resourceStore := common.ResourceStore{
 		Indexer:     vpcCacheIndexer,
 		BindingType: model.VpcBindingType(),
@@ -386,9 +389,7 @@ func TestGetVPCsByNamespace(t *testing.T) {
 	vpcStore.Apply(&vpc2)
 	vpcStore.Apply(&infravpc)
 	got := vpcStore.List()
-	if len(got) != 3 {
-		t.Errorf("size = %v, want %v", len(got), 3)
-	}
+	assert.Equal(t, 3, len(got))
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -396,9 +397,7 @@ func TestGetVPCsByNamespace(t *testing.T) {
 				return tt.args.infra, nil
 			})
 			vpc_list_1 := service.GetVPCsByNamespace(ctx, tt.args.ns)
-			if len(vpc_list_1) != tt.args.size {
-				t.Errorf("size = %v, want %v", len(vpc_list_1), tt.args.size)
-			}
+			assert.Equal(t, tt.args.size, len(vpc_list_1))
 
 			if tt.args.size != 0 && *vpc_list_1[0].DisplayName != tt.args.expected {
 				t.Errorf("name = %v, want %v", vpc_list_1[0].DisplayName, tt.args.expected)
@@ -1884,5 +1883,93 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				assert.Equal(t, *tc.expectVPCModel.Id, *newVPCModel.Id)
 			}
 		})
+	}
+}
+
+type fakeOrgRootClient struct {
+}
+
+func (f fakeOrgRootClient) Get(basePathParam *string, filterParam *string, typeFilterParam *string) (model.OrgRoot, error) {
+	return model.OrgRoot{}, nil
+}
+
+func (f fakeOrgRootClient) Patch(orgRootParam model.OrgRoot, enforceRevisionCheckParam *bool) error {
+	return nil
+}
+
+type fakeRealizedEntitiesClient struct {
+}
+
+func (f fakeRealizedEntitiesClient) List(orgIdParam string, projectIdParam string, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+	state := model.GenericPolicyRealizedResource_STATE_REALIZED
+	return model.GenericPolicyRealizedResourceListResult{Results: []model.GenericPolicyRealizedResource{{State: &state}}}, nil
+}
+
+func TestInitializeVPC(t *testing.T) {
+	newScheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
+	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
+	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).Build()
+	commonService := common.Service{
+		Client: fakeClient,
+		NSXClient: &nsx.Client{
+			OrgRootClient:          &fakeOrgRootClient{},
+			QueryClient:            &fakeQueryClient{},
+			RealizedEntitiesClient: &fakeRealizedEntitiesClient{},
+			NsxConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		NSXConfig: &config.NSXOperatorConfig{
+			CoeConfig: &config.CoeConfig{
+				Cluster: "k8scl-one:test",
+			},
+		},
+	}
+	testCases := []struct {
+		name                string
+		prepareFunc         func() *gomonkey.Patches
+		expectVPCGetByIndex int
+		expectAllVPCNum     int
+		searchKey           string
+	}{
+		{
+			name: "InitializeVPC with NSX VPC",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeQueryClient{}), "List", func(_ *fakeQueryClient, _ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
+					cursor := "1"
+					resultCount := int64(1)
+					return model.SearchResponse{
+						Results: []*data.StructValue{data.NewStructValue("",
+							map[string]data.DataValue{
+								"resource_type":     data.NewStringValue("Vpc"),
+								"id":                data.NewStringValue("vpc1"),
+								"path":              data.NewStringValue("/orgs/default/projects/default/vpcs/vpc1"),
+								"connectivity_path": data.NewStringValue("/orgs/default/projects/project-quality/vpc-connectivity-profiles/default"),
+							})},
+						Cursor: &cursor, ResultCount: &resultCount,
+					}, nil
+				})
+				return patches
+			},
+			expectVPCGetByIndex: 0,
+			expectAllVPCNum:     1,
+			searchKey:           "",
+		},
+	}
+
+	for _, tc := range testCases {
+		if tc.prepareFunc != nil {
+			patches := tc.prepareFunc()
+			defer patches.Reset()
+		}
+		service, err := InitializeVPC(commonService)
+		assert.NoError(t, err)
+		res := service.GetVPCsByNamespace(context.Background(), tc.searchKey)
+		assert.Equal(t, tc.expectVPCGetByIndex, len(res))
+		allVPCs := service.ListVPC()
+		assert.Equal(t, tc.expectAllVPCNum, len(allVPCs))
 	}
 }
