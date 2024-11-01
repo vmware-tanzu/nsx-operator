@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	pkg_mock "github.com/vmware-tanzu/nsx-operator/pkg/mock"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
@@ -83,7 +84,7 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 		{
 			name: "AvailableSubnet",
 			prepareFunc: func(t *testing.T, vsp servicecommon.VPCServiceProvider, ssp servicecommon.SubnetServiceProvider, spsp servicecommon.SubnetPortServiceProvider) {
-				ssp.(*servicecommon.MockSubnetServiceProvider).On("GetSubnetsByIndex", mock.Anything, mock.Anything).
+				ssp.(*pkg_mock.MockSubnetServiceProvider).On("GetSubnetsByIndex", mock.Anything, mock.Anything).
 					Return([]*model.VpcSubnet{
 						{
 							Id:             servicecommon.String("id-1"),
@@ -92,37 +93,37 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 							IpAddresses:    []string{"10.0.0.1/28"},
 						},
 					})
-				spsp.(*servicecommon.MockSubnetPortServiceProvider).On("GetPortsOfSubnet", mock.Anything).Return([]*model.VpcSubnetPort{})
+				spsp.(*pkg_mock.MockSubnetPortServiceProvider).On("GetPortsOfSubnet", mock.Anything).Return([]*model.VpcSubnetPort{})
 			},
 			expectedResult: expectedSubnetPath,
 		},
 		{
 			name: "ListVPCFailure",
 			prepareFunc: func(t *testing.T, vsp servicecommon.VPCServiceProvider, ssp servicecommon.SubnetServiceProvider, spsp servicecommon.SubnetPortServiceProvider) {
-				ssp.(*servicecommon.MockSubnetServiceProvider).On("GetSubnetsByIndex", mock.Anything, mock.Anything).
+				ssp.(*pkg_mock.MockSubnetServiceProvider).On("GetSubnetsByIndex", mock.Anything, mock.Anything).
 					Return([]*model.VpcSubnet{})
-				ssp.(*servicecommon.MockSubnetServiceProvider).On("GenerateSubnetNSTags", mock.Anything)
-				vsp.(*servicecommon.MockVPCServiceProvider).On("ListVPCInfo", mock.Anything).Return([]servicecommon.VPCResourceInfo{})
+				ssp.(*pkg_mock.MockSubnetServiceProvider).On("GenerateSubnetNSTags", mock.Anything)
+				vsp.(*pkg_mock.MockVPCServiceProvider).On("ListVPCInfo", mock.Anything).Return([]servicecommon.VPCResourceInfo{})
 			},
 			expectedErr: "no VPC found",
 		},
 		{
 			name: "CreateSubnet",
 			prepareFunc: func(t *testing.T, vsp servicecommon.VPCServiceProvider, ssp servicecommon.SubnetServiceProvider, spsp servicecommon.SubnetPortServiceProvider) {
-				ssp.(*servicecommon.MockSubnetServiceProvider).On("GetSubnetsByIndex", mock.Anything, mock.Anything).
+				ssp.(*pkg_mock.MockSubnetServiceProvider).On("GetSubnetsByIndex", mock.Anything, mock.Anything).
 					Return([]*model.VpcSubnet{})
-				ssp.(*servicecommon.MockSubnetServiceProvider).On("GenerateSubnetNSTags", mock.Anything)
-				vsp.(*servicecommon.MockVPCServiceProvider).On("ListVPCInfo", mock.Anything).Return([]servicecommon.VPCResourceInfo{{}})
-				ssp.(*servicecommon.MockSubnetServiceProvider).On("CreateOrUpdateSubnet", mock.Anything, mock.Anything, mock.Anything).Return(expectedSubnetPath, nil)
+				ssp.(*pkg_mock.MockSubnetServiceProvider).On("GenerateSubnetNSTags", mock.Anything)
+				vsp.(*pkg_mock.MockVPCServiceProvider).On("ListVPCInfo", mock.Anything).Return([]servicecommon.VPCResourceInfo{{}})
+				ssp.(*pkg_mock.MockSubnetServiceProvider).On("CreateOrUpdateSubnet", mock.Anything, mock.Anything, mock.Anything).Return(expectedSubnetPath, nil)
 			},
 			expectedResult: expectedSubnetPath,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vps := &servicecommon.MockVPCServiceProvider{}
-			ssp := &servicecommon.MockSubnetServiceProvider{}
-			spsp := &servicecommon.MockSubnetPortServiceProvider{}
+			vps := &pkg_mock.MockVPCServiceProvider{}
+			ssp := &pkg_mock.MockSubnetServiceProvider{}
+			spsp := &pkg_mock.MockSubnetPortServiceProvider{}
 			tt.prepareFunc(t, vps, ssp, spsp)
 			subnetPath, err := AllocateSubnetFromSubnetSet(&v1alpha1.SubnetSet{
 				ObjectMeta: metav1.ObjectMeta{

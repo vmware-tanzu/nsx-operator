@@ -1,9 +1,11 @@
-package common
+package mock
 
 import (
 	"github.com/stretchr/testify/mock"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 type MockVPCServiceProvider struct {
@@ -14,7 +16,7 @@ func (m *MockVPCServiceProvider) GetNamespacesByNetworkconfigName(nc string) []s
 	return nil
 }
 
-func (m *MockVPCServiceProvider) RegisterVPCNetworkConfig(ncCRName string, info VPCNetworkConfigInfo) {
+func (m *MockVPCServiceProvider) RegisterVPCNetworkConfig(ncCRName string, info common.VPCNetworkConfigInfo) {
 }
 
 func (m *MockVPCServiceProvider) RegisterNamespaceNetworkconfigBinding(ns string, ncCRName string) {
@@ -25,29 +27,29 @@ func (m *MockVPCServiceProvider) UnRegisterNamespaceNetworkconfigBinding(ns stri
 	m.Called(ns)
 }
 
-func (m *MockVPCServiceProvider) GetVPCNetworkConfig(ncCRName string) (VPCNetworkConfigInfo, bool) {
+func (m *MockVPCServiceProvider) GetVPCNetworkConfig(ncCRName string) (common.VPCNetworkConfigInfo, bool) {
 	m.Called(ncCRName)
-	return VPCNetworkConfigInfo{}, false
+	return common.VPCNetworkConfigInfo{}, false
 }
 
-func (m *MockVPCServiceProvider) ValidateNetworkConfig(nc VPCNetworkConfigInfo) bool {
+func (m *MockVPCServiceProvider) ValidateNetworkConfig(nc common.VPCNetworkConfigInfo) bool {
 	m.Called(nc)
 	return true
 }
 
-func (m *MockVPCServiceProvider) GetVPCNetworkConfigByNamespace(ns string) *VPCNetworkConfigInfo {
+func (m *MockVPCServiceProvider) GetVPCNetworkConfigByNamespace(ns string) *common.VPCNetworkConfigInfo {
 	m.Called()
 	return nil
 }
 
-func (m *MockVPCServiceProvider) GetDefaultNetworkConfig() (bool, *VPCNetworkConfigInfo) {
+func (m *MockVPCServiceProvider) GetDefaultNetworkConfig() (bool, *common.VPCNetworkConfigInfo) {
 	m.Called()
 	return false, nil
 }
 
-func (m *MockVPCServiceProvider) ListVPCInfo(ns string) []VPCResourceInfo {
+func (m *MockVPCServiceProvider) ListVPCInfo(ns string) []common.VPCResourceInfo {
 	arg := m.Called(ns)
-	return arg.Get(0).([]VPCResourceInfo)
+	return arg.Get(0).([]common.VPCResourceInfo)
 }
 
 type MockSubnetServiceProvider struct {
@@ -67,7 +69,7 @@ func (m *MockSubnetServiceProvider) GetSubnetsByIndex(key, value string) []*mode
 	return arg.Get(0).([]*model.VpcSubnet)
 }
 
-func (m *MockSubnetServiceProvider) CreateOrUpdateSubnet(obj client.Object, vpcInfo VPCResourceInfo, tags []model.Tag) (string, error) {
+func (m *MockSubnetServiceProvider) CreateOrUpdateSubnet(obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (string, error) {
 	arg := m.Called(obj, vpcInfo, tags)
 	return arg.Get(0).(string), arg.Error(1)
 }
