@@ -8,22 +8,23 @@ import (
 )
 
 const (
-	MetricResTypeSecurityPolicy      = "securitypolicy"
-	MetricResTypeNetworkPolicy       = "networkpolicy"
-	MetricResTypeIPPool              = "ippool"
-	MetricResTypeIPAddressAllocation = "ipaddressallocation"
-	MetricResTypeNSXServiceAccount   = "nsxserviceaccount"
-	MetricResTypeSubnetPort          = "subnetport"
-	MetricResTypeStaticRoute         = "staticroute"
-	MetricResTypeSubnet              = "subnet"
-	MetricResTypeSubnetSet           = "subnetset"
-	MetricResTypeNetworkInfo         = "networkinfo"
-	MetricResTypeNamespace           = "namespace"
-	MetricResTypePod                 = "pod"
-	MetricResTypeNode                = "node"
-	MetricResTypeServiceLb           = "servicelb"
-	MaxConcurrentReconciles          = 8
-	NSXOperatorError                 = "nsx-op/error"
+	MetricResTypeSecurityPolicy             = "securitypolicy"
+	MetricResTypeNetworkPolicy              = "networkpolicy"
+	MetricResTypeIPPool                     = "ippool"
+	MetricResTypeIPAddressAllocation        = "ipaddressallocation"
+	MetricResTypeNSXServiceAccount          = "nsxserviceaccount"
+	MetricResTypeSubnetPort                 = "subnetport"
+	MetricResTypeStaticRoute                = "staticroute"
+	MetricResTypeSubnet                     = "subnet"
+	MetricResTypeSubnetSet                  = "subnetset"
+	MetricResTypeSubnetConnectionBindingMap = "subnetconnectionbindingmap"
+	MetricResTypeNetworkInfo                = "networkinfo"
+	MetricResTypeNamespace                  = "namespace"
+	MetricResTypePod                        = "pod"
+	MetricResTypeNode                       = "node"
+	MetricResTypeServiceLb                  = "servicelb"
+	MaxConcurrentReconciles                 = 8
+	NSXOperatorError                        = "nsx-op/error"
 	//sync the error with NCP side
 	ErrorNoDFWLicense = "NO_DFW_LICENSE"
 
