@@ -45,21 +45,15 @@ const (
 	TagScopeStaticRouteCRName          string = "nsx-op/static_route_name"
 	TagScopeStaticRouteCRUID           string = "nsx-op/static_route_uid"
 	TagScopeRuleID                     string = "nsx-op/rule_id"
-	TagScopeGoupID                     string = "nsx-op/group_id"
 	TagScopeGroupType                  string = "nsx-op/group_type"
 	TagScopeSelectorHash               string = "nsx-op/selector_hash"
 	TagScopeNSXServiceAccountCRName    string = "nsx-op/nsx_service_account_name"
 	TagScopeNSXServiceAccountCRUID     string = "nsx-op/nsx_service_account_uid"
-	TagScopeNSXProjectID               string = "nsx-op/nsx_project_id"
 	TagScopeNSXShareCreatedFor         string = "nsx-op/nsx_share_created_for"
 	TagScopeSubnetPortCRName           string = "nsx-op/subnetport_name"
 	TagScopeSubnetPortCRUID            string = "nsx-op/subnetport_uid"
-	TagScopeIPPoolCRName               string = "nsx-op/ippool_name"
-	TagScopeIPPoolCRUID                string = "nsx-op/ippool_uid"
-	TagScopeIPPoolCRType               string = "nsx-op/ippool_type"
 	TagScopeIPAddressAllocationCRName  string = "nsx-op/ipaddressallocation_name"
 	TagScopeIPAddressAllocationCRUID   string = "nsx-op/ipaddressallocation_uid"
-	TagScopeIPSubnetName               string = "nsx-op/ipsubnet_name"
 	TagScopeVMNamespaceUID             string = "nsx-op/vm_namespace_uid"
 	TagScopeVMNamespace                string = "nsx-op/vm_namespace"
 	TagScopeVPCManagedBy               string = "nsx/managed-by"
@@ -95,19 +89,14 @@ const (
 	ValuePatchVersion                  string = "0"
 	ConnectorUnderline                 string = "_"
 
-	GCInterval        = 60 * time.Second
-	RealizeTimeout    = 2 * time.Minute
-	RealizeMaxRetries = 3
-	DefaultSNATID     = "DEFAULT"
-	AVISubnetLBID     = "_services"
-	IPPoolTypePublic  = "Public"
-	IPPoolTypePrivate = "Private"
+	GCInterval    = 60 * time.Second
+	DefaultSNATID = "DEFAULT"
+	AVISubnetLBID = "_services"
 
 	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
 	T1SecurityPolicyFinalizerName  = "securitypolicy.nsx.vmware.com/finalizer"
 
 	IndexKeySubnetID            = "IndexKeySubnetID"
-	IndexKeyPathPath            = "Path"
 	IndexKeyNodeName            = "IndexKeyNodeName"
 	GCValidationInterval uint16 = 720
 
