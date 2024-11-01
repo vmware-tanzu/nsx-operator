@@ -150,8 +150,7 @@ func updateFail(r *SubnetSetReconciler, c context.Context, o *v1alpha1.SubnetSet
 	metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResTypeSubnetSet)
 }
 
-func deleteFail(r *SubnetSetReconciler, c context.Context, o *v1alpha1.SubnetSet, m string) {
-	r.setSubnetSetReadyStatusFalse(c, o, metav1.Now(), m)
+func deleteFail(r *SubnetSetReconciler, _ context.Context, o *v1alpha1.SubnetSet, m string) {
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, m)
 	metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetSet)
 }

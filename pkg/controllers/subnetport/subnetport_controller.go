@@ -395,8 +395,7 @@ func updateFail(r *SubnetPortReconciler, c context.Context, o *v1alpha1.SubnetPo
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResTypeSubnetPort)
 }
 
-func deleteFail(r *SubnetPortReconciler, c context.Context, o *v1alpha1.SubnetPort, e *error) {
-	r.setSubnetPortReadyStatusFalse(c, o, metav1.Now(), e)
+func deleteFail(r *SubnetPortReconciler, _ context.Context, o *v1alpha1.SubnetPort, e *error) {
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.SubnetPortService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnetPort)
 }

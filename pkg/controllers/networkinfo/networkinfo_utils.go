@@ -19,8 +19,7 @@ import (
 	svccommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
-func deleteFail(r *NetworkInfoReconciler, c context.Context, o *v1alpha1.NetworkInfo, e *error, client client.Client) {
-	setNetworkInfoVPCStatus(c, o, client, nil)
+func deleteFail(r *NetworkInfoReconciler, _ context.Context, o *v1alpha1.NetworkInfo, e *error) {
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeNetworkInfo)
 }
