@@ -75,33 +75,34 @@ type Client struct {
 	VPCSecurityClient vpcs.SecurityPoliciesClient
 	VPCRuleClient     vpc_sp.RulesClient
 
-	OrgRootClient                  nsx_policy.OrgRootClient
-	ProjectInfraClient             projects.InfraClient
-	VPCClient                      projects.VpcsClient
-	VPCConnectivityProfilesClient  projects.VpcConnectivityProfilesClient
-	IPBlockClient                  project_infra.IpBlocksClient
-	StaticRouteClient              vpcs.StaticRoutesClient
-	NATRuleClient                  nat.NatRulesClient
-	VpcGroupClient                 vpcs.GroupsClient
-	PortClient                     subnets.PortsClient
-	PortStateClient                ports.StateClient
-	IPPoolClient                   subnets.IpPoolsClient
-	IPAllocationClient             ip_pools.IpAllocationsClient
-	SubnetsClient                  vpcs.SubnetsClient
-	IPAddressAllocationClient      vpcs.IpAddressAllocationsClient
-	VPCLBSClient                   vpcs.VpcLbsClient
-	VpcLbVirtualServersClient      vpcs.VpcLbVirtualServersClient
-	VpcLbPoolsClient               vpcs.VpcLbPoolsClient
-	VpcAttachmentClient            vpcs.AttachmentsClient
-	ProjectClient                  orgs.ProjectsClient
-	TransitGatewayClient           projects.TransitGatewaysClient
-	TransitGatewayAttachmentClient transit_gateways.AttachmentsClient
-	CertificateClient              infra.CertificatesClient
-	ShareClient                    infra.SharesClient
-	SharedResourceClient           shares.ResourcesClient
-	LbAppProfileClient             infra.LbAppProfilesClient
-	LbPersistenceProfilesClient    infra.LbPersistenceProfilesClient
-	LbMonitorProfilesClient        infra.LbMonitorProfilesClient
+	OrgRootClient                     nsx_policy.OrgRootClient
+	ProjectInfraClient                projects.InfraClient
+	VPCClient                         projects.VpcsClient
+	VPCConnectivityProfilesClient     projects.VpcConnectivityProfilesClient
+	IPBlockClient                     project_infra.IpBlocksClient
+	StaticRouteClient                 vpcs.StaticRoutesClient
+	NATRuleClient                     nat.NatRulesClient
+	VpcGroupClient                    vpcs.GroupsClient
+	PortClient                        subnets.PortsClient
+	PortStateClient                   ports.StateClient
+	IPPoolClient                      subnets.IpPoolsClient
+	IPAllocationClient                ip_pools.IpAllocationsClient
+	SubnetsClient                     vpcs.SubnetsClient
+	IPAddressAllocationClient         vpcs.IpAddressAllocationsClient
+	VPCLBSClient                      vpcs.VpcLbsClient
+	VpcLbVirtualServersClient         vpcs.VpcLbVirtualServersClient
+	VpcLbPoolsClient                  vpcs.VpcLbPoolsClient
+	VpcAttachmentClient               vpcs.AttachmentsClient
+	ProjectClient                     orgs.ProjectsClient
+	TransitGatewayClient              projects.TransitGatewaysClient
+	TransitGatewayAttachmentClient    transit_gateways.AttachmentsClient
+	CertificateClient                 infra.CertificatesClient
+	ShareClient                       infra.SharesClient
+	SharedResourceClient              shares.ResourcesClient
+	LbAppProfileClient                infra.LbAppProfilesClient
+	LbPersistenceProfilesClient       infra.LbPersistenceProfilesClient
+	LbMonitorProfilesClient           infra.LbMonitorProfilesClient
+	SubnetConnectionBindingMapsClient subnets.SubnetConnectionBindingMapsClient
 
 	NSXChecker    NSXHealthChecker
 	NSXVerChecker NSXVersionChecker
@@ -197,6 +198,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	transitGatewayClient := projects.NewTransitGatewaysClient(restConnector(cluster))
 	transitGatewayAttachmentClient := transit_gateways.NewAttachmentsClient(restConnector(cluster))
 
+	subnetConnectionBindingMapsClient := subnets.NewSubnetConnectionBindingMapsClient(restConnector(cluster))
+
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
 	}
@@ -222,32 +225,33 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		PrincipalIdentitiesClient:  principalIdentitiesClient,
 		WithCertificateClient:      withCertificateClient,
 
-		OrgRootClient:                  orgRootClient,
-		ProjectInfraClient:             projectInfraClient,
-		VPCClient:                      vpcClient,
-		VPCConnectivityProfilesClient:  vpcConnectivityProfilesClient,
-		IPBlockClient:                  ipBlockClient,
-		StaticRouteClient:              staticRouteClient,
-		NATRuleClient:                  natRulesClient,
-		VpcGroupClient:                 vpcGroupClient,
-		PortClient:                     portClient,
-		PortStateClient:                portStateClient,
-		SubnetStatusClient:             subnetStatusClient,
-		VPCSecurityClient:              vpcSecurityClient,
-		VPCRuleClient:                  vpcRuleClient,
-		VPCLBSClient:                   vpcLBSClient,
-		VpcLbVirtualServersClient:      vpcLbVirtualServersClient,
-		VpcLbPoolsClient:               vpcLbPoolsClient,
-		VpcAttachmentClient:            vpcAttachmentClient,
-		ProjectClient:                  projectClient,
-		NSXChecker:                     *nsxChecker,
-		NSXVerChecker:                  *nsxVersionChecker,
-		IPPoolClient:                   ipPoolClient,
-		IPAllocationClient:             ipAllocationClient,
-		SubnetsClient:                  subnetsClient,
-		IPAddressAllocationClient:      ipAddressAllocationClient,
-		TransitGatewayClient:           transitGatewayClient,
-		TransitGatewayAttachmentClient: transitGatewayAttachmentClient,
+		OrgRootClient:                     orgRootClient,
+		ProjectInfraClient:                projectInfraClient,
+		VPCClient:                         vpcClient,
+		VPCConnectivityProfilesClient:     vpcConnectivityProfilesClient,
+		IPBlockClient:                     ipBlockClient,
+		StaticRouteClient:                 staticRouteClient,
+		NATRuleClient:                     natRulesClient,
+		VpcGroupClient:                    vpcGroupClient,
+		PortClient:                        portClient,
+		PortStateClient:                   portStateClient,
+		SubnetStatusClient:                subnetStatusClient,
+		VPCSecurityClient:                 vpcSecurityClient,
+		VPCRuleClient:                     vpcRuleClient,
+		VPCLBSClient:                      vpcLBSClient,
+		VpcLbVirtualServersClient:         vpcLbVirtualServersClient,
+		VpcLbPoolsClient:                  vpcLbPoolsClient,
+		VpcAttachmentClient:               vpcAttachmentClient,
+		ProjectClient:                     projectClient,
+		NSXChecker:                        *nsxChecker,
+		NSXVerChecker:                     *nsxVersionChecker,
+		IPPoolClient:                      ipPoolClient,
+		IPAllocationClient:                ipAllocationClient,
+		SubnetsClient:                     subnetsClient,
+		IPAddressAllocationClient:         ipAddressAllocationClient,
+		TransitGatewayClient:              transitGatewayClient,
+		TransitGatewayAttachmentClient:    transitGatewayAttachmentClient,
+		SubnetConnectionBindingMapsClient: subnetConnectionBindingMapsClient,
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time
