@@ -147,7 +147,10 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 
 	VPCService := &VPCService{Service: service}
 	VPCService.VpcStore = &VPCStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+			common.TagScopeNamespaceUID: vpcIndexNamespaceIDFunc,
+			common.TagScopeNamespace:    vpcIndexNamespaceNameFunc,
+		}),
 		BindingType: model.VpcBindingType(),
 	}}
 	VPCService.LbsStore = &LBSStore{ResourceStore: common.ResourceStore{
@@ -261,7 +264,7 @@ func (s *VPCService) ListCert() []model.TlsCertificate {
 		log.V(1).Info("Query certificate", "count", count)
 	}
 	certs := store.List()
-	certsSet := []model.TlsCertificate{}
+	var certsSet []model.TlsCertificate
 	for _, cert := range certs {
 		certsSet = append(certsSet, *cert.(*model.TlsCertificate))
 	}
@@ -921,7 +924,6 @@ func (s *VPCService) GetGatewayConnectionTypeFromConnectionPath(connectionPath s
 
 func (s *VPCService) ValidateGatewayConnectionStatus(nc *common.VPCNetworkConfigInfo) (bool, string, error) {
 	var connectionPaths []string // i.e. gateway connection paths
-	// var profiles []model.VpcConnectivityProfile
 	var cursor *string
 	pageSize := int64(1000)
 	markedForDelete := false
@@ -930,7 +932,6 @@ func (s *VPCService) ValidateGatewayConnectionStatus(nc *common.VPCNetworkConfig
 	if err != nil {
 		return false, "", err
 	}
-	// profiles = append(profiles, res.Results...)
 	for _, profile := range res.Results {
 		transitGatewayPath := *profile.TransitGatewayPath
 		parts := strings.Split(transitGatewayPath, "/")
