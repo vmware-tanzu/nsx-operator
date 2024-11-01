@@ -22,6 +22,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	pkg_mock "github.com/vmware-tanzu/nsx-operator/pkg/mock"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -346,7 +347,7 @@ func TestExpandRule(t *testing.T) {
 		},
 	).AnyTimes()
 
-	mockVPCService := common.MockVPCServiceProvider{}
+	mockVPCService := pkg_mock.MockVPCServiceProvider{}
 	mockVPCService.On("ListVPCInfo", mock.Anything).Return([]common.VPCResourceInfo{{
 		OrgID:     "default",
 		ProjectID: "pro1",
