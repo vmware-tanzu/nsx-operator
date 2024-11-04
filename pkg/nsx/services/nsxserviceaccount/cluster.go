@@ -292,7 +292,8 @@ func (s *NSXServiceAccountService) getProxyEndpoints(ctx context.Context) (v1alp
 					switch port.Protocol {
 					case "", v1.ProtocolTCP:
 						proxyEndpoints.Ports = append(proxyEndpoints.Ports, v1alpha1.NSXProxyEndpointPort{
-							Name:     port.Name,
+							Name: port.Name,
+							// #nosec G115
 							Port:     uint16(port.Port),
 							Protocol: v1alpha1.NSXProxyProtocolTCP,
 						})

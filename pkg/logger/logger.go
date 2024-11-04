@@ -52,6 +52,14 @@ func getLogLevel(cfDebug bool, cfLogLevel int) int {
 
 func ZapLogger(cfDebug bool, cfLogLevel int) logr.Logger {
 	logLevel := getLogLevel(cfDebug, cfLogLevel)
+
+	// Ensure log level is within acceptable bounds for zapcore.Level
+	if logLevel < int(zapcore.DebugLevel) {
+		logLevel = int(zapcore.DebugLevel)
+	} else if logLevel > int(zapcore.FatalLevel) {
+		logLevel = int(zapcore.FatalLevel)
+	}
+
 	encoderConf := zapcore.EncoderConfig{
 		CallerKey:      "caller_line",
 		LevelKey:       "level_name",
@@ -68,7 +76,8 @@ func ZapLogger(cfDebug bool, cfLogLevel int) logr.Logger {
 	core := zapcore.NewCore(
 		zapcore.NewConsoleEncoder(encoderConf),
 		zapcore.AddSync(zapcore.Lock(os.Stdout)),
-		zapcore.Level(-1*logLevel),
+		// #nosec G115
+		zapcore.Level(-1*zapcore.Level(logLevel)),
 	)
 	zapLogger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(0))
 

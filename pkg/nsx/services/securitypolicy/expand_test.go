@@ -615,7 +615,8 @@ func Test_ResolveNamespace(t *testing.T) {
 func getRuleServiceEntries(portStart, portEnd int, protocol string) *data.StructValue {
 	return buildRuleServiceEntries(v1alpha1.SecurityPolicyPort{
 		Protocol: core_v1.Protocol(protocol),
-		Port:     intstr.FromInt32(int32(portStart)),
-		EndPort:  portEnd,
+		// #nosec G115
+		Port:    intstr.FromInt32(int32(portStart)),
+		EndPort: portEnd,
 	})
 }

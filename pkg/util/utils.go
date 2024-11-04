@@ -120,6 +120,7 @@ func ToUpper(obj interface{}) string {
 }
 
 func CalculateSubnetSize(mask int) int64 {
+	// #nosec G115
 	size := 1 << uint(32-mask)
 	return int64(size)
 }
@@ -201,6 +202,7 @@ func CalculateIPFromCIDRs(IPAddresses []string) (int, error) {
 		if err != nil {
 			return -1, err
 		}
+		// #nosec G115
 		total += int(cidr.AddressCount(&net.IPNet{
 			IP:   net.ParseIP(strings.Split(addr, "/")[0]),
 			Mask: net.CIDRMask(mask, 32),
@@ -226,10 +228,12 @@ func parseCIDRRange(cidr string) (startIP, endIP net.IP, err error) {
 
 func calculateOffsetIP(ip net.IP, offset int) (net.IP, error) {
 	ipInt := ipToUint32(ip)
+	// #nosec G115
 	ipInt += uint32(offset)
 	if int(ipInt) < 0 {
 		return nil, fmt.Errorf("resulting IP is less than 0")
 	}
+	//nolint:staticcheck // SA4003 ignore this!
 	if ipInt > 0xFFFFFFFF {
 		return nil, fmt.Errorf("resulting IP is greater than 255.255.255.255")
 	}

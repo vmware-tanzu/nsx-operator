@@ -1,12 +1,4 @@
 # golangci-lint configuration used for CI
-run:
-  tests: true
-  timeout: 15m
-  skip-files:
-   - third_party/
-   - pkg/client/
-  skip-dirs-use-default: true
-
 linters-settings:
   goimports:
     local-prefixes: github.com/vmware-tanzu/nsx-operator
@@ -31,10 +23,13 @@ linters:
     - staticcheck
     - gosec
     - goimports
-    - vet
+    - govet
     - revive
 
 issues:
+  exclude-files:
+   - third_party/
+   - pkg/client/
   exclude-rules:
     - linters:
         - staticcheck

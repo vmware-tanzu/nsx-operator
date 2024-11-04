@@ -1937,7 +1937,8 @@ func newPortInfoForNamedPort(portAddr nsxutil.PortAddress, protocol corev1.Proto
 	return &portInfo{
 		port: v1alpha1.SecurityPolicyPort{
 			Protocol: protocol,
-			Port:     intstr.FromInt32(int32(portAddr.Port)),
+			// #nosec G115
+			Port: intstr.FromInt32(int32(portAddr.Port)),
 		},
 		ips:      portAddr.IPs,
 		idSuffix: fmt.Sprintf("0%s0", common.ConnectorUnderline),

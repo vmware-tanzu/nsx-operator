@@ -84,7 +84,8 @@ func TestUtil_IsNsInSystemNamespace(t *testing.T) {
 
 	isCRInSysNs, err := IsSystemNamespace(client, ns.Namespace, nil)
 	if err != nil {
-		t.Fatalf(err.Error())
+		//nolint:govet
+		t.Fatalf("error occurred: %v", err)
 	}
 	if isCRInSysNs {
 		t.Fatalf("Non-system namespace identied as a system namespace")
@@ -102,8 +103,9 @@ func TestUtil_IsNsInSystemNamespace(t *testing.T) {
 	ns = types.NamespacedName{Namespace: "sys-ns", Name: "dummy"}
 
 	isCRInSysNs, err = IsSystemNamespace(client, ns.Namespace, nil)
+	//nolint:govet
 	if err != nil {
-		t.Fatalf(err.Error())
+		t.Fatalf("error occurred: %v", err)
 	}
 	if !isCRInSysNs {
 		t.Fatalf("System namespace not identied as a system namespace")
