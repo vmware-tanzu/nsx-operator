@@ -170,7 +170,7 @@ func UpdateConfigFilePath(configFile string) {
 }
 
 func LoadConfigFromFile() (*NSXOperatorConfig, error) {
-	configLog.Infof("loading NSX Operator configuration file: %s", configFilePath)
+	configLog.Infof("Loading NSX Operator configuration file: %s", configFilePath)
 	nsxOperatorConfig := NewNSXOpertorConfig()
 
 	cfg := ini.Empty()
@@ -217,7 +217,7 @@ func LoadConfigFromFile() (*NSXOperatorConfig, error) {
 func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
 	nsxOperatorConfig, err := LoadConfigFromFile()
 	if err != nil {
-		configLog.Error("failed to load NSX Operator configuration file: %v", err)
+		configLog.Error("Failed to load NSX Operator configuration file: %v", err)
 		return nil, err
 	}
 	return nsxOperatorConfig, nil
@@ -260,7 +260,7 @@ func (operatorConfig *NSXOperatorConfig) GetTokenProvider() auth.TokenProvider {
 }
 
 func (operatorConfig *NSXOperatorConfig) createTokenProvider() auth.TokenProvider {
-	configLog.Info("try to load VC host CA")
+	configLog.Info("Try to load VC host CA")
 	var vcCaCert []byte
 	var err error
 	if !operatorConfig.Insecure {
@@ -272,7 +272,7 @@ func (operatorConfig *NSXOperatorConfig) createTokenProvider() auth.TokenProvide
 		// If operatorConfig.VCInsecure is false, tls will use the CA to verify the server
 		// certificate. If loading CA failed, tls will use the CA on local host
 		if err != nil {
-			configLog.Info("fail to load CA cert from file.", " error: ", err)
+			configLog.Info("Fail to load CA cert from file.", " error: ", err)
 		}
 	}
 	var provider auth.TokenProvider
@@ -293,25 +293,25 @@ func (operatorConfig *NSXOperatorConfig) createTokenProvider() auth.TokenProvide
 func (vcConfig *VCConfig) validate() error {
 	if len(vcConfig.VCEndPoint) == 0 {
 		err := errors.New("invalid field " + "VcEndPoint")
-		configLog.Info("validate VcConfig failed", "VcEndPoint", vcConfig.VCEndPoint)
+		configLog.Info("Validate VcConfig failed", "VcEndPoint", vcConfig.VCEndPoint)
 		return err
 	}
 
 	if len(vcConfig.SsoDomain) == 0 {
 		err := errors.New("invalid field " + "SsoDomain")
-		configLog.Info("validate VcConfig failed", "SsoDomain", vcConfig.SsoDomain)
+		configLog.Info("Validate VcConfig failed", "SsoDomain", vcConfig.SsoDomain)
 		return err
 	}
 
 	if vcConfig.HttpsPort == 0 {
 		err := errors.New("invalid field " + "HttpsPort")
-		configLog.Info("validate VcConfig failed", "HttpsPort", vcConfig.HttpsPort)
+		configLog.Info("Validate VcConfig failed", "HttpsPort", vcConfig.HttpsPort)
 		return err
 	}
 	// VCPassword, VCUser should be both empty or valid
 	if !((len(vcConfig.VCPassword) > 0) == (len(vcConfig.VCUser) > 0)) {
 		err := errors.New("invalid field " + "VCUser, VCPassword")
-		configLog.Info("validate VcConfig failed VCUser %s VCPassword %s", vcConfig.VCUser, vcConfig.VCPassword)
+		configLog.Info("Validate VcConfig failed VCUser %s VCPassword %s", vcConfig.VCUser, vcConfig.VCPassword)
 		return err
 	}
 	return nil
@@ -349,19 +349,19 @@ func (nsxConfig *NsxConfig) validateCert() error {
 	// ca file(thumbprint) == 1 or equal to manager count
 	if caCount == 0 && tpCount == 0 && nsxConfig.NsxApiUser == "" && nsxConfig.NsxApiPassword == "" {
 		err := errors.New("no ca file or thumbprint or nsx username/password provided")
-		configLog.Error(err, "validate NsxConfig failed")
+		configLog.Error(err, "Validate NsxConfig failed")
 		return err
 	}
 	if nsxConfig.EnvoyPort != 0 && caCount == 0 && tpCount == 0 {
 		err := errors.New("no ca file or thumbprint while using envoy mode")
-		configLog.Error(err, "validate NsxConfig failed")
+		configLog.Error(err, "Validate NsxConfig failed")
 		return err
 	}
 	if caCount > 0 {
-		configLog.Infof("validate CA file: %s", caCount)
+		configLog.Infof("Validate CA file: %s", caCount)
 		if caCount > 1 && caCount != mCount {
 			err := errors.New("ca or cert file count not match manager count")
-			configLog.Error(err, "validate NsxConfig failed", "cert count", caCount, "manager count", mCount)
+			configLog.Error(err, "Validate NsxConfig failed", "cert count", caCount, "manager count", mCount)
 			return err
 		}
 		for _, file := range ca {
@@ -372,18 +372,18 @@ func (nsxConfig *NsxConfig) validateCert() error {
 			block, _ := pem.Decode([]byte(file))
 			if block == nil || block.Type != "CERTIFICATE" {
 				err := fmt.Errorf("ca or cert file does not exist or not a valid cert %s", file)
-				configLog.Error(err, "validate NsxConfig failed")
+				configLog.Error(err, "Validate NsxConfig failed")
 				return err
 			}
 			_, err := x509.ParseCertificate(block.Bytes)
 			if err != nil {
 				err := fmt.Errorf("ca or cert file does not exist or not a valid cert %s", file)
-				configLog.Error(err, "validate NsxConfig failed")
+				configLog.Error(err, "Validate NsxConfig failed")
 				return err
 			}
 		}
 	} else {
-		configLog.Infof("validate thumbprint: %d", tpCount)
+		configLog.Infof("Validate thumbprint: %d", tpCount)
 		if tpCount > 1 && tpCount != mCount {
 			err := errors.New("thumbprint count not match manager count")
 			configLog.Error(err, "validate NsxConfig failed", "thumbprint count", tpCount, "manager count", mCount)
@@ -398,7 +398,7 @@ func (nsxConfig *NsxConfig) validate(enableVPC bool) error {
 	mCount := len(nsxConfig.NsxApiManagers)
 	if mCount == 0 {
 		err := errors.New("invalid field " + "NsxApiManagers")
-		configLog.Error(err, "validate NsxConfig failed", "NsxApiManagers", nsxConfig.NsxApiManagers)
+		configLog.Error(err, "Validate NsxConfig failed", "NsxApiManagers", nsxConfig.NsxApiManagers)
 		return err
 	}
 	if err := nsxConfig.validateCert(); err != nil {
@@ -410,7 +410,7 @@ func (nsxConfig *NsxConfig) validate(enableVPC bool) error {
 func (coeConfig *CoeConfig) validate() error {
 	if len(coeConfig.Cluster) == 0 {
 		err := errors.New("invalid field " + "Cluster")
-		configLog.Error(err, "validate coeConfig failed")
+		configLog.Error(err, "Validate coeConfig failed")
 		return err
 	}
 	return nil

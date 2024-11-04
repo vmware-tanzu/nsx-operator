@@ -13,6 +13,8 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	pkg_log "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
@@ -140,8 +142,10 @@ func IsInstanceOf(objectPtr, typePtr interface{}) bool {
 }
 
 func TestSRGetClient(t *testing.T) {
+	pkg_log.SetLogger(zap.New(zap.UseDevMode(true)))
 	cf := config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{NsxApiUser: "admin", NsxApiPassword: "Admin!23Admin", NsxApiManagers: []string{"10.173.82.128"}}}
 	cf.VCConfig = &config.VCConfig{}
+
 	client := GetClient(&cf)
 	st, error := client.StaticRouteClient.Get("default", "project-1", "vpc-2", "site1")
 	if error == nil {
