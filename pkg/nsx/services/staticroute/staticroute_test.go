@@ -338,10 +338,11 @@ func TestStaticRouteService_Cleanup(t *testing.T) {
 		Path: &staticRoutePath2,
 	}
 
-	service.StaticRouteStore.Add(staticRoute1)
-	service.StaticRouteStore.Add(staticRoute2)
-
 	t.Run("Successful cleanup", func(t *testing.T) {
+		service.StaticRouteStore.Add(staticRoute1)
+		service.StaticRouteStore.Add(staticRoute2)
+		mockStaticRouteclient = mocks.NewMockStaticRoutesClient(mockController)
+		service.NSXClient.StaticRouteClient = mockStaticRouteclient
 		mockStaticRouteclient.EXPECT().Delete("org1", "project1", "vpc1", "staticroute1").Return(nil).Times(1)
 		mockStaticRouteclient.EXPECT().Delete("org2", "project2", "vpc2", "staticroute2").Return(nil).Times(1)
 
@@ -361,7 +362,8 @@ func TestStaticRouteService_Cleanup(t *testing.T) {
 
 	t.Run("Delete static route error", func(t *testing.T) {
 		service.StaticRouteStore.Add(staticRoute1)
-		service.StaticRouteStore.Add(staticRoute2)
+		mockStaticRouteclient = mocks.NewMockStaticRoutesClient(mockController)
+		service.NSXClient.StaticRouteClient = mockStaticRouteclient
 
 		mockStaticRouteclient.EXPECT().Delete("org1", "project1", "vpc1", "staticroute1").Return(fmt.Errorf("delete error")).Times(1)
 

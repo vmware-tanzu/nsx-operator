@@ -22,6 +22,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/mock"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
@@ -1070,7 +1071,7 @@ func TestCreateOrUpdateSecurityPolicy(t *testing.T) {
 
 	fakeService := fakeSecurityPolicyService()
 	fakeService.NSXConfig.EnableVPCNetwork = true
-	mockVPCService := common.MockVPCServiceProvider{}
+	mockVPCService := mock.MockVPCServiceProvider{}
 	fakeService.vpcService = &mockVPCService
 
 	podSelectorRule0IDPort000 := fakeService.buildExpandedRuleID(&spWithPodSelector, 0, common.ResourceTypeSecurityPolicy, nil)
@@ -1220,7 +1221,7 @@ func TestGetFinalSecurityPolicyResouce(t *testing.T) {
 	VPCInfo[0].VPCID = "vpc1"
 
 	fakeService := fakeSecurityPolicyService()
-	mockVPCService := common.MockVPCServiceProvider{}
+	mockVPCService := mock.MockVPCServiceProvider{}
 	fakeService.vpcService = &mockVPCService
 
 	type args struct {
@@ -1355,7 +1356,7 @@ func TestConvertNetworkPolicyToInternalSecurityPolicies(t *testing.T) {
 
 	fakeService := fakeSecurityPolicyService()
 	fakeService.NSXConfig.EnableVPCNetwork = true
-	mockVPCService := common.MockVPCServiceProvider{}
+	mockVPCService := mock.MockVPCServiceProvider{}
 	fakeService.vpcService = &mockVPCService
 
 	tests := []struct {
@@ -1448,7 +1449,7 @@ func TestGetFinalSecurityPolicyResouceFromNetworkPolicy(t *testing.T) {
 
 	fakeService := fakeSecurityPolicyService()
 	fakeService.NSXConfig.EnableVPCNetwork = true
-	mockVPCService := common.MockVPCServiceProvider{}
+	mockVPCService := mock.MockVPCServiceProvider{}
 	fakeService.vpcService = &mockVPCService
 
 	destinationPorts := data.NewListValue()

@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	pkg_mock "github.com/vmware-tanzu/nsx-operator/pkg/mock"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
@@ -98,16 +99,16 @@ func TestInsertNamespaceNetworkconfigBinding(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r.VPCService = &common.MockVPCServiceProvider{}
+			r.VPCService = &pkg_mock.MockVPCServiceProvider{}
 			patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getDefaultNetworkConfigName", func(_ *NamespaceReconciler, ns string, anno map[string]string) (string, error) {
 				return tt.ncName, tt.err
 			})
-			r.VPCService.(*common.MockVPCServiceProvider).On("RegisterNamespaceNetworkconfigBinding", mock.Anything, mock.Anything).Return(nil)
+			r.VPCService.(*pkg_mock.MockVPCServiceProvider).On("RegisterNamespaceNetworkconfigBinding", mock.Anything, mock.Anything).Return(nil)
 			err := r.insertNamespaceNetworkconfigBinding(tt.ns, tt.annos)
 			if err != nil {
-				r.VPCService.(*common.MockVPCServiceProvider).AssertNotCalled(t, "RegisterNamespaceNetworkconfigBinding")
+				r.VPCService.(*pkg_mock.MockVPCServiceProvider).AssertNotCalled(t, "RegisterNamespaceNetworkconfigBinding")
 			} else {
-				r.VPCService.(*common.MockVPCServiceProvider).AssertCalled(t, "RegisterNamespaceNetworkconfigBinding", tt.ns, tt.expectName)
+				r.VPCService.(*pkg_mock.MockVPCServiceProvider).AssertCalled(t, "RegisterNamespaceNetworkconfigBinding", tt.ns, tt.expectName)
 			}
 			patch.Reset()
 		})
