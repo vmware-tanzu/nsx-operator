@@ -16,9 +16,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -50,7 +47,6 @@ func deleteSuccess(r *IPAddressAllocationReconciler, _ context.Context, o *v1alp
 }
 
 func deleteFail(r *IPAddressAllocationReconciler, c context.Context, o *v1alpha1.IPAddressAllocation, e *error) {
-	r.setReadyStatusFalse(c, o, metav1.Now(), e)
 	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
 }
@@ -109,8 +105,14 @@ func (r *IPAddressAllocationReconciler) Reconcile(ctx context.Context, req ctrl.
 	log.Info("reconciling IPAddressAllocation CR", "IPAddressAllocation", req.NamespacedName)
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
 	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
-		log.Error(err, "unable to fetch IPAddressAllocation CR", "req", req.NamespacedName)
-		return resultNormal, client.IgnoreNotFound(err)
+		if client.IgnoreNotFound(err) == nil {
+			err = r.Service.DeleteIPAddressAllocationByNamespacedName(req.Namespace, req.Name)
+			if err != nil {
+				log.Error(err, "failed to delete IPAddressAllocation", "IPAddressAllocation", req.NamespacedName)
+				return resultRequeue, err
+			}
+		}
+		return resultRequeue, err
 	}
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		return r.handleUpdate(ctx, req, obj)
@@ -120,16 +122,6 @@ func (r *IPAddressAllocationReconciler) Reconcile(ctx context.Context, req ctrl.
 
 func (r *IPAddressAllocationReconciler) handleUpdate(ctx context.Context, req ctrl.Request, obj *v1alpha1.IPAddressAllocation) (ctrl.Result, error) {
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResType)
-	if !controllerutil.ContainsFinalizer(obj, servicecommon.IPAddressAllocationFinalizerName) {
-		controllerutil.AddFinalizer(obj, servicecommon.IPAddressAllocationFinalizerName)
-		if err := r.Client.Update(ctx, obj); err != nil {
-			log.Error(err, "add finalizer", "IPAddressAllocation", req.NamespacedName)
-			updateFail(r, ctx, obj, &err)
-			return resultRequeue, err
-		}
-		log.V(1).Info("added finalizer on IPAddressAllocation CR", "IPAddressAllocation", req.NamespacedName)
-	}
-
 	updated, err := r.Service.CreateOrUpdateIPAddressAllocation(obj)
 	if err != nil {
 		updateFail(r, ctx, obj, &err)
@@ -142,42 +134,20 @@ func (r *IPAddressAllocationReconciler) handleUpdate(ctx context.Context, req ct
 }
 
 func (r *IPAddressAllocationReconciler) handleDeletion(ctx context.Context, req ctrl.Request, obj *v1alpha1.IPAddressAllocation) (ctrl.Result, error) {
-	if controllerutil.ContainsFinalizer(obj, servicecommon.IPAddressAllocationFinalizerName) {
-		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
-		if err := r.Service.DeleteIPAddressAllocation(obj); err != nil {
-			log.Error(err, "deletion failed, would retry exponentially", "IPAddressAllocation", req.NamespacedName)
-			deleteFail(r, ctx, obj, &err)
-			return resultRequeue, err
-		}
-		controllerutil.RemoveFinalizer(obj, servicecommon.IPAddressAllocationFinalizerName)
-		if err := r.Client.Update(ctx, obj); err != nil {
-			log.Error(err, "deletion failed, would retry exponentially", "IPAddressAllocation", req.NamespacedName)
-			deleteFail(r, ctx, obj, &err)
-			return resultRequeue, err
-		}
-		log.V(1).Info("removed finalizer on IPAddressAllocation CR", "IPAddressAllocation", req.NamespacedName)
-		deleteSuccess(r, ctx, obj)
-		log.Info("successfully deleted IPAddressAllocation CR and all subnets", "IPAddressAllocation", obj)
-	} else {
-		// only print a message because it's not a normal case
-		log.Info("IPAddressAllocation CR is being deleted but its finalizers cannot be recognized", "IPAddressAllocation", req.NamespacedName)
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
+	if err := r.Service.DeleteIPAddressAllocation(obj); err != nil {
+		log.Error(err, "deletion failed, would retry exponentially", "IPAddressAllocation", req.NamespacedName)
+		deleteFail(r, ctx, obj, &err)
+		return resultRequeue, err
 	}
+	deleteSuccess(r, ctx, obj)
+	log.Info("successfully deleted IPAddressAllocation CR and all subnets", "IPAddressAllocation", obj)
 	return resultNormal, nil
 }
 
 func (r *IPAddressAllocationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.IPAddressAllocation{}).
-		WithEventFilter(predicate.Funcs{
-			UpdateFunc: func(e event.UpdateEvent) bool {
-				// Ignore updates to CR status in which case metadata.Generation does not change
-				return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration()
-			},
-			DeleteFunc: func(e event.DeleteEvent) bool {
-				// Suppress Delete events to avoid filtering them out in the Reconcile function
-				return false
-			},
-		}).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
