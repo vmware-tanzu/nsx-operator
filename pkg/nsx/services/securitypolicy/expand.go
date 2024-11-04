@@ -1,3 +1,6 @@
+/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
+   SPDX-License-Identifier: Apache-2.0 */
+
 package securitypolicy
 
 import (
@@ -5,13 +8,14 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	meta1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -83,13 +87,13 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 		if err != nil {
 			// In case there is no more valid ip set selected, so clear the stale ip set group in NSX if stale ips exist
 			if errors.As(err, &nsxutil.NoEffectiveOption{}) {
-				groups := service.groupStore.GetByIndex(common.TagScopeRuleID, service.buildRuleID(obj, ruleIdx, createdFor))
+				groups := service.groupStore.GetByIndex(common.TagScopeRuleID, service.buildRuleID(obj, ruleIdx))
 				var ipSetGroup *model.Group
 				for _, group := range groups {
 					ipSetGroup = group
 					// Clear ip set group in NSX
 					ipSetGroup.Expression = nil
-					log.V(1).Info("clear ruleIPSetGroup", "ruleIPSetGroup", ipSetGroup)
+					log.V(1).Info("Clear ruleIPSetGroup", "ruleIPSetGroup", ipSetGroup)
 					err3 := service.createOrUpdateGroups(obj, []*model.Group{ipSetGroup})
 					if err3 != nil {
 						return nil, nil, err3
@@ -144,10 +148,10 @@ func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.Security
 			return nil, nil, err
 		}
 		nsxRule.DestinationGroups = []string{IPSetGroupPath}
-		log.V(1).Info("built ruleIPSetGroup", "ruleIPSetGroup", ruleIPSetGroup)
+		log.V(1).Info("Built ruleIPSetGroup", "ruleIPSetGroup", ruleIPSetGroup)
 		nsxGroups = append(nsxGroups, ruleIPSetGroup)
 	}
-	log.V(1).Info("built rule by service entry", "nsxRule", nsxRule)
+	log.V(1).Info("Built rule by service entry", "nsxRule", nsxRule)
 	return nsxGroups, nsxRule, nil
 }
 
@@ -166,7 +170,7 @@ func (service *SecurityPolicyService) resolveNamedPort(obj *v1alpha1.SecurityPol
 	for _, selector := range podSelectors {
 		podSelector := selector
 		podsList := &v1.PodList{}
-		log.V(2).Info("port", "podSelector", podSelector)
+		log.V(2).Info("Port", "podSelector", podSelector)
 		err := service.Client.List(context.Background(), podsList, &podSelector)
 		if err != nil {
 			return nil, err
@@ -178,7 +182,7 @@ func (service *SecurityPolicyService) resolveNamedPort(obj *v1alpha1.SecurityPol
 	}
 
 	if len(portAddress) == 0 {
-		log.Info("no pod has the corresponding named port", "port", spPort)
+		log.Info("No pod has the corresponding named port", "port", spPort)
 	}
 	return nsxutil.MergeAddressByPort(portAddress), nil
 }
@@ -189,16 +193,16 @@ func (service *SecurityPolicyService) resolvePodPort(pod v1.Pod, spPort *v1alpha
 	for _, c := range pod.Spec.Containers {
 		container := c
 		for _, port := range container.Ports {
-			log.V(2).Info("resolvePodPort", "namespace", pod.Namespace, "podName", pod.Name,
+			log.V(2).Info("ResolvePodPort", "nameSpace", pod.Namespace, "podName", pod.Name,
 				"portName", port.Name, "containerPort", port.ContainerPort,
 				"protocol", port.Protocol, "podIP", pod.Status.PodIP)
 			if port.Name == spPort.Port.String() && port.Protocol == spPort.Protocol {
 				if pod.Status.Phase != "Running" {
-					log.Info("pod with named port is not running", "pod.Namespace", pod.Namespace, "pod.Name", pod.Name)
+					log.Info("POD with named port is not running", "pod.Namespace", pod.Namespace, "pod.Name", pod.Name)
 					return addr
 				}
 				if pod.Status.PodIP == "" {
-					log.Info("pod with named port doesn't have initialized IP", "pod.Namespace", pod.Namespace, "pod.Name", pod.Name)
+					log.Info("POD with named port doesn't have initialized IP", "pod.Namespace", pod.Namespace, "pod.Name", pod.Name)
 					return addr
 				}
 				addr = append(

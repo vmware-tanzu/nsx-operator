@@ -1,3 +1,6 @@
+/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
+   SPDX-License-Identifier: Apache-2.0 */
+
 package securitypolicy
 
 import (
@@ -15,6 +18,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	core_v1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/cache"
@@ -115,6 +119,11 @@ func TestSecurityPolicyService_getPodSelectors(t *testing.T) {
 		MatchExpressions: podSelectorMatchExpression,
 	}
 	sp := v1alpha1.SecurityPolicy{
+		ObjectMeta: v1.ObjectMeta{Namespace: "ns1", Name: "spA", UID: "uidA"},
+		Spec:       v1alpha1.SecurityPolicySpec{},
+	}
+
+	sp1 := v1alpha1.SecurityPolicy{
 		ObjectMeta: v1.ObjectMeta{Namespace: "ns1", Name: "spA", UID: "uidA"},
 		Spec: v1alpha1.SecurityPolicySpec{
 			AppliedTo: []v1alpha1.SecurityPolicyTarget{
@@ -232,8 +241,8 @@ func TestSecurityPolicyService_getPodSelectors(t *testing.T) {
 		wantErr assert.ErrorAssertionFunc
 	}{
 		{"1", fields{}, args{&sp, &rule}, client.ListOptions{LabelSelector: labelSelector, Namespace: "ns1"}, nil},
-		{"2", fields{}, args{&sp, &rule2}, client.ListOptions{LabelSelector: labelSelector2, Namespace: "ns1"}, nil},
-		{"3", fields{}, args{&sp, &rule3}, client.ListOptions{LabelSelector: labelSelector, Namespace: "ns1"}, nil},
+		{"2", fields{}, args{&sp1, &rule2}, client.ListOptions{LabelSelector: labelSelector2, Namespace: "ns1"}, nil},
+		{"3", fields{}, args{&sp1, &rule3}, client.ListOptions{LabelSelector: labelSelector, Namespace: "ns1"}, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -296,7 +305,7 @@ var secPolicy = &v1alpha1.SecurityPolicy{
 	},
 }
 
-func TestExpandRule(t *testing.T) {
+func Test_ExpandRule(t *testing.T) {
 	ruleTagsFn := func(policyType string) []model.Tag {
 		return []model.Tag{
 			{Scope: common.String("nsx-op/cluster"), Tag: common.String("")},
@@ -423,8 +432,10 @@ func TestExpandRule(t *testing.T) {
 					SequenceNumber: Int64(int64(1)),
 					Action:         common.String(string("ALLOW")),
 					Services:       []string{"ANY"},
-					ServiceEntries: []*data.StructValue{getRuleServiceEntries(1000, 0, "TCP"),
-						getRuleServiceEntries(1234, 1235, "UDP")},
+					ServiceEntries: []*data.StructValue{
+						getRuleServiceEntries(1000, 0, "TCP"),
+						getRuleServiceEntries(1234, 1235, "UDP"),
+					},
 					Tags: npRuleTags,
 				},
 			},
@@ -550,6 +561,55 @@ func TestExpandRule(t *testing.T) {
 			assert.ElementsMatch(t, tc.expRules, nsxRules)
 		})
 	}
+}
+
+// TestResolveNamespace tests the ResolveNamespace function
+func Test_ResolveNamespace(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+
+	// Create a mock client
+	k8sClient := mock_client.NewMockClient(mockCtl)
+
+	// Prepare test data
+	labelSelector := &v1.LabelSelector{
+		MatchLabels: map[string]string{"env": "test"},
+	}
+	expectedNamespaceList := &core_v1.NamespaceList{
+		Items: []core_v1.Namespace{
+			{ObjectMeta: v1.ObjectMeta{Name: "test-namespace"}},
+		},
+	}
+
+	// Convert LabelSelector to map and to Selector
+	labelMap, err := v1.LabelSelectorAsMap(labelSelector)
+	assert.NoError(t, err)
+	expectedSelector := labels.SelectorFromSet(labelMap)
+
+	// Set up the mock to expect a List call with the correct options
+	k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf(&client.ListOptions{})).
+		DoAndReturn(func(ctx context.Context, list *core_v1.NamespaceList, opts ...client.ListOption) error {
+			// Verify the selector matches
+			listOpts := opts[0].(*client.ListOptions)
+			assert.Equal(t, expectedSelector.String(), listOpts.LabelSelector.String())
+
+			// Return the expected namespace list
+			*list = *expectedNamespaceList
+			return nil
+		})
+
+	// Create the service and call the function
+	service := &SecurityPolicyService{
+		Service: common.Service{
+			Client: k8sClient,
+		},
+	}
+
+	nsList, err := service.ResolveNamespace(labelSelector)
+
+	// Verify results
+	assert.NoError(t, err)
+	assert.Equal(t, expectedNamespaceList, nsList)
 }
 
 func getRuleServiceEntries(portStart, portEnd int, protocol string) *data.StructValue {

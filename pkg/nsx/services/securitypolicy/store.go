@@ -1,3 +1,6 @@
+/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
+   SPDX-License-Identifier: Apache-2.0 */
+
 package securitypolicy
 
 import (
@@ -122,13 +125,13 @@ func (securityPolicyStore *SecurityPolicyStore) Apply(i interface{}) error {
 	sp := i.(*model.SecurityPolicy)
 	if sp.MarkedForDelete != nil && *sp.MarkedForDelete {
 		err := securityPolicyStore.Delete(sp)
-		log.V(1).Info("delete security policy from store", "securitypolicy", sp)
+		log.V(1).Info("Delete security policy from store", "securitypolicy", sp)
 		if err != nil {
 			return err
 		}
 	} else {
 		err := securityPolicyStore.Add(sp)
-		log.V(1).Info("add security policy to store", "securitypolicy", sp)
+		log.V(1).Info("Add security policy to store", "securitypolicy", sp)
 		if err != nil {
 			return err
 		}
@@ -160,13 +163,13 @@ func (ruleStore *RuleStore) Apply(i interface{}) error {
 		tempRule := rule
 		if rule.MarkedForDelete != nil && *rule.MarkedForDelete {
 			err := ruleStore.Delete(&tempRule)
-			log.V(1).Info("delete rule from store", "rule", tempRule)
+			log.V(1).Info("Delete rule from store", "rule", tempRule)
 			if err != nil {
 				return err
 			}
 		} else {
 			err := ruleStore.Add(&tempRule)
-			log.V(1).Info("add rule to store", "rule", tempRule)
+			log.V(1).Info("Add rule to store", "rule", tempRule)
 			if err != nil {
 				return err
 			}
@@ -190,13 +193,13 @@ func (groupStore *GroupStore) Apply(i interface{}) error {
 		tempGroup := group
 		if group.MarkedForDelete != nil && *group.MarkedForDelete {
 			err := groupStore.Delete(&tempGroup)
-			log.V(1).Info("delete group from store", "group", tempGroup)
+			log.V(1).Info("Delete group from store", "group", tempGroup)
 			if err != nil {
 				return err
 			}
 		} else {
 			err := groupStore.Add(&tempGroup)
-			log.V(1).Info("add group to store", "group", tempGroup)
+			log.V(1).Info("Add group to store", "group", tempGroup)
 			if err != nil {
 				return err
 			}
@@ -220,28 +223,19 @@ func (shareStore *ShareStore) Apply(i interface{}) error {
 		tempShare := share
 		if share.MarkedForDelete != nil && *share.MarkedForDelete {
 			err := shareStore.Delete(&tempShare)
-			log.V(1).Info("delete share from store", "share", tempShare)
+			log.V(1).Info("Delete share from store", "share", tempShare)
 			if err != nil {
 				return err
 			}
 		} else {
 			err := shareStore.Add(&tempShare)
-			log.V(1).Info("add share to store", "share", tempShare)
+			log.V(1).Info("Add share to store", "share", tempShare)
 			if err != nil {
 				return err
 			}
 		}
 	}
 	return nil
-}
-
-func (shareStore *ShareStore) GetByKey(key string) *model.Share {
-	var share *model.Share
-	obj := shareStore.ResourceStore.GetByKey(key)
-	if obj != nil {
-		share = obj.(*model.Share)
-	}
-	return share
 }
 
 func (shareStore *ShareStore) GetByIndex(key string, value string) []*model.Share {
