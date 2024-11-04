@@ -198,15 +198,15 @@ func (s *VPCService) GetVPCsByFreshNamespace(ctx context.Context, namespace stri
 
 func (s *VPCService) GetVPCsByNamespace(ctx context.Context, namespace string) []*model.Vpc {
 	// only used in NetworkInfo controller, no need to check whether is a shared Namespace
-	// namespaceObj, sharedNamespace, err := s.resolveSharedVPCNamespace(ctx, namespace)
-	// if err != nil {
-	// 	log.Error(err, "Failed to get Namespace")
-	// 	return nil
-	// }
-	// if sharedNamespace == nil {
-	// 	return s.VpcStore.GetVPCsByNamespaceFromStore(namespaceObj.Name)
-	// }
-	return s.VpcStore.GetVPCsByNamespaceFromStore(namespace)
+	namespaceObj, sharedNamespace, err := s.resolveSharedVPCNamespace(ctx, namespace)
+	if err != nil {
+		log.Error(err, "Failed to get Namespace")
+		return nil
+	}
+	if sharedNamespace == nil {
+		return s.VpcStore.GetVPCsByNamespaceFromStore(namespaceObj.Name)
+	}
+	return s.VpcStore.GetVPCsByNamespaceFromStore(sharedNamespace.Name)
 }
 
 func (s *VPCService) ListVPC() []model.Vpc {
@@ -555,7 +555,7 @@ func (s *VPCService) IsSharedVPCNamespaceByNS(ctx context.Context, ns string) (b
 func (s *VPCService) getNamespace(ctx context.Context, name string) (*v1.Namespace, error) {
 	obj := &v1.Namespace{}
 	if err := s.Client.Get(ctx, types.NamespacedName{Name: name}, obj); err != nil {
-		log.Error(err, "Failed to fetch namespace", "Namespace", name)
+		log.Error(err, "Failed to fetch Namespace", "Namespace", name)
 		return nil, err
 	}
 	return obj, nil
@@ -576,20 +576,20 @@ func (s *VPCService) resolveSharedVPCNamespace(ctx context.Context, ns string) (
 	}
 
 	// If no annotation nsx.vmware.com/shared_vpc_namespace on ns, this is not a shared vpc
-	sharedNS, exist := annos[common.AnnotationSharedVPCNamespace]
+	nsForSharedVPCs, exist := annos[common.AnnotationSharedVPCNamespace]
 	if !exist {
 		return obj, nil, nil
 	}
-	if sharedNS == ns {
-		return obj, obj, nil
+	if nsForSharedVPCs == ns {
+		return nil, obj, nil
 	}
-	sharedNamespace, err := s.getNamespace(ctx, sharedNS)
+	sharedNamespace, err := s.getNamespace(ctx, nsForSharedVPCs)
 	if err != nil {
 		// if sharedNamespace does not exist, add this case for security,
 		// It shouldn't happen that a shared Namespace doesn't exist but is used as an annotation on another Namespace.
 		return nil, nil, err
 	}
-	return obj, sharedNamespace, nil
+	return nil, sharedNamespace, nil
 }
 
 func (s *VPCService) GetNetworkconfigNameFromNS(ctx context.Context, ns string) (string, error) {
@@ -1135,7 +1135,7 @@ func (s *VPCService) ListVPCInfo(ns string) []common.VPCResourceInfo {
 	}
 
 	// List VPCs from local store.
-	vpcs := s.GetVPCsByFreshNamespace(context.Background(), ns) // Transparently call the VPCService.GetVPCsByNamespace method
+	vpcs := s.GetVPCsByFreshNamespace(context.Background(), ns)
 	log.Info("Got VPCs by Namespace from store", "Namespace", ns, "VPCCount", len(vpcs))
 	for _, v := range vpcs {
 		vpcResourceInfo, err := common.ParseVPCResourcePath(*v.Path)

@@ -283,7 +283,6 @@ func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
 					Status: v1.NamespaceStatus{},
 				},
 			},
-			expectedNS:              "test-ns-1",
 			expectedSharedNamespace: "test-ns-2",
 		},
 	}
@@ -366,12 +365,6 @@ func TestGetVPCsByNamespace(t *testing.T) {
 		},
 	}
 	service.VpcStore = vpcStore
-	type args struct {
-		ns       string
-		size     int
-		expected []string
-		infra    string
-	}
 	ns1 := "test-ns-1"
 	tag1 := []model.Tag{
 		{
@@ -433,6 +426,31 @@ func TestGetVPCsByNamespace(t *testing.T) {
 		PrivateIpv4Blocks:  []string{"3.3.3.0/24"},
 		ExternalIpv4Blocks: []string{"4.4.4.0/24"},
 	}
+	staleNamespaceID := "fakeStaleNamespaceID"
+	tagStale := []model.Tag{
+		{
+			Scope: &tagScopeCluster,
+			Tag:   &cluster,
+		},
+		{
+			Scope: &tagScopeNamespace,
+			Tag:   &ns2,
+		},
+		{
+			Scope: &tagScopeNamespaceUID,
+			Tag:   &staleNamespaceID,
+		},
+	}
+	vpcStaleName := "fakeStaleVPCName"
+	vpcStaleID := "vpcStaleID"
+	vpcStale := model.Vpc{
+		DisplayName:        &vpcStaleName,
+		Id:                 &vpcStaleID,
+		Tags:               tagStale,
+		IpAddressType:      &IPv4Type,
+		PrivateIpv4Blocks:  []string{"3.3.3.0/24"},
+		ExternalIpv4Blocks: []string{"4.4.4.0/24"},
+	}
 	vpc3 := vpc2
 	vpc3.DisplayName = &vpcName3
 	fakeVPCID := "fakeVPCID"
@@ -446,44 +464,107 @@ func TestGetVPCsByNamespace(t *testing.T) {
 		ExternalIpv4Blocks: []string{"4.4.4.0/24"},
 	}
 	tests := []struct {
-		name    string
-		args    args
-		wantErr assert.ErrorAssertionFunc
+		name                string
+		ns                  string
+		expectVPCNum        int
+		expectFreshVPCNum   int
+		expectVPCNames      []string
+		expectFreshVPCNames []string
+		prepareFunc         func() *gomonkey.Patches
+		expectErrStr        string
 	}{
-		{"Namespace not found", args{ns: "invalid", size: 0, expected: nil, infra: ""}, assert.NoError},
-		{"Get VPC by Namespace", args{ns: "test-ns-1", size: 1, expected: []string{vpcName1}, infra: ""}, assert.NoError},
+		{
+			name: "Namespace not found",
+			ns:   "invalid",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "resolveSharedVPCNamespace", func(_ *VPCService, ns string) (*v1.Namespace, *v1.Namespace, error) {
+					return nil, nil, errors.New("error Namespace not found")
+				})
+				return patches
+			},
+			expectVPCNum:      0,
+			expectVPCNames:    nil,
+			expectFreshVPCNum: 0,
+		},
+		{
+			name:              "Get VPC by Namespace",
+			ns:                "test-ns-1",
+			expectVPCNum:      1,
+			expectVPCNames:    []string{vpcName1},
+			expectFreshVPCNum: 1,
+			prepareFunc: func() *gomonkey.Patches {
+				patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "resolveSharedVPCNamespace", func(_ *VPCService, ns string) (*v1.Namespace, *v1.Namespace, error) {
+					return &v1.Namespace{
+						ObjectMeta: metav1.ObjectMeta{Name: "test-ns-1", UID: types.UID("test-ns-1")},
+					}, nil, nil
+				})
+				return patch
+			},
+			expectFreshVPCNames: []string{vpcName1},
+		},
 		// It can support multiple VPCs for one Namespace at the code level
-		{"One Namespace has two VPC", args{ns: "test-ns-2", size: 2, expected: []string{vpcName2, vpcName3}, infra: ""}, assert.NoError},
-		{"Shared Namespace", args{ns: "test-ns-1", size: 1, expected: []string{infraVPCName}, infra: "kube-system"}, assert.NoError},
+		{
+			name:         "One Namespace has two VPC",
+			ns:           "test-ns-2",
+			expectVPCNum: 3,
+			prepareFunc: func() *gomonkey.Patches {
+				patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "resolveSharedVPCNamespace", func(_ *VPCService, ns string) (*v1.Namespace, *v1.Namespace, error) {
+					return &v1.Namespace{
+						ObjectMeta: metav1.ObjectMeta{Name: "test-ns-2", UID: types.UID("test-ns-2")},
+					}, nil, nil
+				})
+				return patch
+			},
+			expectVPCNames:      []string{vpcName2, vpcName3, vpcStaleName},
+			expectFreshVPCNum:   2,
+			expectFreshVPCNames: []string{vpcName2, vpcName3},
+		},
+		{
+			name:           "Shared Namespace",
+			ns:             "test-ns-1",
+			expectVPCNum:   1,
+			expectVPCNames: []string{infraVPCName},
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "resolveSharedVPCNamespace", func(_ *VPCService, ns string) (*v1.Namespace, *v1.Namespace, error) {
+					return nil, &v1.Namespace{
+						ObjectMeta: metav1.ObjectMeta{Name: "kube-system", UID: types.UID("kube-system")},
+					}, nil
+				})
+				return patches
+			},
+			expectFreshVPCNum:   1,
+			expectFreshVPCNames: []string{infraVPCName},
+		},
 	}
 
 	vpcStore.Apply(&vpc1)
 	vpcStore.Apply(&vpc2)
 	vpcStore.Apply(&vpc3)
+	vpcStore.Apply(&vpcStale)
 	vpcStore.Apply(&infravpc)
 	got := vpcStore.List()
-	assert.Equal(t, 4, len(got))
+	assert.Equal(t, 5, len(got))
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "resolveSharedVPCNamespace", func(_ *VPCService, ns string) (*v1.Namespace, *v1.Namespace, error) {
-				if tt.args.infra != "" {
-					return nil, &v1.Namespace{
-						ObjectMeta: metav1.ObjectMeta{Name: tt.args.infra, UID: types.UID(tt.args.infra)},
-					}, nil
-				}
-				return &v1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{Name: tt.args.ns, UID: types.UID(tt.args.ns)},
-				}, nil, nil
-			})
-			vpc_list_1 := service.GetVPCsByNamespace(ctx, tt.args.ns)
-			assert.Equal(t, tt.args.size, len(vpc_list_1))
-
-			for _, vpc := range vpc_list_1 {
-				assert.Contains(t, tt.args.expected, *vpc.DisplayName)
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc()
+				defer patches.Reset()
 			}
 
-			patch.Reset()
+			gotVPCs := service.GetVPCsByNamespace(ctx, tt.ns)
+			assert.Equal(t, tt.expectVPCNum, len(gotVPCs))
+
+			for _, vpc := range gotVPCs {
+				assert.Contains(t, tt.expectVPCNames, *vpc.DisplayName)
+			}
+
+			freshVPCs := service.GetVPCsByFreshNamespace(ctx, tt.ns)
+			assert.Equal(t, tt.expectFreshVPCNum, len(freshVPCs))
+
+			for _, vpc := range freshVPCs {
+				assert.Contains(t, tt.expectFreshVPCNames, *vpc.DisplayName)
+			}
 		})
 	}
 }
