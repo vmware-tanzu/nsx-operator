@@ -90,6 +90,7 @@ func createFakeSubnetSetReconciler(objs []client.Object) *SubnetSetReconciler {
 		SubnetService:     subnetService,
 		SubnetPortService: subnetPortService,
 		Recorder:          &fakeRecorder{},
+		StatusUpdater:     ctlcommon.NewStatusUpdater(fakeClient, subnetService.NSXConfig, &fakeRecorder{}, MetricResTypeSubnetSet, "Subnet", "SubnetSet"),
 	}
 }
 
@@ -146,7 +147,7 @@ func TestReconcile(t *testing.T) {
 		{
 			// return nil and not requeue when UpdateSubnetSetTags failed
 			name:         "Create a SubnetSet failed to UpdateSubnetSetTags",
-			expectRes:    ResultNormal,
+			expectRes:    ResultRequeue,
 			expectErrStr: "",
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
 				vpcnetworkInfo := &common.VPCNetworkConfigInfo{DefaultSubnetSize: 32}
@@ -464,51 +465,8 @@ func TestReconcile_DeleteSubnetSet_WithFinalizer(t *testing.T) {
 	assert.Equal(t, ctrl.Result{}, res)
 }
 
-// Test UpdateSuccess and UpdateFail
-func TestUpdateSuccess(t *testing.T) {
-	ctx := context.TODO()
-	subnetset := &v1alpha1.SubnetSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-subnetset",
-			Namespace: "default",
-		},
-		Status: v1alpha1.SubnetSetStatus{},
-	}
-
-	r := createFakeSubnetSetReconciler([]client.Object{subnetset})
-
-	updateSuccess(r, ctx, subnetset)
-
-	updatedSubnetset := &v1alpha1.SubnetSet{}
-	err := r.Client.Get(ctx, types.NamespacedName{Name: "test-subnetset", Namespace: "default"}, updatedSubnetset)
-	assert.NoError(t, err)
-	// TODO: assert updatedSubnetset.Status.Conditions[0].Message
-}
-
-// Test deleteSuccess and deleteFail
-func TestDeleteSuccess(t *testing.T) {
-	ctx := context.TODO()
-	subnetset := &v1alpha1.SubnetSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-subnetset",
-			Namespace: "default",
-		},
-		Status: v1alpha1.SubnetSetStatus{},
-	}
-
-	r := createFakeSubnetSetReconciler([]client.Object{subnetset})
-
-	deleteFail(r, ctx, subnetset, "fake delete error")
-
-	updatedSubnetset := &v1alpha1.SubnetSet{}
-	err := r.Client.Get(ctx, types.NamespacedName{Name: "test-subnetset", Namespace: "default"}, updatedSubnetset)
-	assert.NoError(t, err)
-	// TODO: assert updatedSubnetset.Status.Conditions[0].Message
-}
-
 // Test Merge SubnetSet Status Condition
 func TestMergeSubnetSetStatusCondition(t *testing.T) {
-	ctx := context.TODO()
 	subnetset := &v1alpha1.SubnetSet{
 		Status: v1alpha1.SubnetSetStatus{
 			Conditions: []v1alpha1.Condition{
@@ -520,14 +478,12 @@ func TestMergeSubnetSetStatusCondition(t *testing.T) {
 		},
 	}
 
-	r := createFakeSubnetSetReconciler([]client.Object{subnetset})
-
 	newCondition := v1alpha1.Condition{
 		Type:   v1alpha1.Ready,
 		Status: v12.ConditionStatus(metav1.ConditionTrue),
 	}
 
-	updated := r.mergeSubnetSetStatusCondition(ctx, subnetset, &newCondition)
+	updated := mergeSubnetSetStatusCondition(subnetset, &newCondition)
 
 	assert.True(t, updated)
 	assert.Equal(t, v12.ConditionStatus(metav1.ConditionTrue), subnetset.Status.Conditions[0].Status)

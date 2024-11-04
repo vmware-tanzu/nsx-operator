@@ -102,7 +102,7 @@ func TestSecurityPolicyController_updateSecurityPolicyStatusConditions(t *testin
 			Reason:  "Error occurred while processing the Security Policy CRD. Please check the config and try again",
 		},
 	}
-	r.updateSecurityPolicyStatusConditions(ctx, dummySP, newConditions)
+	updateSecurityPolicyStatusConditions(r.Client, ctx, dummySP, newConditions, r.Service)
 
 	if !reflect.DeepEqual(dummySP.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -128,7 +128,7 @@ func TestSecurityPolicyController_updateSecurityPolicyStatusConditions(t *testin
 		},
 	}
 
-	r.updateSecurityPolicyStatusConditions(ctx, dummySP, newConditions)
+	updateSecurityPolicyStatusConditions(r.Client, ctx, dummySP, newConditions, r.Service)
 
 	if !reflect.DeepEqual(dummySP.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -144,7 +144,7 @@ func TestSecurityPolicyController_updateSecurityPolicyStatusConditions(t *testin
 		},
 	}
 
-	r.updateSecurityPolicyStatusConditions(ctx, dummySP, newConditions)
+	updateSecurityPolicyStatusConditions(r.Client, ctx, dummySP, newConditions, r.Service)
 
 	if !reflect.DeepEqual(dummySP.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -160,7 +160,7 @@ func TestSecurityPolicyController_updateSecurityPolicyStatusConditions(t *testin
 		},
 	}
 
-	r.updateSecurityPolicyStatusConditions(ctx, dummySP, newConditions)
+	updateSecurityPolicyStatusConditions(r.Client, ctx, dummySP, newConditions, r.Service)
 
 	if !reflect.DeepEqual(dummySP.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -288,10 +288,11 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		},
 	}
 	r := &SecurityPolicyReconciler{
-		Client:   k8sClient,
-		Scheme:   nil,
-		Service:  service,
-		Recorder: fakeRecorder{},
+		Client:        k8sClient,
+		Scheme:        nil,
+		Service:       service,
+		Recorder:      fakeRecorder{},
+		StatusUpdater: ctrcommon.NewStatusUpdater(k8sClient, service.NSXConfig, fakeRecorder{}, MetricResTypeSecurityPolicy, "SecurityPolicy", "SecurityPolicy"),
 	}
 	ctx := context.Background()
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
@@ -387,7 +388,6 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	})
 	err = errors.New("finalizer remove failed, would retry exponentially")
 	k8sClient.EXPECT().Update(ctx, gomock.Any()).Return(err)
-	k8sClient.EXPECT().Status().Times(1).Return(fakewriter)
 	result, retErr = r.Reconcile(ctx, req)
 	assert.Equal(t, retErr, err)
 	assert.Equal(t, ResultRequeue, result)
@@ -421,7 +421,6 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 		return errors.New("delete security policy failed")
 	})
 	k8sClient.EXPECT().Update(ctx, gomock.Any(), gomock.Any()).Return(nil)
-	k8sClient.EXPECT().Status().Times(1).Return(fakewriter)
 	result, retErr = r.Reconcile(ctx, req)
 	assert.Equal(t, retErr, err)
 	assert.Equal(t, ResultRequeue, result)
@@ -462,9 +461,10 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 	defer mockCtl.Finish()
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	r := &SecurityPolicyReconciler{
-		Client:  k8sClient,
-		Scheme:  nil,
-		Service: service,
+		Client:        k8sClient,
+		Scheme:        nil,
+		Service:       service,
+		StatusUpdater: ctrcommon.NewStatusUpdater(k8sClient, service.NSXConfig, fakeRecorder{}, MetricResTypeSecurityPolicy, "SecurityPolicy", "SecurityPolicy"),
 	}
 	ctx := context.Background()
 	policyList := &v1alpha1.SecurityPolicyList{}
@@ -756,10 +756,11 @@ func TestSecurityPolicyReconcilerForVPC_Reconcile(t *testing.T) {
 		},
 	}
 	r := &SecurityPolicyReconciler{
-		Client:   k8sClient,
-		Scheme:   nil,
-		Service:  service,
-		Recorder: fakeRecorder{},
+		Client:        k8sClient,
+		Scheme:        nil,
+		Service:       service,
+		Recorder:      fakeRecorder{},
+		StatusUpdater: ctrcommon.NewStatusUpdater(k8sClient, service.NSXConfig, fakeRecorder{}, MetricResTypeSecurityPolicy, "SecurityPolicy", "SecurityPolicy"),
 	}
 	ctx := context.Background()
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}

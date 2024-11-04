@@ -26,6 +26,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	ctlcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/staticrouteclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -56,7 +57,7 @@ func TestStaticRouteController_updateStaticRouteStatusConditions(t *testing.T) {
 			Reason:  "Error occurred while processing the Static Route CRD. Please check the config and try again",
 		},
 	}
-	r.updateStaticRouteStatusConditions(ctx, dummySR, newConditions)
+	updateStaticRouteStatusConditions(r.Client, ctx, dummySR, newConditions)
 
 	if !reflect.DeepEqual(dummySR.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -82,7 +83,7 @@ func TestStaticRouteController_updateStaticRouteStatusConditions(t *testing.T) {
 		},
 	}
 
-	r.updateStaticRouteStatusConditions(ctx, dummySR, newConditions)
+	updateStaticRouteStatusConditions(r.Client, ctx, dummySR, newConditions)
 
 	if !reflect.DeepEqual(dummySR.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -98,7 +99,7 @@ func TestStaticRouteController_updateStaticRouteStatusConditions(t *testing.T) {
 		},
 	}
 
-	r.updateStaticRouteStatusConditions(ctx, dummySR, newConditions)
+	updateStaticRouteStatusConditions(r.Client, ctx, dummySR, newConditions)
 
 	if !reflect.DeepEqual(dummySR.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -114,7 +115,7 @@ func TestStaticRouteController_updateStaticRouteStatusConditions(t *testing.T) {
 		},
 	}
 
-	r.updateStaticRouteStatusConditions(ctx, dummySR, newConditions)
+	updateStaticRouteStatusConditions(r.Client, ctx, dummySR, newConditions)
 
 	if !reflect.DeepEqual(dummySR.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -168,10 +169,11 @@ func TestStaticRouteReconciler_Reconcile(t *testing.T) {
 	service.NSXConfig.CoeConfig = &config.CoeConfig{}
 	service.NSXConfig.Cluster = "k8s_cluster"
 	r := &StaticRouteReconciler{
-		Client:   k8sClient,
-		Scheme:   nil,
-		Service:  service,
-		Recorder: fakeRecorder{},
+		Client:        k8sClient,
+		Scheme:        nil,
+		Service:       service,
+		Recorder:      fakeRecorder{},
+		StatusUpdater: ctlcommon.NewStatusUpdater(k8sClient, service.NSXConfig, fakeRecorder{}, MetricResTypeStaticRoute, "StaticRoute", "StaticRoute"),
 	}
 	ctx := context.Background()
 	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
@@ -274,9 +276,10 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 	k8sClient := mock_client.NewMockClient(mockCtl)
 
 	r := &StaticRouteReconciler{
-		Client:  k8sClient,
-		Scheme:  nil,
-		Service: service,
+		Client:        k8sClient,
+		Scheme:        nil,
+		Service:       service,
+		StatusUpdater: ctlcommon.NewStatusUpdater(k8sClient, service.NSXConfig, fakeRecorder{}, MetricResTypeStaticRoute, "StaticRoute", "StaticRoute"),
 	}
 	ctx := context.Background()
 	srList := &v1alpha1.StaticRouteList{}

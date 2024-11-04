@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -25,7 +24,6 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
-	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
@@ -55,9 +53,10 @@ var (
 // GarbageCollector will check and rotate client cert if needed on every GCValidationInterval*GCInterval since NSXT 4.1.3
 type NSXServiceAccountReconciler struct {
 	client.Client
-	Scheme   *apimachineryruntime.Scheme
-	Service  *nsxserviceaccount.NSXServiceAccountService
-	Recorder record.EventRecorder
+	Scheme        *apimachineryruntime.Scheme
+	Service       *nsxserviceaccount.NSXServiceAccountService
+	Recorder      record.EventRecorder
+	StatusUpdater common.StatusUpdater
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -68,7 +67,8 @@ type NSXServiceAccountReconciler struct {
 func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	obj := &nsxvmwarecomv1alpha1.NSXServiceAccount{}
 	log.Info("reconciling CR", "nsxserviceaccount", req.NamespacedName)
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
+
+	r.StatusUpdater.IncreaseSyncTotal()
 
 	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
 		log.Error(err, "unable to fetch NSXServiceAccount CR", "req", req.NamespacedName)
@@ -79,18 +79,18 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// So need to check NSX version before starting NSXServiceAccount reconcile
 	if !r.Service.NSXClient.NSXCheckVersion(nsx.ServiceAccount) {
 		err := errors.New("NSX version check failed, NSXServiceAccount feature is not supported")
-		updateFail(r, ctx, obj, &err)
+		r.StatusUpdater.UpdateFail(ctx, obj, err, "", updateNSXServiceAccountStatuswithError)
 		// if NSX version check fails, it will be put back to reconcile queue and be reconciled after 5 minutes
 		return ResultRequeueAfter5mins, nil
 	}
 
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
-		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResType)
+		r.StatusUpdater.IncreaseUpdateTotal()
 		if !controllerutil.ContainsFinalizer(obj, servicecommon.NSXServiceAccountFinalizerName) {
 			controllerutil.AddFinalizer(obj, servicecommon.NSXServiceAccountFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "add finalizer", "nsxserviceaccount", req.NamespacedName)
-				updateFail(r, ctx, obj, &err)
+				r.StatusUpdater.UpdateFail(ctx, obj, err, "", updateNSXServiceAccountStatuswithError)
 				return ResultRequeue, err
 			}
 			log.V(1).Info("added finalizer on CR", "nsxserviceaccount", req.NamespacedName)
@@ -100,38 +100,35 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			if r.Service.NSXClient.NSXCheckVersion(nsx.ServiceAccountRestore) {
 				if err := r.Service.RestoreRealizedNSXServiceAccount(ctx, obj); err != nil {
 					log.Error(err, "update realized failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
-					metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
+					r.StatusUpdater.IncreaseDeleteFailTotal()
 					return ResultRequeue, err
 				}
 			}
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
+			r.StatusUpdater.IncreaseDeleteSuccessTotal()
 			return ResultNormal, nil
 		}
 		if err := r.Service.CreateOrUpdateNSXServiceAccount(ctx, obj); err != nil {
-			log.Error(err, "operate failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
-			updateFail(r, ctx, obj, &err)
+			r.StatusUpdater.UpdateFail(ctx, obj, err, "", updateNSXServiceAccountStatuswithError)
 			return ResultRequeue, err
 		}
-		updateSuccess(r, ctx, obj)
+		r.StatusUpdater.UpdateSuccess(ctx, obj, updateNSXServiceAccountStatus)
 	} else {
 		if controllerutil.ContainsFinalizer(obj, servicecommon.NSXServiceAccountFinalizerName) {
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
+			r.StatusUpdater.IncreaseDeleteTotal()
 			if err := r.Service.DeleteNSXServiceAccount(ctx, types.NamespacedName{
 				Namespace: obj.Namespace,
 				Name:      obj.Name,
 			}, obj.UID); err != nil {
-				log.Error(err, "deleting failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
-				deleteFail(r, ctx, obj, &err)
+				r.StatusUpdater.DeleteFail(req.NamespacedName, obj, err)
 				return ResultRequeue, err
 			}
 			controllerutil.RemoveFinalizer(obj, servicecommon.NSXServiceAccountFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
 				log.Error(err, "removing finalizer failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
-				deleteFail(r, ctx, obj, &err)
+				r.StatusUpdater.DeleteFail(req.NamespacedName, obj, err)
 				return ResultRequeue, err
 			}
-			log.V(1).Info("removed finalizer", "nsxserviceaccount", req.NamespacedName)
-			deleteSuccess(r, ctx, obj)
+			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 		} else {
 			// only print a message because it's not a normal case
 			log.Info("finalizers cannot be recognized", "nsxserviceaccount", req.NamespacedName)
@@ -229,54 +226,42 @@ func (r *NSXServiceAccountReconciler) garbageCollector(nsxServiceAccountUIDSet s
 			log.Info("gc cannot get namespace/name, skip", "namespace", namespacedName.Namespace, "name", namespacedName.Name, "uid", nsxServiceAccountUID)
 			continue
 		}
-		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
+		r.StatusUpdater.IncreaseDeleteTotal()
 		err := r.Service.DeleteNSXServiceAccount(context.TODO(), namespacedName, types.UID(nsxServiceAccountUID))
 		if err != nil {
 			gcErrorCount++
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
+			r.StatusUpdater.IncreaseDeleteFailTotal()
 		} else {
 			gcSuccessCount++
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
+			r.StatusUpdater.IncreaseDeleteSuccessTotal()
 		}
 	}
 	return
 }
 
-func (r *NSXServiceAccountReconciler) updateNSXServiceAccountStatus(ctx context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount, e *error) {
-	obj := o
-	if e != nil && *e != nil {
-		obj = o.DeepCopy()
-		obj.Status.Phase = nsxvmwarecomv1alpha1.NSXServiceAccountPhaseFailed
-		obj.Status.Reason = fmt.Sprintf("Error: %v", *e)
-		obj.Status.Conditions = nsxserviceaccount.GenerateNSXServiceAccountConditions(obj.Status.Conditions, obj.Generation, metav1.ConditionFalse, nsxvmwarecomv1alpha1.ConditionReasonRealizationError, fmt.Sprintf("Error: %v", *e))
-	}
-	err := r.Client.Status().Update(ctx, obj)
+func updateNSXServiceAccountStatus(client client.Client, ctx context.Context, obj client.Object, _ metav1.Time, _ ...interface{}) {
+	nsa := obj.(*nsxvmwarecomv1alpha1.NSXServiceAccount)
+	err := client.Status().Update(ctx, obj)
 	if err != nil {
-		log.Error(err, "update NSXServiceAccount failed", "Namespace", obj.Namespace, "Name", obj.Name, "Status", obj.Status)
+		log.Error(err, "Update NSXServiceAccount failed", "Namespace", nsa.Namespace, "Name", nsa.Name, "Status", nsa.Status)
 	} else {
-		log.V(1).Info("updated NSXServiceAccount", "Namespace", obj.Namespace, "Name", obj.Name, "Status", obj.Status)
+		log.V(1).Info("Updated NSXServiceAccount", "Namespace", nsa.Namespace, "Name", nsa.Name, "Status", nsa.Status)
 	}
 }
 
-func updateFail(r *NSXServiceAccountReconciler, c context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount, e *error) {
-	r.updateNSXServiceAccountStatus(c, o, e)
-	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
-}
-
-func deleteFail(r *NSXServiceAccountReconciler, c context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount, e *error) {
-	r.updateNSXServiceAccountStatus(c, o, e)
-	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResType)
-}
-
-func updateSuccess(r *NSXServiceAccountReconciler, c context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount) {
-	r.updateNSXServiceAccountStatus(c, o, nil)
-	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "ServiceAccount CR has been successfully updated")
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
-}
-
-func deleteSuccess(r *NSXServiceAccountReconciler, _ context.Context, o *nsxvmwarecomv1alpha1.NSXServiceAccount) {
-	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "ServiceAccount CR has been successfully deleted")
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
+func updateNSXServiceAccountStatuswithError(client client.Client, ctx context.Context, o client.Object, _ metav1.Time, e error, _ ...interface{}) {
+	obj := o.(*nsxvmwarecomv1alpha1.NSXServiceAccount)
+	nsa := obj
+	if e != nil {
+		nsa = obj.DeepCopy()
+		nsa.Status.Phase = nsxvmwarecomv1alpha1.NSXServiceAccountPhaseFailed
+		nsa.Status.Reason = fmt.Sprintf("Error: %v", e)
+		nsa.Status.Conditions = nsxserviceaccount.GenerateNSXServiceAccountConditions(nsa.Status.Conditions, nsa.Generation, metav1.ConditionFalse, nsxvmwarecomv1alpha1.ConditionReasonRealizationError, fmt.Sprintf("Error: %v", e))
+	}
+	err := client.Status().Update(ctx, nsa)
+	if err != nil {
+		log.Error(err, "Update NSXServiceAccount failed", "Namespace", nsa.Namespace, "Name", nsa.Name, "Status", nsa.Status)
+	} else {
+		log.V(1).Info("Updated NSXServiceAccount", "Namespace", nsa.Namespace, "Name", nsa.Name, "Status", nsa.Status)
+	}
 }
