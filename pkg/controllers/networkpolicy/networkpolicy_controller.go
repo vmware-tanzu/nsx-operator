@@ -1,4 +1,4 @@
-/* Copyright © 2024 VMware, Inc. All Rights Reserved.
+/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package networkpolicy
@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -76,7 +78,7 @@ func setNetworkPolicyErrorAnnotation(ctx context.Context, networkPolicy *network
 	if updateErr != nil {
 		log.Error(updateErr, "Failed to update NetworkPolicy with error annotation")
 	}
-	log.Info("update NetworkPolicy with error annotation", "error", info)
+	log.Info("Updated NetworkPolicy with error annotation", "error", info)
 }
 
 func cleanNetworkPolicyErrorAnnotation(ctx context.Context, networkPolicy *networkingv1.NetworkPolicy, client client.Client) {
@@ -88,19 +90,23 @@ func cleanNetworkPolicyErrorAnnotation(ctx context.Context, networkPolicy *netwo
 	}
 	updateErr := client.Update(ctx, networkPolicy)
 	if updateErr != nil {
-		log.Error(updateErr, "Failed to clean NetworkPolicy annotation")
+		log.Error(updateErr, "failed to clean NetworkPolicy annotation")
 	}
-	log.Info("clean NetworkPolicy annotation")
+	log.Info("Clean NetworkPolicy annotation")
 }
 
 func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	networkPolicy := &networkingv1.NetworkPolicy{}
-	log.Info("reconciling networkpolicy", "networkpolicy", req.NamespacedName)
+	log.Info("Reconciling NetworkPolicy", "networkpolicy", req.NamespacedName)
+	startTime := time.Now()
+	defer func() {
+		log.Info("Finished reconciling NetworkPolicy", "networkpolicy", req.NamespacedName, "duration(ms)", time.Since(startTime).Milliseconds())
+	}()
+
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
 
 	if err := r.Client.Get(ctx, req.NamespacedName, networkPolicy); err != nil {
-		// IgnoreNotFound returns nil on NotFound errors.
-		if client.IgnoreNotFound(err) == nil {
+		if apierrors.IsNotFound(err) {
 			if err := r.deleteNetworkPolicyByName(req.Namespace, req.Name); err != nil {
 				log.Error(err, "failed to delete NetworkPolicy", "networkpolicy", req.NamespacedName)
 				return ResultRequeue, err
@@ -114,6 +120,7 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	if networkPolicy.ObjectMeta.DeletionTimestamp.IsZero() {
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResType)
+		log.Info("Reconciling CR to create or update networkPolicy", "networkPolicy", req.NamespacedName)
 
 		if err := r.Service.CreateOrUpdateSecurityPolicy(networkPolicy); err != nil {
 			if errors.As(err, &nsxutil.RestrictionError{}) {
@@ -134,6 +141,7 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		updateSuccess(r, ctx, networkPolicy)
 		cleanNetworkPolicyErrorAnnotation(ctx, networkPolicy, r.Client)
 	} else {
+		log.Info("Reconciling CR to delete networkPolicy", "networkPolicy", req.NamespacedName)
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
 
 		if err := r.Service.DeleteSecurityPolicy(networkPolicy, false, false, servicecommon.ResourceTypeNetworkPolicy); err != nil {
@@ -169,7 +177,7 @@ func (r *NetworkPolicyReconciler) Start(mgr ctrl.Manager) error {
 // CollectGarbage  collect networkpolicy which has been removed from K8s.
 // it implements the interface GarbageCollector method.
 func (r *NetworkPolicyReconciler) CollectGarbage(ctx context.Context) {
-	log.Info("networkpolicy garbage collector started")
+	log.Info("NetworkPolicy garbage collector started")
 	nsxPolicySet := r.Service.ListNetworkPolicyID()
 	if len(nsxPolicySet) == 0 {
 		return
@@ -194,25 +202,25 @@ func (r *NetworkPolicyReconciler) CollectGarbage(ctx context.Context) {
 }
 
 func (r *NetworkPolicyReconciler) deleteNetworkPolicyByName(ns, name string) error {
-	nsxSecurityPolicies := r.Service.ListNetworkPolicyByName(ns, name)
-
 	CRPolicySet, err := r.listNetworkPolciyCRIDs()
 	if err != nil {
 		return err
 	}
+
+	nsxSecurityPolicies := r.Service.ListNetworkPolicyByName(ns, name)
 	for _, item := range nsxSecurityPolicies {
 		uid := nsxutil.FindTag(item.Tags, servicecommon.TagScopeNetworkPolicyUID)
 		if CRPolicySet.Has(uid) {
-			log.Info("skipping deletion, NetworkPolicy CR still exists in K8s", "networkPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
+			log.Info("Skipping deletion, NetworkPolicy CR still exists in K8s", "networkPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
 			continue
 		}
 
-		log.Info("deleting NetworkPolicy", "networkPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
+		log.Info("Deleting NetworkPolicy", "networkPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
 		if err := r.Service.DeleteSecurityPolicy(types.UID(uid), false, false, servicecommon.ResourceTypeNetworkPolicy); err != nil {
 			log.Error(err, "failed to delete NetworkPolicy", "networkPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
 			return err
 		}
-		log.Info("successfully deleted NetworkPolicy", "networkPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
+		log.Info("Successfully deleted NetworkPolicy", "networkPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
 	}
 	return nil
 }

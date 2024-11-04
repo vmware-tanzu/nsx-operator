@@ -1,3 +1,6 @@
+/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
+   SPDX-License-Identifier: Apache-2.0 */
+
 package securitypolicy
 
 import (
@@ -8,13 +11,14 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
+
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -195,7 +199,7 @@ func (s *SecurityPolicyService) setUpStore(indexScope string) {
 
 func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj interface{}) error {
 	if !nsxutil.IsLicensed(nsxutil.FeatureDFW) {
-		log.Info("no DFW license, skip creating SecurityPolicy.")
+		log.Info("No DFW license, skip creating SecurityPolicy.")
 		return nsxutil.RestrictionError{Desc: "no DFW license"}
 	}
 	var err error
@@ -355,7 +359,7 @@ func (service *SecurityPolicyService) convertNetworkPolicyToInternalSecurityPoli
 	}
 
 	securityPolicies = append(securityPolicies, spAllow, spIsolation)
-	log.V(1).Info("converted network policy to security policies", "securityPolicies", securityPolicies)
+	log.V(1).Info("Converted network policy to security policies", "securityPolicies", securityPolicies)
 	return securityPolicies, nil
 }
 
@@ -457,7 +461,7 @@ func (service *SecurityPolicyService) getFinalSecurityPolicyResource(obj *v1alph
 	}
 
 	if len(nsxSecurityPolicy.Scope) == 0 {
-		log.Info("securityPolicy has empty policy-level appliedTo")
+		log.Info("SecurityPolicy has empty policy-level appliedTo field")
 	}
 	indexScope := common.TagValueScopeSecurityPolicyUID
 	if createdFor == common.ResourceTypeNetworkPolicy {
@@ -503,7 +507,7 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 	finalRules := finalSecurityPolicy.Rules
 
 	if !isChanged && len(finalSecurityPolicy.Rules) == 0 && len(finalGroups) == 0 {
-		log.Info("securityPolicy, rules, groups are not changed, skip updating them", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
+		log.Info("SecurityPolicy, rules, groups are not changed, skip updating them", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
 		return nil
 	}
 
@@ -546,7 +550,7 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 		log.Error(err, "failed to apply store", "nsxGroups", finalGroups)
 		return err
 	}
-	log.Info("successfully created or updated NSX SecurityPolicy", "nsxSecurityPolicy", finalGetNSXSecurityPolicy)
+	log.Info("Successfully created or updated NSX SecurityPolicy", "nsxSecurityPolicy", finalGetNSXSecurityPolicy)
 	return nil
 }
 
@@ -573,7 +577,7 @@ func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alp
 	finalRules := finalSecurityPolicy.Rules
 
 	if !isChanged && len(finalSecurityPolicy.Rules) == 0 && len(finalGroups) == 0 && len(finalShares) == 0 {
-		log.Info("securityPolicy, rules, groups and shares are not changed, skip updating them", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
+		log.Info("SecurityPolicy, rules, groups and shares are not changed, skip updating them", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
 		return nil
 	}
 	if !isDefaultProject {
@@ -594,7 +598,7 @@ func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alp
 		return err
 	}
 
-	log.Info("successfully created or updated NSX SecurityPolicy in VPC", "nsxSecurityPolicy", finalGetNSXSecurityPolicy)
+	log.Info("Successfully created or updated NSX SecurityPolicy in VPC", "nsxSecurityPolicy", finalGetNSXSecurityPolicy)
 	return nil
 }
 
@@ -689,7 +693,7 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(sp types.UID) error {
 		return err
 	}
 
-	log.Info("successfully deleted NSX SecurityPolicy", "nsxSecurityPolicy", finalSecurityPolicyCopy)
+	log.Info("Successfully deleted NSX SecurityPolicy", "nsxSecurityPolicy", finalSecurityPolicyCopy)
 	return nil
 }
 
@@ -790,7 +794,7 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(sp types.UID, isGC
 		return err
 	}
 
-	log.Info("successfully deleted NSX SecurityPolicy in VPC", "nsxSecurityPolicy", finalSecurityPolicyCopy)
+	log.Info("Successfully deleted NSX SecurityPolicy in VPC", "nsxSecurityPolicy", finalSecurityPolicyCopy)
 	return nil
 }
 
@@ -825,7 +829,7 @@ func (service *SecurityPolicyService) createOrUpdateGroups(obj *v1alpha1.Securit
 	if err != nil {
 		return err
 	}
-	log.Info("successfully create or update groups", "nsxGroups", finalGroups)
+	log.Info("Successfully create or update groups", "nsxGroups", finalGroups)
 	return nil
 }
 
@@ -867,7 +871,7 @@ func (service *SecurityPolicyService) getUpdateShares(existingShares []*model.Sh
 
 func (service *SecurityPolicyService) markDeleteGroups(existingGroups []*model.Group, deleteGroups *[]model.Group, sp types.UID) {
 	if len(existingGroups) == 0 {
-		log.Info("did not get groups with SecurityPolicy index", "securityPolicyUID", string(sp))
+		log.Info("Did not get groups with SecurityPolicy index", "securityPolicyUID", string(sp))
 		return
 	}
 	for _, group := range existingGroups {
@@ -880,7 +884,7 @@ func (service *SecurityPolicyService) markDeleteGroups(existingGroups []*model.G
 
 func (service *SecurityPolicyService) markDeleteRules(existingRules []*model.Rule, deleteRules *[]model.Rule, sp types.UID) {
 	if len(existingRules) == 0 {
-		log.Info("did not get rules with SecurityPolicy index", "securityPolicyUID", string(sp))
+		log.Info("Did not get rules with SecurityPolicy index", "securityPolicyUID", string(sp))
 		return
 	}
 	for _, rule := range existingRules {
@@ -893,7 +897,7 @@ func (service *SecurityPolicyService) markDeleteRules(existingRules []*model.Rul
 
 func (service *SecurityPolicyService) markDeleteShares(existingShares []*model.Share, deleteShares *[]model.Share, sp types.UID) {
 	if len(existingShares) == 0 {
-		log.Info("did not get shares with SecurityPolicy index", "securityPolicyUID", string(sp))
+		log.Info("Did not get shares with SecurityPolicy index", "securityPolicyUID", string(sp))
 		return
 	}
 	for _, share := range existingShares {
@@ -1132,7 +1136,7 @@ func (service *SecurityPolicyService) ListNetworkPolicyByName(ns, name string) [
 func (service *SecurityPolicyService) Cleanup(ctx context.Context) error {
 	// Delete all the security policies in store
 	uids := service.ListSecurityPolicyID()
-	log.Info("cleaning up security policies created for CR", "count", len(uids))
+	log.Info("Cleaning up security policies created for SecurityPolicy CR", "count", len(uids))
 	for uid := range uids {
 		select {
 		case <-ctx.Done():
@@ -1147,7 +1151,7 @@ func (service *SecurityPolicyService) Cleanup(ctx context.Context) error {
 
 	// Delete all the security policies created for network policy in store
 	uids = service.ListNetworkPolicyID()
-	log.Info("cleaning up security policies created for network policy", "count", len(uids))
+	log.Info("Cleaning up security policies created for network policy", "count", len(uids))
 	for uid := range uids {
 		select {
 		case <-ctx.Done():

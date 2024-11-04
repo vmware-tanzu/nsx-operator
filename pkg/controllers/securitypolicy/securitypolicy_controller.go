@@ -1,4 +1,4 @@
-/* Copyright © 2021 VMware, Inc. All Rights Reserved.
+/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package securitypolicy
@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -55,18 +57,18 @@ type SecurityPolicyReconciler struct {
 	Recorder record.EventRecorder
 }
 
-func updateFail(r *SecurityPolicyReconciler, c context.Context, o *v1alpha1.SecurityPolicy, e *error) {
-	r.setSecurityPolicyReadyStatusFalse(c, o, metav1.Now(), e)
-	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
-}
-
 func k8sClient(mgr ctrl.Manager) client.Client {
 	var c client.Client
 	if mgr != nil {
 		c = mgr.GetClient()
 	}
 	return c
+}
+
+func updateFail(r *SecurityPolicyReconciler, c context.Context, o *v1alpha1.SecurityPolicy, e *error) {
+	r.setSecurityPolicyReadyStatusFalse(c, o, metav1.Now(), e)
+	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
 }
 
 func deleteFail(r *SecurityPolicyReconciler, c context.Context, o *v1alpha1.SecurityPolicy, e *error) {
@@ -86,7 +88,7 @@ func deleteSuccess(r *SecurityPolicyReconciler, _ context.Context, o *v1alpha1.S
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResType)
 }
 
-func setSecurityPolicyErrorAnnotation(ctx context.Context, securityPolicy *v1alpha1.SecurityPolicy, isVPCEanbled bool, client client.Client, info string) {
+func setSecurityPolicyErrorAnnotation(ctx context.Context, securityPolicy *v1alpha1.SecurityPolicy, isVPCEnabled bool, client client.Client, info string) {
 	if securityPolicy.Annotations == nil {
 		securityPolicy.Annotations = make(map[string]string)
 	}
@@ -96,19 +98,19 @@ func setSecurityPolicyErrorAnnotation(ctx context.Context, securityPolicy *v1alp
 	securityPolicy.Annotations[common.NSXOperatorError] = info
 
 	var updateErr error
-	if isVPCEanbled {
+	if isVPCEnabled {
 		finalObj := securitypolicy.T1ToVPC(securityPolicy)
 		updateErr = client.Update(ctx, finalObj)
 	} else {
 		updateErr = client.Update(ctx, securityPolicy)
 	}
 	if updateErr != nil {
-		log.Error(updateErr, "Failed to update SecurityPolicy with error annotation")
+		log.Error(updateErr, "failed to update SecurityPolicy with error annotation")
 	}
-	log.Info("update SecurityPolicy with error annotation", "error", info)
+	log.Info("Updated SecurityPolicy with error annotation", "error", info)
 }
 
-func cleanSecurityPolicyErrorAnnotation(ctx context.Context, securityPolicy *v1alpha1.SecurityPolicy, isVPCEanbled bool, client client.Client) {
+func cleanSecurityPolicyErrorAnnotation(ctx context.Context, securityPolicy *v1alpha1.SecurityPolicy, isVPCEnabled bool, client client.Client) {
 	if securityPolicy.Annotations == nil {
 		return
 	}
@@ -117,16 +119,16 @@ func cleanSecurityPolicyErrorAnnotation(ctx context.Context, securityPolicy *v1a
 	}
 
 	var updateErr error
-	if isVPCEanbled {
+	if isVPCEnabled {
 		finalObj := securitypolicy.T1ToVPC(securityPolicy)
 		updateErr = client.Update(ctx, finalObj)
 	} else {
 		updateErr = client.Update(ctx, securityPolicy)
 	}
 	if updateErr != nil {
-		log.Error(updateErr, "Failed to clean SecurityPolicy annotation")
+		log.Error(updateErr, "failed to clean SecurityPolicy annotation")
 	}
-	log.Info("clean SecurityPolicy annotation")
+	log.Info("Clean SecurityPolicy annotation")
 }
 
 func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -137,12 +139,16 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		obj = &v1alpha1.SecurityPolicy{}
 	}
 
-	log.Info("reconciling SecurityPolicy CR", "securitypolicy", req.NamespacedName)
+	log.Info("Reconciling SecurityPolicy CR", "securitypolicy", req.NamespacedName)
+	startTime := time.Now()
+	defer func() {
+		log.Info("Finished reconciling SecurityPolicy CR", "securitypolicy", req.NamespacedName, "duration(ms)", time.Since(startTime).Milliseconds())
+	}()
+
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
 
 	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
-		// IgnoreNotFound returns nil on NotFound errors.
-		if client.IgnoreNotFound(err) == nil {
+		if apierrors.IsNotFound(err) {
 			if err := r.deleteSecurityPolicyByName(req.Namespace, req.Name); err != nil {
 				log.Error(err, "failed to delete SecurityPolicy", "securitypolicy", req.NamespacedName)
 				return ResultRequeue, err
@@ -191,7 +197,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			return ResultNormal, nil
 		}
 
-		log.Info("reconciling CR to create or update securitypolicy", "securitypolicy", req.NamespacedName)
+		log.Info("Reconciling CR to create or update securitypolicy", "securitypolicy", req.NamespacedName)
 		if err := r.Service.CreateOrUpdateSecurityPolicy(realObj); err != nil {
 			if errors.As(err, &nsxutil.RestrictionError{}) {
 				log.Error(err, err.Error(), "securitypolicy", req.NamespacedName)
@@ -211,7 +217,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		updateSuccess(r, ctx, realObj)
 		cleanSecurityPolicyErrorAnnotation(ctx, realObj, securitypolicy.IsVPCEnabled(r.Service), r.Client)
 	} else {
-		log.Info("reconciling CR to delete securitypolicy", "securitypolicy", req.NamespacedName)
+		log.Info("Reconciling CR to delete securitypolicy", "securitypolicy", req.NamespacedName)
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
 
 		// For T1 upgrade, the upgraded CRs still has finalizer
@@ -222,7 +228,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				deleteFail(r, ctx, realObj, &err)
 				return ResultRequeue, err
 			}
-			log.V(1).Info("removed finalizer", "securitypolicy", req.NamespacedName)
+			log.V(1).Info("Removed finalizer", "securitypolicy", req.NamespacedName)
 		}
 		if err := r.Service.DeleteSecurityPolicy(realObj.UID, false, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
 			log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
@@ -284,7 +290,7 @@ func (r *SecurityPolicyReconciler) updateSecurityPolicyStatusConditions(ctx cont
 				log.Error(err, "")
 			}
 		}
-		log.V(1).Info("updated SecurityPolicy", "Name", secPolicy.Name, "Namespace", secPolicy.Namespace,
+		log.V(1).Info("Updated SecurityPolicy", "Name", secPolicy.Name, "Namespace", secPolicy.Namespace,
 			"New Conditions", newConditions)
 	}
 }
@@ -293,7 +299,7 @@ func (r *SecurityPolicyReconciler) mergeSecurityPolicyStatusCondition(ctx contex
 	matchedCondition := getExistingConditionOfType(newCondition.Type, secPolicy.Status.Conditions)
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {
-		log.V(2).Info("conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+		log.V(2).Info("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return false
 	}
 
@@ -353,7 +359,7 @@ func (r *SecurityPolicyReconciler) Start(mgr ctrl.Manager) error {
 // CollectGarbage collect securitypolicy which has been removed from k8s,
 // it implements the interface GarbageCollector method.
 func (r *SecurityPolicyReconciler) CollectGarbage(ctx context.Context) {
-	log.Info("security policy garbage collector started")
+	log.Info("SecurityPolicy garbage collector started")
 	nsxPolicySet := r.Service.ListSecurityPolicyID()
 	if len(nsxPolicySet) == 0 {
 		return
@@ -378,25 +384,25 @@ func (r *SecurityPolicyReconciler) CollectGarbage(ctx context.Context) {
 }
 
 func (r *SecurityPolicyReconciler) deleteSecurityPolicyByName(ns, name string) error {
-	nsxSecurityPolicies := r.Service.ListSecurityPolicyByName(ns, name)
-
 	CRPolicySet, err := r.listSecurityPolciyCRIDs()
 	if err != nil {
 		return err
 	}
+
+	nsxSecurityPolicies := r.Service.ListSecurityPolicyByName(ns, name)
 	for _, item := range nsxSecurityPolicies {
 		uid := nsxutil.FindTag(item.Tags, servicecommon.TagValueScopeSecurityPolicyUID)
 		if CRPolicySet.Has(uid) {
-			log.Info("skipping deletion, SecurityPolicy CR still exists in K8s", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
+			log.Info("Skipping deletion, SecurityPolicy CR still exists in K8s", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
 			continue
 		}
 
-		log.Info("deleting SecurityPolicy", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
+		log.Info("Deleting SecurityPolicy", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
 		if err := r.Service.DeleteSecurityPolicy(types.UID(uid), false, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
 			log.Error(err, "failed to delete SecurityPolicy", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
 			return err
 		}
-		log.Info("successfully deleted SecurityPolicy", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
+		log.Info("Successfully deleted SecurityPolicy", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
 	}
 	return nil
 }
@@ -434,7 +440,7 @@ func (r *SecurityPolicyReconciler) listSecurityPolciyCRIDs() (sets.Set[string], 
 // It is triggered by associated controller like pod, namespace, etc.
 func reconcileSecurityPolicy(r *SecurityPolicyReconciler, pkgclient client.Client, pods []v1.Pod, q workqueue.RateLimitingInterface) error {
 	podPortNames := getAllPodPortNames(pods)
-	log.V(1).Info("pod named port", "podPortNames", podPortNames)
+	log.V(1).Info("POD named port", "podPortNames", podPortNames)
 	var spList client.ObjectList
 	if securitypolicy.IsVPCEnabled(r.Service) {
 		spList = &crdv1alpha1.SecurityPolicyList{}
@@ -480,7 +486,7 @@ func shouldReconcile(securityPolicy *v1alpha1.SecurityPolicy, q workqueue.RateLi
 		}
 	}
 	if shouldReconcile {
-		log.Info("reconcile security policy because of associated resource change",
+		log.Info("Reconcile security policy because of associated resource change",
 			"namespace", securityPolicy.Namespace, "name", securityPolicy.Name)
 		q.Add(reconcile.Request{
 			NamespacedName: types.NamespacedName{
