@@ -1,3 +1,6 @@
+/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
+   SPDX-License-Identifier: Apache-2.0 */
+
 package securitypolicy
 
 import (
@@ -19,8 +22,8 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
-func Test_indexBySecurityPolicyCRUID(t *testing.T) {
-	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_cr_uid"
+func Test_indexBySecurityPolicyUIDForT1(t *testing.T) {
+	mId, mTag, mScope := "11111", "11111", common.TagScopeSecurityPolicyCRUID
 	m := &model.Group{
 		Id:   &mId,
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
@@ -33,6 +36,46 @@ func Test_indexBySecurityPolicyCRUID(t *testing.T) {
 		Id:   &mId,
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
 	}
+	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyCRName
+	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyCRUID
+
+	t.Run("1", func(t *testing.T) {
+		got, _ := indexBySecurityPolicyUID(s)
+		if !reflect.DeepEqual(got, []string{"11111"}) {
+			t.Errorf("indexBySecurityPolicyUID() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
+		}
+	})
+	t.Run("2", func(t *testing.T) {
+		got, _ := indexBySecurityPolicyUID(m)
+		if !reflect.DeepEqual(got, []string{"11111"}) {
+			t.Errorf("indexBySecurityPolicyUID() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
+		}
+	})
+	t.Run("3", func(t *testing.T) {
+		got, _ := indexBySecurityPolicyUID(r)
+		if !reflect.DeepEqual(got, []string{"11111"}) {
+			t.Errorf("indexBySecurityPolicyUID() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
+		}
+	})
+}
+
+func Test_indexBySecurityPolicyUIDForVPC(t *testing.T) {
+	mId, mTag, mScope := "11111", "11111", common.TagScopeSecurityPolicyUID
+	m := &model.Group{
+		Id:   &mId,
+		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+	}
+	s := &model.SecurityPolicy{
+		Id:   &mId,
+		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+	}
+	r := &model.Rule{
+		Id:   &mId,
+		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+	}
+	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
+	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
+
 	t.Run("1", func(t *testing.T) {
 		got, _ := indexBySecurityPolicyUID(s)
 		if !reflect.DeepEqual(got, []string{"11111"}) {
@@ -257,7 +300,7 @@ func Test_InitializeSecurityPolicyStore(t *testing.T) {
 	assert.Equal(t, []string{"11111"}, securityPolicyStore.ListKeys())
 }
 
-func TestSecurityPolicyStore_Apply(t *testing.T) {
+func Test_SecurityPolicyStore_Apply(t *testing.T) {
 	securityPolicyCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagValueScopeSecurityPolicyUID: indexBySecurityPolicyUID})
 	resourceStore := common.ResourceStore{
 		Indexer:     securityPolicyCacheIndexer,
@@ -281,7 +324,7 @@ func TestSecurityPolicyStore_Apply(t *testing.T) {
 	}
 }
 
-func TestRuleStore_Apply(t *testing.T) {
+func Test_RuleStore_Apply(t *testing.T) {
 	ruleCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagValueScopeSecurityPolicyUID: indexBySecurityPolicyUID})
 	resourceStore := common.ResourceStore{
 		Indexer:     ruleCacheIndexer,
@@ -337,7 +380,7 @@ func TestRuleStore_Apply(t *testing.T) {
 	}
 }
 
-func TestGroupStore_Apply(t *testing.T) {
+func Test_GroupStore_Apply(t *testing.T) {
 	groupCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagValueScopeSecurityPolicyUID: indexBySecurityPolicyUID})
 	resourceStore := common.ResourceStore{
 		Indexer:     groupCacheIndexer,

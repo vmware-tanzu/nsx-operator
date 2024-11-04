@@ -1,3 +1,6 @@
+/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
+   SPDX-License-Identifier: Apache-2.0 */
+
 package securitypolicy
 
 import (
@@ -20,6 +23,7 @@ type (
 	fakeOrgClient         struct{}
 	fakeSecurityClient    struct{}
 	fakeVPCSecurityClient struct{}
+	fakeVPCGroupClient    struct{}
 )
 
 func (_ *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
@@ -107,6 +111,26 @@ func (f fakeVPCSecurityClient) Update(orgIDParam string, projectIDParam string, 
 	return model.SecurityPolicy{}, nil
 }
 
+func (f fakeVPCGroupClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, groupIdParam string) error {
+	return nil
+}
+
+func (f fakeVPCGroupClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, groupIdParam string) (model.Group, error) {
+	return model.Group{}, nil
+}
+
+func (f fakeVPCGroupClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, memberTypesParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.GroupListResult, error) {
+	return model.GroupListResult{}, nil
+}
+
+func (f fakeVPCGroupClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, groupIdParam string, groupParam model.Group) error {
+	return nil
+}
+
+func (f fakeVPCGroupClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, groupIdParam string, groupParam model.Group) (model.Group, error) {
+	return model.Group{}, nil
+}
+
 func fakeSecurityPolicyService() *SecurityPolicyService {
 	c := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(c)
@@ -119,6 +143,7 @@ func fakeSecurityPolicyService() *SecurityPolicyService {
 				SecurityClient:    &fakeSecurityClient{},
 				OrgRootClient:     &fakeOrgClient{},
 				VPCSecurityClient: &fakeVPCSecurityClient{},
+				VpcGroupClient:    &fakeVPCGroupClient{},
 				RestConnector:     rc,
 				NsxConfig: &config.NSXOperatorConfig{
 					CoeConfig: &config.CoeConfig{

@@ -1,3 +1,6 @@
+/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
+   SPDX-License-Identifier: Apache-2.0 */
+
 package securitypolicy
 
 import (
@@ -21,7 +24,7 @@ import (
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
-func TestBuildSecurityPolicy(t *testing.T) {
+func Test_BuildSecurityPolicyForT1(t *testing.T) {
 	destinationPorts := data.NewListValue()
 	destinationPorts.Add(data.NewStringValue("53"))
 	serviceEntry := data.NewStructValue(
@@ -161,7 +164,7 @@ func TestBuildSecurityPolicy(t *testing.T) {
 	}
 }
 
-func TestBuildSecurityPolicyForVPC(t *testing.T) {
+func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 	VPCInfo := make([]common.VPCResourceInfo, 1)
 	VPCInfo[0].OrgID = "default"
 	VPCInfo[0].ProjectID = "projectQuality"
@@ -199,7 +202,6 @@ func TestBuildSecurityPolicyForVPC(t *testing.T) {
 		func(s *SecurityPolicyService, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
-
 	defer patches.Reset()
 
 	podSelectorRule0Name00 := "rule-with-pod-ns-selector_ingress_allow"
@@ -320,7 +322,7 @@ func TestBuildSecurityPolicyForVPC(t *testing.T) {
 	}
 }
 
-func TestBuildPolicyGroup(t *testing.T) {
+func Test_BuildPolicyGroup(t *testing.T) {
 	tests := []struct {
 		name                    string
 		inputPolicy             *v1alpha1.SecurityPolicy
@@ -352,11 +354,11 @@ func TestBuildPolicyGroup(t *testing.T) {
 	}
 }
 
-func TestBuildTargetTags(t *testing.T) {
+func Test_BuildTargetTags(t *testing.T) {
 	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyCRName
 	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyCRUID
 
-	ruleTagID0 := service.buildRuleID(&spWithPodSelector, 0, common.ResourceTypeSecurityPolicy)
+	ruleTagID0 := service.buildRuleID(&spWithPodSelector, 0)
 	tests := []struct {
 		name         string
 		inputPolicy  *v1alpha1.SecurityPolicy
@@ -438,8 +440,8 @@ func TestBuildTargetTags(t *testing.T) {
 	}
 }
 
-func TestBuildPeerTags(t *testing.T) {
-	ruleTagID0 := service.buildRuleID(&spWithPodSelector, 0, common.ResourceTypeSecurityPolicy)
+func Test_BuildPeerTags(t *testing.T) {
+	ruleTagID0 := service.buildRuleID(&spWithPodSelector, 0)
 	tests := []struct {
 		name         string
 		inputPolicy  *v1alpha1.SecurityPolicy
@@ -503,7 +505,7 @@ func TestBuildPeerTags(t *testing.T) {
 	}
 }
 
-func TestMergeSelectorMatchExpression(t *testing.T) {
+func Test_MergeSelectorMatchExpression(t *testing.T) {
 	matchExpressions := []v1.LabelSelectorRequirement{
 		{
 			Key:      "k1",
@@ -557,7 +559,7 @@ func TestMergeSelectorMatchExpression(t *testing.T) {
 	assert.Equal(t, 2, len((*mergedMatchExpressions)[1].Values))
 }
 
-func TestUpdateExpressionsMatchExpression(t *testing.T) {
+func Test_UpdateExpressionsMatchExpression(t *testing.T) {
 	group := model.Group{}
 	expressions := service.buildGroupExpression(&group.Expression)
 	memberType := "SegmentPort"
@@ -603,7 +605,7 @@ func TestUpdateExpressionsMatchExpression(t *testing.T) {
 	assert.NotEqual(t, nil, err)
 }
 
-func TestValidateSelectorExpressions(t *testing.T) {
+func Test_ValidateSelectorExpressions(t *testing.T) {
 	matchLabelsCount := 2
 	matchExpressionsCount := 3
 	opInValueCount := 0
@@ -639,7 +641,7 @@ func TestValidateSelectorExpressions(t *testing.T) {
 	assert.NotEqual(t, nil, err)
 }
 
-func TestValidateSelectorOpIn(t *testing.T) {
+func Test_ValidateSelectorOpIn(t *testing.T) {
 	var matchLabels map[string]string
 	matchExpressions := []v1.LabelSelectorRequirement{
 		{
@@ -709,7 +711,7 @@ func TestValidateSelectorOpIn(t *testing.T) {
 	assert.Equal(t, 5, opInValueCount)
 }
 
-func TestValidateNsSelectorOpNotIn(t *testing.T) {
+func Test_ValidateNsSelectorOpNotIn(t *testing.T) {
 	matchExpressions := []v1.LabelSelectorRequirement{
 		{
 			Key:      "k1",
@@ -739,7 +741,7 @@ func TestValidateNsSelectorOpNotIn(t *testing.T) {
 	assert.NotEqual(t, nil, err)
 }
 
-func TestUpdateMixedExpressionsMatchExpression(t *testing.T) {
+func Test_UpdateMixedExpressionsMatchExpression(t *testing.T) {
 	group := model.Group{}
 	expressions := service.buildGroupExpression(&group.Expression)
 	nsMatchLabels := map[string]string{"ns_selector_1": "ns_1"}
@@ -943,7 +945,7 @@ var securityPolicyWithOneNamedPort = v1alpha1.SecurityPolicy{
 	},
 }
 
-func TestBuildRulePortsString(t *testing.T) {
+func Test_BuildRulePortsString(t *testing.T) {
 	tests := []struct {
 		name                    string
 		inputPorts              []v1alpha1.SecurityPolicyPort
@@ -998,7 +1000,7 @@ func TestBuildRulePortsString(t *testing.T) {
 	}
 }
 
-func TestBuildRulePortsNumberString(t *testing.T) {
+func Test_BuildRulePortsNumberString(t *testing.T) {
 	tests := []struct {
 		name                    string
 		inputPorts              []v1alpha1.SecurityPolicyPort
@@ -1053,7 +1055,7 @@ func TestBuildRulePortsNumberString(t *testing.T) {
 	}
 }
 
-func TestBuildRuleDisplayName(t *testing.T) {
+func Test_BuildRuleDisplayName(t *testing.T) {
 	tests := []struct {
 		name                    string
 		inputSecurityPolicy     *v1alpha1.SecurityPolicy
@@ -1118,7 +1120,7 @@ func TestBuildRuleDisplayName(t *testing.T) {
 	}
 }
 
-func TestBuildExpandedRuleID(t *testing.T) {
+func Test_BuildExpandedRuleID(t *testing.T) {
 	svc := &SecurityPolicyService{
 		Service: common.Service{
 			NSXConfig: &config.NSXOperatorConfig{
@@ -1200,7 +1202,7 @@ func TestBuildExpandedRuleID(t *testing.T) {
 	}
 }
 
-func TestBuildSecurityPolicyName(t *testing.T) {
+func Test_BuildSecurityPolicyName(t *testing.T) {
 	svc := &SecurityPolicyService{
 		Service: common.Service{
 			NSXConfig: &config.NSXOperatorConfig{
@@ -1287,7 +1289,7 @@ func TestBuildSecurityPolicyName(t *testing.T) {
 	}
 }
 
-func TestBuildGroupName(t *testing.T) {
+func Test_BuildGroupName(t *testing.T) {
 	svc := &SecurityPolicyService{
 		Service: common.Service{
 			NSXConfig: &config.NSXOperatorConfig{
@@ -1378,7 +1380,6 @@ func TestBuildGroupName(t *testing.T) {
 	})
 
 	t.Run("build applied group name", func(t *testing.T) {
-		createdFor := common.ResourceTypeSecurityPolicy
 		for _, tc := range []struct {
 			name      string
 			ruleIdx   int
@@ -1433,7 +1434,7 @@ func TestBuildGroupName(t *testing.T) {
 				svc.NSXConfig.EnableVPCNetwork = tc.enableVPC
 				dispName := svc.buildAppliedGroupName(obj, tc.ruleIdx)
 				assert.Equal(t, dispName, tc.expName)
-				id := svc.buildAppliedGroupID(obj, tc.ruleIdx, createdFor)
+				id := svc.buildAppliedGroupID(obj, tc.ruleIdx)
 				assert.Equal(t, tc.expId, id)
 			})
 		}

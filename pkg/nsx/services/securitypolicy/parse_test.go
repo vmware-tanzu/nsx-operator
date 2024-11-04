@@ -1,3 +1,6 @@
+/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
+   SPDX-License-Identifier: Apache-2.0 */
+
 package securitypolicy
 
 import (
@@ -6,6 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGetCluster(t *testing.T) {
+func Test_GetCluster(t *testing.T) {
 	assert.Equal(t, "k8scl-one", getCluster(service))
 }

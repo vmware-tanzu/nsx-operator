@@ -1,3 +1,6 @@
+/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
+   SPDX-License-Identifier: Apache-2.0 */
+
 package securitypolicy
 
 import (
@@ -167,4 +170,44 @@ func TestEnqueueRequestForNamespace_Update(t *testing.T) {
 			e.Update(context.TODO(), tt.args.updateEvent, tt.args.l)
 		})
 	}
+}
+
+func TestPredicateFuncsNs(t *testing.T) {
+	oldNamespace := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "test-namespace",
+			Labels: map[string]string{"env": "test"},
+		},
+	}
+
+	newNamespace := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "test-namespace",
+			Labels: map[string]string{"env": "prod"},
+		},
+	}
+
+	updateEvent := event.UpdateEvent{
+		ObjectOld: oldNamespace,
+		ObjectNew: newNamespace,
+	}
+
+	// Test the update function logic in PredicateFuncsNs
+	result := PredicateFuncsNs.UpdateFunc(updateEvent)
+	assert.True(t, result, "Expected update event to trigger requeue")
+
+	// Test with no label change
+	noChangeEvent := event.UpdateEvent{
+		ObjectOld: oldNamespace,
+		ObjectNew: oldNamespace,
+	}
+
+	result = PredicateFuncsNs.UpdateFunc(noChangeEvent)
+	assert.False(t, result, "Expected no action when labels have not changed")
+
+	res := PredicateFuncsNs.CreateFunc(event.CreateEvent{Object: newNamespace})
+	assert.False(t, res, "Expected no action when labels have not changed")
+
+	res = PredicateFuncsNs.DeleteFunc(event.DeleteEvent{Object: newNamespace})
+	assert.False(t, res, "Expected no action when labels have not changed")
 }
