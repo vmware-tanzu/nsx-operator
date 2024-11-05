@@ -30,7 +30,6 @@ var (
 	ResourceTypeSubnet        = common.ResourceTypeSubnet
 	NewConverter              = common.NewConverter
 	// Default static ip-pool under Subnet.
-	ipPoolID        = "static-ipv4-default"
 	SubnetTypeError = errors.New("unsupported type")
 )
 
@@ -115,7 +114,7 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (string, error) {
 	orgRoot, err := service.WrapHierarchySubnet(nsxSubnet, vpcInfo)
 	if err != nil {
-		log.Error(err, "WrapHierarchySubnet failed")
+		log.Error(err, "Failed to WrapHierarchySubnet")
 		return "", err
 	}
 	if err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam); err != nil {
@@ -138,17 +137,17 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 	// For Subnets, it's important to reuse the already created NSXSubnet.
 	// For SubnetSets, since the ID includes a random value, the created NSX Subnet needs to be deleted and recreated.
 	if err = realizeService.CheckRealizeState(backoff, *nsxSubnet.Path, "RealizedLogicalSwitch"); err != nil {
-		log.Error(err, "failed to check subnet realization state", "ID", *nsxSubnet.Id)
+		log.Error(err, "Failed to check subnet realization state", "ID", *nsxSubnet.Id)
 		// Delete the subnet if realization check fails, avoiding creating duplicate subnets continuously.
 		deleteErr := service.DeleteSubnet(*nsxSubnet)
 		if deleteErr != nil {
-			log.Error(deleteErr, "failed to delete subnet after realization check failure", "ID", *nsxSubnet.Id)
+			log.Error(deleteErr, "Failed to delete Subnet after realization check failure", "ID", *nsxSubnet.Id)
 			return "", fmt.Errorf("realization check failed: %v; deletion failed: %v", err, deleteErr)
 		}
 		return "", err
 	}
 	if err = service.SubnetStore.Apply(nsxSubnet); err != nil {
-		log.Error(err, "failed to add subnet to store", "ID", *nsxSubnet.Id)
+		log.Error(err, "Failed to add subnet to store", "ID", *nsxSubnet.Id)
 		return "", err
 	}
 	if subnetSet, ok := obj.(*v1alpha1.SubnetSet); ok {
@@ -156,7 +155,7 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 			return "", err
 		}
 	}
-	log.Info("successfully updated nsxSubnet", "nsxSubnet", nsxSubnet)
+	log.Info("Successfully updated nsxSubnet", "nsxSubnet", nsxSubnet)
 	return *nsxSubnet.Path, nil
 }
 
@@ -172,14 +171,14 @@ func (service *SubnetService) DeleteSubnet(nsxSubnet model.VpcSubnet) error {
 	if err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam); err != nil {
 		err = nsxutil.TransNSXApiError(err)
 		// Subnets that are not deleted successfully will finally be deleted by GC.
-		log.Error(err, "failed to delete Subnet", "ID", *nsxSubnet.Id)
+		log.Error(err, "Failed to delete Subnet", "ID", *nsxSubnet.Id)
 		return err
 	}
 	if err = service.SubnetStore.Apply(&subnetCopy); err != nil {
-		log.Error(err, "failed to delete Subnet from store", "ID", *nsxSubnet.Id)
+		log.Error(err, "Failed to delete Subnet from store", "ID", *nsxSubnet.Id)
 		return err
 	}
-	log.Info("successfully deleted nsxSubnet", "nsxSubnet", nsxSubnet)
+	log.Info("Successfully deleted nsxSubnet", "nsxSubnet", nsxSubnet)
 	return nil
 }
 
@@ -231,25 +230,6 @@ func (service *SubnetService) ListSubnetBySubnetSetName(ns, subnetSetName string
 	return res
 }
 
-func (service *SubnetService) DeleteIPAllocation(orgID, projectID, vpcID, subnetID string) error {
-	ipAllocations, err := service.NSXClient.IPAllocationClient.List(orgID, projectID, vpcID, subnetID, ipPoolID,
-		nil, nil, nil, nil, nil, nil)
-	err = nsxutil.TransNSXApiError(err)
-	if err != nil {
-		log.Error(err, "failed to get ip-allocations", "Subnet", subnetID)
-		return err
-	}
-	for _, alloc := range ipAllocations.Results {
-		if err = service.NSXClient.IPAllocationClient.Delete(orgID, projectID, vpcID, subnetID, ipPoolID, *alloc.Id); err != nil {
-			err = nsxutil.TransNSXApiError(err)
-			log.Error(err, "failed to delete ip-allocation", "Subnet", subnetID, "ip-alloc", *alloc.Id)
-			return err
-		}
-	}
-	log.Info("all IP allocations have been deleted", "Subnet", subnetID)
-	return nil
-}
-
 func (service *SubnetService) GetSubnetStatus(subnet *model.VpcSubnet) ([]model.VpcSubnetStatus, error) {
 	param, err := common.ParseVPCResourcePath(*subnet.Path)
 	if err != nil {
@@ -258,42 +238,20 @@ func (service *SubnetService) GetSubnetStatus(subnet *model.VpcSubnet) ([]model.
 	statusList, err := service.NSXClient.SubnetStatusClient.List(param.OrgID, param.ProjectID, param.VPCID, *subnet.Id)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
-		log.Error(err, "failed to get subnet status")
+		log.Error(err, "Failed to get Subnet status")
 		return nil, err
 	}
 	if len(statusList.Results) == 0 {
 		err := errors.New("empty status result")
-		log.Error(err, "no subnet status found")
+		log.Error(err, "No subnet status found")
 		return nil, err
 	}
 	if statusList.Results[0].NetworkAddress == nil || statusList.Results[0].GatewayAddress == nil {
 		err := fmt.Errorf("invalid status result: %+v", statusList.Results[0])
-		log.Error(err, "subnet status does not have network address or gateway address", "subnet.Id", subnet.Id)
+		log.Error(err, "Subnet status does not have network address or gateway address", "subnet.Id", subnet.Id)
 		return nil, err
 	}
 	return statusList.Results, nil
-}
-
-func (service *SubnetService) getIPPoolUsage(nsxSubnet *model.VpcSubnet) (*model.PolicyPoolUsage, error) {
-	param, err := common.ParseVPCResourcePath(*nsxSubnet.Path)
-	if err != nil {
-		return nil, err
-	}
-	ipPool, err := service.NSXClient.IPPoolClient.Get(param.OrgID, param.ProjectID, param.VPCID, *nsxSubnet.Id, ipPoolID)
-	err = nsxutil.TransNSXApiError(err)
-	if err != nil {
-		log.Error(err, "failed to get ip-pool", "Subnet", *nsxSubnet.Id)
-		return nil, err
-	}
-	return ipPool.PoolUsage, nil
-}
-
-func (service *SubnetService) GetIPPoolUsage(subnet *v1alpha1.Subnet) (*model.PolicyPoolUsage, error) {
-	nsxSubnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetCRUID, string(subnet.GetUID()))
-	if len(nsxSubnets) == 0 {
-		return nil, errors.New("NSX Subnet doesn't exist in store")
-	}
-	return service.getIPPoolUsage(nsxSubnets[0])
 }
 
 func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) error {
@@ -318,7 +276,7 @@ func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) err
 	}
 	obj.Status.Subnets = subnetInfoList
 	if err := service.Client.Status().Update(context.Background(), obj); err != nil {
-		log.Error(err, "failed to update SubnetSet status")
+		log.Error(err, "Failed to update SubnetSet status")
 		return err
 	}
 	return nil
@@ -374,7 +332,7 @@ func (service *SubnetService) ListAllSubnet() []*model.VpcSubnet {
 
 func (service *SubnetService) Cleanup(ctx context.Context) error {
 	allNSXSubnets := service.ListAllSubnet()
-	log.Info("cleaning up Subnet", "Count", len(allNSXSubnets))
+	log.Info("Cleaning up Subnet", "Count", len(allNSXSubnets))
 	for _, nsxSubnet := range allNSXSubnets {
 		select {
 		case <-ctx.Done():
@@ -481,14 +439,14 @@ func (service *SubnetService) UpdateSubnetSetTags(ns string, vpcSubnets []*model
 
 func (service *SubnetService) LockSubnet(path *string) {
 	if path != nil && *path != "" {
-		log.V(1).Info("locked subnet", "path", *path)
+		log.V(1).Info("Locked Subnet", "path", *path)
 		service.SubnetStore.Lock(*path)
 	}
 }
 
 func (service *SubnetService) UnlockSubnet(path *string) {
 	if path != nil && *path != "" {
-		log.V(1).Info("unlocked subnet", "path", *path)
+		log.V(1).Info("Unlocked Subnet", "path", *path)
 		service.SubnetStore.Unlock(*path)
 	}
 }

@@ -152,6 +152,9 @@ func (r *SubnetReconciler) deleteSubnetByID(subnetID string) error {
 }
 
 func (r *SubnetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet) error {
+	if len(nsxSubnets) == 0 {
+		return nil
+	}
 	for _, nsxSubnet := range nsxSubnets {
 		portNums := len(r.SubnetPortService.GetPortsOfSubnet(*nsxSubnet.Id))
 		if portNums > 0 {
@@ -165,7 +168,7 @@ func (r *SubnetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet) error {
 		}
 		log.Info("Successfully deleted Subnet", "ID", *nsxSubnet.Id)
 	}
-	log.Info("Successfully cleaned Subnets")
+	log.Info("Successfully cleaned Subnets", "subnetCount", len(nsxSubnets))
 	return nil
 }
 
