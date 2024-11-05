@@ -186,7 +186,6 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 		},
 	}
 	vpc1 := model.Vpc{
-
 		DisplayName:        &vpcName1,
 		Id:                 &vpcID1,
 		Tags:               tag1,
@@ -195,7 +194,6 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 		ExternalIpv4Blocks: []string{"2.2.2.0/24"},
 	}
 	vpc2 := model.Vpc{
-
 		DisplayName:        &vpcName2,
 		Id:                 &vpcID2,
 		Tags:               tag2,
@@ -248,16 +246,17 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 				assert.NoError(t, err)
 			}
 			got := vpcStore.List()
+
 			assert.Equal(t, tc.expectVPCInStore, len(got))
 			if tc.searchNameKey != "" {
-				vpcRes := vpcStore.GetVPCsByNamespace(tc.searchNameKey)
+				vpcRes := vpcStore.GetVPCsByNamespaceFromStore(tc.searchNameKey)
 				assert.Equal(t, len(tc.expectResVPC), len(vpcRes))
 				for _, vpc := range vpcRes {
 					assert.Contains(t, tc.expectResVPC, *vpc.DisplayName)
 				}
 			}
 			if tc.searchIDKey != "" {
-				vpcRes := vpcStore.GetVPCsByNamespaceID(tc.searchIDKey)
+				vpcRes := vpcStore.GetVPCsByNamespaceIDFromStore(tc.searchIDKey)
 				assert.Equal(t, len(tc.expectResVPC), len(vpcRes))
 				for _, vpc := range vpcRes {
 					assert.Contains(t, tc.expectResVPC, *vpc.DisplayName)
