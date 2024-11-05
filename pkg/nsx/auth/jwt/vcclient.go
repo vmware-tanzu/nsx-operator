@@ -53,7 +53,7 @@ func createHttpClient(insecureSkipVerify bool, caCertPem []byte) *http.Client {
 		TLSClientConfig: tlsConfig,
 	}
 	if len(caCertPem) > 0 {
-		log.V(1).Info("append CA cert")
+		log.V(1).Info("Append CA cert")
 		clientCertPool := x509.NewCertPool()
 		clientCertPool.AppendCertsFromPEM(caCertPem)
 		tlsConfig.RootCAs = clientCertPool
@@ -82,7 +82,7 @@ func NewVCClient(hostname string, port int, ssoDomain string, userName, password
 
 // createVAPISession creates a VAPI session using the specified STS signer and sets it on the vcClient.
 func (vcClient *VCClient) createVAPISession() (string, error) {
-	log.Info("creating new vapi session for vcClient")
+	log.Info("Creating new vapi session for vcClient")
 	request, err := vcClient.prepareRequest(http.MethodPost, "com/vmware/cis/session", nil)
 	if err != nil {
 		return "", err
@@ -101,7 +101,7 @@ func (vcClient *VCClient) createVAPISession() (string, error) {
 	if !ok {
 		msg := fmt.Sprintf("unexpected session data %v from vapi-endpoint", sessionData)
 		err := errors.New(msg)
-		log.Error(err, "failed to create VAPI session")
+		log.Error(err, "Failed to create VAPI session")
 		return "", errors.New(msg)
 	}
 	return session, nil
@@ -131,14 +131,14 @@ func (vcClient *VCClient) reloadUsernamePass() error {
 	}
 	f, err := os.ReadFile(VC_SVCACCOUNT_USER_PATH)
 	if err != nil {
-		log.Error(err, "failed to read user name")
+		log.Error(err, "Failed to read user name")
 		return err
 	}
 	username := strings.TrimRight(string(f), "\n\r")
 
 	f, err = os.ReadFile(VC_SVCACCOUNT_PWD_PATH)
 	if err != nil {
-		log.Error(err, "failed to read password")
+		log.Error(err, "Failed to read password")
 		return err
 	}
 	password := strings.TrimRight(string(f), "\n\r")
@@ -155,7 +155,7 @@ func (vcClient *VCClient) reloadUsernamePass() error {
 
 // createHOKSigner creates a Hok token for the service account user.
 func (vcClient *VCClient) createHOKSigner() (*sts.Signer, error) {
-	log.V(1).Info("creating Holder of Key signer")
+	log.V(1).Info("Creating Holder of Key signer")
 	userName := vcClient.url.User.Username()
 	password, _ := vcClient.url.User.Password()
 	client, err := vcClient.getorCreateSTSClient()
@@ -165,7 +165,7 @@ func (vcClient *VCClient) createHOKSigner() (*sts.Signer, error) {
 
 	cert, err := createCertificate(userName)
 	if err != nil {
-		log.Error(err, "failed to process service account keypair")
+		log.Error(err, "Failed to process service account keypair")
 		return nil, err
 	}
 
@@ -178,7 +178,7 @@ func (vcClient *VCClient) createHOKSigner() (*sts.Signer, error) {
 
 	signed, err := client.Issue(context.Background(), req)
 	if err != nil {
-		log.Error(err, "failed to get token from cert,key pair")
+		log.Error(err, "Failed to get token from cert,key pair")
 		return nil, err
 	}
 	return signed, nil
@@ -209,14 +209,14 @@ func (vcClient *VCClient) createSCClient(vimClient *vim25.Client) *soap.Client {
 }
 
 func (vcClient *VCClient) createVimClient(ctx context.Context, vimSdkURL string) (*vim25.Client, error) {
-	log.V(1).Info("creating vmomi client")
+	log.V(1).Info("Creating vmomi client")
 	vcURL, err := url.Parse(vimSdkURL)
 	if err != nil {
 		return nil, err
 	}
 	vimClient, err := vim25.NewClient(ctx, soap.NewClient(vcURL, true))
 	if err != nil {
-		log.Error(err, "failed to create VIM client", "vimSdkURL", vimSdkURL)
+		log.Error(err, "Failed to create VIM client", "vimSdkURL", vimSdkURL)
 		return nil, err
 	}
 	return vimClient, nil
@@ -247,7 +247,6 @@ func (client *VCClient) prepareRequest(method string, urlPath string, data []byt
 	req.Header.Set("Content-Type", "application/json")
 	if client.signer != nil {
 		client.signer.SignRequest(req)
-
 	} else if client.session != "" {
 		req.Header.Set("vmware-api-session-id", client.session)
 	} else {
@@ -259,19 +258,19 @@ func (client *VCClient) prepareRequest(method string, urlPath string, data []byt
 func createCertificate(userName string) (*tls.Certificate, error) {
 	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		log.Error(err, "failed to generate RSA private key")
+		log.Error(err, "Failed to generate RSA private key")
 		return nil, err
 	}
 
 	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
-		log.Error(err, "failed to generate random serial number")
+		log.Error(err, "Failed to generate random serial number")
 		return nil, err
 	}
 	currentTime := time.Now()
 	notBeforeTime := currentTime.Add(-6 * time.Minute).UTC()
 	notAfterTime := currentTime.Add(60 * time.Minute).UTC()
-	log.V(1).Info("generating certificate", "user", userName, "notBefore", notBeforeTime, "notAfter", notAfterTime)
+	log.V(1).Info("Generating certificate", "user", userName, "notBefore", notBeforeTime, "notAfter", notAfterTime)
 	certTemplate := x509.Certificate{
 		SerialNumber:          serialNumber,
 		Subject:               pkix.Name{CommonName: userName},
@@ -284,7 +283,7 @@ func createCertificate(userName string) (*tls.Certificate, error) {
 
 	certBytes, err := x509.CreateCertificate(rand.Reader, &certTemplate, &certTemplate, &privKey.PublicKey, privKey)
 	if err != nil {
-		log.Error(err, "failed to generate certificate")
+		log.Error(err, "Failed to generate certificate")
 		return nil, err
 	}
 
@@ -292,7 +291,7 @@ func createCertificate(userName string) (*tls.Certificate, error) {
 	privateKey := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privKey)})
 	certificate, err := tls.X509KeyPair([]byte(cert), []byte(privateKey))
 	if err != nil {
-		log.Error(err, "failed to process service account keypair")
+		log.Error(err, "Failed to process service account keypair")
 		return nil, err
 	}
 

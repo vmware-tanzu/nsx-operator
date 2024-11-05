@@ -81,7 +81,7 @@ func main() {
 	log = logger.ZapLogger(cf.DefaultConfig.Debug, config.LogLevel)
 	err := clean.Clean(ctx, cf, &log, cf.DefaultConfig.Debug, config.LogLevel)
 	if err != nil {
-		log.Error(err, "failed to clean nsx resources")
+		log.Error(err, "Failed to clean nsx resources")
 		os.Exit(1)
 	}
 	os.Exit(0)

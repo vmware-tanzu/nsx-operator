@@ -34,9 +34,11 @@ import (
 
 var log = &logger.Log
 
-var HttpCommonError = errors.New("received HTTP Error")
-var HttpNotFoundError = errors.New("received HTTP Not Found Error")
-var HttpBadRequest = errors.New("received HTTP Bad Request Error")
+var (
+	HttpCommonError   = errors.New("received HTTP Error")
+	HttpNotFoundError = errors.New("received HTTP Not Found Error")
+	HttpBadRequest    = errors.New("received HTTP Bad Request Error")
+)
 
 // ErrorDetail is error detail which info extracted from http.Response.Body.
 type ErrorDetail struct {
@@ -139,7 +141,7 @@ func InitErrorFromResponse(host string, statusCode int, body []byte) NsxError {
 }
 
 func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorDetail, error) {
-	log.V(2).Info("http response", "status code", statusCode, "body", string(body))
+	log.V(2).Info("HTTP response", "status code", statusCode, "body", string(body))
 	ec := ErrorDetail{StatusCode: statusCode}
 	if len(body) == 0 {
 		log.V(1).Info("body length is 0")
@@ -147,7 +149,7 @@ func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorD
 	}
 	var res responseBody
 	if err := json.Unmarshal(body, &res); err != nil {
-		log.Error(err, "failed to decode response body for extracting HTTP detail")
+		log.Error(err, "Failed to decode response body for extracting HTTP detail")
 		return ec, CreateGeneralManagerError(host, "decode body", err.Error())
 	}
 
@@ -258,7 +260,7 @@ func HandleHTTPResponse(response *http.Response, result interface{}, debug bool)
 		if response.StatusCode == http.StatusBadRequest {
 			err = HttpBadRequest
 		}
-		log.Error(err, "handle http response", "status", response.StatusCode, "request URL", response.Request.URL, "response body", string(body))
+		log.Error(err, "Handle HTTP response", "status", response.StatusCode, "request URL", response.Request.URL, "response body", string(body))
 		return err, nil
 	}
 	if err != nil || body == nil {
@@ -269,10 +271,10 @@ func HandleHTTPResponse(response *http.Response, result interface{}, debug bool)
 	}
 
 	if debug {
-		log.V(2).Info("received HTTP response", "response", string(body))
+		log.V(2).Info("Received HTTP response", "response", string(body))
 	}
 	if err := json.Unmarshal(body, result); err != nil {
-		log.Error(err, "error converting HTTP response to result", "result type", result)
+		log.Error(err, "Failed to convert HTTP response to result", "result type", result)
 		return err, body
 	}
 	return nil, body
@@ -305,6 +307,7 @@ func ParseVPCPath(nsxResourcePath string) (orgID string, projectID string, vpcID
 	resourceID = paras[8]
 	return
 }
+
 func DumpHttpRequest(request *http.Request) {
 	var body []byte
 	var err error
@@ -319,7 +322,7 @@ func DumpHttpRequest(request *http.Request) {
 	}
 	request.Body.Close()
 	request.Body = io.NopCloser(bytes.NewReader(body))
-	log.V(2).Info("http request", "url", request.URL, "body", string(body), "head", request.Header)
+	log.V(2).Info("HTTP request", "url", request.URL, "body", string(body), "head", request.Header)
 }
 
 type NSXApiError struct {
@@ -331,6 +334,7 @@ func NewNSXApiError(apiError *model.ApiError) *NSXApiError {
 		ApiError: apiError,
 	}
 }
+
 func (e *NSXApiError) Error() string {
 	if e.ApiError != nil {
 		apierror := e.ApiError
@@ -452,18 +456,18 @@ func DumpAPIError(err error) (*model.ApiError, *apierrors.ErrorTypeEnum) {
 	case apierrors.UnverifiedPeer:
 		return castApiError(i.Data), i.ErrorType
 	default:
-		log.Info("dump api error", "error not supported", err)
+		log.Info("Dump api error", "error not supported", err)
 		return nil, nil
 	}
 }
 
 func castApiError(apiErrorDataValue *data.StructValue) *model.ApiError {
-	info := "dump api error"
+	info := "Dump api error"
 	if apiErrorDataValue == nil {
 		log.Info(info, "no extra error info", apiErrorDataValue)
 		return nil
 	}
-	var typeConverter = bindings.NewTypeConverter()
+	typeConverter := bindings.NewTypeConverter()
 	data, err := typeConverter.ConvertToGolang(apiErrorDataValue, model.ApiErrorBindingType())
 	if err != nil && isEmptyAPIError(data.(model.ApiError)) {
 		log.Error(err[0], info)
@@ -494,7 +498,7 @@ func VerifyNsxCertWithThumbprint(der []byte, thumbprint string) error {
 		tbFromCert = hex.EncodeToString(digest[:])
 	} else {
 		err := errors.New("invalid thumbprint format")
-		log.Error(err, "unknown thumbprint length", "thumbprint", tbRaw)
+		log.Error(err, "Unknown thumbprint length", "thumbprint", tbRaw)
 		return err
 	}
 
@@ -503,7 +507,7 @@ func VerifyNsxCertWithThumbprint(der []byte, thumbprint string) error {
 	}
 
 	err := errors.New("server certificate didn't match trusted fingerprint")
-	log.Error(err, "verify thumbprint", "server", tbFromCert, "local", tbRaw)
+	log.Error(err, "Verify thumbprint", "server", tbFromCert, "local", tbRaw)
 	return err
 }
 
@@ -515,24 +519,24 @@ func GetTLSConfigForCert(pemCerts []byte) (*tls.Config, error) {
 	block, _ := pem.Decode(pemCerts)
 	if block == nil {
 		err := errors.New("decode ca file fail")
-		log.Error(err, "failed to decode cert", "pem", pemCerts)
+		log.Error(err, "Failed to decode cert", "pem", pemCerts)
 		return nil, err
 	}
 	if block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
 		err := errors.New("pem not certificate or header not found")
-		log.Error(err, "failed to decode cert", "pem", pemCerts)
+		log.Error(err, "Failed to decode cert", "pem", pemCerts)
 		return nil, err
 	}
 
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		log.Error(err, "failed to decode cert", "pem", pemCerts)
+		log.Error(err, "Failed to decode cert", "pem", pemCerts)
 		return nil, err
 	}
 
 	// Native cert verification in case of CA cert
 	if cert.IsCA {
-		log.Info("configured CA cert", "subject", cert.Subject)
+		log.Info("Configured CA cert", "subject", cert.Subject)
 		certPool := x509.NewCertPool()
 		certPool.AddCert(cert)
 		// #nosec G402: ignore insecure options
@@ -549,18 +553,18 @@ func GetTLSConfigForCert(pemCerts []byte) (*tls.Config, error) {
 		VerifyConnection: func(cs tls.ConnectionState) error {
 			if cs.PeerCertificates == nil || cs.PeerCertificates[0] == nil {
 				err := errors.New("server didn't present cert")
-				log.Error(err, "verify cert")
+				log.Error(err, "Verify cert")
 				return err
 			}
 			if !bytes.Equal(cs.PeerCertificates[0].Raw, cert.Raw) {
 				err := errors.New("server certificate didn't match pinned leaf cert")
-				log.Error(err, "verify cert")
+				log.Error(err, "Verify cert")
 				return err
 			}
 			return nil
 		},
 	}
-	log.Info("configured cert pining", "subject", cert.Subject)
+	log.Info("Configured cert pining", "subject", cert.Subject)
 	return config, nil
 }
 
@@ -623,7 +627,7 @@ func CertPemBytesToHeader(caFile string) string {
 	if certIdx > 0 {
 		cert = cert[:certIdx]
 	} else {
-		log.Info("not found pem footer", "cert", cert)
+		log.Info("Not found pem footer", "cert", cert)
 		return ""
 	}
 	cert = strings.ReplaceAll(cert, X509_PEM_HEADER, "")

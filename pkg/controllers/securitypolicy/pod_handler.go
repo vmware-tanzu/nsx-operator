@@ -59,21 +59,21 @@ func (e *EnqueueRequestForPod) Raw(evt interface{}, q workqueue.RateLimitingInte
 	case event.GenericEvent:
 		obj = et.Object.(*v1.Pod)
 	default:
-		log.Error(nil, "unknown event type", "event", evt)
+		log.Error(nil, "Unknown event type", "event", evt)
 	}
 
 	pod := obj.(*v1.Pod)
 	if isInSysNs, err := util.IsSystemNamespace(e.Client, pod.Namespace, nil); err != nil {
-		log.Error(err, "failed to fetch namespace", "namespace", pod.Namespace)
+		log.Error(err, "Failed to fetch namespace", "namespace", pod.Namespace)
 		return
 	} else if isInSysNs {
-		log.V(2).Info("pod is in system namespace, do nothing")
+		log.V(2).Info("POD is in system namespace, do nothing")
 		return
 	}
 	pods = append(pods, *pod)
 	err := reconcileSecurityPolicy(e.SecurityPolicyReconciler, e.Client, pods, q)
 	if err != nil {
-		log.Error(err, "failed to reconcile security policy")
+		log.Error(err, "Failed to reconcile security policy")
 	}
 }
 
