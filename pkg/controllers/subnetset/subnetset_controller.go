@@ -318,6 +318,9 @@ func (r *SubnetSetReconciler) deleteSubnetForSubnetSet(subnetSet v1alpha1.Subnet
 // If any of the Subnets have stale SubnetPorts, they are skipped. The final result returns true.
 // If there is an error while deleting any NSX Subnet, it is skipped, and the final result returns an error.
 func (r *SubnetSetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet) (hasStalePort bool, err error) {
+	if len(nsxSubnets) == 0 {
+		return
+	}
 	var deleteErrs []error
 	for _, nsxSubnet := range nsxSubnets {
 		r.SubnetService.LockSubnet(nsxSubnet.Path)
