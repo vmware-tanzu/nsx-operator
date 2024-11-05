@@ -86,7 +86,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 		return nil, SubnetTypeError
 	}
 	// tags cannot exceed maximum size 26
-	if len(tags) > common.TagsCountMax {
+	if len(tags) > common.MaxTagsCount {
 		errorMsg := fmt.Sprintf("tags cannot exceed maximum size 26, tags length: %d", len(tags))
 		return nil, util2.ExceedTagsError{Desc: errorMsg}
 	}

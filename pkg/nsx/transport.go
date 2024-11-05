@@ -86,7 +86,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			} else if util.ShouldRetry(err) {
 				return true
 			} else {
-				log.V(1).Info("error is configurated as not retriable", "error", err.Error())
+				log.V(1).Info("Error is configured as not retriable", "error", err.Error())
 				return false
 			}
 		}), retry.LastErrorOnly(true),
@@ -96,7 +96,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func handleRoundTripError(err error, ep *Endpoint) error {
-	log.Error(err, "request failed")
+	log.Error(err, "Failed to request")
 	errString := err.Error()
 	if strings.HasSuffix(errString, "connection refused") {
 		ep.setStatus(DOWN)

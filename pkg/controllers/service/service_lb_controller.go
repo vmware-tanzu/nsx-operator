@@ -51,16 +51,16 @@ func (r *ServiceLbReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	log.Info("Reconciling LB CR", "service", req.NamespacedName)
 	startTime := time.Now()
 	defer func() {
-		log.Info("Finished reconciling LB service", "lbService", req.NamespacedName, "duration(ms)", time.Since(startTime).Milliseconds())
+		log.Info("Finished reconciling LB service", "LBService", req.NamespacedName, "duration(ms)", time.Since(startTime).Milliseconds())
 	}()
 
 	if err := r.Client.Get(ctx, req.NamespacedName, service); err != nil {
-		log.Error(err, "unable to fetch lb service", "req", req.NamespacedName)
+		log.Error(err, "Failed to fetch LB service", "req", req.NamespacedName)
 		return ResultNormal, client.IgnoreNotFound(err)
 	}
 
 	if service.Spec.Type == v1.ServiceTypeLoadBalancer {
-		log.Info("Reconciling lb service", "lbService", req.NamespacedName)
+		log.Info("Reconciling LB service", "LBService", req.NamespacedName)
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
 
 		if service.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -123,19 +123,19 @@ func isServiceLbStatusIpModeSupported(c *rest.Config) bool {
 
 	clientset, err := clientset.NewForConfig(c)
 	if err != nil {
-		log.Error(err, "failed to create clientset")
+		log.Error(err, "Failed to create clientset")
 		return false
 	}
 
 	serverVersion, err := clientset.Discovery().ServerVersion()
 	if err != nil {
-		log.Error(err, "failed to get server Kubernetes version")
+		log.Error(err, "Failed to get server Kubernetes version")
 		return false
 	}
 
 	runningVersion, err := version.ParseGeneric(serverVersion.String())
 	if err != nil {
-		log.Error(err, "unexpected error parsing server Kubernetes version", "K8sVersion", runningVersion.String())
+		log.Error(err, "Failed to parse server Kubernetes version", "K8sVersion", runningVersion.String())
 		return false
 	}
 
@@ -153,10 +153,10 @@ func StartServiceLbController(mgr ctrl.Manager, commonService servicecommon.Serv
 		}
 		serviceLbReconciler.Service = &commonService
 		if err := serviceLbReconciler.Start(mgr); err != nil {
-			log.Error(err, "failed to create controller", "controller", "ServiceLb")
+			log.Error(err, "Failed to create controller", "controller", "ServiceLb")
 			os.Exit(1)
 		}
 	} else {
-		log.Info("Service Lb controller isn't started since load balancer service ipMode supporting needs K8s version at least 1.29.0")
+		log.Info("Service LB controller isn't started since load balancer service ipMode supporting needs K8s version at least 1.29.0")
 	}
 }

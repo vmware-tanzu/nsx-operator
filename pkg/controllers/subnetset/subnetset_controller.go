@@ -129,7 +129,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			return ResultRequeue, errors.New("failed to generate SubnetSet tags")
 		}
 		// tags cannot exceed maximum size 26
-		if len(tags) > servicecommon.TagsCountMax {
+		if len(tags) > servicecommon.MaxTagsCount {
 			errorMsg := fmt.Sprintf("tags cannot exceed maximum size 26, tags length: %d", len(tags))
 			log.Error(nil, "Exceed tags limit, would not retry", "SubnetSet", req.NamespacedName)
 			updateFail(r, ctx, subnetsetCR, errorMsg)

@@ -68,7 +68,7 @@ func GetSecurityService(service common.Service, vpcService common.VPCServiceProv
 		if securityService == nil {
 			var err error
 			if securityService, err = InitializeSecurityPolicy(service, vpcService); err != nil {
-				log.Error(err, "failed to initialize subnet commonService")
+				log.Error(err, "Failed to initialize SecurityPolicy service")
 				os.Exit(1)
 			}
 		}
@@ -456,7 +456,7 @@ func (service *SecurityPolicyService) getFinalSecurityPolicyResource(obj *v1alph
 
 	nsxSecurityPolicy, nsxGroups, nsxGroupShares, err := service.buildSecurityPolicy(obj, createdFor)
 	if err != nil {
-		log.Error(err, "failed to build SecurityPolicy from CR", "securityPolicyUID", obj.UID)
+		log.Error(err, "Failed to build SecurityPolicy from CR", "securityPolicyUID", obj.UID)
 		return nil, nil, nil, nil, false, err
 	}
 
@@ -498,7 +498,7 @@ func (service *SecurityPolicyService) getFinalSecurityPolicyResource(obj *v1alph
 func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1.SecurityPolicy, createdFor string) error {
 	finalSecurityPolicy, finalGroups, _, _, isChanged, err := service.getFinalSecurityPolicyResource(obj, createdFor, false)
 	if err != nil {
-		log.Error(err, "failed to get SecurityPolicy resources from CR", "securityPolicyUID", obj.UID)
+		log.Error(err, "Failed to get SecurityPolicy resources from CR", "securityPolicyUID", obj.UID)
 		return err
 	}
 
@@ -513,20 +513,20 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 
 	infraSecurityPolicy, err := service.WrapHierarchySecurityPolicy(finalSecurityPolicy, finalGroups)
 	if err != nil {
-		log.Error(err, "failed to wrap SecurityPolicy", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
+		log.Error(err, "Failed to wrap SecurityPolicy", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
 		return err
 	}
 	err = service.NSXClient.InfraClient.Patch(*infraSecurityPolicy, &EnforceRevisionCheckParam)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
-		log.Error(err, "failed to create or update SecurityPolicy", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
+		log.Error(err, "Failed to create or update SecurityPolicy", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
 		return err
 	}
 	// Get SecurityPolicy from NSX after HAPI call as NSX renders several fields like `path`/`parent_path`.
 	finalGetNSXSecurityPolicy, err := service.NSXClient.SecurityClient.Get(getDomain(service), *finalSecurityPolicy.Id)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
-		log.Error(err, "failed to get SecurityPolicy", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
+		log.Error(err, "Failed to get SecurityPolicy", "nsxSecurityPolicyId", finalSecurityPolicy.Id)
 		return err
 	}
 
@@ -536,18 +536,18 @@ func (service *SecurityPolicyService) createOrUpdateSecurityPolicy(obj *v1alpha1
 	if isChanged {
 		err = securityPolicyStore.Apply(&finalGetNSXSecurityPolicy)
 		if err != nil {
-			log.Error(err, "failed to apply store", "securityPolicy", finalGetNSXSecurityPolicy)
+			log.Error(err, "Failed to apply store", "securityPolicy", finalGetNSXSecurityPolicy)
 			return err
 		}
 	}
 	err = ruleStore.Apply(&finalRules)
 	if err != nil {
-		log.Error(err, "failed to apply store", "nsxRules", finalRules)
+		log.Error(err, "Failed to apply store", "nsxRules", finalRules)
 		return err
 	}
 	err = groupStore.Apply(&finalGroups)
 	if err != nil {
-		log.Error(err, "failed to apply store", "nsxGroups", finalGroups)
+		log.Error(err, "Failed to apply store", "nsxGroups", finalGroups)
 		return err
 	}
 	log.Info("Successfully created or updated NSX SecurityPolicy", "nsxSecurityPolicy", finalGetNSXSecurityPolicy)
@@ -568,7 +568,7 @@ func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alp
 
 	finalSecurityPolicy, finalGroups, finalShares, finalShareGroups, isChanged, err := service.getFinalSecurityPolicyResource(obj, createdFor, isDefaultProject)
 	if err != nil {
-		log.Error(err, "failed to get SecurityPolicy resources from CR", "securityPolicyUID", obj.UID)
+		log.Error(err, "Failed to get SecurityPolicy resources from CR", "securityPolicyUID", obj.UID)
 		return err
 	}
 
@@ -646,7 +646,7 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(sp types.UID) error {
 	nsxSecurityPolicy = existingSecurityPolices[0]
 	if nsxSecurityPolicy.Path == nil {
 		err = errors.New("nsxSecurityPolicy path is empty")
-		log.Error(err, "failed to delete SecurityPolicy", "nsxSecurityPolicyUID", sp)
+		log.Error(err, "Failed to delete SecurityPolicy", "nsxSecurityPolicyUID", sp)
 		return err
 	}
 
@@ -667,29 +667,29 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(sp types.UID) error {
 
 	infraSecurityPolicy, err := service.WrapHierarchySecurityPolicy(nsxSecurityPolicy, *nsxGroups)
 	if err != nil {
-		log.Error(err, "failed to wrap SecurityPolicy", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+		log.Error(err, "Failed to wrap SecurityPolicy", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 		return err
 	}
 	err = service.NSXClient.InfraClient.Patch(*infraSecurityPolicy, &EnforceRevisionCheckParam)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
-		log.Error(err, "failed to delete SecurityPolicy", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+		log.Error(err, "Failed to delete SecurityPolicy", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 		return err
 	}
 
 	err = securityPolicyStore.Apply(&finalSecurityPolicyCopy)
 	if err != nil {
-		log.Error(err, "failed to apply store", "securityPolicy", finalSecurityPolicyCopy)
+		log.Error(err, "Failed to apply store", "securityPolicy", finalSecurityPolicyCopy)
 		return err
 	}
 	err = ruleStore.Apply(&finalSecurityPolicyCopy.Rules)
 	if err != nil {
-		log.Error(err, "failed to apply store", "nsxRules", finalSecurityPolicyCopy.Rules)
+		log.Error(err, "Failed to apply store", "nsxRules", finalSecurityPolicyCopy.Rules)
 		return err
 	}
 	err = groupStore.Apply(nsxGroups)
 	if err != nil {
-		log.Error(err, "failed to apply store", "nsxGroups", nsxGroups)
+		log.Error(err, "Failed to apply store", "nsxGroups", nsxGroups)
 		return err
 	}
 
@@ -741,7 +741,7 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(sp types.UID, isGC
 	// Get orgID, projectID, vpcID from security policy path "/orgs/<orgID>/projects/<projectID>/vpcs/<vpcID>/security-policies/<spID>"
 	if nsxSecurityPolicy.Path == nil {
 		err = errors.New("nsxSecurityPolicy path is empty")
-		log.Error(err, "failed to delete SecurityPolicy in VPC", "nsxSecurityPolicyUID", sp)
+		log.Error(err, "Failed to delete SecurityPolicy in VPC", "nsxSecurityPolicyUID", sp)
 		return err
 	}
 	vpcInfo, _ := common.ParseVPCResourcePath(*(nsxSecurityPolicy.Path))
@@ -920,7 +920,7 @@ func (service *SecurityPolicyService) manipulateSecurityPolicy(nsxSecurityPolicy
 		// Wrap project groups and shares into project child infra.
 		projectInfraResource, err = service.wrapHierarchyProjectResources(nsxShares, nsxShareGroups)
 		if err != nil {
-			log.Error(err, "failed to wrap NSX project groups and shares", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+			log.Error(err, "Failed to wrap NSX project groups and shares", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 			return nsxGetSecurityPolicy, err
 		}
 	}
@@ -928,7 +928,7 @@ func (service *SecurityPolicyService) manipulateSecurityPolicy(nsxSecurityPolicy
 	// Wrap SecurityPolicy, groups, rules under VPC level together with project groups and shares into one hierarchy resource tree.
 	orgRoot, err := service.wrapHierarchyVpcSecurityPolicy(nsxSecurityPolicy, nsxGroups, projectInfraResource, vpcInfo)
 	if err != nil {
-		log.Error(err, "failed to wrap SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+		log.Error(err, "Failed to wrap SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 		return nsxGetSecurityPolicy, err
 	}
 
@@ -936,7 +936,7 @@ func (service *SecurityPolicyService) manipulateSecurityPolicy(nsxSecurityPolicy
 	err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
-		log.Error(err, "failed to create/update or delete SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+		log.Error(err, "Failed to create/update or delete SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 		return nsxGetSecurityPolicy, err
 	}
 
@@ -945,7 +945,7 @@ func (service *SecurityPolicyService) manipulateSecurityPolicy(nsxSecurityPolicy
 		nsxGetSecurityPolicy, err = service.NSXClient.VPCSecurityClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *nsxSecurityPolicy.Id)
 		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
-			log.Error(err, "failed to get SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+			log.Error(err, "Failed to get SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 			return nsxGetSecurityPolicy, err
 		}
 	}
@@ -988,14 +988,14 @@ func (service *SecurityPolicyService) manipulateSecurityPolicyForDefaultProject(
 		// Wrap infra groups and shares into infra child infra.
 		infraResource, err = service.wrapHierarchyInfraResources(finalChangedShares, finalChangedShareGroups)
 		if err != nil {
-			log.Error(err, "failed to wrap NSX infra changed groups and shares", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+			log.Error(err, "Failed to wrap NSX infra changed groups and shares", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 			return nsxGetSecurityPolicy, err
 		}
 
 		err = service.NSXClient.InfraClient.Patch(*infraResource, &EnforceRevisionCheckParam)
 		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
-			log.Error(err, "failed to create or update NSX infra Resource", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+			log.Error(err, "Failed to create or update NSX infra Resource", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 			return nsxGetSecurityPolicy, err
 		}
 
@@ -1004,7 +1004,7 @@ func (service *SecurityPolicyService) manipulateSecurityPolicyForDefaultProject(
 	// Wrap SecurityPolicy, groups, rules under VPC level into one hierarchy resource tree.
 	orgRoot, err := service.wrapHierarchyVpcSecurityPolicy(nsxSecurityPolicy, nsxGroups, projectInfraResource, vpcInfo)
 	if err != nil {
-		log.Error(err, "failed to wrap SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+		log.Error(err, "Failed to wrap SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 		return nsxGetSecurityPolicy, err
 	}
 
@@ -1012,7 +1012,7 @@ func (service *SecurityPolicyService) manipulateSecurityPolicyForDefaultProject(
 	err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
-		log.Error(err, "failed to create/update or delete SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+		log.Error(err, "Failed to create/update or delete SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 		return nsxGetSecurityPolicy, err
 	}
 
@@ -1022,13 +1022,13 @@ func (service *SecurityPolicyService) manipulateSecurityPolicyForDefaultProject(
 		// Wrap infra groups and shares into infra child infra.
 		infraResource, err = service.wrapHierarchyInfraResources(finalStaleShares, finalStaleShareGroups)
 		if err != nil {
-			log.Error(err, "failed to wrap NSX infra stale groups and shares", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+			log.Error(err, "Failed to wrap NSX infra stale groups and shares", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 			return nsxGetSecurityPolicy, err
 		}
 		err = service.NSXClient.InfraClient.Patch(*infraResource, &EnforceRevisionCheckParam)
 		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
-			log.Error(err, "failed to delete NSX infra Resource", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+			log.Error(err, "Failed to delete NSX infra Resource", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 			return nsxGetSecurityPolicy, err
 		}
 	}
@@ -1038,7 +1038,7 @@ func (service *SecurityPolicyService) manipulateSecurityPolicyForDefaultProject(
 		nsxGetSecurityPolicy, err = service.NSXClient.VPCSecurityClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *nsxSecurityPolicy.Id)
 		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
-			log.Error(err, "failed to get SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+			log.Error(err, "Failed to get SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 			return nsxGetSecurityPolicy, err
 		}
 	}
@@ -1052,19 +1052,19 @@ func (service *SecurityPolicyService) applySecurityPolicyStore(nsxSecurityPolicy
 	if isChanged {
 		err = securityPolicyStore.Apply(&nsxSecurityPolicy)
 		if err != nil {
-			log.Error(err, "failed to apply store", "securityPolicy", nsxSecurityPolicy)
+			log.Error(err, "Failed to apply store", "securityPolicy", nsxSecurityPolicy)
 			return err
 		}
 	}
 
 	err = ruleStore.Apply(&nsxRules)
 	if err != nil {
-		log.Error(err, "failed to apply store", "nsxRules", nsxRules)
+		log.Error(err, "Failed to apply store", "nsxRules", nsxRules)
 		return err
 	}
 	err = groupStore.Apply(&nsxGroups)
 	if err != nil {
-		log.Error(err, "failed to apply store", "nsxGroups", nsxGroups)
+		log.Error(err, "Failed to apply store", "nsxGroups", nsxGroups)
 		return err
 	}
 	return nil
@@ -1076,23 +1076,23 @@ func (service *SecurityPolicyService) applyVPCShareResourceStore(nsxShares []mod
 	if isDefaultProject {
 		err = infraGroupStore.Apply(&nsxShareGroups)
 		if err != nil {
-			log.Error(err, "failed to apply store", "nsxInfraGroups", nsxShareGroups)
+			log.Error(err, "Failed to apply store", "nsxInfraGroups", nsxShareGroups)
 			return err
 		}
 		err = infraShareStore.Apply(&nsxShares)
 		if err != nil {
-			log.Error(err, "failed to apply store", "nsxInfraShares", nsxShares)
+			log.Error(err, "Failed to apply store", "nsxInfraShares", nsxShares)
 			return err
 		}
 	} else {
 		err = projectGroupStore.Apply(&nsxShareGroups)
 		if err != nil {
-			log.Error(err, "failed to apply store", "nsxProjectGroups", nsxShareGroups)
+			log.Error(err, "Failed to apply store", "nsxProjectGroups", nsxShareGroups)
 			return err
 		}
 		err = projectShareStore.Apply(&nsxShares)
 		if err != nil {
-			log.Error(err, "failed to apply store", "nsxProjectShares", nsxShares)
+			log.Error(err, "Failed to apply store", "nsxProjectShares", nsxShares)
 			return err
 		}
 	}
@@ -1185,13 +1185,13 @@ func (service *SecurityPolicyService) gcInfraSharesGroups(sp types.UID, indexSco
 
 	infraResource, err = service.wrapHierarchyInfraResources(*nsxShares, *nsxShareGroups)
 	if err != nil {
-		log.Error(err, "failed to wrap NSX infra groups and shares", "securityPolicyUID", sp)
+		log.Error(err, "Failed to wrap NSX infra groups and shares", "securityPolicyUID", sp)
 		return err
 	}
 	err = service.NSXClient.InfraClient.Patch(*infraResource, &EnforceRevisionCheckParam)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
-		log.Error(err, "failed to delete NSX infra Resource in GC", "securityPolicyUID", sp)
+		log.Error(err, "Failed to delete NSX infra Resource in GC", "securityPolicyUID", sp)
 		return err
 	}
 	return nil
