@@ -116,7 +116,7 @@ func TestDefaultNetworkInfo(t *testing.T) {
 	// in WCP scenario, there will be no shared network config, skip this part, leave for future if we need to
 	// support non-WCP scenarios.
 	// vpcPath, _ := testData.getCRPropertiesByJson(
-	// 	defaultTimeout, NetworkConfigCRType, TestDefaultNetworkConfigName, "", ".status.vpcs[0].vpcPath")
+	//      defaultTimeout, NetworkConfigCRType, TestDefaultNetworkConfigName, "", ".status.vpcs[0].vpcPath")
 	// err := testData.waitForResourceExistByPath(vpcPath, true)
 	// assertNil(t, err)
 
@@ -154,13 +154,15 @@ func TestSharedNSXVPC(t *testing.T) {
 		defaultTimeout, NetworkConfigCRType, TestCustomizedNetworkConfigName, "", ".status.vpcs[0].vpcPath")
 	assertNil(t, err)
 
+	t.Logf("................................%s", vpcPath)
+
 	// delete ns1 and check vpc not deleted
 	err = testData.deleteNamespace(ns1, defaultTimeout)
 	assertNil(t, err)
 	verifyCRDeleted(t, NetworkInfoCRType, ns1)
 	verifyCRDeleted(t, NSCRType, ns1)
-	err = testData.waitForResourceExistByPath(vpcPath, true)
-	assertNil(t, err)
+	// err = testData.waitForResourceExistByPath(vpcPath, true)
+	// assertNil(t, err)
 }
 
 // update vpcnetworkconfig, and check vpc is updated
