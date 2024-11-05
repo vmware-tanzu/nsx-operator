@@ -1,7 +1,17 @@
 apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: Subnet
 metadata:
-  name: subnet-sample
+  name: subnet-sample-a
 spec:
-  accessMode: private
+  accessMode: Private
   ipv4SubnetSize: 64
+---
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: Subnet
+metadata:
+  name: subnet-sample-b
+spec:
+  accessMode: Private
+  ipv4SubnetSize: 64
+  subnetDHCPConfig:
+    mode: DHCPServer

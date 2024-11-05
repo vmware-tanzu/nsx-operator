@@ -280,8 +280,8 @@ func SubnetCIDR(t *testing.T) {
 			Namespace: E2ENamespace,
 		},
 		Spec: v1alpha1.SubnetSpec{
-			DHCPConfig: v1alpha1.DHCPConfig{
-				EnableDHCP: true,
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
 			},
 		},
 	}
