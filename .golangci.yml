@@ -2,9 +2,10 @@
 run:
   tests: true
   timeout: 15m
-  skip-files:
-   - third_party/
-   - pkg/client/
+  issues:
+    exclude-files:
+     - third_party/
+     - pkg/client/
   skip-dirs-use-default: true
 
 linters-settings:
@@ -21,6 +22,9 @@ linters-settings:
       - name: superfluous-else
       - name: var-declaration
       - name: duplicated-imports
+  gosec:
+    excludes:
+      - G115
 
 linters:
   disable-all: true
@@ -31,7 +35,7 @@ linters:
     - staticcheck
     - gosec
     - goimports
-    - vet
+    - govet
     - revive
 
 issues:
