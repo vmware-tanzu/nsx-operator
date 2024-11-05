@@ -183,7 +183,7 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	return VPCService, nil
 }
 
-func (s *VPCService) GetVPCsByNamespaceUID(ctx context.Context, namespace string) []*model.Vpc {
+func (s *VPCService) GetCurrentVPCsByNamespace(ctx context.Context, namespace string) []*model.Vpc {
 	namespaceObj, sharedNamespace, err := s.resolveSharedVPCNamespace(ctx, namespace)
 	if err != nil {
 		log.Error(err, "Failed to get Namespace")
@@ -744,7 +744,7 @@ func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.Networ
 		return nil, err
 	}
 
-	existingVPC := s.GetVPCsByNamespaceUID(ctx, ns)
+	existingVPC := s.GetCurrentVPCsByNamespace(ctx, ns)
 	updateVpc := len(existingVPC) != 0
 	if updateVpc && isShared { // We now consider only one VPC for one namespace
 		log.Info("The shared VPC already exist", "Namespace", ns)
@@ -1122,7 +1122,7 @@ func (s *VPCService) ListVPCInfo(ns string) []common.VPCResourceInfo {
 	}
 
 	// List VPCs from local store.
-	vpcs := s.GetVPCsByNamespaceUID(context.Background(), ns)
+	vpcs := s.GetCurrentVPCsByNamespace(context.Background(), ns)
 	log.Info("Got VPCs by Namespace from store", "Namespace", ns, "VPCCount", len(vpcs))
 	for _, v := range vpcs {
 		vpcResourceInfo, err := common.ParseVPCResourcePath(*v.Path)

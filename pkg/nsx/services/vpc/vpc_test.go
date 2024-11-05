@@ -559,7 +559,7 @@ func TestGetVPCsByNamespace(t *testing.T) {
 				assert.Contains(t, tt.expectVPCNames, *vpc.DisplayName)
 			}
 
-			freshVPCs := service.GetVPCsByNamespaceUID(ctx, tt.ns)
+			freshVPCs := service.GetCurrentVPCsByNamespace(ctx, tt.ns)
 			assert.Equal(t, tt.expectFreshVPCNum, len(freshVPCs))
 
 			for _, vpc := range freshVPCs {
@@ -1898,7 +1898,7 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "IsSharedVPCNamespaceByNS", func(_ *VPCService, ctx context.Context, _ string) (bool, error) {
 					return true, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByNamespaceUID", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
+				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetCurrentVPCsByNamespace", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
 					vpcPath := "/vpc/1"
 					return []*model.Vpc{{Path: &vpcPath, Id: &fakeVPCID}}
 				})
@@ -1923,7 +1923,7 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "IsSharedVPCNamespaceByNS", func(_ *VPCService, ctx context.Context, _ string) (bool, error) {
 					return true, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByNamespaceUID", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
+				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetCurrentVPCsByNamespace", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
 					return []*model.Vpc{}
 				})
 				return patches
@@ -1955,7 +1955,7 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "IsSharedVPCNamespaceByNS", func(_ *VPCService, ctx context.Context, _ string) (bool, error) {
 					return false, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByNamespaceUID", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
+				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetCurrentVPCsByNamespace", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
 					vpcPath := "/vpc/1"
 					return []*model.Vpc{
 						{Path: &vpcPath, Id: &fakeVPCID},
@@ -1990,7 +1990,7 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "IsSharedVPCNamespaceByNS", func(_ *VPCService, ctx context.Context, _ string) (bool, error) {
 					return false, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCsByNamespaceUID", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
+				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetCurrentVPCsByNamespace", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
 					return []*model.Vpc{}
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "createNSXVPC", func(_ *VPCService, createdVpc *model.Vpc, nc *common.VPCNetworkConfigInfo, orgRoot *model.OrgRoot) error {
