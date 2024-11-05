@@ -53,3 +53,5 @@ kubectl exec $pod_name -c nsx-ncp -n vmware-system-nsx -- cat /etc/nsx-ujo/vc/us
 kubectl exec $pod_name -c nsx-ncp -n vmware-system-nsx -- cat /etc/nsx-ujo/vc/password > /etc/nsx-ujo/vc/password
 
 e2e=true go test -v ./test/e2e -coverpkg=./pkg/... -remote.sshconfig /root/config -remote.kubeconfig /root/.kube/config -operator-cfg-path /etc/ncp.ini -test.timeout 15m -coverprofile cover-e2e.out
+
+kubectl logs $pod_name -c nsx-operator -n vmware-system-nsx > /tmp/$pod_name.log
