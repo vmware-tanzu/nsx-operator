@@ -77,7 +77,7 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 
 	policyGroup, policyGroupPath, err := service.buildPolicyGroup(obj, createdFor)
 	if err != nil {
-		log.Error(err, "failed to build policy group", "policy", *obj)
+		log.Error(err, "Failed to build policy group", "policy", *obj)
 		return nil, nil, nil, err
 	}
 
@@ -91,7 +91,7 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 		// A rule containing named port may be expanded to multiple rules if the named ports map to multiple port numbers.
 		expandRules, buildGroups, buildGroupShares, err := service.buildRuleAndGroups(obj, &rule, ruleIdx, createdFor)
 		if err != nil {
-			log.Error(err, "failed to build rule and groups", "rule", rule, "ruleIndex", ruleIdx)
+			log.Error(err, "Failed to build rule and groups", "rule", rule, "ruleIndex", ruleIdx)
 			return nil, nil, nil, err
 		}
 
@@ -901,7 +901,7 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 			// Build a NSX share resource in infra level
 			nsxInfraShare, err := service.buildGroupShare(obj, &rulePeerGroup, []string{rulePeerGroupPath}, *sharedWith, vpcInfo, true, false, createdFor)
 			if err != nil {
-				log.Error(err, "failed to build NSX infra share", "ruleGroupName", rulePeerGroupName)
+				log.Error(err, "Failed to build NSX infra share", "ruleGroupName", rulePeerGroupName)
 				return nil, "", nil, err
 			}
 			infraGroupShare.share = nsxInfraShare
@@ -913,7 +913,7 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 			// Build a NSX share resource in project level
 			nsxProjectShare, err := service.buildGroupShare(obj, &rulePeerGroup, []string{rulePeerGroupPath}, *sharedWith, vpcInfo, false, true, createdFor)
 			if err != nil {
-				log.Error(err, "failed to build NSX project share", "ruleGroupName", rulePeerGroupName)
+				log.Error(err, "Failed to build NSX project share", "ruleGroupName", rulePeerGroupName)
 				return nil, "", nil, err
 			}
 			projectGroupShare.share = nsxProjectShare
@@ -941,7 +941,7 @@ func (service *SecurityPolicyService) buildRuleBasicInfo(obj *v1alpha1.SecurityP
 	}
 	displayName, err := service.buildRuleDisplayName(rule, createdFor, namedPortInfo)
 	if err != nil {
-		log.Error(err, "failed to build rule's display name", "securityPolicyUID", obj.UID, "rule", rule, "createdFor", createdFor)
+		log.Error(err, "Failed to build rule's display name", "securityPolicyUID", obj.UID, "rule", rule, "createdFor", createdFor)
 	}
 
 	nsxRule := model.Rule{
@@ -1842,7 +1842,7 @@ func (service *SecurityPolicyService) getNamespaceUID(ns string) (nsUid types.UI
 		Name: ns,
 	}
 	if err := service.Client.Get(context.Background(), namespacedName, namespace); err != nil {
-		log.Error(err, "failed to get namespace UID", "namespace", ns)
+		log.Error(err, "Failed to get namespace UID", "namespace", ns)
 		return ""
 	}
 	namespace_uid := namespace.UID

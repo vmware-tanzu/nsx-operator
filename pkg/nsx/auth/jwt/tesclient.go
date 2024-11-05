@@ -32,7 +32,7 @@ type TESClient struct {
 func NewTESClient(hostname string, port int, ssoDomain string, username, password string, caCertPem []byte, insecureSkipVerify bool, scheme string) (*TESClient, error) {
 	client, err := NewVCClient(hostname, port, ssoDomain, username, password, caCertPem, insecureSkipVerify, scheme)
 	if err != nil {
-		log.Error(err, "new TESClient failed")
+		log.Error(err, "Failed to create new TESClient")
 		return nil, err
 	}
 	return &TESClient{client}, nil
@@ -58,7 +58,7 @@ func newTokenExchange(samlToken string, useOldAudience bool) *tokenExchange {
 func (client *TESClient) ExchangeJWT(samlToken string, useOldAudience bool) (string, error) {
 	// assume that response should have "access_token" field
 	// no retry while hit "Unknown audience value" error
-	log.V(1).Info("sending saml token to TES for JWT")
+	log.V(1).Info("Sending saml token to TES for JWT")
 
 	exchange := newTokenExchange(samlToken, useOldAudience)
 	body, err := json.Marshal(*exchange)
@@ -72,9 +72,9 @@ func (client *TESClient) ExchangeJWT(samlToken string, useOldAudience bool) (str
 	tesErr := client.HandleRequest("/vcenter/tokenservice/token-exchange", body, &res)
 	if tesErr != nil {
 		msg := fmt.Sprintf("failed to exchange JWT due to error :%v", tesErr)
-		log.Error(tesErr, "failed to exchange JWT")
+		log.Error(tesErr, "Failed to exchange JWT")
 		return "", errors.New(msg)
 	}
-	log.V(1).Info("exchanged JWT")
+	log.V(1).Info("Exchanged JWT")
 	return res.Value["access_token"].(string), nil
 }

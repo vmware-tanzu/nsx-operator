@@ -252,19 +252,19 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	// So, it's unnecessary to exit even if failed in the first time
 	if !nsxClient.NSXCheckVersion(SecurityPolicy) {
 		err := errors.New("SecurityPolicy feature support check failed")
-		log.Error(err, "initial NSX version check for SecurityPolicy got error")
+		log.Error(err, "Initial NSX version check for SecurityPolicy got error")
 	}
 	if !nsxClient.NSXCheckVersion(ServiceAccount) {
 		err := errors.New("NSXServiceAccount feature support check failed")
-		log.Error(err, "initial NSX version check for NSXServiceAccount got error")
+		log.Error(err, "Initial NSX version check for NSXServiceAccount got error")
 	}
 	if !nsxClient.NSXCheckVersion(ServiceAccountRestore) {
 		err := errors.New("NSXServiceAccountRestore feature support check failed")
-		log.Error(err, "initial NSX version check for NSXServiceAccountRestore got error")
+		log.Error(err, "Initial NSX version check for NSXServiceAccountRestore got error")
 	}
 	if !nsxClient.NSXCheckVersion(ServiceAccountCertRotation) {
 		err := errors.New("ServiceAccountCertRotation feature support check failed")
-		log.Error(err, "initial NSX version check for ServiceAccountCertRotation got error")
+		log.Error(err, "Initial NSX version check for ServiceAccountCertRotation got error")
 	}
 
 	return nsxClient
@@ -277,12 +277,12 @@ func (client *Client) NSXCheckVersion(feature int) bool {
 
 	nsxVersion, err := client.NSXVerChecker.cluster.GetVersion()
 	if err != nil {
-		log.Error(err, "get version error")
+		log.Error(err, "Get version error")
 		return false
 	}
 	err = nsxVersion.Validate()
 	if err != nil {
-		log.Error(err, "validate version error")
+		log.Error(err, "Validate version error")
 		return false
 	}
 
@@ -313,14 +313,14 @@ func (client *Client) ValidateLicense(init bool) error {
 	}
 	if !util.IsLicensed(util.FeatureContainer) {
 		err = errors.New("NSX license check failed")
-		log.Error(err, "container license is not supported")
+		log.Error(err, "Container license is not supported")
 		return err
 	}
 	if !init {
 		newContainerLicense := util.IsLicensed(util.FeatureContainer)
 		newDfwLicense := util.IsLicensed(util.FeatureDFW)
 		if newContainerLicense != oldContainerLicense || newDfwLicense != oldDfwLicense {
-			log.Info("license updated, reset", "container license new value", newContainerLicense, "DFW license new value", newDfwLicense, "container license old value", oldContainerLicense, "DFW license old value", oldDfwLicense)
+			log.Info("License updated, reset", "container license new value", newContainerLicense, "DFW license new value", newDfwLicense, "container license old value", oldContainerLicense, "DFW license old value", oldDfwLicense)
 			return errors.New("license updated")
 		}
 	}

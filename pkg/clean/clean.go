@@ -51,7 +51,7 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig, log *logr.Logger, 
 	}
 	logger.InitLog(log)
 
-	log.Info("starting NSX cleanup")
+	log.Info("Starting NSX cleanup")
 	if err := cf.ValidateConfigFromCmd(); err != nil {
 		return errors.Join(nsxutil.ValidationFailed, err)
 	}
@@ -71,7 +71,7 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig, log *logr.Logger, 
 
 	retriable := func(err error) bool {
 		if err != nil && !errors.As(err, &nsxutil.TimeoutFailed) {
-			log.Info("retrying to clean up NSX resources", "error", err)
+			log.Info("Retrying to clean up NSX resources", "error", err)
 			return true
 		}
 		return false
@@ -97,20 +97,20 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig, log *logr.Logger, 
 	// delete DLB group -> delete virtual servers -> DLB services -> DLB pools -> persistent profiles for DLB
 	if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
 		if err != nil {
-			log.Info("retrying to clean up DLB resources", "error", err)
+			log.Info("Retrying to clean up DLB resources", "error", err)
 			return true
 		}
 		return false
 	}, func() error {
 		if err := CleanDLB(ctx, nsxClient.Cluster, cf, log); err != nil {
-			return fmt.Errorf("failed to clean up specific resource: %w", err)
+			return fmt.Errorf("Failed to clean up specific resource: %w", err)
 		}
 		return nil
 	}); err != nil {
 		return err
 	}
 
-	log.Info("cleanup NSX resources successfully")
+	log.Info("Cleanup NSX resources successfully")
 	return nil
 }
 
@@ -127,7 +127,7 @@ func wrapCleanFunc(ctx context.Context, clean cleanup) func() error {
 func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Client) (*CleanupService, error) {
 	cleanupService := NewCleanupService()
 
-	var commonService = common.Service{
+	commonService := common.Service{
 		NSXClient: nsxClient,
 		NSXConfig: cf,
 	}

@@ -93,7 +93,7 @@ func init() {
 }
 
 func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Service) {
-	log.Info("starting NSXServiceAccountController")
+	log.Info("Starting NSXServiceAccountController")
 	nsxServiceAccountReconcile := &nsxserviceaccountcontroller.NSXServiceAccountReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
@@ -101,12 +101,12 @@ func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Ser
 	}
 	nsxServiceAccountService, err := nsxserviceaccount.InitializeNSXServiceAccount(commonService)
 	if err != nil {
-		log.Error(err, "failed to initialize service", "controller", "NSXServiceAccount")
+		log.Error(err, "Failed to initialize service", "controller", "NSXServiceAccount")
 		os.Exit(1)
 	}
 	nsxServiceAccountReconcile.Service = nsxServiceAccountService
 	if err := nsxServiceAccountReconcile.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "NSXServiceAccount")
+		log.Error(err, "Failed to create controller", "controller", "NSXServiceAccount")
 		os.Exit(1)
 	}
 	go commonctl.GenericGarbageCollector(make(chan bool), common.GCInterval, nsxServiceAccountReconcile.CollectGarbage)
@@ -121,7 +121,7 @@ func StartNetworkInfoController(mgr ctrl.Manager, vpcService *vpc.VPCService, ip
 	networkInfoReconciler.Service = vpcService
 	networkInfoReconciler.IPBlocksInfoService = ipblocksInfoService
 	if err := networkInfoReconciler.Start(mgr); err != nil {
-		log.Error(err, "failed to create networkinfo controller", "controller", "NetworkInfo")
+		log.Error(err, "Failed to create networkinfo controller", "controller", "NetworkInfo")
 		os.Exit(1)
 	}
 	go commonctl.GenericGarbageCollector(make(chan bool), common.GCInterval, networkInfoReconciler.CollectGarbage)
@@ -136,7 +136,7 @@ func StartNamespaceController(mgr ctrl.Manager, cf *config.NSXOperatorConfig, vp
 	}
 
 	if err := nsReconciler.Start(mgr); err != nil {
-		log.Error(err, "failed to create namespace controller", "controller", "Namespace")
+		log.Error(err, "Failed to create namespace controller", "controller", "Namespace")
 		os.Exit(1)
 	}
 }
@@ -151,7 +151,7 @@ func StartIPAddressAllocationController(mgr ctrl.Manager, ipAddressAllocationSer
 	}
 
 	if err := ipAddressAllocationReconciler.SetupWithManager(mgr); err != nil {
-		log.Error(err, "failed to create ipaddressallocation controller")
+		log.Error(err, "Failed to create ipaddressallocation controller")
 		os.Exit(1)
 	}
 	go commonctl.GenericGarbageCollector(make(chan bool), common.GCInterval, ipAddressAllocationReconciler.CollectGarbage)
@@ -190,31 +190,31 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		var err error
 		vpcService, err = vpc.InitializeVPC(commonService)
 		if err != nil {
-			log.Error(err, "failed to initialize vpc commonService", "controller", "VPC")
+			log.Error(err, "Failed to initialize vpc commonService", "controller", "VPC")
 			os.Exit(1)
 		}
 		subnetService, err := subnetservice.InitializeSubnetService(commonService)
 		if err != nil {
-			log.Error(err, "failed to initialize subnet commonService")
+			log.Error(err, "Failed to initialize subnet commonService")
 			os.Exit(1)
 		}
 		ipAddressAllocationService, err := ipaddressallocationservice.InitializeIPAddressAllocation(commonService, vpcService, false)
 		if err != nil {
-			log.Error(err, "failed to initialize ipaddressallocation commonService", "controller", "IPAddressAllocation")
+			log.Error(err, "Failed to initialize ipaddressallocation commonService", "controller", "IPAddressAllocation")
 		}
 		subnetPortService, err := subnetportservice.InitializeSubnetPort(commonService)
 		if err != nil {
-			log.Error(err, "failed to initialize subnetport commonService", "controller", "SubnetPort")
+			log.Error(err, "Failed to initialize subnetport commonService", "controller", "SubnetPort")
 			os.Exit(1)
 		}
 		nodeService, err := nodeservice.InitializeNode(commonService)
 		if err != nil {
-			log.Error(err, "failed to initialize node commonService", "controller", "Node")
+			log.Error(err, "Failed to initialize node commonService", "controller", "Node")
 			os.Exit(1)
 		}
 		staticRouteService, err := staticroute.InitializeStaticRoute(commonService, vpcService)
 		if err != nil {
-			log.Error(err, "failed to initialize staticroute commonService", "controller", "StaticRoute")
+			log.Error(err, "Failed to initialize staticroute commonService", "controller", "StaticRoute")
 			os.Exit(1)
 		}
 		ipblocksInfoService := ipblocksinfo.InitializeIPBlocksInfoService(commonService)
@@ -224,14 +224,14 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 
 		var hookServer webhook.Server
 		if _, err := os.Stat(config.WebhookCertDir); errors.Is(err, os.ErrNotExist) {
-			log.Error(err, "server cert not found, disabling webhook server", "cert", config.WebhookCertDir)
+			log.Error(err, "Server cert not found, disabling webhook server", "cert", config.WebhookCertDir)
 		} else {
 			hookServer = webhook.NewServer(webhook.Options{
 				Port:    config.WebhookServerPort,
 				CertDir: config.WebhookCertDir,
 			})
 			if err := mgr.Add(hookServer); err != nil {
-				log.Error(err, "failed to add hook server")
+				log.Error(err, "Failed to add hook server")
 				os.Exit(1)
 			}
 		}
@@ -258,7 +258,6 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	if cf.EnableAntreaNSXInterworking {
 		StartNSXServiceAccountController(mgr, commonService)
 	}
-
 }
 
 func electMaster(mgr manager.Manager, nsxClient *nsx.Client) {
@@ -272,13 +271,13 @@ func electMaster(mgr manager.Manager, nsxClient *nsx.Client) {
 	// the new master operator is configured to wait for 15 seconds, which is
 	// slightly longer than the default Leader Election Renew Deadline (10 seconds),
 	// ensuring a smooth transition.
-	log.Info("waiting a 15-second delay to let the old instance know that it has lost its lease")
+	log.Info("Waiting a 15-second delay to let the old instance know that it has lost its lease")
 	time.Sleep(15 * time.Second)
 	startServiceController(mgr, nsxClient)
 }
 
 func main() {
-	log.Info("starting NSX Operator")
+	log.Info("Starting NSX Operator")
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                  scheme,
 		HealthProbeBindAddress:  config.ProbeAddr,
@@ -288,14 +287,14 @@ func main() {
 		LeaderElectionID:        "nsx-operator",
 	})
 	if err != nil {
-		log.Error(err, "failed to init manager")
+		log.Error(err, "Failed to init manager")
 		os.Exit(1)
 	}
 
 	// nsxClient is used to interact with NSX API.
 	nsxClient := nsx.GetClient(cf)
 	if nsxClient == nil {
-		log.Error(nil, "failed to get nsx client")
+		log.Error(nil, "Failed to get nsx client")
 		os.Exit(1)
 	}
 
@@ -310,17 +309,17 @@ func main() {
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", nsxClient.NSXChecker.CheckNSXHealth); err != nil {
-		log.Error(err, "failed to set up health check")
+		log.Error(err, "Failed to set up health check")
 		os.Exit(1)
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		log.Error(err, "failed to set up ready check")
+		log.Error(err, "Failed to set up ready check")
 		os.Exit(1)
 	}
 
-	log.Info("starting manager")
+	log.Info("Starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		log.Error(err, "failed to start manager")
+		log.Error(err, "Failed to start manager")
 		os.Exit(1)
 	}
 }
@@ -340,7 +339,7 @@ func getHealthStatus(nsxClient *nsx.Client) error {
 func updateHealthMetricsPeriodically(nsxClient *nsx.Client) {
 	for {
 		if err := getHealthStatus(nsxClient); err != nil {
-			log.Error(err, "failed to fetch health info")
+			log.Error(err, "Failed to fetch health info")
 		}
 		select {
 		case <-time.After(metrics.ScrapeTimeout):

@@ -16,9 +16,13 @@ var (
 	licenseMutex        sync.Mutex
 	licenseMap          = map[string]bool{}
 	Features_to_check   = []string{}
-	Feature_license_map = map[string][]string{FeatureContainer: {LicenseContainerNetwork,
-		LicenseContainer},
-		FeatureDFW: {LicenseDFW}}
+	Feature_license_map = map[string][]string{
+		FeatureContainer: {
+			LicenseContainerNetwork,
+			LicenseContainer,
+		},
+		FeatureDFW: {LicenseDFW},
+	}
 )
 
 func init() {
@@ -65,6 +69,6 @@ func UpdateFeatureLicense(licenses *NsxLicense) {
 		licenseNames := Feature_license_map[feature]
 		license := searchLicense(licenses, licenseNames)
 		UpdateLicense(feature, license)
-		log.V(1).Info("update license", "feature", feature, "license", license)
+		log.V(1).Info("Update license", "feature", feature, "license", license)
 	}
 }

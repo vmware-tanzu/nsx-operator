@@ -190,7 +190,7 @@ func TestReconcile(t *testing.T) {
 				})
 
 				tags := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-tag")}}
-				for i := 0; i < common.TagsCountMax; i++ {
+				for i := 0; i < common.MaxTagsCount; i++ {
 					key := fmt.Sprintf("fake-tag-key-%d", i)
 					value := common.String(fmt.Sprintf("fake-tag-value-%d", i))
 					tags = append(tags, model.Tag{Scope: &key, Tag: value})
@@ -414,7 +414,6 @@ func TestReconcile_DeleteSubnetSet(t *testing.T) {
 			assert.Equal(t, testCase.expectRes, res)
 		})
 	}
-
 }
 
 // Test Reconcile - SubnetSet Deletion
@@ -627,8 +626,7 @@ func (m *MockManager) Start(context.Context) error {
 	return nil
 }
 
-type mockWebhookServer struct {
-}
+type mockWebhookServer struct{}
 
 func (m *mockWebhookServer) Register(path string, hook http.Handler) {
 	return

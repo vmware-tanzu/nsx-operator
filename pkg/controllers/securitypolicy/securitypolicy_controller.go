@@ -105,7 +105,7 @@ func setSecurityPolicyErrorAnnotation(ctx context.Context, securityPolicy *v1alp
 		updateErr = client.Update(ctx, securityPolicy)
 	}
 	if updateErr != nil {
-		log.Error(updateErr, "failed to update SecurityPolicy with error annotation")
+		log.Error(updateErr, "Failed to update SecurityPolicy with error annotation")
 	}
 	log.Info("Updated SecurityPolicy with error annotation", "error", info)
 }
@@ -126,7 +126,7 @@ func cleanSecurityPolicyErrorAnnotation(ctx context.Context, securityPolicy *v1a
 		updateErr = client.Update(ctx, securityPolicy)
 	}
 	if updateErr != nil {
-		log.Error(updateErr, "failed to clean SecurityPolicy annotation")
+		log.Error(updateErr, "Failed to clean SecurityPolicy annotation")
 	}
 	log.Info("Clean SecurityPolicy annotation")
 }
@@ -150,13 +150,13 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
 		if apierrors.IsNotFound(err) {
 			if err := r.deleteSecurityPolicyByName(req.Namespace, req.Name); err != nil {
-				log.Error(err, "failed to delete SecurityPolicy", "securitypolicy", req.NamespacedName)
+				log.Error(err, "Failed to delete SecurityPolicy", "securitypolicy", req.NamespacedName)
 				return ResultRequeue, err
 			}
 			return ResultNormal, nil
 		}
 		// In case that client is unable to check CR
-		log.Error(err, "client is unable to fetch SecurityPolicy CR", "req", req.NamespacedName)
+		log.Error(err, "Failed to fetch SecurityPolicy CR", "req", req.NamespacedName)
 		return ResultRequeue, err
 	}
 
@@ -187,7 +187,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 		if isCRInSysNs, err := util.IsSystemNamespace(r.Client, req.Namespace, nil); err != nil {
 			err = errors.New("fetch namespace associated with security policy CR failed")
-			log.Error(err, "would retry exponentially", "securitypolicy", req.NamespacedName)
+			log.Error(err, "Would retry exponentially", "securitypolicy", req.NamespacedName)
 			updateFail(r, ctx, realObj, &err)
 			return ResultRequeue, err
 		} else if isCRInSysNs {
@@ -210,7 +210,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				setSecurityPolicyErrorAnnotation(ctx, realObj, securitypolicy.IsVPCEnabled(r.Service), r.Client, common.ErrorNoDFWLicense)
 				os.Exit(1)
 			}
-			log.Error(err, "create or update failed, would retry exponentially", "securitypolicy", req.NamespacedName)
+			log.Error(err, "Failed to create or update, would retry exponentially", "securitypolicy", req.NamespacedName)
 			updateFail(r, ctx, realObj, &err)
 			return ResultRequeue, err
 		}
@@ -224,14 +224,14 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if controllerutil.ContainsFinalizer(obj, finalizerName) {
 			controllerutil.RemoveFinalizer(obj, finalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
-				log.Error(err, "finalizer remove failed, would retry exponentially", "securitypolicy", req.NamespacedName)
+				log.Error(err, "Failed to remove finalizer, would retry exponentially", "securitypolicy", req.NamespacedName)
 				deleteFail(r, ctx, realObj, &err)
 				return ResultRequeue, err
 			}
 			log.V(1).Info("Removed finalizer", "securitypolicy", req.NamespacedName)
 		}
 		if err := r.Service.DeleteSecurityPolicy(realObj.UID, false, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
-			log.Error(err, "deletion failed, would retry exponentially", "securitypolicy", req.NamespacedName)
+			log.Error(err, "Failed to delete, would retry exponentially", "securitypolicy", req.NamespacedName)
 			deleteFail(r, ctx, realObj, &err)
 			return ResultRequeue, err
 		}
@@ -399,7 +399,7 @@ func (r *SecurityPolicyReconciler) deleteSecurityPolicyByName(ns, name string) e
 
 		log.Info("Deleting SecurityPolicy", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
 		if err := r.Service.DeleteSecurityPolicy(types.UID(uid), false, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
-			log.Error(err, "failed to delete SecurityPolicy", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
+			log.Error(err, "Failed to delete SecurityPolicy", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
 			return err
 		}
 		log.Info("Successfully deleted SecurityPolicy", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
@@ -416,7 +416,7 @@ func (r *SecurityPolicyReconciler) listSecurityPolciyCRIDs() (sets.Set[string], 
 	}
 	err := r.Client.List(context.Background(), objectList)
 	if err != nil {
-		log.Error(err, "failed to list SecurityPolicy CR")
+		log.Error(err, "Failed to list SecurityPolicy CR")
 		return nil, err
 	}
 
@@ -449,7 +449,7 @@ func reconcileSecurityPolicy(r *SecurityPolicyReconciler, pkgclient client.Clien
 	}
 	err := pkgclient.List(context.Background(), spList)
 	if err != nil {
-		log.Error(err, "failed to list all the security policy")
+		log.Error(err, "Failed to list all the security policy")
 		return err
 	}
 
@@ -505,7 +505,7 @@ func StartSecurityPolicyController(mgr ctrl.Manager, commonService servicecommon
 	}
 	securityPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService, vpcService)
 	if err := securityPolicyReconcile.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "SecurityPolicy")
+		log.Error(err, "Failed to create controller", "controller", "SecurityPolicy")
 		os.Exit(1)
 	}
 	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, securityPolicyReconcile.CollectGarbage)
