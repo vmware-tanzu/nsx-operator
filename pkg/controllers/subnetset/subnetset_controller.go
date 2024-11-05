@@ -114,7 +114,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if specChanged {
 		err := r.Client.Update(ctx, subnetsetCR)
 		if err != nil {
-			log.Error(err, "Update SubnetSet failed", "SubnetSet", req.NamespacedName)
+			log.Error(err, "Update SubnetSet failed", "SubnetSet", req.NamespacedName, "SubnetSetSpec", subnetsetCR.Spec)
 			updateFail(r, ctx, subnetsetCR, err.Error())
 			return ResultRequeue, err
 		}
