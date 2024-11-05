@@ -7,8 +7,8 @@ metadata:
   name: system
 spec:
   defaultSubnetSize: 32
-  nsxProject: /orgs/default/projects/nsx_operator_e2e_test
+  nsxProject: /orgs/default/projects/project-quality
   privateIPs:
     - 172.27.0.0/16
     - 172.37.0.0/16
-  vpcConnectivityProfile: /orgs/default/projects/nsx_operator_e2e_test/vpc-connectivity-profiles/default
+  vpcConnectivityProfile: /orgs/default/projects/project-quality/vpc-connectivity-profiles/default

@@ -23,6 +23,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/test/e2e/providers"
 )
 
@@ -78,15 +79,6 @@ type TestData struct {
 }
 
 var testData *TestData
-
-// Temporarily disable traffic check
-/*
-type PodIPs struct {
-	ipv4      *net.IP
-	ipv6      *net.IP
-	ipStrings []string
-}
-*/
 
 func initProvider() error {
 	providerFactory := map[string]func(string) (providers.ProviderInterface, error){
@@ -439,7 +431,11 @@ func (data *TestData) getCRResource(timeout time.Duration, crtype, crname, names
 		if err != nil || rc != 0 {
 			return false, fmt.Errorf("error when running the following command `%s` on master Node: %v, %s", uid_cmd, err, stdout)
 		} else {
-			uid := strings.Split(stdout, ":")[1]
+			parts := strings.Split(stdout, ":")
+			if len(parts) < 2 {
+				return false, nil
+			}
+			uid := parts[1]
 			ret = uid
 		}
 		return true, nil
@@ -675,16 +671,20 @@ func applyYAML(filename string, ns string) error {
 	}
 	var stdout, stderr bytes.Buffer
 	command := exec.Command("bash", "-c", cmd)
-	log.Printf("Applying YAML file %s", filename)
 	command.Stdout = &stdout
 	command.Stderr = &stderr
+
+	log.Printf("Applying YAML file: %s, Namespace: %s", filename, ns)
+
 	err := command.Run()
+	outStr, errStr := stdout.String(), stderr.String()
+
+	log.Printf("YAML file %s applied. Output: '%s', Error: '%s'", filename, outStr, errStr)
+
 	if err != nil {
-		log.Printf("Error when applying YAML file %s: %v", filename, err)
-		return err
+		log.Printf("Failed to apply YAML file %s: %v", filename, err)
+		return fmt.Errorf("failed to apply YAML: %w", err)
 	}
-	outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
-	log.Printf("YAML file %s applied with output: '%s' and error: '%s'", cmd, outStr, errStr)
 	return nil
 }
 
@@ -810,6 +810,9 @@ func (data *TestData) waitForResourceExistByPath(pathPolicy string, shouldExist 
 		if err != nil {
 			if !shouldExist {
 				return true, nil
+			}
+			if err == util.HttpNotFoundError && shouldExist {
+				return false, nil
 			}
 			return false, err
 		}
