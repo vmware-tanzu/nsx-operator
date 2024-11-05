@@ -447,7 +447,7 @@ func (r *NetworkInfoReconciler) fetchStaleVPCsByNamespace(ctx context.Context, n
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			// if the Namespace has been deleted, we never know whether it`s a shared Namespace, The GC will delete the stale VPCs
-			log.Info("Namespace does not exist, skipping deletion of NSX VPC", "Namespace", ns)
+			log.Info("Namespace does not exist while fetching stale VPCs", "Namespace", ns)
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to check if Namespace is shared for NS %s: %w", ns, err)
