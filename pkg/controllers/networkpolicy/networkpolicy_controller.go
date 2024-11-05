@@ -90,7 +90,7 @@ func cleanNetworkPolicyErrorAnnotation(ctx context.Context, networkPolicy *netwo
 	}
 	updateErr := client.Update(ctx, networkPolicy)
 	if updateErr != nil {
-		log.Error(updateErr, "failed to clean NetworkPolicy annotation")
+		log.Error(updateErr, "Failed to clean NetworkPolicy annotation")
 	}
 	log.Info("Clean NetworkPolicy annotation")
 }
@@ -108,13 +108,13 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if err := r.Client.Get(ctx, req.NamespacedName, networkPolicy); err != nil {
 		if apierrors.IsNotFound(err) {
 			if err := r.deleteNetworkPolicyByName(req.Namespace, req.Name); err != nil {
-				log.Error(err, "failed to delete NetworkPolicy", "networkpolicy", req.NamespacedName)
+				log.Error(err, "Failed to delete NetworkPolicy", "networkpolicy", req.NamespacedName)
 				return ResultRequeue, err
 			}
 			return ResultNormal, nil
 		}
 		// In case that client is unable to check CR
-		log.Error(err, "client is unable to fetch NetworkPolicy CR", "req", req.NamespacedName)
+		log.Error(err, "Failed to fetch NetworkPolicy CR", "req", req.NamespacedName)
 		return ResultRequeue, err
 	}
 
@@ -134,7 +134,7 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				setNetworkPolicyErrorAnnotation(ctx, networkPolicy, r.Client, common.ErrorNoDFWLicense)
 				os.Exit(1)
 			}
-			log.Error(err, "create or update failed, would retry exponentially", "networkpolicy", req.NamespacedName)
+			log.Error(err, "Failed to create or update, would retry exponentially", "networkpolicy", req.NamespacedName)
 			updateFail(r, ctx, networkPolicy, &err)
 			return ResultRequeue, err
 		}
@@ -145,7 +145,7 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, MetricResType)
 
 		if err := r.Service.DeleteSecurityPolicy(networkPolicy, false, false, servicecommon.ResourceTypeNetworkPolicy); err != nil {
-			log.Error(err, "deletion failed, would retry exponentially", "networkpolicy", req.NamespacedName)
+			log.Error(err, "Failed to Delete, would retry exponentially", "networkpolicy", req.NamespacedName)
 			deleteFail(r, ctx, networkPolicy, &err)
 			return ResultRequeue, err
 		}
@@ -217,7 +217,7 @@ func (r *NetworkPolicyReconciler) deleteNetworkPolicyByName(ns, name string) err
 
 		log.Info("Deleting NetworkPolicy", "networkPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
 		if err := r.Service.DeleteSecurityPolicy(types.UID(uid), false, false, servicecommon.ResourceTypeNetworkPolicy); err != nil {
-			log.Error(err, "failed to delete NetworkPolicy", "networkPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
+			log.Error(err, "Failed to delete NetworkPolicy", "networkPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
 			return err
 		}
 		log.Info("Successfully deleted NetworkPolicy", "networkPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
@@ -229,7 +229,7 @@ func (r *NetworkPolicyReconciler) listNetworkPolciyCRIDs() (sets.Set[string], er
 	networkPolicyList := &networkingv1.NetworkPolicyList{}
 	err := r.Client.List(context.Background(), networkPolicyList)
 	if err != nil {
-		log.Error(err, "failed to list NetworkPolicy CRs")
+		log.Error(err, "Failed to list NetworkPolicy CRs")
 		return nil, err
 	}
 
@@ -249,7 +249,7 @@ func StartNetworkPolicyController(mgr ctrl.Manager, commonService servicecommon.
 	}
 	networkPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService, vpcService)
 	if err := networkPolicyReconcile.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "NetworkPolicy")
+		log.Error(err, "Failed to create controller", "controller", "NetworkPolicy")
 		os.Exit(1)
 	}
 	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, networkPolicyReconcile.CollectGarbage)

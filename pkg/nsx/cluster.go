@@ -36,6 +36,7 @@ const (
 	// GREEN means endpoints status are UP.
 	GREEN ClusterHealth = "GREEN"
 )
+
 const (
 	EnvoyUrlWithCert       = "http://%s:%d/external-cert/http1/%s"
 	EnvoyUrlWithThumbprint = "http://%s:%d/external-tp/http1/%s/%s"
@@ -68,7 +69,7 @@ var (
 
 // NewCluster creates a cluster based on nsx Config.
 func NewCluster(config *Config) (*Cluster, error) {
-	log.Info("creating cluster")
+	log.Info("Creating cluster")
 	cluster := &Cluster{}
 	cluster.config = config
 	cluster.transport = cluster.createTransport(time.Duration(config.ConnIdleTimeout))
@@ -78,7 +79,7 @@ func NewCluster(config *Config) (*Cluster, error) {
 	r := ratelimiter.NewRateLimiter(config.APIRateMode)
 	eps, err := cluster.createEndpoints(config.APIManagers, cluster.client, cluster.noBalancerClient, r, config.TokenProvider)
 	if err != nil {
-		log.Error(err, "creating cluster failed")
+		log.Error(err, "Failed to create cluster")
 		return nil, err
 	}
 
@@ -119,10 +120,10 @@ func (cluster *Cluster) loadCAforEnvoy() {
 		cert := util.CertPemBytesToHeader(caFile)
 		if cert != "" {
 			cluster.endpoints[i].caFile = cert
-			log.Info("load CA for envoy sidecar", "caFile", caFile)
+			log.Info("Load CA for envoy sidecar", "caFile", caFile)
 			return
 		} else {
-			log.Info("failed to load CA for envoy sidecar", "caFile", caFile)
+			log.Info("Failed to load CA for envoy sidecar", "caFile", caFile)
 		}
 	}
 
@@ -138,7 +139,7 @@ func (cluster *Cluster) CreateServerUrl(host string, scheme string) string {
 		index := strings.Index(host, ":")
 		mgrIP := ""
 		if index == -1 {
-			log.Info("no port provided, use default port 443", "host", host)
+			log.Info("No port provided, use default port 443", "host", host)
 			mgrIP = host + "/443"
 		} else {
 			mgrIP = strings.ReplaceAll(host, ":", "/")
@@ -156,7 +157,7 @@ func (cluster *Cluster) CreateServerUrl(host string, scheme string) string {
 	} else {
 		serverUrl = fmt.Sprintf("%s://%s", scheme, host)
 	}
-	log.V(1).Info("create serverUrl", "serverUrl", serverUrl)
+	log.V(1).Info("Create serverUrl", "serverUrl", serverUrl)
 	return serverUrl
 }
 
@@ -222,29 +223,29 @@ func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
 	tr := &http.Transport{
 		IdleConnTimeout: idle * time.Second,
 	}
-	log.Info("cluster envoy mode", "envoy mode", cluster.UsingEnvoy())
+	log.Info("Cluster envoy mode", "envoy mode", cluster.UsingEnvoy())
 	if cluster.config.Insecure == false {
 		dial := func(ctx context.Context, network, addr string) (net.Conn, error) { // #nosec G402: ignore insecure options
 			var config *tls.Config
 			cafile := cluster.getCaFile(addr)
 			caCount := len(cluster.config.CAFile)
-			log.Info("create Transport", "ca file", cafile, "caCount", caCount)
+			log.Info("Create Transport", "ca file", cafile, "caCount", caCount)
 			if caCount > 0 {
 				caCert, err := os.ReadFile(cafile)
 				if err != nil {
-					log.Error(err, "create transport", "read ca file", cafile)
+					log.Error(err, "Create transport", "read ca file", cafile)
 					return nil, err
 				}
 
 				config, err = util.GetTLSConfigForCert(caCert)
 				if err != nil {
-					log.Error(err, "create transport", "get tls config from cert", cafile)
+					log.Error(err, "Create transport", "get TLS config from cert", cafile)
 					return nil, err
 				}
 			} else {
 				thumbprint := cluster.getThumbprint(addr)
 				tpCount := len(cluster.config.Thumbprint)
-				log.Info("create Transport", "thumbprint", thumbprint, "tpCount", tpCount)
+				log.Info("Create Transport", "thumbprint", thumbprint, "tpCount", tpCount)
 				// #nosec G402: ignore insecure options
 				config = &tls.Config{
 					InsecureSkipVerify: true,
@@ -261,7 +262,7 @@ func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
 			}
 			conn, err := tls.Dial(network, addr, config)
 			if err != nil {
-				log.Error(err, "transport connect to", "addr", addr)
+				log.Error(err, "Failed to do transport connect to", "addr", addr)
 				return nil, err
 
 			}
@@ -342,19 +343,19 @@ func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 	serverUrl := cluster.CreateServerUrl(cluster.endpoints[0].Host(), cluster.endpoints[0].Scheme())
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/v1/node/version", serverUrl), nil)
 	if err != nil {
-		log.Error(err, "failed to create http request")
+		log.Error(err, "Failed to create HTTP request")
 		return nil, err
 	}
-	log.V(1).Info("get version", "url", req.URL)
+	log.V(1).Info("Get version", "url", req.URL)
 	err = ep.UpdateHttpRequestAuth(req)
 	if err != nil {
-		log.Error(err, "keep alive update auth error")
+		log.Error(err, "Failed to keep alive update auth")
 		return nil, err
 	}
 	ep.UpdateCAforEnvoy(req)
 	resp, err := ep.noBalancerClient.Do(req)
 	if err != nil {
-		log.Error(err, "failed to get nsx version")
+		log.Error(err, "Failed to get NSX version")
 		return nil, err
 	}
 	err, _ = util.HandleHTTPResponse(resp, nsxVersion, true)
@@ -365,7 +366,7 @@ func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 func (cluster *Cluster) HttpGet(url string) (map[string]interface{}, error) {
 	resp, err := cluster.httpAction(url, "GET")
 	if err != nil {
-		log.Error(err, "failed to do http GET operation")
+		log.Error(err, "Failed to do HTTP GET operation")
 		return nil, err
 	}
 	respJson := make(map[string]interface{})
@@ -379,7 +380,7 @@ func (cluster *Cluster) httpAction(url, method string) (*http.Response, error) {
 	url = fmt.Sprintf("%s/%s", serverUrl, url)
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
-		log.Error(err, "failed to create http request")
+		log.Error(err, "Failed to create HTTP request")
 		return nil, err
 	}
 	log.V(1).Info(method+" url", "url", req.URL)
@@ -394,7 +395,7 @@ func (cluster *Cluster) httpAction(url, method string) (*http.Response, error) {
 func (cluster *Cluster) HttpDelete(url string) error {
 	_, err := cluster.httpAction(url, "DELETE")
 	if err != nil {
-		log.Error(err, "failed to do http DELETE operation")
+		log.Error(err, "Failed to do HTTP DELETE operation")
 		return err
 	}
 	return nil
@@ -405,7 +406,7 @@ func (nsxVersion *NsxVersion) Validate() error {
 	result := re.Find([]byte(nsxVersion.NodeVersion))
 	if len(result) < 1 {
 		err := errors.New("error version format")
-		log.Error(err, "check version", "version", nsxVersion.NodeVersion)
+		log.Error(err, "Failed to check NSX version", "version", nsxVersion.NodeVersion)
 		return err
 	}
 
@@ -445,7 +446,7 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 		for i, str := range buff {
 			val, err := strconv.ParseInt(str, 10, 64)
 			if err != nil {
-				log.Error(err, "parse version error")
+				log.Error(err, "Failed to parse NSX version")
 				return false
 			}
 			sections[i] = val
@@ -467,7 +468,7 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 func (cluster *Cluster) FetchLicense() error {
 	resp, err := cluster.httpAction(LicenseAPI, "GET")
 	if err != nil {
-		log.Error(err, "failed to get nsx license")
+		log.Error(err, "Failed to get NSX license")
 		return err
 	}
 	nsxLicense := &util.NsxLicense{}
