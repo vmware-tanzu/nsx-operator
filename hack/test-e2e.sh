@@ -32,11 +32,12 @@ git checkout $ghprbSourceBranch
 
 #kubectl rollout restart deployment nsx-ncp -n vmware-system-nsx
 kubectl scale deployment nsx-ncp -n vmware-system-nsx --replicas=0
+sleep 3
 cp $NSX_OPERATOR_DIR/bin/manager /etc/vmware/wcp/tls/
 chmod 777 /etc/vmware/wcp/tls/manager
 
 kubectl scale deployment nsx-ncp -n vmware-system-nsx --replicas=1
-
+sleep 10
 kubectl apply -f $NSX_OPERATOR_DIR/build/yaml/crd/vpc/
 
 pod_name=$(kubectl get pods -n  vmware-system-nsx -o jsonpath="{.items[0].metadata.name}")
@@ -50,8 +51,5 @@ kubectl exec $pod_name -c nsx-ncp -n vmware-system-nsx -- cat  /var/run/secrets/
 kubectl exec $pod_name -c nsx-ncp -n vmware-system-nsx -- cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt  > /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
 kubectl exec $pod_name -c nsx-ncp -n vmware-system-nsx -- cat /etc/nsx-ujo/vc/username > /etc/nsx-ujo/vc/username
 kubectl exec $pod_name -c nsx-ncp -n vmware-system-nsx -- cat /etc/nsx-ujo/vc/password > /etc/nsx-ujo/vc/password
-
-cp /root/remote.go $NSX_OPERATOR_DIR/test/e2e/providers/remote.go
-cp /root/nsx_networkinfo_test.go $NSX_OPERATOR_DIR/test/e2e/nsx_networkinfo_test.go
 
 e2e=true go test -v ./test/e2e -coverpkg=./pkg/... -remote.sshconfig /root/config -remote.kubeconfig /root/.kube/config -operator-cfg-path /etc/ncp.ini -test.timeout 15m -coverprofile cover-e2e.out
