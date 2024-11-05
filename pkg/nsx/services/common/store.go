@@ -52,7 +52,7 @@ func (resourceStore *ResourceStore) TransResourceToStore(entity *data.StructValu
 	}
 	objAddr := nsxutil.CasttoPointer(obj)
 	if objAddr == nil {
-		return fmt.Errorf("failed to cast to pointer")
+		return fmt.Errorf("Failed to cast to pointer")
 	}
 	err2 := resourceStore.Add(objAddr)
 	if err2 != nil {
@@ -82,7 +82,7 @@ func (resourceStore *ResourceStore) ListIndexFuncValues(key string) sets.Set[str
 func (resourceStore *ResourceStore) GetByKey(key string) interface{} {
 	res, exists, err := resourceStore.Indexer.GetByKey(key)
 	if err != nil {
-		log.Error(err, "failed to get obj by key", "key", key)
+		log.Error(err, "Failed to get obj by key", "key", key)
 	} else if exists {
 		return res
 	}
@@ -94,7 +94,7 @@ func (resourceStore *ResourceStore) GetByKey(key string) interface{} {
 func (resourceStore *ResourceStore) GetByIndex(index string, value string) []interface{} {
 	indexResults, err := resourceStore.Indexer.ByIndex(index, value)
 	if err != nil {
-		log.Error(err, "failed to get obj by index", "index", value)
+		log.Error(err, "Failed to get obj by index", "index", value)
 	}
 	return indexResults
 }
@@ -106,7 +106,7 @@ func (resourceStore *ResourceStore) IsPolicyAPI() bool {
 func TransError(err error) error {
 	apierror, errortype := nsxutil.DumpAPIError(err)
 	if apierror != nil {
-		log.Info("translate error", "apierror", apierror, "error type", errortype)
+		log.Info("Translate error", "apierror", apierror, "error type", errortype)
 		if *errortype == apierrors.ErrorType_SERVICE_UNAVAILABLE && *apierror.ErrorCode == int64(60576) ||
 			*errortype == apierrors.ErrorType_INVALID_REQUEST && *apierror.ErrorCode == int64(255) {
 			return nsxutil.PageMaxError{Desc: "page max overflow"}
@@ -187,7 +187,7 @@ func (service *Service) PopulateResourcetoStore(wg *sync.WaitGroup, fatalErrors 
 	if err != nil {
 		fatalErrors <- err
 	}
-	log.Info("initialized store", "resourceType", resourceTypeValue, "count", count)
+	log.Info("Initialized store", "resourceType", resourceTypeValue, "count", count)
 }
 
 // InitializeCommonStore is the common method used by InitializeResourceStore and InitializeVPCResourceStore

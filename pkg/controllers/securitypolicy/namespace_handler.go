@@ -40,7 +40,7 @@ func (e *EnqueueRequestForNamespace) Generic(_ context.Context, _ event.GenericE
 func (e *EnqueueRequestForNamespace) Update(_ context.Context, updateEvent event.UpdateEvent, l workqueue.RateLimitingInterface) {
 	obj := updateEvent.ObjectNew.(*v1.Namespace)
 	if isInSysNs, err := util.IsSystemNamespace(nil, "", obj); err != nil {
-		log.Error(err, "failed to fetch namespace", "namespace", obj.Name)
+		log.Error(err, "Failed to fetch namespace", "namespace", obj.Name)
 		return
 	} else if isInSysNs {
 		log.V(2).Info("NameSpace is in system namespace, ignore it", "namespace", obj.Name)
@@ -50,7 +50,7 @@ func (e *EnqueueRequestForNamespace) Update(_ context.Context, updateEvent event
 	podList := &v1.PodList{}
 	err := e.Client.List(context.Background(), podList, client.InNamespace(obj.Name))
 	if err != nil {
-		log.Error(err, "failed to list pod in namespace", "namespace", obj.Name)
+		log.Error(err, "Failed to list pod in namespace", "namespace", obj.Name)
 		return
 	}
 
@@ -68,7 +68,7 @@ func (e *EnqueueRequestForNamespace) Update(_ context.Context, updateEvent event
 
 	err = reconcileSecurityPolicy(e.SecurityPolicyReconciler, e.Client, podList.Items, l)
 	if err != nil {
-		log.Error(err, "failed to reconcile security policy for namedport check")
+		log.Error(err, "Failed to reconcile security policy for namedport check")
 	}
 }
 

@@ -15,7 +15,7 @@ type Comparable interface {
 }
 
 func CompareResource(existing Comparable, expected Comparable) (isChanged bool) {
-	var dataValueToJSONEncoder = cleanjson.NewDataValueToJsonEncoder()
+	dataValueToJSONEncoder := cleanjson.NewDataValueToJsonEncoder()
 	s1, _ := dataValueToJSONEncoder.Encode(existing.Value())
 	s2, _ := dataValueToJSONEncoder.Encode(expected.Value())
 	if s1 != s2 {
@@ -42,16 +42,16 @@ func CompareResources(existing []Comparable, expected []Comparable) (changed []C
 			if isChanged := CompareResource(existed_item, expected_item); !isChanged {
 				continue
 			}
-			log.V(1).Info("resource changed", "existing", existed_item, "expected", expected_item)
+			log.V(1).Info("Resource changed", "existing", existed_item, "expected", expected_item)
 		}
 		changed = append(changed, expected_item)
 	}
 	for key, existed_item := range existingMap {
 		if _, ok := expectedMap[key]; !ok {
-			log.V(1).Info("resource stale", "existing", existed_item)
+			log.V(1).Info("Resource stale", "existing", existed_item)
 			stale = append(stale, existed_item)
 		}
 	}
-	log.V(1).Info("resources differ", "stale", stale, "changed", changed)
+	log.V(1).Info("Resources differ", "stale", stale, "changed", changed)
 	return changed, stale
 }
