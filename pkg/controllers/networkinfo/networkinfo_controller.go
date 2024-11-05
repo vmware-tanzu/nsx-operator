@@ -457,7 +457,7 @@ func (r *NetworkInfoReconciler) fetchStaleVPCsByNamespace(ctx context.Context, n
 		return nil, nil
 	}
 
-	return r.Service.GetVPCsByNamespace(ctx, ns), nil
+	return r.Service.GetVPCsByNamespace(ns), nil
 }
 
 func (r *NetworkInfoReconciler) deleteVPCsByName(ctx context.Context, ns string) error {

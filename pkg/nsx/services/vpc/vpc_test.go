@@ -523,7 +523,7 @@ func TestGetVPCsByNamespace(t *testing.T) {
 			name:           "Shared Namespace",
 			ns:             "test-ns-1",
 			expectVPCNum:   1,
-			expectVPCNames: []string{infraVPCName},
+			expectVPCNames: []string{vpcName1},
 			prepareFunc: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "resolveSharedVPCNamespace", func(_ *VPCService, ns string) (*v1.Namespace, *v1.Namespace, error) {
 					return nil, &v1.Namespace{
@@ -552,7 +552,7 @@ func TestGetVPCsByNamespace(t *testing.T) {
 				defer patches.Reset()
 			}
 
-			gotVPCs := service.GetVPCsByNamespace(ctx, tt.ns)
+			gotVPCs := service.GetVPCsByNamespace(tt.ns)
 			assert.Equal(t, tt.expectVPCNum, len(gotVPCs))
 
 			for _, vpc := range gotVPCs {
@@ -2127,7 +2127,7 @@ func TestInitializeVPC(t *testing.T) {
 		}
 		service, err := InitializeVPC(commonService)
 		assert.NoError(t, err)
-		res := service.GetVPCsByNamespace(context.Background(), tc.searchKey)
+		res := service.GetVPCsByNamespace(tc.searchKey)
 		assert.Equal(t, tc.expectVPCGetByIndex, len(res))
 		allVPCs := service.ListVPC()
 		assert.Equal(t, tc.expectAllVPCNum, len(allVPCs))

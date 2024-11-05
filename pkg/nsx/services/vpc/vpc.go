@@ -10,7 +10,6 @@ import (
 	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
-	apirrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
@@ -196,16 +195,8 @@ func (s *VPCService) GetVPCsByNamespaceUID(ctx context.Context, namespace string
 	return s.VpcStore.GetVPCsByNamespaceIDFromStore(string(sharedNamespace.UID))
 }
 
-func (s *VPCService) GetVPCsByNamespace(ctx context.Context, namespace string) []*model.Vpc {
-	namespaceObj, sharedNamespace, err := s.resolveSharedVPCNamespace(ctx, namespace)
-	if err != nil {
-		log.Error(err, "Failed to get Namespace")
-		return nil
-	}
-	if sharedNamespace == nil {
-		return s.VpcStore.GetVPCsByNamespaceFromStore(namespaceObj.Name)
-	}
-	return s.VpcStore.GetVPCsByNamespaceFromStore(sharedNamespace.Name)
+func (s *VPCService) GetVPCsByNamespace(namespace string) []*model.Vpc {
+	return s.VpcStore.GetVPCsByNamespaceFromStore(namespace)
 }
 
 func (s *VPCService) ListVPC() []model.Vpc {
@@ -537,9 +528,6 @@ func (s *VPCService) DeleteLBPool(path string) error {
 func (s *VPCService) IsSharedVPCNamespaceByNS(ctx context.Context, ns string) (bool, error) {
 	_, sharedNamespaceObj, err := s.resolveSharedVPCNamespace(ctx, ns)
 	if err != nil {
-		if apirrors.IsNotFound(err) {
-			return false, nil
-		}
 		return false, err
 	}
 	if sharedNamespaceObj == nil {
