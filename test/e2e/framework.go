@@ -675,16 +675,20 @@ func applyYAML(filename string, ns string) error {
 	}
 	var stdout, stderr bytes.Buffer
 	command := exec.Command("bash", "-c", cmd)
-	log.Printf("Applying YAML file %s", filename)
 	command.Stdout = &stdout
 	command.Stderr = &stderr
+
+	log.Printf("Applying YAML file: %s, Namespace: %s", filename, ns)
+
 	err := command.Run()
+	outStr, errStr := stdout.String(), stderr.String()
+
+	log.Printf("YAML file %s applied. Output: '%s', Error: '%s'", filename, outStr, errStr)
+
 	if err != nil {
-		log.Printf("Error when applying YAML file %s: %v", filename, err)
-		return err
+		log.Printf("Failed to apply YAML file %s: %v", filename, err)
+		return fmt.Errorf("failed to apply YAML: %w", err)
 	}
-	outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
-	log.Printf("YAML file %s applied with output: '%s' and error: '%s'", cmd, outStr, errStr)
 	return nil
 }
 

@@ -203,7 +203,7 @@ func UserSubnetSet(t *testing.T) {
 		// 1. Check SubnetSet created by user.
 		subnetSetPath, _ := filepath.Abs(subnetSetYAML)
 		err := applyYAML(subnetSetPath, E2ENamespace)
-		assertNil(t, err)
+		assert.NoError(t, err)
 		err = testData.waitForCRReadyOrDeleted(defaultTimeout, SubnetSetCRType, E2ENamespace, subnetSetName, Ready)
 		assertNil(t, err)
 
