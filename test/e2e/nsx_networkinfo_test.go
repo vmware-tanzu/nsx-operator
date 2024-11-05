@@ -5,17 +5,17 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 const (
-	NetworkInfoCRType     = "networkinfos.crd.nsx.vmware.com"
-	NetworkConfigCRType   = "vpcnetworkconfigurations.crd.nsx.vmware.com"
-	NSCRType              = "namespaces"
-	PrivateIPBlockNSXType = "IpAddressBlock"
+	NetworkInfoCRType   = "networkinfos.crd.nsx.vmware.com"
+	NetworkConfigCRType = "vpcnetworkconfigurations.crd.nsx.vmware.com"
+	NSCRType            = "namespaces"
 
 	TestCustomizedNetworkConfigName = "selfdefinedconfig"
 	TestInfraNetworkConfigName      = "system"
-	TestDefaultNetworkConfigName    = "default"
 
 	InfraVPCNamespace       = "kube-system"
 	SharedInfraVPCNamespace = "kube-public"
