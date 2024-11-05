@@ -31,7 +31,7 @@ func verifyCRCreated(t *testing.T, crtype string, ns string, crname string, expe
 		// get CR list with CR type
 		resources, err := testData.getCRResources(defaultTimeout, crtype, ns)
 		// CR list lengh should match expected length
-		assertNil(t, err)
+		assert.NoError(t, err)
 		if len(resources) != expect {
 			log.Printf("%s list %s size not the same as expected %d", crtype, resources, expect)
 			panic("CR creation verify failed")
@@ -47,7 +47,7 @@ func verifyCRCreated(t *testing.T, crtype string, ns string, crname string, expe
 	} else {
 		// there should be one networkinfo created
 		uid, err := testData.getCRResource(defaultTimeout, crtype, crname, ns)
-		assertNil(t, err)
+		assert.NoError(t, err)
 
 		return crname, strings.TrimSpace(uid)
 	}
@@ -55,7 +55,7 @@ func verifyCRCreated(t *testing.T, crtype string, ns string, crname string, expe
 
 func verifyCRDeleted(t *testing.T, crtype string, ns string) {
 	res, _ := testData.getCRResources(defaultTimeout, crtype, ns)
-	assertTrue(t, len(res) == 0, "NetworkInfo CR %s should be deleted", crtype)
+	assert.True(t, len(res) == 0, "NetworkInfo CR %s should be deleted", crtype)
 }
 
 // Test Customized NetworkInfo
@@ -78,7 +78,7 @@ func TestCustomizedNetworkInfo(t *testing.T) {
 	vpcPath, _ := testData.getCRPropertiesByJson(
 		defaultTimeout, NetworkConfigCRType, TestCustomizedNetworkConfigName, "", ".status.vpcs[0].vpcPath")
 	err := testData.waitForResourceExistByPath(vpcPath, true)
-	assertNil(t, err)
+	assert.NoError(t, err)
 }
 
 // Test Infra NetworkInfo
@@ -92,7 +92,7 @@ func TestInfraNetworkInfo(t *testing.T) {
 	vpcPath, _ := testData.getCRPropertiesByJson(
 		defaultTimeout, NetworkConfigCRType, TestInfraNetworkConfigName, "", ".status.vpcs[0].vpcPath")
 	err := testData.waitForResourceExistByPath(vpcPath, true)
-	assertNil(t, err)
+	assert.NoError(t, err)
 
 	// kube-public namespace should have its own NetworkInfo CR
 	// Check networkinfo cr existence
@@ -118,18 +118,18 @@ func TestDefaultNetworkInfo(t *testing.T) {
 	// vpcPath, _ := testData.getCRPropertiesByJson(
 	//      defaultTimeout, NetworkConfigCRType, TestDefaultNetworkConfigName, "", ".status.vpcs[0].vpcPath")
 	// err := testData.waitForResourceExistByPath(vpcPath, true)
-	// assertNil(t, err)
+	// assert.NoError(t, err)
 
 	// delete namespace and check all resources are deleted
 	// normally, when deleting ns, if using shared vpc, then no vpc will be deleted
 	// if using normal vpc, in ns deletion, the networkconfig CR will also be deleted, so there is no
 	// need to check vpcPath deletion on network config CR anymore
 	err := testData.deleteNamespace(ns, defaultTimeout)
-	assertNil(t, err)
+	assert.NoError(t, err)
 	verifyCRDeleted(t, NetworkInfoCRType, ns)
 	verifyCRDeleted(t, NSCRType, ns)
 	// err = testData.waitForResourceExistByPath(vpcPath, false)
-	assertNil(t, err)
+	assert.NoError(t, err)
 }
 
 // ns1 share vpc with ns, each ns should have its own NetworkInfo
@@ -152,17 +152,17 @@ func TestSharedNSXVPC(t *testing.T) {
 
 	vpcPath, err := testData.getCRPropertiesByJson(
 		defaultTimeout, NetworkConfigCRType, TestCustomizedNetworkConfigName, "", ".status.vpcs[0].vpcPath")
-	assertNil(t, err)
+	assert.NoError(t, err)
 
 	t.Logf("................................%s", vpcPath)
 
 	// delete ns1 and check vpc not deleted
 	err = testData.deleteNamespace(ns1, defaultTimeout)
-	assertNil(t, err)
+	assert.NoError(t, err)
 	verifyCRDeleted(t, NetworkInfoCRType, ns1)
 	verifyCRDeleted(t, NSCRType, ns1)
 	// err = testData.waitForResourceExistByPath(vpcPath, true)
-	// assertNil(t, err)
+	// assert.NoError(t, err)
 }
 
 // update vpcnetworkconfig, and check vpc is updated
@@ -183,14 +183,14 @@ func TestUpdateVPCNetworkconfigNetworkInfo(t *testing.T) {
 	networkinfo_name, _ := verifyCRCreated(t, NetworkInfoCRType, ns, ns, 1)
 
 	privateIPs, err := testData.getCRPropertiesByJson(defaultTimeout, NetworkInfoCRType, networkinfo_name, ns, ".vpcs[0].privateIPs")
-	assertTrue(t, strings.Contains(privateIPs, CustomizedPrivateCIDR1), "privateIPs %s should contain %s", privateIPs, CustomizedPrivateCIDR1)
-	assertTrue(t, strings.Contains(privateIPs, CustomizedPrivateCIDR2), "privateIPs %s should contain %s", privateIPs, CustomizedPrivateCIDR1)
-	assertNil(t, err)
+	assert.True(t, strings.Contains(privateIPs, CustomizedPrivateCIDR1), "privateIPs %s should contain %s", privateIPs, CustomizedPrivateCIDR1)
+	assert.True(t, strings.Contains(privateIPs, CustomizedPrivateCIDR2), "privateIPs %s should contain %s", privateIPs, CustomizedPrivateCIDR1)
+	assert.NoError(t, err)
 
 	vncPath, _ := filepath.Abs("./manifest/testVPC/customize_networkconfig_updated.yaml")
 	_ = applyYAML(vncPath, "")
 
 	privateIPs, err = testData.getCRPropertiesByJson(defaultTimeout, NetworkInfoCRType, networkinfo_name, ns, ".vpcs[0].privateIPs")
-	assertTrue(t, strings.Contains(privateIPs, CustomizedPrivateCIDR3), "privateIPs %s should contain %s", privateIPs, CustomizedPrivateCIDR3)
-	assertNil(t, err)
+	assert.True(t, strings.Contains(privateIPs, CustomizedPrivateCIDR3), "privateIPs %s should contain %s", privateIPs, CustomizedPrivateCIDR3)
+	assert.NoError(t, err)
 }

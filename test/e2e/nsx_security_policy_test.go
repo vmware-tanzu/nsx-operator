@@ -49,31 +49,31 @@ func TestSecurityPolicyBasicTraffic(t *testing.T) {
 		// Wait for pods
 		ps, err := testData.podWaitForIPs(defaultTimeout, busybox, ns)
 		t.Logf("Pods are %v", ps)
-		assertNil(t, err, "Error when waiting for IP for Pod %s", busybox)
+		assert.NoError(t, err, "Error when waiting for IP for Pod %s", busybox)
 		iPs, err := testData.podWaitForIPs(defaultTimeout, ncPod, ns)
 		t.Logf("Pods are %v", iPs)
-		assertNil(t, err, "Error when waiting for IP for Pod %s", ncPod)
+		assert.NoError(t, err, "Error when waiting for IP for Pod %s", ncPod)
 
 		// Ping from pod
 		err = testData.runPingCommandFromPod(ns, busybox, iPs, 4)
-		assertNil(t, err, "Error when running ping command from test Pod %s", busybox)
+		assert.NoError(t, err, "Error when running ping command from test Pod %s", busybox)
 	*/
 	// Create security policy
 	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy.yaml")
 	_ = applyYAML(nsIsolationPath, ns)
 	defer deleteYAML(nsIsolationPath, ns)
 	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, ns, securityPolicyName, Ready)
-	assertNil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+	assert.NoError(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
-	assertNil(t, err)
+	assert.NoError(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName0, true)
-	assertNil(t, err)
+	assert.NoError(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, true)
-	assertNil(t, err)
+	assert.NoError(t, err)
 
-	//Temporarily disable traffic check
+	// Temporarily disable traffic check
 	/*
 		// Ping from pod
 		err = testData.runPingCommandFromPod(ns, busybox, iPs, 4)
@@ -83,21 +83,21 @@ func TestSecurityPolicyBasicTraffic(t *testing.T) {
 	// Delete security policy
 	_ = deleteYAML(nsIsolationPath, ns)
 	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, ns, securityPolicyName, Deleted)
-	assertNil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+	assert.NoError(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource not existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
-	assertNil(t, err)
+	assert.NoError(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName0, false)
-	assertNil(t, err)
+	assert.NoError(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, false)
-	assertNil(t, err)
+	assert.NoError(t, err)
 
-	//Temporarily disable traffic check
+	// Temporarily disable traffic check
 	/*
 		// Ping from pod
 		err = testData.runPingCommandFromPod(ns, busybox, iPs, 4)
-		assertNil(t, err, "Error when running ping command from test Pod %s", busybox)
+		assert.NoError(t, err, "Error when running ping command from test Pod %s", busybox)
 	*/
 }
 
@@ -117,37 +117,37 @@ func TestSecurityPolicyAddDeleteRule(t *testing.T) {
 	_ = applyYAML(nsIsolationPath, ns)
 	defer deleteYAML(nsIsolationPath, ns)
 	err := testData.waitForCRReadyOrDeleted(defaultTimeout, SP, ns, securityPolicyName, Ready)
-	assertNil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+	assert.NoError(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
-	assertNil(t, err)
+	assert.NoError(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName0, true)
-	assertNil(t, err)
+	assert.NoError(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, true)
-	assertNil(t, err)
+	assert.NoError(t, err)
 
 	// Update security policy
 	nsIsolationPath, _ = filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy-1.yaml")
 	_ = applyYAML(nsIsolationPath, ns)
 	defer deleteYAML(nsIsolationPath, ns)
 	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, ns, securityPolicyName, Ready)
-	assertNil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+	assert.NoError(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName0, true)
-	assertNil(t, err)
+	assert.NoError(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, false)
-	assertNil(t, err)
+	assert.NoError(t, err)
 
 	// Delete security policy
 	_ = deleteYAML(nsIsolationPath, ns)
 	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, ns, securityPolicyName, Deleted)
-	assertNil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+	assert.NoError(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource not existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
-	assertNil(t, err)
+	assert.NoError(t, err)
 }
 
 // TestSecurityPolicyMatchExpression verifies that the traffic of security policy when match expression applied.
@@ -168,26 +168,26 @@ func TestSecurityPolicyMatchExpression(t *testing.T) {
 	defer deleteYAML(podPath, "")
 
 	// Temporarily disable traffic check
-	//clientA := "client-a"
-	//clientB := "client-b"
-	//podA := "pod-a"
+	// clientA := "client-a"
+	// clientB := "client-b"
+	// podA := "pod-a"
 	/*
 		// Wait for pods
 		ps, err := testData.podWaitForIPs(defaultTimeout, clientA, ns)
 		t.Logf("Pods are %v", ps)
-		assertNil(t, err, "Error when waiting for IP for Pod %s", clientA)
+		assert.NoError(t, err, "Error when waiting for IP for Pod %s", clientA)
 		psb, err := testData.podWaitForIPs(defaultTimeout, clientB, ns)
 		t.Logf("Pods are %v", psb)
-		assertNil(t, err, "Error when waiting for IP for Pod %s", clientB)
+		assert.NoError(t, err, "Error when waiting for IP for Pod %s", clientB)
 		iPs, err := testData.podWaitForIPs(defaultTimeout, podA, ns)
 		t.Logf("Pods are %v", iPs)
-		assertNil(t, err, "Error when waiting for IP for Pod %s", podA)
+		assert.NoError(t, err, "Error when waiting for IP for Pod %s", podA)
 
 		// Ping from pod
 		err = testData.runPingCommandFromPod(ns, clientA, iPs, 4)
-		assertNil(t, err, "Error when running ping command from Pod %s", clientA)
+		assert.NoError(t, err, "Error when running ping command from Pod %s", clientA)
 		err = testData.runPingCommandFromPod(ns, clientB, iPs, 4)
-		assertNil(t, err, "Error when running ping command from Pod %s", clientB)
+		assert.NoError(t, err, "Error when running ping command from Pod %s", clientB)
 	*/
 
 	// Create security policy
@@ -195,19 +195,19 @@ func TestSecurityPolicyMatchExpression(t *testing.T) {
 	_ = applyYAML(nsIsolationPath, ns)
 	defer deleteYAML(nsIsolationPath, ns)
 	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, ns, securityPolicyName, Ready)
-	assertNil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+	assert.NoError(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
-	assertNil(t, err)
+	assert.NoError(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName, true)
-	assertNil(t, err)
+	assert.NoError(t, err)
 
 	// Temporarily disable traffic check
 	/*
 		// Ping from pod
 		err = testData.runPingCommandFromPod(ns, clientA, iPs, 4)
-		assertNil(t, err, "Error when running ping command from Pod %s", clientA)
+		assert.NoError(t, err, "Error when running ping command from Pod %s", clientA)
 		err = testData.runPingCommandFromPod(ns, clientB, iPs, 4)
 		assert.NotNilf(t, err, "Error when running ping command from Pod %s", clientB)
 	*/
@@ -215,21 +215,21 @@ func TestSecurityPolicyMatchExpression(t *testing.T) {
 	// Delete security policy
 	_ = deleteYAML(nsIsolationPath, ns)
 	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, ns, securityPolicyName, Deleted)
-	assertNil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+	assert.NoError(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource not existing
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
-	assertNil(t, err)
+	assert.NoError(t, err)
 	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName, false)
-	assertNil(t, err)
+	assert.NoError(t, err)
 
 	// Temporarily disable traffic check
 	/*
 		// Ping from pod
 		err = testData.runPingCommandFromPod(ns, clientA, iPs, 4)
-		assertNil(t, err, "Error when running ping command from Pod %s", clientA)
+		assert.NoError(t, err, "Error when running ping command from Pod %s", clientA)
 		err = testData.runPingCommandFromPod(ns, clientB, iPs, 4)
-		assertNil(t, err, "Error when running ping command from Pod %s", clientB)
+		assert.NoError(t, err, "Error when running ping command from Pod %s", clientB)
 	*/
 }
 
@@ -259,17 +259,17 @@ func TestSecurityPolicyNamedPortWithoutPod(t *testing.T) {
 
 	psb, err := testData.deploymentWaitForNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
-	assertNil(t, err, "Error when waiting for IP for Pod %s", webA)
+	assert.NoError(t, err, "Error when waiting for IP for Pod %s", webA)
 	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyCRName, Ready)
-	assertNil(t, err, "Error when waiting for Security Policy %s", securityPolicyCRName)
+	assert.NoError(t, err, "Error when waiting for Security Policy %s", securityPolicyCRName)
 
 	// Check NSX resource existing
 	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyCRName, true)
-	assertNil(t, err)
+	assert.NoError(t, err)
 	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName0, true)
-	assertNil(t, err)
+	assert.NoError(t, err)
 	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName1, true)
-	assertNil(t, err)
+	assert.NoError(t, err)
 }
 
 /*
@@ -299,29 +299,29 @@ func TestSecurityPolicyNamedPort0(t *testing.T) {
 	// Wait for pods
 	ps, err := testData.podWaitForIPs(defaultTimeout, clientA, nsClient)
 	t.Logf("Pods are %v", ps)
-	assertNil(t, err, "Error when waiting for IP for Pod %s", clientA)
+	assert.NoError(t, err, "Error when waiting for IP for Pod %s", clientA)
 	psb, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
 	t.Logf("Pods are %v", psb)
-	assertNil(t, err, "Error when waiting for IP for Pod %s", webA)
+	assert.NoError(t, err, "Error when waiting for IP for Pod %s", webA)
 	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Ready)
-	assertNil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+	assert.NoError(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource existing
 	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
-	assertNil(t, err)
+	assert.NoError(t, err)
 	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, securityPolicyName, true)
-	assertNil(t, err)
+	assert.NoError(t, err)
 
 	// Nc from pod
 	err = testData.runNetcatCommandFromPod(nsClient, clientA, clientA, psb[0], 80)
-	assertNil(t, err, "Error when running nc command from Pod %s", clientA)
+	assert.NoError(t, err, "Error when running nc command from Pod %s", clientA)
 	err = testData.runNetcatCommandFromPod(nsClient, clientA, clientA, psb[1], 80)
-	assertNil(t, err, "Error when running nc command from Pod %s", clientA)
+	assert.NoError(t, err, "Error when running nc command from Pod %s", clientA)
 
 	// Delete all
 	_ = deleteYAML(podPath, "")
 	err = testData.waitForCRReadyOrDeleted(defaultTimeout, SP, nsWeb, securityPolicyName, Deleted)
-	assertNil(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
+	assert.NoError(t, err, "Error when waiting for Security Policy %s", securityPolicyName)
 
 	// Check nsx-t resource not existing
 	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
