@@ -24,9 +24,8 @@ type StaticRouteService struct {
 }
 
 var (
-	log                     = &logger.Log
-	resourceTypeStaticRoute = "StaticRoutes"
-	String                  = common.String
+	log    = &logger.Log
+	String = common.String
 )
 
 // InitializeStaticRoute sync NSX resources
@@ -47,7 +46,7 @@ func InitializeStaticRoute(commonService common.Service, vpcService common.VPCSe
 	staticRouteService.NSXConfig = commonService.NSXConfig
 	staticRouteService.VPCService = vpcService
 
-	go staticRouteService.InitializeResourceStore(&wg, fatalErrors, resourceTypeStaticRoute, nil, staticRouteService.StaticRouteStore)
+	go staticRouteService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeStaticRoute, nil, staticRouteService.StaticRouteStore)
 
 	go func() {
 		wg.Wait()
@@ -120,7 +119,7 @@ func (service *StaticRouteService) DeleteStaticRouteByPath(orgId string, project
 		return err
 	}
 
-	log.Info("successfully deleted NSX StaticRoute", "nsxStaticRoute", *staticroute.Id)
+	log.Info("Successfully deleted NSX StaticRoute", "nsxStaticRoute", *staticroute.Id)
 	return nil
 }
 func (service *StaticRouteService) GetUID(staticroute *model.StaticRoutes) *string {
@@ -173,17 +172,17 @@ func (service *StaticRouteService) ListStaticRoute() []*model.StaticRoutes {
 
 func (service *StaticRouteService) Cleanup(ctx context.Context) error {
 	staticRouteSet := service.ListStaticRoute()
-	log.Info("cleanup staticroute", "count", len(staticRouteSet))
+	log.Info("Cleanup staticroute", "count", len(staticRouteSet))
 	for _, staticRoute := range staticRouteSet {
 		path := strings.Split(*staticRoute.Path, "/")
-		log.Info("removing staticroute", "staticroute path", *staticRoute.Path)
+		log.Info("Deleting staticroute", "staticroute path", *staticRoute.Path)
 		select {
 		case <-ctx.Done():
 			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
 		default:
 			err := service.DeleteStaticRouteByPath(path[2], path[4], path[6], *staticRoute.Id)
 			if err != nil {
-				log.Error(err, "remove staticroute failed", "staticroute id", *staticRoute.Id)
+				log.Error(err, "Delete staticroute failed", "staticroute id", *staticRoute.Id)
 				return err
 			}
 		}
