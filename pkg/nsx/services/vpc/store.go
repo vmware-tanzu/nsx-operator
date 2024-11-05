@@ -87,11 +87,11 @@ func (s *VPCStore) GetByIndex(key string, value string) []*model.Vpc {
 	return vpcs
 }
 
-func (s *VPCStore) GetVPCsByNamespace(ns string) []*model.Vpc {
+func (s *VPCStore) GetVPCsByNamespaceFromStore(ns string) []*model.Vpc {
 	return s.GetByIndex(common.TagScopeNamespace, ns)
 }
 
-func (s *VPCStore) GetVPCsByNamespaceID(namespaceID string) []*model.Vpc {
+func (s *VPCStore) GetVPCsByNamespaceIDFromStore(namespaceID string) []*model.Vpc {
 	return s.GetByIndex(common.TagScopeNamespaceUID, namespaceID)
 }
 
