@@ -30,12 +30,14 @@ var (
 	ResourceTypeSubnet        = common.ResourceTypeSubnet
 	NewConverter              = common.NewConverter
 	// Default static ip-pool under Subnet.
-	SubnetTypeError = errors.New("unsupported type")
+	SubnetTypeError            = errors.New("unsupported type")
+	ErrorCodeUnrecognizedField = int64(287)
 )
 
 type SubnetService struct {
 	common.Service
-	SubnetStore *SubnetStore
+	SubnetStore  *SubnetStore
+	useLegacyAPI bool
 }
 
 // SubnetParameters stores parameters to CRUD Subnet object
@@ -81,9 +83,22 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 	return subnetService, nil
 }
 
-func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (string, error) {
+func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (subnetPath string, err error) {
+	if subnetPath, err = service.createOrUpdateSubnetWithAPI(obj, vpcInfo, tags, service.useLegacyAPI); err != nil {
+		if nsxErr, ok := err.(*nsxutil.NSXApiError); ok {
+			if *nsxErr.ErrorCode == ErrorCodeUnrecognizedField {
+				log.Info("NSX does not support subnet_dhcp_config, using old API", "error", err)
+				service.useLegacyAPI = true
+				subnetPath, err = service.createOrUpdateSubnetWithAPI(obj, vpcInfo, tags, service.useLegacyAPI)
+			}
+		}
+	}
+	return subnetPath, err
+}
+
+func (service *SubnetService) createOrUpdateSubnetWithAPI(obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag, useLegacyAPI bool) (string, error) {
 	uid := string(obj.GetUID())
-	nsxSubnet, err := service.buildSubnet(obj, tags)
+	nsxSubnet, err := service.buildSubnet(obj, tags, useLegacyAPI)
 	if err != nil {
 		log.Error(err, "Failed to build Subnet")
 		return "", err
@@ -97,9 +112,13 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 		} else {
 			changed = common.CompareResource(SubnetToComparable(existingSubnet), SubnetToComparable(nsxSubnet))
 			if changed {
-				// Only tags are expected to be updated
+				// Only tags and dhcp are expected to be updated
 				// inherit other fields from the existing Subnet
 				existingSubnet.Tags = nsxSubnet.Tags
+				if existingSubnet.SubnetDhcpConfig != nil {
+					existingSubnet.SubnetDhcpConfig = nsxSubnet.SubnetDhcpConfig
+					existingSubnet.AdvancedConfig.StaticIpAllocation.Enabled = nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled
+				}
 				nsxSubnet = existingSubnet
 			}
 		}
@@ -388,11 +407,15 @@ func (service *SubnetService) GenerateSubnetNSTags(obj client.Object) []model.Ta
 	return tags
 }
 
-func (service *SubnetService) UpdateSubnetSetTags(ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag) error {
+func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag, dhcpMode string) error {
+	if dhcpMode == "" {
+		dhcpMode = v1alpha1.DHCPConfigModeDeactivated
+	}
+	staticIpAllocation := (dhcpMode == v1alpha1.DHCPConfigModeDeactivated)
 	for i, vpcSubnet := range vpcSubnets {
 		subnetSet := &v1alpha1.SubnetSet{}
 		var name string
-
+		// Generate new Subnet tags
 		matchNamespace := false
 		for _, t := range vpcSubnets[i].Tags {
 			tag := t
@@ -417,12 +440,30 @@ func (service *SubnetService) UpdateSubnetSetTags(ns string, vpcSubnets []*model
 			return fmt.Errorf("failed to get SubnetSet %s in Namespace %s: %w", name, ns, err)
 		}
 		newTags := append(service.buildBasicTags(subnetSet), tags...)
-		changed := common.CompareResource(SubnetToComparable(vpcSubnets[i]), SubnetToComparable(&model.VpcSubnet{Tags: newTags}))
+
+		var updatedSubnet *model.VpcSubnet
+		if vpcSubnets[i].SubnetDhcpConfig == nil {
+			updatedSubnet = &model.VpcSubnet{
+				Tags: newTags,
+			}
+		} else {
+			updatedSubnet = &model.VpcSubnet{
+				Tags:             newTags,
+				SubnetDhcpConfig: service.buildSubnetDHCPConfig(dhcpMode),
+			}
+		}
+		changed := common.CompareResource(SubnetToComparable(vpcSubnets[i]), SubnetToComparable(updatedSubnet))
 		if !changed {
-			log.Info("NSX Subnet tags unchanged, skipping update", "subnet", *vpcSubnet.Id)
+			log.Info("NSX Subnet unchanged, skipping update", "Subnet", *vpcSubnet.Id)
 			continue
 		}
+
 		vpcSubnets[i].Tags = newTags
+		// Update the SubnetSet DHCP Config
+		if vpcSubnets[i].SubnetDhcpConfig != nil {
+			vpcSubnets[i].SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode)
+			vpcSubnets[i].AdvancedConfig.StaticIpAllocation.Enabled = &staticIpAllocation
+		}
 
 		vpcInfo, err := common.ParseVPCResourcePath(*vpcSubnets[i].Path)
 		if err != nil {
@@ -432,7 +473,7 @@ func (service *SubnetService) UpdateSubnetSetTags(ns string, vpcSubnets []*model
 		if _, err := service.createOrUpdateSubnet(subnetSet, vpcSubnets[i], &vpcInfo); err != nil {
 			return fmt.Errorf("failed to update Subnet %s in SubnetSet %s: %w", *vpcSubnet.Id, subnetSet.Name, err)
 		}
-		log.Info("Successfully updated SubnetSet tags", "subnetSet", subnetSet, "Subnet", *vpcSubnet.Id)
+		log.Info("Successfully updated SubnetSet", "subnetSet", subnetSet, "Subnet", *vpcSubnet.Id)
 	}
 	return nil
 }
