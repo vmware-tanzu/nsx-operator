@@ -69,6 +69,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		log.Error(err, "Unable to fetch SubnetSet CR", "SubnetSet", req.NamespacedName)
 		return ResultRequeue, err
 	}
+	log.Info("======================1", "subnetsetCR", subnetsetCR)
 	if !subnetsetCR.ObjectMeta.DeletionTimestamp.IsZero() {
 		metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnetSet)
 		err := r.deleteSubnetForSubnetSet(*subnetsetCR, false, false)
@@ -112,6 +113,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	if specChanged {
+		log.Info("======================2", "subnetsetCR", subnetsetCR)
 		err := r.Client.Update(ctx, subnetsetCR)
 		if err != nil {
 			log.Error(err, "Update SubnetSet failed", "SubnetSet", req.NamespacedName)
