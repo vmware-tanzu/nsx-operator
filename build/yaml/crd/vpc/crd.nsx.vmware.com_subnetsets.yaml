@@ -93,7 +93,7 @@ spec:
             - message: subnetDHCPConfig cannot switch from DHCPDeactivated to other
                 modes
               rule: has(oldSelf.subnetDHCPConfig) || !has(self.subnetDHCPConfig) ||
-                self.subnetDHCPConfig.mode=='DHCPDeactivated'
+                !has(self.subnetDHCPConfig.mode) || self.subnetDHCPConfig.mode=='DHCPDeactivated'
             - message: accessMode is required once set
               rule: '!has(oldSelf.accessMode) || has(self.accessMode)'
             - message: ipv4SubnetSize is required once set

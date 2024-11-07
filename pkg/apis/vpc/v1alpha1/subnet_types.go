@@ -20,7 +20,7 @@ const (
 )
 
 // SubnetSpec defines the desired state of Subnet.
-// +kubebuilder:validation:XValidation:rule="has(oldSelf.subnetDHCPConfig) || !has(self.subnetDHCPConfig) || self.subnetDHCPConfig.mode=='DHCPDeactivated'", message="subnetDHCPConfig cannot switch from DHCPDeactivated to other modes"
+// +kubebuilder:validation:XValidation:rule="has(oldSelf.subnetDHCPConfig) || !has(self.subnetDHCPConfig) || !has(self.subnetDHCPConfig.mode) || self.subnetDHCPConfig.mode=='DHCPDeactivated'", message="subnetDHCPConfig cannot switch from DHCPDeactivated to other modes"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipv4SubnetSize) || has(self.ipv4SubnetSize)", message="ipv4SubnetSize is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.accessMode) || has(self.accessMode)", message="accessMode is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipAddresses) || has(self.ipAddresses)", message="ipAddresses is required once set"
