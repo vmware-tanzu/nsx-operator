@@ -34,7 +34,7 @@ type VPCNetworkConfigurationHandler struct {
 	ipBlocksInfoService commontypes.IPBlocksInfoServiceProvider
 }
 
-func (h *VPCNetworkConfigurationHandler) Create(ctx context.Context, e event.CreateEvent, _ workqueue.RateLimitingInterface) {
+func (h *VPCNetworkConfigurationHandler) Create(ctx context.Context, e event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	vpcConfigCR := e.Object.(*v1alpha1.VPCNetworkConfiguration)
 	vname := vpcConfigCR.GetName()
 	ninfo, err := buildNetworkConfigInfo(*vpcConfigCR)
@@ -50,21 +50,27 @@ func (h *VPCNetworkConfigurationHandler) Create(ctx context.Context, e event.Cre
 	}
 }
 
-func (h *VPCNetworkConfigurationHandler) Delete(ctx context.Context, e event.DeleteEvent, w workqueue.RateLimitingInterface) {
+func (h *VPCNetworkConfigurationHandler) Delete(ctx context.Context, e event.DeleteEvent, w workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	vpcConfigCR := e.Object.(*v1alpha1.VPCNetworkConfiguration)
 	if err := h.ipBlocksInfoService.SyncIPBlocksInfo(ctx); err != nil {
 		log.Error(err, "failed to synchronize IPBlocksInfo when deleting %s", vpcConfigCR.Name)
-		w.AddAfter(e.Object.GetName(), retryInterval)
+		req := reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Name:      e.Object.GetName(),
+				Namespace: e.Object.GetNamespace(),
+			},
+		}
+		w.AddAfter(req, retryInterval)
 	} else {
 		h.ipBlocksInfoService.ResetPeriodicSync()
 	}
 }
 
-func (h *VPCNetworkConfigurationHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
+func (h *VPCNetworkConfigurationHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	log.V(1).Info("VPCNetworkConfiguration generic event, do nothing")
 }
 
-func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	log.V(1).Info("Start processing VPC network config update event")
 	newNc := e.ObjectNew.(*v1alpha1.VPCNetworkConfiguration)
 

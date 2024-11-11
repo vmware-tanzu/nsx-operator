@@ -1,10 +1,11 @@
 package mock_client
 
 import (
-	reflect "reflect"
+	"reflect"
 	"time"
 
-	gomock "github.com/golang/mock/gomock"
+	"github.com/golang/mock/gomock"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 type MockInterface struct {
@@ -15,16 +16,16 @@ type MockInterface struct {
 func (m *MockInterface) ShutDownWithDrain() {
 }
 
-func (m *MockInterface) AddAfter(item interface{}, duration time.Duration) {
+func (m *MockInterface) AddAfter(item reconcile.Request, duration time.Duration) {
 }
 
-func (m *MockInterface) AddRateLimited(item interface{}) {
+func (m *MockInterface) AddRateLimited(item reconcile.Request) {
 }
 
-func (m *MockInterface) Forget(item interface{}) {
+func (m *MockInterface) Forget(item reconcile.Request) {
 }
 
-func (m *MockInterface) NumRequeues(item interface{}) int {
+func (m *MockInterface) NumRequeues(item reconcile.Request) int {
 	return 0
 }
 
@@ -46,33 +47,33 @@ func (m *MockInterface) EXPECT() *MockInterfaceMockRecorder {
 }
 
 // Add mocks base method.
-func (m *MockInterface) Add(arg0 interface{}) {
+func (m *MockInterface) Add(arg0 reconcile.Request) {
 	m.ctrl.T.Helper()
 }
 
 // Add indicates an expected call of Add.
-func (mr *MockInterfaceMockRecorder) Add(arg0 interface{}) *gomock.Call {
+func (mr *MockInterfaceMockRecorder) Add(arg0 reconcile.Request) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockInterface)(nil).Add), arg0)
 }
 
 // Done mocks base method.
-func (m *MockInterface) Done(arg0 interface{}) {
+func (m *MockInterface) Done(arg0 reconcile.Request) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "Done", arg0)
 }
 
 // Done indicates an expected call of Done.
-func (mr *MockInterfaceMockRecorder) Done(arg0 interface{}) *gomock.Call {
+func (mr *MockInterfaceMockRecorder) Done(arg0 reconcile.Request) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Done", reflect.TypeOf((*MockInterface)(nil).Done), arg0)
 }
 
 // Get mocks base method.
-func (m *MockInterface) Get() (interface{}, bool) {
+func (m *MockInterface) Get() (reconcile.Request, bool) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get")
-	ret0, _ := ret[0].(interface{})
+	ret0, _ := ret[0].(reconcile.Request)
 	ret1, _ := ret[1].(bool)
 	return ret0, ret1
 }
