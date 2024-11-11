@@ -227,6 +227,12 @@ func parseCIDRRange(cidr string) (startIP, endIP net.IP, err error) {
 func calculateOffsetIP(ip net.IP, offset int) (net.IP, error) {
 	ipInt := ipToUint32(ip)
 	ipInt += uint32(offset)
+	if int(ipInt) < 0 {
+		return nil, fmt.Errorf("resulting IP is less than 0")
+	}
+	if ipInt > 0xFFFFFFFF {
+		return nil, fmt.Errorf("resulting IP is greater than 255.255.255.255")
+	}
 	return uint32ToIP(ipInt), nil
 }
 
