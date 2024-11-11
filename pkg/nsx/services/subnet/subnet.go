@@ -65,20 +65,39 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 		},
 	}
 
+	// Use sync.Once to ensure channel is closed only once
+	var closeOnceFatalError sync.Once
+	var closeOnceWgDone sync.Once
+	safeCloseFatalError := func(ce chan error) {
+		closeOnceFatalError.Do(func() {
+			close(ce)
+		})
+	}
+	safeCloseWgDone := func(ce chan bool) {
+		closeOnceWgDone.Do(func() {
+			close(ce)
+		})
+	}
+
 	wg.Add(1)
 	go subnetService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSubnet, nil, subnetService.SubnetStore)
 	go func() {
 		wg.Wait()
-		close(wgDone)
+		safeCloseWgDone(wgDone)
 	}()
 	select {
 	case <-wgDone:
-		break
+		safeCloseFatalError(fatalErrors) // Clean up fatalErrors channel
+		return subnetService, nil
 	case err := <-fatalErrors:
-		close(fatalErrors)
+		// Wait for any pending operations to complete
+		go func() {
+			wg.Wait() // Ensure all goroutines complete
+			safeCloseWgDone(wgDone)
+		}()
+		safeCloseFatalError(fatalErrors) // Clean up fatalErrors channel
 		return subnetService, err
 	}
-	return subnetService, nil
 }
 
 func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (string, error) {
