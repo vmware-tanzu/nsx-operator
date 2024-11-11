@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -244,7 +245,8 @@ func TestVPCNetworkConfigurationHandler_Create(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
+			queue := workqueue.NewTypedRateLimitingQueue(
+				workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 			handler := createVPCNetworkConfigurationHandler(nil, nil, nil)
 			handler.Create(context.TODO(), event.CreateEvent{Object: tc.vpcNetworkConfig}, queue)
 		})
@@ -266,7 +268,8 @@ func TestVPCNetworkConfigurationHandler_Delete(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
+			queue := workqueue.NewTypedRateLimitingQueue(
+				workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 			handler := createVPCNetworkConfigurationHandler(nil, nil, nil)
 			handler.Delete(context.TODO(), event.DeleteEvent{Object: tc.vpcNetworkConfig}, queue)
 		})
@@ -326,7 +329,8 @@ func TestVPCNetworkConfigurationHandler_Update(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
+			queue := workqueue.NewTypedRateLimitingQueue(
+				workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 			var objs []client.Object
 			if tc.existingNetworkInfoCR != nil {
 				objs = append(objs, tc.existingNetworkInfoCR)
@@ -353,7 +357,8 @@ func TestVPCNetworkConfigurationHandler_Generic(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
+			queue := workqueue.NewTypedRateLimitingQueue(
+				workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 			handler := createVPCNetworkConfigurationHandler(nil, nil, nil)
 			handler.Generic(context.TODO(), event.GenericEvent{Object: tc.vpcNetworkConfig}, queue)
 		})

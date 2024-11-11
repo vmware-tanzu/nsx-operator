@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	gomonkey "github.com/agiledragon/gomonkey/v2"
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
@@ -597,7 +597,7 @@ func TestReconcileSecurityPolicy(t *testing.T) {
 	type args struct {
 		client client.Client
 		pods   []v1.Pod
-		q      workqueue.RateLimitingInterface
+		q      workqueue.TypedRateLimitingInterface[reconcile.Request]
 	}
 	tests := []struct {
 		name    string
@@ -888,7 +888,7 @@ func TestReconcileSecurityPolicyForVPC(t *testing.T) {
 	type args struct {
 		client client.Client
 		pods   []v1.Pod
-		q      workqueue.RateLimitingInterface
+		q      workqueue.TypedRateLimitingInterface[reconcile.Request]
 	}
 	tests := []struct {
 		name    string
@@ -937,7 +937,7 @@ func TestStartSecurityPolicyController(t *testing.T) {
 				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider) *securitypolicy.SecurityPolicyService {
 					return fakeService()
 				})
-				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
+				patches.ApplyMethod(reflect.TypeOf(&SecurityPolicyReconciler{}), "Start", func(_ *SecurityPolicyReconciler, r ctrl.Manager) error {
 					return nil
 				})
 				return patches

@@ -100,6 +100,7 @@ type IPBlock struct {
 type SecurityPolicyPort struct {
 	// Protocol(TCP, UDP) is the protocol to match traffic.
 	// It is TCP by default.
+	// +kubebuilder:default=TCP
 	Protocol corev1.Protocol `json:"protocol,omitempty"`
 	// Port is the name or port number.
 	Port intstr.IntOrString `json:"port,omitempty"`

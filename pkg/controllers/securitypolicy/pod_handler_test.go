@@ -15,6 +15,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -66,7 +67,7 @@ func TestEnqueueRequestForPod_Raw(t *testing.T) {
 	}
 	type args struct {
 		evt interface{}
-		q   workqueue.RateLimitingInterface
+		q   workqueue.TypedRateLimitingInterface[reconcile.Request]
 	}
 	tests := []struct {
 		name   string
@@ -76,7 +77,7 @@ func TestEnqueueRequestForPod_Raw(t *testing.T) {
 		{"1", fields{}, args{evt, nil}},
 	}
 	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(r *SecurityPolicyReconciler, client client.Client, pods []v1.Pod,
-		q workqueue.RateLimitingInterface,
+		q workqueue.TypedRateLimitingInterface[reconcile.Request],
 	) error {
 		return nil
 	})
@@ -109,7 +110,7 @@ func TestEnqueueRequestForPod_Create(t *testing.T) {
 	}
 	type args struct {
 		evt event.CreateEvent
-		q   workqueue.RateLimitingInterface
+		q   workqueue.TypedRateLimitingInterface[reconcile.Request]
 	}
 	tests := []struct {
 		name   string
@@ -119,7 +120,7 @@ func TestEnqueueRequestForPod_Create(t *testing.T) {
 		{"1", fields{}, args{evt, nil}},
 	}
 	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(r *SecurityPolicyReconciler, client client.Client, pods []v1.Pod,
-		q workqueue.RateLimitingInterface,
+		q workqueue.TypedRateLimitingInterface[reconcile.Request],
 	) error {
 		return nil
 	})
@@ -157,7 +158,7 @@ func TestEnqueueRequestForPod_Update(t *testing.T) {
 	}
 	type args struct {
 		evt event.UpdateEvent
-		q   workqueue.RateLimitingInterface
+		q   workqueue.TypedRateLimitingInterface[reconcile.Request]
 	}
 	tests := []struct {
 		name   string
@@ -167,7 +168,7 @@ func TestEnqueueRequestForPod_Update(t *testing.T) {
 		{"1", fields{}, args{evt, nil}},
 	}
 	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(r *SecurityPolicyReconciler, client client.Client, pods []v1.Pod,
-		q workqueue.RateLimitingInterface,
+		q workqueue.TypedRateLimitingInterface[reconcile.Request],
 	) error {
 		return nil
 	})
@@ -200,7 +201,7 @@ func TestEnqueueRequestForPod_Delete(t *testing.T) {
 	}
 	type args struct {
 		evt event.DeleteEvent
-		q   workqueue.RateLimitingInterface
+		q   workqueue.TypedRateLimitingInterface[reconcile.Request]
 	}
 	tests := []struct {
 		name   string
@@ -210,7 +211,7 @@ func TestEnqueueRequestForPod_Delete(t *testing.T) {
 		{"1", fields{}, args{evt, nil}},
 	}
 	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(r *SecurityPolicyReconciler, client client.Client, pods []v1.Pod,
-		q workqueue.RateLimitingInterface,
+		q workqueue.TypedRateLimitingInterface[reconcile.Request],
 	) error {
 		return nil
 	})
@@ -243,7 +244,7 @@ func TestEnqueueRequestForPod_Generic(t *testing.T) {
 	}
 	type args struct {
 		evt event.GenericEvent
-		q   workqueue.RateLimitingInterface
+		q   workqueue.TypedRateLimitingInterface[reconcile.Request]
 	}
 	tests := []struct {
 		name   string
@@ -253,7 +254,7 @@ func TestEnqueueRequestForPod_Generic(t *testing.T) {
 		{"1", fields{}, args{evt, nil}},
 	}
 	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(r *SecurityPolicyReconciler, client client.Client, pods []v1.Pod,
-		q workqueue.RateLimitingInterface,
+		q workqueue.TypedRateLimitingInterface[reconcile.Request],
 	) error {
 		return nil
 	})

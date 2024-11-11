@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -29,23 +30,23 @@ type EnqueueRequestForPod struct {
 	SecurityPolicyReconciler *SecurityPolicyReconciler
 }
 
-func (e *EnqueueRequestForPod) Create(_ context.Context, createEvent event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForPod) Create(_ context.Context, createEvent event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	e.Raw(createEvent, q)
 }
 
-func (e *EnqueueRequestForPod) Update(_ context.Context, updateEvent event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForPod) Update(_ context.Context, updateEvent event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	e.Raw(updateEvent, q)
 }
 
-func (e *EnqueueRequestForPod) Delete(_ context.Context, deleteEvent event.DeleteEvent, q workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForPod) Delete(_ context.Context, deleteEvent event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	e.Raw(deleteEvent, q)
 }
 
-func (e *EnqueueRequestForPod) Generic(_ context.Context, genericEvent event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForPod) Generic(_ context.Context, genericEvent event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	e.Raw(genericEvent, q)
 }
 
-func (e *EnqueueRequestForPod) Raw(evt interface{}, q workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForPod) Raw(evt interface{}, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	var pods []v1.Pod
 	var obj client.Object
 
