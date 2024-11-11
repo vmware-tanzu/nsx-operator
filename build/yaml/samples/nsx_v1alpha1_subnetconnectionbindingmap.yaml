@@ -1,0 +1,19 @@
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: SubnetConnectionBindingMap
+metadata:
+  name: binding1
+  namespace: default
+spec:
+  subnetName: subnet-sample
+  targetSubnetSetName: vm-default
+  vlanTrafficTag: 201
+---
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: SubnetConnectionBindingMap
+metadata:
+  name: binding2
+  namespace: default
+spec:
+  subnetName: subnet-sample
+  targetSubnetName: subnet1
+  vlanTrafficTag: 202
