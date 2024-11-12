@@ -28,6 +28,9 @@ jobs:
     - name: Run build
       run: make build
 
+    - name: Run code-generator
+      run: make generated
+
     - name: Run test
       run: make test
 

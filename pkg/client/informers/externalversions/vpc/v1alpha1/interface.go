@@ -25,6 +25,8 @@ type Interface interface {
 	StaticRoutes() StaticRouteInformer
 	// Subnets returns a SubnetInformer.
 	Subnets() SubnetInformer
+	// SubnetConnectionBindingMaps returns a SubnetConnectionBindingMapInformer.
+	SubnetConnectionBindingMaps() SubnetConnectionBindingMapInformer
 	// SubnetPorts returns a SubnetPortInformer.
 	SubnetPorts() SubnetPortInformer
 	// SubnetSets returns a SubnetSetInformer.
@@ -77,6 +79,11 @@ func (v *version) StaticRoutes() StaticRouteInformer {
 // Subnets returns a SubnetInformer.
 func (v *version) Subnets() SubnetInformer {
 	return &subnetInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// SubnetConnectionBindingMaps returns a SubnetConnectionBindingMapInformer.
+func (v *version) SubnetConnectionBindingMaps() SubnetConnectionBindingMapInformer {
+	return &subnetConnectionBindingMapInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // SubnetPorts returns a SubnetPortInformer.

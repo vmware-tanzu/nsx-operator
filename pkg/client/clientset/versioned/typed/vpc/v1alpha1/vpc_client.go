@@ -22,6 +22,7 @@ type CrdV1alpha1Interface interface {
 	SecurityPoliciesGetter
 	StaticRoutesGetter
 	SubnetsGetter
+	SubnetConnectionBindingMapsGetter
 	SubnetPortsGetter
 	SubnetSetsGetter
 	VPCNetworkConfigurationsGetter
@@ -58,6 +59,10 @@ func (c *CrdV1alpha1Client) StaticRoutes(namespace string) StaticRouteInterface 
 
 func (c *CrdV1alpha1Client) Subnets(namespace string) SubnetInterface {
 	return newSubnets(c, namespace)
+}
+
+func (c *CrdV1alpha1Client) SubnetConnectionBindingMaps(namespace string) SubnetConnectionBindingMapInterface {
+	return newSubnetConnectionBindingMaps(c, namespace)
 }
 
 func (c *CrdV1alpha1Client) SubnetPorts(namespace string) SubnetPortInterface {

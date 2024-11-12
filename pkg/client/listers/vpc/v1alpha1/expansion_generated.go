@@ -61,6 +61,14 @@ type SubnetListerExpansion interface{}
 // SubnetNamespaceLister.
 type SubnetNamespaceListerExpansion interface{}
 
+// SubnetConnectionBindingMapListerExpansion allows custom methods to be added to
+// SubnetConnectionBindingMapLister.
+type SubnetConnectionBindingMapListerExpansion interface{}
+
+// SubnetConnectionBindingMapNamespaceListerExpansion allows custom methods to be added to
+// SubnetConnectionBindingMapNamespaceLister.
+type SubnetConnectionBindingMapNamespaceListerExpansion interface{}
+
 // SubnetPortListerExpansion allows custom methods to be added to
 // SubnetPortLister.
 type SubnetPortListerExpansion interface{}
