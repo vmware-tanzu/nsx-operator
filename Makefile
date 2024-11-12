@@ -7,7 +7,7 @@ GOFLAGS            :=
 BINDIR             ?= $(CURDIR)/bin
 GO_FILES           := $(shell find . -type d -name '.cache' -prune -o -type f -name '*.go' -print)
 
-GOLANGCI_LINT_VERSION := v1.61.0
+GOLANGCI_LINT_VERSION := v1.54.0
 GOLANGCI_LINT_BINDIR  := $(CURDIR)/.golangci-bin
 GOLANGCI_LINT_BIN     := $(GOLANGCI_LINT_BINDIR)/$(GOLANGCI_LINT_VERSION)/golangci-lint
 
