@@ -6,15 +6,21 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/agiledragon/gomonkey"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	pkg_mock "github.com/vmware-tanzu/nsx-operator/pkg/mock"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -225,4 +231,75 @@ func TestGetDefaultSubnetSet(t *testing.T) {
 		})
 	}
 
+}
+
+type fakeRecorder struct {
+}
+
+func (recorder fakeRecorder) Event(object runtime.Object, eventtype, reason, message string) {
+}
+
+func (recorder fakeRecorder) Eventf(object runtime.Object, eventtype, reason, messageFmt string, args ...interface{}) {
+}
+
+func (recorder fakeRecorder) AnnotatedEventf(object runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
+}
+
+func createStatusUpdater(t *testing.T) StatusUpdater {
+	statusUpdater := StatusUpdater{
+		Client: fake.NewClientBuilder().Build(),
+		NSXConfig: &config.NSXOperatorConfig{
+			NsxConfig: &config.NsxConfig{
+				EnforcementPoint: "vmc-enforcementpoint",
+			},
+		},
+		Recorder:        fakeRecorder{},
+		MetricResType:   MetricResTypeSubnet,
+		NSXResourceType: "Subnet",
+		ResourceType:    "Subnet",
+	}
+	return statusUpdater
+}
+func TestStatusUpdater_UpdateSuccess(t *testing.T) {
+	statusUpdater := createStatusUpdater(t)
+	statusUpdater.UpdateSuccess(context.TODO(), &v1alpha1.Subnet{}, func(client.Client, context.Context, client.Object, metav1.Time, ...interface{}) {})
+}
+
+func TestStatusUpdater_UpdateFail(t *testing.T) {
+	statusUpdater := createStatusUpdater(t)
+	statusUpdater.UpdateFail(context.TODO(), &v1alpha1.Subnet{}, fmt.Errorf("mock error"), "log message", func(_ client.Client, _ context.Context, _ client.Object, _ metav1.Time, e error, _ ...interface{}) {
+		assert.Contains(t, e.Error(), "mock error")
+	})
+}
+
+func TestStatusUpdater_DeleteSuccess(t *testing.T) {
+	statusUpdater := createStatusUpdater(t)
+
+	patchesRecordEvent := gomonkey.ApplyFunc((record.EventRecorder).Event,
+		func(r record.EventRecorder, object runtime.Object, eventtype string, reason string, message string) {
+			assert.Equal(t, &v1alpha1.Subnet{}, object)
+			assert.Equal(t, v1.EventTypeNormal, eventtype)
+			assert.Equal(t, ReasonSuccessfulDelete, reason)
+			assert.Equal(t, "Subnet CR has been successfully deleted", message)
+			return
+		})
+	defer patchesRecordEvent.Reset()
+
+	statusUpdater.DeleteSuccess(types.NamespacedName{Name: "name", Namespace: "ns"}, &v1alpha1.Subnet{})
+}
+
+func TestStatusUpdater_DeleteFail(t *testing.T) {
+	statusUpdater := createStatusUpdater(t)
+
+	patchesRecordEvent := gomonkey.ApplyFunc((record.EventRecorder).Event,
+		func(r record.EventRecorder, object runtime.Object, eventtype string, reason string, message string) {
+			assert.Equal(t, &v1alpha1.Subnet{}, object)
+			assert.Equal(t, v1.EventTypeWarning, eventtype)
+			assert.Equal(t, ReasonFailDelete, reason)
+			assert.Equal(t, "mock error", message)
+			return
+		})
+	defer patchesRecordEvent.Reset()
+
+	statusUpdater.DeleteFail(types.NamespacedName{Name: "name", Namespace: "ns"}, &v1alpha1.Subnet{}, fmt.Errorf("mock error"))
 }

@@ -185,6 +185,7 @@ func createFakeSubnetReconciler(objs []client.Object) *SubnetReconciler {
 		SubnetService:     subnetService,
 		SubnetPortService: subnetPortService,
 		Recorder:          &fakeRecorder{},
+		StatusUpdater:     common2.NewStatusUpdater(fakeClient, subnetService.NSXConfig, &fakeRecorder{}, MetricResTypeSubnet, "Subnet", "Subnet"),
 	}
 }
 

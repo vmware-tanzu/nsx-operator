@@ -11,10 +11,13 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -157,5 +160,83 @@ func GenericGarbageCollector(cancel chan bool, timeout time.Duration, f func(ctx
 		case <-ticker.C:
 			f(ctx)
 		}
+	}
+}
+
+type UpdateSuccessStatusFn func(k8sclient.Client, context.Context, k8sclient.Object, metav1.Time, ...interface{})
+
+type UpdateFailStatusFn func(k8sclient.Client, context.Context, k8sclient.Object, metav1.Time, error, ...interface{})
+
+type StatusUpdater struct {
+	Client          k8sclient.Client
+	NSXConfig       *config.NSXOperatorConfig
+	Recorder        record.EventRecorder
+	MetricResType   string
+	NSXResourceType string
+	ResourceType    string
+}
+
+func (u *StatusUpdater) UpdateSuccess(ctx context.Context, obj k8sclient.Object, setStatusFn UpdateSuccessStatusFn, args ...interface{}) {
+	log.Info(fmt.Sprintf("Successfully created or updated %s CR", u.ResourceType), u.ResourceType, obj)
+	if setStatusFn != nil {
+		setStatusFn(u.Client, ctx, obj, metav1.Now(), args...)
+	}
+	u.Recorder.Event(obj, v1.EventTypeNormal, ReasonSuccessfulUpdate, fmt.Sprintf("%s CR has been successfully updated", u.ResourceType))
+	metrics.CounterInc(u.NSXConfig, metrics.ControllerUpdateSuccessTotal, u.MetricResType)
+}
+
+func (u *StatusUpdater) UpdateFail(ctx context.Context, obj k8sclient.Object, err error, msg string, setStatusFn UpdateFailStatusFn, args ...interface{}) {
+	log.Error(err, fmt.Sprintf("Failed to create or update %s CR", u.ResourceType), "Reason", msg, u.ResourceType, obj)
+	if setStatusFn != nil {
+		setStatusFn(u.Client, ctx, obj, metav1.Now(), err, args...)
+	}
+	u.Recorder.Event(obj, v1.EventTypeWarning, ReasonFailUpdate, fmt.Sprintf("%v", err))
+	metrics.CounterInc(u.NSXConfig, metrics.ControllerUpdateFailTotal, u.MetricResType)
+}
+
+func (u *StatusUpdater) DeleteSuccess(namespacedName types.NamespacedName, obj k8sclient.Object) {
+	log.Info(fmt.Sprintf("Successfully deleted %s CR", u.ResourceType), u.ResourceType, namespacedName)
+	if obj != nil {
+		u.Recorder.Event(obj, v1.EventTypeNormal, ReasonSuccessfulDelete, fmt.Sprintf("%s CR has been successfully deleted", u.ResourceType))
+	}
+	metrics.CounterInc(u.NSXConfig, metrics.ControllerDeleteSuccessTotal, u.MetricResType)
+}
+
+func (u *StatusUpdater) DeleteFail(namespacedName types.NamespacedName, obj k8sclient.Object, err error) {
+	log.Error(err, fmt.Sprintf("Failed to delete NSX %s, would retry exponentially", u.NSXResourceType), u.ResourceType, namespacedName)
+	if obj != nil {
+		u.Recorder.Event(obj, v1.EventTypeWarning, ReasonFailDelete, fmt.Sprintf("%v", err))
+	}
+	metrics.CounterInc(u.NSXConfig, metrics.ControllerDeleteFailTotal, u.MetricResType)
+}
+
+func (u *StatusUpdater) IncreaseSyncTotal() {
+	metrics.CounterInc(u.NSXConfig, metrics.ControllerSyncTotal, u.MetricResType)
+}
+
+func (u *StatusUpdater) IncreaseUpdateTotal() {
+	metrics.CounterInc(u.NSXConfig, metrics.ControllerUpdateTotal, u.MetricResType)
+}
+
+func (u *StatusUpdater) IncreaseDeleteTotal() {
+	metrics.CounterInc(u.NSXConfig, metrics.ControllerDeleteTotal, u.MetricResType)
+}
+
+func (u *StatusUpdater) IncreaseDeleteSuccessTotal() {
+	metrics.CounterInc(u.NSXConfig, metrics.ControllerDeleteSuccessTotal, u.MetricResType)
+}
+
+func (u *StatusUpdater) IncreaseDeleteFailTotal() {
+	metrics.CounterInc(u.NSXConfig, metrics.ControllerDeleteFailTotal, u.MetricResType)
+}
+
+func NewStatusUpdater(client k8sclient.Client, nsxConfig *config.NSXOperatorConfig, recorder record.EventRecorder, metricResType string, nsxResourceType string, resourceType string) StatusUpdater {
+	return StatusUpdater{
+		Client:          client,
+		NSXConfig:       nsxConfig,
+		Recorder:        recorder,
+		MetricResType:   metricResType,
+		NSXResourceType: nsxResourceType,
+		ResourceType:    resourceType,
 	}
 }

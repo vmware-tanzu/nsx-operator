@@ -2,7 +2,6 @@ package networkinfo
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"slices"
 
@@ -14,41 +13,27 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	svccommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
-func deleteFail(r *NetworkInfoReconciler, c context.Context, o *v1alpha1.NetworkInfo, e *error, client client.Client) {
-	setNetworkInfoVPCStatus(c, o, client, nil)
-	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeNetworkInfo)
+func setNetworkInfoVPCStatusWithError(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ error, args ...interface{}) {
+	setNetworkInfoVPCStatus(client, ctx, obj, transitionTime, args...)
 }
 
-func updateFail(r *NetworkInfoReconciler, c context.Context, o *v1alpha1.NetworkInfo, e *error, client client.Client, vpcState *v1alpha1.VPCState) {
-	setNetworkInfoVPCStatus(c, o, client, vpcState)
-	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
-}
-
-func updateSuccess(r *NetworkInfoReconciler, c context.Context, o *v1alpha1.NetworkInfo, client client.Client,
-	vpcState *v1alpha1.VPCState, ncName string, subnetPath string) {
-	setNetworkInfoVPCStatus(c, o, client, vpcState)
-	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "NetworkInfo CR has been successfully updated")
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, common.MetricResTypeNetworkInfo)
-}
-
-func deleteSuccess(r *NetworkInfoReconciler, c context.Context, o *v1alpha1.NetworkInfo) {
-	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "NetworkInfo CR has been successfully deleted")
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeNetworkInfo)
-}
-
-func setNetworkInfoVPCStatus(ctx context.Context, networkInfo *v1alpha1.NetworkInfo, client client.Client, createdVPC *v1alpha1.VPCState) {
-	// if createdVPC is empty, remove the VPC from networkInfo
-	if createdVPC == nil {
+func setNetworkInfoVPCStatus(client client.Client, ctx context.Context, obj client.Object, _ metav1.Time, args ...interface{}) {
+	if len(args) != 1 {
+		log.Error(nil, "VPC State is needed when updating NetworkInfo status")
+		return
+	}
+	networkInfo := obj.(*v1alpha1.NetworkInfo)
+	var createdVPC *v1alpha1.VPCState
+	if args[0] == nil {
+		// if createdVPC is empty, remove the VPC from networkInfo
 		networkInfo.VPCs = []v1alpha1.VPCState{}
 		client.Update(ctx, networkInfo)
 		return
+	} else {
+		createdVPC = args[0].(*v1alpha1.VPCState)
 	}
 	existingVPC := &v1alpha1.VPCState{}
 	if len(networkInfo.VPCs) > 0 {
@@ -103,7 +88,7 @@ func setVPCNetworkConfigurationStatusWithGatewayConnection(ctx context.Context, 
 	}
 	conditionsUpdated := false
 	for i := range newConditions {
-		if mergeStatusCondition(ctx, &nc.Status.Conditions, &newConditions[i]) {
+		if mergeStatusCondition(&nc.Status.Conditions, &newConditions[i]) {
 			conditionsUpdated = true
 		}
 	}
@@ -126,7 +111,7 @@ func setVPCNetworkConfigurationStatusWithSnatEnabled(ctx context.Context, client
 	}
 	conditionsUpdated := false
 	for i := range newConditions {
-		if mergeStatusCondition(ctx, &nc.Status.Conditions, &newConditions[i]) {
+		if mergeStatusCondition(&nc.Status.Conditions, &newConditions[i]) {
 			conditionsUpdated = true
 		}
 	}
@@ -147,7 +132,7 @@ func setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx context.Context, 
 	} else {
 		newCondition.Status = v1.ConditionTrue
 	}
-	if mergeStatusCondition(ctx, &nc.Status.Conditions, &newCondition) {
+	if mergeStatusCondition(&nc.Status.Conditions, &newCondition) {
 		if err := client.Status().Update(ctx, nc); err != nil {
 			log.Error(err, "Update VPCNetworkConfiguration status failed", "VPCNetworkConfiguration", nc.Name)
 			return
@@ -157,7 +142,7 @@ func setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx context.Context, 
 }
 
 // TODO: abstract the logic of merging condition for common, which can be used by the other controller, e.g. security policy
-func mergeStatusCondition(ctx context.Context, conditions *[]v1alpha1.Condition, newCondition *v1alpha1.Condition) bool {
+func mergeStatusCondition(conditions *[]v1alpha1.Condition, newCondition *v1alpha1.Condition) bool {
 	existingCondition := getExistingConditionOfType(newCondition.Type, *conditions)
 	if existingCondition != nil {
 		// Don't compare the timestamp.
