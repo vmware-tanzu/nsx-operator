@@ -243,6 +243,7 @@ func UserSubnetSet(t *testing.T) {
 			}
 			return false, nil
 		})
+		assert.NoError(t, err)
 
 		// 5. Check NSX subnet allocation.
 		networkaddress := subnetSet.Status.Subnets[0].NetworkAddresses
