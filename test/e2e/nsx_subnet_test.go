@@ -218,7 +218,7 @@ func UserSubnetSet(t *testing.T) {
 		assert.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
 
 		// 4. Check IP address is (not) allocated to SubnetPort.
-		err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 200*time.Second, false, func(ctx context.Context) (bool, error) {
+		err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 100*time.Second, false, func(ctx context.Context) (bool, error) {
 			port, err := testData.crdClientset.CrdV1alpha1().SubnetPorts(subnetTestNamespace).Get(context.TODO(), portName, v1.GetOptions{})
 			if err != nil {
 				t.Logf("Check IP address is (not) allocated to SubnetPort: %+v, error: %+v", port, err)
@@ -227,16 +227,15 @@ func UserSubnetSet(t *testing.T) {
 			if port == nil || len(port.Status.NetworkInterfaceConfig.IPAddresses) == 0 {
 				return false, nil
 			}
+			t.Logf("Check IP address in SubnetPort: %s, portName: %s", port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, portName)
 			if portName == "port-in-static-subnetset" {
 				if port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress != "" {
 					return true, nil
 				}
-				// assert.NotEmpty(t, port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "No IP address in SubnetPort")
 			} else if portName == "port-in-dhcp-subnetset" {
 				if port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress == "" {
 					return true, nil
 				}
-				// assert.Empty(t, port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "DHCP port shouldn't have IP Address")
 			}
 			return false, nil
 		})
