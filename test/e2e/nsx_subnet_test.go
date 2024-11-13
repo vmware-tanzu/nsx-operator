@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"github.com/stretchr/testify/require"
 	"log"
 	"net"
 	"path/filepath"
@@ -55,7 +56,7 @@ func TestSubnetSet(t *testing.T) {
 	setupTest(t, subnetTestNamespace)
 	nsPath, _ := filepath.Abs("./manifest/testSubnet/shared_ns.yaml")
 	err := applyYAML(nsPath, "")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	t.Cleanup(func() {
 		teardownTest(t, subnetTestNamespace, subnetDeletionTimeout)
@@ -107,7 +108,7 @@ func defaultSubnetSet(t *testing.T) {
 
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_1.yaml")
 	err := applyYAML(portPath, subnetTestNamespace)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assureSubnetPort(t, subnetTestNamespace, "port-e2e-test-1")
 	defer deleteYAML(portPath, subnetTestNamespace)
 
@@ -198,8 +199,10 @@ func UserSubnetSet(t *testing.T) {
 		portName := portNames[idx]
 		// 1. Check SubnetSet created by user.
 		subnetSetPath, _ := filepath.Abs(subnetSetYAML)
+		deleteYAML(subnetSetPath, subnetTestNamespace)
+
 		err := applyYAML(subnetSetPath, subnetTestNamespace)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		assureSubnetSet(t, subnetTestNamespace, subnetSetName)
 
@@ -208,9 +211,8 @@ func UserSubnetSet(t *testing.T) {
 
 		portPath, _ := filepath.Abs(portYAML)
 		err = applyYAML(portPath, subnetTestNamespace)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assureSubnetPort(t, subnetTestNamespace, portName)
-		defer deleteYAML(portPath, subnetTestNamespace)
 
 		// 3. Check SubnetSet CR status should be updated with NSX subnet info.
 		subnetSet, err := testData.crdClientset.CrdV1alpha1().SubnetSets(subnetTestNamespace).Get(context.TODO(), subnetSetName, v1.GetOptions{})
@@ -242,8 +244,10 @@ func UserSubnetSet(t *testing.T) {
 		assert.NoError(t, err)
 
 		// 5. Check NSX subnet allocation.
-		networkaddress := subnetSet.Status.Subnets[0].NetworkAddresses
-		assert.True(t, len(networkaddress) > 0, "No network address in SubnetSet")
+		networkAddress := subnetSet.Status.Subnets[0].NetworkAddresses
+		assert.True(t, len(networkAddress) > 0, "No network address in SubnetSet")
+		deleteYAML(portPath, subnetTestNamespace)
+		deleteYAML(subnetSetPath, subnetTestNamespace)
 	}
 }
 
@@ -258,7 +262,7 @@ func sharedSubnetSet(t *testing.T) {
 
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_3.yaml")
 	err := applyYAML(portPath, subnetTestNamespaceShared)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assureSubnetPort(t, subnetTestNamespaceShared, "port-e2e-test-3")
 	defer deleteYAML(portPath, subnetTestNamespaceShared)
