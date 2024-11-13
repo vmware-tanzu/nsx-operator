@@ -19,6 +19,8 @@ type StaticRouteExpansion interface{}
 
 type SubnetExpansion interface{}
 
+type SubnetConnectionBindingMapExpansion interface{}
+
 type SubnetPortExpansion interface{}
 
 type SubnetSetExpansion interface{}

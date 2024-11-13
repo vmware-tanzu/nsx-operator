@@ -24,7 +24,10 @@ jobs:
 
     - name: Run golangci-lint
       run: make golangci
-        
+
+    - name: Run code-generator
+      run: make generated
+
     - name: Run build
       run: make build
 

@@ -43,6 +43,10 @@ func (c *FakeCrdV1alpha1) Subnets(namespace string) v1alpha1.SubnetInterface {
 	return &FakeSubnets{c, namespace}
 }
 
+func (c *FakeCrdV1alpha1) SubnetConnectionBindingMaps(namespace string) v1alpha1.SubnetConnectionBindingMapInterface {
+	return &FakeSubnetConnectionBindingMaps{c, namespace}
+}
+
 func (c *FakeCrdV1alpha1) SubnetPorts(namespace string) v1alpha1.SubnetPortInterface {
 	return &FakeSubnetPorts{c, namespace}
 }

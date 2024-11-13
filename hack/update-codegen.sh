@@ -12,6 +12,7 @@ GROUP=vpc
 SCRIPT_ROOT=$(dirname "${BASH_SOURCE[0]}")/..
 CODEGEN_PKG=$(go env GOMODCACHE)/k8s.io/code-generator@v0.27.1
 
+mv ./pkg/client/go.mod client.go.mod
 rm -fr ./pkg/client
 
 bash "${CODEGEN_PKG}"/generate-groups.sh "deepcopy,client,informer,lister" \
@@ -22,7 +23,7 @@ ${GROUP}:v1alpha1 \
 
 mv ./${OUTPUT_PKG} ./pkg/
 cd ./pkg/client
-go mod init github.com/vmware-tanzu/nsx-operator/pkg/client
+mv ../../client.go.mod ./go.mod
 go mod tidy
 cd ../../
 rm -rf ./github.com
