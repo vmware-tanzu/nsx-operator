@@ -24,7 +24,6 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
-	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
@@ -32,41 +31,20 @@ import (
 )
 
 var (
-	log                     = &logger.Log
-	ResultNormal            = common.ResultNormal
-	ResultRequeue           = common.ResultRequeue
-	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
-	MetricResType           = common.MetricResTypeStaticRoute
+	log                      = &logger.Log
+	ResultNormal             = common.ResultNormal
+	ResultRequeue            = common.ResultRequeue
+	ResultRequeueAfter5mins  = common.ResultRequeueAfter5mins
+	MetricResTypeStaticRoute = common.MetricResTypeStaticRoute
 )
 
 // StaticRouteReconciler StaticRouteReconcile reconciles a StaticRoute object
 type StaticRouteReconciler struct {
-	Client   client.Client
-	Scheme   *apimachineryruntime.Scheme
-	Service  *staticroute.StaticRouteService
-	Recorder record.EventRecorder
-}
-
-func deleteFail(r *StaticRouteReconciler, c context.Context, o *v1alpha1.StaticRoute, e *error) {
-	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, fmt.Sprintf("%v", *e))
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeStaticRoute)
-}
-
-func updateFail(r *StaticRouteReconciler, c context.Context, o *v1alpha1.StaticRoute, e *error) {
-	r.setStaticRouteReadyStatusFalse(c, o, metav1.Now(), e)
-	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, fmt.Sprintf("%v", *e))
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
-}
-
-func updateSuccess(r *StaticRouteReconciler, c context.Context, o *v1alpha1.StaticRoute) {
-	r.setStaticRouteReadyStatusTrue(c, o, metav1.Now())
-	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "StaticRoute CR has been successfully updated")
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, common.MetricResTypeStaticRoute)
-}
-
-func deleteSuccess(r *StaticRouteReconciler, _ context.Context, o *v1alpha1.StaticRoute) {
-	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "StaticRoute CR has been successfully deleted")
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeStaticRoute)
+	Client        client.Client
+	Scheme        *apimachineryruntime.Scheme
+	Service       *staticroute.StaticRouteService
+	Recorder      record.EventRecorder
+	StatusUpdater common.StatusUpdater
 }
 
 func (r *StaticRouteReconciler) listStaticRouteCRIDs() (sets.Set[string], error) {
@@ -111,24 +89,25 @@ func (r *StaticRouteReconciler) deleteStaticRouteByName(ns, name string) error {
 func (r *StaticRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	obj := &v1alpha1.StaticRoute{}
 	log.Info("reconciling staticroute CR", "staticroute", req.NamespacedName)
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, common.MetricResTypeStaticRoute)
+	r.StatusUpdater.IncreaseSyncTotal()
 
 	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
 		if apierrors.IsNotFound(err) {
 			if err := r.deleteStaticRouteByName(req.Namespace, req.Name); err != nil {
+				r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
 				return ResultRequeue, err
-			} else {
-				return ResultNormal, nil
 			}
+			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
+			return ResultNormal, nil
 		}
 		log.Error(err, "unable to fetch static route CR", "req", req.NamespacedName)
 		return ResultRequeue, err
 	}
 
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
-		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, common.MetricResTypeStaticRoute)
+		r.StatusUpdater.IncreaseUpdateTotal()
 		if err := r.Service.CreateOrUpdateStaticRoute(req.Namespace, obj); err != nil {
-			updateFail(r, ctx, obj, &err)
+			r.StatusUpdater.UpdateFail(ctx, obj, err, "", setStaticRouteReadyStatusFalse)
 			// TODO: if error is not retriable, not requeue
 			apierror, errortype := util.DumpAPIError(err)
 			if apierror != nil {
@@ -136,20 +115,20 @@ func (r *StaticRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}
 			return ResultRequeue, err
 		}
-		updateSuccess(r, ctx, obj)
+		r.StatusUpdater.UpdateSuccess(ctx, obj, setStaticRouteReadyStatusTrue)
 	} else {
-		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeStaticRoute)
+		r.StatusUpdater.IncreaseDeleteTotal()
 		if err := r.Service.DeleteStaticRoute(obj); err != nil {
-			log.Error(err, "delete failed, would retry exponentially", "staticroute", req.NamespacedName)
-			deleteFail(r, ctx, obj, &err)
+			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
 			return ResultRequeue, err
 		}
-		deleteSuccess(r, ctx, obj)
+		r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 	}
 	return ResultNormal, nil
 }
 
-func (r *StaticRouteReconciler) setStaticRouteReadyStatusTrue(ctx context.Context, staticRoute *v1alpha1.StaticRoute, transitionTime metav1.Time) {
+func setStaticRouteReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {
+	staticRoute := obj.(*v1alpha1.StaticRoute)
 	newConditions := []v1alpha1.StaticRouteCondition{
 		{
 			Type:               v1alpha1.Ready,
@@ -159,36 +138,37 @@ func (r *StaticRouteReconciler) setStaticRouteReadyStatusTrue(ctx context.Contex
 			LastTransitionTime: transitionTime,
 		},
 	}
-	r.updateStaticRouteStatusConditions(ctx, staticRoute, newConditions)
+	updateStaticRouteStatusConditions(client, ctx, staticRoute, newConditions)
 }
 
-func (r *StaticRouteReconciler) setStaticRouteReadyStatusFalse(ctx context.Context, staticRoute *v1alpha1.StaticRoute, transitionTime metav1.Time, err *error) {
+func setStaticRouteReadyStatusFalse(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, err error, _ ...interface{}) {
+	staticRoute := obj.(*v1alpha1.StaticRoute)
 	newConditions := []v1alpha1.StaticRouteCondition{
 		{
 			Type:               v1alpha1.Ready,
 			Status:             v1.ConditionFalse,
-			Message:            fmt.Sprintf("Error occurred while processing the Static Route CR. Please check the config and try again. Error: %v", *err),
+			Message:            fmt.Sprintf("Error occurred while processing the Static Route CR. Please check the config and try again. Error: %v", err),
 			Reason:             "StaticRouteNotReady",
 			LastTransitionTime: transitionTime,
 		},
 	}
-	r.updateStaticRouteStatusConditions(ctx, staticRoute, newConditions)
+	updateStaticRouteStatusConditions(client, ctx, staticRoute, newConditions)
 }
 
-func (r *StaticRouteReconciler) updateStaticRouteStatusConditions(ctx context.Context, staticRoute *v1alpha1.StaticRoute, newConditions []v1alpha1.StaticRouteCondition) {
+func updateStaticRouteStatusConditions(client client.Client, ctx context.Context, staticRoute *v1alpha1.StaticRoute, newConditions []v1alpha1.StaticRouteCondition) {
 	conditionsUpdated := false
 	for i := range newConditions {
-		if r.mergeStaticRouteStatusCondition(staticRoute, &newConditions[i]) {
+		if mergeStaticRouteStatusCondition(staticRoute, &newConditions[i]) {
 			conditionsUpdated = true
 		}
 	}
 	if conditionsUpdated {
-		r.Client.Status().Update(ctx, staticRoute)
+		client.Status().Update(ctx, staticRoute)
 		log.V(1).Info("Updated Static Route CRD", "Name", staticRoute.Name, "Namespace", staticRoute.Namespace, "New Conditions", newConditions)
 	}
 }
 
-func (r *StaticRouteReconciler) mergeStaticRouteStatusCondition(staticRoute *v1alpha1.StaticRoute, newCondition *v1alpha1.StaticRouteCondition) bool {
+func mergeStaticRouteStatusCondition(staticRoute *v1alpha1.StaticRoute, newCondition *v1alpha1.StaticRouteCondition) bool {
 	matchedCondition := getExistingConditionOfType(v1alpha1.StaticRouteStatusCondition(newCondition.Type), staticRoute.Status.Conditions)
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {
@@ -266,14 +246,14 @@ func (r *StaticRouteReconciler) CollectGarbage(ctx context.Context) {
 		}
 
 		log.V(1).Info("GC collected StaticRoute CR", "UID", elem)
-		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeStaticRoute)
+		r.StatusUpdater.IncreaseDeleteTotal()
 		// get orgId, projectId, staticrouteId from path  "/orgs/<orgId>/projects/<projectId>/vpcs/<vpcId>/static-routes/<srId>"
 		path := strings.Split(*elem.Path, "/")
 		err = r.Service.DeleteStaticRouteByPath(path[2], path[4], path[6], *elem.Id)
 		if err != nil {
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeStaticRoute)
+			r.StatusUpdater.IncreaseDeleteFailTotal()
 		} else {
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeStaticRoute)
+			r.StatusUpdater.IncreaseDeleteSuccessTotal()
 		}
 	}
 }
@@ -285,6 +265,7 @@ func StartStaticRouteController(mgr ctrl.Manager, staticRouteService *staticrout
 		Recorder: mgr.GetEventRecorderFor("staticroute-controller"),
 	}
 	staticRouteReconcile.Service = staticRouteService
+	staticRouteReconcile.StatusUpdater = common.NewStatusUpdater(staticRouteReconcile.Client, staticRouteReconcile.Service.NSXConfig, staticRouteReconcile.Recorder, MetricResTypeStaticRoute, "StaticRoute", "StaticRoute")
 	if err := staticRouteReconcile.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "StaticRoute")
 		os.Exit(1)

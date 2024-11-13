@@ -26,7 +26,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
-	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
@@ -100,6 +99,7 @@ type NetworkInfoReconciler struct {
 	IPBlocksInfoService *ipblocksinfo.IPBlocksInfoService
 	Recorder            record.EventRecorder
 	queue               workqueue.TypedRateLimitingInterface[reconcile.Request]
+	StatusUpdater       common.StatusUpdater
 }
 
 func (r *NetworkInfoReconciler) GetVpcConnectivityProfilePathByVpcPath(vpcPath string) (string, error) {
@@ -130,15 +130,17 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	defer func() {
 		log.Info("Finished reconciling NetworkInfo", "NetworkInfo", req.NamespacedName, "duration(ms)", time.Since(startTime).Milliseconds())
 	}()
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, common.MetricResTypeNetworkInfo)
+
+	r.StatusUpdater.IncreaseSyncTotal()
 
 	networkInfoCR := &v1alpha1.NetworkInfo{}
 	if err := r.Client.Get(ctx, req.NamespacedName, networkInfoCR); err != nil {
 		if apierrors.IsNotFound(err) {
 			if err := r.deleteVPCsByName(ctx, req.Namespace); err != nil {
-				log.Error(err, "Failed to delete stale NSX VPC", "NetworkInfo", req.NamespacedName)
+				r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
 				return common.ResultRequeue, err
 			}
+			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 			return common.ResultNormal, nil
 		}
 		log.Error(err, "Unable to fetch NetworkInfo CR", "NetworkInfo", req.NamespacedName)
@@ -147,23 +149,22 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// Check if the CR is marked for deletion
 	if !networkInfoCR.ObjectMeta.DeletionTimestamp.IsZero() {
-		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNetworkInfo)
+		r.StatusUpdater.IncreaseDeleteTotal()
 		if err := r.deleteVPCsByID(ctx, networkInfoCR.GetNamespace(), string(networkInfoCR.UID)); err != nil {
-			deleteFail(r, ctx, networkInfoCR, &err, r.Client)
-			log.Error(err, "Failed to delete stale NSX VPC, retrying", "NetworkInfo", req.NamespacedName)
+			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
 			return common.ResultRequeue, err
 		}
-		deleteSuccess(r, ctx, networkInfoCR)
+		r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 		return common.ResultNormal, nil
 	}
 
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, common.MetricResTypeNetworkInfo)
+	r.StatusUpdater.IncreaseUpdateTotal()
 	// TODO:
 	// 1. check whether the logic to get VPC network config can be replaced by GetVPCNetworkConfigByNamespace
 	// 2. sometimes the variable nc points to a VPCNetworkInfo, sometimes it's a VPCNetworkConfiguration, we need to distinguish between them.
 	nc, err := r.getNetworkConfigInfo(ctx, networkInfoCR)
 	if err != nil {
-		updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
+		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "", setNetworkInfoVPCStatusWithError, nil)
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCNetCfgGetError.getNSNetworkCondition(err))
 		return common.ResultRequeueAfter10sec, err
 	}
@@ -174,8 +175,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	systemVpcNetCfg := &v1alpha1.VPCNetworkConfiguration{}
 	err = r.Client.Get(ctx, types.NamespacedName{Name: commonservice.SystemVPCNetworkConfigurationName}, systemVpcNetCfg)
 	if err != nil {
-		log.Error(err, "Failed to get system VPCNetworkConfiguration")
-		updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
+		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to get system VPCNetworkConfiguration", setNetworkInfoVPCStatusWithError, nil)
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgSystemVPCNetCfgNotFound.getNSNetworkCondition(err))
 		return common.ResultRequeueAfter10sec, err
 	}
@@ -197,8 +197,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		gatewayConnectionReady, gatewayConnectionReason, err = r.Service.ValidateGatewayConnectionStatus(&nc)
 		log.Info("Got the gateway connection status", "gatewayConnectionReady", gatewayConnectionReady, "gatewayConnectionReason", gatewayConnectionReason)
 		if err != nil {
-			log.Error(err, "Failed to validate the edge and gateway connection", "Org", nc.Org, "Project", nc.NSXProject)
-			updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
+			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to validate the edge and gateway connection, Org: %s, Porject: %s", nc.Org, nc.NSXProject), setNetworkInfoVPCStatusWithError, nil)
 			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCGwConnectionGetError.getNSNetworkCondition(err))
 			return common.ResultRequeueAfter10sec, err
 		}
@@ -215,8 +214,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	lbProvider := r.Service.GetLBProvider()
 	createdVpc, err := r.Service.CreateOrUpdateVPC(ctx, networkInfoCR, &nc, lbProvider)
 	if err != nil {
-		log.Error(err, "Failed to create or update VPC", "NetworkInfo", req.NamespacedName)
-		updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
+		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to create or update VPC", setNetworkInfoVPCStatusWithError, nil)
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
 		return common.ResultRequeueAfter10sec, err
 	}
@@ -230,16 +228,14 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		vpcPath := *createdVpc.Path
 		vpcConnectivityProfilePath, err = r.GetVpcConnectivityProfilePathByVpcPath(vpcPath)
 		if err != nil {
-			log.Error(err, "Failed to get VPC connectivity profile path", "path", vpcPath)
-			updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
+			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to get VPC connectivity profile path %s", vpcPath), setNetworkInfoVPCStatusWithError, nil)
 			return common.ResultRequeueAfter10sec, err
 		}
 		// Retrieve NSX lbs path if Supervisor is configuring with NSX LB.
 		if lbProvider == vpc.NSXLB {
 			nsxLBSPath, err = r.Service.GetLBSsFromNSXByVPC(vpcPath)
 			if err != nil {
-				log.Error(err, "Failed to get NSX LBS path with pre-created VPC", "VPC", vpcPath)
-				updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
+				r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to get NSX LBS path with pre-created VPC %s", vpcPath), setNetworkInfoVPCStatusWithError, nil)
 				setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCNsxLBSNotReady.getNSNetworkCondition(err))
 				return common.ResultRequeueAfter10sec, err
 			}
@@ -260,8 +256,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	vpcConnectivityProfile, err := r.Service.GetVpcConnectivityProfile(&nc, vpcConnectivityProfilePath)
 	if err != nil {
-		log.Error(err, "Failed to get VPC connectivity profile", "NetworkInfo", req.NamespacedName)
-		updateFail(r, ctx, networkInfoCR, &err, r.Client, nil)
+		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to get VPC connectivity profile", setNetworkInfoVPCStatusWithError, nil)
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCGetExtIPBlockError.getNSNetworkCondition(err))
 		return common.ResultRequeueAfter10sec, err
 	}
@@ -282,14 +277,13 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if autoSnatEnabled {
 		snatIP, err = r.Service.GetDefaultSNATIP(*createdVpc)
 		if err != nil {
-			log.Error(err, "Failed to read default SNAT IP from VPC", "VPC", createdVpc.Id)
 			state := &v1alpha1.VPCState{
 				Name:                    *createdVpc.DisplayName,
 				DefaultSNATIP:           "",
 				LoadBalancerIPAddresses: "",
 				PrivateIPs:              privateIPs,
 			}
-			updateFail(r, ctx, networkInfoCR, &err, r.Client, state)
+			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to read default SNAT IP from VPC: %s", *createdVpc.Id), setNetworkInfoVPCStatusWithError, state)
 			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCDefaultSNATIPGetError.getNSNetworkCondition(err))
 			return common.ResultRequeueAfter10sec, err
 		}
@@ -317,7 +311,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				LoadBalancerIPAddresses: "",
 				PrivateIPs:              privateIPs,
 			}
-			updateFail(r, ctx, networkInfoCR, &err, r.Client, state)
+			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to read LB Subnet path and CIDR, VPC: %s", *createdVpc.Id), setNetworkInfoVPCStatusWithError, state)
 			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCAviSubnetError.getNSNetworkCondition(err))
 			return common.ResultRequeueAfter10sec, err
 		}
@@ -333,7 +327,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// AKO needs to know the AVI subnet path created by NSX
 	setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, path, nsxLBSPath, *createdVpc.Path)
-	updateSuccess(r, ctx, networkInfoCR, r.Client, state, nc.Name, path)
+	r.StatusUpdater.UpdateSuccess(ctx, networkInfoCR, setNetworkInfoVPCStatus, state)
 
 	if retryWithSystemVPC {
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, systemNSCondition)
@@ -428,15 +422,15 @@ func (r *NetworkInfoReconciler) CollectGarbage(ctx context.Context) {
 			continue
 		}
 		log.Info("Garbage collecting NSX VPC object", "VPC", nsxVPC.Id, "Namespace", nsxVPCNamespaceName)
-		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNetworkInfo)
+		r.StatusUpdater.IncreaseDeleteTotal()
 
 		if err = r.Service.DeleteVPC(*nsxVPC.Path); err != nil {
 			log.Error(err, "Failed to delete NSX VPC", "VPC", nsxVPC.Id, "Namespace", nsxVPCNamespaceName)
-			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeNetworkInfo)
+			r.StatusUpdater.IncreaseDeleteFailTotal()
 			continue
 		}
 
-		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeNetworkInfo)
+		r.StatusUpdater.IncreaseDeleteSuccessTotal()
 		log.Info("Successfully deleted NSX VPC", "VPC", nsxVPC.Id)
 	}
 }

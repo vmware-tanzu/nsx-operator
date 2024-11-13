@@ -27,6 +27,7 @@ import (
 	nsxvmwarecomv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -392,21 +393,9 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Namespace:       requestArgs.req.Namespace,
 					Name:            requestArgs.req.Name,
 					Finalizers:      []string{servicecommon.NSXServiceAccountFinalizerName},
-					ResourceVersion: "2",
+					ResourceVersion: "1",
 				},
 				Spec: nsxvmwarecomv1alpha1.NSXServiceAccountSpec{},
-				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
-					Phase:  nsxvmwarecomv1alpha1.NSXServiceAccountPhaseFailed,
-					Reason: "Error: mock error",
-					Conditions: []metav1.Condition{
-						{
-							Type:    nsxvmwarecomv1alpha1.ConditionTypeRealized,
-							Status:  metav1.ConditionFalse,
-							Reason:  nsxvmwarecomv1alpha1.ConditionReasonRealizationError,
-							Message: "Error: mock error",
-						},
-					},
-				},
 			},
 		},
 		{
@@ -447,21 +436,9 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Namespace:       requestArgs.req.Namespace,
 					Name:            requestArgs.req.Name,
 					Finalizers:      []string{servicecommon.NSXServiceAccountFinalizerName},
-					ResourceVersion: "2",
+					ResourceVersion: "1",
 				},
 				Spec: nsxvmwarecomv1alpha1.NSXServiceAccountSpec{},
-				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
-					Phase:  "failed",
-					Reason: "Error: mock error",
-					Conditions: []metav1.Condition{
-						{
-							Type:    nsxvmwarecomv1alpha1.ConditionTypeRealized,
-							Status:  metav1.ConditionFalse,
-							Reason:  nsxvmwarecomv1alpha1.ConditionReasonRealizationError,
-							Message: "Error: mock error",
-						},
-					},
-				},
 			},
 		},
 		{
@@ -507,6 +484,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					},
 				},
 			}
+			r.StatusUpdater = common.NewStatusUpdater(r.Client, r.Service.NSXConfig, r.Recorder, MetricResType, "ServiceAccount", "NSXServiceAccount")
 			ctx := context.TODO()
 			if tt.prepareFunc != nil {
 				patches := tt.prepareFunc(t, r, ctx)
@@ -588,6 +566,7 @@ func TestNSXServiceAccountReconciler_GarbageCollector(t *testing.T) {
 					},
 				},
 			}
+			r.StatusUpdater = common.NewStatusUpdater(r.Client, r.Service.NSXConfig, r.Recorder, MetricResType, "ServiceAccount", "NSXServiceAccount")
 			r.Service.SetUpStore()
 			ctx := context.TODO()
 			if tt.prepareFunc != nil {
@@ -612,13 +591,13 @@ func TestNSXServiceAccountReconciler_Start(t *testing.T) {
 	assert.Error(t, r.Start(nil))
 }
 
-func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatus(t *testing.T) {
+func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatuswithError(t *testing.T) {
 	ctx := context.TODO()
 	err := fmt.Errorf("test error")
 	type args struct {
 		ctx context.Context
 		o   *nsxvmwarecomv1alpha1.NSXServiceAccount
-		e   *error
+		e   error
 	}
 	tests := []struct {
 		name     string
@@ -666,7 +645,6 @@ func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatus(t *testing.T)
 						}},
 					},
 				},
-				e: nil,
 			},
 			expected: args{
 				o: &nsxvmwarecomv1alpha1.NSXServiceAccount{
@@ -697,7 +675,6 @@ func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatus(t *testing.T)
 						}},
 					},
 				},
-				e: nil,
 			},
 		},
 		{
@@ -730,7 +707,7 @@ func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatus(t *testing.T)
 						}},
 					},
 				},
-				e: &err,
+				e: err,
 			},
 			expected: args{
 				o: &nsxvmwarecomv1alpha1.NSXServiceAccount{
@@ -761,7 +738,6 @@ func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatus(t *testing.T)
 						}},
 					},
 				},
-				e: nil,
 			},
 		},
 	}
@@ -771,7 +747,7 @@ func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatus(t *testing.T)
 			nsxvmwarecomv1alpha1.AddToScheme(r.Scheme)
 			assert.NoError(t, r.Client.Create(ctx, tt.initial.o))
 
-			r.updateNSXServiceAccountStatus(tt.args.ctx, tt.args.o, tt.args.e)
+			updateNSXServiceAccountStatuswithError(r.Client, tt.args.ctx, tt.args.o, metav1.Now(), tt.args.e)
 			actualNSXServiceAccount := &nsxvmwarecomv1alpha1.NSXServiceAccount{}
 			assert.NoError(t, r.Client.Get(ctx, types.NamespacedName{
 				Namespace: tt.args.o.Namespace,
@@ -906,6 +882,7 @@ func TestNSXServiceAccountReconciler_garbageCollector(t *testing.T) {
 					},
 				},
 			}
+			r.StatusUpdater = common.NewStatusUpdater(r.Client, r.Service.NSXConfig, r.Recorder, MetricResType, "ServiceAccount", "NSXServiceAccount")
 			r.Service.SetUpStore()
 			ctx := context.TODO()
 			if tt.prepareFunc != nil {

@@ -24,7 +24,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
-	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
@@ -47,6 +46,7 @@ type SubnetReconciler struct {
 	SubnetPortService servicecommon.SubnetPortServiceProvider
 	VPCService        servicecommon.VPCServiceProvider
 	Recorder          record.EventRecorder
+	StatusUpdater     common.StatusUpdater
 }
 
 func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -54,38 +54,33 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	defer func() {
 		log.Info("Finished reconciling Subnet", "Subnet", req.NamespacedName, "duration(ms)", time.Since(startTime).Milliseconds())
 	}()
-	metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerSyncTotal, MetricResTypeSubnet)
 
+	r.StatusUpdater.IncreaseSyncTotal()
 	subnetCR := &v1alpha1.Subnet{}
+
 	if err := r.Client.Get(ctx, req.NamespacedName, subnetCR); err != nil {
 		if apierrors.IsNotFound(err) {
 			if err := r.deleteSubnetByName(req.Name, req.Namespace); err != nil {
-				log.Error(err, "Failed to delete NSX Subnet", "Subnet", req.NamespacedName)
+				r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
 				return ResultRequeue, err
 			}
+			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 			return ResultNormal, nil
 		}
 		log.Error(err, "Unable to fetch Subnet CR", "req", req.NamespacedName)
 		return ResultRequeue, err
 	}
 	if !subnetCR.DeletionTimestamp.IsZero() {
-		metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnet)
+		r.StatusUpdater.IncreaseDeleteTotal()
 		if err := r.deleteSubnetByID(string(subnetCR.GetUID())); err != nil {
-			log.Error(err, "Failed to delete NSX Subnet, retrying", "Subnet", req.NamespacedName)
-			deleteFail(r, ctx, subnetCR, err.Error())
+			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
 			return ResultRequeue, err
 		}
-		if err := r.Client.Delete(ctx, subnetCR); err != nil {
-			log.Error(err, "Failed to delete Subnet CR, retrying", "Subnet", req.NamespacedName)
-			deleteFail(r, ctx, subnetCR, err.Error())
-			return ResultRequeue, err
-		}
-		log.Info("Successfully deleted Subnet", "Subnet", req.NamespacedName)
-		deleteSuccess(r, ctx, subnetCR)
+		r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 		return ResultNormal, nil
 	}
 
-	metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerUpdateTotal, MetricResTypeSubnet)
+	r.StatusUpdater.IncreaseUpdateTotal()
 
 	// Spec mutation check and update if necessary
 	specChanged := false
@@ -98,8 +93,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		vpcNetworkConfig := r.VPCService.GetVPCNetworkConfigByNamespace(subnetCR.Namespace)
 		if vpcNetworkConfig == nil {
 			err := fmt.Errorf("VPCNetworkConfig not found for Subnet CR")
-			log.Error(nil, "Failed to find VPCNetworkConfig", "Subnet", req.NamespacedName)
-			updateFail(r, ctx, subnetCR, err.Error())
+			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to find VPCNetworkConfig", setSubnetReadyStatusFalse)
 			return ResultRequeue, err
 		}
 		subnetCR.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
@@ -107,8 +101,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 	if specChanged {
 		if err := r.Client.Update(ctx, subnetCR); err != nil {
-			log.Error(err, "Failed to update Subnet", "Subnet", req.NamespacedName)
-			updateFail(r, ctx, subnetCR, err.Error())
+			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to update Subnet", setSubnetReadyStatusFalse)
 			return ResultRequeue, err
 		}
 		log.Info("Updated Subnet CR", "Subnet", req.NamespacedName)
@@ -128,21 +121,18 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Create or update the subnet in NSX
 	if _, err := r.SubnetService.CreateOrUpdateSubnet(subnetCR, vpcInfoList[0], tags); err != nil {
 		if errors.As(err, &nsxutil.ExceedTagsError{}) {
-			log.Error(err, "Tags limit exceeded, not retrying", "Subnet", req.NamespacedName)
-			updateFail(r, ctx, subnetCR, err.Error())
+			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Tags limit exceeded", setSubnetReadyStatusFalse)
 			return ResultNormal, nil
 		}
-		log.Error(err, "Failed to create/update Subnet, retrying", "Subnet", req.NamespacedName)
-		updateFail(r, ctx, subnetCR, err.Error())
+		r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to create/update Subnet", setSubnetReadyStatusFalse)
 		return ResultRequeue, err
 	}
 	// Update status
 	if err := r.updateSubnetStatus(subnetCR); err != nil {
-		log.Error(err, "Failed to update Subnet status, retrying", "Subnet", req.NamespacedName)
-		updateFail(r, ctx, subnetCR, err.Error())
+		r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to update Subnet status", setSubnetReadyStatusFalse)
 		return ResultRequeue, err
 	}
-	updateSuccess(r, ctx, subnetCR)
+	r.StatusUpdater.UpdateSuccess(ctx, subnetCR, setSubnetReadyStatusTrue)
 	return ctrl.Result{}, nil
 }
 
@@ -221,7 +211,8 @@ func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {
 	return nil
 }
 
-func (r *SubnetReconciler) setSubnetReadyStatusTrue(ctx context.Context, subnet *v1alpha1.Subnet, transitionTime metav1.Time) {
+func setSubnetReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {
+	subnet := obj.(*v1alpha1.Subnet)
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:               v1alpha1.Ready,
@@ -231,10 +222,11 @@ func (r *SubnetReconciler) setSubnetReadyStatusTrue(ctx context.Context, subnet 
 			LastTransitionTime: transitionTime,
 		},
 	}
-	r.updateSubnetStatusConditions(ctx, subnet, newConditions)
+	updateSubnetStatusConditions(client, ctx, subnet, newConditions)
 }
 
-func (r *SubnetReconciler) setSubnetReadyStatusFalse(ctx context.Context, subnet *v1alpha1.Subnet, transitionTime metav1.Time, msg string) {
+func setSubnetReadyStatusFalse(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, err error, _ ...interface{}) {
+	subnet := obj.(*v1alpha1.Subnet)
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:               v1alpha1.Ready,
@@ -244,21 +236,21 @@ func (r *SubnetReconciler) setSubnetReadyStatusFalse(ctx context.Context, subnet
 			LastTransitionTime: transitionTime,
 		},
 	}
-	if msg != "" {
-		newConditions[0].Message = msg
+	if err != nil {
+		newConditions[0].Message = fmt.Sprintf("Error occurred while processing the Subnet CR. Please check the config and try again. Error: %v", err)
 	}
-	r.updateSubnetStatusConditions(ctx, subnet, newConditions)
+	updateSubnetStatusConditions(client, ctx, subnet, newConditions)
 }
 
-func (r *SubnetReconciler) updateSubnetStatusConditions(ctx context.Context, subnet *v1alpha1.Subnet, newConditions []v1alpha1.Condition) {
+func updateSubnetStatusConditions(client client.Client, ctx context.Context, subnet *v1alpha1.Subnet, newConditions []v1alpha1.Condition) {
 	conditionsUpdated := false
 	for i := range newConditions {
-		if r.mergeSubnetStatusCondition(ctx, subnet, &newConditions[i]) {
+		if mergeSubnetStatusCondition(subnet, &newConditions[i]) {
 			conditionsUpdated = true
 		}
 	}
 	if conditionsUpdated {
-		if err := r.Client.Status().Update(ctx, subnet); err != nil {
+		if err := client.Status().Update(ctx, subnet); err != nil {
 			log.Error(err, "Failed to update Subnet status", "Name", subnet.Name, "Namespace", subnet.Namespace)
 		} else {
 			log.Info("Updated Subnet", "Name", subnet.Name, "Namespace", subnet.Namespace, "New Conditions", newConditions)
@@ -266,7 +258,7 @@ func (r *SubnetReconciler) updateSubnetStatusConditions(ctx context.Context, sub
 	}
 }
 
-func (r *SubnetReconciler) mergeSubnetStatusCondition(ctx context.Context, subnet *v1alpha1.Subnet, newCondition *v1alpha1.Condition) bool {
+func mergeSubnetStatusCondition(subnet *v1alpha1.Subnet, newCondition *v1alpha1.Condition) bool {
 	matchedCondition := getExistingConditionOfType(newCondition.Type, subnet.Status.Conditions)
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {
@@ -293,29 +285,6 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 	return nil
 }
 
-func updateFail(r *SubnetReconciler, c context.Context, o *v1alpha1.Subnet, m string) {
-	r.setSubnetReadyStatusFalse(c, o, metav1.Now(), m)
-	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailUpdate, m)
-	metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResTypeSubnet)
-}
-
-func deleteFail(r *SubnetReconciler, c context.Context, o *v1alpha1.Subnet, m string) {
-	r.setSubnetReadyStatusFalse(c, o, metav1.Now(), m)
-	r.Recorder.Event(o, v1.EventTypeWarning, common.ReasonFailDelete, m)
-	metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteFailTotal, MetricResTypeSubnet)
-}
-
-func updateSuccess(r *SubnetReconciler, c context.Context, o *v1alpha1.Subnet) {
-	r.setSubnetReadyStatusTrue(c, o, metav1.Now())
-	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "Subnet CR has been successfully updated")
-	metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResTypeSubnet)
-}
-
-func deleteSuccess(r *SubnetReconciler, _ context.Context, o *v1alpha1.Subnet) {
-	r.Recorder.Event(o, v1.EventTypeNormal, common.ReasonSuccessfulDelete, "Subnet CR has been successfully deleted")
-	metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteSuccessTotal, MetricResTypeSubnet)
-}
-
 func StartSubnetController(mgr ctrl.Manager, subnetService *subnet.SubnetService, subnetPortService servicecommon.SubnetPortServiceProvider, vpcService servicecommon.VPCServiceProvider, hookServer webhook.Server) error {
 	// Create the Subnet Reconciler with the necessary services and configuration
 	subnetReconciler := &SubnetReconciler{
@@ -326,6 +295,7 @@ func StartSubnetController(mgr ctrl.Manager, subnetService *subnet.SubnetService
 		VPCService:        vpcService,
 		Recorder:          mgr.GetEventRecorderFor("subnet-controller"),
 	}
+	subnetReconciler.StatusUpdater = common.NewStatusUpdater(subnetReconciler.Client, subnetReconciler.SubnetService.NSXConfig, subnetReconciler.Recorder, MetricResTypeSubnet, "Subnet", "Subnet")
 	// Start the controller
 	if err := subnetReconciler.start(mgr, hookServer); err != nil {
 		log.Error(err, "Failed to create controller", "controller", "Subnet")
@@ -403,15 +373,15 @@ func (r *SubnetReconciler) collectGarbage(ctx context.Context) {
 	subnetIDsToDelete := subnetUIDs.Difference(crdSubnetIDsSet)
 	for subnetID := range subnetIDsToDelete {
 		nsxSubnets := r.SubnetService.ListSubnetCreatedBySubnet(subnetID)
-		metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeSubnet)
+		r.StatusUpdater.IncreaseDeleteTotal()
 
 		log.Info("Subnet garbage collection, cleaning stale Subnets", "Count", len(nsxSubnets))
 		if err := r.deleteSubnets(nsxSubnets); err != nil {
 			log.Error(err, "Subnet garbage collection, failed to delete NSX subnet", "SubnetUID", subnetID)
-			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteFailTotal, common.MetricResTypeSubnet)
+			r.StatusUpdater.IncreaseDeleteFailTotal()
 		} else {
 			log.Info("Subnet garbage collection, successfully deleted NSX subnet", "SubnetUID", subnetID)
-			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeSubnet)
+			r.StatusUpdater.IncreaseDeleteSuccessTotal()
 		}
 	}
 }

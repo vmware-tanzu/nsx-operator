@@ -58,6 +58,7 @@ func (writer fakeStatusWriter) Patch(ctx context.Context, obj client.Object, pat
 func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
+	fakewriter := fakeStatusWriter{}
 	defer mockCtl.Finish()
 	service := &subnetport.SubnetPortService{
 		Service: servicecommon.Service{
@@ -86,6 +87,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		SubnetService:     subnetService,
 		Recorder:          fakeRecorder{},
 	}
+	r.StatusUpdater = common.NewStatusUpdater(k8sClient, service.NSXConfig, r.Recorder, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
 	ctx := context.Background()
 	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
 	patchesGetSubnetByPath := gomonkey.ApplyFunc((*subnet.SubnetService).GetSubnetByPath,
@@ -133,16 +135,13 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			v1sp.Spec.SubnetSet = "subnetset2"
 			return nil
 		})
-	patchesUpdateFail := gomonkey.ApplyFunc(updateFail,
-		func(r *SubnetPortReconciler, c context.Context, o *v1alpha1.SubnetPort, e *error) {
-		})
-	defer patchesUpdateFail.Reset()
 	err = errors.New("subnet and subnetset should not be configured at the same time")
+	k8sClient.EXPECT().Status().Return(fakewriter)
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, err, ret)
 
 	// CheckAndGetSubnetPathForSubnetPort fails
-	err = errors.New("CheckAndGetSubnetPathForSubnetPort  failed")
+	err = errors.New("CheckAndGetSubnetPathForSubnetPort failed")
 	patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
 		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort) (bool, string, error) {
 			return false, "", err
@@ -154,11 +153,12 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			v1sp.Spec.Subnet = "subnet1"
 			return nil
 		})
+	k8sClient.EXPECT().Status().Return(fakewriter)
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, err, ret)
 
 	// getLabelsFromVirtualMachine fails
-	err = errors.New("getLabelsFromVirtualMachine  failed")
+	err = errors.New("getLabelsFromVirtualMachine failed")
 	patchesCheckAndGetSubnetPathForSubnetPort = gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
 		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort) (bool, string, error) {
 			return false, "", nil
@@ -175,6 +175,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			v1sp.Spec.Subnet = "subnet1"
 			return nil
 		})
+	k8sClient.EXPECT().Status().Return(fakewriter)
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, err, ret)
 
@@ -202,6 +203,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			return nil, err
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
+	k8sClient.EXPECT().Status().Return(fakewriter)
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, err, ret)
 
@@ -233,10 +235,12 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			return portState, nil
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
-	patchesSuccess := gomonkey.ApplyFunc(updateSuccess,
-		func(r *SubnetPortReconciler, c context.Context, o *v1alpha1.SubnetPort) {
+	patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatus,
+		func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService) {
+			return
 		})
-	defer patchesSuccess.Reset()
+	defer patchesSetAddressBindingStatus.Reset()
+	k8sClient.EXPECT().Status().Return(fakewriter)
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, nil, ret)
 
@@ -261,10 +265,6 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			return nil, nil
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
-	patchesDeleteFail := gomonkey.ApplyFunc(deleteFail,
-		func(r *SubnetPortReconciler, c context.Context, o *v1alpha1.SubnetPort, e *error) {
-		})
-	defer patchesDeleteFail.Reset()
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, err, ret)
 
@@ -320,6 +320,7 @@ func TestSubnetPortReconciler_GarbageCollector(t *testing.T) {
 		Scheme:            nil,
 		SubnetPortService: service,
 	}
+	r.StatusUpdater = common.NewStatusUpdater(k8sClient, service.NSXConfig, r.Recorder, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
 	subnetPortList := &v1alpha1.SubnetPortList{}
 	k8sClient.EXPECT().List(gomock.Any(), subnetPortList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 		a := list.(*v1alpha1.SubnetPortList)
@@ -501,7 +502,7 @@ func TestSubnetPortReconciler_deleteSubnetPortByName(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-func TestSubnetPortReconciler_updateSuccess(t *testing.T) {
+func TestSubnetPortReconciler_setReadyStatusTrue(t *testing.T) {
 	subnetportId1 := "subnetport-1"
 	subnetportNamespacedNamescope := "nsx-op/subnetport_namespaced_name"
 	subnetportNamespacedName := "ns/subnetport"
@@ -509,19 +510,15 @@ func TestSubnetPortReconciler_updateSuccess(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
-	r := &SubnetPortReconciler{
-		Client: k8sClient,
-		SubnetPortService: &subnetport.SubnetPortService{
-			Service: servicecommon.Service{
-				NSXConfig: &config.NSXOperatorConfig{
-					NsxConfig: &config.NsxConfig{
-						EnforcementPoint: "vmc-enforcementpoint",
-					},
+	subnetPortService := &subnetport.SubnetPortService{
+		Service: servicecommon.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
 				},
 			},
-			SubnetPortStore: &subnetport.SubnetPortStore{},
 		},
-		Recorder: fakeRecorder{},
+		SubnetPortStore: &subnetport.SubnetPortStore{},
 	}
 
 	patchesGetByKey := gomonkey.ApplyFunc((*subnetport.SubnetPortStore).GetByKey,
@@ -551,7 +548,7 @@ func TestSubnetPortReconciler_updateSuccess(t *testing.T) {
 	k8sClient.EXPECT().Status().Return(fakewriter)
 	k8sClient.EXPECT().Status().Return(fakewriter)
 
-	updateSuccess(r, context.TODO(), &v1alpha1.SubnetPort{
+	sp := &v1alpha1.SubnetPort{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "ns",
 			Name:      "subnetport-1",
@@ -559,44 +556,12 @@ func TestSubnetPortReconciler_updateSuccess(t *testing.T) {
 		Status: v1alpha1.SubnetPortStatus{
 			Conditions: []v1alpha1.Condition{
 				{
-					Type:    v1alpha1.Ready,
-					Status:  corev1.ConditionFalse,
-					Message: "NSX subnet port could not be created/updated",
+					Type: v1alpha1.Ready,
 				},
 			},
 		},
-	})
-}
-
-func TestSubnetPortReconciler_updateFail(t *testing.T) {
-	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
-	defer mockCtl.Finish()
-	r := &SubnetPortReconciler{
-		Client: k8sClient,
-		SubnetPortService: &subnetport.SubnetPortService{
-			Service: servicecommon.Service{
-				NSXConfig: &config.NSXOperatorConfig{
-					NsxConfig: &config.NsxConfig{
-						EnforcementPoint: "vmc-enforcementpoint",
-					},
-				},
-			},
-			SubnetPortStore: &subnetport.SubnetPortStore{},
-		},
-		Recorder: fakeRecorder{},
 	}
-
-	fakewriter := fakeStatusWriter{}
-	k8sClient.EXPECT().Status().Return(fakewriter)
-
-	err := fmt.Errorf("mock error")
-	updateFail(r, context.TODO(), &v1alpha1.SubnetPort{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "ns",
-			Name:      "subnetport-1",
-		},
-	}, &err)
+	setReadyStatusTrue(k8sClient, context.TODO(), sp, metav1.Now(), sp, subnetPortService)
 }
 
 func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {

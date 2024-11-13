@@ -58,6 +58,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 		},
 		Recorder: fakeRecorder{},
 	}
+	r.StatusUpdater = common.NewStatusUpdater(k8sClient, r.SubnetPortService.NSXConfig, r.Recorder, MetricResTypePod, "SubnetPort", "Pod")
 	tests := []struct {
 		name           string
 		prepareFunc    func(*testing.T, *PodReconciler) *gomonkey.Patches
@@ -294,6 +295,7 @@ func TestPodReconciler_CollectGarbage(t *testing.T) {
 		Scheme:            nil,
 		SubnetPortService: service,
 	}
+	r.StatusUpdater = common.NewStatusUpdater(k8sClient, r.SubnetPortService.NSXConfig, r.Recorder, MetricResTypePod, "SubnetPort", "Pod")
 	ListNSXSubnetPortIDForPod := gomonkey.ApplyFunc((*subnetport.SubnetPortService).ListNSXSubnetPortIDForPod,
 		func(s *subnetport.SubnetPortService) sets.Set[string] {
 			a := sets.New[string]()

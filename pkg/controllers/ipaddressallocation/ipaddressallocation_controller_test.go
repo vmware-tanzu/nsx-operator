@@ -24,6 +24,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	ctlcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
@@ -55,7 +56,7 @@ func TestIPAddressAllocationController_setReadyStatusTrue(t *testing.T) {
 			LastTransitionTime: transitionTime,
 		},
 	}
-	r.setReadyStatusTrue(ctx, dummyIPAddressAllocation, transitionTime)
+	setReadyStatusTrue(r.Client, ctx, dummyIPAddressAllocation, transitionTime)
 
 	if !reflect.DeepEqual(dummyIPAddressAllocation.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
@@ -109,6 +110,8 @@ func TestIPAddressAllocationReconciler_Reconcile(t *testing.T) {
 		Service:  service,
 		Recorder: fakeRecorder{},
 	}
+	r.StatusUpdater = ctlcommon.NewStatusUpdater(r.Client, r.Service.NSXConfig, r.Recorder, MetricResType, "IPAddressAllocation", "IPAddressAllocation")
+
 	ctx := context.Background()
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
 
