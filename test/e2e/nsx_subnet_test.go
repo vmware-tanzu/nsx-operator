@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -20,8 +22,6 @@ import (
 )
 
 const (
-	subnetSetCRType           = "subnetsets.crd.nsx.vmware.com"
-	subnetPortCRType          = "subnetports.crd.nsx.vmware.com"
 	subnetTestNamespace       = "subnet-e2e"
 	subnetTestNamespaceShared = "subnet-e2e-shared"
 	subnetTestNamespaceTarget = "target-ns"
@@ -98,20 +98,17 @@ func fetchSubnetBySubnetSet(t *testing.T, subnetSet *v1alpha1.SubnetSet) model.V
 
 func defaultSubnetSet(t *testing.T) {
 	// 1. Check whether default-vm-subnetset and default-pod-subnetset are created.
-	err := testData.waitForCRReadyOrDeleted(defaultTimeout, subnetSetCRType, subnetTestNamespace, common.DefaultVMSubnetSet, Ready)
-	assert.NoError(t, err)
-	err = testData.waitForCRReadyOrDeleted(defaultTimeout, subnetSetCRType, subnetTestNamespace, common.DefaultPodSubnetSet, Ready)
-	assert.NoError(t, err)
+	assureSubnetSet(t, subnetTestNamespace, common.DefaultVMSubnetSet)
+	assureSubnetSet(t, subnetTestNamespace, common.DefaultPodSubnetSet)
 
 	// 2. Check `Ipv4SubnetSize` and `AccessMode` should be same with related fields in VPCNetworkConfig.
 	assert.True(t, verifySubnetSetCR(common.DefaultVMSubnetSet))
 	assert.True(t, verifySubnetSetCR(common.DefaultPodSubnetSet))
 
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_1.yaml")
-	err = applyYAML(portPath, subnetTestNamespace)
+	err := applyYAML(portPath, subnetTestNamespace)
 	assert.NoError(t, err)
-	err = testData.waitForCRReadyOrDeleted(defaultTimeout, subnetPortCRType, subnetTestNamespace, "port-e2e-test-1", Ready)
-	assert.NoError(t, err)
+	assureSubnetPort(t, subnetTestNamespace, "port-e2e-test-1")
 	defer deleteYAML(portPath, subnetTestNamespace)
 
 	// 3. Check SubnetSet CR status should be updated with NSX subnet info.
@@ -203,8 +200,8 @@ func UserSubnetSet(t *testing.T) {
 		subnetSetPath, _ := filepath.Abs(subnetSetYAML)
 		err := applyYAML(subnetSetPath, subnetTestNamespace)
 		assert.NoError(t, err)
-		err = testData.waitForCRReadyOrDeleted(defaultTimeout, subnetSetCRType, subnetTestNamespace, subnetSetName, Ready)
-		assert.NoError(t, err)
+
+		assureSubnetSet(t, subnetTestNamespace, subnetSetName)
 
 		// 2. Check `Ipv4SubnetSize` and `AccessMode` should be same with related fields in VPCNetworkConfig.
 		assert.True(t, verifySubnetSetCR(subnetSetName))
@@ -212,8 +209,7 @@ func UserSubnetSet(t *testing.T) {
 		portPath, _ := filepath.Abs(portYAML)
 		err = applyYAML(portPath, subnetTestNamespace)
 		assert.NoError(t, err)
-		err = testData.waitForCRReadyOrDeleted(defaultTimeout, subnetPortCRType, subnetTestNamespace, portName, Ready)
-		assert.NoError(t, err)
+		assureSubnetPort(t, subnetTestNamespace, portName)
 		defer deleteYAML(portPath, subnetTestNamespace)
 
 		// 3. Check SubnetSet CR status should be updated with NSX subnet info.
@@ -222,9 +218,10 @@ func UserSubnetSet(t *testing.T) {
 		assert.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
 
 		// 4. Check IP address is (not) allocated to SubnetPort.
-		err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 100*time.Second, false, func(ctx context.Context) (bool, error) {
+		err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 200*time.Second, false, func(ctx context.Context) (bool, error) {
 			port, err := testData.crdClientset.CrdV1alpha1().SubnetPorts(subnetTestNamespace).Get(context.TODO(), portName, v1.GetOptions{})
 			if err != nil {
+				t.Logf("Check IP address is (not) allocated to SubnetPort: %+v, error: %+v", port, err)
 				return false, err
 			}
 			if port == nil || len(port.Status.NetworkInterfaceConfig.IPAddresses) == 0 {
@@ -253,20 +250,18 @@ func UserSubnetSet(t *testing.T) {
 
 func sharedSubnetSet(t *testing.T) {
 	// 1. Check whether default-vm-subnetset and default-pod-subnetset are created.
-	err := testData.waitForCRReadyOrDeleted(defaultTimeout, subnetSetCRType, subnetTestNamespaceTarget, common.DefaultVMSubnetSet, Ready)
-	assert.NoError(t, err)
-	err = testData.waitForCRReadyOrDeleted(defaultTimeout, subnetSetCRType, subnetTestNamespaceTarget, common.DefaultPodSubnetSet, Ready)
-	assert.NoError(t, err)
+	assureSubnetSet(t, subnetTestNamespaceTarget, common.DefaultVMSubnetSet)
+	assureSubnetSet(t, subnetTestNamespaceTarget, common.DefaultPodSubnetSet)
 
 	// 2. Check `Ipv4SubnetSize` and `AccessMode` should be same with related fields in VPCNetworkConfig.
 	assert.True(t, verifySubnetSetCR(common.DefaultVMSubnetSet))
 	assert.True(t, verifySubnetSetCR(common.DefaultPodSubnetSet))
 
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_3.yaml")
-	err = applyYAML(portPath, subnetTestNamespaceShared)
+	err := applyYAML(portPath, subnetTestNamespaceShared)
 	assert.NoError(t, err)
-	err = testData.waitForCRReadyOrDeleted(defaultTimeout, subnetPortCRType, subnetTestNamespaceShared, "port-e2e-test-3", Ready)
-	assert.NoError(t, err)
+
+	assureSubnetPort(t, subnetTestNamespaceShared, "port-e2e-test-3")
 	defer deleteYAML(portPath, subnetTestNamespaceShared)
 
 	// 3. Check SubnetSet CR status should be updated with NSX subnet info.
@@ -304,8 +299,7 @@ func SubnetCIDR(t *testing.T) {
 		err = nil
 	}
 	assert.NoError(t, err)
-	err = testData.waitForCRReadyOrDeleted(defaultTimeout, "subnets.crd.nsx.vmware.com", subnetTestNamespace, subnet.Name, Ready)
-	assert.NoError(t, err)
+	assureSubnet(t, subnetTestNamespace, subnet.Name)
 	allocatedSubnet, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
 	assert.NoError(t, err)
 	nsxSubnets := testData.fetchSubnetByNamespace(t, subnetTestNamespace, false)
@@ -333,8 +327,7 @@ func SubnetCIDR(t *testing.T) {
 		err = nil
 	}
 	assert.NoError(t, err)
-	err = testData.waitForCRReadyOrDeleted(defaultTimeout*2, "subnets.crd.nsx.vmware.com", subnetTestNamespace, subnet.Name, Ready)
-	assert.NoError(t, err)
+	assureSubnet(t, subnetTestNamespace, subnet.Name)
 	allocatedSubnet, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
 	assert.NoError(t, err)
 	assert.Equal(t, targetCIDR, allocatedSubnet.Status.NetworkAddresses[0])
@@ -368,5 +361,77 @@ func (data *TestData) fetchSubnetByNamespace(t *testing.T, ns string, isMarkForD
 			res = append(res, subnet)
 		}
 	}
+	return
+}
+
+func assureSubnet(t *testing.T, ns, subnetName string) (res *v1alpha1.Subnet) {
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 2*defaultTimeout)
+	defer deadlineCancel()
+	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		res, err = testData.crdClientset.CrdV1alpha1().Subnets(ns).Get(context.Background(), subnetName, v1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
+			t.Logf("Get Subnet: %+v, Namespace: %s, Name: %s, error: %v", res, ns, subnetName, err)
+			return false, fmt.Errorf("error when waiting for Subnet %s", subnetName)
+		}
+		t.Logf("Subnet status: %+v", res.Status)
+		for _, con := range res.Status.Conditions {
+			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionTrue {
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+	assert.NoError(t, err)
+	return
+}
+
+func assureSubnetSet(t *testing.T, ns, subnetSetName string) (res *v1alpha1.SubnetSet) {
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 2*defaultTimeout)
+	defer deadlineCancel()
+	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		res, err = testData.crdClientset.CrdV1alpha1().SubnetSets(ns).Get(context.Background(), subnetSetName, v1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
+			t.Logf("Get SubnetSet: %+v, Namespace: %s, Name: %s, error: %v", res, ns, subnetSetName, err)
+			return false, fmt.Errorf("error when waiting for SubnetSet %s", subnetSetName)
+		}
+		t.Logf("SubnetSets status: %+v", res.Status)
+		for _, con := range res.Status.Conditions {
+			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionTrue {
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+	assert.NoError(t, err)
+	return
+}
+
+func assureSubnetPort(t *testing.T, ns, subnetPortName string) (res *v1alpha1.SubnetPort) {
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 2*defaultTimeout)
+	defer deadlineCancel()
+	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		res, err = testData.crdClientset.CrdV1alpha1().SubnetPorts(ns).Get(context.Background(), subnetPortName, v1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
+			t.Logf("Get SubnetPort: %v, Namespace: %s, Name: %s, error: %v", res, ns, subnetPortName, err)
+			return false, fmt.Errorf("error when waiting for SubnetPort: %s", subnetPortName)
+		}
+		t.Logf("SubnetPort status: %+v", res.Status)
+		for _, con := range res.Status.Conditions {
+			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionTrue {
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+	assert.NoError(t, err)
 	return
 }
