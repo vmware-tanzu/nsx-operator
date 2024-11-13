@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/agiledragon/gomonkey"
+	gomonkey "github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
