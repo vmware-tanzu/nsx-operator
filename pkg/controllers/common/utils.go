@@ -118,8 +118,8 @@ func getDefaultSubnetSetByNamespace(client k8sclient.Client, namespace string, r
 }
 
 func NodeIsMaster(node *v1.Node) bool {
-	for k := range node.Labels {
-		if k == LabelK8sMasterRole || k == LabelK8sControlRole {
+	for _, key := range [2]string{LabelK8sMasterRole, LabelK8sControlRole} {
+		if _, exists := node.Labels[key]; exists {
 			return true
 		}
 	}

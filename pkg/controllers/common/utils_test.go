@@ -303,3 +303,61 @@ func TestStatusUpdater_DeleteFail(t *testing.T) {
 
 	statusUpdater.DeleteFail(types.NamespacedName{Name: "name", Namespace: "ns"}, &v1alpha1.Subnet{}, fmt.Errorf("mock error"))
 }
+
+func TestNodeIsMaster(t *testing.T) {
+	tests := []struct {
+		name     string
+		node     *v1.Node
+		expected bool
+	}{
+		{
+			name: "Node with master role label",
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						LabelK8sMasterRole: "",
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Node with control role label",
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						LabelK8sControlRole: "",
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Node without master or control role label",
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"some-other-label": "",
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Node with no labels",
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := NodeIsMaster(tt.node)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
