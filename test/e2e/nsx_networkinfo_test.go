@@ -68,7 +68,7 @@ func testCustomizedNetworkInfo(t *testing.T) {
 	assureNamespace(t, ns)
 
 	vpcPath := getVPCPathFromVPCNetworkConfiguration(t, testCustomizedNetworkConfigName)
-	assert.NoError(t, testData.waitForResourceExistByPath(vpcPath, true))
+	require.NoError(t, testData.waitForResourceExistByPath(vpcPath, true))
 }
 
 // Test Infra NetworkInfo
@@ -81,8 +81,7 @@ func testInfraNetworkInfo(t *testing.T) {
 	require.NotNil(t, networkInfo)
 
 	vpcPath := getVPCPathFromVPCNetworkConfiguration(t, testInfraNetworkConfigName)
-	err := testData.waitForResourceExistByPath(vpcPath, true)
-	assert.NoError(t, err)
+	require.NoError(t, testData.waitForResourceExistByPath(vpcPath, true))
 
 	// kube-public namespace should have its own NetworkInfo CR
 	// Check networkinfo cr existence
@@ -114,12 +113,9 @@ func testDefaultNetworkInfo(t *testing.T) {
 	// normally, when deleting ns, if using shared vpc, then no vpc will be deleted
 	// if using normal vpc, in ns deletion, the networkconfig CR will also be deleted, so there is no
 	// need to check vpcPath deletion on network config CR anymore
-	err := testData.deleteNamespace(ns, defaultTimeout)
-	assert.NoError(t, err)
+	require.NoError(t, testData.deleteNamespace(ns, defaultTimeout))
 	assureNetworkInfoDeleted(t, ns)
 	assureNamespaceDeleted(t, ns)
-	// err = testData.waitForResourceExistByPath(vpcPath, false)
-	assert.NoError(t, err)
 }
 
 // ns1 share vpc with ns, each ns should have its own NetworkInfo
@@ -143,10 +139,10 @@ func testSharedNSXVPC(t *testing.T) {
 	vpcPath := getVPCPathFromVPCNetworkConfiguration(t, testCustomizedNetworkConfigName)
 
 	// delete ns1 and check vpc not deleted
-	assert.NoError(t, testData.deleteNamespace(ns1, defaultTimeout))
+	require.NoError(t, testData.deleteNamespace(ns1, defaultTimeout))
 	assureNetworkInfoDeleted(t, ns1)
 	assureNamespaceDeleted(t, ns1)
-	assert.NoError(t, testData.waitForResourceExistByPath(vpcPath, true))
+	require.NoError(t, testData.waitForResourceExistByPath(vpcPath, true))
 }
 
 // update vpcnetworkconfig, and check vpc is updated
@@ -194,7 +190,7 @@ func assureNetworkInfo(t *testing.T, ns, networkInfoName string) (res *v1alpha1.
 		}
 		return true, nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	return
 }
 
@@ -219,7 +215,7 @@ func assureNetworkInfoDeleted(t *testing.T, ns string) {
 		}
 		return false, nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	return
 }
 
@@ -237,7 +233,7 @@ func assureNamespace(t *testing.T, ns string) (res *v12.Namespace) {
 		}
 		return true, nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	return
 }
 
@@ -262,7 +258,7 @@ func assureNamespaceDeleted(t *testing.T, ns string) {
 		}
 		return false, nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	return
 }
 
@@ -280,7 +276,7 @@ func getVPCPathFromNetworkInfo(t *testing.T, ns, networkInfoName string) (networ
 		}
 		return false, nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	return
 }
 
@@ -299,7 +295,7 @@ func getVPCPathFromVPCNetworkConfiguration(t *testing.T, ncName string) (vpcPath
 		}
 		return false, nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	return
 }
 
@@ -320,5 +316,5 @@ func deleteVPCNetworkConfiguration(t *testing.T, ncName string) {
 		}
 		return false, nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }

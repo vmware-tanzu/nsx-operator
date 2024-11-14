@@ -90,9 +90,9 @@ func transSearchResponsetoSubnet(response model.SearchResponse) []model.VpcSubne
 func fetchSubnetBySubnetSet(t *testing.T, subnetSet *v1alpha1.SubnetSet) model.VpcSubnet {
 	tags := []string{common.TagScopeSubnetSetCRUID, string(subnetSet.UID)}
 	results, err := testData.queryResource(common.ResourceTypeSubnet, tags)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	subnets := transSearchResponsetoSubnet(results)
-	assert.True(t, len(subnets) > 0, "No NSX subnet found")
+	require.True(t, len(subnets) > 0, "No NSX subnet found")
 	return subnets[0]
 }
 
@@ -102,8 +102,8 @@ func defaultSubnetSet(t *testing.T) {
 	assureSubnetSet(t, subnetTestNamespace, common.DefaultPodSubnetSet)
 
 	// 2. Check `Ipv4SubnetSize` and `AccessMode` should be same with related fields in VPCNetworkConfig.
-	assert.True(t, verifySubnetSetCR(common.DefaultVMSubnetSet))
-	assert.True(t, verifySubnetSetCR(common.DefaultPodSubnetSet))
+	require.True(t, verifySubnetSetCR(common.DefaultVMSubnetSet))
+	require.True(t, verifySubnetSetCR(common.DefaultPodSubnetSet))
 
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_1.yaml")
 	require.NoError(t, applyYAML(portPath, subnetTestNamespace))
@@ -112,20 +112,20 @@ func defaultSubnetSet(t *testing.T) {
 
 	// 3. Check SubnetSet CR status should be updated with NSX subnet info.
 	subnetSet, err := testData.crdClientset.CrdV1alpha1().SubnetSets(subnetTestNamespace).Get(context.TODO(), common.DefaultPodSubnetSet, v1.GetOptions{})
-	assert.NoError(t, err)
-	assert.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
+	require.NoError(t, err)
+	require.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
 	// 4. Check NSX subnet allocation.
 	networkAddress := subnetSet.Status.Subnets[0].NetworkAddresses
 	assert.True(t, len(networkAddress) > 0, "No network address in SubnetSet")
 
 	// 5. Check adding NSX subnet tags.
 	ns, err := testData.clientset.CoreV1().Namespaces().Get(context.TODO(), subnetTestNamespace, v1.GetOptions{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	labelKey, labelValue := "subnet-e2e", "add"
 	ns.Labels[labelKey] = labelValue
 	_, err = testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
 	time.Sleep(5 * time.Second)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	vpcSubnet := fetchSubnetBySubnetSet(t, subnetSet)
 	found := false
@@ -139,12 +139,12 @@ func defaultSubnetSet(t *testing.T) {
 
 	// 6. Check updating NSX subnet tags.
 	ns, err = testData.clientset.CoreV1().Namespaces().Get(context.TODO(), subnetTestNamespace, v1.GetOptions{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	labelValue = "update"
 	ns.Labels[labelKey] = labelValue
 	_, err = testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
 	time.Sleep(5 * time.Second)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	vpcSubnet = fetchSubnetBySubnetSet(t, subnetSet)
 	found = false
 	for _, tag := range vpcSubnet.Tags {
@@ -157,11 +157,11 @@ func defaultSubnetSet(t *testing.T) {
 
 	// 7. Check deleting NSX subnet tags.
 	ns, err = testData.clientset.CoreV1().Namespaces().Get(context.TODO(), subnetTestNamespace, v1.GetOptions{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	delete(ns.Labels, labelKey)
 	newNs, err := testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
 	time.Sleep(5 * time.Second)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	t.Logf("new Namespace: %+v", newNs)
 	vpcSubnet = fetchSubnetBySubnetSet(t, subnetSet)
 	found = false
@@ -204,7 +204,7 @@ func UserSubnetSet(t *testing.T) {
 		assureSubnetSet(t, subnetTestNamespace, subnetSetName)
 
 		// 2. Check `Ipv4SubnetSize` and `AccessMode` should be same with related fields in VPCNetworkConfig.
-		assert.True(t, verifySubnetSetCR(subnetSetName))
+		require.True(t, verifySubnetSetCR(subnetSetName))
 
 		portPath, _ := filepath.Abs(portYAML)
 		require.NoError(t, applyYAML(portPath, subnetTestNamespace))
@@ -212,8 +212,8 @@ func UserSubnetSet(t *testing.T) {
 
 		// 3. Check SubnetSet CR status should be updated with NSX subnet info.
 		subnetSet, err := testData.crdClientset.CrdV1alpha1().SubnetSets(subnetTestNamespace).Get(context.TODO(), subnetSetName, v1.GetOptions{})
-		assert.NoError(t, err)
-		assert.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
+		require.NoError(t, err)
+		require.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
 
 		// 4. Check IP address is (not) allocated to SubnetPort.
 		err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 100*time.Second, false, func(ctx context.Context) (bool, error) {
@@ -237,7 +237,7 @@ func UserSubnetSet(t *testing.T) {
 			}
 			return false, nil
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// 5. Check NSX subnet allocation.
 		networkAddress := subnetSet.Status.Subnets[0].NetworkAddresses
@@ -253,8 +253,8 @@ func sharedSubnetSet(t *testing.T) {
 	assureSubnetSet(t, subnetTestNamespaceTarget, common.DefaultPodSubnetSet)
 
 	// 2. Check `Ipv4SubnetSize` and `AccessMode` should be same with related fields in VPCNetworkConfig.
-	assert.True(t, verifySubnetSetCR(common.DefaultVMSubnetSet))
-	assert.True(t, verifySubnetSetCR(common.DefaultPodSubnetSet))
+	require.True(t, verifySubnetSetCR(common.DefaultVMSubnetSet))
+	require.True(t, verifySubnetSetCR(common.DefaultPodSubnetSet))
 
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_3.yaml")
 	require.NoError(t, applyYAML(portPath, subnetTestNamespaceShared))
@@ -264,20 +264,20 @@ func sharedSubnetSet(t *testing.T) {
 
 	// 3. Check SubnetSet CR status should be updated with NSX subnet info.
 	subnetSet, err := testData.crdClientset.CrdV1alpha1().SubnetSets(subnetTestNamespaceTarget).Get(context.TODO(), common.DefaultVMSubnetSet, v1.GetOptions{})
-	assert.NoError(t, err)
-	assert.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
+	require.NoError(t, err)
+	require.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
 
 	// 4. Check IP address is allocated to SubnetPort.
 	port, err := testData.crdClientset.CrdV1alpha1().SubnetPorts(subnetTestNamespaceShared).Get(context.TODO(), "port-e2e-test-3", v1.GetOptions{})
-	assert.NoError(t, err)
-	assert.NotEmpty(t, port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "No IP address in SubnetPort")
+	require.NoError(t, err)
+	require.NotEmpty(t, port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "No IP address in SubnetPort")
 
 	// 5. Check Subnet CIDR contains SubnetPort IP.
 
 	portIP := net.ParseIP(strings.Split(port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "/")[0])
 	_, subnetCIDR, err := net.ParseCIDR(subnetSet.Status.Subnets[0].NetworkAddresses[0])
-	assert.NoError(t, err)
-	assert.True(t, subnetCIDR.Contains(portIP))
+	require.NoError(t, err)
+	require.True(t, subnetCIDR.Contains(portIP))
 }
 
 func SubnetCIDR(t *testing.T) {
@@ -296,16 +296,16 @@ func SubnetCIDR(t *testing.T) {
 	if err != nil && errors.IsAlreadyExists(err) {
 		err = nil
 	}
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assureSubnet(t, subnetTestNamespace, subnet.Name)
 	allocatedSubnet, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	nsxSubnets := testData.fetchSubnetByNamespace(t, subnetTestNamespace, false)
-	assert.Equal(t, 1, len(nsxSubnets))
+	require.Equal(t, 1, len(nsxSubnets))
 
 	targetCIDR := allocatedSubnet.Status.NetworkAddresses[0]
 	err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Delete(context.TODO(), subnet.Name, v1.DeleteOptions{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 100*time.Second, false, func(ctx context.Context) (bool, error) {
 		_, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
@@ -314,9 +314,9 @@ func SubnetCIDR(t *testing.T) {
 		}
 		return false, err
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	nsxSubnets = testData.fetchSubnetByNamespace(t, subnetTestNamespace, true)
-	assert.Equal(t, true, len(nsxSubnets) <= 1)
+	require.Equal(t, true, len(nsxSubnets) <= 1)
 
 	subnet.Spec.IPAddresses = []string{targetCIDR}
 	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), subnet, v1.CreateOptions{})
@@ -324,17 +324,17 @@ func SubnetCIDR(t *testing.T) {
 		t.Logf("Create Subnet error: %+v", err)
 		err = nil
 	}
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assureSubnet(t, subnetTestNamespace, subnet.Name)
 	allocatedSubnet, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
-	assert.NoError(t, err)
-	assert.Equal(t, targetCIDR, allocatedSubnet.Status.NetworkAddresses[0])
+	require.NoError(t, err)
+	require.Equal(t, targetCIDR, allocatedSubnet.Status.NetworkAddresses[0])
 
 	nsxSubnets = testData.fetchSubnetByNamespace(t, subnetTestNamespace, false)
-	assert.Equal(t, 1, len(nsxSubnets))
+	require.Equal(t, 1, len(nsxSubnets))
 
 	err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Delete(context.TODO(), subnet.Name, v1.DeleteOptions{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 100*time.Second, false, func(ctx context.Context) (bool, error) {
 		_, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
@@ -343,16 +343,16 @@ func SubnetCIDR(t *testing.T) {
 		}
 		return false, err
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	nsxSubnets = testData.fetchSubnetByNamespace(t, subnetTestNamespace, true)
-	assert.Equal(t, true, len(nsxSubnets) <= 1)
+	require.Equal(t, true, len(nsxSubnets) <= 1)
 }
 
 func (data *TestData) fetchSubnetByNamespace(t *testing.T, ns string, isMarkForDelete bool) (res []model.VpcSubnet) {
 	tags := []string{common.TagScopeNamespace, ns}
 	results, err := testData.queryResource(common.ResourceTypeSubnet, tags)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	subnets := transSearchResponsetoSubnet(results)
 	for _, subnet := range subnets {
 		if *subnet.MarkedForDelete == isMarkForDelete {
@@ -382,7 +382,7 @@ func assureSubnet(t *testing.T, ns, subnetName string) (res *v1alpha1.Subnet) {
 		}
 		return false, nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	return
 }
 
@@ -406,7 +406,7 @@ func assureSubnetSet(t *testing.T, ns, subnetSetName string) (res *v1alpha1.Subn
 		}
 		return false, nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	return
 }
 
@@ -430,6 +430,6 @@ func assureSubnetPort(t *testing.T, ns, subnetPortName string) (res *v1alpha1.Su
 		}
 		return false, nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	return
 }
