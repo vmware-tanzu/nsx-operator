@@ -55,8 +55,7 @@ func verifySubnetSetCR(subnetSet string) bool {
 func TestSubnetSet(t *testing.T) {
 	setupTest(t, subnetTestNamespace)
 	nsPath, _ := filepath.Abs("./manifest/testSubnet/shared_ns.yaml")
-	err := applyYAML(nsPath, "")
-	require.NoError(t, err)
+	require.NoError(t, applyYAML(nsPath, ""))
 
 	t.Cleanup(func() {
 		teardownTest(t, subnetTestNamespace, subnetDeletionTimeout)
@@ -107,8 +106,7 @@ func defaultSubnetSet(t *testing.T) {
 	assert.True(t, verifySubnetSetCR(common.DefaultPodSubnetSet))
 
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_1.yaml")
-	err := applyYAML(portPath, subnetTestNamespace)
-	require.NoError(t, err)
+	require.NoError(t, applyYAML(portPath, subnetTestNamespace))
 	assureSubnetPort(t, subnetTestNamespace, "port-e2e-test-1")
 	defer deleteYAML(portPath, subnetTestNamespace)
 
@@ -201,8 +199,7 @@ func UserSubnetSet(t *testing.T) {
 		subnetSetPath, _ := filepath.Abs(subnetSetYAML)
 		deleteYAML(subnetSetPath, subnetTestNamespace)
 
-		err := applyYAML(subnetSetPath, subnetTestNamespace)
-		require.NoError(t, err)
+		require.NoError(t, applyYAML(subnetSetPath, subnetTestNamespace))
 
 		assureSubnetSet(t, subnetTestNamespace, subnetSetName)
 
@@ -210,8 +207,7 @@ func UserSubnetSet(t *testing.T) {
 		assert.True(t, verifySubnetSetCR(subnetSetName))
 
 		portPath, _ := filepath.Abs(portYAML)
-		err = applyYAML(portPath, subnetTestNamespace)
-		require.NoError(t, err)
+		require.NoError(t, applyYAML(portPath, subnetTestNamespace))
 		assureSubnetPort(t, subnetTestNamespace, portName)
 
 		// 3. Check SubnetSet CR status should be updated with NSX subnet info.
@@ -261,8 +257,7 @@ func sharedSubnetSet(t *testing.T) {
 	assert.True(t, verifySubnetSetCR(common.DefaultPodSubnetSet))
 
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_3.yaml")
-	err := applyYAML(portPath, subnetTestNamespaceShared)
-	require.NoError(t, err)
+	require.NoError(t, applyYAML(portPath, subnetTestNamespaceShared))
 
 	assureSubnetPort(t, subnetTestNamespaceShared, "port-e2e-test-3")
 	defer deleteYAML(portPath, subnetTestNamespaceShared)

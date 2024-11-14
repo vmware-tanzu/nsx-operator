@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -74,7 +75,7 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 	*/
 	// Create security policy
 	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy.yaml")
-	_ = applyYAML(nsIsolationPath, ns)
+	require.NoError(t, applyYAML(nsIsolationPath, ns))
 	defer deleteYAML(nsIsolationPath, ns)
 	assureSecurityPolicyReady(t, ns, securityPolicyName)
 
@@ -140,7 +141,7 @@ func testSecurityPolicyAddDeleteRule(t *testing.T) {
 
 	// Create security policy
 	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy.yaml")
-	_ = applyYAML(nsIsolationPath, ns)
+	require.NoError(t, applyYAML(nsIsolationPath, ns))
 	defer deleteYAML(nsIsolationPath, ns)
 	assureSecurityPolicyReady(t, ns, securityPolicyName)
 
@@ -154,7 +155,7 @@ func testSecurityPolicyAddDeleteRule(t *testing.T) {
 
 	// Update security policy
 	nsIsolationPath, _ = filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy-1.yaml")
-	_ = applyYAML(nsIsolationPath, ns)
+	require.NoError(t, applyYAML(nsIsolationPath, ns))
 	defer deleteYAML(nsIsolationPath, ns)
 	assureSecurityPolicyReady(t, ns, securityPolicyName)
 
@@ -202,7 +203,7 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 
 	// Create pods
 	podPath, _ := filepath.Abs("./manifest/testSecurityPolicy/allow-client-a-via-pod-selector-with-match-expressions.yaml")
-	_ = applyYAML(podPath, ns)
+	require.NoError(t, applyYAML(podPath, ns))
 	defer deleteYAML(podPath, "")
 
 	// Temporarily disable traffic check
@@ -230,7 +231,7 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 
 	// Create security policy
 	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/match-expression.yaml")
-	_ = applyYAML(nsIsolationPath, ns)
+	require.NoError(t, applyYAML(nsIsolationPath, ns))
 	defer deleteYAML(nsIsolationPath, ns)
 	assureSecurityPolicyReady(t, ns, securityPolicyName)
 
@@ -302,7 +303,7 @@ func testSecurityPolicyNamedPortWithoutPod(t *testing.T) {
 
 	// Create all
 	yamlPath, _ := filepath.Abs("./manifest/testSecurityPolicy/named-port-without-pod.yaml")
-	_ = applyYAML(yamlPath, "")
+	require.NoError(t, applyYAML(yamlPath, ""))
 	defer deleteYAML(yamlPath, "")
 
 	psb, err := testData.deploymentWaitForNames(defaultTimeout, nsWeb, labelWeb)

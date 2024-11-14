@@ -55,9 +55,9 @@ func TestNetworkInfo(t *testing.T) {
 func testCustomizedNetworkInfo(t *testing.T) {
 	// Create customized networkconfig
 	ncPath, _ := filepath.Abs("./manifest/testVPC/customize_networkconfig.yaml")
-	_ = applyYAML(ncPath, "")
+	require.NoError(t, applyYAML(ncPath, ""))
 	nsPath, _ := filepath.Abs("./manifest/testVPC/customize_ns.yaml")
-	_ = applyYAML(nsPath, "")
+	require.NoError(t, applyYAML(nsPath, ""))
 
 	defer deleteYAML(nsPath, "")
 
@@ -68,8 +68,7 @@ func testCustomizedNetworkInfo(t *testing.T) {
 	assureNamespace(t, ns)
 
 	vpcPath := getVPCPathFromVPCNetworkConfiguration(t, testCustomizedNetworkConfigName)
-	err := testData.waitForResourceExistByPath(vpcPath, true)
-	assert.NoError(t, err)
+	assert.NoError(t, testData.waitForResourceExistByPath(vpcPath, true))
 }
 
 // Test Infra NetworkInfo
@@ -130,7 +129,7 @@ func testSharedNSXVPC(t *testing.T) {
 	ns1 := "shared-vpc-ns-1"
 
 	nsPath, _ := filepath.Abs("./manifest/testVPC/shared_ns.yaml")
-	_ = applyYAML(nsPath, "")
+	require.NoError(t, applyYAML(nsPath, ""))
 	defer deleteYAML(nsPath, "")
 
 	// Check namespace cr existence
@@ -144,12 +143,10 @@ func testSharedNSXVPC(t *testing.T) {
 	vpcPath := getVPCPathFromVPCNetworkConfiguration(t, testCustomizedNetworkConfigName)
 
 	// delete ns1 and check vpc not deleted
-	err := testData.deleteNamespace(ns1, defaultTimeout)
-	assert.NoError(t, err)
+	assert.NoError(t, testData.deleteNamespace(ns1, defaultTimeout))
 	assureNetworkInfoDeleted(t, ns1)
 	assureNamespaceDeleted(t, ns1)
-	err = testData.waitForResourceExistByPath(vpcPath, true)
-	assert.NoError(t, err)
+	assert.NoError(t, testData.waitForResourceExistByPath(vpcPath, true))
 }
 
 // update vpcnetworkconfig, and check vpc is updated
@@ -157,7 +154,7 @@ func testUpdateVPCNetworkconfigNetworkInfo(t *testing.T) {
 	ns := "update-ns"
 
 	nsPath, _ := filepath.Abs("./manifest/testVPC/update_ns.yaml")
-	_ = applyYAML(nsPath, "")
+	require.NoError(t, applyYAML(nsPath, ""))
 	defer deleteYAML(nsPath, "")
 
 	vncPathOriginal, _ := filepath.Abs("./manifest/testVPC/customize_networkconfig.yaml")
@@ -176,7 +173,7 @@ func testUpdateVPCNetworkconfigNetworkInfo(t *testing.T) {
 	assert.Contains(t, privateIPs, customizedPrivateCIDR2, "privateIPs %s should contain %s", privateIPs, customizedPrivateCIDR1)
 
 	vncPath, _ := filepath.Abs("./manifest/testVPC/customize_networkconfig_updated.yaml")
-	_ = applyYAML(vncPath, "")
+	require.NoError(t, applyYAML(vncPath, ""))
 
 	networkInfoNew = getVPCPathFromNetworkInfo(t, ns, networkInfo.Name)
 	privateIPs = networkInfoNew.VPCs[0].PrivateIPs
