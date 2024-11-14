@@ -15,6 +15,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 )
@@ -25,7 +26,7 @@ func TestEnqueueRequestForNamespace_Create(t *testing.T) {
 	}
 	type args struct {
 		createEvent event.CreateEvent
-		l           workqueue.RateLimitingInterface
+		l           workqueue.TypedRateLimitingInterface[reconcile.Request]
 	}
 	tests := []struct {
 		name   string
@@ -50,7 +51,7 @@ func TestEnqueueRequestForNamespace_Delete(t *testing.T) {
 	}
 	type args struct {
 		deleteEvent event.DeleteEvent
-		l           workqueue.RateLimitingInterface
+		l           workqueue.TypedRateLimitingInterface[reconcile.Request]
 	}
 	tests := []struct {
 		name   string
@@ -75,7 +76,7 @@ func TestEnqueueRequestForNamespace_Generic(t *testing.T) {
 	}
 	type args struct {
 		genericEvent event.GenericEvent
-		l            workqueue.RateLimitingInterface
+		l            workqueue.TypedRateLimitingInterface[reconcile.Request]
 	}
 	tests := []struct {
 		name   string
@@ -129,7 +130,7 @@ func TestEnqueueRequestForNamespace_Update(t *testing.T) {
 		return nil
 	})
 	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(r *SecurityPolicyReconciler, client client.Client, pods []v1.Pod,
-		q workqueue.RateLimitingInterface,
+		q workqueue.TypedRateLimitingInterface[reconcile.Request],
 	) error {
 		return nil
 	})
@@ -140,7 +141,7 @@ func TestEnqueueRequestForNamespace_Update(t *testing.T) {
 	}
 	type args struct {
 		updateEvent event.UpdateEvent
-		l           workqueue.RateLimitingInterface
+		l           workqueue.TypedRateLimitingInterface[reconcile.Request]
 	}
 	evt := event.UpdateEvent{
 		ObjectOld: &v1.Namespace{

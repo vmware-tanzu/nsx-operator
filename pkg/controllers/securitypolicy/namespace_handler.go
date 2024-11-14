@@ -12,6 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -25,19 +26,19 @@ type EnqueueRequestForNamespace struct {
 	SecurityPolicyReconciler *SecurityPolicyReconciler
 }
 
-func (e *EnqueueRequestForNamespace) Create(_ context.Context, _ event.CreateEvent, _ workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForNamespace) Create(_ context.Context, _ event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	log.V(1).Info("NameSpace create event, do nothing")
 }
 
-func (e *EnqueueRequestForNamespace) Delete(_ context.Context, _ event.DeleteEvent, _ workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForNamespace) Delete(_ context.Context, _ event.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	log.V(1).Info("NameSpace delete event, do nothing")
 }
 
-func (e *EnqueueRequestForNamespace) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForNamespace) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	log.V(1).Info("NameSpace generic event, do nothing")
 }
 
-func (e *EnqueueRequestForNamespace) Update(_ context.Context, updateEvent event.UpdateEvent, l workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForNamespace) Update(_ context.Context, updateEvent event.UpdateEvent, l workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	obj := updateEvent.ObjectNew.(*v1.Namespace)
 	if isInSysNs, err := util.IsSystemNamespace(nil, "", obj); err != nil {
 		log.Error(err, "Failed to fetch namespace", "namespace", obj.Name)

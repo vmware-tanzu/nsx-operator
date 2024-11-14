@@ -1242,19 +1242,22 @@ func TestNetworkInfoReconciler_GetVpcConnectivityProfilePathByVpcPath(t *testing
 }
 
 func TestSyncPreCreatedVpcIPs(t *testing.T) {
-	stopSig := "stop"
-	getQueuedReqs := func(queue workqueue.RateLimitingInterface) []reconcile.Request {
+	stopSig := reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: "stop",
+		},
+	}
+	getQueuedReqs := func(queue workqueue.TypedRateLimitingInterface[reconcile.Request]) []reconcile.Request {
 		var requests []reconcile.Request
 		for {
 			obj, shutdown := queue.Get()
 			if shutdown {
 				return requests
 			}
-			if val, ok := obj.(string); ok && val == stopSig {
+			if obj.Namespace == "stop" {
 				return requests
 			}
-			req, _ := obj.(reconcile.Request)
-			requests = append(requests, req)
+			requests = append(requests, obj)
 		}
 	}
 
@@ -1262,8 +1265,9 @@ func TestSyncPreCreatedVpcIPs(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	r.Client = k8sClient
-	r.queue = workqueue.NewRateLimitingQueueWithConfig(workqueue.DefaultControllerRateLimiter(),
-		workqueue.RateLimitingQueueConfig{
+	r.queue = workqueue.NewTypedRateLimitingQueueWithConfig(
+		workqueue.DefaultTypedControllerRateLimiter[reconcile.Request](),
+		workqueue.TypedRateLimitingQueueConfig[reconcile.Request]{
 			Name: "test",
 		})
 	defer r.queue.ShuttingDown()

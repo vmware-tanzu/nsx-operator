@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	gomonkey "github.com/agiledragon/gomonkey/v2"
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
@@ -29,7 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -526,7 +525,7 @@ func TestStartNetworkPolicyController(t *testing.T) {
 				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider) *securitypolicy.SecurityPolicyService {
 					return fakeService()
 				})
-				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
+				patches.ApplyMethod(reflect.TypeOf(&NetworkPolicyReconciler{}), "Start", func(_ *NetworkPolicyReconciler, r ctrl.Manager) error {
 					return nil
 				})
 				return patches

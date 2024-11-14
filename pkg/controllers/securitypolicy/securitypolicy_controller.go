@@ -423,7 +423,7 @@ func (r *SecurityPolicyReconciler) listSecurityPolciyCRIDs() (sets.Set[string], 
 }
 
 // It is triggered by associated controller like pod, namespace, etc.
-func reconcileSecurityPolicy(r *SecurityPolicyReconciler, pkgclient client.Client, pods []v1.Pod, q workqueue.RateLimitingInterface) error {
+func reconcileSecurityPolicy(r *SecurityPolicyReconciler, pkgclient client.Client, pods []v1.Pod, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	podPortNames := getAllPodPortNames(pods)
 	log.V(1).Info("POD named port", "podPortNames", podPortNames)
 	var spList client.ObjectList
@@ -455,7 +455,7 @@ func reconcileSecurityPolicy(r *SecurityPolicyReconciler, pkgclient client.Clien
 	return nil
 }
 
-func shouldReconcile(securityPolicy *v1alpha1.SecurityPolicy, q workqueue.RateLimitingInterface, podPortNames sets.Set[string]) {
+func shouldReconcile(securityPolicy *v1alpha1.SecurityPolicy, q workqueue.TypedRateLimitingInterface[reconcile.Request], podPortNames sets.Set[string]) {
 	shouldReconcile := false
 	for _, rule := range securityPolicy.Spec.Rules {
 		for _, port := range rule.Ports {

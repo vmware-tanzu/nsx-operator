@@ -13,6 +13,7 @@ import (
 	ctlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 )
@@ -20,7 +21,8 @@ import (
 func TestEnqueueRequestForNamespace_Create(t *testing.T) {
 	client := fake.NewClientBuilder().Build()
 	e := &EnqueueRequestForNamespace{Client: client}
-	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
+	queue := workqueue.NewTypedRateLimitingQueue(
+		workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 
 	e.Create(context.TODO(), event.CreateEvent{}, queue)
 	// No asserts here because Create does nothing, just ensuring no errors.
@@ -29,7 +31,8 @@ func TestEnqueueRequestForNamespace_Create(t *testing.T) {
 func TestEnqueueRequestForNamespace_Delete(t *testing.T) {
 	client := fake.NewClientBuilder().Build()
 	e := &EnqueueRequestForNamespace{Client: client}
-	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
+	queue := workqueue.NewTypedRateLimitingQueue(
+		workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 
 	e.Delete(context.TODO(), event.DeleteEvent{}, queue)
 	// No asserts here because Delete does nothing, just ensuring no errors.
@@ -38,7 +41,8 @@ func TestEnqueueRequestForNamespace_Delete(t *testing.T) {
 func TestEnqueueRequestForNamespace_Generic(t *testing.T) {
 	client := fake.NewClientBuilder().Build()
 	e := &EnqueueRequestForNamespace{Client: client}
-	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
+	queue := workqueue.NewTypedRateLimitingQueue(
+		workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 
 	e.Generic(context.TODO(), event.GenericEvent{}, queue)
 	// No asserts here because Generic does nothing, just ensuring no errors.
@@ -62,7 +66,8 @@ func TestEnqueueRequestForNamespace_Update(t *testing.T) {
 
 	client := fake.NewClientBuilder().WithObjects(newNamespace).Build()
 	e := &EnqueueRequestForNamespace{Client: client}
-	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
+	queue := workqueue.NewTypedRateLimitingQueue(
+		workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 
 	updateEvent := event.UpdateEvent{
 		ObjectOld: oldNamespace,
@@ -147,13 +152,15 @@ func TestRequeueSubnetSet(t *testing.T) {
 
 	// Test for empty namespace (no SubnetSets found)
 	emptyClient := fake.NewClientBuilder().Build()
-	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
+	queue := workqueue.NewTypedRateLimitingQueue(
+		workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 	err := requeueSubnet(emptyClient, "empty-namespace", queue)
 	assert.NoError(t, err, "Expected no error with empty namespace")
 	assert.Equal(t, 0, queue.Len(), "Expected no items to be requeued for empty namespace")
 
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(subnet).Build()
-	queue = workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
+	queue = workqueue.NewTypedRateLimitingQueue(
+		workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 
 	err = requeueSubnet(client, "test-namespace", queue)
 	assert.NoError(t, err, "Expected no error while requeueing SubnetSets")

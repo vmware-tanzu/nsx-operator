@@ -21,7 +21,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -99,7 +98,7 @@ type NetworkInfoReconciler struct {
 	Service             *vpc.VPCService
 	IPBlocksInfoService *ipblocksinfo.IPBlocksInfoService
 	Recorder            record.EventRecorder
-	queue               workqueue.RateLimitingInterface
+	queue               workqueue.TypedRateLimitingInterface[reconcile.Request]
 	StatusUpdater       common.StatusUpdater
 }
 
@@ -577,9 +576,9 @@ func (r *NetworkInfoReconciler) syncPreCreatedVpcIPs(ctx context.Context) {
 	}
 }
 
-func (r *NetworkInfoReconciler) getQueue(controllerName string, rateLimiter ratelimiter.RateLimiter) workqueue.RateLimitingInterface {
+func (r *NetworkInfoReconciler) getQueue(controllerName string, rateLimiter workqueue.TypedRateLimiter[reconcile.Request]) workqueue.TypedRateLimitingInterface[reconcile.Request] {
 	if r.queue == nil {
-		r.queue = workqueue.NewRateLimitingQueueWithConfig(rateLimiter, workqueue.RateLimitingQueueConfig{
+		r.queue = workqueue.NewTypedRateLimitingQueueWithConfig(rateLimiter, workqueue.TypedRateLimitingQueueConfig[reconcile.Request]{
 			Name: controllerName,
 		})
 	}
