@@ -236,10 +236,10 @@ func UserSubnetSet(t *testing.T) {
 				}
 				// assert.NotEmpty(t, port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "No IP address in SubnetPort")
 			} else if portName == "port-in-dhcp-subnetset" {
+				assert.Empty(t, port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "DHCP port shouldn't have IP Address")
 				if port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress == "" {
 					return true, nil
 				}
-				// assert.Empty(t, port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "DHCP port shouldn't have IP Address")
 			}
 			return false, nil
 		})
