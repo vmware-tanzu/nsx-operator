@@ -105,6 +105,7 @@ func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Ser
 		os.Exit(1)
 	}
 	nsxServiceAccountReconcile.Service = nsxServiceAccountService
+	nsxServiceAccountReconcile.StatusUpdater = commonctl.NewStatusUpdater(nsxServiceAccountReconcile.Client, nsxServiceAccountReconcile.Service.NSXConfig, nsxServiceAccountReconcile.Recorder, commonctl.MetricResTypeNSXServiceAccount, "ServiceAccount", "NSXServiceAccount")
 	if err := nsxServiceAccountReconcile.Start(mgr); err != nil {
 		log.Error(err, "Failed to create controller", "controller", "NSXServiceAccount")
 		os.Exit(1)
@@ -120,6 +121,7 @@ func StartNetworkInfoController(mgr ctrl.Manager, vpcService *vpc.VPCService, ip
 	}
 	networkInfoReconciler.Service = vpcService
 	networkInfoReconciler.IPBlocksInfoService = ipblocksInfoService
+	networkInfoReconciler.StatusUpdater = commonctl.NewStatusUpdater(networkInfoReconciler.Client, networkInfoReconciler.Service.NSXConfig, networkInfoReconciler.Recorder, commonctl.MetricResTypeNetworkInfo, "VPC", "NetworkInfo")
 	if err := networkInfoReconciler.Start(mgr); err != nil {
 		log.Error(err, "Failed to create networkinfo controller", "controller", "NetworkInfo")
 		os.Exit(1)
@@ -149,6 +151,7 @@ func StartIPAddressAllocationController(mgr ctrl.Manager, ipAddressAllocationSer
 		VPCService: vpcService,
 		Recorder:   mgr.GetEventRecorderFor("ipaddressallocation-controller"),
 	}
+	ipAddressAllocationReconciler.StatusUpdater = commonctl.NewStatusUpdater(ipAddressAllocationReconciler.Client, ipAddressAllocationReconciler.Service.NSXConfig, ipAddressAllocationReconciler.Recorder, commonctl.MetricResTypeNetworkInfo, "IPAddressAllocation", "IPAddressAllocation")
 
 	if err := ipAddressAllocationReconciler.SetupWithManager(mgr); err != nil {
 		log.Error(err, "Failed to create ipaddressallocation controller")

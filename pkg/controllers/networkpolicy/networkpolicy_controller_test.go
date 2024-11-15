@@ -116,12 +116,14 @@ func createFakeNetworkPolicyReconciler(objs []client.Object) *NetworkPolicyRecon
 	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
 	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objs...).Build()
 
-	return &NetworkPolicyReconciler{
+	r := &NetworkPolicyReconciler{
 		Client:   fakeClient,
 		Scheme:   fake.NewClientBuilder().Build().Scheme(),
 		Service:  fakeService(),
 		Recorder: fakeRecorder{},
 	}
+	r.StatusUpdater = ctrcommon.NewStatusUpdater(r.Client, r.Service.NSXConfig, r.Recorder, MetricResType, "NetworkPolicy", "NetworkPolicy")
+	return r
 }
 
 func Test_setNetworkPolicyErrorAnnotation(t *testing.T) {

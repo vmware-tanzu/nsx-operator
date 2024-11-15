@@ -127,12 +127,14 @@ func createNetworkInfoReconciler(objs []client.Object) *NetworkInfoReconciler {
 		},
 	}
 
-	return &NetworkInfoReconciler{
+	r := &NetworkInfoReconciler{
 		Client:   fakeClient,
 		Scheme:   fake.NewClientBuilder().Build().Scheme(),
 		Service:  service,
 		Recorder: &fakeRecorder{},
 	}
+	r.StatusUpdater = common.NewStatusUpdater(r.Client, r.Service.NSXConfig, r.Recorder, MetricResType, "VPC", "NetworkInfo")
+	return r
 }
 
 func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
@@ -227,8 +229,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					return "lbs-path"
 
 				})
-				patches.ApplyFunc(updateSuccess,
-					func(_ *NetworkInfoReconciler, _ context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
+				patches.ApplyFunc(r.StatusUpdater.UpdateSuccess,
+					func(_ context.Context, _ client.Object, _ common.UpdateSuccessStatusFn, _ ...interface{}) {
 					})
 				patches.ApplyFunc(setNSNetworkReadyCondition,
 					func(ctx context.Context, client client.Client, nsName string, condition *corev1.NamespaceCondition) {
@@ -295,9 +297,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					return "lbs-path"
 
 				})
-				patches.ApplyFunc(updateSuccess,
-					func(_ *NetworkInfoReconciler, _ context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
-					})
 				patches.ApplyFunc(setNSNetworkReadyCondition,
 					func(ctx context.Context, client client.Client, nsName string, condition *corev1.NamespaceCondition) {
 						require.True(t, nsConditionEquals(*condition, *nsMsgVPCIsReady.getNSNetworkCondition()))
@@ -431,9 +430,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					return "snat-ip", nil
 
 				})
-				patches.ApplyFunc(updateSuccess,
-					func(_ *NetworkInfoReconciler, _ context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
-					})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
 					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
 						if !autoSnatEnabled {
@@ -513,9 +509,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					return "", nil
 
 				})
-				patches.ApplyFunc(updateSuccess,
-					func(_ *NetworkInfoReconciler, _ context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
-					})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
 					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
 						if autoSnatEnabled {
@@ -599,9 +592,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					return "snat-ip", nil
 
 				})
-				patches.ApplyFunc(updateSuccess,
-					func(_ *NetworkInfoReconciler, _ context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
-					})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
 					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
 						assert.FailNow(t, "should not be called")
@@ -682,9 +672,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					return "snat-ip", nil
 
 				})
-				patches.ApplyFunc(updateSuccess,
-					func(_ *NetworkInfoReconciler, _ context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
-					})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
 					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
 						if autoSnatEnabled {
@@ -751,9 +738,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					}, nil},
 					Times: 1,
 				}})
-				patches.ApplyFunc(updateSuccess,
-					func(_ *NetworkInfoReconciler, _ context.Context, o *v1alpha1.NetworkInfo, _ client.Client, _ *v1alpha1.VPCState, _ string, _ string) {
-					})
 				patches.ApplyFunc(setNSNetworkReadyCondition,
 					func(ctx context.Context, client client.Client, nsName string, condition *corev1.NamespaceCondition) {
 						require.True(t, nsConditionEquals(*condition, *nsMsgVPCIsReady.getNSNetworkCondition()))
