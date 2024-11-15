@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
@@ -11,10 +13,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
@@ -201,4 +206,76 @@ func TestInitializeSubnetService(t *testing.T) {
 
 	err = service.Cleanup(context.TODO())
 	assert.NoError(t, err)
+}
+
+func TestSubnetService_UpdateSubnetSet(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	service := &SubnetService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+	tags := []model.Tag{
+		{
+			Scope: common.String("nsx-op/subnet_uid"),
+			Tag:   common.String("subnet-1"),
+		},
+		{
+			Scope: common.String("nsx-op/subnetset_uid"),
+			Tag:   common.String("subnetset-1"),
+		},
+		{
+			Scope: common.String("nsx-op/namespace"),
+			Tag:   common.String("ns-1"),
+		},
+	}
+	vpcSubnets := []*model.VpcSubnet{
+		{
+			Path: &fakeSubnetPath,
+			Id:   common.String("subnet-1"),
+			Tags: tags,
+			SubnetDhcpConfig: &model.SubnetDhcpConfig{
+				Mode: common.String("DHCP_SERVER"),
+			},
+			AdvancedConfig: &model.SubnetAdvancedConfig{
+				StaticIpAllocation: &model.StaticIpAllocation{
+					Enabled: common.Bool(false),
+				},
+			},
+		},
+	}
+
+	k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+		subnetSet := obj.(*v1alpha1.SubnetSet)
+		subnetSet.Namespace = "ns-1"
+		subnetSet.Name = "subnetset-1"
+		return nil
+	})
+
+	patchesCreateOrUpdateSubnet := gomonkey.ApplyFunc((*SubnetService).createOrUpdateSubnet,
+		func(r *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (string, error) {
+			return fakeSubnetPath, nil
+		})
+	defer patchesCreateOrUpdateSubnet.Reset()
+
+	err := service.UpdateSubnetSet("ns-1", vpcSubnets, tags, "")
+	assert.Nil(t, err)
 }

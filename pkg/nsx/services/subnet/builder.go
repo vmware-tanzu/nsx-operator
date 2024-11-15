@@ -2,6 +2,7 @@ package subnet
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -53,35 +54,49 @@ func convertAccessMode(accessMode string) string {
 	return accessMode
 }
 
-func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (*model.VpcSubnet, error) {
+func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, useLegacyAPI bool) (*model.VpcSubnet, error) {
 	tags = append(service.buildBasicTags(obj), tags...)
 	var nsxSubnet *model.VpcSubnet
 	var staticIpAllocation bool
 	switch o := obj.(type) {
 	case *v1alpha1.Subnet:
-		enableDhcp := (o.Spec.SubnetDHCPConfig.Mode != "" && o.Spec.SubnetDHCPConfig.Mode != v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated))
+		staticIpAllocation = (o.Spec.SubnetDHCPConfig.Mode == "" || o.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated))
 		nsxSubnet = &model.VpcSubnet{
 			Id:             String(service.BuildSubnetID(o)),
 			AccessMode:     String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),
 			Ipv4SubnetSize: Int64(int64(o.Spec.IPv4SubnetSize)),
-			DhcpConfig:     service.buildDHCPConfig(enableDhcp),
 			DisplayName:    String(service.buildSubnetName(o)),
 		}
-		staticIpAllocation = !enableDhcp
+		dhcpMode := string(o.Spec.SubnetDHCPConfig.Mode)
+		if dhcpMode == "" {
+			dhcpMode = v1alpha1.DHCPConfigModeDeactivated
+		}
+		if useLegacyAPI {
+			nsxSubnet.DhcpConfig = service.buildDHCPConfig(dhcpMode != v1alpha1.DHCPConfigModeDeactivated)
+		} else {
+			nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode)
+		}
 		nsxSubnet.IpAddresses = o.Spec.IPAddresses
 	case *v1alpha1.SubnetSet:
 		// The index is a random string with the length of 8 chars. It is the first 8 chars of the hash
 		// value on a random UUID string.
-		enableDhcp := (o.Spec.SubnetDHCPConfig.Mode != "" && o.Spec.SubnetDHCPConfig.Mode != v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated))
+		staticIpAllocation = (o.Spec.SubnetDHCPConfig.Mode == "" || o.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated))
 		index := util.GetRandomIndexString()
 		nsxSubnet = &model.VpcSubnet{
 			Id:             String(service.buildSubnetSetID(o, index)),
 			AccessMode:     String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),
 			Ipv4SubnetSize: Int64(int64(o.Spec.IPv4SubnetSize)),
-			DhcpConfig:     service.buildDHCPConfig(enableDhcp),
 			DisplayName:    String(service.buildSubnetSetName(o, index)),
 		}
-		staticIpAllocation = !enableDhcp
+		dhcpMode := string(o.Spec.SubnetDHCPConfig.Mode)
+		if dhcpMode == "" {
+			dhcpMode = v1alpha1.DHCPConfigModeDeactivated
+		}
+		if useLegacyAPI {
+			nsxSubnet.DhcpConfig = service.buildDHCPConfig(dhcpMode != v1alpha1.DHCPConfigModeDeactivated)
+		} else {
+			nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode)
+		}
 	default:
 		return nil, SubnetTypeError
 	}
@@ -106,6 +121,17 @@ func (service *SubnetService) buildDHCPConfig(enableDHCP bool) *model.VpcSubnetD
 		EnableDhcp: Bool(enableDHCP),
 	}
 	return dhcpConfig
+}
+
+func (service *SubnetService) buildSubnetDHCPConfig(mode string) *model.SubnetDhcpConfig {
+	// Trasfer DHCPDeactivated to DHCP_DEACTIVATED
+	nsxMode := strings.ToUpper(mode)
+	nsxMode = nsxMode[:4] + "_" + nsxMode[4:]
+
+	subnetDhcpConfig := &model.SubnetDhcpConfig{
+		Mode: &nsxMode,
+	}
+	return subnetDhcpConfig
 }
 
 func (service *SubnetService) buildBasicTags(obj client.Object) []model.Tag {

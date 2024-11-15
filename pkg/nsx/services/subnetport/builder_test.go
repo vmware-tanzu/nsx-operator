@@ -66,8 +66,8 @@ func TestBuildSubnetPort(t *testing.T) {
 				},
 			},
 			nsxSubnet: &model.VpcSubnet{
-				DhcpConfig: &model.VpcSubnetDhcpConfig{
-					EnableDhcp: common.Bool(true),
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					Mode: common.String(v1alpha1.DHCPConfigModeServer),
 				},
 				Path: common.String("fake_path"),
 			},
@@ -123,8 +123,8 @@ func TestBuildSubnetPort(t *testing.T) {
 				},
 			},
 			nsxSubnet: &model.VpcSubnet{
-				DhcpConfig: &model.VpcSubnetDhcpConfig{
-					EnableDhcp: common.Bool(true),
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					Mode: common.String(v1alpha1.DHCPConfigModeServer),
 				},
 				Path: common.String("fake_path"),
 			},

@@ -18,11 +18,12 @@ func (subnet *Subnet) Key() string {
 }
 
 func (subnet *Subnet) Value() data.DataValue {
-	// IPv4SubnetSize/AccessMode/IPAddresses/DHCPConfig are immutable field,
-	// Only changes of tags are considered as changed.
+	// IPv4SubnetSize/AccessMode/IPAddresses are immutable field,
+	// Changes of tags and subnetDHCPConfig are considered as changed.
 	// TODO AccessMode may also need to be compared in future.
 	s := &Subnet{
-		Tags: subnet.Tags,
+		Tags:             subnet.Tags,
+		SubnetDhcpConfig: subnet.SubnetDhcpConfig,
 	}
 	dataValue, _ := (*model.VpcSubnet)(s).GetDataValue__()
 	return dataValue
