@@ -21,10 +21,15 @@ func testMain(m *testing.M) int {
 	flag.StringVar(&testOptions.logsExportDir, "logs-export-dir", "", "Export directory for test logs")
 	flag.StringVar(&testOptions.operatorConfigPath, "operator-cfg-path", "/etc/nsx-ujo/ncp.ini", "config file for operator")
 	flag.BoolVar(&testOptions.logsExportOnSuccess, "logs-export-on-success", false, "Export logs even when a test is successful")
-	flag.BoolVar(&testOptions.withIPPool, "ippool", false, "Run tests include IPPool tests")
+	flag.BoolVar(&testOptions.debugLog, "debug", false, "")
 	flag.Parse()
 
-	logf.SetLogger(logger.ZapLogger(true, 2))
+	if testOptions.debugLog {
+		logf.SetLogger(logger.ZapLogger(true, 2))
+	} else {
+		logf.SetLogger(logger.ZapLogger(false, 0))
+
+	}
 
 	if err := initProvider(); err != nil {
 		log.Fatalf("Error when initializing provider: %v", err)
