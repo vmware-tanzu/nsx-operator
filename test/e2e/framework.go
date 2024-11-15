@@ -63,7 +63,6 @@ type TestOptions struct {
 	logsExportDir       string
 	operatorConfigPath  string
 	logsExportOnSuccess bool
-	withIPPool          bool
 	debugLog            bool
 }
 
