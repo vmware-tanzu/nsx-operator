@@ -3,11 +3,15 @@ package subnet
 import (
 	"testing"
 
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
@@ -59,4 +63,48 @@ func TestBuildSubnetSetName(t *testing.T) {
 	id := svc.buildSubnetSetID(subnetset, index)
 	expId := "pod-default_28e85c0b-21e4-4cab-b1c3-597639dfe752_0c5d588b"
 	assert.Equal(t, expId, id)
+}
+
+func TestBuildSubnetForSubnetSet(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	service := &SubnetService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+	tags := []model.Tag{
+		{
+			Scope: common.String("nsx-op/namespace"),
+			Tag:   common.String("ns-1"),
+		},
+	}
+	subnetSet := &v1alpha1.SubnetSet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnetset-1",
+			Namespace: "ns-1",
+		},
+	}
+	subnet, err := service.buildSubnet(subnetSet, tags, true)
+	assert.Nil(t, err)
+	assert.Equal(t, false, *subnet.DhcpConfig.EnableDhcp)
+	assert.Nil(t, subnet.SubnetDhcpConfig)
+	assert.Equal(t, true, *subnet.AdvancedConfig.StaticIpAllocation.Enabled)
 }

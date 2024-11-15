@@ -145,8 +145,8 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{
-			// return nil and not requeue when UpdateSubnetSetTags failed
-			name:         "Create a SubnetSet failed to UpdateSubnetSetTags",
+			// return nil and requeue when UpdateSubnetSet failed
+			name:         "Create a SubnetSet failed to UpdateSubnetSet",
 			expectRes:    ResultRequeue,
 			expectErrStr: "",
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
@@ -226,8 +226,8 @@ func TestReconcile(t *testing.T) {
 					return tags
 				})
 
-				// UpdateSubnetSetTags
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "UpdateSubnetSetTags", func(_ *subnet.SubnetService, ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag) error {
+				// UpdateSubnetSet
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "UpdateSubnetSet", func(_ *subnet.SubnetService, ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag, dhcpMode string) error {
 					return nil
 				})
 				return patches

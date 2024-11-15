@@ -120,7 +120,7 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 					Return([]*model.VpcSubnet{})
 				ssp.(*pkg_mock.MockSubnetServiceProvider).On("GenerateSubnetNSTags", mock.Anything)
 				vsp.(*pkg_mock.MockVPCServiceProvider).On("ListVPCInfo", mock.Anything).Return([]servicecommon.VPCResourceInfo{{}})
-				ssp.(*pkg_mock.MockSubnetServiceProvider).On("CreateOrUpdateSubnet", mock.Anything, mock.Anything, mock.Anything).Return(expectedSubnetPath, nil)
+				ssp.(*pkg_mock.MockSubnetServiceProvider).On("CreateOrUpdateSubnet", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(expectedSubnetPath, nil)
 			},
 			expectedResult: expectedSubnetPath,
 		},

@@ -111,9 +111,9 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
-	// update SubnetSet tags if labels of namespace changed
 	nsxSubnets := r.SubnetService.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetsetCR.UID))
 	if len(nsxSubnets) > 0 {
+		// update SubnetSet tags if labels of namespace changed
 		tags := r.SubnetService.GenerateSubnetNSTags(subnetsetCR)
 		if tags == nil {
 			log.Error(nil, "Failed to generate SubnetSet tags", "SubnetSet", req.NamespacedName)
@@ -125,8 +125,8 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Exceed tags limit", setSubnetSetReadyStatusFalse)
 			return ResultNormal, nil
 		}
-		if err := r.SubnetService.UpdateSubnetSetTags(subnetsetCR.Namespace, nsxSubnets, tags); err != nil {
-			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet tags", setSubnetSetReadyStatusFalse)
+		if err := r.SubnetService.UpdateSubnetSet(subnetsetCR.Namespace, nsxSubnets, tags, string(subnetsetCR.Spec.SubnetDHCPConfig.Mode)); err != nil {
+			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
 			return ResultRequeue, nil
 		}
 	}
