@@ -4,21 +4,20 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	v12 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 )
 
 const (
-	networkInfoCRType   = "networkinfos.crd.nsx.vmware.com"
-	networkConfigCRType = "vpcnetworkconfigurations.crd.nsx.vmware.com"
-	nsCRType            = "namespaces"
-
 	testCustomizedNetworkConfigName = "selfdefinedconfig"
 	testInfraNetworkConfigName      = "system"
 
@@ -29,60 +28,13 @@ const (
 	e2eNetworkInfoNamespaceShare0 = "shared-vpc-ns-0"
 	e2eNetworkInfoNamespaceShare1 = "shared-vpc-ns-1"
 
-	customizedPrivateCIDR1 = "172.29.0.0"
-	customizedPrivateCIDR2 = "172.39.0.0"
-	customizedPrivateCIDR3 = "172.39.0.0"
+	customizedPrivateCIDR1 = "172.29.0.0/16"
+	customizedPrivateCIDR2 = "172.39.0.0/16"
+	customizedPrivateCIDR3 = "172.39.0.0/16"
 )
 
-func verifyCRCreated(t *testing.T, crtype string, ns string, crname string, expect int) (string, string) {
-	// For CRs that do not know the name, get all resources and compare with expected
-	if crname == "" {
-		// get CR list with CR type
-		resources, err := testData.getCRResources(defaultTimeout, crtype, ns)
-		// CR list lengh should match expected length
-		assert.NoError(t, err)
-		assert.Equal(t, expect, len(resources), "CR creation verify failed, %s list %s size not the same as expected %d", crtype, resources, expect)
-
-		// TODO: if mutiple resources are required, here we need to return multiple elements, but for now, we only need one.
-		cr_name, cr_uid := "", ""
-		for k, v := range resources {
-			cr_name = k
-			cr_uid = strings.TrimSpace(v)
-		}
-		return cr_name, cr_uid
-	} else {
-		// there should be one networkinfo created
-		uid, err := testData.getCRResource(defaultTimeout, crtype, crname, ns)
-		assert.NoError(t, err)
-
-		return crname, strings.TrimSpace(uid)
-	}
-}
-
-func verifyCRDeleted(t *testing.T, crtype string, ns string) {
-	res, _ := testData.getCRResources(defaultTimeout, crtype, ns)
-	assert.True(t, len(res) == 0, "NetworkInfo CR %s should be deleted", crtype)
-}
-
 func TestNetworkInfo(t *testing.T) {
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
-	defer deadlineCancel()
-	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
-		deleteErr := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Delete(context.Background(), testCustomizedNetworkConfigName, v1.DeleteOptions{})
-		t.Logf("Delete VPCNetworkConfigurations %s: %v", testCustomizedNetworkConfigName, deleteErr)
-
-		resp, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(ctx, testCustomizedNetworkConfigName, v1.GetOptions{})
-		t.Logf("Check stale vpcnetworkconfigurations: %v", resp)
-		if err != nil {
-			if errors.IsNotFound(err) {
-				return true, nil
-			}
-			return false, fmt.Errorf("error when waiting for vpcnetworkconfigurations %s", testCustomizedNetworkConfigName)
-		}
-		return false, nil
-	})
-	assert.NoError(t, err)
-
+	deleteVPCNetworkConfiguration(t, testCustomizedNetworkConfigName)
 	defer t.Cleanup(
 		func() {
 			err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Delete(context.Background(), testCustomizedNetworkConfigName, v1.DeleteOptions{})
@@ -103,40 +55,37 @@ func TestNetworkInfo(t *testing.T) {
 func testCustomizedNetworkInfo(t *testing.T) {
 	// Create customized networkconfig
 	ncPath, _ := filepath.Abs("./manifest/testVPC/customize_networkconfig.yaml")
-	_ = applyYAML(ncPath, "")
+	require.NoError(t, applyYAML(ncPath, ""))
 	nsPath, _ := filepath.Abs("./manifest/testVPC/customize_ns.yaml")
-	_ = applyYAML(nsPath, "")
+	require.NoError(t, applyYAML(nsPath, ""))
 
 	defer deleteYAML(nsPath, "")
 
 	ns := "customized-ns"
 
 	// For networkinfo CR, its CR name is the same as namespace
-	verifyCRCreated(t, networkInfoCRType, ns, ns, 1)
-	verifyCRCreated(t, nsCRType, ns, ns, 1)
+	assureNetworkInfo(t, ns, ns)
+	assureNamespace(t, ns)
 
-	vpcPath, _ := testData.getCRPropertiesByJson(
-		defaultTimeout, networkConfigCRType, testCustomizedNetworkConfigName, "", ".status.vpcs[0].vpcPath")
-	err := testData.waitForResourceExistByPath(vpcPath, true)
-	assert.NoError(t, err)
+	vpcPath := getVPCPathFromVPCNetworkConfiguration(t, testCustomizedNetworkConfigName)
+	require.NoError(t, testData.waitForResourceExistByPath(vpcPath, true))
 }
 
 // Test Infra NetworkInfo
 func testInfraNetworkInfo(t *testing.T) {
 	// Check namespace cr existence
-	verifyCRCreated(t, nsCRType, infraVPCNamespace, infraVPCNamespace, 1)
+	assureNamespace(t, infraVPCNamespace)
 
 	// Check networkinfo cr existence
-	verifyCRCreated(t, networkInfoCRType, infraVPCNamespace, infraVPCNamespace, 1)
+	networkInfo := assureNetworkInfo(t, infraVPCNamespace, infraVPCNamespace)
+	require.NotNil(t, networkInfo)
 
-	vpcPath, _ := testData.getCRPropertiesByJson(
-		defaultTimeout, networkConfigCRType, testInfraNetworkConfigName, "", ".status.vpcs[0].vpcPath")
-	err := testData.waitForResourceExistByPath(vpcPath, true)
-	assert.NoError(t, err)
+	vpcPath := getVPCPathFromVPCNetworkConfiguration(t, testInfraNetworkConfigName)
+	require.NoError(t, testData.waitForResourceExistByPath(vpcPath, true))
 
 	// kube-public namespace should have its own NetworkInfo CR
 	// Check networkinfo cr existence
-	verifyCRCreated(t, networkInfoCRType, sharedInfraVPCNamespace, sharedInfraVPCNamespace, 1)
+	assureNetworkInfo(t, sharedInfraVPCNamespace, sharedInfraVPCNamespace)
 }
 
 // Test Default NetworkInfo
@@ -147,10 +96,10 @@ func testDefaultNetworkInfo(t *testing.T) {
 	defer teardownTest(t, ns, defaultTimeout)
 
 	// Check namespace cr existence
-	verifyCRCreated(t, nsCRType, ns, ns, 1)
+	assureNamespace(t, ns)
 
 	// Check networkinfo cr existence
-	verifyCRCreated(t, networkInfoCRType, ns, ns, 1)
+	assureNetworkInfo(t, ns, ns)
 
 	// TODO: for default network config, it maybe shared by multiple ns, and the vpc[0] may not be its VPC
 	// in WCP scenario, there will be no shared network config, skip this part, leave for future if we need to
@@ -164,58 +113,36 @@ func testDefaultNetworkInfo(t *testing.T) {
 	// normally, when deleting ns, if using shared vpc, then no vpc will be deleted
 	// if using normal vpc, in ns deletion, the networkconfig CR will also be deleted, so there is no
 	// need to check vpcPath deletion on network config CR anymore
-	err := testData.deleteNamespace(ns, defaultTimeout)
-	assert.NoError(t, err)
-	verifyCRDeleted(t, networkInfoCRType, ns)
-	verifyCRDeleted(t, nsCRType, ns)
-	// err = testData.waitForResourceExistByPath(vpcPath, false)
-	assert.NoError(t, err)
+	require.NoError(t, testData.deleteNamespace(ns, defaultTimeout))
+	assureNetworkInfoDeleted(t, ns)
+	assureNamespaceDeleted(t, ns)
 }
 
 // ns1 share vpc with ns, each ns should have its own NetworkInfo
 // delete ns1, vpc should not be deleted
 func testSharedNSXVPC(t *testing.T) {
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
-	defer deadlineCancel()
 	ns := "shared-vpc-ns-0"
 	ns1 := "shared-vpc-ns-1"
 
 	nsPath, _ := filepath.Abs("./manifest/testVPC/shared_ns.yaml")
-	_ = applyYAML(nsPath, "")
+	require.NoError(t, applyYAML(nsPath, ""))
 	defer deleteYAML(nsPath, "")
 
 	// Check namespace cr existence
-	verifyCRCreated(t, nsCRType, ns, ns, 1)
-	verifyCRCreated(t, nsCRType, ns1, ns1, 1)
+	assureNamespace(t, ns)
+	assureNamespace(t, ns1)
 
 	// Check networkinfo cr existence
-	verifyCRCreated(t, networkInfoCRType, ns, ns, 1)
-	verifyCRCreated(t, networkInfoCRType, ns1, ns1, 1)
+	assureNetworkInfo(t, ns, ns)
+	assureNetworkInfo(t, ns1, ns1)
 
-	vpcPath := ""
-	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
-		resp, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(ctx, testCustomizedNetworkConfigName, v1.GetOptions{})
-		t.Logf("Check VPC path of vpcnetworkconfigurations: %v", resp)
-		if err != nil {
-			return false, fmt.Errorf("error when waiting for vpcnetworkconfigurations VPC path: %s", testCustomizedNetworkConfigName)
-		}
-		if len(resp.Status.VPCs) > 0 && resp.Status.VPCs[0].VPCPath != "" {
-			vpcPath = resp.Status.VPCs[0].VPCPath
-			return true, nil
-		}
-		return false, nil
-	})
-	assert.NoError(t, err)
-
-	t.Logf("................................%s", vpcPath)
+	vpcPath := getVPCPathFromVPCNetworkConfiguration(t, testCustomizedNetworkConfigName)
 
 	// delete ns1 and check vpc not deleted
-	err = testData.deleteNamespace(ns1, defaultTimeout)
-	assert.NoError(t, err)
-	verifyCRDeleted(t, networkInfoCRType, ns1)
-	verifyCRDeleted(t, nsCRType, ns1)
-	err = testData.waitForResourceExistByPath(vpcPath, true)
-	assert.NoError(t, err)
+	require.NoError(t, testData.deleteNamespace(ns1, defaultTimeout))
+	assureNetworkInfoDeleted(t, ns1)
+	assureNamespaceDeleted(t, ns1)
+	require.NoError(t, testData.waitForResourceExistByPath(vpcPath, true))
 }
 
 // update vpcnetworkconfig, and check vpc is updated
@@ -223,27 +150,171 @@ func testUpdateVPCNetworkconfigNetworkInfo(t *testing.T) {
 	ns := "update-ns"
 
 	nsPath, _ := filepath.Abs("./manifest/testVPC/update_ns.yaml")
-	_ = applyYAML(nsPath, "")
+	require.NoError(t, applyYAML(nsPath, ""))
 	defer deleteYAML(nsPath, "")
 
 	vncPathOriginal, _ := filepath.Abs("./manifest/testVPC/customize_networkconfig.yaml")
 	defer applyYAML(vncPathOriginal, "")
 
 	// Check namespace cr existence
-	verifyCRCreated(t, nsCRType, ns, ns, 1)
+	assureNamespace(t, ns)
 
 	// Check networkinfo cr existence
-	networkinfo_name, _ := verifyCRCreated(t, networkInfoCRType, ns, ns, 1)
+	networkInfo := assureNetworkInfo(t, ns, ns)
+	require.NotNil(t, networkInfo)
 
-	privateIPs, err := testData.getCRPropertiesByJson(defaultTimeout, networkInfoCRType, networkinfo_name, ns, ".vpcs[0].privateIPs")
-	assert.True(t, strings.Contains(privateIPs, customizedPrivateCIDR1), "privateIPs %s should contain %s", privateIPs, customizedPrivateCIDR1)
-	assert.True(t, strings.Contains(privateIPs, customizedPrivateCIDR2), "privateIPs %s should contain %s", privateIPs, customizedPrivateCIDR1)
-	assert.NoError(t, err)
+	networkInfoNew := getVPCPathFromNetworkInfo(t, ns, networkInfo.Name)
+	privateIPs := networkInfoNew.VPCs[0].PrivateIPs
+	assert.Contains(t, privateIPs, customizedPrivateCIDR1, "privateIPs %s should contain %s", privateIPs, customizedPrivateCIDR1)
+	assert.Contains(t, privateIPs, customizedPrivateCIDR2, "privateIPs %s should contain %s", privateIPs, customizedPrivateCIDR1)
 
 	vncPath, _ := filepath.Abs("./manifest/testVPC/customize_networkconfig_updated.yaml")
-	_ = applyYAML(vncPath, "")
+	require.NoError(t, applyYAML(vncPath, ""))
 
-	privateIPs, err = testData.getCRPropertiesByJson(defaultTimeout, networkInfoCRType, networkinfo_name, ns, ".vpcs[0].privateIPs")
-	assert.True(t, strings.Contains(privateIPs, customizedPrivateCIDR3), "privateIPs %s should contain %s", privateIPs, customizedPrivateCIDR3)
-	assert.NoError(t, err)
+	networkInfoNew = getVPCPathFromNetworkInfo(t, ns, networkInfo.Name)
+	privateIPs = networkInfoNew.VPCs[0].PrivateIPs
+	assert.Contains(t, privateIPs, customizedPrivateCIDR3, "privateIPs %s should contain %s", privateIPs, customizedPrivateCIDR3)
+}
+
+func assureNetworkInfo(t *testing.T, ns, networkInfoName string) (res *v1alpha1.NetworkInfo) {
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer deadlineCancel()
+	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		res, err = testData.crdClientset.CrdV1alpha1().NetworkInfos(ns).Get(context.Background(), networkInfoName, v1.GetOptions{})
+		t.Logf("Get NetworkInfos: %v, Namespace: %s, Name: %s, error: %v", res, ns, networkInfoName, err)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("error when waiting for  %s", networkInfoName)
+		}
+		return true, nil
+	})
+	require.NoError(t, err)
+	return
+}
+
+func assureNetworkInfoDeleted(t *testing.T, ns string) {
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer deadlineCancel()
+	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		err = testData.crdClientset.CrdV1alpha1().NetworkInfos(ns).Delete(context.Background(), ns, v1.DeleteOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return true, nil
+			}
+			return false, fmt.Errorf("error when deleting Namespace %s", ns)
+		}
+		res, err := testData.crdClientset.CrdV1alpha1().NetworkInfos(ns).Get(context.Background(), ns, v1.GetOptions{})
+		t.Logf("Deleting NetworkInfos: %v, Namespace: %s, Name: %s, error: %v", res, ns, ns, err)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return true, nil
+			}
+			return false, fmt.Errorf("error when waiting for %s", ns)
+		}
+		return false, nil
+	})
+	require.NoError(t, err)
+	return
+}
+
+func assureNamespace(t *testing.T, ns string) (res *v12.Namespace) {
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer deadlineCancel()
+	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		res, err = testData.clientset.CoreV1().Namespaces().Get(context.Background(), ns, v1.GetOptions{})
+		t.Logf("Get Namespaces: %v, Name: %s, error: %v", res, ns, err)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("error when waiting for Namespaces %s", ns)
+		}
+		return true, nil
+	})
+	require.NoError(t, err)
+	return
+}
+
+func assureNamespaceDeleted(t *testing.T, ns string) {
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer deadlineCancel()
+	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		err = testData.clientset.CoreV1().Namespaces().Delete(context.Background(), ns, v1.DeleteOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return true, nil
+			}
+			return false, fmt.Errorf("error when deleting Namespace %s", ns)
+		}
+		res, err := testData.clientset.CoreV1().Namespaces().Get(context.Background(), ns, v1.GetOptions{})
+		t.Logf("Deleting Namespace: %v, Name: %s, error: %v", res, ns, err)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return true, nil
+			}
+			return false, fmt.Errorf("error when waiting for %s", ns)
+		}
+		return false, nil
+	})
+	require.NoError(t, err)
+	return
+}
+
+func getVPCPathFromNetworkInfo(t *testing.T, ns, networkInfoName string) (networkInfo *v1alpha1.NetworkInfo) {
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer deadlineCancel()
+	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		networkInfo, err = testData.crdClientset.CrdV1alpha1().NetworkInfos(ns).Get(ctx, networkInfoName, v1.GetOptions{})
+		if err != nil {
+			t.Logf("Check VPC path of vpcnetworkconfigurations: %v, error: %+v", networkInfo, err)
+			return false, fmt.Errorf("error when waiting for vpcnetworkconfigurations VPC path: %s", networkInfoName)
+		}
+		if len(networkInfo.VPCs) > 0 && networkInfo.VPCs[0].VPCPath != "" {
+			return true, nil
+		}
+		return false, nil
+	})
+	require.NoError(t, err)
+	return
+}
+
+func getVPCPathFromVPCNetworkConfiguration(t *testing.T, ncName string) (vpcPath string) {
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer deadlineCancel()
+	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		resp, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(ctx, ncName, v1.GetOptions{})
+		if err != nil {
+			t.Logf("Check VPC path of vpcnetworkconfigurations: %+v, error: %+v", resp, err)
+			return false, fmt.Errorf("error when waiting for vpcnetworkconfigurations VPC path: %s", ncName)
+		}
+		if len(resp.Status.VPCs) > 0 && resp.Status.VPCs[0].VPCPath != "" {
+			vpcPath = resp.Status.VPCs[0].VPCPath
+			return true, nil
+		}
+		return false, nil
+	})
+	require.NoError(t, err)
+	return
+}
+
+func deleteVPCNetworkConfiguration(t *testing.T, ncName string) {
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer deadlineCancel()
+	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		deleteErr := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Delete(context.Background(), ncName, v1.DeleteOptions{})
+		t.Logf("Delete VPCNetworkConfigurations %s: %v", testCustomizedNetworkConfigName, deleteErr)
+
+		resp, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(ctx, ncName, v1.GetOptions{})
+		if err != nil {
+			t.Logf("Check stale vpcnetworkconfigurations: %+v, error: %+v", resp, err)
+			if errors.IsNotFound(err) {
+				return true, nil
+			}
+			return false, fmt.Errorf("error when deleting vpcnetworkconfiguration %s", ncName)
+		}
+		return false, nil
+	})
+	require.NoError(t, err)
 }

@@ -14,6 +14,7 @@ export GOROOT=/usr/local/go
 export PATH=$GOROOT/bin:$PATH
 go version
 go env
+go clean -cache -modcache -testcache
 
 # if manual trigger, use the default email and author
 if [ -z ${ghprbActualCommitAuthorEmail+x} ]; then
@@ -57,7 +58,6 @@ kubectl exec $pod_name -c nsx-ncp -n vmware-system-nsx -- cat /var/run/secrets/k
 kubectl exec $pod_name -c nsx-ncp -n vmware-system-nsx -- cat /etc/nsx-ujo/vc/username > /etc/nsx-ujo/vc/username
 kubectl exec $pod_name -c nsx-ncp -n vmware-system-nsx -- cat /etc/nsx-ujo/vc/password > /etc/nsx-ujo/vc/password
 
-cp -r /root/test $NSX_OPERATOR_DIR/
 # Use the -run parameter to run only specific test cases within certain modules.
 # -run '.*Subnet.*|.*SubnetSet.*|.*SecurityPolicy.*|.*NetworkInfo.*'
 e2e=true go test -v ./test/e2e -coverpkg=./pkg/... -remote.kubeconfig /root/.kube/config -operator-cfg-path /etc/ncp.ini -test.timeout 15m -coverprofile cover-e2e.out

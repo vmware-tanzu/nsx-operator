@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -74,17 +75,14 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 	*/
 	// Create security policy
 	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy.yaml")
-	_ = applyYAML(nsIsolationPath, ns)
+	require.NoError(t, applyYAML(nsIsolationPath, ns))
 	defer deleteYAML(nsIsolationPath, ns)
 	assureSecurityPolicyReady(t, ns, securityPolicyName)
 
 	// Check nsx-t resource existing
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
-	assert.NoError(t, err)
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName0, true)
-	assert.NoError(t, err)
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, true)
-	assert.NoError(t, err)
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, true))
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName0, true))
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, true))
 
 	// Temporarily disable traffic check
 	/*
@@ -106,15 +104,12 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 		}
 		return false, nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Check nsx-t resource not existing
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
-	assert.NoError(t, err)
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName0, false)
-	assert.NoError(t, err)
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, false)
-	assert.NoError(t, err)
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, false))
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName0, false))
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, false))
 
 	// Temporarily disable traffic check
 	/*
@@ -140,34 +135,29 @@ func testSecurityPolicyAddDeleteRule(t *testing.T) {
 
 	// Create security policy
 	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy.yaml")
-	_ = applyYAML(nsIsolationPath, ns)
+	require.NoError(t, applyYAML(nsIsolationPath, ns))
 	defer deleteYAML(nsIsolationPath, ns)
 	assureSecurityPolicyReady(t, ns, securityPolicyName)
 
 	// Check nsx-t resource existing
-	err := testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
-	assert.NoError(t, err)
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName0, true)
-	assert.NoError(t, err)
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, true)
-	assert.NoError(t, err)
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, true))
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName0, true))
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, true))
 
 	// Update security policy
 	nsIsolationPath, _ = filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy-1.yaml")
-	_ = applyYAML(nsIsolationPath, ns)
+	require.NoError(t, applyYAML(nsIsolationPath, ns))
 	defer deleteYAML(nsIsolationPath, ns)
 	assureSecurityPolicyReady(t, ns, securityPolicyName)
 
 	// Check nsx-t resource existing
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName0, true)
-	assert.NoError(t, err)
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, false)
-	assert.NoError(t, err)
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName0, true))
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, false))
 
 	// Delete security policy
 	_ = deleteYAML(nsIsolationPath, ns)
 
-	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		resp, err := testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(ctx, securityPolicyName, v1.GetOptions{})
 		t.Logf("Check resource: %v", resp)
 		if err != nil {
@@ -178,11 +168,10 @@ func testSecurityPolicyAddDeleteRule(t *testing.T) {
 		}
 		return false, nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Check nsx-t resource not existing
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
-	assert.NoError(t, err)
+	require.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, false))
 }
 
 // TestSecurityPolicyMatchExpression verifies that the traffic of security policy when match expression applied.
@@ -202,7 +191,7 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 
 	// Create pods
 	podPath, _ := filepath.Abs("./manifest/testSecurityPolicy/allow-client-a-via-pod-selector-with-match-expressions.yaml")
-	_ = applyYAML(podPath, ns)
+	require.NoError(t, applyYAML(podPath, ns))
 	defer deleteYAML(podPath, "")
 
 	// Temporarily disable traffic check
@@ -230,15 +219,13 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 
 	// Create security policy
 	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/match-expression.yaml")
-	_ = applyYAML(nsIsolationPath, ns)
+	require.NoError(t, applyYAML(nsIsolationPath, ns))
 	defer deleteYAML(nsIsolationPath, ns)
 	assureSecurityPolicyReady(t, ns, securityPolicyName)
 
 	// Check nsx-t resource existing
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, true)
-	assert.NoError(t, err)
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName, true)
-	assert.NoError(t, err)
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, true))
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName, true))
 
 	// Temporarily disable traffic check
 	/*
@@ -263,13 +250,11 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 		}
 		return false, nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Check nsx-t resource not existing
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, false)
-	assert.NoError(t, err)
-	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName, false)
-	assert.NoError(t, err)
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, false))
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName, false))
 
 	// Temporarily disable traffic check
 	/*
@@ -302,7 +287,7 @@ func testSecurityPolicyNamedPortWithoutPod(t *testing.T) {
 
 	// Create all
 	yamlPath, _ := filepath.Abs("./manifest/testSecurityPolicy/named-port-without-pod.yaml")
-	_ = applyYAML(yamlPath, "")
+	require.NoError(t, applyYAML(yamlPath, ""))
 	defer deleteYAML(yamlPath, "")
 
 	psb, err := testData.deploymentWaitForNames(defaultTimeout, nsWeb, labelWeb)
@@ -335,5 +320,5 @@ func assureSecurityPolicyReady(t *testing.T, ns, spName string) {
 		}
 		return false, nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
