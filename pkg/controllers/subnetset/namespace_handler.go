@@ -25,19 +25,19 @@ type EnqueueRequestForNamespace struct {
 	Client client.Client
 }
 
-func (e *EnqueueRequestForNamespace) Create(_ context.Context, _ event.CreateEvent, _ workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForNamespace) Create(_ context.Context, _ event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	log.V(1).Info("Namespace create event, do nothing")
 }
 
-func (e *EnqueueRequestForNamespace) Delete(_ context.Context, _ event.DeleteEvent, _ workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForNamespace) Delete(_ context.Context, _ event.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	log.V(1).Info("Namespace delete event, do nothing")
 }
 
-func (e *EnqueueRequestForNamespace) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForNamespace) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	log.V(1).Info("Namespace generic event, do nothing")
 }
 
-func (e *EnqueueRequestForNamespace) Update(_ context.Context, updateEvent event.UpdateEvent, l workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForNamespace) Update(_ context.Context, updateEvent event.UpdateEvent, l workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	obj := updateEvent.ObjectNew.(*v1.Namespace)
 	err := requeueSubnetSet(e.Client, obj.Name, l)
 	if err != nil {
@@ -73,7 +73,7 @@ func listSubnetSet(c client.Client, ctx context.Context, options ...client.ListO
 	return subnetSetList, nil
 }
 
-func requeueSubnetSet(c client.Client, namespace string, q workqueue.RateLimitingInterface) error {
+func requeueSubnetSet(c client.Client, namespace string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	subnetSetList, err := listSubnetSet(c, context.Background(), client.InNamespace(namespace))
 	if err != nil {
 		log.Error(err, "Failed to list all the SubnetSets")
