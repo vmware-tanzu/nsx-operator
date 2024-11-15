@@ -64,6 +64,8 @@ func TestSubnetSet(t *testing.T) {
 	})
 
 	t.Run("case=DefaultSubnetSet", defaultSubnetSet)
+	// TODO: Subnet test with DHCP enable required to update service profile after
+	// upgrade to new NSX which supports subnetDHCPConfig
 	t.Run("case=UserSubnetSet", UserSubnetSet)
 	t.Run("case=SharedSubnetSet", sharedSubnetSet)
 	t.Run("case=SubnetCIDR", SubnetCIDR)

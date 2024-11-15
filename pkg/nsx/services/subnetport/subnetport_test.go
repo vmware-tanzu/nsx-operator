@@ -193,11 +193,10 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 		},
 	}
 
-	enableDHCP := true
 	nsxSubnet := &model.VpcSubnet{
 		Path: &subnetPath,
-		DhcpConfig: &model.VpcSubnetDhcpConfig{
-			EnableDhcp: &enableDHCP,
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{
+			Mode: common.String(v1alpha1.DHCPConfigModeServer),
 		},
 	}
 
