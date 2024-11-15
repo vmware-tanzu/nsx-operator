@@ -6,10 +6,6 @@ replace (
 	github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
 	github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1 => ./pkg/apis/vpc/v1alpha1
 	github.com/vmware-tanzu/nsx-operator/pkg/client => ./pkg/client
-	github.com/vmware/vsphere-automation-sdk-go/lib => github.com/TaoZou1/vsphere-automation-sdk-go/lib v0.0.0-20241021063737-f38b6d3b0dbf
-	github.com/vmware/vsphere-automation-sdk-go/runtime => github.com/TaoZou1/vsphere-automation-sdk-go/runtime v0.0.0-20241021063737-f38b6d3b0dbf
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt => github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt v0.0.0-20241021063737-f38b6d3b0dbf
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp => github.com/TaoZou1/vsphere-automation-sdk-go/services/nsxt-mp v0.0.0-20241021063737-f38b6d3b0dbf
 )
 
 require (
@@ -32,9 +28,9 @@ require (
 	github.com/vmware-tanzu/vm-operator/api v1.8.2
 	github.com/vmware/govmomi v0.27.4
 	github.com/vmware/vsphere-automation-sdk-go/lib v0.7.0
-	github.com/vmware/vsphere-automation-sdk-go/runtime v0.7.1-0.20240611083326-25a4e1834c4d
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.12.0
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp v0.6.0
+	github.com/vmware/vsphere-automation-sdk-go/runtime v0.7.0
+	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.0.0-20241113023437-5938c535c194
+	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp v0.0.0-20241113023437-5938c535c194
 	go.uber.org/automaxprocs v1.5.3
 	go.uber.org/zap v1.26.0
 	golang.org/x/crypto v0.24.0
