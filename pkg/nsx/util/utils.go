@@ -311,6 +311,9 @@ func ParseVPCPath(nsxResourcePath string) (orgID string, projectID string, vpcID
 func DumpHttpRequest(request *http.Request) {
 	var body []byte
 	var err error
+	if request == nil {
+		return
+	}
 	if request.Body == nil {
 		return
 	}
@@ -686,12 +689,12 @@ func IsInvalidLicense(err error) bool {
 	if apiErr, ok := err.(*NSXApiError); ok {
 		errorMessage := ""
 		for _, apiErrItem := range apiErr.RelatedErrors {
-			if *apiErrItem.ErrorCode == InvalidLicenseErrorCode {
+			if apiErrItem.ErrorCode != nil && *apiErrItem.ErrorCode == InvalidLicenseErrorCode {
 				invalidLicense = true
 				errorMessage = *apiErrItem.ErrorMessage
 			}
 		}
-		if *apiErr.ErrorCode == InvalidLicenseErrorCode {
+		if apiErr.ErrorCode != nil && *apiErr.ErrorCode == InvalidLicenseErrorCode {
 			invalidLicense = true
 			errorMessage = *apiErr.ErrorMessage
 		}
