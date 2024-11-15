@@ -76,6 +76,10 @@ func (c *fakeVpcAttachmentClient) Update(orgIdParam string, projectIdParam strin
 	return model.VpcAttachment{}, nil
 }
 
+func (c *fakeVpcAttachmentClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, vpcAttachmentIdParam string) error {
+	return nil
+}
+
 var fakeAttachmentClient = &fakeVpcAttachmentClient{}
 
 type fakeRecorder struct{}
