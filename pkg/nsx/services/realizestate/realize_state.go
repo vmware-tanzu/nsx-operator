@@ -18,7 +18,16 @@ type RealizeStateService struct {
 	common.Service
 }
 
-type RealizeError struct {
+type RealizeStateError struct {
+	message string
+}
+
+func (e *RealizeStateError) Error() string {
+	return e.message
+}
+
+func NewRealizeStateError(msg string) *RealizeStateError {
+	return &RealizeStateError{message: msg}
 }
 
 func InitializeRealizeState(service common.Service) *RealizeStateService {
@@ -28,7 +37,8 @@ func InitializeRealizeState(service common.Service) *RealizeStateService {
 }
 
 func IsRealizeStateError(err error) bool {
-	return err.Error() == model.GenericPolicyRealizedResource_STATE_ERROR
+	_, ok := err.(*RealizeStateError)
+	return ok
 }
 
 // CheckRealizeState allows the caller to check realize status of entityType with retries.
@@ -54,6 +64,15 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 			}
 			if *result.State == model.GenericPolicyRealizedResource_STATE_REALIZED {
 				return nil
+			}
+			if *result.State == model.GenericPolicyRealizedResource_STATE_ERROR {
+				var errMsg []string
+				for _, alarm := range result.Alarms {
+					if alarm.Message != nil {
+						errMsg = append(errMsg, *alarm.Message)
+					}
+				}
+				return NewRealizeStateError(fmt.Sprintf("%s realized with errors: %s", entityType, errMsg))
 			}
 		}
 		return fmt.Errorf("%s not realized", entityType)
