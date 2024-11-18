@@ -1,0 +1,7 @@
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: IPAddressAllocation
+metadata:
+  name: guestcluster-workers-c
+spec:
+  ipAddressBlockVisibility: PrivateTGW
+  allocationSize: 256
