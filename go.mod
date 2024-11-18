@@ -3,14 +3,14 @@ module github.com/vmware-tanzu/nsx-operator
 go 1.23.1
 
 replace (
+	github.com/agiledragon/gomonkey => github.com/agiledragon/gomonkey/v2 v2.11.0
 	github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
 	github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1 => ./pkg/apis/vpc/v1alpha1
 	github.com/vmware-tanzu/nsx-operator/pkg/client => ./pkg/client
 )
 
 require (
-	github.com/agiledragon/gomonkey v2.0.2+incompatible
-	github.com/agiledragon/gomonkey/v2 v2.9.0
+	github.com/agiledragon/gomonkey/v2 v2.11.0
 	github.com/apparentlymart/go-cidr v1.1.0
 	github.com/deckarep/golang-set v1.8.0
 	github.com/go-logr/logr v1.4.2
