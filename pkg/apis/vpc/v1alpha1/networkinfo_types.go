@@ -39,6 +39,8 @@ type VPCState struct {
 	LoadBalancerIPAddresses string `json:"loadBalancerIPAddresses,omitempty"`
 	// Private CIDRs used for the VPC.
 	PrivateIPs []string `json:"privateIPs,omitempty"`
+	// NSX Policy path for VPC.
+	VPCPath string `json:"vpcPath,omitempty"`
 }
 
 func init() {
