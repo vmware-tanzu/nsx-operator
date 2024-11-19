@@ -18,3 +18,4 @@ spec:
       targetPort: 9981
   selector:
     component: nsx-ncp
+    nsx-operator-role: master
