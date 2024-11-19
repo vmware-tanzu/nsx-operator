@@ -13,4 +13,3 @@ vpcs:
   name: vpc-d110d5aa-006d-4b59-9caf-424a4fba932c--kube-system
   privateIPs:
   - 172.26.0.0/16
-  vpcPath: /orgs/default/projects/project-quality/vpcs/19a8a52e-beb0-4396-91ce-5821a15a43db
