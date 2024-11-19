@@ -66,7 +66,7 @@ func (c *fakePortClient) Delete(orgIdParam string, projectIdParam string, vpcIdP
 
 type fakeRealizedEntitiesClient struct{}
 
-func (c *fakeRealizedEntitiesClient) List(orgIdParam string, projectIdParam string, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+func (c *fakeRealizedEntitiesClient) List(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
 
 	return model.GenericPolicyRealizedResourceListResult{
 		Results: []model.GenericPolicyRealizedResource{
