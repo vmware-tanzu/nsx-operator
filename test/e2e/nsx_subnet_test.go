@@ -3,7 +3,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"path/filepath"
 	"strings"
@@ -33,20 +32,19 @@ const (
 )
 
 func verifySubnetSetCR(subnetSet string) bool {
-	vpcNetworkConfig, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(context.TODO(), vpcNetworkConfigCRName,
-		v1.GetOptions{})
+	vpcNetworkConfig, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(context.TODO(), vpcNetworkConfigCRName, v1.GetOptions{})
 	if err != nil {
-		log.Printf("Failed to get VPCNetworkConfiguration %s: %v", vpcNetworkConfigCRName, err)
+		log.Error(err, "Failed to get VPCNetworkConfiguration", "name", vpcNetworkConfigCRName)
 		return false
 	}
 	subnetSetCR, err := testData.crdClientset.CrdV1alpha1().SubnetSets(subnetTestNamespace).Get(context.TODO(), subnetSet, v1.GetOptions{})
 	if err != nil {
-		log.Printf("Failed to get %s/%s: %s", subnetTestNamespace, subnetSet, err)
+		log.Error(err, "Failed to get SubnetSet", "namespace", subnetTestNamespace, "name", subnetSet)
 		return false
 	}
 
 	if subnetSetCR.Spec.IPv4SubnetSize != vpcNetworkConfig.Spec.DefaultSubnetSize {
-		log.Printf("IPv4SubnetSize is %d, while it's expected to be %d", subnetSetCR.Spec.IPv4SubnetSize, vpcNetworkConfig.Spec.DefaultSubnetSize)
+		log.Error(nil, "IPv4SubnetSize mismatch", "IPv4SubnetSize", subnetSetCR.Spec.IPv4SubnetSize, "expected", vpcNetworkConfig.Spec.DefaultSubnetSize)
 		return false
 	}
 	return true
@@ -79,7 +77,7 @@ func transSearchResponsetoSubnet(response model.SearchResponse) []model.VpcSubne
 	for _, result := range response.Results {
 		obj, err := common.NewConverter().ConvertToGolang(result, model.VpcSubnetBindingType())
 		if err != nil {
-			log.Printf("Failed to convert to golang subnet: %v", err)
+			log.Info("Failed to convert to golang subnet", "error", err)
 			return resources
 		}
 		if subnet, ok := obj.(model.VpcSubnet); ok {
@@ -164,7 +162,7 @@ func defaultSubnetSet(t *testing.T) {
 	newNs, err := testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
 	time.Sleep(5 * time.Second)
 	require.NoError(t, err)
-	t.Logf("new Namespace: %+v", newNs)
+	log.V(2).Info("New Namespace", "namespace", newNs)
 	vpcSubnet = fetchSubnetBySubnetSet(t, subnetSet)
 	found = false
 	for _, tag := range vpcSubnet.Tags {
@@ -221,13 +219,13 @@ func UserSubnetSet(t *testing.T) {
 		err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 100*time.Second, false, func(ctx context.Context) (bool, error) {
 			port, err := testData.crdClientset.CrdV1alpha1().SubnetPorts(subnetTestNamespace).Get(context.TODO(), portName, v1.GetOptions{})
 			if err != nil {
-				t.Logf("Check IP address is (not) allocated to SubnetPort: %+v, error: %+v", port, err)
+				log.Error(err, "Check SubnetPort", "port", port)
 				return false, err
 			}
 			if port == nil || len(port.Status.NetworkInterfaceConfig.IPAddresses) == 0 {
 				return false, nil
 			}
-			t.Logf("Check IP address in SubnetPort: %s, portName: %s", port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, portName)
+			log.V(2).Info("Check IP address", "IPAddress", port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "portName", portName)
 			if portName == "port-in-static-subnetset" {
 				if port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress != "" {
 					return true, nil
@@ -323,7 +321,7 @@ func SubnetCIDR(t *testing.T) {
 	subnet.Spec.IPAddresses = []string{targetCIDR}
 	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), subnet, v1.CreateOptions{})
 	if err != nil && errors.IsAlreadyExists(err) {
-		t.Logf("Create Subnet error: %+v", err)
+		log.Error(err, "Create Subnet error")
 		err = nil
 	}
 	require.NoError(t, err)
@@ -373,10 +371,10 @@ func assureSubnet(t *testing.T, ns, subnetName string) (res *v1alpha1.Subnet) {
 			if errors.IsNotFound(err) {
 				return false, nil
 			}
-			t.Logf("Get Subnet: %+v, Namespace: %s, Name: %s, error: %v", res, ns, subnetName, err)
+			log.Error(err, "Error fetching Subnet", "subnet", res, "namespace", ns, "name", subnetName)
 			return false, fmt.Errorf("error when waiting for Subnet %s", subnetName)
 		}
-		t.Logf("Subnet status: %+v", res.Status)
+		log.V(2).Info("Subnet status", "status", res.Status)
 		for _, con := range res.Status.Conditions {
 			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionTrue {
 				return true, nil
@@ -397,10 +395,10 @@ func assureSubnetSet(t *testing.T, ns, subnetSetName string) (res *v1alpha1.Subn
 			if errors.IsNotFound(err) {
 				return false, nil
 			}
-			t.Logf("Get SubnetSet: %+v, Namespace: %s, Name: %s, error: %v", res, ns, subnetSetName, err)
+			log.Error(err, "SubnetSet", res, "Namespace", ns, "Name", subnetSetName)
 			return false, fmt.Errorf("error when waiting for SubnetSet %s", subnetSetName)
 		}
-		t.Logf("SubnetSets status: %+v", res.Status)
+		log.V(2).Info("SubnetSets status", "status", res.Status)
 		for _, con := range res.Status.Conditions {
 			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionTrue {
 				return true, nil
@@ -421,10 +419,10 @@ func assureSubnetPort(t *testing.T, ns, subnetPortName string) (res *v1alpha1.Su
 			if errors.IsNotFound(err) {
 				return false, nil
 			}
-			t.Logf("Get SubnetPort: %v, Namespace: %s, Name: %s, error: %v", res, ns, subnetPortName, err)
+			log.Error(err, "SubnetPort", res, "Namespace", ns, "Name", subnetPortName)
 			return false, fmt.Errorf("error when waiting for SubnetPort: %s", subnetPortName)
 		}
-		t.Logf("SubnetPort status: %+v", res.Status)
+		log.V(2).Info("SubnetPort status", "status", res.Status)
 		for _, con := range res.Status.Conditions {
 			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionTrue {
 				return true, nil
