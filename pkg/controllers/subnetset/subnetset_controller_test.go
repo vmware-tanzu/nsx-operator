@@ -36,6 +36,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 type fakeRecorder struct{}
@@ -47,6 +48,38 @@ func (recorder fakeRecorder) Eventf(object runtime.Object, eventtype, reason, me
 }
 
 func (recorder fakeRecorder) AnnotatedEventf(object runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
+}
+
+type fakeOrgRootClient struct {
+}
+
+func (f fakeOrgRootClient) Get(basePathParam *string, filterParam *string, typeFilterParam *string) (model.OrgRoot, error) {
+	return model.OrgRoot{}, nil
+}
+
+func (f fakeOrgRootClient) Patch(orgRootParam model.OrgRoot, enforceRevisionCheckParam *bool) error {
+	return errors.New("patch error")
+}
+
+type fakeSubnetStatusClient struct {
+}
+
+func (f fakeSubnetStatusClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnetStatusListResult, error) {
+	dhcpServerAddress := "1.1.1.1"
+	ipAddressType := "fakeIpAddressType"
+	networkAddress := "2.2.2.2"
+	gatewayAddress := "3.3.3.3"
+	return model.VpcSubnetStatusListResult{
+		Results: []model.VpcSubnetStatus{
+			{
+				DhcpServerAddress: &gatewayAddress,
+				GatewayAddress:    &dhcpServerAddress,
+				IpAddressType:     &ipAddressType,
+				NetworkAddress:    &networkAddress,
+			},
+		},
+		Status: nil,
+	}, nil
 }
 
 func createFakeSubnetSetReconciler(objs []client.Object) *SubnetSetReconciler {
@@ -62,10 +95,15 @@ func createFakeSubnetSetReconciler(objs []client.Object) *SubnetSetReconciler {
 	}
 	subnetService := &subnet.SubnetService{
 		Service: common.Service{
-			Client:    fakeClient,
-			NSXClient: &nsx.Client{},
-
+			Client: fakeClient,
+			NSXClient: &nsx.Client{
+				OrgRootClient:      &fakeOrgRootClient{},
+				SubnetStatusClient: &fakeSubnetStatusClient{},
+			},
 			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "clusterName",
+				},
 				NsxConfig: &config.NsxConfig{
 					EnforcementPoint:   "vmc-enforcementpoint",
 					UseAVILoadBalancer: false,
@@ -97,6 +135,13 @@ func createFakeSubnetSetReconciler(objs []client.Object) *SubnetSetReconciler {
 func TestReconcile(t *testing.T) {
 	subnetsetName := "test-subnetset"
 	ns := "test-namespace"
+	subnetSet := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      subnetsetName,
+			Namespace: ns,
+		},
+		Spec: v1alpha1.SubnetSetSpec{},
+	}
 
 	testCases := []struct {
 		name         string
@@ -124,9 +169,8 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{
-			name:         "Create a SubnetSet with error failed to generate SubnetSet tags",
-			expectRes:    ResultRequeue,
-			expectErrStr: "failed to generate SubnetSet tags",
+			name:      "Create a SubnetSet",
+			expectRes: ResultNormal,
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
 				vpcnetworkInfo := &common.VPCNetworkConfigInfo{DefaultSubnetSize: 32}
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) *common.VPCNetworkConfigInfo {
@@ -211,22 +255,26 @@ func TestReconcile(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) *common.VPCNetworkConfigInfo {
 					return vpcnetworkInfo
 				})
-
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
 					id1 := "fake-id"
-					path := "fake-path"
-					vpcSubnet := model.VpcSubnet{Id: &id1, Path: &path}
-					return []*model.VpcSubnet{
-						&vpcSubnet,
-					}
+					path := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9/subnets/fake-path"
+					basicTags1 := util.BuildBasicTags("fakeClusterName", subnetSet, "")
+					scopeNamespace := common.TagScopeNamespace
+					basicTags1 = append(basicTags1, model.Tag{
+						Scope: &scopeNamespace,
+						Tag:   &ns,
+					})
+					basicTags2 := util.BuildBasicTags("fakeClusterName", subnetSet, "")
+					ns2 := "ns2"
+					basicTags2 = append(basicTags2, model.Tag{
+						Scope: &scopeNamespace,
+						Tag:   &ns2,
+					})
+					vpcSubnet1 := model.VpcSubnet{Id: &id1, Path: &path}
+					vpcSubnet2 := model.VpcSubnet{Id: &id1, Path: &path, Tags: basicTags1}
+					vpcSubnet3 := model.VpcSubnet{Id: &id1, Path: &path, Tags: basicTags2}
+					return []*model.VpcSubnet{&vpcSubnet1, &vpcSubnet2, &vpcSubnet3}
 				})
-
-				tags := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-tag")}}
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GenerateSubnetNSTags", func(_ *subnet.SubnetService, obj client.Object) []model.Tag {
-					return tags
-				})
-
-				// UpdateSubnetSet
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "UpdateSubnetSet", func(_ *subnet.SubnetService, ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag, dhcpMode string) error {
 					return nil
 				})
@@ -239,18 +287,9 @@ func TestReconcile(t *testing.T) {
 			ctx := context.TODO()
 			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: subnetsetName, Namespace: ns}}
 
-			subnetset := &v1alpha1.SubnetSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      subnetsetName,
-					Namespace: ns,
-				},
-				Spec: v1alpha1.SubnetSetSpec{},
-			}
-			namespace := &v12.Namespace{
-				ObjectMeta: metav1.ObjectMeta{Name: ns, Namespace: ns},
-			}
+			namespace := &v12.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}
 
-			r := createFakeSubnetSetReconciler([]client.Object{subnetset, namespace})
+			r := createFakeSubnetSetReconciler([]client.Object{subnetSet, namespace})
 			if testCase.patches != nil {
 				patches := testCase.patches(r)
 				defer patches.Reset()
@@ -260,6 +299,8 @@ func TestReconcile(t *testing.T) {
 
 			if testCase.expectErrStr != "" {
 				assert.ErrorContains(t, err, testCase.expectErrStr)
+			} else {
+				assert.NoError(t, err)
 			}
 			assert.Equal(t, testCase.expectRes, res)
 		})
@@ -295,7 +336,7 @@ func TestReconcile_DeleteSubnetSet(t *testing.T) {
 					vpcSubnetSkip := model.VpcSubnet{Id: &id1, Path: &path, Tags: tags}
 
 					id2 := "fake-id-1"
-					path2 := "fake-path-2"
+					path2 := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-xxx/subnets/" + id2
 					tagStale := []model.Tag{
 						{Scope: common.String(common.TagScopeSubnetSetCRUID), Tag: common.String("fake-subnetSet-uid-stale")},
 						{Scope: common.String(common.TagScopeSubnetSetCRName), Tag: common.String(subnetSetName)},
@@ -330,7 +371,7 @@ func TestReconcile_DeleteSubnetSet(t *testing.T) {
 					vpcSubnetSkip := model.VpcSubnet{Id: &id1, Path: &path, Tags: tags}
 
 					id2 := "fake-id-1"
-					path2 := "fake-path-2"
+					path2 := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-xxx/subnets/fake-path-2"
 					tagStale := []model.Tag{
 						{Scope: common.String(common.TagScopeSubnetSetCRUID), Tag: common.String("fake-subnetSet-uid-stale")},
 						{Scope: common.String(common.TagScopeSubnetSetCRName), Tag: common.String(subnetSetName)},
@@ -374,7 +415,7 @@ func TestReconcile_DeleteSubnetSet(t *testing.T) {
 					vpcSubnetSkip := model.VpcSubnet{Id: &id1, Path: &path, Tags: tags}
 
 					id2 := "fake-id-1"
-					path2 := "fake-path-2"
+					path2 := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-xxx/subnets/fake-path-2"
 					tagStale := []model.Tag{
 						{Scope: common.String(common.TagScopeSubnetSetCRUID), Tag: common.String("fake-subnetSet-uid-stale")},
 						{Scope: common.String(common.TagScopeSubnetSetCRName), Tag: common.String(subnetSetName)},
@@ -443,7 +484,7 @@ func TestReconcile_DeleteSubnetSet_WithFinalizer(t *testing.T) {
 
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
 		id1 := "fake-id"
-		path := "fake-path"
+		path := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9/subnets/" + id1
 		vpcSubnet := model.VpcSubnet{Id: &id1, Path: &path}
 		return []*model.VpcSubnet{
 			&vpcSubnet,
@@ -533,10 +574,10 @@ func TestSubnetSetReconciler_CollectGarbage(t *testing.T) {
 
 	patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
 		id1 := "fake-id"
-		path := "fake-path"
-		vpcSubnet := model.VpcSubnet{Id: &id1, Path: &path}
+		path := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9/subnets/fake-path"
+		vpcSubnet1 := model.VpcSubnet{Id: &id1, Path: &path}
 		return []*model.VpcSubnet{
-			&vpcSubnet,
+			&vpcSubnet1,
 		}
 	})
 	patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
@@ -553,10 +594,12 @@ func TestSubnetSetReconciler_CollectGarbage(t *testing.T) {
 	// ListSubnetCreatedBySubnetSet
 	patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnetSet", func(_ *subnet.SubnetService, id string) []*model.VpcSubnet {
 		id1 := "fake-id"
-		path := "fake-path"
-		vpcSubnet := model.VpcSubnet{Id: &id1, Path: &path}
+		path := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9/subnets/fake-path"
+		vpcSubnet1 := model.VpcSubnet{Id: &id1, Path: &path}
+		invalidPath := "fakePath"
+		vpcSubnet2 := model.VpcSubnet{Id: &id1, Path: &invalidPath}
 		return []*model.VpcSubnet{
-			&vpcSubnet,
+			&vpcSubnet1, &vpcSubnet2,
 		}
 	})
 

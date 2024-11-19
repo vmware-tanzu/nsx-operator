@@ -411,7 +411,7 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 	if dhcpMode == "" {
 		dhcpMode = v1alpha1.DHCPConfigModeDeactivated
 	}
-	staticIpAllocation := (dhcpMode == v1alpha1.DHCPConfigModeDeactivated)
+	staticIpAllocation := dhcpMode == v1alpha1.DHCPConfigModeDeactivated
 	for i, vpcSubnet := range vpcSubnets {
 		subnetSet := &v1alpha1.SubnetSet{}
 		var name string
