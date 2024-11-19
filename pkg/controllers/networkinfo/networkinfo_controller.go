@@ -180,6 +180,24 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			log.Info("finalizers cannot be recognized", "NetworkInfo", req.NamespacedName)
 		}
 	}
+
+	state := &v1alpha1.VPCState{
+		Name:                    *createdVpc.DisplayName,
+		DefaultSNATIP:           snatIP,
+		LoadBalancerIPAddresses: cidr,
+		PrivateIPs:              privateIPs,
+	}
+
+	// AKO needs to know the AVI subnet path created by NSX
+	setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, path, nsxLBSPath, *createdVpc.Path)
+	r.StatusUpdater.UpdateSuccess(ctx, networkInfoCR, setNetworkInfoVPCStatus, state)
+
+	if retryWithSystemVPC {
+		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, systemNSCondition)
+		return common.ResultRequeueAfter60sec, nil
+	}
+
+	setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCIsReady.getNSNetworkCondition())
 	return common.ResultNormal, nil
 }
 
