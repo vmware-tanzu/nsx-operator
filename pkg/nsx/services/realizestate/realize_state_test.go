@@ -16,7 +16,7 @@ import (
 
 type fakeRealizedEntitiesClient struct{}
 
-func (c *fakeRealizedEntitiesClient) List(orgIdParam string, projectIdParam string, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+func (c *fakeRealizedEntitiesClient) List(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
 	return model.GenericPolicyRealizedResourceListResult{
 		Results: []model.GenericPolicyRealizedResource{},
 	}, nil
@@ -41,7 +41,8 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 	s := &RealizeStateService{
 		Service: commonService,
 	}
-	patches := gomonkey.ApplyFunc((*fakeRealizedEntitiesClient).List, func(c *fakeRealizedEntitiesClient, orgIdParam string, projectIdParam string, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+
+	patches := gomonkey.ApplyFunc((*fakeRealizedEntitiesClient).List, func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
 		return model.GenericPolicyRealizedResourceListResult{
 			Results: []model.GenericPolicyRealizedResource{
 				{
@@ -62,9 +63,17 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 		Jitter:   0,
 		Steps:    6,
 	}
+	// default project
 	err := s.CheckRealizeState(backoff, "/orgs/default/projects/default/vpcs/vpc/subnets/subnet/ports/port", "RealizedLogicalPort")
 
 	realizeStateError, ok := err.(*RealizeStateError)
+	assert.True(t, ok)
+	assert.Equal(t, realizeStateError.Error(), "RealizedLogicalPort realized with errors: [mocked error]")
+
+	// non default project
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/ports/port", "RealizedLogicalPort")
+
+	realizeStateError, ok = err.(*RealizeStateError)
 	assert.True(t, ok)
 	assert.Equal(t, realizeStateError.Error(), "RealizedLogicalPort realized with errors: [mocked error]")
 }

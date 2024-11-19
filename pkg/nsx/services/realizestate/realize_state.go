@@ -45,15 +45,11 @@ func IsRealizeStateError(err error) bool {
 // backoff defines the maximum retries and the wait interval between two retries.
 func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, intentPath, entityType string) error {
 	// TODO， ask NSX if there were multiple realize states could we check only the latest one?
-	vpcInfo, err := common.ParseVPCResourcePath(intentPath)
-	if err != nil {
-		return err
-	}
 	return retry.OnError(backoff, func(err error) bool {
 		// Won't retry when realized state is `ERROR`.
 		return !IsRealizeStateError(err)
 	}, func() error {
-		results, err := service.NSXClient.RealizedEntitiesClient.List(vpcInfo.OrgID, vpcInfo.ProjectID, intentPath, nil)
+		results, err := service.NSXClient.RealizedEntitiesClient.List(intentPath, nil)
 		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
 			return err
