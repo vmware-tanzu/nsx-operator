@@ -873,18 +873,21 @@ func TestDumpHttpRequest(t *testing.T) {
 
 func TestNewNSXApiError(t *testing.T) {
 	tests := []struct {
-		name      string
-		apiError  *model.ApiError
-		wantError *NSXApiError
+		name       string
+		apiError   *model.ApiError
+		apiTypeNum apierrors.ErrorTypeEnum
+		wantError  *NSXApiError
 	}{
 		{
-			name: "ValidApiError",
+			name:       "ValidApiError",
+			apiTypeNum: apierrors.ErrorType_RESOURCE_IN_USE,
 			apiError: &model.ApiError{
 				ErrorCode:    pointy.Int64(123),
 				ErrorMessage: pointy.String("Test error message"),
 				Details:      pointy.String("Test details"),
 			},
 			wantError: &NSXApiError{
+				ErrorTypeEnum: apierrors.ErrorType_RESOURCE_IN_USE,
 				ApiError: &model.ApiError{
 					ErrorCode:    pointy.Int64(123),
 					ErrorMessage: pointy.String("Test error message"),
@@ -893,15 +896,17 @@ func TestNewNSXApiError(t *testing.T) {
 			},
 		},
 		{
-			name:      "NilApiError",
-			apiError:  nil,
-			wantError: &NSXApiError{ApiError: nil},
+			name:       "NilApiError",
+			apiError:   nil,
+			apiTypeNum: "",
+			wantError: &NSXApiError{ApiError: nil,
+				ErrorTypeEnum: ""},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotError := NewNSXApiError(tt.apiError)
+			gotError := NewNSXApiError(tt.apiError, tt.apiTypeNum)
 			assert.Equal(t, tt.wantError, gotError)
 		})
 	}
@@ -968,7 +973,8 @@ func TestTransNSXApiError(t *testing.T) {
 				ErrorType: &errortype,
 			},
 			expected: &NSXApiError{
-				ApiError: &model.ApiError{},
+				ApiError:      &model.ApiError{},
+				ErrorTypeEnum: "INVALID_REQUEST",
 			},
 		},
 	}
@@ -979,6 +985,17 @@ func TestTransNSXApiError(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+
+	err := apierrors.NewNotFound()
+	err.Data = data.NewStructValue("test", nil)
+	t.Log(err)
+	got := TransNSXApiError(*err)
+	t.Log(got)
+	gotErr, ok := got.(*NSXApiError)
+	t.Log(gotErr)
+
+	assert.Equal(t, ok, true)
+	assert.Equal(t, gotErr.Type(), apierrors.ErrorType_NOT_FOUND)
 }
 
 func TestUpdateURL(t *testing.T) {

@@ -196,9 +196,11 @@ func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.
 	if err == nil {
 		return fmt.Errorf("CCP store is not synchronized")
 	}
-	switch err.(type) {
-	case vapierrors.NotFound:
-	default:
+	if nsxErr, ok := err.(*nsxutil.NSXApiError); ok {
+		if nsxErr.Type() != vapierrors.ErrorType_NOT_FOUND {
+			return err
+		}
+	} else {
 		return err
 	}
 
