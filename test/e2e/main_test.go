@@ -5,7 +5,6 @@ package e2e
 
 import (
 	"flag"
-	"log"
 	"os"
 	"testing"
 
@@ -32,26 +31,28 @@ func testMain(m *testing.M) int {
 	}
 
 	if err := initProvider(); err != nil {
-		log.Fatalf("Error when initializing provider: %v", err)
+		log.Error(err, "Error when initializing provider")
+		panic(err)
 	}
 
-	log.Println("Creating clientSets")
+	log.Info("Creating clientSets")
 
 	if err := NewTestData(testOptions.operatorConfigPath); err != nil {
-		log.Fatalf("Error when creating client: %v", err)
+		log.Error(err, "Error when creating client")
 		return 1
 	}
-	log.Println("Collecting information about K8s cluster")
+
+	log.Info("Collecting information about K8s cluster")
 	if err := collectClusterInfo(); err != nil {
-		log.Fatalf("Error when collecting information about K8s cluster: %v", err)
+		log.Error(err, "Error when collecting information about K8s cluster")
+		panic(err)
 	}
 	if clusterInfo.podV4NetworkCIDR != "" {
-		log.Printf("Pod IPv4 network: '%s'", clusterInfo.podV4NetworkCIDR)
+		log.Info("Pod IPv4: ", "network", clusterInfo.podV4NetworkCIDR)
 	}
 	if clusterInfo.podV6NetworkCIDR != "" {
-		log.Printf("Pod IPv6 network: '%s'", clusterInfo.podV6NetworkCIDR)
+		log.Info("Pod IPv6: ", "network", clusterInfo.podV6NetworkCIDR)
 	}
-	log.Printf("Num nodes: %d", clusterInfo.numNodes)
 
 	ret := m.Run()
 	return ret

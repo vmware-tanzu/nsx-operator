@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"net/url"
 	"os/exec"
@@ -21,11 +20,15 @@ import (
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/test/e2e/providers"
 )
+
+var log = &logger.Log
 
 const (
 	defaultTimeout = 200 * time.Second
@@ -164,7 +167,7 @@ func collectClusterInfo() error {
 	if err != nil {
 		return fmt.Errorf("error when listing cluster Nodes: %v", err)
 	}
-	log.Printf("Found %d Nodes in the cluster", len(nodes.Items))
+	log.Info("Found Nodes in the cluster", "nodes count", len(nodes.Items))
 	workerIdx := 1
 	clusterInfo.nodes = make(map[int]ClusterNode)
 	for _, node := range nodes.Items {
@@ -242,7 +245,7 @@ func collectClusterInfo() error {
 	// retrieve cluster CIDRs
 	podCIDRs, err := retrieveCIDRs("kubectl cluster-info dump | grep cluster-cidr", `cluster-cidr=([^"]+)`)
 	if err != nil {
-		log.Printf("Failed to detect IPv4 or IPv6 Pod CIDR. Ignore.")
+		log.Info("Failed to detect IPv4 or IPv6 Pod CIDR. Ignore.")
 	} else {
 		clusterInfo.podV4NetworkCIDR = podCIDRs[0]
 		clusterInfo.podV6NetworkCIDR = podCIDRs[1]
@@ -459,7 +462,7 @@ func parsePodIPs(podIPStrings sets.Set[string]) (*PodIPs, error) {
 // stdout and stderr as strings. An error either indicates that the command couldn't be run or that
 // the command returned a non-zero error code.
 func (data *TestData) runCommandFromPod(namespace string, podName string, containerName string, cmd []string) (stdout string, stderr string, err error) {
-	log.Printf("Running '%s' in Pod '%s/%s' container '%s'", strings.Join(cmd, " "), namespace, podName, containerName)
+	log.Info("Running '%s' in Pod '%s/%s' container '%s'", strings.Join(cmd, " "), namespace, podName, containerName)
 	request := data.clientset.CoreV1().RESTClient().Post().
 		Namespace(namespace).
 		Resource("pods").
@@ -482,11 +485,11 @@ func (data *TestData) runCommandFromPod(namespace string, podName string, contai
 		Stdout: &stdoutB,
 		Stderr: &stderrB,
 	}); err != nil {
-		log.Printf("Error when running command '%s' in Pod '%s/%s' container '%s': %v", strings.Join(cmd, " "), namespace, podName, containerName, err)
+		log.Info("Error when running command '%s' in Pod '%s/%s' container '%s': %v", strings.Join(cmd, " "), namespace, podName, containerName, err)
 		return stdoutB.String(), stderrB.String(), err
 	}
 	outStr, errStr := stdoutB.String(), stderrB.String()
-	log.Printf("Command '%s' in Pod '%s/%s' container '%s' returned with output: '%s' and error: '%s'", strings.Join(cmd, " "), namespace, podName, containerName, outStr, errStr)
+	log.Info("Command '%s' in Pod '%s/%s' container '%s' returned with output: '%s' and error: '%s'", strings.Join(cmd, " "), namespace, podName, containerName, outStr, errStr)
 	return stdoutB.String(), stderrB.String(), nil
 }
 
@@ -532,15 +535,13 @@ func applyYAML(filename string, ns string) error {
 	command.Stdout = &stdout
 	command.Stderr = &stderr
 
-	log.Printf("Applying YAML file: %s, Namespace: %s", filename, ns)
+	log.Info("Executing", "cmd", cmd)
 
 	err := command.Run()
-	outStr, errStr := stdout.String(), stderr.String()
-
-	log.Printf("YAML file %s applied. Output: '%s', Error: '%s'", filename, outStr, errStr)
+	_, _ = stdout.String(), stderr.String()
 
 	if err != nil {
-		log.Printf("Failed to apply YAML file %s: %v", filename, err)
+		log.Info("Failed to execute", "cmd error", err)
 		return fmt.Errorf("failed to apply YAML: %w", err)
 	}
 	return nil
@@ -552,16 +553,16 @@ func runCommand(cmd string) (string, error) {
 	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (bool, error) {
 		var stdout, stderr bytes.Buffer
 		command := exec.Command("bash", "-c", cmd)
-		log.Printf("Running command %s", cmd)
+		log.Info("Running command %s", cmd)
 		command.Stdout = &stdout
 		command.Stderr = &stderr
 		err := command.Run()
 		if err != nil {
-			log.Printf("Error when running command %s: %v", cmd, err)
+			log.Info("Error when running command %s: %v", cmd, err)
 			return false, nil
 		}
 		outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
-		log.Printf("Command %s returned with output: '%s' and error: '%s'", cmd, outStr, errStr)
+		log.Info("Command %s returned with output: '%s' and error: '%s'", cmd, outStr, errStr)
 		if errStr != "" {
 			return false, nil
 		}
@@ -578,16 +579,18 @@ func deleteYAML(filename string, ns string) error {
 	}
 	var stdout, stderr bytes.Buffer
 	command := exec.Command("bash", "-c", cmd)
-	log.Printf("Deleting YAML file (%s)", filename)
+	log.Info("Executing", "cmd", cmd)
 	command.Stdout = &stdout
 	command.Stderr = &stderr
 	err := command.Run()
 	if err != nil {
-		log.Printf("Error when deleting YAML file %s: %v", filename, err)
+		// Ignore error info
+		// very short watch: k8s.io/client-go/tools/watch/informerwatcher.
+		//go:146: Unexpected watch close - watch lasted less than a second and no items received
+		//log.Error(err, "Error when deleting YAML file")
 		return nil
 	}
-	outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
-	log.Printf("YAML file %s deleted with output: '%s' and error: '%s'", cmd, outStr, errStr)
+	_, _ = string(stdout.Bytes()), string(stderr.Bytes())
 	return nil
 }
 
@@ -611,7 +614,7 @@ func (data *TestData) queryResource(resourceType string, tags []string) (model.S
 	var pageSize int64 = 500
 	response, err := data.nsxClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
 	if err != nil {
-		log.Printf("Error when querying resource %s: %v", resourceType, err)
+		log.Info("Error when querying resource ", "resourceType", resourceType, "error", err)
 		return model.SearchResponse{}, err
 	}
 	return response, nil
@@ -631,13 +634,13 @@ func (data *TestData) waitForResourceExist(namespace string, resourceType string
 		var pageSize int64 = 500
 		response, err := testData.nsxClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
 		if err != nil {
-			log.Printf("Error when querying resource %s/%s: %s,%v", resourceType, key, value, err)
+			log.Info("Error when querying resource ", "resourceType", resourceType, "key", key, "value", value, "error", err)
 			return false, err
 		}
 		if len(response.Results) == 0 {
 			exist = false
 		}
-		log.Printf("QueryParam: %s exist: %t", queryParam, exist)
+		log.V(2).Info("", "QueryParam", queryParam, "exist", exist)
 		if exist != shouldExist {
 			return false, nil
 		}
