@@ -327,11 +327,13 @@ func DumpHttpRequest(request *http.Request) {
 
 type NSXApiError struct {
 	*model.ApiError
+	apierrors.ErrorTypeEnum
 }
 
-func NewNSXApiError(apiError *model.ApiError) *NSXApiError {
+func NewNSXApiError(apiError *model.ApiError, errorType apierrors.ErrorTypeEnum) *NSXApiError {
 	return &NSXApiError{
-		ApiError: apiError,
+		ApiError:      apiError,
+		ErrorTypeEnum: errorType,
 	}
 }
 
@@ -345,17 +347,21 @@ func (e *NSXApiError) Error() string {
 	return "SDKError: unknown error"
 }
 
+func (e *NSXApiError) Type() apierrors.ErrorTypeEnum {
+	return e.ErrorTypeEnum
+}
+
 // TransNSXApiError processes an error and returns a formatted NSX API error message if applicable.
 // If the processed API error is nil, return the original error
 func TransNSXApiError(err error) error {
 	if err == nil {
 		return err
 	}
-	apierror, _ := DumpAPIError(err)
+	apierror, errorType := DumpAPIError(err)
 	if apierror == nil {
 		return err
 	}
-	return NewNSXApiError(apierror)
+	return NewNSXApiError(apierror, *errorType)
 }
 
 func relatedErrorToString(err *model.RelatedApiError) string {
