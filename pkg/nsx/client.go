@@ -16,14 +16,15 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management/principal_identities"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra"
+
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
+	infra_realized "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/realized_state"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/shares"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
 	project_infra "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/realized_state"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/transit_gateways"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/nat"
@@ -64,7 +65,7 @@ type Client struct {
 	ClusterControlPlanesClient enforcement_points.ClusterControlPlanesClient
 	HostTransPortNodesClient   enforcement_points.HostTransportNodesClient
 	SubnetStatusClient         subnets.StatusClient
-	RealizedEntitiesClient     realized_state.RealizedEntitiesClient
+	RealizedEntitiesClient     infra_realized.RealizedEntitiesClient
 	MPQueryClient              mpsearch.QueryClient
 	CertificatesClient         trust_management.CertificatesClient
 	PrincipalIdentitiesClient  trust_management.PrincipalIdentitiesClient
@@ -87,7 +88,6 @@ type Client struct {
 	IPPoolClient                   subnets.IpPoolsClient
 	IPAllocationClient             ip_pools.IpAllocationsClient
 	SubnetsClient                  vpcs.SubnetsClient
-	RealizedStateClient            realized_state.RealizedEntitiesClient
 	IPAddressAllocationClient      vpcs.IpAddressAllocationsClient
 	VPCLBSClient                   vpcs.VpcLbsClient
 	VpcLbVirtualServersClient      vpcs.VpcLbVirtualServersClient
@@ -161,7 +161,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 
 	clusterControlPlanesClient := enforcement_points.NewClusterControlPlanesClient(restConnector(cluster))
 	hostTransportNodesClient := enforcement_points.NewHostTransportNodesClient(restConnector(cluster))
-	realizedEntitiesClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
+	realizedEntitiesClient := infra_realized.NewRealizedEntitiesClient(restConnector(cluster))
 	mpQueryClient := mpsearch.NewQueryClient(restConnector(cluster))
 	certificatesClient := trust_management.NewCertificatesClient(restConnector(cluster))
 	principalIdentitiesClient := trust_management.NewPrincipalIdentitiesClient(restConnector(cluster))
@@ -182,7 +182,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	ipAllocationClient := ip_pools.NewIpAllocationsClient(restConnector(cluster))
 	subnetsClient := vpcs.NewSubnetsClient(restConnector(cluster))
 	subnetStatusClient := subnets.NewStatusClient(restConnector(cluster))
-	realizedStateClient := realized_state.NewRealizedEntitiesClient(restConnector(cluster))
 	ipAddressAllocationClient := vpcs.NewIpAddressAllocationsClient(restConnector(cluster))
 	vpcLBSClient := vpcs.NewVpcLbsClient(restConnector(cluster))
 	vpcLbVirtualServersClient := vpcs.NewVpcLbVirtualServersClient(restConnector(cluster))
@@ -243,7 +242,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		IPPoolClient:                   ipPoolClient,
 		IPAllocationClient:             ipAllocationClient,
 		SubnetsClient:                  subnetsClient,
-		RealizedStateClient:            realizedStateClient,
 		IPAddressAllocationClient:      ipAddressAllocationClient,
 		TransitGatewayClient:           transitGatewayClient,
 		TransitGatewayAttachmentClient: transitGatewayAttachmentClient,

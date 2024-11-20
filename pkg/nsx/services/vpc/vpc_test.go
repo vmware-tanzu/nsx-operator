@@ -2060,7 +2060,7 @@ func (f fakeOrgRootClient) Patch(orgRootParam model.OrgRoot, enforceRevisionChec
 type fakeRealizedEntitiesClient struct {
 }
 
-func (f fakeRealizedEntitiesClient) List(orgIdParam string, projectIdParam string, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+func (f fakeRealizedEntitiesClient) List(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
 	state := model.GenericPolicyRealizedResource_STATE_REALIZED
 	return model.GenericPolicyRealizedResourceListResult{Results: []model.GenericPolicyRealizedResource{{State: &state}}}, nil
 }
