@@ -10,6 +10,7 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -790,4 +791,192 @@ func TestStartSubnetController(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
+	subnetName := "subnet1"
+	ns := "ns1"
+	testSubnet1 := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{Name: subnetName, Namespace: ns},
+		Spec: v1alpha1.SubnetSpec{
+			AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			IPv4SubnetSize: 16,
+		},
+	}
+	testSubnet2 := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{Name: subnetName, Namespace: ns, Finalizers: []string{common.SubnetFinalizerName}},
+		Spec: v1alpha1.SubnetSpec{
+			AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			IPv4SubnetSize: 16,
+		},
+	}
+	deletionTime := metav1.Now()
+	testSubnet3 := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              subnetName,
+			Namespace:         ns,
+			Finalizers:        []string{common.SubnetFinalizerName},
+			DeletionTimestamp: &deletionTime,
+		},
+		Spec: v1alpha1.SubnetSpec{
+			AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			IPv4SubnetSize: 16,
+		},
+	}
+	for _, tc := range []struct {
+		name           string
+		existingSubnet *v1alpha1.Subnet
+		patches        func(t *testing.T, r *SubnetReconciler) *gomonkey.Patches
+		expectErrStr   string
+		expectRes      ctrl.Result
+	}{
+		{
+			name:           "Successfully add finalizer after a Subnet is used by SubnetConnectionBindingMap",
+			existingSubnet: testSubnet1,
+			patches: func(t *testing.T, r *SubnetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnet", func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{{ObjectMeta: metav1.ObjectMeta{Name: "binding1", Namespace: ns}}}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Client), "Update", func(_ client.Client, _ context.Context, obj client.Object, opts ...client.UpdateOption) error {
+					return nil
+				})
+				return patchSuccessfulReconcileSubnetWorkflow(r, patches)
+			},
+			expectRes: ctrl.Result{},
+		}, {
+			name:           "Failed to add finalizer after a Subnet is used by SubnetConnectionBindingMap",
+			existingSubnet: testSubnet1,
+			patches: func(t *testing.T, r *SubnetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnet", func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{{ObjectMeta: metav1.ObjectMeta{Name: "binding1", Namespace: ns}}}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Client), "Update", func(_ client.Client, _ context.Context, obj client.Object, opts ...client.UpdateOption) error {
+					return fmt.Errorf("failed to update CR")
+				})
+				patches.ApplyFunc(updateSubnetStatusConditions, func(_ client.Client, _ context.Context, _ *v1alpha1.Subnet, newConditions []v1alpha1.Condition) {
+					require.Equal(t, 1, len(newConditions))
+					cond := newConditions[0]
+					assert.Equal(t, "Failed to add the finalizer on a Subnet for the reference by SubnetConnectionBindingMap binding1", cond.Message)
+				})
+				return patches
+			},
+			expectErrStr: "failed to update CR",
+			expectRes:    common2.ResultRequeue,
+		}, {
+			name:           "Not add duplicated finalizer after a Subnet is used by SubnetConnectionBindingMap",
+			existingSubnet: testSubnet2,
+			patches: func(t *testing.T, r *SubnetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnet", func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{{ObjectMeta: metav1.ObjectMeta{Name: "binding1", Namespace: ns}}}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Client), "Update", func(_ client.Client, _ context.Context, obj client.Object, opts ...client.UpdateOption) error {
+					assert.FailNow(t, "Should not update Subnet CR finalizer")
+					return nil
+				})
+				return patchSuccessfulReconcileSubnetWorkflow(r, patches)
+			},
+			expectRes: ctrl.Result{},
+		}, {
+			name:           "Successfully remove finalizer after a Subnet is not used by any SubnetConnectionBindingMaps",
+			existingSubnet: testSubnet2,
+			patches: func(t *testing.T, r *SubnetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnet", func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Client), "Update", func(_ client.Client, _ context.Context, obj client.Object, opts ...client.UpdateOption) error {
+					return nil
+				})
+				return patchSuccessfulReconcileSubnetWorkflow(r, patches)
+			},
+			expectRes: ctrl.Result{},
+		}, {
+			name:           "Failed to remove finalizer after a Subnet is not used by any SubnetConnectionBindingMaps",
+			existingSubnet: testSubnet2,
+			patches: func(t *testing.T, r *SubnetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnet", func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Client), "Update", func(_ client.Client, _ context.Context, obj client.Object, opts ...client.UpdateOption) error {
+					return fmt.Errorf("failed to update CR")
+				})
+				patches.ApplyFunc(updateSubnetStatusConditions, func(_ client.Client, _ context.Context, _ *v1alpha1.Subnet, newConditions []v1alpha1.Condition) {
+					require.Equal(t, 1, len(newConditions))
+					cond := newConditions[0]
+					assert.Equal(t, "Failed to remove the finalizer on a Subnet when there is no reference by SubnetConnectionBindingMaps", cond.Message)
+				})
+				return patches
+			},
+			expectErrStr: "failed to update CR",
+			expectRes:    common2.ResultRequeue,
+		}, {
+			name:           "Not update finalizers if a Subnet is not used by any SubnetConnectionBindingMaps",
+			existingSubnet: testSubnet1,
+			patches: func(t *testing.T, r *SubnetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnet", func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Client), "Update", func(_ client.Client, _ context.Context, obj client.Object, opts ...client.UpdateOption) error {
+					assert.FailNow(t, "Should not update Subnet CR finalizer")
+					return nil
+				})
+				return patchSuccessfulReconcileSubnetWorkflow(r, patches)
+			},
+			expectRes: ctrl.Result{},
+		}, {
+			name:           "Delete a Subnet is not allowed if it is used by SubnetConnectionBindingMap",
+			existingSubnet: testSubnet3,
+			patches: func(t *testing.T, r *SubnetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnet", func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{}
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getNSXSubnetBindingsBySubnet", func(_ *SubnetReconciler, _ string) []*v1alpha1.SubnetConnectionBindingMap {
+					return []*v1alpha1.SubnetConnectionBindingMap{{ObjectMeta: metav1.ObjectMeta{Name: "binding1", Namespace: ns}}}
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "setSubnetDeletionFailedStatus", func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet, _ metav1.Time, msg string, reason string) {
+					assert.Equal(t, "Subnet is used by SubnetConnectionBindingMap binding1 and not able to delete", msg)
+					assert.Equal(t, "SubnetInUse", reason)
+				})
+				return patches
+			},
+			expectErrStr: "failed to delete Subnet CR ns1/subnet1",
+			expectRes:    ResultRequeue,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.TODO()
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: subnetName, Namespace: ns}}
+			r := createFakeSubnetReconciler([]client.Object{tc.existingSubnet})
+			if tc.patches != nil {
+				patches := tc.patches(t, r)
+				defer patches.Reset()
+			}
+
+			res, err := r.Reconcile(ctx, req)
+
+			if tc.expectErrStr != "" {
+				assert.EqualError(t, err, tc.expectErrStr)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, tc.expectRes, res)
+		})
+	}
+}
+
+func patchSuccessfulReconcileSubnetWorkflow(r *SubnetReconciler, patches *gomonkey.Patches) *gomonkey.Patches {
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GenerateSubnetNSTags", func(_ *subnet.SubnetService, _ client.Object) []model.Tag {
+		return []model.Tag{{Scope: common.String("test"), Tag: common.String("subnet")}}
+	})
+	patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, _ string) []common.VPCResourceInfo {
+		return []common.VPCResourceInfo{{ID: "vpc1"}}
+	})
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "CreateOrUpdateSubnet", func(_ *subnet.SubnetService, _ client.Object, _ common.VPCResourceInfo, _ []model.Tag) (subnetPath string, err error) {
+		return "subnet-path", nil
+	})
+	patches.ApplyPrivateMethod(reflect.TypeOf(r), "updateSubnetStatus", func(_ *SubnetReconciler, _ *v1alpha1.Subnet) error {
+		return nil
+	})
+	patches.ApplyFunc(setSubnetReadyStatusTrue, func(_ client.Client, _ context.Context, _ client.Object, _ metav1.Time, _ ...interface{}) {
+	})
+	return patches
 }

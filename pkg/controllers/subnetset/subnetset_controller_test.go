@@ -13,6 +13,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v12 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -224,8 +225,8 @@ func TestReconcile(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) *common.VPCNetworkConfigInfo {
 					return vpcnetworkInfo
 				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
-					return []v1alpha1.SubnetConnectionBindingMap{}
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []*v1alpha1.SubnetConnectionBindingMap {
+					return []*v1alpha1.SubnetConnectionBindingMap{}
 				})
 
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
@@ -309,6 +310,199 @@ func TestReconcile(t *testing.T) {
 				assert.NoError(t, err)
 			}
 			assert.Equal(t, testCase.expectRes, res)
+		})
+	}
+}
+
+func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
+	name := "subnetset"
+	ns := "ns1"
+	testSubnetSet1 := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: ns,
+		},
+		Spec: v1alpha1.SubnetSetSpec{
+			AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			IPv4SubnetSize: 16,
+		},
+	}
+	testSubnetSet2 := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: ns,
+			Finalizers: []string{
+				common.SubnetSetFinalizerName,
+			},
+		},
+		Spec: v1alpha1.SubnetSetSpec{
+			AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			IPv4SubnetSize: 16,
+		},
+	}
+	deleteTime := metav1.Now()
+	testSubnetSet3 := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: ns,
+			Finalizers: []string{
+				common.SubnetSetFinalizerName,
+			},
+			DeletionTimestamp: &deleteTime,
+		},
+	}
+	for _, tc := range []struct {
+		name              string
+		existingSubnetSet *v1alpha1.SubnetSet
+		patches           func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches
+		expectErrStr      string
+		expectRes         ctrl.Result
+	}{
+		{
+			name:              "Successfully add finalizer after a SubnetSet is used by SubnetConnectionBindingMap",
+			existingSubnetSet: testSubnetSet1,
+			patches: func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{{ObjectMeta: metav1.ObjectMeta{Name: "binding1", Namespace: ns}}}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Client), "Update", func(_ client.Client, _ context.Context, obj client.Object, opts ...client.UpdateOption) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				return patches
+			},
+			expectRes: ctrl.Result{},
+		}, {
+			name:              "Failed to add finalizer after a SubnetSet is used by SubnetConnectionBindingMap",
+			existingSubnetSet: testSubnetSet1,
+			patches: func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{{ObjectMeta: metav1.ObjectMeta{Name: "binding1", Namespace: ns}}}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Client), "Update", func(_ client.Client, _ context.Context, obj client.Object, opts ...client.UpdateOption) error {
+					return fmt.Errorf("failed to update CR")
+				})
+				patches.ApplyFunc(updateSubnetSetStatusConditions, func(_ client.Client, _ context.Context, _ *v1alpha1.SubnetSet, newConditions []v1alpha1.Condition) {
+					require.Equal(t, 1, len(newConditions))
+					cond := newConditions[0]
+					assert.Equal(t, "Failed to add the finalizer on SubnetSet for the dependency by SubnetConnectionBindingMap binding1", cond.Message)
+				})
+				return patches
+			},
+			expectRes:    ctlcommon.ResultRequeue,
+			expectErrStr: "failed to update CR",
+		}, {
+			name:              "Not add duplicated finalizer after a SubnetSet is used by SubnetConnectionBindingMap",
+			existingSubnetSet: testSubnetSet2,
+			patches: func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{{ObjectMeta: metav1.ObjectMeta{Name: "binding1", Namespace: ns}}}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Client), "Update", func(_ client.Client, _ context.Context, obj client.Object, opts ...client.UpdateOption) error {
+					assert.FailNow(t, "Should not update SubnetSet CR finalizer")
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyFunc(setSubnetSetReadyStatusTrue, func(_ client.Client, _ context.Context, _ client.Object, _ metav1.Time, _ ...interface{}) {
+				})
+				return patches
+			},
+			expectRes: ctrl.Result{},
+		}, {
+			name:              "Successfully remove finalizer after a Subnet is not used by any SubnetConnectionBindingMap",
+			existingSubnetSet: testSubnetSet2,
+			patches: func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Client), "Update", func(_ client.Client, _ context.Context, obj client.Object, opts ...client.UpdateOption) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				return patches
+			},
+			expectRes: ctrl.Result{},
+		}, {
+			name:              "Failed to remove finalizer after a Subnet is not used by any SubnetConnectionBindingMap",
+			existingSubnetSet: testSubnetSet2,
+			patches: func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Client), "Update", func(_ client.Client, _ context.Context, _ client.Object, opts ...client.UpdateOption) error {
+					return fmt.Errorf("failed to update CR")
+				})
+				patches.ApplyFunc(updateSubnetSetStatusConditions, func(_ client.Client, _ context.Context, _ *v1alpha1.SubnetSet, newConditions []v1alpha1.Condition) {
+					require.Equal(t, 1, len(newConditions))
+					cond := newConditions[0]
+					assert.Equal(t, "Failed to remove the finalizer on SubnetSet when there is no reference by SubnetConnectionBindingMaps", cond.Message)
+				})
+				return patches
+			},
+			expectRes:    ctlcommon.ResultRequeue,
+			expectErrStr: "failed to update CR",
+		}, {
+			name:              "Not update finalizers if a SubnetSet is not used by any SubnetConnectionBindingMap",
+			existingSubnetSet: testSubnetSet1,
+			patches: func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Client), "Update", func(_ client.Client, _ context.Context, obj client.Object, opts ...client.UpdateOption) error {
+					assert.FailNow(t, "Should not update SubnetSet CR finalizer")
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyFunc(setSubnetSetReadyStatusTrue, func(_ client.Client, _ context.Context, _ client.Object, _ metav1.Time, _ ...interface{}) {
+				})
+				return patches
+			},
+			expectRes: ctrl.Result{},
+		}, {
+			name:              "Delete a SubnetSet is not allowed if it is used by SubnetConnectionBindingMap",
+			existingSubnetSet: testSubnetSet3,
+			patches: func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{}
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getNSXSubnetBindingsBySubnetSet", func(_ *SubnetSetReconciler, _ string) []*v1alpha1.SubnetConnectionBindingMap {
+					return []*v1alpha1.SubnetConnectionBindingMap{{ObjectMeta: metav1.ObjectMeta{Name: "binding1", Namespace: ns}}}
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "setSubnetDeletionFailedStatus", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.Subnet, _ metav1.Time, msg string, reason string) {
+					assert.Equal(t, "SubnetSet is used by SubnetConnectionBindingMap binding1 and not able to delete", msg)
+					assert.Equal(t, "SubnetSetInUse", reason)
+				})
+				return patches
+			},
+			expectRes:    ResultRequeue,
+			expectErrStr: "failed to delete SubnetSet CR ns1/subnetset",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.TODO()
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: ns}}
+			r := createFakeSubnetSetReconciler([]client.Object{tc.existingSubnetSet})
+			if tc.patches != nil {
+				patches := tc.patches(t, r)
+				defer patches.Reset()
+			}
+
+			res, err := r.Reconcile(ctx, req)
+
+			if tc.expectErrStr != "" {
+				assert.EqualError(t, err, tc.expectErrStr)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, tc.expectRes, res)
 		})
 	}
 }
@@ -787,6 +981,177 @@ func TestStartSubnetSetController(t *testing.T) {
 			} else {
 				assert.NoError(t, err, "expected no error when starting the SubnetSet controller")
 			}
+		})
+	}
+}
+
+func TestDeleteSubnets(t *testing.T) {
+	testLock := &sync.RWMutex{}
+	for _, tc := range []struct {
+		name              string
+		nsxSubnets        []*model.VpcSubnet
+		deleteBindingMaps bool
+		patches           func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches
+		expHasStalePort   bool
+		expErrStr         string
+	}{
+		{
+			name:              "No NSX subnets found",
+			nsxSubnets:        []*model.VpcSubnet{},
+			deleteBindingMaps: false,
+			expHasStalePort:   false,
+			expErrStr:         "",
+		}, {
+			name:              "One of the NSX subnet has stale ports",
+			nsxSubnets:        []*model.VpcSubnet{{Id: common.String("net1")}, {Id: common.String("net2")}},
+			deleteBindingMaps: false,
+			patches: func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "LockSubnet", func(_ *subnet.SubnetService, _ *string) *sync.RWMutex {
+					testLock.Lock()
+					return testLock
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "UnlockSubnet", func(_ *subnet.SubnetService, _ *string, _ *sync.RWMutex) {
+					testLock.Unlock()
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, nsxSubnetID string) (ports []*model.VpcSubnetPort) {
+					if nsxSubnetID == "net1" {
+						return []*model.VpcSubnetPort{{Id: common.String("port1")}}
+					}
+					return []*model.VpcSubnetPort{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, nsxSubnet model.VpcSubnet) error {
+					if *nsxSubnet.Id == "net1" {
+						require.Fail(t, "SubnetService.DeleteSubnet should not be called if stale ports exist")
+					}
+					return nil
+				})
+				return patches
+			},
+			expHasStalePort: true,
+			expErrStr:       "",
+		}, {
+			name:              "Failed to delete NSX subnets",
+			nsxSubnets:        []*model.VpcSubnet{{Id: common.String("net1")}, {Id: common.String("net2")}},
+			deleteBindingMaps: false,
+			patches: func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "LockSubnet", func(_ *subnet.SubnetService, _ *string) *sync.RWMutex {
+					testLock.Lock()
+					return testLock
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "UnlockSubnet", func(_ *subnet.SubnetService, _ *string, _ *sync.RWMutex) {
+					testLock.Unlock()
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, nsxSubnetID string) (ports []*model.VpcSubnetPort) {
+					return []*model.VpcSubnetPort{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, nsxSubnet model.VpcSubnet) error {
+					if *nsxSubnet.Id == "net1" {
+						return fmt.Errorf("net1 deletion failed")
+					}
+					return nil
+				})
+				return patches
+			},
+			expHasStalePort: false,
+			expErrStr:       "multiple errors occurred while deleting Subnets: [failed to delete NSX Subnet/net1: net1 deletion failed]",
+		}, {
+			name:              "Succeeded to delete NSX subnets",
+			nsxSubnets:        []*model.VpcSubnet{{Id: common.String("net1")}, {Id: common.String("net2")}},
+			deleteBindingMaps: false,
+			patches: func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "LockSubnet", func(_ *subnet.SubnetService, _ *string) *sync.RWMutex {
+					testLock.Lock()
+					return testLock
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "UnlockSubnet", func(_ *subnet.SubnetService, _ *string, _ *sync.RWMutex) {
+					testLock.Unlock()
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, nsxSubnetID string) (ports []*model.VpcSubnetPort) {
+					return []*model.VpcSubnetPort{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, nsxSubnet model.VpcSubnet) error {
+					return nil
+				})
+				return patches
+			},
+			expHasStalePort: false,
+			expErrStr:       "",
+		}, {
+			name:              "Failed to delete NSX subnet connection binding maps",
+			nsxSubnets:        []*model.VpcSubnet{{Id: common.String("net1")}, {Id: common.String("net2")}},
+			deleteBindingMaps: true,
+			patches: func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "LockSubnet", func(_ *subnet.SubnetService, _ *string) *sync.RWMutex {
+					testLock.Lock()
+					return testLock
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "UnlockSubnet", func(_ *subnet.SubnetService, _ *string, _ *sync.RWMutex) {
+					testLock.Unlock()
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, nsxSubnetID string) (ports []*model.VpcSubnetPort) {
+					return []*model.VpcSubnetPort{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					if *parentSubnet.Id == "net1" {
+						return fmt.Errorf("binding maps deletion failed")
+					}
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, nsxSubnet model.VpcSubnet) error {
+					if *nsxSubnet.Id == "net1" {
+						require.Fail(t, "SubnetService.DeleteSubnet should not be called if binding maps are failed to delete")
+					}
+					return nil
+				})
+				return patches
+			},
+			expHasStalePort: false,
+			expErrStr:       "multiple errors occurred while deleting Subnets: [failed to delete NSX SubnetConnectionBindingMaps connected to NSX Subnet/net1: binding maps deletion failed]",
+		}, {
+			name:              "Succeeded to delete NSX subnet and connection binding maps",
+			nsxSubnets:        []*model.VpcSubnet{{Id: common.String("net1")}, {Id: common.String("net2")}},
+			deleteBindingMaps: true,
+			patches: func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "LockSubnet", func(_ *subnet.SubnetService, _ *string) *sync.RWMutex {
+					testLock.Lock()
+					return testLock
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "UnlockSubnet", func(_ *subnet.SubnetService, _ *string, _ *sync.RWMutex) {
+					testLock.Unlock()
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, nsxSubnetID string) (ports []*model.VpcSubnetPort) {
+					return []*model.VpcSubnetPort{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, nsxSubnet model.VpcSubnet) error {
+					return nil
+				})
+				return patches
+			},
+			expHasStalePort: false,
+			expErrStr:       "",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &SubnetSetReconciler{
+				SubnetService:     &subnet.SubnetService{},
+				SubnetPortService: &subnetport.SubnetPortService{},
+				BindingService:    &subnetbinding.BindingService{},
+			}
+			if tc.patches != nil {
+				patches := tc.patches(t, r)
+				defer patches.Reset()
+			}
+
+			hasPorts, err := r.deleteSubnets(tc.nsxSubnets, tc.deleteBindingMaps)
+			if tc.expErrStr != "" {
+				require.EqualError(t, err, tc.expErrStr)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tc.expHasStalePort, hasPorts)
 		})
 	}
 }
