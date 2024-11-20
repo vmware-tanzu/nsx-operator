@@ -138,7 +138,7 @@ func (f fakeSubnetsClient) Update(orgIdParam string, projectIdParam string, vpcI
 type fakeRealizedEntitiesClient struct {
 }
 
-func (f fakeRealizedEntitiesClient) List(orgIdParam string, projectIdParam string, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+func (f fakeRealizedEntitiesClient) List(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
 	// GenericPolicyRealizedResource
 	state := model.GenericPolicyRealizedResource_STATE_REALIZED
 	return model.GenericPolicyRealizedResourceListResult{
