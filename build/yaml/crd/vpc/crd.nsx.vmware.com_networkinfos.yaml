@@ -55,9 +55,6 @@ spec:
                   items:
                     type: string
                   type: array
-                vpcPath:
-                  description: NSX Policy path for VPC.
-                  type: string
               required:
               - defaultSNATIP
               - name
