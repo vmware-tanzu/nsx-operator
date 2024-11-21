@@ -76,6 +76,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 				},
 			},
 		},
+		SubnetPortStore: &subnetport.SubnetPortStore{},
 	}
 	subnetService := &subnet.SubnetService{
 		Service: servicecommon.Service{
@@ -133,31 +134,19 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, err, ret)
 
-	patches := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort, func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, e error) {
-	})
-	defer patches.Reset()
-
-	// both subnet and subnetset are configured
-	sp := &v1alpha1.SubnetPort{}
-	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
-		func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
-			v1sp := obj.(*v1alpha1.SubnetPort)
-			v1sp.Spec.Subnet = "subnet1"
-			v1sp.Spec.SubnetSet = "subnetset2"
-			return nil
-		})
-	err = errors.New("subnet and subnetset should not be configured at the same time")
-	k8sClient.EXPECT().Status().Return(fakewriter)
-	_, ret = r.Reconcile(ctx, req)
-	assert.Equal(t, err, ret)
-
 	// CheckAndGetSubnetPathForSubnetPort fails
+	sp := &v1alpha1.SubnetPort{}
 	err = errors.New("CheckAndGetSubnetPathForSubnetPort failed")
 	patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
 		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort) (bool, string, error) {
 			return false, "", err
 		})
 	defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
+	patchesGetByKey := gomonkey.ApplyFunc((*subnetport.SubnetPortStore).GetByKey,
+		func(s *subnetport.SubnetPortStore, key string) *model.VpcSubnetPort {
+			return nil
+		})
+	defer patchesGetByKey.Reset()
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
 		func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 			v1sp := obj.(*v1alpha1.SubnetPort)

@@ -1,0 +1,43 @@
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: SubnetPort
+metadata:
+  name: subnetport-sample-a
+spec:
+  subnetSet: vm-subnetset
+status:
+  attachment:
+    id: 35323036-6439-4932-ad36-3930372d3438
+  conditions:
+  - lastTransitionTime: "2024-11-20T22:23:10Z"
+    message: NSX subnet port has been successfully created/updated
+    reason: SubnetPortReady
+    status: "True"
+    type: Ready
+  networkInterfaceConfig:
+    ipAddresses:
+    - gateway: 172.26.0.1
+      ipAddress: 172.26.0.3/28
+    logicalSwitchUUID: 49fa0a2d-8fd2-4c85-87ca-2495e8a86d06
+    macAddress: 04:50:56:00:94:00
+---
+# SubnetPort CR sample without specifying subnet or subnetSet
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: SubnetPort
+metadata:
+  name: subnetport-sample-b
+spec:
+status:
+  attachment:
+    id: 35323036-6439-4932-ad36-3930372d3438
+  conditions:
+  - lastTransitionTime: "2024-11-20T22:23:10Z"
+    message: NSX subnet port has been successfully created/updated
+    reason: SubnetPortReady
+    status: "True"
+    type: Ready
+  networkInterfaceConfig:
+    ipAddresses:
+    - gateway: 172.26.0.1
+      ipAddress: 172.26.0.3/28
+    logicalSwitchUUID: 49fa0a2d-8fd2-4c85-87ca-2495e8a86d06
+    macAddress: 04:50:56:00:94:00
