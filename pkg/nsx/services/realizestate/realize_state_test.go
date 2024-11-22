@@ -63,18 +63,18 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 		Steps:    6,
 	}
 	// default project
-	err := s.CheckRealizeState(backoff, "/orgs/default/projects/default/vpcs/vpc/subnets/subnet/ports/port", "RealizedLogicalPort")
+	err := s.CheckRealizeState(backoff, "/orgs/default/projects/default/vpcs/vpc/subnets/subnet/ports/port")
 
 	realizeStateError, ok := err.(*RealizeStateError)
 	assert.True(t, ok)
-	assert.Equal(t, realizeStateError.Error(), "RealizedLogicalPort realized with errors: [mocked error]")
+	assert.Equal(t, realizeStateError.Error(), "/orgs/default/projects/default/vpcs/vpc/subnets/subnet/ports/port realized with errors: [mocked error]")
 
 	// non default project
-	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/ports/port", "RealizedLogicalPort")
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/ports/port")
 
 	realizeStateError, ok = err.(*RealizeStateError)
 	assert.True(t, ok)
-	assert.Equal(t, realizeStateError.Error(), "RealizedLogicalPort realized with errors: [mocked error]")
+	assert.Equal(t, realizeStateError.Error(), "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/ports/port realized with errors: [mocked error]")
 
 	// for subnet, RealizedLogicalPort realized with errors
 	patches.Reset()
@@ -104,11 +104,11 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 			},
 		}, nil
 	})
-	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/", "")
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/")
 
 	realizeStateError, ok = err.(*RealizeStateError)
 	assert.True(t, ok)
-	assert.Equal(t, realizeStateError.Error(), "RealizedLogicalPort realized with errors: [mocked error]")
+	assert.Equal(t, realizeStateError.Error(), "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/ realized with errors: [mocked error]")
 
 	// for subnet, realized successfully
 	patches.Reset()
@@ -134,7 +134,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 			},
 		}, nil
 	})
-	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/", "")
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/")
 	assert.Equal(t, err, nil)
 
 	// for subnet, need retry
@@ -167,7 +167,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 		Jitter:   0,
 		Steps:    1,
 	}
-	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/", "")
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/")
 	assert.NotEqual(t, err, nil)
 	_, ok = err.(*RealizeStateError)
 	assert.Equal(t, ok, false)
