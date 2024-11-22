@@ -89,8 +89,8 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		contextID := *node.UniqueId
 		// There is a race condition that the subnetset controller may delete the
 		// subnet during CollectGarbage. So check the subnet under lock.
-		r.SubnetService.LockSubnet(&nsxSubnetPath)
-		defer r.SubnetService.UnlockSubnet(&nsxSubnetPath)
+		r.SubnetService.RLockSubnet(&nsxSubnetPath)
+		defer r.SubnetService.RUnlockSubnet(&nsxSubnetPath)
 
 		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath)
 		if err != nil {
