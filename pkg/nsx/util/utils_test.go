@@ -20,6 +20,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 )
@@ -608,4 +610,48 @@ func TestMergeArraysWithoutDuplicate(t *testing.T) {
 			assert.True(t, CompareArraysWithoutOrder(tt.expectedMerged, actualMerged))
 		})
 	}
+}
+
+func TestTransNSXApiError(t *testing.T) {
+	tests := []struct {
+		name    string
+		err     error
+		wantErr bool
+	}{
+		{
+			name:    "Nil error",
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "Valid NSX API error",
+			err:     apierrors.NewNotFound(),
+			wantErr: true,
+		},
+		{
+			name:    "Unknown error type",
+			err:     errors.New("unknown error"),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := TransNSXApiError(tt.err)
+			if (got != nil) != tt.wantErr {
+				t.Errorf("TransNSXApiError() error = %v, wantErr %v", got, tt.wantErr)
+			}
+		})
+	}
+
+	err := apierrors.NewNotFound()
+	err.Data = data.NewStructValue("test", nil)
+	t.Log(err)
+	got := TransNSXApiError(*err)
+	t.Log(got)
+	gotErr, ok := got.(*NSXApiError)
+	t.Log(gotErr)
+
+	assert.Equal(t, ok, true)
+	assert.Equal(t, gotErr.Type(), apierrors.ErrorType_NOT_FOUND)
 }
