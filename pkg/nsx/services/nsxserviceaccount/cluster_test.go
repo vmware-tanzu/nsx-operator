@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	vapierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
@@ -538,6 +539,8 @@ func TestNSXServiceAccountService_RestoreRealizedNSXServiceAccount(t *testing.T)
 	type args struct {
 		obj *v1alpha1.NSXServiceAccount
 	}
+	notFoundErr := vapierrors.NewNotFound()
+	notFoundErr.Data = data.NewStructValue("test", nil)
 	tests := []struct {
 		name        string
 		prepareFunc func(*testing.T, *NSXServiceAccountService, context.Context, *v1alpha1.NSXServiceAccount) *gomonkey.Patches
@@ -764,7 +767,7 @@ func TestNSXServiceAccountService_RestoreRealizedNSXServiceAccount(t *testing.T)
 			name: "GetSecretError",
 			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethodSeq(s.NSXClient.ClusterControlPlanesClient, "Get", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.ClusterControlPlane{}, vapierrors.NotFound{}},
+					Values: gomonkey.Params{model.ClusterControlPlane{}, *notFoundErr},
 					Times:  1,
 				}})
 				return patches
@@ -801,7 +804,7 @@ func TestNSXServiceAccountService_RestoreRealizedNSXServiceAccount(t *testing.T)
 				piId := "Id1"
 				uid := "00000000-0000-0000-0000-000000000001"
 				patches := gomonkey.ApplyMethodSeq(s.NSXClient.ClusterControlPlanesClient, "Get", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.ClusterControlPlane{}, vapierrors.NotFound{}},
+					Values: gomonkey.Params{model.ClusterControlPlane{}, *notFoundErr},
 					Times:  1,
 				}})
 				secretName := obj.Status.Secrets[0].Name
