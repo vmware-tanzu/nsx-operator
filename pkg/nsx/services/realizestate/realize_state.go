@@ -41,9 +41,10 @@ func IsRealizeStateError(err error) bool {
 	return ok
 }
 
-// CheckRealizeState allows the caller to check realize status of entityType with retries.
-// backoff defines the maximum retries and the wait interval between two retries.
-func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, intentPath, entityType string) error {
+// CheckRealizeState allows the caller to check realize status of intentPath with retries.
+// Backoff defines the maximum retries and the wait interval between two retries.
+// Check all the entities, all entities should be in the REALIZED state to be treated as REALIZED
+func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, intentPath string) error {
 	// TODO， ask NSX if there were multiple realize states could we check only the latest one?
 	return retry.OnError(backoff, func(err error) bool {
 		// Won't retry when realized state is `ERROR`.
@@ -54,12 +55,11 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 		if err != nil {
 			return err
 		}
+		entitiesRealized := 0
 		for _, result := range results.Results {
-			if entityType != "" && result.EntityType != nil && *result.EntityType != entityType {
-				continue
-			}
 			if *result.State == model.GenericPolicyRealizedResource_STATE_REALIZED {
-				return nil
+				entitiesRealized++
+				continue
 			}
 			if *result.State == model.GenericPolicyRealizedResource_STATE_ERROR {
 				var errMsg []string
@@ -68,9 +68,12 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 						errMsg = append(errMsg, *alarm.Message)
 					}
 				}
-				return NewRealizeStateError(fmt.Sprintf("%s realized with errors: %s", entityType, errMsg))
+				return NewRealizeStateError(fmt.Sprintf("%s realized with errors: %s", intentPath, errMsg))
 			}
 		}
-		return fmt.Errorf("%s not realized", entityType)
+		if entitiesRealized == len(results.Results) {
+			return nil
+		}
+		return fmt.Errorf("%s not realized", intentPath)
 	})
 }
