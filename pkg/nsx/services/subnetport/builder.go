@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
@@ -152,6 +153,10 @@ func (service *SubnetPortService) GetAddressBindingBySubnetPort(sp *v1alpha1.Sub
 		log.Error(err, "Failed to list AddressBinding from cache", "indexValue", abIndexValue)
 		return nil
 	}
+	// sort by CreationTimestamp
+	slices.SortFunc(abList.Items, func(a, b v1alpha1.AddressBinding) int {
+		return a.CreationTimestamp.UTC().Compare(b.CreationTimestamp.UTC())
+	})
 	for _, ab := range abList.Items {
 		if ab.Spec.InterfaceName == "" {
 			spList := &v1alpha1.SubnetPortList{}

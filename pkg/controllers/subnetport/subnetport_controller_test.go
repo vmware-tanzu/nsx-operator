@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/ptr"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -43,12 +44,18 @@ func (recorder fakeRecorder) AnnotatedEventf(object runtime.Object, annotations 
 }
 
 type fakeStatusWriter struct {
+	t           *testing.T
+	validateObj bool
+	expectObj   client.Object
 }
 
 func (writer fakeStatusWriter) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
 	return nil
 }
 func (writer fakeStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	if writer.validateObj {
+		assert.Equal(writer.t, writer.expectObj, obj)
+	}
 	return nil
 }
 func (writer fakeStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
@@ -125,6 +132,10 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	defer patchesDeleteSubnetPortByName.Reset()
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, err, ret)
+
+	patches := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort, func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, e error) {
+	})
+	defer patches.Reset()
 
 	// both subnet and subnetset are configured
 	sp := &v1alpha1.SubnetPort{}
@@ -235,7 +246,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			return portState, nil
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
-	patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatus,
+	patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
 		func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService) {
 			return
 		})
@@ -330,6 +341,8 @@ func TestSubnetPortReconciler_GarbageCollector(t *testing.T) {
 		a.Items[0].Name = "subnetPort1"
 		return nil
 	})
+	patches := gomonkey.ApplyPrivateMethod(r, "collectAddressBindingGarbage", func(r *SubnetPortReconciler, _ context.Context) {})
+	defer patches.Reset()
 	r.CollectGarbage(context.Background())
 }
 
@@ -546,8 +559,10 @@ func TestSubnetPortReconciler_setReadyStatusTrue(t *testing.T) {
 
 	fakewriter := fakeStatusWriter{}
 	k8sClient.EXPECT().Status().Return(fakewriter)
-	k8sClient.EXPECT().Status().Return(fakewriter)
 
+	patches := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort, func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, e error) {
+	})
+	defer patches.Reset()
 	sp := &v1alpha1.SubnetPort{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "ns",
@@ -561,7 +576,7 @@ func TestSubnetPortReconciler_setReadyStatusTrue(t *testing.T) {
 			},
 		},
 	}
-	setReadyStatusTrue(k8sClient, context.TODO(), sp, metav1.Now(), sp, subnetPortService)
+	setReadyStatusTrue(k8sClient, context.TODO(), sp, metav1.Now(), subnetPortService)
 }
 
 func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
@@ -974,16 +989,9 @@ func TestSubnetPortReconciler_addressBindingMapFunc(t *testing.T) {
 		obj            client.Object
 	}{
 		{
-			name: "AddressBindingExisted",
-			prepareFunc: func(t *testing.T, spr *SubnetPortReconciler) *gomonkey.Patches {
-				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
-				return nil
-			},
-			obj: &v1alpha1.AddressBinding{
-				Status: v1alpha1.AddressBindingStatus{
-					IPAddress: "10.0.0.1",
-				},
-			},
+			name:        "AddressBindingInvalid",
+			prepareFunc: func(t *testing.T, spr *SubnetPortReconciler) *gomonkey.Patches { return nil },
+			obj:         &v1alpha1.SubnetPort{},
 		},
 		{
 			name: "DefaultAddressBinding",
@@ -1039,6 +1047,74 @@ func TestSubnetPortReconciler_addressBindingMapFunc(t *testing.T) {
 				},
 			}},
 		},
+		{
+			name: "ListSubnetPortError",
+			prepareFunc: func(t *testing.T, spr *SubnetPortReconciler) *gomonkey.Patches {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("mock error")).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					return nil
+				})
+				return nil
+			},
+			obj: &v1alpha1.AddressBinding{
+				Spec: v1alpha1.AddressBindingSpec{
+					InterfaceName: "port-1",
+				},
+			},
+			expectedResult: nil,
+		},
+		{
+			name: "NoSubnetPort",
+			prepareFunc: func(t *testing.T, spr *SubnetPortReconciler) *gomonkey.Patches {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					return nil
+				})
+				patches := gomonkey.ApplyFunc(setAddressBindingStatus, func(client client.Client, ctx context.Context, ab *v1alpha1.AddressBinding, transitionTime metav1.Time, e error, ipAddress string) {
+					assert.Equal(t, vmOrInterfaceNotFoundError, e)
+					assert.Equal(t, "", ipAddress)
+				})
+				return patches
+			},
+			obj: &v1alpha1.AddressBinding{
+				Spec: v1alpha1.AddressBindingSpec{
+					InterfaceName: "port-1",
+				},
+			},
+			expectedResult: nil,
+		},
+		{
+			name: "DefaultAddressBindingMultiInterface",
+			prepareFunc: func(t *testing.T, spr *SubnetPortReconciler) *gomonkey.Patches {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					a := list.(*v1alpha1.SubnetPortList)
+					a.Items = append(a.Items, v1alpha1.SubnetPort{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace:         "ns-1",
+							Name:              "subnetport-1",
+							CreationTimestamp: metav1.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
+						},
+					}, v1alpha1.SubnetPort{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace:         "ns-1",
+							Name:              "subnetport-2",
+							CreationTimestamp: metav1.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC),
+						},
+					})
+					return nil
+				})
+				patches := gomonkey.ApplyFunc(setAddressBindingStatus, func(client client.Client, ctx context.Context, ab *v1alpha1.AddressBinding, transitionTime metav1.Time, e error, ipAddress string) {
+					assert.Equal(t, multipleInterfaceFoundError, e)
+					assert.Equal(t, "", ipAddress)
+				})
+				return patches
+			},
+			obj: &v1alpha1.AddressBinding{},
+			expectedResult: []reconcile.Request{{
+				NamespacedName: types.NamespacedName{
+					Namespace: "ns-1",
+					Name:      "subnetport-2",
+				},
+			}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1048,6 +1124,321 @@ func TestSubnetPortReconciler_addressBindingMapFunc(t *testing.T) {
 			}
 			reqs := r.addressBindingMapFunc(context.TODO(), tt.obj)
 			assert.Equal(t, tt.expectedResult, reqs)
+		})
+	}
+}
+
+func TestSubnetPortReconciler_setAddressBindingStatusBySubnetPort(t *testing.T) {
+	type args struct {
+		subnetPort     *v1alpha1.SubnetPort
+		transitionTime metav1.Time
+		e              error
+	}
+	tests := []struct {
+		name        string
+		prepareFunc func(r *SubnetPortReconciler) *gomonkey.Patches
+		args        args
+	}{
+		{
+			name: "NoAddressBinding",
+			prepareFunc: func(r *SubnetPortReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(r.SubnetPortService.SubnetPortStore, "GetByKey", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(r.SubnetPortService, "GetAddressBindingBySubnetPort", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				return patches
+			},
+			args: args{
+				subnetPort:     &v1alpha1.SubnetPort{},
+				transitionTime: metav1.Now(),
+				e:              nil,
+			},
+		},
+		{
+			name: "NoSubnetPort",
+			prepareFunc: func(r *SubnetPortReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(r.SubnetPortService.SubnetPortStore, "GetByKey", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(r.SubnetPortService, "GetAddressBindingBySubnetPort", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{&v1alpha1.AddressBinding{ObjectMeta: metav1.ObjectMeta{Name: "ab1", Namespace: "ns1"}}},
+					Times:  1,
+				}})
+				patches.ApplyFunc(setAddressBindingStatus, func(client client.Client, ctx context.Context, ab *v1alpha1.AddressBinding, transitionTime metav1.Time, e error, ipAddress string) {
+					assert.Equal(t, &v1alpha1.AddressBinding{ObjectMeta: metav1.ObjectMeta{Name: "ab1", Namespace: "ns1"}}, ab)
+					assert.Equal(t, metav1.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), transitionTime)
+					assert.Equal(t, vmOrInterfaceNotFoundError, e)
+					assert.Equal(t, "", ipAddress)
+				})
+				return patches
+			},
+			args: args{
+				subnetPort:     &v1alpha1.SubnetPort{},
+				transitionTime: metav1.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
+				e:              nil,
+			},
+		},
+		{
+			name: "HasIP",
+			prepareFunc: func(r *SubnetPortReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(r.SubnetPortService.SubnetPortStore, "GetByKey", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{&model.VpcSubnetPort{ExternalAddressBinding: &model.ExternalAddressBinding{ExternalIpAddress: ptr.To("192.168.0.2")}}},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(r.SubnetPortService, "GetAddressBindingBySubnetPort", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{&v1alpha1.AddressBinding{ObjectMeta: metav1.ObjectMeta{Name: "ab1", Namespace: "ns1"}}},
+					Times:  1,
+				}})
+				patches.ApplyFunc(setAddressBindingStatus, func(client client.Client, ctx context.Context, ab *v1alpha1.AddressBinding, transitionTime metav1.Time, e error, ipAddress string) {
+					assert.Equal(t, &v1alpha1.AddressBinding{ObjectMeta: metav1.ObjectMeta{Name: "ab1", Namespace: "ns1"}}, ab)
+					assert.Equal(t, metav1.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), transitionTime)
+					assert.Equal(t, nil, e)
+					assert.Equal(t, "192.168.0.2", ipAddress)
+				})
+				return patches
+			},
+			args: args{
+				subnetPort:     &v1alpha1.SubnetPort{},
+				transitionTime: metav1.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
+				e:              nil,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &SubnetPortReconciler{
+				SubnetPortService: &subnetport.SubnetPortService{SubnetPortStore: &subnetport.SubnetPortStore{}},
+			}
+			patches := tt.prepareFunc(r)
+			if patches != nil {
+				defer patches.Reset()
+			}
+			setAddressBindingStatusBySubnetPort(r.Client, context.TODO(), tt.args.subnetPort, r.SubnetPortService, tt.args.transitionTime, tt.args.e)
+		})
+	}
+}
+
+func TestSubnetPortReconciler_setAddressBindingStatus(t *testing.T) {
+	resourceType := "AddressBinding"
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	r := &SubnetPortReconciler{
+		Client: k8sClient,
+	}
+	type args struct {
+		ab             *v1alpha1.AddressBinding
+		transitionTime metav1.Time
+		e              error
+		ipAddress      string
+	}
+	tests := []struct {
+		name        string
+		prepareFunc func(r *SubnetPortReconciler) *gomonkey.Patches
+		args        args
+	}{
+		{
+			name:        "SuccessNoUpdate",
+			prepareFunc: func(r *SubnetPortReconciler) *gomonkey.Patches { return nil },
+			args: args{
+				ab: &v1alpha1.AddressBinding{Status: v1alpha1.AddressBindingStatus{
+					Conditions: []v1alpha1.Condition{{
+						Type:               v1alpha1.Ready,
+						Status:             corev1.ConditionTrue,
+						Message:            fmt.Sprintf("%s has been successfully created/updated", resourceType),
+						Reason:             fmt.Sprintf("%sReady", resourceType),
+						LastTransitionTime: metav1.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
+					}},
+					IPAddress: "192.168.0.2",
+				}},
+				transitionTime: metav1.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC),
+				e:              nil,
+				ipAddress:      "192.168.0.2",
+			},
+		},
+		{
+			name: "SuccessNewCondition",
+			prepareFunc: func(r *SubnetPortReconciler) *gomonkey.Patches {
+				statusWriter := fakeStatusWriter{
+					t:           t,
+					validateObj: true,
+					expectObj: &v1alpha1.AddressBinding{Status: v1alpha1.AddressBindingStatus{
+						Conditions: []v1alpha1.Condition{{
+							Type:               v1alpha1.Ready,
+							Status:             corev1.ConditionTrue,
+							Message:            fmt.Sprintf("%s has been successfully created/updated", resourceType),
+							Reason:             fmt.Sprintf("%sReady", resourceType),
+							LastTransitionTime: metav1.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
+						}},
+						IPAddress: "192.168.0.3",
+					}},
+				}
+				r.Client.(*mock_client.MockClient).EXPECT().Status().Return(statusWriter)
+				return nil
+			},
+			args: args{
+				ab:             &v1alpha1.AddressBinding{Status: v1alpha1.AddressBindingStatus{}},
+				transitionTime: metav1.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
+				e:              nil,
+				ipAddress:      "192.168.0.3",
+			},
+		},
+		{
+			name: "SuccessToFail",
+			prepareFunc: func(r *SubnetPortReconciler) *gomonkey.Patches {
+				statusWriter := fakeStatusWriter{
+					t:           t,
+					validateObj: true,
+					expectObj: &v1alpha1.AddressBinding{Status: v1alpha1.AddressBindingStatus{
+						Conditions: []v1alpha1.Condition{{
+							Type:               v1alpha1.Ready,
+							Status:             corev1.ConditionFalse,
+							Message:            fmt.Sprintf("error occurred while processing the %s CR. Error: %v", resourceType, fmt.Errorf("mock error")),
+							Reason:             fmt.Sprintf("%sNotReady", resourceType),
+							LastTransitionTime: metav1.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
+						}},
+						IPAddress: "",
+					}},
+				}
+				r.Client.(*mock_client.MockClient).EXPECT().Status().Return(statusWriter)
+				return nil
+			},
+			args: args{
+				ab: &v1alpha1.AddressBinding{Status: v1alpha1.AddressBindingStatus{
+					Conditions: []v1alpha1.Condition{{
+						Type:               v1alpha1.Ready,
+						Status:             corev1.ConditionTrue,
+						Message:            fmt.Sprintf("%s has been successfully created/updated", resourceType),
+						Reason:             fmt.Sprintf("%sReady", resourceType),
+						LastTransitionTime: metav1.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
+					}},
+					IPAddress: "192.168.0.2",
+				}},
+				transitionTime: metav1.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC),
+				e:              fmt.Errorf("mock error"),
+				ipAddress:      "",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patches := tt.prepareFunc(r)
+			if patches != nil {
+				defer patches.Reset()
+			}
+			setAddressBindingStatus(r.Client, context.TODO(), tt.args.ab, tt.args.transitionTime, tt.args.e, tt.args.ipAddress)
+		})
+	}
+}
+
+func TestSubnetPortReconciler_collectAddressBindingGarbage(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	r := &SubnetPortReconciler{
+		Client: k8sClient,
+	}
+	type args struct {
+		namespace *string
+		ipAddress *string
+	}
+	tests := []struct {
+		name        string
+		prepareFunc func(r *SubnetPortReconciler) *gomonkey.Patches
+		args        args
+	}{
+		{
+			name: "ListAddressBindingError",
+			prepareFunc: func(r *SubnetPortReconciler) *gomonkey.Patches {
+				abList := &v1alpha1.AddressBindingList{}
+				k8sClient.EXPECT().List(context.TODO(), abList).Return(fmt.Errorf("mock error"))
+				return nil
+			},
+		},
+		{
+			name: "ListSubnetPortError",
+			prepareFunc: func(r *SubnetPortReconciler) *gomonkey.Patches {
+				abList := &v1alpha1.AddressBindingList{}
+				spList := &v1alpha1.SubnetPortList{}
+				k8sClient.EXPECT().List(context.TODO(), abList, gomock.Any()).Return(nil).Do(func(ctx context.Context, list *v1alpha1.AddressBindingList, opts ...client.ListOption) error {
+					list.Items = append(list.Items, v1alpha1.AddressBinding{})
+					return nil
+				})
+				k8sClient.EXPECT().List(context.TODO(), spList, gomock.Any()).Return(fmt.Errorf("mock error"))
+				return nil
+			},
+		},
+		{
+			name: "GCDefaultAddressBindingWithMultipleInterfaces",
+			prepareFunc: func(r *SubnetPortReconciler) *gomonkey.Patches {
+				abList := &v1alpha1.AddressBindingList{}
+				spList := &v1alpha1.SubnetPortList{}
+				k8sClient.EXPECT().List(context.TODO(), abList, gomock.Any()).Return(nil).Do(func(ctx context.Context, list *v1alpha1.AddressBindingList, opts ...client.ListOption) error {
+					list.Items = append(list.Items, v1alpha1.AddressBinding{Spec: v1alpha1.AddressBindingSpec{VMName: "vm1"}})
+					return nil
+				})
+				k8sClient.EXPECT().List(context.TODO(), spList, gomock.Any()).Return(nil).Do(func(ctx context.Context, list *v1alpha1.SubnetPortList, opts ...client.ListOption) error {
+					list.Items = append(list.Items, v1alpha1.SubnetPort{}, v1alpha1.SubnetPort{})
+					return nil
+				})
+				patches := gomonkey.ApplyFunc(setAddressBindingStatus, func(client client.Client, ctx context.Context, ab *v1alpha1.AddressBinding, transitionTime metav1.Time, e error, ipAddress string) {
+					assert.Equal(t, &v1alpha1.AddressBinding{Spec: v1alpha1.AddressBindingSpec{VMName: "vm1"}}, ab)
+					assert.Equal(t, multipleInterfaceFoundError, e)
+					assert.Equal(t, "", ipAddress)
+				})
+				return patches
+			},
+		},
+		{
+			name: "GCAddressBindingWithSubnetPortError",
+			prepareFunc: func(r *SubnetPortReconciler) *gomonkey.Patches {
+				abList := &v1alpha1.AddressBindingList{}
+				spList := &v1alpha1.SubnetPortList{}
+				k8sClient.EXPECT().List(context.TODO(), abList, gomock.Any()).Return(nil).Do(func(ctx context.Context, list *v1alpha1.AddressBindingList, opts ...client.ListOption) error {
+					list.Items = append(list.Items, v1alpha1.AddressBinding{Spec: v1alpha1.AddressBindingSpec{VMName: "vm1", InterfaceName: "inf1"}})
+					return nil
+				})
+				k8sClient.EXPECT().List(context.TODO(), spList, gomock.Any()).Return(nil).Do(func(ctx context.Context, list *v1alpha1.SubnetPortList, opts ...client.ListOption) error {
+					list.Items = append(list.Items, v1alpha1.SubnetPort{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{servicecommon.AnnotationAttachmentRef: "invalid"}}})
+					return nil
+				})
+				patches := gomonkey.ApplyFunc(setAddressBindingStatus, func(client client.Client, ctx context.Context, ab *v1alpha1.AddressBinding, transitionTime metav1.Time, e error, ipAddress string) {
+					assert.Equal(t, &v1alpha1.AddressBinding{Spec: v1alpha1.AddressBindingSpec{VMName: "vm1", InterfaceName: "inf1"}}, ab)
+					assert.Equal(t, vmOrInterfaceNotFoundError, e)
+					assert.Equal(t, "", ipAddress)
+				})
+				return patches
+			},
+		},
+		{
+			name: "SubnetPortFound",
+			prepareFunc: func(r *SubnetPortReconciler) *gomonkey.Patches {
+				abList := &v1alpha1.AddressBindingList{}
+				spList := &v1alpha1.SubnetPortList{}
+				k8sClient.EXPECT().List(context.TODO(), abList, gomock.Any()).Return(nil).Do(func(ctx context.Context, list *v1alpha1.AddressBindingList, opts ...client.ListOption) error {
+					list.Items = append(list.Items, v1alpha1.AddressBinding{Spec: v1alpha1.AddressBindingSpec{VMName: "vm1", InterfaceName: "inf1"}})
+					return nil
+				})
+				k8sClient.EXPECT().List(context.TODO(), spList, gomock.Any()).Return(nil).Do(func(ctx context.Context, list *v1alpha1.SubnetPortList, opts ...client.ListOption) error {
+					list.Items = append(list.Items, v1alpha1.SubnetPort{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{servicecommon.AnnotationAttachmentRef: fmt.Sprintf("%s/%s/%s", servicecommon.ResourceTypeVirtualMachine, "vm1", "inf1")}}})
+					return nil
+				})
+				return nil
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patches := tt.prepareFunc(r)
+			if patches != nil {
+				defer patches.Reset()
+			}
+			r.collectAddressBindingGarbage(context.TODO(), tt.args.namespace, tt.args.ipAddress)
 		})
 	}
 }

@@ -50,6 +50,35 @@ spec:
             type: object
           status:
             properties:
+              conditions:
+                description: Conditions describes current state of AddressBinding.
+                items:
+                  description: Condition defines condition of custom resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        Last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed. If that is not known, then using the time when
+                        the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: Message shows a human-readable message about condition.
+                      type: string
+                    reason:
+                      description: Reason shows a brief reason of condition.
+                      type: string
+                    status:
+                      description: Status of the condition, one of True, False, Unknown.
+                      type: string
+                    type:
+                      description: Type defines condition type.
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
               ipAddress:
                 type: string
             required:
