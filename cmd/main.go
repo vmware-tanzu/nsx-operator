@@ -4,16 +4,20 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"time"
 
 	vmv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	_ "go.uber.org/automaxprocs"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -60,6 +64,10 @@ var (
 	log                  = logger.Log
 	cf                   *config.NSXOperatorConfig
 	nsxOperatorNamespace = "default"
+	nsxOperatorPodName   = "default"
+	roleKey              = "nsx-operator-role"
+	roleMaster           = "master"
+	roleStandby          = "standby"
 )
 
 func init() {
@@ -79,6 +87,9 @@ func init() {
 
 	if os.Getenv("NSX_OPERATOR_NAMESPACE") != "" {
 		nsxOperatorNamespace = os.Getenv("NSX_OPERATOR_NAMESPACE")
+	}
+	if os.Getenv("NSX_OPERATOR_NAME") != "" {
+		nsxOperatorPodName = os.Getenv("NSX_OPERATOR_NAME")
 	}
 
 	if cf.HAEnabled() {
@@ -261,6 +272,13 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	if cf.EnableAntreaNSXInterworking {
 		StartNSXServiceAccountController(mgr, commonService)
 	}
+
+	// Update pod labels to determine if this pod is the master
+	err := updatePodLabels(mgr)
+	if err != nil {
+		log.Error(err, "Failed to update Pod labels")
+		panic(err)
+	}
 }
 
 func electMaster(mgr manager.Manager, nsxClient *nsx.Client) {
@@ -394,4 +412,33 @@ func refreshCertPeriodically() {
 			}
 		}
 	}
+}
+
+// updatePodLabels updates the role label of pods based on the master election.
+func updatePodLabels(mgr manager.Manager) error {
+	c := mgr.GetClient()
+	// Fetch all pods in the given namespace
+	podList := &corev1.PodList{}
+	if err := c.List(context.TODO(), podList, &client.ListOptions{Namespace: nsxOperatorNamespace}); err != nil {
+		return fmt.Errorf("failed to list Pods in Namespace %s: %w", nsxOperatorNamespace, err)
+	}
+
+	// Iterate over the pods and update the role labels
+	for _, po := range podList.Items {
+		targetRole := roleStandby
+		if po.Name == nsxOperatorPodName {
+			targetRole = roleMaster
+		}
+
+		if po.Labels[roleKey] != targetRole {
+			patch := client.MergeFrom(po.DeepCopy())
+			po.Labels[roleKey] = targetRole
+			if err := c.Patch(context.TODO(), &po, patch); err != nil {
+				return fmt.Errorf("failed to update labels for Pod %s: %w", po.Name, err)
+			}
+			log.Info("Updated Pod labels", "pod", po.Name, "labels", po.Labels)
+		}
+	}
+
+	return nil
 }
