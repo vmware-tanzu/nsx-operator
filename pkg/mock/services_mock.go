@@ -87,6 +87,14 @@ func (m *MockSubnetServiceProvider) UnlockSubnet(path *string) {
 	return
 }
 
+func (m *MockSubnetServiceProvider) RLockSubnet(path *string) {
+	return
+}
+
+func (m *MockSubnetServiceProvider) RUnlockSubnet(path *string) {
+	return
+}
+
 type MockSubnetPortServiceProvider struct {
 	mock.Mock
 }
