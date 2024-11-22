@@ -89,11 +89,6 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		log.Error(err, "unable to fetch SubnetPort CR", "SubnetPort", req.NamespacedName)
 		return common.ResultRequeue, err
 	}
-	if len(subnetPort.Spec.SubnetSet) > 0 && len(subnetPort.Spec.Subnet) > 0 {
-		err := errors.New("subnet and subnetset should not be configured at the same time")
-		r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get Subnet/SubnetSet of the SubnetPort", setSubnetPortReadyStatusFalse, r.SubnetPortService)
-		return common.ResultNormal, err
-	}
 
 	if subnetPort.ObjectMeta.DeletionTimestamp.IsZero() {
 		r.StatusUpdater.IncreaseUpdateTotal()
