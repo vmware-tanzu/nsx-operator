@@ -10,6 +10,9 @@ type AddressBindingSpec struct {
 }
 
 type AddressBindingStatus struct {
+	// Conditions describes current state of AddressBinding.
+	Conditions []Condition `json:"conditions,omitempty"`
+
 	IPAddress string `json:"ipAddress"`
 }
 

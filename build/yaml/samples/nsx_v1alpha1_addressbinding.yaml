@@ -1,0 +1,8 @@
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: AddressBinding
+metadata:
+  name: addressbinding1
+  namespace: sample
+spec:
+  interfaceName: inf1
+  vmName: vm1
