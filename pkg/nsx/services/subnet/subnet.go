@@ -480,14 +480,28 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 
 func (service *SubnetService) LockSubnet(path *string) {
 	if path != nil && *path != "" {
-		log.V(1).Info("Locked Subnet", "path", *path)
+		log.V(1).Info("Locked Subnet for writing", "path", *path)
 		service.SubnetStore.Lock(*path)
 	}
 }
 
 func (service *SubnetService) UnlockSubnet(path *string) {
 	if path != nil && *path != "" {
-		log.V(1).Info("Unlocked Subnet", "path", *path)
+		log.V(1).Info("Unlocked Subnet for writing", "path", *path)
 		service.SubnetStore.Unlock(*path)
+	}
+}
+
+func (service *SubnetService) RLockSubnet(path *string) {
+	if path != nil && *path != "" {
+		log.V(1).Info("Locked Subnet for reading", "path", *path)
+		service.SubnetStore.RLock(*path)
+	}
+}
+
+func (service *SubnetService) RUnlockSubnet(path *string) {
+	if path != nil && *path != "" {
+		log.V(1).Info("Unlocked Subnet for reading", "path", *path)
+		service.SubnetStore.RUnlock(*path)
 	}
 }

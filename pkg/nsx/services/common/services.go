@@ -32,6 +32,8 @@ type SubnetServiceProvider interface {
 	GenerateSubnetNSTags(obj client.Object) []model.Tag
 	LockSubnet(path *string)
 	UnlockSubnet(path *string)
+	RLockSubnet(path *string)
+	RUnlockSubnet(path *string)
 }
 
 type SubnetPortServiceProvider interface {

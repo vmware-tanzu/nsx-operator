@@ -80,7 +80,7 @@ func (subnetStore *SubnetStore) Add(i interface{}) error {
 		log.Info("Store a subnet without path", "subnet", subnet)
 		return subnetStore.ResourceStore.Add(i)
 	}
-	lock := sync.Mutex{}
+	lock := sync.RWMutex{}
 	subnetStore.pathLocks.LoadOrStore(*subnet.Path, &lock)
 	return subnetStore.ResourceStore.Add(i)
 }
@@ -96,14 +96,26 @@ func (subnetStore *SubnetStore) Delete(i interface{}) error {
 }
 
 func (subnetStore *SubnetStore) Lock(path string) {
-	lock := sync.Mutex{}
+	lock := sync.RWMutex{}
 	subnetLock, _ := subnetStore.pathLocks.LoadOrStore(path, &lock)
-	subnetLock.(*sync.Mutex).Lock()
+	subnetLock.(*sync.RWMutex).Lock()
 }
 
 func (subnetStore *SubnetStore) Unlock(path string) {
 	if subnetLock, existed := subnetStore.pathLocks.Load(path); existed {
-		subnetLock.(*sync.Mutex).Unlock()
+		subnetLock.(*sync.RWMutex).Unlock()
+	}
+}
+
+func (subnetStore *SubnetStore) RLock(path string) {
+	lock := sync.RWMutex{}
+	subnetLock, _ := subnetStore.pathLocks.LoadOrStore(path, &lock)
+	subnetLock.(*sync.RWMutex).RLock()
+}
+
+func (subnetStore *SubnetStore) RUnlock(path string) {
+	if subnetLock, existed := subnetStore.pathLocks.Load(path); existed {
+		subnetLock.(*sync.RWMutex).RUnlock()
 	}
 }
 
