@@ -89,7 +89,7 @@ const (
 	ValuePatchVersion                  string = "0"
 	ConnectorUnderline                 string = "_"
 
-	GCInterval    = 60 * time.Second
+	GCInterval    = 10 * 60 * time.Second
 	DefaultSNATID = "DEFAULT"
 	AVISubnetLBID = "_services"
 
