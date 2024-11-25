@@ -136,8 +136,11 @@ func (ck *NSXHealthChecker) CheckNSXHealth(req *http.Request) error {
 }
 
 func restConnector(c *Cluster) client.Connector {
-	connector, _ := c.NewRestConnector()
-	return connector
+	return c.NewRestConnector()
+}
+
+func restConnectorAllowOverwrite(c *Cluster) client.Connector {
+	return c.NewRestConnectorAllowOverwrite()
 }
 
 func GetClient(cf *config.NSXOperatorConfig) *Client {
@@ -177,13 +180,13 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	staticRouteClient := vpcs.NewStaticRoutesClient(restConnector(cluster))
 	natRulesClient := nat.NewNatRulesClient(restConnector(cluster))
 	vpcGroupClient := vpcs.NewGroupsClient(restConnector(cluster))
-	portClient := subnets.NewPortsClient(restConnector(cluster))
+	portClient := subnets.NewPortsClient(restConnectorAllowOverwrite(cluster))
 	portStateClient := ports.NewStateClient(restConnector(cluster))
 	ipPoolClient := subnets.NewIpPoolsClient(restConnector(cluster))
 	ipAllocationClient := ip_pools.NewIpAllocationsClient(restConnector(cluster))
 	subnetsClient := vpcs.NewSubnetsClient(restConnector(cluster))
 	subnetStatusClient := subnets.NewStatusClient(restConnector(cluster))
-	ipAddressAllocationClient := vpcs.NewIpAddressAllocationsClient(restConnector(cluster))
+	ipAddressAllocationClient := vpcs.NewIpAddressAllocationsClient(restConnectorAllowOverwrite(cluster))
 	vpcLBSClient := vpcs.NewVpcLbsClient(restConnector(cluster))
 	vpcLbVirtualServersClient := vpcs.NewVpcLbVirtualServersClient(restConnector(cluster))
 	vpcLbPoolsClient := vpcs.NewVpcLbPoolsClient(restConnector(cluster))
