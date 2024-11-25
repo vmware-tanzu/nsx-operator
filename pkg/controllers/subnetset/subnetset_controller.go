@@ -12,6 +12,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -260,6 +261,15 @@ func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) {
 			r.StatusUpdater.IncreaseDeleteSuccessTotal()
 		}
 	}
+
+	// clean the SubnetSet lock used to create Subnet
+	common.SubnetSetLocks.Range(func(key, value interface{}) bool {
+		uuid := key.(types.UID)
+		if !crdSubnetSetIDsSet.Has(string(uuid)) {
+			common.SubnetSetLocks.Delete(key)
+		}
+		return true
+	})
 }
 
 func (r *SubnetSetReconciler) deleteSubnetBySubnetSetName(ctx context.Context, subnetSetName, ns string) error {

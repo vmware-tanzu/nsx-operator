@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v12 "k8s.io/api/core/v1"
@@ -603,7 +605,15 @@ func TestSubnetSetReconciler_CollectGarbage(t *testing.T) {
 		}
 	})
 
+	// fake SubnetSetLocks
+	lock := sync.Mutex{}
+	subnetSetId := types.UID(uuid.NewString())
+	ctlcommon.SubnetSetLocks.LoadOrStore(subnetSetId, &lock)
+
 	r.CollectGarbage(ctx)
+	// the lock for should be deleted
+	_, ok := ctlcommon.SubnetSetLocks.Load(subnetSetId)
+	assert.False(t, ok)
 }
 
 type MockManager struct {
