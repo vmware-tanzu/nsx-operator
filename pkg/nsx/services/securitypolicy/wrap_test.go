@@ -134,7 +134,7 @@ func (f fakeVPCGroupClient) Update(orgIdParam string, projectIdParam string, vpc
 func fakeSecurityPolicyService() *SecurityPolicyService {
 	c := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(c)
-	rc, _ := cluster.NewRestConnector()
+	rc := cluster.NewRestConnector()
 	fakeService := &SecurityPolicyService{
 		Service: common.Service{
 			NSXClient: &nsx.Client{
