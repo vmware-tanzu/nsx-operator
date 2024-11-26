@@ -269,12 +269,12 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 		}
 
 		if s.NSXClient.NSXCheckVersion(nsx.NodeType) {
-			modelCCP.NodeType = &nodeTypeAntrea
+			// modelCCP.NodeType = &nodeTypeAntrea
+			log.Info("NodeType: %s", nodeTypeAntrea)
 		}
 
 		ccp, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, normalizedClusterName, modelCCP)
 
-		err = nsxutil.NSXApiError(err)
 		if err != nil {
 			return "", err
 		}

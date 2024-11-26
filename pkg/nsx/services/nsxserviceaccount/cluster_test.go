@@ -311,7 +311,7 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 						ResourceType: &antreaClusterResourceType,
 						Certificate:  nil,
 						VhcPath:      &vpcPath,
-						NodeType:     &nodeTypeAntrea,
+						// NodeType:     &nodeTypeAntrea,
 						Tags: []model.Tag{{
 							Scope: &tagScopeCluster,
 							Tag:   &s.NSXConfig.CoeConfig.Cluster,
