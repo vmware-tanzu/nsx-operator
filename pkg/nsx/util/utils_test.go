@@ -655,3 +655,17 @@ func TestTransNSXApiError(t *testing.T) {
 	assert.Equal(t, ok, true)
 	assert.Equal(t, gotErr.Type(), apierrors.ErrorType_NOT_FOUND)
 }
+
+func TestParseDHCPMode(t *testing.T) {
+	nsxMode := ParseDHCPMode("DHCPDeactivated")
+	assert.Equal(t, "DHCP_DEACTIVATED", nsxMode)
+
+	nsxMode = ParseDHCPMode("DHCPServer")
+	assert.Equal(t, "DHCP_SERVER", nsxMode)
+
+	nsxMode = ParseDHCPMode("DHCPRelay")
+	assert.Equal(t, "DHCP_RELAY", nsxMode)
+
+	nsxMode = ParseDHCPMode("None")
+	assert.Equal(t, "", nsxMode)
+}
