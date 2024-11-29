@@ -2,14 +2,13 @@ package subnet
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	util2 "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -103,7 +102,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, u
 	// tags cannot exceed maximum size 26
 	if len(tags) > common.MaxTagsCount {
 		errorMsg := fmt.Sprintf("tags cannot exceed maximum size 26, tags length: %d", len(tags))
-		return nil, util2.ExceedTagsError{Desc: errorMsg}
+		return nil, nsxutil.ExceedTagsError{Desc: errorMsg}
 	}
 	nsxSubnet.Tags = tags
 	nsxSubnet.AdvancedConfig = &model.SubnetAdvancedConfig{
@@ -124,10 +123,7 @@ func (service *SubnetService) buildDHCPConfig(enableDHCP bool) *model.VpcSubnetD
 }
 
 func (service *SubnetService) buildSubnetDHCPConfig(mode string) *model.SubnetDhcpConfig {
-	// Transfer DHCPDeactivated to DHCP_DEACTIVATED
-	nsxMode := strings.ToUpper(mode)
-	nsxMode = nsxMode[:4] + "_" + nsxMode[4:]
-
+	nsxMode := nsxutil.ParseDHCPMode(mode)
 	subnetDhcpConfig := &model.SubnetDhcpConfig{
 		Mode: &nsxMode,
 	}

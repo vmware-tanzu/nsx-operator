@@ -1595,3 +1595,17 @@ func TestIsInvalidLicense(t *testing.T) {
 		})
 	}
 }
+
+func TestParseDHCPMode(t *testing.T) {
+	nsxMode := ParseDHCPMode("DHCPDeactivated")
+	assert.Equal(t, "DHCP_DEACTIVATED", nsxMode)
+
+	nsxMode = ParseDHCPMode("DHCPServer")
+	assert.Equal(t, "DHCP_SERVER", nsxMode)
+
+	nsxMode = ParseDHCPMode("DHCPRelay")
+	assert.Equal(t, "DHCP_RELAY", nsxMode)
+
+	nsxMode = ParseDHCPMode("None")
+	assert.Equal(t, "", nsxMode)
+}
