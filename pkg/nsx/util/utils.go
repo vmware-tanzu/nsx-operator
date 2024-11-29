@@ -708,3 +708,14 @@ func IsInvalidLicense(err error) bool {
 	}
 	return invalidLicense
 }
+
+func ParseDHCPMode(mode string) string {
+	// Transfer DHCPDeactivated to DHCP_DEACTIVATED
+	nsxMode := strings.ToUpper(mode)
+	if len(nsxMode) <= 4 {
+		log.Error(nil, "Failed to parse DHCP mode", "mode", mode)
+		return ""
+	}
+	nsxMode = nsxMode[:4] + "_" + nsxMode[4:]
+	return nsxMode
+}
