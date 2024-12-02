@@ -854,7 +854,7 @@ func (s *VPCService) createNSXVPC(createdVpc *model.Vpc, nc *common.VPCNetworkCo
 func (s *VPCService) checkVPCRealizationState(createdVpc *model.Vpc, newVpcPath string) error {
 	log.V(2).Info("Check VPC realization state", "VPC", *createdVpc.Id)
 	realizeService := realizestate.InitializeRealizeState(s.Service)
-	if err := realizeService.CheckRealizeState(util.NSXTDefaultRetry, newVpcPath, "RealizedLogicalRouter"); err != nil {
+	if err := realizeService.CheckRealizeState(util.NSXTDefaultRetry, newVpcPath, realizestate.RealizedLogicalRouter); err != nil {
 		log.Error(err, "Failed to check VPC realization state", "VPC", *createdVpc.Id)
 		if realizestate.IsRealizeStateError(err) {
 			log.Error(err, "The created VPC is in error realization state, cleaning the resource", "VPC", *createdVpc.Id)
