@@ -38,7 +38,7 @@ func createService(t *testing.T) (*vpc.VPCService, *gomock.Controller, *mocks.Mo
 	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 
 	cluster, _ := nsx.NewCluster(config2)
-	rc, _ := cluster.NewRestConnector()
+	rc := cluster.NewRestConnector()
 
 	mockCtrl := gomock.NewController(t)
 	mockVpcclient := mocks.NewMockVpcsClient(mockCtrl)

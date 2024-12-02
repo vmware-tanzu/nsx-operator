@@ -6,6 +6,7 @@ package nsx
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
 	pkg_log "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -175,4 +177,39 @@ func TestSRGetClient(t *testing.T) {
 	b := strings.Split(a, "/")
 	fmt.Printf("b is %v \n", b[2])
 
+}
+func TestRestConnectorAllowOverwrite(t *testing.T) {
+	resVersion := `{
+                    "node_version": "3.1.3.3.0.18844962",
+                    "product_version": "3.1.3.3.0.18844959"
+                    }`
+	resHealth := `{
+					"healthy" : true,
+					"components_health" : "MANAGER:UP, SEARCH:UP, UI:UP, NODE_MGMT:UP"
+					}`
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Logf("header %v", r.Header)
+		w.WriteHeader(http.StatusOK)
+		if strings.Contains(r.URL.Path, "search") {
+			allowOverwrite, _ := r.Header["X-Allow-Overwrite"]
+			assert.Equal(t, "True", allowOverwrite[0])
+		}
+		if strings.Contains(r.URL.Path, "reverse-proxy/node/health") {
+			w.Write(([]byte(resHealth)))
+		} else {
+			w.Write([]byte(resVersion))
+		}
+	}))
+	defer ts.Close()
+	thumbprint := []string{"123"}
+	index := strings.Index(ts.URL, "//")
+	a := ts.URL[index+2:]
+	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	cluster, _ := NewCluster(config)
+	nsxVersion, err := cluster.GetVersion()
+	assert.Equal(t, err, nil)
+	assert.Equal(t, nsxVersion.NodeVersion, "3.1.3.3.0.18844962")
+
+	client := search.NewQueryClient(cluster.NewRestConnectorAllowOverwrite())
+	client.List("search", nil, nil, nil, nil, nil)
 }

@@ -17,7 +17,7 @@ import (
 func fakeService() *SubnetService {
 	c := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(c)
-	rc, _ := cluster.NewRestConnector()
+	rc := cluster.NewRestConnector()
 	service := &SubnetService{
 		Service: common.Service{
 			NSXClient: &nsx.Client{
