@@ -3,3 +3,4 @@ bin/
 .DS_Store
 go.work
 go.work.sum
+.tool-versions
