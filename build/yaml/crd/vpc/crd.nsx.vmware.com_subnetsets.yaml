@@ -72,7 +72,7 @@ spec:
                 - message: Value is immutable
                   rule: self == oldSelf
               subnetDHCPConfig:
-                description: DHCPConfig DHCP configuration.
+                description: Subnet DHCP configuration.
                 properties:
                   mode:
                     description: |-
@@ -135,14 +135,17 @@ spec:
                     of a SubnetSet.
                   properties:
                     DHCPServerAddresses:
+                      description: Dhcp server IP address.
                       items:
                         type: string
                       type: array
                     gatewayAddresses:
+                      description: Gateway address of the Subnet.
                       items:
                         type: string
                       type: array
                     networkAddresses:
+                      description: Network address of the Subnet.
                       items:
                         type: string
                       type: array

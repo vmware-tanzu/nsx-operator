@@ -54,8 +54,11 @@ type SubnetSpec struct {
 
 // SubnetStatus defines the observed state of Subnet.
 type SubnetStatus struct {
-	NetworkAddresses    []string    `json:"networkAddresses,omitempty"`
-	GatewayAddresses    []string    `json:"gatewayAddresses,omitempty"`
+	// Network address of the Subnet.
+	NetworkAddresses []string `json:"networkAddresses,omitempty"`
+	// Gateway address of the Subnet.
+	GatewayAddresses []string `json:"gatewayAddresses,omitempty"`
+	// DHCP server IP address.
 	DHCPServerAddresses []string    `json:"DHCPServerAddresses,omitempty"`
 	Conditions          []Condition `json:"conditions,omitempty"`
 }

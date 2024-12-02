@@ -88,7 +88,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `conditions` _[Condition](#condition) array_ | Conditions describes current state of AddressBinding. |  |  |
-| `ipAddress` _string_ |  |  |  |
+| `ipAddress` _string_ | IP Address for port binding. |  |  |
 
 
 #### Condition
@@ -283,9 +283,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `logicalSwitchUUID` _string_ |  |  |  |
+| `logicalSwitchUUID` _string_ | The realization id of the SubnetPort |  |  |
 | `ipAddresses` _[NetworkInterfaceIPAddress](#networkinterfaceipaddress) array_ |  |  |  |
-| `macAddress` _string_ |  |  |  |
+| `macAddress` _string_ | The MAC address. |  |  |
 
 
 #### NetworkInterfaceIPAddress
@@ -302,7 +302,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `ipAddress` _string_ | IP address string with the prefix. |  |  |
-| `gateway` _string_ |  |  |  |
+| `gateway` _string_ | Gateway address of the Subnet. |  |  |
 
 
 #### NextHop
@@ -325,7 +325,7 @@ _Appears in:_
 
 
 
-VIF attachment state of a subnet port.
+VIF attachment state of a SubnetPort.
 
 
 
@@ -334,7 +334,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `id` _string_ |  |  |  |
+| `id` _string_ | ID of the SubnetPort VIF attachment. |  |  |
 
 
 #### RuleAction
@@ -681,9 +681,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `networkAddresses` _string array_ |  |  |  |
-| `gatewayAddresses` _string array_ |  |  |  |
-| `DHCPServerAddresses` _string array_ |  |  |  |
+| `networkAddresses` _string array_ | Network address of the Subnet. |  |  |
+| `gatewayAddresses` _string array_ | Gateway address of the Subnet. |  |  |
+| `DHCPServerAddresses` _string array_ | Dhcp server IP address. |  |  |
 
 
 #### SubnetPort
@@ -736,7 +736,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `conditions` _[Condition](#condition) array_ | Conditions describes current state of SubnetPort. |  |  |
-| `attachment` _[PortAttachment](#portattachment)_ | Subnet port attachment state. |  |  |
+| `attachment` _[PortAttachment](#portattachment)_ | SubnetPort attachment state. |  |  |
 | `networkInterfaceConfig` _[NetworkInterfaceConfig](#networkinterfaceconfig)_ |  |  |  |
 
 
@@ -774,7 +774,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `ipv4SubnetSize` _integer_ | Size of Subnet based upon estimated workload count. |  | Maximum: 65536 <br />Minimum: 16 <br /> |
 | `accessMode` _[AccessMode](#accessmode)_ | Access mode of Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW] <br /> |
-| `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | DHCPConfig DHCP configuration. |  |  |
+| `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | Subnet DHCP configuration. |  |  |
 
 
 #### SubnetSetStatus
@@ -826,9 +826,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `networkAddresses` _string array_ |  |  |  |
-| `gatewayAddresses` _string array_ |  |  |  |
-| `DHCPServerAddresses` _string array_ |  |  |  |
+| `networkAddresses` _string array_ | Network address of the Subnet. |  |  |
+| `gatewayAddresses` _string array_ | Gateway address of the Subnet. |  |  |
+| `DHCPServerAddresses` _string array_ | DHCP server IP address. |  |  |
 | `conditions` _[Condition](#condition) array_ |  |  |  |
 
 
