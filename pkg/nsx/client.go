@@ -46,10 +46,11 @@ const (
 	ServiceAccountRestore
 	ServiceAccountCertRotation
 	StaticRoute
+	NodeType
 	AllFeatures
 )
 
-var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE"}
+var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "NODE_TYPE"}
 
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
@@ -113,6 +114,7 @@ var (
 	nsx411Version = [3]int64{4, 1, 1}
 	nsx412Version = [3]int64{4, 1, 2}
 	nsx413Version = [3]int64{4, 1, 3}
+	nsx900Version = [3]int64{9, 0, 0}
 )
 
 type NSXHealthChecker struct {

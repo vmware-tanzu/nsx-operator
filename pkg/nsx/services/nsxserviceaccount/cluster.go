@@ -55,6 +55,8 @@ var (
 	revision1                 = int64(1)
 
 	proxyLabels = map[string]string{"mgmt-proxy.antrea-nsx.vmware.com": ""}
+
+	nodeTypeAntrea = "ANTREA_NODE"
 )
 
 type NSXServiceAccountService struct {
@@ -257,15 +259,22 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 	hasCCP := len(s.ClusterControlPlaneStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(obj.UID))) > 0
 	clusterId := ""
 	if ccpObj := s.ClusterControlPlaneStore.GetByKey(normalizedClusterName); !hasCCP && ccpObj == nil {
-		ccp, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, normalizedClusterName, model.ClusterControlPlane{
+		modelCCP := model.ClusterControlPlane{
 			Revision:     &revision1,
 			ResourceType: &antreaClusterResourceType,
 			Certificate:  &cert,
 			VhcPath:      &vpcPath,
 			NodeId:       existingClusterId,
 			Tags:         s.buildBasicTags(obj),
-		})
-		err = nsxutil.TransNSXApiError(err)
+		}
+
+		if s.NSXClient.NSXCheckVersion(nsx.NodeType) {
+			// modelCCP.NodeType = &nodeTypeAntrea
+			log.Info("NodeType: %s", nodeTypeAntrea)
+		}
+
+		ccp, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, normalizedClusterName, modelCCP)
+
 		if err != nil {
 			return "", err
 		}
