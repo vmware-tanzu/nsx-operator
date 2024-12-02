@@ -9,6 +9,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/version"
 	clientset "k8s.io/client-go/kubernetes"
@@ -40,39 +41,53 @@ type ServiceLbReconciler struct {
 	Recorder record.EventRecorder
 }
 
-func updateSuccess(r *ServiceLbReconciler, c context.Context, lbService *v1.Service) {
-	r.setServiceLbStatus(c, lbService)
-	r.Recorder.Event(lbService, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "LoadBalancer service has been successfully updated")
-	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
+func updateSuccess(r *ServiceLbReconciler, c context.Context, lbService *v1.Service) error {
+	err := r.setServiceLbStatus(c, lbService)
+	if err == nil {
+		r.Recorder.Event(lbService, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "LoadBalancer service has been successfully updated")
+		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, MetricResType)
+		return nil
+	}
+	r.Recorder.Event(lbService, v1.EventTypeWarning, common.ReasonFailUpdate, "Failed to update LoadBalancer service")
+	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateFailTotal, MetricResType)
+	return err
 }
 
 func (r *ServiceLbReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	service := &v1.Service{}
-	log.Info("Reconciling LB CR", "service", req.NamespacedName)
 	startTime := time.Now()
 	defer func() {
 		log.Info("Finished reconciling LB service", "LBService", req.NamespacedName, "duration(ms)", time.Since(startTime).Milliseconds())
 	}()
 
 	if err := r.Client.Get(ctx, req.NamespacedName, service); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("Not found LB service", "req", req.NamespacedName)
+			return ResultNormal, client.IgnoreNotFound(err)
+		}
 		log.Error(err, "Failed to fetch LB service", "req", req.NamespacedName)
-		return ResultNormal, client.IgnoreNotFound(err)
+		return common.ResultRequeueAfter10sec, err
 	}
 
 	if service.Spec.Type == v1.ServiceTypeLoadBalancer {
 		log.Info("Reconciling LB service", "LBService", req.NamespacedName)
+		log.V(1).Info("Reconciling LB Service", "name", service.Name, "version", service.ResourceVersion, "status", service.Status)
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
 
 		if service.ObjectMeta.DeletionTimestamp.IsZero() {
 			metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResType)
-			updateSuccess(r, ctx, service)
+			err := updateSuccess(r, ctx, service)
+			if err != nil {
+				log.Error(err, "Failed to update LB service", "Name", service.Name, "Namespace", service.Namespace)
+				return common.ResultRequeueAfter10sec, err
+			}
 		}
 	}
 
 	return ResultNormal, nil
 }
 
-func (r *ServiceLbReconciler) setServiceLbStatus(ctx context.Context, lbService *v1.Service) {
+func (r *ServiceLbReconciler) setServiceLbStatus(ctx context.Context, lbService *v1.Service) error {
 	ipMode := v1.LoadBalancerIPModeProxy
 	statusUpdated := false
 	// If nsx.vmware.com/ingress-ip-mode label with values proxy or vip,
@@ -93,9 +108,14 @@ func (r *ServiceLbReconciler) setServiceLbStatus(ctx context.Context, lbService 
 	}
 
 	if statusUpdated {
-		r.Client.Status().Update(ctx, lbService)
-		log.V(1).Info("Updated LB service status ipMode", "Name", lbService.Name, "Namespace", lbService.Namespace, "ipMode", ipMode)
+		err := r.Client.Status().Update(ctx, lbService)
+		if err != nil {
+			log.Error(err, "Failed to update LB service status ipMode", "Name", lbService.Name, "Namespace", lbService.Namespace, "ipMode", ipMode)
+			return err
+		}
+		log.Info("Updated LB service status ipMode", "Name", lbService.Name, "Namespace", lbService.Namespace, "ipMode", ipMode)
 	}
+	return nil
 }
 
 func (r *ServiceLbReconciler) setupWithManager(mgr ctrl.Manager) error {
