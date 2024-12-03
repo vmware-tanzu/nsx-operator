@@ -67,9 +67,10 @@ spec:
             description: SubnetPortStatus defines the observed state of SubnetPort.
             properties:
               attachment:
-                description: Subnet port attachment state.
+                description: SubnetPort attachment state.
                 properties:
                   id:
+                    description: ID of the SubnetPort VIF attachment.
                     type: string
                 type: object
               conditions:
@@ -107,6 +108,7 @@ spec:
                     items:
                       properties:
                         gateway:
+                          description: Gateway address of the Subnet.
                           type: string
                         ipAddress:
                           description: IP address string with the prefix.
@@ -114,8 +116,10 @@ spec:
                       type: object
                     type: array
                   logicalSwitchUUID:
+                    description: The realization id of the SubnetPort
                     type: string
                   macAddress:
+                    description: The MAC address.
                     type: string
                 type: object
             type: object

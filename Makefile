@@ -160,6 +160,27 @@ code-generator: ## Download code-generator locally if necessary.
 generated: code-generator
 	./hack/update-codegen.sh
 
+CRD_REF_DOCS = $(shell pwd)/bin/crd-ref-docs
+.PHONY: crd-ref-docs
+crd-ref-docs: ## Install crd-ref-docs
+	$(call go-get-tool,$(CRD_REF_DOCS),github.com/elastic/crd-ref-docs@v0.1.0)
+
+.PHONY: generate-api-docs
+generate-api-docs: crd-ref-docs
+generate-api-docs: ## Generate API documentation
+	$(CRD_REF_DOCS) \
+	  --renderer=markdown \
+	  --source-path=./pkg/apis/vpc/v1alpha1 \
+	  --config=./.crd-ref-docs/config.yaml \
+	  --output-path=./docs/ref/apis/
+	mv ./docs/ref/apis/out.md ./docs/ref/apis/vpc.md
+	$(CRD_REF_DOCS) \
+	  --renderer=markdown \
+	  --source-path=./pkg/apis/legacy/v1alpha1 \
+	  --config=./.crd-ref-docs/config.yaml \
+	  --output-path=./docs/ref/apis/
+	mv ./docs/ref/apis/out.md ./docs/ref/apis/legacy.md
+
 ENVTEST = $(shell pwd)/bin/setup-envtest
 .PHONY: envtest
 envtest: ## Download envtest-setup locally if necessary.

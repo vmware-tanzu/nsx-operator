@@ -29,14 +29,17 @@ type SubnetSetSpec struct {
 	// The rule in SubnetDHCPConfig prevents the mode changing from empty or
 	// DHCPDeactivated to DHCPServer or DHCPRelay.
 
-	// DHCPConfig DHCP configuration.
+	// Subnet DHCP configuration.
 	SubnetDHCPConfig SubnetDHCPConfig `json:"subnetDHCPConfig,omitempty"`
 }
 
 // SubnetInfo defines the observed state of a single Subnet of a SubnetSet.
 type SubnetInfo struct {
-	NetworkAddresses    []string `json:"networkAddresses,omitempty"`
-	GatewayAddresses    []string `json:"gatewayAddresses,omitempty"`
+	// Network address of the Subnet.
+	NetworkAddresses []string `json:"networkAddresses,omitempty"`
+	// Gateway address of the Subnet.
+	GatewayAddresses []string `json:"gatewayAddresses,omitempty"`
+	// Dhcp server IP address.
 	DHCPServerAddresses []string `json:"DHCPServerAddresses,omitempty"`
 }
 
