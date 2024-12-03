@@ -114,6 +114,7 @@ spec:
             description: SubnetStatus defines the observed state of Subnet.
             properties:
               DHCPServerAddresses:
+                description: DHCP server IP address.
                 items:
                   type: string
                 type: array
@@ -146,10 +147,12 @@ spec:
                   type: object
                 type: array
               gatewayAddresses:
+                description: Gateway address of the Subnet.
                 items:
                   type: string
                 type: array
               networkAddresses:
+                description: Network address of the Subnet.
                 items:
                   type: string
                 type: array

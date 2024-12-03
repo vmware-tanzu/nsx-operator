@@ -20,26 +20,30 @@ type SubnetPortSpec struct {
 type SubnetPortStatus struct {
 	// Conditions describes current state of SubnetPort.
 	Conditions []Condition `json:"conditions,omitempty"`
-	// Subnet port attachment state.
+	// SubnetPort attachment state.
 	Attachment             PortAttachment         `json:"attachment,omitempty"`
 	NetworkInterfaceConfig NetworkInterfaceConfig `json:"networkInterfaceConfig,omitempty"`
 }
 
-// VIF attachment state of a subnet port.
+// VIF attachment state of a SubnetPort.
 type PortAttachment struct {
+	// ID of the SubnetPort VIF attachment.
 	ID string `json:"id,omitempty"`
 }
 
 type NetworkInterfaceConfig struct {
+	// The realization id of the SubnetPort
 	LogicalSwitchUUID string                      `json:"logicalSwitchUUID,omitempty"`
 	IPAddresses       []NetworkInterfaceIPAddress `json:"ipAddresses,omitempty"`
-	MACAddress        string                      `json:"macAddress,omitempty"`
+	// The MAC address.
+	MACAddress string `json:"macAddress,omitempty"`
 }
 
 type NetworkInterfaceIPAddress struct {
 	// IP address string with the prefix.
 	IPAddress string `json:"ipAddress,omitempty"`
-	Gateway   string `json:"gateway,omitempty"`
+	// Gateway address of the Subnet.
+	Gateway string `json:"gateway,omitempty"`
 }
 
 // +genclient
