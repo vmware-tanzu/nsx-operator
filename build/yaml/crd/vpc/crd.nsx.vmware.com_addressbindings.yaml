@@ -80,6 +80,7 @@ spec:
                   type: object
                 type: array
               ipAddress:
+                description: IP Address for port binding.
                 type: string
             required:
             - ipAddress

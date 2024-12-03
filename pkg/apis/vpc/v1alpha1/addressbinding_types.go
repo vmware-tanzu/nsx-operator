@@ -12,7 +12,7 @@ type AddressBindingSpec struct {
 type AddressBindingStatus struct {
 	// Conditions describes current state of AddressBinding.
 	Conditions []Condition `json:"conditions,omitempty"`
-
+	// IP Address for port binding.
 	IPAddress string `json:"ipAddress"`
 }
 
