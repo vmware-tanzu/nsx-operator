@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,10 +16,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/remotecommand"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 
@@ -84,6 +88,12 @@ type TestData struct {
 }
 
 var testData *TestData
+
+type PodIPs struct {
+	ipv4      *net.IP
+	ipv6      *net.IP
+	ipStrings []string
+}
 
 func initProvider() error {
 	providerFactory := map[string]func(string) (providers.ProviderInterface, error){
@@ -334,8 +344,6 @@ func (data *TestData) deploymentWaitForNames(timeout time.Duration, namespace, d
 	return podNames, nil
 }
 
-// Temporarily disable traffic check
-/*
 // podWaitFor polls the K8s apiServer until the specified Pod is found (in the test Namespace) and
 // the condition predicate is met (or until the provided timeout expires).
 func (data *TestData) podWaitFor(timeout time.Duration, name, namespace string, condition PodCondition) (*corev1.Pod, error) {
@@ -400,37 +408,37 @@ func (data *TestData) podWaitForIPs(timeout time.Duration, name, namespace strin
 }
 
 // deploymentWaitForIPsOrNames polls the K8s apiServer until the specified Pod in deployment has an IP address
-func (data *TestData) deploymentWaitForIPsOrNames(timeout time.Duration, namespace, deployment string) ([]string, []string, error) {
-	podIPStrings := sets.NewString()
-	var podNames []string
-	opt := metav1.ListOptions{
-		LabelSelector: "deployment=" + deployment,
-	}
-	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
-		if pods, err := data.clientset.CoreV1().Pods(namespace).List(context.TODO(), opt); err != nil {
-			if errors.IsNotFound(err) {
-				return false, nil
-			}
-			return false, fmt.Errorf("error when getting Pod  %v", err)
-		} else {
-			for _, p := range pods.Items {
-				if p.Status.Phase != corev1.PodRunning {
-					return false, nil
-				} else if p.Status.PodIP == "" {
-					return false, nil
-				} else {
-					podIPStrings.Insert(p.Status.PodIP)
-					podNames = append(podNames, p.Name)
-				}
-			}
-			return true, nil
-		}
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return podIPStrings.List(), podNames, nil
-}
+//func (data *TestData) deploymentWaitForIPsOrNames(timeout time.Duration, namespace, deployment string) ([]string, []string, error) {
+//	podIPStrings := sets.NewString()
+//	var podNames []string
+//	opt := metav1.ListOptions{
+//		LabelSelector: "deployment=" + deployment,
+//	}
+//	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
+//		if pods, err := data.clientset.CoreV1().Pods(namespace).List(context.TODO(), opt); err != nil {
+//			if errors.IsNotFound(err) {
+//				return false, nil
+//			}
+//			return false, fmt.Errorf("error when getting Pod  %v", err)
+//		} else {
+//			for _, p := range pods.Items {
+//				if p.Status.Phase != corev1.PodRunning {
+//					return false, nil
+//				} else if p.Status.PodIP == "" {
+//					return false, nil
+//				} else {
+//					podIPStrings.Insert(p.Status.PodIP)
+//					podNames = append(podNames, p.Name)
+//				}
+//			}
+//			return true, nil
+//		}
+//	})
+//	if err != nil {
+//		return nil, nil, err
+//	}
+//	return podIPStrings.List(), podNames, nil
+//}
 
 func parsePodIPs(podIPStrings sets.Set[string]) (*PodIPs, error) {
 	ips := new(PodIPs)
@@ -512,20 +520,19 @@ func (data *TestData) runPingCommandFromPod(namespace string, podName string, ta
 	return nil
 }
 
-func (data *TestData) runNetcatCommandFromPod(namespace string, podName string, containerName string, server string, port int) error {
-	cmd := []string{
-		"/bin/sh",
-		"-c",
-		fmt.Sprintf("for i in $(seq 1 5); do nc -w 4 %s %d && exit 0 || sleep 1; done; exit 1",
-			server, port),
-	}
-	_, _, err := data.runCommandFromPod(namespace, podName, containerName, cmd)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-*/
+//func (data *TestData) runNetcatCommandFromPod(namespace string, podName string, containerName string, server string, port int) error {
+//	cmd := []string{
+//		"/bin/sh",
+//		"-c",
+//		fmt.Sprintf("for i in $(seq 1 5); do nc -w 4 %s %d && exit 0 || sleep 1; done; exit 1",
+//			server, port),
+//	}
+//	_, _, err := data.runCommandFromPod(namespace, podName, containerName, cmd)
+//	if err != nil {
+//		return err
+//	}
+//	return nil
+//}
 
 func applyYAML(filename string, ns string) error {
 	cmd := fmt.Sprintf("kubectl apply -f %s -n %s", filename, ns)
@@ -549,30 +556,27 @@ func applyYAML(filename string, ns string) error {
 	return nil
 }
 
-// Temporarily disable traffic check
-/*
-func runCommand(cmd string) (string, error) {
-	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (bool, error) {
-		var stdout, stderr bytes.Buffer
-		command := exec.Command("bash", "-c", cmd)
-		log.Info("Running command %s", cmd)
-		command.Stdout = &stdout
-		command.Stderr = &stderr
-		err := command.Run()
-		if err != nil {
-			log.Info("Error when running command %s: %v", cmd, err)
-			return false, nil
-		}
-		outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
-		log.Info("Command %s returned with output: '%s' and error: '%s'", cmd, outStr, errStr)
-		if errStr != "" {
-			return false, nil
-		}
-		return true, nil
-	})
-	return "", err
-}
-*/
+//func runCommand(cmd string) (string, error) {
+//	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (bool, error) {
+//		var stdout, stderr bytes.Buffer
+//		command := exec.Command("bash", "-c", cmd)
+//		log.Info("Running command %s", cmd)
+//		command.Stdout = &stdout
+//		command.Stderr = &stderr
+//		err := command.Run()
+//		if err != nil {
+//			log.Info("Error when running command %s: %v", cmd, err)
+//			return false, nil
+//		}
+//		outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
+//		log.Info("Command %s returned with output: '%s' and error: '%s'", cmd, outStr, errStr)
+//		if errStr != "" {
+//			return false, nil
+//		}
+//		return true, nil
+//	})
+//	return "", err
+//}
 
 func deleteYAML(filename string, ns string) error {
 	cmd := fmt.Sprintf("kubectl delete -f %s -n %s", filename, ns)
