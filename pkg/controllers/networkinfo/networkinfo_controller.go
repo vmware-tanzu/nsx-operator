@@ -6,6 +6,7 @@ package networkinfo
 import (
 	"context"
 	"fmt"
+	"k8s.io/apimachinery/pkg/fields"
 	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -357,6 +358,10 @@ func (r *NetworkInfoReconciler) setupWithManager(mgr ctrl.Manager) error {
 				ipBlocksInfoService: r.IPBlocksInfoService,
 			},
 			builder.WithPredicates(VPCNetworkConfigurationPredicate)).
+		Watches(
+			&corev1.Namespace{},
+			&NamespaceHandler{},
+			builder.WithPredicates(NamespacePredicate)).
 		Complete(r)
 }
 
@@ -383,6 +388,10 @@ func (r *NetworkInfoReconciler) listNamespaceCRsNameIDSet(ctx context.Context) (
 	nsSet := sets.Set[string]{}
 	idSet := sets.Set[string]{}
 	for _, ns := range namespaces.Items {
+		if len(ns.Finalizers) == 0 {
+			log.Info("Ignore the Namespace which is already marked for delete", "Namespace", ns.Name)
+			continue
+		}
 		nsSet.Insert(ns.Name)
 		idSet.Insert(string(ns.UID))
 	}
@@ -453,15 +462,26 @@ func (r *NetworkInfoReconciler) fetchStaleVPCsByNamespace(ctx context.Context, n
 }
 
 func (r *NetworkInfoReconciler) deleteVPCsByName(ctx context.Context, ns string) error {
-	_, idSet, err := r.listNamespaceCRsNameIDSet(ctx)
+	staleVPCs := r.Service.GetVPCsByNamespace(ns)
+	if len(staleVPCs) == 0 {
+		return nil
+	}
+
+	namespaces := &corev1.NamespaceList{}
+	err := r.Client.List(ctx, namespaces, &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector("metadata.name", ns),
+	})
 	if err != nil {
 		log.Error(err, "Failed to list Kubernetes Namespaces")
 		return fmt.Errorf("failed to list Kubernetes Namespaces while deleting VPCs: %v", err)
 	}
 
-	staleVPCs, err := r.fetchStaleVPCsByNamespace(ctx, ns)
-	if err != nil {
-		return err
+	idSet := sets.New[string]()
+	for _, ns := range namespaces.Items {
+		// Ignore the terminating Namespaces.
+		if ns.DeletionTimestamp.IsZero() {
+			idSet.Insert(string(ns.UID))
+		}
 	}
 
 	var vpcToDelete []*model.Vpc
