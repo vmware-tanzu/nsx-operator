@@ -289,7 +289,7 @@ func getVPCPathFromVPCNetworkConfiguration(t *testing.T, ncName string) (vpcPath
 		resp, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(ctx, ncName, v1.GetOptions{})
 		if err != nil {
 			log.V(2).Info("Check VPC path of vpcnetworkconfigurations", "resp", resp)
-			return false, fmt.Errorf("error when waiting for vpcnetworkconfigurations VPC path: %s", ncName)
+			return false, fmt.Errorf("error when waiting for vpcnetworkconfigurations VPC path: %s: %v", ncName, err)
 		}
 		if len(resp.Status.VPCs) > 0 && resp.Status.VPCs[0].VPCPath != "" {
 			vpcPath = resp.Status.VPCs[0].VPCPath
