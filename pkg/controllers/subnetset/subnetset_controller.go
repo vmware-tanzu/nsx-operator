@@ -303,22 +303,22 @@ func (r *SubnetSetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet) (hasS
 	}
 	var deleteErrs []error
 	for _, nsxSubnet := range nsxSubnets {
-		r.SubnetService.LockSubnet(nsxSubnet.Path)
+		lock := r.SubnetService.LockSubnet(nsxSubnet.Path)
 		portNums := len(r.SubnetPortService.GetPortsOfSubnet(*nsxSubnet.Id))
 		if portNums > 0 {
-			r.SubnetService.UnlockSubnet(nsxSubnet.Path)
+			r.SubnetService.UnlockSubnet(nsxSubnet.Path, lock)
 			hasStalePort = true
 			log.Info("Skipped deleting NSX Subnet due to stale ports", "nsxSubnet", *nsxSubnet.Id)
 			continue
 		}
 		if err := r.SubnetService.DeleteSubnet(*nsxSubnet); err != nil {
-			r.SubnetService.UnlockSubnet(nsxSubnet.Path)
+			r.SubnetService.UnlockSubnet(nsxSubnet.Path, lock)
 			deleteErr := fmt.Errorf("failed to delete NSX Subnet/%s: %+v", *nsxSubnet.Id, err)
 			deleteErrs = append(deleteErrs, deleteErr)
 			log.Error(deleteErr, "Skipping to next Subnet")
 			continue
 		}
-		r.SubnetService.UnlockSubnet(nsxSubnet.Path)
+		r.SubnetService.UnlockSubnet(nsxSubnet.Path, lock)
 	}
 	if len(deleteErrs) > 0 {
 		err = fmt.Errorf("multiple errors occurred while deleting Subnets: %v", deleteErrs)
