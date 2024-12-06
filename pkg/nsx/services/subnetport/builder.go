@@ -40,19 +40,13 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	case *v1alpha1.SubnetPort:
 		externalAddressBinding = service.buildExternalAddressBinding(o)
 	}
-	if nsxSubnet.SubnetDhcpConfig == nil {
-		if nsxSubnet.DhcpConfig != nil && nsxSubnet.DhcpConfig.EnableDhcp != nil && *nsxSubnet.DhcpConfig.EnableDhcp {
-			allocateAddresses = "DHCP"
-		} else {
-			allocateAddresses = "BOTH"
-		}
+
+	if nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode != nsxutil.ParseDHCPMode(v1alpha1.DHCPConfigModeDeactivated) {
+		allocateAddresses = "DHCP"
 	} else {
-		if nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode != nsxutil.ParseDHCPMode(v1alpha1.DHCPConfigModeDeactivated) {
-			allocateAddresses = "DHCP"
-		} else {
-			allocateAddresses = "BOTH"
-		}
+		allocateAddresses = "BOTH"
 	}
+
 	nsxSubnetPortName := service.BuildSubnetPortName(objMeta)
 	nsxSubnetPortID := service.BuildSubnetPortId(objMeta)
 	// use the subnetPort CR UID as the attachment uid generation to ensure the latter stable

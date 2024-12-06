@@ -36,8 +36,7 @@ var (
 
 type SubnetService struct {
 	common.Service
-	SubnetStore  *SubnetStore
-	useLegacyAPI bool
+	SubnetStore *SubnetStore
 }
 
 // SubnetParameters stores parameters to CRUD Subnet object
@@ -84,21 +83,8 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 }
 
 func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (subnet *model.VpcSubnet, err error) {
-	if subnet, err = service.createOrUpdateSubnetWithAPI(obj, vpcInfo, tags, service.useLegacyAPI); err != nil {
-		if nsxErr, ok := err.(*nsxutil.NSXApiError); ok {
-			if *nsxErr.ErrorCode == ErrorCodeUnrecognizedField {
-				log.Info("NSX does not support subnet_dhcp_config, using old API", "error", err)
-				service.useLegacyAPI = true
-				subnet, err = service.createOrUpdateSubnetWithAPI(obj, vpcInfo, tags, service.useLegacyAPI)
-			}
-		}
-	}
-	return subnet, err
-}
-
-func (service *SubnetService) createOrUpdateSubnetWithAPI(obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag, useLegacyAPI bool) (*model.VpcSubnet, error) {
 	uid := string(obj.GetUID())
-	nsxSubnet, err := service.buildSubnet(obj, tags, useLegacyAPI)
+	nsxSubnet, err := service.buildSubnet(obj, tags)
 	if err != nil {
 		log.Error(err, "Failed to build Subnet")
 		return nil, err

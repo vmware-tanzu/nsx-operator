@@ -92,7 +92,7 @@ func fetchSubnetBySubnetSet(t *testing.T, subnetSet *v1alpha1.SubnetSet) model.V
 	results, err := testData.queryResource(common.ResourceTypeSubnet, tags)
 	require.NoError(t, err)
 	subnets := transSearchResponsetoSubnet(results)
-	require.True(t, len(subnets) > 0, "No NSX subnet found")
+	require.True(t, len(subnets) > 0, "No NSX Subnet found")
 	return subnets[0]
 }
 
@@ -110,15 +110,15 @@ func defaultSubnetSet(t *testing.T) {
 	assureSubnetPort(t, subnetTestNamespace, "port-e2e-test-1")
 	defer deleteYAML(portPath, subnetTestNamespace)
 
-	// 3. Check SubnetSet CR status should be updated with NSX subnet info.
+	// 3. Check SubnetSet CR status should be updated with NSX Subnet info.
 	subnetSet, err := testData.crdClientset.CrdV1alpha1().SubnetSets(subnetTestNamespace).Get(context.TODO(), common.DefaultPodSubnetSet, v1.GetOptions{})
 	require.NoError(t, err)
 	require.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
-	// 4. Check NSX subnet allocation.
+	// 4. Check NSX Subnet allocation.
 	networkAddress := subnetSet.Status.Subnets[0].NetworkAddresses
 	assert.True(t, len(networkAddress) > 0, "No network address in SubnetSet")
 
-	// 5. Check adding NSX subnet tags.
+	// 5. Check adding NSX Subnet tags.
 	ns, err := testData.clientset.CoreV1().Namespaces().Get(context.TODO(), subnetTestNamespace, v1.GetOptions{})
 	require.NoError(t, err)
 	labelKey, labelValue := "subnet-e2e", "add"
@@ -135,9 +135,9 @@ func defaultSubnetSet(t *testing.T) {
 			break
 		}
 	}
-	assert.True(t, found, "Failed to add tags for NSX subnet %s", *(vpcSubnet.Id))
+	assert.True(t, found, "Failed to add tags for NSX Subnet %s", *(vpcSubnet.Id))
 
-	// 6. Check updating NSX subnet tags.
+	// 6. Check updating NSX Subnet tags.
 	ns, err = testData.clientset.CoreV1().Namespaces().Get(context.TODO(), subnetTestNamespace, v1.GetOptions{})
 	require.NoError(t, err)
 	labelValue = "update"
@@ -153,16 +153,16 @@ func defaultSubnetSet(t *testing.T) {
 			break
 		}
 	}
-	assert.True(t, found, "Failed to update tags for NSX subnet %s", *(vpcSubnet.Id))
+	assert.True(t, found, "Failed to update tags for NSX Subnet %s", *(vpcSubnet.Id))
 
-	// 7. Check deleting NSX subnet tags.
+	// 7. Check deleting NSX Subnet tags.
 	ns, err = testData.clientset.CoreV1().Namespaces().Get(context.TODO(), subnetTestNamespace, v1.GetOptions{})
 	require.NoError(t, err)
 	delete(ns.Labels, labelKey)
 	newNs, err := testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
 	time.Sleep(5 * time.Second)
 	require.NoError(t, err)
-	log.V(2).Info("New Namespace", "namespace", newNs)
+	log.V(2).Info("New Namespace", "Namespace", newNs)
 	vpcSubnet = fetchSubnetBySubnetSet(t, subnetSet)
 	found = false
 	for _, tag := range vpcSubnet.Tags {
@@ -171,7 +171,7 @@ func defaultSubnetSet(t *testing.T) {
 			break
 		}
 	}
-	assert.False(t, found, "Failed to delete tags for NSX subnet %s", *(vpcSubnet.Id))
+	assert.False(t, found, "Failed to delete tags for NSX Subnet %s", *(vpcSubnet.Id))
 }
 
 func UserSubnetSet(t *testing.T) {
@@ -210,7 +210,7 @@ func UserSubnetSet(t *testing.T) {
 		require.NoError(t, applyYAML(portPath, subnetTestNamespace))
 		assureSubnetPort(t, subnetTestNamespace, portName)
 
-		// 3. Check SubnetSet CR status should be updated with NSX subnet info.
+		// 3. Check SubnetSet CR status should be updated with NSX Subnet info.
 		subnetSet, err := testData.crdClientset.CrdV1alpha1().SubnetSets(subnetTestNamespace).Get(context.TODO(), subnetSetName, v1.GetOptions{})
 		require.NoError(t, err)
 		require.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
@@ -239,7 +239,7 @@ func UserSubnetSet(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// 5. Check NSX subnet allocation.
+		// 5. Check NSX Subnet allocation.
 		networkAddress := subnetSet.Status.Subnets[0].NetworkAddresses
 		assert.True(t, len(networkAddress) > 0, "No network address in SubnetSet")
 		deleteYAML(portPath, subnetTestNamespace)
@@ -262,7 +262,7 @@ func sharedSubnetSet(t *testing.T) {
 	assureSubnetPort(t, subnetTestNamespaceShared, "port-e2e-test-3")
 	defer deleteYAML(portPath, subnetTestNamespaceShared)
 
-	// 3. Check SubnetSet CR status should be updated with NSX subnet info.
+	// 3. Check SubnetSet CR status should be updated with NSX Subnet info.
 	subnetSet, err := testData.crdClientset.CrdV1alpha1().SubnetSets(subnetTestNamespaceTarget).Get(context.TODO(), common.DefaultVMSubnetSet, v1.GetOptions{})
 	require.NoError(t, err)
 	require.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
@@ -292,12 +292,13 @@ func SubnetCIDR(t *testing.T) {
 			},
 		},
 	}
+	// Create a Subnet with DHCPServer mode
 	_, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), subnet, v1.CreateOptions{})
 	if err != nil && errors.IsAlreadyExists(err) {
 		err = nil
 	}
 	require.NoError(t, err)
-	assureSubnet(t, subnetTestNamespace, subnet.Name)
+	assureSubnet(t, subnetTestNamespace, subnet.Name, "")
 	allocatedSubnet, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
 	require.NoError(t, err)
 	subnetCRUID := string(allocatedSubnet.UID)
@@ -305,6 +306,7 @@ func SubnetCIDR(t *testing.T) {
 	require.Equal(t, 1, len(nsxSubnets))
 
 	targetCIDR := allocatedSubnet.Status.NetworkAddresses[0]
+	// Delete the Subnet
 	err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Delete(context.TODO(), subnet.Name, v1.DeleteOptions{})
 	require.NoError(t, err)
 
@@ -322,6 +324,7 @@ func SubnetCIDR(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Create another Subnet with the same IPAddresses
 	subnet.Spec.IPAddresses = []string{targetCIDR}
 	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), subnet, v1.CreateOptions{})
 	if err != nil && errors.IsAlreadyExists(err) {
@@ -329,7 +332,7 @@ func SubnetCIDR(t *testing.T) {
 		err = nil
 	}
 	require.NoError(t, err)
-	assureSubnet(t, subnetTestNamespace, subnet.Name)
+	assureSubnet(t, subnetTestNamespace, subnet.Name, "")
 	allocatedSubnet, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
 	require.NoError(t, err)
 	require.Equal(t, targetCIDR, allocatedSubnet.Status.NetworkAddresses[0])
@@ -338,6 +341,22 @@ func SubnetCIDR(t *testing.T) {
 	nsxSubnets = testData.fetchSubnetBySubnetUID(t, newSubnetCRUID)
 	require.Equal(t, 1, len(nsxSubnets))
 
+	// Change the DHCP mode from DHCPServer to DHCPDeactived
+	allocatedSubnet.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
+	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Update(context.TODO(), allocatedSubnet, v1.UpdateOptions{})
+	require.NoError(t, err)
+	allocatedSubnet = assureSubnet(t, subnetTestNamespace, subnet.Name, v1alpha1.DHCPConfigModeDeactivated)
+	nsxSubnets = testData.fetchSubnetBySubnetUID(t, newSubnetCRUID)
+	require.Equal(t, 1, len(nsxSubnets))
+	require.Equal(t, "DHCP_DEACTIVATED", *nsxSubnets[0].SubnetDhcpConfig.Mode)
+	require.Equal(t, true, *nsxSubnets[0].AdvancedConfig.StaticIpAllocation.Enabled)
+
+	// Change the DHCP mode from DHCPDeactived to DHCPServer
+	allocatedSubnet.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer)
+	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Update(context.TODO(), allocatedSubnet, v1.UpdateOptions{})
+	require.Contains(t, err.Error(), "subnetDHCPConfig cannot switch from DHCPDeactivated to other modes")
+
+	// Delete the Subnet
 	err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Delete(context.TODO(), subnet.Name, v1.DeleteOptions{})
 	require.NoError(t, err)
 
@@ -364,7 +383,7 @@ func (data *TestData) fetchSubnetBySubnetUID(t *testing.T, subnetUID string) (re
 	return
 }
 
-func assureSubnet(t *testing.T, ns, subnetName string) (res *v1alpha1.Subnet) {
+func assureSubnet(t *testing.T, ns, subnetName string, conditionMsg string) (res *v1alpha1.Subnet) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 2*defaultTimeout)
 	defer deadlineCancel()
 	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
@@ -378,7 +397,7 @@ func assureSubnet(t *testing.T, ns, subnetName string) (res *v1alpha1.Subnet) {
 		}
 		log.V(2).Info("Subnet status", "status", res.Status)
 		for _, con := range res.Status.Conditions {
-			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionTrue {
+			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionTrue && strings.Contains(con.Message, conditionMsg) {
 				return true, nil
 			}
 		}

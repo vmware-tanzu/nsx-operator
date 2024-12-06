@@ -53,7 +53,7 @@ func convertAccessMode(accessMode string) string {
 	return accessMode
 }
 
-func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, useLegacyAPI bool) (*model.VpcSubnet, error) {
+func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (*model.VpcSubnet, error) {
 	tags = append(service.buildBasicTags(obj), tags...)
 	var nsxSubnet *model.VpcSubnet
 	var staticIpAllocation bool
@@ -70,11 +70,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, u
 		if dhcpMode == "" {
 			dhcpMode = v1alpha1.DHCPConfigModeDeactivated
 		}
-		if useLegacyAPI {
-			nsxSubnet.DhcpConfig = service.buildDHCPConfig(dhcpMode != v1alpha1.DHCPConfigModeDeactivated)
-		} else {
-			nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode)
-		}
+		nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode)
 		nsxSubnet.IpAddresses = o.Spec.IPAddresses
 	case *v1alpha1.SubnetSet:
 		// The index is a random string with the length of 8 chars. It is the first 8 chars of the hash
@@ -91,11 +87,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, u
 		if dhcpMode == "" {
 			dhcpMode = v1alpha1.DHCPConfigModeDeactivated
 		}
-		if useLegacyAPI {
-			nsxSubnet.DhcpConfig = service.buildDHCPConfig(dhcpMode != v1alpha1.DHCPConfigModeDeactivated)
-		} else {
-			nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode)
-		}
+		nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode)
 	default:
 		return nil, SubnetTypeError
 	}
@@ -111,15 +103,6 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, u
 		},
 	}
 	return nsxSubnet, nil
-}
-
-func (service *SubnetService) buildDHCPConfig(enableDHCP bool) *model.VpcSubnetDhcpConfig {
-	// Subnet DHCP is used by AVI, not needed for now. We need to explicitly mark enableDhcp = false,
-	// otherwise Subnet will use DhcpConfig inherited from VPC.
-	dhcpConfig := &model.VpcSubnetDhcpConfig{
-		EnableDhcp: Bool(enableDHCP),
-	}
-	return dhcpConfig
 }
 
 func (service *SubnetService) buildSubnetDHCPConfig(mode string) *model.SubnetDhcpConfig {
