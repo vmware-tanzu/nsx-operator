@@ -479,30 +479,36 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 	return nil
 }
 
-func (service *SubnetService) LockSubnet(path *string) {
+func (service *SubnetService) LockSubnet(path *string) *sync.RWMutex {
 	if path != nil && *path != "" {
 		log.V(1).Info("Locked Subnet for writing", "path", *path)
-		service.SubnetStore.Lock(*path)
+		return service.SubnetStore.Lock(*path)
+	}
+	return nil
+}
+
+func (service *SubnetService) UnlockSubnet(path *string, lock *sync.RWMutex) {
+	if lock != nil {
+		if path != nil && *path != "" {
+			log.V(1).Info("Unlocked Subnet for writing", "path", *path)
+		}
+		lock.Unlock()
 	}
 }
 
-func (service *SubnetService) UnlockSubnet(path *string) {
-	if path != nil && *path != "" {
-		log.V(1).Info("Unlocked Subnet for writing", "path", *path)
-		service.SubnetStore.Unlock(*path)
-	}
-}
-
-func (service *SubnetService) RLockSubnet(path *string) {
+func (service *SubnetService) RLockSubnet(path *string) *sync.RWMutex {
 	if path != nil && *path != "" {
 		log.V(1).Info("Locked Subnet for reading", "path", *path)
-		service.SubnetStore.RLock(*path)
+		return service.SubnetStore.RLock(*path)
 	}
+	return nil
 }
 
-func (service *SubnetService) RUnlockSubnet(path *string) {
-	if path != nil && *path != "" {
-		log.V(1).Info("Unlocked Subnet for reading", "path", *path)
-		service.SubnetStore.RUnlock(*path)
+func (service *SubnetService) RUnlockSubnet(path *string, lock *sync.RWMutex) {
+	if lock != nil {
+		if path != nil && *path != "" {
+			log.V(1).Info("Unlocked Subnet for reading", "path", *path)
+		}
+		lock.RUnlock()
 	}
 }
