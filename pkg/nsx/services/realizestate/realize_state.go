@@ -60,13 +60,8 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 		if err != nil {
 			return err
 		}
-		entitiesRealized := 0
 		for _, result := range results.Results {
 			if entityType != "" && result.EntityType != nil && *result.EntityType != entityType {
-				continue
-			}
-			if *result.State == model.GenericPolicyRealizedResource_STATE_REALIZED {
-				entitiesRealized++
 				continue
 			}
 			if *result.State == model.GenericPolicyRealizedResource_STATE_ERROR {
@@ -78,10 +73,10 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 				}
 				return NewRealizeStateError(fmt.Sprintf("%s realized with errors: %s", *result.EntityType, errMsg))
 			}
+			if *result.State != model.GenericPolicyRealizedResource_STATE_REALIZED {
+				return fmt.Errorf("%s not realized", entityType)
+			}
 		}
-		if entitiesRealized == len(results.Results) {
-			return nil
-		}
-		return fmt.Errorf("%s not realized", entityType)
+		return nil
 	})
 }
