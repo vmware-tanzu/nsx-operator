@@ -95,28 +95,18 @@ func (subnetStore *SubnetStore) Delete(i interface{}) error {
 	return subnetStore.ResourceStore.Delete(i)
 }
 
-func (subnetStore *SubnetStore) Lock(path string) {
+func (subnetStore *SubnetStore) Lock(path string) *sync.RWMutex {
 	lock := sync.RWMutex{}
 	subnetLock, _ := subnetStore.pathLocks.LoadOrStore(path, &lock)
 	subnetLock.(*sync.RWMutex).Lock()
+	return subnetLock.(*sync.RWMutex)
 }
 
-func (subnetStore *SubnetStore) Unlock(path string) {
-	if subnetLock, existed := subnetStore.pathLocks.Load(path); existed {
-		subnetLock.(*sync.RWMutex).Unlock()
-	}
-}
-
-func (subnetStore *SubnetStore) RLock(path string) {
+func (subnetStore *SubnetStore) RLock(path string) *sync.RWMutex {
 	lock := sync.RWMutex{}
 	subnetLock, _ := subnetStore.pathLocks.LoadOrStore(path, &lock)
 	subnetLock.(*sync.RWMutex).RLock()
-}
-
-func (subnetStore *SubnetStore) RUnlock(path string) {
-	if subnetLock, existed := subnetStore.pathLocks.Load(path); existed {
-		subnetLock.(*sync.RWMutex).RUnlock()
-	}
+	return subnetLock.(*sync.RWMutex)
 }
 
 func (subnetStore *SubnetStore) Apply(i interface{}) error {
