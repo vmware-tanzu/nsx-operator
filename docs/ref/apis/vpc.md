@@ -136,6 +136,7 @@ _Appears in:_
 | `GatewayConnectionReady` |  |
 | `AutoSnatEnabled` |  |
 | `ExternalIPBlocksConfigured` |  |
+| `DeletionFailed` |  |
 
 
 #### DHCPConfigMode

@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetbinding"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -46,6 +48,7 @@ type SubnetSetReconciler struct {
 	SubnetService     *subnet.SubnetService
 	SubnetPortService servicecommon.SubnetPortServiceProvider
 	VPCService        servicecommon.VPCServiceProvider
+	BindingService    *subnetbinding.BindingService
 	Recorder          record.EventRecorder
 	StatusUpdater     common.StatusUpdater
 }
@@ -71,8 +74,44 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		log.Error(err, "Unable to fetch SubnetSet CR", "SubnetSet", req.NamespacedName)
 		return ResultRequeue, err
 	}
+
+	bindingCRs := r.getSubnetBindingCRsBySubnetSet(ctx, subnetsetCR)
+	if len(bindingCRs) > 0 {
+		if !controllerutil.ContainsFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName) {
+			controllerutil.AddFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName)
+			if err := r.Client.Update(ctx, subnetsetCR); err != nil {
+				log.Error(err, "Failed to add the finalizer", "SubnetSet", req.NamespacedName)
+				msgFailAddFinalizer := fmt.Sprintf("Failed to add the finalizer on SubnetSet for the dependency by SubnetConnectionBindingMap %s", bindingCRs[0].Name)
+				r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Unable to add the finalizer on SubnetSet used by SubnetConnectionBindingMap",
+					setSubnetSetReadyStatusFalse, msgFailAddFinalizer)
+				return ResultRequeue, err
+			}
+		}
+	} else {
+		if controllerutil.ContainsFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName) {
+			controllerutil.RemoveFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName)
+			if err := r.Client.Update(ctx, subnetsetCR); err != nil {
+				log.Error(err, "Failed to delete the finalizer", "SubnetSet", req.NamespacedName)
+				msgFailDelFinalizer := "Failed to remove the finalizer on SubnetSet when there is no reference by SubnetConnectionBindingMaps"
+				r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Unable to remove the finalizer from SubnetSet",
+					setSubnetSetReadyStatusFalse, fmt.Sprint(msgFailDelFinalizer))
+				return ResultRequeue, err
+			}
+		}
+	}
+
 	if !subnetsetCR.ObjectMeta.DeletionTimestamp.IsZero() {
 		r.StatusUpdater.IncreaseDeleteTotal()
+		bindingsOnNSX := r.getNSXSubnetBindingsBySubnetSet(string(subnetsetCR.UID))
+		if len(bindingsOnNSX) > 0 {
+			err := fmt.Errorf("failed to delete SubnetSet CR %s", req.String())
+			log.Error(err, "The SubnetSet CR is used by SubnetConnectionBindingMaps, retrying", "SubnetConnectionBindingMap", bindingsOnNSX[0].GetName())
+			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
+			msgDeleteInUse := fmt.Sprintf("SubnetSet is used by SubnetConnectionBindingMap %s and not able to delete", bindingsOnNSX[0].GetName())
+			r.setSubnetDeletionFailedStatus(ctx, subnetsetCR, metav1.Now(), msgDeleteInUse, "SubnetSetInUse")
+			return ResultRequeue, err
+		}
+
 		err := r.deleteSubnetForSubnetSet(*subnetsetCR, false, false)
 		if err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
@@ -150,7 +189,7 @@ func setSubnetSetReadyStatusTrue(client client.Client, ctx context.Context, obj 
 	updateSubnetSetStatusConditions(client, ctx, subnetSet, newConditions)
 }
 
-func setSubnetSetReadyStatusFalse(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, err error, _ ...interface{}) {
+func setSubnetSetReadyStatusFalse(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, err error, args ...interface{}) {
 	subnetSet := obj.(*v1alpha1.SubnetSet)
 	newConditions := []v1alpha1.Condition{
 		{
@@ -161,10 +200,34 @@ func setSubnetSetReadyStatusFalse(client client.Client, ctx context.Context, obj
 			LastTransitionTime: transitionTime,
 		},
 	}
-	if err != nil {
-		newConditions[0].Message = fmt.Sprintf("Error occurred while processing the SubnetSet CR. Please check the config and try again. Error: %v", err)
+
+	if len(args) > 0 {
+		newConditions[0].Message = args[0].(string)
+	} else {
+		if err != nil {
+			newConditions[0].Message = fmt.Sprintf("Error occurred while processing the SubnetSet CR. Please check the config and try again. Error: %v", err)
+		}
 	}
 	updateSubnetSetStatusConditions(client, ctx, subnetSet, newConditions)
+}
+
+func (r *SubnetSetReconciler) setSubnetDeletionFailedStatus(ctx context.Context, subnetSet *v1alpha1.SubnetSet, transitionTime metav1.Time, msg string, reason string) {
+	newConditions := []v1alpha1.Condition{
+		{
+			Type:               v1alpha1.DeleteFailure,
+			Status:             v1.ConditionTrue,
+			Message:            "SubnetSet could not be deleted",
+			Reason:             "NSXOperationFailed",
+			LastTransitionTime: transitionTime,
+		},
+	}
+	if msg != "" {
+		newConditions[0].Message = msg
+	}
+	if reason != "" {
+		newConditions[0].Reason = reason
+	}
+	updateSubnetSetStatusConditions(r.Client, ctx, subnetSet, newConditions)
 }
 
 func updateSubnetSetStatusConditions(client client.Client, ctx context.Context, subnetSet *v1alpha1.SubnetSet, newConditions []v1alpha1.Condition) {
@@ -221,6 +284,17 @@ func (r *SubnetSetReconciler) setupWithManager(mgr ctrl.Manager) error {
 			&EnqueueRequestForNamespace{Client: mgr.GetClient()},
 			builder.WithPredicates(PredicateFuncsNs),
 		).
+		Watches(
+			&v1alpha1.SubnetConnectionBindingMap{},
+			&common.EnqueueRequestForDependency{
+				Client:          r.Client,
+				ResourceType:    "SubnetConnectionBindingMap",
+				RequeueByCreate: requeueSubnetSetBySubnetBindingCreate,
+				RequeueByUpdate: requeueSubnetSetBySubnetBindingUpdate,
+				RequeueByDelete: requeueSubnetSetBySubnetBindingDelete,
+			},
+			builder.WithPredicates(common.PredicateFuncsWithSubnetBindings),
+		).
 		Complete(r)
 }
 
@@ -253,7 +327,7 @@ func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) {
 	for subnetSetID := range subnetSetIDsToDelete {
 		nsxSubnets := r.SubnetService.ListSubnetCreatedBySubnetSet(subnetSetID)
 		log.Info("SubnetSet garbage collection, cleaning stale Subnets for SubnetSet", "Count", len(nsxSubnets))
-		if _, err := r.deleteSubnets(nsxSubnets); err != nil {
+		if _, err := r.deleteSubnets(nsxSubnets, true); err != nil {
 			log.Error(err, "SubnetSet garbage collection, failed to delete NSX subnet", "SubnetSetUID", subnetSetID)
 			r.StatusUpdater.IncreaseDeleteFailTotal()
 		} else {
@@ -279,7 +353,11 @@ func (r *SubnetSetReconciler) deleteSubnetBySubnetSetName(ctx context.Context, s
 
 func (r *SubnetSetReconciler) deleteSubnetForSubnetSet(subnetSet v1alpha1.SubnetSet, updateStatus, ignoreStaleSubnetPort bool) error {
 	nsxSubnets := r.SubnetService.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.GetUID()))
-	hasStaleSubnetPort, deleteErr := r.deleteSubnets(nsxSubnets)
+	// If ignoreStaleSubnetPort is true, we will actively delete the existing SubnetConnectionBindingMaps connected to the
+	// corresponding NSX Subnet. This happens in the GC case to scale-in the NSX Subnet if no SubnetPort exists.
+	// For SubnetSet CR deletion event, we don't delete the existing SubnetConnectionBindingMaps but let the
+	// SubnetConnectionBindingMap controller do it after the binding CR is removed.
+	hasStaleSubnetPort, deleteErr := r.deleteSubnets(nsxSubnets, ignoreStaleSubnetPort)
 	if updateStatus {
 		if err := r.SubnetService.UpdateSubnetSetStatus(&subnetSet); err != nil {
 			return err
@@ -297,28 +375,38 @@ func (r *SubnetSetReconciler) deleteSubnetForSubnetSet(subnetSet v1alpha1.Subnet
 // deleteSubnets deletes all the specified NSX Subnets.
 // If any of the Subnets have stale SubnetPorts, they are skipped. The final result returns true.
 // If there is an error while deleting any NSX Subnet, it is skipped, and the final result returns an error.
-func (r *SubnetSetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet) (hasStalePort bool, err error) {
+func (r *SubnetSetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet, deleteBindingMaps bool) (hasStalePort bool, err error) {
 	if len(nsxSubnets) == 0 {
 		return
 	}
 	var deleteErrs []error
 	for _, nsxSubnet := range nsxSubnets {
 		r.SubnetService.LockSubnet(nsxSubnet.Path)
-		portNums := len(r.SubnetPortService.GetPortsOfSubnet(*nsxSubnet.Id))
-		if portNums > 0 {
-			r.SubnetService.UnlockSubnet(nsxSubnet.Path)
-			hasStalePort = true
-			log.Info("Skipped deleting NSX Subnet due to stale ports", "nsxSubnet", *nsxSubnet.Id)
-			continue
-		}
-		if err := r.SubnetService.DeleteSubnet(*nsxSubnet); err != nil {
-			r.SubnetService.UnlockSubnet(nsxSubnet.Path)
-			deleteErr := fmt.Errorf("failed to delete NSX Subnet/%s: %+v", *nsxSubnet.Id, err)
-			deleteErrs = append(deleteErrs, deleteErr)
-			log.Error(deleteErr, "Skipping to next Subnet")
-			continue
-		}
-		r.SubnetService.UnlockSubnet(nsxSubnet.Path)
+		func() {
+			defer r.SubnetService.UnlockSubnet(nsxSubnet.Path)
+
+			portNums := len(r.SubnetPortService.GetPortsOfSubnet(*nsxSubnet.Id))
+			if portNums > 0 {
+				hasStalePort = true
+				log.Info("Skipped deleting NSX Subnet due to stale ports", "nsxSubnet", *nsxSubnet.Id)
+				return
+			}
+
+			if deleteBindingMaps {
+				if err := r.BindingService.DeleteSubnetConnectionBindingMapsByParentSubnet(nsxSubnet); err != nil {
+					deleteErr := fmt.Errorf("failed to delete NSX SubnetConnectionBindingMaps connected to NSX Subnet/%s: %+v", *nsxSubnet.Id, err)
+					deleteErrs = append(deleteErrs, deleteErr)
+					log.Error(deleteErr, "Skipping to next Subnet")
+					return
+				}
+			}
+
+			if err := r.SubnetService.DeleteSubnet(*nsxSubnet); err != nil {
+				deleteErr := fmt.Errorf("failed to delete NSX Subnet/%s: %+v", *nsxSubnet.Id, err)
+				deleteErrs = append(deleteErrs, deleteErr)
+				log.Error(deleteErr, "Skipping to next Subnet")
+			}
+		}()
 	}
 	if len(deleteErrs) > 0 {
 		err = fmt.Errorf("multiple errors occurred while deleting Subnets: %v", deleteErrs)
@@ -344,7 +432,8 @@ func (r *SubnetSetReconciler) deleteStaleSubnets(ctx context.Context, nsxSubnets
 		nsxSubnetsToDelete = append(nsxSubnetsToDelete, nsxSubnet)
 	}
 	log.Info("Cleaning stale Subnets for SubnetSet", "Count", len(nsxSubnetsToDelete))
-	hasStaleSubnetPort, err := r.deleteSubnets(nsxSubnetsToDelete)
+	// We also actively delete the existing SubnetConnectionBindingMaps connected to the stale NSX Subnets.
+	hasStaleSubnetPort, err := r.deleteSubnets(nsxSubnetsToDelete, true)
 	if err != nil || hasStaleSubnetPort {
 		return fmt.Errorf("failed to delete stale Subnets, error: %v, hasStaleSubnetPort: %t", err, hasStaleSubnetPort)
 	}
@@ -353,15 +442,17 @@ func (r *SubnetSetReconciler) deleteStaleSubnets(ctx context.Context, nsxSubnets
 
 func StartSubnetSetController(mgr ctrl.Manager, subnetService *subnet.SubnetService,
 	subnetPortService servicecommon.SubnetPortServiceProvider, vpcService servicecommon.VPCServiceProvider,
-	hookServer webhook.Server,
+	bindingService *subnetbinding.BindingService, hookServer webhook.Server,
 ) error {
 	subnetsetReconciler := &SubnetSetReconciler{
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
 		SubnetService:     subnetService,
 		SubnetPortService: subnetPortService,
-		VPCService:        vpcService,
-		Recorder:          mgr.GetEventRecorderFor("subnetset-controller"),
+		BindingService:    bindingService,
+
+		VPCService: vpcService,
+		Recorder:   mgr.GetEventRecorderFor("subnetset-controller"),
 	}
 	subnetsetReconciler.StatusUpdater = common.NewStatusUpdater(subnetsetReconciler.Client, subnetsetReconciler.SubnetService.NSXConfig, subnetsetReconciler.Recorder, MetricResTypeSubnetSet, "Subnet", "SubnetSet")
 	if err := subnetsetReconciler.Start(mgr, hookServer); err != nil {
