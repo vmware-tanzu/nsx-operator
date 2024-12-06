@@ -162,11 +162,13 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	VPCService.VPCNSNetworkConfigStore = VPCNsNetworkConfigStore{
 		VPCNSNetworkConfigMap: make(map[string]string),
 	}
+
+	// Note: waitgroup.Add must be called before its consumptions.
+	wg.Add(2)
 	// initialize vpc store, lbs store
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, VPCService.VpcStore)
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeLBService, nil, VPCService.LbsStore)
 
-	wg.Add(2)
 	go func() {
 		wg.Wait()
 		close(wgDone)
