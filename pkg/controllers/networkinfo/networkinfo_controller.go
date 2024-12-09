@@ -357,6 +357,10 @@ func (r *NetworkInfoReconciler) setupWithManager(mgr ctrl.Manager) error {
 				ipBlocksInfoService: r.IPBlocksInfoService,
 			},
 			builder.WithPredicates(VPCNetworkConfigurationPredicate)).
+		Watches(
+			&corev1.Namespace{},
+			&NamespaceHandler{},
+			builder.WithPredicates(NamespacePredicate)).
 		Complete(r)
 }
 
@@ -453,15 +457,15 @@ func (r *NetworkInfoReconciler) fetchStaleVPCsByNamespace(ctx context.Context, n
 }
 
 func (r *NetworkInfoReconciler) deleteVPCsByName(ctx context.Context, ns string) error {
+	staleVPCs := r.Service.GetVPCsByNamespace(ns)
+	if len(staleVPCs) == 0 {
+		return nil
+	}
+
 	_, idSet, err := r.listNamespaceCRsNameIDSet(ctx)
 	if err != nil {
 		log.Error(err, "Failed to list Kubernetes Namespaces")
 		return fmt.Errorf("failed to list Kubernetes Namespaces while deleting VPCs: %v", err)
-	}
-
-	staleVPCs, err := r.fetchStaleVPCsByNamespace(ctx, ns)
-	if err != nil {
-		return err
 	}
 
 	var vpcToDelete []*model.Vpc
@@ -513,11 +517,10 @@ func (r *NetworkInfoReconciler) deleteVPCs(ctx context.Context, staleVPCs []*mod
 	}
 
 	// Update the VPCNetworkConfiguration Status
-	ncName, err := r.Service.GetNetworkconfigNameFromNS(ctx, ns)
-	if err != nil {
-		return fmt.Errorf("failed to get VPCNetworkConfiguration for Namespace when deleting stale VPCs %s: %w", ns, err)
+	vpcNetConfig := r.Service.GetVPCNetworkConfigByNamespace(ns)
+	if vpcNetConfig != nil {
+		deleteVPCNetworkConfigurationStatus(ctx, r.Client, vpcNetConfig.Name, staleVPCs, r.Service.ListVPC())
 	}
-	deleteVPCNetworkConfigurationStatus(ctx, r.Client, ncName, staleVPCs, r.Service.ListVPC())
 	return nil
 }
 
