@@ -28,7 +28,6 @@ import (
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -97,11 +96,6 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 		subnetsetCR.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
 		specChanged = true
-	}
-	if !util.IsPowerOfTwo(subnetsetCR.Spec.IPv4SubnetSize) {
-		err := fmt.Errorf("ipv4SubnetSize has invalid size %d, which needs to be >= 16 and power of 2", subnetsetCR.Spec.IPv4SubnetSize)
-		r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "", setSubnetSetReadyStatusFalse)
-		return ResultNormal, nil
 	}
 
 	if specChanged {
