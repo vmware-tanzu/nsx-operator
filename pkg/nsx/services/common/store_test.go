@@ -141,7 +141,7 @@ var filterTag = func(v []model.Tag) []string {
 func Test_InitializeResourceStore(t *testing.T) {
 	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config2)
-	rc, _ := cluster.NewRestConnector()
+	rc := cluster.NewRestConnector()
 
 	service := Service{
 		NSXClient: &nsx.Client{
