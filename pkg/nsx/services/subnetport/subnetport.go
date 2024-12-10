@@ -176,7 +176,7 @@ func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubne
 		Jitter:   0,
 		Steps:    6,
 	}
-	if err := realizeService.CheckRealizeState(backoff, *nsxSubnetPort.Path, "RealizedLogicalPort"); err != nil {
+	if err := realizeService.CheckRealizeState(backoff, *nsxSubnetPort.Path); err != nil {
 		log.Error(err, "failed to get realized status", "subnetport path", *nsxSubnetPort.Path)
 		if realizestate.IsRealizeStateError(err) {
 			log.Error(err, "the created subnet port is in error realization state, cleaning the resource", "subnetport", portID)
