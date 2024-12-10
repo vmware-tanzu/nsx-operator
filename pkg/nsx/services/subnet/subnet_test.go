@@ -144,7 +144,8 @@ func (f fakeRealizedEntitiesClient) List(intentPathParam string, sitePathParam *
 	return model.GenericPolicyRealizedResourceListResult{
 		Results: []model.GenericPolicyRealizedResource{
 			{
-				State: &state,
+				State:      &state,
+				EntityType: common.String("RealizedLogicalPort"),
 			},
 		},
 	}, nil
