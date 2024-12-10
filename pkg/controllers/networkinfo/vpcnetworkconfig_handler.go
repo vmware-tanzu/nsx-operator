@@ -189,18 +189,3 @@ func (h *NamespaceHandler) Update(ctx context.Context, e event.UpdateEvent, q wo
 
 func (h *NamespaceHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
-
-var NamespacePredicate = predicate.Funcs{
-	CreateFunc: func(e event.CreateEvent) bool {
-		return false
-	},
-	UpdateFunc: func(e event.UpdateEvent) bool {
-		return false
-	},
-	DeleteFunc: func(e event.DeleteEvent) bool {
-		return true
-	},
-	GenericFunc: func(genericEvent event.GenericEvent) bool {
-		return false
-	},
-}

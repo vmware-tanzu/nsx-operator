@@ -357,10 +357,6 @@ func (r *NetworkInfoReconciler) setupWithManager(mgr ctrl.Manager) error {
 				ipBlocksInfoService: r.IPBlocksInfoService,
 			},
 			builder.WithPredicates(VPCNetworkConfigurationPredicate)).
-		Watches(
-			&corev1.Namespace{},
-			&NamespaceHandler{},
-			builder.WithPredicates(NamespacePredicate)).
 		Complete(r)
 }
 
@@ -387,8 +383,11 @@ func (r *NetworkInfoReconciler) listNamespaceCRsNameIDSet(ctx context.Context) (
 	nsSet := sets.Set[string]{}
 	idSet := sets.Set[string]{}
 	for _, ns := range namespaces.Items {
-		nsSet.Insert(ns.Name)
-		idSet.Insert(string(ns.UID))
+		// Ignore the terminating Namespaces in the list results.
+		if ns.DeletionTimestamp.IsZero() {
+			nsSet.Insert(ns.Name)
+			idSet.Insert(string(ns.UID))
+		}
 	}
 	return nsSet, idSet, nil
 }
@@ -519,9 +518,18 @@ func (r *NetworkInfoReconciler) deleteVPCs(ctx context.Context, staleVPCs []*mod
 	// Update the VPCNetworkConfiguration Status
 	vpcNetConfig := r.Service.GetVPCNetworkConfigByNamespace(ns)
 	if vpcNetConfig != nil {
-		deleteVPCNetworkConfigurationStatus(ctx, r.Client, vpcNetConfig.Name, staleVPCs, r.Service.ListVPC())
+		updateVPCNetworkConfigurationStatusWithAliveVPCs(ctx, r.Client, vpcNetConfig.Name, r.listVPCsByNetworkConfigName)
 	}
 	return nil
+}
+
+func (r *NetworkInfoReconciler) listVPCsByNetworkConfigName(ncName string) []*model.Vpc {
+	namespacesUsingNC := r.Service.GetNamespacesByNetworkconfigName(ncName)
+	aliveVPCs := make([]*model.Vpc, 0)
+	for _, namespace := range namespacesUsingNC {
+		aliveVPCs = append(aliveVPCs, r.Service.GetVPCsByNamespace(namespace)...)
+	}
+	return aliveVPCs
 }
 
 func (r *NetworkInfoReconciler) syncPreCreatedVpcIPs(ctx context.Context) {
