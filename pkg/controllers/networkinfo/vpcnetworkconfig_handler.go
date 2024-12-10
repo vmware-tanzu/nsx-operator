@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -167,40 +166,4 @@ func nsxProjectPathToId(path string) (string, string, error) {
 		return "", "", errors.New("invalid NSX project path")
 	}
 	return parts[2], parts[len(parts)-1], nil
-}
-
-type NamespaceHandler struct{}
-
-func (h *NamespaceHandler) Create(_ context.Context, _ event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-func (h *NamespaceHandler) Delete(_ context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	ns := e.Object.(*corev1.Namespace)
-	q.Add(
-		reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      ns.Name,
-				Namespace: ns.Name,
-			},
-		})
-}
-
-func (h *NamespaceHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (h *NamespaceHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-var NamespacePredicate = predicate.Funcs{
-	CreateFunc: func(e event.CreateEvent) bool {
-		return false
-	},
-	UpdateFunc: func(e event.UpdateEvent) bool {
-		return false
-	},
-	DeleteFunc: func(e event.DeleteEvent) bool {
-		return true
-	},
-	GenericFunc: func(genericEvent event.GenericEvent) bool {
-		return false
-	},
 }

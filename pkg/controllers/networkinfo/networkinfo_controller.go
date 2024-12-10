@@ -136,7 +136,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	networkInfoCR := &v1alpha1.NetworkInfo{}
 	if err := r.Client.Get(ctx, req.NamespacedName, networkInfoCR); err != nil {
 		if apierrors.IsNotFound(err) {
-			if err := r.deleteVPCsByName(ctx, req.Namespace); err != nil {
+			if err := r.deleteVPCsByNamespace(ctx, req.Namespace); err != nil {
 				r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
 				return common.ResultRequeue, err
 			}
@@ -150,7 +150,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Check if the CR is marked for deletion
 	if !networkInfoCR.ObjectMeta.DeletionTimestamp.IsZero() {
 		r.StatusUpdater.IncreaseDeleteTotal()
-		if err := r.deleteVPCsByID(ctx, networkInfoCR.GetNamespace(), string(networkInfoCR.UID)); err != nil {
+		if err := r.deleteVPCsByNamespace(ctx, networkInfoCR.GetNamespace()); err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
 			return common.ResultRequeue, err
 		}
@@ -357,10 +357,6 @@ func (r *NetworkInfoReconciler) setupWithManager(mgr ctrl.Manager) error {
 				ipBlocksInfoService: r.IPBlocksInfoService,
 			},
 			builder.WithPredicates(VPCNetworkConfigurationPredicate)).
-		Watches(
-			&corev1.Namespace{},
-			&NamespaceHandler{},
-			builder.WithPredicates(NamespacePredicate)).
 		Complete(r)
 }
 
@@ -412,8 +408,11 @@ func (r *NetworkInfoReconciler) listNamespaceCRsNameIDSet(ctx context.Context) (
 	nsSet := sets.Set[string]{}
 	idSet := sets.Set[string]{}
 	for _, ns := range namespaces.Items {
-		nsSet.Insert(ns.Name)
-		idSet.Insert(string(ns.UID))
+		// Ignore the terminating Namespaces in the list results.
+		if ns.ObjectMeta.DeletionTimestamp.IsZero() {
+			nsSet.Insert(ns.Name)
+			idSet.Insert(string(ns.UID))
+		}
 	}
 	return nsSet, idSet, nil
 }
@@ -463,25 +462,7 @@ func (r *NetworkInfoReconciler) CollectGarbage(ctx context.Context) {
 	}
 }
 
-func (r *NetworkInfoReconciler) fetchStaleVPCsByNamespace(ctx context.Context, ns string) ([]*model.Vpc, error) {
-	isShared, err := r.Service.IsSharedVPCNamespaceByNS(ctx, ns)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			// if the Namespace has been deleted, we never know whether it`s a shared Namespace, The GC will delete the stale VPCs
-			log.Info("Namespace does not exist while fetching stale VPCs", "Namespace", ns)
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to check if Namespace is shared for NS %s: %w", ns, err)
-	}
-	if isShared {
-		log.Info("Shared Namespace, skipping deletion of NSX VPC", "Namespace", ns)
-		return nil, nil
-	}
-
-	return r.Service.GetVPCsByNamespace(ns), nil
-}
-
-func (r *NetworkInfoReconciler) deleteVPCsByName(ctx context.Context, ns string) error {
+func (r *NetworkInfoReconciler) deleteVPCsByNamespace(ctx context.Context, ns string) error {
 	staleVPCs := r.Service.GetVPCsByNamespace(ns)
 	if len(staleVPCs) == 0 {
 		return nil
@@ -501,22 +482,6 @@ func (r *NetworkInfoReconciler) deleteVPCsByName(ctx context.Context, ns string)
 			continue
 		}
 		vpcToDelete = append(vpcToDelete, nsxVPC)
-	}
-	return r.deleteVPCs(ctx, vpcToDelete, ns)
-}
-
-func (r *NetworkInfoReconciler) deleteVPCsByID(ctx context.Context, ns, id string) error {
-	staleVPCs, err := r.fetchStaleVPCsByNamespace(ctx, ns)
-	if err != nil {
-		return err
-	}
-
-	var vpcToDelete []*model.Vpc
-	for _, nsxVPC := range staleVPCs {
-		namespaceIDofVPC := filterTagFromNSXVPC(nsxVPC, commonservice.TagScopeNamespaceUID)
-		if namespaceIDofVPC == id {
-			vpcToDelete = append(vpcToDelete, nsxVPC)
-		}
 	}
 	return r.deleteVPCs(ctx, vpcToDelete, ns)
 }
@@ -544,9 +509,18 @@ func (r *NetworkInfoReconciler) deleteVPCs(ctx context.Context, staleVPCs []*mod
 	// Update the VPCNetworkConfiguration Status
 	vpcNetConfig := r.Service.GetVPCNetworkConfigByNamespace(ns)
 	if vpcNetConfig != nil {
-		deleteVPCNetworkConfigurationStatus(ctx, r.Client, vpcNetConfig.Name, staleVPCs, r.Service.ListVPC())
+		updateVPCNetworkConfigurationStatusWithAliveVPCs(ctx, r.Client, vpcNetConfig.Name, r.listVPCsByNetworkConfigName)
 	}
 	return nil
+}
+
+func (r *NetworkInfoReconciler) listVPCsByNetworkConfigName(ncName string) []*model.Vpc {
+	namespacesUsingNC := r.Service.GetNamespacesByNetworkconfigName(ncName)
+	aliveVPCs := make([]*model.Vpc, 0)
+	for _, namespace := range namespacesUsingNC {
+		aliveVPCs = append(aliveVPCs, r.Service.GetVPCsByNamespace(namespace)...)
+	}
+	return aliveVPCs
 }
 
 func (r *NetworkInfoReconciler) syncPreCreatedVpcIPs(ctx context.Context) {
