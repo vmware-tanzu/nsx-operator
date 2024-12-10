@@ -18,6 +18,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	sr "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetbinding"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
@@ -180,11 +181,14 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 	patches.ApplyFunc(ipaddressallocation.InitializeIPAddressAllocation, func(service common.Service, vpcService common.VPCServiceProvider, flag bool) (*ipaddressallocation.IPAddressAllocationService, error) {
 		return &ipaddressallocation.IPAddressAllocationService{}, nil
 	})
+	patches.ApplyFunc(subnetbinding.InitializeService, func(service common.Service) (*subnetbinding.BindingService, error) {
+		return &subnetbinding.BindingService{}, nil
+	})
 
 	cleanupService, err := InitializeCleanupService(cf, nsxClient)
 	assert.NoError(t, err)
 	assert.NotNil(t, cleanupService)
-	assert.Len(t, cleanupService.cleans, 6)
+	assert.Len(t, cleanupService.cleans, 7)
 }
 
 func TestInitializeCleanupService_VPCError(t *testing.T) {
@@ -214,10 +218,13 @@ func TestInitializeCleanupService_VPCError(t *testing.T) {
 	patches.ApplyFunc(ipaddressallocation.InitializeIPAddressAllocation, func(service common.Service, vpcService common.VPCServiceProvider, flag bool) (*ipaddressallocation.IPAddressAllocationService, error) {
 		return &ipaddressallocation.IPAddressAllocationService{}, nil
 	})
+	patches.ApplyFunc(subnetbinding.InitializeService, func(service common.Service) (*subnetbinding.BindingService, error) {
+		return &subnetbinding.BindingService{}, nil
+	})
 
 	cleanupService, err := InitializeCleanupService(cf, nsxClient)
 	assert.NoError(t, err)
 	assert.NotNil(t, cleanupService)
-	assert.Len(t, cleanupService.cleans, 4)
+	assert.Len(t, cleanupService.cleans, 5)
 	assert.Equal(t, expectedError, cleanupService.err)
 }
