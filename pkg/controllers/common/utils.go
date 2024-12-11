@@ -29,8 +29,8 @@ var (
 
 func AllocateSubnetFromSubnetSet(subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, error) {
 	// Use SubnetSet uuid lock to make sure when multiple ports are created on the same SubnetSet, only one Subnet will be created
-	lockSubnetSet(subnetSet.GetUID())
-	defer unlockSubnetSet(subnetSet.GetUID())
+	subnetSetLock := lockSubnetSet(subnetSet.GetUID())
+	defer unlockSubnetSet(subnetSet.GetUID(), subnetSetLock)
 	subnetList := subnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.GetUID()))
 	for _, nsxSubnet := range subnetList {
 		portNums := len(subnetPortService.GetPortsOfSubnet(*nsxSubnet.Id))
@@ -241,16 +241,17 @@ func NewStatusUpdater(client k8sclient.Client, nsxConfig *config.NSXOperatorConf
 	}
 }
 
-func lockSubnetSet(uuid types.UID) {
+func lockSubnetSet(uuid types.UID) *sync.Mutex {
 	lock := sync.Mutex{}
 	subnetSetLock, _ := SubnetSetLocks.LoadOrStore(uuid, &lock)
 	log.V(1).Info("Lock SubnetSet", "uuid", uuid)
 	subnetSetLock.(*sync.Mutex).Lock()
+	return subnetSetLock.(*sync.Mutex)
 }
 
-func unlockSubnetSet(uuid types.UID) {
-	if subnetSetLock, existed := SubnetSetLocks.Load(uuid); existed {
+func unlockSubnetSet(uuid types.UID, subnetSetLock *sync.Mutex) {
+	if subnetSetLock != nil {
 		log.V(1).Info("Unlock SubnetSet", "uuid", uuid)
-		subnetSetLock.(*sync.Mutex).Unlock()
+		subnetSetLock.Unlock()
 	}
 }
