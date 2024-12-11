@@ -53,8 +53,7 @@ func (recorder fakeRecorder) Eventf(object runtime.Object, eventtype, reason, me
 func (recorder fakeRecorder) AnnotatedEventf(object runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
 }
 
-type fakeOrgRootClient struct {
-}
+type fakeOrgRootClient struct{}
 
 func (f fakeOrgRootClient) Get(basePathParam *string, filterParam *string, typeFilterParam *string) (model.OrgRoot, error) {
 	return model.OrgRoot{}, nil
@@ -64,8 +63,7 @@ func (f fakeOrgRootClient) Patch(orgRootParam model.OrgRoot, enforceRevisionChec
 	return errors.New("patch error")
 }
 
-type fakeSubnetStatusClient struct {
-}
+type fakeSubnetStatusClient struct{}
 
 func (f fakeSubnetStatusClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnetStatusListResult, error) {
 	dhcpServerAddress := "1.1.1.1"
@@ -158,22 +156,6 @@ func TestReconcile(t *testing.T) {
 			expectErrStr: "failed to find VPCNetworkConfig for Namespace",
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
-					return []v1alpha1.SubnetConnectionBindingMap{}
-				})
-				return patches
-			},
-		},
-		{
-			// TODO: should check the SubnetSet status has error message, which contains 'ipv4SubnetSize has invalid size'
-			name:         "Create a SubnetSet with invalid IPv4SubnetSize",
-			expectRes:    ResultNormal,
-			expectErrStr: "",
-			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
-				vpcnetworkInfo := &common.VPCNetworkConfigInfo{DefaultSubnetSize: 15}
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) *common.VPCNetworkConfigInfo {
-					return vpcnetworkInfo
-				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
 					return []v1alpha1.SubnetConnectionBindingMap{}
 				})
 				return patches

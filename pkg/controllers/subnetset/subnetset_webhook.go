@@ -14,6 +14,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var NSXOperatorSA = "system:serviceaccount:vmware-system-nsx:ncp-svc-account"
@@ -63,6 +64,9 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 	log.V(1).Info("Handling request", "user", req.UserInfo.Username, "operation", req.Operation)
 	switch req.Operation {
 	case admissionv1.Create:
+		if subnetSet.Spec.IPv4SubnetSize != 0 && !util.IsPowerOfTwo(subnetSet.Spec.IPv4SubnetSize) {
+			return admission.Denied(fmt.Sprintf("SubnetSet %s/%s has invalid size %d, which must be power of 2", subnetSet.Namespace, subnetSet.Name, subnetSet.Spec.IPv4SubnetSize))
+		}
 		if isDefaultSubnetSet(subnetSet) && req.UserInfo.Username != NSXOperatorSA {
 			return admission.Denied("default SubnetSet only can be created by nsx-operator")
 		}
