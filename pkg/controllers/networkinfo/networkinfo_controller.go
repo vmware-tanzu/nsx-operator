@@ -383,8 +383,11 @@ func (r *NetworkInfoReconciler) listNamespaceCRsNameIDSet(ctx context.Context) (
 	nsSet := sets.Set[string]{}
 	idSet := sets.Set[string]{}
 	for _, ns := range namespaces.Items {
-		nsSet.Insert(ns.Name)
-		idSet.Insert(string(ns.UID))
+		// Ignore the terminating Namespaces in the list results.
+		if ns.DeletionTimestamp.IsZero() {
+			nsSet.Insert(ns.Name)
+			idSet.Insert(string(ns.UID))
+		}
 	}
 	return nsSet, idSet, nil
 }
@@ -453,15 +456,15 @@ func (r *NetworkInfoReconciler) fetchStaleVPCsByNamespace(ctx context.Context, n
 }
 
 func (r *NetworkInfoReconciler) deleteVPCsByName(ctx context.Context, ns string) error {
+	staleVPCs := r.Service.GetVPCsByNamespace(ns)
+	if len(staleVPCs) == 0 {
+		return nil
+	}
+
 	_, idSet, err := r.listNamespaceCRsNameIDSet(ctx)
 	if err != nil {
 		log.Error(err, "Failed to list Kubernetes Namespaces")
 		return fmt.Errorf("failed to list Kubernetes Namespaces while deleting VPCs: %v", err)
-	}
-
-	staleVPCs, err := r.fetchStaleVPCsByNamespace(ctx, ns)
-	if err != nil {
-		return err
 	}
 
 	var vpcToDelete []*model.Vpc
@@ -513,12 +516,20 @@ func (r *NetworkInfoReconciler) deleteVPCs(ctx context.Context, staleVPCs []*mod
 	}
 
 	// Update the VPCNetworkConfiguration Status
-	ncName, err := r.Service.GetNetworkconfigNameFromNS(ctx, ns)
-	if err != nil {
-		return fmt.Errorf("failed to get VPCNetworkConfiguration for Namespace when deleting stale VPCs %s: %w", ns, err)
+	vpcNetConfig := r.Service.GetVPCNetworkConfigByNamespace(ns)
+	if vpcNetConfig != nil {
+		updateVPCNetworkConfigurationStatusWithAliveVPCs(ctx, r.Client, vpcNetConfig.Name, r.listVPCsByNetworkConfigName)
 	}
-	deleteVPCNetworkConfigurationStatus(ctx, r.Client, ncName, staleVPCs, r.Service.ListVPC())
 	return nil
+}
+
+func (r *NetworkInfoReconciler) listVPCsByNetworkConfigName(ncName string) []*model.Vpc {
+	namespacesUsingNC := r.Service.GetNamespacesByNetworkconfigName(ncName)
+	aliveVPCs := make([]*model.Vpc, 0)
+	for _, namespace := range namespacesUsingNC {
+		aliveVPCs = append(aliveVPCs, r.Service.GetVPCsByNamespace(namespace)...)
+	}
+	return aliveVPCs
 }
 
 func (r *NetworkInfoReconciler) syncPreCreatedVpcIPs(ctx context.Context) {

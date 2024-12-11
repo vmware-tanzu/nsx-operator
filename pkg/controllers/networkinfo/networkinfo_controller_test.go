@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/util/workqueue"
 	controllerruntime "sigs.k8s.io/controller-runtime"
@@ -154,20 +155,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 		{
 			name: "Empty",
 			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
-				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "IsSharedVPCNamespaceByNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (bool, error) {
-					return false, nil
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCsByNamespace", func(_ *vpc.VPCService, _ string) []*model.Vpc {
-					return nil
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (string, error) {
-					return "", nil
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "ListVPC", func(_ *vpc.VPCService) []model.Vpc {
-					return nil
-				})
-				patches.ApplyFunc(deleteVPCNetworkConfigurationStatus, func(ctx context.Context, client client.Client, ncName string, staleVPCs []*model.Vpc, aliveVPCs []model.Vpc) {
-					return
+				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCsByNamespace", func(_ *vpc.VPCService, _ string) []*model.Vpc {
+					return []*model.Vpc{}
 				})
 				return patches
 			},
@@ -779,22 +768,23 @@ func TestNetworkInfoReconciler_deleteStaleVPCs(t *testing.T) {
 		expectErrStr                    string
 	}{
 		{
-			name: "shared namespace, skip deletion",
+			name: "no VPC exists for the Namespace,, skip deletion",
 			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "IsSharedVPCNamespaceByNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (bool, error) {
-					return true, nil
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCsByNamespace", func(_ *vpc.VPCService, _ string) []*model.Vpc {
+					return []*model.Vpc{}
 				})
 				return patches
 			},
-		},
-		{
-			name: "non-shared namespace, no VPCs found",
+		}, {
+			name: "NSX VPC is used by a valid Namespace,, skip deletion",
 			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "IsSharedVPCNamespaceByNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (bool, error) {
-					return false, nil
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCsByNamespace", func(_ *vpc.VPCService, _ string) []*model.Vpc {
+					return []*model.Vpc{
+						{Tags: []model.Tag{
+							{Scope: servicecommon.String(servicecommon.TagScopeNamespaceUID), Tag: servicecommon.String("vpc1")}}}}
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCsByNamespace", func(_ *vpc.VPCService, _ string) []*model.Vpc {
-					return nil
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "listNamespaceCRsNameIDSet", func(_ *NetworkInfoReconciler, _ context.Context) (sets.Set[string], sets.Set[string], error) {
+					return sets.Set[string]{}, sets.New[string]("vpc1"), nil
 				})
 				return patches
 			},
@@ -802,12 +792,17 @@ func TestNetworkInfoReconciler_deleteStaleVPCs(t *testing.T) {
 		{
 			name: "failed to delete VPC",
 			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "IsSharedVPCNamespaceByNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (bool, error) {
-					return false, nil
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCsByNamespace", func(_ *vpc.VPCService, _ string) []*model.Vpc {
+					return []*model.Vpc{
+						{
+							Tags: []model.Tag{
+								{Scope: servicecommon.String(servicecommon.TagScopeNamespaceUID), Tag: servicecommon.String("vpc1")},
+							},
+							Path: servicecommon.String("/orgs/default/projects/default/vpcs/vpc1"),
+						}}
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCsByNamespace", func(_ *vpc.VPCService, _ string) []*model.Vpc {
-					vpcPath := "/vpc/1"
-					return []*model.Vpc{{Path: &vpcPath}}
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "listNamespaceCRsNameIDSet", func(_ *NetworkInfoReconciler, _ context.Context) (sets.Set[string], sets.Set[string], error) {
+					return sets.Set[string]{}, sets.Set[string]{}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "DeleteVPC", func(_ *vpc.VPCService, _ string) error {
 					return fmt.Errorf("delete failed")
@@ -819,26 +814,23 @@ func TestNetworkInfoReconciler_deleteStaleVPCs(t *testing.T) {
 		{
 			name: "successful deletion of VPCs",
 			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "IsSharedVPCNamespaceByNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (bool, error) {
-					return false, nil
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCsByNamespace", func(_ *vpc.VPCService, _ string) []*model.Vpc {
+					return []*model.Vpc{
+						{
+							Tags: []model.Tag{
+								{Scope: servicecommon.String(servicecommon.TagScopeNamespaceUID), Tag: servicecommon.String("vpc1")},
+							},
+							Path: servicecommon.String("/orgs/default/projects/default/vpcs/vpc1"),
+						}}
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCsByNamespace", func(_ *vpc.VPCService, _ string) []*model.Vpc {
-					vpcPath1 := "/vpc/1"
-					vpcPath2 := "/vpc/2"
-					displayName1 := "fakeDisplayName"
-					displayName2 := "fakeDisplayName"
-					return []*model.Vpc{{Path: &vpcPath1, DisplayName: &displayName1}, {Path: &vpcPath2, DisplayName: &displayName2}}
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "listNamespaceCRsNameIDSet", func(_ *NetworkInfoReconciler, _ context.Context) (sets.Set[string], sets.Set[string], error) {
+					return sets.Set[string]{}, sets.Set[string]{}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "DeleteVPC", func(_ *vpc.VPCService, _ string) error {
 					return nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "ListVPC", func(_ *vpc.VPCService) []model.Vpc {
-					vpcPath := "/vpc/1"
-					displayName := "fakeDisplayName"
-					return []model.Vpc{{Path: &vpcPath, DisplayName: &displayName}}
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (string, error) {
-					return "", nil
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, _ string) *servicecommon.VPCNetworkConfigInfo {
+					return nil
 				})
 				return patches
 			},
@@ -860,26 +852,37 @@ func TestNetworkInfoReconciler_deleteStaleVPCs(t *testing.T) {
 				},
 			},
 			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "IsSharedVPCNamespaceByNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (bool, error) {
-					return false, nil
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCsByNamespace", func(_ *vpc.VPCService, _ string) []*model.Vpc {
+					return []*model.Vpc{
+						{
+							Tags: []model.Tag{
+								{Scope: servicecommon.String(servicecommon.TagScopeNamespaceUID), Tag: servicecommon.String("vpc1")},
+							},
+							Path:        servicecommon.String("/orgs/default/projects/default/vpcs/vpc1"),
+							DisplayName: servicecommon.String("fakeDisplayName1"),
+						}}
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCsByNamespace", func(_ *vpc.VPCService, _ string) []*model.Vpc {
-					vpcPath1 := "/vpc/1"
-					vpcPath2 := "/vpc/2"
-					displayName1 := "fakeDisplayName1"
-					displayName2 := "fakeDisplayName2"
-					return []*model.Vpc{{Path: &vpcPath1, DisplayName: &displayName1}, {Path: &vpcPath2, DisplayName: &displayName2}}
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "listNamespaceCRsNameIDSet", func(_ *NetworkInfoReconciler, _ context.Context) (sets.Set[string], sets.Set[string], error) {
+					return sets.Set[string]{}, sets.Set[string]{}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "DeleteVPC", func(_ *vpc.VPCService, _ string) error {
 					return nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "ListVPC", func(_ *vpc.VPCService) []model.Vpc {
-					vpcPath := "/vpc/1"
-					displayName := "fakeDisplayName1"
-					return []model.Vpc{{Path: &vpcPath, DisplayName: &displayName}}
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "listVPCsByNetworkConfigName", func(_ *NetworkInfoReconciler, _ string) []*model.Vpc {
+					return []*model.Vpc{
+						{
+							Tags: []model.Tag{
+								{Scope: servicecommon.String(servicecommon.TagScopeNamespaceUID), Tag: servicecommon.String("vpc1")},
+							},
+							Path:        servicecommon.String("/orgs/default/projects/default/vpcs/vpc2"),
+							DisplayName: servicecommon.String("fakeDisplayName2"),
+						},
+					}
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (string, error) {
-					return "fakeNetworkconfigName", nil
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, _ string) *servicecommon.VPCNetworkConfigInfo {
+					return &servicecommon.VPCNetworkConfigInfo{
+						Name: "fakeNetworkconfigName",
+					}
 				})
 				return patches
 			},
@@ -926,9 +929,15 @@ func TestNetworkInfoReconciler_DeleteNetworkInfo(t *testing.T) {
 		{
 			name:              "Delete NetworkInfo and Namespace not existed",
 			existingNamespace: nil,
-			expectErrStr:      "",
-			expectRes:         common.ResultNormal,
-			req:               reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "testNamespace", Name: "testNetworkInfo"}},
+			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCsByNamespace", func(_ *vpc.VPCService, _ string) []*model.Vpc {
+					return []*model.Vpc{}
+				})
+				return patches
+			},
+			expectErrStr: "",
+			expectRes:    common.ResultNormal,
+			req:          reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "testNamespace", Name: "testNetworkInfo"}},
 		},
 		{
 			name: "Delete NetworkInfo with delete stale VPC error",
@@ -936,18 +945,14 @@ func TestNetworkInfoReconciler_DeleteNetworkInfo(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "testNamespace", UID: "fakeNamespaceUID"},
 			},
 			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service.VpcStore), "GetByIndex", func(_ *vpc.VPCStore, key string, value string) []*model.Vpc {
-					vpcName := "fakeVPCName"
-					vpcPath := "fakeVPCPath"
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCsByNamespace", func(_ *vpc.VPCService, _ string) []*model.Vpc {
 					return []*model.Vpc{
 						{
-							DisplayName: &vpcName,
-							Path:        &vpcPath,
-						},
-					}
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "IsSharedVPCNamespaceByNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (bool, error) {
-					return false, nil
+							Tags: []model.Tag{
+								{Scope: servicecommon.String(servicecommon.TagScopeNamespaceUID), Tag: servicecommon.String("vpc1")},
+							},
+							Path: servicecommon.String("/orgs/default/projects/default/vpcs/vpc1"),
+						}}
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "DeleteVPC", func(_ *vpc.VPCService, _ string) error {
 					return fmt.Errorf("delete failed")
@@ -987,7 +992,7 @@ func TestNetworkInfoReconciler_DeleteNetworkInfo(t *testing.T) {
 				Status:     corev1.NamespaceStatus{},
 			},
 			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
-				return gomonkey.ApplyMethod(reflect.TypeOf(r.Service.VpcStore), "GetByIndex", func(_ *vpc.VPCStore, key string, value string) []*model.Vpc {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service.VpcStore), "GetByIndex", func(_ *vpc.VPCStore, key string, value string) []*model.Vpc {
 					id := "fakeNamespaceUID"
 					scope := servicecommon.TagScopeNamespaceUID
 					tag1 := []model.Tag{
@@ -1004,6 +1009,10 @@ func TestNetworkInfoReconciler_DeleteNetworkInfo(t *testing.T) {
 						},
 					}
 				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "deleteVPCs", func(_ *NetworkInfoReconciler, _ context.Context, _ []*model.Vpc, ns string) error {
+					return fmt.Errorf("failed to get VPCNetworkConfiguration for Namespace when deleting stale VPCs")
+				})
+				return patches
 			},
 			expectErrStr: "failed to get VPCNetworkConfiguration for Namespace when deleting stale VPCs",
 			existingNetworkInfo: &v1alpha1.NetworkInfo{
@@ -1349,4 +1358,23 @@ func TestSyncPreCreatedVpcIPs(t *testing.T) {
 	r.queue.Add(stopSig)
 	requests := getQueuedReqs(r.queue)
 	assert.ElementsMatch(t, expRequests, requests)
+}
+
+func TestListVPCsByNetworkConfigName(t *testing.T) {
+	r := &NetworkInfoReconciler{
+		Service: &vpc.VPCService{},
+	}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNamespacesByNetworkconfigName", func(_ *vpc.VPCService, _c string) []string {
+		return []string{"ns1", "ns2"}
+	})
+	patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCsByNamespace", func(_ *vpc.VPCService, ns string) []*model.Vpc {
+		if ns == "ns1" {
+			return []*model.Vpc{{Id: servicecommon.String("vpc1")}}
+		}
+		return []*model.Vpc{{Id: servicecommon.String("vpc2")}}
+	})
+	defer patches.Reset()
+	expVPCs := []*model.Vpc{{Id: servicecommon.String("vpc1")}, {Id: servicecommon.String("vpc2")}}
+	actVPCs := r.listVPCsByNetworkConfigName("nc1")
+	assert.ElementsMatch(t, expVPCs, actVPCs)
 }
