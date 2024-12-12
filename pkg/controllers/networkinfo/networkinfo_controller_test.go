@@ -1350,3 +1350,63 @@ func TestSyncPreCreatedVpcIPs(t *testing.T) {
 	requests := getQueuedReqs(r.queue)
 	assert.ElementsMatch(t, expRequests, requests)
 }
+
+func TestRegisterAllNetworkInfo(t *testing.T) {
+	// list return nil
+	r := createNetworkInfoReconciler(nil)
+	err := r.RegisterAllNetworkInfo(context.Background())
+	assert.NoError(t, err)
+
+	mockClient := mock_client.NewMockClient(gomock.NewController(t))
+	r.Client = mockClient
+
+	// list return error
+	mockClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("list error"))
+	err = r.RegisterAllNetworkInfo(context.Background())
+	assert.Equal(t, err, errors.New("list error"))
+
+	// list return network config which path is invalid
+	networkConfigList := v1alpha1.VPCNetworkConfigurationList{
+		Items: []v1alpha1.VPCNetworkConfiguration{
+			{
+				// Populate with necessary fields
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "vpc-name",
+				},
+			},
+		},
+	}
+	mockClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+			// Set the value of the list parameter
+			*list.(*v1alpha1.VPCNetworkConfigurationList) = networkConfigList
+			return nil
+		},
+	)
+	err = r.RegisterAllNetworkInfo(context.Background())
+	assert.Equal(t, err, errors.New("invalid NSX project path"))
+
+	// list return network config which path is valid
+	networkConfigList = v1alpha1.VPCNetworkConfigurationList{
+		Items: []v1alpha1.VPCNetworkConfiguration{
+			{
+				// Populate with necessary fields
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "vpc-name",
+				},
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					NSXProject: "/orgs/defautl/projects/project-quality/vpcs/vpc-test",
+				},
+			},
+		},
+	}
+	mockClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+			// Set the value of the list parameter
+			*list.(*v1alpha1.VPCNetworkConfigurationList) = networkConfigList
+			return nil
+		},
+	)
+	err = r.RegisterAllNetworkInfo(context.Background())
+	assert.NoError(t, err)
+}
