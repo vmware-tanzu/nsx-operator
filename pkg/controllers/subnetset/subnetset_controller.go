@@ -381,9 +381,9 @@ func (r *SubnetSetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet, delet
 	}
 	var deleteErrs []error
 	for _, nsxSubnet := range nsxSubnets {
-		r.SubnetService.LockSubnet(nsxSubnet.Path)
+		lock := r.SubnetService.LockSubnet(nsxSubnet.Path)
 		func() {
-			defer r.SubnetService.UnlockSubnet(nsxSubnet.Path)
+			defer r.SubnetService.UnlockSubnet(nsxSubnet.Path, lock)
 
 			portNums := len(r.SubnetPortService.GetPortsOfSubnet(*nsxSubnet.Id))
 			if portNums > 0 {
