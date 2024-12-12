@@ -12,6 +12,7 @@ const (
 	GatewayConnectionReady     ConditionType = "GatewayConnectionReady"
 	AutoSnatEnabled            ConditionType = "AutoSnatEnabled"
 	ExternalIPBlocksConfigured ConditionType = "ExternalIPBlocksConfigured"
+	DeleteFailure              ConditionType = "DeletionFailed"
 )
 
 // Condition defines condition of custom resource.
