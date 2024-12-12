@@ -6,13 +6,11 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -21,6 +19,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -132,17 +131,11 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 		return nil, err
 	}
 	realizeService := realizestate.InitializeRealizeState(service.Service)
-	backoff := wait.Backoff{
-		Duration: 1 * time.Second,
-		Factor:   2.0,
-		Jitter:   0,
-		Steps:    6,
-	}
 	// Failure of CheckRealizeState may result in the creation of an existing Subnet.
 	// For Subnets, it's important to reuse the already created NSXSubnet.
 	// For SubnetSets, since the ID includes a random value, the created NSX Subnet needs to be deleted and recreated.
 
-	if err = realizeService.CheckRealizeState(backoff, *nsxSubnet.Path); err != nil {
+	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *nsxSubnet.Path); err != nil {
 		log.Error(err, "Failed to check subnet realization state", "ID", *nsxSubnet.Id)
 		// Delete the subnet if realization check fails, avoiding creating duplicate subnets continuously.
 		deleteErr := service.DeleteSubnet(*nsxSubnet)
