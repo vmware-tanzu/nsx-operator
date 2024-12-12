@@ -96,6 +96,7 @@ func TestBuildNSXVPC(t *testing.T) {
 		existingVPC       *model.Vpc
 		ncPrivateIps      []string
 		useAVILB          bool
+		netInfoObj        *v1alpha1.NetworkInfo
 		expVPC            *model.Vpc
 		lbProviderChanged bool
 	}{
@@ -160,6 +161,29 @@ func TestBuildNSXVPC(t *testing.T) {
 			},
 		},
 		{
+			name:              "create new VPC with 81 chars networkinfo name",
+			ncPrivateIps:      []string{"192.168.3.0/24"},
+			useAVILB:          false,
+			lbProviderChanged: false,
+			netInfoObj: &v1alpha1.NetworkInfo{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "test-ns-03a2def3-0087-4077-904e-23e4dd788fb7", UID: "ecc6eb9f-92b5-4893-b809-e3ebc1fcf59e"},
+				VPCs:       nil,
+			},
+			expVPC: &model.Vpc{
+				Id:            common.String("test-ns-03a2def3-0087-4077-904e-23e4dd788fb7_ecc6eb9f-92b5-4893-b809-e3ebc1fcf59e"),
+				DisplayName:   common.String("test-ns-03a2def3-0087-4077-904e-23e4dd788fb7_f4f0080e"),
+				PrivateIps:    []string{"192.168.3.0/24"},
+				IpAddressType: common.String("IPV4"),
+				Tags: []model.Tag{
+					{Scope: common.String("nsx-op/cluster"), Tag: common.String("cluster1")},
+					{Scope: common.String("nsx-op/version"), Tag: common.String("1.0.0")},
+					{Scope: common.String("nsx-op/namespace"), Tag: common.String("ns1")},
+					{Scope: common.String("nsx-op/namespace_uid"), Tag: common.String("nsuid1")},
+					{Scope: common.String("nsx/managed-by"), Tag: common.String("nsx-op")},
+				},
+			},
+		},
+		{
 			name:         "update VPC with AVI load balancer disabled -> enabled",
 			ncPrivateIps: []string{"192.168.3.0/24"},
 			existingVPC: &model.Vpc{
@@ -199,6 +223,9 @@ func TestBuildNSXVPC(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			nc.PrivateIPs = tc.ncPrivateIps
+			if tc.netInfoObj != nil {
+				netInfoObj = tc.netInfoObj
+			}
 			got, err := buildNSXVPC(netInfoObj, nsObj, nc, clusterStr, tc.existingVPC, tc.useAVILB, tc.lbProviderChanged)
 			assert.Nil(t, err)
 			assert.Equal(t, tc.expVPC, got)
