@@ -300,7 +300,8 @@ func SubnetCIDR(t *testing.T) {
 	assureSubnet(t, subnetTestNamespace, subnet.Name)
 	allocatedSubnet, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), subnet.Name, v1.GetOptions{})
 	require.NoError(t, err)
-	nsxSubnets := testData.fetchSubnetByNamespace(t, subnetTestNamespace, false)
+	subnetCRUID := string(allocatedSubnet.UID)
+	nsxSubnets := testData.fetchSubnetBySubnetUID(t, subnetCRUID)
 	require.Equal(t, 1, len(nsxSubnets))
 
 	targetCIDR := allocatedSubnet.Status.NetworkAddresses[0]
@@ -315,8 +316,11 @@ func SubnetCIDR(t *testing.T) {
 		return false, err
 	})
 	require.NoError(t, err)
-	nsxSubnets = testData.fetchSubnetByNamespace(t, subnetTestNamespace, true)
-	require.Equal(t, true, len(nsxSubnets) <= 1)
+	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 100*time.Second, false, func(ctx context.Context) (bool, error) {
+		nsxSubnets = testData.fetchSubnetBySubnetUID(t, subnetCRUID)
+		return len(nsxSubnets) == 0 || *nsxSubnets[0].MarkedForDelete == true, nil
+	})
+	require.NoError(t, err)
 
 	subnet.Spec.IPAddresses = []string{targetCIDR}
 	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), subnet, v1.CreateOptions{})
@@ -330,7 +334,8 @@ func SubnetCIDR(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, targetCIDR, allocatedSubnet.Status.NetworkAddresses[0])
 
-	nsxSubnets = testData.fetchSubnetByNamespace(t, subnetTestNamespace, false)
+	newSubnetCRUID := string(allocatedSubnet.UID)
+	nsxSubnets = testData.fetchSubnetBySubnetUID(t, newSubnetCRUID)
 	require.Equal(t, 1, len(nsxSubnets))
 
 	err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Delete(context.TODO(), subnet.Name, v1.DeleteOptions{})
@@ -345,20 +350,17 @@ func SubnetCIDR(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	nsxSubnets = testData.fetchSubnetByNamespace(t, subnetTestNamespace, true)
-	require.Equal(t, true, len(nsxSubnets) <= 1)
+	assert.Eventually(t, func() bool {
+		nsxSubnets = testData.fetchSubnetBySubnetUID(t, newSubnetCRUID)
+		return len(nsxSubnets) == 0 || *nsxSubnets[0].MarkedForDelete == true
+	}, 100*time.Second, 1*time.Second)
 }
 
-func (data *TestData) fetchSubnetByNamespace(t *testing.T, ns string, isMarkForDelete bool) (res []model.VpcSubnet) {
-	tags := []string{common.TagScopeNamespace, ns}
+func (data *TestData) fetchSubnetBySubnetUID(t *testing.T, subnetUID string) (res []model.VpcSubnet) {
+	tags := []string{common.TagScopeSubnetCRUID, subnetUID}
 	results, err := testData.queryResource(common.ResourceTypeSubnet, tags)
 	require.NoError(t, err)
-	subnets := transSearchResponsetoSubnet(results)
-	for _, subnet := range subnets {
-		if *subnet.MarkedForDelete == isMarkForDelete {
-			res = append(res, subnet)
-		}
-	}
+	res = transSearchResponsetoSubnet(results)
 	return
 }
 
