@@ -191,15 +191,7 @@ func getGatewayConnectionStatus(ctx context.Context, nc *v1alpha1.VPCNetworkConf
 	return gatewayConnectionReady, reason
 }
 
-func deleteVPCNetworkConfigurationStatus(ctx context.Context, client client.Client, ncName string, staleVPCs []*model.Vpc, aliveVPCs []model.Vpc) {
-	aliveVPCNames := sets.New[string]()
-	for _, vpcModel := range aliveVPCs {
-		aliveVPCNames.Insert(*vpcModel.DisplayName)
-	}
-	staleVPCNames := sets.New[string]()
-	for _, vpc := range staleVPCs {
-		staleVPCNames.Insert(*vpc.DisplayName)
-	}
+func updateVPCNetworkConfigurationStatusWithAliveVPCs(ctx context.Context, client client.Client, ncName string, getAliveVPCsFn func(ncName string) []*model.Vpc) {
 	// read v1alpha1.VPCNetworkConfiguration by ncName
 	nc := &v1alpha1.VPCNetworkConfiguration{}
 	err := client.Get(ctx, apitypes.NamespacedName{Name: ncName}, nc)
@@ -207,19 +199,25 @@ func deleteVPCNetworkConfigurationStatus(ctx context.Context, client client.Clie
 		log.Error(err, "Failed to get VPCNetworkConfiguration", "Name", ncName)
 		return
 	}
-	// iterate through VPCNetworkConfiguration.Status.VPCs, if vpcName does not exist in the staleVPCNames, append in new VPCs status
-	var newVPCInfos []v1alpha1.VPCInfo
-	for _, vpc := range nc.Status.VPCs {
-		if !staleVPCNames.Has(vpc.Name) && aliveVPCNames.Has(vpc.Name) {
-			newVPCInfos = append(newVPCInfos, vpc)
+
+	if getAliveVPCsFn != nil {
+		aliveVPCs := sets.New[string]()
+		for _, vpc := range getAliveVPCsFn(ncName) {
+			aliveVPCs.Insert(*vpc.DisplayName)
 		}
+		var newVPCInfos []v1alpha1.VPCInfo
+		for _, vpcInfo := range nc.Status.VPCs {
+			if aliveVPCs.Has(vpcInfo.Name) {
+				newVPCInfos = append(newVPCInfos, vpcInfo)
+			}
+		}
+		nc.Status.VPCs = newVPCInfos
+		if err := client.Status().Update(ctx, nc); err != nil {
+			log.Error(err, "Failed to update VPCNetworkConfiguration status", "Name", ncName, "nc.Status.VPCs", nc.Status.VPCs)
+			return
+		}
+		log.Info("Updated VPCNetworkConfiguration status", "Name", ncName, "nc.Status.VPCs", nc.Status.VPCs)
 	}
-	nc.Status.VPCs = newVPCInfos
-	if err := client.Status().Update(ctx, nc); err != nil {
-		log.Error(err, "Failed to delete stale VPCNetworkConfiguration status", "Name", ncName, "nc.Status.VPCs", nc.Status.VPCs, "staleVPCs", staleVPCNames)
-		return
-	}
-	log.Info("Deleted stale VPCNetworkConfiguration status", "Name", ncName, "nc.Status.VPCs", nc.Status.VPCs, "staleVPCs", staleVPCNames)
 }
 
 func filterTagFromNSXVPC(nsxVPC *model.Vpc, tagName string) string {
