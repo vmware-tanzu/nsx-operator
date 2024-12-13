@@ -559,7 +559,7 @@ func (s *VPCService) resolveSharedVPCNamespace(ctx context.Context, ns string) (
 	}
 
 	annos := obj.Annotations
-	// If no annotaion on ns, then this is not a shared VPC ns
+	// If no annotation on ns, then this is not a shared VPC ns
 	if len(annos) == 0 {
 		return obj, nil, nil
 	}
