@@ -96,7 +96,7 @@ func TestCluster_NewRestConnector(t *testing.T) {
 	thumbprint := []string{"123"}
 	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	c, _ := NewCluster(config)
-	con, _ := c.NewRestConnector()
+	con := c.NewRestConnector()
 	assert.NotNil(t, con)
 }
 

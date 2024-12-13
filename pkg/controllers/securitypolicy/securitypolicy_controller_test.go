@@ -51,7 +51,7 @@ import (
 func fakeService() *securitypolicy.SecurityPolicyService {
 	c := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(c)
-	rc, _ := cluster.NewRestConnector()
+	rc := cluster.NewRestConnector()
 
 	service := &securitypolicy.SecurityPolicyService{
 		Service: common.Service{
