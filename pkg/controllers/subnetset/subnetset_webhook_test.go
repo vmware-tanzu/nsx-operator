@@ -43,9 +43,22 @@ func TestSubnetSetValidator(t *testing.T) {
 		},
 	}
 
+	invalidSubnetSet := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "fake-subnetset",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSetSpec{
+			IPv4SubnetSize: 24,
+		},
+	}
+
 	subnetSet := &v1alpha1.SubnetSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "fake-subnetset",
+		},
+		Spec: v1alpha1.SubnetSetSpec{
+			IPv4SubnetSize: 32,
 		},
 	}
 
@@ -93,6 +106,14 @@ func TestSubnetSetValidator(t *testing.T) {
 			user:      "fake-user",
 			isAllowed: false,
 			msg:       "default SubnetSet only can be created by nsx-operator",
+		},
+		{
+			name:      "Create default SubnetSet with invalid IPv4SubnetSize",
+			op:        admissionv1.Create,
+			subnetSet: invalidSubnetSet,
+			user:      NSXOperatorSA,
+			isAllowed: false,
+			msg:       "SubnetSet ns-1/fake-subnetset has invalid size 24, which must be power of 2",
 		},
 		{
 			name:      "Create normal SubnetSet",

@@ -4,4 +4,4 @@ metadata:
   name: port-in-static-subnetset
   namespace: subnet-e2e
 spec:
-  subnetSet: user-pod-subnetset-static
+  subnetSet: user-subnetset-static

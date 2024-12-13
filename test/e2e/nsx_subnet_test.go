@@ -180,8 +180,8 @@ func UserSubnetSet(t *testing.T) {
 		"./manifest/testSubnet/subnetset-dhcp.yaml",
 	}
 	subnetSetNames := []string{
-		"user-pod-subnetset-static",
-		"user-pod-subnetset-dhcp",
+		"user-subnetset-static",
+		"user-subnetset-dhcp",
 	}
 	portYAMLs := []string{
 		"./manifest/testSubnet/subnetport-in-static-subnetset.yaml",

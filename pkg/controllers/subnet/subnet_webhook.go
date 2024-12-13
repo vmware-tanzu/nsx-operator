@@ -10,6 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var NSXOperatorSA = "system:serviceaccount:vmware-system-nsx:ncp-svc-account"
@@ -40,6 +41,10 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 	}
 	log.V(1).Info("Handling request", "user", req.UserInfo.Username, "operation", req.Operation)
 	switch req.Operation {
+	case admissionv1.Create:
+		if subnet.Spec.IPv4SubnetSize != 0 && !util.IsPowerOfTwo(subnet.Spec.IPv4SubnetSize) {
+			return admission.Denied(fmt.Sprintf("Subnet %s/%s has invalid size %d, which must be power of 2", subnet.Namespace, subnet.Name, subnet.Spec.IPv4SubnetSize))
+		}
 	case admissionv1.Delete:
 		if req.UserInfo.Username != NSXOperatorSA {
 			hasSubnetPort, err := v.checkSubnetPort(ctx, subnet.Namespace, subnet.Name)

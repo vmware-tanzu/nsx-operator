@@ -38,6 +38,18 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			Namespace: "ns-1",
 			Name:      "subnet-1",
 		},
+		Spec: v1alpha1.SubnetSpec{
+			IPv4SubnetSize: 16,
+		},
+	})
+	req2, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-2",
+			Name:      "subnet-2",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPv4SubnetSize: 24,
+		},
 	})
 	type args struct {
 		req admission.Request
@@ -112,6 +124,14 @@ func TestSubnetValidator_Handle(t *testing.T) {
 				Operation: admissionv1.Create,
 			}}},
 			want: admission.Errored(http.StatusBadRequest, errors.New("there is no content to decode")),
+		},
+		{
+			name: "CreateSubnet with invalid IPv4SubnetSize",
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Create,
+				Object:    runtime.RawExtension{Raw: req2},
+			}}},
+			want: admission.Denied("Subnet ns-2/subnet-2 has invalid size 24, which must be power of 2"),
 		},
 		{
 			name: "CreateSubnet",
