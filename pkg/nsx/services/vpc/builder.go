@@ -67,7 +67,7 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 		*vpc = *nsxVPC
 	} else {
 		// for creating vpc case, fill in vpc properties based on networkconfig
-		vpcName := util.GenerateIDByObjectByLimit(obj, common.MaxNameLength)
+		vpcName := util.GenerateIDByObjectByLimit(obj, common.MaxSubnetNameLength)
 		vpc.DisplayName = &vpcName
 		vpc.Id = common.String(util.GenerateIDByObject(obj))
 		vpc.IpAddressType = &DefaultVPCIPAddressType
