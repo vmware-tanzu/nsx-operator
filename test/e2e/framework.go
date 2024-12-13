@@ -62,8 +62,11 @@ type TestOptions struct {
 	providerConfigPath  string
 	logsExportDir       string
 	operatorConfigPath  string
+	vcUser              string
+	vcPassword          string
 	logsExportOnSuccess bool
 	withIPPool          bool
+	debugLog            bool
 }
 
 var testOptions TestOptions

@@ -52,6 +52,9 @@ func testMain(m *testing.M) int {
 	flag.StringVar(&testOptions.operatorConfigPath, "operator-cfg-path", "/etc/nsx-ujo/ncp.ini", "config file for operator")
 	flag.BoolVar(&testOptions.logsExportOnSuccess, "logs-export-on-success", false, "Export logs even when a test is successful")
 	flag.BoolVar(&testOptions.withIPPool, "ippool", false, "Run tests include IPPool tests")
+	flag.StringVar(&testOptions.vcUser, "vc-user", "", "The username used to request vCenter API session")
+	flag.StringVar(&testOptions.vcPassword, "vc-password", "", "The password used by the user when requesting vCenter API session")
+	flag.BoolVar(&testOptions.debugLog, "debug", false, "")
 	flag.Parse()
 
 	if err := initProvider(); err != nil {
