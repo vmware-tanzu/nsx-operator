@@ -1,6 +1,8 @@
 package mock
 
 import (
+	"sync"
+
 	"github.com/stretchr/testify/mock"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -79,19 +81,19 @@ func (m *MockSubnetServiceProvider) GenerateSubnetNSTags(obj client.Object) []mo
 	return []model.Tag{}
 }
 
-func (m *MockSubnetServiceProvider) LockSubnet(path *string) {
+func (m *MockSubnetServiceProvider) LockSubnet(path *string) *sync.RWMutex {
+	return nil
+}
+
+func (m *MockSubnetServiceProvider) UnlockSubnet(path *string, lock *sync.RWMutex) {
 	return
 }
 
-func (m *MockSubnetServiceProvider) UnlockSubnet(path *string) {
-	return
+func (m *MockSubnetServiceProvider) RLockSubnet(path *string) *sync.RWMutex {
+	return nil
 }
 
-func (m *MockSubnetServiceProvider) RLockSubnet(path *string) {
-	return
-}
-
-func (m *MockSubnetServiceProvider) RUnlockSubnet(path *string) {
+func (m *MockSubnetServiceProvider) RUnlockSubnet(path *string, lock *sync.RWMutex) {
 	return
 }
 
