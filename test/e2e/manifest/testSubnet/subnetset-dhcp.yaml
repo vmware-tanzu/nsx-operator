@@ -1,7 +1,7 @@
 apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: SubnetSet
 metadata:
-  name: user-pod-subnetset-dhcp
+  name: user-subnetset-dhcp
   namespace: subnet-e2e
 spec:
   accessMode: PrivateTGW
