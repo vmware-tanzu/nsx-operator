@@ -23,7 +23,7 @@ spec:
         k2: a2
     spec:
       containers:
-        - image: "harbor-repo.vmware.com/dockerhub-proxy-cache/gophernet/netcat:latest"
+        - image: "netfvt-docker-local.packages.vcfd.broadcom.net:8080/wcp-docker-ci/gophernet/netcat:latest"
           command: ["nc", "-l", "-p", "3306"]
           name: mysql
           ports:
@@ -49,7 +49,7 @@ spec:
         role: db
     spec:
       containers:
-        - image: "harbor-repo.vmware.com/dockerhub-proxy-cache/gophernet/netcat:latest"
+        - image: "netfvt-docker-local.packages.vcfd.broadcom.net:8080/wcp-docker-ci/gophernet/netcat:latest"
           command: ["nc", "-l", "-p", "1234"]
           name: mysql2
           ports:
@@ -76,7 +76,7 @@ spec:
       hostname: web-deployment
       containers:
         - name: web
-          image: "harbor-repo.vmware.com/dockerhub-proxy-cache/gophernet/netcat:latest"
+          image: "netfvt-docker-local.packages.vcfd.broadcom.net:8080/wcp-docker-ci/gophernet/netcat:latest"
           command: ["nc", "-l", "-p", "4321"]
           imagePullPolicy: IfNotPresent
 ---

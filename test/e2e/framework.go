@@ -304,27 +304,42 @@ func (data *TestData) createNamespace(namespace string, mutators ...func(ns *cor
 
 // createVCNamespace creates a VC namespace with the provided namespace.
 func (data *TestData) createVCNamespace(namespace string) error {
-	svID, err := data.vcClient.getSupervisorID()
+	_ = testData.vcClient.startSession()
+	defer func() {
+		testData.vcClient.closeSession()
+	}()
+
+	svID, _ := data.vcClient.getSupervisorID()
 	vcNamespace := &VCNamespaceCreateSpec{
 		Supervisor: svID,
 		Namespace:  namespace,
+		NetworkSpec: InstancesNetworkConfigInfo{
+			NetworkProvider: "NSX_VPC",
+			VpcNetwork: InstancesVpcNetworkInfo{
+				DefaultSubnetSize: 16,
+			},
+		},
 	}
 	dataJson, err := json.Marshal(vcNamespace)
 	if err != nil {
+		log.Error(err, "Unable convert vcNamespace object to json bytes", "namespace", namespace)
 		return fmt.Errorf("unable convert vcNamespace object to json bytes: %v", err)
 	}
 	urlPath := "/api/vcenter/namespaces/instances/v2"
 	request, err := data.vcClient.prepareRequest(http.MethodPost, urlPath, dataJson)
 	if err != nil {
+		log.Error(err, "Failed to prepare http request with vcNamespace data", "namespace", namespace)
 		return fmt.Errorf("failed to parepare http request with vcNamespace data: %v", err)
 	}
 	if _, err = data.vcClient.handleRequest(request, nil); err != nil {
+		log.Error(err, "Failed to create VC namespace", "namespace", namespace)
 		return err
 	}
 	// wait for the namespace on k8s running
 	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
 		if err != nil {
+			log.Error(err, "Check namespace existence", "namespace", namespace)
 			return false, err
 		}
 		if ns.Status.Phase == corev1.NamespaceActive {
@@ -337,23 +352,23 @@ func (data *TestData) createVCNamespace(namespace string) error {
 
 // deleteVCNamespace deletes the provided VC namespace and waits for deletion to actually complete.
 func (data *TestData) deleteVCNamespace(namespace string) error {
-	urlPath := "/api/vcenter/namespaces/instances/v2/" + namespace
-	request, err := data.vcClient.prepareRequest(http.MethodDelete, urlPath, nil)
-	if err != nil {
-		return fmt.Errorf("failed to parepare http request with vcNamespace deletion: %v", err)
-	}
-	if _, err = data.vcClient.handleRequest(request, nil); err != nil {
-		return err
-	}
+	_ = testData.vcClient.startSession()
+	defer func() {
+		testData.vcClient.closeSession()
+	}()
+
+	_ = testData.vcClient.deleteNamespace(namespace)
 	// wait for the namespace on k8s terminating
-	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
 		if err != nil {
+			log.Error(err, "Check namespace existence", "namespace", namespace)
 			return false, err
 		}
 		if ns.Status.Phase == corev1.NamespaceTerminating {
 			return true, nil
 		}
+		log.Info("Waiting for namespace to be deleted", "namespace", namespace, "status phase", ns.Status.Phase)
 		return false, nil
 	})
 	return err

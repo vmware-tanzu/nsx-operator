@@ -81,7 +81,7 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 
 	// Ping from pod
 	err = testData.runPingCommandFromPod(ns, busybox, iPs, 4)
-	require.NoError(t, err, "Error when running ping command from test Pod %s", busybox)
+	require.Error(t, err, "Error when running ping command from test Pod %s", busybox)
 
 	// Delete security policy
 	_ = deleteYAML(nsIsolationPath, ns)

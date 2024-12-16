@@ -309,7 +309,7 @@ func deleteVPCNetworkConfiguration(t *testing.T, ncName string) {
 		log.V(2).Info("Delete VPCNetworkConfigurations", "name", testCustomizedNetworkConfigName)
 		resp, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(ctx, ncName, v1.GetOptions{})
 		if err != nil {
-			log.Error(err, "Check stale vpcnetworkconfigurations resp", resp)
+			log.Error(err, "Check stale vpcnetworkconfigurations", "resp", resp)
 			if errors.IsNotFound(err) {
 				return true, nil
 			}
