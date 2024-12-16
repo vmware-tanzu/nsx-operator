@@ -48,8 +48,8 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 	ruleName0 := "all_ingress_isolation"
 	ruleName1 := "all_egress_isolation"
 	var err error
-	setupTest(t, ns)
-	defer teardownTest(t, ns, defaultTimeout)
+	testData.createVCNamespace(ns)
+	defer testData.deleteVCNamespace(ns)
 
 	// Create pods
 	busyboxPath, _ := filepath.Abs("./manifest/testSecurityPolicy/busybox.yaml")

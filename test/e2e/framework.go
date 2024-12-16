@@ -3,8 +3,10 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"os/exec"
 	"regexp"
@@ -298,6 +300,63 @@ func (data *TestData) createNamespace(namespace string, mutators ...func(ns *cor
 		}
 	}
 	return nil
+}
+
+// createVCNamespace creates a VC namespace with the provided namespace.
+func (data *TestData) createVCNamespace(namespace string) error {
+	svID, err := data.vcClient.getSupervisorID()
+	vcNamespace := &VCNamespaceCreateSpec{
+		Supervisor: svID,
+		Namespace:  namespace,
+	}
+	dataJson, err := json.Marshal(vcNamespace)
+	if err != nil {
+		return fmt.Errorf("unable convert vcNamespace object to json bytes: %v", err)
+	}
+	urlPath := "/api/vcenter/namespaces/instances/v2"
+	request, err := data.vcClient.prepareRequest(http.MethodPost, urlPath, dataJson)
+	if err != nil {
+		return fmt.Errorf("failed to parepare http request with vcNamespace data: %v", err)
+	}
+	if _, err = data.vcClient.handleRequest(request, nil); err != nil {
+		return err
+	}
+	// wait for the namespace on k8s running
+	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		if ns.Status.Phase == corev1.NamespaceActive {
+			return true, nil
+		}
+		return false, nil
+	})
+	return err
+}
+
+// deleteVCNamespace deletes the provided VC namespace and waits for deletion to actually complete.
+func (data *TestData) deleteVCNamespace(namespace string) error {
+	urlPath := "/api/vcenter/namespaces/instances/v2/" + namespace
+	request, err := data.vcClient.prepareRequest(http.MethodDelete, urlPath, nil)
+	if err != nil {
+		return fmt.Errorf("failed to parepare http request with vcNamespace deletion: %v", err)
+	}
+	if _, err = data.vcClient.handleRequest(request, nil); err != nil {
+		return err
+	}
+	// wait for the namespace on k8s terminating
+	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		if ns.Status.Phase == corev1.NamespaceTerminating {
+			return true, nil
+		}
+		return false, nil
+	})
+	return err
 }
 
 // deleteNamespace deletes the provided namespace and waits for deletion to actually complete.
