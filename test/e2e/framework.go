@@ -15,14 +15,19 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-
-	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"k8s.io/client-go/tools/remotecommand"
+	"k8s.io/utils/ptr"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/test/e2e/providers"
@@ -81,6 +86,7 @@ type TestData struct {
 	clientset    clientset.Interface
 	crdClientset versioned.Interface
 	nsxClient    *NSXClient
+	vcClient     *vcClient
 }
 
 var testData *TestData
@@ -101,21 +107,29 @@ func initProvider() error {
 	return nil
 }
 
-func NewTestData(nsxConfig string) error {
+func NewTestData(nsxConfig string, vcUser string, vcPassword string) error {
 	testData = &TestData{}
 	err := testData.createClients()
 	if err != nil {
 		return err
 	}
-	err = testData.createNSXClients(nsxConfig)
+	config.UpdateConfigFilePath(nsxConfig)
+	cf, err := config.NewNSXOperatorConfigFromFile()
 	if err != nil {
 		return err
+	}
+	err = testData.createNSXClients(cf)
+	if err != nil {
+		return err
+	}
+	if vcUser != "" && vcPassword != "" {
+		testData.vcClient = newVcClient(cf.VCEndPoint, cf.HttpsPort, vcUser, vcPassword)
 	}
 	return nil
 }
 
-func (data *TestData) createNSXClients(nsxConfig string) error {
-	nsxClient, err := NewNSXClient(nsxConfig)
+func (data *TestData) createNSXClients(cf *config.NSXOperatorConfig) error {
+	nsxClient, err := NewNSXClient(cf)
 	if err != nil {
 		return err
 	}
@@ -257,11 +271,14 @@ func collectClusterInfo() error {
 }
 
 // createNamespace creates the provided namespace.
-func (data *TestData) createNamespace(namespace string) error {
+func (data *TestData) createNamespace(namespace string, mutators ...func(ns *corev1.Namespace)) error {
 	ns := corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: namespace,
 		},
+	}
+	for _, mutator := range mutators {
+		mutator(&ns)
 	}
 	if ns, err := data.clientset.CoreV1().Namespaces().Create(context.TODO(), &ns, metav1.CreateOptions{}); err != nil {
 		// Ignore error if the namespace already exists
@@ -334,8 +351,12 @@ func (data *TestData) deploymentWaitForNames(timeout time.Duration, namespace, d
 	return podNames, nil
 }
 
-// Temporarily disable traffic check
-/*
+type PodIPs struct {
+	ipv4      *net.IP
+	ipv6      *net.IP
+	ipStrings []string
+}
+
 // podWaitFor polls the K8s apiServer until the specified Pod is found (in the test Namespace) and
 // the condition predicate is met (or until the provided timeout expires).
 func (data *TestData) podWaitFor(timeout time.Duration, name, namespace string, condition PodCondition) (*corev1.Pod, error) {
@@ -364,6 +385,7 @@ func (data *TestData) podWaitForIPs(timeout time.Duration, name, namespace strin
 		return pod.Status.Phase == corev1.PodRunning, nil
 	})
 	if err != nil {
+		log.Error(err, "Failed to wait for Pod becoming RUNNING phase", "Pod", name)
 		return nil, err
 	}
 	// According to the K8s API documentation (https://godoc.org/k8s.io/api/core/v1#PodStatus),
@@ -381,6 +403,7 @@ func (data *TestData) podWaitForIPs(timeout time.Duration, name, namespace strin
 	}
 	ips, err := parsePodIPs(podIPStrings)
 	if err != nil {
+		log.Error(err, "Failed to parse Pod's IP", "Pod", name)
 		return nil, err
 	}
 
@@ -399,6 +422,7 @@ func (data *TestData) podWaitForIPs(timeout time.Duration, name, namespace strin
 	return ips, nil
 }
 
+/*
 // deploymentWaitForIPsOrNames polls the K8s apiServer until the specified Pod in deployment has an IP address
 func (data *TestData) deploymentWaitForIPsOrNames(timeout time.Duration, namespace, deployment string) ([]string, []string, error) {
 	podIPStrings := sets.NewString()
@@ -431,6 +455,7 @@ func (data *TestData) deploymentWaitForIPsOrNames(timeout time.Duration, namespa
 	}
 	return podIPStrings.List(), podNames, nil
 }
+*/
 
 func parsePodIPs(podIPStrings sets.Set[string]) (*PodIPs, error) {
 	ips := new(PodIPs)
@@ -464,7 +489,7 @@ func parsePodIPs(podIPStrings sets.Set[string]) (*PodIPs, error) {
 // stdout and stderr as strings. An error either indicates that the command couldn't be run or that
 // the command returned a non-zero error code.
 func (data *TestData) runCommandFromPod(namespace string, podName string, containerName string, cmd []string) (stdout string, stderr string, err error) {
-	log.Info("Running '%s' in Pod '%s/%s' container '%s'", strings.Join(cmd, " "), namespace, podName, containerName)
+	log.Info("Running command in Pod's container", "Namespace", namespace, "Pod", podName, "Container", containerName, "Command", cmd)
 	request := data.clientset.CoreV1().RESTClient().Post().
 		Namespace(namespace).
 		Resource("pods").
@@ -487,14 +512,15 @@ func (data *TestData) runCommandFromPod(namespace string, podName string, contai
 		Stdout: &stdoutB,
 		Stderr: &stderrB,
 	}); err != nil {
-		log.Info("Error when running command '%s' in Pod '%s/%s' container '%s': %v", strings.Join(cmd, " "), namespace, podName, containerName, err)
+		log.Error(err, "Failed to run command in Pod's container", "Namespace", namespace, "Pod", podName, "Container", containerName, "Command", cmd)
 		return stdoutB.String(), stderrB.String(), err
 	}
 	outStr, errStr := stdoutB.String(), stderrB.String()
-	log.Info("Command '%s' in Pod '%s/%s' container '%s' returned with output: '%s' and error: '%s'", strings.Join(cmd, " "), namespace, podName, containerName, outStr, errStr)
+	log.Info("Successfully run command in Pod's container", "Namespace", namespace, "Pod", podName, "Container", containerName, "Command", cmd, "stdOut", outStr, "stdErr", errStr)
 	return stdoutB.String(), stderrB.String(), nil
 }
 
+/*
 func (data *TestData) runPingCommandFromPod(namespace string, podName string, targetPodIPs *PodIPs, count int) error {
 	var cmd []string
 	if targetPodIPs.ipv4 != nil {
@@ -689,4 +715,103 @@ func (data *TestData) waitForResourceExistByPath(pathPolicy string, shouldExist 
 		return true, nil
 	})
 	return err
+}
+
+func (data *TestData) createService(namespace, serviceName string, port, targetPort int32, protocol corev1.Protocol, selector map[string]string,
+	serviceType corev1.ServiceType, mutators ...func(service *corev1.Service)) (*corev1.Service, error) {
+	ipFamilies := []corev1.IPFamily{corev1.IPv4Protocol}
+
+	service := corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      serviceName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"nsx-op-e2e": serviceName,
+				"app":        serviceName,
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			SessionAffinity: corev1.ServiceAffinityNone,
+			Ports: []corev1.ServicePort{{
+				Port:       port,
+				TargetPort: intstr.FromInt32(targetPort),
+				Protocol:   protocol,
+			}},
+			Type:       serviceType,
+			Selector:   selector,
+			IPFamilies: ipFamilies,
+		},
+	}
+	for _, mutator := range mutators {
+		mutator(&service)
+	}
+	return data.clientset.CoreV1().Services(namespace).Create(context.TODO(), &service, metav1.CreateOptions{})
+}
+
+func (data *TestData) createPod(namespace, podName, containerName, image string, protocol corev1.Protocol, containerPort int32,
+	mutators ...func(pod *corev1.Pod)) (*corev1.Pod, error) {
+	pod := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        podName,
+			Namespace:   namespace,
+			Annotations: map[string]string{},
+			Labels: map[string]string{
+				"nsx-op-e2e": podName,
+				"app":        podName,
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:            containerName,
+					Image:           image,
+					ImagePullPolicy: corev1.PullIfNotPresent,
+					Ports: []corev1.ContainerPort{
+						{
+							Protocol:      protocol,
+							ContainerPort: containerPort,
+						},
+					},
+				},
+			},
+			RestartPolicy: corev1.RestartPolicyNever,
+			HostNetwork:   false,
+			// Set it to 1s for immediate shutdown to reduce test run time and to avoid affecting subsequent tests.
+			TerminationGracePeriodSeconds: ptr.To[int64](1),
+		},
+	}
+	for _, mutator := range mutators {
+		mutator(&pod)
+	}
+	return data.clientset.CoreV1().Pods(namespace).Create(context.TODO(), &pod, metav1.CreateOptions{})
+}
+
+func (data *TestData) serviceWaitFor(readyTime time.Duration, namespace string, name string, conditionFunc func(svc *corev1.Service) (bool, error)) (*corev1.Service, error) {
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, readyTime, false, func(ctx context.Context) (bool, error) {
+		if svc, err := data.clientset.CoreV1().Services(namespace).Get(context.TODO(), name, metav1.GetOptions{}); err != nil {
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("error when getting Service '%s/%s': %v", namespace, name, err)
+		} else {
+			return conditionFunc(svc)
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	return data.clientset.CoreV1().Services(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+}
+
+func (data *TestData) deleteService(nsName string, svcName string) error {
+	ctx := context.TODO()
+	err := data.clientset.CoreV1().Services(nsName).Delete(ctx, svcName, metav1.DeleteOptions{})
+	if err != nil {
+		log.Error(err, "Failed to delete Service", "namespace", nsName, "name", svcName)
+	}
+	return err
+}
+
+func (data *TestData) useWCPSetup() bool {
+	return data.vcClient != nil
 }
