@@ -9,7 +9,7 @@ metadata:
 spec:
   containers:
     - name: client
-      image: "harbor-repo.vmware.com/dockerhub-proxy-cache/library/photon:3.0-20210507"
+      image: "netfvt-docker-local.packages.vcfd.broadcom.net:8080/gateway-reg-docker-vr/amd64/photon:sha256__0df184f96396bbcdb3d088880fbbba3384589c466b14b6e496492a7347781fe0"
       command: [ "/bin/bash" ]
       args: [ "-c", "while true; do echo hello, world!; sleep 60; done" ]
   restartPolicy: Never
@@ -33,7 +33,7 @@ spec:
       hostname: web-deployment
       containers:
         - name: web
-          image: "harbor-repo.vmware.com/dockerhub-proxy-cache/humanux/http_https_echo:latest"
+          image: "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80

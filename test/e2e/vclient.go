@@ -151,13 +151,12 @@ func (c *vcClient) getSupervisorID() (string, error) {
 }
 
 func (c *vcClient) createNamespaceWithPreCreatedVPC(namespace string, vpcPath string, supervisorID string) error {
-	urlPath := "/api/vcenter/namespaces/instances/v2"
 	vcNamespace := createVCNamespaceSpec(namespace, supervisorID, vpcPath)
 	data, err := json.Marshal(vcNamespace)
 	if err != nil {
 		return fmt.Errorf("unable convert vcNamespace object to json bytes: %v", err)
 	}
-	request, err := c.prepareRequest(http.MethodPost, urlPath, data)
+	request, err := c.prepareRequest(http.MethodPost, createVCNamespaceEndpoint, data)
 	if err != nil {
 		return fmt.Errorf("failed to parepare http request with vcNamespace data: %v", err)
 	}
