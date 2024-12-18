@@ -14,13 +14,8 @@ type NSXClient struct {
 	*nsx.Client
 }
 
-func NewNSXClient(configFile string) (*NSXClient, error) {
+func NewNSXClient(cf *config.NSXOperatorConfig) (*NSXClient, error) {
 	// nsxClient is used to interact with NSX API.
-	config.UpdateConfigFilePath(configFile)
-	cf, err := config.NewNSXOperatorConfigFromFile()
-	if err != nil {
-		return nil, err
-	}
 	client := nsx.GetClient(cf)
 	if client == nil {
 		return nil, fmt.Errorf("failed to get nsx client")

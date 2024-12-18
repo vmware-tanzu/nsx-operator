@@ -39,7 +39,7 @@ func testMain(m *testing.M) int {
 
 	log.Info("Creating clientSets")
 
-	if err := NewTestData(testOptions.operatorConfigPath); err != nil {
+	if err := NewTestData(testOptions.operatorConfigPath, testOptions.vcUser, testOptions.vcPassword); err != nil {
 		log.Error(err, "Error when creating client")
 		return 1
 	}
