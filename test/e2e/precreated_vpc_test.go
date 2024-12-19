@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"strings"
 	"testing"
 	"time"
 
@@ -125,22 +124,7 @@ func TestPreCreatedVPC(t *testing.T) {
 	log.Info("Client Pod in the Namespace is ready", "Namespace", nsName, "Service", svcName, "Pod", clientPodName)
 
 	// Test traffic from client Pod to LB Service
-	url := fmt.Sprintf("http://%s:%d", lbIP, lbServicePort)
-	cmd := []string{
-		`/bin/sh`, "-c", fmt.Sprintf(`curl -s -o /dev/null -w %%{http_code} %s`, url),
-	}
-	trafficErr := wait.PollUntilContextTimeout(context.TODO(), 5*time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {
-		stdOut, _, err := testData.runCommandFromPod(nsName, clientPodName, containerName, cmd)
-		if err != nil {
-			return false, nil
-		}
-		statusCode := strings.Trim(stdOut, `"`)
-		if statusCode != "200" {
-			log.Info("Failed to access LoadBalancer", "statusCode", statusCode)
-			return false, nil
-		}
-		return true, nil
-	})
+	trafficErr := checkTrafficByCurl(nsName, clientPodName, containerName, lbIP, lbServicePort, 5*time.Second, 30*time.Second)
 	require.NoError(t, trafficErr, "LoadBalancer traffic should work")
 	log.Info("Verified traffic from client Pod to the LoadBalancer Service")
 

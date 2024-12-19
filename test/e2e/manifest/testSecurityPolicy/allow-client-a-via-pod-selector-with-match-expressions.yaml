@@ -10,10 +10,7 @@ spec:
   restartPolicy: Never
   containers:
   - name: client-a
-    image: "harbor-repo.vmware.com/dockerhub-proxy-cache/humanux/\
-    http_https_echo:latest"
-    command: ["/bin/bash"]
-    args:    ["-c", "while true; do echo hello, world!; sleep 60; done"]
+    image: "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"
 ---
 apiVersion: v1
 kind: Pod
@@ -27,10 +24,7 @@ spec:
   restartPolicy: Never
   containers:
     - name: client-b
-      image: "harbor-repo.vmware.com/dockerhub-proxy-cache/humanux/\
-      http_https_echo:latest"
-      command: ["/bin/bash"]
-      args:    ["-c", "while true; do echo hello, world!; sleep 60; done"]
+      image: "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"
 ---
 apiVersion: v1
 kind: Pod
@@ -40,7 +34,4 @@ spec:
   restartPolicy: Never
   containers:
     - name: pod-a
-      image: "harbor-repo.vmware.com/dockerhub-proxy-cache/humanux/\
-      http_https_echo:latest"
-      command: ["/bin/bash"]
-      args:    ["-c", "while true; do echo hello, world!; sleep 60; done"]
+      image: "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"

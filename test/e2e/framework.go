@@ -3,8 +3,10 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"os/exec"
 	"regexp"
@@ -36,8 +38,9 @@ import (
 var log = &logger.Log
 
 const (
-	defaultTimeout = 200 * time.Second
-	PolicyAPI      = "policy/api/v1"
+	createVCNamespaceEndpoint = "/api/vcenter/namespaces/instances/v2"
+	defaultTimeout            = 300 * time.Second
+	PolicyAPI                 = "policy/api/v1"
 )
 
 type Status int
@@ -293,6 +296,90 @@ func (data *TestData) createNamespace(namespace string, mutators ...func(ns *cor
 	return nil
 }
 
+// createVCNamespace creates a VC namespace with the provided namespace.
+func (data *TestData) createVCNamespace(namespace string) error {
+	err := testData.vcClient.startSession()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		testData.vcClient.closeSession()
+	}()
+
+	svID, _ := data.vcClient.getSupervisorID()
+	vcNamespace := &VCNamespaceCreateSpec{
+		Supervisor: svID,
+		Namespace:  namespace,
+		NetworkSpec: InstancesNetworkConfigInfo{
+			NetworkProvider: "NSX_VPC",
+			VpcNetwork: InstancesVpcNetworkInfo{
+				DefaultSubnetSize: 16,
+			},
+		},
+	}
+	dataJson, err := json.Marshal(vcNamespace)
+	if err != nil {
+		log.Error(err, "Unable convert vcNamespace object to json bytes", "namespace", namespace)
+		return fmt.Errorf("unable convert vcNamespace object to json bytes: %v", err)
+	}
+	request, err := data.vcClient.prepareRequest(http.MethodPost, createVCNamespaceEndpoint, dataJson)
+	if err != nil {
+		log.Error(err, "Failed to prepare http request with vcNamespace data", "namespace", namespace)
+		return fmt.Errorf("failed to parepare http request with vcNamespace data: %v", err)
+	}
+	if _, err = data.vcClient.handleRequest(request, nil); err != nil {
+		log.Error(err, "Failed to create VC namespace", "namespace", namespace)
+		return err
+	}
+	// wait for the namespace on k8s running
+	err = wait.PollUntilContextTimeout(context.TODO(), 10*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
+		if err != nil {
+			log.Error(err, "Check namespace existence", "namespace", namespace)
+			return false, err
+		}
+
+		for _, condition := range ns.Status.Conditions {
+			if condition.Type == "NamespaceNetworkReady" && condition.Status == corev1.ConditionTrue {
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+	if err != nil {
+		testData.deleteVCNamespace(namespace)
+	}
+	return err
+}
+
+// deleteVCNamespace deletes the provided VC namespace and waits for deletion to actually complete.
+func (data *TestData) deleteVCNamespace(namespace string) error {
+	err := testData.vcClient.startSession()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		testData.vcClient.closeSession()
+	}()
+
+	_ = testData.vcClient.deleteNamespace(namespace)
+	// wait for the namespace on k8s terminating
+	err = wait.PollUntilContextTimeout(context.TODO(), 10*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				log.Info("Namespace not found, it has been deleted", "namespace", namespace)
+				return true, nil
+			}
+			log.Error(err, "Check namespace existence", "namespace", namespace)
+			return false, err
+		}
+		log.Info("Waiting for namespace to be deleted", "namespace", namespace, "status phase", ns.Status.Phase)
+		return false, nil
+	})
+	return err
+}
+
 // deleteNamespace deletes the provided namespace and waits for deletion to actually complete.
 func (data *TestData) deleteNamespace(namespace string, timeout time.Duration) error {
 	var gracePeriodSeconds int64
@@ -422,41 +509,6 @@ func (data *TestData) podWaitForIPs(timeout time.Duration, name, namespace strin
 	return ips, nil
 }
 
-/*
-// deploymentWaitForIPsOrNames polls the K8s apiServer until the specified Pod in deployment has an IP address
-func (data *TestData) deploymentWaitForIPsOrNames(timeout time.Duration, namespace, deployment string) ([]string, []string, error) {
-	podIPStrings := sets.NewString()
-	var podNames []string
-	opt := metav1.ListOptions{
-		LabelSelector: "deployment=" + deployment,
-	}
-	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
-		if pods, err := data.clientset.CoreV1().Pods(namespace).List(context.TODO(), opt); err != nil {
-			if errors.IsNotFound(err) {
-				return false, nil
-			}
-			return false, fmt.Errorf("error when getting Pod  %v", err)
-		} else {
-			for _, p := range pods.Items {
-				if p.Status.Phase != corev1.PodRunning {
-					return false, nil
-				} else if p.Status.PodIP == "" {
-					return false, nil
-				} else {
-					podIPStrings.Insert(p.Status.PodIP)
-					podNames = append(podNames, p.Name)
-				}
-			}
-			return true, nil
-		}
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return podIPStrings.List(), podNames, nil
-}
-*/
-
 func parsePodIPs(podIPStrings sets.Set[string]) (*PodIPs, error) {
 	ips := new(PodIPs)
 	for podIP := range podIPStrings {
@@ -520,39 +572,6 @@ func (data *TestData) runCommandFromPod(namespace string, podName string, contai
 	return stdoutB.String(), stderrB.String(), nil
 }
 
-/*
-func (data *TestData) runPingCommandFromPod(namespace string, podName string, targetPodIPs *PodIPs, count int) error {
-	var cmd []string
-	if targetPodIPs.ipv4 != nil {
-		cmd = []string{"ping", "-c", strconv.Itoa(count), targetPodIPs.ipv4.String()}
-		if _, _, err := data.runCommandFromPod(namespace, podName, podName, cmd); err != nil {
-			return err
-		}
-	}
-	if targetPodIPs.ipv6 != nil {
-		cmd = []string{"ping", "-6", "-c", strconv.Itoa(count), targetPodIPs.ipv6.String()}
-		if _, _, err := data.runCommandFromPod(namespace, podName, podName, cmd); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (data *TestData) runNetcatCommandFromPod(namespace string, podName string, containerName string, server string, port int) error {
-	cmd := []string{
-		"/bin/sh",
-		"-c",
-		fmt.Sprintf("for i in $(seq 1 5); do nc -w 4 %s %d && exit 0 || sleep 1; done; exit 1",
-			server, port),
-	}
-	_, _, err := data.runCommandFromPod(namespace, podName, containerName, cmd)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-*/
-
 func applyYAML(filename string, ns string) error {
 	cmd := fmt.Sprintf("kubectl apply -f %s -n %s", filename, ns)
 	if ns == "" {
@@ -574,31 +593,6 @@ func applyYAML(filename string, ns string) error {
 	}
 	return nil
 }
-
-// Temporarily disable traffic check
-/*
-func runCommand(cmd string) (string, error) {
-	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (bool, error) {
-		var stdout, stderr bytes.Buffer
-		command := exec.Command("bash", "-c", cmd)
-		log.Info("Running command %s", cmd)
-		command.Stdout = &stdout
-		command.Stderr = &stderr
-		err := command.Run()
-		if err != nil {
-			log.Info("Error when running command %s: %v", cmd, err)
-			return false, nil
-		}
-		outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
-		log.Info("Command %s returned with output: '%s' and error: '%s'", cmd, outStr, errStr)
-		if errStr != "" {
-			return false, nil
-		}
-		return true, nil
-	})
-	return "", err
-}
-*/
 
 func deleteYAML(filename string, ns string) error {
 	cmd := fmt.Sprintf("kubectl delete -f %s -n %s", filename, ns)
@@ -814,4 +808,25 @@ func (data *TestData) deleteService(nsName string, svcName string) error {
 
 func (data *TestData) useWCPSetup() bool {
 	return data.vcClient != nil
+}
+
+func checkTrafficByCurl(ns, podname, containername, ip string, port int32, interval, timeout time.Duration) error {
+	// Test traffic from client Pod to server Pod
+	url := fmt.Sprintf("http://%s:%d", ip, port)
+	cmd := []string{
+		`/bin/sh`, "-c", fmt.Sprintf(`curl -s -o /dev/null -w %%{http_code} %s`, url),
+	}
+	trafficErr := wait.PollUntilContextTimeout(context.TODO(), interval, timeout, true, func(ctx context.Context) (bool, error) {
+		stdOut, _, err := testData.runCommandFromPod(ns, podname, containername, cmd)
+		if err != nil {
+			return false, nil
+		}
+		statusCode := strings.Trim(stdOut, `"`)
+		if statusCode != "200" {
+			log.Info("Failed to access ip", "ip", ip, "statusCode", statusCode)
+			return false, nil
+		}
+		return true, nil
+	})
+	return trafficErr
 }
