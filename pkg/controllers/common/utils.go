@@ -19,7 +19,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -29,19 +28,11 @@ var (
 
 func AllocateSubnetFromSubnetSet(subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, error) {
 	// Use SubnetSet uuid lock to make sure when multiple ports are created on the same SubnetSet, only one Subnet will be created
-	subnetSetLock := lockSubnetSet(subnetSet.GetUID())
-	defer unlockSubnetSet(subnetSet.GetUID(), subnetSetLock)
+	subnetSetLock := LockSubnetSet(subnetSet.GetUID())
+	defer UnlockSubnetSet(subnetSet.GetUID(), subnetSetLock)
 	subnetList := subnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.GetUID()))
 	for _, nsxSubnet := range subnetList {
-		portNums := len(subnetPortService.GetPortsOfSubnet(*nsxSubnet.Id))
-		totalIP := int(*nsxSubnet.Ipv4SubnetSize)
-		if len(nsxSubnet.IpAddresses) > 0 {
-			// totalIP will be overrided if IpAddresses are specified.
-			totalIP, _ = util.CalculateIPFromCIDRs(nsxSubnet.IpAddresses)
-		}
-		// NSX reserves 4 ip addresses in each subnet for network address, gateway address,
-		// dhcp server address and broadcast address.
-		if portNums < totalIP-4 {
+		if subnetPortService.AllocatePortFromSubnet(nsxSubnet) {
 			return *nsxSubnet.Path, nil
 		}
 	}
@@ -56,7 +47,12 @@ func AllocateSubnetFromSubnetSet(subnetSet *v1alpha1.SubnetSet, vpcService servi
 		log.Error(err, "Failed to allocate Subnet")
 		return "", err
 	}
-	return subnetService.CreateOrUpdateSubnet(subnetSet, vpcInfoList[0], tags)
+	nsxSubnet, err := subnetService.CreateOrUpdateSubnet(subnetSet, vpcInfoList[0], tags)
+	if err != nil {
+		return "", err
+	}
+	subnetPortService.AllocatePortFromSubnet(nsxSubnet)
+	return *nsxSubnet.Path, nil
 }
 
 func getSharedNamespaceForNamespace(client k8sclient.Client, ctx context.Context, namespaceName string) (string, error) {
@@ -241,7 +237,7 @@ func NewStatusUpdater(client k8sclient.Client, nsxConfig *config.NSXOperatorConf
 	}
 }
 
-func lockSubnetSet(uuid types.UID) *sync.Mutex {
+func LockSubnetSet(uuid types.UID) *sync.Mutex {
 	lock := sync.Mutex{}
 	subnetSetLock, _ := SubnetSetLocks.LoadOrStore(uuid, &lock)
 	log.V(1).Info("Lock SubnetSet", "uuid", uuid)
@@ -249,7 +245,7 @@ func lockSubnetSet(uuid types.UID) *sync.Mutex {
 	return subnetSetLock.(*sync.Mutex)
 }
 
-func unlockSubnetSet(uuid types.UID, subnetSetLock *sync.Mutex) {
+func UnlockSubnetSet(uuid types.UID, subnetSetLock *sync.Mutex) {
 	if subnetSetLock != nil {
 		log.V(1).Info("Unlock SubnetSet", "uuid", uuid)
 		subnetSetLock.Unlock()

@@ -813,6 +813,24 @@ func TestSubnetPortService_ListSubnetPortByPodName(t *testing.T) {
 	assert.Equal(t, subnetPort2, subnetPorts[0])
 }
 
+func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
+	subnetPath := "subnet-path-1"
+	subnetId := "subnet-id-1"
+	subnetPortService := createSubnetPortService()
+	ok := subnetPortService.AllocatePortFromSubnet(&model.VpcSubnet{
+		Ipv4SubnetSize: common.Int64(16),
+		IpAddresses:    []string{"10.0.0.1/28"},
+		Path:           &subnetPath,
+		Id:             &subnetId,
+	})
+	assert.True(t, ok)
+	empty := subnetPortService.IsEmptySubnet(subnetId, subnetPath)
+	assert.False(t, empty)
+	subnetPortService.ReleasePortInSubnet(subnetPath)
+	empty = subnetPortService.IsEmptySubnet(subnetId, subnetPath)
+	assert.True(t, empty)
+}
+
 func createSubnetPortService() *SubnetPortService {
 	return &SubnetPortService{
 		SubnetPortStore: &SubnetPortStore{ResourceStore: common.ResourceStore{

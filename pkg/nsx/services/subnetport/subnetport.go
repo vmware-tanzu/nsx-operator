@@ -46,18 +46,20 @@ func InitializeSubnetPort(service servicecommon.Service) (*SubnetPortService, er
 
 	subnetPortService := &SubnetPortService{Service: service}
 
-	subnetPortService.SubnetPortStore = &SubnetPortStore{ResourceStore: servicecommon.ResourceStore{
-		Indexer: cache.NewIndexer(
-			keyFunc,
-			cache.Indexers{
-				servicecommon.TagScopeSubnetPortCRUID: subnetPortIndexByCRUID,
-				servicecommon.TagScopePodUID:          subnetPortIndexByPodUID,
-				servicecommon.TagScopeVMNamespace:     subnetPortIndexNamespace,
-				servicecommon.TagScopeNamespace:       subnetPortIndexPodNamespace,
-				servicecommon.IndexKeySubnetID:        subnetPortIndexBySubnetID,
-			}),
-		BindingType: model.VpcSubnetPortBindingType(),
-	}}
+	subnetPortService.SubnetPortStore = &SubnetPortStore{
+		ResourceStore: servicecommon.ResourceStore{
+			Indexer: cache.NewIndexer(
+				keyFunc,
+				cache.Indexers{
+					servicecommon.TagScopeSubnetPortCRUID: subnetPortIndexByCRUID,
+					servicecommon.TagScopePodUID:          subnetPortIndexByPodUID,
+					servicecommon.TagScopeVMNamespace:     subnetPortIndexNamespace,
+					servicecommon.TagScopeNamespace:       subnetPortIndexPodNamespace,
+					servicecommon.IndexKeySubnetID:        subnetPortIndexBySubnetID,
+				}),
+			BindingType: model.VpcSubnetPortBindingType(),
+		},
+	}
 
 	go subnetPortService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSubnetPort, nil, subnetPortService.SubnetPortStore)
 
@@ -372,4 +374,69 @@ func (service *SubnetPortService) Cleanup(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// AllocatePortFromSubnet checks the number of SubnetPorts on the Subnet.
+// If the Subnet has capacity for the new SubnetPorts, it will increase
+// the number of SubnetPort under creation and return true.
+func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet) bool {
+	info := &CountInfo{}
+	obj, ok := service.SubnetPortStore.PortCountInfo.LoadOrStore(*subnet.Path, info)
+	info = obj.(*CountInfo)
+
+	info.lock.Lock()
+	defer info.lock.Unlock()
+	if !ok {
+		totalIP := int(*subnet.Ipv4SubnetSize)
+		if len(subnet.IpAddresses) > 0 {
+			// totalIP will be overrided if IpAddresses are specified.
+			totalIP, _ = util.CalculateIPFromCIDRs(subnet.IpAddresses)
+		}
+		// NSX reserves 4 ip addresses in each subnet for network address, gateway address,
+		// dhcp server address and broadcast address.
+		info.totalIp = totalIP - 4
+	}
+
+	// Number of SubnetPorts on the Subnet includes the SubnetPorts under creation
+	// and the SubnetPorts already created
+	existingPortCount := len(service.GetPortsOfSubnet(*subnet.Id))
+	if info.dirtyCount+existingPortCount < info.totalIp {
+		info.dirtyCount += 1
+		log.V(2).Info("Allocate Subnetport to Subnet", "Subnet", *subnet.Path, "dirtyPortCount", info.dirtyCount, "existingPortCount", existingPortCount)
+		return true
+	}
+	return false
+}
+
+// ReleasePortInSubnet decreases the number of SubnetPort under creation.
+func (service *SubnetPortService) ReleasePortInSubnet(path string) {
+	obj, ok := service.SubnetPortStore.PortCountInfo.Load(path)
+	if !ok {
+		log.Error(nil, "Subnet does not have Subnetport to remove", "Subnet", path)
+		return
+	}
+	info := obj.(*CountInfo)
+	info.lock.Lock()
+	defer info.lock.Unlock()
+	if info.dirtyCount < 1 {
+		log.Error(nil, "Subnet does not have Subnetport to remove", "Subnet", path)
+		return
+	}
+	info.dirtyCount -= 1
+	log.V(2).Info("Release Subnetport from Subnet", "Subnet", path, "dirtyPortCount", info.dirtyCount)
+}
+
+// IsEmptySubnet check if there is any SubnetPort created or being creating on the Subnet.
+func (service *SubnetPortService) IsEmptySubnet(id string, path string) bool {
+	portCount := len(service.GetPortsOfSubnet(id))
+	obj, ok := service.SubnetPortStore.PortCountInfo.Load(path)
+	if ok {
+		info := obj.(*CountInfo)
+		portCount += info.dirtyCount
+	}
+	return portCount < 1
+}
+
+func (service *SubnetPortService) DeletePortCount(path string) {
+	service.SubnetPortStore.PortCountInfo.Delete(path)
 }

@@ -2,7 +2,6 @@ package common
 
 import (
 	"context"
-	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -29,16 +28,16 @@ type SubnetServiceProvider interface {
 	GetSubnetByKey(key string) (*model.VpcSubnet, error)
 	GetSubnetByPath(path string) (*model.VpcSubnet, error)
 	GetSubnetsByIndex(key, value string) []*model.VpcSubnet
-	CreateOrUpdateSubnet(obj client.Object, vpcInfo VPCResourceInfo, tags []model.Tag) (string, error)
+	CreateOrUpdateSubnet(obj client.Object, vpcInfo VPCResourceInfo, tags []model.Tag) (*model.VpcSubnet, error)
 	GenerateSubnetNSTags(obj client.Object) []model.Tag
-	LockSubnet(path *string) *sync.RWMutex
-	UnlockSubnet(path *string, lock *sync.RWMutex)
-	RLockSubnet(path *string) *sync.RWMutex
-	RUnlockSubnet(path *string, lock *sync.RWMutex)
 }
 
 type SubnetPortServiceProvider interface {
 	GetPortsOfSubnet(nsxSubnetID string) (ports []*model.VpcSubnetPort)
+	AllocatePortFromSubnet(subnet *model.VpcSubnet) bool
+	ReleasePortInSubnet(path string)
+	IsEmptySubnet(id string, path string) bool
+	DeletePortCount(path string)
 }
 
 type NodeServiceReader interface {

@@ -74,10 +74,13 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	if !podIsDeleted(pod) {
 		r.StatusUpdater.IncreaseUpdateTotal()
-		nsxSubnetPath, err := r.GetSubnetPathForPod(ctx, pod)
+		isExisting, nsxSubnetPath, err := r.GetSubnetPathForPod(ctx, pod)
 		if err != nil {
 			log.Error(err, "failed to get NSX resource path from subnet", "pod.Name", pod.Name, "pod.UID", pod.UID)
 			return common.ResultRequeue, err
+		}
+		if !isExisting {
+			defer r.SubnetPortService.ReleasePortInSubnet(nsxSubnetPath)
 		}
 		log.Info("got NSX subnet for pod", "NSX subnet path", nsxSubnetPath, "pod.Name", pod.Name, "pod.UID", pod.UID)
 		node, err := r.GetNodeByName(pod.Spec.NodeName)
@@ -87,11 +90,6 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			return common.ResultRequeue, err
 		}
 		contextID := *node.UniqueId
-		// There is a race condition that the subnetset controller may delete the
-		// subnet during CollectGarbage. So check the subnet under lock.
-		lock := r.SubnetService.RLockSubnet(&nsxSubnetPath)
-		defer r.SubnetService.RUnlockSubnet(&nsxSubnetPath, lock)
-
 		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath)
 		if err != nil {
 			return common.ResultRequeue, err
@@ -200,24 +198,24 @@ func (r *PodReconciler) CollectGarbage(ctx context.Context) {
 	}
 }
 
-func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (string, error) {
+func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (bool, string, error) {
 	subnetPortIDForPod := r.SubnetPortService.BuildSubnetPortId(&pod.ObjectMeta)
 	subnetPath := r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(subnetPortIDForPod)
 	if len(subnetPath) > 0 {
 		log.V(1).Info("NSX subnet port had been created, returning the existing NSX subnet path", "pod.UID", pod.UID, "subnetPath", subnetPath)
-		return subnetPath, nil
+		return true, subnetPath, nil
 	}
 	subnetSet, err := common.GetDefaultSubnetSet(r.SubnetPortService.Client, ctx, pod.Namespace, servicecommon.LabelDefaultPodSubnetSet)
 	if err != nil {
-		return "", err
+		return false, "", err
 	}
 	log.Info("got default subnetset for pod, allocating the NSX subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "pod.Name", pod.Name, "pod.UID", pod.UID)
 	subnetPath, err = common.AllocateSubnetFromSubnetSet(subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService)
 	if err != nil {
-		return subnetPath, err
+		return false, subnetPath, err
 	}
 	log.Info("allocated NSX subnet for pod", "nsxSubnetPath", subnetPath, "pod.Name", pod.Name, "pod.UID", pod.UID)
-	return subnetPath, nil
+	return false, subnetPath, nil
 }
 
 func podIsDeleted(pod *v1.Pod) bool {

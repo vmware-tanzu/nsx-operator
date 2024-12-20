@@ -199,7 +199,7 @@ func TestInitializeSubnetService(t *testing.T) {
 			},
 			subnetCRTags:                  []model.Tag{},
 			expectAllSubnetNumAfterCreate: 1,
-			expectCreateSubnetUID:         fakeSubnetPath,
+			expectCreateSubnetUID:         nsxSubnetID,
 		},
 		{
 			name:             "Subnet exists and not change",
@@ -232,7 +232,7 @@ func TestInitializeSubnetService(t *testing.T) {
 			},
 			expectAllSubnetNum:            1,
 			expectAllSubnetNumAfterCreate: 1,
-			expectCreateSubnetUID:         subnetID,
+			expectCreateSubnetUID:         nsxSubnetID,
 		},
 		{
 			name:             "Subnet exists and changed",
@@ -267,7 +267,7 @@ func TestInitializeSubnetService(t *testing.T) {
 			},
 			expectAllSubnetNum:            1,
 			expectAllSubnetNumAfterCreate: 1,
-			expectCreateSubnetUID:         fakeSubnetPath,
+			expectCreateSubnetUID:         nsxSubnetID,
 		},
 	}
 
@@ -307,9 +307,9 @@ func TestInitializeSubnetService(t *testing.T) {
 			res := service.ListAllSubnet()
 			assert.Equal(t, tc.expectAllSubnetNum, len(res))
 
-			createdNSXSubnetUID, err := service.CreateOrUpdateSubnet(tc.existingSubnetCR, *tc.existingVPCInfo, tc.subnetCRTags)
+			createdNSXSubnet, err := service.CreateOrUpdateSubnet(tc.existingSubnetCR, *tc.existingVPCInfo, tc.subnetCRTags)
 			assert.NoError(t, err)
-			assert.Equal(t, tc.expectCreateSubnetUID, createdNSXSubnetUID)
+			assert.Equal(t, tc.expectCreateSubnetUID, *createdNSXSubnet.Id)
 
 			res = service.ListAllSubnet()
 
@@ -398,8 +398,8 @@ func TestSubnetService_UpdateSubnetSet(t *testing.T) {
 	})
 
 	patchesCreateOrUpdateSubnet := gomonkey.ApplyFunc((*SubnetService).createOrUpdateSubnet,
-		func(r *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (string, error) {
-			return fakeSubnetPath, nil
+		func(r *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
+			return &model.VpcSubnet{Path: &fakeSubnetPath}, nil
 		})
 	defer patchesCreateOrUpdateSubnet.Reset()
 
