@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +26,12 @@ type supervisorInfo struct {
 	Name         string `json:"name"`
 	ConfigStatus string `json:"config_status"`
 	K8sStatus    string `json:"kubernetes_status"`
+}
+
+type storagePolicyInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Policy      string `json:"policy"`
 }
 
 type supervisorSummary struct {
@@ -52,10 +59,29 @@ type InstancesNetworkConfigInfo struct {
 	VpcNetwork      InstancesVpcNetworkInfo `json:"vpc_network"`
 }
 
+type InstancesStorageSpec struct {
+	Policy string `json:"policy"`
+	Limit  *int64 `json:"limit"`
+}
+
+type InstancesContentLibrarySpec struct {
+	ContentLibrary string `json:"content_library"`
+	Writable       *bool  `json:"writable"`
+	AllowImport    *bool  `json:"allow_import"`
+}
+
+type InstancesVMServiceSpec struct {
+	ContentLibraries map[string]bool `json:"content_libraries"`
+	VmClasses        map[string]bool `json:"vm_classes"`
+}
+
 type VCNamespaceCreateSpec struct {
-	Supervisor  string                     `json:"supervisor"`
-	Namespace   string                     `json:"namespace"`
-	NetworkSpec InstancesNetworkConfigInfo `json:"network_spec"`
+	Supervisor       string                        `json:"supervisor"`
+	Namespace        string                        `json:"namespace"`
+	NetworkSpec      InstancesNetworkConfigInfo    `json:"network_spec"`
+	StorageSpecs     []InstancesStorageSpec        `json:"storage_specs"`
+	ContentLibraries []InstancesContentLibrarySpec `json:"content_libraries"`
+	VmServiceSpec    *InstancesVMServiceSpec       `json:"vm_service_specs"`
 }
 
 type VCNamespaceGetInfo struct {
@@ -143,11 +169,54 @@ func (c *vcClient) getSupervisorID() (string, error) {
 	}
 
 	for _, sv := range response.Items {
+		log.Info("Checking supervisor", "supervisor", sv.Info.Name, "status", sv.Info.ConfigStatus)
 		if sv.Info.ConfigStatus == "RUNNING" {
 			return sv.ID, nil
 		}
 	}
 	return "", fmt.Errorf("no valid supervisor found on vCenter")
+}
+
+func (c *vcClient) getStoragePolicyID() (string, error) {
+	urlPath := "/api/vcenter/storage/policies"
+	request, err := c.prepareRequest(http.MethodGet, urlPath, nil)
+	if err != nil {
+		return "", err
+	}
+	// response is a list of storage policy info
+	var response []storagePolicyInfo
+	if _, err = c.handleRequest(request, &response); err != nil {
+		return "", err
+	}
+
+	for _, po := range response {
+		log.Info("Checking storage policy", "policy", po.Name, "description", po.Description)
+		if strings.Contains(po.Name, "global") || strings.Contains(po.Name, "local") {
+			return po.Name, nil
+		}
+	}
+	return "", fmt.Errorf("no valid storage policy found on vCenter")
+}
+
+// Get the first content library ID by default
+func (c *vcClient) getContentLibraryID() (string, error) {
+	urlPath := "/api/content/library"
+	request, err := c.prepareRequest(http.MethodGet, urlPath, nil)
+	if err != nil {
+		return "", err
+	}
+	var response []string
+	if _, err = c.handleRequest(request, &response); err != nil {
+		return "", err
+	}
+
+	for _, cl := range response {
+		log.Info("Checking content library", "content library", cl)
+		if cl != "" {
+			return cl, nil
+		}
+	}
+	return "", fmt.Errorf("no valid content library found on vCenter")
 }
 
 func (c *vcClient) createNamespaceWithPreCreatedVPC(namespace string, vpcPath string, supervisorID string) error {
@@ -208,6 +277,7 @@ func createVCNamespaceSpec(namespace string, svID string, vpcPath string) *VCNam
 
 func (c *vcClient) prepareRequest(method string, urlPath string, data []byte) (*http.Request, error) {
 	url := fmt.Sprintf("%s://%s%s", c.url.Scheme, c.url.Host, urlPath)
+	log.Info("Requesting", "url", url)
 	req, err := http.NewRequest(method, url, bytes.NewBuffer(data))
 	if err != nil {
 		return nil, err
