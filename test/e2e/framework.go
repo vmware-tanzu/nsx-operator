@@ -307,9 +307,23 @@ func (data *TestData) createVCNamespace(namespace string) error {
 	}()
 
 	svID, _ := data.vcClient.getSupervisorID()
+	storagePolicyID, _ := data.vcClient.getStoragePolicyID()
+	log.Info("", "storagePolicyID", storagePolicyID)
+	contentLibraryID, _ := data.vcClient.getContentLibraryID()
+	log.Info("", "contentLibraryID", contentLibraryID)
 	vcNamespace := &VCNamespaceCreateSpec{
 		Supervisor: svID,
 		Namespace:  namespace,
+		StorageSpecs: []InstancesStorageSpec{
+			{
+				Policy: storagePolicyID,
+			},
+		},
+		ContentLibraries: []InstancesContentLibrarySpec{
+			{
+				ContentLibrary: contentLibraryID,
+			},
+		},
 		NetworkSpec: InstancesNetworkConfigInfo{
 			NetworkProvider: "NSX_VPC",
 			VpcNetwork: InstancesVpcNetworkInfo{
@@ -318,6 +332,7 @@ func (data *TestData) createVCNamespace(namespace string) error {
 		},
 	}
 	dataJson, err := json.Marshal(vcNamespace)
+	log.Info("Data json", "dataJson", string(dataJson))
 	if err != nil {
 		log.Error(err, "Unable convert vcNamespace object to json bytes", "namespace", namespace)
 		return fmt.Errorf("unable convert vcNamespace object to json bytes: %v", err)
