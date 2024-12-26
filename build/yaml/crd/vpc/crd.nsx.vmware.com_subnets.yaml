@@ -98,6 +98,10 @@ spec:
                         to other modes
                       rule: oldSelf!='DHCPDeactivated' || oldSelf==self
                 type: object
+                x-kubernetes-validations:
+                - message: subnetDHCPConfig cannot switch from DHCPDeactivated to
+                    other modes
+                  rule: has(oldSelf.mode) || !has(self.mode) || self.mode=='DHCPDeactivated'
             type: object
             x-kubernetes-validations:
             - message: subnetDHCPConfig cannot switch from DHCPDeactivated to other
