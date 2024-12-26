@@ -40,13 +40,15 @@ type SubnetSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPAddresses []string `json:"ipAddresses,omitempty"`
 
-	// DHCP mode of a SubnetSet cannot switch from DHCPDeactivated to DHCPServer or DHCPRelay.
+	// DHCP mode of a Subnet cannot switch from DHCPDeactivated to DHCPServer or DHCPRelay.
 	// If subnetDHCPConfig is not set, the DHCP mode is DHCPDeactivated by default.
-	// In order to enforce this rule, two XValidation rules are defined.
-	// The rule in SubnetSetSpec prevents the condition that subnetDHCPConfig is not set in
-	// old SubnetSetSpec while the new SubnetSetSpec specifies a field other than DHCPDeactivated.
-	// The rule in SubnetDHCPConfig prevents the mode changing from empty or
-	// DHCPDeactivated to DHCPServer or DHCPRelay.
+	// In order to enforce this rule, three XValidation rules are defined.
+	// The rule on SubnetSpec prevents the condition that subnetDHCPConfig is not set in
+	// old SubnetSpec while the new SubnetSpec specifies a Mode other than DHCPDeactivated.
+	// The rule on SubnetDHCPConfig prevents the condition that Mode is not set in old
+	// SubnetDHCPConfig while the new one specifies a Mode other than DHCPDeactivated.
+	// The rule on SubnetDHCPConfig.Mode prevents the Mode changing from DHCPDeactivated
+	// to DHCPServer or DHCPRelay.
 
 	// DHCP configuration for Subnet.
 	SubnetDHCPConfig SubnetDHCPConfig `json:"subnetDHCPConfig,omitempty"`
@@ -90,6 +92,7 @@ type SubnetList struct {
 }
 
 // SubnetDHCPConfig is DHCP configuration for Subnet.
+// +kubebuilder:validation:XValidation:rule="has(oldSelf.mode) || !has(self.mode) || self.mode=='DHCPDeactivated'", message="subnetDHCPConfig cannot switch from DHCPDeactivated to other modes"
 type SubnetDHCPConfig struct {
 	// DHCP Mode. DHCPDeactivated will be used if it is not defined.
 	// It cannot switch from DHCPDeactivated to DHCPServer or DHCPRelay.
