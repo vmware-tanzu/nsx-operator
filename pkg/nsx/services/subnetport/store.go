@@ -2,6 +2,7 @@ package subnetport
 
 import (
 	"errors"
+	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
@@ -88,6 +89,17 @@ func subnetPortIndexPodNamespace(obj interface{}) ([]string, error) {
 // SubnetPortStore is a store for SubnetPorts
 type SubnetPortStore struct {
 	common.ResourceStore
+	// PortCountInfo stores the Subnet and the information
+	// regarding SubnetPort count on that Subnet
+	PortCountInfo sync.Map
+}
+
+type CountInfo struct {
+	// dirtyCount defines the number of SubnetPorts under creation in the Subnet
+	dirtyCount int
+	lock       sync.Mutex
+	// totalIp defines the number of available IP in the Subnet
+	totalIp int
 }
 
 func (vs *SubnetPortStore) Apply(i interface{}) error {

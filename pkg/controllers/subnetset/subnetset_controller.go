@@ -346,12 +346,14 @@ func (r *SubnetSetReconciler) deleteSubnetBySubnetSetName(ctx context.Context, s
 }
 
 func (r *SubnetSetReconciler) deleteSubnetForSubnetSet(subnetSet v1alpha1.SubnetSet, updateStatus, ignoreStaleSubnetPort bool) error {
+	subnetSetLock := common.LockSubnetSet(subnetSet.GetUID())
 	nsxSubnets := r.SubnetService.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.GetUID()))
 	// If ignoreStaleSubnetPort is true, we will actively delete the existing SubnetConnectionBindingMaps connected to the
 	// corresponding NSX Subnet. This happens in the GC case to scale-in the NSX Subnet if no SubnetPort exists.
 	// For SubnetSet CR deletion event, we don't delete the existing SubnetConnectionBindingMaps but let the
 	// SubnetConnectionBindingMap controller do it after the binding CR is removed.
 	hasStaleSubnetPort, deleteErr := r.deleteSubnets(nsxSubnets, ignoreStaleSubnetPort)
+	common.UnlockSubnetSet(subnetSet.GetUID(), subnetSetLock)
 	if updateStatus {
 		if err := r.SubnetService.UpdateSubnetSetStatus(&subnetSet); err != nil {
 			return err
@@ -375,32 +377,30 @@ func (r *SubnetSetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet, delet
 	}
 	var deleteErrs []error
 	for _, nsxSubnet := range nsxSubnets {
-		lock := r.SubnetService.LockSubnet(nsxSubnet.Path)
-		func() {
-			defer r.SubnetService.UnlockSubnet(nsxSubnet.Path, lock)
 
-			portNums := len(r.SubnetPortService.GetPortsOfSubnet(*nsxSubnet.Id))
-			if portNums > 0 {
-				hasStalePort = true
-				log.Info("Skipped deleting NSX Subnet due to stale ports", "nsxSubnet", *nsxSubnet.Id)
-				return
-			}
+		if !r.SubnetPortService.IsEmptySubnet(*nsxSubnet.Id, *nsxSubnet.Path) {
+			hasStalePort = true
+			log.Info("Skipped deleting NSX Subnet due to stale ports", "nsxSubnet", *nsxSubnet.Id)
+			continue
+		}
 
-			if deleteBindingMaps {
-				if err := r.BindingService.DeleteSubnetConnectionBindingMapsByParentSubnet(nsxSubnet); err != nil {
-					deleteErr := fmt.Errorf("failed to delete NSX SubnetConnectionBindingMaps connected to NSX Subnet/%s: %+v", *nsxSubnet.Id, err)
-					deleteErrs = append(deleteErrs, deleteErr)
-					log.Error(deleteErr, "Skipping to next Subnet")
-					return
-				}
-			}
-
-			if err := r.SubnetService.DeleteSubnet(*nsxSubnet); err != nil {
-				deleteErr := fmt.Errorf("failed to delete NSX Subnet/%s: %+v", *nsxSubnet.Id, err)
+		if deleteBindingMaps {
+			if err = r.BindingService.DeleteSubnetConnectionBindingMapsByParentSubnet(nsxSubnet); err != nil {
+				deleteErr := fmt.Errorf("failed to delete NSX SubnetConnectionBindingMaps connected to NSX Subnet/%s: %+v", *nsxSubnet.Id, err)
 				deleteErrs = append(deleteErrs, deleteErr)
 				log.Error(deleteErr, "Skipping to next Subnet")
+				continue
 			}
-		}()
+		}
+
+		if err := r.SubnetService.DeleteSubnet(*nsxSubnet); err != nil {
+			deleteErr := fmt.Errorf("failed to delete NSX Subnet/%s: %+v", *nsxSubnet.Id, err)
+			deleteErrs = append(deleteErrs, deleteErr)
+			log.Error(deleteErr, "Skipping to next Subnet")
+		} else {
+			r.SubnetPortService.DeletePortCount(*nsxSubnet.Path)
+		}
+
 	}
 	if len(deleteErrs) > 0 {
 		err = fmt.Errorf("multiple errors occurred while deleting Subnets: %v", deleteErrs)

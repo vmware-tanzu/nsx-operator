@@ -2,7 +2,6 @@ package subnet
 
 import (
 	"errors"
-	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
@@ -70,43 +69,6 @@ func subnetSetIndexFunc(obj interface{}) ([]string, error) {
 // SubnetStore is a store for subnet.
 type SubnetStore struct {
 	common.ResourceStore
-	// save locks for subnet by path
-	pathLocks sync.Map
-}
-
-func (subnetStore *SubnetStore) Add(i interface{}) error {
-	subnet := i.(*model.VpcSubnet)
-	if subnet.Path == nil {
-		log.Info("Store a subnet without path", "subnet", subnet)
-		return subnetStore.ResourceStore.Add(i)
-	}
-	lock := sync.RWMutex{}
-	subnetStore.pathLocks.LoadOrStore(*subnet.Path, &lock)
-	return subnetStore.ResourceStore.Add(i)
-}
-
-func (subnetStore *SubnetStore) Delete(i interface{}) error {
-	subnet := i.(*model.VpcSubnet)
-	if subnet.Path == nil {
-		log.Info("Delete a subnet without path", "subnet", subnet)
-		return subnetStore.ResourceStore.Delete(i)
-	}
-	subnetStore.pathLocks.Delete(*subnet.Path)
-	return subnetStore.ResourceStore.Delete(i)
-}
-
-func (subnetStore *SubnetStore) Lock(path string) *sync.RWMutex {
-	lock := sync.RWMutex{}
-	subnetLock, _ := subnetStore.pathLocks.LoadOrStore(path, &lock)
-	subnetLock.(*sync.RWMutex).Lock()
-	return subnetLock.(*sync.RWMutex)
-}
-
-func (subnetStore *SubnetStore) RLock(path string) *sync.RWMutex {
-	lock := sync.RWMutex{}
-	subnetLock, _ := subnetStore.pathLocks.LoadOrStore(path, &lock)
-	subnetLock.(*sync.RWMutex).RLock()
-	return subnetLock.(*sync.RWMutex)
 }
 
 func (subnetStore *SubnetStore) Apply(i interface{}) error {

@@ -194,6 +194,7 @@ func (r *SubnetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet) error {
 			log.Error(err, "Failed to delete Subnet", "ID", *nsxSubnet.Id)
 			return err
 		}
+		r.SubnetPortService.DeletePortCount(*nsxSubnet.Path)
 		log.Info("Successfully deleted Subnet", "ID", *nsxSubnet.Id)
 	}
 	log.Info("Successfully cleaned Subnets", "subnetCount", len(nsxSubnets))

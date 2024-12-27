@@ -1,8 +1,6 @@
 package mock
 
 import (
-	"sync"
-
 	"github.com/stretchr/testify/mock"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -71,9 +69,9 @@ func (m *MockSubnetServiceProvider) GetSubnetsByIndex(key, value string) []*mode
 	return arg.Get(0).([]*model.VpcSubnet)
 }
 
-func (m *MockSubnetServiceProvider) CreateOrUpdateSubnet(obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (string, error) {
+func (m *MockSubnetServiceProvider) CreateOrUpdateSubnet(obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (*model.VpcSubnet, error) {
 	arg := m.Called(obj, vpcInfo, tags)
-	return arg.Get(0).(string), arg.Error(1)
+	return arg.Get(0).(*model.VpcSubnet), arg.Error(1)
 }
 
 func (m *MockSubnetServiceProvider) GenerateSubnetNSTags(obj client.Object) []model.Tag {
@@ -81,26 +79,26 @@ func (m *MockSubnetServiceProvider) GenerateSubnetNSTags(obj client.Object) []mo
 	return []model.Tag{}
 }
 
-func (m *MockSubnetServiceProvider) LockSubnet(path *string) *sync.RWMutex {
-	return nil
-}
-
-func (m *MockSubnetServiceProvider) UnlockSubnet(path *string, lock *sync.RWMutex) {
-	return
-}
-
-func (m *MockSubnetServiceProvider) RLockSubnet(path *string) *sync.RWMutex {
-	return nil
-}
-
-func (m *MockSubnetServiceProvider) RUnlockSubnet(path *string, lock *sync.RWMutex) {
-	return
-}
-
 type MockSubnetPortServiceProvider struct {
 	mock.Mock
 }
 
 func (m *MockSubnetPortServiceProvider) GetPortsOfSubnet(nsxSubnetID string) (ports []*model.VpcSubnetPort) {
+	return
+}
+
+func (m *MockSubnetPortServiceProvider) AllocatePortFromSubnet(subnet *model.VpcSubnet) bool {
+	return true
+}
+
+func (m *MockSubnetPortServiceProvider) ReleasePortInSubnet(path string) {
+	return
+}
+
+func (m *MockSubnetPortServiceProvider) IsEmptySubnet(id string, path string) bool {
+	return true
+}
+
+func (m *MockSubnetPortServiceProvider) DeletePortCount(path string) {
 	return
 }
