@@ -94,7 +94,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		r.StatusUpdater.IncreaseUpdateTotal()
 
 		old_status := subnetPort.Status.DeepCopy()
-		isParentResourceTerminating, nsxSubnetPath, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort)
+		isExisting, isParentResourceTerminating, nsxSubnetPath, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort)
 		if isParentResourceTerminating {
 			err = errors.New("parent resource is terminating, SubnetPort cannot be created")
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService)
@@ -104,15 +104,14 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get NSX resource path from Subnet", setSubnetPortReadyStatusFalse, r.SubnetPortService)
 			return common.ResultRequeue, err
 		}
+		if !isExisting {
+			defer r.SubnetPortService.ReleasePortInSubnet(nsxSubnetPath)
+		}
 		labels, err := r.getLabelsFromVirtualMachine(ctx, subnetPort)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get labels from VirtualMachine", setSubnetPortReadyStatusFalse, r.SubnetPortService)
 			return common.ResultRequeue, err
 		}
-		// There is a race condition that the subnetset controller may delete the
-		// subnet during CollectGarbage. So check the subnet under lock.
-		lock := r.SubnetService.RLockSubnet(&nsxSubnetPath)
-		defer r.SubnetService.RUnlockSubnet(&nsxSubnetPath, lock)
 
 		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath)
 		if err != nil {
@@ -426,7 +425,7 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 	return nil
 }
 
-func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (isStale bool, subnetPath string, err error) {
+func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (existing bool, isStale bool, subnetPath string, err error) {
 	subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
 	subnetPath = r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(subnetPortID)
 	if len(subnetPath) > 0 {
@@ -442,6 +441,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			}
 		} else {
 			log.V(1).Info("NSX subnet port had been created, returning the existing NSX subnet path", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
+			existing = true
 			return
 		}
 	}
@@ -469,7 +469,12 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			log.Error(err, "failed to get NSX subnet by subnet CR UID", "subnetList", subnetList)
 			return
 		}
-		subnetPath = *subnetList[0].Path
+		nsxSubnet := subnetList[0]
+		if !r.SubnetPortService.AllocatePortFromSubnet(nsxSubnet) {
+			err = fmt.Errorf("no valid IP in Subnet %s", *nsxSubnet.Path)
+			return
+		}
+		subnetPath = *nsxSubnet.Path
 	} else if len(subnetPort.Spec.SubnetSet) > 0 {
 		subnetSet := &v1alpha1.SubnetSet{}
 		namespacedName := types.NamespacedName{

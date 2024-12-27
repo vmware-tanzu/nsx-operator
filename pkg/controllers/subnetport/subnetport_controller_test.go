@@ -138,8 +138,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	sp := &v1alpha1.SubnetPort{}
 	err = errors.New("CheckAndGetSubnetPathForSubnetPort failed")
 	patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
-		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort) (bool, string, error) {
-			return false, "", err
+		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort) (bool, bool, string, error) {
+			return false, false, "", err
 		})
 	defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
 	patchesGetByKey := gomonkey.ApplyFunc((*subnetport.SubnetPortStore).GetByKey,
@@ -160,8 +160,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	// getLabelsFromVirtualMachine fails
 	err = errors.New("getLabelsFromVirtualMachine failed")
 	patchesCheckAndGetSubnetPathForSubnetPort = gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
-		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort) (bool, string, error) {
-			return false, "", nil
+		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort) (bool, bool, string, error) {
+			return true, false, "", nil
 		})
 	defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
 	patchesGetLabelsFromVirtualMachine := gomonkey.ApplyFunc((*SubnetPortReconciler).getLabelsFromVirtualMachine,
@@ -573,9 +573,11 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
 	r := &SubnetPortReconciler{
-		Client:            k8sClient,
-		SubnetPortService: &subnetport.SubnetPortService{},
-		SubnetService:     &subnet.SubnetService{},
+		Client: k8sClient,
+		SubnetPortService: &subnetport.SubnetPortService{
+			SubnetPortStore: &subnetport.SubnetPortStore{},
+		},
+		SubnetService: &subnet.SubnetService{},
 	}
 
 	tests := []struct {
@@ -584,6 +586,7 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 		expectedIsStale    bool
 		expectedErr        string
 		expectedSubnetPath string
+		expectedIsExisting bool
 		subnetport         *v1alpha1.SubnetPort
 	}{
 		{
@@ -606,6 +609,7 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 					Namespace: "ns-1",
 				},
 			},
+			expectedIsExisting: true,
 		},
 		{
 			name: "FailedToDeleteSubnetPort",
@@ -725,8 +729,14 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 				patches.ApplyFunc((*subnet.SubnetService).GetSubnetsByIndex,
 					func(s *subnet.SubnetService, key string, value string) []*model.VpcSubnet {
 						return []*model.VpcSubnet{{
-							Path: servicecommon.String("subnet-path-1"),
+							Path:           servicecommon.String("subnet-path-1"),
+							Ipv4SubnetSize: servicecommon.Int64(16),
+							Id:             servicecommon.String("subnet-1"),
 						}}
+					})
+				patches.ApplyFunc((*subnetport.SubnetPortService).AllocatePortFromSubnet,
+					func(s *subnetport.SubnetPortService, nsxSubnet *model.VpcSubnet) bool {
+						return true
 					})
 				return patches
 			},
@@ -878,8 +888,9 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 			ctx := context.TODO()
 			patches := tt.prepareFunc(t, r)
 			defer patches.Reset()
-			isStale, subnetPath, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, tt.subnetport)
+			isExisting, isStale, subnetPath, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, tt.subnetport)
 			assert.Equal(t, tt.expectedIsStale, isStale)
+			assert.Equal(t, tt.expectedIsExisting, isExisting)
 			if tt.expectedErr != "" {
 				assert.Contains(t, err.Error(), tt.expectedErr)
 			} else {

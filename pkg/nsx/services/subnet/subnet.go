@@ -83,25 +83,25 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 	return subnetService, nil
 }
 
-func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (subnetPath string, err error) {
-	if subnetPath, err = service.createOrUpdateSubnetWithAPI(obj, vpcInfo, tags, service.useLegacyAPI); err != nil {
+func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (subnet *model.VpcSubnet, err error) {
+	if subnet, err = service.createOrUpdateSubnetWithAPI(obj, vpcInfo, tags, service.useLegacyAPI); err != nil {
 		if nsxErr, ok := err.(*nsxutil.NSXApiError); ok {
 			if *nsxErr.ErrorCode == ErrorCodeUnrecognizedField {
 				log.Info("NSX does not support subnet_dhcp_config, using old API", "error", err)
 				service.useLegacyAPI = true
-				subnetPath, err = service.createOrUpdateSubnetWithAPI(obj, vpcInfo, tags, service.useLegacyAPI)
+				subnet, err = service.createOrUpdateSubnetWithAPI(obj, vpcInfo, tags, service.useLegacyAPI)
 			}
 		}
 	}
-	return subnetPath, err
+	return subnet, err
 }
 
-func (service *SubnetService) createOrUpdateSubnetWithAPI(obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag, useLegacyAPI bool) (string, error) {
+func (service *SubnetService) createOrUpdateSubnetWithAPI(obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag, useLegacyAPI bool) (*model.VpcSubnet, error) {
 	uid := string(obj.GetUID())
 	nsxSubnet, err := service.buildSubnet(obj, tags, useLegacyAPI)
 	if err != nil {
 		log.Error(err, "Failed to build Subnet")
-		return "", err
+		return nil, err
 	}
 	// Only check whether it needs update when obj is v1alpha1.Subnet
 	if subnet, ok := obj.(*v1alpha1.Subnet); ok {
@@ -124,26 +124,26 @@ func (service *SubnetService) createOrUpdateSubnetWithAPI(obj client.Object, vpc
 		}
 		if !changed {
 			log.Info("Subnet not changed, skip updating", "SubnetId", uid)
-			return uid, nil
+			return existingSubnet, nil
 		}
 	}
 	return service.createOrUpdateSubnet(obj, nsxSubnet, &vpcInfo)
 }
 
-func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (string, error) {
+func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
 	orgRoot, err := service.WrapHierarchySubnet(nsxSubnet, vpcInfo)
 	if err != nil {
 		log.Error(err, "Failed to WrapHierarchySubnet")
-		return "", err
+		return nil, err
 	}
 	if err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam); err != nil {
 		err = nsxutil.TransNSXApiError(err)
-		return "", err
+		return nil, err
 	}
 	// Get Subnet from NSX after patch operation as NSX renders several fields like `path`/`parent_path`.
 	if *nsxSubnet, err = service.NSXClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *nsxSubnet.Id); err != nil {
 		err = nsxutil.TransNSXApiError(err)
-		return "", err
+		return nil, err
 	}
 	realizeService := realizestate.InitializeRealizeState(service.Service)
 	backoff := wait.Backoff{
@@ -162,21 +162,21 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 		deleteErr := service.DeleteSubnet(*nsxSubnet)
 		if deleteErr != nil {
 			log.Error(deleteErr, "Failed to delete Subnet after realization check failure", "ID", *nsxSubnet.Id)
-			return "", fmt.Errorf("realization check failed: %v; deletion failed: %v", err, deleteErr)
+			return nil, fmt.Errorf("realization check failed: %v; deletion failed: %v", err, deleteErr)
 		}
-		return "", err
+		return nil, err
 	}
 	if err = service.SubnetStore.Apply(nsxSubnet); err != nil {
 		log.Error(err, "Failed to add subnet to store", "ID", *nsxSubnet.Id)
-		return "", err
+		return nil, err
 	}
 	if subnetSet, ok := obj.(*v1alpha1.SubnetSet); ok {
 		if err = service.UpdateSubnetSetStatus(subnetSet); err != nil {
-			return "", err
+			return nil, err
 		}
 	}
 	log.Info("Successfully updated nsxSubnet", "nsxSubnet", nsxSubnet)
-	return *nsxSubnet.Path, nil
+	return nsxSubnet, nil
 }
 
 func (service *SubnetService) DeleteSubnet(nsxSubnet model.VpcSubnet) error {
@@ -477,38 +477,4 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 		log.Info("Successfully updated SubnetSet", "subnetSet", subnetSet, "Subnet", *vpcSubnet.Id)
 	}
 	return nil
-}
-
-func (service *SubnetService) LockSubnet(path *string) *sync.RWMutex {
-	if path != nil && *path != "" {
-		log.V(1).Info("Locked Subnet for writing", "path", *path)
-		return service.SubnetStore.Lock(*path)
-	}
-	return nil
-}
-
-func (service *SubnetService) UnlockSubnet(path *string, lock *sync.RWMutex) {
-	if lock != nil {
-		if path != nil && *path != "" {
-			log.V(1).Info("Unlocked Subnet for writing", "path", *path)
-		}
-		lock.Unlock()
-	}
-}
-
-func (service *SubnetService) RLockSubnet(path *string) *sync.RWMutex {
-	if path != nil && *path != "" {
-		log.V(1).Info("Locked Subnet for reading", "path", *path)
-		return service.SubnetStore.RLock(*path)
-	}
-	return nil
-}
-
-func (service *SubnetService) RUnlockSubnet(path *string, lock *sync.RWMutex) {
-	if lock != nil {
-		if path != nil && *path != "" {
-			log.V(1).Info("Unlocked Subnet for reading", "path", *path)
-		}
-		lock.RUnlock()
-	}
 }
