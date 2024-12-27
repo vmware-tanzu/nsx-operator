@@ -119,7 +119,7 @@ func createFakeSubnetSetReconciler(objs []client.Object) *SubnetSetReconciler {
 			Client:    nil,
 			NSXClient: &nsx.Client{},
 		},
-		SubnetPortStore: nil,
+		SubnetPortStore: &subnetport.SubnetPortStore{},
 	}
 
 	return &SubnetSetReconciler{
@@ -396,13 +396,8 @@ func TestReconcile_DeleteSubnetSet(t *testing.T) {
 					return nil
 				})
 
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
-					id := "fake-subnetport-0"
-					return []*model.VpcSubnetPort{
-						{
-							Id: &id,
-						},
-					}
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return false
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
 					return nil

@@ -52,6 +52,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					},
 				},
 			},
+			SubnetPortStore: &subnetport.SubnetPortStore{},
 		},
 		SubnetService: &subnet.SubnetService{
 			SubnetStore: &subnet.SubnetStore{},
@@ -99,8 +100,8 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patchesGetSubnetPathForPod := gomonkey.ApplyFunc((*PodReconciler).GetSubnetPathForPod,
-					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (string, error) {
-						return "", errors.New("failed to get subnet path")
+					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, error) {
+						return false, "", errors.New("failed to get subnet path")
 					})
 				return patchesGetSubnetPathForPod
 			},
@@ -124,8 +125,8 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches := gomonkey.ApplyFunc((*PodReconciler).GetSubnetPathForPod,
-					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (string, error) {
-						return "subnet-path-1", nil
+					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, error) {
+						return false, "subnet-path-1", nil
 					})
 				patches.ApplyFunc((*PodReconciler).GetNodeByName,
 					func(r *PodReconciler, nodeName string) (*model.HostTransportNode, error) {
@@ -145,8 +146,8 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches := gomonkey.ApplyFunc((*PodReconciler).GetSubnetPathForPod,
-					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (string, error) {
-						return "subnet-path-1", nil
+					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, error) {
+						return false, "subnet-path-1", nil
 					})
 				patches.ApplyFunc((*PodReconciler).GetNodeByName,
 					func(r *PodReconciler, nodeName string) (*model.HostTransportNode, error) {
@@ -170,8 +171,8 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches := gomonkey.ApplyFunc((*PodReconciler).GetSubnetPathForPod,
-					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (string, error) {
-						return "subnet-path-1", nil
+					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, error) {
+						return false, "subnet-path-1", nil
 					})
 				patches.ApplyFunc((*PodReconciler).GetNodeByName,
 					func(r *PodReconciler, nodeName string) (*model.HostTransportNode, error) {
@@ -199,8 +200,8 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches := gomonkey.ApplyFunc((*PodReconciler).GetSubnetPathForPod,
-					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (string, error) {
-						return "subnet-path-1", nil
+					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, error) {
+						return false, "subnet-path-1", nil
 					})
 				patches.ApplyFunc((*PodReconciler).GetNodeByName,
 					func(r *PodReconciler, nodeName string) (*model.HostTransportNode, error) {
@@ -386,6 +387,7 @@ func TestSubnetPortReconciler_GetSubnetPathForPod(t *testing.T) {
 		prepareFunc        func(*testing.T, *PodReconciler) *gomonkey.Patches
 		expectedErr        string
 		expectedSubnetPath string
+		expectedIsExisting bool
 	}{
 		{
 			name: "SubnetExisted",
@@ -397,6 +399,7 @@ func TestSubnetPortReconciler_GetSubnetPathForPod(t *testing.T) {
 				return patches
 			},
 			expectedSubnetPath: subnetPath,
+			expectedIsExisting: true,
 		},
 		{
 			name: "NoGetDefaultSubnetSet",
@@ -466,7 +469,7 @@ func TestSubnetPortReconciler_GetSubnetPathForPod(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			patches := tt.prepareFunc(t, r)
 			defer patches.Reset()
-			path, err := r.GetSubnetPathForPod(context.TODO(), &v1.Pod{
+			isExisting, path, err := r.GetSubnetPathForPod(context.TODO(), &v1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "pod-1",
 					Namespace: "ns-1",
@@ -477,6 +480,7 @@ func TestSubnetPortReconciler_GetSubnetPathForPod(t *testing.T) {
 			} else {
 				assert.Nil(t, err)
 				assert.Equal(t, subnetPath, path)
+				assert.Equal(t, tt.expectedIsExisting, isExisting)
 			}
 		})
 	}
