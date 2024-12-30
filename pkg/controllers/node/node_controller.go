@@ -45,6 +45,10 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		if errors.IsNotFound(err) {
 			log.Info("node not found", "req", req.NamespacedName)
 			deleted = true
+			if err := r.Service.SyncNodeStore(req.NamespacedName.Name, deleted); err != nil {
+				log.Error(err, "failed to sync node store", "req", req.NamespacedName)
+				return common.ResultNormal, err
+			}
 		} else {
 			log.Error(err, "unable to fetch node", "req", req.NamespacedName)
 		}
@@ -53,7 +57,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	if common.NodeIsMaster(node) {
 		// For WCP supervisor cluster, the master node isn't a transport node.
 		log.Info("skipping handling master node", "node", req.NamespacedName)
-		return ctrl.Result{}, nil
+		return common.ResultNormal, nil
 	}
 	if !node.ObjectMeta.DeletionTimestamp.IsZero() {
 		log.Info("node is being deleted", "node", req.NamespacedName)
@@ -62,9 +66,9 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	if err := r.Service.SyncNodeStore(node.Name, deleted); err != nil {
 		log.Error(err, "failed to sync node store", "req", req.NamespacedName)
-		return ctrl.Result{}, err
+		return common.ResultNormal, err
 	}
-	return ctrl.Result{}, nil
+	return common.ResultNormal, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

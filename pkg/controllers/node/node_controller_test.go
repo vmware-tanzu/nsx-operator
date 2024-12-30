@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -16,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/node"
@@ -59,7 +61,7 @@ func TestNodeReconciler_Reconcile(t *testing.T) {
 		{
 			name:           "Node not found",
 			existingNode:   nil,
-			expectedResult: ctrl.Result{},
+			expectedResult: common.ResultNormal,
 			expectedErr:    false,
 		},
 		{
@@ -72,7 +74,7 @@ func TestNodeReconciler_Reconcile(t *testing.T) {
 					},
 				},
 			},
-			expectedResult: ctrl.Result{},
+			expectedResult: common.ResultNormal,
 			expectedErr:    false,
 		},
 		{
@@ -82,24 +84,48 @@ func TestNodeReconciler_Reconcile(t *testing.T) {
 					Name: "worker-node",
 				},
 			},
-			expectedResult: ctrl.Result{},
+			expectedResult: common.ResultNormal,
 			expectedErr:    false,
+		},
+		{
+			name:           "Sync node error",
+			existingNode:   nil,
+			expectedResult: common.ResultNormal,
+			expectedErr:    true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
+			nodeName := "test-node"
 
 			if tt.existingNode != nil {
+				nodeName = tt.existingNode.Name
 				err := reconciler.Client.Create(ctx, tt.existingNode)
 				assert.NoError(t, err)
 			}
 
 			req := ctrl.Request{
 				NamespacedName: types.NamespacedName{
-					Name: "test-node",
+					Name: nodeName,
 				},
+			}
+
+			if tt.name != "Master Node" && tt.name != "Sync node error" {
+				patchesSyncNodeStore := gomonkey.ApplyFunc((*node.NodeService).SyncNodeStore,
+					func(n *node.NodeService, nodeName string, deleted bool) error {
+						return nil
+					})
+				defer patchesSyncNodeStore.Reset()
+			}
+
+			if tt.name == "Sync node error" {
+				patchesSyncNodeStore := gomonkey.ApplyFunc((*node.NodeService).SyncNodeStore,
+					func(n *node.NodeService, nodeName string, deleted bool) error {
+						return errors.New("Sync node error")
+					})
+				defer patchesSyncNodeStore.Reset()
 			}
 
 			result, err := reconciler.Reconcile(ctx, req)
