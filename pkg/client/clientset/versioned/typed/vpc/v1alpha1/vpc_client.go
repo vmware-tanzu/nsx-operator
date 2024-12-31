@@ -41,8 +41,8 @@ func (c *CrdV1alpha1Client) IPAddressAllocations(namespace string) IPAddressAllo
 	return newIPAddressAllocations(c, namespace)
 }
 
-func (c *CrdV1alpha1Client) IPBlocksInfos(namespace string) IPBlocksInfoInterface {
-	return newIPBlocksInfos(c, namespace)
+func (c *CrdV1alpha1Client) IPBlocksInfos() IPBlocksInfoInterface {
+	return newIPBlocksInfos(c)
 }
 
 func (c *CrdV1alpha1Client) NetworkInfos(namespace string) NetworkInfoInterface {

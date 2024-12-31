@@ -25,10 +25,6 @@ type IPAddressAllocationNamespaceListerExpansion interface{}
 // IPBlocksInfoLister.
 type IPBlocksInfoListerExpansion interface{}
 
-// IPBlocksInfoNamespaceListerExpansion allows custom methods to be added to
-// IPBlocksInfoNamespaceLister.
-type IPBlocksInfoNamespaceListerExpansion interface{}
-
 // NetworkInfoListerExpansion allows custom methods to be added to
 // NetworkInfoLister.
 type NetworkInfoListerExpansion interface{}
