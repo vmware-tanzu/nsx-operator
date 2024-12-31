@@ -620,15 +620,12 @@ func deleteYAML(filename string, ns string) error {
 // tags should be present in pairs, the first tag is the scope, the second tag is the value
 // caller should transform the response to the expected resource type
 func (data *TestData) queryResource(resourceType string, tags []string) (model.SearchResponse, error) {
-	tagScopeClusterKey := strings.Replace(common.TagScopeNamespace, "/", "\\/", -1)
-	tagScopeClusterValue := strings.Replace(tags[0], ":", "\\:", -1)
-	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
 	resourceParam := fmt.Sprintf("%s:%s", common.ResourceType, resourceType)
-	queryParam := resourceParam + " AND " + tagParam
+	queryParam := resourceParam
 	if len(tags) >= 2 {
 		tagscope := strings.Replace(tags[0], "/", "\\/", -1)
 		tagtag := strings.Replace(tags[1], ":", "\\:", -1)
-		tagParam = fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagscope, tagtag)
+		tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagscope, tagtag)
 		queryParam = resourceParam + " AND " + tagParam
 	}
 	queryParam += " AND marked_for_delete:false"

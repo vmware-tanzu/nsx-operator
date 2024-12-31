@@ -29,33 +29,32 @@ type IPBlocksInfoInformer interface {
 type iPBlocksInfoInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
-	namespace        string
 }
 
 // NewIPBlocksInfoInformer constructs a new informer for IPBlocksInfo type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewIPBlocksInfoInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredIPBlocksInfoInformer(client, namespace, resyncPeriod, indexers, nil)
+func NewIPBlocksInfoInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredIPBlocksInfoInformer(client, resyncPeriod, indexers, nil)
 }
 
 // NewFilteredIPBlocksInfoInformer constructs a new informer for IPBlocksInfo type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredIPBlocksInfoInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredIPBlocksInfoInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().IPBlocksInfos(namespace).List(context.TODO(), options)
+				return client.CrdV1alpha1().IPBlocksInfos().List(context.TODO(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().IPBlocksInfos(namespace).Watch(context.TODO(), options)
+				return client.CrdV1alpha1().IPBlocksInfos().Watch(context.TODO(), options)
 			},
 		},
 		&vpcv1alpha1.IPBlocksInfo{},
@@ -65,7 +64,7 @@ func NewFilteredIPBlocksInfoInformer(client versioned.Interface, namespace strin
 }
 
 func (f *iPBlocksInfoInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredIPBlocksInfoInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewFilteredIPBlocksInfoInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
 func (f *iPBlocksInfoInformer) Informer() cache.SharedIndexInformer {
