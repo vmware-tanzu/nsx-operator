@@ -129,9 +129,6 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		}
 	}
 	enableDHCP := false
-	if (*nsxSubnet).DhcpConfig != nil && *nsxSubnet.DhcpConfig.EnableDhcp {
-		enableDHCP = true
-	}
 	if nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode != v1alpha1.DHCPConfigModeDeactivated {
 		enableDHCP = true
 	}
