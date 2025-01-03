@@ -37,17 +37,11 @@ func httpQueryDLBResources(cluster *nsx.Cluster, cf *config.NSXOperatorConfig, r
 		"&tags.tag:" + TagDLB
 
 	pairs := strings.Split(queryParam, "&")
-	params := make(map[string]string)
-	for _, pair := range pairs {
-		kv := strings.Split(pair, ":")
-		if len(kv) == 2 {
-			params[kv[0]] = kv[1]
-		}
-	}
 	var encodedPairs []string
-	for key, value := range params {
-		encodedKey := neturl.QueryEscape(key)
-		encodedValue := neturl.QueryEscape(value)
+	for _, pair := range pairs {
+		keyValue := strings.Split(pair, ":")
+		encodedKey := neturl.QueryEscape(keyValue[0])
+		encodedValue := neturl.QueryEscape(keyValue[1])
 		encodedPairs = append(encodedPairs, fmt.Sprintf("%s:%s", encodedKey, encodedValue))
 	}
 
