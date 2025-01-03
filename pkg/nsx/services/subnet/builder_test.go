@@ -102,15 +102,9 @@ func TestBuildSubnetForSubnetSet(t *testing.T) {
 			Namespace: "ns-1",
 		},
 	}
-	subnet, err := service.buildSubnet(subnetSet, tags, true)
-	assert.Nil(t, err)
-	assert.Equal(t, false, *subnet.DhcpConfig.EnableDhcp)
-	assert.Nil(t, subnet.SubnetDhcpConfig)
-	assert.Equal(t, true, *subnet.AdvancedConfig.StaticIpAllocation.Enabled)
 
-	subnet, err = service.buildSubnet(subnetSet, tags, false)
+	subnet, err := service.buildSubnet(subnetSet, tags)
 	assert.Nil(t, err)
 	assert.Equal(t, "DHCP_DEACTIVATED", *subnet.SubnetDhcpConfig.Mode)
-	assert.Nil(t, subnet.DhcpConfig)
 	assert.Equal(t, true, *subnet.AdvancedConfig.StaticIpAllocation.Enabled)
 }
