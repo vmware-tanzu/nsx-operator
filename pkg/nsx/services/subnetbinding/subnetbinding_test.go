@@ -3,8 +3,10 @@ package subnetbinding
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -496,6 +498,51 @@ func TestDeleteSubnetConnectionBindingMaps(t *testing.T) {
 			}
 			bms := svc.BindingStore.List()
 			assert.ElementsMatch(t, tc.expBindingMapsInStore, bms)
+		})
+	}
+}
+
+func TestDeleteSubnetConnectionBindingMaps_WithPaging(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		bindingCount int
+		expPages     int
+	}{
+		{
+			name:         "no paging on the requests",
+			bindingCount: 50,
+			expPages:     1,
+		}, {
+			name:         "paging on the requests",
+			bindingCount: 1501,
+			expPages:     2,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			actPages := 0
+			targetBindingMaps := make([]*model.SubnetConnectionBindingMap, tc.bindingCount)
+			expDeletedBindings := make([]string, tc.bindingCount)
+			for i := 0; i < tc.bindingCount; i++ {
+				idString := fmt.Sprintf("id-%d", i)
+				expDeletedBindings[i] = idString
+				targetBindingMaps[i] = &model.SubnetConnectionBindingMap{
+					Id: common.String(idString),
+				}
+			}
+			actDeletedBindings := make([]string, 0)
+			svc := &BindingService{}
+			patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(svc), "hDeleteSubnetConnectionBindingMap", func(_ *BindingService, bindingMaps []*model.SubnetConnectionBindingMap) error {
+				for _, bm := range bindingMaps {
+					actDeletedBindings = append(actDeletedBindings, *bm.Id)
+				}
+				actPages += 1
+				return nil
+			})
+			defer patches.Reset()
+			err := svc.deleteSubnetConnectionBindingMaps(targetBindingMaps)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expDeletedBindings, actDeletedBindings)
+			assert.Equal(t, tc.expPages, actPages)
 		})
 	}
 }
