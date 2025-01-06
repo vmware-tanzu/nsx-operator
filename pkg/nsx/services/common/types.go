@@ -4,6 +4,7 @@
 package common
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/openlyinc/pointy"
@@ -122,6 +123,7 @@ const (
 	ShareSuffix            = "share"
 
 	GatewayInterfaceId = "gateway-interface"
+	VPCKey             = "/orgs/%s/projects/%s/vpcs/%s"
 )
 
 var (
@@ -131,44 +133,52 @@ var (
 )
 
 var (
-	ResourceType                             = "resource_type"
-	ResourceTypeInfra                        = "Infra"
-	ResourceTypeDomain                       = "Domain"
-	ResourceTypeSecurityPolicy               = "SecurityPolicy"
-	ResourceTypeNetworkPolicy                = "NetworkPolicy"
-	ResourceTypeGroup                        = "Group"
-	ResourceTypeRule                         = "Rule"
-	ResourceTypeIPBlock                      = "IpAddressBlock"
-	ResourceTypeOrgRoot                      = "OrgRoot"
-	ResourceTypeOrg                          = "Org"
-	ResourceTypeProject                      = "Project"
-	ResourceTypeVpc                          = "Vpc"
-	ResourceTypeVpcConnectivityProfile       = "VpcConnectivityProfile"
-	ResourceTypeSubnetPort                   = "VpcSubnetPort"
-	ResourceTypeVirtualMachine               = "VirtualMachine"
-	ResourceTypeLBService                    = "LBService"
-	ResourceTypeVpcAttachment                = "VpcAttachment"
-	ResourceTypeStaticRoute                  = "StaticRoutes"
-	ResourceTypeShare                        = "Share"
-	ResourceTypeSharedResource               = "SharedResource"
-	ResourceTypeChildSharedResource          = "ChildSharedResource"
-	ResourceTypeChildShare                   = "ChildShare"
-	ResourceTypeChildRule                    = "ChildRule"
-	ResourceTypeChildGroup                   = "ChildGroup"
-	ResourceTypeChildSecurityPolicy          = "ChildSecurityPolicy"
-	ResourceTypeChildVpcAttachment           = "ChildVpcAttachment"
-	ResourceTypeChildResourceReference       = "ChildResourceReference"
-	ResourceTypeTlsCertificate               = "TlsCertificate"
-	ResourceTypeLBHttpProfile                = "LBHttpProfile"
-	ResourceTypeLBFastTcpProfile             = "LBFastTcpProfile"
-	ResourceTypeLBFastUdpProfile             = "LBFastUdpProfile"
-	ResourceTypeLBCookiePersistenceProfile   = "LBCookiePersistenceProfile"
-	ResourceTypeLBSourceIpPersistenceProfile = "LBSourceIpPersistenceProfile"
-	ResourceTypeLBHttpMonitorProfile         = "LBHttpMonitorProfile"
-	ResourceTypeLBTcpMonitorProfile          = "LBTcpMonitorProfile"
-	ResourceTypeLBVirtualServer              = "LBVirtualServer"
-	ResourceTypeLBPool                       = "LBPool"
-	ResourceTypeSubnetConnectionBindingMap   = "SubnetConnectionBindingMap"
+	ResourceType                                = "resource_type"
+	ResourceTypeInfra                           = "Infra"
+	ResourceTypeDomain                          = "Domain"
+	ResourceTypeSecurityPolicy                  = "SecurityPolicy"
+	ResourceTypeNetworkPolicy                   = "NetworkPolicy"
+	ResourceTypeGroup                           = "Group"
+	ResourceTypeRule                            = "Rule"
+	ResourceTypeIPBlock                         = "IpAddressBlock"
+	ResourceTypeOrgRoot                         = "OrgRoot"
+	ResourceTypeOrg                             = "Org"
+	ResourceTypeProject                         = "Project"
+	ResourceTypeVpc                             = "Vpc"
+	ResourceTypeVpcConnectivityProfile          = "VpcConnectivityProfile"
+	ResourceTypeSubnetPort                      = "VpcSubnetPort"
+	ResourceTypeVirtualMachine                  = "VirtualMachine"
+	ResourceTypeLBService                       = "LBService"
+	ResourceTypeVpcAttachment                   = "VpcAttachment"
+	ResourceTypeShare                           = "Share"
+	ResourceTypeSharedResource                  = "SharedResource"
+	ResourceTypeStaticRoutes                    = "StaticRoutes"
+	ResourceTypeChildLBPool                     = "ChildLBPool"
+	ResourceTypeChildLBService                  = "ChildLBService"
+	ResourceTypeChildLBVirtualServer            = "ChildLBVirtualServer"
+	ResourceTypeChildSharedResource             = "ChildSharedResource"
+	ResourceTypeChildShare                      = "ChildShare"
+	ResourceTypeChildRule                       = "ChildRule"
+	ResourceTypeChildGroup                      = "ChildGroup"
+	ResourceTypeChildSecurityPolicy             = "ChildSecurityPolicy"
+	ResourceTypeChildStaticRoutes               = "ChildStaticRoutes"
+	ResourceTypeChildSubnetConnectionBindingMap = "ChildSubnetConnectionBindingMap"
+	ResourceTypeChildVpcAttachment              = "ChildVpcAttachment"
+	ResourceTypeChildVpcIPAddressAllocation     = "ChildVpcIpAddressAllocation"
+	ResourceTypeChildVpcSubnet                  = "ChildVpcSubnet"
+	ResourceTypeChildVpcSubnetPort              = "ChildVpcSubnetPort"
+	ResourceTypeChildResourceReference          = "ChildResourceReference"
+	ResourceTypeTlsCertificate                  = "TlsCertificate"
+	ResourceTypeLBHttpProfile                   = "LBHttpProfile"
+	ResourceTypeLBFastTcpProfile                = "LBFastTcpProfile"
+	ResourceTypeLBFastUdpProfile                = "LBFastUdpProfile"
+	ResourceTypeLBCookiePersistenceProfile      = "LBCookiePersistenceProfile"
+	ResourceTypeLBSourceIpPersistenceProfile    = "LBSourceIpPersistenceProfile"
+	ResourceTypeLBHttpMonitorProfile            = "LBHttpMonitorProfile"
+	ResourceTypeLBTcpMonitorProfile             = "LBTcpMonitorProfile"
+	ResourceTypeLBVirtualServer                 = "LBVirtualServer"
+	ResourceTypeLBPool                          = "LBPool"
+	ResourceTypeSubnetConnectionBindingMap      = "SubnetConnectionBindingMap"
 
 	// ResourceTypeClusterControlPlane is used by NSXServiceAccountController
 	ResourceTypeClusterControlPlane = "clustercontrolplane"
@@ -215,6 +225,10 @@ type VPCResourceInfo struct {
 	ID                string
 	ParentID          string
 	PrivateIpv4Blocks []string
+}
+
+func (info *VPCResourceInfo) GetVPCPath() string {
+	return fmt.Sprintf(VPCKey, info.OrgID, info.ProjectID, info.VPCID)
 }
 
 type VPCNetworkConfigInfo struct {

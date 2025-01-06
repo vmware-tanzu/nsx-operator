@@ -1,6 +1,7 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -15,6 +16,10 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+)
+
+const (
+	IndexByVPCPathFuncKey = "indexedByVPCPath"
 )
 
 var pageSize = int64(1000)
@@ -245,4 +250,53 @@ func formatTagParamScope(paramType, value string) string {
 func formatTagParamTag(paramType, value string) string {
 	valueEscaped := strings.Replace(value, ":", "\\:", -1)
 	return fmt.Sprintf("%s:%s", paramType, valueEscaped)
+}
+
+func IndexByVPCFunc(obj interface{}) ([]string, error) {
+	switch v := obj.(type) {
+	case *model.Vpc:
+		return []string{*v.Path}, nil
+	case *model.VpcSubnet:
+		return []string{*v.ParentPath}, nil
+	case *model.VpcSubnetPort:
+		return getVPCPathFromResourcePath(*v.Path)
+	case *model.SubnetConnectionBindingMap:
+		return getVPCPathFromResourcePath(*v.Path)
+	case *model.VpcIpAddressAllocation:
+		return []string{*v.ParentPath}, nil
+	case *model.StaticRoutes:
+		return []string{*v.ParentPath}, nil
+	case *model.LBService:
+		return []string{*v.ParentPath}, nil
+	case *model.LBVirtualServer:
+		return []string{*v.ParentPath}, nil
+	case *model.LBPool:
+		return []string{*v.ParentPath}, nil
+
+	case *model.SecurityPolicy:
+		return []string{*v.ParentPath}, nil
+	case *model.Group:
+		return []string{*v.ParentPath}, nil
+	case *model.Rule:
+		return getVPCPathFromResourcePath(*v.Path)
+
+		/*
+			Infra resources:
+				LB related: share/sharedResources/cert/LBAppProfile/LBPersistentProfile/LBMonitorProfile
+				Security Policy related: Share/Group
+			Project resources:
+				Security Policy related: Share/Group
+		*/
+
+	default:
+		return []string{}, errors.New("indexFunc doesn't support unknown type")
+	}
+}
+
+func getVPCPathFromResourcePath(path string) ([]string, error) {
+	resInfo, err := ParseVPCResourcePath(path)
+	if err != nil {
+		return []string{}, err
+	}
+	return []string{resInfo.GetVPCPath()}, nil
 }
