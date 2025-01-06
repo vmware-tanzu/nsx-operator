@@ -14,6 +14,10 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
+const (
+	DefaultHAPIChildrenCount = 500
+)
+
 type LeafDataWrapper[T any] func(leafData T) (*data.StructValue, error)
 type GetPath[T any] func(obj T) *string
 type GetId[T any] func(obj T) *string
@@ -46,6 +50,8 @@ func getNSXResourcePath[T any](obj T) *string {
 		return v.Path
 	case *model.LBPool:
 		return v.Path
+	case *model.TlsCertificate:
+		return v.Path
 	default:
 		log.Error(nil, "Unknown NSX resource type %v", v)
 		return nil
@@ -77,8 +83,10 @@ func getNSXResourceId[T any](obj T) *string {
 	case *model.LBService:
 		return v.Id
 	case *model.LBVirtualServer:
-		return v.Path
+		return v.Id
 	case *model.LBPool:
+		return v.Id
+	case *model.TlsCertificate:
 		return v.Id
 	default:
 		log.Error(nil, "Unknown NSX resource type %v", v)
@@ -114,8 +122,10 @@ func leafWrapper[T any](obj T) (*data.StructValue, error) {
 		return WrapLBVirtualServer(v)
 	case *model.LBPool:
 		return WrapLBPool(v)
+	case *model.TlsCertificate:
+		return WrapCertificate(v)
 	default:
-		log.Error(nil, "Unknown NSX resource type %v", v)
+		log.Error(nil, "Unknown NSX resource type", v)
 		return nil, fmt.Errorf("unsupported NSX resource type %v", v)
 	}
 }
@@ -184,14 +194,14 @@ var (
 	PolicyResourceOrg                           = PolicyResourceType{ModelKey: ResourceTypeOrg, PathKey: "orgs"}
 	PolicyResourceProject                       = PolicyResourceType{ModelKey: ResourceTypeProject, PathKey: "projects"}
 	PolicyResourceVpc                           = PolicyResourceType{ModelKey: ResourceTypeVpc, PathKey: "vpcs"}
-	PolicyResourceStaticRoutes                  = PolicyResourceType{ModelKey: ResourceTypeStaticRoutes, PathKey: "static-routes"}
+	PolicyResourceStaticRoutes                  = PolicyResourceType{ModelKey: ResourceTypeStaticRoute, PathKey: "static-routes"}
 	PolicyResourceVpcSubnet                     = PolicyResourceType{ModelKey: ResourceTypeSubnet, PathKey: "subnets"}
 	PolicyResourceVpcSubnetPort                 = PolicyResourceType{ModelKey: ResourceTypeSubnetPort, PathKey: "ports"}
 	PolicyResourceVpcSubnetConnectionBindingMap = PolicyResourceType{ModelKey: ResourceTypeSubnetConnectionBindingMap, PathKey: "subnet-connection-binding-maps"}
 	PolicyResourceVpcLBService                  = PolicyResourceType{ModelKey: ResourceTypeLBService, PathKey: "vpc-lbs"}
 	PolicyResourceVpcLBPool                     = PolicyResourceType{ModelKey: ResourceTypeLBPool, PathKey: "vpc-lb-pools"}
 	PolicyResourceVpcLBVirtualServer            = PolicyResourceType{ModelKey: ResourceTypeLBVirtualServer, PathKey: "vpc-lb-virtual-servers"}
-	PolicyResourceInfraLBService                = PolicyResourceType{ModelKey: ResourceTypeLBService, PathKey: "lbs"}
+	PolicyResourceInfraLBService                = PolicyResourceType{ModelKey: ResourceTypeLBService, PathKey: "lb-services"}
 	PolicyResourceInfraLBPool                   = PolicyResourceType{ModelKey: ResourceTypeLBPool, PathKey: "lb-pools"}
 	PolicyResourceInfraLBVirtualServer          = PolicyResourceType{ModelKey: ResourceTypeLBVirtualServer, PathKey: "lb-virtual-servers"}
 	PolicyResourceVpcIPAddressAllocation        = PolicyResourceType{ModelKey: ResourceTypeIPAddressAllocation, PathKey: "ip-address-allocations"}
@@ -206,7 +216,6 @@ var (
 	PolicyPathVpcSubnet                     PolicyResourcePath[*model.VpcSubnet]                  = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet}
 	PolicyPathVpcSubnetConnectionBindingMap PolicyResourcePath[*model.SubnetConnectionBindingMap] = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceVpcSubnetConnectionBindingMap}
 	PolicyPathVpcSubnetPort                 PolicyResourcePath[*model.VpcSubnetPort]              = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceVpcSubnetPort}
-	PolicyPathVpc                           PolicyResourcePath[*model.Vpc]                        = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc}
 	PolicyPathVpcLBPool                     PolicyResourcePath[*model.LBPool]                     = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcLBPool}
 	PolicyPathVpcLBService                  PolicyResourcePath[*model.LBService]                  = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcLBService}
 	PolicyPathVpcLBVirtualServer            PolicyResourcePath[*model.LBVirtualServer]            = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcLBVirtualServer}
@@ -219,9 +228,9 @@ var (
 	PolicyPathProjectShare                  PolicyResourcePath[*model.Share]                      = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceInfra, PolicyResourceShare}
 	PolicyPathInfraGroup                    PolicyResourcePath[*model.Group]                      = []PolicyResourceType{PolicyResourceInfra, PolicyResourceDomain, PolicyResourceGroup}
 	PolicyPathInfraShare                    PolicyResourcePath[*model.Share]                      = []PolicyResourceType{PolicyResourceInfra, PolicyResourceShare}
-	PolicyPathInfraSharedResource           PolicyResourcePath[*model.SharedResource]             = []PolicyResourceType{PolicyResourceInfra, PolicyResourceShare, PolicyResourceShare, PolicyResourceSharedResource}
+	PolicyPathInfraSharedResource           PolicyResourcePath[*model.SharedResource]             = []PolicyResourceType{PolicyResourceInfra, PolicyResourceShare, PolicyResourceSharedResource}
 	PolicyPathInfraCert                     PolicyResourcePath[*model.TlsCertificate]             = []PolicyResourceType{PolicyResourceInfra, PolicyResourceTlsCertificate}
-	PolicyPathInfraVirtualServer            PolicyResourcePath[*model.LBVirtualServer]            = []PolicyResourceType{PolicyResourceInfra, PolicyResourceInfraLBVirtualServer}
+	PolicyPathInfraLBVirtualServer          PolicyResourcePath[*model.LBVirtualServer]            = []PolicyResourceType{PolicyResourceInfra, PolicyResourceInfraLBVirtualServer}
 	PolicyPathInfraLBPool                   PolicyResourcePath[*model.LBPool]                     = []PolicyResourceType{PolicyResourceInfra, PolicyResourceInfraLBPool}
 	PolicyPathInfraLBService                PolicyResourcePath[*model.LBService]                  = []PolicyResourceType{PolicyResourceInfra, PolicyResourceInfraLBService}
 )
@@ -283,7 +292,7 @@ func (n *hNode[T]) buildTree(rootType, leafType string) ([]*data.StructValue, er
 		return children, nil
 	}
 
-	return wrapChildResourceReference(n.key.resType, n.key.resID, children)
+	return WrapChildResourceReference(n.key.resType, n.key.resID, children)
 }
 
 type PolicyTreeBuilder[T any] struct {
@@ -419,7 +428,7 @@ func (b *PolicyTreeBuilder[T]) parsePathSegments(inputPath string) ([]string, er
 
 	segmentsCount := len(pathSegments)
 	leafPathKey := b.pathFormat[len(b.pathFormat)-1]
-	if segmentsCount <= 2 || pathSegments[segmentsCount-2] != leafPathKey {
+	if segmentsCount < 2 || pathSegments[segmentsCount-2] != leafPathKey {
 		return nil, fmt.Errorf("invalid input path %s for resource %s", inputPath, b.leafType)
 	}
 	if b.hasInnerInfra {
@@ -436,7 +445,6 @@ func (b *PolicyTreeBuilder[T]) DeleteMultipleResourcesOnNSX(objects []T, nsxClie
 	if len(objects) == 0 {
 		return nil
 	}
-	fmt.Println(b.rootType, b.leafType, "count", len(objects))
 	enforceRevisionCheckParam := false
 	if b.rootType == ResourceTypeOrgRoot {
 		orgRoot, err := b.BuildOrgRoot(objects, "")
@@ -502,7 +510,7 @@ func (p *PolicyResourcePath[T]) NewPolicyTreeBuilder() (*PolicyTreeBuilder[T], e
 	}, nil
 }
 
-func PagingDeleteResources[T any](ctx context.Context, builder *PolicyTreeBuilder[T], objs []T, pageSize int, nsxClient *nsx.Client, delFn func(deletedObjs []T)) error {
+func (builder *PolicyTreeBuilder[T]) PagingDeleteResources(ctx context.Context, objs []T, pageSize int, nsxClient *nsx.Client, delFn func(deletedObjs []T)) error {
 	if len(objs) == 0 {
 		return nil
 	}

@@ -1,10 +1,7 @@
 package staticroute
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -21,6 +18,7 @@ type StaticRouteService struct {
 	common.Service
 	StaticRouteStore *StaticRouteStore
 	VPCService       common.VPCServiceProvider
+	builder          *common.PolicyTreeBuilder[*model.StaticRoutes]
 }
 
 var (
@@ -30,16 +28,19 @@ var (
 
 // InitializeStaticRoute sync NSX resources
 func InitializeStaticRoute(commonService common.Service, vpcService common.VPCServiceProvider) (*StaticRouteService, error) {
+	builder, _ := common.PolicyPathVpcStaticRoutes.NewPolicyTreeBuilder()
+
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
 
 	wg.Add(1)
-	staticRouteService := &StaticRouteService{Service: commonService}
+	staticRouteService := &StaticRouteService{Service: commonService, builder: builder}
 	staticRouteStore := &StaticRouteStore{}
 	staticRouteStore.Indexer = cache.NewIndexer(keyFunc, cache.Indexers{
 		common.TagScopeStaticRouteCRUID: indexFunc,
 		common.TagScopeNamespace:        indexStaticRouteNamespace,
+		common.IndexByVPCPathFuncKey:    common.IndexByVPCFunc,
 	})
 	staticRouteStore.BindingType = model.StaticRoutesBindingType()
 	staticRouteService.StaticRouteStore = staticRouteStore
@@ -168,24 +169,4 @@ func (service *StaticRouteService) ListStaticRoute() []*model.StaticRoutes {
 		staticRouteSet = append(staticRouteSet, staticroute.(*model.StaticRoutes))
 	}
 	return staticRouteSet
-}
-
-func (service *StaticRouteService) Cleanup(ctx context.Context) error {
-	staticRouteSet := service.ListStaticRoute()
-	log.Info("Cleanup staticroute", "count", len(staticRouteSet))
-	for _, staticRoute := range staticRouteSet {
-		path := strings.Split(*staticRoute.Path, "/")
-		log.Info("Deleting staticroute", "staticroute path", *staticRoute.Path)
-		select {
-		case <-ctx.Done():
-			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
-		default:
-			err := service.DeleteStaticRouteByPath(path[2], path[4], path[6], *staticRoute.Id)
-			if err != nil {
-				log.Error(err, "Delete staticroute failed", "staticroute id", *staticRoute.Id)
-				return err
-			}
-		}
-	}
-	return nil
 }
