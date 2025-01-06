@@ -4,7 +4,6 @@
 package securitypolicy
 
 import (
-	"context"
 	"fmt"
 	"reflect"
 	"strings"
@@ -542,7 +541,7 @@ func Test_InitializeSecurityPolicy(t *testing.T) {
 	})
 	defer patch.Reset()
 
-	_, err := InitializeSecurityPolicy(commonService, vpcService)
+	_, err := InitializeSecurityPolicy(commonService, vpcService, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -552,7 +551,7 @@ func Test_ListSecurityPolicyID(t *testing.T) {
 	service := &SecurityPolicyService{
 		Service: common.Service{NSXClient: nil},
 	}
-	service.setUpStore(common.TagValueScopeSecurityPolicyUID)
+	service.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 	group := model.Group{}
 	scope := common.TagValueScopeSecurityPolicyUID
@@ -594,6 +593,7 @@ func Test_ListSecurityPolicyID(t *testing.T) {
 	share.Id = &id3
 	share.UniqueId = &uuid3
 	share.Tags = []model.Tag{{Scope: &scope, Tag: &id3}}
+	share.Path = String(fmt.Sprintf("/orgs/default/projects/p1/infra/shares/%s", id3))
 	err = service.projectShareStore.Add(&share)
 	if err != nil {
 		t.Fatalf("Failed to add share to store: %v", err)
@@ -605,6 +605,7 @@ func Test_ListSecurityPolicyID(t *testing.T) {
 	share1.Id = &id4
 	share1.UniqueId = &uuid4
 	share1.Tags = []model.Tag{{Scope: &scope, Tag: &id4}}
+	share1.Path = String(fmt.Sprintf("/infra/shares/%s", id4))
 	err = service.infraShareStore.Add(&share1)
 	if err != nil {
 		t.Fatalf("Failed to add share to store: %v", err)
@@ -642,7 +643,6 @@ func Test_createOrUpdateGroups(t *testing.T) {
 	VPCInfo[0].OrgID = "default"
 	VPCInfo[0].ProjectID = "projectQuality"
 	VPCInfo[0].VPCID = "vpc1"
-
 	mId, mTag, mScope := "spA_uidA_scope", "uidA", tagScopeSecurityPolicyUID
 	markDelete := true
 
@@ -701,7 +701,7 @@ func Test_createOrUpdateGroups(t *testing.T) {
 			mockVPCService := mock.MockVPCServiceProvider{}
 			fakeService.vpcService = &mockVPCService
 
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
+			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			patches := tt.prepareFunc(t, fakeService)
 			defer patches.Reset()
@@ -1160,7 +1160,7 @@ func Test_DeleteVPCSecurityPolicy(t *testing.T) {
 
 			fakeService := fakeSecurityPolicyService()
 			fakeService.NSXConfig.EnableVPCNetwork = true
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
+			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			assert.NoError(t, fakeService.securityPolicyStore.Apply(tt.inputPolicy))
 			assert.NoError(t, fakeService.ruleStore.Apply(&tt.inputPolicy.Rules))
@@ -1329,7 +1329,7 @@ func Test_DeleteVPCSecurityPolicyForNetworkPolicy(t *testing.T) {
 			mockVPCService := mock.MockVPCServiceProvider{}
 			fakeService.vpcService = &mockVPCService
 
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
+			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			patches := tt.prepareFunc(t, fakeService)
 			defer patches.Reset()
@@ -1519,7 +1519,7 @@ func Test_deleteSecurityPolicy(t *testing.T) {
 
 			fakeService := fakeSecurityPolicyService()
 			fakeService.NSXConfig.EnableVPCNetwork = false
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
+			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			assert.NoError(t, fakeService.securityPolicyStore.Apply(tt.inputPolicy))
 			assert.NoError(t, fakeService.ruleStore.Apply(&tt.inputPolicy.Rules))
@@ -1714,7 +1714,7 @@ func Test_deleteVPCSecurityPolicy(t *testing.T) {
 
 			fakeService := fakeSecurityPolicyService()
 			fakeService.NSXConfig.EnableVPCNetwork = true
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
+			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			assert.NoError(t, fakeService.securityPolicyStore.Apply(tt.inputPolicy))
 			assert.NoError(t, fakeService.ruleStore.Apply(&tt.inputPolicy.Rules))
@@ -1918,7 +1918,7 @@ func Test_deleteVPCSecurityPolicyInDefaultProject(t *testing.T) {
 
 			fakeService := fakeSecurityPolicyService()
 			fakeService.NSXConfig.EnableVPCNetwork = true
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
+			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			assert.NoError(t, fakeService.securityPolicyStore.Apply(tt.inputPolicy))
 			assert.NoError(t, fakeService.ruleStore.Apply(&tt.inputPolicy.Rules))
@@ -2021,7 +2021,7 @@ func Test_CreateOrUpdateSecurityPolicy(t *testing.T) {
 			mockVPCService := mock.MockVPCServiceProvider{}
 			fakeService.vpcService = &mockVPCService
 
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
+			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			patches := tt.prepareFunc(t, fakeService)
 			patches.ApplyMethodSeq(fakeService.NSXClient.VPCSecurityClient, "Get", []gomonkey.OutputCell{{
@@ -2133,7 +2133,7 @@ func Test_CreateOrUpdateSecurityPolicyFromNetworkPolicy(t *testing.T) {
 			mockVPCService := mock.MockVPCServiceProvider{}
 			fakeService.vpcService = &mockVPCService
 
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
+			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			patches := tt.prepareFunc(t, fakeService)
 			patches.ApplyMethodSeq(fakeService.NSXClient.VPCSecurityClient, "Get", []gomonkey.OutputCell{
@@ -2286,7 +2286,7 @@ func Test_createOrUpdateSecurityPolicy(t *testing.T) {
 			common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyCRName
 			common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyCRUID
 
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
+			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			patches := tt.prepareFunc(t, fakeService)
 			patches.ApplyMethodSeq(fakeService.NSXClient.SecurityClient, "Get", []gomonkey.OutputCell{{
@@ -2448,7 +2448,7 @@ func Test_createOrUpdateVPCSecurityPolicy(t *testing.T) {
 			common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
 			common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
+			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			patches := tt.prepareFunc(t, fakeService)
 			patches.ApplyMethodSeq(fakeService.NSXClient.VPCSecurityClient, "Get", []gomonkey.OutputCell{{
@@ -2620,7 +2620,7 @@ func Test_createOrUpdateVPCSecurityPolicyInDefaultProject(t *testing.T) {
 			common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
 			common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
+			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			patches := tt.prepareFunc(t, fakeService)
 			patches.ApplyMethodSeq(fakeService.NSXClient.VPCSecurityClient, "Get", []gomonkey.OutputCell{{
@@ -2701,7 +2701,7 @@ func Test_GetFinalSecurityPolicyResourceForT1(t *testing.T) {
 			common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyCRName
 			common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyCRUID
 
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
+			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			patches := tt.prepareFunc(t, fakeService)
 			defer patches.Reset()
@@ -2833,7 +2833,7 @@ func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
 			common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
 			common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
+			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			patches := tt.prepareFunc(t, fakeService)
 			defer patches.Reset()
@@ -3119,7 +3119,7 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 			common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
 			common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
+			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 			var finalAllowSecurityPolicy *model.SecurityPolicy
 			var finalIsolationSecurityPolicy *model.SecurityPolicy
 			var finalGroups []model.Group
@@ -3163,7 +3163,7 @@ func Test_ListSecurityPolicyByName(t *testing.T) {
 	fakeService := fakeSecurityPolicyService()
 	fakeService.NSXConfig.EnableVPCNetwork = true
 
-	fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
+	fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 	sp1 := &model.SecurityPolicy{
 		DisplayName: &spName,
@@ -3205,7 +3205,7 @@ func Test_ListNetworkPolicyByName(t *testing.T) {
 	fakeService := fakeSecurityPolicyService()
 	fakeService.NSXConfig.EnableVPCNetwork = true
 
-	fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
+	fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 	sp1 := &model.SecurityPolicy{
 		DisplayName: &spName,
@@ -3241,163 +3241,6 @@ func Test_ListNetworkPolicyByName(t *testing.T) {
 	// Test case: No NetworkPolicy found
 	result = fakeService.ListNetworkPolicyByName("namespace1", "nonexistent")
 	assert.Len(t, result, 0)
-}
-
-func Test_Cleanup(t *testing.T) {
-	spPath := "/orgs/default/projects/projectQuality/vpcs/vpc1"
-
-	tests := []struct {
-		name                         string
-		prepareFunc                  func(*testing.T, *SecurityPolicyService) *gomonkey.Patches
-		inputPolicy                  *model.SecurityPolicy
-		wantErr                      bool
-		wantSecurityPolicyStoreCount int
-	}{
-		{
-			name: "success Cleanup",
-			prepareFunc: func(t *testing.T, s *SecurityPolicyService) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(s.NSXClient.OrgRootClient, "Patch", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{nil},
-					Times:  1,
-				}})
-				return patches
-			},
-			inputPolicy: &model.SecurityPolicy{
-				DisplayName:    &spName,
-				Id:             common.String("spA_uidA"),
-				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA_uidA_scope"},
-				SequenceNumber: &seq0,
-				Rules:          []model.Rule{},
-				Tags:           vpcBasicTags,
-				Path:           &spPath,
-			},
-			wantErr:                      false,
-			wantSecurityPolicyStoreCount: 0,
-		},
-		{
-			name: "error Cleanup",
-			prepareFunc: func(t *testing.T, s *SecurityPolicyService) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(s.NSXClient.OrgRootClient, "Patch", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{nil},
-					Times:  1,
-				}})
-				return patches
-			},
-			inputPolicy: &model.SecurityPolicy{
-				DisplayName:    &spName,
-				Id:             common.String("spA_uidA"),
-				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA_uidA_scope"},
-				SequenceNumber: &seq0,
-				Rules:          []model.Rule{},
-				Tags:           vpcBasicTags,
-				Path:           &spPath,
-			},
-			wantErr:                      true,
-			wantSecurityPolicyStoreCount: 1,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
-			common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
-
-			fakeService := fakeSecurityPolicyService()
-			fakeService.NSXConfig.EnableVPCNetwork = true
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
-
-			assert.NoError(t, fakeService.securityPolicyStore.Apply(tt.inputPolicy))
-
-			patches := tt.prepareFunc(t, fakeService)
-			defer patches.Reset()
-			ctx := context.Background()
-
-			if tt.name == "error Cleanup" {
-				ctx, cancel := context.WithCancel(ctx)
-				cancel()
-				if err := fakeService.Cleanup(ctx); (err != nil) != tt.wantErr {
-					t.Errorf("Cleanup error = %v, wantErr %v", err, tt.wantErr)
-				}
-			}
-
-			if tt.name == "success Cleanup" {
-				if err := fakeService.Cleanup(ctx); (err != nil) != tt.wantErr {
-					t.Errorf("Cleanup error = %v, wantErr %v", err, tt.wantErr)
-				}
-			}
-
-			assert.Equal(t, tt.wantSecurityPolicyStoreCount, len(fakeService.securityPolicyStore.ListKeys()))
-		})
-	}
-}
-
-func Test_Cleanup_ForNetworkPolicy(t *testing.T) {
-	spPath := "/orgs/default/projects/projectQuality/vpcs/vpc1"
-
-	tests := []struct {
-		name                         string
-		prepareFunc                  func(*testing.T, *SecurityPolicyService) *gomonkey.Patches
-		expAllowPolicy               *model.SecurityPolicy
-		expIsolationPolicy           *model.SecurityPolicy
-		wantErr                      bool
-		wantSecurityPolicyStoreCount int
-	}{
-		{
-			name: "success Cleanup for NetworkPolicy",
-			prepareFunc: func(t *testing.T, s *SecurityPolicyService) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(s.NSXClient.OrgRootClient, "Patch", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{nil},
-					Times:  2,
-				}})
-				return patches
-			},
-			expAllowPolicy: &model.SecurityPolicy{
-				DisplayName:    common.String("np-app-access"),
-				Id:             common.String("np-app-access_uidNP_allow"),
-				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access_uidNP_allow_scope"},
-				SequenceNumber: Int64(int64(common.PriorityNetworkPolicyAllowRule)),
-				Rules:          []model.Rule{},
-				Tags:           npAllowBasicTags,
-				Path:           &spPath,
-			},
-			expIsolationPolicy: &model.SecurityPolicy{
-				DisplayName:    common.String("np-app-access"),
-				Id:             common.String("np-app-access_uidNP_isolation"),
-				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access_uidNP_isolation_scope"},
-				SequenceNumber: Int64(int64(common.PriorityNetworkPolicyIsolationRule)),
-				Rules:          []model.Rule{},
-				Tags:           npIsolationBasicTags,
-				Path:           &spPath,
-			},
-			wantErr:                      false,
-			wantSecurityPolicyStoreCount: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
-			common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
-
-			fakeService := fakeSecurityPolicyService()
-			fakeService.NSXConfig.EnableVPCNetwork = true
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
-
-			assert.NoError(t, fakeService.securityPolicyStore.Apply(tt.expAllowPolicy))
-			assert.NoError(t, fakeService.securityPolicyStore.Apply(tt.expIsolationPolicy))
-			assert.Equal(t, 2, len(fakeService.securityPolicyStore.ListKeys()))
-
-			patches := tt.prepareFunc(t, fakeService)
-			defer patches.Reset()
-			ctx := context.Background()
-
-			if err := fakeService.Cleanup(ctx); (err != nil) != tt.wantErr {
-				t.Errorf("Cleanup error = %v, wantErr %v", err, tt.wantErr)
-			}
-
-			assert.Equal(t, tt.wantSecurityPolicyStoreCount, len(fakeService.securityPolicyStore.ListKeys()))
-		})
-	}
 }
 
 func Test_gcInfraSharesGroups(t *testing.T) {
@@ -3495,7 +3338,7 @@ func Test_gcInfraSharesGroups(t *testing.T) {
 
 			fakeService := fakeSecurityPolicyService()
 			fakeService.NSXConfig.EnableVPCNetwork = true
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID)
+			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			patches := tt.prepareFunc(t, fakeService)
 			defer patches.Reset()

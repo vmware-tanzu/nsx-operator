@@ -68,3 +68,22 @@ func (StaticRouteStore *StaticRouteStore) GetByKey(key string) *model.StaticRout
 	}
 	return nil
 }
+
+func (StaticRouteStore *StaticRouteStore) GetByVPCPath(vpcPath string) ([]*model.StaticRoutes, error) {
+	objs, err := StaticRouteStore.ResourceStore.ByIndex(common.IndexByVPCPathFuncKey, vpcPath)
+	if err != nil {
+		return nil, err
+	}
+	routes := make([]*model.StaticRoutes, len(objs))
+	for i, obj := range objs {
+		route := obj.(*model.StaticRoutes)
+		routes[i] = route
+	}
+	return routes, nil
+}
+
+func (StaticRouteStore *StaticRouteStore) DeleteMultipleObjects(routes []*model.StaticRoutes) {
+	for _, route := range routes {
+		StaticRouteStore.Delete(route)
+	}
+}

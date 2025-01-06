@@ -38,7 +38,6 @@ const (
 
 var (
 	projectPathFormat                = "/orgs/%s/projects/%s"
-	vpcPathFormat                    = "/orgs/%s/projects/%s/vpcs/%s"
 	defaultConnectivityProfileFormat = "/orgs/%s/projects/%s/vpc-connectivity-profiles/default"
 )
 
@@ -47,7 +46,7 @@ func TestPreCreatedVPC(t *testing.T) {
 	nsName := "test-prevpc"
 	projectPath := fmt.Sprintf(projectPathFormat, orgID, projectID)
 	profilePath := fmt.Sprintf(defaultConnectivityProfileFormat, orgID, projectID)
-	preCreatedVPCPath := fmt.Sprintf(vpcPathFormat, orgID, projectID, vpcID)
+	preCreatedVPCPath := fmt.Sprintf(common.VPCKey, orgID, projectID, vpcID)
 	log.Info("Created VPC on NSX", "path", preCreatedVPCPath)
 	defer func() {
 		log.Info("Deleting the created VPC from NSX", "path", preCreatedVPCPath)
@@ -258,7 +257,7 @@ func (data *TestData) createVPC(orgID, projectID, vpcID string, privateIPs []str
 		PrivateIps:    privateIPs,
 		ResourceType:  common.String(common.ResourceTypeVpc),
 	}
-	vpcPath := fmt.Sprintf(vpcPathFormat, orgID, projectID, vpcID)
+	vpcPath := fmt.Sprintf(common.VPCKey, orgID, projectID, vpcID)
 	var lbsPath string
 	var createdLBS *model.LBService
 	if !useNSXLB {
@@ -311,7 +310,7 @@ func (data *TestData) createVPC(orgID, projectID, vpcID string, privateIPs []str
 		log.Error(pollErr, "Failed to realize VPC and related resources within 2m")
 		data.nsxClient.VPCClient.Delete(orgID, projectID, vpcID, common.Bool(true))
 		if err := data.nsxClient.VPCClient.Delete(orgID, projectID, vpcID, common.Bool(true)); err != nil {
-			log.Error(err, "Failed to recursively delete NSX VPC", "path", fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s", orgID, projectID, vpcID))
+			log.Error(err, "Failed to recursively delete NSX VPC", "path", vpcPath)
 		}
 		return pollErr
 	}

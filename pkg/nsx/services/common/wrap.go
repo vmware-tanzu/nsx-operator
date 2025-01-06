@@ -22,15 +22,15 @@ func (service *Service) WrapOrgRoot(children []*data.StructValue) (*model.OrgRoo
 
 func (service *Service) WrapOrg(org string, children []*data.StructValue) ([]*data.StructValue, error) {
 	targetType := ResourceTypeOrg
-	return wrapChildResourceReference(targetType, org, children)
+	return WrapChildResourceReference(targetType, org, children)
 }
 
 func (service *Service) WrapProject(nsxtProject string, children []*data.StructValue) ([]*data.StructValue, error) {
 	targetType := ResourceTypeProject
-	return wrapChildResourceReference(targetType, nsxtProject, children)
+	return WrapChildResourceReference(targetType, nsxtProject, children)
 }
 
-func wrapChildResourceReference(targetType, id string, children []*data.StructValue) ([]*data.StructValue, error) {
+func WrapChildResourceReference(targetType, id string, children []*data.StructValue) ([]*data.StructValue, error) {
 	resourceType := ResourceTypeChildResourceReference
 	childProject := model.ChildResourceReference{
 		Id:           &id,
@@ -145,7 +145,7 @@ func WrapVpcSubnet(subnet *model.VpcSubnet) (*data.StructValue, error) {
 }
 
 func WrapStaticRoutes(route *model.StaticRoutes) (*data.StructValue, error) {
-	route.ResourceType = &ResourceTypeStaticRoutes
+	route.ResourceType = &ResourceTypeStaticRoute
 	childRoute := model.ChildStaticRoutes{
 		Id:              route.Id,
 		MarkedForDelete: route.MarkedForDelete,
@@ -265,7 +265,7 @@ func WrapLBPool(lbPool *model.LBPool) (*data.StructValue, error) {
 }
 
 func WrapVPC(vpc *model.Vpc) (*data.StructValue, error) {
-	vpc.ResourceType = pointy.String(ResourceTypeVpc)
+	vpc.ResourceType = &ResourceTypeVpc
 	childVpc := model.ChildVpc{
 		Id:              vpc.Id,
 		MarkedForDelete: vpc.MarkedForDelete,
@@ -273,6 +273,21 @@ func WrapVPC(vpc *model.Vpc) (*data.StructValue, error) {
 		Vpc:             vpc,
 	}
 	dataValue, errs := NewConverter().ConvertToVapi(childVpc, childVpc.GetType__())
+	if len(errs) > 0 {
+		return nil, errs[0]
+	}
+	return dataValue.(*data.StructValue), nil
+}
+
+func WrapCertificate(cert *model.TlsCertificate) (*data.StructValue, error) {
+	cert.ResourceType = &ResourceTypeTlsCertificate
+	childCert := model.ChildTlsCertificate{
+		Id:              cert.Id,
+		MarkedForDelete: cert.MarkedForDelete,
+		ResourceType:    "ChildTlsCertificate",
+		TlsCertificate:  cert,
+	}
+	dataValue, errs := NewConverter().ConvertToVapi(childCert, childCert.GetType__())
 	if len(errs) > 0 {
 		return nil, errs[0]
 	}

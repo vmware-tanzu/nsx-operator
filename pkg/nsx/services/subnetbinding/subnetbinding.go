@@ -10,25 +10,25 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-)
-
-const (
-	hAPIPageSize = 1000
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
 	log                                    = &logger.Log
 	ResourceTypeSubnetConnectionBindingMap = servicecommon.ResourceTypeSubnetConnectionBindingMap
 	enforceRevisionCheckParam              = false
+	markedForDelete                        = true
 )
 
 type BindingService struct {
+	builder *servicecommon.PolicyTreeBuilder[*model.SubnetConnectionBindingMap]
 	servicecommon.Service
 	BindingStore *BindingStore
 }
 
 // InitializeService initializes SubnetConnectionBindingMap service.
 func InitializeService(service servicecommon.Service) (*BindingService, error) {
+	builder, _ := servicecommon.PolicyPathVpcSubnetConnectionBindingMap.NewPolicyTreeBuilder()
 	wg := sync.WaitGroup{}
 	fatalErrors := make(chan error, 1)
 	defer close(fatalErrors)
@@ -36,6 +36,7 @@ func InitializeService(service servicecommon.Service) (*BindingService, error) {
 	bindingService := &BindingService{
 		Service:      service,
 		BindingStore: SetupStore(),
+		builder:      builder,
 	}
 
 	wg.Add(1)
@@ -163,7 +164,46 @@ func (s *BindingService) ListSubnetConnectionBindingMapCRUIDsInStore() sets.Set[
 
 // Apply sync bindingMaps on NSX and save into the store if succeeded to realize.
 func (s *BindingService) Apply(subnetPath string, bindingMaps []*model.SubnetConnectionBindingMap) error {
-	return s.hUpdateSubnetConnectionBindingMaps(subnetPath, bindingMaps)
+	vpcInfo, err := servicecommon.ParseVPCResourcePath(subnetPath)
+	if err != nil {
+		return err
+	}
+	subnetID := vpcInfo.ID
+	orgRoot, err := s.builder.BuildOrgRoot(bindingMaps, subnetPath)
+	if err != nil {
+		return err
+	}
+
+	if err = s.NSXClient.OrgRootClient.Patch(*orgRoot, &enforceRevisionCheckParam); err != nil {
+		log.Error(err, "Failed to patch SubnetConnectionBindingMaps on NSX", "orgID", vpcInfo.OrgID, "projectID", vpcInfo.ProjectID, "vpcID", vpcInfo.VPCID, "subnetID", subnetID, "subnetConnectionBindingMaps", bindingMaps)
+		err = nsxutil.TransNSXApiError(err)
+		return err
+	}
+
+	// Get SubnetConnectionBindingMaps from NSX after patch operation as NSX renders several fields like `path`/`parent_path`.
+	subnetBindingListResult, err := s.NSXClient.SubnetConnectionBindingMapsClient.List(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, subnetID, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		log.Error(err, "Failed to list SubnetConnectionBindingMaps from NSX under subnet", "orgID", vpcInfo.OrgID, "projectID", vpcInfo.ProjectID, "vpcID", vpcInfo.VPCID, "subnetID", subnetID, "subnetConnectionBindingMaps", bindingMaps)
+		err = nsxutil.TransNSXApiError(err)
+		return err
+	}
+
+	nsxBindingMaps := make(map[string]model.SubnetConnectionBindingMap)
+	for _, bm := range subnetBindingListResult.Results {
+		nsxBindingMaps[*bm.Id] = bm
+	}
+
+	for i := range bindingMaps {
+		bm := bindingMaps[i]
+		if bm.MarkedForDelete != nil && *bm.MarkedForDelete {
+			s.BindingStore.Apply(bm)
+		} else {
+			nsxBindingMap := nsxBindingMaps[*bm.Id]
+			s.BindingStore.Apply(&nsxBindingMap)
+		}
+	}
+
+	return nil
 }
 
 // deleteSubnetConnectionBindingMaps uses HAPI call to delete multiple SubnetConnectionBindingMaps on NSX in one
@@ -176,18 +216,14 @@ func (s *BindingService) deleteSubnetConnectionBindingMaps(bindingMaps []*model.
 		log.Info("No existing SubnetConnectionBindingMaps found in the store")
 		return nil
 	}
-	pages := (bindingMapsCount + hAPIPageSize - 1) / hAPIPageSize
-	for i := 1; i <= pages; i++ {
-		start := (i - 1) * hAPIPageSize
-		end := start + hAPIPageSize
-		if end > bindingMapsCount {
-			end = bindingMapsCount
-		}
-		if err := s.hDeleteSubnetConnectionBindingMap(bindingMaps[start:end]); err != nil {
-			return err
-		}
+	markForDelete := true
+	for _, bm := range bindingMaps {
+		bm.MarkedForDelete = &markForDelete
 	}
-	return nil
+
+	return s.builder.PagingDeleteResources(context.TODO(), bindingMaps, servicecommon.DefaultHAPIChildrenCount, s.NSXClient, func(deletedObjs []*model.SubnetConnectionBindingMap) {
+		s.BindingStore.DeleteMultipleObjects(deletedObjs)
+	})
 }
 
 func (s *BindingService) DeleteMultiSubnetConnectionBindingMapsByCRs(bindingCRs sets.Set[string]) error {
@@ -195,7 +231,7 @@ func (s *BindingService) DeleteMultiSubnetConnectionBindingMapsByCRs(bindingCRs 
 		return nil
 	}
 	finalBindingMaps := make([]*model.SubnetConnectionBindingMap, 0)
-	for _, crID := range bindingCRs.UnsortedList() {
+	for crID := range bindingCRs {
 		bms := s.BindingStore.getBindingsByBindingMapCRUID(crID)
 		finalBindingMaps = append(finalBindingMaps, bms...)
 	}
@@ -212,18 +248,6 @@ func (s *BindingService) GetSubnetConnectionBindingMapCRName(bindingMap *model.S
 		}
 	}
 	return ""
-}
-
-func (s *BindingService) Cleanup(ctx context.Context) error {
-	allNSXBindings := s.BindingStore.List()
-	log.Info("Cleaning up SubnetConnectionBindingMaps", "Count", len(allNSXBindings))
-	finalBindingMaps := make([]*model.SubnetConnectionBindingMap, len(allNSXBindings))
-	for i, obj := range allNSXBindings {
-		binding, _ := obj.(*model.SubnetConnectionBindingMap)
-		finalBindingMaps[i] = binding
-	}
-
-	return s.deleteSubnetConnectionBindingMaps(finalBindingMaps)
 }
 
 func bindingMapsToMap(bindingMaps []*model.SubnetConnectionBindingMap) map[string]*model.SubnetConnectionBindingMap {
