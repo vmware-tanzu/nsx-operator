@@ -22,15 +22,15 @@ func (service *Service) WrapOrgRoot(children []*data.StructValue) (*model.OrgRoo
 
 func (service *Service) WrapOrg(org string, children []*data.StructValue) ([]*data.StructValue, error) {
 	targetType := ResourceTypeOrg
-	return wrapChildResourceReference(targetType, org, children)
+	return WrapChildResourceReference(targetType, org, children)
 }
 
 func (service *Service) WrapProject(nsxtProject string, children []*data.StructValue) ([]*data.StructValue, error) {
 	targetType := ResourceTypeProject
-	return wrapChildResourceReference(targetType, nsxtProject, children)
+	return WrapChildResourceReference(targetType, nsxtProject, children)
 }
 
-func wrapChildResourceReference(targetType, id string, children []*data.StructValue) ([]*data.StructValue, error) {
+func WrapChildResourceReference(targetType, id string, children []*data.StructValue) ([]*data.StructValue, error) {
 	resourceType := ResourceTypeChildResourceReference
 	childProject := model.ChildResourceReference{
 		Id:           &id,
@@ -145,7 +145,7 @@ func WrapVpcSubnet(subnet *model.VpcSubnet) (*data.StructValue, error) {
 }
 
 func WrapStaticRoutes(route *model.StaticRoutes) (*data.StructValue, error) {
-	route.ResourceType = &ResourceTypeStaticRoutes
+	route.ResourceType = &ResourceTypeStaticRoute
 	childRoute := model.ChildStaticRoutes{
 		Id:              route.Id,
 		MarkedForDelete: route.MarkedForDelete,

@@ -3,10 +3,8 @@ package subnetbinding
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"testing"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -122,6 +120,7 @@ func TestGetSubnetConnectionBindingMapCRsBySubnet(t *testing.T) {
 	require.Equal(t, 1, len(bindingMaps))
 	bm := bindingMaps[0]
 	bm.ParentPath = childSubnet.Path
+	bm.Path = String(fmt.Sprintf("%s/subnet-connection-binding-maps/%s", *bm.ParentPath, *bm.Id))
 	svc.BindingStore.Apply(bm)
 
 	gotBMs1 = svc.GetSubnetConnectionBindingMapCRsBySubnet(parentSubnet1)
@@ -149,8 +148,10 @@ func TestListSubnetConnectionBindingMapCRUIDsInStore(t *testing.T) {
 	// Case: success
 	bm := svc.buildSubnetBindings(binding1, []*model.VpcSubnet{parentSubnet1})[0]
 	bm.ParentPath = String(childSubnetPath1)
+	bm.Path = String(fmt.Sprintf("%s/subnet-connection-binding-maps/%s", *bm.ParentPath, *bm.Id))
 	bm2 := svc.buildSubnetBindings(binding2, []*model.VpcSubnet{parentSubnet2})[0]
 	bm2.ParentPath = String(childSubnetPath2)
+	bm2.Path = String(fmt.Sprintf("%s/subnet-connection-binding-maps/%s", *bm2.ParentPath, *bm2.Id))
 	svc.BindingStore.Apply(bm)
 	svc.BindingStore.Apply(bm2)
 	crIDs = svc.ListSubnetConnectionBindingMapCRUIDsInStore()
@@ -234,6 +235,7 @@ func TestCreateOrUpdateSubnetConnectionBindingMap(t *testing.T) {
 	mockSubnetBindingClient := bindingmap_mocks.NewMockSubnetConnectionBindingMapsClient(ctrl)
 
 	oriBM2 := *bindingMap2
+	oriBM2.Path = String(fmt.Sprintf("%s/subnet-connection-binding-maps/%s", *childSubnet.Path, *oriBM2.Id))
 	oriBM2.VlanTrafficTag = Int64(200)
 
 	expAddBM := *bindingMap2
@@ -336,6 +338,7 @@ func TestCreateOrUpdateSubnetConnectionBindingMap(t *testing.T) {
 				},
 				BindingStore: SetupStore(),
 			}
+			svc.builder, _ = common.PolicyPathVpcSubnetConnectionBindingMap.NewPolicyTreeBuilder()
 			for _, bm := range tc.existingBindingMaps {
 				svc.BindingStore.Add(bm)
 			}
@@ -405,6 +408,8 @@ func TestDeleteMultiSubnetConnectionBindingMapsByCRs(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			builder, err := common.PolicyPathVpcSubnetConnectionBindingMap.NewPolicyTreeBuilder()
+			require.NoError(t, err)
 			svc := &BindingService{
 				Service: common.Service{
 					NSXClient: &nsx.Client{
@@ -417,6 +422,7 @@ func TestDeleteMultiSubnetConnectionBindingMapsByCRs(t *testing.T) {
 					},
 				},
 				BindingStore: SetupStore(),
+				builder:      builder,
 			}
 			svc.BindingStore.Add(createdBM1)
 			svc.BindingStore.Add(createdBM2)
@@ -425,7 +431,7 @@ func TestDeleteMultiSubnetConnectionBindingMapsByCRs(t *testing.T) {
 				tc.prepareFunc()
 			}
 
-			err := svc.DeleteMultiSubnetConnectionBindingMapsByCRs(sets.New[string](tc.bindingCRIDs...))
+			err = svc.DeleteMultiSubnetConnectionBindingMapsByCRs(sets.New[string](tc.bindingCRIDs...))
 			if tc.expErr != "" {
 				require.EqualError(t, err, tc.expErr)
 			} else {
@@ -468,14 +474,14 @@ func TestDeleteSubnetConnectionBindingMaps(t *testing.T) {
 			deleteFn: func(svc *BindingService) error {
 				mockOrgRootClient.EXPECT().Patch(gomock.Any(), &enforceRevisionCheckParam).Return(nil)
 				ctx := context.Background()
-				return svc.Cleanup(ctx)
+				return svc.CleanupBeforeVPCDeletion(ctx)
 			},
 			expErr:                "",
 			expBindingMapsInStore: []*model.SubnetConnectionBindingMap{},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-
+			builder, _ := common.PolicyPathVpcSubnetConnectionBindingMap.NewPolicyTreeBuilder()
 			svc := &BindingService{
 				Service: common.Service{
 					NSXClient: &nsx.Client{
@@ -488,6 +494,7 @@ func TestDeleteSubnetConnectionBindingMaps(t *testing.T) {
 					},
 				},
 				BindingStore: SetupStore(),
+				builder:      builder,
 			}
 			svc.BindingStore.Add(createdBM1)
 			err := tc.deleteFn(svc)
@@ -498,51 +505,6 @@ func TestDeleteSubnetConnectionBindingMaps(t *testing.T) {
 			}
 			bms := svc.BindingStore.List()
 			assert.ElementsMatch(t, tc.expBindingMapsInStore, bms)
-		})
-	}
-}
-
-func TestDeleteSubnetConnectionBindingMaps_WithPaging(t *testing.T) {
-	for _, tc := range []struct {
-		name         string
-		bindingCount int
-		expPages     int
-	}{
-		{
-			name:         "no paging on the requests",
-			bindingCount: 50,
-			expPages:     1,
-		}, {
-			name:         "paging on the requests",
-			bindingCount: 1501,
-			expPages:     2,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			actPages := 0
-			targetBindingMaps := make([]*model.SubnetConnectionBindingMap, tc.bindingCount)
-			expDeletedBindings := make([]string, tc.bindingCount)
-			for i := 0; i < tc.bindingCount; i++ {
-				idString := fmt.Sprintf("id-%d", i)
-				expDeletedBindings[i] = idString
-				targetBindingMaps[i] = &model.SubnetConnectionBindingMap{
-					Id: common.String(idString),
-				}
-			}
-			actDeletedBindings := make([]string, 0)
-			svc := &BindingService{}
-			patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(svc), "hDeleteSubnetConnectionBindingMap", func(_ *BindingService, bindingMaps []*model.SubnetConnectionBindingMap) error {
-				for _, bm := range bindingMaps {
-					actDeletedBindings = append(actDeletedBindings, *bm.Id)
-				}
-				actPages += 1
-				return nil
-			})
-			defer patches.Reset()
-			err := svc.deleteSubnetConnectionBindingMaps(targetBindingMaps)
-			require.NoError(t, err)
-			assert.ElementsMatch(t, expDeletedBindings, actDeletedBindings)
-			assert.Equal(t, tc.expPages, actPages)
 		})
 	}
 }
