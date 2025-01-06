@@ -32,6 +32,7 @@ func (qIface *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ 
 				"resource_type": data.NewStringValue("VpcSubnet"),
 				"id":            data.NewStringValue("subnet1"),
 				"path":          data.NewStringValue("/orgs/default/projects/default/vpcs/vpc2/subnets/subnet2"),
+				"parent_path":   data.NewStringValue("/orgs/default/projects/default/vpcs/vpc2"),
 			})},
 		Cursor: &cursor, ResultCount: &resultCount,
 	}, nil

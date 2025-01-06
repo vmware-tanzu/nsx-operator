@@ -4,19 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"k8s.io/utils/ptr"
 	"reflect"
 	"strings"
 	"testing"
-	"time"
-
-	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
@@ -25,9 +16,15 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
+	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -1675,77 +1672,6 @@ func TestListAllVPCsFromNSX(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestVPCService_Cleanup(t *testing.T) {
-	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
-	resourceStore := common.ResourceStore{
-		Indexer:     vpcCacheIndexer,
-		BindingType: model.VpcBindingType(),
-	}
-
-	mockCtrl := gomock.NewController(t)
-	mockVpcclient := mocks.NewMockVpcsClient(mockCtrl)
-
-	vpcService := &VPCService{
-		Service: common.Service{
-			NSXConfig: &config.NSXOperatorConfig{
-				NsxConfig: &config.NsxConfig{
-					UseAVILoadBalancer: false,
-				},
-			},
-			NSXClient: &nsx.Client{
-				Cluster:   &nsx.Cluster{},
-				VPCClient: mockVpcclient,
-				NsxConfig: &config.NSXOperatorConfig{
-					DefaultConfig: nil,
-					CoeConfig: &config.CoeConfig{
-						Cluster:          "",
-						EnableVPCNetwork: false,
-					},
-					NsxConfig: nil,
-					K8sConfig: nil,
-					VCConfig:  nil,
-					HAConfig:  nil,
-					LibMode:   false,
-				},
-			},
-		},
-
-		LbsStore: &LBSStore{ResourceStore: common.ResourceStore{
-			Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
-			BindingType: model.LBServiceBindingType(),
-		}},
-		VpcStore: &VPCStore{resourceStore},
-	}
-
-	fakeVPCID := "fakeID"
-	vpcPath := "/orgs/default/projects/default/vpcs/vpc2"
-	err := vpcService.VpcStore.Add(&model.Vpc{Id: &fakeVPCID, Path: &vpcPath})
-	assert.NoError(t, err)
-
-	mockCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-	defer cancel()
-
-	patches := gomonkey.ApplyFunc(httpGetAviPortsPaths, func(cluster *nsx.Cluster, vpcPath string) (sets.Set[string], error) {
-		return nil, nil
-	})
-	patches.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VPCClient), "Delete", []gomonkey.OutputCell{{
-		Values: gomonkey.Params{
-			nil,
-		},
-		Times: 1,
-	}})
-
-	patches.ApplyMethod(reflect.TypeOf(&common.Service{}), "SearchResource", func(_ *common.Service, _ string, _ string, store common.Store, _ common.Filter) (uint64, error) {
-		return 0, nil
-	})
-
-	defer patches.Reset()
-
-	err = vpcService.Cleanup(mockCtx)
-
-	assert.NoError(t, err)
 }
 
 func createFakeVPCService(t *testing.T, objs []client.Object) *VPCService {

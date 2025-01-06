@@ -1829,7 +1829,7 @@ func (service *SecurityPolicyService) buildSharedWith(vpcInfo *common.VPCResourc
 		return &sharedWith
 	}
 	if projectGroupShared {
-		sharedWithPath := fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s", vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID)
+		sharedWithPath := vpcInfo.GetVPCPath()
 		sharedWith = append(sharedWith, sharedWithPath)
 		return &sharedWith
 	}

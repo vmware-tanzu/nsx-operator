@@ -111,16 +111,6 @@ func TestBuildSubnetConnectionBindingMapCR(t *testing.T) {
 	assert.Equal(t, expCR, cr)
 }
 
-func genSubnetConnectionBindingMap(bmID, displayName, subnetPath, parentPath string, vlanTag int64) *model.SubnetConnectionBindingMap {
-	return &model.SubnetConnectionBindingMap{
-		Id:             String(bmID),
-		DisplayName:    String(displayName),
-		SubnetPath:     String(subnetPath),
-		VlanTrafficTag: Int64(vlanTag),
-		ParentPath:     String(parentPath),
-	}
-}
-
 func mockService() *BindingService {
 	return &BindingService{
 		Service: common.Service{

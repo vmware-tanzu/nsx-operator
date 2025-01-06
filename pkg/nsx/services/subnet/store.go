@@ -107,3 +107,9 @@ func (subnetStore *SubnetStore) GetByKey(key string) *model.VpcSubnet {
 	subnet := obj.(*model.VpcSubnet)
 	return subnet
 }
+
+func (subnetStore *SubnetStore) DeleteMultipleObjects(subnets []*model.VpcSubnet) {
+	for _, subnet := range subnets {
+		subnetStore.Delete(subnet)
+	}
+}

@@ -26,17 +26,23 @@ type IPAddressAllocationService struct {
 	common.Service
 	ipAddressAllocationStore *IPAddressAllocationStore
 	VPCService               common.VPCServiceProvider
+	builder                  *common.PolicyTreeBuilder[*model.VpcIpAddressAllocation]
 }
 
 func InitializeIPAddressAllocation(service common.Service, vpcService common.VPCServiceProvider, includeNCP bool) (*IPAddressAllocationService,
 	error) {
+	builder, _ := common.PolicyPathVpcIPAddressAllocation.NewPolicyTreeBuilder()
+
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
 
-	ipAddressAllocationService := &IPAddressAllocationService{Service: service, VPCService: vpcService}
+	ipAddressAllocationService := &IPAddressAllocationService{Service: service, VPCService: vpcService, builder: builder}
 	ipAddressAllocationService.ipAddressAllocationStore = &IPAddressAllocationStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeIPAddressAllocationCRUID: indexFunc}),
+		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+			common.TagScopeIPAddressAllocationCRUID: indexFunc,
+			common.IndexByVPCPathFuncKey:            common.IndexByVPCFunc,
+		}),
 		BindingType: model.VpcIpAddressAllocationBindingType(),
 	}}
 
@@ -242,21 +248,4 @@ func (service *IPAddressAllocationService) GetIPAddressAllocationUID(nsxIPAddres
 		}
 	}
 	return ""
-}
-
-func (service *IPAddressAllocationService) Cleanup(ctx context.Context) error {
-	keys := service.ListIPAddressAllocationKeys()
-	log.Info("Cleaning up ipaddressallocation", "count", len(keys))
-	for _, key := range keys {
-		select {
-		case <-ctx.Done():
-			return util.TimeoutFailed
-		default:
-			err := service.DeleteIPAddressAllocation(key)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }

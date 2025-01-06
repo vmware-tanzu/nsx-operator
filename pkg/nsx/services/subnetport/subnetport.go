@@ -34,17 +34,20 @@ var (
 type SubnetPortService struct {
 	servicecommon.Service
 	SubnetPortStore *SubnetPortStore
+	builder         *servicecommon.PolicyTreeBuilder[*model.VpcSubnetPort]
 }
 
 // InitializeSubnetPort sync NSX resources.
 func InitializeSubnetPort(service servicecommon.Service) (*SubnetPortService, error) {
+	builder, _ := servicecommon.PolicyPathVpcSubnetPort.NewPolicyTreeBuilder()
+
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
 
 	wg.Add(1)
 
-	subnetPortService := &SubnetPortService{Service: service}
+	subnetPortService := &SubnetPortService{Service: service, builder: builder}
 
 	subnetPortService.SubnetPortStore = &SubnetPortStore{
 		ResourceStore: servicecommon.ResourceStore{
@@ -56,10 +59,10 @@ func InitializeSubnetPort(service servicecommon.Service) (*SubnetPortService, er
 					servicecommon.TagScopeVMNamespace:     subnetPortIndexNamespace,
 					servicecommon.TagScopeNamespace:       subnetPortIndexPodNamespace,
 					servicecommon.IndexKeySubnetID:        subnetPortIndexBySubnetID,
+					servicecommon.IndexByVPCPathFuncKey:   servicecommon.IndexByVPCFunc,
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
-		},
-	}
+		}}
 
 	go subnetPortService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSubnetPort, nil, subnetPortService.SubnetPortStore)
 
@@ -350,26 +353,6 @@ func (service *SubnetPortService) ListSubnetPortByPodName(ns string, name string
 		}
 	}
 	return result
-}
-
-func (service *SubnetPortService) Cleanup(ctx context.Context) error {
-	subnetPorts := service.SubnetPortStore.List()
-	log.Info("cleanup subnetports", "count", len(subnetPorts))
-	for _, subnetPort := range subnetPorts {
-		subnetPortID := *subnetPort.(*model.VpcSubnetPort).Id
-		select {
-		case <-ctx.Done():
-			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
-		default:
-			err := service.DeleteSubnetPortById(subnetPortID)
-			if err != nil {
-				log.Error(err, "cleanup subnetport failed", "subnetPortID", subnetPortID)
-				return err
-			}
-
-		}
-	}
-	return nil
 }
 
 // AllocatePortFromSubnet checks the number of SubnetPorts on the Subnet.

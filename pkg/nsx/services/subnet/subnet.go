@@ -37,6 +37,7 @@ var (
 type SubnetService struct {
 	common.Service
 	SubnetStore *SubnetStore
+	builder     *common.PolicyTreeBuilder[*model.VpcSubnet]
 }
 
 // SubnetParameters stores parameters to CRUD Subnet object
@@ -48,6 +49,8 @@ type SubnetParameters struct {
 
 // InitializeSubnetService initialize Subnet service.
 func InitializeSubnetService(service common.Service) (*SubnetService, error) {
+	builder, _ := common.PolicyPathVpcSubnet.NewPolicyTreeBuilder()
+
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
@@ -60,10 +63,12 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
 					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
 					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+					common.IndexByVPCPathFuncKey:  common.IndexByVPCFunc,
 				}),
 				BindingType: model.VpcSubnetBindingType(),
 			},
 		},
+		builder: builder,
 	}
 
 	wg.Add(1)
@@ -307,23 +312,6 @@ func (service *SubnetService) ListAllSubnet() []*model.VpcSubnet {
 		allNSXSubnets = append(allNSXSubnets, nsxSubnets...)
 	}
 	return allNSXSubnets
-}
-
-func (service *SubnetService) Cleanup(ctx context.Context) error {
-	allNSXSubnets := service.ListAllSubnet()
-	log.Info("Cleaning up Subnet", "Count", len(allNSXSubnets))
-	for _, nsxSubnet := range allNSXSubnets {
-		select {
-		case <-ctx.Done():
-			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
-		default:
-			err := service.DeleteSubnet(*nsxSubnet)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 func (service *SubnetService) GetSubnetsByIndex(key, value string) []*model.VpcSubnet {

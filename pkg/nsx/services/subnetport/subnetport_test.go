@@ -19,6 +19,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	mock_org_root "github.com/vmware-tanzu/nsx-operator/pkg/mock/orgrootclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
@@ -153,6 +154,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
+	orgRootClient := mock_org_root.NewMockOrgRootClient(mockCtl)
 	commonService := common.Service{
 		Client: k8sClient,
 		NSXClient: &nsx.Client{
@@ -160,6 +162,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			PortClient:             &fakePortClient{},
 			RealizedEntitiesClient: &fakeRealizedEntitiesClient{},
 			PortStateClient:        &fakePortStateClient{},
+			OrgRootClient:          orgRootClient,
 			NsxConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "k8scl-one:test",
@@ -172,6 +175,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			},
 		},
 	}
+	builder, _ := common.PolicyPathVpcSubnetPort.NewPolicyTreeBuilder()
 	service := &SubnetPortService{
 		Service: commonService,
 		SubnetPortStore: &SubnetPortStore{ResourceStore: common.ResourceStore{
@@ -184,6 +188,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}},
+		builder: builder,
 	}
 
 	subnetPortCR := &v1alpha1.SubnetPort{
@@ -220,6 +225,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 					namespaceCR.UID = "ns1"
 					return nil
 				})
+				orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				return nil
 			},
 			wantErr: false,
@@ -233,6 +239,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 					return nil
 				})
 				service.SubnetPortStore.Add(&nsxSubnetPort)
+				orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				return nil
 			},
 			wantErr: false,
@@ -315,7 +322,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Errorf("CreateOrUpdateSubnetPort() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			err = service.Cleanup(context.TODO())
+			err = service.CleanupBeforeVPCDeletion(context.TODO())
 			assert.Nil(t, err)
 		})
 	}
@@ -598,15 +605,23 @@ func TestSubnetPortService_GetPortsOfSubnet(t *testing.T) {
 }
 
 func TestSubnetPortService_Cleanup(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockOrgRootClient := mock_org_root.NewMockOrgRootClient(ctrl)
+	mockOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil)
+
 	port := model.VpcSubnetPort{
 		Id:         &subnetPortId1,
 		Path:       &subnetPortPath1,
 		ParentPath: &subnetPath,
 	}
+	builder, _ := common.PolicyPathVpcSubnetPort.NewPolicyTreeBuilder()
 	service := &SubnetPortService{
 		Service: common.Service{
 			NSXClient: &nsx.Client{
-				PortClient: &fakePortClient{},
+				PortClient:    &fakePortClient{},
+				OrgRootClient: mockOrgRootClient,
 			},
 		},
 		SubnetPortStore: &SubnetPortStore{ResourceStore: common.ResourceStore{
@@ -617,9 +632,11 @@ func TestSubnetPortService_Cleanup(t *testing.T) {
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}},
+		builder: builder,
 	}
+
 	service.SubnetPortStore.Add(&port)
-	err := service.Cleanup(context.TODO())
+	err := service.CleanupBeforeVPCDeletion(context.TODO())
 	assert.Nil(t, err)
 	assert.Nil(t, service.SubnetPortStore.GetByKey(*port.Id))
 }
