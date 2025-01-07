@@ -156,14 +156,12 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 	// Create or update the subnet in NSX
 	if _, err := r.SubnetService.CreateOrUpdateSubnet(subnetCR, vpcInfoList[0], tags); err != nil {
-		if err != nil {
-			if errors.As(err, &nsxutil.ExceedTagsError{}) {
-				r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Tags limit exceeded", setSubnetReadyStatusFalse)
-				return ResultNormal, nil
-			}
-			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to create/update Subnet", setSubnetReadyStatusFalse)
-			return ResultRequeue, err
+		if errors.As(err, &nsxutil.ExceedTagsError{}) {
+			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Tags limit exceeded", setSubnetReadyStatusFalse)
+			return ResultNormal, nil
 		}
+		r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to create/update Subnet", setSubnetReadyStatusFalse)
+		return ResultRequeue, err
 	}
 	// Update status
 	if err := r.updateSubnetStatus(subnetCR); err != nil {
@@ -201,29 +199,9 @@ func (r *SubnetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet) error {
 	return nil
 }
 
-func (r *SubnetReconciler) deleteStaleSubnets(nsxSubnets []*model.VpcSubnet) error {
-	crdSubnetIDs, err := r.listSubnetIDsFromCRs(context.Background())
-	if err != nil {
-		log.Error(err, "Failed to list Subnet CRs")
-		return err
-	}
-	crdSubnetIDsSet := sets.NewString(crdSubnetIDs...)
-	nsxSubnetsToDelete := make([]*model.VpcSubnet, 0, len(nsxSubnets))
-	for _, nsxSubnet := range nsxSubnets {
-		uid := nsxutil.FindTag(nsxSubnet.Tags, servicecommon.TagScopeSubnetCRUID)
-		if crdSubnetIDsSet.Has(uid) {
-			log.Info("Skipping deletion, Subnet CR still exists in K8s", "ID", *nsxSubnet.Id)
-			continue
-		}
-		nsxSubnetsToDelete = append(nsxSubnetsToDelete, nsxSubnet)
-	}
-	log.Info("Cleaning stale Subnets", "Count", len(nsxSubnetsToDelete))
-	return r.deleteSubnets(nsxSubnetsToDelete)
-}
-
 func (r *SubnetReconciler) deleteSubnetByName(name, ns string) error {
 	nsxSubnets := r.SubnetService.ListSubnetByName(ns, name)
-	return r.deleteStaleSubnets(nsxSubnets)
+	return r.deleteSubnets(nsxSubnets)
 }
 
 func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {

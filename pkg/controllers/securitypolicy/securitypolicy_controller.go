@@ -369,19 +369,9 @@ func (r *SecurityPolicyReconciler) CollectGarbage(ctx context.Context) {
 }
 
 func (r *SecurityPolicyReconciler) deleteSecurityPolicyByName(ns, name string) error {
-	CRPolicySet, err := r.listSecurityPolciyCRIDs()
-	if err != nil {
-		return err
-	}
-
 	nsxSecurityPolicies := r.Service.ListSecurityPolicyByName(ns, name)
 	for _, item := range nsxSecurityPolicies {
 		uid := nsxutil.FindTag(item.Tags, servicecommon.TagValueScopeSecurityPolicyUID)
-		if CRPolicySet.Has(uid) {
-			log.Info("Skipping deletion, SecurityPolicy CR still exists in K8s", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
-			continue
-		}
-
 		log.Info("Deleting SecurityPolicy", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
 		if err := r.Service.DeleteSecurityPolicy(types.UID(uid), false, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
 			log.Error(err, "Failed to delete SecurityPolicy", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
