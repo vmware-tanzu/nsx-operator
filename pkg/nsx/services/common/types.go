@@ -16,6 +16,7 @@ import (
 
 const (
 	HashLength                         int    = 8
+	Base62HashLength                   int    = 6
 	MaxTagsCount                       int    = 26
 	MaxTagScopeLength                  int    = 128
 	MaxTagValueLength                  int    = 256
