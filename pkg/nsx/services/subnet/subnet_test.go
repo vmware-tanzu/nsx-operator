@@ -423,7 +423,7 @@ func TestSubnetService_UpdateSubnetSet(t *testing.T) {
 	})
 
 	patchesCreateOrUpdateSubnet := gomonkey.ApplyFunc((*SubnetService).createOrUpdateSubnet,
-		func(r *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo, isUpdate bool) (*model.VpcSubnet, error) {
+		func(r *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
 			return &model.VpcSubnet{Path: &fakeSubnetPath}, nil
 		})
 	defer patchesCreateOrUpdateSubnet.Reset()
@@ -545,7 +545,6 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 				tt.crObj,
 				&fakeSubnet,
 				&common.VPCResourceInfo{},
-				true,
 			)
 			if tt.expectedErr != "" {
 				assert.Equal(t, tt.expectedErr, err.Error())

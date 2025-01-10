@@ -90,9 +90,9 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 		return nil, err
 	}
 	// Only check whether it needs update when obj is v1alpha1.Subnet
-	var changed, existingSubnet bool
 	if subnet, ok := obj.(*v1alpha1.Subnet); ok {
 		existingSubnet := service.SubnetStore.GetByKey(service.BuildSubnetID(subnet))
+		changed := false
 		if existingSubnet == nil {
 			changed = true
 		} else {
@@ -116,10 +116,10 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 			return existingSubnet, nil
 		}
 	}
-	return service.createOrUpdateSubnet(obj, nsxSubnet, &vpcInfo, (changed && !existingSubnet))
+	return service.createOrUpdateSubnet(obj, nsxSubnet, &vpcInfo)
 }
 
-func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo, isUpdate bool) (*model.VpcSubnet, error) {
+func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
 	orgRoot, err := service.WrapHierarchySubnet(nsxSubnet, vpcInfo)
 	if err != nil {
 		log.Error(err, "Failed to WrapHierarchySubnet")
@@ -142,10 +142,6 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 		Steps:    6,
 	}
 
-	// For update case, wait for some time to make sure the realized state is updated.
-	if isUpdate {
-		time.Sleep(1 * time.Second)
-	}
 	// Failure of CheckRealizeState may result in the creation of an existing Subnet.
 	// For Subnets, it's important to reuse the already created NSXSubnet.
 	// For SubnetSets, since the ID includes a random value, the created NSX Subnet needs to be deleted and recreated.
@@ -456,7 +452,7 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 			err := fmt.Errorf("failed to parse NSX VPC path for Subnet %s: %s", *vpcSubnets[i].Path, err)
 			return err
 		}
-		if _, err := service.createOrUpdateSubnet(subnetSet, &updatedSubnet, &vpcInfo, true); err != nil {
+		if _, err := service.createOrUpdateSubnet(subnetSet, &updatedSubnet, &vpcInfo); err != nil {
 			return fmt.Errorf("failed to update Subnet %s in SubnetSet %s: %w", *vpcSubnet.Id, subnetSet.Name, err)
 		}
 		log.Info("Successfully updated SubnetSet", "subnetSet", subnetSet, "Subnet", *vpcSubnet.Id)
