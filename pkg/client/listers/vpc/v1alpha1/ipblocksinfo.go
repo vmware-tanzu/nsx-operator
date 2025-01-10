@@ -18,8 +18,9 @@ type IPBlocksInfoLister interface {
 	// List lists all IPBlocksInfos in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*v1alpha1.IPBlocksInfo, err error)
-	// IPBlocksInfos returns an object that can list and get IPBlocksInfos.
-	IPBlocksInfos(namespace string) IPBlocksInfoNamespaceLister
+	// Get retrieves the IPBlocksInfo from the index for a given name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*v1alpha1.IPBlocksInfo, error)
 	IPBlocksInfoListerExpansion
 }
 
@@ -41,41 +42,9 @@ func (s *iPBlocksInfoLister) List(selector labels.Selector) (ret []*v1alpha1.IPB
 	return ret, err
 }
 
-// IPBlocksInfos returns an object that can list and get IPBlocksInfos.
-func (s *iPBlocksInfoLister) IPBlocksInfos(namespace string) IPBlocksInfoNamespaceLister {
-	return iPBlocksInfoNamespaceLister{indexer: s.indexer, namespace: namespace}
-}
-
-// IPBlocksInfoNamespaceLister helps list and get IPBlocksInfos.
-// All objects returned here must be treated as read-only.
-type IPBlocksInfoNamespaceLister interface {
-	// List lists all IPBlocksInfos in the indexer for a given namespace.
-	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1alpha1.IPBlocksInfo, err error)
-	// Get retrieves the IPBlocksInfo from the indexer for a given namespace and name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1alpha1.IPBlocksInfo, error)
-	IPBlocksInfoNamespaceListerExpansion
-}
-
-// iPBlocksInfoNamespaceLister implements the IPBlocksInfoNamespaceLister
-// interface.
-type iPBlocksInfoNamespaceLister struct {
-	indexer   cache.Indexer
-	namespace string
-}
-
-// List lists all IPBlocksInfos in the indexer for a given namespace.
-func (s iPBlocksInfoNamespaceLister) List(selector labels.Selector) (ret []*v1alpha1.IPBlocksInfo, err error) {
-	err = cache.ListAllByNamespace(s.indexer, s.namespace, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.IPBlocksInfo))
-	})
-	return ret, err
-}
-
-// Get retrieves the IPBlocksInfo from the indexer for a given namespace and name.
-func (s iPBlocksInfoNamespaceLister) Get(name string) (*v1alpha1.IPBlocksInfo, error) {
-	obj, exists, err := s.indexer.GetByKey(s.namespace + "/" + name)
+// Get retrieves the IPBlocksInfo from the index for a given name.
+func (s *iPBlocksInfoLister) Get(name string) (*v1alpha1.IPBlocksInfo, error) {
+	obj, exists, err := s.indexer.GetByKey(name)
 	if err != nil {
 		return nil, err
 	}

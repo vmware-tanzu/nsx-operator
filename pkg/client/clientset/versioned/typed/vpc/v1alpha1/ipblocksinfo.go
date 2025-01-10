@@ -20,7 +20,7 @@ import (
 // IPBlocksInfosGetter has a method to return a IPBlocksInfoInterface.
 // A group's client should implement this interface.
 type IPBlocksInfosGetter interface {
-	IPBlocksInfos(namespace string) IPBlocksInfoInterface
+	IPBlocksInfos() IPBlocksInfoInterface
 }
 
 // IPBlocksInfoInterface has methods to work with IPBlocksInfo resources.
@@ -39,14 +39,12 @@ type IPBlocksInfoInterface interface {
 // iPBlocksInfos implements IPBlocksInfoInterface
 type iPBlocksInfos struct {
 	client rest.Interface
-	ns     string
 }
 
 // newIPBlocksInfos returns a IPBlocksInfos
-func newIPBlocksInfos(c *CrdV1alpha1Client, namespace string) *iPBlocksInfos {
+func newIPBlocksInfos(c *CrdV1alpha1Client) *iPBlocksInfos {
 	return &iPBlocksInfos{
 		client: c.RESTClient(),
-		ns:     namespace,
 	}
 }
 
@@ -54,7 +52,6 @@ func newIPBlocksInfos(c *CrdV1alpha1Client, namespace string) *iPBlocksInfos {
 func (c *iPBlocksInfos) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1alpha1.IPBlocksInfo, err error) {
 	result = &v1alpha1.IPBlocksInfo{}
 	err = c.client.Get().
-		Namespace(c.ns).
 		Resource("ipblocksinfos").
 		Name(name).
 		VersionedParams(&options, scheme.ParameterCodec).
@@ -71,7 +68,6 @@ func (c *iPBlocksInfos) List(ctx context.Context, opts v1.ListOptions) (result *
 	}
 	result = &v1alpha1.IPBlocksInfoList{}
 	err = c.client.Get().
-		Namespace(c.ns).
 		Resource("ipblocksinfos").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -88,7 +84,6 @@ func (c *iPBlocksInfos) Watch(ctx context.Context, opts v1.ListOptions) (watch.I
 	}
 	opts.Watch = true
 	return c.client.Get().
-		Namespace(c.ns).
 		Resource("ipblocksinfos").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -99,7 +94,6 @@ func (c *iPBlocksInfos) Watch(ctx context.Context, opts v1.ListOptions) (watch.I
 func (c *iPBlocksInfos) Create(ctx context.Context, iPBlocksInfo *v1alpha1.IPBlocksInfo, opts v1.CreateOptions) (result *v1alpha1.IPBlocksInfo, err error) {
 	result = &v1alpha1.IPBlocksInfo{}
 	err = c.client.Post().
-		Namespace(c.ns).
 		Resource("ipblocksinfos").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Body(iPBlocksInfo).
@@ -112,7 +106,6 @@ func (c *iPBlocksInfos) Create(ctx context.Context, iPBlocksInfo *v1alpha1.IPBlo
 func (c *iPBlocksInfos) Update(ctx context.Context, iPBlocksInfo *v1alpha1.IPBlocksInfo, opts v1.UpdateOptions) (result *v1alpha1.IPBlocksInfo, err error) {
 	result = &v1alpha1.IPBlocksInfo{}
 	err = c.client.Put().
-		Namespace(c.ns).
 		Resource("ipblocksinfos").
 		Name(iPBlocksInfo.Name).
 		VersionedParams(&opts, scheme.ParameterCodec).
@@ -125,7 +118,6 @@ func (c *iPBlocksInfos) Update(ctx context.Context, iPBlocksInfo *v1alpha1.IPBlo
 // Delete takes name of the iPBlocksInfo and deletes it. Returns an error if one occurs.
 func (c *iPBlocksInfos) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	return c.client.Delete().
-		Namespace(c.ns).
 		Resource("ipblocksinfos").
 		Name(name).
 		Body(&opts).
@@ -140,7 +132,6 @@ func (c *iPBlocksInfos) DeleteCollection(ctx context.Context, opts v1.DeleteOpti
 		timeout = time.Duration(*listOpts.TimeoutSeconds) * time.Second
 	}
 	return c.client.Delete().
-		Namespace(c.ns).
 		Resource("ipblocksinfos").
 		VersionedParams(&listOpts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -153,7 +144,6 @@ func (c *iPBlocksInfos) DeleteCollection(ctx context.Context, opts v1.DeleteOpti
 func (c *iPBlocksInfos) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1alpha1.IPBlocksInfo, err error) {
 	result = &v1alpha1.IPBlocksInfo{}
 	err = c.client.Patch(pt).
-		Namespace(c.ns).
 		Resource("ipblocksinfos").
 		Name(name).
 		SubResource(subresources...).
