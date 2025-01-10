@@ -171,7 +171,7 @@ func TestBuildNSXVPC(t *testing.T) {
 			},
 			expVPC: &model.Vpc{
 				Id:            common.String("test-ns-03a2def3-0087-4077-904e-23e4dd788fb7_ecc6eb9f-92b5-4893-b809-e3ebc1fcf59e"),
-				DisplayName:   common.String("test-ns-03a2def3-0087-4077-904e-23e4dd788fb7_f4f0080e"),
+				DisplayName:   common.String("test-ns-03a2def3-0087-4077-904e-23e4dd788fb7_yWOLBB"),
 				PrivateIps:    []string{"192.168.3.0/24"},
 				IpAddressType: common.String("IPV4"),
 				Tags: []model.Tag{
