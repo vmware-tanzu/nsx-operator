@@ -341,21 +341,6 @@ func SubnetCIDR(t *testing.T) {
 	nsxSubnets = testData.fetchSubnetBySubnetUID(t, newSubnetCRUID)
 	require.Equal(t, 1, len(nsxSubnets))
 
-	// Change the DHCP mode from DHCPServer to DHCPDeactived
-	allocatedSubnet.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
-	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Update(context.TODO(), allocatedSubnet, v1.UpdateOptions{})
-	require.NoError(t, err)
-	allocatedSubnet = assureSubnet(t, subnetTestNamespace, subnet.Name, v1alpha1.DHCPConfigModeDeactivated)
-	nsxSubnets = testData.fetchSubnetBySubnetUID(t, newSubnetCRUID)
-	require.Equal(t, 1, len(nsxSubnets))
-	require.Equal(t, "DHCP_DEACTIVATED", *nsxSubnets[0].SubnetDhcpConfig.Mode)
-	require.Equal(t, true, *nsxSubnets[0].AdvancedConfig.StaticIpAllocation.Enabled)
-
-	// Change the DHCP mode from DHCPDeactived to DHCPServer
-	allocatedSubnet.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer)
-	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Update(context.TODO(), allocatedSubnet, v1.UpdateOptions{})
-	require.Contains(t, err.Error(), "subnetDHCPConfig cannot switch from DHCPDeactivated to other modes")
-
 	// Delete the Subnet
 	err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Delete(context.TODO(), subnet.Name, v1.DeleteOptions{})
 	require.NoError(t, err)

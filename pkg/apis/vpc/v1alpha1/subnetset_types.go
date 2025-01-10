@@ -8,7 +8,7 @@ import (
 )
 
 // SubnetSetSpec defines the desired state of SubnetSet.
-// +kubebuilder:validation:XValidation:rule="has(oldSelf.subnetDHCPConfig) || !has(self.subnetDHCPConfig) || !has(self.subnetDHCPConfig.mode) || self.subnetDHCPConfig.mode=='DHCPDeactivated'", message="subnetDHCPConfig cannot switch from DHCPDeactivated to other modes"
+// +kubebuilder:validation:XValidation:rule="has(oldSelf.subnetDHCPConfig)==has(self.subnetDHCPConfig) || (has(oldSelf.subnetDHCPConfig) && !has(self.subnetDHCPConfig) && (!has(oldSelf.subnetDHCPConfig.mode) || oldSelf.subnetDHCPConfig.mode=='DHCPDeactivated')) || (!has(oldSelf.subnetDHCPConfig) && has(self.subnetDHCPConfig) && (!has(self.subnetDHCPConfig.mode) || self.subnetDHCPConfig.mode=='DHCPDeactivated'))", message="subnetDHCPConfig mode can only switch between DHCPServer and DHCPRelay"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.accessMode) || has(self.accessMode)", message="accessMode is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipv4SubnetSize) || has(self.ipv4SubnetSize)", message="ipv4SubnetSize is required once set"
 type SubnetSetSpec struct {
@@ -21,15 +21,17 @@ type SubnetSetSpec struct {
 	// +kubebuilder:validation:Enum=Private;Public;PrivateTGW
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	AccessMode AccessMode `json:"accessMode,omitempty"`
-	// DHCP mode of a SubnetSet cannot switch from DHCPDeactivated to DHCPServer or DHCPRelay.
+	// DHCP mode of a Subnet can only switch between DHCPServer or DHCPRelay.
 	// If subnetDHCPConfig is not set, the DHCP mode is DHCPDeactivated by default.
 	// In order to enforce this rule, three XValidation rules are defined.
-	// The rule on SubnetSetSpec prevents the condition that subnetDHCPConfig is not set in
-	// old SubnetSetSpec while the new SubnetSetSpec specifies a Mode other than DHCPDeactivated.
+	// The rule on SubnetSpec prevents the condition that subnetDHCPConfig is not set in
+	// old or current SubnetSpec while the current or old SubnetSpec specifies a Mode
+	// other than DHCPDeactivated.
 	// The rule on SubnetDHCPConfig prevents the condition that Mode is not set in old
-	// SubnetDHCPConfig while the new one specifies a Mode other than DHCPDeactivated.
-	// The rule on SubnetDHCPConfig.Mode prevents the Mode changing from DHCPDeactivated
-	// to DHCPServer or DHCPRelay.
+	// or current SubnetDHCPConfig while the current or old one specifies a Mode other
+	// than DHCPDeactivated.
+	// The rule on SubnetDHCPConfig.Mode prevents the Mode changing between DHCPDeactivated
+	// and DHCPServer or DHCPRelay.
 
 	// Subnet DHCP configuration.
 	SubnetDHCPConfig SubnetDHCPConfig `json:"subnetDHCPConfig,omitempty"`
@@ -60,6 +62,7 @@ type SubnetSetStatus struct {
 // +kubebuilder:printcolumn:name="AccessMode",type=string,JSONPath=`.spec.accessMode`,description="Access mode of Subnet"
 // +kubebuilder:printcolumn:name="IPv4SubnetSize",type=string,JSONPath=`.spec.ipv4SubnetSize`,description="Size of Subnet"
 // +kubebuilder:printcolumn:name="NetworkAddresses",type=string,JSONPath=`.status.subnets[*].networkAddresses[*]`,description="CIDRs for the SubnetSet"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec) || has(self.spec)", message="spec is required once set"
 type SubnetSet struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
