@@ -19,7 +19,6 @@ import (
 // FakeIPBlocksInfos implements IPBlocksInfoInterface
 type FakeIPBlocksInfos struct {
 	Fake *FakeCrdV1alpha1
-	ns   string
 }
 
 var ipblocksinfosResource = v1alpha1.SchemeGroupVersion.WithResource("ipblocksinfos")
@@ -29,8 +28,7 @@ var ipblocksinfosKind = v1alpha1.SchemeGroupVersion.WithKind("IPBlocksInfo")
 // Get takes name of the iPBlocksInfo, and returns the corresponding iPBlocksInfo object, and an error if there is any.
 func (c *FakeIPBlocksInfos) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1alpha1.IPBlocksInfo, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewGetAction(ipblocksinfosResource, c.ns, name), &v1alpha1.IPBlocksInfo{})
-
+		Invokes(testing.NewRootGetAction(ipblocksinfosResource, name), &v1alpha1.IPBlocksInfo{})
 	if obj == nil {
 		return nil, err
 	}
@@ -40,8 +38,7 @@ func (c *FakeIPBlocksInfos) Get(ctx context.Context, name string, options v1.Get
 // List takes label and field selectors, and returns the list of IPBlocksInfos that match those selectors.
 func (c *FakeIPBlocksInfos) List(ctx context.Context, opts v1.ListOptions) (result *v1alpha1.IPBlocksInfoList, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewListAction(ipblocksinfosResource, ipblocksinfosKind, c.ns, opts), &v1alpha1.IPBlocksInfoList{})
-
+		Invokes(testing.NewRootListAction(ipblocksinfosResource, ipblocksinfosKind, opts), &v1alpha1.IPBlocksInfoList{})
 	if obj == nil {
 		return nil, err
 	}
@@ -62,15 +59,13 @@ func (c *FakeIPBlocksInfos) List(ctx context.Context, opts v1.ListOptions) (resu
 // Watch returns a watch.Interface that watches the requested iPBlocksInfos.
 func (c *FakeIPBlocksInfos) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
-		InvokesWatch(testing.NewWatchAction(ipblocksinfosResource, c.ns, opts))
-
+		InvokesWatch(testing.NewRootWatchAction(ipblocksinfosResource, opts))
 }
 
 // Create takes the representation of a iPBlocksInfo and creates it.  Returns the server's representation of the iPBlocksInfo, and an error, if there is any.
 func (c *FakeIPBlocksInfos) Create(ctx context.Context, iPBlocksInfo *v1alpha1.IPBlocksInfo, opts v1.CreateOptions) (result *v1alpha1.IPBlocksInfo, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewCreateAction(ipblocksinfosResource, c.ns, iPBlocksInfo), &v1alpha1.IPBlocksInfo{})
-
+		Invokes(testing.NewRootCreateAction(ipblocksinfosResource, iPBlocksInfo), &v1alpha1.IPBlocksInfo{})
 	if obj == nil {
 		return nil, err
 	}
@@ -80,8 +75,7 @@ func (c *FakeIPBlocksInfos) Create(ctx context.Context, iPBlocksInfo *v1alpha1.I
 // Update takes the representation of a iPBlocksInfo and updates it. Returns the server's representation of the iPBlocksInfo, and an error, if there is any.
 func (c *FakeIPBlocksInfos) Update(ctx context.Context, iPBlocksInfo *v1alpha1.IPBlocksInfo, opts v1.UpdateOptions) (result *v1alpha1.IPBlocksInfo, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewUpdateAction(ipblocksinfosResource, c.ns, iPBlocksInfo), &v1alpha1.IPBlocksInfo{})
-
+		Invokes(testing.NewRootUpdateAction(ipblocksinfosResource, iPBlocksInfo), &v1alpha1.IPBlocksInfo{})
 	if obj == nil {
 		return nil, err
 	}
@@ -91,14 +85,13 @@ func (c *FakeIPBlocksInfos) Update(ctx context.Context, iPBlocksInfo *v1alpha1.I
 // Delete takes name of the iPBlocksInfo and deletes it. Returns an error if one occurs.
 func (c *FakeIPBlocksInfos) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	_, err := c.Fake.
-		Invokes(testing.NewDeleteActionWithOptions(ipblocksinfosResource, c.ns, name, opts), &v1alpha1.IPBlocksInfo{})
-
+		Invokes(testing.NewRootDeleteActionWithOptions(ipblocksinfosResource, name, opts), &v1alpha1.IPBlocksInfo{})
 	return err
 }
 
 // DeleteCollection deletes a collection of objects.
 func (c *FakeIPBlocksInfos) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	action := testing.NewDeleteCollectionAction(ipblocksinfosResource, c.ns, listOpts)
+	action := testing.NewRootDeleteCollectionAction(ipblocksinfosResource, listOpts)
 
 	_, err := c.Fake.Invokes(action, &v1alpha1.IPBlocksInfoList{})
 	return err
@@ -107,8 +100,7 @@ func (c *FakeIPBlocksInfos) DeleteCollection(ctx context.Context, opts v1.Delete
 // Patch applies the patch and returns the patched iPBlocksInfo.
 func (c *FakeIPBlocksInfos) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1alpha1.IPBlocksInfo, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(ipblocksinfosResource, c.ns, name, pt, data, subresources...), &v1alpha1.IPBlocksInfo{})
-
+		Invokes(testing.NewRootPatchSubresourceAction(ipblocksinfosResource, name, pt, data, subresources...), &v1alpha1.IPBlocksInfo{})
 	if obj == nil {
 		return nil, err
 	}
