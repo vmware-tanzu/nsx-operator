@@ -56,7 +56,7 @@ func (v *version) IPAddressAllocations() IPAddressAllocationInformer {
 
 // IPBlocksInfos returns a IPBlocksInfoInformer.
 func (v *version) IPBlocksInfos() IPBlocksInfoInformer {
-	return &iPBlocksInfoInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+	return &iPBlocksInfoInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // NetworkInfos returns a NetworkInfoInformer.
