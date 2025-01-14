@@ -8,13 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -169,13 +167,8 @@ func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubne
 		return nil, errors.New("failed to get subnet port from store")
 	}
 	realizeService := realizestate.InitializeRealizeState(service.Service)
-	backoff := wait.Backoff{
-		Duration: 1 * time.Second,
-		Factor:   2.0,
-		Jitter:   0,
-		Steps:    6,
-	}
-	if err := realizeService.CheckRealizeState(backoff, *nsxSubnetPort.Path); err != nil {
+
+	if err := realizeService.CheckRealizeState(util.NSXTRealizeRetry, *nsxSubnetPort.Path); err != nil {
 		log.Error(err, "failed to get realized status", "subnetport path", *nsxSubnetPort.Path)
 		if realizestate.IsRealizeStateError(err) {
 			log.Error(err, "the created subnet port is in error realization state, cleaning the resource", "subnetport", portID)
