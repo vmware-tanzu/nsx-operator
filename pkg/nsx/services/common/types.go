@@ -146,6 +146,7 @@ var (
 	ResourceTypeVirtualMachine               = "VirtualMachine"
 	ResourceTypeLBService                    = "LBService"
 	ResourceTypeVpcAttachment                = "VpcAttachment"
+	ResourceTypeStaticRoute                  = "StaticRoutes"
 	ResourceTypeShare                        = "Share"
 	ResourceTypeSharedResource               = "SharedResource"
 	ResourceTypeChildSharedResource          = "ChildSharedResource"
