@@ -311,6 +311,9 @@ func ParseVPCPath(nsxResourcePath string) (orgID string, projectID string, vpcID
 func DumpHttpRequest(request *http.Request) {
 	var body []byte
 	var err error
+	if request == nil {
+		return
+	}
 	if request.Body == nil {
 		return
 	}
