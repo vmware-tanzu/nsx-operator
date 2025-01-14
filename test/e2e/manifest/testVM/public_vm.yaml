@@ -1,0 +1,53 @@
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: Subnet
+metadata:
+  name: public-subnet
+spec:
+  ipv4SubnetSize: 16
+  accessMode: Public
+  DHCPConfig:
+    enableDHCP: false
+---
+apiVersion: vmoperator.vmware.com/v1alpha3
+kind: VirtualMachine
+metadata:
+  name: public-vm
+spec:
+  network:
+    interfaces:
+      - name: eth0
+        network:
+          name: public-subnet
+          kind: Subnet
+          apiVersion: crd.nsx.vmware.com/v1alpha1
+  bootstrap:
+    cloudInit:
+      rawCloudConfig:
+        key: user-data
+        name: user-data-1
+  className: best-effort-xsmall
+  imageName: {$imageName}
+  storageClass: {$storageClass}
+  powerState: PoweredOn
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: user-data-1
+stringData:
+  user-data: |
+    #cloud-config
+    ssh_pwauth: true
+    users:
+      - name: vmware
+        sudo: ALL=(ALL) NOPASSWD:ALL
+        lock_passwd: false
+        # Password set to Admin!23
+        passwd: '$1$salt$SOC33fVbA/ZxeIwD5yw1u1'
+        shell: /bin/bash
+    write_files:
+    - path: /etc/my-plaintext
+      permissions: '0644'
+      owner: root:root
+      content: |
+        Hello, world.
