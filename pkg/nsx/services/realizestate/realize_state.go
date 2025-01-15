@@ -76,7 +76,7 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 				return NewRealizeStateError(fmt.Sprintf("%s realized with errors: %s", intentPath, errMsg))
 			}
 		}
-		if entitiesRealized == len(results.Results) {
+		if len(results.Results) != 0 && entitiesRealized == len(results.Results) {
 			return nil
 		}
 		return fmt.Errorf("%s not realized", intentPath)
