@@ -44,8 +44,7 @@ spec:
                   description: Default SNAT IP for Private Subnets.
                   type: string
                 loadBalancerIPAddresses:
-                  description: LoadBalancerIPAddresses (AVI SE Subnet CIDR or NSX
-                    LB SNAT IPs).
+                  description: LoadBalancerIPAddresses (AVI SE Subnet CIDR).
                   type: string
                 name:
                   description: VPC name.
