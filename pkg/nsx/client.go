@@ -200,6 +200,13 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 
 	subnetConnectionBindingMapsClient := subnets.NewSubnetConnectionBindingMapsClient(restConnector(cluster))
 
+	certificateClient := infra.NewCertificatesClient(restConnector(cluster))
+	shareClient := infra.NewSharesClient(restConnector(cluster))
+	sharedResourceClient := shares.NewResourcesClient(restConnector(cluster))
+	lbAppProfileClient := infra.NewLbAppProfilesClient(restConnector(cluster))
+	lbPersistenceProfilesClient := infra.NewLbPersistenceProfilesClient(restConnector(cluster))
+	lbMonitorProfilesClient := infra.NewLbMonitorProfilesClient(restConnector(cluster))
+
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
 	}
@@ -252,6 +259,12 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		TransitGatewayClient:              transitGatewayClient,
 		TransitGatewayAttachmentClient:    transitGatewayAttachmentClient,
 		SubnetConnectionBindingMapsClient: subnetConnectionBindingMapsClient,
+		CertificateClient:                 certificateClient,
+		ShareClient:                       shareClient,
+		SharedResourceClient:              sharedResourceClient,
+		LbAppProfileClient:                lbAppProfileClient,
+		LbPersistenceProfilesClient:       lbPersistenceProfilesClient,
+		LbMonitorProfilesClient:           lbMonitorProfilesClient,
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time
