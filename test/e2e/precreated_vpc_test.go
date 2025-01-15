@@ -292,17 +292,17 @@ func (data *TestData) createVPC(orgID, projectID, vpcID string, privateIPs []str
 	log.Info("Successfully requested VPC on NSX", "path", vpcPath)
 	realizeService := realizestate.InitializeRealizeState(common.Service{NSXClient: data.nsxClient.Client})
 	if pollErr := wait.PollUntilContextTimeout(context.Background(), 10*time.Second, 5*time.Minute, true, func(ctx context.Context) (done bool, err error) {
-		if err = realizeService.CheckRealizeState(pkgutil.NSXTDefaultRetry, vpcPath); err != nil {
+		if err = realizeService.CheckRealizeState(pkgutil.NSXTRealizeRetry, vpcPath); err != nil {
 			log.Error(err, "NSX VPC is not yet realized", "path", vpcPath)
 			return false, nil
 		}
 		if lbsPath != "" {
-			if err := realizeService.CheckRealizeState(pkgutil.NSXTLBVSDefaultRetry, lbsPath); err != nil {
+			if err := realizeService.CheckRealizeState(pkgutil.NSXTRealizeRetry, lbsPath); err != nil {
 				log.Error(err, "NSX LBS is not yet realized", "path", lbsPath)
 				return false, nil
 			}
 		}
-		if err = realizeService.CheckRealizeState(pkgutil.NSXTDefaultRetry, attachmentPath); err != nil {
+		if err = realizeService.CheckRealizeState(pkgutil.NSXTRealizeRetry, attachmentPath); err != nil {
 			log.Error(err, "VPC attachment is not yet realized", "path", attachmentPath)
 			return false, nil
 		}
