@@ -177,19 +177,9 @@ func (r *NetworkPolicyReconciler) CollectGarbage(ctx context.Context) {
 }
 
 func (r *NetworkPolicyReconciler) deleteNetworkPolicyByName(ns, name string) error {
-	CRPolicySet, err := r.listNetworkPolciyCRIDs()
-	if err != nil {
-		return err
-	}
-
 	nsxSecurityPolicies := r.Service.ListNetworkPolicyByName(ns, name)
 	for _, item := range nsxSecurityPolicies {
 		uid := nsxutil.FindTag(item.Tags, servicecommon.TagScopeNetworkPolicyUID)
-		if CRPolicySet.Has(uid) {
-			log.Info("Skipping deletion, NetworkPolicy CR still exists in K8s", "networkPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
-			continue
-		}
-
 		log.Info("Deleting NetworkPolicy", "networkPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
 		if err := r.Service.DeleteSecurityPolicy(types.UID(uid), false, false, servicecommon.ResourceTypeNetworkPolicy); err != nil {
 			log.Error(err, "Failed to delete NetworkPolicy", "networkPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
