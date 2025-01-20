@@ -157,6 +157,12 @@ func (securityPolicyStore *SecurityPolicyStore) GetByIndex(key string, value str
 	return securityPolicies
 }
 
+func (securityPolicyStore *SecurityPolicyStore) DeleteMultipleObjects(securityPolicies []*model.SecurityPolicy) {
+	for _, securityPolicy := range securityPolicies {
+		securityPolicyStore.Delete(securityPolicy)
+	}
+}
+
 func (ruleStore *RuleStore) Apply(i interface{}) error {
 	rules := i.(*[]model.Rule)
 	for _, rule := range *rules {
@@ -185,6 +191,12 @@ func (ruleStore *RuleStore) GetByIndex(key string, value string) []*model.Rule {
 		rules = append(rules, rule.(*model.Rule))
 	}
 	return rules
+}
+
+func (ruleStore *RuleStore) DeleteMultipleObjects(rules []*model.Rule) {
+	for _, rule := range rules {
+		ruleStore.Delete(rule)
+	}
 }
 
 func (groupStore *GroupStore) Apply(i interface{}) error {
@@ -217,6 +229,12 @@ func (groupStore *GroupStore) GetByIndex(key string, value string) []*model.Grou
 	return groups
 }
 
+func (groupStore *GroupStore) DeleteMultipleObjects(groups []*model.Group) {
+	for _, group := range groups {
+		groupStore.Delete(group)
+	}
+}
+
 func (shareStore *ShareStore) Apply(i interface{}) error {
 	shares := i.(*[]model.Share)
 	for _, share := range *shares {
@@ -245,4 +263,10 @@ func (shareStore *ShareStore) GetByIndex(key string, value string) []*model.Shar
 		shares = append(shares, share.(*model.Share))
 	}
 	return shares
+}
+
+func (shareStore *ShareStore) DeleteMultipleObjects(shares []*model.Share) {
+	for _, share := range shares {
+		shareStore.Delete(share)
+	}
 }

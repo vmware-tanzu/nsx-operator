@@ -20,7 +20,6 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
 	infra_realized "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/realized_state"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/shares"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
@@ -96,9 +95,7 @@ type Client struct {
 	ProjectClient                     orgs.ProjectsClient
 	TransitGatewayClient              projects.TransitGatewaysClient
 	TransitGatewayAttachmentClient    transit_gateways.AttachmentsClient
-	CertificateClient                 infra.CertificatesClient
 	ShareClient                       infra.SharesClient
-	SharedResourceClient              shares.ResourcesClient
 	LbAppProfileClient                infra.LbAppProfilesClient
 	LbPersistenceProfilesClient       infra.LbPersistenceProfilesClient
 	LbMonitorProfilesClient           infra.LbMonitorProfilesClient
@@ -171,6 +168,10 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	principalIdentitiesClient := trust_management.NewPrincipalIdentitiesClient(restConnector(cluster))
 	withCertificateClient := principal_identities.NewWithCertificateClient(restConnector(cluster))
 
+	lbAppProfileClient := infra.NewLbAppProfilesClient(restConnector(cluster))
+	lbPersistenceProfilesClient := infra.NewLbPersistenceProfilesClient(restConnector(cluster))
+	lbMonitorProfilesClient := infra.NewLbMonitorProfilesClient(restConnector(cluster))
+
 	orgRootClient := nsx_policy.NewOrgRootClient(restConnector(cluster))
 	projectInfraClient := projects.NewInfraClient(restConnector(cluster))
 	projectClient := orgs.NewProjectsClient(restConnector(cluster))
@@ -199,13 +200,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	transitGatewayAttachmentClient := transit_gateways.NewAttachmentsClient(restConnector(cluster))
 
 	subnetConnectionBindingMapsClient := subnets.NewSubnetConnectionBindingMapsClient(restConnector(cluster))
-
-	certificateClient := infra.NewCertificatesClient(restConnector(cluster))
-	shareClient := infra.NewSharesClient(restConnector(cluster))
-	sharedResourceClient := shares.NewResourcesClient(restConnector(cluster))
-	lbAppProfileClient := infra.NewLbAppProfilesClient(restConnector(cluster))
-	lbPersistenceProfilesClient := infra.NewLbPersistenceProfilesClient(restConnector(cluster))
-	lbMonitorProfilesClient := infra.NewLbMonitorProfilesClient(restConnector(cluster))
 
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
@@ -259,9 +253,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		TransitGatewayClient:              transitGatewayClient,
 		TransitGatewayAttachmentClient:    transitGatewayAttachmentClient,
 		SubnetConnectionBindingMapsClient: subnetConnectionBindingMapsClient,
-		CertificateClient:                 certificateClient,
-		ShareClient:                       shareClient,
-		SharedResourceClient:              sharedResourceClient,
 		LbAppProfileClient:                lbAppProfileClient,
 		LbPersistenceProfilesClient:       lbPersistenceProfilesClient,
 		LbMonitorProfilesClient:           lbMonitorProfilesClient,

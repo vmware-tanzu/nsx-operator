@@ -4,7 +4,6 @@
 package securitypolicy
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -48,6 +47,14 @@ type SecurityPolicyService struct {
 	projectGroupStore   *GroupStore
 	projectShareStore   *ShareStore
 	vpcService          common.VPCServiceProvider
+
+	securityPolicyBuilder *common.PolicyTreeBuilder[*model.SecurityPolicy]
+	ruleBuilder           *common.PolicyTreeBuilder[*model.Rule]
+	groupBuilder          *common.PolicyTreeBuilder[*model.Group]
+	infraGroupBuilder     *common.PolicyTreeBuilder[*model.Group]
+	projectGroupBuilder   *common.PolicyTreeBuilder[*model.Group]
+	infraShareBuilder     *common.PolicyTreeBuilder[*model.Share]
+	projectShareBuilder   *common.PolicyTreeBuilder[*model.Share]
 }
 
 type GroupShare struct {
@@ -67,7 +74,7 @@ func GetSecurityService(service common.Service, vpcService common.VPCServiceProv
 		defer lock.Unlock()
 		if securityService == nil {
 			var err error
-			if securityService, err = InitializeSecurityPolicy(service, vpcService); err != nil {
+			if securityService, err = InitializeSecurityPolicy(service, vpcService, false); err != nil {
 				log.Error(err, "Failed to initialize SecurityPolicy service")
 				os.Exit(1)
 			}
@@ -77,21 +84,33 @@ func GetSecurityService(service common.Service, vpcService common.VPCServiceProv
 }
 
 // InitializeSecurityPolicy sync NSX resources
-func InitializeSecurityPolicy(service common.Service, vpcService common.VPCServiceProvider) (*SecurityPolicyService, error) {
+func InitializeSecurityPolicy(service common.Service, vpcService common.VPCServiceProvider, forCleanUp bool) (*SecurityPolicyService, error) {
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
 
 	wg.Add(7)
 
-	securityPolicyService := &SecurityPolicyService{Service: service}
+	securityPolicyService := &SecurityPolicyService{
+		Service: service,
+	}
+
+	if forCleanUp {
+		securityPolicyService.securityPolicyBuilder, _ = common.PolicyPathVpcSecurityPolicy.NewPolicyTreeBuilder()
+		securityPolicyService.ruleBuilder, _ = common.PolicyPathVpcSecurityPolicyRule.NewPolicyTreeBuilder()
+		securityPolicyService.groupBuilder, _ = common.PolicyPathVpcGroup.NewPolicyTreeBuilder()
+		securityPolicyService.infraShareBuilder, _ = common.PolicyPathInfraShare.NewPolicyTreeBuilder()
+		securityPolicyService.projectShareBuilder, _ = common.PolicyPathProjectShare.NewPolicyTreeBuilder()
+		securityPolicyService.projectGroupBuilder, _ = common.PolicyPathProjectGroup.NewPolicyTreeBuilder()
+		securityPolicyService.infraGroupBuilder, _ = common.PolicyPathInfraGroup.NewPolicyTreeBuilder()
+	}
 
 	if IsVPCEnabled(securityPolicyService) {
 		common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
 		common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 	}
 	indexScope := common.TagValueScopeSecurityPolicyUID
-	securityPolicyService.setUpStore(indexScope)
+	securityPolicyService.setUpStore(indexScope, forCleanUp)
 	securityPolicyService.vpcService = vpcService
 
 	infraShareTag := []model.Tag{
@@ -142,29 +161,35 @@ func InitializeSecurityPolicy(service common.Service, vpcService common.VPCServi
 	return securityPolicyService, nil
 }
 
-func (s *SecurityPolicyService) setUpStore(indexScope string) {
+func (s *SecurityPolicyService) setUpStore(indexScope string, indexWithVPCPath bool) {
+	vpcResourceIndexWrapper := func(indexers cache.Indexers) cache.Indexers {
+		indexers[indexScope] = indexBySecurityPolicyUID
+		indexers[common.TagScopeNetworkPolicyUID] = indexByNetworkPolicyUID
+		// Note: we can't use indexer `common.IndexByVPCPathFuncKey` with group/rule stores by default because the
+		// caller may not use the object read from NSX to apply on the store which is possibly not set with path or
+		// the parent path. But for cleanup logic, indexWithVPCPath is always set true and the store is re-built from
+		// the NSX resources but not from nsx-operator local calculation.
+		if indexWithVPCPath {
+			indexers[common.IndexByVPCPathFuncKey] = common.IndexByVPCFunc
+		}
+		return indexers
+	}
+
 	s.securityPolicyStore = &SecurityPolicyStore{ResourceStore: common.ResourceStore{
 		Indexer: cache.NewIndexer(
-			keyFunc, cache.Indexers{
-				indexScope:                      indexBySecurityPolicyUID,
-				common.TagScopeNetworkPolicyUID: indexByNetworkPolicyUID,
-				common.TagScopeNamespace:        indexBySecurityPolicyNamespace,
-			}),
+			keyFunc, vpcResourceIndexWrapper(cache.Indexers{
+				common.TagScopeNamespace: indexBySecurityPolicyNamespace,
+			})),
 		BindingType: model.SecurityPolicyBindingType(),
 	}}
 	s.groupStore = &GroupStore{ResourceStore: common.ResourceStore{
-		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
-			indexScope:                      indexBySecurityPolicyUID,
-			common.TagScopeNetworkPolicyUID: indexByNetworkPolicyUID,
-			common.TagScopeRuleID:           indexGroupFunc,
-		}),
+		Indexer: cache.NewIndexer(keyFunc, vpcResourceIndexWrapper(cache.Indexers{
+			common.TagScopeRuleID: indexGroupFunc,
+		})),
 		BindingType: model.GroupBindingType(),
 	}}
 	s.ruleStore = &RuleStore{ResourceStore: common.ResourceStore{
-		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
-			indexScope:                      indexBySecurityPolicyUID,
-			common.TagScopeNetworkPolicyUID: indexByNetworkPolicyUID,
-		}),
+		Indexer:     cache.NewIndexer(keyFunc, vpcResourceIndexWrapper(cache.Indexers{})),
 		BindingType: model.RuleBindingType(),
 	}}
 	s.infraGroupStore = &GroupStore{ResourceStore: common.ResourceStore{
@@ -1131,39 +1156,6 @@ func (service *SecurityPolicyService) ListNetworkPolicyByName(ns, name string) [
 		}
 	}
 	return result
-}
-
-func (service *SecurityPolicyService) Cleanup(ctx context.Context) error {
-	// Delete all the security policies in store
-	uids := service.ListSecurityPolicyID()
-	log.Info("Cleaning up security policies created for SecurityPolicy CR", "count", len(uids))
-	for uid := range uids {
-		select {
-		case <-ctx.Done():
-			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
-		default:
-			err := service.DeleteSecurityPolicy(types.UID(uid), false, true, common.ResourceTypeSecurityPolicy)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	// Delete all the security policies created for network policy in store
-	uids = service.ListNetworkPolicyID()
-	log.Info("Cleaning up security policies created for network policy", "count", len(uids))
-	for uid := range uids {
-		select {
-		case <-ctx.Done():
-			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
-		default:
-			err := service.DeleteSecurityPolicy(types.UID(uid), false, true, common.ResourceTypeNetworkPolicy)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 func (service *SecurityPolicyService) gcInfraSharesGroups(sp types.UID, indexScope string) error {
