@@ -35,7 +35,7 @@ type VPCState struct {
 	Name string `json:"name"`
 	// Default SNAT IP for Private Subnets.
 	DefaultSNATIP string `json:"defaultSNATIP"`
-	// LoadBalancerIPAddresses (AVI SE Subnet CIDR or NSX LB SNAT IPs).
+	// LoadBalancerIPAddresses (AVI SE Subnet CIDR).
 	LoadBalancerIPAddresses string `json:"loadBalancerIPAddresses,omitempty"`
 	// Private CIDRs used for the VPC.
 	PrivateIPs []string `json:"privateIPs,omitempty"`
