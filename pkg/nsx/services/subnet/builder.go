@@ -70,7 +70,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 		if dhcpMode == "" {
 			dhcpMode = v1alpha1.DHCPConfigModeDeactivated
 		}
-		nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode)
+		nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode, nil)
 		nsxSubnet.IpAddresses = o.Spec.IPAddresses
 	case *v1alpha1.SubnetSet:
 		// The index is a random string with the length of 8 chars. It is the first 8 chars of the hash
@@ -87,7 +87,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 		if dhcpMode == "" {
 			dhcpMode = v1alpha1.DHCPConfigModeDeactivated
 		}
-		nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode)
+		nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode, nil)
 	default:
 		return nil, SubnetTypeError
 	}
@@ -105,10 +105,11 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 	return nsxSubnet, nil
 }
 
-func (service *SubnetService) buildSubnetDHCPConfig(mode string) *model.SubnetDhcpConfig {
+func (service *SubnetService) buildSubnetDHCPConfig(mode string, dhcpServerAdditionalConfig *model.DhcpServerAdditionalConfig) *model.SubnetDhcpConfig {
 	nsxMode := nsxutil.ParseDHCPMode(mode)
 	subnetDhcpConfig := &model.SubnetDhcpConfig{
-		Mode: &nsxMode,
+		DhcpServerAdditionalConfig: dhcpServerAdditionalConfig,
+		Mode:                       &nsxMode,
 	}
 	return subnetDhcpConfig
 }
