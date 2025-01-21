@@ -1,6 +1,7 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -15,6 +16,10 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+)
+
+const (
+	IndexByVPCPathFuncKey = "indexedByVPCPath"
 )
 
 var pageSize = int64(1000)
@@ -245,4 +250,93 @@ func formatTagParamScope(paramType, value string) string {
 func formatTagParamTag(paramType, value string) string {
 	valueEscaped := strings.Replace(value, ":", "\\:", -1)
 	return fmt.Sprintf("%s:%s", paramType, valueEscaped)
+}
+
+func IndexByVPCFunc(obj interface{}) ([]string, error) {
+	switch v := obj.(type) {
+	case *model.Vpc:
+		return getVPCPathFromResourcePath(v.Path)
+	case *model.VpcSubnet:
+		return getVPCPathFromParentPath(v.ParentPath)
+	case *model.VpcSubnetPort:
+		return getVPCPathFromResourcePath(v.Path)
+	case *model.SubnetConnectionBindingMap:
+		return getVPCPathFromResourcePath(v.Path)
+	case *model.VpcIpAddressAllocation:
+		return getVPCPathFromParentPath(v.ParentPath)
+	case *model.StaticRoutes:
+		return getVPCPathFromParentPath(v.ParentPath)
+	case *model.LBService:
+		return getVPCPathFromParentPath(v.ParentPath)
+	case *model.LBVirtualServer:
+		return getVPCPathFromParentPath(v.ParentPath)
+	case *model.LBPool:
+		return getVPCPathFromParentPath(v.ParentPath)
+	case *model.SecurityPolicy:
+		return getVPCPathFromParentPath(v.ParentPath)
+	case *model.Group:
+		return getVPCPathFromParentPath(v.ParentPath)
+	case *model.Rule:
+		return getVPCPathFromResourcePath(v.Path)
+
+	default:
+		return []string{}, errors.New("indexFunc doesn't support unknown type")
+	}
+}
+func (service *Service) QueryNCPCreatedResources(resourceTypes []string, store Store, additionalQueryFn func(query string) string) error {
+	resQuery := make([]string, 0)
+	for _, rt := range resourceTypes {
+		resQuery = append(resQuery, fmt.Sprintf("%s:%s", ResourceType, rt))
+	}
+
+	var query string
+	if len(resQuery) == 1 {
+		query = resQuery[0]
+	} else {
+		query = fmt.Sprintf("(%s)", strings.Join(resQuery, " OR "))
+	}
+
+	query = service.AddNCPClusterTag(query)
+	if additionalQueryFn != nil {
+		query = additionalQueryFn(query)
+	}
+	count, searchErr := service.SearchResource("", query, store, nil)
+	if searchErr != nil {
+		log.Error(searchErr, "Failed to query resources", "query", query)
+		return searchErr
+	}
+	log.V(1).Info("Queried resources", "count", count)
+	return nil
+}
+
+func (service *Service) AddNCPClusterTag(query string) string {
+	tagScopeClusterKey := strings.Replace(TagScopeNCPCluster, "/", "\\/", -1)
+	tagScopeClusterValue := strings.Replace(service.NSXClient.NsxConfig.Cluster, ":", "\\:", -1)
+	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
+	return query + " AND " + tagParam
+}
+
+func AddNCPCreatedForTag(query string, createdFor string) string {
+	tagScopeClusterKey := strings.Replace(TagScopeNCPCreateFor, "/", "\\/", -1)
+	tagScopeClusterValue := strings.Replace(createdFor, ":", "\\:", -1)
+	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
+	return query + " AND " + tagParam
+}
+
+func getVPCPathFromParentPath(parentPath *string) ([]string, error) {
+	if parentPath == nil {
+		return []string{}, errors.New("NSX resource does not set ParentPath field")
+	}
+	return []string{*parentPath}, nil
+}
+
+func getVPCPathFromResourcePath(path *string) ([]string, error) {
+	if path == nil {
+		return []string{}, errors.New("NSX resource does not set Path field")
+	}
+	resInfo, err := ParseVPCResourcePath(*path)
+	if err != nil {
+		return []string{}, err
+	}
+	return []string{resInfo.GetVPCPath()}, nil
 }

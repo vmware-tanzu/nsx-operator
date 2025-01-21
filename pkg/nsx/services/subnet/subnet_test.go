@@ -3,6 +3,7 @@ package subnet
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	mock_org_root "github.com/vmware-tanzu/nsx-operator/pkg/mock/orgrootclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
@@ -104,17 +106,6 @@ func TestGenerateSubnetNSTags(t *testing.T) {
 	assert.Equal(t, "test-ns", *tagsSet[1].Tag)
 }
 
-type fakeOrgRootClient struct {
-}
-
-func (f fakeOrgRootClient) Get(basePathParam *string, filterParam *string, typeFilterParam *string) (model.OrgRoot, error) {
-	return model.OrgRoot{}, nil
-}
-
-func (f fakeOrgRootClient) Patch(orgRootParam model.OrgRoot, enforceRevisionCheckParam *bool) error {
-	return nil
-}
-
 type fakeSubnetsClient struct {
 }
 
@@ -187,19 +178,15 @@ func TestInitializeSubnetService(t *testing.T) {
 		Spec:       v1alpha1.SubnetSpec{},
 		Status:     v1alpha1.SubnetStatus{},
 	}
-	vpcResourceInfo := &common.VPCResourceInfo{
-		OrgID:             "",
-		ProjectID:         "",
-		VPCID:             "",
-		ID:                "",
-		ParentID:          "",
-		PrivateIpv4Blocks: nil,
-	}
 	nsxSubnetID := util.GenerateIDByObject(subnet)
 
 	basicTags := util.BuildBasicTags(clusterName, subnet, "")
-	fakeSubnetPath := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9/subnets/" + nsxSubnetID
+	fakeVPCPath := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9"
+	fakeSubnetPath := fmt.Sprintf("%s/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9/subnets/%s", fakeVPCPath, nsxSubnetID)
 
+	vpcResourceInfo, _ := common.ParseVPCResourcePath(fakeVPCPath)
+
+	var mockOrgRootClient *mock_org_root.MockOrgRootClient
 	testCases := []struct {
 		name                          string
 		prepareFunc                   func() *gomonkey.Patches
@@ -214,12 +201,14 @@ func TestInitializeSubnetService(t *testing.T) {
 			name:               "Subnet does not exist",
 			existingSubnetCR:   subnet,
 			expectAllSubnetNum: 0,
-			existingVPCInfo:    vpcResourceInfo,
+			existingVPCInfo:    &vpcResourceInfo,
 			prepareFunc: func() *gomonkey.Patches {
-				var fakeVpcSubnet = model.VpcSubnet{Path: &fakeSubnetPath, Id: &nsxSubnetID, Tags: basicTags}
+				var fakeVpcSubnet = model.VpcSubnet{Path: &fakeSubnetPath, Id: &nsxSubnetID, Tags: basicTags, ParentPath: &fakeVPCPath}
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeSubnetsClient{}), "Get", func(_ *fakeSubnetsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnet, error) {
 					return fakeVpcSubnet, nil
 				})
+				// OrgRootClient.Patch is called twice, one is to create the VpcSubnet, and the other is for cleanup.
+				mockOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).Times(2)
 				return patches
 			},
 			subnetCRTags:                  []model.Tag{},
@@ -229,7 +218,7 @@ func TestInitializeSubnetService(t *testing.T) {
 		{
 			name:             "Subnet exists and not change",
 			existingSubnetCR: subnet,
-			existingVPCInfo:  vpcResourceInfo,
+			existingVPCInfo:  &vpcResourceInfo,
 			prepareFunc: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeQueryClient{}), "List", func(_ *fakeQueryClient, _ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
 					cursor := "1"
@@ -247,12 +236,15 @@ func TestInitializeSubnetService(t *testing.T) {
 								"id":                 data.NewStringValue(nsxSubnetID),
 								"display_name":       data.NewStringValue(subnetName),
 								"path":               data.NewStringValue(fakeSubnetPath),
+								"parent_path":        data.NewStringValue(fakeVPCPath),
 								"tags":               tags,
 								"subnet_dhcp_config": dhcpConfig,
 							})},
 						Cursor: &cursor, ResultCount: &resultCount,
 					}, nil
 				})
+				// OrgRootClient.Patch is called only once for cleanup.
+				mockOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 				return patches
 			},
 			expectAllSubnetNum:            1,
@@ -262,7 +254,7 @@ func TestInitializeSubnetService(t *testing.T) {
 		{
 			name:             "Subnet exists and changed",
 			existingSubnetCR: subnet,
-			existingVPCInfo:  vpcResourceInfo,
+			existingVPCInfo:  &vpcResourceInfo,
 			prepareFunc: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeQueryClient{}), "List", func(_ *fakeQueryClient, _ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
 					cursor := "1"
@@ -279,15 +271,18 @@ func TestInitializeSubnetService(t *testing.T) {
 								"id":            data.NewStringValue(nsxSubnetID),
 								"display_name":  data.NewStringValue(subnetName),
 								"path":          data.NewStringValue(fakeSubnetPath),
+								"parent_path":   data.NewStringValue(fakeVPCPath),
 								"tags":          tags,
 							})},
 						Cursor: &cursor, ResultCount: &resultCount,
 					}, nil
 				})
-				var fakeVpcSubnet = model.VpcSubnet{Path: &fakeSubnetPath, Id: &nsxSubnetID, Tags: basicTags}
+				var fakeVpcSubnet = model.VpcSubnet{Path: &fakeSubnetPath, Id: &nsxSubnetID, Tags: basicTags, ParentPath: &fakeVPCPath}
 				patches.ApplyMethod(reflect.TypeOf(&fakeSubnetsClient{}), "Get", func(_ *fakeSubnetsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnet, error) {
 					return fakeVpcSubnet, nil
 				})
+				// OrgRootClient.Patch is called twice, one is to update the VpcSubnet, and the other is for cleanup.
+				mockOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).Times(2)
 				return patches
 			},
 			expectAllSubnetNum:            1,
@@ -298,6 +293,10 @@ func TestInitializeSubnetService(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockOrgRootClient = mock_org_root.NewMockOrgRootClient(ctrl)
+
 			newScheme := runtime.NewScheme()
 			utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
 			utilruntime.Must(v1alpha1.AddToScheme(newScheme))
@@ -305,7 +304,7 @@ func TestInitializeSubnetService(t *testing.T) {
 			commonService := common.Service{
 				Client: fakeClient,
 				NSXClient: &nsx.Client{
-					OrgRootClient:          &fakeOrgRootClient{},
+					OrgRootClient:          mockOrgRootClient,
 					SubnetsClient:          &fakeSubnetsClient{},
 					QueryClient:            &fakeQueryClient{},
 					RealizedEntitiesClient: &fakeRealizedEntitiesClient{},
@@ -321,8 +320,9 @@ func TestInitializeSubnetService(t *testing.T) {
 					},
 				},
 			}
+			var patches *gomonkey.Patches
 			if tc.prepareFunc != nil {
-				patches := tc.prepareFunc()
+				patches = tc.prepareFunc()
 				defer patches.Reset()
 			}
 
@@ -351,7 +351,7 @@ func TestInitializeSubnetService(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, nsxSubnetID, *getByPath.Id)
 
-			err = service.Cleanup(context.TODO())
+			err = service.CleanupVPCChildResources(context.TODO(), "")
 			assert.NoError(t, err)
 
 			assert.Equal(t, 0, len(service.ListAllSubnet()))
@@ -436,11 +436,13 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
+
+	fakeOrgRootClient := mock_org_root.NewMockOrgRootClient(mockCtl)
 	service := &SubnetService{
 		Service: common.Service{
 			Client: k8sClient,
 			NSXClient: &nsx.Client{
-				OrgRootClient:      &fakeOrgRootClient{},
+				OrgRootClient:      fakeOrgRootClient,
 				SubnetsClient:      &fakeSubnetsClient{},
 				SubnetStatusClient: &fakeSubnetStatusClient{},
 			},
@@ -479,6 +481,7 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 		{
 			name: "Update Subnet with RealizedState and deletion error",
 			prepareFunc: func() *gomonkey.Patches {
+				fakeOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil)
 				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).CheckRealizeState,
 					func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string) error {
 						return realizestate.NewRealizeStateError("mocked realized error")
@@ -497,6 +500,7 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 		{
 			name: "Create Subnet for SubnetSet Success",
 			prepareFunc: func() *gomonkey.Patches {
+				fakeOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil)
 				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).CheckRealizeState,
 					func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string) error {
 						return nil
