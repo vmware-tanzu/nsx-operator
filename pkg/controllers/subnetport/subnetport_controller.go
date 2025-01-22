@@ -184,37 +184,25 @@ func addressBindingNamespaceVMIndexFunc(obj client.Object) []string {
 }
 
 func (r *SubnetPortReconciler) deleteSubnetPortByName(ctx context.Context, ns string, name string) error {
-	// When deleting SubnetPort by Name and Namespace, skip the SubnetPort belonging to the existed SubnetPort CR
+	// NamespacedName is a unique identity in store as only one worker can deal with the NamespacedName at a time
 	nsxSubnetPorts := r.SubnetPortService.ListSubnetPortByName(ns, name)
 
-	crSubnetPortIDsSet, err := r.SubnetPortService.ListSubnetPortIDsFromCRs(ctx)
-	if err != nil {
-		log.Error(err, "failed to list SubnetPort CRs")
-		return err
-	}
-
-	var hasSubnetPort bool
 	var externalIpAddress *string
 	for _, nsxSubnetPort := range nsxSubnetPorts {
-		if crSubnetPortIDsSet.Has(*nsxSubnetPort.Id) {
-			log.Info("skipping deletion, SubnetPort CR still exists in K8s", "ID", *nsxSubnetPort.Id)
-			hasSubnetPort = true
-			continue
-		}
 		if nsxSubnetPort.ExternalAddressBinding != nil && nsxSubnetPort.ExternalAddressBinding.ExternalIpAddress != nil && *nsxSubnetPort.ExternalAddressBinding.ExternalIpAddress != "" {
 			externalIpAddress = nsxSubnetPort.ExternalAddressBinding.ExternalIpAddress
 		}
 		if err := r.SubnetPortService.DeleteSubnetPort(nsxSubnetPort); err != nil {
-			if !hasSubnetPort && externalIpAddress != nil {
+			if externalIpAddress != nil {
 				r.collectAddressBindingGarbage(ctx, &ns, externalIpAddress)
 			}
 			return err
 		}
 	}
-	if !hasSubnetPort && externalIpAddress != nil {
+	if externalIpAddress != nil {
 		r.collectAddressBindingGarbage(ctx, &ns, externalIpAddress)
 	}
-	log.Info("successfully deleted nsxSubnetPort", "namespace", ns, "name", name)
+	log.Info("Successfully deleted nsxSubnetPort", "Namespace", ns, "Name", name)
 	return nil
 }
 

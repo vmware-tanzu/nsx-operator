@@ -596,10 +596,6 @@ func TestReconcile_DeleteSubnetSet(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
 					return nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetSetID", func(_ *subnet.SubnetService, ctx context.Context) (sets.Set[string], error) {
-					res := sets.New[string]("fake-subnetSet-uid-2")
-					return res, nil
-				})
 				return patches
 			},
 			expectRes: ResultRequeue,
@@ -638,10 +634,6 @@ func TestReconcile_DeleteSubnetSet(t *testing.T) {
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
 					return errors.New("delete NSX Subnet failed")
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetSetID", func(_ *subnet.SubnetService, ctx context.Context) (sets.Set[string], error) {
-					res := sets.New[string]("fake-subnetSet-uid-2")
-					return res, nil
 				})
 				return patches
 			},
@@ -756,10 +748,6 @@ func TestDeleteSubnetBySubnetSetName(t *testing.T) {
 		return []*model.VpcSubnet{}
 	})
 	defer patches.Reset()
-
-	patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetSetID", func(_ *subnet.SubnetService, ctx context.Context) (sets.Set[string], error) {
-		return nil, nil
-	})
 
 	err := r.deleteSubnetBySubnetSetName(ctx, "test-subnetset", "default")
 	assert.NoError(t, err)
