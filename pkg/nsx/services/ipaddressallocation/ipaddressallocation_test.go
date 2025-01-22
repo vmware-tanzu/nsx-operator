@@ -469,6 +469,43 @@ func TestIPAddressAllocationService_DeleteIPAddressAllocation_Errors(t *testing.
 
 }
 
+func TestIPAddressAllocationService_DeleteIPAddressAllocationByNamespacedName(t *testing.T) {
+	service, mockController, _ := createIPAddressAllocationService(t)
+	defer mockController.Finish()
+
+	srObj := &v1alpha1.IPAddressAllocation{
+		ObjectMeta: v1.ObjectMeta{
+			UID:       "uid-123",
+			Name:      "ipa-1",
+			Namespace: "ns-1",
+		},
+	}
+	id := util.GenerateIDByObject(srObj)
+	tags := util.BuildBasicTags(service.NSXConfig.Cluster, srObj, "")
+	path := "/orgs/default/projects/project-1/vpcs/vpc-1"
+	sr1 := &model.VpcIpAddressAllocation{Id: &id, Path: &path, Tags: tags}
+
+	service.ipAddressAllocationStore.Add(sr1)
+	// Successful deletion
+	patches := gomonkey.ApplyFunc((*IPAddressAllocationService).DeleteIPAddressAllocation, func(service *IPAddressAllocationService, obj interface{}) error {
+		ipAddressAllocation, ok := obj.(model.VpcIpAddressAllocation)
+		assert.True(t, ok)
+		assert.Equal(t, id, *ipAddressAllocation.Id)
+		return nil
+	})
+	err := service.DeleteIPAddressAllocationByNamespacedName("ns-1", "ipa-1")
+	assert.Nil(t, err)
+	patches.Reset()
+	// failed deletion
+	patches = gomonkey.ApplyFunc((*IPAddressAllocationService).DeleteIPAddressAllocation, func(service *IPAddressAllocationService, obj interface{}) error {
+		return fmt.Errorf("delete error")
+	})
+	err = service.DeleteIPAddressAllocationByNamespacedName("ns-1", "ipa-1")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "delete error")
+	patches.Reset()
+}
+
 func TestIPAddressAllocationService_Cleanup_Error(t *testing.T) {
 	service, mockController, _ := createIPAddressAllocationService(t)
 	defer mockController.Finish()

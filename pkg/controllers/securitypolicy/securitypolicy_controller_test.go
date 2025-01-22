@@ -672,10 +672,6 @@ func TestSecurityPolicyReconciler_listSecurityPolciyCRIDsForVPC(t *testing.T) {
 }
 
 func TestSecurityPolicyReconciler_deleteSecuritypolicyByName(t *testing.T) {
-	mockCtl := gomock.NewController(t)
-	defer mockCtl.Finish()
-
-	k8sClient := mock_client.NewMockClient(mockCtl)
 	service := &securitypolicy.SecurityPolicyService{
 		Service: common.Service{
 			NSXClient: &nsx.Client{},
@@ -690,26 +686,13 @@ func TestSecurityPolicyReconciler_deleteSecuritypolicyByName(t *testing.T) {
 		},
 	}
 	r := &SecurityPolicyReconciler{
-		Client:   k8sClient,
 		Scheme:   nil,
 		Service:  service,
 		Recorder: fakeRecorder{},
 	}
 
-	// listSecurityPolciyCRIDs returns an error
-	errList := errors.New("list error")
-	patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "listSecurityPolciyCRIDs", func(_ *SecurityPolicyReconciler) (sets.Set[string], error) {
-		return nil, errList
-	})
-	err := r.deleteSecurityPolicyByName("dummy-ns", "dummy-name")
-	assert.Equal(t, err, errList)
-
-	// listSecurityPolciyCRIDs returns items, and deletion fails
-	patch.Reset()
-	patch.ApplyPrivateMethod(reflect.TypeOf(r), "listSecurityPolciyCRIDs", func(_ *SecurityPolicyReconciler) (sets.Set[string], error) {
-		return sets.New[string]("uid1"), nil
-	})
-	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyByName", func(_ *securitypolicy.SecurityPolicyService, _ string, _ string) []*model.SecurityPolicy {
+	// deletion fails
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyByName", func(_ *securitypolicy.SecurityPolicyService, _ string, _ string) []*model.SecurityPolicy {
 		return []*model.SecurityPolicy{
 			{
 				Id:   pointy.String("sp-id-1"),
@@ -732,7 +715,7 @@ func TestSecurityPolicyReconciler_deleteSecuritypolicyByName(t *testing.T) {
 		return nil
 	})
 
-	err = r.deleteSecurityPolicyByName("dummy-ns", "dummy-name")
+	err := r.deleteSecurityPolicyByName("dummy-ns", "dummy-name")
 	assert.Error(t, err)
 	patch.Reset()
 }

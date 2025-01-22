@@ -18,7 +18,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -257,15 +256,15 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 			},
 		},
 	}
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListStaticRoute", func(_ *staticroute.StaticRouteService) []model.StaticRoutes {
-		a := []model.StaticRoutes{}
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListStaticRoute", func(_ *staticroute.StaticRouteService) []*model.StaticRoutes {
+		a := []*model.StaticRoutes{}
 		id1 := "2345"
 		path := "/orgs/org123/projects/pro123/vpcs/vpc123/static-routes/123"
 		tag1 := []model.Tag{{Scope: pointy.String(common.TagScopeStaticRouteCRUID), Tag: pointy.String("2345")}}
-		a = append(a, model.StaticRoutes{Id: &id1, Path: &path, Tags: tag1})
+		a = append(a, &model.StaticRoutes{Id: &id1, Path: &path, Tags: tag1})
 		id2 := "1234"
 		tag2 := []model.Tag{{Scope: pointy.String(common.TagScopeStaticRouteCRUID), Tag: pointy.String("1234")}}
-		a = append(a, model.StaticRoutes{Id: &id2, Path: &path, Tags: tag2})
+		a = append(a, &model.StaticRoutes{Id: &id2, Path: &path, Tags: tag2})
 		return a
 	})
 	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRouteByPath", func(_ *staticroute.StaticRouteService, orgId string, projectId string, vpcId string, uid string) error {
@@ -294,11 +293,11 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has same item as k8s cache
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListStaticRoute", func(_ *staticroute.StaticRouteService) []model.StaticRoutes {
-		a := []model.StaticRoutes{}
+	patch.ApplyMethod(reflect.TypeOf(service), "ListStaticRoute", func(_ *staticroute.StaticRouteService) []*model.StaticRoutes {
+		a := []*model.StaticRoutes{}
 		id := "1234"
 		tag2 := []model.Tag{{Scope: pointy.String(common.TagScopeStaticRouteCRUID), Tag: pointy.String(id)}}
-		a = append(a, model.StaticRoutes{Id: &id, Tags: tag2})
+		a = append(a, &model.StaticRoutes{Id: &id, Tags: tag2})
 		return a
 	})
 	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, obj *v1alpha1.StaticRoute) error {
@@ -316,8 +315,8 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 
 	// local store has no item
 	patch.Reset()
-	patch.ApplyMethod(reflect.TypeOf(service), "ListStaticRoute", func(_ *staticroute.StaticRouteService) []model.StaticRoutes {
-		return []model.StaticRoutes{}
+	patch.ApplyMethod(reflect.TypeOf(service), "ListStaticRoute", func(_ *staticroute.StaticRouteService) []*model.StaticRoutes {
+		return []*model.StaticRoutes{}
 	})
 	patch.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *staticroute.StaticRouteService, obj *v1alpha1.StaticRoute) error {
 		assert.FailNow(t, "should not be called")
@@ -341,53 +340,10 @@ func TestStaticRouteReconciler_Start(t *testing.T) {
 	assert.NotEqual(t, err, nil)
 }
 
-func TestStaticRouteReconciler_listStaticRouteCRIDs(t *testing.T) {
-	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
-	r := &StaticRouteReconciler{
-		Client: k8sClient,
-		Scheme: nil,
-	}
-
-	ctx := context.Background()
-
-	// list returns an error
-	errList := errors.New("list error")
-	k8sClient.EXPECT().List(ctx, gomock.Any()).Return(errList)
-	_, err := r.listStaticRouteCRIDs()
-	assert.Equal(t, err, errList)
-
-	// list returns no error, but no items
-	k8sClient.EXPECT().List(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		staticRouteList := list.(*v1alpha1.StaticRouteList)
-		staticRouteList.Items = []v1alpha1.StaticRoute{}
-		return nil
-	})
-	crIDs, err := r.listStaticRouteCRIDs()
-	assert.NoError(t, err)
-	assert.Equal(t, 0, crIDs.Len())
-
-	// list returns items
-	k8sClient.EXPECT().List(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		staticRouteList := list.(*v1alpha1.StaticRouteList)
-		staticRouteList.Items = []v1alpha1.StaticRoute{
-			{ObjectMeta: metav1.ObjectMeta{UID: "uid1"}},
-			{ObjectMeta: metav1.ObjectMeta{UID: "uid2"}},
-		}
-		return nil
-	})
-	crIDs, err = r.listStaticRouteCRIDs()
-	assert.NoError(t, err)
-	assert.Equal(t, 2, crIDs.Len())
-	assert.True(t, crIDs.Has("uid1"))
-	assert.True(t, crIDs.Has("uid2"))
-}
-
 func TestStaticRouteReconciler_deleteStaticRouteByName(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	defer mockCtl.Finish()
 
-	k8sClient := mock_client.NewMockClient(mockCtl)
 	mockStaticRouteClient := mocks.NewMockStaticRoutesClient(mockCtl)
 
 	service := &staticroute.StaticRouteService{
@@ -404,27 +360,12 @@ func TestStaticRouteReconciler_deleteStaticRouteByName(t *testing.T) {
 	}
 
 	r := &StaticRouteReconciler{
-		Client:  k8sClient,
 		Scheme:  nil,
 		Service: service,
 	}
 
-	// listStaticRouteCRIDs returns an error
-	errList := errors.New("list error")
-	patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "listStaticRouteCRIDs", func(_ *StaticRouteReconciler) (sets.Set[string], error) {
-		return nil, errList
-	})
-	defer patch.Reset()
-
-	err := r.deleteStaticRouteByName("dummy-name", "dummy-ns")
-	assert.Equal(t, err, errList)
-
-	// listStaticRouteCRIDs returns items, and deletion fails
-	patch.Reset()
-	patch.ApplyPrivateMethod(reflect.TypeOf(r), "listStaticRouteCRIDs", func(_ *StaticRouteReconciler) (sets.Set[string], error) {
-		return sets.New[string]("uid1"), nil
-	})
-	patch.ApplyMethod(reflect.TypeOf(service), "ListStaticRouteByName", func(_ *staticroute.StaticRouteService, _ string, _ string) []*model.StaticRoutes {
+	// deletion fails
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListStaticRouteByName", func(_ *staticroute.StaticRouteService, _ string, _ string) []*model.StaticRoutes {
 		return []*model.StaticRoutes{
 			{
 				Id:   pointy.String("route-id-1"),
@@ -446,7 +387,7 @@ func TestStaticRouteReconciler_deleteStaticRouteByName(t *testing.T) {
 		return nil
 	})
 
-	err = r.deleteStaticRouteByName("dummy-name", "dummy-ns")
+	err := r.deleteStaticRouteByName("dummy-name", "dummy-ns")
 	assert.Error(t, err)
 	patch.Reset()
 }

@@ -445,10 +445,11 @@ func TestSubnetPortReconciler_vmMapFunc(t *testing.T) {
 }
 
 func TestSubnetPortReconciler_deleteSubnetPortByName(t *testing.T) {
-	subnetportId1 := "subnetport-1"
-	subnetportId2 := "subnetport-2"
+	subnetportId1 := "subnetport-id-1"
+	subnetportId2 := "subnetport-id-2"
 	namespaceScope := "nsx-op/vm_namespace"
-	subnetportName := "subnetport"
+	subnetportName1 := "subnetport-1"
+	subnetportName2 := "subnetport-2"
 	ns := "ns"
 	nameScope := "nsx-op/subnetport_name"
 	sp1 := &model.VpcSubnetPort{
@@ -460,7 +461,7 @@ func TestSubnetPortReconciler_deleteSubnetPortByName(t *testing.T) {
 			},
 			{
 				Scope: &nameScope,
-				Tag:   &subnetportName,
+				Tag:   &subnetportName1,
 			},
 		},
 	}
@@ -473,20 +474,13 @@ func TestSubnetPortReconciler_deleteSubnetPortByName(t *testing.T) {
 			},
 			{
 				Scope: &nameScope,
-				Tag:   &subnetportName,
+				Tag:   &subnetportName2,
 			},
 		},
 	}
 	r := &SubnetPortReconciler{
 		SubnetPortService: &subnetport.SubnetPortService{},
 	}
-	patchesListSubnetPortIDsFromCRs := gomonkey.ApplyFunc((*subnetport.SubnetPortService).ListSubnetPortIDsFromCRs,
-		func(s *subnetport.SubnetPortService, _ context.Context) (sets.Set[string], error) {
-			crSubnetPortIDsSet := sets.New[string]()
-			crSubnetPortIDsSet.Insert(subnetportId1)
-			return crSubnetPortIDsSet, nil
-		})
-	defer patchesListSubnetPortIDsFromCRs.Reset()
 	patchesGetByIndex := gomonkey.ApplyFunc((*subnetport.SubnetPortStore).GetByIndex,
 		func(s *subnetport.SubnetPortStore, key string, value string) []*model.VpcSubnetPort {
 			subnetPorts := make([]*model.VpcSubnetPort, 0)
@@ -500,7 +494,7 @@ func TestSubnetPortReconciler_deleteSubnetPortByName(t *testing.T) {
 			return nil
 		})
 	defer patchesDeleteSubnetPort.Reset()
-	err := r.deleteSubnetPortByName(context.TODO(), ns, subnetportName)
+	err := r.deleteSubnetPortByName(context.TODO(), ns, subnetportName2)
 	assert.Nil(t, err)
 }
 

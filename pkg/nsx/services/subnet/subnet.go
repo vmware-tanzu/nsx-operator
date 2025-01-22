@@ -189,20 +189,6 @@ func (service *SubnetService) ListSubnetCreatedBySubnetSet(id string) []*model.V
 	return service.SubnetStore.GetByIndex(common.TagScopeSubnetSetCRUID, id)
 }
 
-func (service *SubnetService) ListSubnetSetID(ctx context.Context) (sets.Set[string], error) {
-	crdSubnetSetList := &v1alpha1.SubnetSetList{}
-	err := service.Client.List(ctx, crdSubnetSetList)
-	if err != nil {
-		return nil, err
-	}
-
-	crdSubnetSetIDs := sets.New[string]()
-	for _, subnetset := range crdSubnetSetList.Items {
-		crdSubnetSetIDs.Insert(string(subnetset.UID))
-	}
-	return crdSubnetSetIDs, nil
-}
-
 func (service *SubnetService) ListSubnetByName(ns, name string) []*model.VpcSubnet {
 	nsxSubnets := service.SubnetStore.GetByIndex(common.TagScopeVMNamespace, ns)
 	res := make([]*model.VpcSubnet, 0, len(nsxSubnets))
