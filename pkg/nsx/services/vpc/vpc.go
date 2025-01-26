@@ -856,9 +856,9 @@ func (s *VPCService) createNSXVPC(createdVpc *model.Vpc, nc *common.VPCNetworkCo
 func (s *VPCService) checkVPCRealizationState(createdVpc *model.Vpc, newVpcPath string) error {
 	log.V(2).Info("Check VPC realization state", "VPC", *createdVpc.Id)
 	realizeService := realizestate.InitializeRealizeState(s.Service)
-	if err := realizeService.CheckRealizeState(util.NSXTRealizeRetry, newVpcPath); err != nil {
+	if err := realizeService.CheckRealizeState(util.NSXTRealizeRetry, newVpcPath, []string{common.GatewayInterfaceId}); err != nil {
 		log.Error(err, "Failed to check VPC realization state", "VPC", *createdVpc.Id)
-		if realizestate.IsRealizeStateError(err) {
+		if nsxutil.IsRealizeStateError(err) {
 			log.Error(err, "The created VPC is in error realization state, cleaning the resource", "VPC", *createdVpc.Id)
 			// delete the nsx vpc object and re-create it in the next loop
 			if err := s.DeleteVPC(newVpcPath); err != nil {
@@ -884,9 +884,9 @@ func (s *VPCService) checkLBSRealization(createdLBS *model.LBService, createdVpc
 
 	log.V(2).Info("Check LBS realization state", "LBS", *createdLBS.Id)
 	realizeService := realizestate.InitializeRealizeState(s.Service)
-	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *newLBS.Path); err != nil {
+	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *newLBS.Path, []string{}); err != nil {
 		log.Error(err, "Failed to check LBS realization state", "LBS", *createdLBS.Id)
-		if realizestate.IsRealizeStateError(err) {
+		if nsxutil.IsRealizeStateError(err) {
 			log.Error(err, "The created LBS is in error realization state, cleaning the resource", "LBS", *createdLBS.Id)
 			// delete the nsx vpc object and re-create it in the next loop
 			if err := s.DeleteVPC(newVpcPath); err != nil {
@@ -910,9 +910,9 @@ func (s *VPCService) checkVpcAttachmentRealization(createdAttachment *model.VpcA
 	}
 	log.V(2).Info("Check VPC attachment realization state", "VpcAttachment", *createdAttachment.Id)
 	realizeService := realizestate.InitializeRealizeState(s.Service)
-	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *newAttachment.Path); err != nil {
+	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *newAttachment.Path, []string{}); err != nil {
 		log.Error(err, "Failed to check VPC attachment realization state", "VpcAttachment", *createdAttachment.Id)
-		if realizestate.IsRealizeStateError(err) {
+		if nsxutil.IsRealizeStateError(err) {
 			log.Error(err, "The created VPC attachment is in error realization state, cleaning the resource", "VpcAttachment", *createdAttachment.Id)
 			// delete the nsx vpc object and re-create it in the next loop
 			if err := s.DeleteVPC(newVpcPath); err != nil {
