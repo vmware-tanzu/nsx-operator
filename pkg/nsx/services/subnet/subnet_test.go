@@ -481,7 +481,7 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 			name: "Update Subnet with RealizedState and deletion error",
 			prepareFunc: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).CheckRealizeState,
-					func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []string) error {
+					func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []nsxutil.GPRRType) error {
 						return nsxutil.NewRealizeStateError("mocked realized error")
 					})
 				patches.ApplyFunc((*SubnetService).DeleteSubnet, func(_ *SubnetService, _ model.VpcSubnet) error {
@@ -499,7 +499,7 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 			name: "Create Subnet for SubnetSet Success",
 			prepareFunc: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).CheckRealizeState,
-					func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []string) error {
+					func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []nsxutil.GPRRType) error {
 						return nil
 					})
 				patches.ApplyFunc(fakeSubnetsClient.Get,

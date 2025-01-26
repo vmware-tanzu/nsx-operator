@@ -57,6 +57,11 @@ type PortAddress struct {
 	IPs []string `json:"ips"`
 }
 
+type GPRRType struct {
+	Id         string
+	EntityType string
+}
+
 func (e *ErrorDetail) Error() string {
 	msg := fmt.Sprintf("StatusCode is %d,", e.StatusCode)
 	if e.ErrorCode > 0 {
