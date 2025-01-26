@@ -5,10 +5,13 @@ package util
 
 import (
 	"fmt"
+
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 )
 
 const (
-	InvalidLicenseErrorCode = 505
+	InvalidLicenseErrorCode   = 505
+	ProviderNotReadyErrorCode = 500042
 )
 
 type NsxError interface {
@@ -601,3 +604,41 @@ var (
 	CleanupResourceFailed    = Status{Code: 4, Message: "failed to clean up"}
 	TimeoutFailed            = Status{Code: 5, Message: "failed because of timeout"}
 )
+
+type RealizeStateError struct {
+	message string
+}
+
+func (e *RealizeStateError) Error() string {
+	return e.message
+}
+
+func NewRealizeStateError(msg string) *RealizeStateError {
+	return &RealizeStateError{message: msg}
+}
+
+func IsRealizeStateError(err error) bool {
+	_, ok := err.(*RealizeStateError)
+	return ok
+}
+
+type RetryRealizeError struct {
+	message string
+}
+
+func (e *RetryRealizeError) Error() string {
+	return e.message
+}
+
+func NewRetryRealizeError(msg string) *RetryRealizeError {
+	return &RetryRealizeError{message: msg}
+}
+
+func IsRetryRealizeError(alarm model.PolicyAlarmResource) bool {
+	// The ProviderNotReady error indicates NSX get timeout when waiting for the dependencies
+	// and may become Realized after retry.
+	if alarm.ErrorDetails != nil && alarm.ErrorDetails.ErrorCode != nil && *alarm.ErrorDetails.ErrorCode == ProviderNotReadyErrorCode {
+		return true
+	}
+	return false
+}
