@@ -643,7 +643,6 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	subnetsClient := s.NSXClient.SubnetsClient
 	statusClient := s.NSXClient.SubnetStatusClient
 	info, err := common.ParseVPCResourcePath(*vpc.Path)
-
 	if err != nil {
 		return "", "", err
 	}
@@ -677,6 +676,22 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	cidr := *statusList.Results[0].NetworkAddress
 	log.Info("Read AVI subnet properties", "Path", path, "CIDR", cidr)
 	return path, cidr, nil
+}
+
+func (s *VPCService) GetNSXLBSNATIP(vpc model.Vpc) (string, error) {
+	log.V(2).Info("Getting VPC NSX LB SNAT IP", "VPC", *vpc.Id)
+	_, err := common.ParseVPCResourcePath(*vpc.Path)
+	if err != nil {
+		return "", err
+	}
+
+	realizeService := realizestate.InitializeRealizeState(s.Service)
+	tier1UpLinkIP, err := realizeService.GetPolicyTier1UplinkPortIP(*vpc.Path)
+	if err != nil {
+		log.Error(err, "Failed to get VPC NSX LB SNAT IP", "VPC", *vpc.Id)
+		return "", err
+	}
+	return tier1UpLinkIP, nil
 }
 
 func (s *VPCService) GetVpcConnectivityProfile(nc *common.VPCNetworkConfigInfo, vpcConnectivityProfilePath string) (*model.VpcConnectivityProfile, error) {
@@ -953,7 +968,6 @@ func (s *VPCService) ValidateGatewayConnectionStatus(nc *common.VPCNetworkConfig
 		transitGatewayId := parts[len(parts)-1]
 		res, err := s.NSXClient.TransitGatewayAttachmentClient.List(nc.Org, nc.NSXProject, transitGatewayId, nil, &markedForDelete, nil, nil, nil, nil)
 		err = nsxutil.TransNSXApiError(err)
-
 		if err != nil {
 			return false, "", err
 		}
