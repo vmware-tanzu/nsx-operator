@@ -21,7 +21,7 @@ import (
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
@@ -247,7 +247,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 				})
 
 				patches := gomonkey.ApplyMethodSeq(service.NSXClient.RealizedEntitiesClient, "List", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.GenericPolicyRealizedResourceListResult{}, realizestate.NewRealizeStateError("realized state error")},
+					Values: gomonkey.Params{model.GenericPolicyRealizedResourceListResult{}, nsxutil.NewRealizeStateError("realized state error")},
 					Times:  1,
 				}})
 				return patches

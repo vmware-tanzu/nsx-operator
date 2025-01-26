@@ -28,6 +28,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -480,8 +481,8 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 			name: "Update Subnet with RealizedState and deletion error",
 			prepareFunc: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).CheckRealizeState,
-					func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string) error {
-						return realizestate.NewRealizeStateError("mocked realized error")
+					func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []string) error {
+						return nsxutil.NewRealizeStateError("mocked realized error")
 					})
 				patches.ApplyFunc((*SubnetService).DeleteSubnet, func(_ *SubnetService, _ model.VpcSubnet) error {
 					return errors.New("mocked deletion error")
@@ -498,7 +499,7 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 			name: "Create Subnet for SubnetSet Success",
 			prepareFunc: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).CheckRealizeState,
-					func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string) error {
+					func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []string) error {
 						return nil
 					})
 				patches.ApplyFunc(fakeSubnetsClient.Get,

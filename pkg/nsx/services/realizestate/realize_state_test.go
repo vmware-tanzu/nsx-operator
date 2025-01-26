@@ -12,6 +12,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 type fakeRealizedEntitiesClient struct{}
@@ -63,18 +64,74 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 		Steps:    6,
 	}
 	// default project
-	err := s.CheckRealizeState(backoff, "/orgs/default/projects/default/vpcs/vpc/subnets/subnet/ports/port")
+	err := s.CheckRealizeState(backoff, "/orgs/default/projects/default/vpcs/vpc/subnets/subnet/ports/port", []string{})
 
-	realizeStateError, ok := err.(*RealizeStateError)
+	realizeStateError, ok := err.(*nsxutil.RealizeStateError)
 	assert.True(t, ok)
 	assert.Equal(t, realizeStateError.Error(), "/orgs/default/projects/default/vpcs/vpc/subnets/subnet/ports/port realized with errors: [mocked error]")
 
 	// non default project
-	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/ports/port")
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/ports/port", []string{})
 
-	realizeStateError, ok = err.(*RealizeStateError)
+	realizeStateError, ok = err.(*nsxutil.RealizeStateError)
 	assert.True(t, ok)
 	assert.Equal(t, realizeStateError.Error(), "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/ports/port realized with errors: [mocked error]")
+
+	// check with extra ids
+	patches.Reset()
+	patches = gomonkey.ApplyFunc((*fakeRealizedEntitiesClient).List, func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+		return model.GenericPolicyRealizedResourceListResult{
+			Results: []model.GenericPolicyRealizedResource{
+				{
+					State:      common.String(model.GenericPolicyRealizedResource_STATE_REALIZED),
+					Alarms:     []model.PolicyAlarmResource{},
+					EntityType: common.String("RealizedLogicalRouterPort"),
+					Id:         common.String(common.GatewayInterfaceId),
+				},
+				{
+					State:      common.String(model.GenericPolicyRealizedResource_STATE_REALIZED),
+					Alarms:     []model.PolicyAlarmResource{},
+					EntityType: common.String("RealizedLogicalRouter"),
+					Id:         common.String("vpc"),
+				},
+			},
+		}, nil
+	})
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc", []string{common.GatewayInterfaceId})
+	assert.Equal(t, err, nil)
+
+	// for lbs, realized with ProviderNotReady and need retry
+	patches.Reset()
+	patches = gomonkey.ApplyFunc((*fakeRealizedEntitiesClient).List, func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+		return model.GenericPolicyRealizedResourceListResult{
+			Results: []model.GenericPolicyRealizedResource{
+				{
+					State: common.String(model.GenericPolicyRealizedResource_STATE_ERROR),
+					Alarms: []model.PolicyAlarmResource{
+						{
+							Message: common.String("Realization failure"),
+							ErrorDetails: &model.PolicyApiError{
+								ErrorCode:    common.Int64(nsxutil.ProviderNotReadyErrorCode),
+								ErrorMessage: common.String("Realization failure"),
+							},
+						},
+					},
+					EntityType: common.String("GenericPolicyRealizedResource"),
+				},
+			},
+		}, nil
+	})
+
+	backoff = wait.Backoff{
+		Duration: 10 * time.Millisecond,
+		Factor:   1,
+		Jitter:   0,
+		Steps:    1,
+	}
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/default/vpcs/vpc/vpc-lbs/default", []string{})
+	assert.NotEqual(t, err, nil)
+	_, ok = err.(*nsxutil.RetryRealizeError)
+	assert.Equal(t, ok, true)
 
 	// for subnet, RealizedLogicalPort realized with errors
 	patches.Reset()
@@ -104,9 +161,9 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 			},
 		}, nil
 	})
-	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/")
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/", []string{})
 
-	realizeStateError, ok = err.(*RealizeStateError)
+	realizeStateError, ok = err.(*nsxutil.RealizeStateError)
 	assert.True(t, ok)
 	assert.Equal(t, realizeStateError.Error(), "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/ realized with errors: [mocked error]")
 
@@ -134,7 +191,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 			},
 		}, nil
 	})
-	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/")
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/", []string{})
 	assert.Equal(t, err, nil)
 
 	// for subnet, need retry
@@ -167,9 +224,9 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 		Jitter:   0,
 		Steps:    1,
 	}
-	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/")
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/", []string{})
 	assert.NotEqual(t, err, nil)
-	_, ok = err.(*RealizeStateError)
+	_, ok = err.(*nsxutil.RealizeStateError)
 	assert.Equal(t, ok, false)
 	patches.Reset()
 
