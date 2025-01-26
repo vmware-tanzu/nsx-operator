@@ -64,14 +64,14 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 		Steps:    6,
 	}
 	// default project
-	err := s.CheckRealizeState(backoff, "/orgs/default/projects/default/vpcs/vpc/subnets/subnet/ports/port", []string{})
+	err := s.CheckRealizeState(backoff, "/orgs/default/projects/default/vpcs/vpc/subnets/subnet/ports/port", []nsxutil.GPRRType{})
 
 	realizeStateError, ok := err.(*nsxutil.RealizeStateError)
 	assert.True(t, ok)
 	assert.Equal(t, realizeStateError.Error(), "/orgs/default/projects/default/vpcs/vpc/subnets/subnet/ports/port realized with errors: [mocked error]")
 
 	// non default project
-	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/ports/port", []string{})
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/ports/port", []nsxutil.GPRRType{})
 
 	realizeStateError, ok = err.(*nsxutil.RealizeStateError)
 	assert.True(t, ok)
@@ -86,7 +86,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 					State:      common.String(model.GenericPolicyRealizedResource_STATE_REALIZED),
 					Alarms:     []model.PolicyAlarmResource{},
 					EntityType: common.String("RealizedLogicalRouterPort"),
-					Id:         common.String(common.GatewayInterfaceId),
+					Id:         common.String("gateway-interface"),
 				},
 				{
 					State:      common.String(model.GenericPolicyRealizedResource_STATE_REALIZED),
@@ -97,7 +97,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 			},
 		}, nil
 	})
-	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc", []string{common.GatewayInterfaceId})
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc", []nsxutil.GPRRType{{Id: "gateway-interface", EntityType: "RealizedLogicalRouterPort"}})
 	assert.Equal(t, err, nil)
 
 	// for lbs, realized with ProviderNotReady and need retry
@@ -128,7 +128,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 		Jitter:   0,
 		Steps:    1,
 	}
-	err = s.CheckRealizeState(backoff, "/orgs/default/projects/default/vpcs/vpc/vpc-lbs/default", []string{})
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/default/vpcs/vpc/vpc-lbs/default", []nsxutil.GPRRType{})
 	assert.NotEqual(t, err, nil)
 	_, ok = err.(*nsxutil.RetryRealizeError)
 	assert.Equal(t, ok, true)
@@ -161,7 +161,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 			},
 		}, nil
 	})
-	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/", []string{})
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/", []nsxutil.GPRRType{})
 
 	realizeStateError, ok = err.(*nsxutil.RealizeStateError)
 	assert.True(t, ok)
@@ -191,7 +191,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 			},
 		}, nil
 	})
-	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/", []string{})
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/", []nsxutil.GPRRType{})
 	assert.Equal(t, err, nil)
 
 	// for subnet, need retry
@@ -224,7 +224,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 		Jitter:   0,
 		Steps:    1,
 	}
-	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/", []string{})
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/", []nsxutil.GPRRType{})
 	assert.NotEqual(t, err, nil)
 	_, ok = err.(*nsxutil.RealizeStateError)
 	assert.Equal(t, ok, false)

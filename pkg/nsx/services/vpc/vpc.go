@@ -43,6 +43,31 @@ var (
 	EnforceRevisionCheckParam = false
 )
 
+func GetGPRRTypeList(id string) []nsxutil.GPRRType {
+	return []nsxutil.GPRRType{
+		{
+			Id:         fmt.Sprintf("%s-folder", id),
+			EntityType: "RealizedVpcFolder",
+		},
+		{
+			Id:         "gateway-interface",
+			EntityType: "RealizedLogicalRouterPort",
+		},
+		{
+			Id:         id,
+			EntityType: "RealizedLogicalRouter",
+		},
+		{
+			Id:         id,
+			EntityType: "RealizedLogicalRouterPort",
+		},
+		{
+			Id:         "security-config",
+			EntityType: "RealizedSecurityFeatureToggle",
+		},
+	}
+}
+
 type VPCNetworkInfoStore struct {
 	sync.RWMutex
 	VPCNetworkConfigMap map[string]common.VPCNetworkConfigInfo
@@ -856,7 +881,7 @@ func (s *VPCService) createNSXVPC(createdVpc *model.Vpc, nc *common.VPCNetworkCo
 func (s *VPCService) checkVPCRealizationState(createdVpc *model.Vpc, newVpcPath string) error {
 	log.V(2).Info("Check VPC realization state", "VPC", *createdVpc.Id)
 	realizeService := realizestate.InitializeRealizeState(s.Service)
-	if err := realizeService.CheckRealizeState(util.NSXTRealizeRetry, newVpcPath, []string{common.GatewayInterfaceId}); err != nil {
+	if err := realizeService.CheckRealizeState(util.NSXTRealizeRetry, newVpcPath, GetGPRRTypeList(*createdVpc.Id)); err != nil {
 		log.Error(err, "Failed to check VPC realization state", "VPC", *createdVpc.Id)
 		if nsxutil.IsRealizeStateError(err) {
 			log.Error(err, "The created VPC is in error realization state, cleaning the resource", "VPC", *createdVpc.Id)
@@ -884,7 +909,7 @@ func (s *VPCService) checkLBSRealization(createdLBS *model.LBService, createdVpc
 
 	log.V(2).Info("Check LBS realization state", "LBS", *createdLBS.Id)
 	realizeService := realizestate.InitializeRealizeState(s.Service)
-	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *newLBS.Path, []string{}); err != nil {
+	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *newLBS.Path, []nsxutil.GPRRType{}); err != nil {
 		log.Error(err, "Failed to check LBS realization state", "LBS", *createdLBS.Id)
 		if nsxutil.IsRealizeStateError(err) {
 			log.Error(err, "The created LBS is in error realization state, cleaning the resource", "LBS", *createdLBS.Id)
@@ -910,7 +935,7 @@ func (s *VPCService) checkVpcAttachmentRealization(createdAttachment *model.VpcA
 	}
 	log.V(2).Info("Check VPC attachment realization state", "VpcAttachment", *createdAttachment.Id)
 	realizeService := realizestate.InitializeRealizeState(s.Service)
-	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *newAttachment.Path, []string{}); err != nil {
+	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *newAttachment.Path, []nsxutil.GPRRType{}); err != nil {
 		log.Error(err, "Failed to check VPC attachment realization state", "VpcAttachment", *createdAttachment.Id)
 		if nsxutil.IsRealizeStateError(err) {
 			log.Error(err, "The created VPC attachment is in error realization state, cleaning the resource", "VpcAttachment", *createdAttachment.Id)
