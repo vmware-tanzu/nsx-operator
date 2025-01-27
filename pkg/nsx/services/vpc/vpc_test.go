@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -35,6 +36,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	nsxUtil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
@@ -2131,5 +2133,101 @@ func TestInitializeVPC(t *testing.T) {
 		assert.Equal(t, tc.expectVPCGetByIndex, len(res))
 		allVPCs := service.ListVPC()
 		assert.Equal(t, tc.expectAllVPCNum, len(allVPCs))
+	}
+}
+
+func TestCheckVPCRealizationState(t *testing.T) {
+	service := &VPCService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				RealizedEntitiesClient: &fakeRealizedEntitiesClient{},
+			},
+		},
+	}
+
+	testCases := []struct {
+		name        string
+		prepareFunc func() *gomonkey.Patches
+		expectedErr string
+	}{
+		{
+			name: "Successful realization",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(fakeRealizedEntitiesClient.List,
+					func(_ fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+						return model.GenericPolicyRealizedResourceListResult{
+							Results: []model.GenericPolicyRealizedResource{
+								{
+									Id:         common.String("vpc-1-folder"),
+									EntityType: common.String("RealizedVpcFolder"),
+									State:      common.String(model.GenericPolicyRealizedResource_STATE_REALIZED),
+								},
+								{
+									Id:         common.String("gateway-interface"),
+									EntityType: common.String("RealizedLogicalRouterPort"),
+									State:      common.String(model.GenericPolicyRealizedResource_STATE_REALIZED),
+								},
+								{
+									Id:         common.String("vpc-1"),
+									EntityType: common.String("RealizedLogicalRouter"),
+									State:      common.String(model.GenericPolicyRealizedResource_STATE_REALIZED),
+								},
+								{
+									Id:         common.String("vpc-1"),
+									EntityType: common.String("RealizedLogicalRouterPort"),
+									State:      common.String(model.GenericPolicyRealizedResource_STATE_REALIZED),
+								},
+								{
+									Id:         common.String("security-config"),
+									EntityType: common.String("RealizedSecurityFeatureToggle"),
+									State:      common.String(model.GenericPolicyRealizedResource_STATE_REALIZED),
+								},
+							},
+						}, nil
+					})
+				return patches
+			},
+		},
+		{
+			name: "Failed realization",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).CheckRealizeState,
+					func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []nsxUtil.GPRRType) error {
+						return nsxUtil.NewRealizeStateError("mocked realized error")
+					})
+				patches.ApplyFunc((*VPCService).DeleteVPC, func(_ *VPCService, _ string) error {
+					return nil
+				})
+				return patches
+			},
+			expectedErr: "mocked realized error",
+		},
+		{
+			name: "Failed deletion",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).CheckRealizeState,
+					func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []nsxUtil.GPRRType) error {
+						return nsxUtil.NewRealizeStateError("mocked realized error")
+					})
+				patches.ApplyFunc((*VPCService).DeleteVPC, func(_ *VPCService, _ string) error {
+					return nsxUtil.NewRealizeStateError("mocked deletion error")
+				})
+				return patches
+			},
+			expectedErr: "mocked deletion error",
+		},
+	}
+
+	for _, tc := range testCases {
+		if tc.prepareFunc != nil {
+			patches := tc.prepareFunc()
+			defer patches.Reset()
+		}
+		err := service.checkVPCRealizationState(&model.Vpc{Id: common.String("vpc-1")}, "/orgs/org/projects/project/vpcs/vpc-1")
+		if tc.expectedErr != "" {
+			assert.Contains(t, err.Error(), tc.expectedErr)
+		} else {
+			assert.Nil(t, err)
+		}
 	}
 }
