@@ -73,6 +73,7 @@ func (c *fakeVpcAttachmentClient) Get(orgIdParam string, projectIdParam string, 
 func (c *fakeVpcAttachmentClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, vpcAttachmentIdParam string, vpcAttachmentParam model.VpcAttachment) error {
 	return nil
 }
+
 func (c *fakeVpcAttachmentClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, vpcAttachmentIdParam string, vpcAttachmentParam model.VpcAttachment) (model.VpcAttachment, error) {
 	return model.VpcAttachment{}, nil
 }
@@ -180,7 +181,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				}))
 				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, _ context.Context, _ string) (string, error) {
 					return servicecommon.SystemVPCNetworkConfigurationName, nil
-
 				})
 				patches.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (servicecommon.VPCNetworkConfigInfo, bool) {
 					return servicecommon.VPCNetworkConfigInfo{
@@ -213,10 +213,11 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) vpc.LBProvider {
 					return vpc.NSXLB
 				})
-
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
+					return "100.64.0.3", nil
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
-
 				})
 				patches.ApplyFunc(r.StatusUpdater.UpdateSuccess,
 					func(_ context.Context, _ client.Object, _ common.UpdateSuccessStatusFn, _ ...interface{}) {
@@ -247,7 +248,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				}))
 				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, _ context.Context, _ string) (string, error) {
 					return "non-system", nil
-
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (servicecommon.VPCNetworkConfigInfo, bool) {
 					return servicecommon.VPCNetworkConfigInfo{
@@ -256,7 +256,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						Org:                    "default",
 						NSXProject:             "project-quality",
 					}, true
-
 				})
 				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
 					return true, ""
@@ -282,16 +281,17 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) vpc.LBProvider {
 					return vpc.NSXLB
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
+					return "100.64.0.3", nil
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
-
 				})
 				patches.ApplyFunc(setNSNetworkReadyCondition,
 					func(ctx context.Context, client client.Client, nsName string, condition *corev1.NamespaceCondition) {
 						require.True(t, nsConditionEquals(*condition, *nsMsgVPCIsReady.getNSNetworkCondition()))
 					})
 				return patches
-
 			},
 			args:    requestArgs,
 			want:    common.ResultNormal,
@@ -313,7 +313,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				}))
 				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (string, error) {
 					return "non-system", nil
-
 				})
 				patches.ApplyMethod(reflect.TypeOf(r), "GetVpcConnectivityProfilePathByVpcPath", func(_ *NetworkInfoReconciler, _ string) (string, error) {
 					return "connectivity_profile", nil
@@ -326,7 +325,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						Org:                    "default",
 						NSXProject:             "project-quality",
 					}, true
-
 				})
 				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
 					return false, ""
@@ -344,7 +342,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						require.True(t, nsConditionEquals(*condition, *nsMsgVPCGwConnectionNotReady.getNSNetworkCondition()))
 					})
 				return patches
-
 			},
 			args:    requestArgs,
 			want:    common.ResultRequeueAfter60sec,
@@ -366,7 +363,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				}))
 				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (string, error) {
 					return servicecommon.SystemVPCNetworkConfigurationName, nil
-
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (servicecommon.VPCNetworkConfigInfo, bool) {
 					return servicecommon.VPCNetworkConfigInfo{
@@ -375,7 +371,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						Org:                    "default",
 						NSXProject:             "project-quality",
 					}, true
-
 				})
 				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
 					return false, ""
@@ -385,6 +380,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) vpc.LBProvider {
 					return vpc.NSXLB
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
+					return "100.64.0.3", nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *servicecommon.VPCNetworkConfigInfo, _ vpc.LBProvider) (*model.Vpc, error) {
 					return &model.Vpc{
@@ -410,14 +408,15 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				}})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
-
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) vpc.LBProvider {
 					return vpc.NSXLB
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
+					return "100.64.0.3", nil
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
 					return "snat-ip", nil
-
 				})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
 					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
@@ -430,7 +429,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						require.True(t, nsConditionEquals(*condition, *nsMsgVPCIsReady.getNSNetworkCondition()))
 					})
 				return patches
-
 			},
 			args:    requestArgs,
 			want:    common.ResultNormal,
@@ -452,7 +450,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				}))
 				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (string, error) {
 					return servicecommon.SystemVPCNetworkConfigurationName, nil
-
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (servicecommon.VPCNetworkConfigInfo, bool) {
 					return servicecommon.VPCNetworkConfigInfo{
@@ -461,7 +458,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						Org:                    "default",
 						NSXProject:             "project-quality",
 					}, true
-
 				})
 				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
 					return false, ""
@@ -471,6 +467,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) vpc.LBProvider {
 					return vpc.NSXLB
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
+					return "100.64.0.3", nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *servicecommon.VPCNetworkConfigInfo, _ vpc.LBProvider) (*model.Vpc, error) {
 					return &model.Vpc{
@@ -491,12 +490,10 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				}})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
-
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
 					assert.FailNow(t, "should not be called")
 					return "", nil
-
 				})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
 					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
@@ -509,7 +506,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						require.True(t, nsConditionEquals(*condition, *nsMsgVPCAutoSNATDisabled.getNSNetworkCondition()))
 					})
 				return patches
-
 			},
 			args:    requestArgs,
 			want:    common.ResultRequeueAfter60sec,
@@ -531,7 +527,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				}))
 				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (string, error) {
 					return "non-system", nil
-
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (servicecommon.VPCNetworkConfigInfo, bool) {
 					return servicecommon.VPCNetworkConfigInfo{
@@ -540,7 +535,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						Org:                    "default",
 						NSXProject:             "project-quality",
 					}, true
-
 				})
 				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
 					return true, ""
@@ -550,6 +544,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) vpc.LBProvider {
 					return vpc.NSXLB
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
+					return "100.64.0.3", nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *servicecommon.VPCNetworkConfigInfo, _ vpc.LBProvider) (*model.Vpc, error) {
 					return &model.Vpc{
@@ -575,11 +572,12 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				}})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
-
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
+					return "100.64.0.3", nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
 					return "snat-ip", nil
-
 				})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
 					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
@@ -590,7 +588,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						require.True(t, nsConditionEquals(*condition, *nsMsgVPCIsReady.getNSNetworkCondition()))
 					})
 				return patches
-
 			},
 			args:    requestArgs,
 			want:    common.ResultNormal,
@@ -612,7 +609,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				}))
 				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (string, error) {
 					return servicecommon.SystemVPCNetworkConfigurationName, nil
-
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (servicecommon.VPCNetworkConfigInfo, bool) {
 					return servicecommon.VPCNetworkConfigInfo{
@@ -621,7 +617,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						Org:                    "default",
 						NSXProject:             "project-quality",
 					}, true
-
 				})
 				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
 					return false, ""
@@ -631,6 +626,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) vpc.LBProvider {
 					return vpc.NSXLB
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
+					return "100.64.0.3", nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *servicecommon.VPCNetworkConfigInfo, _ vpc.LBProvider) (*model.Vpc, error) {
 					return &model.Vpc{
@@ -655,11 +653,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
-
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
 					return "snat-ip", nil
-
 				})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
 					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
@@ -676,7 +672,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			args:    requestArgs,
 			want:    common.ResultRequeueAfter60sec,
 			wantErr: false,
-		}, {
+		},
+		{
 			name: "Pre-create VPC success case",
 			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
 				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
@@ -702,7 +699,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						NSXProject: "project-quality",
 						VPCPath:    "/orgs/default/projects/nsx_operator_e2e_test/vpcs/pre-vpc",
 					}, true
-
 				})
 				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
 					return true, ""
@@ -736,6 +732,83 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			args:    requestArgs,
 			want:    common.ResultNormal,
 			wantErr: false,
+		},
+		{
+			name: "NSX LB SNAT IP failure",
+			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: requestArgs.req.Namespace,
+						Name:      requestArgs.req.Name,
+					},
+				}))
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.VPCNetworkConfiguration{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "system",
+					},
+				}))
+				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (string, error) {
+					return servicecommon.SystemVPCNetworkConfigurationName, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (servicecommon.VPCNetworkConfigInfo, bool) {
+					return servicecommon.VPCNetworkConfigInfo{
+						Name:                   servicecommon.SystemVPCNetworkConfigurationName,
+						VPCConnectivityProfile: "/orgs/default/projects/nsx_operator_e2e_test/vpc-connectivity-profiles/default",
+						Org:                    "default",
+						NSXProject:             "project-quality",
+					}, true
+				})
+				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
+					return false, ""
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateGatewayConnectionStatus", func(_ *vpc.VPCService, _ *servicecommon.VPCNetworkConfigInfo) (bool, string, error) {
+					return true, "", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) vpc.LBProvider {
+					return vpc.NSXLB
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *servicecommon.VPCNetworkConfigInfo, _ vpc.LBProvider) (*model.Vpc, error) {
+					return &model.Vpc{
+						DisplayName: servicecommon.String("vpc-name"),
+						Path:        servicecommon.String("/orgs/default/projects/project-quality/vpcs/fake-vpc"),
+						Id:          servicecommon.String("vpc-id"),
+					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "IsSharedVPCNamespaceByNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (bool, error) {
+					return false, nil
+				})
+				patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.VpcConnectivityProfile{
+						ExternalIpBlocks: []string{"fake-ip-block"},
+						ServiceGateway:   nil,
+					}, nil},
+					Times: 1,
+				}})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
+					return "lbs-path"
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
+					assert.FailNow(t, "should not be called")
+					return "", nil
+				})
+				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
+					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
+						if autoSnatEnabled {
+							assert.FailNow(t, "should set VPCNetworkConfiguration status with AutoSnatEnabled=false")
+						}
+					})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
+					return "", fmt.Errorf("tier1 uplink port IP not found")
+				})
+				patches.ApplyFunc(setNSNetworkReadyCondition,
+					func(ctx context.Context, client client.Client, nsName string, condition *corev1.NamespaceCondition) {
+						require.True(t, nsConditionEquals(*condition, *nsMsgVPCNSXLBSNATIPError.getNSNetworkCondition(fmt.Errorf("tier1 uplink port IP not found"))))
+					})
+				return patches
+			},
+			args:    requestArgs,
+			want:    common.ResultRequeueAfter10sec,
+			wantErr: true,
 		},
 	}
 
@@ -775,13 +848,16 @@ func TestNetworkInfoReconciler_deleteStaleVPCs(t *testing.T) {
 				})
 				return patches
 			},
-		}, {
+		},
+		{
 			name: "NSX VPC is used by a valid Namespace,, skip deletion",
 			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCsByNamespace", func(_ *vpc.VPCService, _ string) []*model.Vpc {
 					return []*model.Vpc{
 						{Tags: []model.Tag{
-							{Scope: servicecommon.String(servicecommon.TagScopeNamespaceUID), Tag: servicecommon.String("vpc1")}}}}
+							{Scope: servicecommon.String(servicecommon.TagScopeNamespaceUID), Tag: servicecommon.String("vpc1")},
+						}},
+					}
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "listNamespaceCRsNameIDSet", func(_ *NetworkInfoReconciler, _ context.Context) (sets.Set[string], sets.Set[string], error) {
 					return sets.Set[string]{}, sets.New[string]("vpc1"), nil
@@ -799,7 +875,8 @@ func TestNetworkInfoReconciler_deleteStaleVPCs(t *testing.T) {
 								{Scope: servicecommon.String(servicecommon.TagScopeNamespaceUID), Tag: servicecommon.String("vpc1")},
 							},
 							Path: servicecommon.String("/orgs/default/projects/default/vpcs/vpc1"),
-						}}
+						},
+					}
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "listNamespaceCRsNameIDSet", func(_ *NetworkInfoReconciler, _ context.Context) (sets.Set[string], sets.Set[string], error) {
 					return sets.Set[string]{}, sets.Set[string]{}, nil
@@ -821,7 +898,8 @@ func TestNetworkInfoReconciler_deleteStaleVPCs(t *testing.T) {
 								{Scope: servicecommon.String(servicecommon.TagScopeNamespaceUID), Tag: servicecommon.String("vpc1")},
 							},
 							Path: servicecommon.String("/orgs/default/projects/default/vpcs/vpc1"),
-						}}
+						},
+					}
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "listNamespaceCRsNameIDSet", func(_ *NetworkInfoReconciler, _ context.Context) (sets.Set[string], sets.Set[string], error) {
 					return sets.Set[string]{}, sets.Set[string]{}, nil
@@ -841,14 +919,15 @@ func TestNetworkInfoReconciler_deleteStaleVPCs(t *testing.T) {
 				TypeMeta:   metav1.TypeMeta{},
 				ObjectMeta: metav1.ObjectMeta{Name: "fakeNetworkconfigName"},
 				Spec:       v1alpha1.VPCNetworkConfigurationSpec{},
-				Status: v1alpha1.VPCNetworkConfigurationStatus{VPCs: []v1alpha1.VPCInfo{
-					{
-						Name: "fakeDisplayName2",
+				Status: v1alpha1.VPCNetworkConfigurationStatus{
+					VPCs: []v1alpha1.VPCInfo{
+						{
+							Name: "fakeDisplayName2",
+						},
+						{
+							Name: "fakeDisplayName1",
+						},
 					},
-					{
-						Name: "fakeDisplayName1",
-					},
-				},
 				},
 			},
 			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
@@ -860,7 +939,8 @@ func TestNetworkInfoReconciler_deleteStaleVPCs(t *testing.T) {
 							},
 							Path:        servicecommon.String("/orgs/default/projects/default/vpcs/vpc1"),
 							DisplayName: servicecommon.String("fakeDisplayName1"),
-						}}
+						},
+					}
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "listNamespaceCRsNameIDSet", func(_ *NetworkInfoReconciler, _ context.Context) (sets.Set[string], sets.Set[string], error) {
 					return sets.Set[string]{}, sets.Set[string]{}, nil
@@ -952,7 +1032,8 @@ func TestNetworkInfoReconciler_DeleteNetworkInfo(t *testing.T) {
 								{Scope: servicecommon.String(servicecommon.TagScopeNamespaceUID), Tag: servicecommon.String("vpc1")},
 							},
 							Path: servicecommon.String("/orgs/default/projects/default/vpcs/vpc1"),
-						}}
+						},
+					}
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "DeleteVPC", func(_ *vpc.VPCService, _ string) error {
 					return fmt.Errorf("delete failed")
@@ -970,8 +1051,10 @@ func TestNetworkInfoReconciler_DeleteNetworkInfo(t *testing.T) {
 			expectErrStr:      "",
 			existingNetworkInfo: &v1alpha1.NetworkInfo{
 				TypeMeta: metav1.TypeMeta{},
-				ObjectMeta: metav1.ObjectMeta{Name: "testNetworkInfo", Namespace: "testNamespace",
-					DeletionTimestamp: &metav1.Time{Time: time.Now()}, Finalizers: []string{"test-Finalizers"}},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNetworkInfo", Namespace: "testNamespace",
+					DeletionTimestamp: &metav1.Time{Time: time.Now()}, Finalizers: []string{"test-Finalizers"},
+				},
 				VPCs: nil,
 			},
 			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
@@ -1017,8 +1100,10 @@ func TestNetworkInfoReconciler_DeleteNetworkInfo(t *testing.T) {
 			expectErrStr: "failed to get VPCNetworkConfiguration for Namespace when deleting stale VPCs",
 			existingNetworkInfo: &v1alpha1.NetworkInfo{
 				TypeMeta: metav1.TypeMeta{},
-				ObjectMeta: metav1.ObjectMeta{Name: "testNetworkInfo", Namespace: "testNamespace", UID: "fakeNamespaceUID",
-					DeletionTimestamp: &metav1.Time{Time: time.Now()}, Finalizers: []string{"test-Finalizers"}},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNetworkInfo", Namespace: "testNamespace", UID: "fakeNamespaceUID",
+					DeletionTimestamp: &metav1.Time{Time: time.Now()}, Finalizers: []string{"test-Finalizers"},
+				},
 				VPCs: nil,
 			},
 			expectRes: common.ResultRequeue,
@@ -1219,9 +1304,11 @@ func TestNetworkInfoReconciler_GetVpcConnectivityProfilePathByVpcPath(t *testing
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(fakeAttachmentClient), "List", func(_ *fakeVpcAttachmentClient, _ string, _ string, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcAttachmentListResult, error) {
 					return model.VpcAttachmentListResult{
 						Results: []model.VpcAttachment{
-							{VpcConnectivityProfile: servicecommon.String("/orgs/default/projects/project-quality/vpc-connectivity-profiles/default"),
-								ParentPath: servicecommon.String("/orgs/default/projects/project-quality/vpcs/fake-vpc"),
-								Path:       servicecommon.String("/orgs/default/projects/project-quality/vpcs/fake-vpc/attachments/default")},
+							{
+								VpcConnectivityProfile: servicecommon.String("/orgs/default/projects/project-quality/vpc-connectivity-profiles/default"),
+								ParentPath:             servicecommon.String("/orgs/default/projects/project-quality/vpcs/fake-vpc"),
+								Path:                   servicecommon.String("/orgs/default/projects/project-quality/vpcs/fake-vpc/attachments/default"),
+							},
 						},
 					}, nil
 				})

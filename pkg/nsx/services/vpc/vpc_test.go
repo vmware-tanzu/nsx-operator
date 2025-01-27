@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -35,6 +36,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	nsxUtil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
@@ -270,15 +272,19 @@ func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
 			existingNames: []*v1.Namespace{
 				{
 					TypeMeta: metav1.TypeMeta{},
-					ObjectMeta: metav1.ObjectMeta{Name: "test-ns-1",
-						Annotations: map[string]string{"nsx.vmware.com/vpc_network_config": "default", "nsx.vmware.com/shared_vpc_namespace": "test-ns-2"}},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:        "test-ns-1",
+						Annotations: map[string]string{"nsx.vmware.com/vpc_network_config": "default", "nsx.vmware.com/shared_vpc_namespace": "test-ns-2"},
+					},
 					Spec:   v1.NamespaceSpec{},
 					Status: v1.NamespaceStatus{},
 				},
 				{
 					TypeMeta: metav1.TypeMeta{},
-					ObjectMeta: metav1.ObjectMeta{Name: "test-ns-2",
-						Annotations: map[string]string{"nsx.vmware.com/vpc_network_config": "default"}},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:        "test-ns-2",
+						Annotations: map[string]string{"nsx.vmware.com/vpc_network_config": "default"},
+					},
 					Spec:   v1.NamespaceSpec{},
 					Status: v1.NamespaceStatus{},
 				},
@@ -677,9 +683,11 @@ func TestEdgeClusterEnabled(t *testing.T) {
 	}
 
 	vpcConnPrfile := model.VpcConnectivityProfile{
-		ServiceGateway: &model.VpcServiceGatewayConfig{Enable: common.Bool(false),
+		ServiceGateway: &model.VpcServiceGatewayConfig{
+			Enable:    common.Bool(false),
 			NatConfig: &model.VpcNatConfig{EnableDefaultSnat: common.Bool(true)},
-		}}
+		},
+	}
 
 	patch := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVpcConnectivityProfile", func(_ *VPCService, _ *common.VPCNetworkConfigInfo, _ string) (*model.VpcConnectivityProfile, error) {
 		return &vpcConnPrfile, nil
@@ -1208,7 +1216,6 @@ func TestVPCService_RegisterVPCNetworkConfig(t *testing.T) {
 	got, exist := service.GetVPCNetworkConfig("fake-name")
 	assert.True(t, exist)
 	reflect.DeepEqual(got, info)
-
 }
 
 func TestVPCService_UnRegisterVPCNetworkConfig(t *testing.T) {
@@ -1237,11 +1244,9 @@ func TestVPCService_UnRegisterVPCNetworkConfig(t *testing.T) {
 	got, exist = service.GetVPCNetworkConfig("fake-name")
 	assert.False(t, exist)
 	assert.Equal(t, common.VPCNetworkConfigInfo{}, got)
-
 }
 
 func TestVPCService_RegisterNamespaceNetworkconfigBinding(t *testing.T) {
-
 	service, _, _ := createService(t)
 
 	info := common.VPCNetworkConfigInfo{
@@ -1261,11 +1266,9 @@ func TestVPCService_RegisterNamespaceNetworkconfigBinding(t *testing.T) {
 	reflect.DeepEqual(info, got)
 	got = service.GetVPCNetworkConfigByNamespace("non-exist")
 	assert.Nil(t, got)
-
 }
 
 func TestVPCService_UnRegisterNamespaceNetworkconfigBinding(t *testing.T) {
-
 	service, _, _ := createService(t)
 
 	info := common.VPCNetworkConfigInfo{
@@ -1288,7 +1291,6 @@ func TestVPCService_UnRegisterNamespaceNetworkconfigBinding(t *testing.T) {
 	service.UnRegisterNamespaceNetworkconfigBinding("fake-ns")
 	got = service.GetVPCNetworkConfigByNamespace("fake-ns")
 	assert.Nil(t, got)
-
 }
 
 func TestVPCService_GetNamespacesByNetworkconfigName(t *testing.T) {
@@ -1417,7 +1419,8 @@ func TestVPCService_DeleteVPC(t *testing.T) {
 			checkLBStore:  false,
 			checkVPCStore: false,
 		},
-		{name: "lb in store but vpc not",
+		{
+			name: "lb in store but vpc not",
 			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
 				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Delete", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{
@@ -1438,7 +1441,8 @@ func TestVPCService_DeleteVPC(t *testing.T) {
 			checkLBStore:  true,
 			checkVPCStore: false,
 		},
-		{name: "delete vpc store fail",
+		{
+			name: "delete vpc store fail",
 			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
 				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Delete", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{
@@ -1467,7 +1471,8 @@ func TestVPCService_DeleteVPC(t *testing.T) {
 			checkLBStore:  true,
 			checkVPCStore: false,
 		},
-		{name: "happy pass",
+		{
+			name: "happy pass",
 			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
 				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Delete", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{
@@ -1501,7 +1506,6 @@ func TestVPCService_DeleteVPC(t *testing.T) {
 	// nolint: copylocks
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
 			if tt.prepareFunc != nil {
 				patches := tt.prepareFunc(t, service)
 				defer patches.Reset()
@@ -1535,7 +1539,6 @@ func TestVPCService_DeleteVPC(t *testing.T) {
 				lb := service.LbsStore.GetByKey(mockLBKey)
 				assert.Nil(t, lb)
 			}
-
 		})
 	}
 }
@@ -2046,8 +2049,7 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 	}
 }
 
-type fakeOrgRootClient struct {
-}
+type fakeOrgRootClient struct{}
 
 func (f fakeOrgRootClient) Get(basePathParam *string, filterParam *string, typeFilterParam *string) (model.OrgRoot, error) {
 	return model.OrgRoot{}, nil
@@ -2057,8 +2059,7 @@ func (f fakeOrgRootClient) Patch(orgRootParam model.OrgRoot, enforceRevisionChec
 	return nil
 }
 
-type fakeRealizedEntitiesClient struct {
-}
+type fakeRealizedEntitiesClient struct{}
 
 func (f fakeRealizedEntitiesClient) List(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
 	state := model.GenericPolicyRealizedResource_STATE_REALIZED
@@ -2131,5 +2132,81 @@ func TestInitializeVPC(t *testing.T) {
 		assert.Equal(t, tc.expectVPCGetByIndex, len(res))
 		allVPCs := service.ListVPC()
 		assert.Equal(t, tc.expectAllVPCNum, len(allVPCs))
+	}
+}
+
+func TestGetNSXLBSNATIP(t *testing.T) {
+	vpcService := &VPCService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					UseAVILoadBalancer: false,
+					UseNSXLoadBalancer: ptr.To(true),
+				},
+			},
+			NSXClient: &nsx.Client{
+				Cluster: &nsx.Cluster{},
+			},
+		},
+		LbsStore: &LBSStore{ResourceStore: common.ResourceStore{
+			Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+			BindingType: model.LBServiceBindingType(),
+		}},
+	}
+
+	vpc1 := model.Vpc{
+		DisplayName: &vpcName1,
+		Id:          &vpcID1,
+		Path:        ptr.To("/orgs/default/projects/project-quality/vpcs/ns-vpc-uid-1"),
+	}
+
+	testCases := []struct {
+		name         string
+		vpc          model.Vpc
+		prepareFuncs func() *gomonkey.Patches
+		wantObj      string
+		wantErr      string
+	}{
+		{
+			name:    "Test normal case",
+			vpc:     vpc1,
+			wantObj: "100.64.0.3",
+			prepareFuncs: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).GetPolicyTier1UplinkPortIP,
+					func(_ *realizestate.RealizeStateService, _ string) (string, error) {
+						return "100.64.0.3", nil
+					})
+				return patches
+			},
+		},
+		{
+			name: "nsx lb uplink port IP not found error",
+			vpc:  vpc1,
+			prepareFuncs: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).GetPolicyTier1UplinkPortIP,
+					func(_ *realizestate.RealizeStateService, _ string) (string, error) {
+						return "", fmt.Errorf("fake-vpc tier1 uplink port IP not found")
+					})
+				return patches
+			},
+			wantErr: "tier1 uplink port IP not found",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if testCase.prepareFuncs != nil {
+				patches := testCase.prepareFuncs()
+				defer patches.Reset()
+			}
+
+			got, err := vpcService.GetNSXLBSNATIP(testCase.vpc)
+			if testCase.wantErr != "" {
+				assert.ErrorContains(t, err, testCase.wantErr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, testCase.wantObj, got)
+			}
+		})
 	}
 }
