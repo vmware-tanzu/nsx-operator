@@ -32,7 +32,7 @@ func InitializeRealizeState(service common.Service) *RealizeStateService {
 // CheckRealizeState allows the caller to check realize status of intentPath with retries.
 // Backoff defines the maximum retries and the wait interval between two retries.
 // Check all the entities, all entities should be in the REALIZED state to be treated as REALIZED
-func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, intentPath string, extraIds []string) error {
+func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, intentPath string, GPRRTypeList []nsxutil.GPRRType) error {
 	// TODO， ask NSX if there were multiple realize states could we check only the latest one?
 	return retry.OnError(backoff, func(err error) bool {
 		// Won't retry when realized state is `ERROR`.
@@ -44,12 +44,12 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 			return err
 		}
 		entitiesRealized := 0
-		extraIdsRealized := 0
+		gprrRealized := 0
 		for _, result := range results.Results {
 			if *result.State == model.GenericPolicyRealizedResource_STATE_REALIZED {
-				for _, id := range extraIds {
-					if *result.Id == id {
-						extraIdsRealized++
+				for _, gprr := range GPRRTypeList {
+					if *result.Id == gprr.Id && *result.EntityType == gprr.EntityType {
+						gprrRealized++
 					}
 				}
 				entitiesRealized++
@@ -69,8 +69,8 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 				return nsxutil.NewRealizeStateError(fmt.Sprintf("%s realized with errors: %s", intentPath, errMsg))
 			}
 		}
-		// extraIdsRealized can be greater than extraIds length as id is not unique in result list.
-		if len(results.Results) != 0 && entitiesRealized == len(results.Results) && extraIdsRealized >= len(extraIds) {
+		// gprrRealized can be greater than GPRRTypeList length as (id, entity_type) is not unique in result list.
+		if len(results.Results) != 0 && entitiesRealized == len(results.Results) && gprrRealized >= len(GPRRTypeList) {
 			return nil
 		}
 		return fmt.Errorf("%s not realized", intentPath)
