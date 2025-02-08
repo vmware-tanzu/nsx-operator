@@ -106,6 +106,7 @@ func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.V
 	ns := service.GetIPAddressAllocationNamespace(nsxIPAddressAllocation)
 	VPCInfo := service.VPCService.ListVPCInfo(ns)
 	if len(VPCInfo) == 0 {
+		log.Error(nil, "Failed to list VPCInfo for IPAddressAllocation")
 		err := util.NoEffectiveOption{Desc: "no valid org and project for ipaddressallocation"}
 		return err
 	}

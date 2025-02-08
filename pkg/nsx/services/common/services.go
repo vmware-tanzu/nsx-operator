@@ -13,15 +13,14 @@ import (
 // Using interface instead vpc service instance can prevent other service
 // calling method that should not be exposed.
 type VPCServiceProvider interface {
-	RegisterNamespaceNetworkconfigBinding(ns string, ncCRName string)
-	GetNamespacesByNetworkconfigName(nc string) []string
-	RegisterVPCNetworkConfig(ncCRName string, info VPCNetworkConfigInfo)
-	UnRegisterNamespaceNetworkconfigBinding(ns string)
-	GetVPCNetworkConfig(ncCRName string) (VPCNetworkConfigInfo, bool)
+	GetNamespacesByNetworkconfigName(nc string) ([]string, error)
+	UpdateDefaultNetworkConfig(vpcNetworkConfig *v1alpha1.VPCNetworkConfiguration) error
+	GetVPCNetworkConfig(ncCRName string) (*VPCNetworkConfigInfo, bool, error)
 	ValidateNetworkConfig(nc VPCNetworkConfigInfo) bool
-	GetVPCNetworkConfigByNamespace(ns string) *VPCNetworkConfigInfo
+	GetVPCNetworkConfigByNamespace(ns string) (*VPCNetworkConfigInfo, error)
 	GetDefaultNetworkConfig() (bool, *VPCNetworkConfigInfo)
 	ListVPCInfo(ns string) []VPCResourceInfo
+	GetNetworkconfigNameFromAnnotation(ns string, annos map[string]string) (string, error)
 }
 
 type SubnetServiceProvider interface {

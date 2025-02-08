@@ -69,12 +69,6 @@ func createService(t *testing.T) (*vpc.VPCService, *gomock.Controller, *mocks.Mo
 			},
 		},
 		VpcStore: vpcStore,
-		VPCNetworkConfigStore: vpc.VPCNetworkInfoStore{
-			VPCNetworkConfigMap: map[string]common.VPCNetworkConfigInfo{},
-		},
-		VPCNSNetworkConfigStore: vpc.VPCNsNetworkConfigStore{
-			VPCNSNetworkConfigMap: map[string]string{},
-		},
 	}
 	return service, mockCtrl, mockVpcclient
 }

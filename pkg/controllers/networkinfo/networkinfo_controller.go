@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -30,7 +31,8 @@ import (
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 const (
@@ -159,9 +161,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	r.StatusUpdater.IncreaseUpdateTotal()
-	// TODO:
-	// 1. check whether the logic to get VPC network config can be replaced by GetVPCNetworkConfigByNamespace
-	// 2. sometimes the variable nc points to a VPCNetworkInfo, sometimes it's a VPCNetworkConfiguration, we need to distinguish between them.
+
 	nc, err := r.getNetworkConfigInfo(ctx, networkInfoCR)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "", setNetworkInfoVPCStatusWithError, nil)
@@ -194,7 +194,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 
 		// Re-check the gateway connection readiness in system VPC on NSX.
-		gatewayConnectionReady, gatewayConnectionReason, err = r.Service.ValidateGatewayConnectionStatus(&nc)
+		gatewayConnectionReady, gatewayConnectionReason, err = r.Service.ValidateGatewayConnectionStatus(nc)
 		log.Info("Got the gateway connection status", "gatewayConnectionReady", gatewayConnectionReady, "gatewayConnectionReason", gatewayConnectionReason)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to validate the edge and gateway connection, Org: %s, Porject: %s", nc.Org, nc.NSXProject), setNetworkInfoVPCStatusWithError, nil)
@@ -211,8 +211,12 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
-	lbProvider := r.Service.GetLBProvider()
-	createdVpc, err := r.Service.CreateOrUpdateVPC(ctx, networkInfoCR, &nc, lbProvider)
+	lbProvider, err := r.Service.GetLBProvider()
+	if err != nil {
+		log.Error(err, "Failed to get LB Provider")
+		return common.ResultRequeue, nil
+	}
+	createdVpc, err := r.Service.CreateOrUpdateVPC(ctx, networkInfoCR, nc, lbProvider)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to create or update VPC", setNetworkInfoVPCStatusWithError, nil)
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
@@ -222,7 +226,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	var privateIPs []string
 	var vpcConnectivityProfilePath string
 	var nsxLBSPath string
-	isPreCreatedVPC := vpc.IsPreCreatedVPC(nc)
+	isPreCreatedVPC := vpc.IsPreCreatedVPC(*nc)
 	if isPreCreatedVPC {
 		privateIPs = createdVpc.PrivateIps
 		vpcPath := *createdVpc.Path
@@ -254,7 +258,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	snatIP, path, cidr := "", "", ""
 
-	vpcConnectivityProfile, err := r.Service.GetVpcConnectivityProfile(&nc, vpcConnectivityProfilePath)
+	vpcConnectivityProfile, err := r.Service.GetVpcConnectivityProfile(nc, vpcConnectivityProfilePath)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to get VPC connectivity profile", setNetworkInfoVPCStatusWithError, nil)
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCGetExtIPBlockError.getNSNetworkCondition(err))
@@ -362,7 +366,7 @@ func (r *NetworkInfoReconciler) setupWithManager(mgr ctrl.Manager) error {
 
 // Start setup manager and launch GC
 func (r *NetworkInfoReconciler) Start(mgr ctrl.Manager) error {
-	err := r.RegisterAllNetworkInfo(context.Background())
+	err := r.updateDefaultNetworkConfig(context.Background())
 	if err != nil {
 		return err
 	}
@@ -377,24 +381,22 @@ func (r *NetworkInfoReconciler) Start(mgr ctrl.Manager) error {
 	return nil
 }
 
-func (r *NetworkInfoReconciler) RegisterAllNetworkInfo(ctx context.Context) error {
-	log.Info("Register all NetworkConfigurations")
+func (r *NetworkInfoReconciler) updateDefaultNetworkConfig(ctx context.Context) error {
+	log.Info("Update default network config")
 	var networkConfigList v1alpha1.VPCNetworkConfigurationList
 	if err := r.Client.List(ctx, &networkConfigList); err != nil {
 		log.Error(err, "Failed to list VPCNetworkConfigurations")
 		return err
 	}
 	for _, nconfig := range networkConfigList.Items {
-		vname := nconfig.GetName()
-		ninfo, err := buildNetworkConfigInfo(nconfig)
+		err := r.Service.UpdateDefaultNetworkConfig(&nconfig)
 		if err != nil {
-			log.Error(err, "build network config failed", "NetworkConfigInfo", vname)
+			log.Error(err, "Failed to build network config", "NetworkConfig", nconfig)
 			return err
 		}
-		r.Service.RegisterVPCNetworkConfig(vname, *ninfo)
-		log.Info("Create network config and update to map", "NetworkConfigInfo", ninfo)
+		log.Info("Update default network config", "NetworkConfig", nconfig.Name)
 	}
-	log.Info("Register all NetworkConfigurations successfully")
+	log.Info("Update default network config")
 	return nil
 }
 
@@ -505,22 +507,28 @@ func (r *NetworkInfoReconciler) deleteVPCs(ctx context.Context, staleVPCs []*mod
 	if len(deleteErrs) > 0 {
 		return fmt.Errorf("multiple errors occurred while deleting VPCs: %v", deleteErrs)
 	}
-
 	// Update the VPCNetworkConfiguration Status
-	vpcNetConfig := r.Service.GetVPCNetworkConfigByNamespace(ns)
+	vpcNetConfig, err := r.Service.GetVPCNetworkConfigByNamespace(ns)
+	if err != nil {
+		log.Error(err, "Failed to get VPCNetworkConfig", "Namespace", ns)
+		return nil
+	}
 	if vpcNetConfig != nil {
 		updateVPCNetworkConfigurationStatusWithAliveVPCs(ctx, r.Client, vpcNetConfig.Name, r.listVPCsByNetworkConfigName)
 	}
 	return nil
 }
 
-func (r *NetworkInfoReconciler) listVPCsByNetworkConfigName(ncName string) []*model.Vpc {
-	namespacesUsingNC := r.Service.GetNamespacesByNetworkconfigName(ncName)
+func (r *NetworkInfoReconciler) listVPCsByNetworkConfigName(ncName string) ([]*model.Vpc, error) {
 	aliveVPCs := make([]*model.Vpc, 0)
+	namespacesUsingNC, err := r.Service.GetNamespacesByNetworkconfigName(ncName)
+	if err != nil {
+		return aliveVPCs, err
+	}
 	for _, namespace := range namespacesUsingNC {
 		aliveVPCs = append(aliveVPCs, r.Service.GetVPCsByNamespace(namespace)...)
 	}
-	return aliveVPCs
+	return aliveVPCs, nil
 }
 
 func (r *NetworkInfoReconciler) syncPreCreatedVpcIPs(ctx context.Context) {
@@ -540,41 +548,52 @@ func (r *NetworkInfoReconciler) syncPreCreatedVpcIPs(ctx context.Context) {
 	// Read all VPCs from NSX. Note, we can't use the cached VPC from local store for pre-created VPC case.
 	vpcPathMap := r.Service.GetAllVPCsFromNSX()
 
-	for ns, vpcPath := range r.Service.GetNamespacesWithPreCreatedVPCs() {
-		// Continue if no NetworkInfo exists in the Namespace.
-		netInfo, found := networkInfoMap[ns]
-		if !found {
-			continue
+	retry.OnError(util.K8sClientRetry, func(err error) bool {
+		return err != nil
+	}, func() error {
+		nsVpcMap, err := r.Service.GetNamespacesWithPreCreatedVPCs()
+		if err != nil {
+			return err
 		}
 
-		// Note: we don't process the case in this routine if VPC is not ready in a NetworkInfo. The reconciler
-		// shall handle this case.
-		if len(netInfo.VPCs) == 0 {
-			continue
-		}
+		for ns, vpcPath := range nsVpcMap {
+			// Continue if no NetworkInfo exists in the Namespace.
+			netInfo, found := networkInfoMap[ns]
+			if !found {
+				continue
+			}
 
-		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      netInfo.Name,
-				Namespace: netInfo.Namespace,
-			},
-		}
+			// Note: we don't process the case in this routine if VPC is not ready in a NetworkInfo. The reconciler
+			// shall handle this case.
+			if len(netInfo.VPCs) == 0 {
+				continue
+			}
 
-		preVPC, found := vpcPathMap[vpcPath]
-		if !found {
-			// Notify Reconciler that the pre-created VPC does not exit.
-			r.queue.Add(req)
-			continue
-		}
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      netInfo.Name,
+					Namespace: netInfo.Namespace,
+				},
+			}
 
-		vpcState := netInfo.VPCs[0]
-		if !util.CompareArraysWithoutOrder(preVPC.PrivateIps, vpcState.PrivateIPs) {
-			// Notify Reconciler that the pre-created VPC has changed private IPs.
-			r.queue.Add(req)
-			continue
+			preVPC, found := vpcPathMap[vpcPath]
+			if !found {
+				// Notify Reconciler that the pre-created VPC does not exit.
+				r.queue.Add(req)
+				continue
+			}
+
+			vpcState := netInfo.VPCs[0]
+			if !nsxutil.CompareArraysWithoutOrder(preVPC.PrivateIps, vpcState.PrivateIPs) {
+				// Notify Reconciler that the pre-created VPC has changed private IPs.
+				r.queue.Add(req)
+				continue
+			}
+			// TODO: add the check on SNAT IP changed, and LB type changed in future if needed.
 		}
-		// TODO: add the check on SNAT IP changed, and LB type changed in future if needed.
-	}
+		return nil
+	})
+
 }
 
 func (r *NetworkInfoReconciler) getQueue(controllerName string, rateLimiter workqueue.TypedRateLimiter[reconcile.Request]) workqueue.TypedRateLimitingInterface[reconcile.Request] {
@@ -586,16 +605,20 @@ func (r *NetworkInfoReconciler) getQueue(controllerName string, rateLimiter work
 	return r.queue
 }
 
-func (r *NetworkInfoReconciler) getNetworkConfigInfo(ctx context.Context, networkInfoCR *v1alpha1.NetworkInfo) (commonservice.VPCNetworkConfigInfo, error) {
+func (r *NetworkInfoReconciler) getNetworkConfigInfo(ctx context.Context, networkInfoCR *v1alpha1.NetworkInfo) (*commonservice.VPCNetworkConfigInfo, error) {
 	ncName, err := r.Service.GetNetworkconfigNameFromNS(ctx, networkInfoCR.Namespace)
 	if err != nil {
 		log.Error(err, "Failed to get network config name for VPC when creating NSX VPC", "NetworkInfo", networkInfoCR.Name)
-		return commonservice.VPCNetworkConfigInfo{}, err
+		return nil, err
 	}
-	nc, _exist := r.Service.GetVPCNetworkConfig(ncName)
+	nc, _exist, err := r.Service.GetVPCNetworkConfig(ncName)
+	if err != nil {
+		log.Error(err, "Failed to get VPCNetworkConfig", "Name", ncName)
+		return nil, err
+	}
 	if !_exist {
 		log.Error(nil, fmt.Sprintf("network config %s does not exist when creating NSX VPC", ncName))
-		return commonservice.VPCNetworkConfigInfo{}, fmt.Errorf("VPCNetworkConfig %s not found", ncName)
+		return nil, fmt.Errorf("VPCNetworkConfig %s not found", ncName)
 	}
 	return nc, nil
 }
