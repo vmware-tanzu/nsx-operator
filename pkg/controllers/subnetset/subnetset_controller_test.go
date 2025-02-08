@@ -152,9 +152,8 @@ func TestReconcile(t *testing.T) {
 		patches      func(r *SubnetSetReconciler) *gomonkey.Patches
 	}{
 		{
-			name:         "Create a SubnetSet with find VPCNetworkConfig error",
-			expectRes:    ResultRequeue,
-			expectErrStr: "failed to find VPCNetworkConfig for Namespace",
+			name:      "Create a SubnetSet with find VPCNetworkConfig error",
+			expectRes: ResultRequeue,
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
 					return []v1alpha1.SubnetConnectionBindingMap{}
@@ -167,8 +166,8 @@ func TestReconcile(t *testing.T) {
 			expectRes: ResultNormal,
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
 				vpcnetworkInfo := &common.VPCNetworkConfigInfo{DefaultSubnetSize: 32}
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) *common.VPCNetworkConfigInfo {
-					return vpcnetworkInfo
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*common.VPCNetworkConfigInfo, error) {
+					return vpcnetworkInfo, nil
 				})
 
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
@@ -192,8 +191,8 @@ func TestReconcile(t *testing.T) {
 			expectErrStr: "",
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
 				vpcnetworkInfo := &common.VPCNetworkConfigInfo{DefaultSubnetSize: 32}
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) *common.VPCNetworkConfigInfo {
-					return vpcnetworkInfo
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*common.VPCNetworkConfigInfo, error) {
+					return vpcnetworkInfo, nil
 				})
 
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
@@ -222,8 +221,8 @@ func TestReconcile(t *testing.T) {
 			expectErrStr: "",
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
 				vpcnetworkInfo := &common.VPCNetworkConfigInfo{DefaultSubnetSize: 32}
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) *common.VPCNetworkConfigInfo {
-					return vpcnetworkInfo
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*common.VPCNetworkConfigInfo, error) {
+					return vpcnetworkInfo, nil
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []*v1alpha1.SubnetConnectionBindingMap {
 					return []*v1alpha1.SubnetConnectionBindingMap{}
@@ -256,8 +255,8 @@ func TestReconcile(t *testing.T) {
 			expectErrStr: "",
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
 				vpcnetworkInfo := &common.VPCNetworkConfigInfo{DefaultSubnetSize: 32}
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) *common.VPCNetworkConfigInfo {
-					return vpcnetworkInfo
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*common.VPCNetworkConfigInfo, error) {
+					return vpcnetworkInfo, nil
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
 					return []v1alpha1.SubnetConnectionBindingMap{}

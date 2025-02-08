@@ -2,11 +2,7 @@ package networkinfo
 
 import (
 	"context"
-	"errors"
 	"reflect"
-	"strconv"
-	"strings"
-	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
@@ -17,10 +13,6 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	commontypes "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-)
-
-var (
-	retryInterval = 10 * time.Second
 )
 
 // VPCNetworkConfigurationHandler handles VPC NetworkConfiguration event, and reconcile VPC event:
@@ -37,30 +29,16 @@ type VPCNetworkConfigurationHandler struct {
 func (h *VPCNetworkConfigurationHandler) Create(ctx context.Context, e event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	vpcConfigCR := e.Object.(*v1alpha1.VPCNetworkConfiguration)
 	vname := vpcConfigCR.GetName()
-	ninfo, err := buildNetworkConfigInfo(*vpcConfigCR)
-	if err != nil {
-		log.Error(err, "Processing network config add event failed")
-		return
-	}
-	log.Info("Create network config and update to store", "NetworkConfigInfo", ninfo)
-	h.vpcService.RegisterVPCNetworkConfig(vname, *ninfo)
 	// Update IPBlocks info
-	if err = h.ipBlocksInfoService.UpdateIPBlocksInfo(ctx, vpcConfigCR); err != nil {
+	if err := h.ipBlocksInfoService.UpdateIPBlocksInfo(ctx, vpcConfigCR); err != nil {
 		log.Error(err, "Failed to update the IPBlocksInfo", "VPCNetworkConfiguration", vname)
 	}
 }
 
-func (h *VPCNetworkConfigurationHandler) Delete(ctx context.Context, e event.DeleteEvent, w workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *VPCNetworkConfigurationHandler) Delete(ctx context.Context, e event.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	vpcConfigCR := e.Object.(*v1alpha1.VPCNetworkConfiguration)
 	if err := h.ipBlocksInfoService.SyncIPBlocksInfo(ctx); err != nil {
 		log.Error(err, "failed to synchronize IPBlocksInfo when deleting %s", vpcConfigCR.Name)
-		req := reconcile.Request{
-			NamespacedName: client.ObjectKey{
-				Name:      e.Object.GetName(),
-				Namespace: e.Object.GetNamespace(),
-			},
-		}
-		w.AddAfter(req, retryInterval)
 	} else {
 		h.ipBlocksInfoService.ResetPeriodicSync()
 	}
@@ -71,24 +49,20 @@ func (h *VPCNetworkConfigurationHandler) Generic(_ context.Context, _ event.Gene
 }
 
 func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	log.V(1).Info("Start processing VPC network config update event")
+	log.V(1).Info("Start processing VPC NetworkConfig update event")
 	newNc := e.ObjectNew.(*v1alpha1.VPCNetworkConfiguration)
 
 	oldNc := e.ObjectOld.(*v1alpha1.VPCNetworkConfiguration)
 	if reflect.DeepEqual(oldNc.Spec, newNc.Spec) {
-		log.Info("Skip processing VPC network config update event", "newNc", newNc, "oldNc", oldNc)
+		log.Info("Skip processing VPC NetworkConfig update event", "newNc", newNc, "oldNc", oldNc)
 		return
 	}
 
-	// update network config info in store
-	info, err := buildNetworkConfigInfo(*newNc)
+	nss, err := h.vpcService.GetNamespacesByNetworkconfigName(newNc.Name)
 	if err != nil {
-		log.Error(err, "Failed to process network config update event")
+		log.Error(err, "Failed to get Namespaces with NetworkConfig", "VPCNetworkConfig", newNc.Name)
 		return
 	}
-	h.vpcService.RegisterVPCNetworkConfig(newNc.Name, *info)
-
-	nss := h.vpcService.GetNamespacesByNetworkconfigName(newNc.Name)
 	for _, ns := range nss {
 		networkInfos := &v1alpha1.NetworkInfoList{}
 		err := h.Client.List(ctx, networkInfos, client.InNamespace(ns))
@@ -98,7 +72,7 @@ func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.Upd
 		}
 
 		for _, networkInfo := range networkInfos.Items {
-			log.Info("Requeue NetworkInfo CR due to modifying network config CR", "NetworkInfo", networkInfo.Name, "Namespace", ns, "NetworkConfig", newNc.Name)
+			log.Info("Requeue NetworkInfo CR due to modifying NetworkConfig CR", "NetworkInfo", networkInfo.Name, "Namespace", ns, "NetworkConfig", newNc.Name)
 			q.Add(reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      networkInfo.Name,
@@ -122,48 +96,4 @@ var VPCNetworkConfigurationPredicate = predicate.Funcs{
 	GenericFunc: func(genericEvent event.GenericEvent) bool {
 		return false
 	},
-}
-
-func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*commontypes.VPCNetworkConfigInfo, error) {
-	org, project, err := nsxProjectPathToId(vpcConfigCR.Spec.NSXProject)
-	if err != nil {
-		log.Error(err, "failed to parse NSX project in network config", "Project Path", vpcConfigCR.Spec.NSXProject)
-		return nil, err
-	}
-
-	ninfo := &commontypes.VPCNetworkConfigInfo{
-		IsDefault:              isDefaultNetworkConfigCR(vpcConfigCR),
-		Org:                    org,
-		Name:                   vpcConfigCR.Name,
-		VPCConnectivityProfile: vpcConfigCR.Spec.VPCConnectivityProfile,
-		NSXProject:             project,
-		PrivateIPs:             vpcConfigCR.Spec.PrivateIPs,
-		DefaultSubnetSize:      vpcConfigCR.Spec.DefaultSubnetSize,
-		VPCPath:                vpcConfigCR.Spec.VPC,
-	}
-	return ninfo, nil
-}
-
-func isDefaultNetworkConfigCR(vpcConfigCR v1alpha1.VPCNetworkConfiguration) bool {
-	annos := vpcConfigCR.GetAnnotations()
-	val, exist := annos[commontypes.AnnotationDefaultNetworkConfig]
-	if exist {
-		boolVar, err := strconv.ParseBool(val)
-		if err != nil {
-			log.Error(err, "failed to parse annotation to check default NetworkConfig", "Annotation", annos[commontypes.AnnotationDefaultNetworkConfig])
-			return false
-		}
-		return boolVar
-	}
-	return false
-}
-
-// parse org id and project id from nsxProject path
-// example /orgs/default/projects/nsx_operator_e2e_test
-func nsxProjectPathToId(path string) (string, string, error) {
-	parts := strings.Split(path, "/")
-	if len(parts) < 4 {
-		return "", "", errors.New("invalid NSX project path")
-	}
-	return parts[2], parts[len(parts)-1], nil
 }

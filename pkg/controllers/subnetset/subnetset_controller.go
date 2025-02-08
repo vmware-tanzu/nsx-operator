@@ -126,11 +126,15 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		specChanged = true
 	}
 	if subnetsetCR.Spec.IPv4SubnetSize == 0 {
-		vpcNetworkConfig := r.VPCService.GetVPCNetworkConfigByNamespace(subnetsetCR.Namespace)
+		vpcNetworkConfig, err := r.VPCService.GetVPCNetworkConfigByNamespace(subnetsetCR.Namespace)
+		if err != nil {
+			log.Error(err, "Failed to get VPCNetworkConfig", "Namespace", subnetsetCR.Namespace)
+			return ResultRequeue, nil
+		}
 		if vpcNetworkConfig == nil {
-			err := fmt.Errorf("failed to find VPCNetworkConfig for Namespace %s", subnetsetCR.Namespace)
+			err := fmt.Errorf("Failed to find VPCNetworkConfig for Namespace %s", subnetsetCR.Namespace)
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "", setSubnetSetReadyStatusFalse)
-			return ResultRequeue, err
+			return ResultRequeue, nil
 		}
 		subnetsetCR.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
 		specChanged = true
