@@ -8,17 +8,22 @@ import (
 	"errors"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	nsxvmwarecomv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 
@@ -27,6 +32,73 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
+)
+
+const proxyLabelKey = "mgmt-proxy.antrea-nsx.vmware.com"
+
+var (
+	proxyServicePred = predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldObj := e.ObjectOld.(*corev1.Service)
+			newObj := e.ObjectNew.(*corev1.Service)
+
+			newLabels := e.ObjectNew.GetLabels()
+			oldLabels := e.ObjectOld.GetLabels()
+			_, oldObjHasLabel := oldLabels[proxyLabelKey]
+			_, newObjHasLabel := newLabels[proxyLabelKey]
+
+			// Reconcile all NSXSA if label "mgmt-proxy.antrea-nsx.vmware.com" added to or removed from existing Service
+			if oldObjHasLabel != newObjHasLabel {
+				return true
+			}
+
+			// Reconcile all NSXSA if existing Service with label "mgmt-proxy.antrea-nsx.vmware.com" is updated with Service LB VIP
+			if oldObjHasLabel && newObjHasLabel {
+				// Service type updated to LB
+				if oldObj.Spec.Type != corev1.ServiceTypeLoadBalancer && newObj.Spec.Type == corev1.ServiceTypeLoadBalancer {
+					return true
+				}
+				// Service type changed from LB to some other type
+				if oldObj.Spec.Type == corev1.ServiceTypeLoadBalancer && newObj.Spec.Type != corev1.ServiceTypeLoadBalancer {
+					return true
+				}
+				// Service LB VIP updated
+				if oldObj.Spec.Type == corev1.ServiceTypeLoadBalancer && newObj.Spec.Type == corev1.ServiceTypeLoadBalancer {
+					if len(oldObj.Status.LoadBalancer.Ingress) != len(newObj.Status.LoadBalancer.Ingress) {
+						return true
+					}
+					for i := range newObj.Status.LoadBalancer.Ingress {
+						if oldObj.Status.LoadBalancer.Ingress[i].IP != newObj.Status.LoadBalancer.Ingress[i].IP {
+							return true
+						}
+					}
+				}
+			}
+			return false
+		},
+
+		// Allow create events for Service with label "mgmt-proxy.antrea-nsx.vmware.com"
+		CreateFunc: func(e event.CreateEvent) bool {
+			labels := e.Object.GetLabels()
+			if _, ok := labels[proxyLabelKey]; ok {
+				return true
+			}
+			return false
+		},
+
+		// Allow delete events for Service with label "mgmt-proxy.antrea-nsx.vmware.com"
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			labels := e.Object.GetLabels()
+			if _, ok := labels[proxyLabelKey]; ok {
+				return true
+			}
+			return false
+		},
+
+		GenericFunc: func(genericEvent event.GenericEvent) bool {
+			return false
+		},
+	}
 )
 
 var (
@@ -104,7 +176,12 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 					return ResultRequeue, err
 				}
 			}
-			r.StatusUpdater.IncreaseDeleteSuccessTotal()
+			// update ProxyEndpoints if it has changed.
+			if err := r.Service.UpdateProxyEndpointsIfNeeded(ctx, obj); err != nil {
+				r.StatusUpdater.UpdateFail(ctx, obj, err, "", updateNSXServiceAccountStatuswithError)
+				return ResultRequeue, err
+			}
+			r.StatusUpdater.UpdateSuccess(ctx, obj, updateNSXServiceAccountStatus)
 			return ResultNormal, nil
 		}
 		if err := r.Service.CreateOrUpdateNSXServiceAccount(ctx, obj); err != nil {
@@ -152,7 +229,38 @@ func (r *NSXServiceAccountReconciler) setupWithManager(mgr ctrl.Manager) error {
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
+		Watches(
+			&corev1.Service{},
+			handler.EnqueueRequestsFromMapFunc(r.serviceMapFunc),
+			builder.WithPredicates(proxyServicePred),
+		).
 		Complete(r)
+}
+
+func (r *NSXServiceAccountReconciler) serviceMapFunc(ctx context.Context, _ client.Object) []reconcile.Request {
+	var requests []reconcile.Request
+	nsxServiceAccountList := &nsxvmwarecomv1alpha1.NSXServiceAccountList{}
+
+	err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+		return err != nil
+	}, func() error {
+		err := r.Client.List(ctx, nsxServiceAccountList)
+		return err
+	})
+	if err != nil {
+		log.Error(err, "failed to list NSXServiceAccount in Service handler")
+		return requests
+	}
+
+	for _, nsxserviceaccount := range nsxServiceAccountList.Items {
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Namespace: nsxserviceaccount.GetNamespace(),
+				Name:      nsxserviceaccount.GetName(),
+			},
+		})
+	}
+	return requests
 }
 
 // Start setup manager and launch GC

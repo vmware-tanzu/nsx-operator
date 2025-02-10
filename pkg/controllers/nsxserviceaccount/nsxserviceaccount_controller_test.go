@@ -22,7 +22,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	controllerruntime "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	nsxvmwarecomv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 
@@ -235,6 +237,10 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					nsxVersion := &nsx.NsxVersion{NodeVersion: "4.0.1"}
 					return nsxVersion, nil
 				})
+				patches.ApplyMethodSeq(r.Service, "UpdateProxyEndpointsIfNeeded", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
 				return patches
 			},
 			args:    requestArgs,
@@ -245,7 +251,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Namespace:       requestArgs.req.Namespace,
 					Name:            requestArgs.req.Name,
 					Finalizers:      []string{servicecommon.NSXServiceAccountFinalizerName},
-					ResourceVersion: "2",
+					ResourceVersion: "3",
 				},
 				Spec: nsxvmwarecomv1alpha1.NSXServiceAccountSpec{},
 				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
@@ -976,4 +982,46 @@ func TestNSXServiceAccountReconciler_validateRealized(t *testing.T) {
 			assert.Equalf(t, tt.want1, got1, "validateRealized(%v, %v, %v)", tt.args.count, tt.args.ca, tt.args.nsxServiceAccountList)
 		})
 	}
+}
+
+func TestNSXServiceAccountReconciler_serviceMapFunc(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	r := &NSXServiceAccountReconciler{
+		Client: k8sClient,
+	}
+	nsxServiceAccountList := &nsxvmwarecomv1alpha1.NSXServiceAccountList{}
+	k8sClient.EXPECT().List(gomock.Any(), nsxServiceAccountList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+		a := list.(*nsxvmwarecomv1alpha1.NSXServiceAccountList)
+		a.Items = append(a.Items, nsxvmwarecomv1alpha1.NSXServiceAccount{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "ns-1",
+				Name:      "nsxsa-1",
+			},
+		},
+			nsxvmwarecomv1alpha1.NSXServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns-2",
+					Name:      "nsxsa-2",
+				},
+			})
+		return nil
+	})
+	requests := r.serviceMapFunc(context.TODO(), nil)
+	assert.Equal(t, 2, len(requests))
+	assert.Equal(t, []reconcile.Request{
+		{
+			NamespacedName: types.NamespacedName{
+				Name:      "nsxsa-1",
+				Namespace: "ns-1",
+			},
+		},
+		{
+			NamespacedName: types.NamespacedName{
+				Name:      "nsxsa-2",
+				Namespace: "ns-2",
+			},
+		},
+	}, requests)
 }

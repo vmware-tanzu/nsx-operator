@@ -2111,3 +2111,106 @@ func TestIsNSXServiceAccountRealized(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateProxyEndpointsIfNeeded(t *testing.T) {
+	tests := []struct {
+		name                   string
+		nsxServiceAccount      *v1alpha1.NSXServiceAccount
+		prepareFunc            func(*testing.T, *NSXServiceAccountService, context.Context)
+		expectedProxyEndpoints v1alpha1.NSXProxyEndpoint
+	}{
+		{
+			name: "update nsx service account with proxy endpoints",
+			nsxServiceAccount: &v1alpha1.NSXServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nsxsa1",
+					Namespace: "ns1",
+				},
+				Status: v1alpha1.NSXServiceAccountStatus{
+					Phase: v1alpha1.NSXServiceAccountPhaseRealized,
+					ProxyEndpoints: v1alpha1.NSXProxyEndpoint{
+						Addresses: []v1alpha1.NSXProxyEndpointAddress{
+							{
+								IP: "1.2.3.4",
+							},
+						},
+						Ports: []v1alpha1.NSXProxyEndpointPort{
+							{
+								Name:     "rest-api",
+								Port:     10081,
+								Protocol: "TCP",
+							},
+							{
+								Name:     "nsx-rpc-fwd-proxy",
+								Protocol: "TCP",
+								Port:     10082,
+							},
+						},
+					},
+				},
+			},
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, c context.Context) {
+				svc := &v1.Service{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "with-label",
+						Namespace: "any",
+						Labels:    map[string]string{"mgmt-proxy.antrea-nsx.vmware.com": "", "dummy": "dummy"},
+					},
+					Spec: v1.ServiceSpec{
+						Ports: []v1.ServicePort{
+							{
+								Name:     "rest-api",
+								Protocol: "TCP",
+								Port:     10081,
+							},
+							{
+								Name:     "nsx-rpc-fwd-proxy",
+								Protocol: "TCP",
+								Port:     10082,
+							},
+						},
+						Type: v1.ServiceTypeLoadBalancer,
+					},
+					Status: v1.ServiceStatus{
+						LoadBalancer: v1.LoadBalancerStatus{
+							Ingress: []v1.LoadBalancerIngress{{IP: "1.2.3.5"}},
+						},
+					},
+				}
+				assert.NoError(t, s.Client.Create(c, svc))
+			},
+			expectedProxyEndpoints: v1alpha1.NSXProxyEndpoint{
+				Addresses: []v1alpha1.NSXProxyEndpointAddress{
+					{
+						IP: "1.2.3.5",
+					},
+				},
+				Ports: []v1alpha1.NSXProxyEndpointPort{
+					{
+						Name:     "rest-api",
+						Port:     10081,
+						Protocol: "TCP",
+					},
+					{
+						Name:     "nsx-rpc-fwd-proxy",
+						Protocol: "TCP",
+						Port:     10082,
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.TODO()
+			commonService := newFakeCommonService()
+			s := &NSXServiceAccountService{Service: commonService}
+			assert.NoError(t, s.Client.Create(ctx, tt.nsxServiceAccount))
+			tt.prepareFunc(t, s, ctx)
+
+			err := s.UpdateProxyEndpointsIfNeeded(ctx, tt.nsxServiceAccount)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedProxyEndpoints, tt.nsxServiceAccount.Status.ProxyEndpoints)
+		})
+	}
+}
