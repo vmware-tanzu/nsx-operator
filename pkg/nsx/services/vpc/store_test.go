@@ -268,7 +268,7 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 
 func Test_keyFunc(t *testing.T) {
 	id := "test_id"
-	vpcPath := fmt.Sprintf(VPCKey, "fake-org", "fake-project", "fake-vpc-id")
+	vpcPath := fmt.Sprintf(common.VPCKey, "fake-org", "fake-project", "fake-vpc-id")
 	type args struct {
 		obj interface{}
 	}

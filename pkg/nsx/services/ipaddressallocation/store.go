@@ -88,3 +88,22 @@ func (ipAddressAllocationStore *IPAddressAllocationStore) GetByIndex(uid types.U
 	}
 	return nsxIPAddressAllocation, nil
 }
+
+func (ipAddressAllocationStore *IPAddressAllocationStore) GetByVPCPath(vpcPath string) ([]*model.VpcIpAddressAllocation, error) {
+	objs, err := ipAddressAllocationStore.ResourceStore.ByIndex(common.IndexByVPCPathFuncKey, vpcPath)
+	if err != nil {
+		return nil, err
+	}
+	allocations := make([]*model.VpcIpAddressAllocation, len(objs))
+	for i, obj := range objs {
+		allocation := obj.(*model.VpcIpAddressAllocation)
+		allocations[i] = allocation
+	}
+	return allocations, nil
+}
+
+func (ipAddressAllocationStore *IPAddressAllocationStore) DeleteMultipleObjects(allocations []*model.VpcIpAddressAllocation) {
+	for _, allocation := range allocations {
+		ipAddressAllocationStore.Delete(allocation)
+	}
+}
