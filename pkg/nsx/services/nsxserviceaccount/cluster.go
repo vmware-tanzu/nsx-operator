@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -571,4 +572,16 @@ func IsNSXServiceAccountRealized(status *v1alpha1.NSXServiceAccountStatus) bool 
 		}
 	}
 	return status.Phase == v1alpha1.NSXServiceAccountPhaseRealized
+}
+
+func (s *NSXServiceAccountService) UpdateProxyEndpointsIfNeeded(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
+	proxyEndpoints, err := s.getProxyEndpoints(ctx)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(proxyEndpoints, obj.Status.ProxyEndpoints) {
+		obj.Status.ProxyEndpoints = proxyEndpoints
+		return s.Client.Status().Update(ctx, obj)
+	}
+	return nil
 }
