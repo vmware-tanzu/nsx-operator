@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"reflect"
-	"strings"
 
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -51,12 +50,7 @@ func (r *StaticRouteReconciler) deleteStaticRouteByName(ns, name string) error {
 	nsxStaticRoutes := r.Service.ListStaticRouteByName(ns, name)
 	for _, item := range nsxStaticRoutes {
 		log.Info("Deleting StaticRoute", "Namespace", ns, "Name", name, "nsxStaticRouteId", *item.Id)
-		vpcInfo, err := commonservice.ParseVPCResourcePath(*item.Path)
-		if err != nil {
-			log.Error(err, "Failed to parse NSX VPC path for StaticRoute", "path", *item.Path)
-			return err
-		}
-		if err := r.Service.DeleteStaticRouteByPath(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *item.Id); err != nil {
+		if err := r.Service.DeleteStaticRoute(item); err != nil {
 			log.Error(err, "Failed to delete StaticRoute", "nsxStaticRouteId", *item.Id)
 			return err
 		}
@@ -97,7 +91,7 @@ func (r *StaticRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		r.StatusUpdater.UpdateSuccess(ctx, obj, setStaticRouteReadyStatusTrue)
 	} else {
 		r.StatusUpdater.IncreaseDeleteTotal()
-		if err := r.Service.DeleteStaticRoute(obj); err != nil {
+		if err := r.Service.DeleteStaticRouteByCR(obj); err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
 			return ResultRequeue, err
 		}
@@ -226,9 +220,7 @@ func (r *StaticRouteReconciler) CollectGarbage(ctx context.Context) {
 
 		log.V(1).Info("GC collected StaticRoute CR", "UID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
-		// get orgId, projectId, staticrouteId from path  "/orgs/<orgId>/projects/<projectId>/vpcs/<vpcId>/static-routes/<srId>"
-		path := strings.Split(*elem.Path, "/")
-		err = r.Service.DeleteStaticRouteByPath(path[2], path[4], path[6], *elem.Id)
+		err = r.Service.DeleteStaticRoute(elem)
 		if err != nil {
 			r.StatusUpdater.IncreaseDeleteFailTotal()
 		} else {
