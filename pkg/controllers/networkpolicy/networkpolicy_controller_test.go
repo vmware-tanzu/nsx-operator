@@ -452,20 +452,8 @@ func TestNetworkPolicyReconciler_deleteNetworkPolicyByName(t *testing.T) {
 	objs := []client.Object{}
 	r := createFakeNetworkPolicyReconciler(objs)
 
-	// listNetworkPolciyCRIDs returns an error
-	errList := errors.New("list error")
-	patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "listNetworkPolciyCRIDs", func(_ *NetworkPolicyReconciler) (sets.Set[string], error) {
-		return nil, errList
-	})
-	err := r.deleteNetworkPolicyByName("dummy-ns", "dummy-name")
-	assert.Equal(t, err, errList)
-
-	// listNetworkPolciyCRIDs returns items, and deletion fails
-	patch.Reset()
-	patch.ApplyPrivateMethod(reflect.TypeOf(r), "listNetworkPolciyCRIDs", func(_ *NetworkPolicyReconciler) (sets.Set[string], error) {
-		return sets.New[string]("uid1"), nil
-	})
-	patch.ApplyMethod(reflect.TypeOf(r.Service), "ListNetworkPolicyByName", func(_ *securitypolicy.SecurityPolicyService, _ string, _ string) []*model.SecurityPolicy {
+	// deletion fails
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "ListNetworkPolicyByName", func(_ *securitypolicy.SecurityPolicyService, _ string, _ string) []*model.SecurityPolicy {
 		return []*model.SecurityPolicy{
 			{
 				Id:   pointy.String("sp-id-1"),
@@ -488,7 +476,7 @@ func TestNetworkPolicyReconciler_deleteNetworkPolicyByName(t *testing.T) {
 		return nil
 	})
 
-	err = r.deleteNetworkPolicyByName("dummy-ns", "dummy-name")
+	err := r.deleteNetworkPolicyByName("dummy-ns", "dummy-name")
 	assert.Error(t, err)
 	patch.Reset()
 }

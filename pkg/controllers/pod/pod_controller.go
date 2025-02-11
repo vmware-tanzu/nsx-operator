@@ -223,25 +223,15 @@ func podIsDeleted(pod *v1.Pod) bool {
 }
 
 func (r *PodReconciler) deleteSubnetPortByPodName(ctx context.Context, ns string, name string) error {
-	// When deleting SubnetPort by Name and Namespace, skip the SubnetPort belonging to the existed SubnetPort CR
+	// NamespacedName is a unique identity in store as only one worker can deal with the NamespacedName at a time
 	nsxSubnetPorts := r.SubnetPortService.ListSubnetPortByPodName(ns, name)
 
-	crSubnetPortIDsSet, err := r.SubnetPortService.ListSubnetPortIDsFromCRs(ctx)
-	if err != nil {
-		log.Error(err, "failed to list SubnetPort CRs")
-		return err
-	}
-
 	for _, nsxSubnetPort := range nsxSubnetPorts {
-		if crSubnetPortIDsSet.Has(*nsxSubnetPort.Id) {
-			log.Info("skipping deletion, Pod CR still exists in K8s", "ID", *nsxSubnetPort.Id)
-			continue
-		}
 		if err := r.SubnetPortService.DeleteSubnetPort(nsxSubnetPort); err != nil {
 			return err
 		}
 	}
-	log.Info("successfully deleted nsxSubnetPort for Pod", "namespace", ns, "name", name)
+	log.Info("Successfully deleted nsxSubnetPort for Pod", "Namespace", ns, "Name", name)
 	return nil
 }
 

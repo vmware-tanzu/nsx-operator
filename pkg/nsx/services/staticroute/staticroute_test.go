@@ -115,7 +115,7 @@ func Test_InitializeStaticRouteStore(t *testing.T) {
 	}
 }
 
-func TestStaticRouteService_DeleteStaticRoute(t *testing.T) {
+func TestStaticRouteService_DeleteStaticRouteByCR(t *testing.T) {
 	service, mockController, mockStaticRouteclient := createService(t)
 	defer mockController.Finish()
 
@@ -149,14 +149,14 @@ func TestStaticRouteService_DeleteStaticRoute(t *testing.T) {
 
 	// no record found
 	mockStaticRouteclient.EXPECT().Delete(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Times(0)
-	err = returnservice.DeleteStaticRoute(srObj)
+	err = returnservice.DeleteStaticRouteByCR(srObj)
 	assert.Equal(t, err, nil)
 
 	returnservice.StaticRouteStore.Add(sr1)
 
 	// delete record
 	mockStaticRouteclient.EXPECT().Delete("default", "project-1", "vpc-1", id).Return(nil).Times(1)
-	err = returnservice.DeleteStaticRoute(srObj)
+	err = returnservice.DeleteStaticRouteByCR(srObj)
 	assert.Equal(t, err, nil)
 	srs := returnservice.StaticRouteStore.List()
 	assert.Equal(t, len(srs), 0)
@@ -373,13 +373,19 @@ func TestStaticRouteService_Cleanup(t *testing.T) {
 	})
 }
 
-func TestStaticRouteService_DeleteStaticRouteByPath(t *testing.T) {
+func TestStaticRouteService_DeleteStaticRoute(t *testing.T) {
 	service, mockController, mockStaticRouteclient := createService(t)
 	defer mockController.Finish()
 
-	t.Run("Static route does not exist", func(t *testing.T) {
-		err := service.DeleteStaticRouteByPath("org1", "project1", "vpc1", "nonexistent-id")
-		assert.NoError(t, err)
+	t.Run("Error parsing path", func(t *testing.T) {
+		staticRouteID := "nonexistent-id"
+
+		err := service.DeleteStaticRoute(&model.StaticRoutes{
+			Path: &staticRouteID,
+			Id:   &staticRouteID,
+		})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid path 'nonexistent-id'")
 	})
 
 	t.Run("Static route exists and is deleted successfully", func(t *testing.T) {
@@ -388,8 +394,10 @@ func TestStaticRouteService_DeleteStaticRouteByPath(t *testing.T) {
 		service.StaticRouteStore.Add(staticRoute)
 
 		mockStaticRouteclient.EXPECT().Delete("org1", "project1", "vpc1", staticRouteID).Return(nil).Times(1)
-
-		err := service.DeleteStaticRouteByPath("org1", "project1", "vpc1", staticRouteID)
+		err := service.DeleteStaticRoute(&model.StaticRoutes{
+			Path: common.String(fmt.Sprintf("/orgs/org1/projects/project1/vpcs/vpc1/static-routes/%s", staticRouteID)),
+			Id:   &staticRouteID,
+		})
 		assert.NoError(t, err)
 	})
 
@@ -400,7 +408,10 @@ func TestStaticRouteService_DeleteStaticRouteByPath(t *testing.T) {
 
 		mockStaticRouteclient.EXPECT().Delete("org1", "project1", "vpc1", staticRouteID).Return(fmt.Errorf("delete error")).Times(1)
 
-		err := service.DeleteStaticRouteByPath("org1", "project1", "vpc1", staticRouteID)
+		err := service.DeleteStaticRoute(&model.StaticRoutes{
+			Path: common.String(fmt.Sprintf("/orgs/org1/projects/project1/vpcs/vpc1/static-routes/%s", staticRouteID)),
+			Id:   &staticRouteID,
+		})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "delete error")
 	})

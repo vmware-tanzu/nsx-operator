@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -104,24 +103,25 @@ func (service *StaticRouteService) patch(orgId string, projectId string, vpcId s
 	return nil
 }
 
-func (service *StaticRouteService) DeleteStaticRouteByPath(orgId string, projectId string, vpcId string, id string) error {
+func (service *StaticRouteService) DeleteStaticRoute(nsxStaticRoute *model.StaticRoutes) error {
 	staticRouteClient := service.NSXClient.StaticRouteClient
-	staticroute := service.StaticRouteStore.GetByKey(id)
-	if staticroute == nil {
-		return nil
+	vpcInfo, err := common.ParseVPCResourcePath(*nsxStaticRoute.Path)
+	if err != nil {
+		log.Error(err, "Failed to parse NSX VPC path for StaticRoute", "path", *nsxStaticRoute.Path)
+		return err
 	}
-
-	if err := staticRouteClient.Delete(orgId, projectId, vpcId, *staticroute.Id); err != nil {
+	if err := staticRouteClient.Delete(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *nsxStaticRoute.Id); err != nil {
 		err = nsxutil.TransNSXApiError(err)
 		return err
 	}
-	if err := service.StaticRouteStore.Delete(staticroute); err != nil {
+	if err := service.StaticRouteStore.Delete(nsxStaticRoute); err != nil {
 		return err
 	}
 
-	log.Info("Successfully deleted NSX StaticRoute", "nsxStaticRoute", *staticroute.Id)
+	log.Info("Successfully deleted NSX StaticRoute", "nsxStaticRoute", *nsxStaticRoute.Id)
 	return nil
 }
+
 func (service *StaticRouteService) GetUID(staticroute *model.StaticRoutes) *string {
 	if staticroute == nil {
 		return nil
@@ -135,17 +135,13 @@ func (service *StaticRouteService) GetUID(staticroute *model.StaticRoutes) *stri
 
 }
 
-func (service *StaticRouteService) DeleteStaticRoute(obj *v1alpha1.StaticRoute) error {
+func (service *StaticRouteService) DeleteStaticRouteByCR(obj *v1alpha1.StaticRoute) error {
 	id := util.GenerateIDByObject(obj)
 	staticroute := service.StaticRouteStore.GetByKey(id)
 	if staticroute == nil {
 		return nil
 	}
-	vpcResourceInfo, err := common.ParseVPCResourcePath(*staticroute.Path)
-	if err != nil {
-		return err
-	}
-	return service.DeleteStaticRouteByPath(vpcResourceInfo.OrgID, vpcResourceInfo.ProjectID, vpcResourceInfo.VPCID, id)
+	return service.DeleteStaticRoute(staticroute)
 }
 
 func (service *StaticRouteService) ListStaticRouteByName(ns, name string) []*model.StaticRoutes {
@@ -172,17 +168,16 @@ func (service *StaticRouteService) ListStaticRoute() []*model.StaticRoutes {
 
 func (service *StaticRouteService) Cleanup(ctx context.Context) error {
 	staticRouteSet := service.ListStaticRoute()
-	log.Info("Cleanup staticroute", "count", len(staticRouteSet))
+	log.Info("Cleanup StaticRoute", "count", len(staticRouteSet))
 	for _, staticRoute := range staticRouteSet {
-		path := strings.Split(*staticRoute.Path, "/")
-		log.Info("Deleting staticroute", "staticroute path", *staticRoute.Path)
+		log.Info("Deleting StaticRoute", "StaticRoute path", *staticRoute.Path)
 		select {
 		case <-ctx.Done():
 			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
 		default:
-			err := service.DeleteStaticRouteByPath(path[2], path[4], path[6], *staticRoute.Id)
+			err := service.DeleteStaticRoute(staticRoute)
 			if err != nil {
-				log.Error(err, "Delete staticroute failed", "staticroute id", *staticRoute.Id)
+				log.Error(err, "Delete StaticRoute failed", "StaticRoute id", *staticRoute.Id)
 				return err
 			}
 		}

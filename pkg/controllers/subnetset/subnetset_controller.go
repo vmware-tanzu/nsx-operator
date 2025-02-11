@@ -29,7 +29,6 @@ import (
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetbinding"
-	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
@@ -342,7 +341,12 @@ func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) {
 
 func (r *SubnetSetReconciler) deleteSubnetBySubnetSetName(ctx context.Context, subnetSetName, ns string) error {
 	nsxSubnets := r.SubnetService.ListSubnetBySubnetSetName(ns, subnetSetName)
-	return r.deleteStaleSubnets(ctx, nsxSubnets)
+	// We also actively delete the SubnetConnectionBindingMaps associated with the empty NSX Subnet that has no SubnetPort.
+	hasStaleSubnetPort, err := r.deleteSubnets(nsxSubnets, true)
+	if err != nil || hasStaleSubnetPort {
+		return fmt.Errorf("failed to delete stale Subnets, error: %v, hasStaleSubnetPort: %t", err, hasStaleSubnetPort)
+	}
+	return nil
 }
 
 func (r *SubnetSetReconciler) deleteSubnetForSubnetSet(subnetSet v1alpha1.SubnetSet, updateStatus, ignoreStaleSubnetPort bool) error {
@@ -408,30 +412,6 @@ func (r *SubnetSetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet, delet
 	}
 	log.Info("Successfully deleted all specified NSX Subnets", "subnetCount", len(nsxSubnets))
 	return
-}
-
-func (r *SubnetSetReconciler) deleteStaleSubnets(ctx context.Context, nsxSubnets []*model.VpcSubnet) error {
-	crdSubnetSetIDsSet, err := r.SubnetService.ListSubnetSetID(ctx)
-	if err != nil {
-		log.Error(err, "Failed to list SubnetSet CRs")
-		return err
-	}
-	nsxSubnetsToDelete := make([]*model.VpcSubnet, 0, len(nsxSubnets))
-	for _, nsxSubnet := range nsxSubnets {
-		uid := nsxutil.FindTag(nsxSubnet.Tags, servicecommon.TagScopeSubnetSetCRUID)
-		if crdSubnetSetIDsSet.Has(uid) {
-			log.Info("Skipping deletion, SubnetSet CR still exists in K8s", "ID", *nsxSubnet.Id)
-			continue
-		}
-		nsxSubnetsToDelete = append(nsxSubnetsToDelete, nsxSubnet)
-	}
-	log.Info("Cleaning stale Subnets for SubnetSet", "Count", len(nsxSubnetsToDelete))
-	// We also actively delete the existing SubnetConnectionBindingMaps connected to the stale NSX Subnets.
-	hasStaleSubnetPort, err := r.deleteSubnets(nsxSubnetsToDelete, true)
-	if err != nil || hasStaleSubnetPort {
-		return fmt.Errorf("failed to delete stale Subnets, error: %v, hasStaleSubnetPort: %t", err, hasStaleSubnetPort)
-	}
-	return nil
 }
 
 func StartSubnetSetController(mgr ctrl.Manager, subnetService *subnet.SubnetService,

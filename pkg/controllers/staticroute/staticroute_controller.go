@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"reflect"
-	"strings"
 
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -47,41 +46,15 @@ type StaticRouteReconciler struct {
 	StatusUpdater common.StatusUpdater
 }
 
-func (r *StaticRouteReconciler) listStaticRouteCRIDs() (sets.Set[string], error) {
-	staticRouteList := &v1alpha1.StaticRouteList{}
-	err := r.Client.List(context.Background(), staticRouteList)
-	if err != nil {
-		log.Error(err, "failed to list StaticRoute CRs")
-		return nil, err
-	}
-
-	CRStaticRouteSet := sets.New[string]()
-	for _, staticroute := range staticRouteList.Items {
-		CRStaticRouteSet.Insert(string(staticroute.UID))
-	}
-	return CRStaticRouteSet, nil
-}
-
 func (r *StaticRouteReconciler) deleteStaticRouteByName(ns, name string) error {
-	CRPolicySet, err := r.listStaticRouteCRIDs()
-	if err != nil {
-		return err
-	}
 	nsxStaticRoutes := r.Service.ListStaticRouteByName(ns, name)
 	for _, item := range nsxStaticRoutes {
-		uid := util.FindTag(item.Tags, commonservice.TagScopeStaticRouteCRUID)
-		if CRPolicySet.Has(uid) {
-			log.Info("skipping deletion, StaticRoute CR still exists in K8s", "staticrouteUID", uid, "nsxStatciRouteId", *item.Id)
-			continue
-		}
-
-		log.Info("deleting StaticRoute", "StaticRouteUID", uid, "nsxStaticRouteId", *item.Id)
-		path := strings.Split(*item.Path, "/")
-		if err := r.Service.DeleteStaticRouteByPath(path[2], path[4], path[6], *item.Id); err != nil {
-			log.Error(err, "failed to delete StaticRoute", "StaticRouteUID", uid, "nsxStaticRouteId", *item.Id)
+		log.Info("Deleting StaticRoute", "Namespace", ns, "Name", name, "nsxStaticRouteId", *item.Id)
+		if err := r.Service.DeleteStaticRoute(item); err != nil {
+			log.Error(err, "Failed to delete StaticRoute", "nsxStaticRouteId", *item.Id)
 			return err
 		}
-		log.Info("successfully deleted StaticRoute", "StaticRouteUID", uid, "nsxStaticRouteId", *item.Id)
+		log.Info("Successfully deleted StaticRoute", "Namespace", ns, "Name", name, "nsxStaticRouteId", *item.Id)
 	}
 	return nil
 }
@@ -118,7 +91,7 @@ func (r *StaticRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		r.StatusUpdater.UpdateSuccess(ctx, obj, setStaticRouteReadyStatusTrue)
 	} else {
 		r.StatusUpdater.IncreaseDeleteTotal()
-		if err := r.Service.DeleteStaticRoute(obj); err != nil {
+		if err := r.Service.DeleteStaticRouteByCR(obj); err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
 			return ResultRequeue, err
 		}
@@ -247,9 +220,7 @@ func (r *StaticRouteReconciler) CollectGarbage(ctx context.Context) {
 
 		log.V(1).Info("GC collected StaticRoute CR", "UID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
-		// get orgId, projectId, staticrouteId from path  "/orgs/<orgId>/projects/<projectId>/vpcs/<vpcId>/static-routes/<srId>"
-		path := strings.Split(*elem.Path, "/")
-		err = r.Service.DeleteStaticRouteByPath(path[2], path[4], path[6], *elem.Id)
+		err = r.Service.DeleteStaticRoute(elem)
 		if err != nil {
 			r.StatusUpdater.IncreaseDeleteFailTotal()
 		} else {
