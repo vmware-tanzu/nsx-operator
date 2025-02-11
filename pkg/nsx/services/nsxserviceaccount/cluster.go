@@ -251,6 +251,12 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 		s.PrincipalIdentityStore.Add(&pi)
 	} else if !hasPI != (piObj == nil) {
 		return "", fmt.Errorf("old PI exists")
+	} else if hasPI && (piObj != nil) {
+		pi := piObj.(*mpmodel.PrincipalIdentity)
+		err := s.updatePICert(pi, normalizedClusterName, cert)
+		if err != nil {
+			return "failed to update PICert", err
+		}
 	}
 
 	// create ClusterControlPlane
@@ -451,6 +457,11 @@ func (s *NSXServiceAccountService) updatePIAndCCPCert(normalizedClusterName, uid
 
 	// update PI cert
 	pi := piObj.(*mpmodel.PrincipalIdentity)
+	return s.updatePICert(pi, normalizedClusterName, cert)
+}
+
+func (s *NSXServiceAccountService) updatePICert(pi *mpmodel.PrincipalIdentity, normalizedClusterName, cert string) error {
+	// update PI cert
 	oldCertId := ""
 	if pi.CertificateId != nil {
 		oldCertId = *pi.CertificateId
@@ -463,6 +474,7 @@ func (s *NSXServiceAccountService) updatePIAndCCPCert(normalizedClusterName, uid
 		err = nsxutil.TransNSXApiError(err)
 		return err
 	}
+
 	if pi2, err := s.NSXClient.PrincipalIdentitiesClient.Updatecertificate(mpmodel.UpdatePrincipalIdentityCertificateRequest{
 		CertificateId:       certList.Results[0].Id,
 		PrincipalIdentityId: pi.Id,
