@@ -120,8 +120,6 @@ const (
 	DstGroupSuffix         = "dst"
 	IpSetGroupSuffix       = "ipset"
 	ShareSuffix            = "share"
-
-	GatewayInterfaceId = "gateway-interface"
 )
 
 var (

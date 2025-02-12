@@ -20,6 +20,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	pkgutil "github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -292,17 +293,17 @@ func (data *TestData) createVPC(orgID, projectID, vpcID string, privateIPs []str
 	log.Info("Successfully requested VPC on NSX", "path", vpcPath)
 	realizeService := realizestate.InitializeRealizeState(common.Service{NSXClient: data.nsxClient.Client})
 	if pollErr := wait.PollUntilContextTimeout(context.Background(), 10*time.Second, 5*time.Minute, true, func(ctx context.Context) (done bool, err error) {
-		if err = realizeService.CheckRealizeState(pkgutil.NSXTRealizeRetry, vpcPath, []string{common.GatewayInterfaceId}); err != nil {
+		if err = realizeService.CheckRealizeState(pkgutil.NSXTRealizeRetry, vpcPath, vpc.GetGPRRTypeList(vpcID)); err != nil {
 			log.Error(err, "NSX VPC is not yet realized", "path", vpcPath)
 			return false, nil
 		}
 		if lbsPath != "" {
-			if err := realizeService.CheckRealizeState(pkgutil.NSXTRealizeRetry, lbsPath, []string{}); err != nil {
+			if err := realizeService.CheckRealizeState(pkgutil.NSXTRealizeRetry, lbsPath, []nsxutil.GPRRType{}); err != nil {
 				log.Error(err, "NSX LBS is not yet realized", "path", lbsPath)
 				return false, nil
 			}
 		}
-		if err = realizeService.CheckRealizeState(pkgutil.NSXTRealizeRetry, attachmentPath, []string{}); err != nil {
+		if err = realizeService.CheckRealizeState(pkgutil.NSXTRealizeRetry, attachmentPath, []nsxutil.GPRRType{}); err != nil {
 			log.Error(err, "VPC attachment is not yet realized", "path", attachmentPath)
 			return false, nil
 		}

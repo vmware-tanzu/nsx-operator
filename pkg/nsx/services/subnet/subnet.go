@@ -135,7 +135,7 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 	// For Subnets, it's important to reuse the already created NSXSubnet.
 	// For SubnetSets, since the ID includes a random value, the created NSX Subnet needs to be deleted and recreated.
 
-	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *nsxSubnet.Path, []string{}); err != nil {
+	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *nsxSubnet.Path, []nsxutil.GPRRType{}); err != nil {
 		log.Error(err, "Failed to check subnet realization state", "ID", *nsxSubnet.Id)
 		// Delete the subnet if realization check fails, avoiding creating duplicate subnets continuously.
 		deleteErr := service.DeleteSubnet(*nsxSubnet)
