@@ -814,17 +814,24 @@ func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.Networ
 		return nil, err
 	}
 
-	if err := s.VpcStore.Add(&newVpc); err != nil {
-		return nil, err
-	}
-
 	// Check LBS realization
-	if err := s.checkLBSRealization(createdLBS, createdVpc, nc, *newVpc.Path); err != nil {
+	newLBS, err := s.checkLBSRealization(createdLBS, createdVpc, nc, *newVpc.Path)
+	if err != nil {
 		return nil, err
 	}
 
 	// Check VpcAttachment realization
-	if err := s.checkVpcAttachmentRealization(createdAttachment, createdVpc, nc, *newVpc.Path); err != nil {
+	_, err = s.checkVpcAttachmentRealization(createdAttachment, createdVpc, nc, *newVpc.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	// update the store
+	if err := s.VpcStore.Add(&newVpc); err != nil {
+		return nil, err
+	}
+
+	if err := s.LbsStore.Add(newLBS); err != nil {
 		return nil, err
 	}
 
@@ -871,16 +878,21 @@ func (s *VPCService) checkVPCRealizationState(createdVpc *model.Vpc, newVpcPath 
 	return nil
 }
 
-func (s *VPCService) checkLBSRealization(createdLBS *model.LBService, createdVpc *model.Vpc, nc *common.VPCNetworkConfigInfo, newVpcPath string) error {
+func (s *VPCService) checkLBSRealization(createdLBS *model.LBService, createdVpc *model.Vpc, nc *common.VPCNetworkConfigInfo, newVpcPath string) (*model.LBService, error) {
 	if createdLBS == nil {
-		return nil
+		return nil, nil
 	}
 	newLBS, err := s.NSXClient.VPCLBSClient.Get(nc.Org, nc.NSXProject, *createdVpc.Id, *createdLBS.Id)
-	if err != nil || newLBS.ConnectivityPath == nil {
+	if err != nil {
 		log.Error(err, "Failed to read LBS object after creating or updating", "LBS", createdLBS.Id)
-		return err
+		return nil, err
 	}
-	s.LbsStore.Add(&newLBS)
+
+	if newLBS.ConnectivityPath == nil {
+		err = fmt.Errorf("connectivity path is nil")
+		log.Error(err, "Failed to create or update LBS", "LBS", createdLBS.Id)
+		return nil, err
+	}
 
 	log.V(2).Info("Check LBS realization state", "LBS", *createdLBS.Id)
 	realizeService := realizestate.InitializeRealizeState(s.Service)
@@ -891,22 +903,22 @@ func (s *VPCService) checkLBSRealization(createdLBS *model.LBService, createdVpc
 			// delete the nsx vpc object and re-create it in the next loop
 			if err := s.DeleteVPC(newVpcPath); err != nil {
 				log.Error(err, "Cleanup VPC failed", "VPC", *createdVpc.Id)
-				return err
+				return nil, err
 			}
 		}
-		return err
+		return nil, err
 	}
-	return nil
+	return &newLBS, nil
 }
 
-func (s *VPCService) checkVpcAttachmentRealization(createdAttachment *model.VpcAttachment, createdVpc *model.Vpc, nc *common.VPCNetworkConfigInfo, newVpcPath string) error {
+func (s *VPCService) checkVpcAttachmentRealization(createdAttachment *model.VpcAttachment, createdVpc *model.Vpc, nc *common.VPCNetworkConfigInfo, newVpcPath string) (*model.VpcAttachment, error) {
 	if createdAttachment == nil {
-		return nil
+		return nil, nil
 	}
 	newAttachment, err := s.NSXClient.VpcAttachmentClient.Get(nc.Org, nc.NSXProject, *createdVpc.Id, *createdAttachment.Id)
 	if err != nil || newAttachment.VpcConnectivityProfile == nil {
 		log.Error(err, "Failed to read VPC attachment object after creating or updating", "VpcAttachment", createdAttachment.Id)
-		return err
+		return nil, err
 	}
 	log.V(2).Info("Check VPC attachment realization state", "VpcAttachment", *createdAttachment.Id)
 	realizeService := realizestate.InitializeRealizeState(s.Service)
@@ -917,12 +929,12 @@ func (s *VPCService) checkVpcAttachmentRealization(createdAttachment *model.VpcA
 			// delete the nsx vpc object and re-create it in the next loop
 			if err := s.DeleteVPC(newVpcPath); err != nil {
 				log.Error(err, "Cleanup VPC failed", "VPC", *createdVpc.Id)
-				return err
+				return nil, err
 			}
 		}
-		return err
+		return nil, err
 	}
-	return nil
+	return &newAttachment, nil
 }
 
 func (s *VPCService) GetGatewayConnectionTypeFromConnectionPath(connectionPath string) (string, error) {
