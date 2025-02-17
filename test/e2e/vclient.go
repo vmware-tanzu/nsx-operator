@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -191,11 +192,31 @@ func (c *vcClient) getStoragePolicyID() (string, error) {
 
 	for _, po := range response {
 		log.Info("Checking storage policy", "policy", po.Name, "description", po.Description)
-		if strings.Contains(po.Name, "global") || strings.Contains(po.Name, "local") {
+		if strings.Contains(po.Name, "global") {
 			return po.Name, nil
 		}
 	}
 	return "", fmt.Errorf("no valid storage policy found on vCenter")
+}
+
+func (c *vcClient) getClusterVirtualMachineImage() (string, error) {
+	kubectlCmd := "kubectl get clustervirtualmachineimage -A | grep photon | tail -n 1 | awk '{print $1}'"
+	cmd := exec.Command("bash", "-c", kubectlCmd)
+	var stdout, stderr bytes.Buffer
+	command := exec.Command("bash", "-c", kubectlCmd)
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+
+	log.Info("Executing", "cmd", cmd)
+
+	err := command.Run()
+	_, _ = stdout.String(), stderr.String()
+
+	if err != nil {
+		log.Info("Failed to execute", "cmd error", err)
+		return "", err
+	}
+	return stdout.String(), nil
 }
 
 // Get the first content library ID by default
