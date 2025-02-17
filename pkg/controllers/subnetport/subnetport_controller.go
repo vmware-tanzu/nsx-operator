@@ -139,7 +139,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err != nil {
 			log.Error(err, "failed to retrieve subnet status for subnetport", "subnetport", subnetPort, "nsxSubnetPath", nsxSubnetPath)
 		}
-		if reflect.DeepEqual(old_status, subnetPort.Status) {
+		if reflect.DeepEqual(*old_status, subnetPort.Status) {
 			log.Info("status (without conditions) already matched", "new status", subnetPort.Status, "existing status", old_status)
 		} else {
 			// If the SubnetPort CR's status changed, let's clean the conditions, to ensure the r.Client.Status().Update in the following updateSuccess will be invoked at any time.
