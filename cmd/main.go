@@ -33,6 +33,7 @@ var (
 )
 
 func init() {
+        var err error
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8384", "The address the probe endpoint binds to.")
@@ -40,7 +41,7 @@ func init() {
 	config.AddFlags()
 	flag.Parse()
 
-	cf, err := config.NewNSXOperatorConfigFromFile()
+	cf, err = config.NewNSXOperatorConfigFromFile()
 	if err != nil {
 		os.Exit(1)
 	}
