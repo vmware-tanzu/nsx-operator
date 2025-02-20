@@ -433,7 +433,7 @@ func StartSubnetSetController(mgr ctrl.Manager, subnetService *subnet.SubnetServ
 		log.Error(err, "Failed to create controller", "controller", "SubnetSet")
 		return err
 	}
-	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, subnetsetReconciler.CollectGarbage)
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.SubnetGCInterval, subnetsetReconciler.CollectGarbage)
 	return nil
 }
 
