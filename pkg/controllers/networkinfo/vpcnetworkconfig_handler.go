@@ -37,13 +37,12 @@ type VPCNetworkConfigurationHandler struct {
 func (h *VPCNetworkConfigurationHandler) Create(ctx context.Context, e event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	vpcConfigCR := e.Object.(*v1alpha1.VPCNetworkConfiguration)
 	vname := vpcConfigCR.GetName()
-	ninfo, err := buildNetworkConfigInfo(*vpcConfigCR)
+	err := h.vpcService.UpdateDefaultNetworkConfig(vpcConfigCR)
 	if err != nil {
-		log.Error(err, "Processing network config add event failed")
+		log.Error(err, "Failed to process network config update event")
 		return
 	}
-	log.Info("Create network config and update to store", "NetworkConfigInfo", ninfo)
-	h.vpcService.RegisterVPCNetworkConfig(vname, *ninfo)
+
 	// Update IPBlocks info
 	if err = h.ipBlocksInfoService.UpdateIPBlocksInfo(ctx, vpcConfigCR); err != nil {
 		log.Error(err, "Failed to update the IPBlocksInfo", "VPCNetworkConfiguration", vname)
@@ -80,15 +79,19 @@ func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.Upd
 		return
 	}
 
-	// update network config info in store
-	info, err := buildNetworkConfigInfo(*newNc)
+	err := h.vpcService.UpdateDefaultNetworkConfig(newNc)
 	if err != nil {
 		log.Error(err, "Failed to process network config update event")
 		return
 	}
-	h.vpcService.RegisterVPCNetworkConfig(newNc.Name, *info)
-
-	nss := h.vpcService.GetNamespacesByNetworkconfigName(newNc.Name)
+	nss, err := h.vpcService.GetNamespacesByNetworkconfigName(newNc.Name)
+	if err != nil {
+		log.Error(err, "Failed to get Namespaces with network config", "VPCNetworkConfig", newNc.Name)
+		req := reconcile.Request{
+			NamespacedName: client.ObjectKey{Name: newNc.GetName(), Namespace: newNc.GetNamespace()},
+		}
+		q.AddAfter(req, retryInterval)
+	}
 	for _, ns := range nss {
 		networkInfos := &v1alpha1.NetworkInfoList{}
 		err := h.Client.List(ctx, networkInfos, client.InNamespace(ns))
@@ -122,26 +125,6 @@ var VPCNetworkConfigurationPredicate = predicate.Funcs{
 	GenericFunc: func(genericEvent event.GenericEvent) bool {
 		return false
 	},
-}
-
-func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*commontypes.VPCNetworkConfigInfo, error) {
-	org, project, err := nsxProjectPathToId(vpcConfigCR.Spec.NSXProject)
-	if err != nil {
-		log.Error(err, "failed to parse NSX project in network config", "Project Path", vpcConfigCR.Spec.NSXProject)
-		return nil, err
-	}
-
-	ninfo := &commontypes.VPCNetworkConfigInfo{
-		IsDefault:              isDefaultNetworkConfigCR(vpcConfigCR),
-		Org:                    org,
-		Name:                   vpcConfigCR.Name,
-		VPCConnectivityProfile: vpcConfigCR.Spec.VPCConnectivityProfile,
-		NSXProject:             project,
-		PrivateIPs:             vpcConfigCR.Spec.PrivateIPs,
-		DefaultSubnetSize:      vpcConfigCR.Spec.DefaultSubnetSize,
-		VPCPath:                vpcConfigCR.Spec.VPC,
-	}
-	return ninfo, nil
 }
 
 func isDefaultNetworkConfigCR(vpcConfigCR v1alpha1.VPCNetworkConfiguration) bool {

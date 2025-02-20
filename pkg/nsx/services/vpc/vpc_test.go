@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -53,7 +54,7 @@ var (
 	tagScopeNamespaceUID = common.TagScopeNamespaceUID
 )
 
-func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVpcsClient) {
+func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVpcsClient, *mock_client.MockClient) {
 	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 
 	cluster, _ := nsx.NewCluster(config2)
@@ -94,14 +95,8 @@ func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVp
 		},
 		VpcStore: vpcStore,
 		LbsStore: lbsStore,
-		VPCNetworkConfigStore: VPCNetworkInfoStore{
-			VPCNetworkConfigMap: map[string]common.VPCNetworkConfigInfo{},
-		},
-		VPCNSNetworkConfigStore: VPCNsNetworkConfigStore{
-			VPCNSNetworkConfigMap: map[string]string{},
-		},
 	}
-	return service, mockCtrl, mockVpcclient
+	return service, mockCtrl, mockVpcclient, k8sClient
 }
 
 type fakeProjectClient struct{}
@@ -192,47 +187,6 @@ func (c fakeVPCLBSClient) Update(orgIdParam string, projectIdParam string, vpcId
 	return model.LBService{}, nil
 }
 
-func TestGetNetworkConfigFromNS(t *testing.T) {
-	service, _, _ := createService(t)
-	k8sClient := service.Client.(*mock_client.MockClient)
-	fakeErr := errors.New("fake error")
-	mockNs := &v1.Namespace{}
-	ctx := context.Background()
-	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(fakeErr).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
-		return nil
-	})
-	ns, err := service.GetNetworkconfigNameFromNS(ctx, "test")
-	assert.Equal(t, fakeErr, err)
-	assert.Equal(t, "", ns)
-
-	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(nil).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
-		return nil
-	})
-	ns, err = service.GetNetworkconfigNameFromNS(ctx, "test")
-	assert.NotNil(t, err)
-	assert.Equal(t, "", ns)
-
-	service.RegisterVPCNetworkConfig("fake-cr", common.VPCNetworkConfigInfo{
-		IsDefault: true,
-		Name:      "test-name",
-		Org:       "test-org",
-	})
-	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(nil).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
-		return nil
-	})
-	ns, err = service.GetNetworkconfigNameFromNS(ctx, "test")
-	assert.Nil(t, err)
-	assert.Equal(t, "test-name", ns)
-
-	k8sClient.EXPECT().Get(ctx, gomock.Any(), mockNs).Return(nil).Do(func(_ context.Context, k client.ObjectKey, obj client.Object, option ...client.GetOption) error {
-		obj.SetAnnotations(map[string]string{"nsx.vmware.com/vpc_network_config": "test-nc"})
-		return nil
-	})
-	ns, err = service.GetNetworkconfigNameFromNS(ctx, "test")
-	assert.Nil(t, err)
-	assert.Equal(t, "test-nc", ns)
-}
-
 func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
 	tests := []struct {
 		name                    string
@@ -288,7 +242,7 @@ func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service, _, _ := createService(t)
+			service, _, _, _ := createService(t)
 			newScheme := runtime.NewScheme()
 			utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
 			fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects().Build()
@@ -324,26 +278,6 @@ func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
 	}
 }
 
-func TestGetDefaultNetworkConfig(t *testing.T) {
-	service, _, _ := createService(t)
-
-	nc1 := common.VPCNetworkConfigInfo{
-		IsDefault: false,
-	}
-	service.RegisterVPCNetworkConfig("test-1", nc1)
-	exist, _ := service.GetDefaultNetworkConfig()
-	assert.Equal(t, false, exist)
-
-	nc2 := common.VPCNetworkConfigInfo{
-		Org:       "fake-org",
-		IsDefault: true,
-	}
-	service.RegisterVPCNetworkConfig("test-2", nc2)
-	exist, target := service.GetDefaultNetworkConfig()
-	assert.Equal(t, true, exist)
-	assert.Equal(t, "fake-org", target.Org)
-}
-
 func TestGetVPCsByNamespace(t *testing.T) {
 	ctx := context.Background()
 	vpcCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{
@@ -357,12 +291,6 @@ func TestGetVPCsByNamespace(t *testing.T) {
 	vpcStore := &VPCStore{ResourceStore: resourceStore}
 	service := &VPCService{
 		Service: common.Service{NSXClient: nil},
-		VPCNetworkConfigStore: VPCNetworkInfoStore{
-			VPCNetworkConfigMap: map[string]common.VPCNetworkConfigInfo{},
-		},
-		VPCNSNetworkConfigStore: VPCNsNetworkConfigStore{
-			VPCNSNetworkConfigMap: map[string]string{},
-		},
 	}
 	service.VpcStore = vpcStore
 	ns1 := "test-ns-1"
@@ -614,8 +542,8 @@ func TestGetLBProvider(t *testing.T) {
 				patches.ApplyPrivateMethod(reflect.TypeOf(&VPCService{}), "getLBProvider", func(_ *VPCService, _ bool) LBProvider {
 					return NSXLB
 				})
-				patches.ApplyMethod(reflect.TypeOf(&VPCService{}), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (common.VPCNetworkConfigInfo, bool) {
-					return common.VPCNetworkConfigInfo{}, true
+				patches.ApplyMethod(reflect.TypeOf(&VPCService{}), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (*common.VPCNetworkConfigInfo, bool, error) {
+					return &common.VPCNetworkConfigInfo{}, true, nil
 				})
 				return patches
 			},
@@ -625,8 +553,8 @@ func TestGetLBProvider(t *testing.T) {
 			lbprovider:       NoneLB,
 			expectLBProvider: NoneLB,
 			prepareFuncs: func() *gomonkey.Patches {
-				return gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (common.VPCNetworkConfigInfo, bool) {
-					return common.VPCNetworkConfigInfo{}, false
+				return gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (*common.VPCNetworkConfigInfo, bool, error) {
+					return &common.VPCNetworkConfigInfo{}, false, nil
 				})
 			},
 		},
@@ -642,7 +570,8 @@ func TestGetLBProvider(t *testing.T) {
 				defer patches.Reset()
 			}
 
-			lbProvider := vpcService.GetLBProvider()
+			lbProvider, err := vpcService.GetLBProvider()
+			assert.Nil(t, err)
 			assert.Equal(t, testCase.expectLBProvider, lbProvider)
 		})
 	}
@@ -841,7 +770,7 @@ func TestGetGatewayConnectionTypeFromConnectionPath(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service, _, _ := createService(t)
+			service, _, _, _ := createService(t)
 			observedType, observedError := service.GetGatewayConnectionTypeFromConnectionPath(tt.path)
 			assert.Equal(t, tt.expectedType, observedType)
 			assert.Equal(t, tt.expectedError, observedError)
@@ -971,7 +900,7 @@ func TestValidateGatewayConnectionStatus(t *testing.T) {
 		},
 	}
 
-	service, _, _ := createService(t)
+	service, _, _, _ := createService(t)
 	service.NSXClient.ProjectClient = fakeProjectClient{}
 	service.NSXClient.VPCConnectivityProfilesClient = fakeVPCConnectivityProfilesClient{}
 	service.NSXClient.TransitGatewayAttachmentClient = fakeTransitGatewayAttachmentClient{}
@@ -1188,151 +1117,8 @@ func TestGetLBSsFromNSXByVPC(t *testing.T) {
 	}
 }
 
-func TestVPCService_RegisterVPCNetworkConfig(t *testing.T) {
-	service, _, _ := createService(t)
-
-	info := common.VPCNetworkConfigInfo{
-		IsDefault:              false,
-		Org:                    "fake-org",
-		Name:                   "fake-name",
-		VPCConnectivityProfile: "fake-file",
-		NSXProject:             "fake-project",
-		PrivateIPs:             []string{"1.1.1.1/16"},
-		DefaultSubnetSize:      16,
-		VPCPath:                "fake-path",
-	}
-
-	service.RegisterVPCNetworkConfig("fake-name", info)
-	_, exist := service.GetVPCNetworkConfig("non-exist")
-	assert.False(t, exist)
-	got, exist := service.GetVPCNetworkConfig("fake-name")
-	assert.True(t, exist)
-	reflect.DeepEqual(got, info)
-
-}
-
-func TestVPCService_UnRegisterVPCNetworkConfig(t *testing.T) {
-	service, _, _ := createService(t)
-
-	info := common.VPCNetworkConfigInfo{
-		IsDefault:              false,
-		Org:                    "fake-org",
-		Name:                   "fake-name",
-		VPCConnectivityProfile: "fake-file",
-		NSXProject:             "fake-project",
-		PrivateIPs:             []string{"1.1.1.1/16"},
-		DefaultSubnetSize:      16,
-		VPCPath:                "fake-path",
-	}
-
-	service.RegisterVPCNetworkConfig("fake-name", info)
-	got, exist := service.GetVPCNetworkConfig("fake-name")
-	assert.True(t, exist)
-	reflect.DeepEqual(got, info)
-	service.UnregisterVPCNetworkConfig("non-exist")
-	got, exist = service.GetVPCNetworkConfig("fake-name")
-	assert.True(t, exist)
-	reflect.DeepEqual(got, info)
-	service.UnregisterVPCNetworkConfig("fake-name")
-	got, exist = service.GetVPCNetworkConfig("fake-name")
-	assert.False(t, exist)
-	assert.Equal(t, common.VPCNetworkConfigInfo{}, got)
-
-}
-
-func TestVPCService_RegisterNamespaceNetworkconfigBinding(t *testing.T) {
-
-	service, _, _ := createService(t)
-
-	info := common.VPCNetworkConfigInfo{
-		IsDefault:              false,
-		Org:                    "fake-org",
-		Name:                   "fake-name",
-		VPCConnectivityProfile: "fake-file",
-		NSXProject:             "fake-project",
-		PrivateIPs:             []string{"1.1.1.1/16"},
-		DefaultSubnetSize:      16,
-		VPCPath:                "fake-path",
-	}
-
-	service.RegisterVPCNetworkConfig("fake-name", info)
-	service.RegisterNamespaceNetworkconfigBinding("fake-ns", "fake-name")
-	got := service.GetVPCNetworkConfigByNamespace("fake-ns")
-	reflect.DeepEqual(info, got)
-	got = service.GetVPCNetworkConfigByNamespace("non-exist")
-	assert.Nil(t, got)
-
-}
-
-func TestVPCService_UnRegisterNamespaceNetworkconfigBinding(t *testing.T) {
-
-	service, _, _ := createService(t)
-
-	info := common.VPCNetworkConfigInfo{
-		IsDefault:              false,
-		Org:                    "fake-org",
-		Name:                   "fake-name",
-		VPCConnectivityProfile: "fake-file",
-		NSXProject:             "fake-project",
-		PrivateIPs:             []string{"1.1.1.1/16"},
-		DefaultSubnetSize:      16,
-		VPCPath:                "fake-path",
-	}
-
-	service.RegisterVPCNetworkConfig("fake-name", info)
-	service.RegisterNamespaceNetworkconfigBinding("fake-ns", "fake-name")
-	got := service.GetVPCNetworkConfigByNamespace("fake-ns")
-	reflect.DeepEqual(info, got)
-	got = service.GetVPCNetworkConfigByNamespace("non-exist")
-	assert.Nil(t, got)
-	service.UnRegisterNamespaceNetworkconfigBinding("fake-ns")
-	got = service.GetVPCNetworkConfigByNamespace("fake-ns")
-	assert.Nil(t, got)
-
-}
-
-func TestVPCService_GetNamespacesByNetworkconfigName(t *testing.T) {
-	service, _, _ := createService(t)
-	service.RegisterNamespaceNetworkconfigBinding("ns1", "fake-config")
-	service.RegisterNamespaceNetworkconfigBinding("ns2", "fake-config")
-	service.RegisterNamespaceNetworkconfigBinding("ns3", "dummy-config")
-	ret := service.GetNamespacesByNetworkconfigName("dummy-config")
-	assert.Equal(t, 1, len(ret))
-	assert.Equal(t, "ns3", ret[0])
-	ret = service.GetNamespacesByNetworkconfigName("non-exist")
-	assert.Equal(t, 0, len(ret))
-	ret = service.GetNamespacesByNetworkconfigName("fake-config")
-	assert.Equal(t, 2, len(ret))
-	assert.Contains(t, ret, "ns1")
-	assert.Contains(t, ret, "ns2")
-}
-
-func TestVPCService_GetVPCNetworkConfigByNamespace(t *testing.T) {
-	service, _, _ := createService(t)
-
-	info := common.VPCNetworkConfigInfo{
-		IsDefault:              false,
-		Org:                    "fake-org",
-		Name:                   "fake-name",
-		VPCConnectivityProfile: "fake-file",
-		NSXProject:             "fake-project",
-		PrivateIPs:             []string{"1.1.1.1/16"},
-		DefaultSubnetSize:      16,
-		VPCPath:                "fake-path",
-	}
-
-	service.RegisterNamespaceNetworkconfigBinding("fake-ns", "fake-name")
-	got := service.GetVPCNetworkConfigByNamespace("non-exist")
-	assert.Nil(t, got)
-	got = service.GetVPCNetworkConfigByNamespace("fake-ns")
-	assert.Nil(t, got)
-	service.RegisterVPCNetworkConfig("fake-name", info)
-	got = service.GetVPCNetworkConfigByNamespace("fake-ns")
-	reflect.DeepEqual(info, got)
-}
-
 func TestVPCService_ValidateNetworkConfig(t *testing.T) {
-	service, _, _ := createService(t)
+	service, _, _, _ := createService(t)
 
 	tests := []struct {
 		name string
@@ -1369,12 +1155,189 @@ func TestVPCService_ValidateNetworkConfig(t *testing.T) {
 	}
 }
 
+func TestVPCService_ListVPCInfo(t *testing.T) {
+	service, _, _, k8sClient := createService(t)
+	tests := []struct {
+		name            string
+		prepareFunc     func() *gomonkey.Patches
+		expectedResults []common.VPCResourceInfo
+	}{
+		{
+			name: "FailedToGetNetworkConfig",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*VPCService).GetNetworkconfigNameFromNS,
+					func(s *VPCService, ctx context.Context, ns string) (string, error) {
+						return "", errors.New("mock error")
+					})
+				return patches
+			},
+			expectedResults: []common.VPCResourceInfo{},
+		},
+		{
+			name: "PrecreatedVPC",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*VPCService).GetVPCNetworkConfigByNamespace,
+					func(s *VPCService, ns string) (*common.VPCNetworkConfigInfo, error) {
+						return &common.VPCNetworkConfigInfo{
+							VPCPath: "/orgs/org/projects/project/vpcs/vpc",
+						}, nil
+					})
+				return patches
+			},
+			expectedResults: []common.VPCResourceInfo{
+				{
+					OrgID:     "org",
+					ProjectID: "project",
+					VPCID:     "vpc",
+					ID:        "vpc",
+					ParentID:  "project",
+				},
+			},
+		},
+		{
+			name: "NonPrecreatedVPC",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*VPCService).GetNetworkconfigNameFromNS,
+					func(s *VPCService, ctx context.Context, ns string) (string, error) {
+						return "nc-1", nil
+					})
+				patches.ApplyFunc((*VPCService).GetCurrentVPCsByNamespace,
+					func(s *VPCService, ctx context.Context, namespace string) []*model.Vpc {
+						return []*model.Vpc{
+							{
+								Path:              common.String("/orgs/org/projects/project/vpcs/vpc"),
+								PrivateIpv4Blocks: []string{"10.0.0.1"},
+							},
+						}
+					})
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(k8sapierrors.NewNotFound(v1alpha1.Resource("vpcnetworkconfiguration"), ""))
+				return patches
+			},
+			expectedResults: []common.VPCResourceInfo{
+				{
+					OrgID:             "org",
+					ProjectID:         "project",
+					VPCID:             "vpc",
+					ID:                "vpc",
+					ParentID:          "project",
+					PrivateIpv4Blocks: []string{"10.0.0.1"},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc()
+				defer patches.Reset()
+			}
+			results := service.ListVPCInfo("test-ns")
+			assert.Equal(t, len(tt.expectedResults), len(results))
+			if len(tt.expectedResults) > 0 {
+				assert.Equal(t, tt.expectedResults[0], results[0])
+			}
+		})
+	}
+}
+
+func TestVPCService_GetNamespacesByNetworkconfigName(t *testing.T) {
+	service, _, _, k8sClient := createService(t)
+
+	ns1 := v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns-1",
+			Annotations: map[string]string{
+				common.AnnotationVPCNetworkConfig: "fake-config",
+			},
+		},
+	}
+	ns2 := v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns-2",
+			Annotations: map[string]string{
+				common.AnnotationVPCNetworkConfig: "fake-config",
+			},
+		},
+	}
+	ns3 := v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns-3",
+			Annotations: map[string]string{
+				common.AnnotationVPCNetworkConfig: "dummy-config",
+			},
+		},
+	}
+
+	ns4 := v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns-4",
+		},
+	}
+
+	service.UpdateDefaultNetworkConfig(&v1alpha1.VPCNetworkConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "default",
+			Annotations: map[string]string{
+				common.AnnotationDefaultNetworkConfig: "true",
+			},
+		},
+		Spec: v1alpha1.VPCNetworkConfigurationSpec{
+			NSXProject: "/orgs/org/projects/project",
+		},
+	})
+
+	tests := []struct {
+		name            string
+		expectedResults []string
+		configName      string
+	}{
+		{
+			name:            "OneNamespace",
+			expectedResults: []string{"ns-3"},
+			configName:      "dummy-config",
+		},
+		{
+			name:            "NoNamespace",
+			expectedResults: []string{},
+			configName:      "non-existed",
+		},
+		{
+			name:            "MultipleNamespace",
+			expectedResults: []string{"ns-1", "ns-2"},
+			configName:      "fake-config",
+		},
+		{
+			name:            "DefaultNamespace",
+			expectedResults: []string{"ns-4"},
+			configName:      "default",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				a := list.(*v1.NamespaceList)
+				a.Items = append(a.Items, ns1, ns2, ns3, ns4)
+				return nil
+			})
+			ret, err := service.GetNamespacesByNetworkconfigName(tt.configName)
+			assert.Nil(t, err)
+			assert.Equal(t, len(tt.expectedResults), len(ret))
+			if len(tt.expectedResults) != 0 {
+				for _, expectedResult := range tt.expectedResults {
+					assert.Contains(t, ret, expectedResult)
+				}
+			}
+		})
+	}
+}
+
 func TestVPCService_DeleteVPC(t *testing.T) {
 	mockVpc := "mockVpc"
 	mockLb := "mockLb"
 	mockConnectityPath := fmt.Sprintf("/org/default/projects/proj1/vpcs/%s/connectivity", mockVpc)
 	mockLBKey := combineVPCIDAndLBSID(mockVpc, mockLb)
-	service, _, _ := createService(t)
+	service, _, _, _ := createService(t)
 	fakeErr := errors.New("fake-errors")
 	tests := []struct {
 		name          string
@@ -1602,51 +1565,6 @@ func TestListAllVPCsFromNSX(t *testing.T) {
 				require.Equal(t, v, actVpc)
 			}
 		})
-	}
-}
-
-func TestListNamespacesWithPreCreatedVPCs(t *testing.T) {
-	svc := &VPCService{
-		VPCNetworkConfigStore: VPCNetworkInfoStore{
-			VPCNetworkConfigMap: map[string]common.VPCNetworkConfigInfo{
-				"net1": {
-					Name: "auto-vpc1",
-				},
-				"net2": {
-					Name:    "pre-vpc1",
-					VPCPath: "/orgs/default/projects/default/vpcs/vpc1",
-				},
-				"net3": {
-					Name:    "pre-vpc2",
-					VPCPath: "/orgs/default/projects/default/vpcs/vpc2",
-				},
-				"net4": {
-					Name:    "unknown-vpc",
-					VPCPath: "/orgs/default/projects/default/vpcs/vpc3",
-				},
-			},
-		},
-		VPCNSNetworkConfigStore: VPCNsNetworkConfigStore{
-			VPCNSNetworkConfigMap: map[string]string{
-				"ns1": "net1",
-				"ns2": "net2",
-				"ns3": "net3",
-				"ns4": "net3",
-			},
-		},
-	}
-	expVpcMap := map[string]string{
-		"ns2": "/orgs/default/projects/default/vpcs/vpc1",
-		"ns3": "/orgs/default/projects/default/vpcs/vpc2",
-		"ns4": "/orgs/default/projects/default/vpcs/vpc2",
-	}
-
-	nsVpcMap := svc.GetNamespacesWithPreCreatedVPCs()
-	require.Equal(t, len(expVpcMap), len(nsVpcMap))
-	for k, v := range expVpcMap {
-		vpcPath, ok := nsVpcMap[k]
-		require.True(t, ok)
-		require.Equal(t, v, vpcPath)
 	}
 }
 
@@ -2132,4 +2050,123 @@ func TestInitializeVPC(t *testing.T) {
 		allVPCs := service.ListVPC()
 		assert.Equal(t, tc.expectAllVPCNum, len(allVPCs))
 	}
+}
+
+func TestBuildNetworkConfigInfo(t *testing.T) {
+	emptyCRD := &v1alpha1.VPCNetworkConfiguration{}
+	emptyCRD2 := &v1alpha1.VPCNetworkConfiguration{
+		Spec: v1alpha1.VPCNetworkConfigurationSpec{
+			NSXProject: "/invalid/path",
+		},
+	}
+	_, e := buildNetworkConfigInfo(emptyCRD)
+	assert.NotNil(t, e)
+	_, e = buildNetworkConfigInfo(emptyCRD2)
+	assert.NotNil(t, e)
+
+	spec1 := v1alpha1.VPCNetworkConfigurationSpec{
+		PrivateIPs:             []string{"private-ipb-1", "private-ipb-2"},
+		DefaultSubnetSize:      64,
+		VPCConnectivityProfile: "test-VPCConnectivityProfile",
+		NSXProject:             "/orgs/default/projects/nsx_operator_e2e_test",
+	}
+	spec2 := v1alpha1.VPCNetworkConfigurationSpec{
+		PrivateIPs:        []string{"private-ipb-1", "private-ipb-2"},
+		DefaultSubnetSize: 32,
+		NSXProject:        "/orgs/anotherOrg/projects/anotherProject",
+	}
+	spec3 := v1alpha1.VPCNetworkConfigurationSpec{
+		DefaultSubnetSize: 28,
+		NSXProject:        "/orgs/anotherOrg/projects/anotherProject",
+		VPC:               "vpc33",
+	}
+	testCRD1 := v1alpha1.VPCNetworkConfiguration{
+		Spec: spec1,
+	}
+	testCRD1.Name = "test-1"
+	testCRD2 := v1alpha1.VPCNetworkConfiguration{
+		Spec: spec2,
+	}
+	testCRD2.Name = "test-2"
+
+	testCRD3 := v1alpha1.VPCNetworkConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				common.AnnotationDefaultNetworkConfig: "true",
+			},
+		},
+		Spec: spec2,
+	}
+	testCRD3.Name = "test-3"
+
+	testCRD4 := v1alpha1.VPCNetworkConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				common.AnnotationDefaultNetworkConfig: "false",
+			},
+		},
+		Spec: spec3,
+	}
+	testCRD3.Name = "test-4"
+
+	tests := []struct {
+		name                   string
+		nc                     v1alpha1.VPCNetworkConfiguration
+		gw                     string
+		edge                   string
+		org                    string
+		project                string
+		subnetSize             int
+		accessMode             string
+		isDefault              bool
+		vpcConnectivityProfile string
+		vpcPath                string
+	}{
+		{"test-nsxProjectPathToId", testCRD1, "test-gw-path-1", "test-edge-path-1", "default", "nsx_operator_e2e_test", 64, "Public", false, "", ""},
+		{"with-VPCConnectivityProfile", testCRD2, "test-gw-path-2", "test-edge-path-2", "anotherOrg", "anotherProject", 32, "Private", false, "test-VPCConnectivityProfile", ""},
+		{"with-defaultNetworkConfig", testCRD3, "test-gw-path-2", "test-edge-path-2", "anotherOrg", "anotherProject", 32, "Private", true, "", ""},
+		{"with-preCreatedVPC", testCRD4, "", "", "anotherOrg", "anotherProject", 28, "Private", false, "", "vpc33"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nc, e := buildNetworkConfigInfo(&tt.nc)
+			assert.Nil(t, e)
+			assert.Equal(t, tt.org, nc.Org)
+			assert.Equal(t, tt.project, nc.NSXProject)
+			assert.Equal(t, tt.subnetSize, nc.DefaultSubnetSize)
+			assert.Equal(t, tt.isDefault, nc.IsDefault)
+			assert.Equal(t, tt.vpcPath, nc.VPCPath)
+		})
+	}
+}
+
+func TestGetNamespacesWithPreCreatedVPCs(t *testing.T) {
+	objs := []client.Object{
+		&v1alpha1.VPCNetworkConfiguration{
+			ObjectMeta: metav1.ObjectMeta{Name: "vpc-config-1"},
+			Spec:       v1alpha1.VPCNetworkConfigurationSpec{VPC: "vpc-path"},
+		},
+		&v1alpha1.VPCNetworkConfiguration{
+			ObjectMeta: metav1.ObjectMeta{Name: "vpc-config-2"},
+		},
+		&v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "ns-1",
+				Annotations: map[string]string{common.AnnotationVPCNetworkConfig: "vpc-config-1"},
+			},
+		},
+		&v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "ns-2",
+				Annotations: map[string]string{common.AnnotationVPCNetworkConfig: "vpc-config-1"},
+			},
+		},
+	}
+
+	service := createFakeVPCService(t, objs)
+	nsVpcMap, err := service.GetNamespacesWithPreCreatedVPCs()
+
+	assert.Nil(t, err)
+	assert.Equal(t, "vpc-path", nsVpcMap["ns-1"])
+	assert.Equal(t, "vpc-path", nsVpcMap["ns-2"])
 }

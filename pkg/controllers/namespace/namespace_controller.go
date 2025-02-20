@@ -163,33 +163,6 @@ func (r *NamespaceReconciler) namespaceError(ctx context.Context, k8sObj client.
 	util.UpdateK8sResourceAnnotation(r.Client, ctx, k8sObj, changes)
 }
 
-func (r *NamespaceReconciler) insertNamespaceNetworkconfigBinding(ns string, anno map[string]string) error {
-	ncName, useDefault := "", false
-	var err error
-	if anno == nil {
-		log.V(2).Info("Empty annotation for Namespace, using default network config", "Namespace", ns)
-		useDefault = true
-	} else {
-		annoNC, ncExist := anno[types.AnnotationVPCNetworkConfig]
-		if !ncExist {
-			useDefault = true
-		} else {
-			ncName = annoNC
-		}
-	}
-
-	if useDefault {
-		ncName, err = r.getDefaultNetworkConfigName()
-		if err != nil {
-			return err
-		}
-	}
-
-	log.Info("Record Namespace and network config mapping relation", "Namespace", ns, "NetworkConfig", ncName)
-	r.VPCService.RegisterNamespaceNetworkconfigBinding(ns, ncName)
-	return nil
-}
-
 /*
 	VPC creation strategy:
 
@@ -225,30 +198,24 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 		ctx := context.Background()
 		annotations := obj.GetAnnotations()
-		err := r.insertNamespaceNetworkconfigBinding(ns, annotations)
+
+		ncName, err := r.VPCService.GetNetworkconfigNameFromAnnotation(ns, annotations)
 		if err != nil {
-			log.Error(err, "Failed to build Namespace and NetworkConfig bindings", "Namespace", ns)
-			return common.ResultRequeueAfter10sec, err
-		}
-		ncName, ncExist := annotations[types.AnnotationVPCNetworkConfig]
-
-		// If ns do not have network config name tag, then use default vpc network config name
-		if !ncExist {
-			log.Info("NetworkConfig name not found on Namespace, using default NetworkConfig", "Namespace", ns)
-			ncName, err = r.getDefaultNetworkConfigName()
-			if err != nil {
-				log.Error(err, "Failed to get default network config name", "Namespace", ns)
-				return common.ResultRequeueAfter10sec, err
-			}
+			log.Error(err, "Failed to get network config name", "Namespace", ns)
+			return common.ResultRequeueAfter10sec, nil
 		}
 
-		nc, ncExist := r.VPCService.GetVPCNetworkConfig(ncName)
+		nc, ncExist, err := r.VPCService.GetVPCNetworkConfig(ncName)
+		if err != nil {
+			log.Error(err, "Failed to get network config", "Namespace", ncName)
+			return common.ResultRequeue, nil
+		}
 		if !ncExist {
 			message := fmt.Sprintf("missing network config %s for Namespace %s", ncName, ns)
 			r.namespaceError(ctx, obj, message, nil)
 			return common.ResultRequeueAfter10sec, errors.New(message)
 		}
-		if !r.VPCService.ValidateNetworkConfig(nc) {
+		if !r.VPCService.ValidateNetworkConfig(*nc) {
 			// if network config is not valid, no need to retry, skip processing
 			message := fmt.Sprintf("invalid network config %s for Namespace %s, missing private cidr", ncName, ns)
 			r.namespaceError(ctx, obj, message, nil)
@@ -264,7 +231,6 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return common.ResultNormal, nil
 	} else {
 		metrics.CounterInc(r.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNamespace)
-		r.VPCService.UnRegisterNamespaceNetworkconfigBinding(obj.GetNamespace())
 		// actively delete default SubnetSet, so that SubnetSet webhook can admit the delete request
 		if err := r.deleteDefaultSubnetSet(ns); err != nil {
 			return common.ResultRequeueAfter10sec, err
