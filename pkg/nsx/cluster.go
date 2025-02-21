@@ -295,6 +295,10 @@ func (cluster *Cluster) createHTTPClient(tr *Transport, timeout time.Duration) *
 	}
 }
 
+func (cluster *Cluster) GetHttpClient() *http.Client {
+	return cluster.client
+}
+
 func (cluster *Cluster) createNoBalancerClient(timeout, idle time.Duration) *http.Client {
 	// #nosec G402: ignore insecure options
 	tlsConfig := tls.Config{InsecureSkipVerify: true}
