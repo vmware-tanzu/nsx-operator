@@ -5,6 +5,7 @@ package realizestate
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -15,9 +16,7 @@ import (
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
-var (
-	log = &logger.Log
-)
+var log = &logger.Log
 
 type RealizeStateService struct {
 	common.Service
@@ -75,4 +74,32 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 		}
 		return fmt.Errorf("%s not realized", intentPath)
 	})
+}
+
+func (service *RealizeStateService) GetPolicyTier1UplinkPortIP(intentPath string) (string, error) {
+	results, err := service.NSXClient.RealizedEntitiesClient.List(intentPath, nil)
+	err = nsxutil.TransNSXApiError(err)
+	if err != nil {
+		return "", err
+	}
+
+	for _, result := range results.Results {
+		extendAttributes := result.ExtendedAttributes
+		if len(extendAttributes) == 0 || len(result.IntentPaths) != 1 || (result.EntityType != nil && *result.EntityType != "RealizedLogicalRouterPort") {
+			continue
+		}
+		for i := range extendAttributes {
+			if extendAttributes[i].Key != nil && *extendAttributes[i].Key == "IpAddresses" {
+				for _, ip := range extendAttributes[i].Values {
+					parts := strings.Split(ip, "/")
+					if len(parts) != 2 {
+						continue
+					}
+					return parts[0], nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("%s tier1 uplink port IP not found", intentPath)
 }
