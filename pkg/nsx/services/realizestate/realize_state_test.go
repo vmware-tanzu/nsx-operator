@@ -6,7 +6,10 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -229,5 +232,152 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 	_, ok = err.(*nsxutil.RealizeStateError)
 	assert.Equal(t, ok, false)
 	patches.Reset()
+}
 
+func TestRealizeStateService_GetPolicyTier1UplinkPortIP(t *testing.T) {
+	commonService := common.Service{
+		NSXClient: &nsx.Client{
+			RealizedEntitiesClient: &fakeRealizedEntitiesClient{},
+			NsxConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		NSXConfig: &config.NSXOperatorConfig{
+			CoeConfig: &config.CoeConfig{
+				Cluster: "k8scl-one:test",
+			},
+		},
+	}
+	s := &RealizeStateService{
+		Service: commonService,
+	}
+
+	testCases := []struct {
+		name         string
+		intentPath   string
+		prepareFuncs func() *gomonkey.Patches
+		wantObj      string
+		wantErr      string
+	}{
+		{
+			name:       "Test normal case",
+			intentPath: "/orgs/default/projects/project-quality/vpcs/ns-vpc-uid-1",
+			wantObj:    "100.64.0.3",
+			prepareFuncs: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*fakeRealizedEntitiesClient).List, func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+					return model.GenericPolicyRealizedResourceListResult{
+						Results: []model.GenericPolicyRealizedResource{
+							{
+								State:      common.String(model.GenericPolicyRealizedResource_STATE_REALIZED),
+								EntityType: common.String("RealizedLogicalRouterPort"),
+								IntentPaths: []string{
+									"/orgs/default/projects/project-quality/vpcs/ns-vpc-uid-1",
+								},
+							},
+							{
+								State: common.String(model.GenericPolicyRealizedResource_STATE_REALIZED),
+								ExtendedAttributes: []model.AttributeVal{
+									{
+										DataType: common.String("STRING"),
+										Key:      common.String("IpAddresses"),
+										Values:   []string{"100.64.0.3/31"},
+									},
+									{
+										DataType: common.String("STRING"),
+										Key:      common.String("MacAddress"),
+										Values:   []string{"02:50:56:56:44:52"},
+									},
+								},
+								EntityType: common.String("RealizedLogicalRouterPort"),
+								IntentPaths: []string{
+									"/orgs/default/projects/project-quality/vpcs/ns-vpc-uid-1",
+								},
+							},
+						},
+					}, nil
+				})
+				return patches
+			},
+		},
+		{
+			name:       "Empty list result",
+			intentPath: "/orgs/default/projects/project-quality/vpcs/ns-vpc-uid-1",
+			wantErr:    "tier1 uplink port IP not found",
+			prepareFuncs: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*fakeRealizedEntitiesClient).List, func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+					return model.GenericPolicyRealizedResourceListResult{
+						Results: []model.GenericPolicyRealizedResource{
+							{},
+						},
+					}, nil
+				})
+				return patches
+			},
+		},
+		{
+			name:       "Invalid tier1 uplink port IP",
+			intentPath: "/orgs/default/projects/project-quality/vpcs/ns-vpc-uid-1",
+			wantErr:    "tier1 uplink port IP not found",
+			prepareFuncs: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*fakeRealizedEntitiesClient).List, func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+					return model.GenericPolicyRealizedResourceListResult{
+						Results: []model.GenericPolicyRealizedResource{
+							{
+								State: common.String(model.GenericPolicyRealizedResource_STATE_REALIZED),
+								ExtendedAttributes: []model.AttributeVal{
+									{
+										DataType: common.String("STRING"),
+										Key:      common.String("IpAddresses"),
+										Values:   []string{"100.64.0.3/31/33"},
+									},
+								},
+								EntityType: common.String("RealizedLogicalRouterPort"),
+								IntentPaths: []string{
+									"/orgs/default/projects/project-quality/vpcs/ns-vpc-uid-1",
+								},
+							},
+						},
+					}, nil
+				})
+				return patches
+			},
+		},
+		{
+			name:       "Realized error",
+			intentPath: "/orgs/default/projects/project-quality/vpcs/ns-vpc-uid-1",
+			wantErr:    "com.vmware.vapi.std.errors.service_unavailable",
+			prepareFuncs: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*fakeRealizedEntitiesClient).List, func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+					return model.GenericPolicyRealizedResourceListResult{
+						Results: []model.GenericPolicyRealizedResource{
+							{
+								State:      common.String(model.GenericPolicyRealizedResource_STATE_ERROR),
+								EntityType: common.String("RealizedLogicalRouterPort"),
+							},
+						},
+					}, apierrors.NewServiceUnavailable()
+				})
+				return patches
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if testCase.prepareFuncs != nil {
+				patches := testCase.prepareFuncs()
+				defer patches.Reset()
+			}
+
+			got, err := s.GetPolicyTier1UplinkPortIP(testCase.intentPath)
+			if testCase.wantErr != "" {
+				assert.ErrorContains(t, err, testCase.wantErr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, testCase.wantObj, got)
+			}
+		})
+	}
 }

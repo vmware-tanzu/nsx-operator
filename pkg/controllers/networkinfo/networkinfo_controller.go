@@ -58,6 +58,7 @@ var (
 	nsMsgVPCCreateUpdateError     = newNsUnreadyMessage("Error happened to create or update VPC: %v", NSReasonVPCNotReady)
 	nsMsgVPCNsxLBSNotReady        = newNsUnreadyMessage("Error happened to get NSX LBS path in VPC: %v", NSReasonVPCNotReady)
 	nsMsgVPCAviSubnetError        = newNsUnreadyMessage("Error happened to get Avi Load balancer Subnet info: %v", NSReasonVPCNotReady)
+	nsMsgVPCNSXLBSNATIPError      = newNsUnreadyMessage("Error happened to get NSX Load balancer SNAT IP info: %v", NSReasonVPCNotReady)
 	nsMsgVPCGetExtIPBlockError    = newNsUnreadyMessage("Error happened to get external IP blocks: %v", NSReasonVPCNotReady)
 	nsMsgVPCNoExternalIPBlock     = newNsUnreadyMessage("System VPC has no external IP blocks", NSReasonVPCNotReady)
 	nsMsgVPCAutoSNATDisabled      = newNsUnreadyMessage("SNAT is not enabled in System VPC", NSReasonVPCSnatNotReady)
@@ -125,6 +126,7 @@ func (r *NetworkInfoReconciler) GetVpcConnectivityProfilePathByVpcPath(vpcPath s
 		return "", err
 	}
 }
+
 func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	startTime := time.Now()
 	defer func() {
@@ -252,7 +254,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		nsxLBSPath = r.Service.GetDefaultNSXLBSPathByVPC(*createdVpc.Id)
 	}
 
-	snatIP, path, cidr := "", "", ""
+	snatIP, aviSubnetPath, aviSECIDR, nsxLBSNATIP, lbIP := "", "", "", "", ""
 
 	vpcConnectivityProfile, err := r.Service.GetVpcConnectivityProfile(&nc, vpcConnectivityProfilePath)
 	if err != nil {
@@ -302,30 +304,46 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// nsx bug, if set LoadBalancerVpcEndpoint.Enabled to false, when read this VPC back,
 	// LoadBalancerVpcEndpoint.Enabled will become a nil pointer.
 	if lbProvider == vpc.AVILB && createdVpc.LoadBalancerVpcEndpoint != nil && createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
-		path, cidr, err = r.Service.GetAVISubnetInfo(*createdVpc)
+		aviSubnetPath, aviSECIDR, err = r.Service.GetAVISubnetInfo(*createdVpc)
 		if err != nil {
-			log.Error(err, "Failed to read LB Subnet path and CIDR", "VPC", createdVpc.Id)
+			log.Error(err, "Failed to read AVI LB Subnet path and CIDR", "VPC", createdVpc.Id)
 			state := &v1alpha1.VPCState{
 				Name:                    *createdVpc.DisplayName,
 				DefaultSNATIP:           snatIP,
 				LoadBalancerIPAddresses: "",
 				PrivateIPs:              privateIPs,
 			}
-			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to read LB Subnet path and CIDR, VPC: %s", *createdVpc.Id), setNetworkInfoVPCStatusWithError, state)
+			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to read AVI LB Subnet path and CIDR, VPC: %s", *createdVpc.Id), setNetworkInfoVPCStatusWithError, state)
 			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCAviSubnetError.getNSNetworkCondition(err))
 			return common.ResultRequeueAfter10sec, err
 		}
+		lbIP = aviSECIDR
+	} else if lbProvider == vpc.NSXLB {
+		nsxLBSNATIP, err = r.Service.GetNSXLBSNATIP(*createdVpc)
+		if err != nil {
+			log.Error(err, "Failed to read NSX LB SNAT IP", "VPC", createdVpc.Id)
+			state := &v1alpha1.VPCState{
+				Name:                    *createdVpc.DisplayName,
+				DefaultSNATIP:           snatIP,
+				LoadBalancerIPAddresses: "",
+				PrivateIPs:              privateIPs,
+			}
+			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to read NSX LB Subnet path and CIDR, VPC: %s", *createdVpc.Id), setNetworkInfoVPCStatusWithError, state)
+			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCNSXLBSNATIPError.getNSNetworkCondition(err))
+			return common.ResultRequeueAfter10sec, err
+		}
+		lbIP = nsxLBSNATIP
 	}
 
 	state := &v1alpha1.VPCState{
 		Name:                    *createdVpc.DisplayName,
 		DefaultSNATIP:           snatIP,
-		LoadBalancerIPAddresses: cidr,
+		LoadBalancerIPAddresses: lbIP,
 		PrivateIPs:              privateIPs,
 	}
 
 	// AKO needs to know the AVI subnet path created by NSX
-	setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, path, nsxLBSPath, *createdVpc.Path)
+	setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, aviSubnetPath, nsxLBSPath, *createdVpc.Path)
 	r.StatusUpdater.UpdateSuccess(ctx, networkInfoCR, setNetworkInfoVPCStatus, state)
 
 	if retryWithSystemVPC {
