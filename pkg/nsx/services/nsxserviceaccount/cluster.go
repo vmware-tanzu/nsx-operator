@@ -186,12 +186,36 @@ func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.
 	hasCCP := len(s.ClusterControlPlaneStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(obj.UID))) > 0
 	piObj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName)
 	ccpObj := s.ClusterControlPlaneStore.GetByKey(normalizedClusterName)
+	var pi *mpmodel.PrincipalIdentity
+	var certificate mpmodel.Certificate
+	detail := true
+	if piObj != nil {
+		pi = piObj.(*mpmodel.PrincipalIdentity)
+		certificate, _ = s.NSXClient.CertificatesClient.Get(*(pi.CertificateId), &detail)
+	}
+	// read Secret
+	secretName := obj.Status.Secrets[0].Name
+	secretNamespace := obj.Status.Secrets[0].Namespace
+	secret := &v1.Secret{}
+	if err := s.Client.Get(ctx, types.NamespacedName{Name: secretName, Namespace: secretNamespace}, secret); err != nil {
+		return err
+	}
+	cert := secret.Data[SecretCertName]
+
+	log.V(1).Info("RestoreRealizedNSXServiceAccount: ",
+		"certificate.PemEncoded==nil", certificate.PemEncoded == nil,
+		"certificate.PemEncoded", certificate.PemEncoded,
+		"cert", string(cert))
 	if hasPI && hasCCP && piObj != nil && ccpObj != nil {
+		if string(cert) != "" && (certificate.PemEncoded == nil || *(certificate.PemEncoded) != string(cert)) {
+			return s.updatePICert(pi, normalizedClusterName, string(cert))
+		}
 		return nil
 	} else if hasPI || hasCCP || (piObj != nil) || (ccpObj != nil) {
 		return fmt.Errorf("PI/CCP doesn't match")
 	}
 	_, err := s.NSXClient.ClusterControlPlanesClient.Get(siteId, enforcementpointId, normalizedClusterName)
+	log.V(1).Info("RestoreRealizedNSXServiceAccount s.NSXClient.ClusterControlPlanesClient.Get", "err", err)
 	err = nsxutil.TransNSXApiError(err)
 	if err == nil {
 		return fmt.Errorf("CCP store is not synchronized")
@@ -205,14 +229,7 @@ func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.
 	}
 
 	log.Info("Start to restore realized resource", "nsxserviceaccount", types.NamespacedName{Name: obj.Name, Namespace: obj.Namespace})
-	// read Secret
-	secretName := obj.Status.Secrets[0].Name
-	secretNamespace := obj.Status.Secrets[0].Namespace
-	secret := &v1.Secret{}
-	if err := s.Client.Get(ctx, types.NamespacedName{Name: secretName, Namespace: secretNamespace}, secret); err != nil {
-		return err
-	}
-	cert := secret.Data[SecretCertName]
+
 	vpcPath := obj.Status.VPCPath
 	existingClusterId := obj.Status.ClusterID
 
@@ -223,8 +240,10 @@ func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.
 
 func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, vpcPath string, cert string, existingClusterId *string, obj *v1alpha1.NSXServiceAccount) (string, error) {
 	// create PI
+	log.V(1).Info("createPIAndCCP")
 	hasPI := len(s.PrincipalIdentityStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(obj.UID))) > 0
 	if piObj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName); !hasPI && piObj == nil {
+		log.V(1).Info("create PI")
 		pi, err := s.NSXClient.WithCertificateClient.Create(mpmodel.PrincipalIdentityWithCertificate{
 			IsProtected: &isProtectedTrue,
 			Name:        &normalizedClusterName,
@@ -250,7 +269,15 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 		}
 		s.PrincipalIdentityStore.Add(&pi)
 	} else if !hasPI != (piObj == nil) {
+		log.Error(fmt.Errorf("conflicting old PI exists"), "Failed to create PI and CCPN", "!hasPI", !hasPI, "piObj == nil", piObj == nil)
 		return "", fmt.Errorf("old PI exists")
+	} else if hasPI && (piObj != nil) {
+		log.V(1).Info("update PI with new cert")
+		pi := piObj.(*mpmodel.PrincipalIdentity)
+		err := s.updatePICert(pi, normalizedClusterName, cert)
+		if err != nil {
+			return "failed to update PICert", err
+		}
 	}
 
 	// create ClusterControlPlane
@@ -451,6 +478,11 @@ func (s *NSXServiceAccountService) updatePIAndCCPCert(normalizedClusterName, uid
 
 	// update PI cert
 	pi := piObj.(*mpmodel.PrincipalIdentity)
+	return s.updatePICert(pi, normalizedClusterName, cert)
+}
+
+func (s *NSXServiceAccountService) updatePICert(pi *mpmodel.PrincipalIdentity, normalizedClusterName, cert string) error {
+	// update PI cert
 	oldCertId := ""
 	if pi.CertificateId != nil {
 		oldCertId = *pi.CertificateId
@@ -463,6 +495,7 @@ func (s *NSXServiceAccountService) updatePIAndCCPCert(normalizedClusterName, uid
 		err = nsxutil.TransNSXApiError(err)
 		return err
 	}
+
 	if pi2, err := s.NSXClient.PrincipalIdentitiesClient.Updatecertificate(mpmodel.UpdatePrincipalIdentityCertificateRequest{
 		CertificateId:       certList.Results[0].Id,
 		PrincipalIdentityId: pi.Id,
