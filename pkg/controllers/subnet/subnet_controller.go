@@ -345,7 +345,7 @@ func StartSubnetController(mgr ctrl.Manager, subnetService *subnet.SubnetService
 		return err
 	}
 	// Start garbage collector in a separate goroutine
-	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, subnetReconciler.collectGarbage)
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.SubnetGCInterval, subnetReconciler.collectGarbage)
 	return nil
 }
 
