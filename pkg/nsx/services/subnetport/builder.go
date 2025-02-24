@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sort"
 
 	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
@@ -65,8 +66,14 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	namespace_uid := namespace.UID
 	tags := util.BuildBasicTags(getCluster(service), obj, namespace_uid)
 	if labelTags != nil {
-		for k, v := range *labelTags {
-			tags = append(tags, model.Tag{Scope: String(k), Tag: String(v)})
+		// Append Namespace labels in order as tags
+		labelKeys := make([]string, 0, len(*labelTags))
+		for k := range *labelTags {
+			labelKeys = append(labelKeys, k)
+		}
+		sort.Strings(labelKeys)
+		for _, k := range labelKeys {
+			tags = append(tags, model.Tag{Scope: common.String(k), Tag: common.String((*labelTags)[k])})
 		}
 	}
 	nsxSubnetPort := &model.VpcSubnetPort{

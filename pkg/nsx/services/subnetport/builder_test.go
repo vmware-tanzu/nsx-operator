@@ -130,7 +130,10 @@ func TestBuildSubnetPort(t *testing.T) {
 				Path: common.String("fake_path"),
 			},
 			contextID: "fake_context_id",
-			labelTags: nil,
+			labelTags: &map[string]string{
+				"kubernetes.io/metadata.name": "fake_ns",
+				"vSphereClusterID":            "domain-c11",
+			},
 			expectedPort: &model.VpcSubnetPort{
 				DisplayName: common.String("fake_pod"),
 				Id:          common.String("fake_pod_c5db1800-ce4c-11de-a935-8105ba7ace78"),
@@ -154,6 +157,14 @@ func TestBuildSubnetPort(t *testing.T) {
 					{
 						Scope: common.String("nsx-op/pod_uid"),
 						Tag:   common.String("c5db1800-ce4c-11de-a935-8105ba7ace78"),
+					},
+					{
+						Scope: common.String("kubernetes.io/metadata.name"),
+						Tag:   common.String("fake_ns"),
+					},
+					{
+						Scope: common.String("vSphereClusterID"),
+						Tag:   common.String("domain-c11"),
 					},
 				},
 				Path:       common.String("fake_path/ports/fake_pod_c5db1800-ce4c-11de-a935-8105ba7ace78"),
