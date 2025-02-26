@@ -92,9 +92,10 @@ const (
 	ValuePatchVersion                  string = "0"
 	ConnectorUnderline                 string = "_"
 
-	GCInterval    = 10 * 60 * time.Second
-	DefaultSNATID = "DEFAULT"
-	AVISubnetLBID = "_services"
+	GCInterval       = 10 * 60 * time.Second
+	SubnetGCInterval = 60 * time.Second
+	DefaultSNATID    = "DEFAULT"
+	AVISubnetLBID    = "_services"
 
 	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
 	T1SecurityPolicyFinalizerName  = "securitypolicy.nsx.vmware.com/finalizer"
