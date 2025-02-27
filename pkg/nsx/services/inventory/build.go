@@ -2,7 +2,10 @@ package inventory
 
 import (
 	"context"
+	"crypto/sha1" // #nosec G505: not used for security purposes
 	"errors"
+	"fmt"
+	"sort"
 
 	"github.com/vmware/go-vmware-nsxt/common"
 	"github.com/vmware/go-vmware-nsxt/containerinventory"
@@ -12,7 +15,7 @@ import (
 )
 
 func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
-	log.Info("Add pod ", "Pod", pod.Name, "namespace", pod.Namespace)
+	log.Info("Add Pod ", "Pod", pod.Name, "namespace", pod.Namespace)
 	retry = false
 	// Calculate the services related to this Pod from pending_add or inventory store.
 	container_application_ids := []string{}
@@ -29,7 +32,7 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 	err := s.Client.Get(context.TODO(), types.NamespacedName{Name: namespaceName}, namespace)
 	if err != nil {
 		retry = true
-		log.Error(errors.New("Cannot find namespace for Pod"), "Cannot find namespace for Pod", pod)
+		log.Error(errors.New("Cannot find namespace for Pod"), "Failed to build Pod", pod)
 		return
 	}
 
@@ -40,7 +43,7 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 			// retry when pod has Node but Node is missing in NodeInformer
 			retry = true
 		}
-		log.Error(err, "Cannot find node for Pod", "pod", pod, "retry", retry)
+		log.Error(err, "Cannot find node for Pod", "Pod", pod, "retry", retry)
 		return
 	}
 	status := InventoryStatusDown
@@ -56,7 +59,7 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 	} else if len(pod.Status.PodIPs) == 2 {
 		ips = pod.Status.PodIPs[0].IP + "," + pod.Status.PodIPs[1].IP
 	} else {
-		log.Info("Unexpected pod IPs found", "pod ips", pod.Status.PodIPs)
+		log.Info("Unexpected Pod IPs found", "Pod ips", pod.Status.PodIPs)
 	}
 	var originProperties []common.KeyValuePair
 	if ips == "" {
@@ -74,7 +77,7 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 		DisplayName:  pod.Name,
 		ResourceType: string(ContainerApplicationInstance),
 		// TODO: get tags from pod.Labels
-		Tags:                    []common.Tag{},
+		Tags:                    GetTagsFromLabels(pod.Labels),
 		ClusterNodeId:           string(node.UID),
 		ContainerApplicationIds: container_application_ids,
 		ContainerClusterId:      s.NSXConfig.Cluster,
@@ -93,7 +96,7 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 	return
 }
 
-func (s *InventoryService) BuildInentoryCluster() containerinventory.ContainerCluster {
+func (s *InventoryService) BuildInventoryCluster() containerinventory.ContainerCluster {
 	scope := containerinventory.DiscoveredResourceScope{
 		ScopeId:   s.NSXConfig.Cluster,
 		ScopeType: "CONTAINER_CLUSTER"}
@@ -115,4 +118,42 @@ func (s *InventoryService) BuildInentoryCluster() containerinventory.ContainerCl
 		// report nsx-operator version
 	}
 	return newContainerCluster
+}
+
+func GetTagsFromLabels(labels map[string]string) []common.Tag {
+	keys := make([]string, 0, len(labels))
+	for key := range labels {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	tags := make([]common.Tag, 0)
+	maxKeyNum := len(keys)
+	if maxKeyNum > INVENTORY_MAX_DIS_TAGS {
+		maxKeyNum = INVENTORY_MAX_DIS_TAGS
+	}
+	for _, sortKey := range keys[:maxKeyNum] {
+		scope := INVENTORY_K8S_PREFIX + normalize(sortKey, MAX_RESOURCE_TYPE_LEN-len(INVENTORY_K8S_PREFIX))
+		maxTagLen := len(labels[sortKey])
+		if maxTagLen > MAX_TAG_LEN {
+			maxTagLen = MAX_TAG_LEN
+		}
+		tags = append(tags, common.Tag{
+			Scope: scope,
+			Tag:   labels[sortKey][:maxTagLen],
+		})
+	}
+	return tags
+}
+
+func normalize(name string, max_length int) string {
+	if len(name) <= max_length {
+		return name
+	}
+	// #nosec G401: not used for security purposes
+	hash_id := sha1.Sum([]byte(name))
+	name_length := max_length - 9
+	newname := fmt.Sprintf("%s-%s", name[:name_length], hash_id[:8])
+	log.Info("Name exceeds max length of supported by NSX. Truncate name to newname",
+		"max_length", max_length, "name", name, "newname", newname)
+	return newname
 }

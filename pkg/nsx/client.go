@@ -104,7 +104,7 @@ type Client struct {
 	LbPersistenceProfilesClient       infra.LbPersistenceProfilesClient
 	LbMonitorProfilesClient           infra.LbMonitorProfilesClient
 	SubnetConnectionBindingMapsClient subnets.SubnetConnectionBindingMapsClient
-	InventoryClient                   *nsxt.APIClient
+	NsxApiClient                      *nsxt.APIClient
 
 	NSXChecker    NSXHealthChecker
 	NSXVerChecker NSXVersionChecker
@@ -209,7 +209,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	lbPersistenceProfilesClient := infra.NewLbPersistenceProfilesClient(restConnector(cluster))
 	lbMonitorProfilesClient := infra.NewLbMonitorProfilesClient(restConnector(cluster))
 
-	inventoryClient, _ := CreateNsxtApiClient(cf, cluster.client)
+	nsxApiClient, _ := CreateNsxtApiClient(cf, cluster.client)
 
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
@@ -269,7 +269,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		LbAppProfileClient:                lbAppProfileClient,
 		LbPersistenceProfilesClient:       lbPersistenceProfilesClient,
 		LbMonitorProfilesClient:           lbMonitorProfilesClient,
-		InventoryClient:                   inventoryClient,
+		NsxApiClient:                      nsxApiClient,
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time

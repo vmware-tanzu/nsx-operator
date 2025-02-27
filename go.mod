@@ -10,7 +10,7 @@ replace (
 )
 
 require (
-	github.com/agiledragon/gomonkey/v2 v2.11.0
+	github.com/agiledragon/gomonkey/v2 v2.13.0
 	github.com/apparentlymart/go-cidr v1.1.0
 	github.com/deckarep/golang-set v1.8.0
 	github.com/go-logr/logr v1.4.2
