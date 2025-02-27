@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -366,9 +367,14 @@ func (service *SubnetService) GenerateSubnetNSTags(obj client.Object) []model.Ta
 				model.Tag{Scope: common.String(common.TagScopeVMNamespace), Tag: common.String(obj.GetNamespace())})
 		}
 	}
-	// Append Namespace labels as tags
-	for k, v := range namespace.Labels {
-		tags = append(tags, model.Tag{Scope: common.String(k), Tag: common.String(v)})
+	// Append Namespace labels in order as tags
+	labelKeys := make([]string, 0, len(namespace.Labels))
+	for k := range namespace.Labels {
+		labelKeys = append(labelKeys, k)
+	}
+	sort.Strings(labelKeys)
+	for _, k := range labelKeys {
+		tags = append(tags, model.Tag{Scope: common.String(k), Tag: common.String(namespace.Labels[k])})
 	}
 	return tags
 }
