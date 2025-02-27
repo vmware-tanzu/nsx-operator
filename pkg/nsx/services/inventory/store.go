@@ -15,7 +15,7 @@ type ApplicationInstanceStore struct {
 
 func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
-	case containerinventory.ContainerApplicationInstance:
+	case *containerinventory.ContainerApplicationInstance:
 		return v.ExternalId, nil
 	case *containerinventory.ContainerCluster:
 		return v.ExternalId, nil
@@ -27,7 +27,7 @@ func keyFunc(obj interface{}) (string, error) {
 func indexFunc(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
 	switch v := obj.(type) {
-	case containerinventory.ContainerApplicationInstance:
+	case *containerinventory.ContainerApplicationInstance:
 		return []string{v.ExternalId}, nil
 	case *containerinventory.ContainerCluster:
 		return []string{v.ExternalId}, nil

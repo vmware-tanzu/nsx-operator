@@ -10,9 +10,7 @@ import (
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 
 	"github.com/vmware/go-vmware-nsxt/containerinventory"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 )
 
@@ -38,6 +36,11 @@ const (
 
 	// Inventory infra
 	INVENTORY_INFRA_TYPE_VSPHERE = "vSphere"
+
+	INVENTORY_MAX_DIS_TAGS = 20
+	INVENTORY_K8S_PREFIX   = "dis:k8s:"
+	MAX_TAG_LEN            = 256
+	MAX_RESOURCE_TYPE_LEN  = 128
 )
 
 type InventoryKey struct {
@@ -58,7 +61,8 @@ const (
 )
 
 var (
-	log = &logger.Log
+	log         = &logger.Log
+	emptyKeySet = sets.New[InventoryKey]()
 )
 
 type InventoryService struct {
@@ -69,6 +73,8 @@ type InventoryService struct {
 	requestBuffer  []containerinventory.ContainerInventoryObject
 	pending_add    map[string]interface{}
 	pending_delete map[string]interface{}
+
+	stalePods map[string]interface{}
 }
 
 func InitializeService(service commonservice.Service) (*InventoryService, error) {
@@ -76,6 +82,7 @@ func InitializeService(service commonservice.Service) (*InventoryService, error)
 		requestBuffer:  make([]containerinventory.ContainerInventoryObject, 0),
 		pending_add:    make(map[string]interface{}),
 		pending_delete: make(map[string]interface{}),
+		stalePods:      make(map[string]interface{}),
 	}
 
 	// TODO, Inventory store should have its own store
@@ -90,21 +97,31 @@ func InitializeService(service commonservice.Service) (*InventoryService, error)
 }
 
 func (s *InventoryService) Init() error {
-	_, err := s.GetContainerCluster()
+	cluster, err := s.GetContainerCluster()
 	// If there is no such cluster, create one.
 	// Otherwise, sync with NSX for different types of inventory objects.
 	if err != nil {
 		log.Error(err, "Cannot find existing container cluster, will create one")
 	} else {
+		s.clusterStore.Add(&cluster)
 		return nil
 	}
 
-	newContainerCluster := s.BuildInentoryCluster()
-	_, err = s.AddContainerCluster(newContainerCluster)
+	newContainerCluster := s.BuildInventoryCluster()
+	cluster, err = s.AddContainerCluster(newContainerCluster)
 	if err != nil {
 		return err
 	}
+	s.clusterStore.Add(&cluster)
 	log.Info("A new ContainerCluster is added", "cluster", newContainerCluster.DisplayName)
+	return nil
+}
+
+func (s *InventoryService) SyncInventoryStoreByType(clusterId string) error {
+	err := s.syncContainerApplicationInstance(clusterId)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -121,31 +138,14 @@ func (s *InventoryService) compareAndMergeUpdate(pre interface{}, cur interface{
 	}
 }
 
-type empty struct{}
-type KeySet map[InventoryKey]empty
-
-func (s KeySet) Has(item InventoryKey) bool {
-	_, exists := s[item]
-	return exists
-}
-
-func (s KeySet) Insert(item InventoryKey) {
-	s[item] = empty{}
-}
-
-func (s KeySet) Delete(item InventoryKey) {
-	delete(s, item)
-}
-
-func (s *InventoryService) SyncInventoryObject(bufferedKeys KeySet) (KeySet, error) {
-	retryKeys := KeySet{}
+func (s *InventoryService) SyncInventoryObject(bufferedKeys sets.Set[InventoryKey]) (sets.Set[InventoryKey], error) {
+	retryKeys := sets.New[InventoryKey]()
 	startTime := time.Now()
 	defer func() {
-		log.Info("Finished syncing inventory object since ", "time", time.Since(startTime))
+		log.Info("Finished syncing inventory object", "duration", time.Since(startTime))
 	}()
 	for key := range bufferedKeys {
 		log.V(1).Info("Syncing inventory object", "object key", key)
-		externalId := key.ExternalId
 		namespace, name, err := cache.SplitMetaNamespaceKey(key.Key)
 		if err != nil {
 			log.Error(err, "Failed to split meta namespace key", "key", key)
@@ -154,20 +154,10 @@ func (s *InventoryService) SyncInventoryObject(bufferedKeys KeySet) (KeySet, err
 		switch key.InventoryType {
 
 		case ContainerApplicationInstance:
-			pod := &corev1.Pod{}
-			err := s.Client.Get(context.TODO(), types.NamespacedName{Name: name, Namespace: namespace}, pod)
-			if apierrors.IsNotFound(err) ||
-				((err == nil) && (string(pod.UID) != externalId)) {
-				s.DeleteResource(externalId, ContainerApplicationInstance)
-			} else if err == nil {
-				retry := s.BuildPod(pod)
-				if retry {
-					retryKeys.Insert(key)
-				}
-			} else {
-				log.Error(err, "Unexpected error is found while processing pod")
+			retryKey := s.SyncContainerApplicationInstance(name, namespace, key)
+			if retryKey != nil {
+				retryKeys.Insert(*retryKey)
 			}
-
 		}
 	}
 
@@ -201,19 +191,8 @@ func (s *InventoryService) DeleteResource(external_id string, resource_type Inve
 		s.requestBuffer = append(s.requestBuffer, containerinventory.ContainerInventoryObject{ContainerObject: deletedInfo, ObjectUpdateType: operationDelete})
 		s.pending_delete[external_id] = inventoryObject
 
-		// Update Pods which used to be connected to this removed service.
-		if resource_type == ContainerApplication {
-			namespaceId := inventoryObject.(containerinventory.ContainerApplication).ContainerProjectId
-			if namespaceId != "" {
-				/*
-					project, exists, _ := s.projectStore.GetByKey(namespaceId)
-					if exists {
-						s.removeServiceIdForPods(external_id, namespaceId, project.(containerinventory.ContainerProject).DisplayName, []string{})
-					}
-				*/
-			} else {
-				return fmt.Errorf("cannot update Pods for removed service id : %s, name : %s because namespaceId is empty", external_id, inventoryObject.(containerinventory.ContainerApplication).DisplayName)
-			}
+		if resource_type == ContainerApplicationInstance {
+			return s.DeleteContainerApplicationInstance(external_id, inventoryObject.(*containerinventory.ContainerApplicationInstance))
 		}
 	}
 	return nil
@@ -222,8 +201,8 @@ func (s *InventoryService) DeleteResource(external_id string, resource_type Inve
 func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore() error {
 	if len(s.requestBuffer) > 0 {
 		log.V(1).Info("Send update to NSX clusterId ", "ContainerInventoryData", s.requestBuffer)
-		// TODO, check the context.TODO() be replaced by InventoryClient related todo
-		resp, err := s.NSXClient.InventoryClient.ContainerInventoryApi.AddContainerInventoryUpdateUpdates(context.Background(), s.NSXConfig.Cluster, containerinventory.ContainerInventoryData{ContainerInventoryObjects: s.requestBuffer})
+		// TODO, check the context.TODO() be replaced by NsxApiClient related todo
+		resp, err := s.NSXClient.NsxApiClient.ContainerInventoryApi.AddContainerInventoryUpdateUpdates(context.Background(), s.NSXConfig.Cluster, containerinventory.ContainerInventoryData{ContainerInventoryObjects: s.requestBuffer})
 
 		// Update NSX Inventory store when the request succeeds.
 		log.V(1).Info("NSX request response", "response", resp)
@@ -244,7 +223,8 @@ func (s *InventoryService) updateInventoryStore() error {
 		switch reflect.ValueOf(add_item).FieldByName("ResourceType").String() {
 
 		case string(ContainerApplicationInstance):
-			err := s.applicationInstanceStore.Add(add_item.(containerinventory.ContainerApplicationInstance))
+			instacne := add_item.(containerinventory.ContainerApplicationInstance)
+			err := s.applicationInstanceStore.Add(&instacne)
 			if err != nil {
 				return err
 			}
@@ -253,34 +233,13 @@ func (s *InventoryService) updateInventoryStore() error {
 	}
 	for _, delete_item := range s.pending_delete {
 		switch reflect.ValueOf(delete_item).FieldByName("ResourceType").String() {
-
 		case string(ContainerApplicationInstance):
-			err := s.applicationInstanceStore.Delete(delete_item.(containerinventory.ContainerApplicationInstance))
+			instance := delete_item.(containerinventory.ContainerApplicationInstance)
+			err := s.applicationInstanceStore.Delete(&instance)
 			if err != nil {
 				return err
 			}
 		}
 	}
 	return nil
-}
-
-func (s *InventoryService) GetContainerCluster() (containerinventory.ContainerCluster, error) {
-	log.Info("Send request to NSX to get cluster ", "cluster id", s.NSXConfig.Cluster)
-	containerCluster, _, err := s.NSXClient.InventoryClient.ContainerClustersApi.GetContainerCluster(context.TODO(), s.NSXConfig.Cluster)
-	if err != nil {
-		return containerCluster, err
-	}
-	err = s.clusterStore.Add(containerCluster)
-	return containerCluster, err
-}
-
-func (s *InventoryService) AddContainerCluster(cluster containerinventory.ContainerCluster) (containerinventory.ContainerCluster, error) {
-	log.Info("Send request to NSX to create cluster", "cluster", s.NSXConfig.Cluster)
-	cluster.ClusterType = INVENTORY_CLUSTER_TYPE_WCP
-	cluster, _, err := s.NSXClient.InventoryClient.ContainerClustersApi.AddContainerCluster(context.TODO(), cluster)
-	if err != nil {
-		return cluster, err
-	}
-	err = s.clusterStore.Add(cluster)
-	return cluster, err
 }
