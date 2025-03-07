@@ -12,3 +12,10 @@ var NSXTRealizeRetry = wait.Backoff{
 	Factor:   1.0,
 	Jitter:   0.1,
 }
+
+var K8sClientRetry = wait.Backoff{
+	Steps:    60,
+	Duration: 1 * time.Second,
+	Factor:   1.0,
+	Jitter:   0.1,
+}

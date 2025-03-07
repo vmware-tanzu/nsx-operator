@@ -5,14 +5,13 @@ package namespace
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -25,7 +24,6 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	pkg_mock "github.com/vmware-tanzu/nsx-operator/pkg/mock"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
@@ -47,12 +45,6 @@ func createNameSpaceReconciler(objs []client.Object) *NamespaceReconciler {
 					UseAVILoadBalancer: false,
 				},
 			},
-		},
-		VPCNetworkConfigStore: vpc.VPCNetworkInfoStore{
-			VPCNetworkConfigMap: map[string]common.VPCNetworkConfigInfo{},
-		},
-		VPCNSNetworkConfigStore: vpc.VPCNsNetworkConfigStore{
-			VPCNSNetworkConfigMap: map[string]string{},
 		},
 	}
 
@@ -87,8 +79,11 @@ func TestGetDefaultNetworkConfigName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			patch := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetDefaultNetworkConfig", func(_ *vpc.VPCService) (bool, *common.VPCNetworkConfigInfo) {
-				return tt.exist, tt.nc
+			patch := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetDefaultNetworkConfig", func(_ *vpc.VPCService) (*common.VPCNetworkConfigInfo, error) {
+				if !tt.exist {
+					return tt.nc, fmt.Errorf("not found")
+				}
+				return tt.nc, nil
 			})
 			name, err := r.getDefaultNetworkConfigName()
 			assert.Equal(t, tt.expectName, name)
@@ -96,41 +91,6 @@ func TestGetDefaultNetworkConfigName(t *testing.T) {
 				assert.NotNil(t, err)
 			} else {
 				assert.Nil(t, err)
-			}
-			patch.Reset()
-		})
-	}
-}
-
-func TestInsertNamespaceNetworkconfigBinding(t *testing.T) {
-	r := createNameSpaceReconciler(nil)
-	fakeErr := errors.New("fake-error")
-	tests := []struct {
-		name       string
-		ns         string
-		exist      bool
-		ncName     string
-		annos      map[string]string
-		expectName string
-		err        error
-	}{
-		{"1", "test-ns1", false, "", nil, "", fakeErr},
-		{"2", "test-ns2", true, "fake-nc1", map[string]string{}, "fake-nc1", nil},
-		{"3", "test-ns3", true, "fake-nc2", map[string]string{common.AnnotationVPCNetworkConfig: "fake-name"}, "fake-name", nil},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r.VPCService = &pkg_mock.MockVPCServiceProvider{}
-			patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getDefaultNetworkConfigName", func(_ *NamespaceReconciler, ns string, anno map[string]string) (string, error) {
-				return tt.ncName, tt.err
-			})
-			r.VPCService.(*pkg_mock.MockVPCServiceProvider).On("RegisterNamespaceNetworkconfigBinding", mock.Anything, mock.Anything).Return(nil)
-			err := r.insertNamespaceNetworkconfigBinding(tt.ns, tt.annos)
-			if err != nil {
-				r.VPCService.(*pkg_mock.MockVPCServiceProvider).AssertNotCalled(t, "RegisterNamespaceNetworkconfigBinding")
-			} else {
-				r.VPCService.(*pkg_mock.MockVPCServiceProvider).AssertCalled(t, "RegisterNamespaceNetworkconfigBinding", tt.ns, tt.expectName)
 			}
 			patch.Reset()
 		})
@@ -181,14 +141,13 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "Namespace update using default network config",
+			name: "Namespace update using default NetworkConfig",
 			req:  ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-ns"}},
 			patches: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// GetDefaultNetworkConfig
 				return nil
 			},
-			expectRes:    ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second},
-			expectErrStr: "default network config not found",
+			expectRes: ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second},
 			existingNamespaceCR: &v1.Namespace{
 				TypeMeta:   metav1.TypeMeta{},
 				ObjectMeta: metav1.ObjectMeta{Name: "test-ns"},
@@ -197,12 +156,12 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "Namespace update with error missing network config",
+			name: "Namespace update with error missing NetworkConfig",
 			req:  ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-ns"}},
 			patches: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// GetDefaultNetworkConfig
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetDefaultNetworkConfig", func(_ *vpc.VPCService) (bool, *common.VPCNetworkConfigInfo) {
-					return true, &common.VPCNetworkConfigInfo{
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetDefaultNetworkConfig", func(_ *vpc.VPCService) (*common.VPCNetworkConfigInfo, error) {
+					return &common.VPCNetworkConfigInfo{
 						IsDefault:              true,
 						Org:                    "",
 						Name:                   "fake-VPCNetworkConfig",
@@ -211,11 +170,11 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 						PrivateIPs:             nil,
 						DefaultSubnetSize:      0,
 						VPCPath:                "fake-patch",
-					}
+					}, nil
 				})
 				return patches
 			},
-			expectErrStr: "missing network config",
+			expectErrStr: "missing NetworkConfig",
 			expectRes:    ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second},
 			existingNamespaceCR: &v1.Namespace{
 				TypeMeta:   metav1.TypeMeta{},
@@ -229,11 +188,11 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 			req:  ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-ns"}},
 			patches: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// GetDefaultNetworkConfig
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetDefaultNetworkConfig", func(_ *vpc.VPCService) (bool, *common.VPCNetworkConfigInfo) {
-					return true, &vpcInfo
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetDefaultNetworkConfig", func(_ *vpc.VPCService) (*common.VPCNetworkConfigInfo, error) {
+					return &vpcInfo, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetVPCNetworkConfig", func(_ *vpc.VPCService, ncCRName string) (common.VPCNetworkConfigInfo, bool) {
-					return vpcInfo, true
+				patches.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetVPCNetworkConfig", func(_ *vpc.VPCService, ncCRName string) (*common.VPCNetworkConfigInfo, bool, error) {
+					return &vpcInfo, true, nil
 				})
 				return patches
 			},

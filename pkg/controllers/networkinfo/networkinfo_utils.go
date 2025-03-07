@@ -191,7 +191,7 @@ func getGatewayConnectionStatus(ctx context.Context, nc *v1alpha1.VPCNetworkConf
 	return gatewayConnectionReady, reason
 }
 
-func updateVPCNetworkConfigurationStatusWithAliveVPCs(ctx context.Context, client client.Client, ncName string, getAliveVPCsFn func(ncName string) []*model.Vpc) {
+func updateVPCNetworkConfigurationStatusWithAliveVPCs(ctx context.Context, client client.Client, ncName string, getAliveVPCsFn func(ncName string) ([]*model.Vpc, error)) {
 	// read v1alpha1.VPCNetworkConfiguration by ncName
 	nc := &v1alpha1.VPCNetworkConfiguration{}
 	err := client.Get(ctx, apitypes.NamespacedName{Name: ncName}, nc)
@@ -202,7 +202,12 @@ func updateVPCNetworkConfigurationStatusWithAliveVPCs(ctx context.Context, clien
 
 	if getAliveVPCsFn != nil {
 		aliveVPCs := sets.New[string]()
-		for _, vpc := range getAliveVPCsFn(ncName) {
+		vpcList, err := getAliveVPCsFn(ncName)
+		if err != nil {
+			log.Error(err, "Failed to get alive VPCs", "Name", ncName)
+			return
+		}
+		for _, vpc := range vpcList {
 			aliveVPCs.Insert(*vpc.DisplayName)
 		}
 		var newVPCInfos []v1alpha1.VPCInfo

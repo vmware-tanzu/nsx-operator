@@ -1,7 +1,9 @@
 package vpc
 
 import (
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -109,4 +111,48 @@ func buildVpcAttachment(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster 
 	attachment.Id = common.String(common.DefaultVpcAttachmentId)
 	attachment.Tags = util.BuildBasicTags(cluster, obj, nsObj.GetUID())
 	return attachment, nil
+}
+
+func buildNetworkConfigInfo(vpcConfigCR *v1alpha1.VPCNetworkConfiguration) (*common.VPCNetworkConfigInfo, error) {
+	org, project, err := nsxProjectPathToId(vpcConfigCR.Spec.NSXProject)
+	if err != nil {
+		log.Error(err, "Failed to parse NSX project in NetworkConfig", "Project Path", vpcConfigCR.Spec.NSXProject)
+		return nil, err
+	}
+
+	ninfo := &common.VPCNetworkConfigInfo{
+		IsDefault:              isDefaultNetworkConfigCR(vpcConfigCR),
+		Org:                    org,
+		Name:                   vpcConfigCR.Name,
+		VPCConnectivityProfile: vpcConfigCR.Spec.VPCConnectivityProfile,
+		NSXProject:             project,
+		PrivateIPs:             vpcConfigCR.Spec.PrivateIPs,
+		DefaultSubnetSize:      vpcConfigCR.Spec.DefaultSubnetSize,
+		VPCPath:                vpcConfigCR.Spec.VPC,
+	}
+	return ninfo, nil
+}
+
+// parse org id and project id from nsxProject path
+// example /orgs/default/projects/nsx_operator_e2e_test
+func nsxProjectPathToId(path string) (string, string, error) {
+	parts := strings.Split(path, "/")
+	if len(parts) < 4 {
+		return "", "", errors.New("invalid NSX project path")
+	}
+	return parts[2], parts[len(parts)-1], nil
+}
+
+func isDefaultNetworkConfigCR(vpcConfigCR *v1alpha1.VPCNetworkConfiguration) bool {
+	annos := vpcConfigCR.GetAnnotations()
+	val, exist := annos[common.AnnotationDefaultNetworkConfig]
+	if exist {
+		boolVar, err := strconv.ParseBool(val)
+		if err != nil {
+			log.Error(err, "Failed to parse annotation to check default NetworkConfig", "Annotation", annos[common.AnnotationDefaultNetworkConfig])
+			return false
+		}
+		return boolVar
+	}
+	return false
 }

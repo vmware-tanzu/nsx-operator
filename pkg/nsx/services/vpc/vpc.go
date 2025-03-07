@@ -10,6 +10,7 @@ import (
 	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
@@ -48,83 +49,79 @@ type VPCNetworkInfoStore struct {
 	VPCNetworkConfigMap map[string]common.VPCNetworkConfigInfo
 }
 
-type VPCNsNetworkConfigStore struct {
-	sync.Mutex
-	VPCNSNetworkConfigMap map[string]string
-}
-
 type VPCService struct {
 	common.Service
-	VpcStore                *VPCStore
-	LbsStore                *LBSStore
-	VPCNetworkConfigStore   VPCNetworkInfoStore
-	VPCNSNetworkConfigStore VPCNsNetworkConfigStore
-	defaultNetworkConfigCR  *common.VPCNetworkConfigInfo
+	VpcStore *VPCStore
+	LbsStore *LBSStore
 }
 
-func (s *VPCService) GetDefaultNetworkConfig() (bool, *common.VPCNetworkConfigInfo) {
-	if s.defaultNetworkConfigCR == nil {
-		return false, nil
+func (s *VPCService) GetDefaultNetworkConfig() (*common.VPCNetworkConfigInfo, error) {
+	vpcNetworkConfigList := &v1alpha1.VPCNetworkConfigurationList{}
+	err := s.Client.List(context.Background(), vpcNetworkConfigList)
+	if err != nil {
+		return nil, err
 	}
-	return true, s.defaultNetworkConfigCR
-}
 
-func (s *VPCService) RegisterVPCNetworkConfig(ncCRName string, info common.VPCNetworkConfigInfo) {
-	s.VPCNetworkConfigStore.Lock()
-	s.VPCNetworkConfigStore.VPCNetworkConfigMap[ncCRName] = info
-	if info.IsDefault {
-		s.defaultNetworkConfigCR = &info
+	for _, vpcConfigCR := range vpcNetworkConfigList.Items {
+		if isDefaultNetworkConfigCR(&vpcConfigCR) {
+			return buildNetworkConfigInfo(&vpcConfigCR)
+		}
 	}
-	s.VPCNetworkConfigStore.Unlock()
+	return nil, fmt.Errorf("failed to locate default NetworkConfig")
 }
 
-func (s *VPCService) UnregisterVPCNetworkConfig(ncCRName string) {
-	s.VPCNetworkConfigStore.Lock()
-	delete(s.VPCNetworkConfigStore.VPCNetworkConfigMap, ncCRName)
-	s.VPCNetworkConfigStore.Unlock()
-}
+func (s *VPCService) GetVPCNetworkConfig(ncCRName string) (*common.VPCNetworkConfigInfo, bool, error) {
+	vpcNetworkConfig := &v1alpha1.VPCNetworkConfiguration{}
+	err := s.Client.Get(context.Background(), types.NamespacedName{Name: ncCRName}, vpcNetworkConfig)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
 
-func (s *VPCService) GetVPCNetworkConfig(ncCRName string) (common.VPCNetworkConfigInfo, bool) {
-	nc, exist := s.VPCNetworkConfigStore.VPCNetworkConfigMap[ncCRName]
-	return nc, exist
-}
-
-func (s *VPCService) RegisterNamespaceNetworkconfigBinding(ns string, ncCRName string) {
-	s.VPCNSNetworkConfigStore.Lock()
-	s.VPCNSNetworkConfigStore.VPCNSNetworkConfigMap[ns] = ncCRName
-	s.VPCNSNetworkConfigStore.Unlock()
-}
-
-func (s *VPCService) UnRegisterNamespaceNetworkconfigBinding(ns string) {
-	s.VPCNSNetworkConfigStore.Lock()
-	delete(s.VPCNSNetworkConfigStore.VPCNSNetworkConfigMap, ns)
-	s.VPCNSNetworkConfigStore.Unlock()
+	configInfo, err := buildNetworkConfigInfo(vpcNetworkConfig)
+	return configInfo, true, err
 }
 
 // GetNamespacesByNetworkconfigName find the namespace list which is using the given network configuration
-func (s *VPCService) GetNamespacesByNetworkconfigName(nc string) []string {
+func (s *VPCService) GetNamespacesByNetworkconfigName(nc string) ([]string, error) {
 	var result []string
-	for key, value := range s.VPCNSNetworkConfigStore.VPCNSNetworkConfigMap {
-		if value == nc {
-			result = append(result, key)
+	namespaces := &v1.NamespaceList{}
+	err := s.Client.List(context.Background(), namespaces)
+	if err != nil {
+		log.Error(err, "Failed to list Namespaces")
+		return result, err
+	}
+	for _, ns := range namespaces.Items {
+		name, err := s.GetNetworkconfigNameFromAnnotation(ns.Name, ns.Annotations)
+		if err != nil {
+			continue
+		}
+		if name == nc {
+			result = append(result, ns.Name)
 		}
 	}
-	return result
+	return result, nil
 }
 
-func (s *VPCService) GetVPCNetworkConfigByNamespace(ns string) *common.VPCNetworkConfigInfo {
-	ncName, nameExist := s.VPCNSNetworkConfigStore.VPCNSNetworkConfigMap[ns]
-	if !nameExist {
-		log.Info("Failed to get network config name for Namespace", "Namespace", ns)
-		return nil
+func (s *VPCService) GetVPCNetworkConfigByNamespace(ns string) (*common.VPCNetworkConfigInfo, error) {
+	ncName, err := s.GetNetworkconfigNameFromNS(context.Background(), ns)
+	if err != nil {
+		log.Error(err, "Failed to get NetworkConfig name for Namespace", "Namespace", ns)
+		return nil, err
 	}
 
-	nc, ncExist := s.GetVPCNetworkConfig(ncName)
-	if !ncExist {
-		log.Info("Failed to get network config info using network config name", "Name", ncName)
-		return nil
+	nc, ncExist, err := s.GetVPCNetworkConfig(ncName)
+	if err != nil {
+		log.Error(err, "Failed to get NetworkConfig info using NetworkConfig name", "Name", ncName)
+		return nil, err
 	}
-	return &nc
+	if !ncExist {
+		log.Info("NetworkConfig info does not exist", "Name", ncName)
+		return nil, nil
+	}
+	return nc, nil
 }
 
 // TBD: for now, if network config info do not contains private cidr, we consider this is
@@ -155,13 +152,6 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
 		BindingType: model.LBServiceBindingType(),
 	}}
-
-	VPCService.VPCNetworkConfigStore = VPCNetworkInfoStore{
-		VPCNetworkConfigMap: make(map[string]common.VPCNetworkConfigInfo),
-	}
-	VPCService.VPCNSNetworkConfigStore = VPCNsNetworkConfigStore{
-		VPCNSNetworkConfigMap: make(map[string]string),
-	}
 
 	// Note: waitgroup.Add must be called before its consumptions.
 	wg.Add(2)
@@ -586,8 +576,10 @@ func (s *VPCService) GetNetworkconfigNameFromNS(ctx context.Context, ns string) 
 	if err != nil {
 		return "", err
 	}
+	return s.GetNetworkconfigNameFromAnnotation(ns, obj.Annotations)
+}
 
-	annos := obj.Annotations
+func (s *VPCService) GetNetworkconfigNameFromAnnotation(ns string, annos map[string]string) (string, error) {
 	useDefault := false
 	// use default network config
 	if len(annos) == 0 {
@@ -600,10 +592,9 @@ func (s *VPCService) GetNetworkconfigNameFromNS(ctx context.Context, ns string) 
 	}
 
 	if useDefault {
-		exist, nc := s.GetDefaultNetworkConfig()
-		if !exist {
-			err := errors.New("failed to locate default network config")
-			log.Error(err, "Can not find default network config from cache", "Namespace", ns)
+		nc, err := s.GetDefaultNetworkConfig()
+		if err != nil {
+			log.Error(err, "Can not find default NetworkConfig", "Namespace", ns)
 			return "", err
 		}
 		return nc.Name, nil
@@ -1125,12 +1116,16 @@ func (s *VPCService) Cleanup(ctx context.Context) error {
 
 func (s *VPCService) ListVPCInfo(ns string) []common.VPCResourceInfo {
 	var VPCInfoList []common.VPCResourceInfo
-	nc := s.GetVPCNetworkConfigByNamespace(ns)
+	nc, err := s.GetVPCNetworkConfigByNamespace(ns)
+	if err != nil {
+		log.Error(err, "Failed to Get NetworkConfig by Namespace", "Namespace", ns)
+		return VPCInfoList
+	}
 	// Return the pre-created VPC resource info if it is set in VPCNetworkConfiguration.
 	if nc != nil && IsPreCreatedVPC(*nc) {
 		vpcResourceInfo, err := common.ParseVPCResourcePath(nc.VPCPath)
 		if err != nil {
-			log.Error(err, "Failed to get vpc info from vpc path", "vpc path", nc.VPCPath)
+			log.Error(err, "Failed to get VPC info from VPC path", "VPCPath", nc.VPCPath)
 		} else {
 			VPCInfoList = append(VPCInfoList, vpcResourceInfo)
 		}
@@ -1202,26 +1197,28 @@ func (s *VPCService) IsEnableAutoSNAT(vpcConnectivityProfile *model.VpcConnectiv
 	return false
 }
 
-func (s *VPCService) GetLBProvider() LBProvider {
+func (s *VPCService) GetLBProvider() (LBProvider, error) {
 	lbProviderMutex.Lock()
 	defer lbProviderMutex.Unlock()
 	if globalLbProvider != NoneLB {
 		log.V(1).Info("LB provider", "current provider", globalLbProvider)
-		return globalLbProvider
+		return globalLbProvider, nil
 	}
 
 	ncName := common.SystemVPCNetworkConfigurationName
-	netConfig, found := s.GetVPCNetworkConfig(ncName)
-	if !found {
-		log.Info("Get LB provider", "No system network config found", ncName)
-		return NoneLB
+	netConfig, found, err := s.GetVPCNetworkConfig(ncName)
+	if err != nil {
+		return "", err
 	}
-	nc := &netConfig
+	if !found {
+		log.Info("Get LB provider", "No system NetworkConfig found", ncName)
+		return NoneLB, nil
+	}
 
-	edgeEnable := s.EdgeClusterEnabled(nc)
+	edgeEnable := s.EdgeClusterEnabled(netConfig)
 	globalLbProvider = s.getLBProvider(edgeEnable)
 	log.Info("Get LB provider", "provider", globalLbProvider)
-	return globalLbProvider
+	return globalLbProvider, nil
 }
 
 func (s *VPCService) getLBProvider(edgeEnable bool) LBProvider {
@@ -1318,16 +1315,27 @@ func (s *VPCService) GetAllVPCsFromNSX() map[string]model.Vpc {
 // GetNamespacesWithPreCreatedVPCs returns a map of the Namespaces which use the pre-created VPCs. The
 // key of the map is the Namespace name, and the value is the pre-created VPC path used in the NetworkInfo
 // within this Namespace.
-func (s *VPCService) GetNamespacesWithPreCreatedVPCs() map[string]string {
+func (s *VPCService) GetNamespacesWithPreCreatedVPCs() (map[string]string, error) {
 	nsVpcMap := make(map[string]string)
-	for ncName, cfg := range s.VPCNetworkConfigStore.VPCNetworkConfigMap {
-		if IsPreCreatedVPC(cfg) {
-			for _, ns := range s.GetNamespacesByNetworkconfigName(ncName) {
-				nsVpcMap[ns] = cfg.VPCPath
+
+	vpcNetworkConfigList := &v1alpha1.VPCNetworkConfigurationList{}
+	err := s.Client.List(context.Background(), vpcNetworkConfigList)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, cfgCR := range vpcNetworkConfigList.Items {
+		if IsPreCreatedVPC(common.VPCNetworkConfigInfo{VPCPath: cfgCR.Spec.VPC}) {
+			nsList, err := s.GetNamespacesByNetworkconfigName(cfgCR.Name)
+			if err != nil {
+				return nsVpcMap, err
+			}
+			for _, ns := range nsList {
+				nsVpcMap[ns] = cfgCR.Spec.VPC
 			}
 		}
 	}
-	return nsVpcMap
+	return nsVpcMap, nil
 }
 
 func IsPreCreatedVPC(nc common.VPCNetworkConfigInfo) bool {
