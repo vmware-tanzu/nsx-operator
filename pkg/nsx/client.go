@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
+	nsxt "github.com/vmware/go-vmware-nsxt"
 	vspherelog "github.com/vmware/vsphere-automation-sdk-go/runtime/log"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
 	nsx_policy "github.com/vmware/vsphere-automation-sdk-go/services/nsxt"
@@ -103,6 +104,7 @@ type Client struct {
 	LbPersistenceProfilesClient       infra.LbPersistenceProfilesClient
 	LbMonitorProfilesClient           infra.LbMonitorProfilesClient
 	SubnetConnectionBindingMapsClient subnets.SubnetConnectionBindingMapsClient
+	NsxApiClient                      *nsxt.APIClient
 
 	NSXChecker    NSXHealthChecker
 	NSXVerChecker NSXVersionChecker
@@ -207,6 +209,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	lbPersistenceProfilesClient := infra.NewLbPersistenceProfilesClient(restConnector(cluster))
 	lbMonitorProfilesClient := infra.NewLbMonitorProfilesClient(restConnector(cluster))
 
+	nsxApiClient, _ := CreateNsxtApiClient(cf, cluster.client)
+
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
 	}
@@ -265,6 +269,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		LbAppProfileClient:                lbAppProfileClient,
 		LbPersistenceProfilesClient:       lbPersistenceProfilesClient,
 		LbMonitorProfilesClient:           lbMonitorProfilesClient,
+		NsxApiClient:                      nsxApiClient,
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time
@@ -286,6 +291,38 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	}
 
 	return nsxClient
+}
+
+func CreateNsxtApiClient(config *config.NSXOperatorConfig, client *http.Client) (*nsxt.APIClient, error) {
+	var defaultRetryOnStatusCodes = []int{http.StatusTooManyRequests}
+	//TODO: check if the retriesConfig could be removed
+	retriesConfig := nsxt.ClientRetriesConfiguration{
+		MaxRetries:      2,
+		RetryMinDelay:   500,
+		RetryMaxDelay:   5000,
+		RetryOnStatuses: defaultRetryOnStatusCodes,
+	}
+
+	cfg := nsxt.Configuration{
+		BasePath:             "/api/v1",
+		Host:                 config.NsxApiManagers[0],
+		Scheme:               "https",
+		UserAgent:            "inventory/1.0",
+		UserName:             config.NsxApiPassword,
+		Password:             config.NsxApiUser,
+		CAFile:               config.NsxApiCertFile,
+		Insecure:             config.Insecure,
+		RetriesConfiguration: retriesConfig,
+		HTTPClient:           client,
+		// using jwt instead of session
+		SkipSessionAuth: true,
+	}
+
+	nsxClient, err := nsxt.NewAPIClient(&cfg)
+	if err != nil {
+		return nil, err
+	}
+	return nsxClient, nil
 }
 
 func (client *Client) NSXCheckVersion(feature int) bool {

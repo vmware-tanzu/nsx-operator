@@ -66,7 +66,7 @@ func TestNSXHealthChecker_CheckNSXHealth(t *testing.T) {
 }
 
 func TestGetClient(t *testing.T) {
-	cf := config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{NsxApiUser: "1", NsxApiPassword: "1"}}
+	cf := config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{NsxApiUser: "1", NsxApiPassword: "1", NsxApiManagers: []string{"10.0.0.1"}}}
 	cf.VCConfig = &config.VCConfig{}
 	client := GetClient(&cf)
 	assert.True(t, client != nil)
@@ -145,9 +145,15 @@ func IsInstanceOf(objectPtr, typePtr interface{}) bool {
 
 func TestSRGetClient(t *testing.T) {
 	pkg_log.SetLogger(zap.New(zap.UseDevMode(true)))
-	cf := config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{NsxApiUser: "admin", NsxApiPassword: "Admin!23Admin", NsxApiManagers: []string{"10.173.82.128"}}}
+	cf := config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{NsxApiUser: "admin", NsxApiPassword: "Admin!23Admin", NsxApiManagers: []string{"10.0.0.1"}}}
 	cf.VCConfig = &config.VCConfig{}
 
+	cluster := &Cluster{}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
+		nsxVersion := &NsxVersion{NodeVersion: "4.1.3"}
+		return nsxVersion, nil
+	})
+	defer patches.Reset()
 	client := GetClient(&cf)
 	st, error := client.StaticRouteClient.Get("default", "project-1", "vpc-2", "site1")
 	if error == nil {
