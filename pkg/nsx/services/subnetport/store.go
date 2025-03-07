@@ -3,6 +3,7 @@ package subnetport
 import (
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
@@ -99,7 +100,8 @@ type CountInfo struct {
 	dirtyCount int
 	lock       sync.Mutex
 	// totalIp defines the number of available IP in the Subnet
-	totalIp int
+	totalIp   int
+	exhausted time.Time
 }
 
 func (vs *SubnetPortStore) Apply(i interface{}) error {
