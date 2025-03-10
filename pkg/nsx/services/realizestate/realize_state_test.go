@@ -232,6 +232,40 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 	_, ok = err.(*nsxutil.RealizeStateError)
 	assert.Equal(t, ok, false)
 	patches.Reset()
+
+	// for subnetport, realized with IPAllocationError
+	patches = gomonkey.ApplyFunc((*fakeRealizedEntitiesClient).List, func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+		return model.GenericPolicyRealizedResourceListResult{
+			Results: []model.GenericPolicyRealizedResource{
+				{
+					State: common.String(model.GenericPolicyRealizedResource_STATE_ERROR),
+					Alarms: []model.PolicyAlarmResource{
+						{
+							Message: common.String("Realization failure"),
+							ErrorDetails: &model.PolicyApiError{
+								ErrorCode:    common.Int64(nsxutil.IPAllocationErrorCode),
+								ErrorMessage: common.String("Realization failure"),
+							},
+						},
+					},
+					EntityType: common.String("GenericPolicyRealizedResource"),
+				},
+			},
+		}, nil
+	})
+
+	backoff = wait.Backoff{
+		Duration: 10 * time.Millisecond,
+		Factor:   1,
+		Jitter:   0,
+		Steps:    1,
+	}
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/default/vpcs/vpc/vpc-lbs/default", []string{})
+	assert.NotEqual(t, err, nil)
+	realizedError, ok := err.(*nsxutil.RealizeStateError)
+	assert.Equal(t, ok, true)
+	assert.Equal(t, nsxutil.IPAllocationErrorCode, realizedError.GetCode())
+	patches.Reset()
 }
 
 func TestRealizeStateService_GetPolicyTier1UplinkPortIP(t *testing.T) {
