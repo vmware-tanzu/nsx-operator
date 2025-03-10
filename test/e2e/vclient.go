@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -71,8 +72,8 @@ type InstancesContentLibrarySpec struct {
 }
 
 type InstancesVMServiceSpec struct {
-	ContentLibraries map[string]bool `json:"content_libraries"`
-	VmClasses        map[string]bool `json:"vm_classes"`
+	ContentLibraries []string `json:"content_libraries"`
+	VmClasses        []string `json:"vm_classes"`
 }
 
 type VCNamespaceCreateSpec struct {
@@ -81,7 +82,7 @@ type VCNamespaceCreateSpec struct {
 	NetworkSpec      InstancesNetworkConfigInfo    `json:"network_spec"`
 	StorageSpecs     []InstancesStorageSpec        `json:"storage_specs"`
 	ContentLibraries []InstancesContentLibrarySpec `json:"content_libraries"`
-	VmServiceSpec    *InstancesVMServiceSpec       `json:"vm_service_specs"`
+	VmServiceSpec    *InstancesVMServiceSpec       `json:"vm_service_spec"`
 }
 
 type VCNamespaceGetInfo struct {
@@ -156,6 +157,10 @@ func (c *vcClient) closeSession() error {
 }
 
 func (c *vcClient) getSupervisorID() (string, error) {
+	err := c.startSession()
+	if err != nil {
+		return "", err
+	}
 	urlPath := "/api/vcenter/namespace-management/supervisors/summaries"
 	request, err := c.prepareRequest(http.MethodGet, urlPath, nil)
 	if err != nil {
@@ -177,29 +182,60 @@ func (c *vcClient) getSupervisorID() (string, error) {
 	return "", fmt.Errorf("no valid supervisor found on vCenter")
 }
 
-func (c *vcClient) getStoragePolicyID() (string, error) {
+func (c *vcClient) getStoragePolicyID() (string, string, error) {
+	err := c.startSession()
+	if err != nil {
+		return "", "", err
+	}
+
 	urlPath := "/api/vcenter/storage/policies"
 	request, err := c.prepareRequest(http.MethodGet, urlPath, nil)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	// response is a list of storage policy info
 	var response []storagePolicyInfo
 	if _, err = c.handleRequest(request, &response); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	for _, po := range response {
-		log.Info("Checking storage policy", "policy", po.Name, "description", po.Description)
-		if strings.Contains(po.Name, "global") || strings.Contains(po.Name, "local") {
-			return po.Name, nil
+		log.Info("Checking storage policy", "policy name", po.Name, "description", po.Description, "policy", po.Policy)
+		if strings.Contains(po.Name, "global") {
+			return po.Name, po.Policy, nil
 		}
 	}
-	return "", fmt.Errorf("no valid storage policy found on vCenter")
+	return "", "", fmt.Errorf("no valid storage policy found on vCenter")
+}
+
+func (c *vcClient) getClusterVirtualMachineImage() (string, error) {
+	// Better to use tkg.5, otherwise the image may not get ip
+	kubectlCmd := "kubectl get clustervirtualmachineimage -A | grep tkg.5 | tail -n 1 | awk '{print $1}'"
+	cmd := exec.Command("bash", "-c", kubectlCmd)
+	var stdout, stderr bytes.Buffer
+	command := exec.Command("bash", "-c", kubectlCmd)
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+
+	log.Info("Executing", "cmd", cmd)
+
+	err := command.Run()
+	_, _ = stdout.String(), stderr.String()
+
+	if err != nil {
+		log.Info("Failed to execute", "cmd error", err)
+		return "", err
+	}
+	return strings.TrimSpace(stdout.String()), nil
 }
 
 // Get the first content library ID by default
 func (c *vcClient) getContentLibraryID() (string, error) {
+	err := c.startSession()
+	if err != nil {
+		return "", err
+	}
+
 	urlPath := "/api/content/library"
 	request, err := c.prepareRequest(http.MethodGet, urlPath, nil)
 	if err != nil {
