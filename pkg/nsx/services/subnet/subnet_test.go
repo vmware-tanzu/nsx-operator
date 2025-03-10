@@ -22,6 +22,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
@@ -105,19 +107,7 @@ func TestGenerateSubnetNSTags(t *testing.T) {
 	assert.Equal(t, "test-ns", *tagsSet[1].Tag)
 }
 
-type fakeOrgRootClient struct {
-}
-
-func (f fakeOrgRootClient) Get(basePathParam *string, filterParam *string, typeFilterParam *string) (model.OrgRoot, error) {
-	return model.OrgRoot{}, nil
-}
-
-func (f fakeOrgRootClient) Patch(orgRootParam model.OrgRoot, enforceRevisionCheckParam *bool) error {
-	return nil
-}
-
-type fakeSubnetsClient struct {
-}
+type fakeSubnetsClient struct{}
 
 func (f fakeSubnetsClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) error {
 	return nil
@@ -139,15 +129,13 @@ func (f fakeSubnetsClient) Update(orgIdParam string, projectIdParam string, vpcI
 	return model.VpcSubnet{}, nil
 }
 
-type fakeSubnetStatusClient struct {
-}
+type fakeSubnetStatusClient struct{}
 
 func (f fakeSubnetStatusClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnetStatusListResult, error) {
 	return model.VpcSubnetStatusListResult{}, nil
 }
 
-type fakeRealizedEntitiesClient struct {
-}
+type fakeRealizedEntitiesClient struct{}
 
 func (f fakeRealizedEntitiesClient) List(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
 	// GenericPolicyRealizedResource
@@ -162,8 +150,7 @@ func (f fakeRealizedEntitiesClient) List(intentPathParam string, sitePathParam *
 	}, nil
 }
 
-type fakeStatusWriter struct {
-}
+type fakeStatusWriter struct{}
 
 func (writer fakeStatusWriter) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
 	return nil
@@ -217,7 +204,7 @@ func TestInitializeSubnetService(t *testing.T) {
 			expectAllSubnetNum: 0,
 			existingVPCInfo:    vpcResourceInfo,
 			prepareFunc: func() *gomonkey.Patches {
-				var fakeVpcSubnet = model.VpcSubnet{Path: &fakeSubnetPath, Id: &nsxSubnetID, Tags: basicTags}
+				fakeVpcSubnet := model.VpcSubnet{Path: &fakeSubnetPath, Id: &nsxSubnetID, Tags: basicTags}
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeSubnetsClient{}), "Get", func(_ *fakeSubnetsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnet, error) {
 					return fakeVpcSubnet, nil
 				})
@@ -285,7 +272,7 @@ func TestInitializeSubnetService(t *testing.T) {
 						Cursor: &cursor, ResultCount: &resultCount,
 					}, nil
 				})
-				var fakeVpcSubnet = model.VpcSubnet{Path: &fakeSubnetPath, Id: &nsxSubnetID, Tags: basicTags}
+				fakeVpcSubnet := model.VpcSubnet{Path: &fakeSubnetPath, Id: &nsxSubnetID, Tags: basicTags}
 				patches.ApplyMethod(reflect.TypeOf(&fakeSubnetsClient{}), "Get", func(_ *fakeSubnetsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnet, error) {
 					return fakeVpcSubnet, nil
 				})
@@ -306,7 +293,6 @@ func TestInitializeSubnetService(t *testing.T) {
 			commonService := common.Service{
 				Client: fakeClient,
 				NSXClient: &nsx.Client{
-					OrgRootClient:          &fakeOrgRootClient{},
 					SubnetsClient:          &fakeSubnetsClient{},
 					QueryClient:            &fakeQueryClient{},
 					RealizedEntitiesClient: &fakeRealizedEntitiesClient{},
@@ -441,7 +427,6 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 		Service: common.Service{
 			Client: k8sClient,
 			NSXClient: &nsx.Client{
-				OrgRootClient:      &fakeOrgRootClient{},
 				SubnetsClient:      &fakeSubnetsClient{},
 				SubnetStatusClient: &fakeSubnetStatusClient{},
 			},
@@ -472,10 +457,11 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 	fakewriter := &fakeStatusWriter{}
 
 	testCases := []struct {
-		name        string
-		prepareFunc func() *gomonkey.Patches
-		expectedErr string
-		crObj       client.Object
+		name                 string
+		prepareFunc          func() *gomonkey.Patches
+		expectedErr          string
+		crObj                client.Object
+		wantSubnetStoreCount int
 	}{
 		{
 			name: "Update Subnet with RealizedState and deletion error",
@@ -492,8 +478,21 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 				})
 				return patches
 			},
-			crObj:       &v1alpha1.Subnet{},
-			expectedErr: "realization check failed: mocked realized error; deletion failed: mocked deletion error",
+			crObj:                &v1alpha1.Subnet{},
+			expectedErr:          "realization check failed: mocked realized error; deletion failed: mocked deletion error",
+			wantSubnetStoreCount: 0,
+		},
+		{
+			name: "Create Subnet for SubnetSet Failure",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(fakeSubnetsClient.Patch, func(f fakeSubnetsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, nsxSubnet model.VpcSubnet) error {
+					return apierrors.NewInvalidRequest()
+				})
+				return patches
+			},
+			crObj:                &v1alpha1.Subnet{},
+			expectedErr:          "com.vmware.vapi.std.errors.invalid_request",
+			wantSubnetStoreCount: 0,
 		},
 		{
 			name: "Create Subnet for SubnetSet Success",
@@ -533,6 +532,7 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 			crObj: &v1alpha1.SubnetSet{
 				ObjectMeta: metav1.ObjectMeta{UID: "subnetset-1"},
 			},
+			wantSubnetStoreCount: 1,
 		},
 	}
 
@@ -553,6 +553,92 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 				assert.Nil(t, err)
 				assert.Equal(t, fakeSubnet, *nsxSubnet)
 			}
+			assert.Equal(t, tt.wantSubnetStoreCount, len(service.SubnetStore.ListKeys()))
+		})
+	}
+}
+
+func TestSubnetService_DeleteSubnet(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	service := &SubnetService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXClient: &nsx.Client{
+				SubnetsClient: &fakeSubnetsClient{},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+
+	fakeSubnet := model.VpcSubnet{
+		Id:   common.String("subnet-1"),
+		Path: common.String("/orgs/default/projects/default/vpcs/default/subnets/subnet-path-1"),
+		Tags: []model.Tag{
+			{
+				Scope: common.String(common.TagScopeSubnetSetCRUID),
+				Tag:   common.String("subnetset-1"),
+			},
+		},
+	}
+
+	testCases := []struct {
+		name                 string
+		prepareFunc          func() *gomonkey.Patches
+		expectedErr          string
+		wantSubnetStoreCount int
+	}{
+		{
+			name: "Delete Subnet for SubnetSet Failure",
+			prepareFunc: func() *gomonkey.Patches {
+				service.SubnetStore.Apply(&fakeSubnet)
+
+				patches := gomonkey.ApplyFunc(fakeSubnetsClient.Delete, func(f fakeSubnetsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) error {
+					return apierrors.NewInvalidRequest()
+				})
+				return patches
+			},
+			expectedErr:          "com.vmware.vapi.std.errors.invalid_request",
+			wantSubnetStoreCount: 1,
+		},
+		{
+			name: "Delete Subnet for SubnetSet Success",
+			prepareFunc: func() *gomonkey.Patches {
+				service.SubnetStore.Apply(&fakeSubnet)
+
+				patches := gomonkey.ApplyFunc(fakeSubnetsClient.Delete, func(f fakeSubnetsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) error {
+					return nil
+				})
+				return patches
+			},
+			wantSubnetStoreCount: 0,
+		},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc()
+				defer patches.Reset()
+			}
+			err := service.DeleteSubnet(fakeSubnet)
+			if tt.expectedErr != "" {
+				assert.Equal(t, tt.expectedErr, err.Error())
+			} else {
+				assert.Nil(t, err)
+			}
+			assert.Equal(t, tt.wantSubnetStoreCount, len(service.SubnetStore.ListKeys()))
 		})
 	}
 }
