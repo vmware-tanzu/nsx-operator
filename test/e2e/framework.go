@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	stderror "errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -298,16 +300,8 @@ func (data *TestData) createNamespace(namespace string, mutators ...func(ns *cor
 
 // createVCNamespace creates a VC namespace with the provided namespace.
 func (data *TestData) createVCNamespace(namespace string) error {
-	err := testData.vcClient.startSession()
-	if err != nil {
-		return err
-	}
-	defer func() {
-		testData.vcClient.closeSession()
-	}()
-
 	svID, _ := data.vcClient.getSupervisorID()
-	storagePolicyID, _ := data.vcClient.getStoragePolicyID()
+	_, storagePolicyID, _ := data.vcClient.getStoragePolicyID()
 	log.V(1).Info("Get storage policy", "storagePolicyID", storagePolicyID)
 	contentLibraryID, _ := data.vcClient.getContentLibraryID()
 	log.V(1).Info("Get content library", "contentLibraryID", contentLibraryID)
@@ -331,14 +325,19 @@ func (data *TestData) createVCNamespace(namespace string) error {
 			},
 		},
 		VmServiceSpec: &InstancesVMServiceSpec{
-			ContentLibraries: map[string]bool{
-				contentLibraryID: true,
-			},
-			VmClasses: map[string]bool{
-				"best-effort-xsmall": true,
-			},
+			ContentLibraries: []string{contentLibraryID},
+			VmClasses:        []string{"best-effort-xsmall"},
 		},
 	}
+
+	err := testData.vcClient.startSession()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		testData.vcClient.closeSession()
+	}()
+
 	dataJson, err := json.Marshal(vcNamespace)
 	log.V(1).Info("Data json", "dataJson", string(dataJson))
 	if err != nil {
@@ -484,6 +483,31 @@ func (data *TestData) podWaitFor(timeout time.Duration, name, namespace string, 
 		return nil, err
 	}
 	return data.clientset.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+}
+
+func (data *TestData) vmWaitFor(timeout time.Duration, namespace, vmName string) (string, error) {
+	var primaryIP4 string
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
+		cmd := exec.Command("kubectl", "get", "vm", vmName, "-n", namespace, "-o", "jsonpath={.status.network.primaryIP4}")
+		output, err := cmd.Output()
+		if err != nil {
+			var exitError *exec.ExitError
+			if stderror.As(err, &exitError) {
+				if exitError.ExitCode() == 1 {
+					return false, nil
+				}
+			}
+			return false, fmt.Errorf("error when getting VirtualMachine '%s': %v", vmName, err)
+		}
+
+		primaryIP4 = strings.TrimSpace(string(output))
+		if primaryIP4 == "" {
+			return false, nil
+		}
+
+		return true, nil
+	})
+	return primaryIP4, err
 }
 
 // podWaitForIPs polls the K8s apiServer until the specified Pod is in the "running" state (or until
@@ -849,4 +873,30 @@ func checkTrafficByCurl(ns, podname, containername, ip string, port int32, inter
 		return true, nil
 	})
 	return trafficErr
+}
+
+func testSSHConnection(host, username, password string, port int) error {
+	config := &ssh.ClientConfig{
+		User: username,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(password),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // #nosec G106
+		Timeout:         5 * time.Second,
+	}
+
+	address := fmt.Sprintf("%s:%d", host, port)
+	client, err := ssh.Dial("tcp", address, config)
+	if err != nil {
+		return fmt.Errorf("failed to dial: %v", err)
+	}
+	defer client.Close()
+
+	session, err := client.NewSession()
+	if err != nil {
+		return fmt.Errorf("failed to create session: %v", err)
+	}
+	defer session.Close()
+
+	return nil
 }
