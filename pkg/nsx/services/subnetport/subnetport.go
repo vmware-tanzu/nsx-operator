@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
@@ -27,6 +28,7 @@ var (
 	log                    = &logger.Log
 	ResourceTypeSubnetPort = servicecommon.ResourceTypeSubnetPort
 	MarkedForDelete        = true
+	IPReleaseTime          = 2 * time.Minute
 )
 
 type SubnetPortService struct {
@@ -169,12 +171,16 @@ func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubne
 	realizeService := realizestate.InitializeRealizeState(service.Service)
 
 	if err := realizeService.CheckRealizeState(util.NSXTRealizeRetry, *nsxSubnetPort.Path, []string{}); err != nil {
-		log.Error(err, "failed to get realized status", "subnetport path", *nsxSubnetPort.Path)
+		log.Error(err, "Failed to get realized status", "nsxSubnetPortPath", *nsxSubnetPort.Path)
 		if nsxutil.IsRealizeStateError(err) {
-			log.Error(err, "the created subnet port is in error realization state, cleaning the resource", "subnetport", portID)
+			realizedStateErr := err.(*nsxutil.RealizeStateError)
+			if realizedStateErr.GetCode() == nsxutil.IPAllocationErrorCode {
+				service.updateExhaustedSubnet(nsxSubnetPath)
+			}
+			log.Error(err, "The created SubnetPort is in error realization state, cleaning the resource", "SubnetPort", portID)
 			// only recreate subnet port on RealizationErrorStateError.
 			if err := service.DeleteSubnetPortById(portID); err != nil {
-				log.Error(err, "cleanup error subnetport failed", "subnetport", portID)
+				log.Error(err, "Cleanup error SubnetPort failed", "SubnetPort", portID)
 				return nil, err
 			}
 		}
@@ -384,18 +390,34 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 		}
 		// NSX reserves 4 ip addresses in each subnet for network address, gateway address,
 		// dhcp server address and broadcast address.
-		info.totalIp = totalIP - 4
+		info.totalIP = totalIP - 4
 	}
 
+	if time.Since(info.exhaustedCheckTime) < IPReleaseTime {
+		return false
+	}
 	// Number of SubnetPorts on the Subnet includes the SubnetPorts under creation
 	// and the SubnetPorts already created
 	existingPortCount := len(service.GetPortsOfSubnet(*subnet.Id))
-	if info.dirtyCount+existingPortCount < info.totalIp {
+	if info.dirtyCount+existingPortCount < info.totalIP {
 		info.dirtyCount += 1
 		log.V(2).Info("Allocate Subnetport to Subnet", "Subnet", *subnet.Path, "dirtyPortCount", info.dirtyCount, "existingPortCount", existingPortCount)
 		return true
 	}
 	return false
+}
+
+func (service *SubnetPortService) updateExhaustedSubnet(path string) {
+	obj, ok := service.SubnetPortStore.PortCountInfo.Load(path)
+	if !ok {
+		log.Error(nil, "No SubnetPort created on the exhausted Subnet", "nsxSubnetPath", path)
+		return
+	}
+	info := obj.(*CountInfo)
+	info.lock.Lock()
+	defer info.lock.Unlock()
+	log.V(2).Info("Mark Subnet as exhausted", "Subnet", path)
+	info.exhaustedCheckTime = time.Now()
 }
 
 // ReleasePortInSubnet decreases the number of SubnetPort under creation.
