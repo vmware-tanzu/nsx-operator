@@ -247,7 +247,24 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 				})
 
 				patches := gomonkey.ApplyMethodSeq(service.NSXClient.RealizedEntitiesClient, "List", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.GenericPolicyRealizedResourceListResult{}, nsxutil.NewRealizeStateError("realized state error")},
+					Values: gomonkey.Params{model.GenericPolicyRealizedResourceListResult{}, nsxutil.NewRealizeStateError("realized state error", 0)},
+					Times:  1,
+				}})
+				return patches
+			},
+			wantErr: true,
+		},
+		{
+			name: "IPExhaustedRealizeFailure",
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+					namespaceCR := &corev1.Namespace{}
+					namespaceCR.UID = "ns1"
+					return nil
+				})
+
+				patches := gomonkey.ApplyMethodSeq(service.NSXClient.RealizedEntitiesClient, "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.GenericPolicyRealizedResourceListResult{}, nsxutil.NewRealizeStateError("realized state error", nsxutil.IPAllocationErrorCode)},
 					Times:  1,
 				}})
 				return patches
@@ -816,19 +833,24 @@ func TestSubnetPortService_ListSubnetPortByPodName(t *testing.T) {
 func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 	subnetPath := "subnet-path-1"
 	subnetId := "subnet-id-1"
-	subnetPortService := createSubnetPortService()
-	ok := subnetPortService.AllocatePortFromSubnet(&model.VpcSubnet{
+	subnet := &model.VpcSubnet{
 		Ipv4SubnetSize: common.Int64(16),
 		IpAddresses:    []string{"10.0.0.1/28"},
 		Path:           &subnetPath,
 		Id:             &subnetId,
-	})
+	}
+	subnetPortService := createSubnetPortService()
+	ok := subnetPortService.AllocatePortFromSubnet(subnet)
 	assert.True(t, ok)
 	empty := subnetPortService.IsEmptySubnet(subnetId, subnetPath)
 	assert.False(t, empty)
 	subnetPortService.ReleasePortInSubnet(subnetPath)
 	empty = subnetPortService.IsEmptySubnet(subnetId, subnetPath)
 	assert.True(t, empty)
+	// Update Subnet as exhausted and check port cannot be allocated
+	subnetPortService.updateExhaustedSubnet(subnetPath)
+	ok = subnetPortService.AllocatePortFromSubnet(subnet)
+	assert.False(t, ok)
 }
 
 func createSubnetPortService() *SubnetPortService {

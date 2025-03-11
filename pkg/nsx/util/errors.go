@@ -12,6 +12,7 @@ import (
 const (
 	InvalidLicenseErrorCode   = 505
 	ProviderNotReadyErrorCode = 500042
+	IPAllocationErrorCode     = 8212
 )
 
 type NsxError interface {
@@ -607,14 +608,19 @@ var (
 
 type RealizeStateError struct {
 	message string
+	code    int
 }
 
 func (e *RealizeStateError) Error() string {
 	return e.message
 }
 
-func NewRealizeStateError(msg string) *RealizeStateError {
-	return &RealizeStateError{message: msg}
+func (e *RealizeStateError) GetCode() int {
+	return e.code
+}
+
+func NewRealizeStateError(msg string, code int) *RealizeStateError {
+	return &RealizeStateError{message: msg, code: code}
 }
 
 func IsRealizeStateError(err error) bool {
@@ -638,6 +644,14 @@ func IsRetryRealizeError(alarm model.PolicyAlarmResource) bool {
 	// The ProviderNotReady error indicates NSX get timeout when waiting for the dependencies
 	// and may become Realized after retry.
 	if alarm.ErrorDetails != nil && alarm.ErrorDetails.ErrorCode != nil && *alarm.ErrorDetails.ErrorCode == ProviderNotReadyErrorCode {
+		return true
+	}
+	return false
+}
+
+func IsIPAllocationError(alarm model.PolicyAlarmResource) bool {
+	// The IPAllocationErrorCode error indicates there is no valid IP in Subnet.
+	if alarm.ErrorDetails != nil && alarm.ErrorDetails.ErrorCode != nil && *alarm.ErrorDetails.ErrorCode == IPAllocationErrorCode {
 		return true
 	}
 	return false

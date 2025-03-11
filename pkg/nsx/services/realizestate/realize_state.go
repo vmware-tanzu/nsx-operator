@@ -65,8 +65,11 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 					if nsxutil.IsRetryRealizeError(alarm) {
 						return nsxutil.NewRetryRealizeError(fmt.Sprintf("%s not realized with errors: %s", intentPath, errMsg))
 					}
+					if nsxutil.IsIPAllocationError(alarm) {
+						return nsxutil.NewRealizeStateError(fmt.Sprintf("%s realized with errors: %s", intentPath, errMsg), nsxutil.IPAllocationErrorCode)
+					}
 				}
-				return nsxutil.NewRealizeStateError(fmt.Sprintf("%s realized with errors: %s", intentPath, errMsg))
+				return nsxutil.NewRealizeStateError(fmt.Sprintf("%s realized with errors: %s", intentPath, errMsg), 0)
 			}
 		}
 		// extraIdsRealized can be greater than extraIds length as id is not unique in result list.
