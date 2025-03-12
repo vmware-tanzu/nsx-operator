@@ -5,12 +5,12 @@ import (
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 )
 
 func TestIsVPCChanged(t *testing.T) {
 	type args struct {
-		nc  common.VPCNetworkConfigInfo
+		nc  v1alpha1.VPCNetworkConfiguration
 		vpc *model.Vpc
 	}
 	tests := []struct {
@@ -21,7 +21,7 @@ func TestIsVPCChanged(t *testing.T) {
 		{
 			name: "no change",
 			args: args{
-				nc:  common.VPCNetworkConfigInfo{PrivateIPs: []string{"1.1.1.1"}},
+				nc:  v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{PrivateIPs: []string{"1.1.1.1"}}},
 				vpc: &model.Vpc{PrivateIps: []string{"1.1.1.1"}},
 			},
 			want: false,
@@ -29,7 +29,7 @@ func TestIsVPCChanged(t *testing.T) {
 		{
 			name: "changed",
 			args: args{
-				nc:  common.VPCNetworkConfigInfo{PrivateIPs: []string{"1.1.1.1", "2.2.2.2"}},
+				nc:  v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{PrivateIPs: []string{"1.1.1.1", "2.2.2.2"}}},
 				vpc: &model.Vpc{PrivateIps: []string{"1.1.1.1"}},
 			},
 			want: true,
