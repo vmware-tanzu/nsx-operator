@@ -1778,7 +1778,12 @@ func createFakeVPCService(t *testing.T, objs []client.Object) *VPCService {
 			},
 		},
 	}
+	LbsStore := &LBSStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.LBServiceBindingType(),
+	}}
 	service.VpcStore = vpcStore
+	service.LbsStore = LbsStore
 	return service
 }
 
@@ -2027,11 +2032,11 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "checkVPCRealizationState", func(_ *VPCService, createdVpc *model.Vpc, newVpcPath string) error {
 					return nil
 				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "checkLBSRealization", func(_ *VPCService, createdLBS *model.LBService, createdVpc *model.Vpc, nc *common.VPCNetworkConfigInfo, newVpcPath string) error {
-					return nil
+				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "checkLBSRealization", func(_ *VPCService, createdLBS *model.LBService, createdVpc *model.Vpc, nc *common.VPCNetworkConfigInfo, newVpcPath string) (*model.LBService, error) {
+					return &model.LBService{ConnectivityPath: common.String("default"), Id: common.String("1234")}, nil
 				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "checkVpcAttachmentRealization", func(_ *VPCService, createdAttachment *model.VpcAttachment, createdVpc *model.Vpc, nc *common.VPCNetworkConfigInfo, newVpcPath string) error {
-					return nil
+				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "checkVpcAttachmentRealization", func(_ *VPCService, createdAttachment *model.VpcAttachment, createdVpc *model.Vpc, nc *common.VPCNetworkConfigInfo, newVpcPath string) (*model.VpcAttachment, error) {
+					return &model.VpcAttachment{VpcConnectivityProfile: common.String("default")}, nil
 				})
 				vpcPath := "/vpc/1"
 				patches.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
