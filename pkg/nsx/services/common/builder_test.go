@@ -145,6 +145,21 @@ func TestParseVPCResourcePath(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "Subnet Path",
+			args: args{
+				nsxResourcePath: "/orgs/org1/projects/proj1/vpcs/vpc1/subnets/subnet1",
+			},
+			want: VPCResourceInfo{
+				OrgID:             "org1",
+				ProjectID:         "proj1",
+				VPCID:             "vpc1",
+				ParentID:          "vpc1",
+				ID:                "subnet1",
+				PrivateIpv4Blocks: nil,
+			},
+			wantErr: false,
+		},
+		{
 			name: "VPC Path",
 			args: args{
 				nsxResourcePath: "/orgs/org1/projects/proj1/vpcs/vpc1",

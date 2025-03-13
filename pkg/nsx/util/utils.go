@@ -299,15 +299,6 @@ func MergeAddressByPort(portAddressOriginal []PortAddress) []PortAddress {
 	return portAddress
 }
 
-func ParseVPCPath(nsxResourcePath string) (orgID string, projectID string, vpcID string, resourceID string) {
-	paras := strings.Split(nsxResourcePath, "/")
-	orgID = paras[2]
-	projectID = paras[4]
-	vpcID = paras[6]
-	resourceID = paras[8]
-	return
-}
-
 func DumpHttpRequest(request *http.Request) {
 	var body []byte
 	var err error

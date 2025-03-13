@@ -206,8 +206,8 @@ func (service *SubnetPortService) GetSubnetPortState(obj interface{}, nsxSubnetP
 	case *v1.Pod:
 		nsxSubnetPortID = service.BuildSubnetPortId(&o.ObjectMeta)
 	}
-	nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID := nsxutil.ParseVPCPath(nsxSubnetPath)
-	nsxSubnetPortState, err := service.NSXClient.PortStateClient.Get(nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID, nsxSubnetPortID, nil, nil)
+	subnetInfo, _ := servicecommon.ParseVPCResourcePath(nsxSubnetPath)
+	nsxSubnetPortState, err := service.NSXClient.PortStateClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, nsxSubnetPortID, nil, nil)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to get subnet port state", "nsxSubnetPortID", nsxSubnetPortID, "nsxSubnetPath", nsxSubnetPath)
@@ -217,11 +217,11 @@ func (service *SubnetPortService) GetSubnetPortState(obj interface{}, nsxSubnetP
 }
 
 func (service *SubnetPortService) DeleteSubnetPort(nsxSubnetPort *model.VpcSubnetPort) error {
-	nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID := nsxutil.ParseVPCPath(*nsxSubnetPort.Path)
-	err := service.NSXClient.PortClient.Delete(nsxOrgID, nsxProjectID, nsxVPCID, nsxSubnetID, *nsxSubnetPort.Id)
+	subnetPortInfo, _ := servicecommon.ParseVPCResourcePath(*nsxSubnetPort.Path)
+	err := service.NSXClient.PortClient.Delete(subnetPortInfo.OrgID, subnetPortInfo.ProjectID, subnetPortInfo.VPCID, subnetPortInfo.ParentID, *nsxSubnetPort.Id)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
-		log.Error(err, "failed to delete subnetport", "nsxSubnetPort.Path", *nsxSubnetPort.Path)
+		log.Error(err, "failed to delete nsxSubnetPort", "nsxSubnetPort.Path", *nsxSubnetPort.Path)
 		return err
 	}
 	if err = service.SubnetPortStore.Delete(*nsxSubnetPort.Id); err != nil {

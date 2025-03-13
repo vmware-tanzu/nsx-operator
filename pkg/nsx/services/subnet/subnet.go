@@ -117,15 +117,13 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 }
 
 func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
-	orgRoot, err := service.WrapHierarchySubnet(nsxSubnet, vpcInfo)
+	err := service.NSXClient.SubnetsClient.Patch(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *nsxSubnet.Id, *nsxSubnet)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
-		log.Error(err, "Failed to WrapHierarchySubnet")
+		log.Error(err, "Failed to create or update nsxSubnet", "ID", *nsxSubnet.Id)
 		return nil, err
 	}
-	if err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam); err != nil {
-		err = nsxutil.TransNSXApiError(err)
-		return nil, err
-	}
+
 	// Get Subnet from NSX after patch operation as NSX renders several fields like `path`/`parent_path`.
 	if *nsxSubnet, err = service.NSXClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *nsxSubnet.Id); err != nil {
 		err = nsxutil.TransNSXApiError(err)
@@ -135,9 +133,8 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 	// Failure of CheckRealizeState may result in the creation of an existing Subnet.
 	// For Subnets, it's important to reuse the already created NSXSubnet.
 	// For SubnetSets, since the ID includes a random value, the created NSX Subnet needs to be deleted and recreated.
-
 	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *nsxSubnet.Path, []string{}); err != nil {
-		log.Error(err, "Failed to check subnet realization state", "ID", *nsxSubnet.Id)
+		log.Error(err, "Failed to check Subnet realization state", "ID", *nsxSubnet.Id)
 		// Delete the subnet if realization check fails, avoiding creating duplicate subnets continuously.
 		deleteErr := service.DeleteSubnet(*nsxSubnet)
 		if deleteErr != nil {
@@ -147,7 +144,7 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 		return nil, err
 	}
 	if err = service.SubnetStore.Apply(nsxSubnet); err != nil {
-		log.Error(err, "Failed to add subnet to store", "ID", *nsxSubnet.Id)
+		log.Error(err, "Failed to add nsxSubnet to store", "ID", *nsxSubnet.Id)
 		return nil, err
 	}
 	if subnetSet, ok := obj.(*v1alpha1.SubnetSet); ok {
@@ -155,27 +152,23 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 			return nil, err
 		}
 	}
-	log.Info("Successfully updated nsxSubnet", "nsxSubnet", nsxSubnet)
+	log.Info("Successfully created or updated nsxSubnet", "nsxSubnet", nsxSubnet)
 	return nsxSubnet, nil
 }
 
 func (service *SubnetService) DeleteSubnet(nsxSubnet model.VpcSubnet) error {
-	vpcInfo, _ := common.ParseVPCResourcePath(*nsxSubnet.Path)
+	subnetInfo, _ := common.ParseVPCResourcePath(*nsxSubnet.Path)
 	nsxSubnet.MarkedForDelete = &MarkedForDelete
-	// WrapHighLevelSubnet will modify the input subnet, make a copy for the following store update.
-	subnetCopy := nsxSubnet
-	orgRoot, err := service.WrapHierarchySubnet(&nsxSubnet, &vpcInfo)
+	err := service.NSXClient.SubnetsClient.Delete(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
-		return err
-	}
-	if err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam); err != nil {
-		err = nsxutil.TransNSXApiError(err)
 		// Subnets that are not deleted successfully will finally be deleted by GC.
-		log.Error(err, "Failed to delete Subnet", "ID", *nsxSubnet.Id)
+		log.Error(err, "Failed to delete nsxSubnet", "ID", *nsxSubnet.Id)
 		return err
 	}
-	if err = service.SubnetStore.Apply(&subnetCopy); err != nil {
-		log.Error(err, "Failed to delete Subnet from store", "ID", *nsxSubnet.Id)
+
+	if err = service.SubnetStore.Apply(&nsxSubnet); err != nil {
+		log.Error(err, "Failed to delete nsxSubnet from store", "ID", *nsxSubnet.Id)
 		return err
 	}
 	log.Info("Successfully deleted nsxSubnet", "nsxSubnet", nsxSubnet)
