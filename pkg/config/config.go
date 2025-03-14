@@ -122,6 +122,8 @@ type NsxConfig struct {
 	UseNSXLoadBalancer        *bool    `ini:"use_native_loadbalancer"`
 	RelaxNSXLBScaleValication bool     `ini:"relax_scale_validation"`
 	NSXLBSize                 string   `ini:"service_size"`
+	InventoryBatchPeriod      int      `ini:"inventory_batch_period"`
+	InventoryBatchSize        int      `ini:"inventory_batch_size"`
 }
 
 type K8sConfig struct {
