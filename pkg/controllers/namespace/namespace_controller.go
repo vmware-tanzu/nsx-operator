@@ -213,9 +213,9 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			r.namespaceError(ctx, obj, message, nil)
 			return common.ResultRequeueAfter10sec, errors.New(message)
 		}
-		if !r.VPCService.ValidateNetworkConfig(*nc) {
+		if err = r.VPCService.ValidateNetworkConfig(nc); err != nil {
 			// if network config is not valid, no need to retry, skip processing
-			message := fmt.Sprintf("invalid NetworkConfig %s for Namespace %s, missing private cidr", ncName, ns)
+			message := fmt.Sprintf("invalid NetworkConfig %s for Namespace %s, error: %v", ncName, ns, err)
 			r.namespaceError(ctx, obj, message, nil)
 			return common.ResultRequeueAfter10sec, errors.New(message)
 		}
@@ -223,7 +223,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if _, err := r.createNetworkInfoCR(ctx, obj, ns); err != nil {
 			return common.ResultRequeueAfter10sec, err
 		}
-		if err := r.createDefaultSubnetSet(ctx, ns, nc.DefaultSubnetSize); err != nil {
+		if err := r.createDefaultSubnetSet(ctx, ns, nc.Spec.DefaultSubnetSize); err != nil {
 			return common.ResultRequeueAfter10sec, err
 		}
 		return common.ResultNormal, nil

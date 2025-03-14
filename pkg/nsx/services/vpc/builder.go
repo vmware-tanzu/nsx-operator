@@ -52,7 +52,7 @@ func combineVPCIDAndLBSID(vpcID, lbsID string) string {
 	return fmt.Sprintf("%s_%s", vpcID, lbsID)
 }
 
-func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNetworkConfigInfo, cluster string,
+func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc v1alpha1.VPCNetworkConfiguration, cluster string,
 	nsxVPC *model.Vpc, useAVILB bool, lbProviderChanged bool) (*model.Vpc, error) {
 	vpc := &model.Vpc{}
 	if nsxVPC != nil {
@@ -83,7 +83,7 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 			Scope: common.String(common.TagScopeVPCManagedBy), Tag: common.String(common.AutoCreatedVPCTagValue)})
 	}
 
-	vpc.PrivateIps = nc.PrivateIPs
+	vpc.PrivateIps = nc.Spec.PrivateIPs
 	return vpc, nil
 }
 
@@ -111,26 +111,6 @@ func buildVpcAttachment(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster 
 	attachment.Id = common.String(common.DefaultVpcAttachmentId)
 	attachment.Tags = util.BuildBasicTags(cluster, obj, nsObj.GetUID())
 	return attachment, nil
-}
-
-func buildNetworkConfigInfo(vpcConfigCR *v1alpha1.VPCNetworkConfiguration) (*common.VPCNetworkConfigInfo, error) {
-	org, project, err := nsxProjectPathToId(vpcConfigCR.Spec.NSXProject)
-	if err != nil {
-		log.Error(err, "Failed to parse NSX project in NetworkConfig", "Project Path", vpcConfigCR.Spec.NSXProject)
-		return nil, err
-	}
-
-	ninfo := &common.VPCNetworkConfigInfo{
-		IsDefault:              isDefaultNetworkConfigCR(vpcConfigCR),
-		Org:                    org,
-		Name:                   vpcConfigCR.Name,
-		VPCConnectivityProfile: vpcConfigCR.Spec.VPCConnectivityProfile,
-		NSXProject:             project,
-		PrivateIPs:             vpcConfigCR.Spec.PrivateIPs,
-		DefaultSubnetSize:      vpcConfigCR.Spec.DefaultSubnetSize,
-		VPCPath:                vpcConfigCR.Spec.VPC,
-	}
-	return ninfo, nil
 }
 
 // parse org id and project id from nsxProject path

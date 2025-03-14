@@ -136,7 +136,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to find VPCNetworkConfig", setSubnetReadyStatusFalse)
 			return ResultRequeue, nil
 		}
-		subnetCR.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
+		subnetCR.Spec.IPv4SubnetSize = vpcNetworkConfig.Spec.DefaultSubnetSize
 		specChanged = true
 	}
 	if specChanged {
