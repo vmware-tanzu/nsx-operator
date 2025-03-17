@@ -189,6 +189,28 @@ func (c fakeVPCLBSClient) Update(orgIdParam string, projectIdParam string, vpcId
 	return model.LBService{}, nil
 }
 
+type fakeVPCAttachmentsClient struct{}
+
+func (c fakeVPCAttachmentsClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, vpcAttachmentIdParam string) error {
+	return nil
+}
+
+func (c fakeVPCAttachmentsClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, vpcAttachmentIdParam string) (model.VpcAttachment, error) {
+	return model.VpcAttachment{}, nil
+}
+
+func (c fakeVPCAttachmentsClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcAttachmentListResult, error) {
+	return model.VpcAttachmentListResult{}, nil
+}
+
+func (c fakeVPCAttachmentsClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, vpcAttachmentIdParam string, vpcAttachmentParam model.VpcAttachment) error {
+	return nil
+}
+
+func (c fakeVPCAttachmentsClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, vpcAttachmentIdParam string, vpcAttachmentParam model.VpcAttachment) (model.VpcAttachment, error) {
+	return model.VpcAttachment{}, nil
+}
+
 func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
 	tests := []struct {
 		name                    string
@@ -542,14 +564,14 @@ func TestGetLBProvider(t *testing.T) {
 			lbprovider:       NoneLB,
 			expectLBProvider: NSXLB,
 			prepareFuncs: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(&VPCService{}), "EdgeClusterEnabled", func(_ *VPCService, _ *common.VPCNetworkConfigInfo) bool {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&VPCService{}), "EdgeClusterEnabled", func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration) bool {
 					return false
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(&VPCService{}), "getLBProvider", func(_ *VPCService, _ bool) LBProvider {
 					return NSXLB
 				})
-				patches.ApplyMethod(reflect.TypeOf(&VPCService{}), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (*common.VPCNetworkConfigInfo, bool, error) {
-					return &common.VPCNetworkConfigInfo{}, true, nil
+				patches.ApplyMethod(reflect.TypeOf(&VPCService{}), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
+					return &v1alpha1.VPCNetworkConfiguration{}, true, nil
 				})
 				return patches
 			},
@@ -559,8 +581,8 @@ func TestGetLBProvider(t *testing.T) {
 			lbprovider:       NoneLB,
 			expectLBProvider: NoneLB,
 			prepareFuncs: func() *gomonkey.Patches {
-				return gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (*common.VPCNetworkConfigInfo, bool, error) {
-					return &common.VPCNetworkConfigInfo{}, false, nil
+				return gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
+					return &v1alpha1.VPCNetworkConfiguration{}, false, nil
 				})
 			},
 		},
@@ -600,15 +622,18 @@ func TestEdgeClusterEnabled(t *testing.T) {
 			BindingType: model.LBServiceBindingType(),
 		}},
 	}
-	nc := common.VPCNetworkConfigInfo{
-		IsDefault:              true,
-		Org:                    "default",
-		Name:                   "system",
-		VPCConnectivityProfile: "/default",
-		NSXProject:             "proj-2",
-		PrivateIPs:             []string{},
-		DefaultSubnetSize:      16,
-		VPCPath:                "/orgs/default/projects/proj-2/vpcs/vpc-1",
+	nc := v1alpha1.VPCNetworkConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "system",
+			Annotations: map[string]string{common.AnnotationDefaultNetworkConfig: "true"},
+		},
+		Spec: v1alpha1.VPCNetworkConfigurationSpec{
+			NSXProject:             "/orgs/default/projects/proj-2",
+			VPC:                    "/orgs/default/projects/proj-2/vpcs/vpc-1",
+			VPCConnectivityProfile: "/default",
+			PrivateIPs:             []string{},
+			DefaultSubnetSize:      16,
+		},
 	}
 
 	vpcConnPrfile := model.VpcConnectivityProfile{
@@ -618,7 +643,7 @@ func TestEdgeClusterEnabled(t *testing.T) {
 		},
 	}
 
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVpcConnectivityProfile", func(_ *VPCService, _ *common.VPCNetworkConfigInfo, _ string) (*model.VpcConnectivityProfile, error) {
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVpcConnectivityProfile", func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
 		return &vpcConnPrfile, nil
 	})
 	enable := vpcService.EdgeClusterEnabled(&nc)
@@ -628,14 +653,14 @@ func TestEdgeClusterEnabled(t *testing.T) {
 	assert.Equal(t, true, enable)
 	patch.Reset()
 
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVpcConnectivityProfile", func(_ *VPCService, _ *common.VPCNetworkConfigInfo, _ string) (*model.VpcConnectivityProfile, error) {
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVpcConnectivityProfile", func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
 		return &vpcConnPrfile, apierrors.NewNotFound()
 	})
 	enable = vpcService.EdgeClusterEnabled(&nc)
 	assert.Equal(t, false, enable)
 	patch.Reset()
 
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVpcConnectivityProfile", func(_ *VPCService, _ *common.VPCNetworkConfigInfo, _ string) (*model.VpcConnectivityProfile, error) {
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVpcConnectivityProfile", func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
 		return &vpcConnPrfile, apierrors.NewInternalServerError()
 	})
 	enable = vpcService.EdgeClusterEnabled(&nc)
@@ -643,7 +668,7 @@ func TestEdgeClusterEnabled(t *testing.T) {
 	patch.Reset()
 
 	// Simulate the scenario when the VpcConnectivityProfile value returned by NSX is nil.
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVpcConnectivityProfile", func(_ *VPCService, _ *common.VPCNetworkConfigInfo, _ string) (*model.VpcConnectivityProfile, error) {
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVpcConnectivityProfile", func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
 		return &model.VpcConnectivityProfile{}, nil
 	})
 	enable = vpcService.EdgeClusterEnabled(&nc)
@@ -788,12 +813,12 @@ func TestGetGatewayConnectionTypeFromConnectionPath(t *testing.T) {
 
 func TestValidateGatewayConnectionStatus(t *testing.T) {
 	tests := []struct {
-		name                 string
-		prepareFunc          func(*testing.T, *VPCService) *gomonkey.Patches
-		vpcNetworkConfigInfo common.VPCNetworkConfigInfo
-		expectedReady        bool
-		expectedReason       string
-		expectedError        error
+		name             string
+		prepareFunc      func(*testing.T, *VPCService) *gomonkey.Patches
+		vpcNetworkConfig v1alpha1.VPCNetworkConfiguration
+		expectedReady    bool
+		expectedReason   string
+		expectedError    error
 	}{
 		{
 			name: "GatewayConnectionNotSet",
@@ -846,9 +871,10 @@ func TestValidateGatewayConnectionStatus(t *testing.T) {
 				}})
 				return patches
 			},
-			vpcNetworkConfigInfo: common.VPCNetworkConfigInfo{
-				Org:        "default",
-				NSXProject: "project-quality",
+			vpcNetworkConfig: v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					NSXProject: "/orgs/default/projects/project-quality",
+				},
 			},
 			expectedReady:  false,
 			expectedReason: "GatewayConnectionNotSet",
@@ -898,9 +924,10 @@ func TestValidateGatewayConnectionStatus(t *testing.T) {
 				}})
 				return patches
 			},
-			vpcNetworkConfigInfo: common.VPCNetworkConfigInfo{
-				Org:        "default",
-				NSXProject: "project-quality",
+			vpcNetworkConfig: v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					NSXProject: "/orgs/default/projects/project-quality",
+				},
 			},
 			expectedReady:  false,
 			expectedReason: "DistributedGatewayConnectionNotSupported",
@@ -918,7 +945,7 @@ func TestValidateGatewayConnectionStatus(t *testing.T) {
 				patches := tt.prepareFunc(t, service)
 				defer patches.Reset()
 			}
-			ready, reason, err := service.ValidateGatewayConnectionStatus(&tt.vpcNetworkConfigInfo)
+			ready, reason, err := service.ValidateGatewayConnectionStatus(&tt.vpcNetworkConfig)
 			assert.Equal(t, tt.expectedReady, ready)
 			assert.Equal(t, tt.expectedReason, reason)
 			assert.Equal(t, tt.expectedError, err)
@@ -1129,35 +1156,43 @@ func TestVPCService_ValidateNetworkConfig(t *testing.T) {
 	service, _, _, _ := createService(t)
 
 	tests := []struct {
-		name string
-		nc   common.VPCNetworkConfigInfo
-		want bool
+		name          string
+		nc            v1alpha1.VPCNetworkConfiguration
+		expectedError string
 	}{
 		{
-			name: "is pre-created vpc",
-			nc:   common.VPCNetworkConfigInfo{VPCPath: "fake-path"},
-			want: true,
+			name:          "is pre-created vpc",
+			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project", VPC: "fake-path"}},
+			expectedError: "",
 		},
 		{
-			name: "pre-created vpc with nil private ips",
-			nc:   common.VPCNetworkConfigInfo{VPCPath: "", PrivateIPs: nil},
-			want: false,
+			name:          "auto-created vpc with nil private ips",
+			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project", VPC: "", PrivateIPs: nil}},
+			expectedError: "missing private cidr",
 		},
 		{
-			name: "pre-created vpc with empty private ips",
-			nc:   common.VPCNetworkConfigInfo{VPCPath: "", PrivateIPs: []string{}},
-			want: false,
+			name:          "auto-created vpc with empty private ips",
+			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project", VPC: "", PrivateIPs: []string{}}},
+			expectedError: "missing private cidr",
 		},
 		{
-			name: "pre-created vpc with valid private ips",
-			nc:   common.VPCNetworkConfigInfo{VPCPath: "", PrivateIPs: []string{"1.1.1.1/16"}},
-			want: true,
+			name:          "auto-created vpc with valid private ips",
+			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project", VPC: "", PrivateIPs: []string{"1.1.1.1/16"}}},
+			expectedError: "",
+		},
+		{
+			name:          "invalid nsx project",
+			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "project", VPC: "", PrivateIPs: []string{"1.1.1.1/16"}}},
+			expectedError: "invalid NSXProject",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := service.ValidateNetworkConfig(tt.nc); got != tt.want {
-				t.Errorf("VPCService.ValidateNetworkConfig() = %v, want %v", got, tt.want)
+			err := service.ValidateNetworkConfig(&tt.nc)
+			if tt.expectedError != "" {
+				assert.Contains(t, err.Error(), tt.expectedError)
+			} else {
+				assert.Nil(t, err)
 			}
 		})
 	}
@@ -1169,7 +1204,7 @@ func TestGetVPCNetworkConfigByNamespace(t *testing.T) {
 		name           string
 		prepareFunc    func() *gomonkey.Patches
 		expectedError  error
-		expectedResult *common.VPCNetworkConfigInfo
+		expectedResult *v1alpha1.VPCNetworkConfiguration
 	}{
 		{
 			name: "ConfigFoundError",
@@ -1204,15 +1239,17 @@ func TestGetVPCNetworkConfigByNamespace(t *testing.T) {
 					})
 				return patches
 			},
-			expectedResult: &common.VPCNetworkConfigInfo{
-				IsDefault:              false,
-				Org:                    "org",
-				Name:                   "config-1",
-				VPCConnectivityProfile: "profile",
-				NSXProject:             "project",
-				PrivateIPs:             []string{"10.0.0.4"},
-				DefaultSubnetSize:      64,
-				VPCPath:                "/vpc-path",
+			expectedResult: &v1alpha1.VPCNetworkConfiguration{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "config-1",
+				},
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					VPCConnectivityProfile: "profile",
+					PrivateIPs:             []string{"10.0.0.4"},
+					DefaultSubnetSize:      64,
+					VPC:                    "/vpc-path",
+					NSXProject:             "/orgs/org/projects/project",
+				},
 			},
 		},
 	}
@@ -1266,9 +1303,11 @@ func TestVPCService_ListVPCInfo(t *testing.T) {
 			name: "PrecreatedVPC",
 			prepareFunc: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc((*VPCService).GetVPCNetworkConfigByNamespace,
-					func(s *VPCService, ns string) (*common.VPCNetworkConfigInfo, error) {
-						return &common.VPCNetworkConfigInfo{
-							VPCPath: "/orgs/org/projects/project/vpcs/vpc",
+					func(s *VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+						return &v1alpha1.VPCNetworkConfiguration{
+							Spec: v1alpha1.VPCNetworkConfigurationSpec{
+								VPC: "/orgs/org/projects/project/vpcs/vpc",
+							},
 						}, nil
 					})
 				return patches
@@ -1763,11 +1802,19 @@ func createFakeVPCService(t *testing.T, objs []client.Object) *VPCService {
 		BindingType: model.VpcBindingType(),
 	}}
 
+	lbsStore := &LBSStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.VpcBindingType(),
+	}}
+
 	service := &VPCService{
 		Service: common.Service{
 			Client: fakeClient,
 			NSXClient: &nsx.Client{
-				VPCClient: mockVpcClient,
+				VPCClient:              mockVpcClient,
+				VPCLBSClient:           &fakeVPCLBSClient{},
+				VpcAttachmentClient:    &fakeVPCAttachmentsClient{},
+				RealizedEntitiesClient: &fakeRealizedEntitiesClient{},
 			},
 			NSXConfig: &config.NSXOperatorConfig{
 				DefaultConfig: nil,
@@ -1779,20 +1826,21 @@ func createFakeVPCService(t *testing.T, objs []client.Object) *VPCService {
 		},
 	}
 	service.VpcStore = vpcStore
+	service.LbsStore = lbsStore
 	return service
 }
 
 func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 	fakeVPCID := "fakeVPCID"
 	testCases := []struct {
-		name                         string
-		exitingNamespace             *v1.Namespace
-		existingNetworkInfo          *v1alpha1.NetworkInfo
-		existingVPCNetworkConfigInfo *common.VPCNetworkConfigInfo
-		lbProvider                   LBProvider
-		prepareFunc                  func(service *VPCService) *gomonkey.Patches
-		expectErrStr                 string
-		expectVPCModel               *model.Vpc
+		name                     string
+		exitingNamespace         *v1.Namespace
+		existingNetworkInfo      *v1alpha1.NetworkInfo
+		existingVPCNetworkConfig *v1alpha1.VPCNetworkConfiguration
+		lbProvider               LBProvider
+		prepareFunc              func(service *VPCService) *gomonkey.Patches
+		expectErrStr             string
+		expectVPCModel           *model.Vpc
 	}{
 		{
 			name: "Unable to get Namespace",
@@ -1802,6 +1850,16 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				VPCs:       nil,
 			},
 			expectErrStr: "namespaces \"testNamespace\" not found",
+			existingVPCNetworkConfig: &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					NSXProject: "/orgs/default/projects/default",
+				},
+			},
+		},
+		{
+			name:                     "Invalid NSXProject",
+			expectErrStr:             "invalid NSX project path",
+			existingVPCNetworkConfig: &v1alpha1.VPCNetworkConfiguration{},
 		},
 		{
 			name: "IsPreCreatedVPC",
@@ -1816,9 +1874,14 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				Spec:       v1.NamespaceSpec{},
 				Status:     v1.NamespaceStatus{},
 			},
-			existingVPCNetworkConfigInfo: &common.VPCNetworkConfigInfo{
-				Name:    "fakeVPCNetworkConfigInfo",
-				VPCPath: "/orgs/default/projects/default/vpcs/vpc3",
+			existingVPCNetworkConfig: &v1alpha1.VPCNetworkConfiguration{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "fakeVPCNetworkConfig",
+				},
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					NSXProject: "/orgs/default/projects/default",
+					VPC:        "/orgs/default/projects/default/vpcs/vpc3",
+				},
 			},
 			prepareFunc: func(vpcService *VPCService) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
@@ -1845,9 +1908,14 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				Spec:       v1.NamespaceSpec{},
 				Status:     v1.NamespaceStatus{},
 			},
-			existingVPCNetworkConfigInfo: &common.VPCNetworkConfigInfo{
-				Name:    "fakeVPCNetworkConfigInfo",
-				VPCPath: "vpc3",
+			existingVPCNetworkConfig: &v1alpha1.VPCNetworkConfiguration{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "fakeVPCNetworkConfig",
+				},
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					NSXProject: "/orgs/default/projects/default",
+					VPC:        "vpc3",
+				},
 			},
 			prepareFunc: func(vpcService *VPCService) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
@@ -1873,9 +1941,14 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				Spec:       v1.NamespaceSpec{},
 				Status:     v1.NamespaceStatus{},
 			},
-			existingVPCNetworkConfigInfo: &common.VPCNetworkConfigInfo{
-				Name:    "fakeVPCNetworkConfigInfo",
-				VPCPath: "/orgs/default/projects/default/vpcs/vpc3",
+			existingVPCNetworkConfig: &v1alpha1.VPCNetworkConfiguration{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "fakeVPCNetworkConfig",
+				},
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					NSXProject: "/orgs/default/projects/default",
+					VPC:        "/orgs/default/projects/default/vpcs/vpc3",
+				},
 			},
 			prepareFunc: func(vpcService *VPCService) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
@@ -1908,6 +1981,11 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				return patches
 			},
 			expectErrStr: "check IsSharedVPCNamespaceByNS error",
+			existingVPCNetworkConfig: &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					NSXProject: "/orgs/default/projects/default",
+				},
+			},
 		},
 		{
 			name: "Shared Namespace and VPC existing",
@@ -1933,6 +2011,11 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				return patches
 			},
 			expectVPCModel: &model.Vpc{Id: &fakeVPCID},
+			existingVPCNetworkConfig: &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					NSXProject: "/orgs/default/projects/default",
+				},
+			},
 		},
 		{
 			name: "is Shared Namespace but VPC not existing",
@@ -1957,6 +2040,11 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				return patches
 			},
 			expectErrStr: "the shared VPC is not created yet",
+			existingVPCNetworkConfig: &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					NSXProject: "/orgs/default/projects/default",
+				},
+			},
 		},
 		{
 			name: "is not Shared Namespace should update the VPC",
@@ -1971,13 +2059,16 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				Spec:       v1.NamespaceSpec{},
 				Status:     v1.NamespaceStatus{},
 			},
-			existingVPCNetworkConfigInfo: &common.VPCNetworkConfigInfo{
-				IsDefault:         false,
-				Name:              "fakeVPCNetworkConfigInfo",
-				NSXProject:        "",
-				PrivateIPs:        nil,
-				DefaultSubnetSize: 0,
-				VPCPath:           "",
+			existingVPCNetworkConfig: &v1alpha1.VPCNetworkConfiguration{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "fakeVPCNetworkConfig",
+				},
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					NSXProject:        "/orgs/default/projects/default",
+					PrivateIPs:        nil,
+					DefaultSubnetSize: 0,
+					VPC:               "",
+				},
 			},
 			prepareFunc: func(vpcService *VPCService) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "IsSharedVPCNamespaceByNS", func(_ *VPCService, ctx context.Context, _ string) (bool, error) {
@@ -2006,13 +2097,16 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				Spec:       v1.NamespaceSpec{},
 				Status:     v1.NamespaceStatus{},
 			},
-			existingVPCNetworkConfigInfo: &common.VPCNetworkConfigInfo{
-				IsDefault:         false,
-				Name:              "fakeVPCNetworkConfigInfo",
-				NSXProject:        "",
-				PrivateIPs:        nil,
-				DefaultSubnetSize: 0,
-				VPCPath:           "",
+			existingVPCNetworkConfig: &v1alpha1.VPCNetworkConfiguration{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "fakeVPCNetworkConfig",
+				},
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					NSXProject:        "/orgs/default/projects/default",
+					PrivateIPs:        nil,
+					DefaultSubnetSize: 0,
+					VPC:               "",
+				},
 			},
 			prepareFunc: func(vpcService *VPCService) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "IsSharedVPCNamespaceByNS", func(_ *VPCService, ctx context.Context, _ string) (bool, error) {
@@ -2021,16 +2115,16 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetCurrentVPCsByNamespace", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
 					return []*model.Vpc{}
 				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "createNSXVPC", func(_ *VPCService, createdVpc *model.Vpc, nc *common.VPCNetworkConfigInfo, orgRoot *model.OrgRoot) error {
+				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "createNSXVPC", func(_ *VPCService, createdVpc *model.Vpc, nc *v1alpha1.VPCNetworkConfiguration, orgRoot *model.OrgRoot) error {
 					return nil
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "checkVPCRealizationState", func(_ *VPCService, createdVpc *model.Vpc, newVpcPath string) error {
 					return nil
 				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "checkLBSRealization", func(_ *VPCService, createdLBS *model.LBService, createdVpc *model.Vpc, nc *common.VPCNetworkConfigInfo, newVpcPath string) error {
+				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "checkLBSRealization", func(_ *VPCService, createdLBS *model.LBService, createdVpc *model.Vpc, nc *v1alpha1.VPCNetworkConfiguration, newVpcPath string) error {
 					return nil
 				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "checkVpcAttachmentRealization", func(_ *VPCService, createdAttachment *model.VpcAttachment, createdVpc *model.Vpc, nc *common.VPCNetworkConfigInfo, newVpcPath string) error {
+				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "checkVpcAttachmentRealization", func(_ *VPCService, createdAttachment *model.VpcAttachment, createdVpc *model.Vpc, nc *v1alpha1.VPCNetworkConfiguration, newVpcPath string) error {
 					return nil
 				})
 				vpcPath := "/vpc/1"
@@ -2059,7 +2153,7 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				defer patches.Reset()
 			}
 
-			newVPCModel, err := service.CreateOrUpdateVPC(ctx, tc.existingNetworkInfo, tc.existingVPCNetworkConfigInfo, tc.lbProvider)
+			newVPCModel, err := service.CreateOrUpdateVPC(ctx, tc.existingNetworkInfo, tc.existingVPCNetworkConfig, tc.lbProvider)
 
 			if tc.expectErrStr != "" {
 				assert.ErrorContains(t, err, tc.expectErrStr)
@@ -2069,6 +2163,346 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 
 			if tc.expectVPCModel != nil {
 				assert.Equal(t, *tc.expectVPCModel.Id, *newVPCModel.Id)
+			}
+		})
+	}
+}
+
+func TestVPCService_checkVPCRealizationState(t *testing.T) {
+	service := createFakeVPCService(t, []client.Object{})
+	tests := []struct {
+		name        string
+		prepareFunc func() *gomonkey.Patches
+		expectedErr string
+	}{
+		{
+			name: "Success",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(service.NSXClient.RealizedEntitiesClient, "List",
+					func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+						state := model.GenericPolicyRealizedResource_STATE_REALIZED
+						return model.GenericPolicyRealizedResourceListResult{
+							Results: []model.GenericPolicyRealizedResource{
+								{
+									Id:    common.String(common.GatewayInterfaceId),
+									State: &state,
+								},
+							},
+						}, nil
+					})
+				return patches
+			},
+		},
+		{
+			name: "Success",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(service.NSXClient.RealizedEntitiesClient, "List",
+					func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+						return model.GenericPolicyRealizedResourceListResult{
+							Results: []model.GenericPolicyRealizedResource{
+								{
+									Id:    common.String(common.GatewayInterfaceId),
+									State: common.String(model.GenericPolicyRealizedResource_STATE_REALIZED),
+								},
+							},
+						}, nil
+					})
+				return patches
+			},
+		},
+		{
+			name: "RealizedFailure",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(service.NSXClient.RealizedEntitiesClient, "List",
+					func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+						return model.GenericPolicyRealizedResourceListResult{
+							Results: []model.GenericPolicyRealizedResource{
+								{
+									Id:    common.String(common.GatewayInterfaceId),
+									State: common.String(model.GenericPolicyRealizedResource_STATE_ERROR),
+								},
+							},
+						}, nil
+					})
+				patches.ApplyMethod(service, "DeleteVPC", func(s *VPCService, path string) error {
+					return nil
+				})
+				return patches
+			},
+			expectedErr: "realized with errors",
+		},
+		{
+			name: "DeleteFailure",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(service.NSXClient.RealizedEntitiesClient, "List",
+					func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+						return model.GenericPolicyRealizedResourceListResult{
+							Results: []model.GenericPolicyRealizedResource{
+								{
+									Id:    common.String(common.GatewayInterfaceId),
+									State: common.String(model.GenericPolicyRealizedResource_STATE_ERROR),
+								},
+							},
+						}, nil
+					})
+				patches.ApplyMethod(service, "DeleteVPC", func(s *VPCService, path string) error {
+					return fmt.Errorf("mocked deletion error")
+				})
+				return patches
+			},
+			expectedErr: "mocked deletion error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc()
+				defer patches.Reset()
+			}
+			err := service.checkVPCRealizationState(&model.Vpc{Id: common.String("vpc-1")}, "/vpc-path")
+			if tt.expectedErr != "" {
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			} else {
+				assert.Nil(t, err)
+			}
+		})
+	}
+}
+
+func TestVPCService_checkLBSRealization(t *testing.T) {
+	service := createFakeVPCService(t, []client.Object{})
+	tests := []struct {
+		name        string
+		prepareFunc func() *gomonkey.Patches
+		expectedErr string
+		nc          *v1alpha1.VPCNetworkConfiguration
+	}{
+		{
+			name:        "InvalidNetworkConfig",
+			expectedErr: "invalid NSX project path",
+			nc:          &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: ""}},
+		},
+		{
+			name: "GetFailure",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(service.NSXClient.VPCLBSClient, "Get",
+					func(c *fakeVPCLBSClient, orgIdParam string, projectIdParam string, vpcIdParam string, vpcLbIdParam string) (model.LBService, error) {
+						return model.LBService{}, nil
+					})
+				return patches
+			},
+			expectedErr: "ConnectivityPath in LBS is empty",
+			nc:          &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project"}},
+		},
+		{
+			name: "Success",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(service.NSXClient.VPCLBSClient, "Get",
+					func(c *fakeVPCLBSClient, orgIdParam string, projectIdParam string, vpcIdParam string, vpcLbIdParam string) (model.LBService, error) {
+						return model.LBService{Path: common.String("/lbs-path"), ConnectivityPath: common.String("/connectivity-path")}, nil
+					})
+				patches.ApplyMethod(service.NSXClient.RealizedEntitiesClient, "List",
+					func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+						return model.GenericPolicyRealizedResourceListResult{
+							Results: []model.GenericPolicyRealizedResource{
+								{
+									State: common.String(model.GenericPolicyRealizedResource_STATE_REALIZED),
+								},
+							},
+						}, nil
+					})
+				return patches
+			},
+			nc: &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project"}},
+		},
+		{
+			name: "RealizedFailure",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(service.NSXClient.VPCLBSClient, "Get",
+					func(c *fakeVPCLBSClient, orgIdParam string, projectIdParam string, vpcIdParam string, vpcLbIdParam string) (model.LBService, error) {
+						return model.LBService{Path: common.String("/lbs-path"), ConnectivityPath: common.String("/connectivity-path")}, nil
+					})
+				patches.ApplyMethod(service.NSXClient.RealizedEntitiesClient, "List",
+					func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+						return model.GenericPolicyRealizedResourceListResult{
+							Results: []model.GenericPolicyRealizedResource{
+								{
+									State: common.String(model.GenericPolicyRealizedResource_STATE_ERROR),
+								},
+							},
+						}, nil
+					})
+				patches.ApplyMethod(service, "DeleteVPC", func(s *VPCService, path string) error {
+					return nil
+				})
+				return patches
+			},
+			expectedErr: "realized with errors",
+			nc:          &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project"}},
+		},
+		{
+			name: "RealizedFailure",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(service.NSXClient.VPCLBSClient, "Get",
+					func(c *fakeVPCLBSClient, orgIdParam string, projectIdParam string, vpcIdParam string, vpcLbIdParam string) (model.LBService, error) {
+						return model.LBService{Path: common.String("/lbs-path"), ConnectivityPath: common.String("/connectivity-path")}, nil
+					})
+				patches.ApplyMethod(service.NSXClient.RealizedEntitiesClient, "List",
+					func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+						return model.GenericPolicyRealizedResourceListResult{
+							Results: []model.GenericPolicyRealizedResource{
+								{
+									State: common.String(model.GenericPolicyRealizedResource_STATE_ERROR),
+								},
+							},
+						}, nil
+					})
+				patches.ApplyMethod(service, "DeleteVPC", func(s *VPCService, path string) error {
+					return fmt.Errorf("mocked deletion error")
+				})
+				return patches
+			},
+			expectedErr: "mocked deletion error",
+			nc:          &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc()
+				defer patches.Reset()
+			}
+			err := service.checkLBSRealization(
+				&model.LBService{Id: common.String("lbs-1")},
+				&model.Vpc{Id: common.String("vpc-1")},
+				tt.nc,
+				"/vpc-path",
+			)
+			if tt.expectedErr != "" {
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			} else {
+				assert.Nil(t, err)
+			}
+		})
+	}
+}
+
+func TestVPCService_checkVpcAttachmentRealization(t *testing.T) {
+	service := createFakeVPCService(t, []client.Object{})
+	tests := []struct {
+		name        string
+		prepareFunc func() *gomonkey.Patches
+		expectedErr string
+		nc          *v1alpha1.VPCNetworkConfiguration
+	}{
+		{
+			name:        "InvalidNetworkConfig",
+			expectedErr: "invalid NSX project path",
+			nc:          &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: ""}},
+		},
+		{
+			name: "GetFailure",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(service.NSXClient.VpcAttachmentClient, "Get",
+					func(c *fakeVPCAttachmentsClient, orgIdParam string, projectIdParam string, vpcIdParam string, vpcAttachmentIdParam string) (model.VpcAttachment, error) {
+						return model.VpcAttachment{}, nil
+					})
+				return patches
+			},
+			expectedErr: "VpcConnectivityProfile in VPCAttachment is empty",
+			nc:          &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project"}},
+		},
+		{
+			name: "Success",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(service.NSXClient.VpcAttachmentClient, "Get",
+					func(c *fakeVPCAttachmentsClient, orgIdParam string, projectIdParam string, vpcIdParam string, vpcAttachmentIdParam string) (model.VpcAttachment, error) {
+						return model.VpcAttachment{Path: common.String("/attachment-path"), VpcConnectivityProfile: common.String("/connectivity-path")}, nil
+					})
+				patches.ApplyMethod(service.NSXClient.RealizedEntitiesClient, "List",
+					func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+						return model.GenericPolicyRealizedResourceListResult{
+							Results: []model.GenericPolicyRealizedResource{
+								{
+									State: common.String(model.GenericPolicyRealizedResource_STATE_REALIZED),
+								},
+							},
+						}, nil
+					})
+				return patches
+			},
+			nc: &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project"}},
+		},
+		{
+			name: "RealizedFailure",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(service.NSXClient.VpcAttachmentClient, "Get",
+					func(c *fakeVPCAttachmentsClient, orgIdParam string, projectIdParam string, vpcIdParam string, vpcAttachmentIdParam string) (model.VpcAttachment, error) {
+						return model.VpcAttachment{Path: common.String("/attachment-path"), VpcConnectivityProfile: common.String("/connectivity-path")}, nil
+					})
+				patches.ApplyMethod(service.NSXClient.RealizedEntitiesClient, "List",
+					func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+						return model.GenericPolicyRealizedResourceListResult{
+							Results: []model.GenericPolicyRealizedResource{
+								{
+									State: common.String(model.GenericPolicyRealizedResource_STATE_ERROR),
+								},
+							},
+						}, nil
+					})
+				patches.ApplyMethod(service, "DeleteVPC", func(s *VPCService, path string) error {
+					return nil
+				})
+				return patches
+			},
+			expectedErr: "realized with errors",
+			nc:          &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project"}},
+		},
+		{
+			name: "RealizedFailure",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(service.NSXClient.VpcAttachmentClient, "Get",
+					func(c *fakeVPCAttachmentsClient, orgIdParam string, projectIdParam string, vpcIdParam string, vpcAttachmentIdParam string) (model.VpcAttachment, error) {
+						return model.VpcAttachment{Path: common.String("/attachment-path"), VpcConnectivityProfile: common.String("/connectivity-path")}, nil
+					})
+				patches.ApplyMethod(service.NSXClient.RealizedEntitiesClient, "List",
+					func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+						return model.GenericPolicyRealizedResourceListResult{
+							Results: []model.GenericPolicyRealizedResource{
+								{
+									State: common.String(model.GenericPolicyRealizedResource_STATE_ERROR),
+								},
+							},
+						}, nil
+					})
+				patches.ApplyMethod(service, "DeleteVPC", func(s *VPCService, path string) error {
+					return fmt.Errorf("mocked deletion error")
+				})
+				return patches
+			},
+			expectedErr: "mocked deletion error",
+			nc:          &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc()
+				defer patches.Reset()
+			}
+			err := service.checkVpcAttachmentRealization(
+				&model.VpcAttachment{Id: common.String("attachment-1")},
+				&model.Vpc{Id: common.String("vpc-1")},
+				tt.nc,
+				"/vpc-path",
+			)
+			if tt.expectedErr != "" {
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			} else {
+				assert.Nil(t, err)
 			}
 		})
 	}

@@ -217,14 +217,3 @@ type VPCResourceInfo struct {
 	ParentID          string
 	PrivateIpv4Blocks []string
 }
-
-type VPCNetworkConfigInfo struct {
-	IsDefault              bool
-	Org                    string
-	Name                   string
-	VPCConnectivityProfile string
-	NSXProject             string
-	PrivateIPs             []string
-	DefaultSubnetSize      int
-	VPCPath                string
-}

@@ -164,7 +164,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	r.StatusUpdater.IncreaseUpdateTotal()
 
-	nc, err := r.getNetworkConfigInfo(ctx, networkInfoCR)
+	nc, err := r.getNetworkConfig(ctx, networkInfoCR)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "", setNetworkInfoVPCStatusWithError, nil)
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCNetCfgGetError.getNSNetworkCondition(err))
@@ -199,7 +199,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		gatewayConnectionReady, gatewayConnectionReason, err = r.Service.ValidateGatewayConnectionStatus(nc)
 		log.Info("Got the gateway connection status", "gatewayConnectionReady", gatewayConnectionReady, "gatewayConnectionReason", gatewayConnectionReason)
 		if err != nil {
-			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to validate the edge and gateway connection, Org: %s, Porject: %s", nc.Org, nc.NSXProject), setNetworkInfoVPCStatusWithError, nil)
+			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to validate the edge and gateway connection, Project: %s", nc.Spec.NSXProject), setNetworkInfoVPCStatusWithError, nil)
 			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCGwConnectionGetError.getNSNetworkCondition(err))
 			return common.ResultRequeueAfter10sec, err
 		}
@@ -228,7 +228,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	var privateIPs []string
 	var vpcConnectivityProfilePath string
 	var nsxLBSPath string
-	isPreCreatedVPC := vpc.IsPreCreatedVPC(*nc)
+	isPreCreatedVPC := vpc.IsPreCreatedVPC(nc)
 	if isPreCreatedVPC {
 		privateIPs = createdVpc.PrivateIps
 		vpcPath := *createdVpc.Path
@@ -253,8 +253,8 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}
 		}
 	} else {
-		privateIPs = nc.PrivateIPs
-		vpcConnectivityProfilePath = nc.VPCConnectivityProfile
+		privateIPs = nc.Spec.PrivateIPs
+		vpcConnectivityProfilePath = nc.Spec.VPCConnectivityProfile
 		nsxLBSPath = r.Service.GetDefaultNSXLBSPathByVPC(*createdVpc.Id)
 	}
 
@@ -600,7 +600,7 @@ func (r *NetworkInfoReconciler) getQueue(controllerName string, rateLimiter work
 	return r.queue
 }
 
-func (r *NetworkInfoReconciler) getNetworkConfigInfo(ctx context.Context, networkInfoCR *v1alpha1.NetworkInfo) (*commonservice.VPCNetworkConfigInfo, error) {
+func (r *NetworkInfoReconciler) getNetworkConfig(ctx context.Context, networkInfoCR *v1alpha1.NetworkInfo) (*v1alpha1.VPCNetworkConfiguration, error) {
 	ncName, err := r.Service.GetNetworkconfigNameFromNS(ctx, networkInfoCR.Namespace)
 	if err != nil {
 		log.Error(err, "Failed to get NetworkConfig name for VPC when creating NSX VPC", "NetworkInfo", networkInfoCR.Name)

@@ -24,22 +24,22 @@ func (m *MockVPCServiceProvider) UpdateDefaultNetworkConfig(vpcNetworkConfig *v1
 	return nil
 }
 
-func (m *MockVPCServiceProvider) GetVPCNetworkConfig(ncCRName string) (*common.VPCNetworkConfigInfo, bool, error) {
+func (m *MockVPCServiceProvider) GetVPCNetworkConfig(ncCRName string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
 	m.Called(ncCRName)
-	return &common.VPCNetworkConfigInfo{}, false, nil
+	return &v1alpha1.VPCNetworkConfiguration{}, false, nil
 }
 
-func (m *MockVPCServiceProvider) ValidateNetworkConfig(nc common.VPCNetworkConfigInfo) bool {
+func (m *MockVPCServiceProvider) ValidateNetworkConfig(nc *v1alpha1.VPCNetworkConfiguration) error {
 	m.Called(nc)
-	return true
+	return nil
 }
 
-func (m *MockVPCServiceProvider) GetVPCNetworkConfigByNamespace(ns string) (*common.VPCNetworkConfigInfo, error) {
+func (m *MockVPCServiceProvider) GetVPCNetworkConfigByNamespace(ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
 	m.Called()
 	return nil, nil
 }
 
-func (m *MockVPCServiceProvider) GetDefaultNetworkConfig() (*common.VPCNetworkConfigInfo, error) {
+func (m *MockVPCServiceProvider) GetDefaultNetworkConfig() (*v1alpha1.VPCNetworkConfiguration, error) {
 	m.Called()
 	return nil, nil
 }
