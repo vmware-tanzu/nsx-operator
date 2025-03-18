@@ -1,6 +1,7 @@
 package inventory
 
 import (
+	"os"
 	"sync"
 	"time"
 
@@ -61,9 +62,12 @@ func NewInventoryController(Client client.Client, service *inventory.InventorySe
 	return c
 }
 
-func StartupInventoryController(mgr ctrl.Manager, service *inventory.InventoryService, cf *config.NSXOperatorConfig) error {
+func StartInventoryController(mgr ctrl.Manager, service *inventory.InventoryService, cf *config.NSXOperatorConfig) {
 	controller := NewInventoryController(mgr.GetClient(), service, cf)
-	return controller.SetupWithManager(mgr)
+	if err := controller.SetupWithManager(mgr); err != nil {
+		log.Error(err, "Failed to create controller", "controller", "Inventory")
+		os.Exit(1)
+	}
 }
 
 func (c *InventoryController) SetupWithManager(mgr ctrl.Manager) error {

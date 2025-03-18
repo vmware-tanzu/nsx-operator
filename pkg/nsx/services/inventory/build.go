@@ -23,9 +23,11 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 		containerApplicationInstance := s.pendingAdd[string(pod.UID)].(containerinventory.ContainerApplicationInstance)
 		containerApplicationIds = containerApplicationInstance.ContainerApplicationIds
 	}
-	preContainerApplicationInstance := s.applicationInstanceStore.GetByKey(string(pod.UID))
-	if preContainerApplicationInstance != nil && (len(containerApplicationIds) == 0) {
-		containerApplicationIds = preContainerApplicationInstance.(containerinventory.ContainerApplicationInstance).ContainerApplicationIds
+	object := s.applicationInstanceStore.GetByKey(string(pod.UID))
+	var preContainerApplicationInstance containerinventory.ContainerApplicationInstance
+	if object != nil && (len(containerApplicationIds) == 0) {
+		preContainerApplicationInstance = *object.(*containerinventory.ContainerApplicationInstance)
+		containerApplicationIds = preContainerApplicationInstance.ContainerApplicationIds
 	}
 	namespaceName := pod.Namespace
 	namespace := &corev1.Namespace{}
@@ -90,7 +92,7 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 
 	operation, _ := s.compareAndMergeUpdate(preContainerApplicationInstance, containerApplicationInstance)
 	if operation != operationNone {
-		s.pendingAdd[containerApplicationInstance.ExternalId] = containerApplicationInstance
+		s.pendingAdd[containerApplicationInstance.ExternalId] = &containerApplicationInstance
 	}
 	return
 }
