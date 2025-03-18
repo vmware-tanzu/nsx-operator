@@ -48,7 +48,7 @@ func (c *InventoryController) handlePod(obj interface{}) {
 	case cache.DeletedFinalStateUnknown:
 		pod, ok = obj1.Obj.(*v1.Pod)
 		if !ok {
-			err := fmt.Errorf("Obj is not valid *v1.Pod")
+			err := fmt.Errorf("obj is not valid *v1.Pod")
 			log.Error(err, "DeletedFinalStateUnknown Obj is not *v1.Pod")
 			return
 		}
