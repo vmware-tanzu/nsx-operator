@@ -161,6 +161,29 @@ func TestInventoryService_DeleteResource(t *testing.T) {
 		assert.NotNil(t, err)
 		assert.Equal(t, "unknown resource_type: UnknownType for external_id some-id", err.Error())
 	})
+
+	t.Run("DeleteExistingContainerProject", func(t *testing.T) {
+		externalId := "existing-project-id"
+		project := containerinventory.ContainerProject{
+			DisplayName:  "test-project",
+			ResourceType: string(ContainerProject),
+			ExternalId:   externalId,
+		}
+		inventoryService.ProjectStore.Add(&project)
+		err := inventoryService.DeleteResource(externalId, ContainerProject)
+
+		assert.Nil(t, err)
+		assert.Equal(t, 1, len(inventoryService.requestBuffer))
+		assert.Equal(t, 1, len(inventoryService.pendingDelete))
+		obj := inventoryService.requestBuffer[0].ContainerObject
+		assert.Equal(t, externalId, obj["external_id"])
+		assert.Equal(t, ContainerProject, obj["resource_type"])
+		assert.Equal(t, "test-project", inventoryService.pendingDelete[externalId].(*containerinventory.ContainerProject).DisplayName)
+
+		// Clean up
+		inventoryService.requestBuffer = make([]containerinventory.ContainerInventoryObject, 0)
+		delete(inventoryService.pendingDelete, externalId)
+	})
 }
 
 func TestInventoryService_sendNSXRequestAndUpdateInventoryStore(t *testing.T) {
@@ -221,5 +244,41 @@ func TestInventoryService_updateInventoryStore(t *testing.T) {
 		}
 		itemNum := len(service.ApplicationInstanceStore.List())
 		assert.Equal(t, 0, itemNum, "expected 0 item in the inventory, got %d", itemNum)
+	})
+
+	project1 := containerinventory.ContainerProject{
+		DisplayName:  "test-project",
+		ResourceType: string(ContainerProject),
+		ExternalId:   "project1",
+	}
+
+	t.Run("Add new ContainerProject", func(t *testing.T) {
+		service.pendingAdd["project1"] = &project1
+		err := service.updateInventoryStore()
+		assert.NoError(t, err)
+		itemNum := len(service.ProjectStore.List())
+		assert.Equal(t, 1, itemNum, "expected 1 item in the project inventory, got %d", itemNum)
+	})
+
+	t.Run("Delete existing ContainerProject", func(t *testing.T) {
+		delete(service.pendingAdd, "project1")
+		service.pendingDelete["project1"] = &project1
+		err := service.updateInventoryStore()
+		assert.NoError(t, err)
+		itemNum := len(service.ProjectStore.List())
+		assert.Equal(t, 0, itemNum, "expected 0 items in the project inventory, got %d", itemNum)
+	})
+
+	t.Run("Delete non-existing ContainerProject", func(t *testing.T) {
+		nonExistingProject := containerinventory.ContainerProject{
+			DisplayName:  "non-existing",
+			ResourceType: string(ContainerProject),
+			ExternalId:   "non-existing",
+		}
+		service.pendingDelete["non-existing"] = &nonExistingProject
+		err := service.updateInventoryStore()
+		assert.NoError(t, err)
+		itemNum := len(service.ProjectStore.List())
+		assert.Equal(t, 0, itemNum, "expected 0 items in the project inventory, got %d", itemNum)
 	})
 }
