@@ -18,7 +18,7 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 	log.Info("Add Pod ", "Pod", pod.Name, "Namespace", pod.Namespace)
 	retry = false
 	// Calculate the services related to this Pod from pendingAdd or inventory store.
-	containerApplicationIds := []string{}
+	var containerApplicationIds []string
 	if s.pendingAdd[string(pod.UID)] != nil {
 		containerApplicationInstance := s.pendingAdd[string(pod.UID)].(containerinventory.ContainerApplicationInstance)
 		containerApplicationIds = containerApplicationInstance.ContainerApplicationIds
@@ -34,7 +34,7 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 	err := s.Client.Get(context.TODO(), types.NamespacedName{Name: namespaceName}, namespace)
 	if err != nil {
 		retry = true
-		log.Error(errors.New("Not find namespace for Pod"), "Failed to build Pod", "Pod", pod)
+		log.Error(errors.New("not find namespace for Pod"), "Failed to build Pod", "Pod", pod)
 		return
 	}
 
@@ -104,7 +104,7 @@ func (s *InventoryService) BuildInventoryCluster() containerinventory.ContainerC
 
 	clusterType := InventoryClusterTypeWCP
 	clusterName := s.NSXConfig.Cluster
-	networkErrors := []common.NetworkError{}
+	var networkErrors []common.NetworkError
 	infra := &containerinventory.ContainerInfrastructureInfo{}
 	infra.InfraType = InventoryInfraTypeVsphere
 	newContainerCluster := containerinventory.ContainerCluster{
@@ -170,4 +170,33 @@ func (s *InventoryService) compareAndMergeUpdate(pre interface{}, cur interface{
 	} else {
 		return operationNone, nil
 	}
+}
+
+func (s *InventoryService) BuildNamespace(namespace *corev1.Namespace) (retry bool) {
+	log.Info("Building Namespace ", "Namespace", namespace.Name)
+	retry = false
+
+	object := s.projectStore.GetByKey(string(namespace.UID))
+	var preContainerProject containerinventory.ContainerProject
+	if object != nil {
+		preContainerProject = *object.(*containerinventory.ContainerProject)
+	}
+
+	containerProject := containerinventory.ContainerProject{
+		DisplayName:        namespace.Name,
+		ResourceType:       string(ContainerProject),
+		Tags:               GetTagsFromLabels(namespace.Labels),
+		ContainerClusterId: s.NSXConfig.Cluster,
+		ExternalId:         string(namespace.UID),
+		NetworkErrors:      nil,
+		NetworkStatus:      NetworkStatusHealthy,
+	}
+
+	operation, _ := s.compareAndMergeUpdate(preContainerProject, containerProject)
+	if operation != operationNone {
+		s.pendingAdd[containerProject.ExternalId] = &containerProject
+	} else {
+		log.Info("Skip, namespace not updated", "Namespace", namespace.Name)
+	}
+	return
 }

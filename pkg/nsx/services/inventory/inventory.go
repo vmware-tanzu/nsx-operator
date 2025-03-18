@@ -17,24 +17,37 @@ import (
 type InventoryType string
 
 const (
-	// Inventory object types
-	ContainerCluster             InventoryType = "ContainerCluster"
-	ContainerClusterNode         InventoryType = "ContainerClusterNode"
-	ContainerProject             InventoryType = "ContainerProject"
-	ContainerApplication         InventoryType = "ContainerApplication"
-	ContainerApplicationInstance InventoryType = "ContainerApplicationInstance"
-	ContainerNetworkPolicy       InventoryType = "ContainerNetworkPolicy"
+	// ContainerCluster represents the inventory type for a container cluster,
+	// which is a collection of container nodes managed as a single entity.
+	ContainerCluster InventoryType = "ContainerCluster"
 
-	// Inventory cluster type
+	// ContainerClusterNode represents the inventory type for a node within a container cluster.
+	// Each node is an individual unit of compute resources.
+	ContainerClusterNode InventoryType = "ContainerClusterNode"
+
+	// ContainerProject represents the inventory type for a containerized project,
+	// typically mapping to a Kubernetes namespace or similar concept.
+	ContainerProject InventoryType = "ContainerProject"
+
+	// ContainerApplication represents the inventory type for an application
+	// typically mapping to cluster services.
+	ContainerApplication InventoryType = "ContainerApplication"
+
+	// ContainerApplicationInstance represents the inventory type for a specific instance
+	// typically mapping to pods.
+	ContainerApplicationInstance InventoryType = "ContainerApplicationInstance"
+
+	// ContainerNetworkPolicy represents the inventory type for network policies
+	// typically mapping to Kubernetes network policies.
+	ContainerNetworkPolicy InventoryType = "ContainerNetworkPolicy"
+
 	InventoryClusterTypeWCP = "WCP"
 
 	InventoryClusterCNIType = "NSX-Operator"
 
-	// Inventory network status
 	NetworkStatusHealthy   = "HEALTHY"
 	NetworkStatusUnhealthy = "UNHEALTHY"
 
-	// Inventory infra
 	InventoryInfraTypeVsphere = "vSphere"
 
 	InventoryMaxDisTags = 20
@@ -69,6 +82,7 @@ type InventoryService struct {
 	commonservice.Service
 	applicationInstanceStore *ApplicationInstanceStore
 	clusterStore             *ClusterStore
+	projectStore             *ProjectStore
 
 	requestBuffer []containerinventory.ContainerInventoryObject
 	pendingAdd    map[string]interface{}
@@ -97,6 +111,9 @@ func NewInventoryService(service commonservice.Service) *InventoryService {
 	}}
 	inventoryService.clusterStore = &ClusterStore{ResourceStore: commonservice.ResourceStore{
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{string(ContainerCluster): indexFunc}),
+	}}
+	inventoryService.projectStore = &ProjectStore{ResourceStore: commonservice.ResourceStore{
+		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{string(ContainerProject): indexFunc}),
 	}}
 	inventoryService.Service = service
 	return inventoryService
@@ -143,7 +160,11 @@ func (s *InventoryService) initContainerCluster() error {
 
 func (s *InventoryService) SyncInventoryStoreByType(clusterId string) error {
 	log.Info("Populating inventory object from NSX")
-	err := s.initContainerApplicationInstance(clusterId)
+	err := s.initContainerProject(clusterId)
+	if err != nil {
+		return err
+	}
+	err = s.initContainerApplicationInstance(clusterId)
 	if err != nil {
 		return err
 	}
@@ -170,6 +191,11 @@ func (s *InventoryService) SyncInventoryObject(bufferedKeys sets.Set[InventoryKe
 			if retryKey != nil {
 				retryKeys.Insert(*retryKey)
 			}
+		case ContainerProject:
+			retryKey := s.SyncContainerProject(name, key)
+			if retryKey != nil {
+				retryKeys.Insert(*retryKey)
+			}
 		}
 	}
 
@@ -182,33 +208,45 @@ func (s *InventoryService) SyncInventoryObject(bufferedKeys sets.Set[InventoryKe
 }
 
 func (s *InventoryService) DeleteResource(externalId string, resourceType InventoryType) error {
-	log.V(1).Info("Delete inventory resource", "resource_type", resourceType, "external_id", externalId)
-	var inventoryObject interface{}
-	exists := false
+	log.Info("Delete inventory resource", "resource_type", resourceType, "external_id", externalId)
+
 	switch resourceType {
+	case ContainerProject:
+		inventoryObject := s.projectStore.GetByKey(externalId)
+		if inventoryObject == nil {
+			return nil
+		}
+		s.prepareDelete(resourceType, externalId, inventoryObject)
+		return s.DeleteContainerProject(externalId, inventoryObject.(*containerinventory.ContainerProject))
 
 	case ContainerApplicationInstance:
-		inventoryObject = s.applicationInstanceStore.GetByKey(externalId)
-		if inventoryObject != nil {
-			exists = true
+		inventoryObject := s.applicationInstanceStore.GetByKey(externalId)
+		if inventoryObject == nil {
+			return nil
 		}
+		s.prepareDelete(resourceType, externalId, inventoryObject)
+		return s.DeleteContainerApplicationInstance(externalId, inventoryObject.(*containerinventory.ContainerApplicationInstance))
+
 	default:
 		return fmt.Errorf("unknown resource_type : %v for external_id %s", resourceType, externalId)
 	}
+}
 
-	if exists {
-		deletedInfo := make(map[string]interface{})
-		deletedInfo["resource_type"] = resourceType
-		deletedInfo["external_id"] = externalId
-		s.requestBuffer = append(s.requestBuffer, containerinventory.ContainerInventoryObject{ContainerObject: deletedInfo,
-			ObjectUpdateType: operationDelete})
-		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerApplicationInstance)
-
-		if resourceType == ContainerApplicationInstance {
-			return s.DeleteContainerApplicationInstance(externalId, inventoryObject.(*containerinventory.ContainerApplicationInstance))
-		}
+func (s *InventoryService) prepareDelete(resourceType InventoryType, externalId string, inventoryObject interface{}) {
+	deletedInfo := map[string]interface{}{
+		"resource_type": resourceType,
+		"external_id":   externalId,
 	}
-	return nil
+	s.requestBuffer = append(s.requestBuffer, containerinventory.ContainerInventoryObject{
+		ContainerObject:  deletedInfo,
+		ObjectUpdateType: operationDelete,
+	})
+	switch resourceType {
+	case ContainerProject:
+		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerProject)
+	case ContainerApplicationInstance:
+		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerApplicationInstance)
+	}
 }
 
 func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore() error {
@@ -220,7 +258,9 @@ func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore() error {
 			containerinventory.ContainerInventoryData{ContainerInventoryObjects: s.requestBuffer})
 
 		// Update NSX Inventory store when the request succeeds.
-		log.V(1).Info("NSX request response", "response", resp)
+		if resp != nil {
+			log.Info("NSX request response", "response code", resp.StatusCode)
+		}
 		if err == nil {
 			err = s.updateInventoryStore()
 		}
@@ -236,7 +276,12 @@ func (s *InventoryService) updateInventoryStore() error {
 	log.Info("Update Inventory store after NSX request succeeds")
 	for _, addItem := range s.pendingAdd {
 		switch reflect.ValueOf(addItem).Elem().FieldByName("ResourceType").String() {
-
+		case string(ContainerProject):
+			project := addItem.(*containerinventory.ContainerProject)
+			err := s.projectStore.Add(project)
+			if err != nil {
+				return err
+			}
 		case string(ContainerApplicationInstance):
 			instance := addItem.(*containerinventory.ContainerApplicationInstance)
 			err := s.applicationInstanceStore.Add(instance)
@@ -248,6 +293,12 @@ func (s *InventoryService) updateInventoryStore() error {
 	}
 	for _, deleteItem := range s.pendingDelete {
 		switch reflect.ValueOf(deleteItem).Elem().FieldByName("ResourceType").String() {
+		case string(ContainerProject):
+			project := deleteItem.(*containerinventory.ContainerProject)
+			err := s.projectStore.Delete(project)
+			if err != nil {
+				return err
+			}
 		case string(ContainerApplicationInstance):
 			instance := deleteItem.(*containerinventory.ContainerApplicationInstance)
 			err := s.applicationInstanceStore.Delete(instance)

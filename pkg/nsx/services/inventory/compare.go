@@ -17,19 +17,17 @@ func compareResources(pre interface{}, cur interface{}) map[string]interface{} {
 	case string(ContainerApplicationInstance):
 		compareContainerApplicationInstance(pre, cur, &updateProperties)
 	}
+	log.Info("Compare resource", "updateProperties", updateProperties)
 	return updateProperties
 }
 
 func compareContainerProject(pre interface{}, cur interface{}, property *map[string]interface{}) {
 	updateProperties := *property
-	if pre == nil {
+	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerProject).Tags, cur.(containerinventory.ContainerProject).Tags) {
 		updateProperties["display_name"] = cur.(containerinventory.ContainerProject).DisplayName
 		updateProperties["container_cluster_id"] = cur.(containerinventory.ContainerProject).ContainerClusterId
-	}
-	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerProject).Tags, cur.(containerinventory.ContainerProject).Tags) {
 		updateProperties["tags"] = cur.(containerinventory.ContainerProject).Tags
 	}
-
 }
 
 func compareContainerApplicationInstance(pre interface{}, cur interface{}, property *map[string]interface{}) {

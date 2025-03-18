@@ -19,11 +19,9 @@ import (
 )
 
 const (
-
 	// How long to wait before retrying
-	minRetryDelay = 5 * time.Second
-	maxRetryDelay = 300 * time.Second
-
+	minRetryDelay           = 5 * time.Second
+	maxRetryDelay           = 300 * time.Second
 	inventoryGCJitterFactor = 0.1
 )
 
@@ -36,7 +34,10 @@ var (
 	// DeletedFinalStateUnknown objects before calling
 	// MetaNamespaceKeyFunc.
 	keyFunc            = cache.DeletionHandlingMetaNamespaceKeyFunc
-	WatchResourceFuncs = []WatchResourceFunc{watchPod}
+	WatchResourceFuncs = []WatchResourceFunc{
+		watchPod,
+		watchNamespace,
+	}
 )
 
 type InventoryController struct {
@@ -95,8 +96,8 @@ func (c *InventoryController) Run(stopCh <-chan struct{}) {
 	// Batch update inventory based on batch time and size.
 	// Inventory worker will be running in forever loop until inventoryMutex is locked by inventoryTimeWorker.
 	// Only one worker processes and sends request to NSX MP at one time.
-	go wait.Until(c.inventoryWorker, time.Second, stopCh)
-	go wait.Until(c.inventoryTimeWorker, time.Second*time.Duration(c.cf.InventoryBatchPeriod), stopCh)
+	go wait.Until(c.inventoryWorker, 30*time.Second, stopCh)
+	//go wait.Until(c.inventoryTimeWorker, 60*time.Second, stopCh)
 	go wait.JitterUntil(c.inventoryGCWorker, commonservice.GCInterval, inventoryGCJitterFactor, true, stopCh)
 	<-stopCh
 }
