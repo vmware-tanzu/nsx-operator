@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -91,6 +92,32 @@ func StartNodeController(mgr ctrl.Manager, nodeService *node.NodeService) {
 		log.Error(err, "failed to create controller", "controller", "Node")
 		os.Exit(1)
 	}
+}
+
+func (r *NodeReconciler) RestoreReconcile() error {
+	return nil
+}
+
+func (r *NodeReconciler) CollectGarbage(_ context.Context) error {
+	return nil
+}
+
+func (r *NodeReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+	if err := r.Start(mgr); err != nil {
+		log.Error(err, "failed to create controller", "controller", "Node")
+		return err
+	}
+	return nil
+}
+
+func NewNodeReconciler(mgr ctrl.Manager, nodeService *node.NodeService) *NodeReconciler {
+	nodePortReconciler := &NodeReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+
+	nodePortReconciler.Service = nodeService
+	return nodePortReconciler
 }
 
 func (r *NodeReconciler) Start(mgr ctrl.Manager) error {

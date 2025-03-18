@@ -6,7 +6,6 @@ package pod
 import (
 	"context"
 	"fmt"
-	"os"
 	"reflect"
 	"time"
 
@@ -22,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -218,8 +218,21 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func StartPodController(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPortService, subnetService servicecommon.SubnetServiceProvider, vpcService servicecommon.VPCServiceProvider, nodeService servicecommon.NodeServiceReader) {
-	podPortReconciler := PodReconciler{
+func (r *PodReconciler) RestoreReconcile() error {
+	return nil
+}
+
+func (r *PodReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+	if err := r.Start(mgr); err != nil {
+		log.Error(err, "failed to create controller", "controller", "Pod")
+		return err
+	}
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.CollectGarbage)
+	return nil
+}
+
+func NewPodReconciler(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPortService, subnetService servicecommon.SubnetServiceProvider, vpcService servicecommon.VPCServiceProvider, nodeService servicecommon.NodeServiceReader) *PodReconciler {
+	podPortReconciler := &PodReconciler{
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
 		SubnetService:     subnetService,
@@ -229,11 +242,7 @@ func StartPodController(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPo
 		Recorder:          mgr.GetEventRecorderFor("pod-controller"),
 	}
 	podPortReconciler.StatusUpdater = common.NewStatusUpdater(podPortReconciler.Client, podPortReconciler.SubnetPortService.NSXConfig, podPortReconciler.Recorder, MetricResTypePod, "SubnetPort", "Pod")
-	if err := podPortReconciler.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "Pod")
-		os.Exit(1)
-	}
-	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, podPortReconciler.CollectGarbage)
+	return podPortReconciler
 }
 
 // Start setup manager and launch GC
@@ -246,17 +255,17 @@ func (r *PodReconciler) Start(mgr ctrl.Manager) error {
 }
 
 // CollectGarbage  collect Pod which has been removed from crd.
-func (r *PodReconciler) CollectGarbage(ctx context.Context) {
+func (r *PodReconciler) CollectGarbage(ctx context.Context) error {
 	log.Info("pod garbage collector started")
 	nsxSubnetPortSet := r.SubnetPortService.ListNSXSubnetPortIDForPod()
 	if len(nsxSubnetPortSet) == 0 {
-		return
+		return nil
 	}
 	podList := &v1.PodList{}
 	err := r.Client.List(ctx, podList)
 	if err != nil {
 		log.Error(err, "failed to list Pod")
-		return
+		return err
 	}
 
 	PodSet := sets.New[string]()
@@ -265,17 +274,23 @@ func (r *PodReconciler) CollectGarbage(ctx context.Context) {
 		PodSet.Insert(subnetPortID)
 	}
 
+	var errList []error
 	diffSet := nsxSubnetPortSet.Difference(PodSet)
 	for elem := range diffSet {
 		log.V(1).Info("GC collected Pod", "NSXSubnetPortID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
 		err = r.SubnetPortService.DeleteSubnetPortById(elem)
 		if err != nil {
+			errList = append(errList, err)
 			r.StatusUpdater.IncreaseDeleteFailTotal()
 		} else {
 			r.StatusUpdater.IncreaseDeleteSuccessTotal()
 		}
 	}
+	if len(errList) > 0 {
+		return fmt.Errorf("errors found in Pod garbage collection: %s", errList)
+	}
+	return nil
 }
 
 func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (bool, string, error) {
