@@ -23,11 +23,12 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 		containerApplicationInstance := s.pendingAdd[string(pod.UID)].(*containerinventory.ContainerApplicationInstance)
 		containerApplicationIds = containerApplicationInstance.ContainerApplicationIds
 	}
-	preContainerApplicationInstance := s.applicationInstanceStore.GetByKey(string(pod.UID))
 
+	preContainerApplicationInstance := s.ApplicationInstanceStore.GetByKey(string(pod.UID))
 	if preContainerApplicationInstance != nil && (len(containerApplicationIds) == 0) {
 		containerApplicationIds = preContainerApplicationInstance.(*containerinventory.ContainerApplicationInstance).ContainerApplicationIds
 		preContainerApplicationInstance = *preContainerApplicationInstance.(*containerinventory.ContainerApplicationInstance)
+
 	}
 	namespaceName := pod.Namespace
 	namespace := &corev1.Namespace{}
