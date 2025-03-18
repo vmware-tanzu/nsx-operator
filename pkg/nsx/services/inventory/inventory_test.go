@@ -175,7 +175,7 @@ func TestInventoryService_sendNSXRequestAndUpdateInventoryStore(t *testing.T) {
 		return nil, nil
 	})
 	defer patches.Reset()
-	inventoryService.pendingAdd["application1"] = appInstance1
+	inventoryService.pendingAdd["application1"] = &appInstance1
 	inventoryObj := containerinventory.ContainerInventoryObject{}
 	inventoryService.requestBuffer = []containerinventory.ContainerInventoryObject{inventoryObj}
 	err := inventoryService.sendNSXRequestAndUpdateInventoryStore()
@@ -194,7 +194,7 @@ func TestInventoryService_updateInventoryStore(t *testing.T) {
 	}
 
 	t.Run("Add  existing ContainerApplicationInstance", func(t *testing.T) {
-		service.pendingAdd["application1"] = appInstance1
+		service.pendingAdd["application1"] = &appInstance1
 		err := service.updateInventoryStore()
 		if err != nil {
 			t.Errorf("Add ContainerApplicationInstance failed: %v", err)
@@ -205,7 +205,7 @@ func TestInventoryService_updateInventoryStore(t *testing.T) {
 
 	t.Run("Deleting  existing ContainerApplicationInstance", func(t *testing.T) {
 		delete(service.pendingAdd, "application1")
-		service.pendingDelete["application1"] = appInstance1
+		service.pendingDelete["application1"] = &appInstance1
 		err := service.updateInventoryStore()
 		if err != nil {
 			t.Errorf("Delete ContainerApplicationInstance failed: %v", err)
