@@ -202,7 +202,7 @@ func (s *InventoryService) DeleteResource(externalId string, resourceType Invent
 		deletedInfo["external_id"] = externalId
 		s.requestBuffer = append(s.requestBuffer, containerinventory.ContainerInventoryObject{ContainerObject: deletedInfo,
 			ObjectUpdateType: operationDelete})
-		s.pendingDelete[externalId] = inventoryObject
+		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerApplicationInstance)
 
 		if resourceType == ContainerApplicationInstance {
 			return s.DeleteContainerApplicationInstance(externalId, inventoryObject.(*containerinventory.ContainerApplicationInstance))
@@ -235,11 +235,11 @@ func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore() error {
 func (s *InventoryService) updateInventoryStore() error {
 	log.Info("Update Inventory store after NSX request succeeds")
 	for _, addItem := range s.pendingAdd {
-		switch reflect.ValueOf(addItem).FieldByName("ResourceType").String() {
+		switch reflect.ValueOf(addItem).Elem().FieldByName("ResourceType").String() {
 
 		case string(ContainerApplicationInstance):
-			instacne := addItem.(containerinventory.ContainerApplicationInstance)
-			err := s.applicationInstanceStore.Add(&instacne)
+			instance := addItem.(*containerinventory.ContainerApplicationInstance)
+			err := s.applicationInstanceStore.Add(instance)
 			if err != nil {
 				return err
 			}
@@ -247,10 +247,10 @@ func (s *InventoryService) updateInventoryStore() error {
 		}
 	}
 	for _, deleteItem := range s.pendingDelete {
-		switch reflect.ValueOf(deleteItem).FieldByName("ResourceType").String() {
+		switch reflect.ValueOf(deleteItem).Elem().FieldByName("ResourceType").String() {
 		case string(ContainerApplicationInstance):
-			instance := deleteItem.(containerinventory.ContainerApplicationInstance)
-			err := s.applicationInstanceStore.Delete(&instance)
+			instance := deleteItem.(*containerinventory.ContainerApplicationInstance)
+			err := s.applicationInstanceStore.Delete(instance)
 			if err != nil {
 				return err
 			}

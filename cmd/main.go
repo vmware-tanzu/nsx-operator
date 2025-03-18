@@ -27,6 +27,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/inventory"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/ipaddressallocation"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -42,6 +43,7 @@ import (
 	subnetbindingcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetbinding"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetset"
+	inventoryservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/inventory"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
 	nodeservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/node"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
@@ -241,6 +243,8 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			log.Error(err, "Failed to initialize SubnetConnectionBindingMap commonService")
 			os.Exit(1)
 		}
+		inventoryService := inventoryservice.NewInventoryService(commonService)
+		inventoryService.Initialize()
 
 		// Start controllers which only supports VPC
 		StartNetworkInfoController(mgr, vpcService, ipblocksInfoService)
@@ -281,6 +285,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		networkpolicycontroller.StartNetworkPolicyController(mgr, commonService, vpcService)
 		service.StartServiceLbController(mgr, commonService)
 		subnetbindingcontroller.StartSubnetBindingController(mgr, subnetService, subnetBindingService)
+		inventory.StartInventoryController(mgr, inventoryService, cf)
 	}
 	// Start controllers which can run in non-VPC mode
 	securitypolicycontroller.StartSecurityPolicyController(mgr, commonService, vpcService)
