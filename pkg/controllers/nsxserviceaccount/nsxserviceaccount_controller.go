@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	nsxvmwarecomv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 
@@ -274,7 +276,7 @@ func (r *NSXServiceAccountReconciler) Start(mgr ctrl.Manager) error {
 
 // CollectGarbage collect NSXServiceAccount which has been removed from crd.
 // it implements the interface GarbageCollector method.
-func (r *NSXServiceAccountReconciler) CollectGarbage(ctx context.Context) {
+func (r *NSXServiceAccountReconciler) CollectGarbage(ctx context.Context) error {
 	log.Info("nsx service account garbage collector started")
 	ca = r.Service.NSXConfig.GetCACert()
 	nsxServiceAccountList := &nsxvmwarecomv1alpha1.NSXServiceAccountList{}
@@ -282,16 +284,51 @@ func (r *NSXServiceAccountReconciler) CollectGarbage(ctx context.Context) {
 	var err error
 	nsxServiceAccountUIDSet := r.Service.ListNSXServiceAccountRealization()
 	if len(nsxServiceAccountUIDSet) == 0 {
-		return
+		return nil
 	}
 	err = r.Client.List(ctx, nsxServiceAccountList)
 	if err != nil {
 		log.Error(err, "failed to list NSXServiceAccount CR")
-		return
+		return err
 	}
 	gcSuccessCount, gcErrorCount = r.garbageCollector(nsxServiceAccountUIDSet, nsxServiceAccountList)
 	log.V(1).Info("gc collects NSXServiceAccount CR", "success", gcSuccessCount, "error", gcErrorCount)
 	count, ca = r.validateRealized(count, ca, nsxServiceAccountList)
+	if gcErrorCount > 0 {
+		return fmt.Errorf("errors found in NSXServiceAccount garbage collection: %d", gcErrorCount)
+	}
+	return nil
+}
+
+func (r *NSXServiceAccountReconciler) RestoreReconcile() error {
+	return nil
+}
+
+func (r *NSXServiceAccountReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+	log.Info("Starting NSXServiceAccountController")
+	if err := r.Start(mgr); err != nil {
+		log.Error(err, "Failed to create controller", "controller", "NSXServiceAccount")
+		return err
+	}
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.CollectGarbage)
+	return nil
+}
+
+func NewNSXServiceAccountReconciler(mgr ctrl.Manager, commonService servicecommon.Service) *NSXServiceAccountReconciler {
+	log.Info("Initializing NSXServiceAccountController")
+	nsxServiceAccountReconcile := &NSXServiceAccountReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("nsxserviceaccount-controller"),
+	}
+	nsxServiceAccountService, err := nsxserviceaccount.InitializeNSXServiceAccount(commonService)
+	if err != nil {
+		log.Error(err, "Failed to initialize service", "controller", "NSXServiceAccount")
+		os.Exit(1)
+	}
+	nsxServiceAccountReconcile.Service = nsxServiceAccountService
+	nsxServiceAccountReconcile.StatusUpdater = common.NewStatusUpdater(nsxServiceAccountReconcile.Client, nsxServiceAccountReconcile.Service.NSXConfig, nsxServiceAccountReconcile.Recorder, common.MetricResTypeNSXServiceAccount, "ServiceAccount", "NSXServiceAccount")
+	return nsxServiceAccountReconcile
 }
 
 func (r *NSXServiceAccountReconciler) validateRealized(count uint16, ca []byte, nsxServiceAccountList *nsxvmwarecomv1alpha1.NSXServiceAccountList) (uint16, []byte) {

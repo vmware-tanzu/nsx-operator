@@ -895,5 +895,5 @@ func createFakeReconciler(objs ...client.Object) *Reconciler {
 		BindingStore: subnetbinding.SetupStore(),
 	}
 
-	return newReconciler(mgr, subnetService, bindingService)
+	return NewReconciler(mgr, subnetService, bindingService)
 }

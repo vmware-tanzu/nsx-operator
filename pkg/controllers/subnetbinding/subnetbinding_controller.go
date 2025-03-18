@@ -3,7 +3,6 @@ package subnetbinding
 import (
 	"context"
 	"fmt"
-	"os"
 	"reflect"
 	"time"
 
@@ -20,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -48,18 +48,22 @@ type Reconciler struct {
 	StatusUpdater        common.StatusUpdater
 }
 
-func StartSubnetBindingController(mgr ctrl.Manager, subnetService *subnet.SubnetService, subnetBindingService *subnetbinding.BindingService) {
-	reconciler := newReconciler(mgr, subnetService, subnetBindingService)
-	// Start the controller
-	if err := reconciler.setupWithManager(mgr); err != nil {
-		log.Error(err, "Failed to create controller", "controller", "SubnetConnectionBindingMap")
-		os.Exit(1)
-	}
-	// Start garbage collector in a separate goroutine
-	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, reconciler.CollectGarbage)
+func (r *Reconciler) RestoreReconcile() error {
+	return nil
 }
 
-func newReconciler(mgr ctrl.Manager, subnetService *subnet.SubnetService, subnetBindingService *subnetbinding.BindingService) *Reconciler {
+func (r *Reconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+	// Start the controller
+	if err := r.setupWithManager(mgr); err != nil {
+		log.Error(err, "Failed to create controller", "controller", "SubnetConnectionBindingMap")
+		return err
+	}
+	// Start garbage collector in a separate goroutine
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.CollectGarbage)
+	return nil
+}
+
+func NewReconciler(mgr ctrl.Manager, subnetService *subnet.SubnetService, subnetBindingService *subnetbinding.BindingService) *Reconciler {
 	recorder := mgr.GetEventRecorderFor("subnetconnectionbindingmap-controller")
 	// Create the SubnetConnectionBindingMap Reconciler with the necessary services and configuration
 	return &Reconciler{
@@ -121,7 +125,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 // CollectGarbage collects the stale SubnetConnectionBindingMaps and deletes them on NSX which have been removed from K8s.
 // It implements the interface GarbageCollector method.
-func (r *Reconciler) CollectGarbage(ctx context.Context) {
+func (r *Reconciler) CollectGarbage(ctx context.Context) error {
 	startTime := time.Now()
 	defer func() {
 		log.Info("SubnetConnectionBindingMap garbage collection completed", "duration(ms)", time.Since(startTime).Milliseconds())
@@ -130,13 +134,15 @@ func (r *Reconciler) CollectGarbage(ctx context.Context) {
 	bindingMapIdSetByCRs, err := r.listBindingMapIDsFromCRs(ctx)
 	if err != nil {
 		log.Error(err, "Failed to list SubnetConnectionBindingMap CRs")
-		return
+		return err
 	}
 	bindingMapIdSetInStore := r.SubnetBindingService.ListSubnetConnectionBindingMapCRUIDsInStore()
 
 	if err = r.SubnetBindingService.DeleteMultiSubnetConnectionBindingMapsByCRs(bindingMapIdSetInStore.Difference(bindingMapIdSetByCRs)); err != nil {
 		log.Error(err, "Failed to delete stale SubnetConnectionBindingMaps")
+		return err
 	}
+	return nil
 }
 
 var PredicateFuncsForBindingMaps = predicate.Funcs{

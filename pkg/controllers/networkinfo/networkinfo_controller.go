@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -420,7 +421,7 @@ func (r *NetworkInfoReconciler) listNamespaceCRsNameIDSet(ctx context.Context) (
 // 3. loop all the NSX VPC to get its namespace, check if the namespace still exist
 // 4. if ns do not exist anymore, delete the NSX VPC resource
 // it implements the interface GarbageCollector method.
-func (r *NetworkInfoReconciler) CollectGarbage(ctx context.Context) {
+func (r *NetworkInfoReconciler) CollectGarbage(ctx context.Context) error {
 	startTime := time.Now()
 	defer func() {
 		log.Info("VPC garbage collection completed", "duration(ms)", time.Since(startTime).Milliseconds())
@@ -430,15 +431,16 @@ func (r *NetworkInfoReconciler) CollectGarbage(ctx context.Context) {
 	nsxVPCList := r.Service.ListVPC()
 	if len(nsxVPCList) == 0 {
 		log.Info("No NSX VPCs found in the store, skipping garbage collection")
-		return
+		return nil
 	}
 
 	_, idSet, err := r.listNamespaceCRsNameIDSet(ctx)
 	if err != nil {
 		log.Error(err, "Failed to list Kubernetes Namespaces for VPC garbage collection")
-		return
+		return err
 	}
 
+	var errList []error
 	for i, nsxVPC := range nsxVPCList {
 		nsxVPCNamespaceName := filterTagFromNSXVPC(&nsxVPCList[i], commonservice.TagScopeNamespace)
 		nsxVPCNamespaceID := filterTagFromNSXVPC(&nsxVPCList[i], commonservice.TagScopeNamespaceUID)
@@ -451,12 +453,17 @@ func (r *NetworkInfoReconciler) CollectGarbage(ctx context.Context) {
 		if err = r.Service.DeleteVPC(*nsxVPC.Path); err != nil {
 			log.Error(err, "Failed to delete NSX VPC", "VPC", nsxVPC.Id, "Namespace", nsxVPCNamespaceName)
 			r.StatusUpdater.IncreaseDeleteFailTotal()
+			errList = append(errList, err)
 			continue
 		}
 
 		r.StatusUpdater.IncreaseDeleteSuccessTotal()
 		log.Info("Successfully deleted NSX VPC", "VPC", nsxVPC.Id)
 	}
+	if len(errList) > 0 {
+		return fmt.Errorf("errors found in NetworkInfo garbage collection: %s", errList)
+	}
+	return nil
 }
 
 func (r *NetworkInfoReconciler) deleteVPCsByNamespace(ctx context.Context, ns string) error {
@@ -616,4 +623,29 @@ func (r *NetworkInfoReconciler) getNetworkConfig(ctx context.Context, networkInf
 		return nil, fmt.Errorf("NetworkConfig %s not found", ncName)
 	}
 	return nc, nil
+}
+
+func (r *NetworkInfoReconciler) RestoreReconcile() error {
+	return nil
+}
+
+func (r *NetworkInfoReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+	if err := r.Start(mgr); err != nil {
+		log.Error(err, "Failed to create networkinfo controller", "controller", "NetworkInfo")
+		return err
+	}
+	go common.GenericGarbageCollector(make(chan bool), commonservice.GCInterval, r.CollectGarbage)
+	return nil
+}
+
+func NewNetworkInfoReconciler(mgr ctrl.Manager, vpcService *vpc.VPCService, ipblocksInfoService *ipblocksinfo.IPBlocksInfoService) *NetworkInfoReconciler {
+	networkInfoReconciler := &NetworkInfoReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("networkinfo-controller"),
+	}
+	networkInfoReconciler.Service = vpcService
+	networkInfoReconciler.IPBlocksInfoService = ipblocksInfoService
+	networkInfoReconciler.StatusUpdater = common.NewStatusUpdater(networkInfoReconciler.Client, networkInfoReconciler.Service.NSXConfig, networkInfoReconciler.Recorder, common.MetricResTypeNetworkInfo, "VPC", "NetworkInfo")
+	return networkInfoReconciler
 }

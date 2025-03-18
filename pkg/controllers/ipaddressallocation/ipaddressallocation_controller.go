@@ -17,6 +17,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -136,17 +137,17 @@ func (r *IPAddressAllocationReconciler) SetupWithManager(mgr ctrl.Manager) error
 		Complete(r)
 }
 
-func (r *IPAddressAllocationReconciler) CollectGarbage(ctx context.Context) {
+func (r *IPAddressAllocationReconciler) CollectGarbage(ctx context.Context) error {
 	log.Info("IPAddressAllocation garbage collector started")
 	ipAddressAllocationSet := r.Service.ListIPAddressAllocationID()
 	if len(ipAddressAllocationSet) == 0 {
-		return
+		return nil
 	}
 
 	ipAddressAllocationList := &v1alpha1.IPAddressAllocationList{}
 	if err := r.Client.List(ctx, ipAddressAllocationList); err != nil {
 		log.Error(err, "Failed to list IPAddressAllocation CR")
-		return
+		return err
 	}
 	CRIPAddressAllocationSet := sets.New[string]()
 	for _, ipa := range ipAddressAllocationList.Items {
@@ -156,10 +157,41 @@ func (r *IPAddressAllocationReconciler) CollectGarbage(ctx context.Context) {
 	log.V(2).Info("IPAddressAllocation garbage collector", "nsxIPAddressAllocationSet", ipAddressAllocationSet, "CRIPAddressAllocationSet", CRIPAddressAllocationSet)
 
 	diffSet := ipAddressAllocationSet.Difference(CRIPAddressAllocationSet)
+	var errList []error
 	for elem := range diffSet {
 		log.Info("GC collected nsx IPAddressAllocation", "UID", elem)
 		if err := r.Service.DeleteIPAddressAllocation(types.UID(elem)); err != nil {
 			log.Error(err, "Failed to delete nsx IPAddressAllocation", "UID", elem)
+			errList = append(errList, err)
 		}
 	}
+	if len(errList) > 0 {
+		return fmt.Errorf("errors found in IPAddressAllocation garbage collection: %s", errList)
+	}
+	return nil
+}
+
+func (r *IPAddressAllocationReconciler) RestoreReconcile() error {
+	return nil
+}
+
+func (r *IPAddressAllocationReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+	if err := r.SetupWithManager(mgr); err != nil {
+		log.Error(err, "Failed to create ipaddressallocation controller")
+		return err
+	}
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.CollectGarbage)
+	return nil
+}
+
+func NewIPAddressAllocationReconciler(mgr ctrl.Manager, ipAddressAllocationService *ipaddressallocation.IPAddressAllocationService, vpcService servicecommon.VPCServiceProvider) *IPAddressAllocationReconciler {
+	ipAddressAllocationReconciler := &IPAddressAllocationReconciler{
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		Service:    ipAddressAllocationService,
+		VPCService: vpcService,
+		Recorder:   mgr.GetEventRecorderFor("ipaddressallocation-controller"),
+	}
+	ipAddressAllocationReconciler.StatusUpdater = common.NewStatusUpdater(ipAddressAllocationReconciler.Client, ipAddressAllocationReconciler.Service.NSXConfig, ipAddressAllocationReconciler.Recorder, common.MetricResTypeNetworkInfo, "IPAddressAllocation", "IPAddressAllocation")
+	return ipAddressAllocationReconciler
 }
