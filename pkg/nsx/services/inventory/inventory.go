@@ -24,6 +24,7 @@ const (
 	ContainerApplication         InventoryType = "ContainerApplication"
 	ContainerApplicationInstance InventoryType = "ContainerApplicationInstance"
 	ContainerNetworkPolicy       InventoryType = "ContainerNetworkPolicy"
+	ContainerIngressPolicy       InventoryType = "ContainerIngressPolicy"
 
 	// Inventory cluster type
 	InventoryClusterTypeWCP = "WCP"
@@ -67,8 +68,13 @@ var (
 
 type InventoryService struct {
 	commonservice.Service
-	applicationInstanceStore *ApplicationInstanceStore
-	clusterStore             *ClusterStore
+	ApplicationInstanceStore *ApplicationInstanceStore
+	ApplicationStore         *ApplicationStore
+	ProjectStore             *ProjectStore
+	CluserNodeStore          *ClusterNodeStore
+	NetworkPolicyStore       *NetworkPolicyStore
+	IngressPolicyStore       *IngressPolicyStore
+	ClusterStore             *ClusterStore
 
 	requestBuffer []containerinventory.ContainerInventoryObject
 	pendingAdd    map[string]interface{}
@@ -92,11 +98,26 @@ func NewInventoryService(service commonservice.Service) *InventoryService {
 	}
 
 	// TODO, Inventory store should have its own store
-	inventoryService.applicationInstanceStore = &ApplicationInstanceStore{ResourceStore: commonservice.ResourceStore{
+	inventoryService.ApplicationInstanceStore = &ApplicationInstanceStore{ResourceStore: commonservice.ResourceStore{
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{string(ContainerApplicationInstance): indexFunc}),
 	}}
-	inventoryService.clusterStore = &ClusterStore{ResourceStore: commonservice.ResourceStore{
+	inventoryService.ClusterStore = &ClusterStore{ResourceStore: commonservice.ResourceStore{
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{string(ContainerCluster): indexFunc}),
+	}}
+	inventoryService.ApplicationStore = &ApplicationStore{ResourceStore: commonservice.ResourceStore{
+		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{string(ContainerApplication): indexFunc}),
+	}}
+	inventoryService.CluserNodeStore = &ClusterNodeStore{ResourceStore: commonservice.ResourceStore{
+		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{string(ContainerClusterNode): indexFunc}),
+	}}
+	inventoryService.NetworkPolicyStore = &NetworkPolicyStore{ResourceStore: commonservice.ResourceStore{
+		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{string(ContainerNetworkPolicy): indexFunc}),
+	}}
+	inventoryService.IngressPolicyStore = &IngressPolicyStore{ResourceStore: commonservice.ResourceStore{
+		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{string(ContainerIngressPolicy): indexFunc}),
+	}}
+	inventoryService.ProjectStore = &ProjectStore{ResourceStore: commonservice.ResourceStore{
+		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{string(ContainerProject): indexFunc}),
 	}}
 	inventoryService.Service = service
 	return inventoryService
@@ -120,7 +141,7 @@ func (s *InventoryService) initContainerCluster() error {
 	// If there is no such cluster, create one.
 	// Otherwise, sync with NSX for different types of inventory objects.
 	if err == nil {
-		err = s.clusterStore.Add(&cluster)
+		err = s.ClusterStore.Add(&cluster)
 		if err != nil {
 			log.Error(err, "Add cluster to store")
 		}
@@ -132,7 +153,7 @@ func (s *InventoryService) initContainerCluster() error {
 	if err != nil {
 		return err
 	}
-	err = s.clusterStore.Add(&cluster)
+	err = s.ClusterStore.Add(&cluster)
 	if err != nil {
 		log.Error(err, "Add cluster to store")
 		return err
@@ -147,7 +168,28 @@ func (s *InventoryService) SyncInventoryStoreByType(clusterId string) error {
 	if err != nil {
 		return err
 	}
+	err = s.initContainerApplication(clusterId)
+	if err != nil {
+		return err
+	}
+	err = s.initContainerClusterNode(clusterId)
+	if err != nil {
+		return err
+	}
+	err = s.initContainerNetworkPolicy(clusterId)
+	if err != nil {
+		return err
+	}
+	err = s.initContainerIngressPolicy(clusterId)
+	if err != nil {
+		return err
+	}
+	err = s.initContainerProject(clusterId)
+	if err != nil {
+		return err
+	}
 	return nil
+
 }
 
 func (s *InventoryService) SyncInventoryObject(bufferedKeys sets.Set[InventoryKey]) (sets.Set[InventoryKey], error) {
@@ -188,7 +230,7 @@ func (s *InventoryService) DeleteResource(externalId string, resourceType Invent
 	switch resourceType {
 
 	case ContainerApplicationInstance:
-		inventoryObject = s.applicationInstanceStore.GetByKey(externalId)
+		inventoryObject = s.ApplicationInstanceStore.GetByKey(externalId)
 		if inventoryObject != nil {
 			exists = true
 		}
@@ -220,7 +262,7 @@ func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore() error {
 			containerinventory.ContainerInventoryData{ContainerInventoryObjects: s.requestBuffer})
 
 		// Update NSX Inventory store when the request succeeds.
-		log.V(1).Info("NSX request response", "response", resp)
+		log.V(1).Info("NSX request response", "response status code", resp.StatusCode)
 		if err == nil {
 			err = s.updateInventoryStore()
 		}
@@ -239,7 +281,7 @@ func (s *InventoryService) updateInventoryStore() error {
 
 		case string(ContainerApplicationInstance):
 			instance := addItem.(*containerinventory.ContainerApplicationInstance)
-			err := s.applicationInstanceStore.Add(instance)
+			err := s.ApplicationInstanceStore.Add(instance)
 			if err != nil {
 				return err
 			}
@@ -250,7 +292,7 @@ func (s *InventoryService) updateInventoryStore() error {
 		switch reflect.ValueOf(deleteItem).Elem().FieldByName("ResourceType").String() {
 		case string(ContainerApplicationInstance):
 			instance := deleteItem.(*containerinventory.ContainerApplicationInstance)
-			err := s.applicationInstanceStore.Delete(instance)
+			err := s.ApplicationInstanceStore.Delete(instance)
 			if err != nil {
 				return err
 			}

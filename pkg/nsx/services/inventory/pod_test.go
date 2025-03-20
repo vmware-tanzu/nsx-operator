@@ -13,7 +13,7 @@ import (
 	"github.com/vmware/go-vmware-nsxt/containerinventory"
 )
 
-func TestInventoryService_SyncContainerApplicationInstance(t *testing.T) {
+func TestInventoryService_InitContainerApplicationInstance(t *testing.T) {
 	inventoryService, _ := createService(t)
 	appApiService := &nsxt.ManagementPlaneApiFabricContainerApplicationsApiService{}
 	expectNum := 0
@@ -33,7 +33,7 @@ func TestInventoryService_SyncContainerApplicationInstance(t *testing.T) {
 		defer patches.Reset()
 		err := inventoryService.initContainerApplicationInstance("cluster1")
 		assert.NoError(t, err)
-		itemNum := len(inventoryService.applicationInstanceStore.List())
+		itemNum := len(inventoryService.ApplicationInstanceStore.List())
 		expectNum += 2
 		assert.Equal(t, expectNum, itemNum, "expected %d item in the inventory, got %d", expectNum, itemNum)
 
@@ -55,7 +55,7 @@ func TestInventoryService_SyncContainerApplicationInstance(t *testing.T) {
 
 		err := inventoryService.initContainerApplicationInstance("cluster1")
 		assert.Error(t, err)
-		itemNum := len(inventoryService.applicationInstanceStore.List())
+		itemNum := len(inventoryService.ApplicationInstanceStore.List())
 		assert.Equal(t, expectNum, itemNum, "expected %d item in the inventory, got %d", expectNum, itemNum)
 	})
 
@@ -74,7 +74,7 @@ func TestInventoryService_SyncContainerApplicationInstance(t *testing.T) {
 		err := inventoryService.initContainerApplicationInstance("cluster1")
 		assert.NoError(t, err)
 		assert.NotNil(t, inventoryService.stalePods["1"])
-		itemNum := len(inventoryService.applicationInstanceStore.List())
+		itemNum := len(inventoryService.ApplicationInstanceStore.List())
 		assert.Equal(t, expectNum, itemNum, "expected %d item in the inventory, got %d", expectNum, itemNum)
 	})
 
@@ -100,7 +100,7 @@ func TestInventoryService_SyncContainerApplicationInstance(t *testing.T) {
 		defer patches.Reset()
 		err := inventoryService.initContainerApplicationInstance("cluster1")
 		assert.NoError(t, err)
-		itemNum := len(inventoryService.applicationInstanceStore.List())
+		itemNum := len(inventoryService.ApplicationInstanceStore.List())
 		expectNum += 2
 		assert.Equal(t, expectNum, itemNum, "expected %d item in the inventory, got %d", expectNum, itemNum)
 	})
