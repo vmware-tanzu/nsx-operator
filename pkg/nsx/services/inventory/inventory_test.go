@@ -133,7 +133,7 @@ func TestInventoryService_DeleteResource(t *testing.T) {
 			ExternalId:         externalId,
 			ContainerProjectId: "qe",
 		}
-		inventoryService.applicationInstanceStore.Add(&appInstance1)
+		inventoryService.ApplicationInstanceStore.Add(&appInstance1)
 		err := inventoryService.DeleteResource("existing-id", ContainerApplicationInstance)
 
 		assert.Nil(t, err)
@@ -172,7 +172,7 @@ func TestInventoryService_sendNSXRequestAndUpdateInventoryStore(t *testing.T) {
 	}
 	inventoryService, _ := createService(t)
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(clusterApiService), "AddContainerInventoryUpdateUpdates", func(_ *nsxt.ManagementPlaneApiFabricContainerInventoryApiService, _ context.Context, _ string, _ containerinventory.ContainerInventoryData) (*http.Response, error) {
-		return nil, nil
+		return &http.Response{StatusCode: 200}, nil
 	})
 	defer patches.Reset()
 	inventoryService.pendingAdd["application1"] = &appInstance1
@@ -180,7 +180,7 @@ func TestInventoryService_sendNSXRequestAndUpdateInventoryStore(t *testing.T) {
 	inventoryService.requestBuffer = []containerinventory.ContainerInventoryObject{inventoryObj}
 	err := inventoryService.sendNSXRequestAndUpdateInventoryStore()
 	assert.Nil(t, err)
-	itemNum := len(inventoryService.applicationInstanceStore.List())
+	itemNum := len(inventoryService.ApplicationInstanceStore.List())
 	assert.Equal(t, 1, itemNum, "expected 1 item in the inventory, got %d", itemNum)
 }
 
@@ -199,7 +199,7 @@ func TestInventoryService_updateInventoryStore(t *testing.T) {
 		if err != nil {
 			t.Errorf("Add ContainerApplicationInstance failed: %v", err)
 		}
-		itemNum := len(service.applicationInstanceStore.List())
+		itemNum := len(service.ApplicationInstanceStore.List())
 		assert.Equal(t, 1, itemNum, "expected 1 item in the inventory, got %d", itemNum)
 	})
 
@@ -210,7 +210,7 @@ func TestInventoryService_updateInventoryStore(t *testing.T) {
 		if err != nil {
 			t.Errorf("Delete ContainerApplicationInstance failed: %v", err)
 		}
-		itemNum := len(service.applicationInstanceStore.List())
+		itemNum := len(service.ApplicationInstanceStore.List())
 		assert.Equal(t, 0, itemNum, "expected 0 item in the inventory, got %d", itemNum)
 	})
 
@@ -219,7 +219,7 @@ func TestInventoryService_updateInventoryStore(t *testing.T) {
 		if err != nil {
 			t.Errorf("Delete ContainerApplicationInstance failed: %v", err)
 		}
-		itemNum := len(service.applicationInstanceStore.List())
+		itemNum := len(service.ApplicationInstanceStore.List())
 		assert.Equal(t, 0, itemNum, "expected 0 item in the inventory, got %d", itemNum)
 	})
 }

@@ -44,18 +44,18 @@ func (s *InventoryService) initContainerApplicationInstance(clusterId string) er
 		}
 		applicationInstances, _, err := s.NSXClient.NsxApiClient.ContainerApplicationsApi.ListContainerApplicationInstances(context.Background(), opts)
 		if err != nil {
-			return fmt.Errorf("failed to retrieve container application instances err: %w", err)
+			return fmt.Errorf("failed to retrieve ContainerApplicationInstances err: %w", err)
 		}
 		for _, applicationInstance := range applicationInstances.Results {
 			if applicationInstance.ContainerProjectId == "" {
 				// ContainerProjectId is the index for applicationInstanceStore and cannot be empty.
 				// The case should not happen and we need to put this one into stale cache and clean it during resync if it did happen.
-				s.stalePods[applicationInstance.ExternalId] = applicationInstance
+				s.stalePods[applicationInstance.ExternalId] = &applicationInstance
 				err = fmt.Errorf("empty ContainerProjectId for application instance %s, external_id %s", applicationInstance.DisplayName, applicationInstance.ExternalId)
 				log.Error(err, "Retrieving ContainerApplicationInstances")
 				continue
 			}
-			err = s.applicationInstanceStore.Add(&applicationInstance)
+			err = s.ApplicationInstanceStore.Add(&applicationInstance)
 			if err != nil {
 				return err
 			}
