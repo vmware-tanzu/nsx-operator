@@ -114,10 +114,22 @@ func TestBuildPod(t *testing.T) {
 				{IP: "192.168.1.1"},
 			},
 		}
+		applicationInstance := &containerinventory.ContainerApplicationInstance{}
+		applicationInstance.ContainerApplicationIds = []string{"app-id-123"}
+		inventoryService.pendingAdd[string(testPod.UID)] = applicationInstance
 		retry := inventoryService.BuildPod(testPod)
 
 		assert.False(t, retry)
 		assert.Contains(t, inventoryService.pendingAdd, "pod-uid-123")
+		applicationInstance = inventoryService.pendingAdd["pod-uid-123"].(*containerinventory.ContainerApplicationInstance)
+		assert.Equal(t, applicationInstance.ContainerApplicationIds, []string{"app-id-123"})
+		assert.Equal(t, applicationInstance.ContainerProjectId, string(namespace.UID))
+		assert.Equal(t, applicationInstance.ClusterNodeId, string(node.UID))
+		assert.Equal(t, applicationInstance.ExternalId, string(testPod.UID))
+		assert.Equal(t, applicationInstance.ContainerClusterId, inventoryService.NSXConfig.Cluster)
+
+		keypaire := common.KeyValuePair{Key: "ip", Value: "192.168.1.1"}
+		assert.Contains(t, applicationInstance.OriginProperties, keypaire)
 	})
 
 	t.Run("NamespaceNotFound", func(t *testing.T) {
