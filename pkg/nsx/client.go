@@ -294,7 +294,13 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 }
 
 func CreateNsxtApiClient(config *config.NSXOperatorConfig, client *http.Client) (*nsxt.APIClient, error) {
-	var defaultRetryOnStatusCodes = []int{http.StatusTooManyRequests}
+	var defaultRetryOnStatusCodes = []int{
+		http.StatusRequestTimeout,     // 408
+		http.StatusTooManyRequests,    // 429
+		http.StatusBadGateway,         // 502
+		http.StatusServiceUnavailable, // 503
+		http.StatusGatewayTimeout,     // 504
+	}
 	//TODO: check if the retriesConfig could be removed
 	retriesConfig := nsxt.ClientRetriesConfiguration{
 		MaxRetries:      2,
