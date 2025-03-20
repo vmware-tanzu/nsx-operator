@@ -20,14 +20,14 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 	// Calculate the services related to this Pod from pendingAdd or inventory store.
 	containerApplicationIds := []string{}
 	if s.pendingAdd[string(pod.UID)] != nil {
-		containerApplicationInstance := s.pendingAdd[string(pod.UID)].(containerinventory.ContainerApplicationInstance)
+		containerApplicationInstance := s.pendingAdd[string(pod.UID)].(*containerinventory.ContainerApplicationInstance)
 		containerApplicationIds = containerApplicationInstance.ContainerApplicationIds
 	}
-	object := s.applicationInstanceStore.GetByKey(string(pod.UID))
-	var preContainerApplicationInstance containerinventory.ContainerApplicationInstance
-	if object != nil && (len(containerApplicationIds) == 0) {
-		preContainerApplicationInstance = *object.(*containerinventory.ContainerApplicationInstance)
-		containerApplicationIds = preContainerApplicationInstance.ContainerApplicationIds
+	preContainerApplicationInstance := s.applicationInstanceStore.GetByKey(string(pod.UID))
+
+	if preContainerApplicationInstance != nil && (len(containerApplicationIds) == 0) {
+		containerApplicationIds = preContainerApplicationInstance.(*containerinventory.ContainerApplicationInstance).ContainerApplicationIds
+		preContainerApplicationInstance = *preContainerApplicationInstance.(*containerinventory.ContainerApplicationInstance)
 	}
 	namespaceName := pod.Namespace
 	namespace := &corev1.Namespace{}
@@ -89,7 +89,7 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 		OriginProperties:        originProperties,
 		Status:                  status,
 	}
-
+	log.V(1).Info("Build pod", "current instance", containerApplicationInstance, "pre instance", preContainerApplicationInstance)
 	operation, _ := s.compareAndMergeUpdate(preContainerApplicationInstance, containerApplicationInstance)
 	if operation != operationNone {
 		s.pendingAdd[containerApplicationInstance.ExternalId] = &containerApplicationInstance
