@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	nsxt "github.com/vmware/go-vmware-nsxt"
 	"github.com/vmware/go-vmware-nsxt/containerinventory"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 )
 
 func TestInventoryService_InitContainerApplicationInstance(t *testing.T) {
@@ -103,6 +105,91 @@ func TestInventoryService_InitContainerApplicationInstance(t *testing.T) {
 		itemNum := len(inventoryService.ApplicationInstanceStore.List())
 		expectNum += 2
 		assert.Equal(t, expectNum, itemNum, "expected %d item in the inventory, got %d", expectNum, itemNum)
+	})
+
+}
+
+func TestCleanStaleInventoryApplicationInstance(t *testing.T) {
+	cfg := &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}
+	cfg.InventoryBatchPeriod = 60
+	cfg.InventoryBatchSize = 100
+
+	inventoryService, _ := createService(t)
+
+	t.Run(("Normal flow, no project found"), func(t *testing.T) {
+		inventoryService.ApplicationInstanceStore.Add(&containerinventory.ContainerApplicationInstance{
+			DisplayName:        "test",
+			ResourceType:       "ContainerApplicationInstance",
+			ContainerProjectId: "qe",
+		})
+
+		err := inventoryService.CleanStaleInventoryApplicationInstance()
+		assert.Nil(t, err)
+		count := len(inventoryService.ApplicationInstanceStore.List())
+		assert.Equal(t, 1, count)
+	})
+	ns1 := containerinventory.ContainerProject{
+		DisplayName:  "qe",
+		ExternalId:   "123-qe",
+		ResourceType: "ContainerApplicationInstance",
+	}
+	t.Run(("Normal flow, project found"), func(t *testing.T) {
+		inventoryService.ApplicationInstanceStore.Add(&containerinventory.ContainerApplicationInstance{
+			DisplayName:        "test",
+			ResourceType:       "ContainerApplicationInstance",
+			ContainerProjectId: "123-qe",
+		})
+		inventoryService.ProjectStore.Add(&ns1)
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "IsPodDeleted", func(_ *InventoryService, _ string, _ string, _ string) bool {
+			return true
+		})
+		defer patches.Reset()
+		err := inventoryService.CleanStaleInventoryApplicationInstance()
+		assert.Nil(t, err)
+		count := len(inventoryService.ApplicationInstanceStore.List())
+		assert.Equal(t, 1, count)
+	})
+
+	t.Run(("Project found, failed to delete"), func(t *testing.T) {
+		inventoryService.ApplicationInstanceStore.Add(&containerinventory.ContainerApplicationInstance{
+			DisplayName:        "test",
+			ResourceType:       "ContainerApplicationInstance",
+			ContainerProjectId: "123-qe",
+		})
+		deleteErr := errors.New("failed to delete")
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "DeleteResource", func(_ *InventoryService, _ string, _ InventoryType) error {
+			return deleteErr
+		})
+		patches.ApplyMethod(reflect.TypeOf(inventoryService), "IsPodDeleted", func(_ *InventoryService, _ string, _ string, _ string) bool {
+			return true
+		})
+		defer patches.Reset()
+		err := inventoryService.CleanStaleInventoryApplicationInstance()
+		assert.Equal(t, err, deleteErr)
+		count := len(inventoryService.ApplicationInstanceStore.List())
+		assert.Equal(t, 1, count)
+		inventoryService.ProjectStore.Delete(&ns1)
+		count = len(inventoryService.ProjectStore.List())
+		assert.Equal(t, 0, count)
+	})
+	t.Run(("No project found, failed to delete"), func(t *testing.T) {
+		inventoryService.ApplicationInstanceStore.Add(&containerinventory.ContainerApplicationInstance{
+			DisplayName:        "test",
+			ResourceType:       "ContainerApplicationInstance",
+			ContainerProjectId: "123-qe",
+		})
+		deleteErr := errors.New("failed to delete")
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "DeleteResource", func(_ *InventoryService, _ string, _ InventoryType) error {
+			return deleteErr
+		})
+		patches.ApplyMethod(reflect.TypeOf(inventoryService), "IsPodDeleted", func(_ *InventoryService, _ string, _ string, _ string) bool {
+			return true
+		})
+		defer patches.Reset()
+		err := inventoryService.CleanStaleInventoryApplicationInstance()
+		assert.Equal(t, err, deleteErr)
+		count := len(inventoryService.ApplicationInstanceStore.List())
+		assert.Equal(t, 1, count)
 	})
 
 }

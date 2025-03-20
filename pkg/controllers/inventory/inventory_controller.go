@@ -169,5 +169,9 @@ func (c *InventoryController) syncInventoryKeys() {
 
 func (c *InventoryController) CleanStaleInventoryObjects() error {
 	log.Info("Clean stale inventory objects")
+	err := c.service.CleanStaleInventoryApplicationInstance()
+	if err != nil {
+		return err
+	}
 	return nil
 }

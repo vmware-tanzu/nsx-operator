@@ -89,7 +89,12 @@ func TestRun(t *testing.T) {
 		keyBuffer:            sets.Set[inventory.InventoryKey]{},
 		cf:                   cfg,
 		inventoryObjectQueue: workqueue.NewTypedRateLimitingQueueWithConfig(workqueue.NewTypedItemExponentialFailureRateLimiter[any](minRetryDelay, maxRetryDelay), workqueue.TypedRateLimitingQueueConfig[any]{Name: "inventoryObject"})}
+	controller.inventoryObjectQueue.Add(inventory.InventoryKey{})
 	t.Run("NormalStartup", func(t *testing.T) {
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(controller), "CleanStaleInventoryObjects", func(service *InventoryController) error {
+			return nil
+		})
+		defer patches.Reset()
 		stopCh := make(chan struct{})
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -116,16 +121,6 @@ func TestRun(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		close(stopCh)
 	})
-}
-
-type MockInventoryService struct {
-	mock.Mock
-	inventory.InventoryService
-}
-
-func (m *MockInventoryService) SyncInventoryObject(keys sets.Set[inventory.InventoryKey]) (sets.Set[inventory.InventoryKey], error) {
-	args := m.Called(keys)
-	return args.Get(0).(sets.Set[inventory.InventoryKey]), args.Error(1)
 }
 
 type MockObjectQueue[T comparable] struct {
