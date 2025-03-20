@@ -14,53 +14,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-type InventoryType string
-
-const (
-	// Inventory object types
-	ContainerCluster             InventoryType = "ContainerCluster"
-	ContainerClusterNode         InventoryType = "ContainerClusterNode"
-	ContainerProject             InventoryType = "ContainerProject"
-	ContainerApplication         InventoryType = "ContainerApplication"
-	ContainerApplicationInstance InventoryType = "ContainerApplicationInstance"
-	ContainerNetworkPolicy       InventoryType = "ContainerNetworkPolicy"
-	ContainerIngressPolicy       InventoryType = "ContainerIngressPolicy"
-
-	// Inventory cluster type
-	InventoryClusterTypeWCP = "WCP"
-
-	InventoryClusterCNIType = "NSX-Operator"
-
-	// Inventory network status
-	NetworkStatusHealthy   = "HEALTHY"
-	NetworkStatusUnhealthy = "UNHEALTHY"
-
-	// Inventory infra
-	InventoryInfraTypeVsphere = "vSphere"
-
-	InventoryMaxDisTags = 20
-	InventoryK8sPrefix  = "dis:k8s:"
-	MaxTagLen           = 256
-	MaxResourceTypeLen  = 128
-)
-
-type InventoryKey struct {
-	InventoryType InventoryType
-	ExternalId    string
-	Key           string
-}
-
-const (
-	operationCreate = "CREATE"
-	operationUpdate = "UPDATE"
-	operationDelete = "DELETE"
-	operationNone   = "NONE"
-
-	InventoryStatusUp      = "UP"
-	InventoryStatusDown    = "DOWN"
-	InventoryStatusUnknown = "UNKNOWN"
-)
-
 var (
 	log         = &logger.Log
 	emptyKeySet = sets.New[InventoryKey]()
@@ -223,34 +176,34 @@ func (s *InventoryService) SyncInventoryObject(bufferedKeys sets.Set[InventoryKe
 	return retryKeys, err
 }
 
+func (s *InventoryService) prepareDelete(resourceType InventoryType, externalId string, inventoryObject interface{}) {
+	deletedInfo := map[string]interface{}{
+		"resource_type": resourceType,
+		"external_id":   externalId,
+	}
+	s.requestBuffer = append(s.requestBuffer, containerinventory.ContainerInventoryObject{
+		ContainerObject:  deletedInfo,
+		ObjectUpdateType: operationDelete,
+	})
+	switch resourceType {
+	case ContainerApplicationInstance:
+		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerApplicationInstance)
+	}
+}
+
 func (s *InventoryService) DeleteResource(externalId string, resourceType InventoryType) error {
 	log.V(1).Info("Delete inventory resource", "resource_type", resourceType, "external_id", externalId)
-	var inventoryObject interface{}
-	exists := false
 	switch resourceType {
-
 	case ContainerApplicationInstance:
-		inventoryObject = s.ApplicationInstanceStore.GetByKey(externalId)
-		if inventoryObject != nil {
-			exists = true
+		inventoryObject := s.ApplicationInstanceStore.GetByKey(externalId)
+		if inventoryObject == nil {
+			return nil
 		}
+		s.prepareDelete(resourceType, externalId, inventoryObject)
+		return s.DeleteContainerApplicationInstance(externalId, inventoryObject.(*containerinventory.ContainerApplicationInstance))
 	default:
 		return fmt.Errorf("unknown resource_type : %v for external_id %s", resourceType, externalId)
 	}
-
-	if exists {
-		deletedInfo := make(map[string]interface{})
-		deletedInfo["resource_type"] = resourceType
-		deletedInfo["external_id"] = externalId
-		s.requestBuffer = append(s.requestBuffer, containerinventory.ContainerInventoryObject{ContainerObject: deletedInfo,
-			ObjectUpdateType: operationDelete})
-		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerApplicationInstance)
-
-		if resourceType == ContainerApplicationInstance {
-			return s.DeleteContainerApplicationInstance(externalId, inventoryObject.(*containerinventory.ContainerApplicationInstance))
-		}
-	}
-	return nil
 }
 
 func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore() error {
@@ -262,7 +215,9 @@ func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore() error {
 			containerinventory.ContainerInventoryData{ContainerInventoryObjects: s.requestBuffer})
 
 		// Update NSX Inventory store when the request succeeds.
-		log.V(1).Info("NSX request response", "response status code", resp.StatusCode)
+		if resp != nil {
+			log.V(1).Info("NSX request response", "response status code", resp.StatusCode)
+		}
 		if err == nil {
 			err = s.updateInventoryStore()
 		}

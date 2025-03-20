@@ -18,7 +18,7 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 	log.Info("Add Pod ", "Pod", pod.Name, "Namespace", pod.Namespace)
 	retry = false
 	// Calculate the services related to this Pod from pendingAdd or inventory store.
-	containerApplicationIds := []string{}
+	var containerApplicationIds []string
 	if s.pendingAdd[string(pod.UID)] != nil {
 		containerApplicationInstance := s.pendingAdd[string(pod.UID)].(*containerinventory.ContainerApplicationInstance)
 		containerApplicationIds = containerApplicationInstance.ContainerApplicationIds
@@ -35,7 +35,7 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 	err := s.Client.Get(context.TODO(), types.NamespacedName{Name: namespaceName}, namespace)
 	if err != nil {
 		retry = true
-		log.Error(errors.New("Not find namespace for Pod"), "Failed to build Pod", "Pod", pod)
+		log.Error(errors.New("not find namespace for Pod"), "Failed to build Pod", "Pod", pod)
 		return
 	}
 
@@ -105,7 +105,7 @@ func (s *InventoryService) BuildInventoryCluster() containerinventory.ContainerC
 
 	clusterType := InventoryClusterTypeWCP
 	clusterName := s.NSXConfig.Cluster
-	networkErrors := []common.NetworkError{}
+	var networkErrors []common.NetworkError
 	infra := &containerinventory.ContainerInfrastructureInfo{}
 	infra.InfraType = InventoryInfraTypeVsphere
 	newContainerCluster := containerinventory.ContainerCluster{
