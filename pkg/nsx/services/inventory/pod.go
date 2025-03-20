@@ -12,12 +12,21 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+func (s *InventoryService) IsPodDeleted(namespace, name, externalId string) bool {
+	pod := &corev1.Pod{}
+	err := s.Client.Get(context.TODO(), types.NamespacedName{Name: name, Namespace: namespace}, pod)
+	if apierrors.IsNotFound(err) ||
+		((err == nil) && (string(pod.UID) != externalId)) {
+		return true
+	} else {
+		return false
+	}
+}
 func (s *InventoryService) SyncContainerApplicationInstance(name string, namespace string, key InventoryKey) *InventoryKey {
 	pod := &corev1.Pod{}
 	err := s.Client.Get(context.TODO(), types.NamespacedName{Name: name, Namespace: namespace}, pod)
 	externalId := key.ExternalId
-	if apierrors.IsNotFound(err) ||
-		((err == nil) && (string(pod.UID) != externalId)) {
+	if s.IsPodDeleted(namespace, name, externalId) {
 		err = s.DeleteResource(externalId, ContainerApplicationInstance)
 		if err != nil {
 			log.Error(err, "Delete ContainerApplicationInstance Resource error", "key", key)
@@ -79,6 +88,48 @@ func (s *InventoryService) DeleteContainerApplicationInstance(externalId string,
 		*/
 	} else {
 		return fmt.Errorf("cannot update Pods for removed service id : %s, name : %s because namespaceId is empty", externalId, inventoryObject.DisplayName)
+	}
+	return nil
+}
+
+func (s *InventoryService) DeleteStalePods() error {
+	for externalId := range s.stalePods {
+		err := s.DeleteResource(externalId, ContainerApplicationInstance)
+		if err != nil {
+			log.Error(err, "Delete stale InventoryApplicationInstance", "External Id", externalId)
+			return err
+		}
+		delete(s.stalePods, externalId)
+	}
+	return nil
+}
+
+func (c *InventoryService) CleanStaleInventoryApplicationInstance() error {
+	log.Info("Clean stale InventoryApplicationInstance")
+	containerApplicationInstances := c.ApplicationInstanceStore.List()
+	for _, applicationInstance := range containerApplicationInstances {
+		applicationInstance := applicationInstance.(*containerinventory.ContainerApplicationInstance)
+		project := c.ProjectStore.GetByKey(applicationInstance.ContainerProjectId)
+		if project == nil {
+			log.Info("Cannot find ContainerProject by id, so clean up stale ContainerApplicationInstance", "Project Id", applicationInstance.ContainerProjectId,
+				"Pod name", applicationInstance.DisplayName, "External Id", applicationInstance.ExternalId)
+			err := c.DeleteResource(applicationInstance.ExternalId, ContainerApplicationInstance)
+			if err != nil {
+				log.Error(err, "Clean stale InventoryApplicationInstance", "External Id", applicationInstance.ExternalId)
+				return err
+			}
+		} else if c.IsPodDeleted(project.(*containerinventory.ContainerProject).DisplayName, applicationInstance.DisplayName, applicationInstance.ExternalId) {
+			log.Info("Clean stale pod", "Name", applicationInstance.DisplayName, "External Id", applicationInstance.ExternalId)
+			err := c.DeleteResource(applicationInstance.ExternalId, ContainerApplicationInstance)
+			if err != nil {
+				log.Error(err, "Clean stale InventoryApplicationInstance", "External Id", applicationInstance.ExternalId)
+				return err
+			}
+		}
+	}
+	err := c.DeleteStalePods()
+	if err != nil {
+		return err
 	}
 	return nil
 }

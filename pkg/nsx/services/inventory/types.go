@@ -25,7 +25,7 @@ const (
 
 	// InventoryClusterTypeWCP Inventory cluster type
 	InventoryClusterTypeWCP = "WCP"
-	InventoryClusterCNIType = "NSX-Operator"
+	InventoryClusterCNIType = "NCP"
 
 	// NetworkStatusHealthy Inventory network status
 	NetworkStatusHealthy   = "HEALTHY"
