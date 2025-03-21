@@ -176,7 +176,7 @@ func (s *InventoryService) SyncInventoryObject(bufferedKeys sets.Set[InventoryKe
 	return retryKeys, err
 }
 
-func (s *InventoryService) prepareDelete(resourceType InventoryType, externalId string, inventoryObject interface{}) {
+func (s *InventoryService) DeleteInventoryObject(resourceType InventoryType, externalId string, inventoryObject interface{}) {
 	deletedInfo := map[string]interface{}{
 		"resource_type": resourceType,
 		"external_id":   externalId,
@@ -199,10 +199,10 @@ func (s *InventoryService) DeleteResource(externalId string, resourceType Invent
 		if inventoryObject == nil {
 			return nil
 		}
-		s.prepareDelete(resourceType, externalId, inventoryObject)
+		s.DeleteInventoryObject(resourceType, externalId, inventoryObject)
 		return s.DeleteContainerApplicationInstance(externalId, inventoryObject.(*containerinventory.ContainerApplicationInstance))
 	default:
-		return fmt.Errorf("unknown resource_type : %v for external_id %s", resourceType, externalId)
+		return fmt.Errorf("unknown resource_type: %v for external_id %s", resourceType, externalId)
 	}
 }
 

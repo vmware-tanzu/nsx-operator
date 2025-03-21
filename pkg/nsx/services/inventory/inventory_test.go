@@ -159,7 +159,7 @@ func TestInventoryService_DeleteResource(t *testing.T) {
 	t.Run("UnknownResourceType", func(t *testing.T) {
 		err := inventoryService.DeleteResource("some-id", "UnknownType")
 		assert.NotNil(t, err)
-		assert.Equal(t, "unknown resource_type : UnknownType for external_id some-id", err.Error())
+		assert.Equal(t, "unknown resource_type: UnknownType for external_id some-id", err.Error())
 	})
 }
 
