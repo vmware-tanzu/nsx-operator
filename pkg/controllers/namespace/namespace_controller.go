@@ -16,6 +16,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -250,4 +251,30 @@ func (r *NamespaceReconciler) setupWithManager(mgr ctrl.Manager) error {
 // Start setup manager and launch GC
 func (r *NamespaceReconciler) Start(mgr ctrl.Manager) error {
 	return r.setupWithManager(mgr)
+}
+
+func (r *NamespaceReconciler) RestoreReconcile() error {
+	return nil
+}
+
+func (r *NamespaceReconciler) CollectGarbage(_ context.Context) error {
+	return nil
+}
+
+func (r *NamespaceReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+	if err := r.Start(mgr); err != nil {
+		log.Error(err, "Failed to create namespace controller", "controller", "Namespace")
+		return err
+	}
+	return nil
+}
+
+func NewNamespaceReconciler(mgr ctrl.Manager, cf *config.NSXOperatorConfig, vpcService types.VPCServiceProvider) *NamespaceReconciler {
+	nsReconciler := &NamespaceReconciler{
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		NSXConfig:  cf,
+		VPCService: vpcService,
+	}
+	return nsReconciler
 }

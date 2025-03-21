@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -260,19 +259,14 @@ func (r *SubnetPortReconciler) vmMapFunc(_ context.Context, vm client.Object) []
 	return requests
 }
 
-func StartSubnetPortController(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPortService, subnetService *subnet.SubnetService, vpcService *vpc.VPCService, hookServer webhook.Server) {
-	subnetPortReconciler := SubnetPortReconciler{
-		Client:            mgr.GetClient(),
-		Scheme:            mgr.GetScheme(),
-		SubnetService:     subnetService,
-		SubnetPortService: subnetPortService,
-		VPCService:        vpcService,
-		Recorder:          mgr.GetEventRecorderFor("subnetport-controller"),
-	}
-	subnetPortReconciler.StatusUpdater = common.NewStatusUpdater(subnetPortReconciler.Client, subnetPortReconciler.SubnetPortService.NSXConfig, subnetPortReconciler.Recorder, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
-	if err := subnetPortReconciler.Start(mgr); err != nil {
+func (r *SubnetPortReconciler) RestoreReconcile() error {
+	return nil
+}
+
+func (r *SubnetPortReconciler) StartController(mgr ctrl.Manager, hookServer webhook.Server) error {
+	if err := r.Start(mgr); err != nil {
 		log.Error(err, "failed to create controller", "controller", "SubnetPort")
-		os.Exit(1)
+		return err
 	}
 	if hookServer != nil {
 		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-addressbinding",
@@ -283,7 +277,21 @@ func StartSubnetPortController(mgr ctrl.Manager, subnetPortService *subnetport.S
 				},
 			})
 	}
-	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, subnetPortReconciler.CollectGarbage)
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.CollectGarbage)
+	return nil
+}
+
+func NewSubnetPortReconciler(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPortService, subnetService *subnet.SubnetService, vpcService *vpc.VPCService) *SubnetPortReconciler {
+	subnetPortReconciler := &SubnetPortReconciler{
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		SubnetService:     subnetService,
+		SubnetPortService: subnetPortService,
+		VPCService:        vpcService,
+		Recorder:          mgr.GetEventRecorderFor("subnetport-controller"),
+	}
+	subnetPortReconciler.StatusUpdater = common.NewStatusUpdater(subnetPortReconciler.Client, subnetPortReconciler.SubnetPortService.NSXConfig, subnetPortReconciler.Recorder, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
+	return subnetPortReconciler
 }
 
 // Start setup manager and launch GC
@@ -297,24 +305,26 @@ func (r *SubnetPortReconciler) Start(mgr ctrl.Manager) error {
 
 // CollectGarbage collect SubnetPort which has been removed from crd.
 // it implements the interface GarbageCollector method.
-func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) {
+func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) error {
 	log.Info("subnetport garbage collector started")
 	nsxSubnetPortSet := r.SubnetPortService.ListNSXSubnetPortIDForCR()
 	if len(nsxSubnetPortSet) == 0 {
-		return
+		return nil
 	}
 
 	crSubnetPortIDsSet, err := r.SubnetPortService.ListSubnetPortIDsFromCRs(ctx)
 	if err != nil {
-		return
+		return err
 	}
 
+	var errList []error
 	diffSet := nsxSubnetPortSet.Difference(crSubnetPortIDsSet)
 	for elem := range diffSet {
 		log.V(1).Info("GC collected SubnetPort CR", "UID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
 		err = r.SubnetPortService.DeleteSubnetPortById(elem)
 		if err != nil {
+			errList = append(errList, err)
 			r.StatusUpdater.IncreaseDeleteFailTotal()
 		} else {
 			r.StatusUpdater.IncreaseDeleteSuccessTotal()
@@ -322,6 +332,10 @@ func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) {
 	}
 
 	r.collectAddressBindingGarbage(ctx, nil, nil)
+	if len(errList) > 0 {
+		return fmt.Errorf("errors found in SubnetPort garbage collection: %s", errList)
+	}
+	return nil
 }
 
 func setReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, args ...interface{}) {

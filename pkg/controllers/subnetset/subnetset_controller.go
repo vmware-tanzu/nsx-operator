@@ -297,7 +297,7 @@ func (r *SubnetSetReconciler) setupWithManager(mgr ctrl.Manager) error {
 
 // CollectGarbage collect Subnet which there is no port attached on it.
 // it implements the interface GarbageCollector method.
-func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) {
+func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) error {
 	startTime := time.Now()
 	defer func() {
 		log.Info("SubnetSet garbage collection completed", "duration(ms)", time.Since(startTime).Milliseconds())
@@ -306,13 +306,15 @@ func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) {
 	crdSubnetSetList, err := listSubnetSet(r.Client, ctx)
 	if err != nil {
 		log.Error(err, "Failed to list SubnetSet CRs")
-		return
+		return err
 	}
 
+	var errList []error
 	crdSubnetSetIDsSet := sets.New[string]()
 	for _, subnetSet := range crdSubnetSetList.Items {
 		crdSubnetSetIDsSet.Insert(string(subnetSet.UID))
 		if err := r.deleteSubnetForSubnetSet(subnetSet, true, true); err != nil {
+			errList = append(errList, err)
 			r.StatusUpdater.IncreaseDeleteFailTotal()
 		} else {
 			r.StatusUpdater.IncreaseDeleteSuccessTotal()
@@ -325,6 +327,7 @@ func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) {
 		nsxSubnets := r.SubnetService.ListSubnetCreatedBySubnetSet(subnetSetID)
 		log.Info("SubnetSet garbage collection, cleaning stale Subnets for SubnetSet", "Count", len(nsxSubnets))
 		if _, err := r.deleteSubnets(nsxSubnets, true); err != nil {
+			errList = append(errList, err)
 			log.Error(err, "SubnetSet garbage collection, failed to delete NSX subnet", "SubnetSetUID", subnetSetID)
 			r.StatusUpdater.IncreaseDeleteFailTotal()
 		} else {
@@ -341,6 +344,10 @@ func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) {
 		}
 		return true
 	})
+	if len(errList) > 0 {
+		return fmt.Errorf("errors found in SubnetSet garbage collection: %s", errList)
+	}
+	return nil
 }
 
 func (r *SubnetSetReconciler) deleteSubnetBySubnetSetName(ctx context.Context, subnetSetName, ns string) error {
@@ -418,10 +425,22 @@ func (r *SubnetSetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet, delet
 	return
 }
 
-func StartSubnetSetController(mgr ctrl.Manager, subnetService *subnet.SubnetService,
+func (r *SubnetSetReconciler) RestoreReconcile() error {
+	return nil
+}
+
+func (r *SubnetSetReconciler) StartController(mgr ctrl.Manager, hookServer webhook.Server) error {
+	if err := r.Start(mgr, hookServer); err != nil {
+		log.Error(err, "Failed to create controller", "controller", "SubnetSet")
+		return err
+	}
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.SubnetGCInterval, r.CollectGarbage)
+	return nil
+}
+
+func NewSubnetSetReconciler(mgr ctrl.Manager, subnetService *subnet.SubnetService,
 	subnetPortService servicecommon.SubnetPortServiceProvider, vpcService servicecommon.VPCServiceProvider,
-	bindingService *subnetbinding.BindingService, hookServer webhook.Server,
-) error {
+	bindingService *subnetbinding.BindingService) *SubnetSetReconciler {
 	subnetsetReconciler := &SubnetSetReconciler{
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
@@ -433,12 +452,7 @@ func StartSubnetSetController(mgr ctrl.Manager, subnetService *subnet.SubnetServ
 		Recorder:   mgr.GetEventRecorderFor("subnetset-controller"),
 	}
 	subnetsetReconciler.StatusUpdater = common.NewStatusUpdater(subnetsetReconciler.Client, subnetsetReconciler.SubnetService.NSXConfig, subnetsetReconciler.Recorder, MetricResTypeSubnetSet, "Subnet", "SubnetSet")
-	if err := subnetsetReconciler.Start(mgr, hookServer); err != nil {
-		log.Error(err, "Failed to create controller", "controller", "SubnetSet")
-		return err
-	}
-	go common.GenericGarbageCollector(make(chan bool), servicecommon.SubnetGCInterval, subnetsetReconciler.CollectGarbage)
-	return nil
+	return subnetsetReconciler
 }
 
 // Start setup manager

@@ -1,7 +1,7 @@
 package inventory
 
 import (
-	"os"
+	"context"
 	"sync"
 	"time"
 
@@ -11,6 +11,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -62,12 +63,12 @@ func NewInventoryController(Client client.Client, service *inventory.InventorySe
 	return c
 }
 
-func StartInventoryController(mgr ctrl.Manager, service *inventory.InventoryService, cf *config.NSXOperatorConfig) {
-	controller := NewInventoryController(mgr.GetClient(), service, cf)
-	if err := controller.SetupWithManager(mgr); err != nil {
-		log.Error(err, "Failed to create controller", "controller", "Inventory")
-		os.Exit(1)
+func (c *InventoryController) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+	if err := c.SetupWithManager(mgr); err != nil {
+		log.Error(err, "Failed to create inventory controller", "controller", "Inventory")
+		return err
 	}
+	return nil
 }
 
 func (c *InventoryController) SetupWithManager(mgr ctrl.Manager) error {
@@ -168,4 +169,12 @@ func (c *InventoryController) syncInventoryKeys() {
 func (c *InventoryController) CleanStaleInventoryObjects() error {
 	log.Info("Clean stale inventory objects")
 	return nil
+}
+
+func (c *InventoryController) RestoreReconcile() error {
+	return nil
+}
+
+func (c *InventoryController) CollectGarbage(ctx context.Context) error {
+	return c.CleanStaleInventoryObjects()
 }

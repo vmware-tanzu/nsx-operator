@@ -132,7 +132,7 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 			patches := testCase.patches(r)
 			defer patches.Reset()
 
-			r.collectGarbage(ctx)
+			r.CollectGarbage(ctx)
 		})
 	}
 }
@@ -758,7 +758,7 @@ func TestStartSubnetController(t *testing.T) {
 		{
 			name: "StartSubnetController with webhook",
 			patches: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(common2.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context)) {
+				patches := gomonkey.ApplyFunc(common2.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
@@ -774,7 +774,7 @@ func TestStartSubnetController(t *testing.T) {
 			name:         "StartSubnetController return error",
 			expectErrStr: "failed to setupWithManager",
 			patches: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(common2.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context)) {
+				patches := gomonkey.ApplyFunc(common2.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
@@ -793,7 +793,8 @@ func TestStartSubnetController(t *testing.T) {
 			patches := testCase.patches()
 			defer patches.Reset()
 
-			err := StartSubnetController(mockMgr, subnetService, subnetPortService, vpcService, bindingService, nil)
+			reconcile := NewSubnetReconciler(mockMgr, subnetService, subnetPortService, vpcService, bindingService)
+			err := reconcile.StartController(mockMgr, nil)
 
 			if testCase.expectErrStr != "" {
 				assert.ErrorContains(t, err, testCase.expectErrStr)

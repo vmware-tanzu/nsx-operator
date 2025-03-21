@@ -901,7 +901,6 @@ func TestStartSecurityPolicyController(t *testing.T) {
 	}
 	mgr, _ := ctrl.NewManager(&rest.Config{}, manager.Options{})
 
-	exitCalled := false // Variable to check if osExit was called
 	testCases := []struct {
 		name         string
 		expectErrStr string
@@ -911,7 +910,7 @@ func TestStartSecurityPolicyController(t *testing.T) {
 		{
 			name: "Start SecurityPolicy Controller",
 			patches: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(ctrcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context)) {
+				patches := gomonkey.ApplyFunc(ctrcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 					return
 				})
 				patches.ApplyFunc(os.Exit, func(code int) {
@@ -931,11 +930,7 @@ func TestStartSecurityPolicyController(t *testing.T) {
 			name:         "Start SecurityPolicy controller return error",
 			expectErrStr: "failed to setupWithManager",
 			patches: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(ctrcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context)) {
-					return
-				})
-				patches.ApplyFunc(os.Exit, func(code int) {
-					exitCalled = true
+				patches := gomonkey.ApplyFunc(ctrcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 					return
 				})
 				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider) *securitypolicy.SecurityPolicyService {
@@ -954,12 +949,13 @@ func TestStartSecurityPolicyController(t *testing.T) {
 			patches := testCase.patches()
 			defer patches.Reset()
 
-			StartSecurityPolicyController(mgr, commonService, vpcService)
+			r := NewSecurityPolicyReconciler(mgr, commonService, vpcService)
+			err := r.StartController(mgr, nil)
 
 			if testCase.expectErrStr != "" {
-				assert.Equal(t, exitCalled, true)
+				assert.ErrorContains(t, err, testCase.expectErrStr)
 			} else {
-				assert.Equal(t, exitCalled, false)
+				assert.NoError(t, err, "expected no error when starting the SecurityPolicy controller")
 			}
 		})
 	}
