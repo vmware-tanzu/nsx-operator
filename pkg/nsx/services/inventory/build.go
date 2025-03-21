@@ -10,7 +10,7 @@ import (
 	"github.com/vmware/go-vmware-nsxt/containerinventory"
 	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
-	networkv1 "k8s.io/api/networking/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
@@ -108,7 +108,7 @@ func (s *InventoryService) GetNamespace(namespace string) (*corev1.Namespace, er
 	return ns, nil
 }
 
-func (s *InventoryService) BuildIngress(ingress *networkv1.Ingress) (retry bool) {
+func (s *InventoryService) BuildIngress(ingress *networkingv1.Ingress) (retry bool) {
 	log.V(1).Info("Add Ingress", "Name", ingress.Name, "Namespace", ingress.Namespace)
 	namespace, err := s.GetNamespace(ingress.Namespace)
 	retry = true
@@ -467,4 +467,49 @@ func isNodeReady(node *corev1.Node) bool {
 		}
 	}
 	return false
+}
+
+func (s *InventoryService) BuildNetworkPolicy(networkPolicy *networkingv1.NetworkPolicy) (retry bool) {
+	log.Info("Building NetworkPolicy", "NetworkPolicy", networkPolicy.Name, "Namespace", networkPolicy.Namespace)
+	retry = false
+
+	preContainerNetworkPolicy := s.NetworkPolicyStore.GetByKey(string(networkPolicy.UID))
+	if preContainerNetworkPolicy != nil {
+		preContainerNetworkPolicy = *preContainerNetworkPolicy.(*containerinventory.ContainerNetworkPolicy)
+	}
+
+	namespace := &corev1.Namespace{}
+	err := s.Client.Get(context.TODO(), types.NamespacedName{Name: networkPolicy.Namespace}, namespace)
+	if err != nil {
+		retry = true
+		log.Error(err, "Failed to get namespace for NetworkPolicy", "NetworkPolicy", networkPolicy)
+		return
+	}
+
+	spec, err := yaml.Marshal(networkPolicy.Spec)
+	if err != nil {
+		log.Error(err, "Failed to dump spec for NetworkPolicy", "NetworkPolicy", networkPolicy)
+		return
+	}
+
+	containerNetworkPolicy := containerinventory.ContainerNetworkPolicy{
+		DisplayName:        networkPolicy.Name,
+		ResourceType:       string(ContainerNetworkPolicy),
+		Tags:               GetTagsFromLabels(networkPolicy.Labels),
+		ContainerClusterId: s.NSXConfig.Cluster,
+		ContainerProjectId: string(namespace.UID),
+		ExternalId:         string(networkPolicy.UID),
+		NetworkErrors:      nil,
+		NetworkStatus:      "",
+		PolicyType:         NetworkPolicyType,
+		Spec:               string(spec),
+	}
+
+	operation, _ := s.compareAndMergeUpdate(preContainerNetworkPolicy, containerNetworkPolicy)
+	if operation != operationNone {
+		s.pendingAdd[containerNetworkPolicy.ExternalId] = &containerNetworkPolicy
+	} else {
+		log.Info("Skip, network policy not updated", "NetworkPolicy", networkPolicy.Name)
+	}
+	return
 }

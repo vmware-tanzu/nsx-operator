@@ -184,6 +184,11 @@ func (s *InventoryService) SyncInventoryObject(bufferedKeys sets.Set[InventoryKe
 			if retryKey != nil {
 				retryKeys.Insert(*retryKey)
 			}
+		case ContainerNetworkPolicy:
+			retryKey := s.SyncContainerNetworkPolicy(name, namespace, key)
+			if retryKey != nil {
+				retryKeys.Insert(*retryKey)
+			}
 		}
 	}
 
@@ -230,6 +235,12 @@ func (s *InventoryService) DeleteResource(externalId string, resourceType Invent
 			return nil
 		}
 		s.DeleteInventoryObject(resourceType, externalId, inventoryObject)
+	case ContainerNetworkPolicy:
+		inventoryObject := s.NetworkPolicyStore.GetByKey(externalId)
+		if inventoryObject == nil {
+			return nil
+		}
+		s.DeleteInventoryObject(resourceType, externalId, inventoryObject)
 	default:
 		return fmt.Errorf("unknown resource_type: %v for external_id %s", resourceType, externalId)
 	}
@@ -256,6 +267,8 @@ func (s *InventoryService) DeleteInventoryObject(resourceType InventoryType, ext
 		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerIngressPolicy)
 	case ContainerClusterNode:
 		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerClusterNode)
+	case ContainerNetworkPolicy:
+		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerNetworkPolicy)
 	}
 }
 
@@ -317,6 +330,12 @@ func (s *InventoryService) updateInventoryStore() error {
 			if err != nil {
 				return err
 			}
+		case string(ContainerNetworkPolicy):
+			instance := addItem.(*containerinventory.ContainerNetworkPolicy)
+			err := s.NetworkPolicyStore.Add(instance)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	for _, deleteItem := range s.pendingDelete {
@@ -336,6 +355,12 @@ func (s *InventoryService) updateInventoryStore() error {
 		case string(ContainerApplicationInstance):
 			instance := deleteItem.(*containerinventory.ContainerApplicationInstance)
 			err := s.ApplicationInstanceStore.Delete(instance)
+			if err != nil {
+				return err
+			}
+		case string(ContainerNetworkPolicy):
+			instance := deleteItem.(*containerinventory.ContainerNetworkPolicy)
+			err := s.NetworkPolicyStore.Delete(instance)
 			if err != nil {
 				return err
 			}
