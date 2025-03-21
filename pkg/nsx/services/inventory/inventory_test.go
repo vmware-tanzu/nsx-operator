@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -70,7 +72,7 @@ func TestInventoryService_SyncInventoryObject(t *testing.T) {
 	inventoryService, _ := createService(t)
 
 	t.Run("Empty bufferedKeys", func(t *testing.T) {
-		bufferedKeys := emptyKeySet
+		bufferedKeys := sets.New[InventoryKey]()
 		retryKeys, err := inventoryService.SyncInventoryObject(bufferedKeys)
 		assert.Empty(t, retryKeys)
 		assert.NoError(t, err)
@@ -78,7 +80,7 @@ func TestInventoryService_SyncInventoryObject(t *testing.T) {
 
 	t.Run("Valid ContainerApplicationInstance key", func(t *testing.T) {
 		key := InventoryKey{Key: "namespace/name", InventoryType: ContainerApplicationInstance}
-		bufferedKeys := emptyKeySet
+		bufferedKeys := sets.New[InventoryKey]()
 		bufferedKeys.Insert(key)
 		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "SyncContainerApplicationInstance", func(s *InventoryService, name string, namespace string, key InventoryKey) *InventoryKey {
 			return nil
@@ -91,7 +93,7 @@ func TestInventoryService_SyncInventoryObject(t *testing.T) {
 
 	t.Run("ContainerApplicationInstance key with sync failure", func(t *testing.T) {
 		key := InventoryKey{Key: "namespace/name", InventoryType: ContainerApplicationInstance}
-		bufferedKeys := emptyKeySet
+		bufferedKeys := sets.New[InventoryKey]()
 		bufferedKeys.Insert(key)
 
 		retryKey := InventoryKey{Key: "namespace/name", InventoryType: ContainerApplicationInstance}
@@ -106,7 +108,7 @@ func TestInventoryService_SyncInventoryObject(t *testing.T) {
 
 	t.Run("NSX request failure", func(t *testing.T) {
 		key := InventoryKey{Key: "namespace/name", InventoryType: ContainerApplicationInstance}
-		bufferedKeys := emptyKeySet
+		bufferedKeys := sets.New[InventoryKey]()
 		bufferedKeys.Insert(key)
 
 		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "SyncContainerApplicationInstance", func(s *InventoryService, name string, namespace string, key InventoryKey) *InventoryKey {
@@ -119,6 +121,34 @@ func TestInventoryService_SyncInventoryObject(t *testing.T) {
 		retryKeys, err := inventoryService.SyncInventoryObject(bufferedKeys)
 		assert.Equal(t, bufferedKeys, retryKeys)
 		assert.Error(t, err)
+	})
+
+	t.Run("Valid ContainerClusterNode key", func(t *testing.T) {
+		key := InventoryKey{Key: "node-name", InventoryType: ContainerClusterNode}
+		bufferedKeys := sets.New[InventoryKey]()
+		bufferedKeys.Insert(key)
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "SyncContainerClusterNode", func(s *InventoryService, name string, key InventoryKey) *InventoryKey {
+			return nil
+		})
+		defer patches.Reset()
+		retryKeys, err := inventoryService.SyncInventoryObject(bufferedKeys)
+		assert.Empty(t, retryKeys)
+		assert.NoError(t, err)
+	})
+
+	t.Run("ContainerClusterNode key with sync failure", func(t *testing.T) {
+		key := InventoryKey{Key: "node-name", InventoryType: ContainerClusterNode}
+		bufferedKeys := sets.New[InventoryKey]()
+		bufferedKeys.Insert(key)
+
+		retryKey := InventoryKey{Key: "node-name", InventoryType: ContainerClusterNode}
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "SyncContainerClusterNode", func(s *InventoryService, name string, key InventoryKey) *InventoryKey {
+			return &retryKey
+		})
+		defer patches.Reset()
+		retryKeys, err := inventoryService.SyncInventoryObject(bufferedKeys)
+		assert.Contains(t, retryKeys, key)
+		assert.NoError(t, err)
 	})
 }
 
@@ -184,6 +214,30 @@ func TestInventoryService_DeleteResource(t *testing.T) {
 		inventoryService.requestBuffer = make([]containerinventory.ContainerInventoryObject, 0)
 		delete(inventoryService.pendingDelete, externalId)
 	})
+
+	t.Run("DeleteExistingContainerClusterNode", func(t *testing.T) {
+		externalId := "existing-cluster-node-id"
+		clusterNode := containerinventory.ContainerClusterNode{
+			DisplayName:  "test-cluster-node",
+			ResourceType: string(ContainerClusterNode),
+			ExternalId:   externalId,
+		}
+		inventoryService.ClusterNodeStore.Add(&clusterNode)
+		err := inventoryService.DeleteResource(externalId, ContainerClusterNode)
+
+		assert.Nil(t, err)
+		assert.Equal(t, 1, len(inventoryService.requestBuffer))
+		assert.Equal(t, 1, len(inventoryService.pendingDelete))
+		obj := inventoryService.requestBuffer[0].ContainerObject
+		assert.Equal(t, externalId, obj["external_id"])
+		assert.Equal(t, ContainerClusterNode, obj["resource_type"])
+		assert.Equal(t, "test-cluster-node", inventoryService.pendingDelete[externalId].(*containerinventory.ContainerClusterNode).DisplayName)
+
+		// Clean up
+		inventoryService.requestBuffer = make([]containerinventory.ContainerInventoryObject, 0)
+		delete(inventoryService.pendingDelete, externalId)
+	})
+
 }
 
 func TestInventoryService_sendNSXRequestAndUpdateInventoryStore(t *testing.T) {
@@ -280,5 +334,41 @@ func TestInventoryService_updateInventoryStore(t *testing.T) {
 		assert.NoError(t, err)
 		itemNum := len(service.ProjectStore.List())
 		assert.Equal(t, 0, itemNum, "expected 0 items in the project inventory, got %d", itemNum)
+	})
+
+	clusterNode1 := containerinventory.ContainerClusterNode{
+		DisplayName:  "test-cluster-node",
+		ResourceType: string(ContainerClusterNode),
+		ExternalId:   "cluster-node1",
+	}
+
+	t.Run("Add new ContainerClusterNode", func(t *testing.T) {
+		service.pendingAdd["cluster-node1"] = &clusterNode1
+		err := service.updateInventoryStore()
+		assert.NoError(t, err)
+		itemNum := len(service.ClusterNodeStore.List())
+		assert.Equal(t, 1, itemNum, "expected 1 item in the cluster node inventory, got %d", itemNum)
+	})
+
+	t.Run("Delete existing ContainerClusterNode", func(t *testing.T) {
+		delete(service.pendingAdd, "cluster-node1")
+		service.pendingDelete["cluster-node1"] = &clusterNode1
+		err := service.updateInventoryStore()
+		assert.NoError(t, err)
+		itemNum := len(service.ClusterNodeStore.List())
+		assert.Equal(t, 0, itemNum, "expected 0 items in the cluster node inventory, got %d", itemNum)
+	})
+
+	t.Run("Delete non-existing ContainerClusterNode", func(t *testing.T) {
+		nonExistingClusterNode := containerinventory.ContainerClusterNode{
+			DisplayName:  "non-existing-cluster-node",
+			ResourceType: string(ContainerClusterNode),
+			ExternalId:   "non-existing-cluster-node",
+		}
+		service.pendingDelete["non-existing-cluster-node"] = &nonExistingClusterNode
+		err := service.updateInventoryStore()
+		assert.NoError(t, err)
+		itemNum := len(service.ClusterNodeStore.List())
+		assert.Equal(t, 0, itemNum, "expected 0 items in the cluster node inventory, got %d", itemNum)
 	})
 }
