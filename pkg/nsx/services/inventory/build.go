@@ -200,3 +200,92 @@ func (s *InventoryService) BuildNamespace(namespace *corev1.Namespace) (retry bo
 	}
 	return
 }
+
+func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
+	log.Info("Building Service", "Service", service.Name, "Namespace", service.Namespace)
+	retry = false
+
+	preContainerApplication := s.ApplicationStore.GetByKey(string(service.UID))
+	if preContainerApplication != nil {
+		preContainerApplication = *preContainerApplication.(*containerinventory.ContainerApplication)
+	}
+
+	namespace := &corev1.Namespace{}
+	err := s.Client.Get(context.TODO(), types.NamespacedName{Name: service.Namespace}, namespace)
+	if err != nil {
+		retry = true
+		log.Error(err, "Failed to get namespace for Service", "Service", service)
+		return
+	}
+
+	// Get pods from endpoint
+	netStatus := NetworkStatusHealthy
+	status := InventoryStatusUp
+	podIDs, hasAddr := s.getPodIDsFromEndpoint(service)
+	if len(podIDs) > 0 {
+		status = InventoryStatusUp
+	} else if hasAddr {
+		status = InventoryStatusUnknown
+	} else {
+		status = InventoryStatusDown
+		netStatus = NetworkStatusUnhealthy
+	}
+
+	containerApplication := containerinventory.ContainerApplication{
+		DisplayName:        service.Name,
+		ResourceType:       string(ContainerApplication),
+		Tags:               GetTagsFromLabels(service.Labels),
+		ContainerClusterId: s.NSXConfig.Cluster,
+		ContainerProjectId: string(namespace.UID),
+		ExternalId:         string(service.UID),
+		NetworkErrors:      nil,
+		NetworkStatus:      netStatus,
+		OriginProperties:   []common.KeyValuePair{{Key: "type", Value: string(service.Spec.Type)}},
+		Status:             status,
+	}
+
+	log.V(1).Info("Build service", "current application", containerApplication, "pre application", preContainerApplication)
+	operation, _ := s.compareAndMergeUpdate(preContainerApplication, containerApplication)
+	if operation != operationNone {
+		s.pendingAdd[containerApplication.ExternalId] = &containerApplication
+	} else {
+		log.Info("Skip, service not updated", "Service", service.Name, "Namespace", service.Namespace)
+	}
+	return
+}
+
+func (s *InventoryService) getPodIDsFromEndpoint(service *corev1.Service) (podIDs []string, hasAddr bool) {
+	// Initialize return values
+	podIDs = []string{}
+	hasAddr = false
+
+	// Get the endpoints object corresponding to the service
+	endpoint := &corev1.Endpoints{}
+	err := s.Client.Get(context.TODO(), types.NamespacedName{
+		Name:      service.Name,
+		Namespace: service.Namespace,
+	}, endpoint)
+
+	if err != nil {
+		log.Error(err, "Failed to get endpoints for Service", "Service", service.Name)
+		return
+	}
+
+	// Check for addresses in endpoints
+	for _, subset := range endpoint.Subsets {
+		for _, address := range subset.Addresses {
+			hasAddr = true
+			if address.TargetRef != nil && address.TargetRef.Kind == "Pod" {
+				podIDs = append(podIDs, string(address.TargetRef.UID))
+			}
+		}
+
+		// Even if there are no ready addresses, check for not-ready ones
+		// This would indicate the service has endpoints, but they're not ready
+		if !hasAddr && len(subset.NotReadyAddresses) > 0 {
+			hasAddr = true
+		}
+	}
+
+	return podIDs, hasAddr
+}

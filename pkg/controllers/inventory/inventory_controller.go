@@ -19,9 +19,11 @@ import (
 )
 
 const (
+
 	// How long to wait before retrying
-	minRetryDelay           = 5 * time.Second
-	maxRetryDelay           = 300 * time.Second
+	minRetryDelay = 5 * time.Second
+	maxRetryDelay = 300 * time.Second
+
 	inventoryGCJitterFactor = 0.1
 )
 
@@ -37,6 +39,8 @@ var (
 	WatchResourceFuncs = []WatchResourceFunc{
 		watchPod,
 		watchNamespace,
+		watchService,
+		watchEndpoint,
 	}
 )
 
