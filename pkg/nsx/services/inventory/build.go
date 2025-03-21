@@ -9,9 +9,10 @@ import (
 
 	"github.com/vmware/go-vmware-nsxt/common"
 	"github.com/vmware/go-vmware-nsxt/containerinventory"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
@@ -200,4 +201,144 @@ func (s *InventoryService) BuildNamespace(namespace *corev1.Namespace) (retry bo
 		log.Info("Skip, namespace not updated", "Namespace", namespace.Name)
 	}
 	return
+}
+
+func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
+	log.Info("Building Service", "Service", service.Name, "Namespace", service.Namespace)
+	retry = false
+
+	preContainerApplication := s.ApplicationStore.GetByKey(string(service.UID))
+	if preContainerApplication != nil {
+		preContainerApplication = *preContainerApplication.(*containerinventory.ContainerApplication)
+	}
+
+	namespace := &corev1.Namespace{}
+	err := s.Client.Get(context.TODO(), types.NamespacedName{Name: service.Namespace}, namespace)
+	if err != nil {
+		retry = true
+		log.Error(err, "Failed to get namespace for Service", "Service", service)
+		return
+	}
+
+	// Get pods from endpoint
+	netStatus := NetworkStatusHealthy
+	status := InventoryStatusUp
+	podIDs, hasAddr := GetPodIDsFromEndpoint(context.TODO(), s.Client, service.Name, service.Namespace)
+	if len(podIDs) > 0 {
+		status = InventoryStatusUp
+	} else if hasAddr {
+		status = InventoryStatusUnknown
+	} else {
+		status = InventoryStatusDown
+		netStatus = NetworkStatusUnhealthy
+	}
+
+	// Update the Pods' service IDs which are related to this service
+	retry = s.synchronizeServiceIDsWithApplicationInstances(podIDs, service)
+
+	serviceType := "ClusterIP"
+	if string(service.Spec.Type) != "" {
+		serviceType = string(service.Spec.Type)
+	}
+	originProperties := []common.KeyValuePair{
+		{
+			Key:   "type",
+			Value: serviceType,
+		},
+	}
+	if (service.Spec.ClusterIP != "") && (service.Spec.ClusterIP != "None") {
+		originProperties = append(originProperties, common.KeyValuePair{
+			Key:   "ip",
+			Value: service.Spec.ClusterIP,
+		})
+	}
+
+	containerApplication := containerinventory.ContainerApplication{
+		DisplayName:        service.Name,
+		ResourceType:       string(ContainerApplication),
+		Tags:               GetTagsFromLabels(service.Labels),
+		ContainerClusterId: s.NSXConfig.Cluster,
+		ContainerProjectId: string(namespace.UID),
+		ExternalId:         string(service.UID),
+		NetworkErrors:      nil,
+		NetworkStatus:      netStatus,
+		OriginProperties:   originProperties,
+		Status:             status,
+	}
+
+	log.V(1).Info("Build service", "current application", containerApplication, "pre application", preContainerApplication)
+	operation, _ := s.compareAndMergeUpdate(preContainerApplication, containerApplication)
+	if operation != operationNone {
+		s.pendingAdd[containerApplication.ExternalId] = &containerApplication
+	} else {
+		log.Info("Skip, service not updated", "Service", service.Name, "Namespace", service.Namespace)
+	}
+	return
+}
+
+func (s *InventoryService) synchronizeServiceIDsWithApplicationInstances(podUIDs []string, service *corev1.Service) (retry bool) {
+	for _, podUID := range podUIDs {
+		if s.updateServiceIDsForApplicationInstance(podUID, service) {
+			log.Info("Endpoint creation is before pod creation, retry service to establish correlation", "Pod", podUID, "Service", service.Name)
+			return true
+		}
+	}
+	s.removeStaleServiceIDsFromApplicationInstances(podUIDs, service)
+	return false
+}
+
+func (s *InventoryService) applyServiceIDUpdates(instance *containerinventory.ContainerApplicationInstance, serviceUIDs []string) {
+	instance.ContainerApplicationIds = serviceUIDs
+	diff := map[string]interface{}{
+		"external_id":               instance.ExternalId,
+		"resource_type":             string(ContainerApplicationInstance),
+		"container_application_ids": serviceUIDs,
+	}
+	s.requestBuffer = append(s.requestBuffer, containerinventory.ContainerInventoryObject{ContainerObject: diff, ObjectUpdateType: operationUpdate})
+	s.pendingAdd[instance.ExternalId] = instance
+}
+
+func (s *InventoryService) updateServiceIDsForApplicationInstance(podUID string, service *corev1.Service) (retry bool) {
+	applicationInstance := s.ApplicationInstanceStore.GetByKey(podUID)
+	if applicationInstance == nil {
+		return true
+	}
+
+	// Prefer the pendingAdd instance if available
+	if s.pendingAdd[podUID] != nil {
+		applicationInstance = s.pendingAdd[podUID]
+	}
+
+	ctx := context.TODO()
+	pod, err := GetPodByUID(ctx, s.Client, types.UID(podUID), service.Namespace)
+	if err != nil {
+		log.Error(err, "Failed to get Pod by UID", "PodUID", podUID, "Namespace", service.Namespace)
+		return true
+	}
+	serviceUIDs, err := GetServicesUIDByPodUID(ctx, s.Client, pod.UID, pod.Namespace)
+	if err != nil {
+		log.Error(err, "Failed to get services UIDs by pod UID", "Pod UID", pod.UID, "Namespace", pod.Namespace)
+		return true
+	}
+
+	updatedInstance := applicationInstance.(*containerinventory.ContainerApplicationInstance)
+	s.applyServiceIDUpdates(updatedInstance, serviceUIDs)
+	return false
+}
+
+func (s *InventoryService) removeStaleServiceIDsFromApplicationInstances(podUIDs []string, service *corev1.Service) {
+	allInstances := s.ApplicationInstanceStore.List()
+	for _, instObj := range allInstances {
+		inst := instObj.(*containerinventory.ContainerApplicationInstance)
+		if util.Contains(podUIDs, inst.ExternalId) {
+			continue
+		}
+		// Remove any ContainerApplicationIds that are not in the new serviceUIDs
+		if !util.Contains(inst.ContainerApplicationIds, string(service.UID)) {
+			continue
+		}
+		// Filter out the service UID from the list
+		newIds := util.FilterOut(inst.ContainerApplicationIds, string(service.UID))
+		s.applyServiceIDUpdates(inst, newIds)
+	}
 }
