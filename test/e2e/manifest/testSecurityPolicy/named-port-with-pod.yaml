@@ -9,7 +9,7 @@ metadata:
 spec:
   containers:
     - name: client
-      image: "netfvt-docker-local.packages.vcfd.broadcom.net:8080/gateway-reg-docker-vr/amd64/photon:sha256__0df184f96396bbcdb3d088880fbbba3384589c466b14b6e496492a7347781fe0"
+      image: "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"
       command: [ "/bin/bash" ]
       args: [ "-c", "while true; do echo hello, world!; sleep 60; done" ]
   restartPolicy: Never
@@ -42,7 +42,7 @@ spec:
 apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: SecurityPolicy
 metadata:
-  name: named-port-policy
+  name: named-port-policy-with-pod
   namespace: web
 spec:
   priority: 10
@@ -56,6 +56,7 @@ spec:
       ports:
         - protocol: TCP
           port: web-port
+      name: named-port-rule
     - direction: in
       action: drop
     - direction: out

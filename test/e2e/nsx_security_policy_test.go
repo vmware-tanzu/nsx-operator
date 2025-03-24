@@ -43,6 +43,7 @@ func TestSecurityPolicy(t *testing.T) {
 	t.Run("testSecurityPolicyAddDeleteRule", func(t *testing.T) { testSecurityPolicyAddDeleteRule(t) })
 	t.Run("testSecurityPolicyMatchExpression", func(t *testing.T) { testSecurityPolicyMatchExpression(t) })
 	t.Run("testSecurityPolicyNamedPortWithoutPod", func(t *testing.T) { testSecurityPolicyNamedPortWithoutPod(t) })
+	t.Run("testSecurityPolicyNamedPorWithPod", func(t *testing.T) { testSecurityPolicyNamedPorWithPod(t) })
 }
 
 // TestSecurityPolicyBasicTraffic verifies that the basic traffic of security policy.
@@ -287,8 +288,9 @@ func testSecurityPolicyNamedPortWithoutPod(t *testing.T) {
 	securityPolicyCRName := "named-port-policy-without-pod"
 	webA := "web"
 	labelWeb := "tcp-deployment"
-	ruleName0 := "all_ingress_isolation"
-	ruleName1 := "all_egress_isolation"
+	ruleName0 := "named-port-rule"
+	ruleName1 := "all_ingress_isolation"
+	ruleName2 := "all_egress_isolation"
 
 	testData.deleteNamespace(nsClient, defaultTimeout)
 	testData.deleteNamespace(nsWeb, defaultTimeout)
@@ -310,10 +312,86 @@ func testSecurityPolicyNamedPortWithoutPod(t *testing.T) {
 	// Check NSX resource existing
 	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyCRName, true)
 	assert.NoError(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName0, false)
+	assert.NoError(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName1, true)
+	assert.NoError(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName2, true)
+	assert.NoError(t, err)
+}
+
+// testSecurityPolicyNamedPorWithPod verifies that the traffic of security policy when named port applied.
+// This test is to verify the named port feature of security policy.
+// When appliedTo is in policy level and there's running pods holding the related named ports.
+func testSecurityPolicyNamedPorWithPod(t *testing.T) {
+	nsClient := "client"
+	nsWeb := "web"
+	securityPolicyCRName := "named-port-policy-with-pod"
+	ruleName0 := "named-port-rule"
+	ruleName1 := "all_ingress_isolation"
+	ruleName2 := "all_egress_isolation"
+	var err error
+
+	err = testData.createVCNamespace(nsClient)
+	if err != nil {
+		t.Fatalf("Failed to create VC namespace: %v", err)
+	}
+	err = testData.createVCNamespace(nsWeb)
+	if err != nil {
+		t.Fatalf("Failed to create VC namespace: %v", err)
+	}
+
+	defer func() {
+		err := testData.deleteVCNamespace(nsClient)
+		if err != nil {
+			t.Fatalf("Failed to delete VC namespace: %v", err)
+		}
+		err = testData.deleteVCNamespace(nsWeb)
+		if err != nil {
+			t.Fatalf("Failed to delete VC namespace: %v", err)
+		}
+	}()
+
+	_ = testData.createNamespace(nsClient)
+	_ = testData.createNamespace(nsWeb)
+	defer testData.deleteNamespace(nsClient, defaultTimeout)
+	defer testData.deleteNamespace(nsWeb, defaultTimeout)
+
+	// Create all
+	yamlPath, _ := filepath.Abs("./manifest/testSecurityPolicy/named-port-with-pod.yaml")
+	_ = applyYAML(yamlPath, "")
+	defer deleteYAML(yamlPath, "")
+
+	clientA := "client"
+	webA := "web"
+	labelWeb := "tcp-deployment"
+	// Wait for pods
+	clientPodIPs, err := testData.podWaitForIPs(defaultTimeout, clientA, nsClient)
+	t.Logf("client Pods are %v", clientPodIPs)
+	assert.NoError(t, err, "Error when waiting for IP for Pod %s", clientA)
+	namedPortPodIPs, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
+	t.Logf("NamedPort Pods are %v", namedPortPodIPs)
+	assert.NoError(t, err, "Error when waiting for IP for Pod %s", webA)
+	assureSecurityPolicyReady(t, nsWeb, securityPolicyCRName)
+
+	// Check nsx-t resource existing
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeSecurityPolicy, securityPolicyCRName, true)
+	assert.NoError(t, err)
 	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName0, true)
 	assert.NoError(t, err)
 	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName1, true)
 	assert.NoError(t, err)
+	err = testData.waitForResourceExistOrNot(nsWeb, common.ResourceTypeRule, ruleName2, true)
+	assert.NoError(t, err)
+
+	// Test traffic from client to pod0
+	trafficErr := checkTrafficByCurl(nsClient, clientA, clientA, namedPortPodIPs[0], podPort, timeInterval, timeOut10)
+	require.NoError(t, trafficErr, "testSecurityPolicyNamedPort traffic should work")
+	log.Info("Verified traffic from client Pod to Pod0")
+	// Test traffic from clientA to pod1
+	trafficErr = checkTrafficByCurl(nsClient, clientA, clientA, namedPortPodIPs[1], podPort, timeInterval, timeOut5)
+	require.NoError(t, trafficErr, "testSecurityPolicyNamedPort traffic should work")
+	log.Info("Verified traffic from client Pod to Pod1")
 }
 
 func assureSecurityPolicyReady(t *testing.T, ns, spName string) {

@@ -556,6 +556,40 @@ func (data *TestData) podWaitForIPs(timeout time.Duration, name, namespace strin
 	return ips, nil
 }
 
+// deploymentWaitForIPsOrNames polls the K8s apiServer until the specified Pod in deployment has an IP address
+func (data *TestData) deploymentWaitForIPsOrNames(timeout time.Duration, namespace, deployment string) ([]string, []string, error) {
+	podIPStrings := sets.NewString()
+	var podNames []string
+	opt := metav1.ListOptions{
+		LabelSelector: "deployment=" + deployment,
+	}
+
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
+		if pods, err := data.clientset.CoreV1().Pods(namespace).List(context.TODO(), opt); err != nil {
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("error when getting Pod  %v", err)
+		} else {
+			for _, p := range pods.Items {
+				if p.Status.Phase != corev1.PodRunning {
+					return false, nil
+				} else if p.Status.PodIP == "" {
+					return false, nil
+				} else {
+					podIPStrings.Insert(p.Status.PodIP)
+					podNames = append(podNames, p.Name)
+				}
+			}
+			return true, nil
+		}
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return podIPStrings.List(), podNames, nil
+}
+
 func parsePodIPs(podIPStrings sets.Set[string]) (*PodIPs, error) {
 	ips := new(PodIPs)
 	for podIP := range podIPStrings {
@@ -655,8 +689,8 @@ func deleteYAML(filename string, ns string) error {
 	if err != nil {
 		// Ignore error info
 		// very short watch: k8s.io/client-go/tools/watch/informerwatcher.
-		//go:146: Unexpected watch close - watch lasted less than a second and no items received
-		//log.Error(err, "Error when deleting YAML file")
+		// go:146: Unexpected watch close - watch lasted less than a second and no items received
+		// log.Error(err, "Error when deleting YAML file")
 		return nil
 	}
 	_, _ = string(stdout.Bytes()), string(stderr.Bytes())
@@ -756,7 +790,8 @@ func (data *TestData) waitForResourceExistByPath(pathPolicy string, shouldExist 
 }
 
 func (data *TestData) createService(namespace, serviceName string, port, targetPort int32, protocol corev1.Protocol, selector map[string]string,
-	serviceType corev1.ServiceType, mutators ...func(service *corev1.Service)) (*corev1.Service, error) {
+	serviceType corev1.ServiceType, mutators ...func(service *corev1.Service),
+) (*corev1.Service, error) {
 	ipFamilies := []corev1.IPFamily{corev1.IPv4Protocol}
 
 	service := corev1.Service{
@@ -787,7 +822,8 @@ func (data *TestData) createService(namespace, serviceName string, port, targetP
 }
 
 func (data *TestData) createPod(namespace, podName, containerName, image string, protocol corev1.Protocol, containerPort int32,
-	mutators ...func(pod *corev1.Pod)) (*corev1.Pod, error) {
+	mutators ...func(pod *corev1.Pod),
+) (*corev1.Pod, error) {
 	pod := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        podName,
