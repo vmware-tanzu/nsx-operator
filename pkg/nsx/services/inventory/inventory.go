@@ -174,6 +174,11 @@ func (s *InventoryService) SyncInventoryObject(bufferedKeys sets.Set[InventoryKe
 			if retryKey != nil {
 				retryKeys.Insert(*retryKey)
 			}
+		case ContainerIngressPolicy:
+			retryKey := s.SyncContainerIngressPolicy(name, namespace, key)
+			if retryKey != nil {
+				retryKeys.Insert(*retryKey)
+			}
 		}
 	}
 
@@ -208,6 +213,13 @@ func (s *InventoryService) DeleteResource(externalId string, resourceType Invent
 		}
 		s.DeleteInventoryObject(resourceType, externalId, inventoryObject)
 		return s.DeleteContainerApplicationInstance(externalId, inventoryObject.(*containerinventory.ContainerApplicationInstance))
+	case ContainerIngressPolicy:
+		inventoryObject := s.IngressPolicyStore.GetByKey(externalId)
+		if inventoryObject == nil {
+			return nil
+		}
+		s.DeleteInventoryObject(resourceType, externalId, inventoryObject)
+		return nil
 	default:
 		return fmt.Errorf("unknown resource_type: %v for external_id %s", resourceType, externalId)
 	}
@@ -230,6 +242,8 @@ func (s *InventoryService) DeleteInventoryObject(resourceType InventoryType, ext
 		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerApplication)
 	case ContainerApplicationInstance:
 		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerApplicationInstance)
+	case ContainerIngressPolicy:
+		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerIngressPolicy)
 	}
 }
 
@@ -278,6 +292,12 @@ func (s *InventoryService) updateInventoryStore() error {
 			if err != nil {
 				return err
 			}
+		case string(ContainerIngressPolicy):
+			instance := addItem.(*containerinventory.ContainerIngressPolicy)
+			err := s.IngressPolicyStore.Add(instance)
+			if err != nil {
+				return err
+			}
 
 		}
 	}
@@ -298,6 +318,12 @@ func (s *InventoryService) updateInventoryStore() error {
 		case string(ContainerApplicationInstance):
 			instance := deleteItem.(*containerinventory.ContainerApplicationInstance)
 			err := s.ApplicationInstanceStore.Delete(instance)
+			if err != nil {
+				return err
+			}
+		case string(ContainerIngressPolicy):
+			instance := deleteItem.(*containerinventory.ContainerIngressPolicy)
+			err := s.IngressPolicyStore.Delete(instance)
 			if err != nil {
 				return err
 			}

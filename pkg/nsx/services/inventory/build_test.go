@@ -3,26 +3,27 @@ package inventory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/golang/mock/gomock"
+	"github.com/stretchr/testify/assert"
+	"github.com/vmware/go-vmware-nsxt/common"
+	"github.com/vmware/go-vmware-nsxt/containerinventory"
+	corev1 "k8s.io/api/core/v1"
+	networkv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mockClient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-
-	"github.com/golang/mock/gomock"
-	"github.com/stretchr/testify/assert"
-	"github.com/vmware/go-vmware-nsxt/common"
-	"github.com/vmware/go-vmware-nsxt/containerinventory"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func createService(t *testing.T) (*InventoryService, *mockClient.MockClient) {
@@ -656,4 +657,263 @@ func TestRemoveStaleServiceIDsFromApplicationInstances(t *testing.T) {
 	// Verify that the instance with valid IDs remains unchanged
 	updatedInstanceWithValidID := inventoryService.ApplicationInstanceStore.GetByKey("pod-uid-456").(*containerinventory.ContainerApplicationInstance)
 	assert.Contains(t, updatedInstanceWithValidID.ContainerApplicationIds, "service-uid-456")
+}
+
+func TestBuildIngress(t *testing.T) {
+	tests := []struct {
+		name           string
+		ingress        *networkv1.Ingress
+		existingPolicy *containerinventory.ContainerIngressPolicy
+		namespace      *corev1.Namespace
+		expectRetry    bool
+	}{
+		{
+			name: "new ingress without existing policy",
+			ingress: &networkv1.Ingress{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-ingress",
+					Namespace: "default",
+					UID:       types.UID("test-uid"),
+					Labels: map[string]string{
+						"app": "test",
+					},
+				},
+				Spec: networkv1.IngressSpec{
+					Rules: []networkv1.IngressRule{
+						{
+							Host: "test.example.com",
+						},
+					},
+				},
+			},
+			existingPolicy: nil,
+			namespace: &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "default",
+					UID:  types.UID("ns-uid"),
+				},
+			},
+			expectRetry: false,
+		},
+		{
+			name: "update existing ingress",
+			ingress: &networkv1.Ingress{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-ingress",
+					Namespace: "default",
+					UID:       types.UID("test-uid"),
+					Labels: map[string]string{
+						"app": "test-updated",
+					},
+				},
+				Spec: networkv1.IngressSpec{
+					Rules: []networkv1.IngressRule{
+						{
+							Host: "test.example.com",
+						},
+					},
+				},
+			},
+			existingPolicy: &containerinventory.ContainerIngressPolicy{
+				DisplayName:        "test-ingress",
+				ExternalId:         "test-uid",
+				ContainerClusterId: "test-cluster",
+				ContainerProjectId: "ns-uid",
+				Tags: []common.Tag{
+					{
+						Scope: "app",
+						Tag:   "test",
+					},
+				},
+			},
+			namespace: &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "default",
+					UID:  types.UID("ns-uid"),
+				},
+			},
+			expectRetry: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inventoryService, _ := createService(t)
+			// Mock GetNamespace
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "GetNamespace", func(_ *InventoryService, namespace string) (*corev1.Namespace, error) {
+				return tt.namespace, nil
+			})
+			patches.ApplyMethod(reflect.TypeOf(inventoryService.IngressPolicyStore), "GetByKey", func(_ *IngressPolicyStore, _ string) interface{} {
+				if tt.existingPolicy != nil {
+					return tt.existingPolicy
+				} else {
+					return nil
+				}
+			})
+			defer patches.Reset()
+			// Test
+			retry := inventoryService.BuildIngress(tt.ingress)
+
+			// Verify
+			assert.Equal(t, tt.expectRetry, retry)
+
+			// Verify pending operations
+			if tt.existingPolicy == nil {
+				// Should be in pendingAdd
+				assert.NotNil(t, inventoryService.pendingAdd[string(tt.ingress.UID)])
+				obj := inventoryService.pendingAdd[string(tt.ingress.UID)]
+				newPolicy := obj.(*containerinventory.ContainerIngressPolicy)
+				assert.Equal(t, tt.ingress.Name, newPolicy.DisplayName)
+				assert.Equal(t, tt.ingress.Name, newPolicy.DisplayName)
+				assert.Equal(t, string(tt.ingress.UID), newPolicy.ExternalId)
+				assert.Equal(t, "k8scl-one:test", newPolicy.ContainerClusterId)
+				assert.Equal(t, string(tt.namespace.UID), newPolicy.ContainerProjectId)
+
+			}
+		})
+	}
+}
+
+func TestBuildIngress_ErrorCases(t *testing.T) {
+	tests := []struct {
+		name         string
+		ingress      *networkv1.Ingress
+		namespaceErr error
+		expectRetry  bool
+	}{
+		{
+			name: "namespace not found",
+			ingress: &networkv1.Ingress{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-ingress",
+					Namespace: "non-existent",
+					UID:       types.UID("test-uid"),
+				},
+			},
+			namespaceErr: fmt.Errorf("namespace not found"),
+			expectRetry:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup
+			inventoryService, _ := createService(t)
+			// Mock GetNamespace
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "GetNamespace", func(_ *InventoryService, namespace string) (*corev1.Namespace, error) {
+				if tt.namespaceErr != nil {
+					return nil, tt.namespaceErr
+				}
+				return &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: namespace,
+						UID:  types.UID("ns-uid"),
+					},
+				}, nil
+			})
+			defer patches.Reset()
+			retry := inventoryService.BuildIngress(tt.ingress)
+			assert.Equal(t, tt.expectRetry, retry)
+		})
+	}
+}
+
+func TestGetIngressAppIds(t *testing.T) {
+	tests := []struct {
+		name          string
+		ingress       *networkv1.Ingress
+		want          []string
+		getServiceErr error
+	}{
+		{
+			name: "ingress with backend/rules",
+			ingress: &networkv1.Ingress{
+				Spec: networkv1.IngressSpec{
+					DefaultBackend: &networkv1.IngressBackend{
+						Service: &networkv1.IngressServiceBackend{
+							Name: "service2",
+						},
+					},
+					Rules: []networkv1.IngressRule{
+						{
+							IngressRuleValue: networkv1.IngressRuleValue{
+								HTTP: &networkv1.HTTPIngressRuleValue{
+									Paths: []networkv1.HTTPIngressPath{
+										{
+											Backend: networkv1.IngressBackend{
+												Service: &networkv1.IngressServiceBackend{
+													Name: "service1",
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			want:          []string{"service1", "service2"},
+			getServiceErr: nil,
+		},
+		{
+			name: "ingress with service in rules",
+			ingress: &networkv1.Ingress{
+				Spec: networkv1.IngressSpec{
+					DefaultBackend: &networkv1.IngressBackend{
+						Service: &networkv1.IngressServiceBackend{
+							Name: "service2",
+						},
+					},
+				},
+			},
+			want:          []string{"service2"},
+			getServiceErr: nil,
+		},
+		{
+			name: "ingress with rules, get service error",
+			ingress: &networkv1.Ingress{
+				Spec: networkv1.IngressSpec{
+					Rules: []networkv1.IngressRule{
+						{
+							IngressRuleValue: networkv1.IngressRuleValue{
+								HTTP: &networkv1.HTTPIngressRuleValue{
+									Paths: []networkv1.HTTPIngressPath{
+										{
+											Backend: networkv1.IngressBackend{
+												Service: &networkv1.IngressServiceBackend{
+													Name: "service1",
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			want:          []string{},
+			getServiceErr: errors.New("failed to get service"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service, k8sClient := createService(t)
+			k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.ListOption) error {
+				service, ok := obj.(*corev1.Service)
+				if !ok {
+					return nil
+				}
+				service.UID = types.UID(key.Name)
+				if tt.getServiceErr != nil {
+					return tt.getServiceErr
+				}
+				return nil
+			}).AnyTimes()
+			got := service.getIngressAppIds(tt.ingress)
+			assert.ElementsMatch(t, tt.want, got)
+		})
+	}
 }
