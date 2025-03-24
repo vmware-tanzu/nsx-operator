@@ -24,7 +24,7 @@ type InventoryService struct {
 	ApplicationInstanceStore *ApplicationInstanceStore
 	ApplicationStore         *ApplicationStore
 	ProjectStore             *ProjectStore
-	CluserNodeStore          *ClusterNodeStore
+	ClusterNodeStore         *ClusterNodeStore
 	NetworkPolicyStore       *NetworkPolicyStore
 	IngressPolicyStore       *IngressPolicyStore
 	ClusterStore             *ClusterStore
@@ -60,7 +60,7 @@ func NewInventoryService(service commonservice.Service) *InventoryService {
 	inventoryService.ApplicationStore = &ApplicationStore{ResourceStore: commonservice.ResourceStore{
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{string(ContainerApplication): indexFunc}),
 	}}
-	inventoryService.CluserNodeStore = &ClusterNodeStore{ResourceStore: commonservice.ResourceStore{
+	inventoryService.ClusterNodeStore = &ClusterNodeStore{ResourceStore: commonservice.ResourceStore{
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{string(ContainerClusterNode): indexFunc}),
 	}}
 	inventoryService.NetworkPolicyStore = &NetworkPolicyStore{ResourceStore: commonservice.ResourceStore{
@@ -117,7 +117,11 @@ func (s *InventoryService) initContainerCluster() error {
 
 func (s *InventoryService) SyncInventoryStoreByType(clusterId string) error {
 	log.Info("Populating inventory object from NSX")
-	err := s.initContainerApplicationInstance(clusterId)
+	err := s.initContainerProject(clusterId)
+	if err != nil {
+		return err
+	}
+	err = s.initContainerApplicationInstance(clusterId)
 	if err != nil {
 		return err
 	}
@@ -134,10 +138,6 @@ func (s *InventoryService) SyncInventoryStoreByType(clusterId string) error {
 		return err
 	}
 	err = s.initContainerIngressPolicy(clusterId)
-	if err != nil {
-		return err
-	}
-	err = s.initContainerProject(clusterId)
 	if err != nil {
 		return err
 	}
@@ -165,6 +165,11 @@ func (s *InventoryService) SyncInventoryObject(bufferedKeys sets.Set[InventoryKe
 			if retryKey != nil {
 				retryKeys.Insert(*retryKey)
 			}
+		case ContainerProject:
+			retryKey := s.SyncContainerProject(name, key)
+			if retryKey != nil {
+				retryKeys.Insert(*retryKey)
+			}
 		}
 	}
 
@@ -174,6 +179,30 @@ func (s *InventoryService) SyncInventoryObject(bufferedKeys sets.Set[InventoryKe
 	}
 
 	return retryKeys, err
+}
+
+func (s *InventoryService) DeleteResource(externalId string, resourceType InventoryType) error {
+	log.Info("Delete inventory resource", "resource_type", resourceType, "external_id", externalId)
+	switch resourceType {
+	case ContainerProject:
+		inventoryObject := s.ProjectStore.GetByKey(externalId)
+		if inventoryObject == nil {
+			return nil
+		}
+		s.DeleteInventoryObject(resourceType, externalId, inventoryObject)
+		return s.DeleteContainerProject(externalId, inventoryObject.(*containerinventory.ContainerProject))
+
+	case ContainerApplicationInstance:
+		inventoryObject := s.ApplicationInstanceStore.GetByKey(externalId)
+		if inventoryObject == nil {
+			return nil
+		}
+		s.DeleteInventoryObject(resourceType, externalId, inventoryObject)
+		return s.DeleteContainerApplicationInstance(externalId, inventoryObject.(*containerinventory.ContainerApplicationInstance))
+	default:
+		return fmt.Errorf("unknown resource_type: %v for external_id %s", resourceType, externalId)
+	}
+
 }
 
 func (s *InventoryService) DeleteInventoryObject(resourceType InventoryType, externalId string, inventoryObject interface{}) {
@@ -186,23 +215,10 @@ func (s *InventoryService) DeleteInventoryObject(resourceType InventoryType, ext
 		ObjectUpdateType: operationDelete,
 	})
 	switch resourceType {
+	case ContainerProject:
+		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerProject)
 	case ContainerApplicationInstance:
 		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerApplicationInstance)
-	}
-}
-
-func (s *InventoryService) DeleteResource(externalId string, resourceType InventoryType) error {
-	log.V(1).Info("Delete inventory resource", "resource_type", resourceType, "external_id", externalId)
-	switch resourceType {
-	case ContainerApplicationInstance:
-		inventoryObject := s.ApplicationInstanceStore.GetByKey(externalId)
-		if inventoryObject == nil {
-			return nil
-		}
-		s.DeleteInventoryObject(resourceType, externalId, inventoryObject)
-		return s.DeleteContainerApplicationInstance(externalId, inventoryObject.(*containerinventory.ContainerApplicationInstance))
-	default:
-		return fmt.Errorf("unknown resource_type: %v for external_id %s", resourceType, externalId)
 	}
 }
 
@@ -216,7 +232,7 @@ func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore() error {
 
 		// Update NSX Inventory store when the request succeeds.
 		if resp != nil {
-			log.V(1).Info("NSX request response", "response status code", resp.StatusCode)
+			log.Info("NSX request response", "response code", resp.StatusCode)
 		}
 		if err == nil {
 			err = s.updateInventoryStore()
@@ -233,7 +249,12 @@ func (s *InventoryService) updateInventoryStore() error {
 	log.Info("Update Inventory store after NSX request succeeds")
 	for _, addItem := range s.pendingAdd {
 		switch reflect.ValueOf(addItem).Elem().FieldByName("ResourceType").String() {
-
+		case string(ContainerProject):
+			project := addItem.(*containerinventory.ContainerProject)
+			err := s.ProjectStore.Add(project)
+			if err != nil {
+				return err
+			}
 		case string(ContainerApplicationInstance):
 			instance := addItem.(*containerinventory.ContainerApplicationInstance)
 			err := s.ApplicationInstanceStore.Add(instance)
@@ -245,6 +266,12 @@ func (s *InventoryService) updateInventoryStore() error {
 	}
 	for _, deleteItem := range s.pendingDelete {
 		switch reflect.ValueOf(deleteItem).Elem().FieldByName("ResourceType").String() {
+		case string(ContainerProject):
+			project := deleteItem.(*containerinventory.ContainerProject)
+			err := s.ProjectStore.Delete(project)
+			if err != nil {
+				return err
+			}
 		case string(ContainerApplicationInstance):
 			instance := deleteItem.(*containerinventory.ContainerApplicationInstance)
 			err := s.ApplicationInstanceStore.Delete(instance)
