@@ -21,7 +21,7 @@ func (s *InventoryService) initContainerClusterNode(clusterId string) error {
 			return fmt.Errorf("failed to retrieve ContainerClusterNode err: %w", err)
 		}
 		for _, clusterNode := range clusterNodes.Results {
-			err = s.CluserNodeStore.Add(&clusterNode)
+			err = s.ClusterNodeStore.Add(&clusterNode)
 			if err != nil {
 				return err
 			}

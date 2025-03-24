@@ -19,11 +19,9 @@ import (
 )
 
 const (
-
 	// How long to wait before retrying
-	minRetryDelay = 5 * time.Second
-	maxRetryDelay = 300 * time.Second
-
+	minRetryDelay           = 5 * time.Second
+	maxRetryDelay           = 300 * time.Second
 	inventoryGCJitterFactor = 0.1
 )
 
@@ -36,7 +34,10 @@ var (
 	// DeletedFinalStateUnknown objects before calling
 	// MetaNamespaceKeyFunc.
 	keyFunc            = cache.DeletionHandlingMetaNamespaceKeyFunc
-	WatchResourceFuncs = []WatchResourceFunc{watchPod}
+	WatchResourceFuncs = []WatchResourceFunc{
+		watchPod,
+		watchNamespace,
+	}
 )
 
 type InventoryController struct {
@@ -98,6 +99,7 @@ func (c *InventoryController) Run(stopCh <-chan struct{}) {
 	go wait.Until(c.inventoryWorker, time.Second, stopCh)
 	go wait.Until(c.inventoryTimeWorker, time.Second*time.Duration(c.cf.InventoryBatchPeriod), stopCh)
 	go wait.JitterUntil(c.inventoryGCWorker, commonservice.GCInterval, inventoryGCJitterFactor, true, stopCh)
+
 	<-stopCh
 }
 

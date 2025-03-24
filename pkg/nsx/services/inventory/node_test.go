@@ -33,7 +33,7 @@ func TestInventoryService_InitContainerClusterNode(t *testing.T) {
 		defer patches.Reset()
 		err := inventoryService.initContainerClusterNode("cluster1")
 		assert.NoError(t, err)
-		itemNum := len(inventoryService.CluserNodeStore.List())
+		itemNum := len(inventoryService.ClusterNodeStore.List())
 		expectNum += 2
 		assert.Equal(t, expectNum, itemNum, "expected %d item in the inventory, got %d", expectNum, itemNum)
 
@@ -55,7 +55,7 @@ func TestInventoryService_InitContainerClusterNode(t *testing.T) {
 
 		err := inventoryService.initContainerClusterNode("cluster1")
 		assert.Error(t, err)
-		itemNum := len(inventoryService.CluserNodeStore.List())
+		itemNum := len(inventoryService.ClusterNodeStore.List())
 		assert.Equal(t, expectNum, itemNum, "expected %d item in the inventory, got %d", expectNum, itemNum)
 	})
 
@@ -73,7 +73,7 @@ func TestInventoryService_InitContainerClusterNode(t *testing.T) {
 		defer patches.Reset()
 		err := inventoryService.initContainerClusterNode("cluster1")
 		assert.NoError(t, err)
-		itemNum := len(inventoryService.CluserNodeStore.List())
+		itemNum := len(inventoryService.ClusterNodeStore.List())
 		assert.Equal(t, expectNum, itemNum, "expected %d item in the inventory, got %d", expectNum, itemNum)
 	})
 
@@ -99,7 +99,7 @@ func TestInventoryService_InitContainerClusterNode(t *testing.T) {
 		defer patches.Reset()
 		err := inventoryService.initContainerClusterNode("cluster1")
 		assert.NoError(t, err)
-		itemNum := len(inventoryService.CluserNodeStore.List())
+		itemNum := len(inventoryService.ClusterNodeStore.List())
 		expectNum += 2
 		assert.Equal(t, expectNum, itemNum, "expected %d item in the inventory, got %d", expectNum, itemNum)
 	})

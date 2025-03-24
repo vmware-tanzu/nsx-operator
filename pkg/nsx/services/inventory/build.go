@@ -172,3 +172,31 @@ func (s *InventoryService) compareAndMergeUpdate(pre interface{}, cur interface{
 		return operationNone, nil
 	}
 }
+
+func (s *InventoryService) BuildNamespace(namespace *corev1.Namespace) (retry bool) {
+	log.Info("Building Namespace", "Namespace", namespace.Name)
+	retry = false
+
+	preContainerProject := s.ProjectStore.GetByKey(string(namespace.UID))
+	if preContainerProject != nil {
+		preContainerProject = *preContainerProject.(*containerinventory.ContainerProject)
+	}
+
+	containerProject := containerinventory.ContainerProject{
+		DisplayName:        namespace.Name,
+		ResourceType:       string(ContainerProject),
+		Tags:               GetTagsFromLabels(namespace.Labels),
+		ContainerClusterId: s.NSXConfig.Cluster,
+		ExternalId:         string(namespace.UID),
+		NetworkErrors:      nil,
+		NetworkStatus:      NetworkStatusHealthy,
+	}
+
+	operation, _ := s.compareAndMergeUpdate(preContainerProject, containerProject)
+	if operation != operationNone {
+		s.pendingAdd[containerProject.ExternalId] = &containerProject
+	} else {
+		log.Info("Skip, namespace not updated", "Namespace", namespace.Name)
+	}
+	return
+}

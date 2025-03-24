@@ -316,3 +316,103 @@ func TestIsIPChanged(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildNamespace(t *testing.T) {
+	labels := make(map[string]string)
+	labels["environment"] = "test"
+	labels["team"] = "platform"
+
+	testNamespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "test-namespace",
+			UID:    "namespace-uid-123",
+			Labels: labels,
+		},
+	}
+
+	t.Run("NormalFlow", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+
+		// Test with a new namespace
+		retry := inventoryService.BuildNamespace(testNamespace)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "namespace-uid-123")
+
+		containerProject := inventoryService.pendingAdd["namespace-uid-123"].(*containerinventory.ContainerProject)
+		assert.Equal(t, "test-namespace", containerProject.DisplayName)
+		assert.Equal(t, string(ContainerProject), containerProject.ResourceType)
+		assert.Equal(t, string(testNamespace.UID), containerProject.ExternalId)
+		assert.Equal(t, inventoryService.NSXConfig.Cluster, containerProject.ContainerClusterId)
+		assert.Equal(t, NetworkStatusHealthy, containerProject.NetworkStatus)
+
+		// Verify tags are created from labels
+		expectedTags := GetTagsFromLabels(labels)
+		assert.Equal(t, len(expectedTags), len(containerProject.Tags))
+		for i, tag := range containerProject.Tags {
+			assert.Equal(t, expectedTags[i].Scope, tag.Scope)
+			assert.Equal(t, expectedTags[i].Tag, tag.Tag)
+		}
+	})
+
+	t.Run("UpdateExistingNamespace", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+
+		// Create a pre-existing namespace in the ProjectStore
+		existingProject := &containerinventory.ContainerProject{
+			DisplayName:        "old-name",
+			ResourceType:       string(ContainerProject),
+			Tags:               []common.Tag{},
+			ContainerClusterId: inventoryService.NSXConfig.Cluster,
+			ExternalId:         string(testNamespace.UID),
+			NetworkStatus:      NetworkStatusHealthy,
+		}
+
+		// Add to ProjectStore
+		inventoryService.ProjectStore.Add(existingProject)
+
+		// Now build the namespace with updated information
+		updatedNamespace := testNamespace.DeepCopy()
+		updatedNamespace.Labels["new-label"] = "new-value"
+
+		retry := inventoryService.BuildNamespace(updatedNamespace)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "namespace-uid-123")
+
+		// Verify the updated namespace is in pendingAdd
+		containerProject := inventoryService.pendingAdd["namespace-uid-123"].(*containerinventory.ContainerProject)
+		assert.Equal(t, "test-namespace", containerProject.DisplayName)
+
+		// Verify the updated tags include the new label
+		found := false
+		for _, tag := range containerProject.Tags {
+			if tag.Scope == "dis:k8s:new-label" && tag.Tag == "new-value" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "New label should be included in tags")
+	})
+
+	t.Run("NoChangeToNamespace", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+
+		// First build creates the initial namespace
+		inventoryService.BuildNamespace(testNamespace)
+
+		// Clear pendingAdd to simulate a completed sync
+		initialProject := inventoryService.pendingAdd[string(testNamespace.UID)]
+		delete(inventoryService.pendingAdd, string(testNamespace.UID))
+
+		// Add to ProjectStore to simulate it's already been processed
+		inventoryService.ProjectStore.Add(initialProject)
+
+		// Build the same namespace again without changes
+		retry := inventoryService.BuildNamespace(testNamespace)
+
+		assert.False(t, retry)
+		// Since there are no changes, it shouldn't be added to pendingAdd
+		assert.NotContains(t, inventoryService.pendingAdd, string(testNamespace.UID))
+	})
+}
