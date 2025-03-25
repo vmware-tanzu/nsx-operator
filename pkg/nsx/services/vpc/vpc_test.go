@@ -1031,6 +1031,14 @@ func TestIsLBProviderChanged(t *testing.T) {
 			},
 			expected: false,
 		},
+		{
+			name: "Nil LoadBalancerVpcEndpoint",
+			existingVPC: &model.Vpc{
+				Path: common.String("/fake/path"),
+			},
+			lbProvider: AVILB,
+			expected:   true,
+		},
 	}
 
 	for _, tt := range tests {
