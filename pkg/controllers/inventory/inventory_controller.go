@@ -64,14 +64,14 @@ func NewInventoryController(Client client.Client, service *inventory.InventorySe
 }
 
 func (c *InventoryController) StartController(mgr ctrl.Manager, _ webhook.Server) error {
-	if err := c.SetupWithManager(mgr); err != nil {
+	if err := c.setupWithManager(mgr); err != nil {
 		log.Error(err, "Failed to create inventory controller", "controller", "Inventory")
 		return err
 	}
 	return nil
 }
 
-func (c *InventoryController) SetupWithManager(mgr ctrl.Manager) error {
+func (c *InventoryController) setupWithManager(mgr ctrl.Manager) error {
 	for _, f := range WatchResourceFuncs {
 		err := f(c, mgr)
 		if err != nil {

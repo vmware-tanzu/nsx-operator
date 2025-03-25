@@ -205,8 +205,8 @@ func (r *SubnetPortReconciler) deleteSubnetPortByName(ctx context.Context, ns st
 	return nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
-func (r *SubnetPortReconciler) SetupWithManager(mgr ctrl.Manager) error {
+// setupWithManager sets up the controller with the Manager.
+func (r *SubnetPortReconciler) setupWithManager(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.SubnetPort{}, util.SubnetPortNamespaceVMIndexKey, subnetPortNamespaceVMIndexFunc); err != nil {
 		return err
 	}
@@ -320,7 +320,7 @@ func NewSubnetPortReconciler(mgr ctrl.Manager, subnetPortService *subnetport.Sub
 
 // Start setup manager and launch GC
 func (r *SubnetPortReconciler) Start(mgr ctrl.Manager) error {
-	err := r.SetupWithManager(mgr)
+	err := r.setupWithManager(mgr)
 	if err != nil {
 		return err
 	}

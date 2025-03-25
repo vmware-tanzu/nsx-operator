@@ -234,37 +234,9 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	}
 
 	if restoreMode {
-		log.Info("Enter restore mode")
-		var errList []error
-		// Collect Garbage from overlay to underlay
-		for i := len(reconcilerList) - 1; i >= 0; i-- {
-			if reconcilerList[i] != nil {
-				if err := reconcilerList[i].CollectGarbage(context.TODO()); err != nil {
-					errList = append(errList, err)
-				}
-			}
-		}
-		if len(errList) > 0 {
-			log.Error(nil, "Failed to collect garbage", "errors", errList)
-			os.Exit(1)
-		}
-		log.Info("Garbage collection succeeds in restore mode")
-		// Restore resource from underlay to overlay
-		for _, reconciler := range reconcilerList {
-			if reconciler != nil {
-				if err := reconciler.RestoreReconcile(); err != nil {
-					errList = append(errList, err)
-				}
-			}
-		}
-		if len(errList) > 0 {
-			log.Error(nil, "Failed to restore resources", "errors", errList)
-			os.Exit(1)
-		}
-		log.Info("Restore reconcile succeeds in restore mode")
-
-		if err := pkgutil.UpdateRestoreEndTime(mgr.GetClient()); err != nil {
-			log.Error(err, "Failed to update restore end time")
+		err := pkgutil.ProcessRestore(reconcilerList, mgr.GetClient())
+		if err != nil {
+			log.Error(err, "Failed to process restore")
 			os.Exit(1)
 		}
 		log.Info("Restore config update succeeds, restart to enter normal mode...")
@@ -272,7 +244,6 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	}
 
 	log.Info("Enter normal mode")
-
 	for _, reconciler := range reconcilerList {
 		if reconciler != nil {
 			if err := reconciler.StartController(mgr, hookServer); err != nil {

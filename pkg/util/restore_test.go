@@ -3,6 +3,7 @@ package util
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
@@ -13,8 +14,11 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -210,12 +214,106 @@ func TestUpdateRestoreEndTime(t *testing.T) {
 		return nil
 	})
 
-	err := UpdateRestoreEndTime(k8sClient)
+	err := updateRestoreEndTime(k8sClient)
 	assert.Nil(t, err)
+}
+
+func TestProcessRestore(t *testing.T) {
+	reconcilerList := []commonctl.ReconcilerProvider{
+		&fakeReconcilerProvider{"VPC reconciler"},
+		&fakeReconcilerProvider{"Subnet reconciler"},
+		&fakeReconcilerProvider{"SubnetPort reconciler"},
+	}
+
+	tests := []struct {
+		name        string
+		prepareFunc func() *gomonkey.Patches
+		expectedErr string
+	}{
+		{
+			name: "Success",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*fakeReconcilerProvider).CollectGarbage, func(r *fakeReconcilerProvider, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyFunc((*fakeReconcilerProvider).RestoreReconcile, func(r *fakeReconcilerProvider) error {
+					return nil
+				})
+				patches.ApplyFunc(updateRestoreEndTime, func(k8sClient client.Client) error {
+					return nil
+				})
+				return patches
+			},
+		},
+		{
+			name: "GCError",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*fakeReconcilerProvider).CollectGarbage, func(r *fakeReconcilerProvider, ctx context.Context) error {
+					if r.Name == "Subnet reconciler" {
+						return fmt.Errorf("mocked gc error for Subnet")
+					}
+					return nil
+				})
+				return patches
+			},
+			expectedErr: "failed to collect garbage: [mocked gc error for Subnet]",
+		},
+		{
+			name: "RestoreError",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*fakeReconcilerProvider).CollectGarbage, func(r *fakeReconcilerProvider, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyFunc((*fakeReconcilerProvider).RestoreReconcile, func(r *fakeReconcilerProvider) error {
+					if r.Name == "SubnetPort reconciler" {
+						return fmt.Errorf("mocked restore error for SubnetPort")
+					}
+					return nil
+				})
+				patches.ApplyFunc(updateRestoreEndTime, func(k8sClient client.Client) error {
+					return nil
+				})
+				return patches
+			},
+			expectedErr: "failed to restore resources: [mocked restore error for SubnetPort]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patches := tt.prepareFunc()
+			if patches != nil {
+				defer patches.Reset()
+			}
+			err := ProcessRestore(reconcilerList, nil)
+			if tt.expectedErr != "" {
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			} else {
+				assert.Nil(t, err)
+			}
+		})
+	}
+
 }
 
 type fakeStatusClient struct{}
 
 func (c *fakeStatusClient) Get(restoreComponentParam *string) (model.ClusterRestoreStatus, error) {
 	return model.ClusterRestoreStatus{}, nil
+}
+
+type fakeReconcilerProvider struct {
+	Name string
+}
+
+func (r *fakeReconcilerProvider) RestoreReconcile() error {
+	return nil
+}
+
+func (r *fakeReconcilerProvider) CollectGarbage(ctx context.Context) error {
+	return nil
+}
+
+func (r *fakeReconcilerProvider) StartController(mgr ctrl.Manager, hookServer webhook.Server) error {
+	return nil
 }

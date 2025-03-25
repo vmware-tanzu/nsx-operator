@@ -626,6 +626,9 @@ func TestNSXServiceAccountReconciler_StartController(t *testing.T) {
 	patches.ApplyFunc((*NSXServiceAccountReconciler).setupWithManager, func(r *NSXServiceAccountReconciler, mgr manager.Manager) error {
 		return nil
 	})
+	patches.ApplyFunc(common.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
+		return
+	})
 	defer patches.Reset()
 	reconciler := NewNSXServiceAccountReconciler(mockMgr, service)
 	err := reconciler.StartController(mockMgr, nil)

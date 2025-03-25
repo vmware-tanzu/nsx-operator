@@ -127,7 +127,7 @@ func (r *IPAddressAllocationReconciler) handleDeletion(req ctrl.Request, obj *v1
 	return resultNormal, nil
 }
 
-func (r *IPAddressAllocationReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *IPAddressAllocationReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.IPAddressAllocation{}).
 		WithOptions(
@@ -176,7 +176,7 @@ func (r *IPAddressAllocationReconciler) RestoreReconcile() error {
 }
 
 func (r *IPAddressAllocationReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
-	if err := r.SetupWithManager(mgr); err != nil {
+	if err := r.setupWithManager(mgr); err != nil {
 		log.Error(err, "Failed to create ipaddressallocation controller")
 		return err
 	}

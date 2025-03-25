@@ -5,7 +5,6 @@ package service
 
 import (
 	"context"
-	"os"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -162,24 +161,6 @@ func isServiceLbStatusIpModeSupported(c *rest.Config) bool {
 
 	log.Info("Running server Kubernetes version is", "K8sVersion", runningVersion.String())
 	return runningVersion.AtLeast(version129)
-}
-
-func StartServiceLbController(mgr ctrl.Manager, commonService servicecommon.Service) {
-	if isServiceLbStatusIpModeSupported(mgr.GetConfig()) {
-
-		serviceLbReconciler := ServiceLbReconciler{
-			Client:   mgr.GetClient(),
-			Scheme:   mgr.GetScheme(),
-			Recorder: mgr.GetEventRecorderFor("serviceLb-controller"),
-		}
-		serviceLbReconciler.Service = &commonService
-		if err := serviceLbReconciler.Start(mgr); err != nil {
-			log.Error(err, "Failed to create controller", "controller", "ServiceLb")
-			os.Exit(1)
-		}
-	} else {
-		log.Info("Service LB controller isn't started since load balancer service ipMode supporting needs K8s version at least 1.29.0")
-	}
 }
 
 func (r *ServiceLbReconciler) RestoreReconcile() error {

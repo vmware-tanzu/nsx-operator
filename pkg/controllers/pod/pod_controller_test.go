@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	gomonkey "github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
@@ -15,8 +16,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -26,6 +30,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/node"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
 type fakeRecorder struct{}
@@ -434,7 +439,7 @@ func TestPodReconciler_GetNodeByName(t *testing.T) {
 	}
 }
 
-func TestSubnetPortReconciler_GetSubnetPathForPod(t *testing.T) {
+func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
@@ -549,7 +554,7 @@ func TestSubnetPortReconciler_GetSubnetPathForPod(t *testing.T) {
 	}
 }
 
-func TestSubnetPortReconciler_deleteSubnetPortByPodName(t *testing.T) {
+func TestPodReconciler_deleteSubnetPortByPodName(t *testing.T) {
 	subnetportId1 := "subnetport-1"
 	subnetportId2 := "subnetport-2"
 	podName1 := "pod-1"
@@ -601,4 +606,63 @@ func TestSubnetPortReconciler_deleteSubnetPortByPodName(t *testing.T) {
 	defer patchesDeleteSubnetPort.Reset()
 	err := r.deleteSubnetPortByPodName(context.TODO(), ns, podName2)
 	assert.Nil(t, err)
+}
+
+func TestPodReconciler_StartController(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().WithObjects().Build()
+	vpcService := &vpc.VPCService{
+		Service: servicecommon.Service{
+			Client: fakeClient,
+		},
+	}
+	subnetService := &subnet.SubnetService{
+		Service: servicecommon.Service{
+			Client: fakeClient,
+		},
+	}
+	subnetPortService := &subnetport.SubnetPortService{
+		Service: servicecommon.Service{},
+	}
+	nodeService := &node.NodeService{
+		Service: servicecommon.Service{
+			Client: fakeClient,
+		},
+	}
+	mockMgr := &MockManager{scheme: runtime.NewScheme()}
+	patches := gomonkey.ApplyFunc((*PodReconciler).setupWithManager, func(r *PodReconciler, mgr manager.Manager) error {
+		return nil
+	})
+	patches.ApplyFunc(common.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
+		return
+	})
+	defer patches.Reset()
+	r := NewPodReconciler(mockMgr, subnetPortService, subnetService, vpcService, nodeService)
+	err := r.StartController(mockMgr, nil)
+	assert.Nil(t, err)
+}
+
+type MockManager struct {
+	ctrl.Manager
+	client client.Client
+	scheme *runtime.Scheme
+}
+
+func (m *MockManager) GetClient() client.Client {
+	return m.client
+}
+
+func (m *MockManager) GetScheme() *runtime.Scheme {
+	return m.scheme
+}
+
+func (m *MockManager) GetEventRecorderFor(name string) record.EventRecorder {
+	return nil
+}
+
+func (m *MockManager) Add(runnable manager.Runnable) error {
+	return nil
+}
+
+func (m *MockManager) Start(context.Context) error {
+	return nil
 }

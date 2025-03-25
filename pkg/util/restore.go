@@ -13,6 +13,7 @@ import (
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 )
 
@@ -92,7 +93,7 @@ func CompareNSXRestore(k8sClient client.Client, nsxClient *nsx.Client) (bool, er
 	return false, nil
 }
 
-func UpdateRestoreEndTime(k8sClient client.Client) error {
+func updateRestoreEndTime(k8sClient client.Client) error {
 	ctx := context.TODO()
 	gvk := schema.GroupVersionKind{
 		Group:   "nsx.vmware.com",
@@ -114,4 +115,38 @@ func UpdateRestoreEndTime(k8sClient client.Client) error {
 		obj.SetAnnotations(annotations)
 		return k8sClient.Update(ctx, obj)
 	})
+}
+
+func ProcessRestore(reconcilerList []commonctl.ReconcilerProvider, client client.Client) error {
+	log.Info("Enter restore mode")
+	var errList []error
+	// Collect Garbage from overlay to underlay
+	for i := len(reconcilerList) - 1; i >= 0; i-- {
+		if reconcilerList[i] != nil {
+			if err := reconcilerList[i].CollectGarbage(context.TODO()); err != nil {
+				errList = append(errList, err)
+			}
+		}
+	}
+	if len(errList) > 0 {
+		return fmt.Errorf("failed to collect garbage: %v", errList)
+	}
+	log.Info("Garbage collection succeeds in restore mode")
+	// Restore resource from underlay to overlay
+	for _, reconciler := range reconcilerList {
+		if reconciler != nil {
+			if err := reconciler.RestoreReconcile(); err != nil {
+				errList = append(errList, err)
+			}
+		}
+	}
+	if len(errList) > 0 {
+		return fmt.Errorf("failed to restore resources: %v", errList)
+	}
+	log.Info("Restore reconcile succeeds in restore mode")
+
+	if err := updateRestoreEndTime(client); err != nil {
+		return fmt.Errorf("failed to update restore end time: %w", err)
+	}
+	return nil
 }

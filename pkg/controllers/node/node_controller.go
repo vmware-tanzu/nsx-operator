@@ -72,8 +72,8 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	return common.ResultNormal, nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
-func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
+// setupWithManager sets up the controller with the Manager.
+func (r *NodeReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Node{}).
 		WithEventFilter(PredicateFuncsNode).
@@ -121,7 +121,7 @@ func NewNodeReconciler(mgr ctrl.Manager, nodeService *node.NodeService) *NodeRec
 }
 
 func (r *NodeReconciler) Start(mgr ctrl.Manager) error {
-	err := r.SetupWithManager(mgr)
+	err := r.setupWithManager(mgr)
 	if err != nil {
 		return err
 	}

@@ -206,8 +206,8 @@ func (r *PodReconciler) GetNodeByName(nodeName string) (*model.HostTransportNode
 	return nodes[0], nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
-func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
+// setupWithManager sets up the controller with the Manager.
+func (r *PodReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Pod{}).
 		WithEventFilter(PredicateFuncsPod).
@@ -247,7 +247,7 @@ func NewPodReconciler(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPort
 
 // Start setup manager and launch GC
 func (r *PodReconciler) Start(mgr ctrl.Manager) error {
-	err := r.SetupWithManager(mgr)
+	err := r.setupWithManager(mgr)
 	if err != nil {
 		return err
 	}
