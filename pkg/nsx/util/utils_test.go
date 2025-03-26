@@ -796,36 +796,6 @@ func TestMergeAddressByPort(t *testing.T) {
 	}
 }
 
-func TestParseVPCPath(t *testing.T) {
-	tests := []struct {
-		name               string
-		nsxResourcePath    string
-		expectedOrgID      string
-		expectedProjectID  string
-		expectedVpcID      string
-		expectedResourceID string
-	}{
-		{
-			name:               "ValidPath",
-			nsxResourcePath:    "/orgs/org1/projects/proj1/vpcs/vpc1/resources/res1",
-			expectedOrgID:      "org1",
-			expectedProjectID:  "proj1",
-			expectedVpcID:      "vpc1",
-			expectedResourceID: "res1",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			orgID, projectID, vpcID, resourceID := ParseVPCPath(tt.nsxResourcePath)
-			assert.Equal(t, tt.expectedOrgID, orgID)
-			assert.Equal(t, tt.expectedProjectID, projectID)
-			assert.Equal(t, tt.expectedVpcID, vpcID)
-			assert.Equal(t, tt.expectedResourceID, resourceID)
-		})
-	}
-}
-
 func TestDumpHttpRequest(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -875,19 +845,19 @@ func TestNewNSXApiError(t *testing.T) {
 	tests := []struct {
 		name       string
 		apiError   *model.ApiError
-		apiTypeNum apierrors.ErrorTypeEnum
+		errTypeNum apierrors.ErrorTypeEnum
 		wantError  *NSXApiError
 	}{
 		{
 			name:       "ValidApiError",
-			apiTypeNum: apierrors.ErrorType_RESOURCE_IN_USE,
+			errTypeNum: apierrors.ErrorType_NOT_FOUND,
 			apiError: &model.ApiError{
 				ErrorCode:    pointy.Int64(123),
 				ErrorMessage: pointy.String("Test error message"),
 				Details:      pointy.String("Test details"),
 			},
 			wantError: &NSXApiError{
-				ErrorTypeEnum: apierrors.ErrorType_RESOURCE_IN_USE,
+				ErrorTypeEnum: apierrors.ErrorType_NOT_FOUND,
 				ApiError: &model.ApiError{
 					ErrorCode:    pointy.Int64(123),
 					ErrorMessage: pointy.String("Test error message"),
@@ -896,17 +866,15 @@ func TestNewNSXApiError(t *testing.T) {
 			},
 		},
 		{
-			name:       "NilApiError",
-			apiError:   nil,
-			apiTypeNum: "",
-			wantError: &NSXApiError{ApiError: nil,
-				ErrorTypeEnum: ""},
+			name:      "NilApiError",
+			apiError:  nil,
+			wantError: &NSXApiError{ApiError: nil},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotError := NewNSXApiError(tt.apiError, tt.apiTypeNum)
+			gotError := NewNSXApiError(tt.apiError, tt.errTypeNum)
 			assert.Equal(t, tt.wantError, gotError)
 		})
 	}
@@ -973,8 +941,8 @@ func TestTransNSXApiError(t *testing.T) {
 				ErrorType: &errortype,
 			},
 			expected: &NSXApiError{
-				ApiError:      &model.ApiError{},
 				ErrorTypeEnum: "INVALID_REQUEST",
+				ApiError:      &model.ApiError{},
 			},
 		},
 	}
@@ -985,7 +953,6 @@ func TestTransNSXApiError(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
-
 	err := apierrors.NewNotFound()
 	err.Data = data.NewStructValue("test", nil)
 	t.Log(err)
@@ -996,6 +963,20 @@ func TestTransNSXApiError(t *testing.T) {
 
 	assert.Equal(t, ok, true)
 	assert.Equal(t, gotErr.Type(), apierrors.ErrorType_NOT_FOUND)
+}
+
+func TestParseDHCPMode(t *testing.T) {
+	nsxMode := ParseDHCPMode("DHCPDeactivated")
+	assert.Equal(t, "DHCP_DEACTIVATED", nsxMode)
+
+	nsxMode = ParseDHCPMode("DHCPServer")
+	assert.Equal(t, "DHCP_SERVER", nsxMode)
+
+	nsxMode = ParseDHCPMode("DHCPRelay")
+	assert.Equal(t, "DHCP_RELAY", nsxMode)
+
+	nsxMode = ParseDHCPMode("None")
+	assert.Equal(t, "", nsxMode)
 }
 
 func TestUpdateURL(t *testing.T) {
@@ -1308,7 +1289,6 @@ func TestRelatedErrorToString(t *testing.T) {
 		})
 	}
 }
-
 func TestRelatedErrorsToString(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1416,7 +1396,6 @@ func TestSafeInt(t *testing.T) {
 		})
 	}
 }
-
 func TestIsEmptyAPIError(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1459,7 +1438,6 @@ func TestIsEmptyAPIError(t *testing.T) {
 		})
 	}
 }
-
 func TestCastApiError(t *testing.T) {
 	tests := []struct {
 		name               string
@@ -1494,7 +1472,6 @@ func TestCastApiError(t *testing.T) {
 		})
 	}
 }
-
 func TestFindTag(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1534,78 +1511,4 @@ func TestFindTag(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
-}
-
-func TestIsInvalidLicense(t *testing.T) {
-	tests := []struct {
-		name     string
-		err      error
-		expected bool
-	}{
-		{
-			name: "InvalidLicenseInRelatedErrors",
-			err: &NSXApiError{
-				ApiError: &model.ApiError{
-					RelatedErrors: []model.RelatedApiError{
-						{
-							ErrorCode:    pointy.Int64(InvalidLicenseErrorCode),
-							ErrorMessage: pointy.String("Invalid license error message"),
-						},
-					},
-				},
-			},
-			expected: true,
-		},
-		{
-			name: "InvalidLicenseInErrorCode",
-			err: &NSXApiError{
-				ApiError: &model.ApiError{
-					ErrorCode:    pointy.Int64(InvalidLicenseErrorCode),
-					ErrorMessage: pointy.String("Invalid license error message"),
-				},
-			},
-			expected: true,
-		},
-		{
-			name: "NoInvalidLicenseError",
-			err: &NSXApiError{
-				ApiError: &model.ApiError{
-					ErrorCode:    pointy.Int64(123),
-					ErrorMessage: pointy.String("Some other error message"),
-				},
-			},
-			expected: false,
-		},
-		{
-			name:     "NonNSXApiError",
-			err:      errors.New("Some other error"),
-			expected: false,
-		},
-		{
-			name:     "NilError",
-			err:      nil,
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := IsInvalidLicense(tt.err)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestParseDHCPMode(t *testing.T) {
-	nsxMode := ParseDHCPMode("DHCPDeactivated")
-	assert.Equal(t, "DHCP_DEACTIVATED", nsxMode)
-
-	nsxMode = ParseDHCPMode("DHCPServer")
-	assert.Equal(t, "DHCP_SERVER", nsxMode)
-
-	nsxMode = ParseDHCPMode("DHCPRelay")
-	assert.Equal(t, "DHCP_RELAY", nsxMode)
-
-	nsxMode = ParseDHCPMode("None")
-	assert.Equal(t, "", nsxMode)
 }
