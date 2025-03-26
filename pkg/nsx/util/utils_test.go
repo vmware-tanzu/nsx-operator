@@ -19,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
 	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
@@ -98,6 +99,19 @@ func TestInitErrorFromResponse(t *testing.T) {
 
 	assert.Equal(err, nil, "Read resp body error")
 	assert.Equal(string(body), result, "Read resp body error")
+
+	//body is nil
+	handler = func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "")
+	}
+
+	handler(w, req)
+	resp = w.Result()
+	body, _ = io.ReadAll(resp.Body)
+	err = InitErrorFromResponse("10.0.0.1", resp.StatusCode, body)
+	assert.Equal(err, nil, "Empty body")
+	assert.Equal(string(body), "", "Empty body")
+
 }
 
 func TestShouldGroundPoint(t *testing.T) {
@@ -612,38 +626,363 @@ func TestMergeArraysWithoutDuplicate(t *testing.T) {
 	}
 }
 
-func TestTransNSXApiError(t *testing.T) {
+func TestCategory(t *testing.T) {
 	tests := []struct {
-		name    string
-		err     error
-		wantErr bool
+		name     string
+		err      error
+		category string
+		expected bool
 	}{
 		{
-			name:    "Nil error",
-			err:     nil,
-			wantErr: false,
+			name:     "GroundTriggerError",
+			err:      CreateConnectionError("127.0.0.1"),
+			category: "groundTriggers",
+			expected: true,
 		},
 		{
-			name:    "Valid NSX API error",
-			err:     apierrors.NewNotFound(),
-			wantErr: true,
+			name:     "RetriableError",
+			err:      errors.New("ServerBusy"),
+			category: "retriables",
+			expected: false,
 		},
 		{
-			name:    "Unknown error type",
-			err:     errors.New("unknown error"),
-			wantErr: true,
+			name:     "RegenerateTriggerError",
+			err:      errors.New("InvalidCredentials"),
+			category: "regenerateTriggers",
+			expected: false,
+		},
+		{
+			name:     "NonMatchingError",
+			err:      errors.New("SomeOtherError"),
+			category: "groundTriggers",
+			expected: false,
+		},
+		{
+			name:     "NilError",
+			err:      nil,
+			category: "groundTriggers",
+			expected: false,
+		},
+		{
+			name:     "InvalidCategory",
+			err:      errors.New("ConnectionError"),
+			category: "invalidCategory",
+			expected: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := TransNSXApiError(tt.err)
-			if (got != nil) != tt.wantErr {
-				t.Errorf("TransNSXApiError() error = %v, wantErr %v", got, tt.wantErr)
+			result := category(tt.err, tt.category)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestExtractHTTPDetailFromBody(t *testing.T) {
+	tests := []struct {
+		name       string
+		host       string
+		statusCode int
+		body       []byte
+		wantDetail ErrorDetail
+		wantErr    bool
+	}{
+		{
+			name:       "EmptyBody",
+			host:       "10.0.0.1",
+			statusCode: 200,
+			body:       []byte(""),
+			wantDetail: ErrorDetail{StatusCode: 200},
+			wantErr:    false,
+		},
+		{
+			name:       "InvalidJSON",
+			host:       "10.0.0.1",
+			statusCode: 400,
+			body:       []byte("{invalid json}"),
+			wantDetail: ErrorDetail{StatusCode: 400},
+			wantErr:    true,
+		},
+		{
+			name:       "ValidResponse",
+			host:       "10.0.0.1",
+			statusCode: 500,
+			body:       []byte(`{"error_code": 123, "related_errors": [{"httpStatus": "404", "error_code": 456, "error_message": "Related error"}], "error_message": "Main error"}`),
+			wantDetail: ErrorDetail{
+				StatusCode:         500,
+				ErrorCode:          123,
+				RelatedErrorCodes:  []int{456},
+				RelatedStatusCodes: []string{"404"},
+				Details:            "Main errorMain error Related error",
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotDetail, err := extractHTTPDetailFromBody(tt.host, tt.statusCode, tt.body)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("extractHTTPDetailFromBody() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(gotDetail, tt.wantDetail) {
+				t.Errorf("extractHTTPDetailFromBody() = %v, want %v", gotDetail, tt.wantDetail)
 			}
 		})
 	}
+}
 
+func TestMergeAddressByPort(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []PortAddress
+		expected []PortAddress
+	}{
+		{
+			name: "SinglePortSingleIP",
+			input: []PortAddress{
+				{Port: 80, IPs: []string{"192.168.1.1"}},
+			},
+			expected: []PortAddress{
+				{Port: 80, IPs: []string{"192.168.1.1"}},
+			},
+		},
+		{
+			name: "SinglePortMultipleIPs",
+			input: []PortAddress{
+				{Port: 80, IPs: []string{"192.168.1.1", "192.168.1.2"}},
+			},
+			expected: []PortAddress{
+				{Port: 80, IPs: []string{"192.168.1.1", "192.168.1.2"}},
+			},
+		},
+		{
+			name: "MultiplePortsSingleIP",
+			input: []PortAddress{
+				{Port: 80, IPs: []string{"192.168.1.1"}},
+				{Port: 443, IPs: []string{"192.168.1.2"}},
+			},
+			expected: []PortAddress{
+				{Port: 80, IPs: []string{"192.168.1.1"}},
+				{Port: 443, IPs: []string{"192.168.1.2"}},
+			},
+		},
+		{
+			name: "MultiplePortsMultipleIPs",
+			input: []PortAddress{
+				{Port: 80, IPs: []string{"192.168.1.1"}},
+				{Port: 443, IPs: []string{"192.168.1.2"}},
+				{Port: 80, IPs: []string{"192.168.1.3"}},
+			},
+			expected: []PortAddress{
+				{Port: 80, IPs: []string{"192.168.1.1", "192.168.1.3"}},
+				{Port: 443, IPs: []string{"192.168.1.2"}},
+			},
+		},
+		{
+			name:     "EmptyInput",
+			input:    []PortAddress{},
+			expected: []PortAddress(nil),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := MergeAddressByPort(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestParseVPCPath(t *testing.T) {
+	tests := []struct {
+		name               string
+		nsxResourcePath    string
+		expectedOrgID      string
+		expectedProjectID  string
+		expectedVpcID      string
+		expectedResourceID string
+	}{
+		{
+			name:               "ValidPath",
+			nsxResourcePath:    "/orgs/org1/projects/proj1/vpcs/vpc1/resources/res1",
+			expectedOrgID:      "org1",
+			expectedProjectID:  "proj1",
+			expectedVpcID:      "vpc1",
+			expectedResourceID: "res1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			orgID, projectID, vpcID, resourceID := ParseVPCPath(tt.nsxResourcePath)
+			assert.Equal(t, tt.expectedOrgID, orgID)
+			assert.Equal(t, tt.expectedProjectID, projectID)
+			assert.Equal(t, tt.expectedVpcID, vpcID)
+			assert.Equal(t, tt.expectedResourceID, resourceID)
+		})
+	}
+}
+
+func TestDumpHttpRequest(t *testing.T) {
+	tests := []struct {
+		name       string
+		request    *http.Request
+		expectBody string
+	}{
+		{
+			name: "ValidRequestWithBody",
+			request: &http.Request{
+				Method: "POST",
+				URL:    &url.URL{Path: "/test"},
+				Body:   io.NopCloser(strings.NewReader("test body")),
+				Header: http.Header{"Content-Type": []string{"application/json"}},
+			},
+			expectBody: "test body",
+		},
+		{
+			name: "ValidRequestWithoutBody",
+			request: &http.Request{
+				Method: "GET",
+				URL:    &url.URL{Path: "/test"},
+				Body:   nil,
+				Header: http.Header{"Content-Type": []string{"application/json"}},
+			},
+			expectBody: "",
+		},
+		{
+			name:       "NilRequest",
+			request:    nil,
+			expectBody: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			DumpHttpRequest(tt.request)
+			if tt.request != nil && tt.request.Body != nil {
+				body, err := io.ReadAll(tt.request.Body)
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectBody, string(body))
+			}
+		})
+	}
+}
+
+func TestNewNSXApiError(t *testing.T) {
+	tests := []struct {
+		name       string
+		apiError   *model.ApiError
+		errTypeNum apierrors.ErrorTypeEnum
+		wantError  *NSXApiError
+	}{
+		{
+			name:       "ValidApiError",
+			errTypeNum: apierrors.ErrorType_NOT_FOUND,
+			apiError: &model.ApiError{
+				ErrorCode:    pointy.Int64(123),
+				ErrorMessage: pointy.String("Test error message"),
+				Details:      pointy.String("Test details"),
+			},
+			wantError: &NSXApiError{
+				ErrorTypeEnum: apierrors.ErrorType_NOT_FOUND,
+				ApiError: &model.ApiError{
+					ErrorCode:    pointy.Int64(123),
+					ErrorMessage: pointy.String("Test error message"),
+					Details:      pointy.String("Test details"),
+				},
+			},
+		},
+		{
+			name:      "NilApiError",
+			apiError:  nil,
+			wantError: &NSXApiError{ApiError: nil},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotError := NewNSXApiError(tt.apiError, tt.errTypeNum)
+			assert.Equal(t, tt.wantError, gotError)
+		})
+	}
+}
+
+func TestNSXApiError_Error(t *testing.T) {
+	tests := []struct {
+		name     string
+		apiError *model.ApiError
+		expected string
+	}{
+		{
+			name: "ValidApiError",
+			apiError: &model.ApiError{
+				ErrorCode:    pointy.Int64(123),
+				ErrorMessage: pointy.String("Test error message"),
+				Details:      pointy.String("Test details"),
+				RelatedErrors: []model.RelatedApiError{
+					{
+						ErrorCode:    pointy.Int64(456),
+						ErrorMessage: pointy.String("Related error message"),
+					},
+				},
+			},
+			expected: "nsx error code: 123, message: Test error message, details: Test details, related error: [{Details: , ErrorCode: 456,  ErrorMessage: Related error message, ModuleName: }]",
+		},
+		{
+			name:     "NilApiError",
+			apiError: nil,
+			expected: "SDKError: unknown error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nsxApiError := &NSXApiError{ApiError: tt.apiError}
+			result := nsxApiError.Error()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestTransNSXApiError(t *testing.T) {
+	errortype := apierrors.ErrorTypeEnum("INVALID_REQUEST")
+	tests := []struct {
+		name     string
+		err      error
+		expected error
+	}{
+		{
+			name:     "NilError",
+			err:      nil,
+			expected: nil,
+		},
+		{
+			name:     "NonApiError",
+			err:      errors.New("some error"),
+			expected: errors.New("some error"),
+		},
+		{
+			name: "ApiError",
+			err: apierrors.InvalidRequest{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &NSXApiError{
+				ErrorTypeEnum: "INVALID_REQUEST",
+				ApiError:      &model.ApiError{},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := TransNSXApiError(tt.err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 	err := apierrors.NewNotFound()
 	err.Data = data.NewStructValue("test", nil)
 	t.Log(err)
@@ -668,4 +1007,538 @@ func TestParseDHCPMode(t *testing.T) {
 
 	nsxMode = ParseDHCPMode("None")
 	assert.Equal(t, "", nsxMode)
+}
+
+func TestUpdateURL(t *testing.T) {
+	tests := []struct {
+		name         string
+		reqUrl       string
+		nsxtHost     string
+		expectedHost string
+		expectedPath string
+	}{
+		{
+			name:         "UpdateHost",
+			reqUrl:       "https://10.186.66.241/policy/api/v1/search/query",
+			nsxtHost:     "newhost",
+			expectedHost: "newhost",
+			expectedPath: "/policy/api/v1/search/query",
+		},
+		{
+			name:         "UpdatePathWithEnvoy",
+			reqUrl:       "http://localhost:1080/http1/10.186.66.241/443",
+			nsxtHost:     "newhost",
+			expectedHost: "localhost:1080",
+			expectedPath: "/http1/newhost/443",
+		},
+		{
+			name:         "UpdatePathWithoutEnvoy",
+			reqUrl:       "http://localhost:1080/external-cert/http1/10.186.66.241/443/policy/api/v1/search/",
+			nsxtHost:     "newhost",
+			expectedHost: "localhost:1080",
+			expectedPath: "/external-cert/http1/newhost/443/policy/api/v1/search/",
+		},
+		{
+			name:         "NoEnvoyInPath",
+			reqUrl:       "http://localhost:1080/some/other/path",
+			nsxtHost:     "newhost",
+			expectedHost: "newhost",
+			expectedPath: "/some/other/path",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reqUrl, _ := url.Parse(tt.reqUrl)
+			UpdateURL(reqUrl, tt.nsxtHost)
+			assert.Equal(t, tt.expectedHost, reqUrl.Host)
+			assert.Equal(t, tt.expectedPath, reqUrl.Path)
+		})
+	}
+}
+
+func TestDumpAPIError(t *testing.T) {
+	errortype := apierrors.ErrorTypeEnum("INVALID_REQUEST")
+	tests := []struct {
+		name     string
+		err      error
+		expected *model.ApiError
+	}{
+		{
+			name: "AlreadyExists",
+			err: apierrors.AlreadyExists{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "AlreadyInDesiredState",
+			err: apierrors.AlreadyInDesiredState{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "Canceled",
+			err: apierrors.Canceled{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "ConcurrentChange",
+			err: apierrors.ConcurrentChange{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "Error",
+			err: apierrors.Error{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "FeatureInUse",
+			err: apierrors.FeatureInUse{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "InternalServerError",
+			err: apierrors.InternalServerError{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "InvalidRequest",
+			err: apierrors.InvalidRequest{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "InvalidArgument",
+			err: apierrors.InvalidArgument{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "InvalidElementConfiguration",
+			err: apierrors.InvalidElementConfiguration{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "InvalidElementType",
+			err: apierrors.InvalidElementType{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "NotAllowedInCurrentState",
+			err: apierrors.NotAllowedInCurrentState{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "NotFound",
+			err: apierrors.NotFound{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "OperationNotFound",
+			err: apierrors.OperationNotFound{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "ResourceBusy",
+			err: apierrors.ResourceBusy{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "ResourceInUse",
+			err: apierrors.ResourceInUse{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "ResourceInaccessible",
+			err: apierrors.ResourceInaccessible{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "ServiceUnavailable",
+			err: apierrors.ServiceUnavailable{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "TimedOut",
+			err: apierrors.TimedOut{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "UnableToAllocateResource",
+			err: apierrors.UnableToAllocateResource{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "Unauthenticated",
+			err: apierrors.Unauthenticated{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "Unauthorized",
+			err: apierrors.Unauthorized{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "UnexpectedInput",
+			err: apierrors.UnexpectedInput{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "Unsupported",
+			err: apierrors.Unsupported{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name: "UnverifiedPeer",
+			err: apierrors.UnverifiedPeer{
+				Data:      &data.StructValue{},
+				ErrorType: &errortype,
+			},
+			expected: &model.ApiError{},
+		},
+		{
+			name:     "NonMatchingError",
+			err:      errors.New("SomeOtherError"),
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			apiError, _ := DumpAPIError(tt.err)
+			assert.Equal(t, tt.expected, apiError)
+		})
+	}
+}
+
+func TestRelatedErrorToString(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      *model.RelatedApiError
+		expected string
+	}{
+		{
+			name:     "NilError",
+			err:      nil,
+			expected: "nil",
+		},
+		{
+			name: "ValidError",
+			err: &model.RelatedApiError{
+				Details:      pointy.String("Some details"),
+				ErrorCode:    pointy.Int64(123),
+				ErrorMessage: pointy.String("Some error message"),
+				ModuleName:   pointy.String("Some module"),
+			},
+			expected: "{Details: Some details, ErrorCode: 123,  ErrorMessage: Some error message, ModuleName: Some module}",
+		},
+		{
+			name: "EmptyFields",
+			err: &model.RelatedApiError{
+				Details:      nil,
+				ErrorCode:    nil,
+				ErrorMessage: nil,
+				ModuleName:   nil,
+			},
+			expected: "{Details: , ErrorCode: 0,  ErrorMessage: , ModuleName: }",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := relatedErrorToString(tt.err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+func TestRelatedErrorsToString(t *testing.T) {
+	tests := []struct {
+		name     string
+		errors   []model.RelatedApiError
+		expected string
+	}{
+		{
+			name:     "NilErrors",
+			errors:   nil,
+			expected: "nil",
+		},
+		{
+			name:     "EmptyErrors",
+			errors:   []model.RelatedApiError{},
+			expected: "[]",
+		},
+		{
+			name: "SingleError",
+			errors: []model.RelatedApiError{
+				{
+					Details:      pointy.String("Some details"),
+					ErrorCode:    pointy.Int64(123),
+					ErrorMessage: pointy.String("Some error message"),
+					ModuleName:   pointy.String("Some module"),
+				},
+			},
+			expected: "[{Details: Some details, ErrorCode: 123,  ErrorMessage: Some error message, ModuleName: Some module}]",
+		},
+		{
+			name: "MultipleErrors",
+			errors: []model.RelatedApiError{
+				{
+					Details:      pointy.String("First details"),
+					ErrorCode:    pointy.Int64(123),
+					ErrorMessage: pointy.String("First error message"),
+					ModuleName:   pointy.String("First module"),
+				},
+				{
+					Details:      pointy.String("Second details"),
+					ErrorCode:    pointy.Int64(456),
+					ErrorMessage: pointy.String("Second error message"),
+					ModuleName:   pointy.String("Second module"),
+				},
+			},
+			expected: "[{Details: First details, ErrorCode: 123,  ErrorMessage: First error message, ModuleName: First module}, {Details: Second details, ErrorCode: 456,  ErrorMessage: Second error message, ModuleName: Second module}]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := relatedErrorsToString(tt.errors)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestSafeString(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    *string
+		expected string
+	}{
+		{
+			name:     "NilPointer",
+			input:    nil,
+			expected: "",
+		},
+		{
+			name:     "NonNilPointer",
+			input:    pointy.String("test string"),
+			expected: "test string",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := safeString(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestSafeInt(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    *int64
+		expected int64
+	}{
+		{
+			name:     "NilPointer",
+			input:    nil,
+			expected: 0,
+		},
+		{
+			name:     "NonNilPointer",
+			input:    pointy.Int64(123),
+			expected: 123,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := safeInt(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+func TestIsEmptyAPIError(t *testing.T) {
+	tests := []struct {
+		name     string
+		apiError model.ApiError
+		expected bool
+	}{
+		{
+			name:     "EmptyApiError",
+			apiError: model.ApiError{},
+			expected: true,
+		},
+		{
+			name: "NonEmptyApiErrorWithErrorCode",
+			apiError: model.ApiError{
+				ErrorCode: pointy.Int64(123),
+			},
+			expected: false,
+		},
+		{
+			name: "NonEmptyApiErrorWithErrorMessage",
+			apiError: model.ApiError{
+				ErrorMessage: pointy.String("Some error message"),
+			},
+			expected: false,
+		},
+		{
+			name: "NonEmptyApiErrorWithBothFields",
+			apiError: model.ApiError{
+				ErrorCode:    pointy.Int64(123),
+				ErrorMessage: pointy.String("Some error message"),
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isEmptyAPIError(tt.apiError)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+func TestCastApiError(t *testing.T) {
+	tests := []struct {
+		name               string
+		apiErrorDataValue  *data.StructValue
+		expectedApiError   *model.ApiError
+		expectedLogMessage string
+	}{
+		{
+			name:               "NilApiErrorDataValue",
+			apiErrorDataValue:  nil,
+			expectedApiError:   nil,
+			expectedLogMessage: "Dump api error no extra error info",
+		},
+		{
+			name: "ValidApiErrorDataValue",
+			apiErrorDataValue: data.NewStructValue("ApiError", map[string]data.DataValue{
+				"error_code":    data.NewIntegerValue(123),
+				"error_message": data.NewStringValue("Test error message"),
+			}),
+			expectedApiError: &model.ApiError{
+				ErrorCode:    pointy.Int64(123),
+				ErrorMessage: pointy.String("Test error message"),
+			},
+			expectedLogMessage: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			apiError := castApiError(tt.apiErrorDataValue)
+			assert.Equal(t, tt.expectedApiError, apiError)
+		})
+	}
+}
+func TestFindTag(t *testing.T) {
+	tests := []struct {
+		name     string
+		tags     []model.Tag
+		tagScope string
+		expected string
+	}{
+		{
+			name: "TagFound",
+			tags: []model.Tag{
+				{Scope: pointy.String("scope1"), Tag: pointy.String("tag1")},
+				{Scope: pointy.String("scope2"), Tag: pointy.String("tag2")},
+			},
+			tagScope: "scope1",
+			expected: "tag1",
+		},
+		{
+			name: "TagNotFound",
+			tags: []model.Tag{
+				{Scope: pointy.String("scope1"), Tag: pointy.String("tag1")},
+				{Scope: pointy.String("scope2"), Tag: pointy.String("tag2")},
+			},
+			tagScope: "scope3",
+			expected: "",
+		},
+		{
+			name:     "EmptyTags",
+			tags:     []model.Tag{},
+			tagScope: "scope1",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FindTag(tt.tags, tt.tagScope)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
