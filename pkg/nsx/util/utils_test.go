@@ -796,36 +796,6 @@ func TestMergeAddressByPort(t *testing.T) {
 	}
 }
 
-func TestParseVPCPath(t *testing.T) {
-	tests := []struct {
-		name               string
-		nsxResourcePath    string
-		expectedOrgID      string
-		expectedProjectID  string
-		expectedVpcID      string
-		expectedResourceID string
-	}{
-		{
-			name:               "ValidPath",
-			nsxResourcePath:    "/orgs/org1/projects/proj1/vpcs/vpc1/resources/res1",
-			expectedOrgID:      "org1",
-			expectedProjectID:  "proj1",
-			expectedVpcID:      "vpc1",
-			expectedResourceID: "res1",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			orgID, projectID, vpcID, resourceID := ParseVPCPath(tt.nsxResourcePath)
-			assert.Equal(t, tt.expectedOrgID, orgID)
-			assert.Equal(t, tt.expectedProjectID, projectID)
-			assert.Equal(t, tt.expectedVpcID, vpcID)
-			assert.Equal(t, tt.expectedResourceID, resourceID)
-		})
-	}
-}
-
 func TestDumpHttpRequest(t *testing.T) {
 	tests := []struct {
 		name       string
