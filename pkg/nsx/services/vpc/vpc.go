@@ -718,7 +718,9 @@ func (s *VPCService) IsLBProviderChanged(existingVPC *model.Vpc, lbProvider LBPr
 		return false
 	}
 	if lbProvider == AVILB {
-		if existingVPC.LoadBalancerVpcEndpoint.Enabled == nil || !*existingVPC.LoadBalancerVpcEndpoint.Enabled {
+		if existingVPC.LoadBalancerVpcEndpoint == nil || existingVPC.LoadBalancerVpcEndpoint.Enabled == nil ||
+			!*existingVPC.LoadBalancerVpcEndpoint.Enabled {
+			log.Info("Need to update AVI LoadBalancerVpcEndpoint")
 			return true
 		}
 	}
