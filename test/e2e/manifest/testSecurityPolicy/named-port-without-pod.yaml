@@ -17,7 +17,7 @@ spec:
       hostname: web-deployment
       containers:
         - name: web
-          image: "harbor-repo.vmware.com/dockerhub-proxy-cache/humanux/http_https_echo:latest"
+          image: "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
@@ -44,6 +44,7 @@ spec:
       ports:
         - protocol: TCP
           port: web-port
+      name: named-port-rule
     - direction: in
       action: drop
     - direction: out
