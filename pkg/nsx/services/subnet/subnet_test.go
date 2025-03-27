@@ -176,12 +176,12 @@ func TestInitializeSubnetService(t *testing.T) {
 		Status:     v1alpha1.SubnetStatus{},
 	}
 	vpcResourceInfo := &common.VPCResourceInfo{
-		OrgID:             "",
-		ProjectID:         "",
-		VPCID:             "",
-		ID:                "",
-		ParentID:          "",
-		PrivateIpv4Blocks: nil,
+		OrgID:      "",
+		ProjectID:  "",
+		VPCID:      "",
+		ID:         "",
+		ParentID:   "",
+		PrivateIps: nil,
 	}
 	nsxSubnetID := util.GenerateIDByObject(subnet)
 

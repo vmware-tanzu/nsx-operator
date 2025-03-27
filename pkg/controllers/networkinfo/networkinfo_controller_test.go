@@ -185,11 +185,81 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						},
 					}, true, nil
 				})
-				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
-					return false, ""
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (*servicecommon.VPCConnectionStatus, error) {
+					return &servicecommon.VPCConnectionStatus{
+						GatewayConnectionReady: true,
+						ServiceClusterReady:    false,
+						ServiceClusterReason:   servicecommon.ReasonServiceClusterNotSet,
+					}, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateGatewayConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
-					return true, "", nil
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider) (*model.Vpc, error) {
+					return &model.Vpc{
+						DisplayName: servicecommon.String("vpc-name"),
+						Path:        servicecommon.String("/orgs/default/projects/project-quality/vpcs/fake-vpc"),
+						Id:          servicecommon.String("vpc-id"),
+					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "IsSharedVPCNamespaceByNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (bool, error) {
+					return false, nil
+				})
+				patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil},
+					Times:  1,
+				}})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
+					return vpc.NSXLB, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
+					return "100.64.0.3", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
+					return "lbs-path"
+				})
+				patches.ApplyFunc(r.StatusUpdater.UpdateSuccess,
+					func(_ context.Context, _ client.Object, _ common.UpdateSuccessStatusFn, _ ...interface{}) {
+					})
+				patches.ApplyFunc(setNSNetworkReadyCondition,
+					func(ctx context.Context, client client.Client, nsName string, condition *corev1.NamespaceCondition) {
+						require.True(t, nsConditionEquals(*condition, *nsMsgVPCAutoSNATDisabled.getNSNetworkCondition()))
+					})
+				return patches
+			},
+			args:    requestArgs,
+			want:    common.ResultRequeueAfter60sec,
+			wantErr: false,
+		},
+		{
+			name: "ServiceClusterReadyInSystemVPC",
+			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: requestArgs.req.Namespace,
+						Name:      requestArgs.req.Name,
+					},
+				}))
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.VPCNetworkConfiguration{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "system",
+					},
+				}))
+				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, _ context.Context, _ string) (string, error) {
+					return servicecommon.SystemVPCNetworkConfigurationName, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
+					return &v1alpha1.VPCNetworkConfiguration{
+						ObjectMeta: metav1.ObjectMeta{Name: servicecommon.SystemVPCNetworkConfigurationName},
+						Spec: v1alpha1.VPCNetworkConfigurationSpec{
+							VPCConnectivityProfile: "/orgs/default/projects/nsx_operator_e2e_test/vpc-connectivity-profiles/default",
+							NSXProject:             "/orgs/default/projects/project-quality",
+						},
+					}, true, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (*servicecommon.VPCConnectionStatus, error) {
+					return &servicecommon.VPCConnectionStatus{
+						GatewayConnectionReady:  false,
+						GatewayConnectionReason: servicecommon.ReasonGatewayConnectionNotSet,
+						ServiceClusterReady:     true,
+					}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider) (*model.Vpc, error) {
 					return &model.Vpc{
@@ -253,12 +323,16 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						},
 					}, true, nil
 				})
-				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
+				patches.ApplyFunc(getGatewayConnectionStatus, func(_ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
 					return true, ""
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateGatewayConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (*servicecommon.VPCConnectionStatus, error) {
 					assert.FailNow(t, "should not be called")
-					return true, "", nil
+					return &servicecommon.VPCConnectionStatus{
+						GatewayConnectionReady: true,
+						ServiceClusterReady:    false,
+						ServiceClusterReason:   servicecommon.ReasonServiceClusterNotSet,
+					}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider) (*model.Vpc, error) {
 					return &model.Vpc{
@@ -323,12 +397,13 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						},
 					}, true, nil
 				})
-				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
-					return false, ""
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateGatewayConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (*servicecommon.VPCConnectionStatus, error) {
 					assert.FailNow(t, "should not be called")
-					return true, "", nil
+					return &servicecommon.VPCConnectionStatus{
+						GatewayConnectionReady: true,
+						ServiceClusterReady:    false,
+						ServiceClusterReason:   servicecommon.ReasonServiceClusterNotSet,
+					}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider) (*model.Vpc, error) {
 					assert.FailNow(t, "should not be called")
@@ -336,7 +411,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyFunc(setNSNetworkReadyCondition,
 					func(ctx context.Context, client client.Client, nsName string, condition *corev1.NamespaceCondition) {
-						require.True(t, nsConditionEquals(*condition, *nsMsgVPCGwConnectionNotReady.getNSNetworkCondition()))
+						require.True(t, nsConditionEquals(*condition, *nsMsgVPCConnectionNotReady.getNSNetworkCondition()))
 					})
 				return patches
 			},
@@ -370,11 +445,12 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						},
 					}, true, nil
 				})
-				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
-					return false, ""
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateGatewayConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
-					return true, "", nil
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (*servicecommon.VPCConnectionStatus, error) {
+					return &servicecommon.VPCConnectionStatus{
+						GatewayConnectionReady: true,
+						ServiceClusterReady:    false,
+						ServiceClusterReason:   servicecommon.ReasonServiceClusterNotSet,
+					}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
 					return vpc.NSXLB, nil
@@ -458,11 +534,12 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						},
 					}, true, nil
 				})
-				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
-					return false, ""
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateGatewayConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
-					return true, "", nil
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (*servicecommon.VPCConnectionStatus, error) {
+					return &servicecommon.VPCConnectionStatus{
+						GatewayConnectionReady: true,
+						ServiceClusterReady:    false,
+						ServiceClusterReason:   servicecommon.ReasonServiceClusterNotSet,
+					}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
 					return vpc.NSXLB, nil
@@ -536,11 +613,15 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						},
 					}, true, nil
 				})
-				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
+				patches.ApplyFunc(getGatewayConnectionStatus, func(_ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
 					return true, ""
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateGatewayConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
-					return true, "", nil
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (*servicecommon.VPCConnectionStatus, error) {
+					return &servicecommon.VPCConnectionStatus{
+						GatewayConnectionReady: true,
+						ServiceClusterReady:    false,
+						ServiceClusterReason:   servicecommon.ReasonServiceClusterNotSet,
+					}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
 					return vpc.NSXLB, nil
@@ -619,11 +700,12 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						},
 					}, true, nil
 				})
-				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
-					return false, ""
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateGatewayConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
-					return true, "", nil
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (*servicecommon.VPCConnectionStatus, error) {
+					return &servicecommon.VPCConnectionStatus{
+						GatewayConnectionReady: true,
+						ServiceClusterReady:    false,
+						ServiceClusterReason:   servicecommon.ReasonServiceClusterNotSet,
+					}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
 					return vpc.NSXLB, nil
@@ -702,7 +784,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						},
 					}, true, nil
 				})
-				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
+				patches.ApplyFunc(getGatewayConnectionStatus, func(_ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
 					return true, ""
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
@@ -761,11 +843,12 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						},
 					}, true, nil
 				})
-				patches.ApplyFunc(getGatewayConnectionStatus, func(_ context.Context, _ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
-					return false, ""
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateGatewayConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
-					return true, "", nil
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (*servicecommon.VPCConnectionStatus, error) {
+					return &servicecommon.VPCConnectionStatus{
+						GatewayConnectionReady: true,
+						ServiceClusterReady:    false,
+						ServiceClusterReason:   servicecommon.ReasonServiceClusterNotSet,
+					}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
 					return vpc.NSXLB, nil
