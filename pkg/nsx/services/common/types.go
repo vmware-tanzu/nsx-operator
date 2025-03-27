@@ -182,8 +182,6 @@ var (
 	ResourceTypeNode                = "HostTransportNode"
 
 	// Reasons for verification of gateway connection in day0
-	ReasonEdgeMissingInProject                       = "EdgeMissingInProject"
-	ReasonDistributedGatewayConnectionNotSupported   = "DistributedGatewayConnectionNotSupported"
 	ReasonGatewayConnectionNotSet                    = "GatewayConnectionNotSet"
 	ReasonServiceClusterNotSet                       = "ServiceClusterNotSet"
 	ReasonNoExternalIPBlocksInVPCConnectivityProfile = "ExternalIPBlockMissingInProfile"
@@ -214,7 +212,14 @@ type VPCResourceInfo struct {
 	//    ID=port1, ParentID=s1;
 	// 2. For the subnet with path /orgs/o1/projects/p1/vpcs/v1/subnets/s1,
 	//    ID=s1, ParentID=v1 (ParentID==VPCID).
-	ID                string
-	ParentID          string
-	PrivateIpv4Blocks []string
+	ID         string
+	ParentID   string
+	PrivateIps []string
+}
+
+type VPCConnectionStatus struct {
+	GatewayConnectionReady  bool
+	GatewayConnectionReason string
+	ServiceClusterReady     bool
+	ServiceClusterReason    string
 }

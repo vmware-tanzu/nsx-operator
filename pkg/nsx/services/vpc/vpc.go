@@ -42,6 +42,7 @@ var (
 	lbProviderMutex           = &sync.Mutex{}
 	MarkedForDelete           = true
 	EnforceRevisionCheckParam = false
+	TypeGatewayConnection     = "gateway-connections"
 )
 
 type VPCService struct {
@@ -734,7 +735,7 @@ func (s *VPCService) IsLBProviderChanged(existingVPC *model.Vpc, lbProvider LBPr
 	return false
 }
 
-func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.NetworkInfo, nc *v1alpha1.VPCNetworkConfiguration, lbProvider LBProvider) (*model.Vpc, error) {
+func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.NetworkInfo, nc *v1alpha1.VPCNetworkConfiguration, lbProvider LBProvider, serviceClusterReady bool) (*model.Vpc, error) {
 	// parse project path in NetworkConfig
 	org, project, err := nsxProjectPathToId(nc.Spec.NSXProject)
 	if err != nil {
@@ -787,7 +788,7 @@ func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.Networ
 	}
 
 	lbProviderChanged := s.IsLBProviderChanged(nsxVPC, lbProvider)
-	createdVpc, err := buildNSXVPC(obj, nsObj, *nc, s.NSXConfig.Cluster, nsxVPC, lbProvider == AVILB, lbProviderChanged)
+	createdVpc, err := buildNSXVPC(obj, nsObj, *nc, s.NSXConfig.Cluster, nsxVPC, lbProvider == AVILB, lbProviderChanged, serviceClusterReady)
 	if err != nil {
 		log.Error(err, "Failed to build NSX VPC object")
 		return nil, err
@@ -970,7 +971,7 @@ func (s *VPCService) checkVpcAttachmentRealization(createdAttachment *model.VpcA
 
 func (s *VPCService) GetGatewayConnectionTypeFromConnectionPath(connectionPath string) (string, error) {
 	/* examples of connection_path:
-	   /infra/distributed-gateway-connections/gateway-101
+	   /infra/distributed-vlan-connections/gateway-101
 	   /infra/gateway-connections/tenant-1
 	*/
 	parts := strings.Split(connectionPath, "/")
@@ -980,50 +981,60 @@ func (s *VPCService) GetGatewayConnectionTypeFromConnectionPath(connectionPath s
 	return parts[2], nil
 }
 
-func (s *VPCService) ValidateGatewayConnectionStatus(nc *v1alpha1.VPCNetworkConfiguration) (bool, string, error) {
-	var connectionPaths []string // i.e. gateway connection paths
-	var cursor *string
+func (s *VPCService) ValidateConnectionStatus(nc *v1alpha1.VPCNetworkConfiguration) (*common.VPCConnectionStatus, error) {
 	org, project, err := nsxProjectPathToId(nc.Spec.NSXProject)
 	if err != nil {
 		log.Error(err, "Failed to parse NSX project in NetworkConfig", "ProjectPath", nc.Spec.NSXProject)
-		return false, "", err
-	}
-	pageSize := int64(1000)
-	markedForDelete := false
-	res, err := s.NSXClient.VPCConnectivityProfilesClient.List(org, project, cursor, &markedForDelete, nil, &pageSize, nil, nil)
-	err = nsxutil.TransNSXApiError(err)
-	if err != nil {
-		return false, "", err
-	}
-	for _, profile := range res.Results {
-		transitGatewayPath := *profile.TransitGatewayPath
-		parts := strings.Split(transitGatewayPath, "/")
-		transitGatewayId := parts[len(parts)-1]
-		res, err := s.NSXClient.TransitGatewayAttachmentClient.List(org, project, transitGatewayId, nil, &markedForDelete, nil, nil, nil, nil)
-		err = nsxutil.TransNSXApiError(err)
-		if err != nil {
-			return false, "", err
-		}
-		for _, attachment := range res.Results {
-			connectionPaths = append(connectionPaths, *attachment.ConnectionPath)
-		}
-	}
-	// Case 1: there's no gateway connection paths.
-	if len(connectionPaths) == 0 {
-		return false, common.ReasonGatewayConnectionNotSet, nil
+		return nil, err
 	}
 
-	// Case 2: detected distributed gateway connection which is not supported.
+	status := &common.VPCConnectionStatus{
+		GatewayConnectionReady:  false,
+		GatewayConnectionReason: common.ReasonGatewayConnectionNotSet,
+		ServiceClusterReady:     false,
+		ServiceClusterReason:    common.ReasonServiceClusterNotSet,
+	}
+	// If ServiceGateway is not enable, both gateway connection and service cluster are not ready
+	profile, err := s.GetVpcConnectivityProfile(nc, nc.Spec.VPCConnectivityProfile)
+	if err != nil {
+		log.Error(err, "Failed to get VPCConnectivityProfile", "path", nc.Spec.VPCConnectivityProfile)
+		return nil, err
+	}
+	if profile.ServiceGateway == nil || profile.ServiceGateway.Enable == nil || !(*profile.ServiceGateway.Enable) {
+		return status, nil
+	}
+	// For DTGW, in day0, even if vlan connection is set in TGW, service cluster might not be configured.
+	// Thus we check the service cluster path in connectivity profile
+	if len(profile.ServiceGateway.ServiceClusterPaths) > 0 {
+		status.ServiceClusterReady = true
+		status.ServiceClusterReason = ""
+		return status, nil
+	}
+	// For CTGW, only gateway-connection type of TGW connection can indicate the edge cluster is configured.
+	var connectionPaths []string // i.e. gateway connection paths
+	markedForDelete := false
+	transitGatewayPath := *profile.TransitGatewayPath
+	parts := strings.Split(transitGatewayPath, "/")
+	transitGatewayId := parts[len(parts)-1]
+	res, err := s.NSXClient.TransitGatewayAttachmentClient.List(org, project, transitGatewayId, nil, &markedForDelete, nil, nil, nil, nil)
+	err = nsxutil.TransNSXApiError(err)
+	if err != nil {
+		return status, err
+	}
+	for _, attachment := range res.Results {
+		connectionPaths = append(connectionPaths, *attachment.ConnectionPath)
+	}
 	for _, connectionPath := range connectionPaths {
 		gatewayConnectionType, err := s.GetGatewayConnectionTypeFromConnectionPath(connectionPath)
 		if err != nil {
-			return false, "", err
+			return status, err
 		}
-		if gatewayConnectionType != "gateway-connections" {
-			return false, common.ReasonDistributedGatewayConnectionNotSupported, nil
+		if gatewayConnectionType == TypeGatewayConnection {
+			status.GatewayConnectionReady = true
+			status.GatewayConnectionReason = ""
 		}
 	}
-	return true, "", nil
+	return status, nil
 }
 
 func (s *VPCService) Cleanup(ctx context.Context) error {
@@ -1182,7 +1193,7 @@ func (s *VPCService) ListVPCInfo(ns string) []common.VPCResourceInfo {
 		if err != nil {
 			log.Error(err, "Failed to get VPC info from VPC path", "VPCPath", *v.Path)
 		}
-		vpcResourceInfo.PrivateIpv4Blocks = v.PrivateIpv4Blocks
+		vpcResourceInfo.PrivateIps = v.PrivateIps
 		VPCInfoList = append(VPCInfoList, vpcResourceInfo)
 	}
 	return VPCInfoList
@@ -1196,7 +1207,7 @@ func (s *VPCService) GetDefaultNSXLBSPathByVPC(vpcID string) string {
 	return *vpcLBS.Path
 }
 
-func (s *VPCService) EdgeClusterEnabled(nc *v1alpha1.VPCNetworkConfiguration) bool {
+func (s *VPCService) GetVpcConnectivityProfileWithRetry(nc *v1alpha1.VPCNetworkConfiguration) (*model.VpcConnectivityProfile, error) {
 	isRetryableError := func(err error) bool {
 		if err == nil {
 			return false
@@ -1216,9 +1227,9 @@ func (s *VPCService) EdgeClusterEnabled(nc *v1alpha1.VPCNetworkConfiguration) bo
 		return nil
 	}); err != nil {
 		log.Error(err, "Failed to retrieve VPC connectivity profile", "profile", nc.Spec.VPCConnectivityProfile)
-		return false
+		return nil, err
 	}
-	return s.IsEnableAutoSNAT(vpcConnectivityProfile)
+	return vpcConnectivityProfile, nil
 }
 
 func GetAlbEndpoint(cluster *nsx.Cluster) error {
@@ -1226,7 +1237,7 @@ func GetAlbEndpoint(cluster *nsx.Cluster) error {
 	return err
 }
 
-func (s *VPCService) IsEnableAutoSNAT(vpcConnectivityProfile *model.VpcConnectivityProfile) bool {
+func IsEnableAutoSNAT(vpcConnectivityProfile *model.VpcConnectivityProfile) bool {
 	if vpcConnectivityProfile.ServiceGateway == nil || vpcConnectivityProfile.ServiceGateway.Enable == nil {
 		return false
 	}
@@ -1257,8 +1268,14 @@ func (s *VPCService) GetLBProvider() (LBProvider, error) {
 		return NoneLB, nil
 	}
 
-	edgeEnable := s.EdgeClusterEnabled(netConfig)
-	globalLbProvider = s.getLBProvider(edgeEnable)
+	vpcConnectivityProfile, err := s.GetVpcConnectivityProfileWithRetry(netConfig)
+	if err != nil {
+		return "", err
+	}
+
+	// We check EnableAutoSNAT because it is the last step when enabling the service gateway
+	serviceGatewayEnable := IsEnableAutoSNAT(vpcConnectivityProfile)
+	globalLbProvider = s.getLBProvider(serviceGatewayEnable)
 	log.Info("Get LB provider", "provider", globalLbProvider)
 	return globalLbProvider, nil
 }

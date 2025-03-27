@@ -57,7 +57,7 @@ var (
 	nsMsgVPCNetCfgGetError        = newNsUnreadyMessage("Error happened to get VPC network configuration: %v", NSReasonVPCNetConfigNotReady)
 	nsMsgSystemVPCNetCfgNotFound  = newNsUnreadyMessage("Error happened to get system VPC network configuration: %v", NSReasonVPCNetConfigNotReady)
 	nsMsgVPCGwConnectionGetError  = newNsUnreadyMessage("Error happened to validate system VPC gateway connection readiness: %v", NSReasonVPCNetConfigNotReady)
-	nsMsgVPCGwConnectionNotReady  = newNsUnreadyMessage("System VPC gateway connection is not ready", NSReasonVPCNetConfigNotReady)
+	nsMsgVPCConnectionNotReady    = newNsUnreadyMessage("Neither of System VPC gateway connection nor service cluster is ready", NSReasonVPCNetConfigNotReady)
 	nsMsgVPCCreateUpdateError     = newNsUnreadyMessage("Error happened to create or update VPC: %v", NSReasonVPCNotReady)
 	nsMsgVPCNsxLBSNotReady        = newNsUnreadyMessage("Error happened to get NSX LBS path in VPC: %v", NSReasonVPCNotReady)
 	nsMsgVPCAviSubnetError        = newNsUnreadyMessage("Error happened to get Avi Load balancer Subnet info: %v", NSReasonVPCNotReady)
@@ -186,31 +186,34 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	retryWithSystemVPC := false
 	var systemNSCondition *corev1.NamespaceCondition
 
-	gatewayConnectionReady, _ := getGatewayConnectionStatus(ctx, systemVpcNetCfg)
-	gatewayConnectionReason := ""
-	if !gatewayConnectionReady {
+	gatewayConnectionReady, _ := getGatewayConnectionStatus(systemVpcNetCfg)
+	serviceClusterReady, _ := getServiceClusterStatus(systemVpcNetCfg)
+
+	if !gatewayConnectionReady && !serviceClusterReady {
 		// Retry after 60s if the gateway connection is not ready in system VPC.
 		if ncName != commonservice.SystemVPCNetworkConfigurationName {
-			log.Info("Skipping reconciliation due to unready system gateway connection", "NetworkInfo", req.NamespacedName)
-			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCGwConnectionNotReady.getNSNetworkCondition())
+			log.Info("Skipping reconciliation due to unready system gateway connection and service cluster", "NetworkInfo", req.NamespacedName)
+			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCConnectionNotReady.getNSNetworkCondition())
 			return common.ResultRequeueAfter60sec, nil
 		}
 
-		// Re-check the gateway connection readiness in system VPC on NSX.
-		gatewayConnectionReady, gatewayConnectionReason, err = r.Service.ValidateGatewayConnectionStatus(nc)
-		log.Info("Got the gateway connection status", "gatewayConnectionReady", gatewayConnectionReady, "gatewayConnectionReason", gatewayConnectionReason)
+		// Re-check the gateway connection and service cluster readiness in system VPC on NSX.
+		connectionStatus, err := r.Service.ValidateConnectionStatus(nc)
 		if err != nil {
+			log.Error(err, "Failed to get the connection status")
 			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to validate the edge and gateway connection, Project: %s", nc.Spec.NSXProject), setNetworkInfoVPCStatusWithError, nil)
 			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCGwConnectionGetError.getNSNetworkCondition(err))
 			return common.ResultRequeueAfter10sec, err
 		}
-		setVPCNetworkConfigurationStatusWithGatewayConnection(ctx, r.Client, systemVpcNetCfg, gatewayConnectionReady, gatewayConnectionReason)
+		log.Info("Got the connection status", "status", connectionStatus)
+		setVPCNetworkConfigurationStatusWithGatewayConnection(ctx, r.Client, systemVpcNetCfg, connectionStatus)
+		serviceClusterReady = connectionStatus.GatewayConnectionReady
 
 		// Retry after 60s if the gateway connection is still not ready in system VPC.
-		if !gatewayConnectionReady {
-			log.Info("Requeue NetworkInfo CR because VPCNetworkConfiguration system is not ready", "gatewayConnectionReason", gatewayConnectionReason, "req", req)
+		if !connectionStatus.GatewayConnectionReady && !connectionStatus.ServiceClusterReady {
+			log.Info("Requeue NetworkInfo CR because VPCNetworkConfiguration system is not ready", "connectionStatus", connectionStatus, "req", req)
 			retryWithSystemVPC = true
-			systemNSCondition = nsMsgVPCGwConnectionNotReady.getNSNetworkCondition()
+			systemNSCondition = nsMsgVPCConnectionNotReady.getNSNetworkCondition()
 		}
 	}
 
@@ -219,7 +222,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Error(err, "Failed to get LB Provider")
 		return common.ResultRequeue, nil
 	}
-	createdVpc, err := r.Service.CreateOrUpdateVPC(ctx, networkInfoCR, nc, lbProvider)
+	createdVpc, err := r.Service.CreateOrUpdateVPC(ctx, networkInfoCR, nc, lbProvider, serviceClusterReady)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to create or update VPC", setNetworkInfoVPCStatusWithError, nil)
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
@@ -280,7 +283,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// currently, auto snat is not exposed, and use default value True
 	// checking autosnat to support future extension in VPC configuration
-	autoSnatEnabled := r.Service.IsEnableAutoSNAT(vpcConnectivityProfile)
+	autoSnatEnabled := vpc.IsEnableAutoSNAT(vpcConnectivityProfile)
 	if autoSnatEnabled {
 		snatIP, err = r.Service.GetDefaultSNATIP(*createdVpc)
 		if err != nil {
