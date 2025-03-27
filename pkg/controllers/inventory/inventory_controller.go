@@ -37,6 +37,7 @@ var (
 	WatchResourceFuncs = []WatchResourceFunc{
 		watchPod,
 		watchNamespace,
+		watchNode,
 	}
 )
 
