@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"reflect"
 	"testing"
+
+	"github.com/agiledragon/gomonkey/v2"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mockClient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
@@ -315,6 +318,200 @@ func TestIsIPChanged(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBuildService(t *testing.T) {
+	labels := make(map[string]string)
+	labels["app"] = "inventory"
+	labels["role"] = "test-only"
+	namespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "namespace",
+			UID:    "222222222",
+			Labels: labels,
+		},
+	}
+	testService := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-service",
+			Namespace: "default",
+			UID:       "service-uid-123",
+		},
+		Spec: corev1.ServiceSpec{
+			Type: corev1.ServiceTypeClusterIP,
+		},
+	}
+
+	t.Run("NormalFlow", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+
+		k8sClient.EXPECT().
+			Get(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.ListOption) error {
+				ns, ok := obj.(*corev1.Namespace)
+				if !ok {
+					return nil
+				}
+				namespace.DeepCopyInto(ns)
+				return nil
+			})
+
+		patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(inventoryService), "getPodIDsFromEndpoint",
+			func(_ *InventoryService, _ *corev1.Service) ([]string, bool) {
+				return []string{"1", "2"}, false
+			})
+		defer patches.Reset()
+
+		retry := inventoryService.BuildService(testService)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "service-uid-123")
+		containerApplication := inventoryService.pendingAdd["service-uid-123"].(*containerinventory.ContainerApplication)
+		assert.Equal(t, containerApplication.ContainerProjectId, string(namespace.UID))
+		assert.Equal(t, containerApplication.ExternalId, string(testService.UID))
+		assert.Equal(t, containerApplication.ContainerClusterId, inventoryService.NSXConfig.Cluster)
+		assert.Equal(t, containerApplication.Status, InventoryStatusUp)
+		assert.Equal(t, containerApplication.NetworkStatus, NetworkStatusHealthy)
+	})
+
+	t.Run("NamespaceNotFound", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("not found"))
+		retry := inventoryService.BuildService(testService)
+		assert.True(t, retry)
+	})
+
+}
+
+func TestGetPodIDsFromEndpoint(t *testing.T) {
+	t.Run("Service with endpoints", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+
+		testService := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-service",
+				Namespace: "default",
+				UID:       "service-uid-123",
+			},
+			Spec: corev1.ServiceSpec{
+				Selector: map[string]string{
+					"app": "test",
+				},
+			},
+		}
+
+		// Create test endpoints
+		testEndpoints := &corev1.Endpoints{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      testService.Name,
+				Namespace: testService.Namespace,
+			},
+			Subsets: []corev1.EndpointSubset{
+				{
+					Addresses: []corev1.EndpointAddress{
+						{
+							TargetRef: &corev1.ObjectReference{
+								Kind: "Pod",
+								Name: "test-pod-1",
+								UID:  "pod-uid-1",
+							},
+						},
+						{
+							TargetRef: &corev1.ObjectReference{
+								Kind: "Pod",
+								Name: "test-pod-2",
+								UID:  "pod-uid-2",
+							},
+						},
+					},
+				},
+			},
+		}
+
+		// Mock k8sClient.Get for retrieving Endpoints
+		k8sClient.EXPECT().
+			Get(gomock.Any(), gomock.Eq(types.NamespacedName{Namespace: testService.Namespace, Name: testService.Name}), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error {
+				endpoints, ok := obj.(*corev1.Endpoints)
+				if !ok {
+					return errors.New("object is not an Endpoints")
+				}
+				testEndpoints.DeepCopyInto(endpoints)
+				return nil
+			})
+
+		// Call the method
+		podIDs, hasAddr := inventoryService.getPodIDsFromEndpoint(testService)
+
+		// Assertions
+		assert.True(t, hasAddr)
+		assert.Equal(t, 2, len(podIDs))
+		assert.Contains(t, podIDs, "pod-uid-1")
+		assert.Contains(t, podIDs, "pod-uid-2")
+	})
+
+	t.Run("Service without endpoints", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+
+		testService := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-service-no-endpoints",
+				Namespace: "default",
+				UID:       "service-uid-456",
+			},
+		}
+
+		// Mock k8sClient.Get to return not found error
+		k8sClient.EXPECT().
+			Get(gomock.Any(), gomock.Eq(types.NamespacedName{Namespace: testService.Namespace, Name: testService.Name}), gomock.Any()).
+			Return(errors.New("endpoints not found"))
+
+		// Call the method
+		podIDs, hasAddr := inventoryService.getPodIDsFromEndpoint(testService)
+
+		// Assertions
+		assert.False(t, hasAddr)
+		assert.Empty(t, podIDs)
+	})
+
+	t.Run("Service with empty endpoints", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+
+		testService := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-service-empty-endpoints",
+				Namespace: "default",
+				UID:       "service-uid-789",
+			},
+		}
+
+		// Create empty endpoints
+		emptyEndpoints := &corev1.Endpoints{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      testService.Name,
+				Namespace: testService.Namespace,
+			},
+		}
+
+		// Mock k8sClient.Get for retrieving empty Endpoints
+		k8sClient.EXPECT().
+			Get(gomock.Any(), gomock.Eq(types.NamespacedName{Namespace: testService.Namespace, Name: testService.Name}), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error {
+				endpoints, ok := obj.(*corev1.Endpoints)
+				if !ok {
+					return errors.New("object is not an Endpoints")
+				}
+				emptyEndpoints.DeepCopyInto(endpoints)
+				return nil
+			})
+
+		// Call the method
+		podIDs, hasAddr := inventoryService.getPodIDsFromEndpoint(testService)
+
+		// Assertions
+		assert.False(t, hasAddr)
+		assert.Empty(t, podIDs)
+	})
 }
 
 func TestBuildNamespace(t *testing.T) {
