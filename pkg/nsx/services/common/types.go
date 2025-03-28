@@ -185,6 +185,7 @@ var (
 	ReasonEdgeMissingInProject                       = "EdgeMissingInProject"
 	ReasonDistributedGatewayConnectionNotSupported   = "DistributedGatewayConnectionNotSupported"
 	ReasonGatewayConnectionNotSet                    = "GatewayConnectionNotSet"
+	ReasonServiceClusterNotSet                       = "ServiceClusterNotSet"
 	ReasonNoExternalIPBlocksInVPCConnectivityProfile = "ExternalIPBlockMissingInProfile"
 )
 
