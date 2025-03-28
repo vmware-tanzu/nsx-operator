@@ -3,12 +3,14 @@ package inventory
 import (
 	"context"
 	"errors"
+	"net/http"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -21,6 +23,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	mockClient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/inventory"
 )
 
@@ -90,6 +96,10 @@ func TestRun(t *testing.T) {
 		cf:                   cfg,
 		inventoryObjectQueue: workqueue.NewTypedRateLimitingQueueWithConfig(workqueue.NewTypedItemExponentialFailureRateLimiter[any](minRetryDelay, maxRetryDelay), workqueue.TypedRateLimitingQueueConfig[any]{Name: "inventoryObject"})}
 	t.Run("NormalStartup", func(t *testing.T) {
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(controller), "CleanStaleInventoryObjects", func(service *InventoryController) error {
+			return nil
+		})
+		defer patches.Reset()
 		stopCh := make(chan struct{})
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -116,16 +126,6 @@ func TestRun(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		close(stopCh)
 	})
-}
-
-type MockInventoryService struct {
-	mock.Mock
-	inventory.InventoryService
-}
-
-func (m *MockInventoryService) SyncInventoryObject(keys sets.Set[inventory.InventoryKey]) (sets.Set[inventory.InventoryKey], error) {
-	args := m.Called(keys)
-	return args.Get(0).(sets.Set[inventory.InventoryKey]), args.Error(1)
 }
 
 type MockObjectQueue[T comparable] struct {
@@ -207,4 +207,38 @@ func TestSyncInventoryKeys(t *testing.T) {
 		controller.syncInventoryKeys()
 		queue.AssertExpectations(t)
 	})
+}
+
+func createService(t *testing.T) (*inventory.InventoryService, *mockClient.MockClient) {
+	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{"127.0.0.1"})
+
+	cluster, _ := nsx.NewCluster(config2)
+	rc := cluster.NewRestConnector()
+
+	mockCtrl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtrl)
+	httpClient := http.DefaultClient
+	cf := &config.NSXOperatorConfig{
+		CoeConfig: &config.CoeConfig{
+			Cluster: "k8scl-one:test",
+		},
+		NsxConfig: &config.NsxConfig{NsxApiManagers: []string{"127.0.0.1"}},
+	}
+	nsxApiClient, _ := nsx.CreateNsxtApiClient(cf, httpClient)
+	commonservice := common.Service{
+		Client: k8sClient,
+		NSXClient: &nsx.Client{
+			RestConnector: rc,
+			NsxConfig:     cf,
+			NsxApiClient:  nsxApiClient,
+		},
+		NSXConfig: &config.NSXOperatorConfig{
+			CoeConfig: &config.CoeConfig{
+				Cluster: "k8scl-one:test",
+			},
+		},
+	}
+
+	service, _ := inventory.InitializeService(commonservice)
+	return service, k8sClient
 }

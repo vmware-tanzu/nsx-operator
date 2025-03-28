@@ -117,6 +117,7 @@ func (s *InventoryService) BuildInventoryCluster() containerinventory.ContainerC
 		NetworkErrors:  networkErrors,
 		NetworkStatus:  NetworkStatusHealthy,
 		Infrastructure: infra,
+		CniType:        InventoryClusterCNIType,
 		// report nsx-operator version
 	}
 	return newContainerCluster
