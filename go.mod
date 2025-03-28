@@ -11,6 +11,7 @@ replace (
 
 require (
 	github.com/agiledragon/gomonkey/v2 v2.13.0
+	github.com/antihax/optional v1.0.0
 	github.com/apparentlymart/go-cidr v1.1.0
 	github.com/deckarep/golang-set v1.8.0
 	github.com/go-logr/logr v1.4.2
@@ -46,7 +47,6 @@ require (
 )
 
 require (
-	github.com/antihax/optional v1.0.0 // indirect
 	github.com/beevik/etree v1.1.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -85,7 +85,6 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	go.uber.org/mock v0.5.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/exp v0.0.0-20230515195305-f3d0a9c9a5cc // indirect
 	golang.org/x/mod v0.18.0 // indirect

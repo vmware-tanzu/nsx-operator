@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/prometheus/client_golang/prometheus"
@@ -12,9 +13,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -181,4 +185,50 @@ func TestPredicateFuncsNode(t *testing.T) {
 	assert.True(t, PredicateFuncsNode.CreateFunc(event.CreateEvent{}))
 	assert.True(t, PredicateFuncsNode.DeleteFunc(event.DeleteEvent{}))
 	assert.True(t, PredicateFuncsNode.GenericFunc(event.GenericEvent{}))
+}
+
+func TestNodeReconciler_StartController(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().WithObjects().Build()
+	nodeService := &node.NodeService{
+		Service: servicecommon.Service{
+			Client: fakeClient,
+		},
+	}
+	mockMgr := &MockManager{scheme: runtime.NewScheme()}
+	patches := gomonkey.ApplyFunc((*NodeReconciler).setupWithManager, func(r *NodeReconciler, mgr manager.Manager) error {
+		return nil
+	})
+	patches.ApplyFunc(common.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
+		return
+	})
+	defer patches.Reset()
+	r := NewNodeReconciler(mockMgr, nodeService)
+	err := r.StartController(mockMgr, nil)
+	assert.Nil(t, err)
+}
+
+type MockManager struct {
+	ctrl.Manager
+	client client.Client
+	scheme *runtime.Scheme
+}
+
+func (m *MockManager) GetClient() client.Client {
+	return m.client
+}
+
+func (m *MockManager) GetScheme() *runtime.Scheme {
+	return m.scheme
+}
+
+func (m *MockManager) GetEventRecorderFor(name string) record.EventRecorder {
+	return nil
+}
+
+func (m *MockManager) Add(runnable manager.Runnable) error {
+	return nil
+}
+
+func (m *MockManager) Start(context.Context) error {
+	return nil
 }

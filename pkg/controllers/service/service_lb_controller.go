@@ -5,7 +5,6 @@ package service
 
 import (
 	"context"
-	"os"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -18,6 +17,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -163,20 +163,32 @@ func isServiceLbStatusIpModeSupported(c *rest.Config) bool {
 	return runningVersion.AtLeast(version129)
 }
 
-func StartServiceLbController(mgr ctrl.Manager, commonService servicecommon.Service) {
-	if isServiceLbStatusIpModeSupported(mgr.GetConfig()) {
+func (r *ServiceLbReconciler) RestoreReconcile() error {
+	return nil
+}
 
-		serviceLbReconciler := ServiceLbReconciler{
+func (r *ServiceLbReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+	if err := r.Start(mgr); err != nil {
+		log.Error(err, "Failed to create controller", "controller", "ServiceLb")
+		return err
+	}
+	return nil
+}
+
+func (r *ServiceLbReconciler) CollectGarbage(ctx context.Context) error {
+	return nil
+}
+
+func NewServiceLbReconciler(mgr ctrl.Manager, commonService servicecommon.Service) *ServiceLbReconciler {
+	if isServiceLbStatusIpModeSupported(mgr.GetConfig()) {
+		serviceLbReconciler := &ServiceLbReconciler{
 			Client:   mgr.GetClient(),
 			Scheme:   mgr.GetScheme(),
 			Recorder: mgr.GetEventRecorderFor("serviceLb-controller"),
 		}
 		serviceLbReconciler.Service = &commonService
-		if err := serviceLbReconciler.Start(mgr); err != nil {
-			log.Error(err, "Failed to create controller", "controller", "ServiceLb")
-			os.Exit(1)
-		}
-	} else {
-		log.Info("Service LB controller isn't started since load balancer service ipMode supporting needs K8s version at least 1.29.0")
+		return serviceLbReconciler
 	}
+	log.Info("Service LB controller isn't started since load balancer service ipMode supporting needs K8s version at least 1.29.0")
+	return nil
 }

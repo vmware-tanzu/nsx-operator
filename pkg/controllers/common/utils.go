@@ -144,7 +144,7 @@ func NumReconcile() int {
 	return MaxConcurrentReconciles
 }
 
-func GenericGarbageCollector(cancel chan bool, timeout time.Duration, f func(ctx context.Context)) {
+func GenericGarbageCollector(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 	ctx := context.Background()
 	ticker := time.NewTicker(timeout)
 	defer ticker.Stop()

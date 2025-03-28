@@ -18,12 +18,15 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	ctlcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
@@ -226,4 +229,50 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNamespaceReconciler_StartController(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().WithObjects().Build()
+	vpcService := &vpc.VPCService{
+		Service: common.Service{
+			Client: fakeClient,
+		},
+	}
+	mockMgr := &MockManager{scheme: runtime.NewScheme()}
+	patches := gomonkey.ApplyFunc((*NamespaceReconciler).setupWithManager, func(r *NamespaceReconciler, mgr manager.Manager) error {
+		return nil
+	})
+	patches.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
+		return
+	})
+	defer patches.Reset()
+	r := NewNamespaceReconciler(mockMgr, nil, vpcService)
+	err := r.StartController(mockMgr, nil)
+	assert.Nil(t, err)
+}
+
+type MockManager struct {
+	ctrl.Manager
+	client client.Client
+	scheme *runtime.Scheme
+}
+
+func (m *MockManager) GetClient() client.Client {
+	return m.client
+}
+
+func (m *MockManager) GetScheme() *runtime.Scheme {
+	return m.scheme
+}
+
+func (m *MockManager) GetEventRecorderFor(name string) record.EventRecorder {
+	return nil
+}
+
+func (m *MockManager) Add(runnable manager.Runnable) error {
+	return nil
+}
+
+func (m *MockManager) Start(context.Context) error {
+	return nil
 }

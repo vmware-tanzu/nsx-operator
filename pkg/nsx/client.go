@@ -13,6 +13,7 @@ import (
 	vspherelog "github.com/vmware/vsphere-automation-sdk-go/runtime/log"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
 	nsx_policy "github.com/vmware/vsphere-automation-sdk-go/services/nsxt"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/cluster/restore"
 	mpsearch "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/search"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management/principal_identities"
@@ -62,6 +63,7 @@ type Client struct {
 	SecurityClient domains.SecurityPoliciesClient
 	RuleClient     security_policies.RulesClient
 	InfraClient    nsx_policy.InfraClient
+	StatusClient   restore.StatusClient
 
 	ClusterControlPlanesClient enforcement_points.ClusterControlPlanesClient
 	HostTransPortNodesClient   enforcement_points.HostTransportNodesClient
@@ -164,6 +166,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	securityClient := domains.NewSecurityPoliciesClient(restConnector(cluster))
 	ruleClient := security_policies.NewRulesClient(restConnector(cluster))
 	infraClient := nsx_policy.NewInfraClient(restConnector(cluster))
+	statusClient := restore.NewStatusClient(restConnector(cluster))
 
 	clusterControlPlanesClient := enforcement_points.NewClusterControlPlanesClient(restConnector(cluster))
 	hostTransportNodesClient := enforcement_points.NewHostTransportNodesClient(restConnector(cluster))
@@ -227,6 +230,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		SecurityClient:             securityClient,
 		RuleClient:                 ruleClient,
 		InfraClient:                infraClient,
+		StatusClient:               statusClient,
 		Cluster:                    cluster,
 		ClusterControlPlanesClient: clusterControlPlanesClient,
 		HostTransPortNodesClient:   hostTransportNodesClient,

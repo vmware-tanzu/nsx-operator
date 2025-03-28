@@ -226,7 +226,7 @@ func TestServiceLbReconciler_Reconcile(t *testing.T) {
 	assert.Equal(t, err, nil)
 }
 
-func TestStartServiceLbController(t *testing.T) {
+func TestServiceLbReconciler_StartController(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithObjects().Build()
 	commonService := common.Service{
 		Client: fakeClient,
@@ -236,7 +236,6 @@ func TestStartServiceLbController(t *testing.T) {
 		config: &rest.Config{},
 	}
 
-	exitCalled := false // Variable to check if osExit was called
 	testCases := []struct {
 		name         string
 		expectErrStr string
@@ -264,7 +263,6 @@ func TestStartServiceLbController(t *testing.T) {
 			expectErrStr: "failed to setupWithManager",
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(os.Exit, func(code int) {
-					exitCalled = true
 					return
 				})
 				patches.ApplyFunc(isServiceLbStatusIpModeSupported, func(c *rest.Config) bool {
@@ -283,12 +281,13 @@ func TestStartServiceLbController(t *testing.T) {
 			patches := testCase.patches()
 			defer patches.Reset()
 
-			StartServiceLbController(mockMgr, commonService)
+			r := NewServiceLbReconciler(mockMgr, commonService)
+			err := r.StartController(mockMgr, nil)
 
 			if testCase.expectErrStr != "" {
-				assert.Equal(t, exitCalled, true)
+				assert.Contains(t, err.Error(), testCase.expectErrStr)
 			} else {
-				assert.Equal(t, exitCalled, false)
+				assert.Nil(t, err)
 			}
 		})
 	}
