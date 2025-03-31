@@ -134,6 +134,7 @@ _Appears in:_
 | --- | --- |
 | `Ready` |  |
 | `GatewayConnectionReady` |  |
+| `ServiceClusterReady` |  |
 | `AutoSnatEnabled` |  |
 | `ExternalIPBlocksConfigured` |  |
 | `DeletionFailed` |  |

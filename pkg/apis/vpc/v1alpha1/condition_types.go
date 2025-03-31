@@ -10,6 +10,7 @@ type ConditionType string
 const (
 	Ready                      ConditionType = "Ready"
 	GatewayConnectionReady     ConditionType = "GatewayConnectionReady"
+	ServiceClusterReady        ConditionType = "ServiceClusterReady"
 	AutoSnatEnabled            ConditionType = "AutoSnatEnabled"
 	ExternalIPBlocksConfigured ConditionType = "ExternalIPBlocksConfigured"
 	DeleteFailure              ConditionType = "DeletionFailed"
