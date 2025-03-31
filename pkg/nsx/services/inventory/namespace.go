@@ -12,6 +12,16 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+func (s *InventoryService) IsNamespaceDeleted(name, externalId string) bool {
+	namespaceObj := &corev1.Namespace{}
+	err := s.Client.Get(context.TODO(), types.NamespacedName{Name: name}, namespaceObj)
+	if apierrors.IsNotFound(err) || ((err == nil) && (string(namespaceObj.UID) != externalId)) {
+		return true
+	} else {
+		return false
+	}
+}
+
 func (s *InventoryService) SyncContainerProject(name string, key InventoryKey) *InventoryKey {
 	namespace := &corev1.Namespace{}
 	err := s.Client.Get(context.TODO(), types.NamespacedName{Name: name}, namespace)
@@ -59,7 +69,21 @@ func (s *InventoryService) initContainerProject(clusterId string) error {
 	return nil
 }
 
-func (s *InventoryService) DeleteContainerProject(externalId string, inventoryObject *containerinventory.ContainerProject) error {
-	// Add any specific cleanup logic for project deletion if needed
+func (s *InventoryService) CleanStaleInventoryContainerProject() error {
+	log.Info("Clean stale InventoryContainerProject")
+	containerProjects := s.ProjectStore.List()
+	for _, containerProject := range containerProjects {
+		project := containerProject.(*containerinventory.ContainerProject)
+		// Check if the namespace still exists in the K8s cluster
+		if s.IsNamespaceDeleted(project.DisplayName, project.ExternalId) {
+			// Namespace doesn't exist or its ID changed - delete the stale container project
+			log.Info("Found stale container project", "Name", project.DisplayName, "ExternalId", project.ExternalId)
+			err := s.DeleteResource(project.ExternalId, ContainerProject)
+			if err != nil {
+				log.Error(err, "Failed to delete stale container project", "Name", project.DisplayName, "ExternalId", project.ExternalId)
+				return err
+			}
+		}
+	}
 	return nil
 }

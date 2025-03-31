@@ -194,7 +194,6 @@ func (s *InventoryService) DeleteResource(externalId string, resourceType Invent
 			return nil
 		}
 		s.DeleteInventoryObject(resourceType, externalId, inventoryObject)
-		return s.DeleteContainerProject(externalId, inventoryObject.(*containerinventory.ContainerProject))
 	case ContainerApplication:
 		inventoryObject := s.ApplicationStore.GetByKey(externalId)
 		if inventoryObject == nil {
@@ -212,7 +211,7 @@ func (s *InventoryService) DeleteResource(externalId string, resourceType Invent
 	default:
 		return fmt.Errorf("unknown resource_type: %v for external_id %s", resourceType, externalId)
 	}
-
+	return nil
 }
 
 func (s *InventoryService) DeleteInventoryObject(resourceType InventoryType, externalId string, inventoryObject interface{}) {
@@ -279,6 +278,7 @@ func (s *InventoryService) updateInventoryStore() error {
 			if err != nil {
 				return err
 			}
+
 		}
 	}
 	for _, deleteItem := range s.pendingDelete {
