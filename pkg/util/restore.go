@@ -55,6 +55,7 @@ func CompareNSXRestore(k8sClient client.Client, nsxClient *nsx.Client) (bool, er
 		forceRestore, err := strconv.ParseBool(forceRestoreStr)
 		if err != nil {
 			log.Error(err, "Failed to parse force restore from ncpconfig", "forceRestore", forceRestoreStr)
+			return false, err
 		} else if forceRestore {
 			log.Info("Force restore trigger for testing case")
 			return true, nil
@@ -120,7 +121,7 @@ func updateRestoreEndTime(k8sClient client.Client) error {
 func ProcessRestore(reconcilerList []commonctl.ReconcilerProvider, client client.Client) error {
 	log.Info("Enter restore mode")
 	var errList []error
-	// Collect Garbage from overlay to underlay
+	// Collect Garbage with reverse order, e.g. SubnetPort -> Subnet -> VPC
 	for i := len(reconcilerList) - 1; i >= 0; i-- {
 		if reconcilerList[i] != nil {
 			if err := reconcilerList[i].CollectGarbage(context.TODO()); err != nil {
@@ -132,7 +133,7 @@ func ProcessRestore(reconcilerList []commonctl.ReconcilerProvider, client client
 		return fmt.Errorf("failed to collect garbage: %v", errList)
 	}
 	log.Info("Garbage collection succeeds in restore mode")
-	// Restore resource from underlay to overlay
+	// Restore resource in order, e.g. VPC -> Subnet -> SubnetPort
 	for _, reconciler := range reconcilerList {
 		if reconciler != nil {
 			if err := reconciler.RestoreReconcile(); err != nil {
