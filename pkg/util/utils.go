@@ -443,7 +443,6 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 			Tag:   String(strings.Join(common.TagValueVersion, ".")),
 		},
 	}
-	isVmSubnetPort := false
 	switch i := obj.(type) {
 	case *v1alpha1.StaticRoute:
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
@@ -461,7 +460,7 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetSetCRUID), Tag: String(string(i.UID))})
 	case *v1alpha1.SubnetPort:
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeVMNamespace), Tag: String(i.ObjectMeta.Namespace)})
-		isVmSubnetPort = true
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeVMNamespaceUID), Tag: String(string(namespaceID))})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetPortCRName), Tag: String(i.ObjectMeta.Name)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetPortCRUID), Tag: String(string(i.UID))})
 	case *v1.Pod:
@@ -483,12 +482,7 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 	}
 
 	if len(namespaceID) > 0 {
-		if isVmSubnetPort == true {
-			// In the NSX subnet port created for VM, the namespace uid tag is TagScopeVMNamespaceUID instead of TagScopeNamespaceUID.
-			tags = append(tags, model.Tag{Scope: String(common.TagScopeVMNamespaceUID), Tag: String(string(namespaceID))})
-		} else {
-			tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespaceUID), Tag: String(string(namespaceID))})
-		}
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespaceUID), Tag: String(string(namespaceID))})
 	}
 	return tags
 }

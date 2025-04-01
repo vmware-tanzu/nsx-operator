@@ -60,6 +60,8 @@ const (
 	TagScopeVPCManagedBy               string = "nsx/managed-by"
 	AutoCreatedVPCTagValue             string = "nsx-op"
 	LabelDefaultSubnetSet              string = "nsxoperator.vmware.com/default-subnetset-for"
+	LabelImageFetcher                  string = "iaas.vmware.com/image-fetcher"
+	AnnotationHostName                 string = "kubernetes.io/hostname"
 	LabelDefaultVMSubnetSet            string = "VirtualMachine"
 	LabelDefaultPodSubnetSet           string = "Pod"
 	LabelLbIngressIpMode               string = "nsx.vmware.com/ingress-ip-mode"
