@@ -104,30 +104,30 @@ func (s *InventoryService) DeleteStalePods() error {
 	return nil
 }
 
-func (c *InventoryService) CleanStaleInventoryApplicationInstance() error {
+func (s *InventoryService) CleanStaleInventoryApplicationInstance() error {
 	log.Info("Clean stale InventoryApplicationInstance")
-	containerApplicationInstances := c.ApplicationInstanceStore.List()
+	containerApplicationInstances := s.ApplicationInstanceStore.List()
 	for _, applicationInstance := range containerApplicationInstances {
 		applicationInstance := applicationInstance.(*containerinventory.ContainerApplicationInstance)
-		project := c.ProjectStore.GetByKey(applicationInstance.ContainerProjectId)
+		project := s.ProjectStore.GetByKey(applicationInstance.ContainerProjectId)
 		if project == nil {
 			log.Info("Cannot find ContainerProject by id, so clean up stale ContainerApplicationInstance", "Project Id", applicationInstance.ContainerProjectId,
 				"Pod name", applicationInstance.DisplayName, "External Id", applicationInstance.ExternalId)
-			err := c.DeleteResource(applicationInstance.ExternalId, ContainerApplicationInstance)
+			err := s.DeleteResource(applicationInstance.ExternalId, ContainerApplicationInstance)
 			if err != nil {
 				log.Error(err, "Clean stale InventoryApplicationInstance", "External Id", applicationInstance.ExternalId)
 				return err
 			}
-		} else if c.IsPodDeleted(project.(*containerinventory.ContainerProject).DisplayName, applicationInstance.DisplayName, applicationInstance.ExternalId) {
+		} else if s.IsPodDeleted(project.(*containerinventory.ContainerProject).DisplayName, applicationInstance.DisplayName, applicationInstance.ExternalId) {
 			log.Info("Clean stale pod", "Name", applicationInstance.DisplayName, "External Id", applicationInstance.ExternalId)
-			err := c.DeleteResource(applicationInstance.ExternalId, ContainerApplicationInstance)
+			err := s.DeleteResource(applicationInstance.ExternalId, ContainerApplicationInstance)
 			if err != nil {
 				log.Error(err, "Clean stale InventoryApplicationInstance", "External Id", applicationInstance.ExternalId)
 				return err
 			}
 		}
 	}
-	err := c.DeleteStalePods()
+	err := s.DeleteStalePods()
 	if err != nil {
 		return err
 	}

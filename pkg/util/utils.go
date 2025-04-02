@@ -192,6 +192,16 @@ func Contains(s []string, str string) bool {
 	return false
 }
 
+func FilterOut(s []string, strToRemove string) []string {
+	var result []string
+	for _, element := range s {
+		if element != strToRemove {
+			result = append(result, element)
+		}
+	}
+	return result
+}
+
 // RemoveIPPrefix remove the prefix from an IP address, e.g.
 // "1.2.3.4/24" -> "1.2.3.4"
 func RemoveIPPrefix(ipAddress string) (string, error) {

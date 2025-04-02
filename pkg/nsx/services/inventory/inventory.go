@@ -15,8 +15,7 @@ import (
 )
 
 var (
-	log         = &logger.Log
-	emptyKeySet = sets.New[InventoryKey]()
+	log = &logger.Log
 )
 
 type InventoryService struct {
@@ -170,6 +169,11 @@ func (s *InventoryService) SyncInventoryObject(bufferedKeys sets.Set[InventoryKe
 			if retryKey != nil {
 				retryKeys.Insert(*retryKey)
 			}
+		case ContainerApplication:
+			retryKey := s.SyncContainerApplication(name, namespace, key)
+			if retryKey != nil {
+				retryKeys.Insert(*retryKey)
+			}
 		}
 	}
 
@@ -191,7 +195,13 @@ func (s *InventoryService) DeleteResource(externalId string, resourceType Invent
 		}
 		s.DeleteInventoryObject(resourceType, externalId, inventoryObject)
 		return s.DeleteContainerProject(externalId, inventoryObject.(*containerinventory.ContainerProject))
-
+	case ContainerApplication:
+		inventoryObject := s.ApplicationStore.GetByKey(externalId)
+		if inventoryObject == nil {
+			return nil
+		}
+		s.DeleteInventoryObject(resourceType, externalId, inventoryObject)
+		return s.DeleteContainerApplication(externalId, inventoryObject.(*containerinventory.ContainerApplication))
 	case ContainerApplicationInstance:
 		inventoryObject := s.ApplicationInstanceStore.GetByKey(externalId)
 		if inventoryObject == nil {
@@ -217,6 +227,8 @@ func (s *InventoryService) DeleteInventoryObject(resourceType InventoryType, ext
 	switch resourceType {
 	case ContainerProject:
 		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerProject)
+	case ContainerApplication:
+		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerApplication)
 	case ContainerApplicationInstance:
 		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerApplicationInstance)
 	}
@@ -255,13 +267,18 @@ func (s *InventoryService) updateInventoryStore() error {
 			if err != nil {
 				return err
 			}
+		case string(ContainerApplication):
+			instance := addItem.(*containerinventory.ContainerApplication)
+			err := s.ApplicationStore.Add(instance)
+			if err != nil {
+				return err
+			}
 		case string(ContainerApplicationInstance):
 			instance := addItem.(*containerinventory.ContainerApplicationInstance)
 			err := s.ApplicationInstanceStore.Add(instance)
 			if err != nil {
 				return err
 			}
-
 		}
 	}
 	for _, deleteItem := range s.pendingDelete {
@@ -269,6 +286,12 @@ func (s *InventoryService) updateInventoryStore() error {
 		case string(ContainerProject):
 			project := deleteItem.(*containerinventory.ContainerProject)
 			err := s.ProjectStore.Delete(project)
+			if err != nil {
+				return err
+			}
+		case string(ContainerApplication):
+			instance := deleteItem.(*containerinventory.ContainerApplication)
+			err := s.ApplicationStore.Delete(instance)
 			if err != nil {
 				return err
 			}
@@ -281,4 +304,8 @@ func (s *InventoryService) updateInventoryStore() error {
 		}
 	}
 	return nil
+}
+
+func (s *InventoryService) UpdatePendingAdd(externalId string, inventoryObject interface{}) {
+	s.pendingAdd[externalId] = inventoryObject
 }

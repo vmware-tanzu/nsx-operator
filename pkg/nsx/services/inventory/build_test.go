@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"reflect"
 	"testing"
+
+	"github.com/agiledragon/gomonkey/v2"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mockClient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
@@ -317,6 +320,75 @@ func TestIsIPChanged(t *testing.T) {
 	}
 }
 
+func TestBuildService(t *testing.T) {
+	labels := make(map[string]string)
+	labels["app"] = "inventory"
+	labels["role"] = "test-only"
+	namespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "namespace",
+			UID:    "222222222",
+			Labels: labels,
+		},
+	}
+	testService := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-service",
+			Namespace: "default",
+			UID:       "service-uid-123",
+		},
+		Spec: corev1.ServiceSpec{
+			Type: corev1.ServiceTypeClusterIP,
+		},
+	}
+
+	t.Run("NormalFlow", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+
+		k8sClient.EXPECT().
+			Get(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.ListOption) error {
+				ns, ok := obj.(*corev1.Namespace)
+				if !ok {
+					return nil
+				}
+				namespace.DeepCopyInto(ns)
+				return nil
+			})
+
+		patches := gomonkey.ApplyFunc(GetPodIDsFromEndpoint,
+			func(_ context.Context, _ client.Client, _ string, _ string) ([]string, bool) {
+				return []string{"1", "2"}, false
+			})
+		defer patches.Reset()
+
+		// ApplyMethod private synchronizeServiceIDsWithApplicationInstances
+		patches.ApplyPrivateMethod(reflect.TypeOf(inventoryService), "synchronizeServiceIDsWithApplicationInstances",
+			func(_ *InventoryService, podUIDs []string, service *corev1.Service) (retry bool) {
+				return false
+			})
+
+		retry := inventoryService.BuildService(testService)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "service-uid-123")
+		containerApplication := inventoryService.pendingAdd["service-uid-123"].(*containerinventory.ContainerApplication)
+		assert.Equal(t, containerApplication.ContainerProjectId, string(namespace.UID))
+		assert.Equal(t, containerApplication.ExternalId, string(testService.UID))
+		assert.Equal(t, containerApplication.ContainerClusterId, inventoryService.NSXConfig.Cluster)
+		assert.Equal(t, containerApplication.Status, InventoryStatusUp)
+		assert.Equal(t, containerApplication.NetworkStatus, NetworkStatusHealthy)
+	})
+
+	t.Run("NamespaceNotFound", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("not found"))
+		retry := inventoryService.BuildService(testService)
+		assert.True(t, retry)
+	})
+
+}
+
 func TestBuildNamespace(t *testing.T) {
 	labels := make(map[string]string)
 	labels["environment"] = "test"
@@ -415,4 +487,173 @@ func TestBuildNamespace(t *testing.T) {
 		// Since there are no changes, it shouldn't be added to pendingAdd
 		assert.NotContains(t, inventoryService.pendingAdd, string(testNamespace.UID))
 	})
+}
+
+func TestSynchronizeServiceIDsWithApplicationInstances(t *testing.T) {
+	t.Run("UpdateServiceIDs", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+
+		service := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-service",
+				Namespace: "default",
+				UID:       "service-uid-789",
+			},
+		}
+
+		// Add an application instance to the store
+		inventoryService.ApplicationInstanceStore.Add(&containerinventory.ContainerApplicationInstance{
+			ExternalId:              "pod-uid-123",
+			ContainerApplicationIds: []string{},
+		})
+
+		// Expect the List function to be called and mock the behavior
+		k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+		patches := gomonkey.ApplyFunc(GetPodByUID,
+			func(ctx context.Context, client client.Client, uid types.UID, namespace string) (*corev1.Pod, error) {
+				return &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						UID: uid,
+					},
+				}, nil
+			},
+		).ApplyFunc(GetServicesUIDByPodUID,
+			func(_ context.Context, _ client.Client, _ types.UID, _ string) ([]string, error) {
+				return []string{"service-uid-234", "service-uid-456"}, nil
+			},
+		)
+		defer patches.Reset()
+
+		podUIDs := []string{"pod-uid-123"}
+		retry := inventoryService.synchronizeServiceIDsWithApplicationInstances(podUIDs, service)
+		assert.False(t, retry)
+
+		instance := inventoryService.ApplicationInstanceStore.GetByKey("pod-uid-123").(*containerinventory.ContainerApplicationInstance)
+		assert.Contains(t, instance.ContainerApplicationIds, "service-uid-234")
+		assert.Contains(t, instance.ContainerApplicationIds, "service-uid-456")
+	})
+
+	t.Run("RemoveStaleServiceIDs", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+
+		service := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-service",
+				Namespace: "default",
+				UID:       "service-uid-789",
+			},
+		}
+
+		staleInstance := &containerinventory.ContainerApplicationInstance{
+			ExternalId:              "stale-pod-uid",
+			ContainerApplicationIds: []string{"service-uid-789"},
+		}
+
+		inventoryService.ApplicationInstanceStore.Add(staleInstance)
+
+		podUIDs := []string{"pod-uid-123"}
+		inventoryService.removeStaleServiceIDsFromApplicationInstances(podUIDs, service)
+
+		updatedInstance := inventoryService.ApplicationInstanceStore.GetByKey("stale-pod-uid").(*containerinventory.ContainerApplicationInstance)
+		assert.NotContains(t, updatedInstance.ContainerApplicationIds, string(service.UID))
+	})
+}
+
+func TestApplyServiceIDUpdates(t *testing.T) {
+	inventoryService, _ := createService(t)
+
+	instance := &containerinventory.ContainerApplicationInstance{
+		ExternalId:              "pod-uid-123",
+		ContainerApplicationIds: []string{},
+	}
+	updatedServiceIDs := []string{"service-uid-456", "service-uid-789"}
+
+	inventoryService.applyServiceIDUpdates(instance, updatedServiceIDs)
+
+	assert.Equal(t, updatedServiceIDs, instance.ContainerApplicationIds)
+	assert.Equal(t, 1, len(inventoryService.requestBuffer))
+	assert.Equal(t, instance.ExternalId, inventoryService.requestBuffer[0].ContainerObject["external_id"])
+}
+
+func TestUpdateServiceIDsForApplicationInstance(t *testing.T) {
+	inventoryService, k8sClient := createService(t)
+
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-service",
+			Namespace: "default",
+			UID:       "service-uid-123",
+		},
+	}
+
+	podUID := "pod-uid-123"
+	instance := &containerinventory.ContainerApplicationInstance{
+		ExternalId: podUID,
+	}
+	inventoryService.ApplicationInstanceStore.Add(instance)
+
+	k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	patches := gomonkey.ApplyFunc(GetPodByUID,
+		func(ctx context.Context, client client.Client, uid types.UID, namespace string) (*corev1.Pod, error) {
+			return &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					UID: uid,
+				},
+			}, nil
+		},
+	).ApplyFunc(GetServicesUIDByPodUID,
+		func(_ context.Context, _ client.Client, _ types.UID, _ string) ([]string, error) {
+			return []string{"service-uid-234", "service-uid-345"}, nil
+		},
+	)
+	defer patches.Reset()
+
+	retry := inventoryService.updateServiceIDsForApplicationInstance(podUID, service)
+
+	assert.False(t, retry)
+	assert.Contains(t, instance.ContainerApplicationIds, "service-uid-234")
+	assert.Contains(t, instance.ContainerApplicationIds, "service-uid-345")
+}
+
+func TestRemoveStaleServiceIDsFromApplicationInstances(t *testing.T) {
+	inventoryService, _ := createService(t)
+
+	// Create a service which has a UID that should be removed
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-service",
+			Namespace: "default",
+			UID:       "service-uid-789",
+		},
+	}
+
+	// Add application instances to the store, some of which will have stale service UIDs
+	instanceWithStaleID := &containerinventory.ContainerApplicationInstance{
+		ExternalId:              "pod-uid-123",
+		ContainerApplicationIds: []string{"service-uid-789", "service-uid-456"},
+	}
+
+	instanceWithValidID := &containerinventory.ContainerApplicationInstance{
+		ExternalId:              "pod-uid-456",
+		ContainerApplicationIds: []string{"service-uid-456"},
+	}
+
+	inventoryService.ApplicationInstanceStore.Add(instanceWithStaleID)
+	inventoryService.ApplicationInstanceStore.Add(instanceWithValidID)
+
+	// Simulate the list of pod UIDs that are currently valid
+	podUIDs := []string{"pod-uid-456"}
+
+	inventoryService.removeStaleServiceIDsFromApplicationInstances(podUIDs, service)
+
+	// Verify that the stale UID is removed from the first instance
+	updatedInstanceWithStaleID := inventoryService.ApplicationInstanceStore.GetByKey("pod-uid-123").(*containerinventory.ContainerApplicationInstance)
+	assert.NotContains(t, updatedInstanceWithStaleID.ContainerApplicationIds, "service-uid-789")
+	assert.Contains(t, updatedInstanceWithStaleID.ContainerApplicationIds, "service-uid-456")
+
+	// Verify that the instance with valid IDs remains unchanged
+	updatedInstanceWithValidID := inventoryService.ApplicationInstanceStore.GetByKey("pod-uid-456").(*containerinventory.ContainerApplicationInstance)
+	assert.Contains(t, updatedInstanceWithValidID.ContainerApplicationIds, "service-uid-456")
 }

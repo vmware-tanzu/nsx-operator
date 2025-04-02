@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -70,15 +72,43 @@ func TestInventoryService_SyncInventoryObject(t *testing.T) {
 	inventoryService, _ := createService(t)
 
 	t.Run("Empty bufferedKeys", func(t *testing.T) {
-		bufferedKeys := emptyKeySet
+		bufferedKeys := sets.New[InventoryKey]()
 		retryKeys, err := inventoryService.SyncInventoryObject(bufferedKeys)
 		assert.Empty(t, retryKeys)
 		assert.NoError(t, err)
 	})
 
+	t.Run("Valid ContainerApplication key", func(t *testing.T) {
+		key := InventoryKey{Key: "namespace/name", InventoryType: ContainerApplication}
+		bufferedKeys := sets.New[InventoryKey]()
+		bufferedKeys.Insert(key)
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "SyncContainerApplication", func(s *InventoryService, name string, namespace string, key InventoryKey) *InventoryKey {
+			return nil
+		})
+		defer patches.Reset()
+		retryKeys, err := inventoryService.SyncInventoryObject(bufferedKeys)
+		assert.Empty(t, retryKeys)
+		assert.NoError(t, err)
+	})
+
+	t.Run("ContainerApplication key with sync failure", func(t *testing.T) {
+		key := InventoryKey{Key: "namespace/name", InventoryType: ContainerApplication}
+		bufferedKeys := sets.New[InventoryKey]()
+		bufferedKeys.Insert(key)
+
+		retryKey := InventoryKey{Key: "namespace/name", InventoryType: ContainerApplication}
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "SyncContainerApplication", func(s *InventoryService, name string, namespace string, key InventoryKey) *InventoryKey {
+			return &retryKey
+		})
+		defer patches.Reset()
+		retryKeys, err := inventoryService.SyncInventoryObject(bufferedKeys)
+		assert.Contains(t, retryKeys, retryKey)
+		assert.NoError(t, err)
+	})
+
 	t.Run("Valid ContainerApplicationInstance key", func(t *testing.T) {
 		key := InventoryKey{Key: "namespace/name", InventoryType: ContainerApplicationInstance}
-		bufferedKeys := emptyKeySet
+		bufferedKeys := sets.New[InventoryKey]()
 		bufferedKeys.Insert(key)
 		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "SyncContainerApplicationInstance", func(s *InventoryService, name string, namespace string, key InventoryKey) *InventoryKey {
 			return nil
@@ -91,7 +121,7 @@ func TestInventoryService_SyncInventoryObject(t *testing.T) {
 
 	t.Run("ContainerApplicationInstance key with sync failure", func(t *testing.T) {
 		key := InventoryKey{Key: "namespace/name", InventoryType: ContainerApplicationInstance}
-		bufferedKeys := emptyKeySet
+		bufferedKeys := sets.New[InventoryKey]()
 		bufferedKeys.Insert(key)
 
 		retryKey := InventoryKey{Key: "namespace/name", InventoryType: ContainerApplicationInstance}
@@ -106,7 +136,7 @@ func TestInventoryService_SyncInventoryObject(t *testing.T) {
 
 	t.Run("NSX request failure", func(t *testing.T) {
 		key := InventoryKey{Key: "namespace/name", InventoryType: ContainerApplicationInstance}
-		bufferedKeys := emptyKeySet
+		bufferedKeys := sets.New[InventoryKey]()
 		bufferedKeys.Insert(key)
 
 		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "SyncContainerApplicationInstance", func(s *InventoryService, name string, namespace string, key InventoryKey) *InventoryKey {
@@ -120,6 +150,7 @@ func TestInventoryService_SyncInventoryObject(t *testing.T) {
 		assert.Equal(t, bufferedKeys, retryKeys)
 		assert.Error(t, err)
 	})
+
 }
 
 func TestInventoryService_DeleteResource(t *testing.T) {
@@ -179,6 +210,31 @@ func TestInventoryService_DeleteResource(t *testing.T) {
 		assert.Equal(t, externalId, obj["external_id"])
 		assert.Equal(t, ContainerProject, obj["resource_type"])
 		assert.Equal(t, "test-project", inventoryService.pendingDelete[externalId].(*containerinventory.ContainerProject).DisplayName)
+
+		// Clean up
+		inventoryService.requestBuffer = make([]containerinventory.ContainerInventoryObject, 0)
+		delete(inventoryService.pendingDelete, externalId)
+	})
+
+	t.Run("DeleteExistingContainerApplication", func(t *testing.T) {
+		externalId := "existing-app-id"
+		app := containerinventory.ContainerApplication{
+			DisplayName:        "test-app",
+			ResourceType:       string(ContainerApplication),
+			ExternalId:         externalId,
+			ContainerProjectId: "test-project",
+		}
+		inventoryService.ApplicationStore.Add(&app)
+		err := inventoryService.DeleteResource(externalId, ContainerApplication)
+
+		assert.Nil(t, err)
+		assert.Equal(t, 1, len(inventoryService.requestBuffer))
+		assert.Equal(t, 1, len(inventoryService.pendingDelete))
+		obj := inventoryService.requestBuffer[0].ContainerObject
+		assert.Equal(t, externalId, obj["external_id"])
+		assert.Equal(t, ContainerApplication, obj["resource_type"])
+		assert.Equal(t, "test-app", inventoryService.pendingDelete[externalId].(*containerinventory.ContainerApplication).DisplayName)
+		assert.Equal(t, "test-project", inventoryService.pendingDelete[externalId].(*containerinventory.ContainerApplication).ContainerProjectId)
 
 		// Clean up
 		inventoryService.requestBuffer = make([]containerinventory.ContainerInventoryObject, 0)
@@ -280,5 +336,43 @@ func TestInventoryService_updateInventoryStore(t *testing.T) {
 		assert.NoError(t, err)
 		itemNum := len(service.ProjectStore.List())
 		assert.Equal(t, 0, itemNum, "expected 0 items in the project inventory, got %d", itemNum)
+	})
+
+	application1 := containerinventory.ContainerApplication{
+		DisplayName:        "test-app",
+		ResourceType:       string(ContainerApplication),
+		ExternalId:         "app1",
+		ContainerProjectId: "project1",
+	}
+
+	t.Run("Add new ContainerApplication", func(t *testing.T) {
+		service.pendingAdd["app1"] = &application1
+		err := service.updateInventoryStore()
+		assert.NoError(t, err)
+		itemNum := len(service.ApplicationStore.List())
+		assert.Equal(t, 1, itemNum, "expected 1 item in the application inventory, got %d", itemNum)
+	})
+
+	t.Run("Delete existing ContainerApplication", func(t *testing.T) {
+		delete(service.pendingAdd, "app1")
+		service.pendingDelete["app1"] = &application1
+		err := service.updateInventoryStore()
+		assert.NoError(t, err)
+		itemNum := len(service.ApplicationStore.List())
+		assert.Equal(t, 0, itemNum, "expected 0 items in the application inventory, got %d", itemNum)
+	})
+
+	t.Run("Delete non-existing ContainerApplication", func(t *testing.T) {
+		nonExistingApp := containerinventory.ContainerApplication{
+			DisplayName:        "non-existing-app",
+			ResourceType:       string(ContainerApplication),
+			ExternalId:         "non-existing-app",
+			ContainerProjectId: "project1",
+		}
+		service.pendingDelete["non-existing-app"] = &nonExistingApp
+		err := service.updateInventoryStore()
+		assert.NoError(t, err)
+		itemNum := len(service.ApplicationStore.List())
+		assert.Equal(t, 0, itemNum, "expected 0 items in the application inventory, got %d", itemNum)
 	})
 }
