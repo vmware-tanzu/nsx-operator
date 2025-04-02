@@ -16,6 +16,8 @@ func compareResources(pre interface{}, cur interface{}) map[string]interface{} {
 		compareContainerProject(pre, cur, &updateProperties)
 	case string(ContainerApplicationInstance):
 		compareContainerApplicationInstance(pre, cur, &updateProperties)
+	case string(ContainerApplication):
+		compareContainerApplication(pre, cur, &updateProperties)
 	}
 	log.Info("Compare resource", "updateProperties", updateProperties)
 	return updateProperties
@@ -87,4 +89,22 @@ func isIPChanged(pre containerinventory.ContainerApplicationInstance, cur contai
 		}
 	}
 	return false
+}
+
+func compareContainerApplication(pre interface{}, cur interface{}, property *map[string]interface{}) {
+	updateProperties := *property
+	if pre == nil {
+		updateProperties["display_name"] = cur.(containerinventory.ContainerApplication).DisplayName
+		updateProperties["container_cluster_id"] = cur.(containerinventory.ContainerApplication).ContainerClusterId
+		updateProperties["container_project_id"] = cur.(containerinventory.ContainerApplication).ContainerProjectId
+	}
+	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerApplication).Tags, cur.(containerinventory.ContainerApplication).Tags) {
+		updateProperties["tags"] = cur.(containerinventory.ContainerApplication).Tags
+	}
+	if pre == nil || pre.(containerinventory.ContainerApplication).Status != cur.(containerinventory.ContainerApplication).Status {
+		updateProperties["status"] = cur.(containerinventory.ContainerApplication).Status
+	}
+	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerApplication).OriginProperties, cur.(containerinventory.ContainerApplication).OriginProperties) {
+		updateProperties["origin_properties"] = cur.(containerinventory.ContainerApplication).OriginProperties
+	}
 }
