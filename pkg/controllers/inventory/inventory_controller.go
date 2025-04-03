@@ -181,5 +181,9 @@ func (c *InventoryController) CleanStaleInventoryObjects() error {
 	if err != nil {
 		return err
 	}
+	err = c.service.CleanStaleInventoryApplication()
+	if err != nil {
+		return err
+	}
 	return nil
 }

@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	nsxt "github.com/vmware/go-vmware-nsxt"
 	"github.com/vmware/go-vmware-nsxt/containerinventory"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 )
 
 func TestInventoryService_InitContainerApplication(t *testing.T) {
@@ -86,4 +88,89 @@ func TestInventoryService_InitContainerApplication(t *testing.T) {
 		assert.Equal(t, expectNum, itemNum, "expected %d item in the inventory, got %d", expectNum, itemNum)
 	})
 
+}
+
+func TestCleanStaleInventoryApplication(t *testing.T) {
+	cfg := &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}
+	cfg.InventoryBatchPeriod = 60
+	cfg.InventoryBatchSize = 100
+	inventoryService, _ := createService(t)
+
+	t.Run("Normal flow, no project found", func(t *testing.T) {
+		inventoryService.ApplicationStore.Add(&containerinventory.ContainerApplication{
+			DisplayName:        "test-app",
+			ResourceType:       "ContainerApplication",
+			ContainerProjectId: "unknown-project",
+		})
+
+		err := inventoryService.CleanStaleInventoryApplication()
+		assert.Nil(t, err)
+		count := len(inventoryService.ApplicationStore.List())
+		assert.Equal(t, 1, count)
+	})
+
+	t.Run("Project found, application deleted", func(t *testing.T) {
+		ns := containerinventory.ContainerProject{
+			DisplayName:  "known-project",
+			ExternalId:   "123-known-project",
+			ResourceType: "ContainerProject",
+		}
+		inventoryService.ProjectStore.Add(&ns)
+		inventoryService.ApplicationStore.Add(&containerinventory.ContainerApplication{
+			DisplayName:        "test-app",
+			ResourceType:       "ContainerApplication",
+			ContainerProjectId: "123-known-project",
+		})
+
+		patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(inventoryService), "isApplicationDeleted", func(_ *InventoryService, _ string,
+			_ string, _ string) bool {
+			return true
+		})
+		defer patches.Reset()
+
+		err := inventoryService.CleanStaleInventoryApplication()
+		assert.Nil(t, err)
+		count := len(inventoryService.ApplicationStore.List())
+		assert.Equal(t, 1, count)
+	})
+
+	t.Run("Project found, failed to delete application", func(t *testing.T) {
+		deleteErr := errors.New("failed to delete")
+		inventoryService.ApplicationStore.Add(&containerinventory.ContainerApplication{
+			DisplayName:        "test-app",
+			ResourceType:       "ContainerApplication",
+			ContainerProjectId: "123-known-project",
+		})
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "DeleteResource", func(_ *InventoryService, _ string, _ InventoryType) error {
+			return deleteErr
+		})
+		patches.ApplyPrivateMethod(reflect.TypeOf(inventoryService), "isApplicationDeleted", func(_ *InventoryService, _ string, _ string,
+			_ string) bool {
+			return true
+		})
+		defer patches.Reset()
+
+		err := inventoryService.CleanStaleInventoryApplication()
+		assert.Equal(t, deleteErr, err)
+		count := len(inventoryService.ApplicationStore.List())
+		assert.Equal(t, 1, count)
+	})
+
+	t.Run("No project found, failed to delete application", func(t *testing.T) {
+		deleteErr := errors.New("failed to delete")
+		inventoryService.ApplicationStore.Add(&containerinventory.ContainerApplication{
+			DisplayName:        "test-app",
+			ResourceType:       "ContainerApplication",
+			ContainerProjectId: "unknown-project",
+		})
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "DeleteResource", func(_ *InventoryService, _ string, _ InventoryType) error {
+			return deleteErr
+		})
+		defer patches.Reset()
+
+		err := inventoryService.CleanStaleInventoryApplication()
+		assert.Equal(t, deleteErr, err)
+		count := len(inventoryService.ApplicationStore.List())
+		assert.Equal(t, 1, count)
+	})
 }
