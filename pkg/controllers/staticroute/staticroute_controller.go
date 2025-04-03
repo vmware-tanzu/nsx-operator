@@ -6,7 +6,6 @@ package staticroute
 import (
 	"context"
 	"fmt"
-	"os"
 	"reflect"
 
 	v1 "k8s.io/api/core/v1"
@@ -18,6 +17,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 
@@ -189,18 +189,18 @@ func (r *StaticRouteReconciler) Start(mgr ctrl.Manager) error {
 
 // CollectGarbage collect staticroute which has been removed from crd.
 // it implements the interface GarbageCollector method.
-func (r *StaticRouteReconciler) CollectGarbage(ctx context.Context) {
+func (r *StaticRouteReconciler) CollectGarbage(ctx context.Context) error {
 	log.Info("static route garbage collector started")
 	nsxStaticRouteList := r.Service.ListStaticRoute()
 	if len(nsxStaticRouteList) == 0 {
-		return
+		return nil
 	}
 
 	crdStaticRouteList := &v1alpha1.StaticRouteList{}
 	err := r.Client.List(ctx, crdStaticRouteList)
 	if err != nil {
 		log.Error(err, "failed to list static route CR")
-		return
+		return err
 	}
 
 	crdStaticRouteSet := sets.NewString()
@@ -208,6 +208,7 @@ func (r *StaticRouteReconciler) CollectGarbage(ctx context.Context) {
 		crdStaticRouteSet.Insert(string(sr.UID))
 	}
 
+	var errList []error
 	for _, e := range nsxStaticRouteList {
 		elem := e
 		UID := r.Service.GetUID(elem)
@@ -222,24 +223,38 @@ func (r *StaticRouteReconciler) CollectGarbage(ctx context.Context) {
 		r.StatusUpdater.IncreaseDeleteTotal()
 		err = r.Service.DeleteStaticRoute(elem)
 		if err != nil {
+			errList = append(errList, err)
 			r.StatusUpdater.IncreaseDeleteFailTotal()
 		} else {
 			r.StatusUpdater.IncreaseDeleteSuccessTotal()
 		}
 	}
+	if len(errList) > 0 {
+		return fmt.Errorf("errors found in StaticRoute garbage collection: %s", errList)
+	}
+	return nil
 }
 
-func StartStaticRouteController(mgr ctrl.Manager, staticRouteService *staticroute.StaticRouteService) {
-	staticRouteReconcile := StaticRouteReconciler{
+func (r *StaticRouteReconciler) RestoreReconcile() error {
+	return nil
+}
+
+func (r *StaticRouteReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+	if err := r.Start(mgr); err != nil {
+		log.Error(err, "failed to create controller", "controller", "StaticRoute")
+		return err
+	}
+	go common.GenericGarbageCollector(make(chan bool), commonservice.GCInterval, r.CollectGarbage)
+	return nil
+}
+
+func NewStaticRouteReconciler(mgr ctrl.Manager, staticRouteService *staticroute.StaticRouteService) *StaticRouteReconciler {
+	staticRouteReconcile := &StaticRouteReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("staticroute-controller"),
 	}
 	staticRouteReconcile.Service = staticRouteService
 	staticRouteReconcile.StatusUpdater = common.NewStatusUpdater(staticRouteReconcile.Client, staticRouteReconcile.Service.NSXConfig, staticRouteReconcile.Recorder, MetricResTypeStaticRoute, "StaticRoute", "StaticRoute")
-	if err := staticRouteReconcile.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "StaticRoute")
-		os.Exit(1)
-	}
-	go common.GenericGarbageCollector(make(chan bool), commonservice.GCInterval, staticRouteReconcile.CollectGarbage)
+	return staticRouteReconcile
 }
