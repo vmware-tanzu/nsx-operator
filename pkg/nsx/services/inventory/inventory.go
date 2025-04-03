@@ -174,6 +174,11 @@ func (s *InventoryService) SyncInventoryObject(bufferedKeys sets.Set[InventoryKe
 			if retryKey != nil {
 				retryKeys.Insert(*retryKey)
 			}
+		case ContainerClusterNode:
+			retryKey := s.SyncContainerClusterNode(name, key)
+			if retryKey != nil {
+				retryKeys.Insert(*retryKey)
+			}
 		}
 	}
 
@@ -208,6 +213,13 @@ func (s *InventoryService) DeleteResource(externalId string, resourceType Invent
 		}
 		s.DeleteInventoryObject(resourceType, externalId, inventoryObject)
 		return s.DeleteContainerApplicationInstance(externalId, inventoryObject.(*containerinventory.ContainerApplicationInstance))
+	case ContainerClusterNode:
+		inventoryObject := s.ClusterNodeStore.GetByKey(externalId)
+		if inventoryObject == nil {
+			return nil
+		}
+		s.DeleteInventoryObject(resourceType, externalId, inventoryObject)
+		return s.DeleteContainerClusterNode(externalId, inventoryObject.(*containerinventory.ContainerClusterNode))
 	default:
 		return fmt.Errorf("unknown resource_type: %v for external_id %s", resourceType, externalId)
 	}
@@ -230,6 +242,8 @@ func (s *InventoryService) DeleteInventoryObject(resourceType InventoryType, ext
 		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerApplication)
 	case ContainerApplicationInstance:
 		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerApplicationInstance)
+	case ContainerClusterNode:
+		s.pendingDelete[externalId] = inventoryObject.(*containerinventory.ContainerClusterNode)
 	}
 }
 
@@ -278,7 +292,12 @@ func (s *InventoryService) updateInventoryStore() error {
 			if err != nil {
 				return err
 			}
-
+		case string(ContainerClusterNode):
+			node := addItem.(*containerinventory.ContainerClusterNode)
+			err := s.ClusterNodeStore.Add(node)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	for _, deleteItem := range s.pendingDelete {
@@ -298,6 +317,12 @@ func (s *InventoryService) updateInventoryStore() error {
 		case string(ContainerApplicationInstance):
 			instance := deleteItem.(*containerinventory.ContainerApplicationInstance)
 			err := s.ApplicationInstanceStore.Delete(instance)
+			if err != nil {
+				return err
+			}
+		case string(ContainerClusterNode):
+			node := deleteItem.(*containerinventory.ContainerClusterNode)
+			err := s.ClusterNodeStore.Delete(node)
 			if err != nil {
 				return err
 			}
