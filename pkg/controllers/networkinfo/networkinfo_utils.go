@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-	svccommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 func setNetworkInfoVPCStatusWithError(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ error, args ...interface{}) {
@@ -74,17 +74,26 @@ func setVPCNetworkConfigurationStatusWithLBS(ctx context.Context, client client.
 	log.Info("Updated VPCNetworkConfiguration status", "ncName", ncName, "vpcName", vpcName, "nc.Status.VPCs", nc.Status.VPCs)
 }
 
-func setVPCNetworkConfigurationStatusWithGatewayConnection(ctx context.Context, client client.Client, nc *v1alpha1.VPCNetworkConfiguration, gatewayConnectionReady bool, reason string) {
+func setVPCNetworkConfigurationStatusWithGatewayConnection(ctx context.Context, client client.Client, nc *v1alpha1.VPCNetworkConfiguration, connectionStatus *common.VPCConnectionStatus) {
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:               v1alpha1.GatewayConnectionReady,
 			Status:             v1.ConditionFalse,
-			Reason:             reason,
+			Reason:             connectionStatus.GatewayConnectionReason,
+			LastTransitionTime: metav1.Time{},
+		},
+		{
+			Type:               v1alpha1.ServiceClusterReady,
+			Status:             v1.ConditionFalse,
+			Reason:             connectionStatus.ServiceClusterReason,
 			LastTransitionTime: metav1.Time{},
 		},
 	}
-	if gatewayConnectionReady {
+	if connectionStatus.GatewayConnectionReady {
 		newConditions[0].Status = v1.ConditionTrue
+	}
+	if connectionStatus.ServiceClusterReady {
+		newConditions[1].Status = v1.ConditionTrue
 	}
 	conditionsUpdated := false
 	for i := range newConditions {
@@ -94,7 +103,7 @@ func setVPCNetworkConfigurationStatusWithGatewayConnection(ctx context.Context, 
 	}
 	if conditionsUpdated {
 		client.Status().Update(ctx, nc)
-		log.Info("Set VPCNetworkConfiguration status", "ncName", nc.Name, "condition", newConditions[0])
+		log.Info("Set VPCNetworkConfiguration status", "ncName", nc.Name, "condition", newConditions)
 	}
 }
 
@@ -127,7 +136,7 @@ func setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx context.Context, 
 	}
 	if !hasExternalIPs {
 		newCondition.Status = v1.ConditionFalse
-		newCondition.Reason = svccommon.ReasonNoExternalIPBlocksInVPCConnectivityProfile
+		newCondition.Reason = common.ReasonNoExternalIPBlocksInVPCConnectivityProfile
 		newCondition.Message = "No External IP Blocks exist in VPC Connectivity Profile"
 	} else {
 		newCondition.Status = v1.ConditionTrue
@@ -175,7 +184,7 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 	return nil
 }
 
-func getGatewayConnectionStatus(ctx context.Context, nc *v1alpha1.VPCNetworkConfiguration) (bool, string) {
+func getGatewayConnectionStatus(nc *v1alpha1.VPCNetworkConfiguration) (bool, string) {
 	gatewayConnectionReady := false
 	reason := ""
 	for _, condition := range nc.Status.Conditions {
@@ -184,11 +193,33 @@ func getGatewayConnectionStatus(ctx context.Context, nc *v1alpha1.VPCNetworkConf
 		}
 		if condition.Status == v1.ConditionTrue {
 			gatewayConnectionReady = true
+			break
+		}
+		if condition.Status == v1.ConditionFalse {
 			reason = condition.Reason
 			break
 		}
 	}
 	return gatewayConnectionReady, reason
+}
+
+func getServiceClusterStatus(nc *v1alpha1.VPCNetworkConfiguration) (bool, string) {
+	serviceClusterReady := false
+	reason := ""
+	for _, condition := range nc.Status.Conditions {
+		if condition.Type != v1alpha1.ServiceClusterReady {
+			continue
+		}
+		if condition.Status == v1.ConditionTrue {
+			serviceClusterReady = true
+			break
+		}
+		if condition.Status == v1.ConditionFalse {
+			reason = condition.Reason
+			break
+		}
+	}
+	return serviceClusterReady, reason
 }
 
 func updateVPCNetworkConfigurationStatusWithAliveVPCs(ctx context.Context, client client.Client, ncName string, getAliveVPCsFn func(ncName string) ([]*model.Vpc, error)) {

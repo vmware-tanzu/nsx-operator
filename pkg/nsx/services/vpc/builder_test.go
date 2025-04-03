@@ -94,22 +94,25 @@ func TestBuildNSXVPC(t *testing.T) {
 	clusterStr := "cluster1"
 
 	for _, tc := range []struct {
-		name              string
-		existingVPC       *model.Vpc
-		ncPrivateIps      []string
-		useAVILB          bool
-		netInfoObj        *v1alpha1.NetworkInfo
-		expVPC            *model.Vpc
-		lbProviderChanged bool
+		name                string
+		existingVPC         *model.Vpc
+		ncPrivateIps        []string
+		useAVILB            bool
+		netInfoObj          *v1alpha1.NetworkInfo
+		expVPC              *model.Vpc
+		lbProviderChanged   bool
+		serviceClusterReady bool
 	}{
 		{
 			name:         "existing VPC not change",
 			ncPrivateIps: []string{"192.168.1.0/24"},
 			existingVPC: &model.Vpc{
-				PrivateIps: []string{"192.168.1.0/24"},
+				PrivateIps:              []string{"192.168.1.0/24"},
+				LoadBalancerVpcEndpoint: &model.LoadBalancerVPCEndpoint{Enabled: common.Bool(true)},
 			},
-			useAVILB:          true,
-			lbProviderChanged: false,
+			useAVILB:            true,
+			lbProviderChanged:   false,
+			serviceClusterReady: false,
 		},
 		{
 			name: "existing VPC changes private IPv4 blocks",
@@ -121,13 +124,15 @@ func TestBuildNSXVPC(t *testing.T) {
 			expVPC: &model.Vpc{
 				PrivateIps: []string{"192.168.3.0/24"},
 			},
-			lbProviderChanged: false,
+			lbProviderChanged:   false,
+			serviceClusterReady: false,
 		},
 		{
-			name:              "create new VPC with AVI load balancer enabled",
-			ncPrivateIps:      []string{"192.168.3.0/24"},
-			useAVILB:          true,
-			lbProviderChanged: false,
+			name:                "create new VPC with AVI load balancer enabled",
+			ncPrivateIps:        []string{"192.168.3.0/24"},
+			useAVILB:            true,
+			lbProviderChanged:   false,
+			serviceClusterReady: false,
 			expVPC: &model.Vpc{
 				Id:                      common.String("netinfo1_netinfouid1"),
 				DisplayName:             common.String("netinfo1_netinfouid1"),
@@ -144,10 +149,11 @@ func TestBuildNSXVPC(t *testing.T) {
 			},
 		},
 		{
-			name:              "create new VPC with AVI load balancer disabled",
-			ncPrivateIps:      []string{"192.168.3.0/24"},
-			useAVILB:          false,
-			lbProviderChanged: false,
+			name:                "create new VPC with AVI load balancer disabled",
+			ncPrivateIps:        []string{"192.168.3.0/24"},
+			useAVILB:            false,
+			lbProviderChanged:   false,
+			serviceClusterReady: false,
 			expVPC: &model.Vpc{
 				Id:            common.String("netinfo1_netinfouid1"),
 				DisplayName:   common.String("netinfo1_netinfouid1"),
@@ -163,10 +169,11 @@ func TestBuildNSXVPC(t *testing.T) {
 			},
 		},
 		{
-			name:              "create new VPC with 81 chars networkinfo name",
-			ncPrivateIps:      []string{"192.168.3.0/24"},
-			useAVILB:          false,
-			lbProviderChanged: false,
+			name:                "create new VPC with 81 chars networkinfo name",
+			ncPrivateIps:        []string{"192.168.3.0/24"},
+			useAVILB:            false,
+			lbProviderChanged:   false,
+			serviceClusterReady: false,
 			netInfoObj: &v1alpha1.NetworkInfo{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "test-ns-03a2def3-0087-4077-904e-23e4dd788fb7", UID: "ecc6eb9f-92b5-4893-b809-e3ebc1fcf59e"},
 				VPCs:       nil,
@@ -194,8 +201,9 @@ func TestBuildNSXVPC(t *testing.T) {
 				PrivateIps:    []string{"192.168.3.0/24"},
 				IpAddressType: common.String("IPV4"),
 			},
-			useAVILB:          true,
-			lbProviderChanged: true,
+			useAVILB:            true,
+			lbProviderChanged:   true,
+			serviceClusterReady: false,
 			expVPC: &model.Vpc{
 				Id:                      common.String("netinfo1_netinfouid1"),
 				DisplayName:             common.String("netinfo1_netinfouid1"),
@@ -213,13 +221,34 @@ func TestBuildNSXVPC(t *testing.T) {
 				PrivateIps:    []string{"192.168.3.0/24"},
 				IpAddressType: common.String("IPV4"),
 			},
-			useAVILB:          false,
-			lbProviderChanged: true,
+			useAVILB:            false,
+			lbProviderChanged:   true,
+			serviceClusterReady: false,
 			expVPC: &model.Vpc{
 				Id:            common.String("netinfo1_netinfouid1"),
 				DisplayName:   common.String("netinfo1_netinfouid1"),
 				PrivateIps:    []string{"192.168.3.0/24"},
 				IpAddressType: common.String("IPV4"),
+			},
+		},
+		{
+			name:         "update VPC with DTGW from day0 to day2",
+			ncPrivateIps: []string{"192.168.3.0/24"},
+			existingVPC: &model.Vpc{
+				Id:            common.String("netinfo1_netinfouid1"),
+				DisplayName:   common.String("netinfo1_netinfouid1"),
+				PrivateIps:    []string{"192.168.3.0/24"},
+				IpAddressType: common.String("IPV4"),
+			},
+			useAVILB:            false,
+			lbProviderChanged:   false,
+			serviceClusterReady: true,
+			expVPC: &model.Vpc{
+				Id:                      common.String("netinfo1_netinfouid1"),
+				DisplayName:             common.String("netinfo1_netinfouid1"),
+				PrivateIps:              []string{"192.168.3.0/24"},
+				IpAddressType:           common.String("IPV4"),
+				LoadBalancerVpcEndpoint: &model.LoadBalancerVPCEndpoint{Enabled: common.Bool(true)},
 			},
 		},
 	} {
@@ -228,7 +257,7 @@ func TestBuildNSXVPC(t *testing.T) {
 			if tc.netInfoObj != nil {
 				netInfoObj = tc.netInfoObj
 			}
-			got, err := buildNSXVPC(netInfoObj, nsObj, nc, clusterStr, tc.existingVPC, tc.useAVILB, tc.lbProviderChanged)
+			got, err := buildNSXVPC(netInfoObj, nsObj, nc, clusterStr, tc.existingVPC, tc.useAVILB, tc.lbProviderChanged, tc.serviceClusterReady)
 			assert.Nil(t, err)
 			assert.Equal(t, tc.expVPC, got)
 		})
