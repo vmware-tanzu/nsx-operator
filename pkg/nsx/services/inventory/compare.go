@@ -18,6 +18,8 @@ func compareResources(pre interface{}, cur interface{}) map[string]interface{} {
 		compareContainerApplicationInstance(pre, cur, &updateProperties)
 	case string(ContainerApplication):
 		compareContainerApplication(pre, cur, &updateProperties)
+	case string(ContainerIngressPolicy):
+		compareContainerIngressPolicy(pre, cur, &updateProperties)
 	}
 	log.Info("Compare resource", "updateProperties", updateProperties)
 	return updateProperties
@@ -59,6 +61,25 @@ func compareContainerApplicationInstance(pre interface{}, cur interface{}, prope
 		if isIPChanged(pre.(containerinventory.ContainerApplicationInstance), cur.(containerinventory.ContainerApplicationInstance)) {
 			updateProperties["origin_properties"] = cur.(containerinventory.ContainerApplicationInstance).OriginProperties
 		}
+	}
+}
+
+func compareContainerIngressPolicy(pre interface{}, cur interface{}, property *map[string]interface{}) {
+	updateProperties := *property
+	if pre == nil {
+		updateProperties["display_name"] = cur.(containerinventory.ContainerIngressPolicy).DisplayName
+		updateProperties["container_cluster_id"] = cur.(containerinventory.ContainerIngressPolicy).ContainerClusterId
+		updateProperties["container_project_id"] = cur.(containerinventory.ContainerIngressPolicy).ContainerProjectId
+	}
+	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerIngressPolicy).Tags, cur.(containerinventory.ContainerIngressPolicy).Tags) {
+		updateProperties["tags"] = cur.(containerinventory.ContainerIngressPolicy).Tags
+	}
+	if pre == nil || pre.(containerinventory.ContainerIngressPolicy).Spec != cur.(containerinventory.ContainerIngressPolicy).Spec {
+		updateProperties["spec"] = cur.(containerinventory.ContainerIngressPolicy).Spec
+	}
+
+	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerIngressPolicy).ContainerApplicationIds, cur.(containerinventory.ContainerIngressPolicy).ContainerApplicationIds) {
+		updateProperties["container_application_ids"] = cur.(containerinventory.ContainerIngressPolicy).ContainerApplicationIds
 	}
 }
 

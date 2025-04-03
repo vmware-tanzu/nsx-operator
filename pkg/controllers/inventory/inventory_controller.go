@@ -41,6 +41,7 @@ var (
 		watchNamespace,
 		watchService,
 		watchEndpoint,
+		watchIngress,
 	}
 )
 
