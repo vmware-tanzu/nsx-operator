@@ -13,6 +13,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/inventory"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	sr "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
@@ -174,6 +175,11 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 			return subnetbinding.InitializeService(service)
 		}
 	}
+	wrapInitializeInventory := func(service common.Service) cleanupFunc {
+		return func() (cleanup, error) {
+			return inventory.InitializeService(service, true)
+		}
+	}
 	// TODO: initialize other CR services
 	cleanupService = cleanupService.
 		AddCleanupService(wrapInitializeSubnetPort(commonService)).
@@ -182,7 +188,7 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 		AddCleanupService(wrapInitializeSecurityPolicy(commonService)).
 		AddCleanupService(wrapInitializeStaticRoute(commonService)).
 		AddCleanupService(wrapInitializeVPC(commonService)).
-		AddCleanupService(wrapInitializeIPAddressAllocation(commonService))
-
+		AddCleanupService(wrapInitializeIPAddressAllocation(commonService)).
+		AddCleanupService(wrapInitializeInventory(commonService))
 	return cleanupService, nil
 }

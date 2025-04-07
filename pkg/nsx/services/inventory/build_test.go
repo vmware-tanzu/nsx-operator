@@ -53,10 +53,13 @@ func createService(t *testing.T) (*InventoryService, *mockClient.MockClient) {
 			CoeConfig: &config.CoeConfig{
 				Cluster: "k8scl-one:test",
 			},
+			NsxConfig: &config.NsxConfig{
+				InventoryBatchSize: 2,
+			},
 		},
 	}
 
-	service, _ := InitializeService(commonservice)
+	service, _ := InitializeService(commonservice, false)
 	return service, k8sClient
 }
 
