@@ -205,7 +205,6 @@ func (s *InventoryService) DeleteResource(externalId string, resourceType Invent
 			return nil
 		}
 		s.DeleteInventoryObject(resourceType, externalId, inventoryObject)
-		return s.DeleteContainerApplication(externalId, inventoryObject.(*containerinventory.ContainerApplication))
 	case ContainerApplicationInstance:
 		inventoryObject := s.ApplicationInstanceStore.GetByKey(externalId)
 		if inventoryObject == nil {
