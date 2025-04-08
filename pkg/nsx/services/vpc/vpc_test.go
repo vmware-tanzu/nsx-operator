@@ -722,8 +722,8 @@ func TestGetGatewayConnectionTypeFromConnectionPath(t *testing.T) {
 	}{
 		{
 			name:          "ValidPath",
-			path:          "/infra/distributed-gateway-connections/gateway-101",
-			expectedType:  "distributed-gateway-connections",
+			path:          "/infra/gateway-connections/gateway-101",
+			expectedType:  "gateway-connections",
 			expectedError: nil,
 		},
 		{

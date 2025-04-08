@@ -57,7 +57,7 @@ var (
 	nsMsgVPCNetCfgGetError        = newNsUnreadyMessage("Error happened to get VPC network configuration: %v", NSReasonVPCNetConfigNotReady)
 	nsMsgSystemVPCNetCfgNotFound  = newNsUnreadyMessage("Error happened to get system VPC network configuration: %v", NSReasonVPCNetConfigNotReady)
 	nsMsgVPCGwConnectionGetError  = newNsUnreadyMessage("Error happened to validate system VPC gateway connection readiness: %v", NSReasonVPCNetConfigNotReady)
-	nsMsgVPCConnectionNotReady    = newNsUnreadyMessage("Neither of System VPC gateway connection nor service cluster is ready", NSReasonVPCNetConfigNotReady)
+	nsMsgVPCConnectionNotReady    = newNsUnreadyMessage("Neither System VPC gateway nor service cluster is ready", NSReasonVPCNetConfigNotReady)
 	nsMsgVPCCreateUpdateError     = newNsUnreadyMessage("Error happened to create or update VPC: %v", NSReasonVPCNotReady)
 	nsMsgVPCNsxLBSNotReady        = newNsUnreadyMessage("Error happened to get NSX LBS path in VPC: %v", NSReasonVPCNotReady)
 	nsMsgVPCAviSubnetError        = newNsUnreadyMessage("Error happened to get Avi Load balancer Subnet info: %v", NSReasonVPCNotReady)
@@ -207,7 +207,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		log.Info("Got the connection status", "status", connectionStatus)
 		setVPCNetworkConfigurationStatusWithGatewayConnection(ctx, r.Client, systemVpcNetCfg, connectionStatus)
-		serviceClusterReady = connectionStatus.GatewayConnectionReady
+		serviceClusterReady = connectionStatus.ServiceClusterReady
 
 		// Retry after 60s if the gateway connection is still not ready in system VPC.
 		if !connectionStatus.GatewayConnectionReady && !connectionStatus.ServiceClusterReady {
