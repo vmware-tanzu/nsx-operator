@@ -8,9 +8,14 @@ import (
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	nsxt "github.com/vmware/go-vmware-nsxt"
 	"github.com/vmware/go-vmware-nsxt/containerinventory"
+	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 )
@@ -192,4 +197,64 @@ func TestCleanStaleInventoryApplicationInstance(t *testing.T) {
 		assert.Equal(t, 1, count)
 	})
 
+}
+
+func TestInventoryService_IsPodDeleted(t *testing.T) {
+	t.Run("PodNotFound", func(t *testing.T) {
+		inventoryService, mockClient := createService(t)
+
+		// Mock Client.Get to return a NotFound error
+		mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(apierrors.NewNotFound(v1.Resource("Pod"), "test-Pod"))
+
+		// Call IsPodDeleted
+		result := inventoryService.IsPodDeleted("test-namespace", "test-Pod", "external-id-1")
+
+		// Assert the result is true
+		assert.True(t, result)
+	})
+
+	t.Run("PodUIDMismatch", func(t *testing.T) {
+		inventoryService, mockClient := createService(t)
+
+		// Mock Client.Get to return an Pod with a different UID
+		mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, _ types.NamespacedName, Pod client.Object, opts ...client.GetOption) error {
+			Pod.(*v1.Pod).UID = "different-uid"
+			return nil
+		})
+
+		// Call IsPodDeleted
+		result := inventoryService.IsPodDeleted("test-namespace", "test-Pod", "external-id-1")
+
+		// Assert the result is true
+		assert.True(t, result)
+	})
+
+	t.Run("PodExistsWithMatchingUID", func(t *testing.T) {
+		inventoryService, mockClient := createService(t)
+
+		// Mock Client.Get to return an Pod with a matching UID
+		mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, _ types.NamespacedName, Pod client.Object, opts ...client.GetOption) error {
+			Pod.(*v1.Pod).UID = "external-id-1"
+			return nil
+		})
+
+		// Call IsPodDeleted
+		result := inventoryService.IsPodDeleted("test-namespace", "test-Pod", "external-id-1")
+
+		// Assert the result is false
+		assert.False(t, result)
+	})
+
+	t.Run("UnexpectedError", func(t *testing.T) {
+		inventoryService, mockClient := createService(t)
+
+		// Mock Client.Get to return an unexpected error
+		mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("unexpected error"))
+
+		// Call IsPodDeleted
+		result := inventoryService.IsPodDeleted("test-namespace", "test-Pod", "external-id-1")
+
+		// Assert the result is false
+		assert.False(t, result)
+	})
 }
