@@ -3,6 +3,7 @@ package inventory
 import (
 	"context"
 	"errors"
+	"os"
 	"reflect"
 	"sync"
 	"testing"
@@ -27,6 +28,11 @@ import (
 type MockMgr struct {
 	mock.Mock
 	ctrl.Manager
+}
+
+func (m *MockMgr) GetClient() client.Client {
+	args := m.Called()
+	return args.Get(0).(client.Client)
 }
 
 func (m *MockMgr) GetCache() cache.Cache {
@@ -201,5 +207,56 @@ func TestSyncInventoryKeys(t *testing.T) {
 		queue.On("Forget", key2).Once()
 		controller.syncInventoryKeys()
 		queue.AssertExpectations(t)
+	})
+}
+func TestStartInventoryController(t *testing.T) {
+	t.Run("SuccessfulControllerSetup", func(t *testing.T) {
+		// Mock dependencies
+		mockMgr := &MockMgr{}
+		mockService := &inventory.InventoryService{}
+		mockConfig := &config.NSXOperatorConfig{}
+
+		mockClient := fake.NewClientBuilder().Build()
+		mockMgr.On("GetClient").Return(mockClient)
+
+		// Mock SetupWithManager to return nil (successful setup)
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(&InventoryController{}), "SetupWithManager", func(_ *InventoryController, mgr ctrl.Manager) error {
+			return nil
+		})
+		defer patches.Reset()
+
+		// Call StartInventoryController
+		assert.NotPanics(t, func() {
+			StartInventoryController(mockMgr, mockService, mockConfig)
+		})
+	})
+
+	t.Run("ControllerSetupFailure", func(t *testing.T) {
+		// Mock dependencies
+		mockMgr := &MockMgr{}
+		mockService := &inventory.InventoryService{}
+		mockConfig := &config.NSXOperatorConfig{}
+
+		mockClient := fake.NewClientBuilder().Build()
+		mockMgr.On("GetClient").Return(mockClient)
+
+		// Mock SetupWithManager to return an error
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(&InventoryController{}), "SetupWithManager", func(_ *InventoryController, mgr ctrl.Manager) error {
+			return errors.New("setup error")
+		})
+		defer patches.Reset()
+
+		// Capture os.Exit calls
+		exitCode := -1
+		patchesExit := gomonkey.ApplyFunc(os.Exit, func(code int) {
+			exitCode = code
+		})
+		defer patchesExit.Reset()
+
+		// Call StartInventoryController
+		StartInventoryController(mockMgr, mockService, mockConfig)
+
+		// Assert os.Exit was called with code 1
+		assert.Equal(t, 1, exitCode)
 	})
 }

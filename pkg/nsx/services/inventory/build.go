@@ -3,13 +3,14 @@ package inventory
 import (
 	"context"
 	"crypto/sha1" // #nosec G505: not used for security purposes
-	"errors"
 	"fmt"
 	"sort"
 
 	"github.com/vmware/go-vmware-nsxt/common"
 	"github.com/vmware/go-vmware-nsxt/containerinventory"
+	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
+	networkv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
@@ -31,12 +32,10 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 		preContainerApplicationInstance = *preContainerApplicationInstance.(*containerinventory.ContainerApplicationInstance)
 
 	}
-	namespaceName := pod.Namespace
-	namespace := &corev1.Namespace{}
-	err := s.Client.Get(context.TODO(), types.NamespacedName{Name: namespaceName}, namespace)
+	namespace, err := s.GetNamespace(pod.Namespace)
 	if err != nil {
 		retry = true
-		log.Error(errors.New("not find namespace for Pod"), "Failed to build Pod", "Pod", pod)
+		log.Error(err, "Failed to build Pod", "Pod", pod)
 		return
 	}
 
@@ -47,7 +46,7 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 			// retry when pod has Node but Node is missing in NodeInformer
 			retry = true
 		}
-		log.Error(err, "Cannot find node for Pod", "Pod", pod, "retry", retry)
+		log.Error(err, "Cannot find node for Pod", "Pod", pod.Name, "Namespace", pod.Namespace, "Node", pod.Spec.NodeName, "retry", retry)
 		return
 	}
 	status := InventoryStatusDown
@@ -96,6 +95,61 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 	if operation != operationNone {
 		s.pendingAdd[containerApplicationInstance.ExternalId] = &containerApplicationInstance
 	}
+	return
+}
+
+func (s *InventoryService) GetNamespace(namespace string) (*corev1.Namespace, error) {
+	ns := &corev1.Namespace{}
+	err := s.Client.Get(context.TODO(), types.NamespacedName{Name: namespace}, ns)
+	if err != nil {
+		log.Error(err, "Failed to find namespace", namespace)
+		return nil, err
+	}
+	return ns, nil
+}
+
+func (s *InventoryService) BuildIngress(ingress *networkv1.Ingress) (retry bool) {
+	log.V(1).Info("Add Ingress", "Name", ingress.Name, "Namespace", ingress.Namespace)
+	namespace, err := s.GetNamespace(ingress.Namespace)
+	retry = true
+	if err != nil {
+		log.Error(err, "Cannot find namespace for Ingress", "Ingress", ingress)
+		return
+	}
+	spec, err := yaml.Marshal(ingress.Spec)
+	if err != nil {
+		log.Error(err, "Failed to dump spec for ingress", "Ingress", ingress)
+		return
+	}
+
+	preIngress := s.IngressPolicyStore.GetByKey(string(ingress.UID))
+	if preIngress != nil {
+		preIngress = *preIngress.(*containerinventory.ContainerIngressPolicy)
+	}
+
+	containerIngress := containerinventory.ContainerIngressPolicy{
+		DisplayName:             ingress.Name,
+		ResourceType:            string(ContainerIngressPolicy),
+		Tags:                    GetTagsFromLabels(ingress.Labels),
+		ContainerApplicationIds: nil,
+		ContainerClusterId:      s.NSXConfig.Cluster,
+		ContainerProjectId:      string(namespace.UID),
+		ExternalId:              string(ingress.UID),
+		NetworkErrors:           nil,
+		NetworkStatus:           "",
+		OriginProperties:        nil,
+		Spec:                    string(spec),
+	}
+	appids := s.getIngressAppIds(ingress)
+	if len(appids) > 0 {
+		containerIngress.ContainerApplicationIds = appids
+	}
+	log.V(1).Info("Build ingress", "current instance", containerIngress, "pre instance", preIngress)
+	operation, _ := s.compareAndMergeUpdate(preIngress, containerIngress)
+	if operation != operationNone {
+		s.pendingAdd[containerIngress.ExternalId] = &containerIngress
+	}
+	retry = false
 	return
 }
 
@@ -169,6 +223,7 @@ func (s *InventoryService) compareAndMergeUpdate(pre interface{}, cur interface{
 		return operationCreate, updateProperties
 	} else if len(updateProperties) > 2 {
 		s.requestBuffer = append(s.requestBuffer, containerinventory.ContainerInventoryObject{ContainerObject: updateProperties, ObjectUpdateType: operationUpdate})
+		log.V(1).Info("Inventory compare", "updated properties", updateProperties)
 		return operationUpdate, updateProperties
 	} else {
 		return operationNone, nil
