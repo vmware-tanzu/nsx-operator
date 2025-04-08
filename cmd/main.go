@@ -27,10 +27,9 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/inventory"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/ipaddressallocation"
-
-	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	namespacecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/namespace"
 	networkinfocontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/networkinfo"
 	networkpolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/networkpolicy"
@@ -58,7 +57,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	ipaddressallocationservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	pkgutil "github.com/vmware-tanzu/nsx-operator/pkg/util"
@@ -73,6 +71,7 @@ var (
 	roleKey              = "nsx-operator-role"
 	roleMaster           = "master"
 	roleStandby          = "standby"
+	restoreMode          = false
 )
 
 func init() {
@@ -108,74 +107,6 @@ func init() {
 	}
 }
 
-func StartNSXServiceAccountController(mgr ctrl.Manager, commonService common.Service) {
-	log.Info("Starting NSXServiceAccountController")
-	nsxServiceAccountReconcile := &nsxserviceaccountcontroller.NSXServiceAccountReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("nsxserviceaccount-controller"),
-	}
-	nsxServiceAccountService, err := nsxserviceaccount.InitializeNSXServiceAccount(commonService)
-	if err != nil {
-		log.Error(err, "Failed to initialize service", "controller", "NSXServiceAccount")
-		os.Exit(1)
-	}
-	nsxServiceAccountReconcile.Service = nsxServiceAccountService
-	nsxServiceAccountReconcile.StatusUpdater = commonctl.NewStatusUpdater(nsxServiceAccountReconcile.Client, nsxServiceAccountReconcile.Service.NSXConfig, nsxServiceAccountReconcile.Recorder, commonctl.MetricResTypeNSXServiceAccount, "ServiceAccount", "NSXServiceAccount")
-	if err := nsxServiceAccountReconcile.Start(mgr); err != nil {
-		log.Error(err, "Failed to create controller", "controller", "NSXServiceAccount")
-		os.Exit(1)
-	}
-	go commonctl.GenericGarbageCollector(make(chan bool), common.GCInterval, nsxServiceAccountReconcile.CollectGarbage)
-}
-
-func StartNetworkInfoController(mgr ctrl.Manager, vpcService *vpc.VPCService, ipblocksInfoService *ipblocksinfo.IPBlocksInfoService) {
-	networkInfoReconciler := &networkinfocontroller.NetworkInfoReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("networkinfo-controller"),
-	}
-	networkInfoReconciler.Service = vpcService
-	networkInfoReconciler.IPBlocksInfoService = ipblocksInfoService
-	networkInfoReconciler.StatusUpdater = commonctl.NewStatusUpdater(networkInfoReconciler.Client, networkInfoReconciler.Service.NSXConfig, networkInfoReconciler.Recorder, commonctl.MetricResTypeNetworkInfo, "VPC", "NetworkInfo")
-	if err := networkInfoReconciler.Start(mgr); err != nil {
-		log.Error(err, "Failed to create networkinfo controller", "controller", "NetworkInfo")
-		os.Exit(1)
-	}
-	go commonctl.GenericGarbageCollector(make(chan bool), common.GCInterval, networkInfoReconciler.CollectGarbage)
-}
-
-func StartNamespaceController(mgr ctrl.Manager, cf *config.NSXOperatorConfig, vpcService common.VPCServiceProvider) {
-	nsReconciler := &namespacecontroller.NamespaceReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		NSXConfig:  cf,
-		VPCService: vpcService,
-	}
-
-	if err := nsReconciler.Start(mgr); err != nil {
-		log.Error(err, "Failed to create namespace controller", "controller", "Namespace")
-		os.Exit(1)
-	}
-}
-
-func StartIPAddressAllocationController(mgr ctrl.Manager, ipAddressAllocationService *ipaddressallocationservice.IPAddressAllocationService, vpcService common.VPCServiceProvider) {
-	ipAddressAllocationReconciler := &ipaddressallocation.IPAddressAllocationReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		Service:    ipAddressAllocationService,
-		VPCService: vpcService,
-		Recorder:   mgr.GetEventRecorderFor("ipaddressallocation-controller"),
-	}
-	ipAddressAllocationReconciler.StatusUpdater = commonctl.NewStatusUpdater(ipAddressAllocationReconciler.Client, ipAddressAllocationReconciler.Service.NSXConfig, ipAddressAllocationReconciler.Recorder, commonctl.MetricResTypeNetworkInfo, "IPAddressAllocation", "IPAddressAllocation")
-
-	if err := ipAddressAllocationReconciler.SetupWithManager(mgr); err != nil {
-		log.Error(err, "Failed to create ipaddressallocation controller")
-		os.Exit(1)
-	}
-	go commonctl.GenericGarbageCollector(make(chan bool), common.GCInterval, ipAddressAllocationReconciler.CollectGarbage)
-}
-
 func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	// Generate webhook certificates, and start refreshing webhook certificates periodically
 	if cf.CoeConfig.EnableVPCNetwork {
@@ -196,7 +127,17 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 
 	checkLicense(nsxClient, cf.LicenseValidationInterval)
 
+	var err error
+	restoreMode, err = pkgutil.CompareNSXRestore(mgr.GetClient(), nsxClient)
+	if err != nil {
+		log.Error(err, "NSX restore check failed")
+		os.Exit(1)
+	}
+
+	var reconcilerList []commonctl.ReconcilerProvider
+
 	var vpcService *vpc.VPCService
+	var hookServer webhook.Server
 
 	if cf.CoeConfig.EnableVPCNetwork {
 		// Check NSX version for VPC networking mode
@@ -246,11 +187,6 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		inventoryService := inventoryservice.NewInventoryService(commonService)
 		inventoryService.Initialize()
 
-		// Start controllers which only supports VPC
-		StartNetworkInfoController(mgr, vpcService, ipblocksInfoService)
-		StartNamespaceController(mgr, cf, vpcService)
-
-		var hookServer webhook.Server
 		if _, err := os.Stat(config.WebhookCertDir); errors.Is(err, os.ErrNotExist) {
 			log.Error(err, "Server cert not found, disabling webhook server", "cert", config.WebhookCertDir)
 		} else {
@@ -269,34 +205,56 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 				os.Exit(1)
 			}
 		}
-		// Start Subnet/SubnetSet controller.
-		if err := subnet.StartSubnetController(mgr, subnetService, subnetPortService, vpcService, subnetBindingService, hookServer); err != nil {
-			os.Exit(1)
-		}
-		if err := subnetset.StartSubnetSetController(mgr, subnetService, subnetPortService, vpcService, subnetBindingService, hookServer); err != nil {
-			os.Exit(1)
-		}
 
-		node.StartNodeController(mgr, nodeService)
-		staticroutecontroller.StartStaticRouteController(mgr, staticRouteService)
-		subnetport.StartSubnetPortController(mgr, subnetPortService, subnetService, vpcService, hookServer)
-		pod.StartPodController(mgr, subnetPortService, subnetService, vpcService, nodeService)
-		StartIPAddressAllocationController(mgr, ipAddressAllocationService, vpcService)
-		networkpolicycontroller.StartNetworkPolicyController(mgr, commonService, vpcService)
-		service.StartServiceLbController(mgr, commonService)
-		subnetbindingcontroller.StartSubnetBindingController(mgr, subnetService, subnetBindingService)
-		inventory.StartInventoryController(mgr, inventoryService, cf)
+		// Create controllers which only supports VPC
+		reconcilerList = append(
+			reconcilerList,
+			networkinfocontroller.NewNetworkInfoReconciler(mgr, vpcService, ipblocksInfoService),
+			namespacecontroller.NewNamespaceReconciler(mgr, cf, vpcService),
+			subnet.NewSubnetReconciler(mgr, subnetService, subnetPortService, vpcService, subnetBindingService),
+			subnetset.NewSubnetSetReconciler(mgr, subnetService, subnetPortService, vpcService, subnetBindingService),
+			node.NewNodeReconciler(mgr, nodeService),
+			staticroutecontroller.NewStaticRouteReconciler(mgr, staticRouteService),
+			subnetport.NewSubnetPortReconciler(mgr, subnetPortService, subnetService, vpcService),
+			pod.NewPodReconciler(mgr, subnetPortService, subnetService, vpcService, nodeService),
+			ipaddressallocation.NewIPAddressAllocationReconciler(mgr, ipAddressAllocationService, vpcService),
+			networkpolicycontroller.NewNetworkPolicyReconciler(mgr, commonService, vpcService),
+			service.NewServiceLbReconciler(mgr, commonService),
+			subnetbindingcontroller.NewReconciler(mgr, subnetService, subnetBindingService),
+			inventory.NewInventoryController(mgr.GetClient(), inventoryService, cf),
+		)
 	}
-	// Start controllers which can run in non-VPC mode
-	securitypolicycontroller.StartSecurityPolicyController(mgr, commonService, vpcService)
 
-	// Start the NSXServiceAccount controller.
+	// Add controllers which can run in non-VPC mode
+	reconcilerList = append(reconcilerList, securitypolicycontroller.NewSecurityPolicyReconciler(mgr, commonService, vpcService))
+
+	// Add the NSXServiceAccount controller.
 	if cf.EnableAntreaNSXInterworking {
-		StartNSXServiceAccountController(mgr, commonService)
+		reconcilerList = append(reconcilerList, nsxserviceaccountcontroller.NewNSXServiceAccountReconciler(mgr, commonService))
+	}
+
+	if restoreMode {
+		err := pkgutil.ProcessRestore(reconcilerList, mgr.GetClient())
+		if err != nil {
+			log.Error(err, "Failed to process restore")
+			os.Exit(1)
+		}
+		log.Info("Restore config update succeeds, restart to enter normal mode...")
+		os.Exit(0)
+	}
+
+	log.Info("Enter normal mode")
+	for _, reconciler := range reconcilerList {
+		if reconciler != nil {
+			if err := reconciler.StartController(mgr, hookServer); err != nil {
+				log.Error(err, "Failed to start the controllers")
+				os.Exit(1)
+			}
+		}
 	}
 
 	// Update pod labels to determine if this pod is the master
-	err := updatePodLabels(mgr)
+	err = updatePodLabels(mgr)
 	if err != nil {
 		log.Error(err, "Failed to update Pod labels")
 		panic(err)

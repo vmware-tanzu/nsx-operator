@@ -6,6 +6,7 @@ package networkpolicy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -151,29 +153,35 @@ func (r *NetworkPolicyReconciler) Start(mgr ctrl.Manager) error {
 
 // CollectGarbage  collect networkpolicy which has been removed from K8s.
 // it implements the interface GarbageCollector method.
-func (r *NetworkPolicyReconciler) CollectGarbage(ctx context.Context) {
+func (r *NetworkPolicyReconciler) CollectGarbage(ctx context.Context) error {
 	log.Info("NetworkPolicy garbage collector started")
 	nsxPolicySet := r.Service.ListNetworkPolicyID()
 	if len(nsxPolicySet) == 0 {
-		return
+		return nil
 	}
 
 	CRPolicySet, err := r.listNetworkPolciyCRIDs()
 	if err != nil {
-		return
+		return err
 	}
 
+	var errList []error
 	diffSet := nsxPolicySet.Difference(CRPolicySet)
 	for elem := range diffSet {
 		log.V(1).Info("GC collected NetworkPolicy", "ID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
 		err = r.Service.DeleteSecurityPolicy(types.UID(elem), true, false, servicecommon.ResourceTypeNetworkPolicy)
 		if err != nil {
+			errList = append(errList, err)
 			r.StatusUpdater.IncreaseDeleteFailTotal()
 		} else {
 			r.StatusUpdater.IncreaseDeleteSuccessTotal()
 		}
 	}
+	if len(errList) > 0 {
+		return fmt.Errorf("errors found in NetworkPolicy garbage collection: %s", errList)
+	}
+	return nil
 }
 
 func (r *NetworkPolicyReconciler) deleteNetworkPolicyByName(ns, name string) error {
@@ -206,17 +214,26 @@ func (r *NetworkPolicyReconciler) listNetworkPolciyCRIDs() (sets.Set[string], er
 	return CRPolicySet, nil
 }
 
-func StartNetworkPolicyController(mgr ctrl.Manager, commonService servicecommon.Service, vpcService servicecommon.VPCServiceProvider) {
-	networkPolicyReconcile := NetworkPolicyReconciler{
+func (r *NetworkPolicyReconciler) RestoreReconcile() error {
+	return nil
+}
+
+func (r *NetworkPolicyReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+	if err := r.Start(mgr); err != nil {
+		log.Error(err, "Failed to create controller", "controller", "NetworkPolicy")
+		return err
+	}
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.CollectGarbage)
+	return nil
+}
+
+func NewNetworkPolicyReconciler(mgr ctrl.Manager, commonService servicecommon.Service, vpcService servicecommon.VPCServiceProvider) *NetworkPolicyReconciler {
+	networkPolicyReconcile := &NetworkPolicyReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("networkpolicy-controller"),
 	}
 	networkPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService, vpcService)
 	networkPolicyReconcile.StatusUpdater = common.NewStatusUpdater(networkPolicyReconcile.Client, networkPolicyReconcile.Service.NSXConfig, networkPolicyReconcile.Recorder, MetricResType, "NetworkPolicy", "NetworkPolicy")
-	if err := networkPolicyReconcile.Start(mgr); err != nil {
-		log.Error(err, "Failed to create controller", "controller", "NetworkPolicy")
-		os.Exit(1)
-	}
-	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, networkPolicyReconcile.CollectGarbage)
+	return networkPolicyReconcile
 }

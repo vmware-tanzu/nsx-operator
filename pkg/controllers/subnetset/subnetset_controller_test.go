@@ -903,7 +903,7 @@ func TestStartSubnetSetController(t *testing.T) {
 			name:          "StartSubnetSetController with webhook",
 			webHookServer: &mockWebhookServer{},
 			patches: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context)) {
+				patches := gomonkey.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
@@ -920,7 +920,7 @@ func TestStartSubnetSetController(t *testing.T) {
 			name:          "StartSubnetSetController without webhook",
 			webHookServer: nil,
 			patches: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context)) {
+				patches := gomonkey.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
@@ -937,7 +937,7 @@ func TestStartSubnetSetController(t *testing.T) {
 			expectErrStr:  "failed to setupWithManager",
 			webHookServer: &mockWebhookServer{},
 			patches: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context)) {
+				patches := gomonkey.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
@@ -956,7 +956,8 @@ func TestStartSubnetSetController(t *testing.T) {
 			patches := testCase.patches()
 			defer patches.Reset()
 
-			err := StartSubnetSetController(mockMgr, subnetService, subnetPortService, vpcService, subnetBindingService, testCase.webHookServer)
+			reconcile := NewSubnetSetReconciler(mockMgr, subnetService, subnetPortService, vpcService, subnetBindingService)
+			err := reconcile.StartController(mockMgr, testCase.webHookServer)
 
 			if testCase.expectErrStr != "" {
 				assert.ErrorContains(t, err, testCase.expectErrStr)

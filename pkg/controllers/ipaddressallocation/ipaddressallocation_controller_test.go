@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
@@ -18,9 +19,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -30,6 +33,7 @@ import (
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
 func NewFakeIPAddressAllocationReconciler() *IPAddressAllocationReconciler {
@@ -270,4 +274,55 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 	r.CollectGarbage(context.Background())
 
 	patch.Reset()
+}
+
+func TestIPAddressAllocationReconciler_StartController(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().WithObjects().Build()
+	vpcService := &vpc.VPCService{
+		Service: common.Service{
+			Client: fakeClient,
+		},
+	}
+	ipAddressAllocationService := &ipaddressallocation.IPAddressAllocationService{
+		Service: common.Service{
+			Client: fakeClient,
+		},
+	}
+	mockMgr := &MockManager{scheme: runtime.NewScheme()}
+	patches := gomonkey.ApplyFunc((*IPAddressAllocationReconciler).setupWithManager, func(r *IPAddressAllocationReconciler, mgr manager.Manager) error {
+		return nil
+	})
+	patches.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
+		return
+	})
+	defer patches.Reset()
+	r := NewIPAddressAllocationReconciler(mockMgr, ipAddressAllocationService, vpcService)
+	err := r.StartController(mockMgr, nil)
+	assert.Nil(t, err)
+}
+
+type MockManager struct {
+	ctrl.Manager
+	client client.Client
+	scheme *runtime.Scheme
+}
+
+func (m *MockManager) GetClient() client.Client {
+	return m.client
+}
+
+func (m *MockManager) GetScheme() *runtime.Scheme {
+	return m.scheme
+}
+
+func (m *MockManager) GetEventRecorderFor(name string) record.EventRecorder {
+	return nil
+}
+
+func (m *MockManager) Add(runnable manager.Runnable) error {
+	return nil
+}
+
+func (m *MockManager) Start(context.Context) error {
+	return nil
 }

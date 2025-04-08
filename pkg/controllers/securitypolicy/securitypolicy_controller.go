@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -343,29 +344,35 @@ func (r *SecurityPolicyReconciler) Start(mgr ctrl.Manager) error {
 
 // CollectGarbage collect securitypolicy which has been removed from k8s,
 // it implements the interface GarbageCollector method.
-func (r *SecurityPolicyReconciler) CollectGarbage(ctx context.Context) {
+func (r *SecurityPolicyReconciler) CollectGarbage(ctx context.Context) error {
 	log.Info("SecurityPolicy garbage collector started")
 	nsxPolicySet := r.Service.ListSecurityPolicyID()
 	if len(nsxPolicySet) == 0 {
-		return
+		return nil
 	}
 
 	CRPolicySet, err := r.listSecurityPolciyCRIDs()
 	if err != nil {
-		return
+		return err
 	}
 
+	var errList []error
 	diffSet := nsxPolicySet.Difference(CRPolicySet)
 	for elem := range diffSet {
 		log.V(1).Info("GC collected SecurityPolicy CR", "securityPolicyUID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
 		err = r.Service.DeleteSecurityPolicy(types.UID(elem), true, false, servicecommon.ResourceTypeSecurityPolicy)
 		if err != nil {
+			errList = append(errList, err)
 			r.StatusUpdater.IncreaseDeleteFailTotal()
 		} else {
 			r.StatusUpdater.IncreaseDeleteSuccessTotal()
 		}
 	}
+	if len(errList) > 0 {
+		return fmt.Errorf("errors found in SecurityPolicy garbage collection: %s", errList)
+	}
+	return nil
 }
 
 func (r *SecurityPolicyReconciler) deleteSecurityPolicyByName(ns, name string) error {
@@ -472,17 +479,26 @@ func shouldReconcile(securityPolicy *v1alpha1.SecurityPolicy, q workqueue.TypedR
 	}
 }
 
-func StartSecurityPolicyController(mgr ctrl.Manager, commonService servicecommon.Service, vpcService servicecommon.VPCServiceProvider) {
-	securityPolicyReconcile := SecurityPolicyReconciler{
+func (r *SecurityPolicyReconciler) RestoreReconcile() error {
+	return nil
+}
+
+func (r *SecurityPolicyReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+	if err := r.Start(mgr); err != nil {
+		log.Error(err, "Failed to create controller", "controller", "SecurityPolicy")
+		return err
+	}
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.CollectGarbage)
+	return nil
+}
+
+func NewSecurityPolicyReconciler(mgr ctrl.Manager, commonService servicecommon.Service, vpcService servicecommon.VPCServiceProvider) *SecurityPolicyReconciler {
+	securityPolicyReconcile := &SecurityPolicyReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("securitypolicy-controller"),
 	}
 	securityPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService, vpcService)
 	securityPolicyReconcile.StatusUpdater = common.NewStatusUpdater(securityPolicyReconcile.Client, securityPolicyReconcile.Service.NSXConfig, securityPolicyReconcile.Recorder, MetricResTypeSecurityPolicy, "SecurityPolicy", "SecurityPolicy")
-	if err := securityPolicyReconcile.Start(mgr); err != nil {
-		log.Error(err, "Failed to create controller", "controller", "SecurityPolicy")
-		os.Exit(1)
-	}
-	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, securityPolicyReconcile.CollectGarbage)
+	return securityPolicyReconcile
 }

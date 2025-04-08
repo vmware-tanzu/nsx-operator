@@ -5,6 +5,7 @@ import (
 	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
 
 const (
@@ -51,5 +52,11 @@ const (
 
 // GarbageCollector interface with collectGarbage method
 type GarbageCollector interface {
-	CollectGarbage(ctx context.Context)
+	CollectGarbage(ctx context.Context) error
+}
+
+type ReconcilerProvider interface {
+	RestoreReconcile() error
+	CollectGarbage(ctx context.Context) error
+	StartController(mgr ctrl.Manager, hookServer webhook.Server) error
 }

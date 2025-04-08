@@ -493,7 +493,6 @@ func TestStartNetworkPolicyController(t *testing.T) {
 	}
 	mockMgr := &MockManager{scheme: runtime.NewScheme()}
 
-	exitCalled := false // Variable to check if osExit was called
 	testCases := []struct {
 		name         string
 		expectErrStr string
@@ -503,7 +502,7 @@ func TestStartNetworkPolicyController(t *testing.T) {
 		{
 			name: "Start NetworkPolicy Controller",
 			patches: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(ctrcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context)) {
+				patches := gomonkey.ApplyFunc(ctrcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 					return
 				})
 				patches.ApplyFunc(os.Exit, func(code int) {
@@ -523,11 +522,7 @@ func TestStartNetworkPolicyController(t *testing.T) {
 			name:         "Start NetworkPolicy controller return error",
 			expectErrStr: "failed to setupWithManager",
 			patches: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(ctrcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context)) {
-					return
-				})
-				patches.ApplyFunc(os.Exit, func(code int) {
-					exitCalled = true
+				patches := gomonkey.ApplyFunc(ctrcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 					return
 				})
 				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider) *securitypolicy.SecurityPolicyService {
@@ -546,12 +541,13 @@ func TestStartNetworkPolicyController(t *testing.T) {
 			patches := testCase.patches()
 			defer patches.Reset()
 
-			StartNetworkPolicyController(mockMgr, commonService, vpcService)
+			r := NewNetworkPolicyReconciler(mockMgr, commonService, vpcService)
+			err := r.StartController(mockMgr, nil)
 
 			if testCase.expectErrStr != "" {
-				assert.Equal(t, exitCalled, true)
+				assert.ErrorContains(t, err, testCase.expectErrStr)
 			} else {
-				assert.Equal(t, exitCalled, false)
+				assert.NoError(t, err, "expected no error when starting the NetworkPolicy controller")
 			}
 		})
 	}
