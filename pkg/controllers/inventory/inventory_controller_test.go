@@ -3,7 +3,6 @@ package inventory
 import (
 	"context"
 	"errors"
-	"os"
 	"reflect"
 	"sync"
 	"testing"
@@ -219,16 +218,16 @@ func TestStartInventoryController(t *testing.T) {
 		mockClient := fake.NewClientBuilder().Build()
 		mockMgr.On("GetClient").Return(mockClient)
 
-		// Mock SetupWithManager to return nil (successful setup)
-		patches := gomonkey.ApplyMethod(reflect.TypeOf(&InventoryController{}), "SetupWithManager", func(_ *InventoryController, mgr ctrl.Manager) error {
+		// Mock setupWithManager to return nil (successful setup)
+		patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&InventoryController{}), "setupWithManager", func(_ *InventoryController, mgr ctrl.Manager) error {
 			return nil
 		})
 		defer patches.Reset()
 
-		// Call StartInventoryController
-		assert.NotPanics(t, func() {
-			StartInventoryController(mockMgr, mockService, mockConfig)
-		})
+		// Start InventoryController
+		controller := NewInventoryController(mockMgr.GetClient(), mockService, mockConfig)
+		err := controller.StartController(mockMgr, nil)
+		assert.Nil(t, err)
 	})
 
 	t.Run("ControllerSetupFailure", func(t *testing.T) {
@@ -240,23 +239,15 @@ func TestStartInventoryController(t *testing.T) {
 		mockClient := fake.NewClientBuilder().Build()
 		mockMgr.On("GetClient").Return(mockClient)
 
-		// Mock SetupWithManager to return an error
-		patches := gomonkey.ApplyMethod(reflect.TypeOf(&InventoryController{}), "SetupWithManager", func(_ *InventoryController, mgr ctrl.Manager) error {
+		// Mock setupWithManager to return an error
+		patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&InventoryController{}), "setupWithManager", func(_ *InventoryController, mgr ctrl.Manager) error {
 			return errors.New("setup error")
 		})
 		defer patches.Reset()
 
-		// Capture os.Exit calls
-		exitCode := -1
-		patchesExit := gomonkey.ApplyFunc(os.Exit, func(code int) {
-			exitCode = code
-		})
-		defer patchesExit.Reset()
-
-		// Call StartInventoryController
-		StartInventoryController(mockMgr, mockService, mockConfig)
-
-		// Assert os.Exit was called with code 1
-		assert.Equal(t, 1, exitCode)
+		// Start InventoryController
+		controller := NewInventoryController(mockMgr.GetClient(), mockService, mockConfig)
+		err := controller.StartController(mockMgr, nil)
+		assert.Error(t, err)
 	})
 }
