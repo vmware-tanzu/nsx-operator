@@ -188,6 +188,10 @@ func (c *InventoryController) CleanStaleInventoryObjects() error {
 	if err != nil {
 		return err
 	}
+	err = c.service.CleanStaleInventoryClusterNode()
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

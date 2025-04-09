@@ -105,3 +105,55 @@ func TestInventoryService_InitContainerClusterNode(t *testing.T) {
 	})
 
 }
+
+func TestCleanStaleInventoryClusterNode(t *testing.T) {
+	inventoryService, _ := createService(t)
+
+	t.Run("Node deleted", func(t *testing.T) {
+		cluster := &containerinventory.ContainerCluster{
+			DisplayName:  "known-cluster",
+			ExternalId:   "123-known-cluster",
+			ResourceType: "ContainerCluster",
+		}
+		inventoryService.ClusterStore.Add(cluster)
+		inventoryService.ClusterNodeStore.Add(&containerinventory.ContainerClusterNode{
+			DisplayName:        "test-node",
+			ResourceType:       "ContainerClusterNode",
+			ContainerClusterId: "123-known-cluster",
+		})
+
+		patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(inventoryService), "isClusterNodeDeleted", func(_ *InventoryService, _ string,
+			_ string) bool {
+			return true
+		})
+		defer patches.Reset()
+
+		err := inventoryService.CleanStaleInventoryClusterNode()
+		assert.Nil(t, err)
+		count := len(inventoryService.ClusterNodeStore.List())
+		assert.Equal(t, 1, count)
+	})
+
+	t.Run("Failed to delete node", func(t *testing.T) {
+		deleteErr := errors.New("failed to delete")
+		inventoryService.ClusterNodeStore.Add(&containerinventory.ContainerClusterNode{
+			DisplayName:        "test-node",
+			ResourceType:       "ContainerClusterNode",
+			ContainerClusterId: "123-known-cluster",
+		})
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "DeleteResource", func(_ *InventoryService, _ string, _ InventoryType) error {
+			return deleteErr
+		})
+		patches.ApplyPrivateMethod(reflect.TypeOf(inventoryService), "isClusterNodeDeleted", func(_ *InventoryService, _ string, _ string,
+			_ string) bool {
+			return true
+		})
+		defer patches.Reset()
+
+		err := inventoryService.CleanStaleInventoryClusterNode()
+		assert.Equal(t, deleteErr, err)
+		count := len(inventoryService.ClusterNodeStore.List())
+		assert.Equal(t, 1, count)
+	})
+
+}
