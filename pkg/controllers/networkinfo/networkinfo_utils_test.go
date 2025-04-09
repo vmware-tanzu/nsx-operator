@@ -21,51 +21,49 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 func TestSetVPCNetworkConfigurationStatusWithGatewayConnection(t *testing.T) {
 	tests := []struct {
 		name                    string
-		prepareFunc             func(*testing.T, context.Context, client.Client, string, bool, string, *v1alpha1.VPCNetworkConfiguration) *gomonkey.Patches
+		prepareFunc             func(*testing.T, context.Context, client.Client)
 		gatewayConnectionReady  bool
-		reason                  string
+		status                  *common.VPCConnectionStatus
 		expectedConditionType   v1alpha1.ConditionType
 		expectedConditionStatus corev1.ConditionStatus
 		expectedConditionReason string
 	}{
 		{
 			name: "GatewayConnectionReady",
-			prepareFunc: func(_ *testing.T, ctx context.Context, client client.Client, _ string, _ bool, _ string, nc *v1alpha1.VPCNetworkConfiguration) (patches *gomonkey.Patches) {
+			prepareFunc: func(_ *testing.T, ctx context.Context, client client.Client) {
 				assert.NoError(t, client.Create(ctx, &v1alpha1.VPCNetworkConfiguration{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "ncName",
 					},
 				}))
-				patches = &gomonkey.Patches{}
-				return patches
 			},
-			gatewayConnectionReady:  true,
-			reason:                  "",
-			expectedConditionType:   v1alpha1.GatewayConnectionReady,
-			expectedConditionStatus: corev1.ConditionTrue,
-			expectedConditionReason: "",
+			status: &common.VPCConnectionStatus{
+				GatewayConnectionReady: true,
+				ServiceClusterReady:    false,
+				ServiceClusterReason:   common.ReasonServiceClusterNotSet,
+			},
 		},
 		{
-			name: "GatewayConnectionNotReady",
-			prepareFunc: func(_ *testing.T, ctx context.Context, client client.Client, _ string, _ bool, _ string, nc *v1alpha1.VPCNetworkConfiguration) (patches *gomonkey.Patches) {
+			name: "ServiceClusterReady",
+			prepareFunc: func(_ *testing.T, ctx context.Context, client client.Client) {
 				assert.NoError(t, client.Create(ctx, &v1alpha1.VPCNetworkConfiguration{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "ncName",
 					},
 				}))
-				patches = &gomonkey.Patches{}
-				return patches
 			},
-			gatewayConnectionReady:  false,
-			reason:                  "EdgeMissingInProject",
-			expectedConditionType:   v1alpha1.GatewayConnectionReady,
-			expectedConditionStatus: corev1.ConditionFalse,
-			expectedConditionReason: "EdgeMissingInProject",
+			gatewayConnectionReady: false,
+			status: &common.VPCConnectionStatus{
+				GatewayConnectionReady:  false,
+				GatewayConnectionReason: common.ReasonGatewayConnectionNotSet,
+				ServiceClusterReady:     true,
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -80,13 +78,23 @@ func TestSetVPCNetworkConfigurationStatusWithGatewayConnection(t *testing.T) {
 				},
 			}
 			if tt.prepareFunc != nil {
-				patches := tt.prepareFunc(t, ctx, client, "ncName", tt.gatewayConnectionReady, tt.reason, actualCR)
-				defer patches.Reset()
+				tt.prepareFunc(t, ctx, client)
 			}
-			setVPCNetworkConfigurationStatusWithGatewayConnection(ctx, client, actualCR, tt.gatewayConnectionReady, tt.reason)
-			assert.Equal(t, tt.expectedConditionReason, actualCR.Status.Conditions[0].Reason)
-			assert.Equal(t, tt.expectedConditionType, actualCR.Status.Conditions[0].Type)
-			assert.Equal(t, tt.expectedConditionStatus, actualCR.Status.Conditions[0].Status)
+			setVPCNetworkConfigurationStatusWithGatewayConnection(ctx, client, actualCR, tt.status)
+			assert.Equal(t, v1alpha1.GatewayConnectionReady, actualCR.Status.Conditions[0].Type)
+			assert.Equal(t, tt.status.GatewayConnectionReason, actualCR.Status.Conditions[0].Reason)
+			if tt.status.GatewayConnectionReady {
+				assert.Equal(t, corev1.ConditionTrue, actualCR.Status.Conditions[0].Status)
+			} else {
+				assert.Equal(t, corev1.ConditionFalse, actualCR.Status.Conditions[0].Status)
+			}
+			assert.Equal(t, v1alpha1.ServiceClusterReady, actualCR.Status.Conditions[1].Type)
+			assert.Equal(t, tt.status.ServiceClusterReason, actualCR.Status.Conditions[1].Reason)
+			if tt.status.ServiceClusterReady {
+				assert.Equal(t, corev1.ConditionTrue, actualCR.Status.Conditions[1].Status)
+			} else {
+				assert.Equal(t, corev1.ConditionFalse, actualCR.Status.Conditions[1].Status)
+			}
 		})
 	}
 }
@@ -154,23 +162,50 @@ func TestSetVPCNetworkConfigurationStatusWithSnatEnabled(t *testing.T) {
 	}
 }
 
-func TestGetGatewayConnectionStatus(t *testing.T) {
+func TestGetConnectionStatusFromCR(t *testing.T) {
 	tests := []struct {
-		name           string
-		prepareFunc    func(*testing.T, context.Context, client.Client) *gomonkey.Patches
-		conditions     []v1alpha1.Condition
-		expectedStatus bool
-		expectedReason string
+		name                            string
+		prepareFunc                     func(*testing.T, context.Context, client.Client) *gomonkey.Patches
+		conditions                      []v1alpha1.Condition
+		expectedGatewayConnectionStatus bool
+		expectedGatewayConnectionReason string
+		expectedServiceClusterStatus    bool
+		expectedServiceClusterReason    string
 	}{
 		{
-			name:           "EmptyCondition",
-			prepareFunc:    nil,
-			conditions:     []v1alpha1.Condition{},
-			expectedStatus: false,
-			expectedReason: "",
+			name:                            "EmptyCondition",
+			prepareFunc:                     nil,
+			conditions:                      []v1alpha1.Condition{},
+			expectedGatewayConnectionStatus: false,
+			expectedGatewayConnectionReason: "",
+			expectedServiceClusterStatus:    false,
+			expectedServiceClusterReason:    "",
 		},
 		{
-			name:        "GetGatewayConnectionStatusReady",
+			name:        "GetServiceClusterStatusReady",
+			prepareFunc: nil,
+			conditions: []v1alpha1.Condition{
+				{
+					Type:   v1alpha1.AutoSnatEnabled,
+					Status: corev1.ConditionFalse,
+				},
+				{
+					Type:   v1alpha1.GatewayConnectionReady,
+					Status: corev1.ConditionFalse,
+					Reason: common.ReasonGatewayConnectionNotSet,
+				},
+				{
+					Type:   v1alpha1.ServiceClusterReady,
+					Status: corev1.ConditionTrue,
+				},
+			},
+			expectedGatewayConnectionStatus: false,
+			expectedGatewayConnectionReason: common.ReasonGatewayConnectionNotSet,
+			expectedServiceClusterStatus:    true,
+			expectedServiceClusterReason:    "",
+		},
+		{
+			name:        "GetGatewayConnectionReady",
 			prepareFunc: nil,
 			conditions: []v1alpha1.Condition{
 				{
@@ -180,15 +215,20 @@ func TestGetGatewayConnectionStatus(t *testing.T) {
 				{
 					Type:   v1alpha1.GatewayConnectionReady,
 					Status: corev1.ConditionTrue,
-					Reason: "reason",
+				},
+				{
+					Type:   v1alpha1.ServiceClusterReady,
+					Status: corev1.ConditionFalse,
+					Reason: common.ReasonServiceClusterNotSet,
 				},
 			},
-			expectedStatus: true,
-			expectedReason: "reason",
+			expectedGatewayConnectionStatus: true,
+			expectedGatewayConnectionReason: "",
+			expectedServiceClusterStatus:    false,
+			expectedServiceClusterReason:    common.ReasonServiceClusterNotSet,
 		},
 	}
 	for _, tt := range tests {
-		ctx := context.TODO()
 		t.Run(tt.name, func(t *testing.T) {
 			vpcNetworkConfiguration := v1alpha1.VPCNetworkConfiguration{
 				ObjectMeta: metav1.ObjectMeta{
@@ -198,9 +238,12 @@ func TestGetGatewayConnectionStatus(t *testing.T) {
 					Conditions: tt.conditions,
 				},
 			}
-			gatewayConnectionReady, reason := getGatewayConnectionStatus(ctx, &vpcNetworkConfiguration)
-			assert.Equal(t, tt.expectedReason, reason)
-			assert.Equal(t, tt.expectedStatus, gatewayConnectionReady)
+			gatewayConnectionReady, gatewayConnectionReason := getGatewayConnectionStatus(&vpcNetworkConfiguration)
+			serviceClusterReady, serviceClusterReason := getServiceClusterStatus(&vpcNetworkConfiguration)
+			assert.Equal(t, tt.expectedGatewayConnectionStatus, gatewayConnectionReady)
+			assert.Equal(t, tt.expectedGatewayConnectionReason, gatewayConnectionReason)
+			assert.Equal(t, tt.expectedServiceClusterStatus, serviceClusterReady)
+			assert.Equal(t, tt.expectedServiceClusterReason, serviceClusterReason)
 		})
 	}
 }

@@ -22,7 +22,6 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
@@ -99,28 +98,6 @@ func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVp
 		LbsStore: lbsStore,
 	}
 	return service, mockCtrl, mockVpcclient, k8sClient
-}
-
-type fakeProjectClient struct{}
-
-func (c fakeProjectClient) Get(orgIdParam string, projectIdParam string, shortFormatParam *bool) (model.Project, error) {
-	return model.Project{}, nil
-}
-
-func (c fakeProjectClient) Delete(orgIdParam string, projectIdParam string, isRecursiveParam *bool) error {
-	return nil
-}
-
-func (c fakeProjectClient) List(orgIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, instanceIdParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.ProjectListResult, error) {
-	return model.ProjectListResult{}, nil
-}
-
-func (c fakeProjectClient) Patch(orgIdParam string, projectIdParam string, projectParam model.Project) error {
-	return nil
-}
-
-func (c fakeProjectClient) Update(orgIdParam string, projectIdParam string, projectParam model.Project) (model.Project, error) {
-	return model.Project{}, nil
 }
 
 type fakeVPCConnectivityProfilesClient struct{}
@@ -371,7 +348,7 @@ func TestGetVPCsByNamespace(t *testing.T) {
 		Id:                 &vpcID1,
 		Tags:               tag1,
 		IpAddressType:      &IPv4Type,
-		PrivateIpv4Blocks:  []string{"1.1.1.0/24"},
+		PrivateIps:         []string{"1.1.1.0/24"},
 		ExternalIpv4Blocks: []string{"2.2.2.0/24"},
 	}
 	vpc2 := model.Vpc{
@@ -379,7 +356,7 @@ func TestGetVPCsByNamespace(t *testing.T) {
 		Id:                 &vpcID2,
 		Tags:               tag2,
 		IpAddressType:      &IPv4Type,
-		PrivateIpv4Blocks:  []string{"3.3.3.0/24"},
+		PrivateIps:         []string{"3.3.3.0/24"},
 		ExternalIpv4Blocks: []string{"4.4.4.0/24"},
 	}
 	staleNamespaceID := "fakeStaleNamespaceID"
@@ -404,7 +381,7 @@ func TestGetVPCsByNamespace(t *testing.T) {
 		Id:                 &vpcStaleID,
 		Tags:               tagStale,
 		IpAddressType:      &IPv4Type,
-		PrivateIpv4Blocks:  []string{"3.3.3.0/24"},
+		PrivateIps:         []string{"3.3.3.0/24"},
 		ExternalIpv4Blocks: []string{"4.4.4.0/24"},
 	}
 	vpc3 := vpc2
@@ -416,7 +393,7 @@ func TestGetVPCsByNamespace(t *testing.T) {
 		Id:                 &vpcID3,
 		Tags:               tag3,
 		IpAddressType:      &IPv4Type,
-		PrivateIpv4Blocks:  []string{"3.3.3.0/24"},
+		PrivateIps:         []string{"3.3.3.0/24"},
 		ExternalIpv4Blocks: []string{"4.4.4.0/24"},
 	}
 	tests := []struct {
@@ -564,8 +541,15 @@ func TestGetLBProvider(t *testing.T) {
 			lbprovider:       NoneLB,
 			expectLBProvider: NSXLB,
 			prepareFuncs: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(&VPCService{}), "EdgeClusterEnabled", func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration) bool {
-					return false
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&VPCService{}), "GetVpcConnectivityProfileWithRetry", func(_ *VPCService, nc *v1alpha1.VPCNetworkConfiguration) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{
+						ServiceGateway: &model.VpcServiceGatewayConfig{
+							Enable: common.Bool(true),
+							NatConfig: &model.VpcNatConfig{
+								EnableDefaultSnat: common.Bool(true),
+							},
+						},
+					}, nil
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(&VPCService{}), "getLBProvider", func(_ *VPCService, _ bool) LBProvider {
 					return NSXLB
@@ -605,75 +589,23 @@ func TestGetLBProvider(t *testing.T) {
 	}
 }
 
-func TestEdgeClusterEnabled(t *testing.T) {
-	vpcService := &VPCService{
-		Service: common.Service{
-			NSXConfig: &config.NSXOperatorConfig{
-				NsxConfig: &config.NsxConfig{
-					UseAVILoadBalancer: false,
-				},
-			},
-			NSXClient: &nsx.Client{
-				Cluster: &nsx.Cluster{},
-			},
-		},
-		LbsStore: &LBSStore{ResourceStore: common.ResourceStore{
-			Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
-			BindingType: model.LBServiceBindingType(),
-		}},
+func TestIsEnableAutoSNAT(t *testing.T) {
+	vpcConnProfile := &model.VpcConnectivityProfile{}
+	assert.False(t, IsEnableAutoSNAT(vpcConnProfile))
+	vpcConnProfile.ServiceGateway = &model.VpcServiceGatewayConfig{
+		Enable:    common.Bool(false),
+		NatConfig: &model.VpcNatConfig{EnableDefaultSnat: common.Bool(true)},
 	}
-	nc := v1alpha1.VPCNetworkConfiguration{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        "system",
-			Annotations: map[string]string{common.AnnotationDefaultNetworkConfig: "true"},
-		},
-		Spec: v1alpha1.VPCNetworkConfigurationSpec{
-			NSXProject:             "/orgs/default/projects/proj-2",
-			VPC:                    "/orgs/default/projects/proj-2/vpcs/vpc-1",
-			VPCConnectivityProfile: "/default",
-			PrivateIPs:             []string{},
-			DefaultSubnetSize:      16,
-		},
+	assert.False(t, IsEnableAutoSNAT(vpcConnProfile))
+	vpcConnProfile.ServiceGateway = &model.VpcServiceGatewayConfig{
+		Enable: common.Bool(true),
 	}
-
-	vpcConnPrfile := model.VpcConnectivityProfile{
-		ServiceGateway: &model.VpcServiceGatewayConfig{
-			Enable:    common.Bool(false),
-			NatConfig: &model.VpcNatConfig{EnableDefaultSnat: common.Bool(true)},
-		},
+	assert.False(t, IsEnableAutoSNAT(vpcConnProfile))
+	vpcConnProfile.ServiceGateway = &model.VpcServiceGatewayConfig{
+		Enable:    common.Bool(true),
+		NatConfig: &model.VpcNatConfig{EnableDefaultSnat: common.Bool(true)},
 	}
-
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVpcConnectivityProfile", func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
-		return &vpcConnPrfile, nil
-	})
-	enable := vpcService.EdgeClusterEnabled(&nc)
-	assert.Equal(t, false, enable)
-	vpcConnPrfile.ServiceGateway.Enable = common.Bool(true)
-	enable = vpcService.EdgeClusterEnabled(&nc)
-	assert.Equal(t, true, enable)
-	patch.Reset()
-
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVpcConnectivityProfile", func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
-		return &vpcConnPrfile, apierrors.NewNotFound()
-	})
-	enable = vpcService.EdgeClusterEnabled(&nc)
-	assert.Equal(t, false, enable)
-	patch.Reset()
-
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVpcConnectivityProfile", func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
-		return &vpcConnPrfile, apierrors.NewInternalServerError()
-	})
-	enable = vpcService.EdgeClusterEnabled(&nc)
-	assert.Equal(t, false, enable)
-	patch.Reset()
-
-	// Simulate the scenario when the VpcConnectivityProfile value returned by NSX is nil.
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVpcConnectivityProfile", func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
-		return &model.VpcConnectivityProfile{}, nil
-	})
-	enable = vpcService.EdgeClusterEnabled(&nc)
-	assert.Equal(t, false, enable)
-	patch.Reset()
+	assert.True(t, IsEnableAutoSNAT(vpcConnProfile))
 }
 
 func TestGetLbProvider(t *testing.T) {
@@ -790,8 +722,8 @@ func TestGetGatewayConnectionTypeFromConnectionPath(t *testing.T) {
 	}{
 		{
 			name:          "ValidPath",
-			path:          "/infra/distributed-gateway-connections/gateway-101",
-			expectedType:  "distributed-gateway-connections",
+			path:          "/infra/gateway-connections/gateway-101",
+			expectedType:  "gateway-connections",
 			expectedError: nil,
 		},
 		{
@@ -811,59 +743,59 @@ func TestGetGatewayConnectionTypeFromConnectionPath(t *testing.T) {
 	}
 }
 
-func TestValidateGatewayConnectionStatus(t *testing.T) {
+// TODO: Add case for dtgw
+func TestValidateConnectionStatus(t *testing.T) {
 	tests := []struct {
 		name             string
 		prepareFunc      func(*testing.T, *VPCService) *gomonkey.Patches
 		vpcNetworkConfig v1alpha1.VPCNetworkConfiguration
-		expectedReady    bool
-		expectedReason   string
+		expectedStatus   *common.VPCConnectionStatus
 		expectedError    error
 	}{
 		{
-			name: "GatewayConnectionNotSet",
+			name: "ServiceGatewayDisabled",
+			expectedStatus: &common.VPCConnectionStatus{
+				GatewayConnectionReady:  false,
+				GatewayConnectionReason: common.ReasonGatewayConnectionNotSet,
+				ServiceClusterReady:     false,
+				ServiceClusterReason:    common.ReasonServiceClusterNotSet,
+			},
+			vpcNetworkConfig: v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					NSXProject: "/orgs/default/projects/project-quality",
+				},
+			},
 			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
-				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.ProjectClient), "Get", []gomonkey.OutputCell{{
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{
-						model.Project{
-							SiteInfos: []model.SiteInfo{
-								{EdgeClusterPaths: []string{"edge"}},
-							},
-						},
+						model.VpcConnectivityProfile{},
 						nil,
 					},
 					Times: 1,
 				}})
-				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "List", []gomonkey.OutputCell{{
+				return patches
+			},
+		},
+		{
+			name: "ServiceClusterReady",
+			expectedStatus: &common.VPCConnectionStatus{
+				GatewayConnectionReady:  false,
+				GatewayConnectionReason: common.ReasonGatewayConnectionNotSet,
+				ServiceClusterReady:     true,
+			},
+			vpcNetworkConfig: v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					NSXProject: "/orgs/default/projects/project-quality",
+				},
+			},
+			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{
-						model.VpcConnectivityProfileListResult{
-							Results: []model.VpcConnectivityProfile{
-								{
-									TransitGatewayPath: common.String("a/b"),
-								},
+						model.VpcConnectivityProfile{
+							ServiceGateway: &model.VpcServiceGatewayConfig{
+								Enable:              common.Bool(true),
+								ServiceClusterPaths: []string{"/service-cluster-path"},
 							},
-						},
-						nil,
-					},
-					Times: 1,
-				}})
-				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "List", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{
-						model.VpcConnectivityProfileListResult{
-							Results: []model.VpcConnectivityProfile{
-								{
-									TransitGatewayPath: common.String("a/b"),
-								},
-							},
-						},
-						nil,
-					},
-					Times: 1,
-				}})
-				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.TransitGatewayAttachmentClient), "List", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{
-						model.TransitGatewayAttachmentListResult{
-							Results: []model.TransitGatewayAttachment{},
 						},
 						nil,
 					},
@@ -871,39 +803,27 @@ func TestValidateGatewayConnectionStatus(t *testing.T) {
 				}})
 				return patches
 			},
+		},
+		{
+			name: "GatewayConnectionReady",
+			expectedStatus: &common.VPCConnectionStatus{
+				GatewayConnectionReady: true,
+				ServiceClusterReady:    false,
+				ServiceClusterReason:   common.ReasonServiceClusterNotSet,
+			},
 			vpcNetworkConfig: v1alpha1.VPCNetworkConfiguration{
 				Spec: v1alpha1.VPCNetworkConfigurationSpec{
 					NSXProject: "/orgs/default/projects/project-quality",
 				},
 			},
-			expectedReady:  false,
-			expectedReason: "GatewayConnectionNotSet",
-			expectedError:  nil,
-		},
-		{
-			name: "DistributedGatewayConnectionNotSupported",
 			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
-				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(fakeVPCConnectivityProfilesClient{}), "List", []gomonkey.OutputCell{{
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{
-						model.VpcConnectivityProfileListResult{
-							Results: []model.VpcConnectivityProfile{
-								{
-									TransitGatewayPath: common.String("a/b"),
-								},
+						model.VpcConnectivityProfile{
+							ServiceGateway: &model.VpcServiceGatewayConfig{
+								Enable: common.Bool(true),
 							},
-						},
-						nil,
-					},
-					Times: 1,
-				}})
-				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "List", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{
-						model.VpcConnectivityProfileListResult{
-							Results: []model.VpcConnectivityProfile{
-								{
-									TransitGatewayPath: common.String("a/b"),
-								},
-							},
+							TransitGatewayPath: common.String("/transit-gateway"),
 						},
 						nil,
 					},
@@ -914,7 +834,7 @@ func TestValidateGatewayConnectionStatus(t *testing.T) {
 						model.TransitGatewayAttachmentListResult{
 							Results: []model.TransitGatewayAttachment{
 								{
-									ConnectionPath: common.String("/infra/distributed-gateway-connections/gateway-101"),
+									ConnectionPath: common.String("/infra/gateway-connections/gateway-101"),
 								},
 							},
 						},
@@ -924,19 +844,52 @@ func TestValidateGatewayConnectionStatus(t *testing.T) {
 				}})
 				return patches
 			},
+		},
+		{
+			name: "GatewayConnectionNotReady",
+			expectedStatus: &common.VPCConnectionStatus{
+				GatewayConnectionReady:  false,
+				GatewayConnectionReason: common.ReasonGatewayConnectionNotSet,
+				ServiceClusterReady:     false,
+				ServiceClusterReason:    common.ReasonServiceClusterNotSet,
+			},
 			vpcNetworkConfig: v1alpha1.VPCNetworkConfiguration{
 				Spec: v1alpha1.VPCNetworkConfigurationSpec{
 					NSXProject: "/orgs/default/projects/project-quality",
 				},
 			},
-			expectedReady:  false,
-			expectedReason: "DistributedGatewayConnectionNotSupported",
-			expectedError:  nil,
+			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.VpcConnectivityProfile{
+							ServiceGateway: &model.VpcServiceGatewayConfig{
+								Enable: common.Bool(true),
+							},
+							TransitGatewayPath: common.String("/transit-gateway"),
+						},
+						nil,
+					},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.TransitGatewayAttachmentClient), "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.TransitGatewayAttachmentListResult{
+							Results: []model.TransitGatewayAttachment{
+								{
+									ConnectionPath: common.String("/infra/distributed-vlan-connections/gateway-101"),
+								},
+							},
+						},
+						nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
 		},
 	}
 
 	service, _, _, _ := createService(t)
-	service.NSXClient.ProjectClient = fakeProjectClient{}
 	service.NSXClient.VPCConnectivityProfilesClient = fakeVPCConnectivityProfilesClient{}
 	service.NSXClient.TransitGatewayAttachmentClient = fakeTransitGatewayAttachmentClient{}
 	for _, tt := range tests {
@@ -945,9 +898,8 @@ func TestValidateGatewayConnectionStatus(t *testing.T) {
 				patches := tt.prepareFunc(t, service)
 				defer patches.Reset()
 			}
-			ready, reason, err := service.ValidateGatewayConnectionStatus(&tt.vpcNetworkConfig)
-			assert.Equal(t, tt.expectedReady, ready)
-			assert.Equal(t, tt.expectedReason, reason)
+			status, err := service.ValidateConnectionStatus(&tt.vpcNetworkConfig)
+			assert.Equal(t, tt.expectedStatus, status)
 			assert.Equal(t, tt.expectedError, err)
 			return
 		})
@@ -1341,8 +1293,8 @@ func TestVPCService_ListVPCInfo(t *testing.T) {
 					func(s *VPCService, ctx context.Context, namespace string) []*model.Vpc {
 						return []*model.Vpc{
 							{
-								Path:              common.String("/orgs/org/projects/project/vpcs/vpc"),
-								PrivateIpv4Blocks: []string{"10.0.0.1"},
+								Path:       common.String("/orgs/org/projects/project/vpcs/vpc"),
+								PrivateIps: []string{"10.0.0.1"},
 							},
 						}
 					})
@@ -1351,12 +1303,12 @@ func TestVPCService_ListVPCInfo(t *testing.T) {
 			},
 			expectedResults: []common.VPCResourceInfo{
 				{
-					OrgID:             "org",
-					ProjectID:         "project",
-					VPCID:             "vpc",
-					ID:                "vpc",
-					ParentID:          "project",
-					PrivateIpv4Blocks: []string{"10.0.0.1"},
+					OrgID:      "org",
+					ProjectID:  "project",
+					VPCID:      "vpc",
+					ID:         "vpc",
+					ParentID:   "project",
+					PrivateIps: []string{"10.0.0.1"},
 				},
 			},
 		},
@@ -1846,6 +1798,7 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 		existingNetworkInfo      *v1alpha1.NetworkInfo
 		existingVPCNetworkConfig *v1alpha1.VPCNetworkConfiguration
 		lbProvider               LBProvider
+		serviceClusterReady      bool
 		prepareFunc              func(service *VPCService) *gomonkey.Patches
 		expectErrStr             string
 		expectVPCModel           *model.Vpc
@@ -2161,7 +2114,7 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				defer patches.Reset()
 			}
 
-			newVPCModel, err := service.CreateOrUpdateVPC(ctx, tc.existingNetworkInfo, tc.existingVPCNetworkConfig, tc.lbProvider)
+			newVPCModel, err := service.CreateOrUpdateVPC(ctx, tc.existingNetworkInfo, tc.existingVPCNetworkConfig, tc.lbProvider, tc.serviceClusterReady)
 
 			if tc.expectErrStr != "" {
 				assert.ErrorContains(t, err, tc.expectErrStr)

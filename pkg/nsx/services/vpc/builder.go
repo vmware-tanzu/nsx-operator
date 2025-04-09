@@ -53,20 +53,23 @@ func combineVPCIDAndLBSID(vpcID, lbsID string) string {
 }
 
 func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc v1alpha1.VPCNetworkConfiguration, cluster string,
-	nsxVPC *model.Vpc, useAVILB bool, lbProviderChanged bool) (*model.Vpc, error) {
+	nsxVPC *model.Vpc, useAVILB bool, lbProviderChanged bool, serviceClusterReady bool) (*model.Vpc, error) {
 	vpc := &model.Vpc{}
+	// enable LB Endpoint for either AVI LB or day2 DTGW
+	enableLBEndpoint := useAVILB || serviceClusterReady
 	if nsxVPC != nil {
-		// for upgrade case, only check public/private ip block size changing
-		if !IsVPCChanged(nc, nsxVPC) && !lbProviderChanged {
+		oldEnableLBEndpoint := (nsxVPC.LoadBalancerVpcEndpoint != nil) && (nsxVPC.LoadBalancerVpcEndpoint.Enabled != nil) && *nsxVPC.LoadBalancerVpcEndpoint.Enabled
+		// for upgrade case, check changes for public/private ip block size, LBProvider and if lb endpoint enable
+		if !IsVPCChanged(nc, nsxVPC) && !lbProviderChanged && (enableLBEndpoint == oldEnableLBEndpoint) {
 			log.Info("no changes on current NSX VPC, skip updating", "VPC", nsxVPC.Id)
 			return nil, nil
 		}
-		// for updating vpc case, use current vpc id, name
-		if useAVILB && lbProviderChanged {
-			loadBalancerVPCEndpointEnabled := true
-			nsxVPC.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &loadBalancerVPCEndpointEnabled}
-		}
 		*vpc = *nsxVPC
+		// for updating vpc case, use current vpc id, name
+		if enableLBEndpoint {
+			loadBalancerVPCEndpointEnabled := true
+			vpc.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &loadBalancerVPCEndpointEnabled}
+		}
 	} else {
 		// for creating vpc case, fill in vpc properties based on networkconfig
 		vpcName := util.GenerateIDByObjectByLimit(obj, common.MaxSubnetNameLength)
@@ -74,7 +77,7 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc v1alpha1.VPC
 		vpc.Id = common.String(util.GenerateIDByObject(obj))
 		vpc.IpAddressType = &DefaultVPCIPAddressType
 
-		if useAVILB {
+		if enableLBEndpoint {
 			loadBalancerVPCEndpointEnabled := true
 			vpc.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &loadBalancerVPCEndpointEnabled}
 		}

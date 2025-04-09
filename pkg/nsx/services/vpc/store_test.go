@@ -190,7 +190,7 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 		Id:                 &vpcID1,
 		Tags:               tag1,
 		IpAddressType:      &IPv4Type,
-		PrivateIpv4Blocks:  []string{"1.1.1.0/24"},
+		PrivateIps:         []string{"1.1.1.0/24"},
 		ExternalIpv4Blocks: []string{"2.2.2.0/24"},
 	}
 	vpc2 := model.Vpc{
@@ -198,7 +198,7 @@ func TestVPCStore_CRUDResource_List(t *testing.T) {
 		Id:                 &vpcID2,
 		Tags:               tag2,
 		IpAddressType:      &IPv4Type,
-		PrivateIpv4Blocks:  []string{"3.3.3.0/24"},
+		PrivateIps:         []string{"3.3.3.0/24"},
 		ExternalIpv4Blocks: []string{"4.4.4.0/24"},
 	}
 	testCases := []struct {
