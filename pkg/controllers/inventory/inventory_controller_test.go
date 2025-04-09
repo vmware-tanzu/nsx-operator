@@ -251,3 +251,106 @@ func TestStartInventoryController(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+func TestCleanStaleInventoryObjects(t *testing.T) {
+	t.Run("AllCleanupsSucceed", func(t *testing.T) {
+		// Mock InventoryService
+		mockService := &inventory.InventoryService{}
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(mockService), "CleanStaleInventoryApplicationInstance", func(_ *inventory.InventoryService) error {
+			return nil
+		})
+		patches.ApplyMethod(reflect.TypeOf(mockService), "CleanStaleInventoryContainerProject", func(_ *inventory.InventoryService) error {
+			return nil
+		})
+		patches.ApplyMethod(reflect.TypeOf(mockService), "CleanStaleInventoryApplication", func(_ *inventory.InventoryService) error {
+			return nil
+		})
+		patches.ApplyMethod(reflect.TypeOf(mockService), "CleanStaleInventoryClusterNode", func(_ *inventory.InventoryService) error {
+			return nil
+		})
+		patches.ApplyMethod(reflect.TypeOf(mockService), "CleanStaleInventoryIngressPolicy", func(_ *inventory.InventoryService) error {
+			return nil
+		})
+		defer patches.Reset()
+
+		controller := &InventoryController{service: mockService}
+		err := controller.CleanStaleInventoryObjects()
+		assert.Nil(t, err)
+	})
+
+	t.Run("ApplicationInstanceCleanupFails", func(t *testing.T) {
+		// Mock InventoryService
+		mockService := &inventory.InventoryService{}
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(mockService), "CleanStaleInventoryApplicationInstance", func(_ *inventory.InventoryService) error {
+			return errors.New("application instance cleanup error")
+		})
+		defer patches.Reset()
+
+		controller := &InventoryController{service: mockService}
+		err := controller.CleanStaleInventoryObjects()
+		assert.Error(t, err)
+		assert.Equal(t, "application instance cleanup error", err.Error())
+	})
+
+	t.Run("ContainerProjectCleanupFails", func(t *testing.T) {
+		// Mock InventoryService
+		mockService := &inventory.InventoryService{}
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(mockService), "CleanStaleInventoryApplicationInstance", func(_ *inventory.InventoryService) error {
+			return nil
+		})
+		patches.ApplyMethod(reflect.TypeOf(mockService), "CleanStaleInventoryContainerProject", func(_ *inventory.InventoryService) error {
+			return errors.New("container project cleanup error")
+		})
+		defer patches.Reset()
+
+		controller := &InventoryController{service: mockService}
+		err := controller.CleanStaleInventoryObjects()
+		assert.Error(t, err)
+		assert.Equal(t, "container project cleanup error", err.Error())
+	})
+
+	t.Run("ApplicationCleanupFails", func(t *testing.T) {
+		// Mock InventoryService
+		mockService := &inventory.InventoryService{}
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(mockService), "CleanStaleInventoryApplicationInstance", func(_ *inventory.InventoryService) error {
+			return nil
+		})
+		patches.ApplyMethod(reflect.TypeOf(mockService), "CleanStaleInventoryContainerProject", func(_ *inventory.InventoryService) error {
+			return nil
+		})
+		patches.ApplyMethod(reflect.TypeOf(mockService), "CleanStaleInventoryApplication", func(_ *inventory.InventoryService) error {
+			return errors.New("application cleanup error")
+		})
+		defer patches.Reset()
+
+		controller := &InventoryController{service: mockService}
+		err := controller.CleanStaleInventoryObjects()
+		assert.Error(t, err)
+		assert.Equal(t, "application cleanup error", err.Error())
+	})
+
+	t.Run("IngressPolicyCleanupFails", func(t *testing.T) {
+		// Mock InventoryService
+		mockService := &inventory.InventoryService{}
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(mockService), "CleanStaleInventoryApplicationInstance", func(_ *inventory.InventoryService) error {
+			return nil
+		})
+		patches.ApplyMethod(reflect.TypeOf(mockService), "CleanStaleInventoryContainerProject", func(_ *inventory.InventoryService) error {
+			return nil
+		})
+		patches.ApplyMethod(reflect.TypeOf(mockService), "CleanStaleInventoryApplication", func(_ *inventory.InventoryService) error {
+			return nil
+		})
+		patches.ApplyMethod(reflect.TypeOf(mockService), "CleanStaleInventoryClusterNode", func(_ *inventory.InventoryService) error {
+			return nil
+		})
+		patches.ApplyMethod(reflect.TypeOf(mockService), "CleanStaleInventoryIngressPolicy", func(_ *inventory.InventoryService) error {
+			return errors.New("ingress policy cleanup error")
+		})
+		defer patches.Reset()
+
+		controller := &InventoryController{service: mockService}
+		err := controller.CleanStaleInventoryObjects()
+		assert.Error(t, err)
+		assert.Equal(t, "ingress policy cleanup error", err.Error())
+	})
+}
