@@ -185,7 +185,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			os.Exit(1)
 		}
 		inventoryService := inventoryservice.NewInventoryService(commonService)
-		inventoryService.Initialize()
+		inventoryService.Initialize(false)
 
 		if _, err := os.Stat(config.WebhookCertDir); errors.Is(err, os.ErrNotExist) {
 			log.Error(err, "Server cert not found, disabling webhook server", "cert", config.WebhookCertDir)

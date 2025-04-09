@@ -35,9 +35,9 @@ type InventoryService struct {
 	stalePods map[string]interface{}
 }
 
-func InitializeService(service commonservice.Service) (*InventoryService, error) {
+func InitializeService(service commonservice.Service, cleanup bool) (*InventoryService, error) {
 	inventoryService := NewInventoryService(service)
-	err := inventoryService.Initialize()
+	err := inventoryService.Initialize(cleanup)
 	return inventoryService, err
 }
 
@@ -75,11 +75,14 @@ func NewInventoryService(service commonservice.Service) *InventoryService {
 	return inventoryService
 }
 
-func (s *InventoryService) Initialize() error {
-	err := s.initContainerCluster()
+func (s *InventoryService) Initialize(cleanup bool) error {
+	err := s.initContainerCluster(cleanup)
 	if err != nil {
 		log.Error(err, "Init inventory cluster error")
 		return err
+	}
+	if cleanup {
+		return nil
 	}
 	err = s.SyncInventoryStoreByType(s.NSXConfig.Cluster)
 	if err != nil {
@@ -88,7 +91,7 @@ func (s *InventoryService) Initialize() error {
 	return nil
 }
 
-func (s *InventoryService) initContainerCluster() error {
+func (s *InventoryService) initContainerCluster(cleanup bool) error {
 	cluster, err := s.GetContainerCluster()
 	// If there is no such cluster, create one.
 	// Otherwise, sync with NSX for different types of inventory objects.
@@ -98,6 +101,9 @@ func (s *InventoryService) initContainerCluster() error {
 			log.Error(err, "Add cluster to store")
 		}
 		return err
+	}
+	if cleanup {
+		return nil
 	}
 	log.Error(err, "Cannot find existing container cluster, will create one")
 	newContainerCluster := s.BuildInventoryCluster()
@@ -187,7 +193,7 @@ func (s *InventoryService) SyncInventoryObject(bufferedKeys sets.Set[InventoryKe
 		}
 	}
 
-	err := s.sendNSXRequestAndUpdateInventoryStore()
+	err := s.sendNSXRequestAndUpdateInventoryStore(context.Background())
 	if err != nil {
 		return bufferedKeys, err
 	}
@@ -259,11 +265,11 @@ func (s *InventoryService) DeleteInventoryObject(resourceType InventoryType, ext
 	}
 }
 
-func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore() error {
+func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore(ctx context.Context) error {
 	if len(s.requestBuffer) > 0 {
 		log.V(1).Info("Send update to NSX clusterId ", "ContainerInventoryData", s.requestBuffer)
 		// TODO, check the context.TODO() be replaced by NsxApiClient related todo
-		resp, err := s.NSXClient.NsxApiClient.ContainerInventoryApi.AddContainerInventoryUpdateUpdates(context.Background(),
+		resp, err := s.NSXClient.NsxApiClient.ContainerInventoryApi.AddContainerInventoryUpdateUpdates(ctx,
 			s.NSXConfig.Cluster,
 			containerinventory.ContainerInventoryData{ContainerInventoryObjects: s.requestBuffer})
 
@@ -358,4 +364,25 @@ func (s *InventoryService) updateInventoryStore() error {
 
 func (s *InventoryService) UpdatePendingAdd(externalId string, inventoryObject interface{}) {
 	s.pendingAdd[externalId] = inventoryObject
+}
+
+func (s *InventoryService) Cleanup(ctx context.Context) error {
+	//Cleanup cluster
+	clusters := s.ClusterStore.List()
+	if len(clusters) == 0 {
+		log.Info("No inventory cluster found while cleanup inventory cluster")
+		return nil
+	}
+	cluster := clusters[0].(*containerinventory.ContainerCluster)
+	err := s.DeleteContainerCluster(cluster.ExternalId, ctx)
+	if err != nil {
+		log.Error(err, "Cleanup failed to delete inventory cluster", "Cluster", cluster.ExternalId)
+		return err
+	}
+	err = s.ClusterStore.Delete(cluster)
+	if err != nil {
+		log.Error(err, "Cleanup failed to delete inventory cluster from store", "Cluster", cluster.ExternalId)
+		return err
+	}
+	return nil
 }

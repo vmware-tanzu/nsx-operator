@@ -77,6 +77,6 @@ func createService(t *testing.T) (*inventory.InventoryService, *mockClient.MockC
 		},
 	}
 
-	service, _ := inventory.InitializeService(cs)
+	service, _ := inventory.InitializeService(cs, false)
 	return service, k8sClient
 }

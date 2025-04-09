@@ -87,7 +87,7 @@ func (s *InventoryService) DeleteContainerApplicationInstance(externalId string,
 			}
 		*/
 	} else {
-		return fmt.Errorf("cannot update Pods for removed service id : %s, name : %s because namespaceId is empty", externalId, inventoryObject.DisplayName)
+		log.Info("Cannot update Pods for removed service id since namespaceId is nil", "External Id", externalId, "Name", inventoryObject.DisplayName)
 	}
 	return nil
 }

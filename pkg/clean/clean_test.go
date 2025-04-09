@@ -14,6 +14,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/inventory"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	sr "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
@@ -185,10 +186,14 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 		return &subnetbinding.BindingService{}, nil
 	})
 
+	patches.ApplyFunc(inventory.InitializeService, func(service common.Service, _ bool) (*inventory.InventoryService, error) {
+		return &inventory.InventoryService{}, nil
+	})
+
 	cleanupService, err := InitializeCleanupService(cf, nsxClient)
 	assert.NoError(t, err)
 	assert.NotNil(t, cleanupService)
-	assert.Len(t, cleanupService.cleans, 7)
+	assert.Len(t, cleanupService.cleans, 8)
 }
 
 func TestInitializeCleanupService_VPCError(t *testing.T) {
