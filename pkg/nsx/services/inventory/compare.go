@@ -20,6 +20,8 @@ func compareResources(pre interface{}, cur interface{}) map[string]interface{} {
 		compareContainerApplication(pre, cur, &updateProperties)
 	case string(ContainerIngressPolicy):
 		compareContainerIngressPolicy(pre, cur, &updateProperties)
+	case string(ContainerClusterNode):
+		compareContainerClusterNode(pre, cur, &updateProperties)
 	}
 	log.Info("Compare resource", "updateProperties", updateProperties)
 	return updateProperties
@@ -127,5 +129,25 @@ func compareContainerApplication(pre interface{}, cur interface{}, property *map
 	}
 	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerApplication).OriginProperties, cur.(containerinventory.ContainerApplication).OriginProperties) {
 		updateProperties["origin_properties"] = cur.(containerinventory.ContainerApplication).OriginProperties
+	}
+}
+
+func compareContainerClusterNode(pre interface{}, cur interface{}, property *map[string]interface{}) {
+	updateProperties := *property
+	if pre == nil {
+		updateProperties["display_name"] = cur.(containerinventory.ContainerClusterNode).DisplayName
+		updateProperties["container_cluster_id"] = cur.(containerinventory.ContainerClusterNode).ContainerClusterId
+	}
+	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerClusterNode).Tags, cur.(containerinventory.ContainerClusterNode).Tags) {
+		updateProperties["tags"] = cur.(containerinventory.ContainerClusterNode).Tags
+	}
+	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerClusterNode).IpAddresses, cur.(containerinventory.ContainerClusterNode).IpAddresses) {
+		updateProperties["ip_addresses"] = cur.(containerinventory.ContainerClusterNode).IpAddresses
+	}
+	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerClusterNode).NetworkStatus, cur.(containerinventory.ContainerClusterNode).NetworkStatus) {
+		updateProperties["network_status"] = cur.(containerinventory.ContainerClusterNode).NetworkStatus
+	}
+	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerClusterNode).OriginProperties, cur.(containerinventory.ContainerClusterNode).OriginProperties) {
+		updateProperties["origin_properties"] = cur.(containerinventory.ContainerClusterNode).OriginProperties
 	}
 }

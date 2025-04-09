@@ -108,23 +108,23 @@ func (s *InventoryService) IsIngressDeleted(namespace, name, externalId string, 
 	}
 }
 
-func (c *InventoryService) CleanStaleInventoryIngressPolicy() error {
+func (s *InventoryService) CleanStaleInventoryIngressPolicy() error {
 	log.Info("Clean stale InventoryIngressPolicy")
-	containerIngressPolicies := c.IngressPolicyStore.List()
+	containerIngressPolicies := s.IngressPolicyStore.List()
 	for _, ingressPolicy := range containerIngressPolicies {
 		ingress := ingressPolicy.(*containerinventory.ContainerIngressPolicy)
-		project := c.ProjectStore.GetByKey(ingress.ContainerProjectId)
+		project := s.ProjectStore.GetByKey(ingress.ContainerProjectId)
 		if project == nil {
 			log.Info("Cannot find ContainerProject by id, so clean up stale InventoryIngressPolicy", "Project Id", ingress.ContainerProjectId,
 				"Ingress name", ingress.DisplayName, "External Id", ingress.ExternalId)
-			err := c.DeleteResource(ingress.ExternalId, ContainerIngressPolicy)
+			err := s.DeleteResource(ingress.ExternalId, ContainerIngressPolicy)
 			if err != nil {
 				log.Error(err, "Clean stale InventoryIngressPolicy", "External Id", ingress.ExternalId)
 				return err
 			}
-		} else if c.IsIngressDeleted(project.(*containerinventory.ContainerProject).DisplayName, ingress.DisplayName, ingress.ExternalId, nil) {
+		} else if s.IsIngressDeleted(project.(*containerinventory.ContainerProject).DisplayName, ingress.DisplayName, ingress.ExternalId, nil) {
 			log.Info("Clean stale InventoryIngressPolicy", "Name", ingress.DisplayName, "External Id", ingress.ExternalId)
-			err := c.DeleteResource(ingress.ExternalId, ContainerIngressPolicy)
+			err := s.DeleteResource(ingress.ExternalId, ContainerIngressPolicy)
 			if err != nil {
 				log.Error(err, "Clean stale InventoryIngressPolicy", "External Id", ingress.ExternalId)
 				return err

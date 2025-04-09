@@ -917,3 +917,125 @@ func TestGetIngressAppIds(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildNode(t *testing.T) {
+	labels := map[string]string{
+		"region": "us-west",
+		"env":    "production",
+	}
+	testNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "test-node",
+			UID:    types.UID("node-uid-123"),
+			Labels: labels,
+		},
+		Status: corev1.NodeStatus{
+			Addresses: []corev1.NodeAddress{
+				{Type: corev1.NodeInternalIP, Address: "192.168.99.1"},
+			},
+			NodeInfo: corev1.NodeSystemInfo{
+				KubeletVersion: "v1.19.0",
+				OSImage:        "Ubuntu 20.04.1 LTS",
+			},
+			Conditions: []corev1.NodeCondition{
+				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	t.Run("NormalFlow", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+
+		retry := inventoryService.BuildNode(testNode)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "node-uid-123")
+
+		containerClusterNode := inventoryService.pendingAdd["node-uid-123"].(*containerinventory.ContainerClusterNode)
+		assert.Equal(t, "test-node", containerClusterNode.DisplayName)
+		assert.Equal(t, string(ContainerClusterNode), containerClusterNode.ResourceType)
+		assert.Equal(t, string(testNode.UID), containerClusterNode.ExternalId)
+		assert.Equal(t, inventoryService.NSXConfig.Cluster, containerClusterNode.ContainerClusterId)
+		assert.Equal(t, NetworkStatusHealthy, containerClusterNode.NetworkStatus)
+		assert.Contains(t, containerClusterNode.IpAddresses, "192.168.99.1")
+
+		// Verify tags are created from labels
+		expectedTags := GetTagsFromLabels(labels)
+		assert.Equal(t, len(expectedTags), len(containerClusterNode.Tags))
+		for i, tag := range containerClusterNode.Tags {
+			assert.Equal(t, expectedTags[i].Scope, tag.Scope)
+			assert.Equal(t, expectedTags[i].Tag, tag.Tag)
+		}
+		assert.Contains(t, containerClusterNode.OriginProperties, common.KeyValuePair{Key: "kubelet_version", Value: "v1.19.0"})
+		assert.Contains(t, containerClusterNode.OriginProperties, common.KeyValuePair{Key: "os_image", Value: "Ubuntu 20.04.1 LTS"})
+	})
+
+	t.Run("UpdateExistingNode", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+
+		// Create a pre-existing node in the ClusterNodeStore
+		existingNode := &containerinventory.ContainerClusterNode{
+			DisplayName:        "old-node-name",
+			ResourceType:       string(ContainerClusterNode),
+			Tags:               []common.Tag{},
+			ContainerClusterId: inventoryService.NSXConfig.Cluster,
+			ExternalId:         string(testNode.UID),
+			NetworkStatus:      NetworkStatusHealthy,
+		}
+
+		// Add to ClusterNodeStore
+		inventoryService.ClusterNodeStore.Add(existingNode)
+
+		// Now build the node with updated information
+		updatedNode := testNode.DeepCopy()
+		updatedNode.Labels["new-label"] = "new-value"
+
+		retry := inventoryService.BuildNode(updatedNode)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "node-uid-123")
+
+		// Verify the updated node is in pendingAdd
+		containerClusterNode := inventoryService.pendingAdd["node-uid-123"].(*containerinventory.ContainerClusterNode)
+		assert.Equal(t, "test-node", containerClusterNode.DisplayName)
+
+		// Verify the updated tags include the new label
+		found := false
+		for _, tag := range containerClusterNode.Tags {
+			if tag.Scope == "dis:k8s:new-label" && tag.Tag == "new-value" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "New label should be included in tags")
+	})
+
+	t.Run("NoChangeToNode", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+
+		// Create a pre-existing node in the ClusterNodeStore
+		existingNode := &containerinventory.ContainerClusterNode{
+			DisplayName:        "test-node",
+			ResourceType:       string(ContainerClusterNode),
+			Tags:               GetTagsFromLabels(labels),
+			ContainerClusterId: inventoryService.NSXConfig.Cluster,
+			ExternalId:         string(testNode.UID),
+			NetworkStatus:      NetworkStatusHealthy,
+			IpAddresses:        []string{"192.168.99.1"},
+			OriginProperties: []common.KeyValuePair{
+				{Key: "kubelet_version", Value: "v1.19.0"},
+				{Key: "os_image", Value: "Ubuntu 20.04.1 LTS"},
+			},
+		}
+
+		// Add to ClusterNodeStore to simulate it's already been processed
+		inventoryService.ClusterNodeStore.Add(existingNode)
+
+		// Build the same node again without changes
+		retry := inventoryService.BuildNode(testNode)
+
+		assert.False(t, retry)
+		// Since there are no changes, it shouldn't be added to pendingAdd
+		assert.NotContains(t, inventoryService.pendingAdd, string(testNode.UID))
+	})
+}
