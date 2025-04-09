@@ -25,7 +25,7 @@ func TestInitializeService(t *testing.T) {
 		return nil
 	})
 	defer patches.Reset()
-	_, err := InitializeService(service)
+	_, err := InitializeService(service, false)
 	assert.Nil(t, err)
 }
 
@@ -36,7 +36,7 @@ func TestInventoryService_initContainerCluster(t *testing.T) {
 		patches := gomonkey.ApplyMethod(inventoryService, "GetContainerCluster", func(*InventoryService) (containerinventory.ContainerCluster, error) {
 			return containerinventory.ContainerCluster{}, nil
 		})
-		err := inventoryService.initContainerCluster()
+		err := inventoryService.initContainerCluster(false)
 		patches.Reset()
 		assert.Nil(t, err)
 	})
@@ -48,7 +48,7 @@ func TestInventoryService_initContainerCluster(t *testing.T) {
 		patches.ApplyMethod(inventoryService, "AddContainerCluster", func(_ *InventoryService, _ containerinventory.ContainerCluster) (containerinventory.ContainerCluster, error) {
 			return containerinventory.ContainerCluster{}, nil
 		})
-		err := inventoryService.initContainerCluster()
+		err := inventoryService.initContainerCluster(false)
 		patches.Reset()
 		assert.Nil(t, err)
 	})
@@ -61,7 +61,7 @@ func TestInventoryService_initContainerCluster(t *testing.T) {
 		patches.ApplyMethod(inventoryService, "AddContainerCluster", func(_ *InventoryService, _ containerinventory.ContainerCluster) (containerinventory.ContainerCluster, error) {
 			return containerinventory.ContainerCluster{}, createErr
 		})
-		err := inventoryService.initContainerCluster()
+		err := inventoryService.initContainerCluster(false)
 		patches.Reset()
 		assert.Equal(t, err, createErr)
 	})
@@ -142,7 +142,7 @@ func TestInventoryService_SyncInventoryObject(t *testing.T) {
 		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "SyncContainerApplicationInstance", func(s *InventoryService, name string, namespace string, key InventoryKey) *InventoryKey {
 			return nil
 		})
-		patches.ApplyPrivateMethod(reflect.TypeOf(inventoryService), "sendNSXRequestAndUpdateInventoryStore", func(s *InventoryService) error {
+		patches.ApplyPrivateMethod(reflect.TypeOf(inventoryService), "sendNSXRequestAndUpdateInventoryStore", func(s *InventoryService, _ context.Context) error {
 			return errors.New("NSX request failed")
 		})
 		defer patches.Reset()
@@ -309,7 +309,7 @@ func TestInventoryService_sendNSXRequestAndUpdateInventoryStore(t *testing.T) {
 	inventoryService.pendingAdd["application1"] = &appInstance1
 	inventoryObj := containerinventory.ContainerInventoryObject{}
 	inventoryService.requestBuffer = []containerinventory.ContainerInventoryObject{inventoryObj}
-	err := inventoryService.sendNSXRequestAndUpdateInventoryStore()
+	err := inventoryService.sendNSXRequestAndUpdateInventoryStore(context.TODO())
 	assert.Nil(t, err)
 	itemNum := len(inventoryService.ApplicationInstanceStore.List())
 	assert.Equal(t, 1, itemNum, "expected 1 item in the inventory, got %d", itemNum)
@@ -462,5 +462,50 @@ func TestInventoryService_updateInventoryStore(t *testing.T) {
 		assert.NoError(t, err)
 		itemNum := len(service.ClusterNodeStore.List())
 		assert.Equal(t, 0, itemNum, "expected 0 items in the cluster node inventory, got %d", itemNum)
+	})
+}
+func TestInventoryService_Cleanup(t *testing.T) {
+	t.Run("Cleanup with no errors", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+		inventoryService.ClusterStore.Add(&containerinventory.ContainerCluster{ExternalId: "123"})
+
+		// Mock DeleteContainerCluster to return no error
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "DeleteContainerCluster", func(_ *InventoryService, _ string, _ context.Context) error {
+			return nil
+		})
+		defer patches.Reset()
+
+		err := inventoryService.Cleanup(context.Background())
+		assert.Nil(t, err)
+		assert.Equal(t, 0, len(inventoryService.ClusterStore.List()))
+	})
+
+	t.Run("Cleanup with no inventory cluster found", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+
+		// Mock ClusterStore.List to return an empty list
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService.ClusterStore), "List", func(_ *ClusterStore) []interface{} {
+			return []interface{}{}
+		})
+		defer patches.Reset()
+
+		err := inventoryService.Cleanup(context.Background())
+		assert.Nil(t, err)
+	})
+
+	t.Run("Cleanup with cluster deletion error", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+
+		inventoryService.ClusterStore.Add(&containerinventory.ContainerCluster{ExternalId: "123"})
+		// Mock DeleteContainerCluster to return an error
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "DeleteContainerCluster", func(_ *InventoryService, _ string, _ context.Context) error {
+			return errors.New("cluster deletion error")
+		})
+		defer patches.Reset()
+
+		err := inventoryService.Cleanup(context.Background())
+		assert.NotNil(t, err)
+		assert.Equal(t, "cluster deletion error", err.Error())
+		assert.Equal(t, 1, len(inventoryService.ClusterStore.List()))
 	})
 }

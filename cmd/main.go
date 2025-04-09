@@ -244,7 +244,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			os.Exit(1)
 		}
 		inventoryService := inventoryservice.NewInventoryService(commonService)
-		inventoryService.Initialize()
+		inventoryService.Initialize(false)
 
 		// Start controllers which only supports VPC
 		StartNetworkInfoController(mgr, vpcService, ipblocksInfoService)
