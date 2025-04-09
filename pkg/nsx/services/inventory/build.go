@@ -397,3 +397,74 @@ func (s *InventoryService) removeStaleServiceIDsFromApplicationInstances(podUIDs
 		s.applyServiceIDUpdates(inst, newIds)
 	}
 }
+
+func (s *InventoryService) BuildNode(node *corev1.Node) (retry bool) {
+	log.Info("Building Node", "Node", node.Name)
+	retry = false
+
+	preContainerClusterNode := s.ClusterNodeStore.GetByKey(string(node.UID))
+	if preContainerClusterNode != nil {
+		preContainerClusterNode = *preContainerClusterNode.(*containerinventory.ContainerClusterNode)
+	}
+
+	// Extract node IP addresses
+	var ipAddresses []string
+	for _, addr := range node.Status.Addresses {
+		if addr.Type == corev1.NodeInternalIP || addr.Type == corev1.NodeExternalIP {
+			ipAddresses = append(ipAddresses, addr.Address)
+		}
+	}
+
+	// Determine node status
+	status := NetworkStatusHealthy
+	if !isNodeReady(node) {
+		status = NetworkStatusUnhealthy
+	}
+
+	// Create origin properties
+	var originProperties []common.KeyValuePair
+	if node.Status.NodeInfo.KubeletVersion != "" {
+		originProperties = append(originProperties, common.KeyValuePair{
+			Key:   "kubelet_version",
+			Value: node.Status.NodeInfo.KubeletVersion,
+		})
+	}
+	if node.Status.NodeInfo.OSImage != "" {
+		originProperties = append(originProperties, common.KeyValuePair{
+			Key:   "os_image",
+			Value: node.Status.NodeInfo.OSImage,
+		})
+	}
+
+	containerClusterNode := containerinventory.ContainerClusterNode{
+		DisplayName:        node.Name,
+		ResourceType:       string(ContainerClusterNode),
+		Tags:               GetTagsFromLabels(node.Labels),
+		ContainerClusterId: s.NSXConfig.Cluster,
+		ExternalId:         string(node.UID),
+		IpAddresses:        ipAddresses,
+		NetworkErrors:      nil,
+		NetworkStatus:      status,
+		OriginProperties:   originProperties,
+	}
+
+	log.V(1).Info("Build node", "current instance", containerClusterNode, "pre instance", preContainerClusterNode)
+
+	operation, _ := s.compareAndMergeUpdate(preContainerClusterNode, containerClusterNode)
+	if operation != operationNone {
+		s.pendingAdd[containerClusterNode.ExternalId] = &containerClusterNode
+	} else {
+		log.Info("Skip, node not updated", "Node", node.Name)
+	}
+	return
+}
+
+// isNodeReady returns true if a node is ready; false otherwise.
+func isNodeReady(node *corev1.Node) bool {
+	for _, condition := range node.Status.Conditions {
+		if condition.Type == corev1.NodeReady {
+			return condition.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
