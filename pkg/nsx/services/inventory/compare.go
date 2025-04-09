@@ -8,80 +8,89 @@ import (
 )
 
 func compareResources(pre interface{}, cur interface{}) map[string]interface{} {
-	updateProperties := make(map[string]interface{})
-	updateProperties["external_id"] = reflect.ValueOf(cur).FieldByName("ExternalId").String()
-	updateProperties["resource_type"] = reflect.ValueOf(cur).FieldByName("ResourceType").String()
-	switch updateProperties["resource_type"] {
+	property := make(map[string]interface{})
+	property["external_id"] = reflect.ValueOf(cur).FieldByName("ExternalId").String()
+	property["resource_type"] = reflect.ValueOf(cur).FieldByName("ResourceType").String()
+	switch property["resource_type"] {
 	case string(ContainerProject):
-		compareContainerProject(pre, cur, &updateProperties)
+		compareContainerProject(pre, cur, property)
 	case string(ContainerApplicationInstance):
-		compareContainerApplicationInstance(pre, cur, &updateProperties)
+		compareContainerApplicationInstance(pre, cur, property)
 	case string(ContainerApplication):
-		compareContainerApplication(pre, cur, &updateProperties)
+		compareContainerApplication(pre, cur, property)
 	case string(ContainerIngressPolicy):
-		compareContainerIngressPolicy(pre, cur, &updateProperties)
+		compareContainerIngressPolicy(pre, cur, property)
 	case string(ContainerClusterNode):
-		compareContainerClusterNode(pre, cur, &updateProperties)
+		compareContainerClusterNode(pre, cur, property)
 	}
-	log.Info("Compare resource", "updateProperties", updateProperties)
-	return updateProperties
+	log.Info("Compare resource", "property", property)
+	return property
 }
 
-func compareContainerProject(pre interface{}, cur interface{}, property *map[string]interface{}) {
-	updateProperties := *property
+func compareContainerProject(pre interface{}, cur interface{}, property map[string]interface{}) {
+	curProject := cur.(containerinventory.ContainerProject)
 	if pre == nil {
-		updateProperties["display_name"] = cur.(containerinventory.ContainerProject).DisplayName
-		updateProperties["container_cluster_id"] = cur.(containerinventory.ContainerProject).ContainerClusterId
+		property["display_name"] = curProject.DisplayName
+		property["container_cluster_id"] = curProject.ContainerClusterId
 	}
-	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerProject).Tags, cur.(containerinventory.ContainerProject).Tags) {
-		updateProperties["tags"] = cur.(containerinventory.ContainerProject).Tags
+	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerProject).Tags, curProject.Tags) {
+		property["tags"] = curProject.Tags
 	}
 }
 
-func compareContainerApplicationInstance(pre interface{}, cur interface{}, property *map[string]interface{}) {
-	updateProperties := *property
+func compareContainerApplicationInstance(pre interface{}, cur interface{}, property map[string]interface{}) {
+	preAppInstance := containerinventory.ContainerApplicationInstance{}
+	if pre != nil {
+		preAppInstance = pre.(containerinventory.ContainerApplicationInstance)
+	}
+	curAppInstance := cur.(containerinventory.ContainerApplicationInstance)
+	// Handle the case when pre is nil, which means this is a new resource
 	if pre == nil {
-		updateProperties["display_name"] = cur.(containerinventory.ContainerApplicationInstance).DisplayName
-		updateProperties["container_cluster_id"] = cur.(containerinventory.ContainerApplicationInstance).ContainerClusterId
-		updateProperties["container_project_id"] = cur.(containerinventory.ContainerApplicationInstance).ContainerProjectId
+		property["display_name"] = curAppInstance.DisplayName
+		property["container_cluster_id"] = curAppInstance.ContainerClusterId
+		property["container_project_id"] = curAppInstance.ContainerProjectId
 	}
-	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerApplicationInstance).Tags, cur.(containerinventory.ContainerApplicationInstance).Tags) {
-		updateProperties["tags"] = cur.(containerinventory.ContainerApplicationInstance).Tags
+	if pre == nil || !reflect.DeepEqual(preAppInstance.Tags, curAppInstance.Tags) {
+		property["tags"] = curAppInstance.Tags
 	}
-	if pre == nil || pre.(containerinventory.ContainerApplicationInstance).ClusterNodeId != cur.(containerinventory.ContainerApplicationInstance).ClusterNodeId {
-		updateProperties["cluster_node_id"] = cur.(containerinventory.ContainerApplicationInstance).ClusterNodeId
+	if pre == nil || preAppInstance.ClusterNodeId != curAppInstance.ClusterNodeId {
+		property["cluster_node_id"] = curAppInstance.ClusterNodeId
 	}
-	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerApplicationInstance).ContainerApplicationIds, cur.(containerinventory.ContainerApplicationInstance).ContainerApplicationIds) {
-		updateProperties["container_application_ids"] = cur.(containerinventory.ContainerApplicationInstance).ContainerApplicationIds
+	if pre == nil || !reflect.DeepEqual(preAppInstance.ContainerApplicationIds, curAppInstance.ContainerApplicationIds) {
+		property["container_application_ids"] = curAppInstance.ContainerApplicationIds
 	}
-	if pre == nil || pre.(containerinventory.ContainerApplicationInstance).Status != cur.(containerinventory.ContainerApplicationInstance).Status {
-		updateProperties["status"] = cur.(containerinventory.ContainerApplicationInstance).Status
+	if pre == nil || preAppInstance.Status != curAppInstance.Status {
+		property["status"] = curAppInstance.Status
 	}
-	if pre == nil && len(cur.(containerinventory.ContainerApplicationInstance).OriginProperties) == 1 {
-		updateProperties["origin_properties"] = cur.(containerinventory.ContainerApplicationInstance).OriginProperties
-	} else if pre != nil && !reflect.DeepEqual(pre.(containerinventory.ContainerApplicationInstance).OriginProperties, cur.(containerinventory.ContainerApplicationInstance).OriginProperties) {
-		if isIPChanged(pre.(containerinventory.ContainerApplicationInstance), cur.(containerinventory.ContainerApplicationInstance)) {
-			updateProperties["origin_properties"] = cur.(containerinventory.ContainerApplicationInstance).OriginProperties
+	if pre == nil && len(curAppInstance.OriginProperties) == 1 {
+		property["origin_properties"] = curAppInstance.OriginProperties
+	} else if pre != nil && !reflect.DeepEqual(preAppInstance.OriginProperties, curAppInstance.OriginProperties) {
+		if isIPChanged(preAppInstance, curAppInstance) {
+			property["origin_properties"] = curAppInstance.OriginProperties
 		}
 	}
 }
 
-func compareContainerIngressPolicy(pre interface{}, cur interface{}, property *map[string]interface{}) {
-	updateProperties := *property
+func compareContainerIngressPolicy(pre interface{}, cur interface{}, property map[string]interface{}) {
+	preIngressPolicy := containerinventory.ContainerIngressPolicy{}
+	if pre != nil {
+		preIngressPolicy = pre.(containerinventory.ContainerIngressPolicy)
+	}
+	curIngressPolicy := cur.(containerinventory.ContainerIngressPolicy)
 	if pre == nil {
-		updateProperties["display_name"] = cur.(containerinventory.ContainerIngressPolicy).DisplayName
-		updateProperties["container_cluster_id"] = cur.(containerinventory.ContainerIngressPolicy).ContainerClusterId
-		updateProperties["container_project_id"] = cur.(containerinventory.ContainerIngressPolicy).ContainerProjectId
+		property["display_name"] = curIngressPolicy.DisplayName
+		property["container_cluster_id"] = curIngressPolicy.ContainerClusterId
+		property["container_project_id"] = curIngressPolicy.ContainerProjectId
 	}
-	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerIngressPolicy).Tags, cur.(containerinventory.ContainerIngressPolicy).Tags) {
-		updateProperties["tags"] = cur.(containerinventory.ContainerIngressPolicy).Tags
+	if pre == nil || !reflect.DeepEqual(preIngressPolicy.Tags, curIngressPolicy.Tags) {
+		property["tags"] = curIngressPolicy.Tags
 	}
-	if pre == nil || pre.(containerinventory.ContainerIngressPolicy).Spec != cur.(containerinventory.ContainerIngressPolicy).Spec {
-		updateProperties["spec"] = cur.(containerinventory.ContainerIngressPolicy).Spec
+	if pre == nil || preIngressPolicy.Spec != curIngressPolicy.Spec {
+		property["spec"] = curIngressPolicy.Spec
 	}
 
-	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerIngressPolicy).ContainerApplicationIds, cur.(containerinventory.ContainerIngressPolicy).ContainerApplicationIds) {
-		updateProperties["container_application_ids"] = cur.(containerinventory.ContainerIngressPolicy).ContainerApplicationIds
+	if pre == nil || !reflect.DeepEqual(preIngressPolicy.ContainerApplicationIds, curIngressPolicy.ContainerApplicationIds) {
+		property["container_application_ids"] = curIngressPolicy.ContainerApplicationIds
 	}
 }
 
@@ -114,40 +123,48 @@ func isIPChanged(pre containerinventory.ContainerApplicationInstance, cur contai
 	return false
 }
 
-func compareContainerApplication(pre interface{}, cur interface{}, property *map[string]interface{}) {
-	updateProperties := *property
+func compareContainerApplication(pre interface{}, cur interface{}, property map[string]interface{}) {
+	preApplication := containerinventory.ContainerApplication{}
+	if pre != nil {
+		preApplication = pre.(containerinventory.ContainerApplication)
+	}
+	curApplication := cur.(containerinventory.ContainerApplication)
 	if pre == nil {
-		updateProperties["display_name"] = cur.(containerinventory.ContainerApplication).DisplayName
-		updateProperties["container_cluster_id"] = cur.(containerinventory.ContainerApplication).ContainerClusterId
-		updateProperties["container_project_id"] = cur.(containerinventory.ContainerApplication).ContainerProjectId
+		property["display_name"] = curApplication.DisplayName
+		property["container_cluster_id"] = curApplication.ContainerClusterId
+		property["container_project_id"] = curApplication.ContainerProjectId
 	}
-	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerApplication).Tags, cur.(containerinventory.ContainerApplication).Tags) {
-		updateProperties["tags"] = cur.(containerinventory.ContainerApplication).Tags
+	if pre == nil || !reflect.DeepEqual(preApplication.Tags, curApplication.Tags) {
+		property["tags"] = curApplication.Tags
 	}
-	if pre == nil || pre.(containerinventory.ContainerApplication).Status != cur.(containerinventory.ContainerApplication).Status {
-		updateProperties["status"] = cur.(containerinventory.ContainerApplication).Status
+	if pre == nil || preApplication.Status != curApplication.Status {
+		property["status"] = curApplication.Status
 	}
-	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerApplication).OriginProperties, cur.(containerinventory.ContainerApplication).OriginProperties) {
-		updateProperties["origin_properties"] = cur.(containerinventory.ContainerApplication).OriginProperties
+	if pre == nil || !reflect.DeepEqual(preApplication.OriginProperties, curApplication.OriginProperties) {
+		property["origin_properties"] = curApplication.OriginProperties
 	}
 }
 
-func compareContainerClusterNode(pre interface{}, cur interface{}, property *map[string]interface{}) {
-	updateProperties := *property
+func compareContainerClusterNode(pre interface{}, cur interface{}, property map[string]interface{}) {
+	preClusterNode := containerinventory.ContainerClusterNode{}
+	if pre != nil {
+		preClusterNode = pre.(containerinventory.ContainerClusterNode)
+	}
+	curClusterNode := cur.(containerinventory.ContainerClusterNode)
 	if pre == nil {
-		updateProperties["display_name"] = cur.(containerinventory.ContainerClusterNode).DisplayName
-		updateProperties["container_cluster_id"] = cur.(containerinventory.ContainerClusterNode).ContainerClusterId
+		property["display_name"] = curClusterNode.DisplayName
+		property["container_cluster_id"] = curClusterNode.ContainerClusterId
 	}
-	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerClusterNode).Tags, cur.(containerinventory.ContainerClusterNode).Tags) {
-		updateProperties["tags"] = cur.(containerinventory.ContainerClusterNode).Tags
+	if pre == nil || !reflect.DeepEqual(preClusterNode.Tags, curClusterNode.Tags) {
+		property["tags"] = curClusterNode.Tags
 	}
-	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerClusterNode).IpAddresses, cur.(containerinventory.ContainerClusterNode).IpAddresses) {
-		updateProperties["ip_addresses"] = cur.(containerinventory.ContainerClusterNode).IpAddresses
+	if pre == nil || !reflect.DeepEqual(preClusterNode.IpAddresses, curClusterNode.IpAddresses) {
+		property["ip_addresses"] = curClusterNode.IpAddresses
 	}
-	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerClusterNode).NetworkStatus, cur.(containerinventory.ContainerClusterNode).NetworkStatus) {
-		updateProperties["network_status"] = cur.(containerinventory.ContainerClusterNode).NetworkStatus
+	if pre == nil || !reflect.DeepEqual(preClusterNode.NetworkStatus, curClusterNode.NetworkStatus) {
+		property["network_status"] = curClusterNode.NetworkStatus
 	}
-	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerClusterNode).OriginProperties, cur.(containerinventory.ContainerClusterNode).OriginProperties) {
-		updateProperties["origin_properties"] = cur.(containerinventory.ContainerClusterNode).OriginProperties
+	if pre == nil || !reflect.DeepEqual(preClusterNode.OriginProperties, curClusterNode.OriginProperties) {
+		property["origin_properties"] = curClusterNode.OriginProperties
 	}
 }
