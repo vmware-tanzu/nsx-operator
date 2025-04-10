@@ -180,3 +180,87 @@ func TestIsIPChanged(t *testing.T) {
 		})
 	}
 }
+
+func TestCompareNetworkPolicy(t *testing.T) {
+	testCases := []struct {
+		name           string
+		pre            interface{}
+		cur            containerinventory.ContainerNetworkPolicy
+		expectedResult map[string]interface{}
+	}{
+		{
+			name: "New resource with all fields filled",
+			pre:  nil,
+			cur: containerinventory.ContainerNetworkPolicy{
+				DisplayName:        "NetworkPolicy1",
+				ContainerClusterId: "Cluster1",
+				ContainerProjectId: "Project1",
+				Tags:               []common.Tag{{Scope: "tag1"}, {Scope: "tag2"}},
+				Spec:               "spec-content",
+				OriginProperties:   []common.KeyValuePair{{Key: "annotation", Value: "example"}},
+				PolicyType:         NetworkPolicyType,
+			},
+			expectedResult: map[string]interface{}{
+				"display_name":         "NetworkPolicy1",
+				"container_cluster_id": "Cluster1",
+				"container_project_id": "Project1",
+				"tags":                 []common.Tag{{Scope: "tag1"}, {Scope: "tag2"}},
+				"spec":                 "spec-content",
+				"origin_properties":    []common.KeyValuePair{{Key: "annotation", Value: "example"}},
+				"policy_type":          "NETWORK_POLICY",
+			},
+		},
+		{
+			name: "Update resource with changed tags",
+			pre: containerinventory.ContainerNetworkPolicy{
+				Tags: []common.Tag{{Scope: "tag1"}},
+			},
+			cur: containerinventory.ContainerNetworkPolicy{
+				Tags: []common.Tag{{Scope: "tag1"}, {Scope: "tag2"}},
+			},
+			expectedResult: map[string]interface{}{
+				"tags": []common.Tag{{Scope: "tag1"}, {Scope: "tag2"}},
+			},
+		},
+		{
+			name: "Update resource with changed spec",
+			pre: containerinventory.ContainerNetworkPolicy{
+				Spec: "old-spec-content",
+			},
+			cur: containerinventory.ContainerNetworkPolicy{
+				Spec: "new-spec-content",
+			},
+			expectedResult: map[string]interface{}{
+				"spec": "new-spec-content",
+			},
+		},
+		{
+			name: "No changes between pre and cur",
+			pre: containerinventory.ContainerNetworkPolicy{
+				DisplayName:        "NetworkPolicy1",
+				ContainerClusterId: "Cluster1",
+				ContainerProjectId: "Project1",
+				Tags:               []common.Tag{{Scope: "tag1"}},
+				Spec:               "spec-content",
+				OriginProperties:   []common.KeyValuePair{{Key: "annotation", Value: "example"}},
+			},
+			cur: containerinventory.ContainerNetworkPolicy{
+				DisplayName:        "NetworkPolicy1",
+				ContainerClusterId: "Cluster1",
+				ContainerProjectId: "Project1",
+				Tags:               []common.Tag{{Scope: "tag1"}},
+				Spec:               "spec-content",
+				OriginProperties:   []common.KeyValuePair{{Key: "annotation", Value: "example"}},
+			},
+			expectedResult: map[string]interface{}{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			properties := make(map[string]interface{})
+			compareNetworkPolicy(tc.pre, tc.cur, properties)
+			assert.Equal(t, tc.expectedResult, properties)
+		})
+	}
+}

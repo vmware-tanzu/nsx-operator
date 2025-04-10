@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/go-vmware-nsxt/common"
 	"github.com/vmware/go-vmware-nsxt/containerinventory"
+	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
 	networkv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -882,5 +883,88 @@ func TestBuildNode(t *testing.T) {
 		assert.False(t, retry)
 		// Since there are no changes, it shouldn't be added to pendingAdd
 		assert.NotContains(t, inventoryService.pendingAdd, string(testNode.UID))
+	})
+}
+
+func TestBuildNetworkPolicy(t *testing.T) {
+	labels := map[string]string{
+		"policy": "security",
+		"env":    "production",
+	}
+
+	testNetworkPolicy := &networkv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-networkpolicy",
+			Namespace: "default",
+			UID:       types.UID("networkpolicy-uid-123"),
+			Labels:    labels,
+		},
+		Spec: networkv1.NetworkPolicySpec{},
+	}
+
+	t.Run("NormalFlow", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.ListOption) error {
+			ns, ok := obj.(*corev1.Namespace)
+			if !ok {
+				return nil
+			}
+			ns.ObjectMeta = metav1.ObjectMeta{
+				Name: "default",
+				UID:  "namespace-uid-123",
+			}
+			return nil
+		})
+
+		retry := inventoryService.BuildNetworkPolicy(testNetworkPolicy)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "networkpolicy-uid-123")
+
+		containerNetworkPolicy := inventoryService.pendingAdd["networkpolicy-uid-123"].(*containerinventory.ContainerNetworkPolicy)
+		assert.Equal(t, "test-networkpolicy", containerNetworkPolicy.DisplayName)
+		assert.Equal(t, string(ContainerNetworkPolicy), containerNetworkPolicy.ResourceType)
+		assert.Equal(t, string(testNetworkPolicy.UID), containerNetworkPolicy.ExternalId)
+		assert.Equal(t, inventoryService.NSXConfig.Cluster, containerNetworkPolicy.ContainerClusterId)
+		assert.Equal(t, "", containerNetworkPolicy.NetworkStatus)
+
+		// Verify tags are created from labels
+		expectedTags := GetTagsFromLabels(labels)
+		assert.Equal(t, len(expectedTags), len(containerNetworkPolicy.Tags))
+		for i, tag := range containerNetworkPolicy.Tags {
+			assert.Equal(t, expectedTags[i].Scope, tag.Scope)
+			assert.Equal(t, expectedTags[i].Tag, tag.Tag)
+		}
+	})
+	t.Run("NamespaceError", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+
+		// Simulate an error when retrieving the namespace
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(fmt.Errorf("namespace retrieval error"))
+
+		retry := inventoryService.BuildNetworkPolicy(testNetworkPolicy)
+
+		assert.True(t, retry)
+	})
+
+	t.Run("SpecMarshalError", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+
+		// Mock namespace retrieval to succeed
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+
+		// Simulate a failure in marshaling the NetworkPolicy spec
+		patches := gomonkey.ApplyFunc(yaml.Marshal, func(in interface{}) ([]byte, error) {
+			return nil, fmt.Errorf("failed to marshal spec")
+		})
+		defer patches.Reset()
+
+		retry := inventoryService.BuildNetworkPolicy(testNetworkPolicy)
+
+		assert.False(t, retry)
+		// Since the spec couldn't be marshaled, ensure the object is not in pendingAdd
+		assert.NotContains(t, inventoryService.pendingAdd, string(testNetworkPolicy.UID))
 	})
 }

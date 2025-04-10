@@ -44,6 +44,7 @@ var (
 		watchEndpoint,
 		watchIngress,
 		watchNode,
+		watchNetworkPolicy,
 	}
 )
 
