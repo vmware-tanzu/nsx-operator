@@ -22,6 +22,8 @@ func compareResources(pre interface{}, cur interface{}) map[string]interface{} {
 		compareContainerIngressPolicy(pre, cur, property)
 	case string(ContainerClusterNode):
 		compareContainerClusterNode(pre, cur, property)
+	case string(ContainerNetworkPolicy):
+		compareNetworkPolicy(pre, cur, property)
 	}
 	log.Info("Compare resource", "property", property)
 	return property
@@ -166,5 +168,30 @@ func compareContainerClusterNode(pre interface{}, cur interface{}, property map[
 	}
 	if pre == nil || !reflect.DeepEqual(preClusterNode.OriginProperties, curClusterNode.OriginProperties) {
 		property["origin_properties"] = curClusterNode.OriginProperties
+	}
+}
+
+func compareNetworkPolicy(pre interface{}, cur interface{}, property map[string]interface{}) {
+	preNetworkPolicy := containerinventory.ContainerNetworkPolicy{}
+	if pre != nil {
+		preNetworkPolicy = pre.(containerinventory.ContainerNetworkPolicy)
+	}
+	curNetworkPolicy := cur.(containerinventory.ContainerNetworkPolicy)
+	if pre == nil {
+		property["display_name"] = curNetworkPolicy.DisplayName
+		property["container_cluster_id"] = curNetworkPolicy.ContainerClusterId
+		property["container_project_id"] = curNetworkPolicy.ContainerProjectId
+	}
+	if pre == nil || !reflect.DeepEqual(preNetworkPolicy.Tags, curNetworkPolicy.Tags) {
+		property["tags"] = cur.(containerinventory.ContainerNetworkPolicy).Tags
+	}
+	if pre == nil || preNetworkPolicy.Spec != curNetworkPolicy.Spec {
+		property["spec"] = cur.(containerinventory.ContainerNetworkPolicy).Spec
+	}
+	if pre == nil || preNetworkPolicy.PolicyType != curNetworkPolicy.PolicyType {
+		property["policy_type"] = cur.(containerinventory.ContainerNetworkPolicy).PolicyType
+	}
+	if pre == nil || !reflect.DeepEqual(preNetworkPolicy.OriginProperties, curNetworkPolicy.OriginProperties) {
+		property["origin_properties"] = curNetworkPolicy.OriginProperties
 	}
 }

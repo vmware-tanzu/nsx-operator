@@ -30,6 +30,7 @@ const (
 	// NetworkStatusHealthy Inventory network status
 	NetworkStatusHealthy   = "HEALTHY"
 	NetworkStatusUnhealthy = "UNHEALTHY"
+	NetworkPolicyType      = "NETWORK_POLICY"
 
 	// InventoryInfraTypeVsphere Inventory infra
 	InventoryInfraTypeVsphere = "vSphere"
