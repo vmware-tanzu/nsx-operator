@@ -270,6 +270,10 @@ func TestCleanStaleInventoryObjects(t *testing.T) {
 		patches.ApplyMethod(reflect.TypeOf(mockService), "CleanStaleInventoryIngressPolicy", func(_ *inventory.InventoryService) error {
 			return nil
 		})
+		patches.ApplyMethod(reflect.TypeOf(mockService), "CleanStaleInventoryNetworkPolicy", func(_ *inventory.InventoryService) error {
+			return nil
+		})
+
 		defer patches.Reset()
 
 		controller := &InventoryController{service: mockService}
