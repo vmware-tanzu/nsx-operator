@@ -6,10 +6,22 @@ import (
 
 	"github.com/antihax/optional"
 	nsxt "github.com/vmware/go-vmware-nsxt"
+	"github.com/vmware/go-vmware-nsxt/containerinventory"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 )
+
+func (s *InventoryService) IsNetworkPolicyDeleted(namespace, name, externalId string) bool {
+	networkPolicy := &networkingv1.NetworkPolicy{}
+	err := s.Client.Get(context.TODO(), types.NamespacedName{Name: name, Namespace: namespace}, networkPolicy)
+	if apierrors.IsNotFound(err) || ((err == nil) && (string(networkPolicy.UID) != externalId)) {
+		return true
+	} else {
+		log.Error(err, "Check NetworkPolicy deleted", "NetworkPolicy", name, "Namespace", namespace, "External id", externalId)
+		return false
+	}
+}
 
 func (s *InventoryService) initContainerNetworkPolicy(clusterId string) error {
 	cursor := ""
@@ -54,6 +66,32 @@ func (s *InventoryService) SyncContainerNetworkPolicy(name, namespace string, ke
 		}
 	} else {
 		log.Error(err, "Unexpected error is found while processing NetworkPolicy")
+	}
+	return nil
+}
+
+func (s *InventoryService) CleanStaleInventoryNetworkPolicy() error {
+	log.Info("Clean stale InventoryNetworkPolicy")
+	containerNetworkPolicies := s.NetworkPolicyStore.List()
+	for _, networkPolicy := range containerNetworkPolicies {
+		networkPolicyObj := networkPolicy.(*containerinventory.ContainerNetworkPolicy)
+		project := s.ProjectStore.GetByKey(networkPolicyObj.ContainerProjectId)
+		if project == nil {
+			log.Info("Cannot find ContainerProject by id, so clean up stale InventoryNetworkPolicy", "Project Id", networkPolicyObj.ContainerProjectId,
+				"NetworkPolicy name", networkPolicyObj.DisplayName, "External Id", networkPolicyObj.ExternalId)
+			err := s.DeleteResource(networkPolicyObj.ExternalId, ContainerNetworkPolicy)
+			if err != nil {
+				log.Error(err, "Clean stale InventoryNetworkPolicy", "External Id", networkPolicyObj.ExternalId)
+				return err
+			}
+		} else if s.IsNetworkPolicyDeleted(project.(*containerinventory.ContainerProject).DisplayName, networkPolicyObj.DisplayName, networkPolicyObj.ExternalId) {
+			log.Info("Clean stale InventoryNetworkPolicy", "Name", networkPolicyObj.DisplayName, "External Id", networkPolicyObj.ExternalId)
+			err := s.DeleteResource(networkPolicyObj.ExternalId, ContainerNetworkPolicy)
+			if err != nil {
+				log.Error(err, "Clean stale InventoryNetworkPolicy", "External Id", networkPolicyObj.ExternalId)
+				return err
+			}
+		}
 	}
 	return nil
 }
