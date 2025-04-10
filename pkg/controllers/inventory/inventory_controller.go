@@ -197,6 +197,10 @@ func (c *InventoryController) CleanStaleInventoryObjects() error {
 	if err != nil {
 		return err
 	}
+	err = c.service.CleanStaleInventoryNetworkPolicy()
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
