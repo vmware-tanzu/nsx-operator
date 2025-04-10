@@ -1,7 +1,11 @@
 package logger
 
 import (
+	"fmt"
 	"os"
+	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -12,10 +16,7 @@ import (
 )
 
 const (
-	logTmFmtWithMS = "2006-01-02 15:04:05.000"
-	// ANSI escape codes for coloring
-	colorReset  = "\033[0m"
-	colorYellow = "\033[33m"
+	logTmFmtWithMS = "2006-01-02T15:04:05.000Z"
 )
 
 var (
@@ -24,7 +25,7 @@ var (
 		enc.AppendString(t.Format(logTmFmtWithMS))
 	}
 	customCallerEncoder = func(caller zapcore.EntryCaller, enc zapcore.PrimitiveArrayEncoder) {
-		enc.AppendString(colorYellow + caller.TrimmedPath() + colorReset)
+		enc.AppendString(fmt.Sprintf("nsx %d [nsx-op@%d caller=\"%s\"]", os.Getpid(), getGoroutineID(), caller.TrimmedPath()))
 	}
 )
 
@@ -34,6 +35,17 @@ func init() {
 
 func InitLog(log *logr.Logger) {
 	Log = *log
+}
+
+func getGoroutineID() int {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	idField := strings.Fields(strings.TrimPrefix(string(buf[:n]), "goroutine "))[0]
+	id, err := strconv.Atoi(idField)
+	if err != nil {
+		panic(fmt.Sprintf("cannot get goroutine id: %v", err))
+	}
+	return id
 }
 
 // If debug set in configmap, set log level to 1.
@@ -53,17 +65,18 @@ func getLogLevel(cfDebug bool, cfLogLevel int) int {
 func ZapLogger(cfDebug bool, cfLogLevel int) logr.Logger {
 	logLevel := getLogLevel(cfDebug, cfLogLevel)
 	encoderConf := zapcore.EncoderConfig{
-		CallerKey:      "caller_line",
-		LevelKey:       "level_name",
-		MessageKey:     "msg",
-		TimeKey:        "ts",
-		StacktraceKey:  "stacktrace",
-		LineEnding:     zapcore.DefaultLineEnding,
-		EncodeTime:     customTimeEncoder,
-		EncodeLevel:    zapcore.CapitalColorLevelEncoder,
-		EncodeCaller:   customCallerEncoder,
-		EncodeDuration: zapcore.SecondsDurationEncoder,
-		EncodeName:     zapcore.FullNameEncoder,
+		CallerKey:        "caller_line",
+		LevelKey:         "level_name",
+		MessageKey:       "msg",
+		TimeKey:          "ts",
+		StacktraceKey:    "stacktrace",
+		LineEnding:       zapcore.DefaultLineEnding,
+		EncodeTime:       customTimeEncoder,
+		EncodeLevel:      zapcore.CapitalLevelEncoder,
+		EncodeCaller:     customCallerEncoder,
+		EncodeDuration:   zapcore.SecondsDurationEncoder,
+		EncodeName:       zapcore.FullNameEncoder,
+		ConsoleSeparator: " ",
 	}
 	core := zapcore.NewCore(
 		zapcore.NewConsoleEncoder(encoderConf),
