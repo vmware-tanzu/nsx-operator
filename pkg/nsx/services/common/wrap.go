@@ -8,7 +8,7 @@ import (
 
 // WrapInfra TODO(gran) refactor existing code in other package
 func (service *Service) WrapInfra(children []*data.StructValue) (*model.Infra, error) {
-	return wrapInfra(children), nil
+	return buildInfraFromChildren(children), nil
 }
 
 func (service *Service) WrapOrgRoot(children []*data.StructValue) (*model.OrgRoot, error) {
@@ -145,7 +145,7 @@ func WrapVpcSubnet(subnet *model.VpcSubnet) (*data.StructValue, error) {
 }
 
 func WrapStaticRoutes(route *model.StaticRoutes) (*data.StructValue, error) {
-	route.ResourceType = &ResourceTypeStaticRoute
+	route.ResourceType = &ResourceTypeStaticRoutes
 	childRoute := model.ChildStaticRoutes{
 		Id:              route.Id,
 		MarkedForDelete: route.MarkedForDelete,
@@ -294,7 +294,7 @@ func WrapCertificate(cert *model.TlsCertificate) (*data.StructValue, error) {
 	return dataValue.(*data.StructValue), nil
 }
 
-func wrapInfra(children []*data.StructValue) *model.Infra {
+func buildInfraFromChildren(children []*data.StructValue) *model.Infra {
 	// This is the outermost layer of the hierarchy infra client.
 	// It doesn't need ID field.
 	resourceType := ResourceTypeInfra

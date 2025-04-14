@@ -983,6 +983,16 @@ func (s *VPCService) GetNamespacesWithPreCreatedVPCs() (map[string]string, error
 	return nsVpcMap, nil
 }
 
+func (s *VPCService) cleanupAviSubnetPorts(ctx context.Context) error {
+	vpcs := s.ListVPC()
+	for _, vpc := range vpcs {
+		if err := CleanAviSubnetPorts(ctx, s.NSXClient.Cluster, *vpc.Path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func IsPreCreatedVPC(nc *v1alpha1.VPCNetworkConfiguration) bool {
 	return nc.Spec.VPC != ""
 }

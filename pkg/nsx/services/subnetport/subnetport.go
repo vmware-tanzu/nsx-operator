@@ -59,7 +59,6 @@ func InitializeSubnetPort(service servicecommon.Service) (*SubnetPortService, er
 					servicecommon.TagScopeVMNamespace:     subnetPortIndexNamespace,
 					servicecommon.TagScopeNamespace:       subnetPortIndexPodNamespace,
 					servicecommon.IndexKeySubnetID:        subnetPortIndexBySubnetID,
-					servicecommon.IndexByVPCPathFuncKey:   servicecommon.IndexByVPCFunc,
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}}

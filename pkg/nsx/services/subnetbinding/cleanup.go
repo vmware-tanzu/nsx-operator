@@ -21,7 +21,7 @@ func (s *BindingService) CleanupBeforeVPCDeletion(ctx context.Context) error {
 		binding.MarkedForDelete = &markedForDelete
 		finalBindingMaps[i] = binding
 	}
-	return s.builder.PagingDeleteResources(ctx, finalBindingMaps, servicecommon.DefaultHAPIChildrenCount, s.NSXClient, func(deletedObjs []*model.SubnetConnectionBindingMap) {
+	return s.builder.PagingUpdateResources(ctx, finalBindingMaps, servicecommon.DefaultHAPIChildrenCount, s.NSXClient, func(deletedObjs []*model.SubnetConnectionBindingMap) {
 		s.BindingStore.DeleteMultipleObjects(deletedObjs)
 	})
 }

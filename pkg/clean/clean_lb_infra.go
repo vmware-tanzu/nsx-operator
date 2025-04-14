@@ -113,7 +113,7 @@ func (s *LBInfraCleaner) cleanupInfraSharedResources(ctx context.Context) error 
 
 	s.log.Info("Cleaning up shares", "Count", len(srSet))
 	sharedResourcesBuilder, _ := common.PolicyPathInfraSharedResource.NewPolicyTreeBuilder()
-	return sharedResourcesBuilder.PagingDeleteResources(ctx, srSet, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
+	return sharedResourcesBuilder.PagingUpdateResources(ctx, srSet, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
 }
 
 func (s *LBInfraCleaner) cleanupInfraShares(ctx context.Context) error {
@@ -131,7 +131,7 @@ func (s *LBInfraCleaner) cleanupInfraShares(ctx context.Context) error {
 
 	s.log.Info("Cleaning up shares", "Count", len(sharesSet))
 	sharesBuilder, _ := common.PolicyPathInfraShare.NewPolicyTreeBuilder()
-	return sharesBuilder.PagingDeleteResources(ctx, sharesSet, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
+	return sharesBuilder.PagingUpdateResources(ctx, sharesSet, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
 }
 
 func (s *LBInfraCleaner) cleanupInfraCerts(ctx context.Context) error {
@@ -148,7 +148,7 @@ func (s *LBInfraCleaner) cleanupInfraCerts(ctx context.Context) error {
 
 	s.log.Info("Cleaning up certificates", "Count", len(certsSet))
 	certsBuilder, _ := common.PolicyPathInfraCert.NewPolicyTreeBuilder()
-	return certsBuilder.PagingDeleteResources(ctx, certsSet, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
+	return certsBuilder.PagingUpdateResources(ctx, certsSet, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
 }
 
 type ResourceStore struct {
@@ -192,7 +192,7 @@ func (s *LBInfraCleaner) cleanupInfraDLBVirtualServers(ctx context.Context) erro
 
 	s.log.Info("Cleaning up DLB virtual servers", "Count", len(vss))
 	vssBuilder, _ := common.PolicyPathInfraLBVirtualServer.NewPolicyTreeBuilder()
-	return vssBuilder.PagingDeleteResources(ctx, vss, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
+	return vssBuilder.PagingUpdateResources(ctx, vss, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
 }
 
 func (s *LBInfraCleaner) cleanupInfraDLBPools(ctx context.Context) error {
@@ -210,7 +210,7 @@ func (s *LBInfraCleaner) cleanupInfraDLBPools(ctx context.Context) error {
 
 	s.log.Info("Cleaning up DLB pools", "Count", len(pools))
 	poolBuilder, _ := common.PolicyPathInfraLBPool.NewPolicyTreeBuilder()
-	return poolBuilder.PagingDeleteResources(ctx, pools, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
+	return poolBuilder.PagingUpdateResources(ctx, pools, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
 }
 
 func (s *LBInfraCleaner) cleanupInfraDLBServices(ctx context.Context) error {
@@ -228,7 +228,7 @@ func (s *LBInfraCleaner) cleanupInfraDLBServices(ctx context.Context) error {
 
 	s.log.Info("Cleaning up DLB services", "Count", len(lbServices))
 	lbsBuilder, _ := common.PolicyPathInfraLBService.NewPolicyTreeBuilder()
-	return lbsBuilder.PagingDeleteResources(ctx, lbServices, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
+	return lbsBuilder.PagingUpdateResources(ctx, lbServices, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
 }
 
 func (s *LBInfraCleaner) cleanupInfraDLBGroups(ctx context.Context) error {
@@ -246,7 +246,7 @@ func (s *LBInfraCleaner) cleanupInfraDLBGroups(ctx context.Context) error {
 
 	s.log.Info("Cleaning up DLB groups", "Count", len(lbGroups))
 	groupBuilder, _ := common.PolicyPathInfraGroup.NewPolicyTreeBuilder()
-	return groupBuilder.PagingDeleteResources(ctx, lbGroups, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
+	return groupBuilder.PagingUpdateResources(ctx, lbGroups, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
 }
 
 func (s *LBInfraCleaner) ListLBAppProfile() []*model.LBAppProfile {

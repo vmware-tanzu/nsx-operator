@@ -85,7 +85,7 @@ func testPagingDeleteResourcesSucceeded(t *testing.T, targetSubnets []*model.Vpc
 	}
 
 	ctx := context.Background()
-	err = builder.PagingDeleteResources(ctx, targetSubnets, 500, nsxClient, nil)
+	err = builder.PagingUpdateResources(ctx, targetSubnets, 500, nsxClient, nil)
 	require.NoError(t, err)
 }
 
@@ -141,7 +141,7 @@ func testPagingDeleteResourcesWithContextDone(t *testing.T, targetSubnets []*mod
 	builder, err := PolicyPathVpcSubnet.NewPolicyTreeBuilder()
 	require.NoError(t, err)
 
-	err = builder.PagingDeleteResources(ctx, targetSubnets, 500, nsxClient, nil)
+	err = builder.PagingUpdateResources(ctx, targetSubnets, 500, nsxClient, nil)
 	assert.ErrorContains(t, err, "failed because of timeout")
 }
 
@@ -159,7 +159,7 @@ func testPagingDeleteResourcesWithNSXFailure(t *testing.T, targetSubnets []*mode
 
 	builder, err := PolicyPathVpcSubnet.NewPolicyTreeBuilder()
 	require.NoError(t, err)
-	err = builder.PagingDeleteResources(ctx, targetSubnets, 500, nsxClient, nil)
+	err = builder.PagingUpdateResources(ctx, targetSubnets, 500, nsxClient, nil)
 	assert.EqualError(t, err, "NSX returned an error")
 }
 
@@ -223,7 +223,7 @@ func testVPCResources(t *testing.T) {
 			objects: []*model.StaticRoutes{{
 				Id:           String("route1"),
 				Path:         String("/orgs/default/projects/p1/vpcs/vpc1/static-routes/route1"),
-				ResourceType: String(ResourceTypeStaticRoute),
+				ResourceType: String(ResourceTypeStaticRoutes),
 			}},
 		}, {
 			name: "delete VPC LB service",
@@ -515,7 +515,7 @@ func testProjectInfraResources(t *testing.T) {
 func testPolicyPathBuilderDeletion[T any](t *testing.T, resourcePath PolicyResourcePath[T], objects []T, nsxClient *nsx.Client) error {
 	builder, err := resourcePath.NewPolicyTreeBuilder()
 	require.Nil(t, err)
-	return builder.DeleteMultipleResourcesOnNSX(objects, nsxClient)
+	return builder.UpdateMultipleResourcesOnNSX(objects, nsxClient)
 }
 
 func TestBuildRootNodePerformance(t *testing.T) {

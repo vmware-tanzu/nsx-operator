@@ -85,19 +85,6 @@ func (s *BindingStore) DeleteMultipleObjects(bindingMaps []*model.SubnetConnecti
 	}
 }
 
-func (s *BindingStore) GetByVPCPath(vpcPath string) ([]*model.SubnetConnectionBindingMap, error) {
-	objs, err := s.ResourceStore.ByIndex(common.IndexByVPCPathFuncKey, vpcPath)
-	if err != nil {
-		return nil, err
-	}
-	bindingMaps := make([]*model.SubnetConnectionBindingMap, len(objs))
-	for i, obj := range objs {
-		bindingMap := obj.(*model.SubnetConnectionBindingMap)
-		bindingMaps[i] = bindingMap
-	}
-	return bindingMaps, nil
-}
-
 func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
 	case *model.SubnetConnectionBindingMap:

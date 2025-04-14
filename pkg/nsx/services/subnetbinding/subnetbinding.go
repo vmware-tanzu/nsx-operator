@@ -221,7 +221,7 @@ func (s *BindingService) deleteSubnetConnectionBindingMaps(bindingMaps []*model.
 		bm.MarkedForDelete = &markForDelete
 	}
 
-	return s.builder.PagingDeleteResources(context.TODO(), bindingMaps, servicecommon.DefaultHAPIChildrenCount, s.NSXClient, func(deletedObjs []*model.SubnetConnectionBindingMap) {
+	return s.builder.PagingUpdateResources(context.TODO(), bindingMaps, servicecommon.DefaultHAPIChildrenCount, s.NSXClient, func(deletedObjs []*model.SubnetConnectionBindingMap) {
 		s.BindingStore.DeleteMultipleObjects(deletedObjs)
 	})
 }

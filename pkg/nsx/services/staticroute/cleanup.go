@@ -34,7 +34,7 @@ func (service *StaticRouteService) CleanupVPCChildResources(ctx context.Context,
 		route.MarkedForDelete = &MarkedForDelete
 		routes = append(routes, route)
 	}
-	return service.builder.PagingDeleteResources(ctx, routes, common.DefaultHAPIChildrenCount, service.NSXClient, func(deletedObjs []*model.StaticRoutes) {
+	return service.builder.PagingUpdateResources(ctx, routes, common.DefaultHAPIChildrenCount, service.NSXClient, func(deletedObjs []*model.StaticRoutes) {
 		service.StaticRouteStore.DeleteMultipleObjects(deletedObjs)
 	})
 }

@@ -52,7 +52,7 @@ func (service *SecurityPolicyService) cleanupSecurityPoliciesByVPC(ctx context.C
 		securityPolicies = append(securityPolicies, sp)
 	}
 
-	return service.securityPolicyBuilder.PagingDeleteResources(ctx, securityPolicies, common.DefaultHAPIChildrenCount, service.NSXClient, func(deletedObjs []*model.SecurityPolicy) {
+	return service.securityPolicyBuilder.PagingUpdateResources(ctx, securityPolicies, common.DefaultHAPIChildrenCount, service.NSXClient, func(deletedObjs []*model.SecurityPolicy) {
 		service.securityPolicyStore.DeleteMultipleObjects(deletedObjs)
 	})
 }
@@ -80,12 +80,12 @@ func (service *SecurityPolicyService) cleanupRulesByVPC(ctx context.Context, vpc
 		rules = append(rules, rule)
 	}
 
-	return service.ruleBuilder.PagingDeleteResources(ctx, rules, common.DefaultHAPIChildrenCount, service.NSXClient, func(deletedObjs []*model.Rule) {
+	return service.ruleBuilder.PagingUpdateResources(ctx, rules, common.DefaultHAPIChildrenCount, service.NSXClient, func(deletedObjs []*model.Rule) {
 		service.ruleStore.DeleteMultipleObjects(deletedObjs)
 	})
 }
 
-// cleanupRulesByVPC is deleting all the NSX groups in the given vpcPath on NSX and/or in local cache.
+// cleanupGroupsByVPC is deleting all the NSX groups in the given vpcPath on NSX and/or in local cache.
 // If vpcPath is not empty, the function is called with auto-created VPC case, so it only deletes in the local cache for
 // the NSX resources are already removed when VPC is deleted recursively. Otherwise, it should delete all cached groups
 // on NSX and in local cache.
@@ -153,13 +153,16 @@ func cleanShares(ctx context.Context, store *ShareStore, builder *common.PolicyT
 		cachedShares = append(cachedShares, share)
 	}
 
-	return builder.PagingDeleteResources(ctx, cachedShares, common.DefaultHAPIChildrenCount, nsxClient, func(deletedObjs []*model.Share) {
+	return builder.PagingUpdateResources(ctx, cachedShares, common.DefaultHAPIChildrenCount, nsxClient, func(deletedObjs []*model.Share) {
 		store.DeleteMultipleObjects(deletedObjs)
 	})
 }
 
 func cleanGroups(ctx context.Context, store *GroupStore, builder *common.PolicyTreeBuilder[*model.Group], nsxClient *nsx.Client) error {
 	cachedObjs := store.List()
+	if len(cachedObjs) == 0 {
+		return nil
+	}
 	log.Info("Cleaning up Groups", "Count", len(cachedObjs))
 
 	cachedGroups := make([]*model.Group, 0)
@@ -168,7 +171,7 @@ func cleanGroups(ctx context.Context, store *GroupStore, builder *common.PolicyT
 		group.MarkedForDelete = &MarkedForDelete
 		cachedGroups = append(cachedGroups, group)
 	}
-	return builder.PagingDeleteResources(ctx, cachedGroups, common.DefaultHAPIChildrenCount, nsxClient, func(deletedObjs []*model.Group) {
+	return builder.PagingUpdateResources(ctx, cachedGroups, common.DefaultHAPIChildrenCount, nsxClient, func(deletedObjs []*model.Group) {
 		store.DeleteMultipleObjects(deletedObjs)
 	})
 }

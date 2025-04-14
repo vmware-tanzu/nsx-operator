@@ -627,7 +627,7 @@ func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alp
 	return nil
 }
 
-func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}, isGC, isVPCCleanup bool, createdFor string) error {
+func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}, isGC bool, createdFor string) error {
 	var err error
 	switch sp := obj.(type) {
 	case *networkingv1.NetworkPolicy:
@@ -639,7 +639,7 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}, isGC
 		}
 	case types.UID:
 		// For VPC network, SecurityPolicy normal deletion, GC deletion and cleanup
-		if IsVPCEnabled(service) || isVPCCleanup {
+		if IsVPCEnabled(service) {
 			err = service.deleteVPCSecurityPolicy(sp, isGC, createdFor)
 		} else {
 			// For T1 network, SecurityPolicy normal deletion and GC deletion

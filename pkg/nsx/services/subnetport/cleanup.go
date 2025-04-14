@@ -22,7 +22,7 @@ func (service *SubnetPortService) CleanupBeforeVPCDeletion(ctx context.Context) 
 		port.MarkedForDelete = &MarkedForDelete
 		ports[i] = port
 	}
-	return service.builder.PagingDeleteResources(ctx, ports, common.DefaultHAPIChildrenCount, service.NSXClient, func(delObjs []*model.VpcSubnetPort) {
-		service.SubnetPortStore.DeleteMultiplePorts(delObjs)
+	return service.builder.PagingUpdateResources(ctx, ports, common.DefaultHAPIChildrenCount, service.NSXClient, func(delObjs []*model.VpcSubnetPort) {
+		service.SubnetPortStore.DeleteMultipleObjects(delObjs)
 	})
 }

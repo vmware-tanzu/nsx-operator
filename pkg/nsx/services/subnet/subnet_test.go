@@ -206,8 +206,8 @@ func TestInitializeSubnetService(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeSubnetsClient{}), "Get", func(_ *fakeSubnetsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnet, error) {
 					return fakeVpcSubnet, nil
 				})
-				// OrgRootClient.Patch is called twice, one is to create the VpcSubnet, and the other is for cleanup.
-				mockOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+				// OrgRootClient.Patch is called for cleanup.
+				mockOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 				return patches
 			},
 			subnetCRTags:                  []model.Tag{},
@@ -242,7 +242,7 @@ func TestInitializeSubnetService(t *testing.T) {
 						Cursor: &cursor, ResultCount: &resultCount,
 					}, nil
 				})
-				// OrgRootClient.Patch is called only once for cleanup.
+				// OrgRootClient.Patch is called for cleanup.
 				mockOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 				return patches
 			},
@@ -280,8 +280,8 @@ func TestInitializeSubnetService(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(&fakeSubnetsClient{}), "Get", func(_ *fakeSubnetsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnet, error) {
 					return fakeVpcSubnet, nil
 				})
-				// OrgRootClient.Patch is called twice, one is to update the VpcSubnet, and the other is for cleanup.
-				mockOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+				// OrgRootClient.Patch is called for cleanup.
+				mockOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 				return patches
 			},
 			expectAllSubnetNum:            1,
@@ -435,13 +435,10 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
-
-	fakeOrgRootClient := mock_org_root.NewMockOrgRootClient(mockCtl)
 	service := &SubnetService{
 		Service: common.Service{
 			Client: k8sClient,
 			NSXClient: &nsx.Client{
-				OrgRootClient:      fakeOrgRootClient,
 				SubnetsClient:      &fakeSubnetsClient{},
 				SubnetStatusClient: &fakeSubnetStatusClient{},
 			},
@@ -481,7 +478,6 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 		{
 			name: "Update Subnet with RealizedState and deletion error",
 			prepareFunc: func() *gomonkey.Patches {
-				fakeOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil)
 				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).CheckRealizeState,
 					func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []string) error {
 						return nsxutil.NewRealizeStateError("mocked realized error", 0)
@@ -513,7 +509,6 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 		{
 			name: "Create Subnet for SubnetSet Success",
 			prepareFunc: func() *gomonkey.Patches {
-				fakeOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil)
 				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).CheckRealizeState,
 					func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []string) error {
 						return nil

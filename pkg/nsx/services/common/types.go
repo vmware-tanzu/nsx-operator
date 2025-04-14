@@ -81,6 +81,7 @@ const (
 	TagValueShareCreatedForInfra       string = "infra"
 	TagValueShareCreatedForProject     string = "project"
 	TagValueShareNotCreated            string = "notShared"
+	TagValueDLB                        string = "DLB"
 	TagValueSLB                        string = "SLB"
 	AnnotationVPCNetworkConfig         string = "nsx.vmware.com/vpc_network_config"
 	AnnotationSharedVPCNamespace       string = "nsx.vmware.com/shared_vpc_namespace"

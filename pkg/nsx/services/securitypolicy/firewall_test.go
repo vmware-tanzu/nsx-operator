@@ -1168,7 +1168,7 @@ func Test_DeleteVPCSecurityPolicy(t *testing.T) {
 			patches := tt.prepareFunc(t, fakeService)
 			defer patches.Reset()
 
-			if err := fakeService.DeleteSecurityPolicy(tt.args.uid, false, false, tt.args.createdFor); (err != nil) != tt.wantErr {
+			if err := fakeService.DeleteSecurityPolicy(tt.args.uid, false, tt.args.createdFor); (err != nil) != tt.wantErr {
 				t.Errorf("deleteVPCSecurityPolicy error = %v, wantErr %v", err, tt.wantErr)
 			}
 			assert.Equal(t, tt.wantSecurityPolicyStoreCount, len(fakeService.securityPolicyStore.ListKeys()))
@@ -1342,7 +1342,7 @@ func Test_DeleteVPCSecurityPolicyForNetworkPolicy(t *testing.T) {
 			assert.Equal(t, tt.wantSPStoreCountBeforeDelete, len(fakeService.securityPolicyStore.ListKeys()))
 			assert.Equal(t, tt.wantRuleStoreCountBeforeDelete, len(fakeService.ruleStore.ListKeys()))
 
-			if err := fakeService.DeleteSecurityPolicy(tt.npObj, false, false, common.ResourceTypeNetworkPolicy); (err != nil) != tt.wantErr {
+			if err := fakeService.DeleteSecurityPolicy(tt.npObj, false, common.ResourceTypeNetworkPolicy); (err != nil) != tt.wantErr {
 				t.Errorf("DeleteSecurityPolicy error = %v, wantErr %v", err, tt.wantErr)
 			}
 

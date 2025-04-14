@@ -143,8 +143,8 @@ func (subnetPortStore *SubnetPortStore) GetByIndex(key string, value string) []*
 	return subnetPorts
 }
 
-func (subnetPortStore *SubnetPortStore) DeleteMultiplePorts(allocations []*model.VpcSubnetPort) {
-	for _, allocation := range allocations {
-		subnetPortStore.Delete(allocation)
+func (subnetPortStore *SubnetPortStore) DeleteMultipleObjects(ports []*model.VpcSubnetPort) {
+	for _, port := range ports {
+		subnetPortStore.Delete(port)
 	}
 }

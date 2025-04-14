@@ -22,6 +22,10 @@ func (s *VPCService) ListAutoCreatedVPCPaths() sets.Set[string] {
 }
 
 func (s *VPCService) CleanupBeforeVPCDeletion(ctx context.Context) error {
+	if err := s.cleanupAviSubnetPorts(ctx); err != nil {
+		log.Error(err, "Failed to clean up Avi subnet ports")
+		return err
+	}
 	// LB Virtual Servers are removed before deleting VPC, otherwise it may block the parallel deletion with other
 	// VPC children e.g., VpcIPAddressAllocations.
 	if err := s.cleanupSLBVirtualServers(ctx); err != nil {
@@ -48,9 +52,9 @@ func (s *VPCService) cleanupSLBVirtualServers(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	log.Info("Cleaning up SLB virtual servers ", "Count", len(lbVSs))
+	log.Info("Cleaning up SLB virtual servers", "Count", len(lbVSs))
 	lbVSBuilder, _ := common.PolicyPathVpcLBVirtualServer.NewPolicyTreeBuilder()
-	return lbVSBuilder.PagingDeleteResources(ctx, lbVSs, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
+	return lbVSBuilder.PagingUpdateResources(ctx, lbVSs, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
 }
 
 func (s *VPCService) getStaleSLBPools() ([]*model.LBPool, error) {
@@ -126,9 +130,9 @@ func (s *VPCService) cleanupLBPools(ctx context.Context, vpcPath string) error {
 	if err != nil {
 		return err
 	}
-	log.Info("Cleaning up SLB pools ", "Count", len(lbPools))
+	log.Info("Cleaning up SLB pools", "Count", len(lbPools))
 	lbPoolBuilder, _ := common.PolicyPathVpcLBPool.NewPolicyTreeBuilder()
-	return lbPoolBuilder.PagingDeleteResources(ctx, lbPools, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
+	return lbPoolBuilder.PagingUpdateResources(ctx, lbPools, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
 }
 
 func (s *VPCService) querySLBResources(resourceType string, resourceBindingType bindings.BindingType) (*ResourceStore, error) {

@@ -138,8 +138,7 @@ type PolicyResourceType struct {
 type PolicyResourcePath[T any] []PolicyResourceType
 
 func (p *PolicyResourcePath[T]) Length() int {
-	resourceTypes := ([]PolicyResourceType)(*p)
-	return len(resourceTypes)
+	return len(*p)
 }
 
 func (p *PolicyResourcePath[T]) String() string {
@@ -194,7 +193,7 @@ var (
 	PolicyResourceOrg                           = PolicyResourceType{ModelKey: ResourceTypeOrg, PathKey: "orgs"}
 	PolicyResourceProject                       = PolicyResourceType{ModelKey: ResourceTypeProject, PathKey: "projects"}
 	PolicyResourceVpc                           = PolicyResourceType{ModelKey: ResourceTypeVpc, PathKey: "vpcs"}
-	PolicyResourceStaticRoutes                  = PolicyResourceType{ModelKey: ResourceTypeStaticRoute, PathKey: "static-routes"}
+	PolicyResourceStaticRoutes                  = PolicyResourceType{ModelKey: ResourceTypeStaticRoutes, PathKey: "static-routes"}
 	PolicyResourceVpcSubnet                     = PolicyResourceType{ModelKey: ResourceTypeSubnet, PathKey: "subnets"}
 	PolicyResourceVpcSubnetPort                 = PolicyResourceType{ModelKey: ResourceTypeSubnetPort, PathKey: "ports"}
 	PolicyResourceVpcSubnetConnectionBindingMap = PolicyResourceType{ModelKey: ResourceTypeSubnetConnectionBindingMap, PathKey: "subnet-connection-binding-maps"}
@@ -365,7 +364,7 @@ func (b *PolicyTreeBuilder[T]) BuildInfra(resources []T, parentPath string) (*mo
 		return nil, err
 	}
 
-	return wrapInfra(children), nil
+	return buildInfraFromChildren(children), nil
 }
 
 func (b *PolicyTreeBuilder[T]) buildHNodeFromResource(path string, res T) (*hNode[T], error) {
@@ -441,7 +440,7 @@ func (b *PolicyTreeBuilder[T]) parsePathSegments(inputPath string) ([]string, er
 	return pathSegments, nil
 }
 
-func (b *PolicyTreeBuilder[T]) DeleteMultipleResourcesOnNSX(objects []T, nsxClient *nsx.Client) error {
+func (b *PolicyTreeBuilder[T]) UpdateMultipleResourcesOnNSX(objects []T, nsxClient *nsx.Client) error {
 	if len(objects) == 0 {
 		return nil
 	}
@@ -477,14 +476,14 @@ func (b *PolicyTreeBuilder[T]) DeleteMultipleResourcesOnNSX(objects []T, nsxClie
 func PagingNSXResources[T any](resources []T, pageSize int) [][]T {
 	totalCount := len(resources)
 	pages := (totalCount + pageSize - 1) / pageSize
-	pagedResources := make([][]T, 0)
+	pagedResources := make([][]T, pages)
 	for i := 1; i <= pages; i++ {
 		start := (i - 1) * pageSize
 		end := start + pageSize
 		if end > totalCount {
 			end = totalCount
 		}
-		pagedResources = append(pagedResources, resources[start:end])
+		pagedResources[i-1] = resources[start:end]
 	}
 	return pagedResources
 }
@@ -510,7 +509,7 @@ func (p *PolicyResourcePath[T]) NewPolicyTreeBuilder() (*PolicyTreeBuilder[T], e
 	}, nil
 }
 
-func (builder *PolicyTreeBuilder[T]) PagingDeleteResources(ctx context.Context, objs []T, pageSize int, nsxClient *nsx.Client, delFn func(deletedObjs []T)) error {
+func (builder *PolicyTreeBuilder[T]) PagingUpdateResources(ctx context.Context, objs []T, pageSize int, nsxClient *nsx.Client, updateObjectsFromStoreFn func(updatedObjs []T)) error {
 	if len(objs) == 0 {
 		return nil
 	}
@@ -521,10 +520,10 @@ func (builder *PolicyTreeBuilder[T]) PagingDeleteResources(ctx context.Context, 
 		case <-ctx.Done():
 			return errors.Join(util.TimeoutFailed, ctx.Err())
 		default:
-			delErr := builder.DeleteMultipleResourcesOnNSX(partialObjs, nsxClient)
+			delErr := builder.UpdateMultipleResourcesOnNSX(partialObjs, nsxClient)
 			if delErr == nil {
-				if delFn != nil {
-					delFn(partialObjs)
+				if updateObjectsFromStoreFn != nil {
+					updateObjectsFromStoreFn(partialObjs)
 				}
 				continue
 			}

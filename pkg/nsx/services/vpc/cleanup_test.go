@@ -23,7 +23,7 @@ import (
 )
 
 var (
-	projectPath = fmt.Sprintf("/orgs/default/projects/project-1")
+	projectPath = "/orgs/default/projects/project-1"
 	vpcPath     = fmt.Sprintf("%s/vpcs/vpc-1", projectPath)
 	infraVSId   = "infra-lb-vs"
 	vpcVSId     = "vpc-lb-vs"
@@ -144,19 +144,6 @@ func TestCleanupBeforeVPCDeletion(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockOrgClient := mock_org_root.NewMockOrgRootClient(ctrl)
-	vpcService := &VPCService{
-		Service: common.Service{
-			NSXClient: &nsx.Client{
-				OrgRootClient: mockOrgClient,
-				NsxConfig: &config.NSXOperatorConfig{
-					CoeConfig: &config.CoeConfig{
-						Cluster: "k8scl-one:test",
-					},
-				},
-			},
-		},
-		VpcStore: &VPCStore{},
-	}
 
 	validCtx := context.Background()
 	canceledCtx, cancelFn := context.WithCancel(validCtx)
@@ -169,10 +156,31 @@ func TestCleanupBeforeVPCDeletion(t *testing.T) {
 		expErrStr string
 	}{
 		{
+			name: "failed to clean up Avi subnet ports",
+			ctx:  validCtx,
+			mockFn: func(s *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(s), "ListVPC", func() []model.Vpc {
+					return []model.Vpc{
+						{
+							Path: common.String(vpcPath),
+						},
+					}
+				})
+				patches.ApplyFunc(CleanAviSubnetPorts, func(ctx context.Context, cluster *nsx.Cluster, vpcPath string) error {
+					return fmt.Errorf("failed to delete Avi subnet port")
+				})
+				return patches
+			},
+			expErrStr: "failed to delete Avi subnet port",
+		},
+		{
 			name: "success with no SLB found on NSX",
 			ctx:  validCtx,
 			mockFn: func(s *VPCService) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService), "getStaleSLBVirtualServers", func(_ *VPCService) ([]*model.LBVirtualServer, error) {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "cleanupAviSubnetPorts", func(ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(s), "getStaleSLBVirtualServers", func(_ *VPCService) ([]*model.LBVirtualServer, error) {
 					return nil, nil
 				})
 				return patches
@@ -181,7 +189,10 @@ func TestCleanupBeforeVPCDeletion(t *testing.T) {
 			name: "success to cleanup SLB found on NSX",
 			ctx:  validCtx,
 			mockFn: func(s *VPCService) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService), "getStaleSLBVirtualServers", func(_ *VPCService) ([]*model.LBVirtualServer, error) {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "cleanupAviSubnetPorts", func(ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(s), "getStaleSLBVirtualServers", func(_ *VPCService) ([]*model.LBVirtualServer, error) {
 					return []*model.LBVirtualServer{
 						{
 							Id:         common.String(vpcVSId),
@@ -197,7 +208,10 @@ func TestCleanupBeforeVPCDeletion(t *testing.T) {
 			name: "failed to query SLB on NSX",
 			ctx:  validCtx,
 			mockFn: func(s *VPCService) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService), "getStaleSLBVirtualServers", func(_ *VPCService) ([]*model.LBVirtualServer, error) {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "cleanupAviSubnetPorts", func(ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(s), "getStaleSLBVirtualServers", func(_ *VPCService) ([]*model.LBVirtualServer, error) {
 					return nil, fmt.Errorf("failed to query SLB")
 				})
 				return patches
@@ -207,7 +221,10 @@ func TestCleanupBeforeVPCDeletion(t *testing.T) {
 			name: "failed to clean up SLB found on NSX",
 			ctx:  validCtx,
 			mockFn: func(s *VPCService) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService), "getStaleSLBVirtualServers", func(_ *VPCService) ([]*model.LBVirtualServer, error) {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "cleanupAviSubnetPorts", func(ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(s), "getStaleSLBVirtualServers", func(_ *VPCService) ([]*model.LBVirtualServer, error) {
 					return []*model.LBVirtualServer{
 						{
 							Id:         common.String(vpcVSId),
@@ -224,7 +241,10 @@ func TestCleanupBeforeVPCDeletion(t *testing.T) {
 			name: "failed to clean up SLB with canceled context",
 			ctx:  canceledCtx,
 			mockFn: func(s *VPCService) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService), "getStaleSLBVirtualServers", func(_ *VPCService) ([]*model.LBVirtualServer, error) {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "cleanupAviSubnetPorts", func(ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(s), "getStaleSLBVirtualServers", func(_ *VPCService) ([]*model.LBVirtualServer, error) {
 					return []*model.LBVirtualServer{
 						{
 							Id:         common.String(vpcVSId),
@@ -239,6 +259,19 @@ func TestCleanupBeforeVPCDeletion(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			vpcService := &VPCService{
+				Service: common.Service{
+					NSXClient: &nsx.Client{
+						OrgRootClient: mockOrgClient,
+						NsxConfig: &config.NSXOperatorConfig{
+							CoeConfig: &config.CoeConfig{
+								Cluster: "k8scl-one:test",
+							},
+						},
+					},
+				},
+				VpcStore: &VPCStore{},
+			}
 			patches := tc.mockFn(vpcService)
 			defer patches.Reset()
 

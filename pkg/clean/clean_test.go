@@ -195,7 +195,7 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 	cleanupService, err := InitializeCleanupService(cf, nsxClient, nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, cleanupService)
-	assert.Len(t, cleanupService.vpcPreCleaners, 3)
+	assert.Len(t, cleanupService.vpcPreCleaners, 4)
 	assert.Len(t, cleanupService.vpcChildrenCleaners, 5)
 	assert.Len(t, cleanupService.infraCleaners, 2)
 }

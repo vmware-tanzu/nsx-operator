@@ -34,7 +34,7 @@ func (service *IPAddressAllocationService) CleanupVPCChildResources(ctx context.
 		allocations = append(allocations, allocation)
 	}
 
-	return service.builder.PagingDeleteResources(ctx, allocations, common.DefaultHAPIChildrenCount, service.NSXClient, func(deletedObjs []*model.VpcIpAddressAllocation) {
+	return service.builder.PagingUpdateResources(ctx, allocations, common.DefaultHAPIChildrenCount, service.NSXClient, func(deletedObjs []*model.VpcIpAddressAllocation) {
 		service.ipAddressAllocationStore.DeleteMultipleObjects(deletedObjs)
 	})
 }

@@ -31,7 +31,7 @@ func (service *SubnetService) CleanupVPCChildResources(ctx context.Context, vpcP
 		subnets = append(subnets, subnet)
 	}
 
-	return service.builder.PagingDeleteResources(ctx, subnets, common.DefaultHAPIChildrenCount, service.NSXClient, func(deletedObjs []*model.VpcSubnet) {
+	return service.builder.PagingUpdateResources(ctx, subnets, common.DefaultHAPIChildrenCount, service.NSXClient, func(deletedObjs []*model.VpcSubnet) {
 		service.SubnetStore.DeleteMultipleObjects(deletedObjs)
 	})
 }
