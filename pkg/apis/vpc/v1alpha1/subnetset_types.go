@@ -11,6 +11,7 @@ import (
 // +kubebuilder:validation:XValidation:rule="has(oldSelf.subnetDHCPConfig)==has(self.subnetDHCPConfig) || (has(oldSelf.subnetDHCPConfig) && !has(self.subnetDHCPConfig) && (!has(oldSelf.subnetDHCPConfig.mode) || oldSelf.subnetDHCPConfig.mode=='DHCPDeactivated')) || (!has(oldSelf.subnetDHCPConfig) && has(self.subnetDHCPConfig) && (!has(self.subnetDHCPConfig.mode) || self.subnetDHCPConfig.mode=='DHCPDeactivated'))", message="subnetDHCPConfig mode can only switch between DHCPServer and DHCPRelay"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.accessMode) || has(self.accessMode)", message="accessMode is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipv4SubnetSize) || has(self.ipv4SubnetSize)", message="ipv4SubnetSize is required once set"
+// +kubebuilder:validation:XValidation:rule="!(has(self.advancedConfig) && self.advancedConfig.staticIPAllocation.enable==true && (self.subnetDHCPConfig.mode=='DHCPServer' || self.subnetDHCPConfig.mode=='DHCPRely'))", message="Static IP pool allocation and subnet DHCP configuration cannot both be enabled simultaneously in subnet"
 type SubnetSetSpec struct {
 	// Size of Subnet based upon estimated workload count.
 	// +kubebuilder:validation:Maximum:=65536
@@ -35,6 +36,9 @@ type SubnetSetSpec struct {
 
 	// Subnet DHCP configuration.
 	SubnetDHCPConfig SubnetDHCPConfig `json:"subnetDHCPConfig,omitempty"`
+
+	// VPC Subnet advanced configuration.
+	AdvancedConfig AdvancedConfig `json:"advancedConfig,omitempty"`
 }
 
 // SubnetInfo defines the observed state of a single Subnet of a SubnetSet.
