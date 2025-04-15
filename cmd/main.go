@@ -304,8 +304,11 @@ func electMaster(mgr manager.Manager, nsxClient *nsx.Client) {
 
 func main() {
 	log.Info("Starting NSX Operator")
-	cfg := ctrl.GetConfigOrDie()
-	cfg.Timeout = pkgutil.TCPReadTimeout
+	cfg, err := pkgutil.GetConfig()
+	if err != nil {
+		log.Error(err, "Failed to get rest config for manager")
+		os.Exit(1)
+	}
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                  scheme,
 		HealthProbeBindAddress:  config.ProbeAddr,
