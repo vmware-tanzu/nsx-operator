@@ -1,11 +1,12 @@
 package subnetport
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
@@ -26,7 +27,7 @@ var (
 	String = common.String
 )
 
-func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labelTags *map[string]string, isVmSubnetPort bool) (*model.VpcSubnetPort, error) {
+func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labelTags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.VpcSubnetPort, error) {
 	var objNamespace, appId, allocateAddresses string
 	objMeta := getObjectMeta(obj)
 	if objMeta == nil {
@@ -37,9 +38,19 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		appId = string(objMeta.UID)
 	}
 	var externalAddressBinding *model.ExternalAddressBinding
+	var addressBindings []model.PortAddressBindingEntry
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
 		externalAddressBinding = service.buildExternalAddressBinding(o)
+		if restoreMode && o.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress != "" {
+			ip := strings.Split(o.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "/")[0]
+			addressBindings = []model.PortAddressBindingEntry{
+				{
+					IpAddress:  &ip,
+					MacAddress: &o.Status.NetworkInterfaceConfig.MACAddress,
+				},
+			}
+		}
 	}
 
 	if nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode != nsxutil.ParseDHCPMode(v1alpha1.DHCPConfigModeDeactivated) {
@@ -50,11 +61,16 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 
 	nsxSubnetPortName := service.BuildSubnetPortName(objMeta)
 	nsxSubnetPortID := service.BuildSubnetPortId(objMeta)
-	// use the subnetPort CR UID as the attachment uid generation to ensure the latter stable
-	nsxCIFID, err := uuid.NewRandomFromReader(bytes.NewReader([]byte(string(objMeta.UID))))
+	// Generate attachment uid by adding randomness to SubnetPort CR UID
+	// In restore mode we need a different attachment uid for the same SubnetPort CR
+	// to make sure hostd will not ignore the the vm network reconfigure
+	salt := []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
+	parsedUUID, err := uuid.Parse(string(objMeta.UID))
 	if err != nil {
 		return nil, err
 	}
+	nsxCIFID := uuid.NewSHA1(parsedUUID, salt)
+
 	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", *nsxSubnet.Path, nsxSubnetPortID)
 	namespace := &corev1.Namespace{}
 	namespacedName := types.NamespacedName{
@@ -114,6 +130,9 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	if appId != "" {
 		nsxSubnetPort.Attachment.AppId = &appId
 		nsxSubnetPort.Attachment.ContextId = &contextID
+	}
+	if len(addressBindings) > 0 {
+		nsxSubnetPort.AddressBindings = addressBindings
 	}
 	return nsxSubnetPort, nil
 }
