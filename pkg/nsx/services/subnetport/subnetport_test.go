@@ -311,7 +311,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			if patches != nil {
 				defer patches.Reset()
 			}
-			_, err := service.CreateOrUpdateSubnetPort(subnetPortCR, nsxSubnet, "", nil)
+			_, err := service.CreateOrUpdateSubnetPort(subnetPortCR, nsxSubnet, "", nil, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("CreateOrUpdateSubnetPort() error = %v, wantErr %v", err, tt.wantErr)
 			}
