@@ -13,6 +13,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	commonctr "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -239,14 +240,26 @@ func (s *InventoryService) BuildNamespace(namespace *corev1.Namespace) (retry bo
 		preContainerProject = *preContainerProject.(*containerinventory.ContainerProject)
 	}
 
+	// Extract network errors from annotations
+	var networkErrors []common.NetworkError
+	networkStatus := NetworkStatusHealthy
+
+	// Check for VPC error annotation
+	if errorMsg, exists := namespace.Annotations[commonctr.AnnotationNamespaceVPCError]; exists && errorMsg != "" {
+		networkErrors = append(networkErrors, common.NetworkError{
+			ErrorMessage: errorMsg,
+		})
+		networkStatus = NetworkStatusUnhealthy
+	}
+
 	containerProject := containerinventory.ContainerProject{
 		DisplayName:        namespace.Name,
 		ResourceType:       string(ContainerProject),
 		Tags:               GetTagsFromLabels(namespace.Labels),
 		ContainerClusterId: s.NSXConfig.Cluster,
 		ExternalId:         string(namespace.UID),
-		NetworkErrors:      nil,
-		NetworkStatus:      NetworkStatusHealthy,
+		NetworkErrors:      networkErrors,
+		NetworkStatus:      networkStatus,
 	}
 
 	operation, _ := s.compareAndMergeUpdate(preContainerProject, containerProject)
