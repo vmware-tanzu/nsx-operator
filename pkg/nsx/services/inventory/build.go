@@ -275,7 +275,7 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 		return
 	}
 
-	// Get pods from endpoint
+	// Get pods from the endpoint
 	netStatus := NetworkStatusHealthy
 	status := InventoryStatusUp
 	podIDs, hasAddr := GetPodIDsFromEndpoint(context.TODO(), s.Client, service.Name, service.Namespace)
@@ -288,7 +288,20 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 		netStatus = NetworkStatusUnhealthy
 	}
 
-	// Update the Pods' service IDs which are related to this service
+	// Get network errors from service annotations
+	var networkErrors []common.NetworkError
+	if status != InventoryStatusUp {
+		// Check for NCP errors in service annotations
+		for key, value := range service.Annotations {
+			if util.Contains(ServiceNCPErrors, key) {
+				networkErrors = append(networkErrors, common.NetworkError{
+					ErrorMessage: key + ":" + value,
+				})
+			}
+		}
+	}
+
+	// Update the Pods' service IDs, which are related to this service
 	retry = s.synchronizeServiceIDsWithApplicationInstances(podIDs, service)
 
 	serviceType := "ClusterIP"
@@ -315,7 +328,7 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 		ContainerClusterId: s.NSXConfig.Cluster,
 		ContainerProjectId: string(namespace.UID),
 		ExternalId:         string(service.UID),
-		NetworkErrors:      nil,
+		NetworkErrors:      networkErrors,
 		NetworkStatus:      netStatus,
 		OriginProperties:   originProperties,
 		Status:             status,
