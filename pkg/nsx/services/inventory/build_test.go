@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
@@ -883,6 +884,46 @@ func TestBuildNode(t *testing.T) {
 		assert.False(t, retry)
 		// Since there are no changes, it shouldn't be added to pendingAdd
 		assert.NotContains(t, inventoryService.pendingAdd, string(testNode.UID))
+	})
+
+	t.Run("NodeNetworkErrors", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+
+		// Create a node with conditions
+		testNode := &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-node",
+				UID:  types.UID("node-uid-123"),
+			},
+			Status: corev1.NodeStatus{
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:               corev1.NodeReady,
+						Status:             corev1.ConditionFalse,
+						Message:            "Node is not ready",
+						LastTransitionTime: metav1.Time{Time: time.Now().Add(-1 * time.Hour)},
+					},
+					{
+						Type:               corev1.NodeReady,
+						Status:             corev1.ConditionFalse,
+						Message:            "Disk pressure",
+						LastTransitionTime: metav1.Time{Time: time.Now()},
+					},
+				},
+			},
+		}
+
+		// Build the node
+		retry := inventoryService.BuildNode(testNode)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "node-uid-123")
+
+		// Verify the network errors are created and sorted
+		containerClusterNode := inventoryService.pendingAdd["node-uid-123"].(*containerinventory.ContainerClusterNode)
+		assert.Len(t, containerClusterNode.NetworkErrors, 2)
+		assert.Equal(t, "Disk pressure", containerClusterNode.NetworkErrors[0].ErrorMessage)
+		assert.Equal(t, "Node is not ready", containerClusterNode.NetworkErrors[1].ErrorMessage)
 	})
 }
 

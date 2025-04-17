@@ -421,6 +421,20 @@ func (s *InventoryService) BuildNode(node *corev1.Node) (retry bool) {
 		status = NetworkStatusUnhealthy
 	}
 
+	// Create network errors from node conditions
+	var networkErrors []common.NetworkError
+	if !isNodeReady(node) {
+		for _, condition := range node.Status.Conditions {
+			networkErrors = append(networkErrors, common.NetworkError{
+				ErrorMessage: condition.Message,
+			})
+		}
+		// Sort network errors by lastTransitionTime in descending order
+		sort.Slice(networkErrors, func(i, j int) bool {
+			return node.Status.Conditions[i].LastTransitionTime.Time.After(node.Status.Conditions[j].LastTransitionTime.Time)
+		})
+	}
+
 	// Create origin properties
 	var originProperties []common.KeyValuePair
 	if node.Status.NodeInfo.KubeletVersion != "" {
@@ -443,7 +457,7 @@ func (s *InventoryService) BuildNode(node *corev1.Node) (retry bool) {
 		ContainerClusterId: s.NSXConfig.Cluster,
 		ExternalId:         string(node.UID),
 		IpAddresses:        ipAddresses,
-		NetworkErrors:      nil,
+		NetworkErrors:      networkErrors,
 		NetworkStatus:      status,
 		OriginProperties:   originProperties,
 	}
