@@ -127,6 +127,18 @@ func (s *InventoryService) BuildIngress(ingress *networkingv1.Ingress) (retry bo
 		preIngress = *preIngress.(*containerinventory.ContainerIngressPolicy)
 	}
 
+	// Get network errors from ingress annotations
+	var networkErrors []common.NetworkError
+	networkStatus := NetworkStatusHealthy
+	for key, value := range ingress.Annotations {
+		if key == NcpLbError {
+			networkStatus = NetworkStatusUnhealthy
+			networkErrors = append(networkErrors, common.NetworkError{
+				ErrorMessage: key + ":" + value,
+			})
+		}
+	}
+
 	containerIngress := containerinventory.ContainerIngressPolicy{
 		DisplayName:             ingress.Name,
 		ResourceType:            string(ContainerIngressPolicy),
@@ -135,8 +147,8 @@ func (s *InventoryService) BuildIngress(ingress *networkingv1.Ingress) (retry bo
 		ContainerClusterId:      s.NSXConfig.Cluster,
 		ContainerProjectId:      string(namespace.UID),
 		ExternalId:              string(ingress.UID),
-		NetworkErrors:           nil,
-		NetworkStatus:           "",
+		NetworkErrors:           networkErrors,
+		NetworkStatus:           networkStatus,
 		OriginProperties:        nil,
 		Spec:                    string(spec),
 	}

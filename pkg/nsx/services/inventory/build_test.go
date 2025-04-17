@@ -581,6 +581,37 @@ func TestBuildIngress(t *testing.T) {
 			},
 			expectRetry: false,
 		},
+		{
+			name: "ingress with annotations",
+			ingress: &networkv1.Ingress{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-ingress",
+					Namespace: "default",
+					UID:       types.UID("test-uid"),
+					Labels: map[string]string{
+						"app": "test",
+					},
+					Annotations: map[string]string{
+						"ncp/error.loadbalancer": "loadbalancer error message",
+					},
+				},
+				Spec: networkv1.IngressSpec{
+					Rules: []networkv1.IngressRule{
+						{
+							Host: "test.example.com",
+						},
+					},
+				},
+			},
+			existingPolicy: nil,
+			namespace: &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "default",
+					UID:  types.UID("ns-uid"),
+				},
+			},
+			expectRetry: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -616,6 +647,11 @@ func TestBuildIngress(t *testing.T) {
 				assert.Equal(t, "k8scl-one:test", newPolicy.ContainerClusterId)
 				assert.Equal(t, string(tt.namespace.UID), newPolicy.ContainerProjectId)
 
+				// Verify network errors if the test case has annotations
+				if tt.name == "ingress with annotations" {
+					assert.Equal(t, 1, len(newPolicy.NetworkErrors))
+					assert.Equal(t, "ncp/error.loadbalancer:loadbalancer error message", newPolicy.NetworkErrors[0].ErrorMessage)
+				}
 			}
 		})
 	}
