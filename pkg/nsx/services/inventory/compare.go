@@ -166,6 +166,9 @@ func compareContainerClusterNode(pre interface{}, cur interface{}, property map[
 	if pre == nil || !reflect.DeepEqual(preClusterNode.NetworkStatus, curClusterNode.NetworkStatus) {
 		property["network_status"] = curClusterNode.NetworkStatus
 	}
+	if pre == nil || !reflect.DeepEqual(preClusterNode.NetworkErrors, curClusterNode.NetworkErrors) {
+		property["network_errors"] = curClusterNode.NetworkErrors
+	}
 	if pre == nil || !reflect.DeepEqual(preClusterNode.OriginProperties, curClusterNode.OriginProperties) {
 		property["origin_properties"] = curClusterNode.OriginProperties
 	}
