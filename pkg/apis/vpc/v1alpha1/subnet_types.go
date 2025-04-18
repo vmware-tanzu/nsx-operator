@@ -24,6 +24,7 @@ const (
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipv4SubnetSize) || has(self.ipv4SubnetSize)", message="ipv4SubnetSize is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.accessMode) || has(self.accessMode)", message="accessMode is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipAddresses) || has(self.ipAddresses)", message="ipAddresses is required once set"
+// +kubebuilder:validation:XValidation:rule="!(has(self.advancedConfig) && self.advancedConfig.staticIPAllocation.enable==true && (self.subnetDHCPConfig.mode=='DHCPServer' || self.subnetDHCPConfig.mode=='DHCPRely'))", message="Static IP pool allocation and subnet DHCP configuration cannot both be enabled simultaneously in subnet"
 type SubnetSpec struct {
 	// Size of Subnet based upon estimated workload count.
 	// +kubebuilder:validation:Maximum:=65536
@@ -54,6 +55,9 @@ type SubnetSpec struct {
 
 	// DHCP configuration for Subnet.
 	SubnetDHCPConfig SubnetDHCPConfig `json:"subnetDHCPConfig,omitempty"`
+
+	// VPC Subnet advanced configuration.
+	AdvancedConfig AdvancedConfig `json:"advancedConfig,omitempty"`
 }
 
 // SubnetStatus defines the observed state of Subnet.
@@ -102,6 +106,23 @@ type SubnetDHCPConfig struct {
 	// +kubebuilder:validation:Enum=DHCPServer;DHCPRelay;DHCPDeactivated
 	// +kubebuilder:validation:XValidation:rule="oldSelf!='DHCPDeactivated' && self!='DHCPDeactivated' || oldSelf==self", message="subnetDHCPConfig mode can only switch between DHCPServer and DHCPRelay"
 	Mode DHCPConfigMode `json:"mode,omitempty"`
+}
+
+// AdvancedConfig is Subnet advanced configuration.
+type AdvancedConfig struct {
+	// StaticIPAllocation configuration for subnet ports with VIF attachment.
+	// If this field is not set, the static IP pool allocation will be automatically
+	// enabled when the DHCP mode is DHCPDeactivated or not set and disabled when the DHCP
+	// mode is DHCPServer or DHCPRelay.
+	// The static IP pool allocation and DHCP mode cannot both be enabled simultaneously
+	// in subnet.
+	StaticIPAllocation StaticIPAllocation `json:"staticIPAllocation,omitempty"`
+}
+
+// Static IP allocation for VPC Subnet ports with VIF attachment.
+type StaticIPAllocation struct {
+	// Activate or Deactivate static ip allocation for VPC Subnet ports with VIF attachment.
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 func init() {

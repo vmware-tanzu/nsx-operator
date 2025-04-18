@@ -44,10 +44,11 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 
 	if nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode != nsxutil.ParseDHCPMode(v1alpha1.DHCPConfigModeDeactivated) {
 		allocateAddresses = "DHCP"
+	} else if nsxSubnet.AdvancedConfig != nil && nsxSubnet.AdvancedConfig.StaticIpAllocation != nil && nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled != nil && *nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled == false {
+		allocateAddresses = "NONE"
 	} else {
 		allocateAddresses = "BOTH"
 	}
-
 	nsxSubnetPortName := service.BuildSubnetPortName(objMeta)
 	nsxSubnetPortID := service.BuildSubnetPortId(objMeta)
 	// use the subnetPort CR UID as the attachment uid generation to ensure the latter stable

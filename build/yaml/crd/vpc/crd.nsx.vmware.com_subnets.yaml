@@ -63,6 +63,24 @@ spec:
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self == oldSelf
+              advancedConfig:
+                description: VPC Subnet advanced configuration.
+                properties:
+                  staticIPAllocation:
+                    description: |-
+                      StaticIPAllocation configuration for subnet ports with VIF attachment.
+                      If this field is not set, the static IP pool allocation will be automatically
+                      enabled when the DHCP mode is DHCPDeactivated or not set and disabled when the DHCP
+                      mode is DHCPServer or DHCPRelay.
+                      The static IP pool allocation and DHCP mode cannot both be enabled simultaneously
+                      in subnet.
+                    properties:
+                      enabled:
+                        description: Activate or Deactivate static ip allocation for
+                          VPC Subnet ports with VIF attachment.
+                        type: boolean
+                    type: object
+                type: object
               ipAddresses:
                 description: Subnet CIDRS.
                 items:
@@ -120,6 +138,10 @@ spec:
               rule: '!has(oldSelf.accessMode) || has(self.accessMode)'
             - message: ipAddresses is required once set
               rule: '!has(oldSelf.ipAddresses) || has(self.ipAddresses)'
+            - message: Static IP pool allocation and subnet DHCP configuration cannot
+                both be enabled simultaneously in subnet
+              rule: '!(has(self.advancedConfig) && self.advancedConfig.staticIPAllocation.enable==true
+                && (self.subnetDHCPConfig.mode==''DHCPServer'' || self.subnetDHCPConfig.mode==''DHCPRely''))'
           status:
             description: SubnetStatus defines the observed state of Subnet.
             properties:

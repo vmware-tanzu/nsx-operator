@@ -91,6 +91,23 @@ _Appears in:_
 | `ipAddress` _string_ | IP Address for port binding. |  |  |
 
 
+#### AdvancedConfig
+
+
+
+AdvancedConfig is Subnet advanced configuration.
+
+
+
+_Appears in:_
+- [SubnetSetSpec](#subnetsetspec)
+- [SubnetSpec](#subnetspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `staticIPAllocation` _[StaticIPAllocation](#staticipallocation)_ | StaticIPAllocation configuration for subnet ports with VIF attachment.<br />If this field is not set, the static IP pool allocation will be automatically<br />enabled when the DHCP mode is DHCPDeactivated or not set and disabled when the DHCP<br />mode is DHCPServer or DHCPRelay.<br />The static IP pool allocation and DHCP mode cannot both be enabled simultaneously<br />in subnet. |  |  |
+
+
 #### Condition
 
 
@@ -506,6 +523,22 @@ _Appears in:_
 | `podSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#labelselector-v1-meta)_ | PodSelector uses label selector to select Pods. |  |  |
 
 
+#### StaticIPAllocation
+
+
+
+Static IP allocation for VPC Subnet ports with VIF attachment.
+
+
+
+_Appears in:_
+- [AdvancedConfig](#advancedconfig)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `enabled` _boolean_ | Activate or Deactivate static ip allocation for VPC Subnet ports with VIF attachment. |  |  |
+
+
 #### StaticRoute
 
 
@@ -777,6 +810,7 @@ _Appears in:_
 | `ipv4SubnetSize` _integer_ | Size of Subnet based upon estimated workload count. |  | Maximum: 65536 <br />Minimum: 16 <br /> |
 | `accessMode` _[AccessMode](#accessmode)_ | Access mode of Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW] <br /> |
 | `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | Subnet DHCP configuration. |  |  |
+| `advancedConfig` _[AdvancedConfig](#advancedconfig)_ | VPC Subnet advanced configuration. |  |  |
 
 
 #### SubnetSetStatus
@@ -813,6 +847,7 @@ _Appears in:_
 | `accessMode` _[AccessMode](#accessmode)_ | Access mode of Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW] <br /> |
 | `ipAddresses` _string array_ | Subnet CIDRS. |  | MaxItems: 2 <br />MinItems: 0 <br /> |
 | `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | DHCP configuration for Subnet. |  |  |
+| `advancedConfig` _[AdvancedConfig](#advancedconfig)_ | VPC Subnet advanced configuration. |  |  |
 
 
 #### SubnetStatus
