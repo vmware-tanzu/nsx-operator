@@ -31,12 +31,22 @@ func compareResources(pre interface{}, cur interface{}) map[string]interface{} {
 
 func compareContainerProject(pre interface{}, cur interface{}, property map[string]interface{}) {
 	curProject := cur.(containerinventory.ContainerProject)
+	preProject := containerinventory.ContainerProject{}
+	if pre != nil {
+		preProject = pre.(containerinventory.ContainerProject)
+	}
 	if pre == nil {
 		property["display_name"] = curProject.DisplayName
 		property["container_cluster_id"] = curProject.ContainerClusterId
 	}
-	if pre == nil || !reflect.DeepEqual(pre.(containerinventory.ContainerProject).Tags, curProject.Tags) {
+	if pre == nil || !reflect.DeepEqual(preProject.Tags, curProject.Tags) {
 		property["tags"] = curProject.Tags
+	}
+	if pre == nil || !reflect.DeepEqual(preProject.NetworkStatus, curProject.NetworkStatus) {
+		property["network_status"] = curProject.NetworkStatus
+	}
+	if pre == nil || !reflect.DeepEqual(preProject.NetworkErrors, curProject.NetworkErrors) {
+		property["network_errors"] = curProject.NetworkErrors
 	}
 }
 
