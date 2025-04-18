@@ -48,6 +48,13 @@ const (
 	InventoryStatusUp      = "UP"
 	InventoryStatusDown    = "DOWN"
 	InventoryStatusUnknown = "UNKNOWN"
+
+	NcpLbError        = "ncp/error.loadbalancer"
+	NcpLbPortError    = "ncp/error.loadbalancer.unrealized_ports"
+	NcpLbEpError      = "ncp/error.loadbalancer_endpoints"
+	NcpDlbError       = "ncp/error.distributed_loadbalancer"
+	NcpSnatError      = "ncp/error.snat"
+	NcpAccessLogError = "ncp/error.vc_access_log"
 )
 
 type InventoryKey struct {
@@ -55,3 +62,5 @@ type InventoryKey struct {
 	ExternalId    string
 	Key           string
 }
+
+var ServiceNCPErrors = []string{NcpLbError, NcpLbPortError, NcpLbEpError, NcpDlbError, NcpSnatError, NcpAccessLogError}

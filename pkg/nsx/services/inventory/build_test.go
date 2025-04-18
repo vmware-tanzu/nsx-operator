@@ -927,6 +927,251 @@ func TestBuildNode(t *testing.T) {
 	})
 }
 
+func TestBuildService(t *testing.T) {
+	labels := map[string]string{
+		"app":  "inventory",
+		"role": "test-only",
+	}
+
+	testService := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-service",
+			Namespace: "default",
+			UID:       types.UID("service-uid-123"),
+			Labels:    labels,
+		},
+		Spec: corev1.ServiceSpec{
+			ClusterIP: "10.0.0.1",
+			Type:      corev1.ServiceTypeClusterIP,
+		},
+	}
+
+	t.Run("NormalFlow", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+
+		// Add a pod to the ApplicationInstanceStore
+		inventoryService.ApplicationInstanceStore.Add(&containerinventory.ContainerApplicationInstance{
+			ExternalId:              "pod-uid-456",
+			ContainerApplicationIds: []string{},
+		})
+
+		// Mock namespace retrieval
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.ListOption) error {
+			ns, ok := obj.(*corev1.Namespace)
+			if !ok {
+				return nil
+			}
+			ns.ObjectMeta = metav1.ObjectMeta{
+				Name: "default",
+				UID:  "namespace-uid-123",
+			}
+			return nil
+		})
+
+		// Mock GetPodIDsFromEndpoint, GetPodByUID, and GetServicesUIDByPodUID
+		patches := gomonkey.ApplyFunc(GetPodIDsFromEndpoint, func(ctx context.Context, c client.Client, name string, namespace string) ([]string, bool) {
+			return []string{"pod-uid-456"}, true
+		}).ApplyFunc(GetPodByUID, func(ctx context.Context, client client.Client, uid types.UID, namespace string) (*corev1.Pod, error) {
+			return &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					UID: uid,
+				},
+			}, nil
+		}).ApplyFunc(GetServicesUIDByPodUID, func(_ context.Context, _ client.Client, _ types.UID, _ string) ([]string, error) {
+			return []string{"service-uid-123"}, nil
+		})
+		defer patches.Reset()
+
+		retry := inventoryService.BuildService(testService)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "service-uid-123")
+
+		containerApplication := inventoryService.pendingAdd["service-uid-123"].(*containerinventory.ContainerApplication)
+		assert.Equal(t, "test-service", containerApplication.DisplayName)
+		assert.Equal(t, string(ContainerApplication), containerApplication.ResourceType)
+		assert.Equal(t, string(testService.UID), containerApplication.ExternalId)
+		assert.Equal(t, inventoryService.NSXConfig.Cluster, containerApplication.ContainerClusterId)
+		assert.Equal(t, NetworkStatusHealthy, containerApplication.NetworkStatus)
+		assert.Equal(t, InventoryStatusUp, containerApplication.Status)
+
+		// Verify tags are created from labels
+		expectedTags := GetTagsFromLabels(labels)
+		assert.Equal(t, len(expectedTags), len(containerApplication.Tags))
+		for i, tag := range containerApplication.Tags {
+			assert.Equal(t, expectedTags[i].Scope, tag.Scope)
+			assert.Equal(t, expectedTags[i].Tag, tag.Tag)
+		}
+
+		// Verify origin properties
+		assert.Equal(t, 2, len(containerApplication.OriginProperties))
+		assert.Equal(t, "type", containerApplication.OriginProperties[0].Key)
+		assert.Equal(t, "ClusterIP", containerApplication.OriginProperties[0].Value)
+		assert.Equal(t, "ip", containerApplication.OriginProperties[1].Key)
+		assert.Equal(t, "10.0.0.1", containerApplication.OriginProperties[1].Value)
+	})
+
+	t.Run("NamespaceError", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+
+		// Simulate an error when retrieving the namespace
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(fmt.Errorf("namespace retrieval error"))
+
+		retry := inventoryService.BuildService(testService)
+
+		assert.True(t, retry)
+	})
+
+	t.Run("NoEndpoints", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+
+		// Mock namespace retrieval
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+
+		// Mock GetPodIDsFromEndpoint to return no pods but has address
+		patches := gomonkey.ApplyFunc(GetPodIDsFromEndpoint, func(ctx context.Context, c client.Client, name string, namespace string) ([]string, bool) {
+			return []string{}, true
+		})
+		defer patches.Reset()
+
+		retry := inventoryService.BuildService(testService)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "service-uid-123")
+
+		containerApplication := inventoryService.pendingAdd["service-uid-123"].(*containerinventory.ContainerApplication)
+		assert.Equal(t, InventoryStatusUnknown, containerApplication.Status)
+		assert.Equal(t, NetworkStatusHealthy, containerApplication.NetworkStatus)
+	})
+
+	t.Run("NoEndpointsNoAddress", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+
+		// Mock namespace retrieval
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+
+		// Mock GetPodIDsFromEndpoint to return no pods and no address
+		patches := gomonkey.ApplyFunc(GetPodIDsFromEndpoint, func(ctx context.Context, c client.Client, name string, namespace string) ([]string, bool) {
+			return []string{}, false
+		})
+		defer patches.Reset()
+
+		retry := inventoryService.BuildService(testService)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "service-uid-123")
+
+		containerApplication := inventoryService.pendingAdd["service-uid-123"].(*containerinventory.ContainerApplication)
+		assert.Equal(t, InventoryStatusDown, containerApplication.Status)
+		assert.Equal(t, NetworkStatusUnhealthy, containerApplication.NetworkStatus)
+	})
+
+	t.Run("UpdateExistingService", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+
+		// Add a pod to the ApplicationInstanceStore
+		inventoryService.ApplicationInstanceStore.Add(&containerinventory.ContainerApplicationInstance{
+			ExternalId:              "pod-uid-456",
+			ContainerApplicationIds: []string{},
+		})
+
+		// Create a pre-existing service in the ApplicationStore
+		existingApplication := &containerinventory.ContainerApplication{
+			DisplayName:        "old-name",
+			ResourceType:       string(ContainerApplication),
+			Tags:               []common.Tag{},
+			ContainerClusterId: inventoryService.NSXConfig.Cluster,
+			ExternalId:         string(testService.UID),
+			NetworkStatus:      NetworkStatusHealthy,
+		}
+
+		// Add to ApplicationStore
+		inventoryService.ApplicationStore.Add(existingApplication)
+
+		// Mock namespace retrieval
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.ListOption) error {
+			ns, ok := obj.(*corev1.Namespace)
+			if !ok {
+				return nil
+			}
+			ns.ObjectMeta = metav1.ObjectMeta{
+				Name: "default",
+				UID:  "namespace-uid-123",
+			}
+			return nil
+		})
+
+		// Mock GetPodIDsFromEndpoint, GetPodByUID, and GetServicesUIDByPodUID
+		patches := gomonkey.ApplyFunc(GetPodIDsFromEndpoint, func(ctx context.Context, c client.Client, name string, namespace string) ([]string, bool) {
+			return []string{"pod-uid-456"}, true
+		}).ApplyFunc(GetPodByUID, func(ctx context.Context, client client.Client, uid types.UID, namespace string) (*corev1.Pod, error) {
+			return &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					UID: uid,
+				},
+			}, nil
+		}).ApplyFunc(GetServicesUIDByPodUID, func(_ context.Context, _ client.Client, _ types.UID, _ string) ([]string, error) {
+			return []string{"service-uid-123"}, nil
+		})
+		defer patches.Reset()
+
+		retry := inventoryService.BuildService(testService)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "service-uid-123")
+
+		// Verify the updated service is in pendingAdd
+		containerApplication := inventoryService.pendingAdd["service-uid-123"].(*containerinventory.ContainerApplication)
+		assert.Equal(t, "test-service", containerApplication.DisplayName)
+	})
+
+	t.Run("ServiceWithAnnotations", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+
+		// Create a service with annotations that match the NCP error keys
+		serviceWithAnnotations := testService.DeepCopy()
+		serviceWithAnnotations.Annotations = map[string]string{
+			NcpLbError:     "load balancer error message",
+			NcpLbPortError: "port error message",
+			NcpSnatError:   "snat error message",
+		}
+
+		// Mock namespace retrieval
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+
+		// Mock GetPodIDsFromEndpoint to return no pods and no address (to ensure status is not "Up")
+		patches := gomonkey.ApplyFunc(GetPodIDsFromEndpoint, func(ctx context.Context, c client.Client, name string, namespace string) ([]string, bool) {
+			return []string{}, false
+		})
+		defer patches.Reset()
+
+		retry := inventoryService.BuildService(serviceWithAnnotations)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "service-uid-123")
+
+		// Verify the network errors are correctly extracted from the annotations
+		containerApplication := inventoryService.pendingAdd["service-uid-123"].(*containerinventory.ContainerApplication)
+		assert.Equal(t, InventoryStatusDown, containerApplication.Status)
+		assert.Equal(t, NetworkStatusUnhealthy, containerApplication.NetworkStatus)
+
+		// Verify network errors
+		assert.Equal(t, 3, len(containerApplication.NetworkErrors))
+
+		// Create a map of error messages for easier verification
+		errorMessages := make(map[string]bool)
+		for _, err := range containerApplication.NetworkErrors {
+			errorMessages[err.ErrorMessage] = true
+		}
+
+		// Verify all expected error messages are present
+		assert.True(t, errorMessages[NcpLbError+":load balancer error message"])
+		assert.True(t, errorMessages[NcpLbPortError+":port error message"])
+		assert.True(t, errorMessages[NcpSnatError+":snat error message"])
+	})
+}
+
 func TestBuildNetworkPolicy(t *testing.T) {
 	labels := map[string]string{
 		"policy": "security",

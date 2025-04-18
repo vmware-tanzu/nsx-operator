@@ -142,6 +142,9 @@ func compareContainerApplication(pre interface{}, cur interface{}, property map[
 	if pre == nil || preApplication.Status != curApplication.Status {
 		property["status"] = curApplication.Status
 	}
+	if pre == nil || !reflect.DeepEqual(preApplication.NetworkErrors, curApplication.NetworkErrors) {
+		property["network_errors"] = preApplication.NetworkErrors
+	}
 	if pre == nil || !reflect.DeepEqual(preApplication.OriginProperties, curApplication.OriginProperties) {
 		property["origin_properties"] = curApplication.OriginProperties
 	}
