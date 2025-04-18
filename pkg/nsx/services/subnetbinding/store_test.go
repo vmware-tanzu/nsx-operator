@@ -1,6 +1,7 @@
 package subnetbinding
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -45,6 +46,7 @@ var (
 		DisplayName:    String("binding1"),
 		SubnetPath:     String(parentSubnetPath1),
 		ParentPath:     childSubnet.Path,
+		Path:           String(fmt.Sprintf("%s/subnet-connection-binding-maps/incomplete", *childSubnet.Path)),
 		VlanTrafficTag: Int64(201),
 		Tags: []model.Tag{
 			{

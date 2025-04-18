@@ -21,6 +21,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	mock_org_root "github.com/vmware-tanzu/nsx-operator/pkg/mock/orgrootclient"
 	mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/staticrouteclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
@@ -144,8 +145,9 @@ func TestStaticRouteService_DeleteStaticRouteByCR(t *testing.T) {
 		},
 	}
 	id := util.GenerateIDByObject(srObj)
-	path := "/orgs/default/projects/project-1/vpcs/vpc-1"
-	sr1 := &model.StaticRoutes{Id: &id, Path: &path}
+	vpcPath := "/orgs/default/projects/project-1/vpcs/vpc-1"
+	path := fmt.Sprintf("%s/static-routes/%s", vpcPath, id)
+	sr1 := &model.StaticRoutes{Id: &id, Path: &path, ParentPath: &vpcPath}
 
 	// no record found
 	mockStaticRouteclient.EXPECT().Delete(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Times(0)
@@ -165,7 +167,7 @@ func TestStaticRouteService_DeleteStaticRouteByCR(t *testing.T) {
 func TestStaticRouteService_CreateorUpdateStaticRoute(t *testing.T) {
 	service, mockController, mockStaticRouteclient := createService(t)
 	defer mockController.Finish()
-
+	vpcPath := "/orgs/default/projects/project-1/vpcs/vpc-1"
 	var tc *bindings.TypeConverter
 	patches2 := gomonkey.ApplyMethod(reflect.TypeOf(tc), "ConvertToGolang",
 		func(_ *bindings.TypeConverter, d data.DataValue, b bindings.BindingType) (interface{}, []error) {
@@ -193,8 +195,10 @@ func TestStaticRouteService_CreateorUpdateStaticRoute(t *testing.T) {
 	scope := common.TagScopeStaticRouteCRUID
 	tag := "test_tag"
 	m := model.StaticRoutes{
-		Id:   &mId,
-		Tags: []model.Tag{{Tag: &tag, Scope: &scope}},
+		Id:         &mId,
+		Tags:       []model.Tag{{Tag: &tag, Scope: &scope}},
+		ParentPath: &vpcPath,
+		Path:       String(fmt.Sprintf("%s/static-routes/%s", vpcPath, mId)),
 	}
 	mockStaticRouteclient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(m, nil).Times(2)
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(returnservice.VPCService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
@@ -323,6 +327,9 @@ func TestListStaticRoute(t *testing.T) {
 func TestStaticRouteService_Cleanup(t *testing.T) {
 	service, mockController, mockStaticRouteclient := createService(t)
 	defer mockController.Finish()
+	builder, _ := common.PolicyPathVpcStaticRoutes.NewPolicyTreeBuilder()
+	service.builder = builder
+	mockOrgRootClient := mock_org_root.NewMockOrgRootClient(mockController)
 
 	ctx := context.Background()
 
@@ -339,14 +346,14 @@ func TestStaticRouteService_Cleanup(t *testing.T) {
 	}
 
 	t.Run("Successful cleanup", func(t *testing.T) {
+		mockOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil)
 		service.StaticRouteStore.Add(staticRoute1)
 		service.StaticRouteStore.Add(staticRoute2)
 		mockStaticRouteclient = mocks.NewMockStaticRoutesClient(mockController)
 		service.NSXClient.StaticRouteClient = mockStaticRouteclient
-		mockStaticRouteclient.EXPECT().Delete("org1", "project1", "vpc1", "staticroute1").Return(nil).Times(1)
-		mockStaticRouteclient.EXPECT().Delete("org2", "project2", "vpc2", "staticroute2").Return(nil).Times(1)
+		service.NSXClient.OrgRootClient = mockOrgRootClient
 
-		err := service.Cleanup(ctx)
+		err := service.CleanupVPCChildResources(ctx, "")
 		assert.NoError(t, err)
 	})
 
@@ -355,19 +362,19 @@ func TestStaticRouteService_Cleanup(t *testing.T) {
 		ctx, cancel := context.WithCancel(ctx)
 		cancel()
 
-		err := service.Cleanup(ctx)
+		err := service.CleanupVPCChildResources(ctx, "")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "context canceled")
 	})
 
 	t.Run("Delete static route error", func(t *testing.T) {
+		mockOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(fmt.Errorf("delete error"))
+
 		service.StaticRouteStore.Add(staticRoute1)
 		mockStaticRouteclient = mocks.NewMockStaticRoutesClient(mockController)
 		service.NSXClient.StaticRouteClient = mockStaticRouteclient
 
-		mockStaticRouteclient.EXPECT().Delete("org1", "project1", "vpc1", "staticroute1").Return(fmt.Errorf("delete error")).Times(1)
-
-		err := service.Cleanup(ctx)
+		err := service.CleanupVPCChildResources(ctx, "")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "delete error")
 	})

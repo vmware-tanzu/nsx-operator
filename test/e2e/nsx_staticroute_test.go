@@ -65,7 +65,7 @@ func CreateStaticRoute(t *testing.T) {
 	}
 	require.NoError(t, err)
 	waitForStaticRouteCRReady(t, TestNamespace, staticRoute.Name)
-	err = testData.waitForResourceExistOrNot(TestNamespace, common.ResourceTypeStaticRoute, staticRoute.Name, true)
+	err = testData.waitForResourceExistOrNot(TestNamespace, common.ResourceTypeStaticRoutes, staticRoute.Name, true)
 	require.NoError(t, err)
 }
 
@@ -73,6 +73,6 @@ func DeleteStaticRoute(t *testing.T) {
 	err := testData.crdClientset.CrdV1alpha1().StaticRoutes(TestNamespace).Delete(context.TODO(), StaticRouteName, v1.DeleteOptions{})
 	require.NoError(t, err)
 
-	err = testData.waitForResourceExistOrNot(TestNamespace, common.ResourceTypeStaticRoute, StaticRouteName, false)
+	err = testData.waitForResourceExistOrNot(TestNamespace, common.ResourceTypeStaticRoutes, StaticRouteName, false)
 	require.NoError(t, err)
 }

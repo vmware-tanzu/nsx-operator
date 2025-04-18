@@ -21,6 +21,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/ipaddressallocation"
+	mock_org_root "github.com/vmware-tanzu/nsx-operator/pkg/mock/orgrootclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -90,12 +91,15 @@ func TestIPAddressAllocationService_DeleteIPAddressAllocation(t *testing.T) {
 	defer mockController.Finish()
 
 	var tc *bindings.TypeConverter
+	vpcPath := "/orgs/default/projects/project-1/vpcs/vpc-1"
 	patchConvertToGolang := gomonkey.ApplyMethod(reflect.TypeOf(tc), "ConvertToGolang",
 		func(_ *bindings.TypeConverter, d data.DataValue, b bindings.BindingType) (interface{}, []error) {
 			mId, mTag, mScope := "test_id", "test_tag", "test_scope"
 			m := model.VpcIpAddressAllocation{
-				Id:   &mId,
-				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+				Id:         &mId,
+				Tags:       []model.Tag{{Tag: &mTag, Scope: &mScope}},
+				Path:       String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, mId)),
+				ParentPath: String(vpcPath),
 			}
 			var j interface{} = m
 			return j, nil
@@ -115,8 +119,8 @@ func TestIPAddressAllocationService_DeleteIPAddressAllocation(t *testing.T) {
 	}
 	id := util.GenerateIDByObject(srObj)
 	tags := util.BuildBasicTags(service.NSXConfig.Cluster, srObj, "")
-	path := "/orgs/default/projects/project-1/vpcs/vpc-1"
-	sr1 := &model.VpcIpAddressAllocation{Id: &id, Path: &path, Tags: tags}
+	path := fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, id)
+	sr1 := &model.VpcIpAddressAllocation{Id: &id, Path: &path, Tags: tags, ParentPath: &vpcPath}
 
 	// no record found
 	mockVPCIPAddressAllocationclient.EXPECT().Delete(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Times(0)
@@ -137,13 +141,16 @@ func TestIPAddressAllocationService_CreateorUpdateIPAddressAllocation(t *testing
 	service, mockController, mockVPCIPAddressallocationclient := createIPAddressAllocationService(t)
 	defer mockController.Finish()
 
+	vpcPath := "/orgs/default/projects/project-1/vpcs/vpc-1"
 	var tc *bindings.TypeConverter
 	patchConvertToGolang := gomonkey.ApplyMethod(reflect.TypeOf(tc), "ConvertToGolang",
 		func(_ *bindings.TypeConverter, d data.DataValue, b bindings.BindingType) (interface{}, []error) {
 			mId, mTag, mScope := "test_id", "test_tag", "test_scope"
 			m := model.VpcIpAddressAllocation{
-				Id:   &mId,
-				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+				Id:         &mId,
+				Tags:       []model.Tag{{Tag: &mTag, Scope: &mScope}},
+				ParentPath: &vpcPath,
+				Path:       String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, mId)),
 			}
 			var j interface{} = m
 			return j, nil
@@ -167,6 +174,8 @@ func TestIPAddressAllocationService_CreateorUpdateIPAddressAllocation(t *testing
 	m := model.VpcIpAddressAllocation{
 		Id:            &mId,
 		Tags:          []model.Tag{{Tag: &tag, Scope: &scope}},
+		ParentPath:    &vpcPath,
+		Path:          String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, mId)),
 		AllocationIps: &cidr,
 	}
 	mockVPCIPAddressallocationclient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(m, nil).Times(2)
@@ -192,18 +201,22 @@ func TestIPAddressAllocationService_CreateorUpdateIPAddressAllocation(t *testing
 }
 
 func TestIPAddressAllocationService_Cleanup(t *testing.T) {
-	service, mockController, mockVPCIPAddressAllocationclient := createIPAddressAllocationService(t)
+	service, mockController, _ := createIPAddressAllocationService(t)
 	defer mockController.Finish()
 
+	mockOrgRootClient := mock_org_root.NewMockOrgRootClient(mockController)
+	service.NSXClient.OrgRootClient = mockOrgRootClient
+
+	vpcPath := "/orgs/default/projects/project-1/vpcs/vpc-1"
 	var tc *bindings.TypeConverter
 	patchConvertToGolang := gomonkey.ApplyMethod(reflect.TypeOf(tc), "ConvertToGolang",
 		func(_ *bindings.TypeConverter, d data.DataValue, b bindings.BindingType) (interface{}, []error) {
 			mId, mTag, mScope := "test_id", "test_tag", "test_scope"
-			path := "/orgs/default/projects/project-1/vpcs/vpc-1"
 			m := model.VpcIpAddressAllocation{
-				Id:   &mId,
-				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-				Path: &path,
+				Id:         &mId,
+				Tags:       []model.Tag{{Tag: &mTag, Scope: &mScope}},
+				Path:       String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, mId)),
+				ParentPath: &vpcPath,
 			}
 			var j interface{} = m
 			return j, nil
@@ -215,11 +228,11 @@ func TestIPAddressAllocationService_Cleanup(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Set up expectations
-	mockVPCIPAddressAllocationclient.EXPECT().Delete("default", "project-1", "vpc-1", "test_id").Return(nil).Times(1)
+	mockOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil)
 
 	// Call Cleanup
 	ctx := context.Background()
-	err = returnService.Cleanup(ctx)
+	err = returnService.CleanupVPCChildResources(ctx, "")
 
 	// Assert
 	assert.NoError(t, err)
@@ -231,7 +244,7 @@ func TestIPAddressAllocationService_Cleanup(t *testing.T) {
 	returnService, err = InitializeIPAddressAllocation(service.Service, vpcService, false)
 	assert.NoError(t, err)
 
-	err = returnService.Cleanup(cancelledCtx)
+	err = returnService.CleanupVPCChildResources(cancelledCtx, "")
 	assert.Error(t, err)
 }
 
@@ -239,15 +252,16 @@ func TestIPAddressAllocationService_ListIPAddressAllocationID(t *testing.T) {
 	service, mockController, _ := createIPAddressAllocationService(t)
 	defer mockController.Finish()
 
+	vpcPath := "/orgs/default/projects/project-1/vpcs/vpc-1"
 	var tc *bindings.TypeConverter
 	patchConvertToGolang := gomonkey.ApplyMethod(reflect.TypeOf(tc), "ConvertToGolang",
 		func(_ *bindings.TypeConverter, d data.DataValue, b bindings.BindingType) (interface{}, []error) {
 			mId, mTag, mScope := "test_id", "test_tag", "test_scope"
-			path := "/orgs/default/projects/project-1/vpcs/vpc-1"
 			m := model.VpcIpAddressAllocation{
-				Id:   &mId,
-				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-				Path: &path,
+				Id:         &mId,
+				Tags:       []model.Tag{{Tag: &mTag, Scope: &mScope}},
+				ParentPath: &vpcPath,
+				Path:       String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, mId)),
 			}
 			var j interface{} = m
 			return j, nil
@@ -274,10 +288,9 @@ func TestIPAddressAllocationService_ListIPAddressAllocationID(t *testing.T) {
 
 	id1 := util.GenerateIDByObject(ipa1)
 	id2 := util.GenerateIDByObject(ipa2)
-	path := "/orgs/default/projects/project-1/vpcs/vpc-1"
 
-	sr1 := &model.VpcIpAddressAllocation{Id: &id1, Path: &path, Tags: util.BuildBasicTags(service.NSXConfig.Cluster, ipa1, "")}
-	sr2 := &model.VpcIpAddressAllocation{Id: &id2, Path: &path, Tags: util.BuildBasicTags(service.NSXConfig.Cluster, ipa2, "")}
+	sr1 := &model.VpcIpAddressAllocation{Id: &id1, ParentPath: &vpcPath, Path: String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, id1)), Tags: util.BuildBasicTags(service.NSXConfig.Cluster, ipa1, "")}
+	sr2 := &model.VpcIpAddressAllocation{Id: &id2, ParentPath: &vpcPath, Path: String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, id2)), Tags: util.BuildBasicTags(service.NSXConfig.Cluster, ipa2, "")}
 
 	returnService.ipAddressAllocationStore.Add(sr1)
 	returnService.ipAddressAllocationStore.Add(sr2)
@@ -293,15 +306,16 @@ func TestIPAddressAllocationService_ListIPAddressAllocationKeys(t *testing.T) {
 	service, mockController, _ := createIPAddressAllocationService(t)
 	defer mockController.Finish()
 
+	vpcPath := "/orgs/default/projects/project-1/vpcs/vpc-1"
 	var tc *bindings.TypeConverter
 	patchConvertToGolang := gomonkey.ApplyMethod(reflect.TypeOf(tc), "ConvertToGolang",
 		func(_ *bindings.TypeConverter, d data.DataValue, b bindings.BindingType) (interface{}, []error) {
 			mId, mTag, mScope := "test_id", "test_tag", "test_scope"
-			path := "/orgs/default/projects/project-1/vpcs/vpc-1"
 			m := model.VpcIpAddressAllocation{
-				Id:   &mId,
-				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-				Path: &path,
+				Id:         &mId,
+				Tags:       []model.Tag{{Tag: &mTag, Scope: &mScope}},
+				ParentPath: &vpcPath,
+				Path:       String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, mId)),
 			}
 			var j interface{} = m
 			return j, nil
@@ -328,10 +342,9 @@ func TestIPAddressAllocationService_ListIPAddressAllocationKeys(t *testing.T) {
 
 	id1 := util.GenerateIDByObject(ipa1)
 	id2 := util.GenerateIDByObject(ipa2)
-	path := "/orgs/default/projects/project-1/vpcs/vpc-1"
 
-	sr1 := &model.VpcIpAddressAllocation{Id: &id1, Path: &path, Tags: util.BuildBasicTags(service.NSXConfig.Cluster, ipa1, "")}
-	sr2 := &model.VpcIpAddressAllocation{Id: &id2, Path: &path, Tags: util.BuildBasicTags(service.NSXConfig.Cluster, ipa2, "")}
+	sr1 := &model.VpcIpAddressAllocation{Id: &id1, ParentPath: &vpcPath, Path: String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, id1)), Tags: util.BuildBasicTags(service.NSXConfig.Cluster, ipa1, "")}
+	sr2 := &model.VpcIpAddressAllocation{Id: &id2, ParentPath: &vpcPath, Path: String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, id2)), Tags: util.BuildBasicTags(service.NSXConfig.Cluster, ipa2, "")}
 
 	returnService.ipAddressAllocationStore.Add(sr1)
 	returnService.ipAddressAllocationStore.Add(sr2)
@@ -347,14 +360,15 @@ func TestIPAddressAllocationService_CreateOrUpdateIPAddressAllocation_Errors(t *
 	service, mockController, _ := createIPAddressAllocationService(t)
 	defer mockController.Finish()
 
+	vpcPath := "/orgs/default/projects/project-1/vpcs/vpc-1"
 	var tc *bindings.TypeConverter
 	patchConvertToGolang := gomonkey.ApplyMethod(reflect.TypeOf(tc), "ConvertToGolang",
 		func(_ *bindings.TypeConverter, d data.DataValue, b bindings.BindingType) (interface{}, []error) {
 			mId := "test_id"
-			path := "/orgs/default/projects/project-1/vpcs/vpc-1"
 			m := model.VpcIpAddressAllocation{
-				Id:   &mId,
-				Path: &path,
+				Id:         &mId,
+				ParentPath: &vpcPath,
+				Path:       String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, mId)),
 			}
 			var j interface{} = m
 			return j, nil
@@ -417,13 +431,16 @@ func TestIPAddressAllocationService_DeleteIPAddressAllocation_Errors(t *testing.
 	service, mockController, mockVPCIPAddressAllocationclient := createIPAddressAllocationService(t)
 	defer mockController.Finish()
 
+	vpcPath := "/orgs/default/projects/project-1/vpcs/vpc-1"
 	var tc *bindings.TypeConverter
 	patchConvertToGolang := gomonkey.ApplyMethod(reflect.TypeOf(tc), "ConvertToGolang",
 		func(_ *bindings.TypeConverter, d data.DataValue, b bindings.BindingType) (interface{}, []error) {
 			mId, mTag, mScope := "test_id", "test_tag", "test_scope"
 			m := model.VpcIpAddressAllocation{
-				Id:   &mId,
-				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+				Id:         &mId,
+				ParentPath: &vpcPath,
+				Path:       String(fmt.Sprintf("/orgs/default/projects/project-1/vpcs/vpc-1/ip-address-allocations/%s", mId)),
+				Tags:       []model.Tag{{Tag: &mTag, Scope: &mScope}},
 			}
 			var j interface{} = m
 			return j, nil
@@ -443,8 +460,7 @@ func TestIPAddressAllocationService_DeleteIPAddressAllocation_Errors(t *testing.
 	}
 	id := util.GenerateIDByObject(srObj)
 	tags := util.BuildBasicTags(service.NSXConfig.Cluster, srObj, "")
-	path := "/orgs/default/projects/project-1/vpcs/vpc-1"
-	sr1 := &model.VpcIpAddressAllocation{Id: &id, Path: &path, Tags: tags}
+	sr1 := &model.VpcIpAddressAllocation{Id: &id, ParentPath: &vpcPath, Path: String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, id)), Tags: tags}
 
 	returnservice.ipAddressAllocationStore.Add(sr1)
 
@@ -510,14 +526,15 @@ func TestIPAddressAllocationService_Cleanup_Error(t *testing.T) {
 	service, mockController, _ := createIPAddressAllocationService(t)
 	defer mockController.Finish()
 	var tc *bindings.TypeConverter
+	vpcPath := "/orgs/default/projects/project-1/vpcs/vpc-1"
 	patchConvertToGolang := gomonkey.ApplyMethod(reflect.TypeOf(tc), "ConvertToGolang",
 		func(_ *bindings.TypeConverter, d data.DataValue, b bindings.BindingType) (interface{}, []error) {
 			mId, mTag, mScope := "test_id", "test_tag", "test_scope"
-			path := "/orgs/default/projects/project-1/vpcs/vpc-1"
 			m := model.VpcIpAddressAllocation{
-				Id:   &mId,
-				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-				Path: &path,
+				Id:         &mId,
+				Tags:       []model.Tag{{Tag: &mTag, Scope: &mScope}},
+				ParentPath: &vpcPath,
+				Path:       String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, mId)),
 			}
 			var j interface{} = m
 			return j, nil
@@ -526,23 +543,22 @@ func TestIPAddressAllocationService_Cleanup_Error(t *testing.T) {
 
 	vpcService := &vpc.VPCService{}
 	returnservice, _ := InitializeIPAddressAllocation(service.Service, vpcService, false)
+	mockOrgRootClient := mock_org_root.NewMockOrgRootClient(mockController)
+	returnservice.NSXClient.OrgRootClient = mockOrgRootClient
 
 	// Add a test IPAddressAllocation to the store
 	testIPA := &model.VpcIpAddressAllocation{
-		Id:   String("test-id"),
-		Path: String("/test/path"),
+		Id:         String("test-id"),
+		Path:       String("/test/path"),
+		ParentPath: String(vpcPath),
 	}
 	returnservice.ipAddressAllocationStore.Add(testIPA)
 
 	// Test case: DeleteIPAddressAllocation error
-	patchDeleteIPAddressAllocation := gomonkey.ApplyMethod(reflect.TypeOf(returnservice), "DeleteIPAddressAllocation",
-		func(_ *IPAddressAllocationService, _ interface{}) error {
-			return fmt.Errorf("delete error")
-		})
-	defer patchDeleteIPAddressAllocation.Reset()
+	mockOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(fmt.Errorf("delete error"))
 
 	ctx := context.Background()
-	err := returnservice.Cleanup(ctx)
+	err := returnservice.CleanupVPCChildResources(ctx, "")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "delete error")
 }

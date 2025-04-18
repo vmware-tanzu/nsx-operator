@@ -258,7 +258,7 @@ func TestNetworkPolicyReconciler_Reconcile(t *testing.T) {
 			name: "NetworkPolicy with DeletionTimestamp not zero and delete success",
 			req:  ctrl.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: npName}},
 			patches: func(r *NetworkPolicyReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, isVPCCleanup bool, createdFor string) error {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, createdFor string) error {
 					return nil
 				})
 				return patches
@@ -270,7 +270,7 @@ func TestNetworkPolicyReconciler_Reconcile(t *testing.T) {
 			name: "NetworkPolicy with DeletionTimestamp not zero and delete fail",
 			req:  ctrl.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: npName}},
 			patches: func(r *NetworkPolicyReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, isVPCCleanup bool, createdFor string) error {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, createdFor string) error {
 					return errors.New("delete networkpolicy failed")
 				})
 				return patches
@@ -348,7 +348,7 @@ func TestNetworkPolicyReconciler_GarbageCollector(t *testing.T) {
 					res := sets.New[string]("1234_ingress", "1234_isolation")
 					return res
 				})
-				patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, isVPCCleanup bool, createdFor string) error {
+				patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, createdFor string) error {
 					return nil
 				})
 				return patch
@@ -362,7 +362,7 @@ func TestNetworkPolicyReconciler_GarbageCollector(t *testing.T) {
 					res := sets.New[string]("1234_allow", "1234_isolation")
 					return res
 				})
-				patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, isVPCCleanup bool, createdFor string) error {
+				patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, createdFor string) error {
 					assert.FailNow(t, "should not be called")
 					return nil
 				})
@@ -383,7 +383,7 @@ func TestNetworkPolicyReconciler_GarbageCollector(t *testing.T) {
 					res := sets.New[string]("1234_allow", "1234_isolation")
 					return res
 				})
-				patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, isVPCCleanup bool, createdFor string) error {
+				patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, createdFor string) error {
 					return errors.New("delete failed")
 				})
 				return patch
@@ -466,7 +466,7 @@ func TestNetworkPolicyReconciler_deleteNetworkPolicyByName(t *testing.T) {
 		}
 	})
 
-	patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, isVPCCleanup bool, createdFor string) error {
+	patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, createdFor string) error {
 		switch sp := obj.(type) {
 		case types.UID:
 			if sp == "uid2" {

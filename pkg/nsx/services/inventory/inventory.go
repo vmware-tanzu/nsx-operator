@@ -391,7 +391,9 @@ func (s *InventoryService) UpdatePendingAdd(externalId string, inventoryObject i
 	s.pendingAdd[externalId] = inventoryObject
 }
 
-func (s *InventoryService) Cleanup(ctx context.Context) error {
+// CleanupBeforeVPCDeletion cleans up all clusters registered in the inventory. Since the resources in inventory
+// has no dependency on the exact VPC, we will perform the operation before cleaning up VPCs.
+func (s *InventoryService) CleanupBeforeVPCDeletion(ctx context.Context) error {
 	//Cleanup cluster
 	clusters := s.ClusterStore.List()
 	if len(clusters) == 0 {

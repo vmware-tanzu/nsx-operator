@@ -475,7 +475,7 @@ func TestInventoryService_Cleanup(t *testing.T) {
 		})
 		defer patches.Reset()
 
-		err := inventoryService.Cleanup(context.Background())
+		err := inventoryService.CleanupBeforeVPCDeletion(context.Background())
 		assert.Nil(t, err)
 		assert.Equal(t, 0, len(inventoryService.ClusterStore.List()))
 	})
@@ -489,7 +489,7 @@ func TestInventoryService_Cleanup(t *testing.T) {
 		})
 		defer patches.Reset()
 
-		err := inventoryService.Cleanup(context.Background())
+		err := inventoryService.CleanupBeforeVPCDeletion(context.Background())
 		assert.Nil(t, err)
 	})
 
@@ -503,7 +503,7 @@ func TestInventoryService_Cleanup(t *testing.T) {
 		})
 		defer patches.Reset()
 
-		err := inventoryService.Cleanup(context.Background())
+		err := inventoryService.CleanupBeforeVPCDeletion(context.Background())
 		assert.NotNil(t, err)
 		assert.Equal(t, "cluster deletion error", err.Error())
 		assert.Equal(t, 1, len(inventoryService.ClusterStore.List()))

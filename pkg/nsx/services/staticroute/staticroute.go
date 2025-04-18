@@ -1,8 +1,6 @@
 package staticroute
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"sync"
 
@@ -20,6 +18,7 @@ type StaticRouteService struct {
 	common.Service
 	StaticRouteStore *StaticRouteStore
 	VPCService       common.VPCServiceProvider
+	builder          *common.PolicyTreeBuilder[*model.StaticRoutes]
 }
 
 var (
@@ -29,23 +28,26 @@ var (
 
 // InitializeStaticRoute sync NSX resources
 func InitializeStaticRoute(commonService common.Service, vpcService common.VPCServiceProvider) (*StaticRouteService, error) {
+	builder, _ := common.PolicyPathVpcStaticRoutes.NewPolicyTreeBuilder()
+
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
 
 	wg.Add(1)
-	staticRouteService := &StaticRouteService{Service: commonService}
+	staticRouteService := &StaticRouteService{Service: commonService, builder: builder}
 	staticRouteStore := &StaticRouteStore{}
 	staticRouteStore.Indexer = cache.NewIndexer(keyFunc, cache.Indexers{
 		common.TagScopeStaticRouteCRUID: indexFunc,
 		common.TagScopeNamespace:        indexStaticRouteNamespace,
+		common.IndexByVPCPathFuncKey:    common.IndexByVPCFunc,
 	})
 	staticRouteStore.BindingType = model.StaticRoutesBindingType()
 	staticRouteService.StaticRouteStore = staticRouteStore
 	staticRouteService.NSXConfig = commonService.NSXConfig
 	staticRouteService.VPCService = vpcService
 
-	go staticRouteService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeStaticRoute, nil, staticRouteService.StaticRouteStore)
+	go staticRouteService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeStaticRoutes, nil, staticRouteService.StaticRouteStore)
 
 	go func() {
 		wg.Wait()
@@ -164,23 +166,4 @@ func (service *StaticRouteService) ListStaticRoute() []*model.StaticRoutes {
 		staticRouteSet = append(staticRouteSet, staticroute.(*model.StaticRoutes))
 	}
 	return staticRouteSet
-}
-
-func (service *StaticRouteService) Cleanup(ctx context.Context) error {
-	staticRouteSet := service.ListStaticRoute()
-	log.Info("Cleanup StaticRoute", "count", len(staticRouteSet))
-	for _, staticRoute := range staticRouteSet {
-		log.Info("Deleting StaticRoute", "StaticRoute path", *staticRoute.Path)
-		select {
-		case <-ctx.Done():
-			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
-		default:
-			err := service.DeleteStaticRoute(staticRoute)
-			if err != nil {
-				log.Error(err, "Delete StaticRoute failed", "StaticRoute id", *staticRoute.Id)
-				return err
-			}
-		}
-	}
-	return nil
 }
