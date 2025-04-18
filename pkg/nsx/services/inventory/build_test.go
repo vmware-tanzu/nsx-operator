@@ -1213,7 +1213,7 @@ func TestBuildNetworkPolicy(t *testing.T) {
 		assert.Equal(t, string(ContainerNetworkPolicy), containerNetworkPolicy.ResourceType)
 		assert.Equal(t, string(testNetworkPolicy.UID), containerNetworkPolicy.ExternalId)
 		assert.Equal(t, inventoryService.NSXConfig.Cluster, containerNetworkPolicy.ContainerClusterId)
-		assert.Equal(t, "", containerNetworkPolicy.NetworkStatus)
+		assert.Equal(t, "HEALTHY", containerNetworkPolicy.NetworkStatus)
 
 		// Verify tags are created from labels
 		expectedTags := GetTagsFromLabels(labels)
@@ -1252,5 +1252,38 @@ func TestBuildNetworkPolicy(t *testing.T) {
 		assert.False(t, retry)
 		// Since the spec couldn't be marshaled, ensure the object is not in pendingAdd
 		assert.NotContains(t, inventoryService.pendingAdd, string(testNetworkPolicy.UID))
+	})
+
+	t.Run("NetworkPolicyWithAnnotations", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+
+		// Create a network policy with annotations
+		networkPolicyWithAnnotations := testNetworkPolicy.DeepCopy()
+		networkPolicyWithAnnotations.Annotations = map[string]string{
+			"nsx-op/error": "network policy error message",
+		}
+
+		// Mock namespace retrieval
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.ListOption) error {
+			ns, ok := obj.(*corev1.Namespace)
+			if !ok {
+				return nil
+			}
+			ns.ObjectMeta = metav1.ObjectMeta{
+				Name: "default",
+				UID:  "namespace-uid-123",
+			}
+			return nil
+		})
+
+		retry := inventoryService.BuildNetworkPolicy(networkPolicyWithAnnotations)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "networkpolicy-uid-123")
+
+		// Verify the network errors are correctly extracted from the annotations
+		containerNetworkPolicy := inventoryService.pendingAdd["networkpolicy-uid-123"].(*containerinventory.ContainerNetworkPolicy)
+		assert.Equal(t, 1, len(containerNetworkPolicy.NetworkErrors))
+		assert.Equal(t, "nsx-op/error:network policy error message", containerNetworkPolicy.NetworkErrors[0].ErrorMessage)
 	})
 }
