@@ -90,7 +90,12 @@ func compareContainerIngressPolicy(pre interface{}, cur interface{}, property ma
 	if pre == nil || preIngressPolicy.Spec != curIngressPolicy.Spec {
 		property["spec"] = curIngressPolicy.Spec
 	}
-
+	if pre == nil || !reflect.DeepEqual(preIngressPolicy.NetworkStatus, curIngressPolicy.NetworkStatus) {
+		property["network_status"] = curIngressPolicy.NetworkStatus
+	}
+	if pre == nil || !reflect.DeepEqual(preIngressPolicy.NetworkErrors, curIngressPolicy.NetworkErrors) {
+		property["network_errors"] = curIngressPolicy.NetworkErrors
+	}
 	if pre == nil || !reflect.DeepEqual(preIngressPolicy.ContainerApplicationIds, curIngressPolicy.ContainerApplicationIds) {
 		property["container_application_ids"] = curIngressPolicy.ContainerApplicationIds
 	}
