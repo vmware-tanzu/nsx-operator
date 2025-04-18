@@ -197,6 +197,12 @@ func compareNetworkPolicy(pre interface{}, cur interface{}, property map[string]
 	if pre == nil || preNetworkPolicy.PolicyType != curNetworkPolicy.PolicyType {
 		property["policy_type"] = cur.(containerinventory.ContainerNetworkPolicy).PolicyType
 	}
+	if pre == nil || !reflect.DeepEqual(preNetworkPolicy.NetworkStatus, curNetworkPolicy.NetworkStatus) {
+		property["network_status"] = curNetworkPolicy.NetworkStatus
+	}
+	if pre == nil || !reflect.DeepEqual(preNetworkPolicy.NetworkErrors, curNetworkPolicy.NetworkErrors) {
+		property["network_errors"] = curNetworkPolicy.NetworkErrors
+	}
 	if pre == nil || !reflect.DeepEqual(preNetworkPolicy.OriginProperties, curNetworkPolicy.OriginProperties) {
 		property["origin_properties"] = curNetworkPolicy.OriginProperties
 	}

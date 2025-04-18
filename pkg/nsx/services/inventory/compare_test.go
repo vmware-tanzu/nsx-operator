@@ -208,6 +208,8 @@ func TestCompareNetworkPolicy(t *testing.T) {
 				"spec":                 "spec-content",
 				"origin_properties":    []common.KeyValuePair{{Key: "annotation", Value: "example"}},
 				"policy_type":          "NETWORK_POLICY",
+				"network_status":       "",
+				"network_errors":       []common.NetworkError(nil),
 			},
 		},
 		{

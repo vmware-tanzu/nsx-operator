@@ -13,6 +13,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	ctrcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -519,6 +520,18 @@ func (s *InventoryService) BuildNetworkPolicy(networkPolicy *networkingv1.Networ
 		return
 	}
 
+	// Get network errors from network policy annotations
+	networkStatus := NetworkStatusHealthy
+	var networkErrors []common.NetworkError
+	for key, value := range networkPolicy.Annotations {
+		if key == ctrcommon.NSXOperatorError {
+			networkStatus = NetworkStatusUnhealthy
+			networkErrors = append(networkErrors, common.NetworkError{
+				ErrorMessage: key + ":" + value,
+			})
+		}
+	}
+
 	containerNetworkPolicy := containerinventory.ContainerNetworkPolicy{
 		DisplayName:        networkPolicy.Name,
 		ResourceType:       string(ContainerNetworkPolicy),
@@ -526,8 +539,8 @@ func (s *InventoryService) BuildNetworkPolicy(networkPolicy *networkingv1.Networ
 		ContainerClusterId: s.NSXConfig.Cluster,
 		ContainerProjectId: string(namespace.UID),
 		ExternalId:         string(networkPolicy.UID),
-		NetworkErrors:      nil,
-		NetworkStatus:      "",
+		NetworkErrors:      networkErrors,
+		NetworkStatus:      networkStatus,
 		PolicyType:         NetworkPolicyType,
 		Spec:               string(spec),
 	}
