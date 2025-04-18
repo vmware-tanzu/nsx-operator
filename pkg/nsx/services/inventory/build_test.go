@@ -155,6 +155,56 @@ func TestBuildPod(t *testing.T) {
 		retry := inventoryService.BuildPod(testPod)
 		assert.True(t, retry)
 	})
+
+	t.Run("PodWithStatusMessage", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+
+		k8sClient.EXPECT().
+			Get(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.ListOption) error {
+				ns, ok := obj.(*corev1.Namespace)
+				if !ok {
+					return nil
+				}
+				namespace.DeepCopyInto(ns)
+				return nil
+			})
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.ListOption) error {
+				result, ok := obj.(*corev1.Node)
+				if !ok {
+					return nil
+				}
+				node.DeepCopyInto(result)
+				return nil
+			})
+
+		// Create a pod with a status message
+		podWithStatusMessage := testPod.DeepCopy()
+		podWithStatusMessage.Status = corev1.PodStatus{
+			Phase:   corev1.PodPending,
+			Message: "failed to pull images",
+			Conditions: []corev1.PodCondition{
+				{
+					Type:               corev1.PodReady,
+					Status:             corev1.ConditionFalse,
+					Message:            "Pod is not ready",
+					LastTransitionTime: metav1.Time{Time: time.Now().Add(-1 * time.Hour)},
+				},
+			},
+		}
+
+		retry := inventoryService.BuildPod(podWithStatusMessage)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, string(podWithStatusMessage.UID))
+
+		// Verify the network errors include the status message
+		applicationInstance := inventoryService.pendingAdd[string(podWithStatusMessage.UID)].(*containerinventory.ContainerApplicationInstance)
+		assert.Len(t, applicationInstance.NetworkErrors, 2)
+		assert.Equal(t, "failed to pull images", applicationInstance.NetworkErrors[0].ErrorMessage)
+		assert.Equal(t, "Pod is not ready", applicationInstance.NetworkErrors[1].ErrorMessage)
+	})
 }
 
 func TestGetTagsFromLabels(t *testing.T) {

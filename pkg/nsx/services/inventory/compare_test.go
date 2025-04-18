@@ -37,6 +37,8 @@ func TestCompareContainerApplicationInstance(t *testing.T) {
 				"container_application_ids": []string{"App1", "App2"},
 				"status":                    "Running",
 				"origin_properties":         []common.KeyValuePair{{Key: "ip", Value: "192.168.1.1"}},
+				"network_status":            "",
+				"network_errors":            []common.NetworkError(nil),
 			},
 		},
 		{

@@ -57,6 +57,27 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 		status = InventoryStatusUnknown
 	}
 
+	// Create network errors from pod conditions and status message
+	var networkErrors []common.NetworkError
+	networkStatus := NetworkStatusHealthy
+	if pod.Status.Phase != corev1.PodRunning {
+		networkStatus = NetworkStatusUnhealthy
+		// Check for a message in pod status
+		if pod.Status.Message != "" {
+			networkErrors = append(networkErrors, common.NetworkError{
+				ErrorMessage: pod.Status.Message,
+			})
+		}
+		// Check conditions
+		for _, condition := range pod.Status.Conditions {
+			if condition.Message != "" {
+				networkErrors = append(networkErrors, common.NetworkError{
+					ErrorMessage: condition.Message,
+				})
+			}
+		}
+	}
+
 	ips := ""
 	if len(pod.Status.PodIPs) == 1 {
 		ips = pod.Status.PodIPs[0].IP
@@ -86,8 +107,8 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 		ContainerClusterId:      s.NSXConfig.Cluster,
 		ContainerProjectId:      string(namespace.UID),
 		ExternalId:              string(pod.UID),
-		NetworkErrors:           nil,
-		NetworkStatus:           "",
+		NetworkErrors:           networkErrors,
+		NetworkStatus:           networkStatus,
 		OriginProperties:        originProperties,
 		Status:                  status,
 	}

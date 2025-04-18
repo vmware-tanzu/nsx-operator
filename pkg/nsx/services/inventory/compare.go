@@ -64,6 +64,12 @@ func compareContainerApplicationInstance(pre interface{}, cur interface{}, prope
 	if pre == nil || preAppInstance.Status != curAppInstance.Status {
 		property["status"] = curAppInstance.Status
 	}
+	if pre == nil || !reflect.DeepEqual(preAppInstance.NetworkStatus, curAppInstance.NetworkStatus) {
+		property["network_status"] = curAppInstance.NetworkStatus
+	}
+	if pre == nil || !reflect.DeepEqual(preAppInstance.NetworkErrors, curAppInstance.NetworkErrors) {
+		property["network_errors"] = curAppInstance.NetworkErrors
+	}
 	if pre == nil && len(curAppInstance.OriginProperties) == 1 {
 		property["origin_properties"] = curAppInstance.OriginProperties
 	} else if pre != nil && !reflect.DeepEqual(preAppInstance.OriginProperties, curAppInstance.OriginProperties) {
