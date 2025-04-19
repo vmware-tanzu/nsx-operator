@@ -161,18 +161,18 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, err, ret)
 
-	// getLabelsFromVirtualMachine fails
-	err = errors.New("getLabelsFromVirtualMachine failed")
+	// getVirtualMachine fails
+	err = errors.New("getVirtualMachine failed")
 	patchesCheckAndGetSubnetPathForSubnetPort = gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
 		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort) (bool, bool, string, error) {
 			return true, false, "", nil
 		})
 	defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
-	patchesGetLabelsFromVirtualMachine := gomonkey.ApplyFunc((*SubnetPortReconciler).getLabelsFromVirtualMachine,
-		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort) (*map[string]string, error) {
-			return nil, err
+	patchesGetVirtualMachine := gomonkey.ApplyFunc((*SubnetPortReconciler).getVirtualMachine,
+		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort) (*vmv1alpha1.VirtualMachine, string, error) {
+			return nil, "", err
 		})
-	defer patchesGetLabelsFromVirtualMachine.Reset()
+	defer patchesGetVirtualMachine.Reset()
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
 		func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 			v1sp := obj.(*v1alpha1.SubnetPort)
@@ -184,11 +184,11 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	assert.Equal(t, err, ret)
 
 	// CreateOrUpdateSubnetPort fails
-	patchesGetLabelsFromVirtualMachine = gomonkey.ApplyFunc((*SubnetPortReconciler).getLabelsFromVirtualMachine,
-		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort) (*map[string]string, error) {
-			return nil, nil
+	patchesGetVirtualMachine = gomonkey.ApplyFunc((*SubnetPortReconciler).getVirtualMachine,
+		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort) (*vmv1alpha1.VirtualMachine, string, error) {
+			return nil, "", nil
 		})
-	defer patchesGetLabelsFromVirtualMachine.Reset()
+	defer patchesGetVirtualMachine.Reset()
 	patchesVmMapFunc := gomonkey.ApplyFunc((*SubnetPortReconciler).vmMapFunc,
 		func(r *SubnetPortReconciler, _ context.Context, vm client.Object) []reconcile.Request {
 			requests := []reconcile.Request{}
@@ -241,7 +241,6 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	defer patchesCreateOrUpdateSubnetPort.Reset()
 	patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
 		func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService) {
-			return
 		})
 	defer patchesSetAddressBindingStatus.Reset()
 	k8sClient.EXPECT().Status().Return(fakewriter)
@@ -286,6 +285,75 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			return nil
 		})
 	defer patchesDeleteSubnetPortById.Reset()
+	_, ret = r.Reconcile(ctx, req)
+	assert.Equal(t, nil, ret)
+
+	// Restore case
+	subnetPort := &v1alpha1.SubnetPort{
+		Status: v1alpha1.SubnetPortStatus{
+			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+					{
+						Gateway:   "10.0.0.1",
+						IPAddress: "10.0.0.3/28",
+					},
+				},
+				MACAddress: "04:50:56:00:74:00",
+			},
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "subnetport-1",
+			Namespace: "ns-1",
+			Labels:    map[string]string{servicecommon.LabelCPVM: "true"},
+		},
+	}
+	r.restoreMode = true
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
+		func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+			v1sp := obj.(*v1alpha1.SubnetPort)
+			v1sp.Status = subnetPort.Status
+			v1sp.ObjectMeta = subnetPort.ObjectMeta
+			return nil
+		})
+	patchesGetSubnetByIP := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetByIP, func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort) (string, error) {
+		return "subnet-path", nil
+	})
+	defer patchesGetSubnetByIP.Reset()
+	portState = &model.SegmentPortState{
+		RealizedBindings: []model.AddressBindingEntry{
+			{
+				Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("10.0.0.3"),
+					MacAddress: servicecommon.String("04:50:56:00:74:00"),
+				},
+			},
+		},
+		Attachment: &model.SegmentPortAttachmentState{
+			Id: &attachmentID,
+		},
+	}
+	patchesCreateOrUpdateSubnetPort = gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
+			return portState, nil
+		})
+	defer patchesCreateOrUpdateSubnetPort.Reset()
+	patchesSetAddressBindingStatus = gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
+		func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService) {
+		})
+	defer patchesSetAddressBindingStatus.Reset()
+
+	k8sClient.EXPECT().Status().Return(fakewriter)
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+		func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+			v1sp := obj.(*v1alpha1.SubnetPort)
+			v1sp.Status = subnetPort.Status
+			v1sp.ObjectMeta = subnetPort.ObjectMeta
+			return nil
+		})
+	k8sClient.EXPECT().Update(gomock.Any(), gomock.Any()).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+		assert.Equal(t, "cpvm", obj.GetAnnotations()[servicecommon.AnnotationRestore])
+		return nil
+	})
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, nil, ret)
 }
@@ -942,7 +1010,7 @@ func TestSubnetPortReconciler_updateSubnetStatusOnSubnetPort(t *testing.T) {
 	assert.Equal(t, expectedSp, sp)
 }
 
-func TestSubnetPortReconciler_getLabelsFromVirtualMachine(t *testing.T) {
+func TestSubnetPortReconciler_getVirtualMachine(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
@@ -951,7 +1019,7 @@ func TestSubnetPortReconciler_getLabelsFromVirtualMachine(t *testing.T) {
 	}
 	patchesGetVirtualMachineNameForSubnetPort := gomonkey.ApplyFunc(common.GetVirtualMachineNameForSubnetPort,
 		func(subnetPort *v1alpha1.SubnetPort) (string, string, error) {
-			return "vm-1", "", nil
+			return "vm-1", "eth0", nil
 		})
 	defer patchesGetVirtualMachineNameForSubnetPort.Reset()
 
@@ -967,9 +1035,138 @@ func TestSubnetPortReconciler_getLabelsFromVirtualMachine(t *testing.T) {
 			Namespace: "ns-1",
 		},
 	}
-	res, err := r.getLabelsFromVirtualMachine(context.TODO(), sp)
+	res, nic, err := r.getVirtualMachine(context.TODO(), sp)
 	assert.Nil(t, err)
-	assert.Equal(t, labels, *res)
+	assert.Equal(t, labels, res.Labels)
+	assert.Equal(t, nic, "eth0")
+}
+
+func TestSubnetPortReconciler_getSubnetByIP(t *testing.T) {
+	r := &SubnetPortReconciler{
+		SubnetService: &subnet.SubnetService{},
+	}
+	patches := gomonkey.ApplyFunc((*subnet.SubnetService).GetSubnetsByIndex, func(s *subnet.SubnetService, key string, value string) []*model.VpcSubnet {
+		if key == servicecommon.TagScopeVMNamespace {
+			return []*model.VpcSubnet{
+				{
+					Path:        servicecommon.String("/subnet-1"),
+					IpAddresses: []string{"10.0.0.0/28"},
+				},
+				{
+					Path:        servicecommon.String("/subnet-2"),
+					IpAddresses: []string{"10.0.0.16/28"},
+				},
+			}
+		} else if key == servicecommon.TagScopeNamespace {
+			return []*model.VpcSubnet{
+				{
+					Path:        servicecommon.String("/subnet-3"),
+					IpAddresses: []string{"10.0.0.32/28"},
+				},
+				{
+					Path:        servicecommon.String("/subnet-4"),
+					IpAddresses: []string{"10.0.0.48/28"},
+				},
+			}
+		}
+		return []*model.VpcSubnet{}
+	})
+	defer patches.Reset()
+	subnetPath, err := r.getSubnetByIP(&v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "SubnetPort-1",
+			Namespace: "ns-1",
+		},
+		Status: v1alpha1.SubnetPortStatus{
+			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+					{Gateway: "10.0.0.40"},
+				},
+			},
+		},
+	})
+	assert.Nil(t, err)
+	assert.Equal(t, "/subnet-3", subnetPath)
+
+	_, err = r.getSubnetByIP(&v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "SubnetPort-1",
+			Namespace: "ns-1",
+		},
+		Status: v1alpha1.SubnetPortStatus{
+			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+					{Gateway: "10.0.1.0"},
+				},
+			},
+		},
+	})
+	assert.Contains(t, err.Error(), "failed to find Subnet matching SubnetPort")
+}
+
+func TestSubnetPortReconciler_RestoreReconcile(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	r := &SubnetPortReconciler{
+		Client: k8sClient,
+		SubnetPortService: &subnetport.SubnetPortService{
+			SubnetPortStore: &subnetport.SubnetPortStore{},
+		},
+	}
+	patches := gomonkey.ApplyFunc((*servicecommon.ResourceStore).ListIndexFuncValues, func(s *servicecommon.ResourceStore, key string) sets.Set[string] {
+		return sets.New[string]("port-1", "port-3")
+	})
+	defer patches.Reset()
+
+	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+		subnetportList := list.(*v1alpha1.SubnetPortList)
+		subnetportList.Items = []v1alpha1.SubnetPort{
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "port-1", Namespace: "ns-1", UID: "port-1"},
+				Status: v1alpha1.SubnetPortStatus{
+					NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+						IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+							{IPAddress: "10.0.0.3/28", Gateway: "10.0.0.1"},
+						},
+					},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "port-2", Namespace: "ns-1", UID: "port-2"},
+				Status: v1alpha1.SubnetPortStatus{
+					NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+						IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+							{IPAddress: "10.0.1.3/28", Gateway: "10.0.1.1"},
+						},
+					},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "port-3", Namespace: "ns-2", UID: "port-3"},
+				Status: v1alpha1.SubnetPortStatus{
+					NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+						IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+							{IPAddress: "10.0.0.4/28", Gateway: "10.0.0.1"},
+						},
+					},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "port-4", Namespace: "ns-2", UID: "port-4"},
+			},
+		}
+		return nil
+	})
+
+	patches.ApplyFunc((*SubnetPortReconciler).Reconcile, func(r *SubnetPortReconciler, ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+		assert.Equal(t, "port-2", req.Name)
+		assert.Equal(t, "ns-1", req.Namespace)
+		return common.ResultNormal, nil
+	})
+	err := r.RestoreReconcile()
+	assert.Nil(t, err)
 }
 
 func TestSubnetPortReconciler_addressBindingMapFunc(t *testing.T) {
