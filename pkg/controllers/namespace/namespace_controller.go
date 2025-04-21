@@ -28,8 +28,7 @@ import (
 )
 
 var (
-	AnnotationNamespaceVPCError = " nsx.vmware.com/vpc_error"
-	log                         = &logger.Log
+	log = &logger.Log
 )
 
 // NamespaceReconciler process Namespace create/delete event
@@ -76,7 +75,7 @@ func (r *NamespaceReconciler) createNetworkInfoCR(ctx context.Context, obj clien
 		return nil, err
 	}
 
-	changes := map[string]string{AnnotationNamespaceVPCError: ""}
+	changes := map[string]string{common.AnnotationNamespaceVPCError: ""}
 	util.UpdateK8sResourceAnnotation(r.Client, ctx, obj, changes)
 
 	log.Info("Created NetworkInfo CR", "NetworkInfo", networkInfoCR.Name, "Namespace", networkInfoCR.Namespace)
@@ -159,7 +158,7 @@ func (r *NamespaceReconciler) deleteDefaultSubnetSet(ns string) error {
 func (r *NamespaceReconciler) namespaceError(ctx context.Context, k8sObj client.Object, msg string, err error) {
 	logErr := util.If(err == nil, errors.New(msg), err).(error)
 	log.Error(logErr, msg)
-	changes := map[string]string{AnnotationNamespaceVPCError: msg}
+	changes := map[string]string{common.AnnotationNamespaceVPCError: msg}
 	util.UpdateK8sResourceAnnotation(r.Client, ctx, k8sObj, changes)
 }
 

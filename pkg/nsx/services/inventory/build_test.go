@@ -385,6 +385,29 @@ func TestBuildNamespace(t *testing.T) {
 		// Since there are no changes, it shouldn't be added to pendingAdd
 		assert.NotContains(t, inventoryService.pendingAdd, string(testNamespace.UID))
 	})
+
+	t.Run("NamespaceWithAnnotations", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+
+		// Create a namespace with VPC error annotation
+		namespaceWithAnnotations := testNamespace.DeepCopy()
+		if namespaceWithAnnotations.Annotations == nil {
+			namespaceWithAnnotations.Annotations = make(map[string]string)
+		}
+		namespaceWithAnnotations.Annotations["nsx.vmware.com/vpc_error"] = "VPC creation failed"
+
+		// Build the namespace
+		retry := inventoryService.BuildNamespace(namespaceWithAnnotations)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "namespace-uid-123")
+
+		// Verify the network errors are created
+		containerProject := inventoryService.pendingAdd["namespace-uid-123"].(*containerinventory.ContainerProject)
+		assert.Len(t, containerProject.NetworkErrors, 1)
+		assert.Equal(t, "VPC creation failed", containerProject.NetworkErrors[0].ErrorMessage)
+		assert.Equal(t, NetworkStatusUnhealthy, containerProject.NetworkStatus)
+	})
 }
 
 func TestSynchronizeServiceIDsWithApplicationInstances(t *testing.T) {
