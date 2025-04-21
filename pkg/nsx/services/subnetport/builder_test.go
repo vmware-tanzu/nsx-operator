@@ -87,7 +87,7 @@ func TestBuildSubnetPort(t *testing.T) {
 						Tag:   common.String("1.0.0"),
 					},
 					{
-						Scope: common.String("nsx-op/vm_namespace"),
+						Scope: common.String("nsx-op/namespace"),
 						Tag:   common.String("fake_ns"),
 					},
 					{
@@ -184,7 +184,7 @@ func TestBuildSubnetPort(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observedPort, err := service.buildSubnetPort(tt.obj, tt.nsxSubnet, tt.contextID, tt.labelTags)
+			observedPort, err := service.buildSubnetPort(tt.obj, tt.nsxSubnet, tt.contextID, tt.labelTags, false)
 			assert.Equal(t, tt.expectedPort, observedPort)
 			assert.Equal(t, common.CompareResource(SubnetPortToComparable(tt.expectedPort), SubnetPortToComparable(observedPort)), false)
 			assert.Equal(t, tt.expectedError, err)
