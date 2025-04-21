@@ -79,6 +79,12 @@ func (s *BindingStore) getBindingsByBindingMapCRName(bindingName string, binding
 	return s.GetByIndex(bindingMapCRNameIndexKey, nn.String())
 }
 
+func (s *BindingStore) DeleteMultipleObjects(bindingMaps []*model.SubnetConnectionBindingMap) {
+	for _, bindingMap := range bindingMaps {
+		s.Delete(bindingMap)
+	}
+}
+
 func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
 	case *model.SubnetConnectionBindingMap:
@@ -151,10 +157,11 @@ func SetupStore() *BindingStore {
 	return &BindingStore{ResourceStore: common.ResourceStore{
 		Indexer: cache.NewIndexer(
 			keyFunc, cache.Indexers{
-				bindingMapCRUIDIndexKey:  bindingMapCRUIDIndexFunc,
-				bindingMapCRNameIndexKey: bindingMapCRNameIndexFunc,
-				childSubnetIndexKey:      childSubnetIndexFunc,
-				parentSubnetIndexKey:     parentSubnetIndexFunc,
+				bindingMapCRUIDIndexKey:      bindingMapCRUIDIndexFunc,
+				bindingMapCRNameIndexKey:     bindingMapCRNameIndexFunc,
+				childSubnetIndexKey:          childSubnetIndexFunc,
+				parentSubnetIndexKey:         parentSubnetIndexFunc,
+				common.IndexByVPCPathFuncKey: common.IndexByVPCFunc,
 			}),
 		BindingType: model.SubnetConnectionBindingMapBindingType(),
 	}}

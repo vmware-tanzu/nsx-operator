@@ -205,7 +205,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 			log.V(1).Info("Removed finalizer", "securitypolicy", req.NamespacedName)
 		}
-		if err := r.Service.DeleteSecurityPolicy(realObj.UID, false, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
+		if err := r.Service.DeleteSecurityPolicy(realObj.UID, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, realObj, err)
 			return ResultRequeue, err
 		}
@@ -361,7 +361,7 @@ func (r *SecurityPolicyReconciler) CollectGarbage(ctx context.Context) error {
 	for elem := range diffSet {
 		log.V(1).Info("GC collected SecurityPolicy CR", "securityPolicyUID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
-		err = r.Service.DeleteSecurityPolicy(types.UID(elem), true, false, servicecommon.ResourceTypeSecurityPolicy)
+		err = r.Service.DeleteSecurityPolicy(types.UID(elem), true, servicecommon.ResourceTypeSecurityPolicy)
 		if err != nil {
 			errList = append(errList, err)
 			r.StatusUpdater.IncreaseDeleteFailTotal()
@@ -380,7 +380,7 @@ func (r *SecurityPolicyReconciler) deleteSecurityPolicyByName(ns, name string) e
 	for _, item := range nsxSecurityPolicies {
 		uid := nsxutil.FindTag(item.Tags, servicecommon.TagValueScopeSecurityPolicyUID)
 		log.Info("Deleting SecurityPolicy", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
-		if err := r.Service.DeleteSecurityPolicy(types.UID(uid), false, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
+		if err := r.Service.DeleteSecurityPolicy(types.UID(uid), false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
 			log.Error(err, "Failed to delete SecurityPolicy", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
 			return err
 		}

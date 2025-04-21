@@ -160,3 +160,12 @@ func (ls *LBSStore) GetByKey(vpcID string) *model.LBService {
 	}
 	return nil
 }
+
+func (ls *LBSStore) GetByIndex(key string, value string) []*model.LBService {
+	lbss := make([]*model.LBService, 0)
+	objs := ls.ResourceStore.GetByIndex(key, value)
+	for _, lbs := range objs {
+		lbss = append(lbss, lbs.(*model.LBService))
+	}
+	return lbss
+}

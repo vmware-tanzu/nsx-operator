@@ -22,7 +22,6 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
 	infra_realized "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/realized_state"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/shares"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
@@ -99,9 +98,7 @@ type Client struct {
 	ProjectClient                     orgs.ProjectsClient
 	TransitGatewayClient              projects.TransitGatewaysClient
 	TransitGatewayAttachmentClient    transit_gateways.AttachmentsClient
-	CertificateClient                 infra.CertificatesClient
 	ShareClient                       infra.SharesClient
-	SharedResourceClient              shares.ResourcesClient
 	LbAppProfileClient                infra.LbAppProfilesClient
 	LbPersistenceProfilesClient       infra.LbPersistenceProfilesClient
 	LbMonitorProfilesClient           infra.LbMonitorProfilesClient
@@ -161,56 +158,56 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	c.EnvoyPort = cf.EnvoyPort
 	cluster, _ := NewCluster(c)
 
-	queryClient := search.NewQueryClient(restConnector(cluster))
-	groupClient := domains.NewGroupsClient(restConnector(cluster))
-	securityClient := domains.NewSecurityPoliciesClient(restConnector(cluster))
-	ruleClient := security_policies.NewRulesClient(restConnector(cluster))
-	infraClient := nsx_policy.NewInfraClient(restConnector(cluster))
+	connector := restConnector(cluster)
+	connectorAllowOverwrite := restConnectorAllowOverwrite(cluster)
+
+	queryClient := search.NewQueryClient(connector)
+	groupClient := domains.NewGroupsClient(connector)
+	securityClient := domains.NewSecurityPoliciesClient(connector)
+	ruleClient := security_policies.NewRulesClient(connector)
+	infraClient := nsx_policy.NewInfraClient(connector)
 	statusClient := restore.NewStatusClient(restConnector(cluster))
 
-	clusterControlPlanesClient := enforcement_points.NewClusterControlPlanesClient(restConnector(cluster))
-	hostTransportNodesClient := enforcement_points.NewHostTransportNodesClient(restConnector(cluster))
-	realizedEntitiesClient := infra_realized.NewRealizedEntitiesClient(restConnector(cluster))
-	mpQueryClient := mpsearch.NewQueryClient(restConnector(cluster))
-	certificatesClient := trust_management.NewCertificatesClient(restConnector(cluster))
-	principalIdentitiesClient := trust_management.NewPrincipalIdentitiesClient(restConnector(cluster))
-	withCertificateClient := principal_identities.NewWithCertificateClient(restConnector(cluster))
+	clusterControlPlanesClient := enforcement_points.NewClusterControlPlanesClient(connector)
+	hostTransportNodesClient := enforcement_points.NewHostTransportNodesClient(connector)
+	realizedEntitiesClient := infra_realized.NewRealizedEntitiesClient(connector)
+	mpQueryClient := mpsearch.NewQueryClient(connector)
+	certificatesClient := trust_management.NewCertificatesClient(connector)
+	principalIdentitiesClient := trust_management.NewPrincipalIdentitiesClient(connector)
+	withCertificateClient := principal_identities.NewWithCertificateClient(connector)
 
-	orgRootClient := nsx_policy.NewOrgRootClient(restConnector(cluster))
-	projectInfraClient := projects.NewInfraClient(restConnector(cluster))
-	projectClient := orgs.NewProjectsClient(restConnector(cluster))
-	vpcClient := projects.NewVpcsClient(restConnector(cluster))
-	vpcConnectivityProfilesClient := projects.NewVpcConnectivityProfilesClient(restConnector(cluster))
-	ipBlockClient := project_infra.NewIpBlocksClient(restConnector(cluster))
-	staticRouteClient := vpcs.NewStaticRoutesClient(restConnector(cluster))
-	natRulesClient := nat.NewNatRulesClient(restConnector(cluster))
-	vpcGroupClient := vpcs.NewGroupsClient(restConnector(cluster))
-	portClient := subnets.NewPortsClient(restConnectorAllowOverwrite(cluster))
-	portStateClient := ports.NewStateClient(restConnector(cluster))
-	ipPoolClient := subnets.NewIpPoolsClient(restConnector(cluster))
-	ipAllocationClient := ip_pools.NewIpAllocationsClient(restConnector(cluster))
-	subnetsClient := vpcs.NewSubnetsClient(restConnector(cluster))
-	subnetStatusClient := subnets.NewStatusClient(restConnector(cluster))
-	ipAddressAllocationClient := vpcs.NewIpAddressAllocationsClient(restConnectorAllowOverwrite(cluster))
-	vpcLBSClient := vpcs.NewVpcLbsClient(restConnector(cluster))
-	vpcLbVirtualServersClient := vpcs.NewVpcLbVirtualServersClient(restConnector(cluster))
-	vpcLbPoolsClient := vpcs.NewVpcLbPoolsClient(restConnector(cluster))
-	vpcAttachmentClient := vpcs.NewAttachmentsClient(restConnector(cluster))
+	lbAppProfileClient := infra.NewLbAppProfilesClient(connector)
+	lbPersistenceProfilesClient := infra.NewLbPersistenceProfilesClient(connector)
+	lbMonitorProfilesClient := infra.NewLbMonitorProfilesClient(connector)
 
-	vpcSecurityClient := vpcs.NewSecurityPoliciesClient(restConnector(cluster))
-	vpcRuleClient := vpc_sp.NewRulesClient(restConnector(cluster))
+	orgRootClient := nsx_policy.NewOrgRootClient(connector)
+	projectInfraClient := projects.NewInfraClient(connector)
+	projectClient := orgs.NewProjectsClient(connector)
+	vpcClient := projects.NewVpcsClient(connector)
+	vpcConnectivityProfilesClient := projects.NewVpcConnectivityProfilesClient(connector)
+	ipBlockClient := project_infra.NewIpBlocksClient(connector)
+	staticRouteClient := vpcs.NewStaticRoutesClient(connector)
+	natRulesClient := nat.NewNatRulesClient(connector)
+	vpcGroupClient := vpcs.NewGroupsClient(connector)
+	portClient := subnets.NewPortsClient(connectorAllowOverwrite)
+	portStateClient := ports.NewStateClient(connector)
+	ipPoolClient := subnets.NewIpPoolsClient(connector)
+	ipAllocationClient := ip_pools.NewIpAllocationsClient(connector)
+	subnetsClient := vpcs.NewSubnetsClient(connector)
+	subnetStatusClient := subnets.NewStatusClient(connector)
+	ipAddressAllocationClient := vpcs.NewIpAddressAllocationsClient(connectorAllowOverwrite)
+	vpcLBSClient := vpcs.NewVpcLbsClient(connector)
+	vpcLbVirtualServersClient := vpcs.NewVpcLbVirtualServersClient(connector)
+	vpcLbPoolsClient := vpcs.NewVpcLbPoolsClient(connector)
+	vpcAttachmentClient := vpcs.NewAttachmentsClient(connector)
 
-	transitGatewayClient := projects.NewTransitGatewaysClient(restConnector(cluster))
-	transitGatewayAttachmentClient := transit_gateways.NewAttachmentsClient(restConnector(cluster))
+	vpcSecurityClient := vpcs.NewSecurityPoliciesClient(connector)
+	vpcRuleClient := vpc_sp.NewRulesClient(connector)
 
-	subnetConnectionBindingMapsClient := subnets.NewSubnetConnectionBindingMapsClient(restConnector(cluster))
+	transitGatewayClient := projects.NewTransitGatewaysClient(connector)
+	transitGatewayAttachmentClient := transit_gateways.NewAttachmentsClient(connector)
 
-	certificateClient := infra.NewCertificatesClient(restConnector(cluster))
-	shareClient := infra.NewSharesClient(restConnector(cluster))
-	sharedResourceClient := shares.NewResourcesClient(restConnector(cluster))
-	lbAppProfileClient := infra.NewLbAppProfilesClient(restConnector(cluster))
-	lbPersistenceProfilesClient := infra.NewLbPersistenceProfilesClient(restConnector(cluster))
-	lbMonitorProfilesClient := infra.NewLbMonitorProfilesClient(restConnector(cluster))
+	subnetConnectionBindingMapsClient := subnets.NewSubnetConnectionBindingMapsClient(connector)
 
 	nsxApiClient, _ := CreateNsxtApiClient(cf, cluster.client)
 
@@ -224,7 +221,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 
 	nsxClient := &Client{
 		NsxConfig:                  cf,
-		RestConnector:              restConnector(cluster),
+		RestConnector:              connector,
 		QueryClient:                queryClient,
 		GroupClient:                groupClient,
 		SecurityClient:             securityClient,
@@ -267,9 +264,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		TransitGatewayClient:              transitGatewayClient,
 		TransitGatewayAttachmentClient:    transitGatewayAttachmentClient,
 		SubnetConnectionBindingMapsClient: subnetConnectionBindingMapsClient,
-		CertificateClient:                 certificateClient,
-		ShareClient:                       shareClient,
-		SharedResourceClient:              sharedResourceClient,
 		LbAppProfileClient:                lbAppProfileClient,
 		LbPersistenceProfilesClient:       lbPersistenceProfilesClient,
 		LbMonitorProfilesClient:           lbMonitorProfilesClient,

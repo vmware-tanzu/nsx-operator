@@ -3,11 +3,7 @@ package subnetbinding
 import (
 	"fmt"
 	"strings"
-	"testing"
-	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
@@ -167,123 +163,6 @@ func stringEquals(s1, s2 *string) bool {
 	return *s1 == *s2
 }
 
-func TestBuildHNodeFromSubnetConnectionBindingMap(t *testing.T) {
-	for _, tc := range []struct {
-		name             string
-		subnetBindings   []*model.SubnetConnectionBindingMap
-		expOrgRootConfig map[string]map[string]map[string]map[string][]string
-	}{
-		{
-			name: "bindings under same subnets",
-			subnetBindings: []*model.SubnetConnectionBindingMap{
-				genSubnetConnectionBindingMap(bm1ID, "binding1", parentSubnetPath1, "/orgs/default/projects/default/vpcs/vpc1/subnets/subnet1", 201),
-				genSubnetConnectionBindingMap(bm2ID, "binding2", parentSubnetPath2, "/orgs/default/projects/default/vpcs/vpc1/subnets/subnet1", 202),
-			},
-			expOrgRootConfig: map[string]map[string]map[string]map[string][]string{
-				"default": {
-					"default": {
-						"vpc1": {
-							"subnet1": []string{bm1ID, bm2ID},
-						},
-					},
-				},
-			},
-		},
-		{
-			name: "bindings under different subnets",
-			subnetBindings: []*model.SubnetConnectionBindingMap{
-				genSubnetConnectionBindingMap(bm1ID, "binding1", parentSubnetPath1, "/orgs/default/projects/default/vpcs/vpc1/subnets/subnet1", 201),
-				genSubnetConnectionBindingMap(bm2ID, "binding2", parentSubnetPath2, "/orgs/default/projects/default/vpcs/vpc1/subnets/subnet2", 202),
-			},
-			expOrgRootConfig: map[string]map[string]map[string]map[string][]string{
-				"default": {
-					"default": {
-						"vpc1": {
-							"subnet1": []string{bm1ID},
-							"subnet2": []string{bm2ID},
-						},
-					},
-				},
-			},
-		}, {
-			name: "bindings under different VPCs",
-			subnetBindings: []*model.SubnetConnectionBindingMap{
-				genSubnetConnectionBindingMap(bm1ID, "binding1", parentSubnetPath1, "/orgs/default/projects/default/vpcs/vpc1/subnets/subnet1", 201),
-				genSubnetConnectionBindingMap(bm2ID, "binding2", parentSubnetPath2, "/orgs/default/projects/default/vpcs/vpc2/subnets/subnet1", 202),
-			},
-			expOrgRootConfig: map[string]map[string]map[string]map[string][]string{
-				"default": {
-					"default": {
-						"vpc1": {
-							"subnet1": []string{bm1ID},
-						},
-						"vpc2": {
-							"subnet1": []string{bm2ID},
-						},
-					},
-				},
-			},
-		}, {
-			name: "bindings under different projects",
-			subnetBindings: []*model.SubnetConnectionBindingMap{
-				genSubnetConnectionBindingMap(bm1ID, "binding1", parentSubnetPath1, "/orgs/default/projects/default/vpcs/vpc1/subnets/subnet1", 201),
-				genSubnetConnectionBindingMap(bm2ID, "binding2", parentSubnetPath2, "/orgs/default/projects/project1/vpcs/vpc2/subnets/subnet1", 202),
-			},
-			expOrgRootConfig: map[string]map[string]map[string]map[string][]string{
-				"default": {
-					"default": {
-						"vpc1": {
-							"subnet1": []string{bm1ID},
-						},
-					},
-					"project1": {
-						"vpc2": {
-							"subnet1": []string{bm2ID},
-						},
-					},
-				},
-			},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			bmMappings := make(map[string]*model.SubnetConnectionBindingMap)
-			for _, bm := range tc.subnetBindings {
-				bmMappings[*bm.Id] = bm
-			}
-			orgRootConfig := convertToOrgConfig(tc.expOrgRootConfig, bmMappings)
-			expOrgRoot, err := wrapOrgRoot(orgRootConfig)
-			require.Nil(t, err)
-
-			orgRoot, err := buildOrgRootBySubnetConnectionBindingMaps(tc.subnetBindings, "")
-			require.NoError(t, err)
-
-			expRoot := orgRootMatcher{expOrgRoot}
-			assert.True(t, expRoot.matches(orgRoot))
-		})
-	}
-}
-
-func convertToOrgConfig(testCfg map[string]map[string]map[string]map[string][]string, subnetBindings map[string]*model.SubnetConnectionBindingMap) map[string]map[string]map[string]map[string][]*model.SubnetConnectionBindingMap {
-	out := make(map[string]map[string]map[string]map[string][]*model.SubnetConnectionBindingMap)
-	for k1, v1 := range testCfg {
-		out[k1] = make(map[string]map[string]map[string][]*model.SubnetConnectionBindingMap)
-		for k2, v2 := range v1 {
-			out[k1][k2] = make(map[string]map[string][]*model.SubnetConnectionBindingMap)
-			for k3, v3 := range v2 {
-				out[k1][k2][k3] = make(map[string][]*model.SubnetConnectionBindingMap)
-				for k4, v4 := range v3 {
-					bms := make([]*model.SubnetConnectionBindingMap, len(v4))
-					for i, bmID := range v4 {
-						bms[i] = subnetBindings[bmID]
-					}
-					out[k1][k2][k3][k4] = bms
-				}
-			}
-		}
-	}
-	return out
-}
-
 func wrapOrgRoot(orgConfigs map[string]map[string]map[string]map[string][]*model.SubnetConnectionBindingMap) (*model.OrgRoot, error) {
 	// This is the outermost layer of the hierarchy SubnetConnectionBindingMaps.
 	// It doesn't need ID field.
@@ -312,7 +191,7 @@ func wrapOrg(orgID string, orgConfig map[string]map[string]map[string][]*model.S
 		}
 		children = append(children, child...)
 	}
-	return wrapChildResourceReference("Org", orgID, children)
+	return common.WrapChildResourceReference("Org", orgID, children)
 }
 
 func wrapProject(projectID string, projectConfig map[string]map[string][]*model.SubnetConnectionBindingMap) ([]*data.StructValue, error) {
@@ -324,7 +203,7 @@ func wrapProject(projectID string, projectConfig map[string]map[string][]*model.
 		}
 		children = append(children, child...)
 	}
-	return wrapChildResourceReference("Project", projectID, children)
+	return common.WrapChildResourceReference("Project", projectID, children)
 }
 
 func wrapVPC(vpcID string, vpcConfig map[string][]*model.SubnetConnectionBindingMap) ([]*data.StructValue, error) {
@@ -336,7 +215,7 @@ func wrapVPC(vpcID string, vpcConfig map[string][]*model.SubnetConnectionBinding
 		}
 		children = append(children, child...)
 	}
-	return wrapChildResourceReference("Vpc", vpcID, children)
+	return common.WrapChildResourceReference("Vpc", vpcID, children)
 }
 
 func wrapSubnet(subnetId string, bindingMaps []*model.SubnetConnectionBindingMap) ([]*data.StructValue, error) {
@@ -344,56 +223,17 @@ func wrapSubnet(subnetId string, bindingMaps []*model.SubnetConnectionBindingMap
 	if err != nil {
 		return nil, err
 	}
-	return wrapChildResourceReference("VpcSubnet", subnetId, children)
+	return common.WrapChildResourceReference("VpcSubnet", subnetId, children)
 }
 
 func wrapSubnetBindingMaps(bindingMaps []*model.SubnetConnectionBindingMap) ([]*data.StructValue, error) {
 	dataValues := make([]*data.StructValue, 0)
 	for _, bindingMap := range bindingMaps {
-		dataValue, err := wrapSubnetBindingMap(bindingMap)
+		dataValue, err := common.WrapSubnetConnectionBindingMap(bindingMap)
 		if err != nil {
 			return nil, err
 		}
 		dataValues = append(dataValues, dataValue)
 	}
 	return dataValues, nil
-}
-
-func TestBuildRootNodePerformance(t *testing.T) {
-	orgPrefix, orgCount := "org", 1
-	projectPrefix, projectCount := "proj", 10
-	vpcPrefix, vpcCount := "vpc", 20
-	subnetPrefix, subnetCount := "subnet", 100
-	bindingPrefix, bindingCount := "binding", 5
-
-	bindings := make([]*model.SubnetConnectionBindingMap, 0)
-	for i := 1; i <= orgCount; i++ {
-		orgID := fmt.Sprintf("%s%d", orgPrefix, i)
-		for j := 1; j <= projectCount; j++ {
-			projID := fmt.Sprintf("%s%d", projectPrefix, j)
-			for k := 1; k <= vpcCount; k++ {
-				vpcID := fmt.Sprintf("%s%d", vpcPrefix, k)
-				for l := 1; l <= subnetCount; l++ {
-					subnetID := fmt.Sprintf("%s%d", subnetPrefix, l)
-					subnetPath := fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s/subnets/%s", orgID, projID, vpcID, subnetID)
-					for m := 0; m <= bindingCount; m++ {
-						bindingID := fmt.Sprintf("%s%d", bindingPrefix, m)
-						bindingPath := fmt.Sprintf("%s/subnet-connection-binding-maps/%s", subnetPath, bindingID)
-						binding := &model.SubnetConnectionBindingMap{
-							Id:           common.String(bindingID),
-							Path:         common.String(bindingPath),
-							ParentPath:   common.String(subnetPath),
-							ResourceType: common.String(leafType),
-						}
-						bindings = append(bindings, binding)
-					}
-				}
-			}
-		}
-	}
-
-	// The total time to build OrgRoot with 10W SubnetConnectionBindngMaps is supposed to less than 10s.
-	start := time.Now()
-	buildRootNode(bindings, "")
-	assert.True(t, time.Now().Sub(start).Seconds() < 5)
 }
