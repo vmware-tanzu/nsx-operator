@@ -203,7 +203,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 	err = errors.New("CreateOrUpdateSubnetPort failed")
 	patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
+		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, error) {
 			return nil, err
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
@@ -235,7 +235,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		},
 	}
 	patchesCreateOrUpdateSubnetPort = gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
+		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, error) {
 			return portState, nil
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
@@ -263,7 +263,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 	defer patchesDeleteSubnetPortById.Reset()
 	patchesCreateOrUpdateSubnetPort = gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
+		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, error) {
 			assert.FailNow(t, "should not be called")
 			return nil, nil
 		})
@@ -333,7 +333,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		},
 	}
 	patchesCreateOrUpdateSubnetPort = gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
+		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, error) {
 			return portState, nil
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
@@ -1045,53 +1045,76 @@ func TestSubnetPortReconciler_getSubnetByIP(t *testing.T) {
 	r := &SubnetPortReconciler{
 		SubnetService: &subnet.SubnetService{},
 	}
-	patches := gomonkey.ApplyFunc((*subnet.SubnetService).GetSubnetsByIndex, func(s *subnet.SubnetService, key string, value string) []*model.VpcSubnet {
-		if key == servicecommon.TagScopeVMNamespace {
-			return []*model.VpcSubnet{
-				{
-					Path:        servicecommon.String("/subnet-1"),
-					IpAddresses: []string{"10.0.0.0/28"},
-				},
-				{
-					Path:        servicecommon.String("/subnet-2"),
-					IpAddresses: []string{"10.0.0.16/28"},
-				},
-			}
-		} else if key == servicecommon.TagScopeNamespace {
-			return []*model.VpcSubnet{
-				{
-					Path:        servicecommon.String("/subnet-3"),
-					IpAddresses: []string{"10.0.0.32/28"},
-				},
-				{
-					Path:        servicecommon.String("/subnet-4"),
-					IpAddresses: []string{"10.0.0.48/28"},
-				},
-			}
+	// SubnetPort with Subnet in spec
+	patches := gomonkey.ApplyFunc((*subnet.SubnetService).ListSubnetByName, func(s *subnet.SubnetService, ns string, name string) []*model.VpcSubnet {
+		return []*model.VpcSubnet{
+			{
+				Path:        servicecommon.String("/subnet-1"),
+				IpAddresses: []string{"10.0.0.0/28"},
+			},
 		}
-		return []*model.VpcSubnet{}
+	})
+
+	// SubnetPort with SubnetSet in spec
+	patches.ApplyFunc((*subnet.SubnetService).ListSubnetBySubnetSetName, func(s *subnet.SubnetService, ns string, subnetSetName string) []*model.VpcSubnet {
+		return []*model.VpcSubnet{
+			{
+				Path:        servicecommon.String("/subnet-2"),
+				IpAddresses: []string{"10.0.0.16/28"},
+			},
+			{
+				Path:        servicecommon.String("/subnet-3"),
+				IpAddresses: []string{"10.0.0.32/28"},
+			},
+		}
+	})
+
+	// SubnetPort with default SubnetSet
+	patches.ApplyFunc(common.GetDefaultSubnetSet, func(client client.Client, ctx context.Context, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
+		return &v1alpha1.SubnetSet{
+			ObjectMeta: metav1.ObjectMeta{Name: "vm-default", Namespace: "ns-1"},
+		}, nil
+	})
+	patches.ApplyFunc((*subnet.SubnetService).GetSubnetsByIndex, func(s *subnet.SubnetService, key string, value string) []*model.VpcSubnet {
+		return []*model.VpcSubnet{
+			{
+				Path:        servicecommon.String("/subnet-4"),
+				IpAddresses: []string{"10.0.0.48/28"},
+			},
+			{
+				Path:        servicecommon.String("/subnet-5"),
+				IpAddresses: []string{"10.0.0.64/28"},
+			},
+		}
 	})
 	defer patches.Reset()
+
 	subnetPath, err := r.getSubnetByIP(&v1alpha1.SubnetPort{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "SubnetPort-1",
 			Namespace: "ns-1",
 		},
+		Spec: v1alpha1.SubnetPortSpec{
+			Subnet: "subnet-1",
+		},
 		Status: v1alpha1.SubnetPortStatus{
 			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
 				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
-					{Gateway: "10.0.0.40"},
+					{Gateway: "10.0.0.2"},
 				},
 			},
 		},
 	})
 	assert.Nil(t, err)
-	assert.Equal(t, "/subnet-3", subnetPath)
+	assert.Equal(t, "/subnet-1", subnetPath)
 
 	_, err = r.getSubnetByIP(&v1alpha1.SubnetPort{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "SubnetPort-1",
 			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetPortSpec{
+			Subnet: "subnet-1",
 		},
 		Status: v1alpha1.SubnetPortStatus{
 			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
@@ -1102,6 +1125,41 @@ func TestSubnetPortReconciler_getSubnetByIP(t *testing.T) {
 		},
 	})
 	assert.Contains(t, err.Error(), "failed to find Subnet matching SubnetPort")
+
+	subnetPath, err = r.getSubnetByIP(&v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "SubnetPort-1",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetPortSpec{
+			SubnetSet: "subnetset-1",
+		},
+		Status: v1alpha1.SubnetPortStatus{
+			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+					{Gateway: "10.0.0.35"},
+				},
+			},
+		},
+	})
+	assert.Nil(t, err)
+	assert.Equal(t, "/subnet-3", subnetPath)
+
+	subnetPath, err = r.getSubnetByIP(&v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "SubnetPort-1",
+			Namespace: "ns-1",
+		},
+		Status: v1alpha1.SubnetPortStatus{
+			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+					{Gateway: "10.0.0.50"},
+				},
+			},
+		},
+	})
+	assert.Nil(t, err)
+	assert.Equal(t, "/subnet-4", subnetPath)
 }
 
 func TestSubnetPortReconciler_RestoreReconcile(t *testing.T) {

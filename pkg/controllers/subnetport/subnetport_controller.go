@@ -15,6 +15,7 @@ import (
 	"time"
 
 	vmv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -492,7 +493,7 @@ func updateSubnetPortStatusConditions(client client.Client, ctx context.Context,
 	}
 	if conditionsUpdated {
 		client.Status().Update(ctx, subnetPort)
-		log.V(1).Info("updated SubnetPort CR", "Name", subnetPort.Name, "Namespace", subnetPort.Namespace,
+		log.V(1).Info("Updated SubnetPort CR", "Name", subnetPort.Name, "Namespace", subnetPort.Namespace,
 			"New Conditions", newConditions)
 	}
 }
@@ -525,8 +526,18 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 }
 
 func (r *SubnetPortReconciler) getSubnetByIP(subnetPort *v1alpha1.SubnetPort) (string, error) {
-	subnets := r.SubnetService.GetSubnetsByIndex(servicecommon.TagScopeVMNamespace, subnetPort.Namespace)
-	subnets = append(subnets, r.SubnetService.GetSubnetsByIndex(servicecommon.TagScopeNamespace, subnetPort.Namespace)...)
+	var subnets []*model.VpcSubnet
+	if len(subnetPort.Spec.Subnet) > 0 {
+		subnets = r.SubnetService.ListSubnetByName(subnetPort.Namespace, subnetPort.Spec.Subnet)
+	} else if len(subnetPort.Spec.SubnetSet) > 0 {
+		subnets = r.SubnetService.ListSubnetBySubnetSetName(subnetPort.Namespace, subnetPort.Spec.SubnetSet)
+	} else {
+		subnetSet, err := common.GetDefaultSubnetSet(r.Client, context.Background(), subnetPort.Namespace, servicecommon.LabelDefaultVMSubnetSet)
+		if err != nil {
+			return "", err
+		}
+		subnets = r.SubnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.UID))
+	}
 	gatewayIP := net.ParseIP(subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway)
 
 	for _, subnet := range subnets {
@@ -567,6 +578,10 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		// For restore case, SubnetPort will be created on the Subnet with matching CIDR
 		if subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway != "" {
 			subnetPath, err = r.getSubnetByIP(subnetPort)
+			if err != nil {
+				log.Error(err, "Failed to find Subnet for restored SubnetPort")
+				return
+			}
 			existing = true
 			log.V(1).Info("NSX SubnetPort will be restored on the existing NSX Subnet", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
 			return
@@ -664,7 +679,7 @@ func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alph
 
 func (r *SubnetPortReconciler) getVirtualMachine(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (*vmv1alpha1.VirtualMachine, string, error) {
 	vmName, nicName, err := common.GetVirtualMachineNameForSubnetPort(subnetPort)
-	if vmName == "" {
+	if vmName == "" || err != nil {
 		return nil, "", err
 	}
 	vm := &vmv1alpha1.VirtualMachine{}
@@ -675,7 +690,7 @@ func (r *SubnetPortReconciler) getVirtualMachine(ctx context.Context, subnetPort
 	if err := r.Client.Get(ctx, namespacedName, vm); err != nil {
 		return nil, "", err
 	}
-	log.Info("got VirtualMachine for SubnetPort", "subnetPort.UID", subnetPort.UID, "vmName", vmName, "nicName", nicName, "labels", vm.ObjectMeta.Labels)
+	log.Info("Got VirtualMachine for SubnetPort", "subnetPort.UID", subnetPort.UID, "vmName", vmName, "nicName", nicName, "labels", vm.ObjectMeta.Labels)
 	return vm, nicName, nil
 }
 

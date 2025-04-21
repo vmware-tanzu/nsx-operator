@@ -228,7 +228,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 						return &model.VpcSubnet{}, nil
 					})
 				patches.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-					func(r *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
+					func(r *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, error) {
 						return nil, errors.New("failed to create subnetport")
 					})
 

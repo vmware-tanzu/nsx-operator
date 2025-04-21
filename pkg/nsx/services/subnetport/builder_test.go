@@ -153,7 +153,7 @@ func TestBuildSubnetPort(t *testing.T) {
 						Tag:   common.String("1.0.0"),
 					},
 					{
-						Scope: common.String("nsx-op/vm_namespace"),
+						Scope: common.String("nsx-op/namespace"),
 						Tag:   common.String("fake_ns"),
 					},
 					{

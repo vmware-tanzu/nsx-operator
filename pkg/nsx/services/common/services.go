@@ -28,6 +28,8 @@ type SubnetServiceProvider interface {
 	GetSubnetsByIndex(key, value string) []*model.VpcSubnet
 	CreateOrUpdateSubnet(obj client.Object, vpcInfo VPCResourceInfo, tags []model.Tag) (*model.VpcSubnet, error)
 	GenerateSubnetNSTags(obj client.Object) []model.Tag
+	ListSubnetByName(ns, name string) []*model.VpcSubnet
+	ListSubnetBySubnetSetName(ns, subnetSetName string) []*model.VpcSubnet
 }
 
 type SubnetPortServiceProvider interface {

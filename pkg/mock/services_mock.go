@@ -81,6 +81,14 @@ func (m *MockSubnetServiceProvider) GenerateSubnetNSTags(obj client.Object) []mo
 	return []model.Tag{}
 }
 
+func (m *MockSubnetServiceProvider) ListSubnetByName(ns, name string) []*model.VpcSubnet {
+	return []*model.VpcSubnet{}
+}
+
+func (m *MockSubnetServiceProvider) ListSubnetBySubnetSetName(ns, subnetSetName string) []*model.VpcSubnet {
+	return []*model.VpcSubnet{}
+}
+
 type MockSubnetPortServiceProvider struct {
 	mock.Mock
 }
