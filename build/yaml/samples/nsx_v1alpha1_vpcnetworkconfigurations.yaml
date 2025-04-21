@@ -18,3 +18,16 @@ spec:
   vpc: /orgs/default/projects/proj-1/vpcs/vpc-1
   defaultSubnetSize: 32
   vpcConnectivityProfile: /orgs/default/projects/wenqi-test/vpc-connectivity-profiles/default
+---
+# Sample to create VPCNetworkConfiguration CR using a pre-created NSX VPC and pre-created Subnets.
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: VPCNetworkConfiguration
+metadata:
+  name: vpc-network-config-with-pre-created-vpc
+spec:
+  vpc: /orgs/default/projects/proj-1/vpcs/vpc-1
+  subnets:
+  - /orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet1
+  - /orgs/default/projects/proj-1/vpcs/vpc-2/subnets/subnet2
+  defaultSubnetSize: 32
+  vpcConnectivityProfile: /orgs/default/projects/wenqi-test/vpc-connectivity-profiles/default

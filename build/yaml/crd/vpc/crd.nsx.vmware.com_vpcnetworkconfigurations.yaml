@@ -66,6 +66,12 @@ spec:
                 items:
                   type: string
                 type: array
+              subnets:
+                description: NSX path of the shared Subnets the Namespace is associated
+                  with.
+                items:
+                  type: string
+                type: array
               vpc:
                 description: |-
                   NSX path of the VPC the Namespace is associated with.

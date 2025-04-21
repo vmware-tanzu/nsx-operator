@@ -15,3 +15,24 @@ spec:
   ipv4SubnetSize: 64
   subnetDHCPConfig:
     mode: DHCPServer
+---
+# Subnet CR sample for assigned VLAN extension Subnet
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: Subnet
+metadata:
+  name: vlan-subnet
+  annotations:
+    nsx.vmware.com/associated_resource: project1:vpc1:vlan-subnet
+spec:
+  vpcName: project1:vpc1
+  accessMode: Public
+  ipv4SubnetSize: 64
+  subnetDHCPConfig:
+    mode: DHCPDeactivated
+  enableVLANExtension: true
+status:
+  gatewayAddresses:
+  - 172.26.0.1/28
+  networkAddresses:
+  - 172.26.0.0/28
+  shared: true

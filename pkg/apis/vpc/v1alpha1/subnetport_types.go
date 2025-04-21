@@ -1,4 +1,4 @@
-/* Copyright © 2022-2023 VMware, Inc. All Rights Reserved.
+/* Copyright © 2022-2025 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package v1alpha1
@@ -14,6 +14,16 @@ type SubnetPortSpec struct {
 	Subnet string `json:"subnet,omitempty"`
 	// SubnetSet defines the parent SubnetSet name of the SubnetPort.
 	SubnetSet string `json:"subnetSet,omitempty"`
+	// AddressBindings defines static address bindings used for the SubnetPort.
+	AddressBindings []PortAddressBinding `json:"addressBindings,omitempty"`
+}
+
+// PortAddressBinding defines static addresses for the Port.
+type PortAddressBinding struct {
+	// The IP Address.
+	IPAddress string `json:"ipAddress,omitempty"`
+	// The MAC address.
+	MACAddress string `json:"macAddress,omitempty"`
 }
 
 // SubnetPortStatus defines the observed state of SubnetPort.
@@ -50,6 +60,7 @@ type NetworkInterfaceIPAddress struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:storageversion
+//+kubebuilder:selectablefield:JSONPath=`.spec.subnet`
 
 // SubnetPort is the Schema for the subnetports API.
 // +kubebuilder:printcolumn:name="VIFID",type=string,JSONPath=`.status.attachment.id`,description="Attachment VIF ID owned by the SubnetPort."

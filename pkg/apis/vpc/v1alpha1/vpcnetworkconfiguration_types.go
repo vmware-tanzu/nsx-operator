@@ -1,4 +1,4 @@
-/* Copyright © 2022-2023 VMware, Inc. All Rights Reserved.
+/* Copyright © 2022-2025 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 // +kubebuilder:object:generate=true
@@ -19,6 +19,10 @@ type VPCNetworkConfigurationSpec struct {
 	// take effect, other fields are ignored.
 	// +optional
 	VPC string `json:"vpc,omitempty"`
+
+	// NSX path of the shared Subnets the Namespace is associated with.
+	// +optional
+	Subnets []string `json:"subnets,omitempty"`
 
 	// NSX Project the Namespace is associated with.
 	NSXProject string `json:"nsxProject,omitempty"`

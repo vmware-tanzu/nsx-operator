@@ -1,3 +1,6 @@
+/* Copyright © 2024-2025 VMware, Inc. All Rights Reserved.
+   SPDX-License-Identifier: Apache-2.0 */
+
 package v1alpha1
 
 import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,6 +37,7 @@ type SubnetConnectionBindingMapStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:storageversion
 // +kubebuilder:resource:scope="Namespaced",path=subnetconnectionbindingmaps,shortName=subnetbinding;subnetbindings
+// +kubebuilder:selectablefield:JSONPath=`.spec.subnetName`
 
 // SubnetConnectionBindingMap is the Schema for the SubnetConnectionBindingMap API.
 // +kubebuilder:printcolumn:name="name",type=string,JSONPath=`.metadata.name`,description="The name of the SubnetConnectionBindingMap resource"
