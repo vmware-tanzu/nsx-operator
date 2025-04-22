@@ -174,7 +174,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			r.StatusUpdater.UpdateFail(ctx, pod, err, "", setPodReadyStatusFalse)
 			return common.ResultRequeue, err
 		}
-		_, err = r.SubnetPortService.CreateOrUpdateSubnetPort(pod, nsxSubnet, contextID, &pod.ObjectMeta.Labels, false)
+		_, err = r.SubnetPortService.CreateOrUpdateSubnetPort(pod, nsxSubnet, contextID, &pod.ObjectMeta.Labels, false, false)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, pod, err, "", setPodReadyStatusFalse)
 			return common.ResultRequeue, err
