@@ -5,12 +5,15 @@ package node
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"reflect"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -43,7 +46,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResTypeNode)
 
 	if err := r.Client.Get(ctx, req.NamespacedName, node); err != nil {
-		if errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			log.Info("node not found", "req", req.NamespacedName)
 			deleted = true
 			if err := r.Service.SyncNodeStore(req.NamespacedName.Name, deleted); err != nil {
@@ -95,6 +98,23 @@ func StartNodeController(mgr ctrl.Manager, nodeService *node.NodeService) {
 }
 
 func (r *NodeReconciler) RestoreReconcile() error {
+	// Reconcile all nodes to make sure Pod restore can get the Node id
+	ctx := context.Background()
+	nodeList := &v1.NodeList{}
+	err := r.Client.List(ctx, nodeList)
+	if err != nil {
+		return fmt.Errorf("failed to reconcile Nodes: %w", err)
+	}
+	var errorList []error
+	for _, node := range nodeList.Items {
+		result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: node.Namespace, Name: node.Name}})
+		if result.Requeue || err != nil {
+			errorList = append(errorList, fmt.Errorf("failed to reconcile Node %v, error: %w", node, err))
+		}
+	}
+	if len(errorList) > 0 {
+		return errors.Join(errorList...)
+	}
 	return nil
 }
 

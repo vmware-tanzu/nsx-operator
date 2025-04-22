@@ -11,9 +11,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 )
 
@@ -24,6 +25,12 @@ var (
 	RestoreStatusInitial     = "INITIAL"
 	RestoreStatusSuccess     = "SUCCESS"
 )
+
+type ReconcilerProvider interface {
+	RestoreReconcile() error
+	CollectGarbage(ctx context.Context) error
+	StartController(mgr ctrl.Manager, hookServer webhook.Server) error
+}
 
 func CompareNSXRestore(k8sClient client.Client, nsxClient *nsx.Client) (bool, error) {
 	ctx := context.TODO()
@@ -118,7 +125,7 @@ func updateRestoreEndTime(k8sClient client.Client) error {
 	})
 }
 
-func ProcessRestore(reconcilerList []commonctl.ReconcilerProvider, client client.Client) error {
+func ProcessRestore(reconcilerList []ReconcilerProvider, client client.Client) error {
 	log.Info("Enter restore mode")
 	var errList []error
 	// Collect Garbage with reverse order, e.g. SubnetPort -> Subnet -> VPC

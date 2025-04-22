@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -219,4 +221,46 @@ func UnlockSubnetSet(uuid types.UID, subnetSetLock *sync.Mutex) {
 		log.V(1).Info("Unlock SubnetSet", "uuid", uuid)
 		subnetSetLock.Unlock()
 	}
+}
+
+func UpdateRestoreAnnotation(client k8sclient.Client, ctx context.Context, obj k8sclient.Object, value string) error {
+	key := types.NamespacedName{Namespace: obj.GetNamespace(), Name: obj.GetName()}
+	err := client.Get(ctx, key, obj)
+	if err != nil {
+		log.Error(err, "Failed to get Object", "key", key)
+		return err
+	}
+	anno := obj.GetAnnotations()
+	if anno == nil {
+		anno = map[string]string{}
+	}
+	restoreValue, ok := anno[servicecommon.AnnotationRestore]
+	if ok {
+		// Append the value to annotation if it is an interface name
+		if restoreValue == "" || value == "true" {
+			restoreValue = value
+		} else if !strings.Contains(restoreValue, value) {
+			restoreValue += fmt.Sprintf(", %s", value)
+		}
+	} else {
+		restoreValue = value
+	}
+	anno[servicecommon.AnnotationRestore] = restoreValue
+	obj.SetAnnotations(anno)
+	return client.Update(ctx, obj)
+}
+
+func GetSubnetByIP(subnets []*model.VpcSubnet, ip net.IP) (string, error) {
+	for _, subnet := range subnets {
+		for _, cidr := range subnet.IpAddresses {
+			_, ipnet, err := net.ParseCIDR(cidr)
+			if err != nil {
+				return "", err
+			}
+			if ipnet.Contains(ip) && subnet.Path != nil {
+				return *subnet.Path, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("failed to find Subnet matching IP %s", ip)
 }

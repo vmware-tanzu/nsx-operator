@@ -18,7 +18,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -219,7 +218,7 @@ func TestUpdateRestoreEndTime(t *testing.T) {
 }
 
 func TestProcessRestore(t *testing.T) {
-	reconcilerList := []commonctl.ReconcilerProvider{
+	reconcilerList := []ReconcilerProvider{
 		&fakeReconcilerProvider{"VPC reconciler"},
 		&fakeReconcilerProvider{"Subnet reconciler"},
 		&fakeReconcilerProvider{"SubnetPort reconciler"},

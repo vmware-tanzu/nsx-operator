@@ -175,11 +175,19 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				if err != nil {
 					log.Error(err, "Failed to parse cpvm label", "label", cpvmValue)
 				} else if isCPVM {
-					r.updateRestoreAnnotation(ctx, subnetPort, "cpvm")
+					retry.OnError(util.K8sClientRetry, func(err error) bool {
+						return err != nil
+					}, func() error {
+						return common.UpdateRestoreAnnotation(r.Client, ctx, subnetPort, "cpvm")
+					})
 				}
 			}
 			if vm != nil {
-				r.updateRestoreAnnotation(ctx, vm, nicName)
+				retry.OnError(util.K8sClientRetry, func(err error) bool {
+					return err != nil
+				}, func() error {
+					return common.UpdateRestoreAnnotation(r.Client, ctx, vm, nicName)
+				})
 			}
 		}
 	} else {
@@ -194,34 +202,6 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		setAddressBindingStatusBySubnetPort(r.Client, ctx, subnetPort, r.SubnetPortService, metav1.Now(), vmOrInterfaceNotFoundError)
 	}
 	return common.ResultNormal, nil
-}
-
-func (r *SubnetPortReconciler) updateRestoreAnnotation(ctx context.Context, obj client.Object, value string) {
-	retry.OnError(util.K8sClientRetry, func(err error) bool {
-		return err != nil
-	}, func() error {
-		key := types.NamespacedName{Namespace: obj.GetNamespace(), Name: obj.GetName()}
-		err := r.Client.Get(ctx, key, obj)
-		if err != nil {
-			log.Error(err, "Failed to get Object", "key", key)
-			return err
-		}
-		anno := obj.GetAnnotations()
-		if anno == nil {
-			anno = map[string]string{}
-		}
-		restoreValue, ok := anno[servicecommon.AnnotationRestore]
-		if ok {
-			if restoreValue != "" && !strings.Contains(restoreValue, value) {
-				restoreValue += fmt.Sprintf(", %s", value)
-			}
-		} else {
-			restoreValue = value
-		}
-		anno[servicecommon.AnnotationRestore] = restoreValue
-		obj.SetAnnotations(anno)
-		return r.Client.Update(ctx, obj)
-	})
 }
 
 func subnetPortNamespaceVMIndexFunc(obj client.Object) []string {
@@ -525,7 +505,7 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 	return nil
 }
 
-func (r *SubnetPortReconciler) getSubnetByIP(subnetPort *v1alpha1.SubnetPort) (string, error) {
+func (r *SubnetPortReconciler) getSubnetBySubnetPort(subnetPort *v1alpha1.SubnetPort) (string, error) {
 	var subnets []*model.VpcSubnet
 	if len(subnetPort.Spec.Subnet) > 0 {
 		subnets = r.SubnetService.ListSubnetByName(subnetPort.Namespace, subnetPort.Spec.Subnet)
@@ -539,19 +519,7 @@ func (r *SubnetPortReconciler) getSubnetByIP(subnetPort *v1alpha1.SubnetPort) (s
 		subnets = r.SubnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.UID))
 	}
 	gatewayIP := net.ParseIP(subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway)
-
-	for _, subnet := range subnets {
-		for _, cidr := range subnet.IpAddresses {
-			_, ipnet, err := net.ParseCIDR(cidr)
-			if err != nil {
-				return "", err
-			}
-			if ipnet.Contains(gatewayIP) && subnet.Path != nil {
-				return *subnet.Path, nil
-			}
-		}
-	}
-	return "", fmt.Errorf("failed to find Subnet matching SubnetPort %v", subnetPort)
+	return common.GetSubnetByIP(subnets, gatewayIP)
 }
 
 func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (existing bool, isStale bool, subnetPath string, err error) {
@@ -577,9 +545,9 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 	if r.restoreMode {
 		// For restore case, SubnetPort will be created on the Subnet with matching CIDR
 		if subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway != "" {
-			subnetPath, err = r.getSubnetByIP(subnetPort)
+			subnetPath, err = r.getSubnetBySubnetPort(subnetPort)
 			if err != nil {
-				log.Error(err, "Failed to find Subnet for restored SubnetPort")
+				log.Error(err, "Failed to find Subnet for restored SubnetPort", "SubnetPort", subnetPort)
 				return
 			}
 			existing = true

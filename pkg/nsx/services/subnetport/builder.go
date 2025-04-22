@@ -51,6 +51,18 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 				},
 			}
 		}
+	case *corev1.Pod:
+		if restoreMode && len(o.Status.PodIP) > 0 {
+			addressBindings = []model.PortAddressBindingEntry{
+				{IpAddress: &o.Status.PodIP},
+			}
+			mac, ok := o.GetAnnotations()[common.AnnotationPodMAC]
+			if ok && mac != "" {
+				addressBindings[0].MacAddress = &mac
+			} else {
+				log.Error(nil, "MAC address annotation not found in Pod", "Pod", o)
+			}
+		}
 	}
 
 	if nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode != nsxutil.ParseDHCPMode(v1alpha1.DHCPConfigModeDeactivated) {

@@ -89,6 +89,7 @@ const (
 	AnnotationDefaultNetworkConfig     string = "nsx.vmware.com/default"
 	AnnotationAttachmentRef            string = "nsx.vmware.com/attachment_ref"
 	AnnotationRestore                  string = "nsx/restore"
+	AnnotationPodMAC                   string = "nsx.vmware.com/mac"
 	LabelCPVM                          string = "iaas.vmware.com/is-cpvm-subnetport"
 	TagScopePodName                    string = "nsx-op/pod_name"
 	TagScopePodUID                     string = "nsx-op/pod_uid"
