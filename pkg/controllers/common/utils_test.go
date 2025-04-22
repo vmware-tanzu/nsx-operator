@@ -147,7 +147,7 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 	}
 }
 
-func TestGetDefaultSubnetSet(t *testing.T) {
+func TestGetDefaultSubnetSetByNamespace(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
@@ -164,33 +164,8 @@ func TestGetDefaultSubnetSet(t *testing.T) {
 		expectedResult *v1alpha1.SubnetSet
 	}{
 		{
-			name: "NamespaceNotFound",
-			prepareFunc: func(t *testing.T) {
-				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("failed to get Namespace"))
-			},
-			expectedErr: "failed to get Namespace",
-		},
-		{
-			name: "SharedNamespace",
-			prepareFunc: func(t *testing.T) {
-				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
-					namespaceCR := obj.(*v1.Namespace)
-					namespaceCR.Annotations = make(map[string]string)
-					namespaceCR.Annotations[servicecommon.AnnotationSharedVPCNamespace] = "sharedNamespace"
-					return nil
-				})
-				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-					a := list.(*v1alpha1.SubnetSetList)
-					a.Items = append(a.Items, subnetSet)
-					return nil
-				})
-			},
-			expectedResult: &subnetSet,
-		},
-		{
 			name: "ListSubnetSetFailure",
 			prepareFunc: func(t *testing.T) {
-				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("failed to list SubnetSet"))
 			},
 			expectedErr: "failed to list SubnetSet",
@@ -198,15 +173,13 @@ func TestGetDefaultSubnetSet(t *testing.T) {
 		{
 			name: "NoDefaultSubnetSet",
 			prepareFunc: func(t *testing.T) {
-				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 			},
-			expectedErr: "default subnetset not found",
+			expectedErr: "default SubnetSet not found",
 		},
 		{
 			name: "MultipleDefaultSubnetSet",
 			prepareFunc: func(t *testing.T) {
-				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					a := list.(*v1alpha1.SubnetSetList)
 					a.Items = append(a.Items, subnetSet)
@@ -214,14 +187,14 @@ func TestGetDefaultSubnetSet(t *testing.T) {
 					return nil
 				})
 			},
-			expectedErr: "multiple default subnetsets found",
+			expectedErr: "multiple default SubnetSets found",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.prepareFunc(t)
-			result, err := GetDefaultSubnetSet(k8sClient, context.TODO(), "ns-1", "")
+			result, err := GetDefaultSubnetSetByNamespace(k8sClient, "ns-1", "")
 			if tt.expectedErr != "" {
 				assert.Contains(t, err.Error(), tt.expectedErr)
 			} else {
