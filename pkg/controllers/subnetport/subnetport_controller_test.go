@@ -902,8 +902,8 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 					func(s *subnetport.SubnetPortService, nsxSubnetPortID string) string {
 						return ""
 					})
-				patches.ApplyFunc(common.GetDefaultSubnetSet,
-					func(client client.Client, ctx context.Context, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
+				patches.ApplyFunc(common.GetDefaultSubnetSetByNamespace,
+					func(client client.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
 						subnetSetCR := &v1alpha1.SubnetSet{}
 						subnetSetCR.DeletionTimestamp = &metav1.Time{Time: time.Now()}
 						subnetSetCR.Name = "default-subnetset"
@@ -927,8 +927,8 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 					func(s *subnetport.SubnetPortService, nsxSubnetPortID string) string {
 						return ""
 					})
-				patches.ApplyFunc(common.GetDefaultSubnetSet,
-					func(client client.Client, ctx context.Context, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
+				patches.ApplyFunc(common.GetDefaultSubnetSetByNamespace,
+					func(client client.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
 						subnetSetCR := &v1alpha1.SubnetSet{}
 						subnetSetCR.Name = "default-subnetset"
 						return subnetSetCR, nil
@@ -1070,7 +1070,7 @@ func TestSubnetPortReconciler_getSubnetByIP(t *testing.T) {
 	})
 
 	// SubnetPort with default SubnetSet
-	patches.ApplyFunc(common.GetDefaultSubnetSet, func(client client.Client, ctx context.Context, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
+	patches.ApplyFunc(common.GetDefaultSubnetSetByNamespace, func(client client.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
 		return &v1alpha1.SubnetSet{
 			ObjectMeta: metav1.ObjectMeta{Name: "vm-default", Namespace: "ns-1"},
 		}, nil

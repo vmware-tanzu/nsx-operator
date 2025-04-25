@@ -476,8 +476,8 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 					func(s *subnetport.SubnetPortService, nsxSubnetPortID string) string {
 						return ""
 					})
-				patches.ApplyFunc(common.GetDefaultSubnetSet,
-					func(client client.Client, ctx context.Context, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
+				patches.ApplyFunc(common.GetDefaultSubnetSetByNamespace,
+					func(client client.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
 						return nil, errors.New("failed to get default SubnetSet")
 					})
 				return patches
@@ -491,8 +491,8 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 					func(s *subnetport.SubnetPortService, nsxSubnetPortID string) string {
 						return ""
 					})
-				patches.ApplyFunc(common.GetDefaultSubnetSet,
-					func(client client.Client, ctx context.Context, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
+				patches.ApplyFunc(common.GetDefaultSubnetSetByNamespace,
+					func(client client.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
 						return &v1alpha1.SubnetSet{
 							ObjectMeta: metav1.ObjectMeta{
 								Name: "subnetset-1",
@@ -515,8 +515,8 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 					func(s *subnetport.SubnetPortService, nsxSubnetPortID string) string {
 						return ""
 					})
-				patches.ApplyFunc(common.GetDefaultSubnetSet,
-					func(client client.Client, ctx context.Context, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
+				patches.ApplyFunc(common.GetDefaultSubnetSetByNamespace,
+					func(client client.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
 						return &v1alpha1.SubnetSet{
 							ObjectMeta: metav1.ObjectMeta{
 								Name: "subnetset-1",

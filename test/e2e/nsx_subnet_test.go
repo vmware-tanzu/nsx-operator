@@ -251,6 +251,8 @@ func sharedSubnetSet(t *testing.T) {
 	// 1. Check whether default-vm-subnetset and default-pod-subnetset are created.
 	assureSubnetSet(t, subnetTestNamespaceTarget, common.DefaultVMSubnetSet)
 	assureSubnetSet(t, subnetTestNamespaceTarget, common.DefaultPodSubnetSet)
+	assureSubnetSet(t, subnetTestNamespaceShared, common.DefaultVMSubnetSet)
+	assureSubnetSet(t, subnetTestNamespaceShared, common.DefaultPodSubnetSet)
 
 	// 2. Check `Ipv4SubnetSize` and `AccessMode` should be same with related fields in VPCNetworkConfig.
 	require.True(t, verifySubnetSetCR(common.DefaultVMSubnetSet))
@@ -263,7 +265,7 @@ func sharedSubnetSet(t *testing.T) {
 	defer deleteYAML(portPath, subnetTestNamespaceShared)
 
 	// 3. Check SubnetSet CR status should be updated with NSX Subnet info.
-	subnetSet, err := testData.crdClientset.CrdV1alpha1().SubnetSets(subnetTestNamespaceTarget).Get(context.TODO(), common.DefaultVMSubnetSet, v1.GetOptions{})
+	subnetSet, err := testData.crdClientset.CrdV1alpha1().SubnetSets(subnetTestNamespaceShared).Get(context.TODO(), common.DefaultVMSubnetSet, v1.GetOptions{})
 	require.NoError(t, err)
 	require.NotEmpty(t, subnetSet.Status.Subnets, "No Subnet info in SubnetSet")
 
@@ -273,7 +275,6 @@ func sharedSubnetSet(t *testing.T) {
 	require.NotEmpty(t, port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "No IP address in SubnetPort")
 
 	// 5. Check Subnet CIDR contains SubnetPort IP.
-
 	portIP := net.ParseIP(strings.Split(port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "/")[0])
 	_, subnetCIDR, err := net.ParseCIDR(subnetSet.Status.Subnets[0].NetworkAddresses[0])
 	require.NoError(t, err)

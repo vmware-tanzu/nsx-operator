@@ -55,38 +55,7 @@ func AllocateSubnetFromSubnetSet(subnetSet *v1alpha1.SubnetSet, vpcService servi
 	return *nsxSubnet.Path, nil
 }
 
-func getSharedNamespaceForNamespace(client k8sclient.Client, ctx context.Context, namespaceName string) (string, error) {
-	namespace := &v1.Namespace{}
-	namespacedName := types.NamespacedName{Name: namespaceName}
-	if err := client.Get(ctx, namespacedName, namespace); err != nil {
-		log.Error(err, "Failed to get target namespace during getting VPC for namespace")
-		return "", err
-	}
-	sharedNamespaceName, exists := namespace.Annotations[servicecommon.AnnotationSharedVPCNamespace]
-	if !exists {
-		return "", nil
-	}
-	log.Info("Got shared VPC namespace", "current namespace", namespaceName, "shared namespace", sharedNamespaceName)
-	return sharedNamespaceName, nil
-}
-
-func GetDefaultSubnetSet(client k8sclient.Client, ctx context.Context, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
-	targetNamespace, err := getSharedNamespaceForNamespace(client, ctx, namespace)
-	if err != nil {
-		return nil, err
-	}
-	if targetNamespace == "" {
-		log.Info("namespace doesn't have shared VPC, searching the default subnetset in the current namespace", "namespace", namespace)
-		targetNamespace = namespace
-	}
-	subnetSet, err := getDefaultSubnetSetByNamespace(client, targetNamespace, resourceType)
-	if err != nil {
-		return nil, err
-	}
-	return subnetSet, err
-}
-
-func getDefaultSubnetSetByNamespace(client k8sclient.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
+func GetDefaultSubnetSetByNamespace(client k8sclient.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
 	subnetSetList := &v1alpha1.SubnetSetList{}
 	subnetSetSelector := &metav1.LabelSelector{
 		MatchLabels: map[string]string{
@@ -99,16 +68,16 @@ func getDefaultSubnetSetByNamespace(client k8sclient.Client, namespace string, r
 		Namespace:     namespace,
 	}
 	if err := client.List(context.Background(), subnetSetList, opts); err != nil {
-		log.Error(err, "failed to list default subnetset CR", "namespace", namespace)
+		log.Error(err, "Failed to list default SubnetSet CR", "Namespace", namespace)
 		return nil, err
 	}
 	if len(subnetSetList.Items) == 0 {
-		return nil, errors.New("default subnetset not found")
+		return nil, errors.New("default SubnetSet not found")
 	} else if len(subnetSetList.Items) > 1 {
-		return nil, errors.New("multiple default subnetsets found")
+		return nil, errors.New("multiple default SubnetSets found")
 	}
 	subnetSet := subnetSetList.Items[0]
-	log.Info("got default subnetset", "subnetset.Name", subnetSet.Name, "subnetset.uid", subnetSet.UID)
+	log.Info("Got default SubnetSet", "subnetset.Name", subnetSet.Name, "subnetset.uid", subnetSet.UID)
 	return &subnetSet, nil
 
 }
