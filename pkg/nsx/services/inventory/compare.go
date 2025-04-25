@@ -163,6 +163,9 @@ func compareContainerApplication(pre interface{}, cur interface{}, property map[
 	if pre == nil || preApplication.Status != curApplication.Status {
 		property["status"] = curApplication.Status
 	}
+	if pre == nil || preApplication.NetworkStatus != curApplication.NetworkStatus {
+		property["network_status"] = curApplication.NetworkStatus
+	}
 	if pre == nil || !reflect.DeepEqual(preApplication.NetworkErrors, curApplication.NetworkErrors) {
 		property["network_errors"] = preApplication.NetworkErrors
 	}
