@@ -2518,7 +2518,7 @@ func TestGetNSXLBSNATIP(t *testing.T) {
 			vpc:     vpc1,
 			wantObj: "100.64.0.3",
 			prepareFuncs: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).GetPolicyTier1UplinkPortIP,
+				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).GetPolicyInterfaceIP,
 					func(_ *realizestate.RealizeStateService, _ string) (string, error) {
 						return "100.64.0.3", nil
 					})
@@ -2529,7 +2529,7 @@ func TestGetNSXLBSNATIP(t *testing.T) {
 			name: "nsx lb uplink port IP not found error",
 			vpc:  vpc1,
 			prepareFuncs: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).GetPolicyTier1UplinkPortIP,
+				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).GetPolicyInterfaceIP,
 					func(_ *realizestate.RealizeStateService, _ string) (string, error) {
 						return "", fmt.Errorf("fake-vpc tier1 uplink port IP not found")
 					})
@@ -2546,7 +2546,7 @@ func TestGetNSXLBSNATIP(t *testing.T) {
 				defer patches.Reset()
 			}
 
-			got, err := vpcService.GetNSXLBSNATIP(testCase.vpc)
+			got, err := vpcService.GetNSXLBSNATIP(testCase.vpc, "")
 			if testCase.wantErr != "" {
 				assert.ErrorContains(t, err, testCase.wantErr)
 			} else {

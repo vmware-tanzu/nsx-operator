@@ -327,7 +327,13 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		lbIP = aviSECIDR
 	} else if lbProvider == vpc.NSXLB {
-		nsxLBSNATIP, err = r.Service.GetNSXLBSNATIP(*createdVpc)
+		if vpcConnectivityProfile.ServiceGateway != nil && len(vpcConnectivityProfile.ServiceGateway.EdgeClusterPaths) != 0 {
+			// CTGW is used for NSX LB
+			nsxLBSNATIP, err = r.Service.GetNSXLBSNATIP(*createdVpc, "gateway-interface")
+		} else if vpcConnectivityProfile.ServiceGateway != nil && len(vpcConnectivityProfile.ServiceGateway.ServiceClusterPaths) != 0 {
+			// DTGW is used for NSX LB
+			nsxLBSNATIP, err = r.Service.GetNSXLBSNATIP(*createdVpc, "service-interface")
+		}
 		if err != nil {
 			log.Error(err, "Failed to read NSX LB SNAT IP", "VPC", createdVpc.Id)
 			state := &v1alpha1.VPCState{
