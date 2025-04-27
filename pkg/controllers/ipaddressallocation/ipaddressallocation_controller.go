@@ -187,7 +187,6 @@ func (r *IPAddressAllocationReconciler) RestoreReconcile() error {
 			errorList = append(errorList, fmt.Errorf("failed to restore IPAddressAllocation %s, error: %w", key, err))
 		}
 	}
-	r.restoreMode = false
 	if len(errorList) > 0 {
 		return errors.Join(errorList...)
 	}

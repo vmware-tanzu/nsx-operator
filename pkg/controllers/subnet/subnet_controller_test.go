@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -28,6 +29,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	common2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
@@ -993,4 +995,69 @@ func patchSuccessfulReconcileSubnetWorkflow(r *SubnetReconciler, patches *gomonk
 	patches.ApplyFunc(setSubnetReadyStatusTrue, func(_ client.Client, _ context.Context, _ client.Object, _ metav1.Time, _ ...interface{}) {
 	})
 	return patches
+}
+
+func TestSubnetReconciler_RestoreReconcile(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	r := &SubnetReconciler{
+		Client: k8sClient,
+	}
+
+	// Reconcile success
+	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+		subnetList := list.(*v1alpha1.SubnetList)
+		subnetList.Items = []v1alpha1.Subnet{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnet-1",
+					Namespace: "ns-1",
+					UID:       "subnet-1",
+				},
+				Status: v1alpha1.SubnetStatus{
+					NetworkAddresses: []string{"10.0.0.0/28"},
+					GatewayAddresses: []string{"10.0.0.0"},
+				},
+			},
+		}
+		return nil
+	})
+
+	patches := gomonkey.ApplyFunc((*SubnetReconciler).Reconcile, func(r *SubnetReconciler, ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+		assert.Equal(t, "subnet-1", req.Name)
+		assert.Equal(t, "ns-1", req.Namespace)
+		return ResultNormal, nil
+	})
+	defer patches.Reset()
+	err := r.RestoreReconcile()
+	assert.Nil(t, err)
+
+	// Reconcile failure
+	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+		subnetList := list.(*v1alpha1.SubnetList)
+		subnetList.Items = []v1alpha1.Subnet{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnet-1",
+					Namespace: "ns-1",
+					UID:       "subnet-1",
+				},
+				Status: v1alpha1.SubnetStatus{
+					NetworkAddresses: []string{"10.0.0.0/28"},
+					GatewayAddresses: []string{"10.0.0.0"},
+				},
+			},
+		}
+		return nil
+	})
+	patches = gomonkey.ApplyFunc((*SubnetReconciler).Reconcile, func(r *SubnetReconciler, ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+		assert.Equal(t, "subnet-1", req.Name)
+		assert.Equal(t, "ns-1", req.Namespace)
+		return ResultRequeue, nil
+	})
+	defer patches.Reset()
+	err = r.RestoreReconcile()
+	assert.Contains(t, err.Error(), "failed to restore Subnet ns-1/subnet-1")
 }

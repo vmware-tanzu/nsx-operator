@@ -654,3 +654,113 @@ func TestSubnetService_DeleteSubnet(t *testing.T) {
 		})
 	}
 }
+
+func TestSubnetService_RestoreSubnetSet(t *testing.T) {
+	service := &SubnetService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "test-cluster",
+				},
+			},
+		},
+		SubnetStore: &SubnetStore{},
+	}
+	tests := []struct {
+		name        string
+		subnetset   *v1alpha1.SubnetSet
+		prepareFunc func() *gomonkey.Patches
+		expectedErr string
+	}{
+		{
+			name: "RestoreSubnets",
+			subnetset: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-default",
+					Namespace: "ns-1",
+					UID:       "pod-default-ns-1",
+				},
+				Status: v1alpha1.SubnetSetStatus{
+					Subnets: []v1alpha1.SubnetInfo{
+						{NetworkAddresses: []string{"10.0.0.0/28"}},
+						{NetworkAddresses: []string{"10.0.0.16/28"}},
+					},
+				},
+			},
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*SubnetStore).GetByIndex, func(s *SubnetStore, key string, value string) []*model.VpcSubnet {
+					assert.Equal(t, "pod-default-ns-1", value)
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
+					return nil, nil
+				})
+				return patches
+			},
+		},
+		{
+			name: "UpdateSubnets",
+			subnetset: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-default",
+					Namespace: "ns-1",
+					UID:       "pod-default-ns-1",
+				},
+				Status: v1alpha1.SubnetSetStatus{
+					Subnets: []v1alpha1.SubnetInfo{
+						{NetworkAddresses: []string{"10.0.0.0/28"}},
+					},
+				},
+			},
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*SubnetStore).GetByIndex, func(s *SubnetStore, key string, value string) []*model.VpcSubnet {
+					assert.Equal(t, "pod-default-ns-1", value)
+					return []*model.VpcSubnet{
+						{IpAddresses: []string{"10.0.0.0/28"}},
+					}
+				})
+				patches.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
+					return nil, nil
+				})
+				return patches
+			},
+		},
+		{
+			name: "RestoreSubnetsFailure",
+			subnetset: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-default",
+					Namespace: "ns-1",
+					UID:       "pod-default-ns-1",
+				},
+				Status: v1alpha1.SubnetSetStatus{
+					Subnets: []v1alpha1.SubnetInfo{
+						{NetworkAddresses: []string{"10.0.0.0/28"}},
+					},
+				},
+			},
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*SubnetStore).GetByIndex, func(s *SubnetStore, key string, value string) []*model.VpcSubnet {
+					assert.Equal(t, "pod-default-ns-1", value)
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
+					return nil, fmt.Errorf("mocked error")
+				})
+				return patches
+			},
+			expectedErr: "mocked error",
+		},
+	}
+	for _, tt := range tests {
+		if patches := tt.prepareFunc(); patches != nil {
+			defer patches.Reset()
+		}
+		err := service.RestoreSubnetSet(tt.subnetset, common.VPCResourceInfo{}, []model.Tag{})
+		if tt.expectedErr != "" {
+			assert.Contains(t, err.Error(), tt.expectedErr)
+		} else {
+			assert.Nil(t, err)
+		}
+	}
+}

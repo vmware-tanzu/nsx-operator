@@ -53,7 +53,7 @@ func convertAccessMode(accessMode string) string {
 	return accessMode
 }
 
-func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (*model.VpcSubnet, error) {
+func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, ipAddresses []string) (*model.VpcSubnet, error) {
 	tags = append(service.buildBasicTags(obj), tags...)
 	var nsxSubnet *model.VpcSubnet
 	var staticIpAllocation bool
@@ -71,7 +71,11 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 			dhcpMode = v1alpha1.DHCPConfigModeDeactivated
 		}
 		nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode, nil)
-		nsxSubnet.IpAddresses = o.Spec.IPAddresses
+		if len(o.Spec.IPAddresses) > 0 {
+			nsxSubnet.IpAddresses = o.Spec.IPAddresses
+		} else if len(o.Status.NetworkAddresses) > 0 {
+			nsxSubnet.IpAddresses = o.Status.NetworkAddresses
+		}
 	case *v1alpha1.SubnetSet:
 		// The index is a random string with the length of 8 chars. It is the first 8 chars of the hash
 		// value on a random UUID string.
@@ -88,6 +92,9 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag) (
 			dhcpMode = v1alpha1.DHCPConfigModeDeactivated
 		}
 		nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode, nil)
+		if len(ipAddresses) > 0 {
+			nsxSubnet.IpAddresses = ipAddresses
+		}
 	default:
 		return nil, SubnetTypeError
 	}

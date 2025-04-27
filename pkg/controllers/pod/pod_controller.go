@@ -259,7 +259,6 @@ func (r *PodReconciler) RestoreReconcile() error {
 			errorList = append(errorList, fmt.Errorf("failed to restore Pod %s, error: %w", key, err))
 		}
 	}
-	r.restoreMode = false
 	if len(errorList) > 0 {
 		return errors.Join(errorList...)
 	}
