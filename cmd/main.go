@@ -302,7 +302,7 @@ func main() {
 	if cf.HAEnabled() {
 		go electMaster(mgr, nsxClient)
 	} else {
-		startServiceController(mgr, nsxClient)
+		go startServiceController(mgr, nsxClient)
 	}
 
 	if metrics.AreMetricsExposed(cf) {
