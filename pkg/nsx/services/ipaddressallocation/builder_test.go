@@ -103,7 +103,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		})
 		defer patch.Reset()
 
-		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc)
+		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, false)
 		assert.Nil(t, result)
 		assert.EqualError(t, err, "failed to find VPCInfo for IPAddressAllocation CR test-ip-alloc in namespace default")
 	})
@@ -131,7 +131,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		})
 		defer patch.Reset()
 
-		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc)
+		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, false)
 		assert.Nil(t, err)
 		assert.Equal(t, "test-ip-alloc_uid1", *result.Id)
 		assert.Equal(t, "test-ip-alloc", *result.DisplayName)

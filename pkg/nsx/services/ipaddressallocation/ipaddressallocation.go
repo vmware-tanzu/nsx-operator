@@ -12,7 +12,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
@@ -71,8 +71,8 @@ func InitializeIPAddressAllocation(service common.Service, vpcService common.VPC
 	return ipAddressAllocationService, nil
 }
 
-func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj *v1alpha1.IPAddressAllocation) (bool, error) {
-	nsxIPAddressAllocation, err := service.BuildIPAddressAllocation(obj)
+func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj *v1alpha1.IPAddressAllocation, restoreMode bool) (bool, error) {
+	nsxIPAddressAllocation, err := service.BuildIPAddressAllocation(obj, restoreMode)
 	if err != nil {
 		return false, err
 	}
@@ -82,11 +82,22 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 		return false, err
 	}
 	log.V(1).Info("Existing ipaddressallocation", "ipaddressallocation", existingIPAddressAllocation)
+
+	if existingIPAddressAllocation != nil && existingIPAddressAllocation.AllocationIps != nil && existingIPAddressAllocation.AllocationSize == nil {
+		// For the restored NSX VPC IPAddressAllocation, its allocation_size is null.
+		// After the restore, if the built variable nsxIPAddressAllocation still has the nonempty
+		// allocation_size, we need to remove it from the parameters, otherwise the NSX operator
+		// will keep reporting the following error and retrying:
+		// "nsx error code: 612866, message: Properties IP block, allocation IPs, allocation IP, IP block visibility, allocation size and IPAddressType of existing Vpc IP address allocation: <VPC IP address allocation path> can not be modified."
+		// For this kind of cases, we manually populate the allocation_size and allocation_ips before the comparison.
+		nsxIPAddressAllocation.AllocationSize = nil
+		nsxIPAddressAllocation.AllocationIps = existingIPAddressAllocation.AllocationIps
+	}
 	ipAddressAllocationUpdated := common.CompareResource(IpAddressAllocationToComparable(existingIPAddressAllocation),
 		IpAddressAllocationToComparable(nsxIPAddressAllocation))
 
 	if !ipAddressAllocationUpdated {
-		log.Info("Ipaddressallocation is not changed", "UID", obj.UID)
+		log.Info("IPAddressAllocation is not changed", "UID", obj.UID)
 		return false, nil
 	}
 
@@ -103,6 +114,15 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 	if allocation_ips == nil {
 		return false, fmt.Errorf("ipaddressallocation %s didn't realize available allocation_ips", obj.UID)
 	}
+	if restoreMode {
+		if obj.Status.AllocationIPs == *allocation_ips {
+			log.Info("Successfully restored IPAddressAllocation CR", "Name", obj.Name, "Namespace", obj.Namespace)
+			return false, nil
+		} else {
+			err = fmt.Errorf("IP mismatches for the restored IPAddressAllocation CR %s: got %s, expecting %s", obj.GetUID(), *allocation_ips, obj.Status.AllocationIPs)
+			return false, err
+		}
+	}
 	obj.Status.AllocationIPs = *allocation_ips
 	return true, nil
 }
@@ -111,12 +131,12 @@ func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.V
 	ns := service.GetIPAddressAllocationNamespace(nsxIPAddressAllocation)
 	VPCInfo := service.VPCService.ListVPCInfo(ns)
 	if len(VPCInfo) == 0 {
-		err := util.NoEffectiveOption{Desc: "no valid org and project for ipaddressallocation"}
+		err := nsxutil.NoEffectiveOption{Desc: "no valid org and project for ipaddressallocation"}
 		log.Error(err, "Failed to list VPCInfo for IPAddressAllocation")
 		return err
 	}
 	errPatch := service.NSXClient.IPAddressAllocationClient.Patch(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, VPCInfo[0].ID, *nsxIPAddressAllocation.Id, *nsxIPAddressAllocation)
-	errPatch = util.TransNSXApiError(errPatch)
+	errPatch = nsxutil.TransNSXApiError(errPatch)
 	if errPatch != nil {
 		// not return err, try to get it from nsx, in case if cidr not realized at the first time
 		// so it can be patched in the next time and reacquire cidr
@@ -124,7 +144,7 @@ func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.V
 	}
 	// get back from nsx, it contains path which is used to parse vpc info when deleting
 	nsxIPAddressAllocationNew, errGet := service.NSXClient.IPAddressAllocationClient.Get(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, VPCInfo[0].ID, *nsxIPAddressAllocation.Id)
-	errGet = util.TransNSXApiError(errGet)
+	errGet = nsxutil.TransNSXApiError(errGet)
 	if errGet != nil {
 		if errPatch != nil {
 			return fmt.Errorf("error get %s, error patch %s", errGet.Error(), errPatch.Error())
