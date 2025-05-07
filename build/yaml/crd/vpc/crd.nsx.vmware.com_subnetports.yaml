@@ -52,6 +52,21 @@ spec:
           spec:
             description: SubnetPortSpec defines the desired state of SubnetPort.
             properties:
+              addressBindings:
+                description: AddressBindings defines static address bindings used
+                  for the SubnetPort.
+                items:
+                  description: PortAddressBinding defines static addresses for the
+                    Port.
+                  properties:
+                    ipAddress:
+                      description: The IP Address.
+                      type: string
+                    macAddress:
+                      description: The MAC address.
+                      type: string
+                  type: object
+                type: array
               subnet:
                 description: Subnet defines the parent Subnet name of the SubnetPort.
                 type: string
@@ -124,6 +139,8 @@ spec:
                 type: object
             type: object
         type: object
+    selectableFields:
+    - jsonPath: .spec.subnet
     served: true
     storage: true
     subresources:

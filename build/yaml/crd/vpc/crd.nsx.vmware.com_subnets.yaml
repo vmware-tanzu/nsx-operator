@@ -63,6 +63,10 @@ spec:
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self == oldSelf
+              enableVLANExtension:
+                default: false
+                description: Whether this Subnet enabled VLAN extension.
+                type: boolean
               ipAddresses:
                 description: Subnet CIDRS.
                 items:
@@ -105,6 +109,12 @@ spec:
                   rule: has(oldSelf.mode)==has(self.mode) || (has(oldSelf.mode) &&
                     !has(self.mode)  && oldSelf.mode=='DHCPDeactivated') || (!has(oldSelf.mode)
                     && has(self.mode) && self.mode=='DHCPDeactivated')
+              vpcName:
+                description: VPC name of the Subnet.
+                type: string
+                x-kubernetes-validations:
+                - message: Value is immutable after set
+                  rule: '!has(oldSelf) || self == oldSelf'
             type: object
             x-kubernetes-validations:
             - message: subnetDHCPConfig mode can only switch between DHCPServer and
@@ -166,6 +176,11 @@ spec:
                 items:
                   type: string
                 type: array
+              shared:
+                default: false
+                description: Whether this is a pre-created Subnet shared with the
+                  Namespace.
+                type: boolean
             type: object
         type: object
         x-kubernetes-validations:

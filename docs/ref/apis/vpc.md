@@ -323,6 +323,23 @@ _Appears in:_
 | `ipAddress` _string_ | Next hop gateway IP address. |  | Format: ip <br /> |
 
 
+#### PortAddressBinding
+
+
+
+PortAddressBinding defines static addresses for the Port.
+
+
+
+_Appears in:_
+- [SubnetPortSpec](#subnetportspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `ipAddress` _string_ | The IP Address. |  |  |
+| `macAddress` _string_ | The MAC address. |  |  |
+
+
 #### PortAttachment
 
 
@@ -722,6 +739,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `subnet` _string_ | Subnet defines the parent Subnet name of the SubnetPort. |  |  |
 | `subnetSet` _string_ | SubnetSet defines the parent SubnetSet name of the SubnetPort. |  |  |
+| `addressBindings` _[PortAddressBinding](#portaddressbinding) array_ | AddressBindings defines static address bindings used for the SubnetPort. |  |  |
 
 
 #### SubnetPortStatus
@@ -809,10 +827,12 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `vpcName` _string_ | VPC name of the Subnet. |  |  |
 | `ipv4SubnetSize` _integer_ | Size of Subnet based upon estimated workload count. |  | Maximum: 65536 <br />Minimum: 16 <br /> |
 | `accessMode` _[AccessMode](#accessmode)_ | Access mode of Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW] <br /> |
 | `ipAddresses` _string array_ | Subnet CIDRS. |  | MaxItems: 2 <br />MinItems: 0 <br /> |
 | `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | DHCP configuration for Subnet. |  |  |
+| `enableVLANExtension` _boolean_ | Whether this Subnet enabled VLAN extension. | false |  |
 
 
 #### SubnetStatus
@@ -831,6 +851,7 @@ _Appears in:_
 | `networkAddresses` _string array_ | Network address of the Subnet. |  |  |
 | `gatewayAddresses` _string array_ | Gateway address of the Subnet. |  |  |
 | `DHCPServerAddresses` _string array_ | DHCP server IP address. |  |  |
+| `shared` _boolean_ | Whether this is a pre-created Subnet shared with the Namespace. | false |  |
 | `conditions` _[Condition](#condition) array_ |  |  |  |
 
 
@@ -890,6 +911,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `vpc` _string_ | NSX path of the VPC the Namespace is associated with.<br />If VPC is set, only defaultIPv4SubnetSize and defaultSubnetAccessMode<br />take effect, other fields are ignored. |  |  |
+| `subnets` _string array_ | NSX path of the shared Subnets the Namespace is associated with. |  |  |
 | `nsxProject` _string_ | NSX Project the Namespace is associated with. |  |  |
 | `vpcConnectivityProfile` _string_ | VPCConnectivityProfile ID. This profile has configuration related to creating VPC transit gateway attachment. |  |  |
 | `privateIPs` _string array_ | Private IPs. |  |  |

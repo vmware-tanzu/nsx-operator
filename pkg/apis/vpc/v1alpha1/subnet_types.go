@@ -1,4 +1,4 @@
-/* Copyright © 2022-2023 VMware, Inc. All Rights Reserved.
+/* Copyright © 2022-2025 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package v1alpha1
@@ -25,6 +25,9 @@ const (
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.accessMode) || has(self.accessMode)", message="accessMode is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipAddresses) || has(self.ipAddresses)", message="ipAddresses is required once set"
 type SubnetSpec struct {
+	// VPC name of the Subnet.
+	// +kubebuilder:validation:XValidation:rule="!has(oldSelf) || self == oldSelf",message="Value is immutable after set"
+	VPCName string `json:"vpcName,omitempty"`
 	// Size of Subnet based upon estimated workload count.
 	// +kubebuilder:validation:Maximum:=65536
 	// +kubebuilder:validation:Minimum:=16
@@ -54,6 +57,9 @@ type SubnetSpec struct {
 
 	// DHCP configuration for Subnet.
 	SubnetDHCPConfig SubnetDHCPConfig `json:"subnetDHCPConfig,omitempty"`
+	// Whether this Subnet enabled VLAN extension.
+	// +kubebuilder:default=false
+	EnableVLANExtension bool `json:"enableVLANExtension,omitempty"`
 }
 
 // SubnetStatus defines the observed state of Subnet.
@@ -63,8 +69,11 @@ type SubnetStatus struct {
 	// Gateway address of the Subnet.
 	GatewayAddresses []string `json:"gatewayAddresses,omitempty"`
 	// DHCP server IP address.
-	DHCPServerAddresses []string    `json:"DHCPServerAddresses,omitempty"`
-	Conditions          []Condition `json:"conditions,omitempty"`
+	DHCPServerAddresses []string `json:"DHCPServerAddresses,omitempty"`
+	// Whether this is a pre-created Subnet shared with the Namespace.
+	// +kubebuilder:default=false
+	Shared     bool        `json:"shared,omitempty"`
+	Conditions []Condition `json:"conditions,omitempty"`
 }
 
 // +genclient
