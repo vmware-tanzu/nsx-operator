@@ -24,6 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -198,6 +199,79 @@ func TestIPAddressAllocationReconciler_Reconcile(t *testing.T) {
 	patch.Reset()
 }
 
+func TestIPAddressAllocationReconciler_RestoreReconcile(t *testing.T) {
+
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	service := &ipaddressallocation.IPAddressAllocationService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{},
+
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+				},
+			},
+		},
+	}
+
+	r := &IPAddressAllocationReconciler{
+		Client:  k8sClient,
+		Scheme:  nil,
+		Service: service,
+	}
+
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListIPAddressAllocationID",
+		func(_ *ipaddressallocation.IPAddressAllocationService) sets.Set[string] {
+			return sets.New[string]("ipa-uid-1")
+		})
+	// defer patches.Reset()
+	ipAddressAllocationList := &v1alpha1.IPAddressAllocationList{}
+	k8sClient.EXPECT().List(gomock.Any(), ipAddressAllocationList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+		a := list.(*v1alpha1.IPAddressAllocationList)
+		a.Items = []v1alpha1.IPAddressAllocation{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ipa-1",
+					Namespace: "ns-1",
+					UID:       "ipa-uid-1",
+				},
+				Status: v1alpha1.IPAddressAllocationStatus{
+					AllocationIPs: "1.2.3.4/28",
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ipa-2",
+					Namespace: "ns-1",
+					UID:       "ipa-uid-2",
+				},
+				Status: v1alpha1.IPAddressAllocationStatus{
+					AllocationIPs: "5.6.7.8",
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ipa-3",
+					Namespace: "ns-1",
+					UID:       "ipa-uid-2",
+				},
+			},
+		}
+		return nil
+	})
+	patches.ApplyFunc((*IPAddressAllocationReconciler).Reconcile, func(r *IPAddressAllocationReconciler, ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+		assert.Equal(t, "ipa-2", req.Name)
+		assert.Equal(t, "ns-1", req.Namespace)
+		return ctlcommon.ResultNormal, nil
+	})
+	err := r.RestoreReconcile()
+	assert.Nil(t, err)
+
+}
+
 func TestReconciler_GarbageCollector(t *testing.T) {
 	// gc collect item "2345", local store has more item than k8s cache
 	service := &ipaddressallocation.IPAddressAllocationService{
@@ -228,8 +302,8 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 		Service: service,
 	}
 	ctx := context.Background()
-	policyList := &v1alpha1.IPAddressAllocationList{}
-	k8sClient.EXPECT().List(gomock.Any(), policyList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+	ipAddressAllocationList := &v1alpha1.IPAddressAllocationList{}
+	k8sClient.EXPECT().List(gomock.Any(), ipAddressAllocationList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 		a := list.(*v1alpha1.IPAddressAllocationList)
 		a.Items = append(a.Items, v1alpha1.IPAddressAllocation{})
 		a.Items[0].ObjectMeta = metav1.ObjectMeta{}
@@ -250,7 +324,7 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
-	k8sClient.EXPECT().List(ctx, policyList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+	k8sClient.EXPECT().List(ctx, ipAddressAllocationList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 		a := list.(*v1alpha1.IPAddressAllocationList)
 		a.Items = append(a.Items, v1alpha1.IPAddressAllocation{})
 		a.Items[0].ObjectMeta = metav1.ObjectMeta{}
@@ -270,7 +344,7 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
-	k8sClient.EXPECT().List(ctx, policyList).Return(nil).Times(0)
+	k8sClient.EXPECT().List(ctx, ipAddressAllocationList).Return(nil).Times(0)
 	r.CollectGarbage(context.Background())
 
 	patch.Reset()

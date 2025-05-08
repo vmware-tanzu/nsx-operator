@@ -5,6 +5,7 @@ package ipaddressallocation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
@@ -41,6 +42,7 @@ type IPAddressAllocationReconciler struct {
 	VPCService    servicecommon.VPCServiceProvider
 	Recorder      record.EventRecorder
 	StatusUpdater common.StatusUpdater
+	restoreMode   bool
 }
 
 func setReadyStatusFalse(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, err error, _ ...interface{}) {
@@ -60,7 +62,7 @@ func setReadyStatusFalse(client client.Client, ctx context.Context, obj client.O
 	ipaddressallocation.Status.Conditions = conditions
 	e := client.Status().Update(ctx, ipaddressallocation)
 	if e != nil {
-		log.Error(e, "unable to update IPAddressAllocation status", "IPAddressAllocation", ipaddressallocation)
+		log.Error(e, "Unable to update IPAddressAllocation status", "IPAddressAllocation", ipaddressallocation)
 	}
 }
 
@@ -78,13 +80,13 @@ func setReadyStatusTrue(client client.Client, ctx context.Context, obj client.Ob
 	ipaddressallocation.Status.Conditions = conditions
 	e := client.Status().Update(ctx, ipaddressallocation)
 	if e != nil {
-		log.Error(e, "unable to update IPAddressAllocation status", "IPAddressAllocation", ipaddressallocation)
+		log.Error(e, "Unable to update IPAddressAllocation status", "IPAddressAllocation", ipaddressallocation)
 	}
 }
 
 func (r *IPAddressAllocationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	obj := &v1alpha1.IPAddressAllocation{}
-	log.Info("reconciling IPAddressAllocation CR", "IPAddressAllocation", req.NamespacedName)
+	log.Info("Reconciling IPAddressAllocation CR", "IPAddressAllocation", req.NamespacedName)
 	r.StatusUpdater.IncreaseSyncTotal()
 	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -106,7 +108,7 @@ func (r *IPAddressAllocationReconciler) Reconcile(ctx context.Context, req ctrl.
 
 func (r *IPAddressAllocationReconciler) handleUpdate(ctx context.Context, obj *v1alpha1.IPAddressAllocation) (ctrl.Result, error) {
 	r.StatusUpdater.IncreaseUpdateTotal()
-	updated, err := r.Service.CreateOrUpdateIPAddressAllocation(obj)
+	updated, err := r.Service.CreateOrUpdateIPAddressAllocation(obj, r.restoreMode)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, obj, err, "", setReadyStatusFalse)
 		return resultRequeue, err
@@ -144,13 +146,13 @@ func (r *IPAddressAllocationReconciler) CollectGarbage(ctx context.Context) erro
 		return nil
 	}
 
-	ipAddressAllocationList := &v1alpha1.IPAddressAllocationList{}
-	if err := r.Client.List(ctx, ipAddressAllocationList); err != nil {
+	ipAddressAllocationCRList := &v1alpha1.IPAddressAllocationList{}
+	if err := r.Client.List(ctx, ipAddressAllocationCRList); err != nil {
 		log.Error(err, "Failed to list IPAddressAllocation CR")
 		return err
 	}
 	CRIPAddressAllocationSet := sets.New[string]()
-	for _, ipa := range ipAddressAllocationList.Items {
+	for _, ipa := range ipAddressAllocationCRList.Items {
 		CRIPAddressAllocationSet.Insert(string(ipa.UID))
 	}
 
@@ -172,7 +174,41 @@ func (r *IPAddressAllocationReconciler) CollectGarbage(ctx context.Context) erro
 }
 
 func (r *IPAddressAllocationReconciler) RestoreReconcile() error {
+	restoreList, err := r.getRestoreList()
+	if err != nil {
+		err = fmt.Errorf("failed to get IPAddressAllocation restore list: %w", err)
+		return err
+	}
+	var errorList []error
+	r.restoreMode = true
+	for _, key := range restoreList {
+		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+		if result.Requeue || err != nil {
+			errorList = append(errorList, fmt.Errorf("failed to restore IPAddressAllocation %s, error: %w", key, err))
+		}
+	}
+	r.restoreMode = false
+	if len(errorList) > 0 {
+		return errors.Join(errorList...)
+	}
 	return nil
+}
+
+func (r *IPAddressAllocationReconciler) getRestoreList() ([]types.NamespacedName, error) {
+	ipAddressAllocationCRIDs := r.Service.ListIPAddressAllocationID()
+
+	restoreList := []types.NamespacedName{}
+	ipAddressAllocationCRList := &v1alpha1.IPAddressAllocationList{}
+	if err := r.Client.List(context.TODO(), ipAddressAllocationCRList); err != nil {
+		return restoreList, err
+	}
+	for _, ipAddressAllocationCR := range ipAddressAllocationCRList.Items {
+		// Restore an IPAddressAllocation if IPAddressAllocation CR has status updated but no corresponding NSX IPAddressAllocation in cache
+		if len(ipAddressAllocationCR.Status.AllocationIPs) > 0 && !ipAddressAllocationCRIDs.Has(string(ipAddressAllocationCR.GetUID())) {
+			restoreList = append(restoreList, types.NamespacedName{Namespace: ipAddressAllocationCR.Namespace, Name: ipAddressAllocationCR.Name})
+		}
+	}
+	return restoreList, nil
 }
 
 func (r *IPAddressAllocationReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {

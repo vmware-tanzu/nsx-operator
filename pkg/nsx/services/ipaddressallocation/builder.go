@@ -26,7 +26,7 @@ func convertIpAddressBlockVisibility(visibility v1alpha1.IPAddressVisibility) v1
 	return visibility
 }
 
-func (service *IPAddressAllocationService) BuildIPAddressAllocation(IPAddressAllocation *v1alpha1.IPAddressAllocation) (*model.VpcIpAddressAllocation, error) {
+func (service *IPAddressAllocationService) BuildIPAddressAllocation(IPAddressAllocation *v1alpha1.IPAddressAllocation, restoreMode bool) (*model.VpcIpAddressAllocation, error) {
 	VPCInfo := service.VPCService.ListVPCInfo(IPAddressAllocation.Namespace)
 	if len(VPCInfo) == 0 {
 		log.Error(nil, "failed to find VPCInfo for IPAddressAllocation CR", "IPAddressAllocation", IPAddressAllocation.Name, "namespace", IPAddressAllocation.Namespace)
@@ -35,13 +35,19 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(IPAddressAll
 
 	ipAddressBlockVisibility := convertIpAddressBlockVisibility(IPAddressAllocation.Spec.IPAddressBlockVisibility)
 	ipAddressBlockVisibilityStr := util.ToUpper(string(ipAddressBlockVisibility))
-	return &model.VpcIpAddressAllocation{
+	vpcIpAddressAllocation := &model.VpcIpAddressAllocation{
 		Id:                       String(service.buildIPAddressAllocationID(IPAddressAllocation)),
 		DisplayName:              String(service.buildIPAddressAllocationName(IPAddressAllocation)),
 		Tags:                     service.buildIPAddressAllocationTags(IPAddressAllocation),
 		IpAddressBlockVisibility: &ipAddressBlockVisibilityStr,
-		AllocationSize:           Int64(int64(IPAddressAllocation.Spec.AllocationSize)),
-	}, nil
+	}
+	if restoreMode && len(IPAddressAllocation.Status.AllocationIPs) > 0 {
+		vpcIpAddressAllocation.AllocationIps = String(IPAddressAllocation.Status.AllocationIPs)
+	} else {
+		// Field AllocationIPs and AllocationSize cannot be provided together for VPC IP allocation.
+		vpcIpAddressAllocation.AllocationSize = Int64(int64(IPAddressAllocation.Spec.AllocationSize))
+	}
+	return vpcIpAddressAllocation, nil
 }
 
 func (service *IPAddressAllocationService) buildIPAddressAllocationID(IPAddressAllocation *v1alpha1.IPAddressAllocation) string {
