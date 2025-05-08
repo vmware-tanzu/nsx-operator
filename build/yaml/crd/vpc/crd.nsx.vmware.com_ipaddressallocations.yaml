@@ -49,9 +49,14 @@ spec:
             description: IPAddressAllocationSpec defines the desired state of IPAddressAllocation.
             properties:
               allocationSize:
-                description: AllocationSize specifies the size of allocationIPs to
-                  be allocated.
+                description: |-
+                  AllocationSize specifies the size of allocationIPs to be allocated.
+                  It should be a power of 2.
+                minimum: 1
                 type: integer
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
               ipAddressBlockVisibility:
                 default: Private
                 description: IPAddressBlockVisibility specifies the visibility of
@@ -62,6 +67,9 @@ spec:
                 - Private
                 - PrivateTGW
                 type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
             type: object
           status:
             description: IPAddressAllocationStatus defines the observed state of IPAddressAllocation.
