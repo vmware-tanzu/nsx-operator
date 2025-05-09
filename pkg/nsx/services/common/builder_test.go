@@ -10,6 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 )
 
 func TestConvertMPTagsToTags(t *testing.T) {
@@ -196,6 +199,30 @@ func TestParseVPCResourcePath(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIsDefaultNetworkConfigCR(t *testing.T) {
+	testCRD1 := v1alpha1.VPCNetworkConfiguration{}
+	testCRD1.Name = "test-1"
+	testCRD2 := v1alpha1.VPCNetworkConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				AnnotationDefaultNetworkConfig: "invalid",
+			},
+		},
+	}
+	testCRD2.Name = "test-2"
+	testCRD3 := v1alpha1.VPCNetworkConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				AnnotationDefaultNetworkConfig: "true",
+			},
+		},
+	}
+	testCRD3.Name = "test-3"
+	assert.Equal(t, IsDefaultNetworkConfigCR(&testCRD1), false)
+	assert.Equal(t, IsDefaultNetworkConfigCR(&testCRD2), false)
+	assert.Equal(t, IsDefaultNetworkConfigCR(&testCRD3), true)
 }
 
 func TestNsxProjectPathToId(t *testing.T) {

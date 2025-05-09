@@ -3,7 +3,6 @@ package ipblocksinfo
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -181,7 +180,7 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha
 		// all auto-created VPCs share the same VPCConnectivityProfile which is associated with default project
 		// only archieve the VPCConnectivityProfile for the default one
 		if vpcConfigCR.Spec.VPCConnectivityProfile != "" {
-			isDefault := isDefaultNetworkConfigCR(vpcConfigCR)
+			isDefault := common.IsDefaultNetworkConfigCR(&vpcConfigCR)
 			if isDefault {
 				path := vpcConfigCR.Spec.VPCConnectivityProfile
 				// add project path prefix for id only VPCConnectivityProfile
@@ -293,20 +292,6 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha
 		return nil, nil, err
 	}
 	return externalIPCIDRs, privateTGWIPCIDRs, nil
-}
-
-func isDefaultNetworkConfigCR(vpcConfigCR v1alpha1.VPCNetworkConfiguration) bool {
-	annos := vpcConfigCR.GetAnnotations()
-	val, exist := annos[common.AnnotationDefaultNetworkConfig]
-	if exist {
-		boolVar, err := strconv.ParseBool(val)
-		if err != nil {
-			log.Error(err, "failed to parse annotation to check default NetworkConfig", "Annotation", annos[common.AnnotationDefaultNetworkConfig])
-			return false
-		}
-		return boolVar
-	}
-	return false
 }
 
 func (s *IPBlocksInfoService) getIPBlockCIDRsFromStore(pathSet sets.Set[string], ipBlockStore *IPBlockStore) ([]string, error) {

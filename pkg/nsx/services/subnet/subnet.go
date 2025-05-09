@@ -10,6 +10,7 @@ import (
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
@@ -34,10 +35,27 @@ var (
 	ErrorCodeUnrecognizedField = int64(287)
 )
 
+// SharedSubnetData contains data related to shared subnets
+type SharedSubnetData struct {
+	// NSXSubnetCache is a cache of associatedResource -> nsxSubnet and statusList mapping, only for pre-created shared subnets currently
+	NSXSubnetCache map[string]struct {
+		Subnet     *model.VpcSubnet
+		StatusList []model.VpcSubnetStatus
+	}
+	// mutex to protect the NSXSubnetCache map
+	nsxSubnetCacheMutex sync.RWMutex
+	// SharedSubnetResourceMap is a map of associatedResource -> set of namespaced names of Subnet CRs
+	SharedSubnetResourceMap map[string]sets.Set[types.NamespacedName]
+	// mutex to protect the SharedSubnetResourceMap
+	sharedSubnetResourceMapMutex sync.RWMutex
+}
+
 type SubnetService struct {
 	common.Service
 	SubnetStore *SubnetStore
 	builder     *common.PolicyTreeBuilder[*model.VpcSubnet]
+	// SharedSubnetData contains data related to shared subnets
+	SharedSubnetData
 }
 
 // SubnetParameters stores parameters to CRUD Subnet object
@@ -69,6 +87,13 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 			},
 		},
 		builder: builder,
+		SharedSubnetData: SharedSubnetData{
+			NSXSubnetCache: make(map[string]struct {
+				Subnet     *model.VpcSubnet
+				StatusList []model.VpcSubnetStatus
+			}),
+			SharedSubnetResourceMap: make(map[string]sets.Set[types.NamespacedName]),
+		},
 	}
 
 	wg.Add(1)
@@ -368,12 +393,14 @@ func (service *SubnetService) GenerateSubnetNSTags(obj client.Object) []model.Ta
 		return nil
 	}
 	nsUID := string(namespace.UID)
-	var tags []model.Tag
+	var tags = []model.Tag{
+		{Scope: common.String(common.TagScopeManagedBy), Tag: common.String(common.AutoCreatedTagValue)},
+	}
 	switch o := obj.(type) {
 	case *v1alpha1.Subnet:
 		tags = append(tags,
-			model.Tag{Scope: String(common.TagScopeVMNamespaceUID), Tag: String(nsUID)},
-			model.Tag{Scope: String(common.TagScopeVMNamespace), Tag: String(obj.GetNamespace())})
+			model.Tag{Scope: common.String(common.TagScopeVMNamespaceUID), Tag: common.String(nsUID)},
+			model.Tag{Scope: common.String(common.TagScopeVMNamespace), Tag: common.String(obj.GetNamespace())})
 	case *v1alpha1.SubnetSet:
 		isDefaultPodSubnetSet := o.Labels[common.LabelDefaultSubnetSet] == common.LabelDefaultPodSubnetSet
 		if isDefaultPodSubnetSet {
@@ -458,4 +485,250 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 		log.Info("Successfully updated SubnetSet", "subnetSet", subnetSet, "Subnet", *vpcSubnet.Id)
 	}
 	return nil
+}
+
+// GetNSXSubnetByAssociatedResource gets the NSX subnet based on the associated resource annotation
+func (service *SubnetService) GetNSXSubnetByAssociatedResource(associatedResource string) (*model.VpcSubnet, error) {
+	// Parse the associated resource string (format: projectID:vpcID:subnetID)
+	parts := strings.Split(associatedResource, ":")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("invalid associated resource format: %s, expected format: projectID:vpcID:subnetID", associatedResource)
+	}
+
+	orgID := "default" // hardcoded for now
+	projectID := parts[0]
+	vpcID := parts[1]
+	subnetID := parts[2]
+
+	nsxSubnet, err := service.NSXClient.SubnetsClient.Get(orgID, projectID, vpcID, subnetID)
+	if err != nil {
+		log.Error(err, "Failed to get NSX Subnet", "SubnetName", subnetID)
+		return nil, err
+	}
+
+	return &nsxSubnet, nil
+}
+
+// MapNSXSubnetToSubnetCR maps NSX subnet properties to Subnet CR properties
+func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, nsxSubnet *model.VpcSubnet) {
+	// Map AccessMode
+	if nsxSubnet.AccessMode != nil {
+		accessMode := *nsxSubnet.AccessMode
+		// Convert from NSX format to v1alpha1 format
+		if accessMode == "Private_TGW" {
+			subnetCR.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModeProject)
+		} else {
+			subnetCR.Spec.AccessMode = v1alpha1.AccessMode(accessMode)
+		}
+	} else {
+		subnetCR.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePublic)
+	}
+
+	// Map IPv4SubnetSize
+	if nsxSubnet.Ipv4SubnetSize != nil {
+		subnetCR.Spec.IPv4SubnetSize = int(*nsxSubnet.Ipv4SubnetSize)
+	}
+
+	// Map IPAddresses
+	subnetCR.Spec.IPAddresses = nsxSubnet.IpAddresses
+
+	// Map SubnetDHCPConfig
+	if nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil {
+		dhcpMode := *nsxSubnet.SubnetDhcpConfig.Mode
+		// Convert from NSX format to v1alpha1 format
+		switch dhcpMode {
+		case "DHCP_SERVER":
+			subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer)
+		case "DHCP_RELAY":
+			subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay)
+		default:
+			subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
+		}
+	} else {
+		subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
+	}
+
+	// Map AdvancedConfig
+	if nsxSubnet.AdvancedConfig != nil {
+		// Map EnableVLANExtension from NSX Subnet
+		if nsxSubnet.AdvancedConfig.EnableVlanExtension != nil {
+			subnetCR.Spec.AdvancedConfig.EnableVLANExtension = *nsxSubnet.AdvancedConfig.EnableVlanExtension
+		}
+
+		if nsxSubnet.AdvancedConfig.ConnectivityState != nil {
+			connectivityState := *nsxSubnet.AdvancedConfig.ConnectivityState
+			switch connectivityState {
+			case "CONNECTED":
+				subnetCR.Spec.AdvancedConfig.ConnectivityState = v1alpha1.ConnectivityStateConnected
+			case "DISCONNECTED":
+				subnetCR.Spec.AdvancedConfig.ConnectivityState = v1alpha1.ConnectivityStateDisconnected
+			}
+		}
+	}
+}
+
+// MapNSXSubnetStatusToSubnetCRStatus maps NSX subnet status to Subnet CR status
+func (service *SubnetService) MapNSXSubnetStatusToSubnetCRStatus(subnetCR *v1alpha1.Subnet, statusList []model.VpcSubnetStatus) {
+	// Clear existing status fields
+	subnetCR.Status.NetworkAddresses = subnetCR.Status.NetworkAddresses[:0]
+	subnetCR.Status.GatewayAddresses = subnetCR.Status.GatewayAddresses[:0]
+	subnetCR.Status.DHCPServerAddresses = subnetCR.Status.DHCPServerAddresses[:0]
+
+	// Set the shared flag to true for shared subnets
+	if _, ok := subnetCR.Annotations[common.AnnotationAssociatedResource]; ok {
+		subnetCR.Status.Shared = true
+	}
+
+	// Map status fields from NSX subnet status
+	for _, status := range statusList {
+		if status.NetworkAddress != nil {
+			subnetCR.Status.NetworkAddresses = append(subnetCR.Status.NetworkAddresses, *status.NetworkAddress)
+		}
+		if status.GatewayAddress != nil {
+			subnetCR.Status.GatewayAddresses = append(subnetCR.Status.GatewayAddresses, *status.GatewayAddress)
+		}
+		// DHCPServerAddress is only for the subnet with DHCP enabled
+		if status.DhcpServerAddress != nil {
+			subnetCR.Status.DHCPServerAddresses = append(subnetCR.Status.DHCPServerAddresses, *status.DhcpServerAddress)
+		}
+		// Handle VLAN extension
+		if status.VlanExtension != nil {
+			vlanExtension := v1alpha1.VLANExtension{}
+			if status.VlanExtension.VlanId != nil {
+				vlanExtension.VLANID = int(*status.VlanExtension.VlanId)
+			}
+			if status.VlanExtension.VpcGatewayConnectionEnable != nil {
+				vlanExtension.VPCGatewayConnectionEnable = *status.VlanExtension.VpcGatewayConnectionEnable
+			}
+			subnetCR.Status.VLANExtension = vlanExtension
+		}
+	}
+}
+
+// BuildSubnetCR creates a Subnet CR object with the given parameters
+func (service *SubnetService) BuildSubnetCR(ns, subnetName, vpcFullName, associatedName string) *v1alpha1.Subnet {
+	// Create the Subnet CR
+	subnetCR := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      subnetName,
+			Namespace: ns,
+			Annotations: map[string]string{
+				common.AnnotationAssociatedResource: associatedName,
+			},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			VPCName: vpcFullName,
+		},
+	}
+	log.Info("Build Subnet CR", "Subnet", subnetCR)
+
+	// Initialize subnetCR from nsxSubnet if available
+	return subnetCR
+}
+
+// GetNSXSubnetFromCacheOrAPI retrieves the NSX subnet from cache if available, otherwise from the NSX API
+// It returns the NSX subnet and any error encountered
+func (service *SubnetService) GetNSXSubnetFromCacheOrAPI(associatedResource string) (*model.VpcSubnet, error) {
+	// First check if the NSX subnet is in the cache
+	service.nsxSubnetCacheMutex.RLock()
+	cachedData, exists := service.NSXSubnetCache[associatedResource]
+	service.nsxSubnetCacheMutex.RUnlock()
+
+	if exists && cachedData.Subnet != nil {
+		log.V(1).Info("Found NSX subnet in cache", "AssociatedResource", associatedResource)
+		return cachedData.Subnet, nil
+	}
+
+	// Get the NSX subnet from the NSX API
+	log.V(1).Info("NSX subnet not in cache, fetching from NSX API", "AssociatedResource", associatedResource)
+	nsxSubnet, err := service.GetNSXSubnetByAssociatedResource(associatedResource)
+	if err != nil {
+		log.Error(err, "Failed to get NSX Subnet", "AssociatedResource", associatedResource)
+		return nil, err
+	}
+
+	service.UpdateNSXSubnetCache(associatedResource, nsxSubnet, []model.VpcSubnetStatus{})
+
+	return nsxSubnet, nil
+}
+
+// GetSubnetStatusFromCacheOrAPI retrieves the subnet status from cache if available, otherwise from the NSX API
+// It returns the status list and any error encountered
+func (service *SubnetService) GetSubnetStatusFromCacheOrAPI(nsxSubnet *model.VpcSubnet, associatedResource string) ([]model.VpcSubnetStatus, error) {
+	// Check if statusList is in cache
+	service.nsxSubnetCacheMutex.RLock()
+	cachedData, exists := service.NSXSubnetCache[associatedResource]
+	service.nsxSubnetCacheMutex.RUnlock()
+
+	if exists && len(cachedData.StatusList) > 0 {
+		log.V(1).Info("Found status list in cache", "AssociatedResource", associatedResource)
+		return cachedData.StatusList, nil
+	}
+
+	// Get subnet status from NSX
+	log.V(1).Info("Status list not in cache, fetching from NSX API", "AssociatedResource", associatedResource)
+	statusList, err := service.GetSubnetStatus(nsxSubnet)
+	if err != nil {
+		log.Error(err, "Failed to get Subnet status", "AssociatedResource", associatedResource)
+		return nil, err
+	}
+
+	service.UpdateNSXSubnetCache(associatedResource, nsxSubnet, statusList)
+
+	return statusList, nil
+}
+
+// UpdateNSXSubnetCache updates the cache with the NSX subnet and status list
+func (service *SubnetService) UpdateNSXSubnetCache(associatedResource string, nsxSubnet *model.VpcSubnet, statusList []model.VpcSubnetStatus) {
+	service.nsxSubnetCacheMutex.Lock()
+	defer service.nsxSubnetCacheMutex.Unlock()
+
+	service.NSXSubnetCache[associatedResource] = struct {
+		Subnet     *model.VpcSubnet
+		StatusList []model.VpcSubnetStatus
+	}{
+		Subnet:     nsxSubnet,
+		StatusList: statusList,
+	}
+	log.Info("Updated NSX subnet cache", "AssociatedResource", associatedResource)
+}
+
+// RemoveSubnetFromCache removes a subnet from the NSXSubnetCache
+func (service *SubnetService) RemoveSubnetFromCache(associatedResource string, reason string) {
+	service.nsxSubnetCacheMutex.Lock()
+	defer service.nsxSubnetCacheMutex.Unlock()
+	delete(service.NSXSubnetCache, associatedResource)
+	log.Info("Removed Subnet from cache", "reason", reason, "AssociatedResource", associatedResource)
+}
+
+// AddSharedSubnetToResourceMap adds a shared subnet CR to the resource map
+func (service *SubnetService) AddSharedSubnetToResourceMap(associatedResource string, namespacedName types.NamespacedName) {
+	service.sharedSubnetResourceMapMutex.Lock()
+	defer service.sharedSubnetResourceMapMutex.Unlock()
+
+	// If the set doesn't exist for this associatedResource, create it
+	if _, exists := service.SharedSubnetResourceMap[associatedResource]; !exists {
+		service.SharedSubnetResourceMap[associatedResource] = sets.New[types.NamespacedName]()
+	}
+
+	// Add the namespacedName to the set (no need to check if it exists, sets handle that automatically)
+	service.SharedSubnetResourceMap[associatedResource].Insert(namespacedName)
+	log.Info("Added shared subnet to resource map", "AssociatedResource", associatedResource, "NamespacedName", namespacedName)
+}
+
+// RemoveSharedSubnetFromResourceMap removes a shared subnet CR from the resource map
+func (service *SubnetService) RemoveSharedSubnetFromResourceMap(associatedResource string, namespacedName types.NamespacedName) {
+	service.sharedSubnetResourceMapMutex.Lock()
+	defer service.sharedSubnetResourceMapMutex.Unlock()
+
+	// If the set exists for this associatedResource, remove the namespacedName
+	if namespacedNames, exists := service.SharedSubnetResourceMap[associatedResource]; exists {
+		namespacedNames.Delete(namespacedName)
+		log.Info("Removed shared subnet from resource map", "AssociatedResource", associatedResource, "NamespacedName", namespacedName)
+
+		// If the set is now empty, remove the associatedResource key
+		if namespacedNames.Len() == 0 {
+			delete(service.SharedSubnetResourceMap, associatedResource)
+		}
+	}
 }

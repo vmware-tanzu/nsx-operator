@@ -368,27 +368,3 @@ func Test_generateLBSKey(t *testing.T) {
 		})
 	}
 }
-
-func TestIsDefaultNetworkConfigCR(t *testing.T) {
-	testCRD1 := v1alpha1.VPCNetworkConfiguration{}
-	testCRD1.Name = "test-1"
-	testCRD2 := v1alpha1.VPCNetworkConfiguration{
-		ObjectMeta: metav1.ObjectMeta{
-			Annotations: map[string]string{
-				common.AnnotationDefaultNetworkConfig: "invalid",
-			},
-		},
-	}
-	testCRD2.Name = "test-2"
-	testCRD3 := v1alpha1.VPCNetworkConfiguration{
-		ObjectMeta: metav1.ObjectMeta{
-			Annotations: map[string]string{
-				common.AnnotationDefaultNetworkConfig: "true",
-			},
-		},
-	}
-	testCRD3.Name = "test-3"
-	assert.Equal(t, isDefaultNetworkConfigCR(&testCRD1), false)
-	assert.Equal(t, isDefaultNetworkConfigCR(&testCRD2), false)
-	assert.Equal(t, isDefaultNetworkConfigCR(&testCRD3), true)
-}
