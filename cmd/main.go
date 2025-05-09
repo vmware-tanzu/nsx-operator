@@ -137,6 +137,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 
 	var vpcService *vpc.VPCService
 	var hookServer webhook.Server
+	var subnetSetReconcile *subnetset.SubnetSetReconciler
 
 	if cf.CoeConfig.EnableVPCNetwork {
 		// Check NSX version for VPC networking mode
@@ -206,12 +207,13 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		}
 
 		// Create controllers which only supports VPC
+		subnetSetReconcile = subnetset.NewSubnetSetReconciler(mgr, subnetService, subnetPortService, vpcService, subnetBindingService)
 		reconcilerList = append(
 			reconcilerList,
 			networkinfocontroller.NewNetworkInfoReconciler(mgr, vpcService, ipblocksInfoService),
 			namespacecontroller.NewNamespaceReconciler(mgr, cf, vpcService),
 			subnet.NewSubnetReconciler(mgr, subnetService, subnetPortService, vpcService, subnetBindingService),
-			subnetset.NewSubnetSetReconciler(mgr, subnetService, subnetPortService, vpcService, subnetBindingService),
+			subnetSetReconcile,
 			node.NewNodeReconciler(mgr, nodeService),
 			staticroutecontroller.NewStaticRouteReconciler(mgr, staticRouteService),
 			subnetport.NewSubnetPortReconciler(mgr, subnetPortService, subnetService, vpcService),
@@ -233,6 +235,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	}
 
 	if restoreMode {
+		subnetSetReconcile.EnableRestoreMode()
 		err := pkgutil.ProcessRestore(reconcilerList, mgr.GetClient())
 		if err != nil {
 			log.Error(err, "Failed to process restore")
