@@ -237,7 +237,7 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 			return "", nil, err
 		}
 		// Check if the target Subnet is pre-created Subnet
-		if _, ok := parentSubnetCR.GetAnnotations()[servicecommon.AnnotationAssociatedResource]; ok {
+		if _, ok := parentSubnetCR.GetLabels()[servicecommon.LabelAssociatedResource]; ok {
 			return "", nil, &errorWithRetry{
 				message: fmt.Sprintf("Target Subnet %s/%s is a pre-created Subnet", bindingMap.Namespace, bindingMap.Spec.TargetSubnetName),
 				error:   fmt.Errorf("pre-created Subnet %s/%s cannot be a target Subnet", bindingMap.Namespace, bindingMap.Spec.TargetSubnetName),
@@ -252,7 +252,7 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 	}
 
 	// If child Subnet is a pre-created Subnet, check if it is in the same vpc as parent Subnet
-	if _, ok := childSubnetCR.GetAnnotations()[servicecommon.AnnotationAssociatedResource]; ok {
+	if _, ok := childSubnetCR.GetLabels()[servicecommon.LabelAssociatedResource]; ok {
 		childVpcPath, err := getVpcPath(childSubnetPath)
 		if err != nil {
 			return "", nil, err
@@ -288,7 +288,7 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 
 	// Check the Subnet CR realization.
 	var subnetPaths []string
-	if anno, ok := subnetCR.GetAnnotations()[servicecommon.AnnotationAssociatedResource]; ok {
+	if label, ok := subnetCR.GetLabels()[servicecommon.LabelAssociatedResource]; ok {
 		realized := false
 		for _, con := range subnetCR.Status.Conditions {
 			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionTrue {
@@ -303,9 +303,9 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 				error:   err,
 			}
 		}
-		path, err := common.GetSubnetPathFromAssociatedResource(anno)
+		path, err := common.GetSubnetPathFromAssociatedResource(label)
 		if err != nil {
-			// No need to retry as not support associated resource annotation
+			// No need to retry as not support associated resource label
 			// changing after Subnet creation.
 			log.Error(err, "Failed to get NSX Subnet path for shared Subnet", "Subnet", subnetKey.String())
 			return nil, subnetCR, &errorWithRetry{
