@@ -250,6 +250,86 @@ func TestBuildSubnetPort(t *testing.T) {
 			},
 			expectedError: nil,
 		},
+		{
+			name: "build-NSX-port-for-restore-pod",
+			obj: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: "v1",
+					Kind:       "Pod",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					UID:         "c5db1800-ce4c-11de-a935-8105ba7ace78",
+					Name:        "fake_pod",
+					Namespace:   "fake_ns",
+					Annotations: map[string]string{common.AnnotationPodMAC: "11:22:33:44:55:66"},
+				},
+				Status: corev1.PodStatus{
+					PodIP: "10.0.0.1",
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					Mode: common.String(v1alpha1.DHCPConfigModeServer),
+				},
+				Path: common.String("fake_path"),
+			},
+			contextID: "fake_context_id",
+			labelTags: &map[string]string{
+				"kubernetes.io/metadata.name": "fake_ns",
+				"vSphereClusterID":            "domain-c11",
+			},
+			expectedPort: &model.VpcSubnetPort{
+				DisplayName: common.String("fake_pod"),
+				Id:          common.String("fake_pod_c5db1800-ce4c-11de-a935-8105ba7ace78"),
+				Tags: []model.Tag{
+					{
+						Scope: common.String("nsx-op/cluster"),
+						Tag:   common.String("fake_cluster"),
+					},
+					{
+						Scope: common.String("nsx-op/version"),
+						Tag:   common.String("1.0.0"),
+					},
+					{
+						Scope: common.String("nsx-op/namespace"),
+						Tag:   common.String("fake_ns"),
+					},
+					{
+						Scope: common.String("nsx-op/pod_name"),
+						Tag:   common.String("fake_pod"),
+					},
+					{
+						Scope: common.String("nsx-op/pod_uid"),
+						Tag:   common.String("c5db1800-ce4c-11de-a935-8105ba7ace78"),
+					},
+					{
+						Scope: common.String("kubernetes.io/metadata.name"),
+						Tag:   common.String("fake_ns"),
+					},
+					{
+						Scope: common.String("vSphereClusterID"),
+						Tag:   common.String("domain-c11"),
+					},
+				},
+				Path:       common.String("fake_path/ports/fake_pod_c5db1800-ce4c-11de-a935-8105ba7ace78"),
+				ParentPath: common.String("fake_path"),
+				Attachment: &model.PortAttachment{
+					AllocateAddresses: common.String("DHCP"),
+					Type_:             common.String("STATIC"),
+					TrafficTag:        common.Int64(0),
+					AppId:             common.String("c5db1800-ce4c-11de-a935-8105ba7ace78"),
+					ContextId:         common.String("fake_context_id"),
+				},
+				AddressBindings: []model.PortAddressBindingEntry{
+					{
+						IpAddress:  common.String("10.0.0.1"),
+						MacAddress: common.String("11:22:33:44:55:66"),
+					},
+				},
+			},
+			expectedError: nil,
+			restore:       true,
+		},
 	}
 
 	for _, tt := range tests {

@@ -5,8 +5,11 @@ package pod
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -14,8 +17,10 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -27,6 +32,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -45,6 +51,7 @@ type PodReconciler struct {
 	NodeServiceReader servicecommon.NodeServiceReader
 	Recorder          record.EventRecorder
 	StatusUpdater     common.StatusUpdater
+	restoreMode       bool
 }
 
 func setPodReadyStatusFalse(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, err error, args ...interface{}) {
@@ -124,10 +131,10 @@ func getExistingConditionOfType(conditionType v1.PodConditionType, existingCondi
 }
 
 func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log.Info("reconciling pod", "pod", req.NamespacedName)
+	log.Info("Reconciling Pod", "Pod", req.NamespacedName)
 	startTime := time.Now()
 	defer func() {
-		log.Info("finished reconciling Pod", "Pod", req.NamespacedName, "duration", time.Since(startTime))
+		log.Info("Finished reconciling Pod", "Pod", req.NamespacedName, "duration", time.Since(startTime))
 	}()
 
 	r.StatusUpdater.IncreaseSyncTotal()
@@ -142,11 +149,11 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 			return common.ResultNormal, nil
 		}
-		log.Error(err, "unable to fetch Pod", "Pod", req.NamespacedName)
+		log.Error(err, "Unable to fetch Pod", "Pod", req.NamespacedName)
 		return common.ResultRequeue, err
 	}
 	if len(pod.Spec.NodeName) == 0 {
-		log.Info("pod is not scheduled on node yet, skipping", "pod", req.NamespacedName)
+		log.Info("Pod is not scheduled on Node yet, skipping", "Pod", req.NamespacedName)
 		return common.ResultNormal, nil
 	}
 
@@ -154,18 +161,18 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		r.StatusUpdater.IncreaseUpdateTotal()
 		isExisting, nsxSubnetPath, err := r.GetSubnetPathForPod(ctx, pod)
 		if err != nil {
-			log.Error(err, "failed to get NSX resource path from subnet", "pod.Name", pod.Name, "pod.UID", pod.UID)
+			log.Error(err, "Failed to get NSX resource path from Subnet", "pod.Name", pod.Name, "pod.UID", pod.UID)
 			r.StatusUpdater.UpdateFail(ctx, pod, err, "", setPodReadyStatusFalse)
 			return common.ResultRequeue, err
 		}
 		if !isExisting {
 			defer r.SubnetPortService.ReleasePortInSubnet(nsxSubnetPath)
 		}
-		log.Info("got NSX subnet for pod", "NSX subnet path", nsxSubnetPath, "pod.Name", pod.Name, "pod.UID", pod.UID)
+		log.Info("Got NSX Subnet for Pod", "NSX Subnet path", nsxSubnetPath, "pod.Name", pod.Name, "pod.UID", pod.UID)
 		node, err := r.GetNodeByName(pod.Spec.NodeName)
 		if err != nil {
 			// The error at the very beginning of the operator startup is expected because at that time the node may be not cached yet. We can expect the retry to become normal.
-			log.Error(err, "failed to get node ID for pod", "pod.Name", req.NamespacedName, "pod.UID", pod.UID, "node", pod.Spec.NodeName)
+			log.Error(err, "Failed to get Node ID for Pod", "pod.Name", req.NamespacedName, "pod.UID", pod.UID, "node", pod.Spec.NodeName)
 			return common.ResultRequeue, err
 		}
 		contextID := *node.UniqueId
@@ -174,12 +181,32 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			r.StatusUpdater.UpdateFail(ctx, pod, err, "", setPodReadyStatusFalse)
 			return common.ResultRequeue, err
 		}
-		_, err = r.SubnetPortService.CreateOrUpdateSubnetPort(pod, nsxSubnet, contextID, &pod.ObjectMeta.Labels, false, false)
+		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(pod, nsxSubnet, contextID, &pod.ObjectMeta.Labels, false, r.restoreMode)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, pod, err, "", setPodReadyStatusFalse)
 			return common.ResultRequeue, err
 		}
+		if nsxSubnetPortState != nil && len(nsxSubnetPortState.RealizedBindings) > 0 &&
+			nsxSubnetPortState.RealizedBindings[0].Binding != nil &&
+			nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress != nil {
+			podAnnotationChanges := map[string]string{
+				servicecommon.AnnotationPodMAC: strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\""),
+			}
+			err = util.UpdateK8sResourceAnnotation(r.Client, ctx, pod, podAnnotationChanges)
+			if err != nil {
+				log.Error(err, "Failed to update Pod annotation", "pod.Name", req.NamespacedName, "pod.UID", pod.UID, "podAnnotationChanges", podAnnotationChanges)
+				return common.ResultNormal, err
+			}
+		}
 		r.StatusUpdater.UpdateSuccess(ctx, pod, setPodReadyStatusTrue)
+		if r.restoreMode {
+			// Add restore annotation on Pod to notify Spherelet
+			retry.OnError(util.K8sClientRetry, func(err error) bool {
+				return err != nil
+			}, func() error {
+				return common.UpdateRestoreAnnotation(r.Client, ctx, pod, "true")
+			})
+		}
 	} else {
 		subnetPortID := r.SubnetPortService.BuildSubnetPortId(&pod.ObjectMeta)
 		if err := r.SubnetPortService.DeleteSubnetPortById(subnetPortID); err != nil {
@@ -219,7 +246,41 @@ func (r *PodReconciler) setupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *PodReconciler) RestoreReconcile() error {
+	restoreList, err := r.getRestoreList()
+	if err != nil {
+		err = fmt.Errorf("failed to get Pod restore list: %w", err)
+		return err
+	}
+	var errorList []error
+	r.restoreMode = true
+	for _, key := range restoreList {
+		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+		if result.Requeue || err != nil {
+			errorList = append(errorList, fmt.Errorf("failed to restore Pod %s, error: %w", key, err))
+		}
+	}
+	r.restoreMode = false
+	if len(errorList) > 0 {
+		return errors.Join(errorList...)
+	}
 	return nil
+}
+
+func (r *PodReconciler) getRestoreList() ([]types.NamespacedName, error) {
+	nsxPodIDs := r.SubnetPortService.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopePodUID)
+	restoreList := []types.NamespacedName{}
+	podList := &v1.PodList{}
+	if err := r.Client.List(context.TODO(), podList); err != nil {
+		return restoreList, err
+	}
+	for _, pod := range podList.Items {
+		anno := pod.GetAnnotations()
+		// Restore a Pod if it has MAC annotation but no corresponding NSX SubnetPort in cache
+		if _, ok := anno[servicecommon.AnnotationPodMAC]; ok && !nsxPodIDs.Has(string(pod.GetUID())) {
+			restoreList = append(restoreList, types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name})
+		}
+	}
+	return restoreList, nil
 }
 
 func (r *PodReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
@@ -293,23 +354,40 @@ func (r *PodReconciler) CollectGarbage(ctx context.Context) error {
 	return nil
 }
 
+func (r *PodReconciler) getSubnetByPod(pod *v1.Pod, subnetSetUID string) (string, error) {
+	subnets := r.SubnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetSetCRUID, subnetSetUID)
+	return common.GetSubnetByIP(subnets, net.ParseIP(pod.Status.PodIP))
+}
+
 func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (bool, string, error) {
 	subnetPortIDForPod := r.SubnetPortService.BuildSubnetPortId(&pod.ObjectMeta)
 	subnetPath := r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(subnetPortIDForPod)
 	if len(subnetPath) > 0 {
-		log.V(1).Info("NSX subnet port had been created, returning the existing NSX subnet path", "pod.UID", pod.UID, "subnetPath", subnetPath)
+		log.V(1).Info("NSX SubnetPort had been created, returning the existing NSX Subnet path", "pod.UID", pod.UID, "subnetPath", subnetPath)
 		return true, subnetPath, nil
 	}
 	subnetSet, err := common.GetDefaultSubnetSetByNamespace(r.SubnetPortService.Client, pod.Namespace, servicecommon.LabelDefaultPodSubnetSet)
 	if err != nil {
 		return false, "", err
 	}
-	log.Info("got default subnetset for pod, allocating the NSX subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "pod.Name", pod.Name, "pod.UID", pod.UID)
+	log.Info("Got default SubnetSet for Pod, allocating the NSX Subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "pod.Name", pod.Name, "pod.UID", pod.UID)
+	if r.restoreMode {
+		// For restore case, Pod will be created on the Subnet with matching CIDR
+		if pod.Status.PodIP != "" {
+			subnetPath, err = r.getSubnetByPod(pod, string(subnetSet.UID))
+			if err != nil {
+				log.Error(err, "Failed to find Subnet for restored Pod", "Pod", pod)
+				return false, "", err
+			}
+			log.V(1).Info("NSX SubnetPort will be restored on the existing NSX Subnet", "pod.UID", pod.UID, "subnetPath", subnetPath)
+			return true, subnetPath, nil
+		}
+	}
 	subnetPath, err = common.AllocateSubnetFromSubnetSet(subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService)
 	if err != nil {
 		return false, subnetPath, err
 	}
-	log.Info("allocated NSX subnet for pod", "nsxSubnetPath", subnetPath, "pod.Name", pod.Name, "pod.UID", pod.UID)
+	log.Info("Allocated NSX Subnet for Pod", "nsxSubnetPath", subnetPath, "pod.Name", pod.Name, "pod.UID", pod.UID)
 	return false, subnetPath, nil
 }
 

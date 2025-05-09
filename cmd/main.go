@@ -50,7 +50,6 @@ import (
 	subnetbindingservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetbinding"
 	subnetportservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 
-	commonctl "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
@@ -134,7 +133,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		os.Exit(1)
 	}
 
-	var reconcilerList []commonctl.ReconcilerProvider
+	var reconcilerList []pkgutil.ReconcilerProvider
 
 	var vpcService *vpc.VPCService
 	var hookServer webhook.Server

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/golang/mock/gomock"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
@@ -19,10 +20,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
+	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/node"
 )
@@ -204,6 +207,33 @@ func TestNodeReconciler_StartController(t *testing.T) {
 	defer patches.Reset()
 	r := NewNodeReconciler(mockMgr, nodeService)
 	err := r.StartController(mockMgr, nil)
+	assert.Nil(t, err)
+}
+
+func TestNodeReconciler_RestoreReconcile(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+		podList := list.(*v1.NodeList)
+		podList.Items = []v1.Node{
+			{ObjectMeta: metav1.ObjectMeta{Name: "node-1"}},
+			{ObjectMeta: metav1.ObjectMeta{Name: "node-2"}},
+			{ObjectMeta: metav1.ObjectMeta{Name: "node-3"}},
+		}
+		return nil
+	})
+	patches := gomonkey.ApplyFunc((*NodeReconciler).Reconcile, func(r *NodeReconciler, ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+		if req.Name != "node-1" && req.Name != "node-2" && req.Name != "node-3" {
+			assert.Failf(t, "Unexpected request", "req", req)
+		}
+		return common.ResultNormal, nil
+	})
+	defer patches.Reset()
+	r := &NodeReconciler{
+		Client: k8sClient,
+	}
+	err := r.RestoreReconcile()
 	assert.Nil(t, err)
 }
 

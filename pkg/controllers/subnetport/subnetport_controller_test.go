@@ -315,7 +315,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			v1sp.ObjectMeta = subnetPort.ObjectMeta
 			return nil
 		})
-	patchesGetSubnetByIP := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetByIP, func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort) (string, error) {
+	patchesGetSubnetByIP := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetBySubnetPort, func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort) (string, error) {
 		return "subnet-path", nil
 	})
 	defer patchesGetSubnetByIP.Reset()
@@ -653,6 +653,7 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 		expectedErr        string
 		expectedSubnetPath string
 		expectedIsExisting bool
+		restoreMode        bool
 		subnetport         *v1alpha1.SubnetPort
 	}{
 		{
@@ -947,6 +948,38 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "RestoreSubnetPortSuccess",
+			prepareFunc: func(t *testing.T, spr *SubnetPortReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetSubnetPathForSubnetPortFromStore,
+					func(s *subnetport.SubnetPortService, nsxSubnetPortID string) string {
+						return ""
+					})
+				patches.ApplyFunc((*SubnetPortReconciler).getSubnetBySubnetPort, func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort) (string, error) {
+					return "subnet-path-1", nil
+				})
+				return patches
+			},
+			expectedSubnetPath: "subnet-path-1",
+			subnetport: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetport-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					SubnetSet: "subnetset-1",
+				},
+				Status: v1alpha1.SubnetPortStatus{
+					NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+						IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+							{Gateway: "10.0.0.1"},
+						},
+					},
+				},
+			},
+			restoreMode:        true,
+			expectedIsExisting: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -954,6 +987,7 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 			ctx := context.TODO()
 			patches := tt.prepareFunc(t, r)
 			defer patches.Reset()
+			r.restoreMode = tt.restoreMode
 			isExisting, isStale, subnetPath, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, tt.subnetport)
 			assert.Equal(t, tt.expectedIsStale, isStale)
 			assert.Equal(t, tt.expectedIsExisting, isExisting)
@@ -1041,7 +1075,7 @@ func TestSubnetPortReconciler_getVirtualMachine(t *testing.T) {
 	assert.Equal(t, nic, "eth0")
 }
 
-func TestSubnetPortReconciler_getSubnetByIP(t *testing.T) {
+func TestSubnetPortReconciler_getSubnetBySubnetPort(t *testing.T) {
 	r := &SubnetPortReconciler{
 		SubnetService: &subnet.SubnetService{},
 	}
@@ -1089,7 +1123,7 @@ func TestSubnetPortReconciler_getSubnetByIP(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	subnetPath, err := r.getSubnetByIP(&v1alpha1.SubnetPort{
+	subnetPath, err := r.getSubnetBySubnetPort(&v1alpha1.SubnetPort{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "SubnetPort-1",
 			Namespace: "ns-1",
@@ -1108,7 +1142,7 @@ func TestSubnetPortReconciler_getSubnetByIP(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, "/subnet-1", subnetPath)
 
-	_, err = r.getSubnetByIP(&v1alpha1.SubnetPort{
+	_, err = r.getSubnetBySubnetPort(&v1alpha1.SubnetPort{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "SubnetPort-1",
 			Namespace: "ns-1",
@@ -1124,9 +1158,9 @@ func TestSubnetPortReconciler_getSubnetByIP(t *testing.T) {
 			},
 		},
 	})
-	assert.Contains(t, err.Error(), "failed to find Subnet matching SubnetPort")
+	assert.Contains(t, err.Error(), "failed to find Subnet matching")
 
-	subnetPath, err = r.getSubnetByIP(&v1alpha1.SubnetPort{
+	subnetPath, err = r.getSubnetBySubnetPort(&v1alpha1.SubnetPort{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "SubnetPort-1",
 			Namespace: "ns-1",
@@ -1145,7 +1179,7 @@ func TestSubnetPortReconciler_getSubnetByIP(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, "/subnet-3", subnetPath)
 
-	subnetPath, err = r.getSubnetByIP(&v1alpha1.SubnetPort{
+	subnetPath, err = r.getSubnetBySubnetPort(&v1alpha1.SubnetPort{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "SubnetPort-1",
 			Namespace: "ns-1",

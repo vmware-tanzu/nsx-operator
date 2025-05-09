@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -86,6 +87,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 		prepareFunc    func(*testing.T, *PodReconciler) *gomonkey.Patches
 		expectedErr    string
 		expectedResult ctrl.Result
+		restoreMode    bool
 	}{
 		{
 			name: "CRNotFoundAndDeletionFailed",
@@ -270,9 +272,22 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					})
 				patches.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
 					func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
-						return &model.SegmentPortState{}, nil
+						return &model.SegmentPortState{
+							RealizedBindings: []model.AddressBindingEntry{
+								{
+									Binding: &model.PacketAddressClassifier{
+										MacAddress: servicecommon.String("aa:bb:cc:dd:ee:ff"),
+									},
+								},
+							},
+						}, nil
 					})
 
+				k8sClient.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+					pod := obj.(*v1.Pod)
+					assert.Equal(t, "aa:bb:cc:dd:ee:ff", pod.GetAnnotations()[servicecommon.AnnotationPodMAC])
+					return nil
+				})
 				k8sClient.EXPECT().Status().Return(fakewriter).AnyTimes()
 				patches.ApplyFunc(fakeStatusWriter.Update,
 					func(writer fakeStatusWriter, ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
@@ -283,9 +298,14 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 						assert.Equal(t, v1.PodReady, pod.Status.Conditions[0].Type)
 						return nil
 					})
+				patches.ApplyFunc(common.UpdateRestoreAnnotation, func(client client.Client, ctx context.Context, obj client.Object, value string) error {
+					assert.Equal(t, "true", value)
+					return nil
+				})
 				return patches
 			},
 			expectedResult: common.ResultNormal,
+			restoreMode:    true,
 		},
 		{
 			name: "PodDeletedSuccess",
@@ -333,6 +353,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 			if patches != nil {
 				defer patches.Reset()
 			}
+			r.restoreMode = tt.restoreMode
 			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "pod-1", Namespace: "ns-1"}}
 			result, err := r.Reconcile(context.TODO(), req)
 			if tt.expectedErr != "" {
@@ -343,6 +364,44 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 			assert.Equal(t, tt.expectedResult, result)
 		})
 	}
+}
+
+func TestPodReconciler_getSubnetByPod(t *testing.T) {
+	r := &PodReconciler{
+		SubnetService: &subnet.SubnetService{},
+	}
+
+	patches := gomonkey.ApplyFunc((*subnet.SubnetService).GetSubnetsByIndex, func(s *subnet.SubnetService, key string, value string) []*model.VpcSubnet {
+		assert.Equal(t, value, "subnetset-1")
+		return []*model.VpcSubnet{
+			{
+				Path:        servicecommon.String("/subnet-1"),
+				IpAddresses: []string{"10.0.0.0/28"},
+			},
+			{
+				Path:        servicecommon.String("/subnet-2"),
+				IpAddresses: []string{"10.0.0.16/28"},
+			},
+			{
+				Path:        servicecommon.String("/subnet-3"),
+				IpAddresses: []string{"10.0.0.32/28"},
+			},
+		}
+	})
+	defer patches.Reset()
+
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "Pod-1",
+			Namespace: "ns-1",
+		},
+		Status: v1.PodStatus{
+			PodIP: "10.0.0.20",
+		},
+	}
+	subnetPath, err := r.getSubnetByPod(pod, "subnetset-1")
+	assert.Nil(t, err)
+	assert.Equal(t, "/subnet-2", subnetPath)
 }
 
 func TestPodReconciler_CollectGarbage(t *testing.T) {
@@ -456,6 +515,7 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 		expectedErr        string
 		expectedSubnetPath string
 		expectedIsExisting bool
+		restoreMode        bool
 	}{
 		{
 			name: "SubnetExisted",
@@ -532,15 +592,45 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 			},
 			expectedSubnetPath: subnetPath,
 		},
+		{
+			name: "Restore",
+			prepareFunc: func(t *testing.T, pr *PodReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetSubnetPathForSubnetPortFromStore,
+					func(s *subnetport.SubnetPortService, nsxSubnetPortID string) string {
+						return ""
+					})
+				patches.ApplyFunc(common.GetDefaultSubnetSetByNamespace,
+					func(client client.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
+						return &v1alpha1.SubnetSet{
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "subnetset-1",
+								UID:  "uid-1",
+							},
+						}, nil
+					})
+				patches.ApplyFunc((*PodReconciler).getSubnetByPod, func(r *PodReconciler, pod *v1.Pod, subnetSetUID string) (string, error) {
+					assert.Equal(t, "uid-1", subnetSetUID)
+					return subnetPath, nil
+				})
+				return patches
+			},
+			expectedSubnetPath: subnetPath,
+			expectedIsExisting: true,
+			restoreMode:        true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			patches := tt.prepareFunc(t, r)
 			defer patches.Reset()
+			r.restoreMode = tt.restoreMode
 			isExisting, path, err := r.GetSubnetPathForPod(context.TODO(), &v1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "pod-1",
 					Namespace: "ns-1",
+				},
+				Status: v1.PodStatus{
+					PodIP: "10.0.0.1",
 				},
 			})
 			if tt.expectedErr != "" {
@@ -638,6 +728,65 @@ func TestPodReconciler_StartController(t *testing.T) {
 	defer patches.Reset()
 	r := NewPodReconciler(mockMgr, subnetPortService, subnetService, vpcService, nodeService)
 	err := r.StartController(mockMgr, nil)
+	assert.Nil(t, err)
+}
+
+func TestPodReconciler_RestoreReconcile(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	r := &PodReconciler{
+		Client: k8sClient,
+		SubnetPortService: &subnetport.SubnetPortService{
+			SubnetPortStore: &subnetport.SubnetPortStore{},
+		},
+	}
+	patches := gomonkey.ApplyFunc((*servicecommon.ResourceStore).ListIndexFuncValues, func(s *servicecommon.ResourceStore, key string) sets.Set[string] {
+		return sets.New[string]("pod-1", "pod-3")
+	})
+	defer patches.Reset()
+
+	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+		podList := list.(*v1.PodList)
+		podList.Items = []v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "pod-1",
+					Namespace:   "ns-1",
+					UID:         "pod-1",
+					Annotations: map[string]string{servicecommon.AnnotationPodMAC: "aa:bb:cc:dd:ee:01"},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "pod-2",
+					Namespace:   "ns-1",
+					UID:         "pod-2",
+					Annotations: map[string]string{servicecommon.AnnotationPodMAC: "aa:bb:cc:dd:ee:02"},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "pod-3",
+					Namespace:   "ns-1",
+					UID:         "pod-3",
+					Annotations: map[string]string{servicecommon.AnnotationPodMAC: "aa:bb:cc:dd:ee:03"},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "pod-4", Namespace: "ns-1", UID: "pod-4"},
+			},
+		}
+		return nil
+	})
+
+	patches.ApplyFunc((*PodReconciler).Reconcile, func(r *PodReconciler, ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+		assert.Equal(t, "pod-2", req.Name)
+		assert.Equal(t, "ns-1", req.Namespace)
+		return common.ResultNormal, nil
+	})
+	err := r.RestoreReconcile()
 	assert.Nil(t, err)
 }
 
