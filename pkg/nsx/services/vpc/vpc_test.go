@@ -2546,7 +2546,7 @@ func TestGetNSXLBSNATIP(t *testing.T) {
 				defer patches.Reset()
 			}
 
-			got, err := vpcService.GetNSXLBSNATIP(testCase.vpc)
+			got, err := vpcService.GetNSXLBSNATIPForCTGW(testCase.vpc)
 			if testCase.wantErr != "" {
 				assert.ErrorContains(t, err, testCase.wantErr)
 			} else {

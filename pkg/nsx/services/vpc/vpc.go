@@ -389,7 +389,7 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	return path, cidr, nil
 }
 
-func (s *VPCService) GetNSXLBSNATIP(vpc model.Vpc) (string, error) {
+func (s *VPCService) GetNSXLBSNATIPForCTGW(vpc model.Vpc) (string, error) {
 	log.V(2).Info("Getting VPC NSX LB SNAT IP", "VPC", *vpc.Id)
 	_, err := common.ParseVPCResourcePath(*vpc.Path)
 	if err != nil {
@@ -403,6 +403,22 @@ func (s *VPCService) GetNSXLBSNATIP(vpc model.Vpc) (string, error) {
 		return "", err
 	}
 	return tier1UpLinkIP, nil
+}
+
+func (s *VPCService) GetNSXLBSNATIPForDTGW(vpc model.Vpc) (string, error) {
+	log.V(2).Info("Fetching NSX LB SNAT IP from DTGW", "VPC", *vpc.Id)
+	_, err := common.ParseVPCResourcePath(*vpc.Path)
+	if err != nil {
+		return "", err
+	}
+	realizeService := realizestate.InitializeRealizeState(s.Service)
+	lbIP, err := realizeService.GetPolicyServiceInterfaceSNATIP(*vpc.Path + "/service-interface")
+	if err != nil {
+		log.Error(err, "Unable to fetch NSX LB SNAT IP from DTGW", "VPC", *vpc.Id)
+		return "", err
+	}
+	log.Info("Fetched NSX LB SNAT IP for DTGW", "VPC", *vpc.Id, "LBSNATIP", lbIP)
+	return lbIP, nil
 }
 
 func (s *VPCService) GetVpcConnectivityProfile(nc *v1alpha1.VPCNetworkConfiguration, vpcConnectivityProfilePath string) (*model.VpcConnectivityProfile, error) {
