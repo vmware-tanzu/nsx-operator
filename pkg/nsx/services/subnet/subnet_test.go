@@ -81,12 +81,13 @@ func TestGenerateSubnetNSTags(t *testing.T) {
 
 	// Validate the tags
 	assert.NotNil(t, tags)
-	assert.Equal(t, 3, len(tags)) // 3 tags should be generated
+	assert.Equal(t, 4, len(tags)) // 4 tags should be generated
 
 	// Check specific tags
-	assert.Equal(t, "namespace-uid", *tags[0].Tag)
-	assert.Equal(t, "test-ns", *tags[1].Tag)
-	assert.Equal(t, "test", *tags[2].Tag)
+	assert.Equal(t, "nsx-op", *tags[0].Tag)
+	assert.Equal(t, "namespace-uid", *tags[1].Tag)
+	assert.Equal(t, "test-ns", *tags[2].Tag)
+	assert.Equal(t, "test", *tags[3].Tag)
 
 	// Define the SubnetSet object
 	subnetSet := &v1alpha1.SubnetSet{
@@ -104,9 +105,9 @@ func TestGenerateSubnetNSTags(t *testing.T) {
 
 	// Validate the tags for SubnetSet
 	assert.NotNil(t, tagsSet)
-	assert.Equal(t, 3, len(tagsSet)) // 3 tags should be generated
-	assert.Equal(t, "namespace-uid", *tagsSet[0].Tag)
-	assert.Equal(t, "test-ns", *tagsSet[1].Tag)
+	assert.Equal(t, 4, len(tagsSet)) // 4 tags should be generated
+	assert.Equal(t, "nsx-op", *tagsSet[0].Tag)
+	assert.Equal(t, "namespace-uid", *tagsSet[1].Tag)
 }
 
 type fakeSubnetsClient struct{}
@@ -762,5 +763,293 @@ func TestSubnetService_RestoreSubnetSet(t *testing.T) {
 		} else {
 			assert.Nil(t, err)
 		}
+	}
+}
+
+func TestBuildSubnetCR(t *testing.T) {
+	// Test cases
+	tests := []struct {
+		name           string
+		ns             string
+		subnetName     string
+		vpcFullName    string
+		associatedName string
+		nsxSubnet      *model.VpcSubnet
+		expectedSubnet *v1alpha1.Subnet
+		setupMocks     func() *gomonkey.Patches
+	}{
+		{
+			name:           "Build Subnet CR with NSX Subnet",
+			ns:             "test-ns",
+			subnetName:     "test-subnet",
+			vpcFullName:    "proj-1:vpc-1",
+			associatedName: "proj-1:vpc-1:subnet-1",
+			nsxSubnet:      &model.VpcSubnet{},
+			expectedSubnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-subnet",
+					Namespace: "test-ns",
+					Annotations: map[string]string{
+						common.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+					},
+				},
+				Spec: v1alpha1.SubnetSpec{
+					VPCName: "proj-1:vpc-1",
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						EnableVLANExtension: false,
+					},
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPv4SubnetSize: 24,
+					IPAddresses:    []string{"192.168.1.0/24"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+					},
+				},
+			},
+			setupMocks: func() *gomonkey.Patches {
+				service := &SubnetService{}
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "MapNSXSubnetToSubnetCR",
+					func(_ *SubnetService, subnetCR *v1alpha1.Subnet, _ *model.VpcSubnet) {
+						subnetCR.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePublic)
+						subnetCR.Spec.IPv4SubnetSize = 24
+						subnetCR.Spec.IPAddresses = []string{"192.168.1.0/24"}
+						subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer)
+					})
+				return patches
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var patches *gomonkey.Patches
+			if tt.setupMocks != nil {
+				patches = tt.setupMocks()
+				if patches != nil {
+					defer patches.Reset()
+				}
+			}
+
+			service := &SubnetService{}
+			subnetCR := service.BuildSubnetCR(tt.ns, tt.subnetName, tt.vpcFullName, tt.associatedName, tt.nsxSubnet)
+			assert.Equal(t, tt.expectedSubnet, subnetCR)
+		})
+	}
+}
+
+func TestMapNSXSubnetToSubnetCR(t *testing.T) {
+	// Test cases
+	tests := []struct {
+		name           string
+		subnetCR       *v1alpha1.Subnet
+		nsxSubnet      *model.VpcSubnet
+		expectedSubnet *v1alpha1.Subnet
+	}{
+		{
+			name: "Map NSX Subnet with Public AccessMode",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:     common.String("Public"),
+				Ipv4SubnetSize: common.Int64(24),
+				IpAddresses:    []string{"192.168.1.0/24"},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPv4SubnetSize: 24,
+					IPAddresses:    []string{"192.168.1.0/24"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+				},
+			},
+		},
+		{
+			name: "Map NSX Subnet with Private_TGW AccessMode",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:     common.String("Private_TGW"),
+				Ipv4SubnetSize: common.Int64(24),
+				IpAddresses:    []string{"192.168.1.0/24"},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModeProject),
+					IPv4SubnetSize: 24,
+					IPAddresses:    []string{"192.168.1.0/24"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+				},
+			},
+		},
+		{
+			name: "Map NSX Subnet with nil AccessMode",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				Ipv4SubnetSize: common.Int64(24),
+				IpAddresses:    []string{"192.168.1.0/24"},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPv4SubnetSize: 24,
+					IPAddresses:    []string{"192.168.1.0/24"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+				},
+			},
+		},
+		{
+			name: "Map NSX Subnet with nil IPv4SubnetSize",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:  common.String("Public"),
+				IpAddresses: []string{"192.168.1.0/24"},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPv4SubnetSize: 0,
+					IPAddresses:    []string{"192.168.1.0/24"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a copy of the subnetCR for each test
+			subnetCR := tt.subnetCR.DeepCopy()
+
+			// Call the function being tested
+			service := &SubnetService{}
+			service.MapNSXSubnetToSubnetCR(subnetCR, tt.nsxSubnet)
+
+			// Check the result
+			assert.Equal(t, tt.expectedSubnet.Spec.AccessMode, subnetCR.Spec.AccessMode)
+			assert.Equal(t, tt.expectedSubnet.Spec.IPv4SubnetSize, subnetCR.Spec.IPv4SubnetSize)
+			assert.Equal(t, tt.expectedSubnet.Spec.IPAddresses, subnetCR.Spec.IPAddresses)
+			assert.Equal(t, tt.expectedSubnet.Spec.SubnetDHCPConfig.Mode, subnetCR.Spec.SubnetDHCPConfig.Mode)
+		})
+	}
+}
+
+func TestMapNSXSubnetStatusToSubnetCRStatus(t *testing.T) {
+	// Test cases
+	tests := []struct {
+		name           string
+		subnetCR       *v1alpha1.Subnet
+		statusList     []model.VpcSubnetStatus
+		expectedStatus v1alpha1.SubnetStatus
+	}{
+		{
+			name: "Map NSX Subnet Status to Subnet CR Status",
+			subnetCR: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						common.AnnotationAssociatedResource: "project1:vpc1:subnet1",
+					},
+				},
+				Status: v1alpha1.SubnetStatus{
+					NetworkAddresses:    []string{"old-network"},
+					GatewayAddresses:    []string{"old-gateway"},
+					DHCPServerAddresses: []string{"old-dhcp"},
+				},
+			},
+			statusList: []model.VpcSubnetStatus{
+				{
+					NetworkAddress:    common.String("10.0.0.0/24"),
+					GatewayAddress:    common.String("10.0.0.1"),
+					DhcpServerAddress: common.String("10.0.0.2"),
+				},
+				{
+					NetworkAddress:    common.String("192.168.1.0/24"),
+					GatewayAddress:    common.String("192.168.1.1"),
+					DhcpServerAddress: common.String("192.168.1.2"),
+				},
+			},
+			expectedStatus: v1alpha1.SubnetStatus{
+				NetworkAddresses:    []string{"10.0.0.0/24", "192.168.1.0/24"},
+				GatewayAddresses:    []string{"10.0.0.1", "192.168.1.1"},
+				DHCPServerAddresses: []string{"10.0.0.2", "192.168.1.2"},
+				Shared:              true,
+			},
+		},
+		{
+			name: "Map NSX Subnet Status without Associated Resource",
+			subnetCR: &v1alpha1.Subnet{
+				Status: v1alpha1.SubnetStatus{
+					NetworkAddresses:    []string{"old-network"},
+					GatewayAddresses:    []string{"old-gateway"},
+					DHCPServerAddresses: []string{"old-dhcp"},
+				},
+			},
+			statusList: []model.VpcSubnetStatus{
+				{
+					NetworkAddress:    common.String("10.0.0.0/24"),
+					GatewayAddress:    common.String("10.0.0.1"),
+					DhcpServerAddress: common.String("10.0.0.2"),
+				},
+			},
+			expectedStatus: v1alpha1.SubnetStatus{
+				NetworkAddresses:    []string{"10.0.0.0/24"},
+				GatewayAddresses:    []string{"10.0.0.1"},
+				DHCPServerAddresses: []string{"10.0.0.2"},
+				Shared:              false,
+			},
+		},
+		{
+			name: "Map NSX Subnet Status with nil DHCP Server Address",
+			subnetCR: &v1alpha1.Subnet{
+				Status: v1alpha1.SubnetStatus{
+					NetworkAddresses:    []string{"old-network"},
+					GatewayAddresses:    []string{"old-gateway"},
+					DHCPServerAddresses: []string{"old-dhcp"},
+				},
+			},
+			statusList: []model.VpcSubnetStatus{
+				{
+					NetworkAddress: common.String("10.0.0.0/24"),
+					GatewayAddress: common.String("10.0.0.1"),
+					// DhcpServerAddress is nil
+				},
+			},
+			expectedStatus: v1alpha1.SubnetStatus{
+				NetworkAddresses:    []string{"10.0.0.0/24"},
+				GatewayAddresses:    []string{"10.0.0.1"},
+				DHCPServerAddresses: []string{},
+				Shared:              false,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a copy of the subnetCR for each test
+			subnetCR := tt.subnetCR.DeepCopy()
+
+			// Call the function being tested
+			service := &SubnetService{}
+			service.MapNSXSubnetStatusToSubnetCRStatus(subnetCR, tt.statusList)
+
+			// Check the result
+			assert.Equal(t, tt.expectedStatus.NetworkAddresses, subnetCR.Status.NetworkAddresses)
+			assert.Equal(t, tt.expectedStatus.GatewayAddresses, subnetCR.Status.GatewayAddresses)
+			assert.Equal(t, tt.expectedStatus.DHCPServerAddresses, subnetCR.Status.DHCPServerAddresses)
+			assert.Equal(t, tt.expectedStatus.Shared, subnetCR.Status.Shared)
+		})
 	}
 }

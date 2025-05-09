@@ -14,6 +14,7 @@ import (
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -25,6 +26,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	types "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -36,10 +38,11 @@ var (
 // Using vpcservice provider instead of vpc service to prevent
 // invoking method that should be exposed to other module.
 type NamespaceReconciler struct {
-	Client     client.Client
-	Scheme     *apimachineryruntime.Scheme
-	NSXConfig  *config.NSXOperatorConfig
-	VPCService types.VPCServiceProvider
+	Client        client.Client
+	Scheme        *apimachineryruntime.Scheme
+	NSXConfig     *config.NSXOperatorConfig
+	VPCService    types.VPCServiceProvider
+	SubnetService *subnet.SubnetService
 }
 
 func (r *NamespaceReconciler) getDefaultNetworkConfigName() (string, error) {
@@ -226,6 +229,15 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if err := r.createDefaultSubnetSet(ctx, ns, nc.Spec.DefaultSubnetSize); err != nil {
 			return common.ResultRequeueAfter10sec, err
 		}
+
+		// Sync shared subnets, look into shared subnets in vpcnetworkconfigurations,
+		// for new shared subnets, create Subnet CRs,
+		// for deleted shared subnets, delete Subnet CRs
+		if err := r.syncSharedSubnets(ctx, ns, nc); err != nil {
+			log.Error(err, "Failed to sync shared Subnets", "Namespace", ns)
+			return common.ResultNormal, err
+		}
+
 		return common.ResultNormal, nil
 	} else {
 		metrics.CounterInc(r.NSXConfig, metrics.ControllerDeleteTotal, common.MetricResTypeNamespace)
@@ -244,6 +256,11 @@ func (r *NamespaceReconciler) setupWithManager(mgr ctrl.Manager) error {
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
+		Watches(
+			&v1alpha1.VPCNetworkConfiguration{},
+			&EnqueueRequestForVPCNetworkConfiguration{Reconciler: r},
+			builder.WithPredicates(PredicateFuncsVPCNetworkConfig),
+		).
 		Complete(r)
 }
 
@@ -268,12 +285,14 @@ func (r *NamespaceReconciler) StartController(mgr ctrl.Manager, _ webhook.Server
 	return nil
 }
 
-func NewNamespaceReconciler(mgr ctrl.Manager, cf *config.NSXOperatorConfig, vpcService types.VPCServiceProvider) *NamespaceReconciler {
+func NewNamespaceReconciler(mgr ctrl.Manager, cf *config.NSXOperatorConfig, vpcService types.VPCServiceProvider,
+	subnetService *subnet.SubnetService) *NamespaceReconciler {
 	nsReconciler := &NamespaceReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		NSXConfig:  cf,
-		VPCService: vpcService,
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		NSXConfig:     cf,
+		VPCService:    vpcService,
+		SubnetService: subnetService,
 	}
 	return nsReconciler
 }

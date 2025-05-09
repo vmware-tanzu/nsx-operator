@@ -58,7 +58,7 @@ func (s *VPCService) GetDefaultNetworkConfig() (*v1alpha1.VPCNetworkConfiguratio
 	}
 
 	for _, vpcConfigCR := range vpcNetworkConfigList.Items {
-		if isDefaultNetworkConfigCR(&vpcConfigCR) {
+		if common.IsDefaultNetworkConfigCR(&vpcConfigCR) {
 			return &vpcConfigCR, nil
 		}
 	}
@@ -999,4 +999,30 @@ func (s *VPCService) cleanupAviSubnetPorts(ctx context.Context) error {
 
 func IsPreCreatedVPC(nc *v1alpha1.VPCNetworkConfiguration) bool {
 	return nc.Spec.VPC != ""
+}
+
+// GetProjectName gets the project name from its ID
+func (s *VPCService) GetProjectName(orgID, projectID string) (string, error) {
+	proj, err := s.NSXClient.ProjectClient.Get(orgID, projectID, nil)
+	if err != nil {
+		log.Error(err, "Failed to get project", "ProjectID", projectID)
+		return projectID, err
+	}
+	if proj.DisplayName != nil {
+		return *proj.DisplayName, nil
+	}
+	return projectID, nil
+}
+
+// GetVPCName gets the VPC name from its ID
+func (s *VPCService) GetVPCName(orgID, projectID, vpcID string) (string, error) {
+	vpc, err := s.NSXClient.VPCClient.Get(orgID, projectID, vpcID)
+	if err != nil {
+		log.Error(err, "Failed to get VPC", "VPCID", vpcID)
+		return vpcID, err
+	}
+	if vpc.DisplayName != nil {
+		return *vpc.DisplayName, nil
+	}
+	return vpcID, nil
 }

@@ -29,6 +29,7 @@ import (
 	ctlcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
@@ -238,6 +239,11 @@ func TestNamespaceReconciler_StartController(t *testing.T) {
 			Client: fakeClient,
 		},
 	}
+	subnetService := &subnet.SubnetService{
+		Service: common.Service{
+			Client: fakeClient,
+		},
+	}
 	mockMgr := &MockManager{scheme: runtime.NewScheme()}
 	patches := gomonkey.ApplyFunc((*NamespaceReconciler).setupWithManager, func(r *NamespaceReconciler, mgr manager.Manager) error {
 		return nil
@@ -246,7 +252,7 @@ func TestNamespaceReconciler_StartController(t *testing.T) {
 		return
 	})
 	defer patches.Reset()
-	r := NewNamespaceReconciler(mockMgr, nil, vpcService)
+	r := NewNamespaceReconciler(mockMgr, nil, vpcService, subnetService)
 	err := r.StartController(mockMgr, nil)
 	assert.Nil(t, err)
 }

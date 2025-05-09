@@ -1,0 +1,775 @@
+package namespace
+
+import (
+	"context"
+	"fmt"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/agiledragon/gomonkey/v2"
+	"github.com/stretchr/testify/assert"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
+)
+
+// Helper function to create a NamespaceReconciler for testing
+func createTestNamespaceReconciler(objs []client.Object) *NamespaceReconciler {
+	newScheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
+	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
+	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objs...).Build()
+
+	vpcService := &vpc.VPCService{
+		Service: servicecommon.Service{
+			Client:    fakeClient,
+			NSXClient: &nsx.Client{},
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint:   "vmc-enforcementpoint",
+					UseAVILoadBalancer: false,
+				},
+			},
+		},
+	}
+
+	return &NamespaceReconciler{
+		Client:     fakeClient,
+		Scheme:     newScheme,
+		VPCService: vpcService,
+	}
+}
+
+// CustomClient is a custom implementation of client.Client that allows us to override the Create and List methods
+type CustomClient struct {
+	client.Client
+	CreateFunc func(ctx context.Context, obj client.Object, opts ...client.CreateOption) error
+	ListFunc   func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error
+}
+
+func (c *CustomClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	if c.CreateFunc != nil {
+		return c.CreateFunc(ctx, obj, opts...)
+	}
+	return c.Client.Create(ctx, obj, opts...)
+}
+
+func (c *CustomClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if c.ListFunc != nil {
+		return c.ListFunc(ctx, list, opts...)
+	}
+	return c.Client.List(ctx, list, opts...)
+}
+
+func TestCreateSubnetCRInK8s(t *testing.T) {
+	// Create a test subnet CR
+	subnetCR := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-subnet",
+			Namespace: "test-ns",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			VPCName: "proj-1:vpc-1",
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				EnableVLANExtension: true,
+			},
+		},
+	}
+
+	// Test cases
+	tests := []struct {
+		name              string
+		existingSubnets   []client.Object
+		expectedErrString string
+		expectedName      string
+	}{
+		{
+			name:            "Create new Subnet CR",
+			existingSubnets: []client.Object{},
+			expectedName:    "test-subnet",
+		},
+		{
+			name: "Subnet CR already exists",
+			existingSubnets: []client.Object{
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-subnet",
+						Namespace: "test-ns",
+					},
+				},
+			},
+			expectedName: "test-subnet-",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := createTestNamespaceReconciler(tt.existingSubnets)
+
+			// Create a copy of the subnet CR for each test
+			testSubnet := subnetCR.DeepCopy()
+
+			// For the "Subnet CR already exists" case, we need to use a custom client
+			if tt.name == "Subnet CR already exists" {
+				createCount := 0
+				customClient := &CustomClient{
+					Client: r.Client,
+					CreateFunc: func(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+						createCount++
+
+						if createCount == 1 {
+							// First call should return "already exists" error
+							return apierrors.NewAlreadyExists(v1alpha1.Resource("subnets"), obj.GetName())
+						}
+
+						// Second call should succeed and set a name with the generateName prefix
+						if obj.GetGenerateName() != "" {
+							obj.SetName(obj.GetGenerateName() + "random-suffix")
+							// Make sure the name is set in the original testSubnet object
+							testSubnet.SetName(obj.GetName())
+						}
+						return nil
+					},
+				}
+
+				// Replace the client in the reconciler with our custom client
+				r.Client = customClient
+			}
+
+			err := r.createSubnetCRInK8s(context.Background(), testSubnet, "test-subnet")
+
+			if tt.expectedErrString != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErrString)
+			} else {
+				assert.NoError(t, err)
+				if tt.expectedName == "test-subnet" {
+					assert.Equal(t, tt.expectedName, testSubnet.Name)
+				} else {
+					// For generateName case, check that the name starts with the expected prefix
+					assert.True(t, len(testSubnet.Name) > len(tt.expectedName))
+					assert.True(t, strings.HasPrefix(testSubnet.Name, tt.expectedName))
+				}
+			}
+		})
+	}
+}
+
+func TestGetExistingSharedSubnets(t *testing.T) {
+	// Test cases
+	tests := []struct {
+		name                string
+		existingSubnets     []client.Object
+		expectedSubnetCount int
+		expectedError       bool
+	}{
+		{
+			name:                "No existing subnets",
+			existingSubnets:     []client.Object{},
+			expectedSubnetCount: 0,
+			expectedError:       false,
+		},
+		{
+			name: "One existing shared subnet",
+			existingSubnets: []client.Object{
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "shared-subnet",
+						Namespace: "test-ns",
+						Annotations: map[string]string{
+							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+						},
+					},
+				},
+			},
+			expectedSubnetCount: 1,
+			expectedError:       false,
+		},
+		{
+			name: "Multiple existing shared subnets",
+			existingSubnets: []client.Object{
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "shared-subnet-1",
+						Namespace: "test-ns",
+						Annotations: map[string]string{
+							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+						},
+					},
+				},
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "shared-subnet-2",
+						Namespace: "test-ns",
+						Annotations: map[string]string{
+							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-2",
+						},
+					},
+				},
+			},
+			expectedSubnetCount: 2,
+			expectedError:       false,
+		},
+		{
+			name: "Mix of shared and non-shared subnets",
+			existingSubnets: []client.Object{
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "shared-subnet",
+						Namespace: "test-ns",
+						Annotations: map[string]string{
+							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+						},
+					},
+				},
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "non-shared-subnet",
+						Namespace: "test-ns",
+					},
+				},
+			},
+			expectedSubnetCount: 1,
+			expectedError:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := createTestNamespaceReconciler(tt.existingSubnets)
+
+			sharedSubnets, err := r.getExistingSharedSubnetCRs(context.Background(), "test-ns")
+
+			if tt.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedSubnetCount, len(sharedSubnets))
+
+				// Verify that all subnets in the map have the AnnotationAssociatedResource annotation
+				for key, subnet := range sharedSubnets {
+					assert.Equal(t, key, subnet.Annotations[servicecommon.AnnotationAssociatedResource])
+				}
+			}
+		})
+	}
+}
+
+func TestCheckSubnetReferences(t *testing.T) {
+	// Test cases
+	tests := []struct {
+		name                 string
+		subnet               *v1alpha1.Subnet
+		existingResources    []client.Object
+		expectedHasReference bool
+		expectedError        bool
+	}{
+		{
+			name: "No references",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-subnet",
+					Namespace: "test-ns",
+				},
+			},
+			existingResources:    []client.Object{},
+			expectedHasReference: false,
+			expectedError:        false,
+		},
+		{
+			name: "Referenced by SubnetPort",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-subnet",
+					Namespace: "test-ns",
+				},
+			},
+			existingResources: []client.Object{
+				&v1alpha1.SubnetPort{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-subnetport",
+						Namespace: "test-ns",
+					},
+					Spec: v1alpha1.SubnetPortSpec{
+						Subnet: "test-subnet",
+					},
+				},
+			},
+			expectedHasReference: true,
+			expectedError:        false,
+		},
+		{
+			name: "Referenced by SubnetConnectionBindingMap",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-subnet",
+					Namespace: "test-ns",
+				},
+			},
+			existingResources: []client.Object{
+				&v1alpha1.SubnetConnectionBindingMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-binding",
+						Namespace: "test-ns",
+					},
+					Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+						TargetSubnetName: "test-subnet",
+					},
+				},
+			},
+			expectedHasReference: true,
+			expectedError:        false,
+		},
+		{
+			name: "Not referenced by any resource",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-subnet",
+					Namespace: "test-ns",
+				},
+			},
+			existingResources: []client.Object{
+				&v1alpha1.SubnetPort{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-subnetport",
+						Namespace: "test-ns",
+					},
+					Spec: v1alpha1.SubnetPortSpec{
+						Subnet: "other-subnet",
+					},
+				},
+				&v1alpha1.SubnetConnectionBindingMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-binding",
+						Namespace: "test-ns",
+					},
+					Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+						TargetSubnetName: "other-subnet",
+					},
+				},
+			},
+			expectedHasReference: false,
+			expectedError:        false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := createTestNamespaceReconciler(tt.existingResources)
+
+			hasReferences, err := r.checkSubnetReferences(context.Background(), "test-ns", tt.subnet, "test-resource")
+
+			if tt.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedHasReference, hasReferences)
+			}
+		})
+	}
+}
+
+func TestProcessNewSharedSubnets(t *testing.T) {
+	// Test cases
+	tests := []struct {
+		name                string
+		existingSubnets     []client.Object
+		vpcNetConfig        *v1alpha1.VPCNetworkConfiguration
+		expectedUnusedCount int
+		setupMocks          func(r *NamespaceReconciler) *gomonkey.Patches
+	}{
+		{
+			name:            "No existing subnets, no new subnets",
+			existingSubnets: []client.Object{},
+			vpcNetConfig: &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					Subnets: []string{},
+				},
+			},
+			expectedUnusedCount: 0,
+			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
+				return nil
+			},
+		},
+		{
+			name:            "No existing subnets, one new subnet",
+			existingSubnets: []client.Object{},
+			vpcNetConfig: &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					Subnets: []string{"/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1"},
+				},
+			},
+			expectedUnusedCount: 0,
+			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(common.ConvertSubnetPathToAssociatedResource,
+					func(path string) (string, error) {
+						return "proj-1:vpc-1:subnet-1", nil
+					})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "createSharedSubnetCR",
+					func(_ *NamespaceReconciler, _ context.Context, _ string, _ string, _ *v1alpha1.VPCNetworkConfiguration) error {
+						return nil
+					})
+				return patches
+			},
+		},
+		{
+			name: "One existing subnet, one new subnet",
+			existingSubnets: []client.Object{
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "existing-subnet",
+						Namespace: "test-ns",
+						Annotations: map[string]string{
+							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:existing-subnet",
+						},
+					},
+				},
+			},
+			vpcNetConfig: &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					Subnets: []string{
+						"/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
+					},
+				},
+			},
+			expectedUnusedCount: 1,
+			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(common.ConvertSubnetPathToAssociatedResource,
+					func(path string) (string, error) {
+						return "proj-1:vpc-1:subnet-1", nil
+					})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "createSharedSubnetCR",
+					func(_ *NamespaceReconciler, _ context.Context, _ string, _ string, _ *v1alpha1.VPCNetworkConfiguration) error {
+						return nil
+					})
+				return patches
+			},
+		},
+		{
+			name: "One existing subnet, same subnet in config",
+			existingSubnets: []client.Object{
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "subnet-1",
+						Namespace: "test-ns",
+						Annotations: map[string]string{
+							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+						},
+					},
+				},
+			},
+			vpcNetConfig: &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					Subnets: []string{
+						"/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
+					},
+				},
+			},
+			expectedUnusedCount: 0,
+			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(common.ConvertSubnetPathToAssociatedResource,
+					func(path string) (string, error) {
+						return "proj-1:vpc-1:subnet-1", nil
+					})
+				return patches
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := createTestNamespaceReconciler(tt.existingSubnets)
+
+			if tt.setupMocks != nil {
+				patches := tt.setupMocks(r)
+				if patches != nil {
+					defer patches.Reset()
+				}
+			}
+
+			// Get existing shared subnets
+			existingSharedSubnets, err := r.getExistingSharedSubnetCRs(context.Background(), "test-ns")
+			assert.NoError(t, err)
+
+			// Process new shared subnets
+			unusedSubnets, err := r.processNewSharedSubnets(context.Background(), "test-ns", tt.vpcNetConfig, existingSharedSubnets)
+
+			// Check the result
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedUnusedCount, len(unusedSubnets))
+		})
+	}
+}
+
+func TestDeleteUnusedSharedSubnets(t *testing.T) {
+	// Test cases
+	tests := []struct {
+		name                string
+		existingSubnets     []client.Object
+		remainingSubnets    map[string]*v1alpha1.Subnet
+		expectedDeleteCount int
+		setupMocks          func(r *NamespaceReconciler) *gomonkey.Patches
+	}{
+		{
+			name:                "No remaining subnets",
+			existingSubnets:     []client.Object{},
+			remainingSubnets:    map[string]*v1alpha1.Subnet{},
+			expectedDeleteCount: 0,
+			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
+				return nil
+			},
+		},
+		{
+			name:            "One remaining subnet with no references",
+			existingSubnets: []client.Object{},
+			remainingSubnets: map[string]*v1alpha1.Subnet{
+				"proj-1:vpc-1:subnet-1": {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "subnet-1",
+						Namespace: "test-ns",
+						Annotations: map[string]string{
+							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+						},
+					},
+				},
+			},
+			expectedDeleteCount: 1,
+			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "checkSubnetReferences",
+					func(_ *NamespaceReconciler, _ context.Context, _ string, _ *v1alpha1.Subnet, _ string) (bool, error) {
+						return false, nil
+					})
+				return patches
+			},
+		},
+		{
+			name:            "One remaining subnet with references",
+			existingSubnets: []client.Object{},
+			remainingSubnets: map[string]*v1alpha1.Subnet{
+				"proj-1:vpc-1:subnet-1": {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "subnet-1",
+						Namespace: "test-ns",
+						Annotations: map[string]string{
+							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+						},
+					},
+				},
+			},
+			expectedDeleteCount: 0,
+			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "checkSubnetReferences",
+					func(_ *NamespaceReconciler, _ context.Context, _ string, _ *v1alpha1.Subnet, _ string) (bool, error) {
+						return true, nil
+					})
+				return patches
+			},
+		},
+		{
+			name:            "Multiple remaining subnets with mixed references",
+			existingSubnets: []client.Object{},
+			remainingSubnets: map[string]*v1alpha1.Subnet{
+				"proj-1:vpc-1:subnet-1": {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "subnet-1",
+						Namespace: "test-ns",
+						Annotations: map[string]string{
+							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+						},
+					},
+				},
+				"proj-1:vpc-1:subnet-2": {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "subnet-2",
+						Namespace: "test-ns",
+						Annotations: map[string]string{
+							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-2",
+						},
+					},
+				},
+			},
+			expectedDeleteCount: 1,
+			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "checkSubnetReferences",
+					func(_ *NamespaceReconciler, _ context.Context, _ string, subnet *v1alpha1.Subnet, _ string) (bool, error) {
+						// Only subnet-1 has references
+						return subnet.Name == "subnet-1", nil
+					})
+				return patches
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := createTestNamespaceReconciler(tt.existingSubnets)
+
+			if tt.setupMocks != nil {
+				patches := tt.setupMocks(r)
+				if patches != nil {
+					defer patches.Reset()
+				}
+			}
+
+			// Create a counter to track the number of deletes
+			deleteCount := 0
+			deletePatches := gomonkey.ApplyMethod(reflect.TypeOf(r.Client), "Delete",
+				func(_ client.Client, _ context.Context, obj client.Object, _ ...client.DeleteOption) error {
+					deleteCount++
+					return nil
+				})
+			defer deletePatches.Reset()
+
+			// Call the function being tested
+			err := r.deleteUnusedSharedSubnets(context.Background(), "test-ns", tt.remainingSubnets)
+
+			// Check the result
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedDeleteCount, deleteCount)
+		})
+	}
+}
+
+func TestSyncSharedSubnets(t *testing.T) {
+	// Test cases
+	tests := []struct {
+		name            string
+		existingSubnets []client.Object
+		vpcNetConfig    *v1alpha1.VPCNetworkConfiguration
+		expectedError   bool
+		setupMocks      func(r *NamespaceReconciler) *gomonkey.Patches
+	}{
+		{
+			name:            "Successful sync with no existing subnets",
+			existingSubnets: []client.Object{},
+			vpcNetConfig: &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					Subnets: []string{"/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1"},
+				},
+			},
+			expectedError: false,
+			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
+				// Mock getExistingSharedSubnetCRs
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getExistingSharedSubnetCRs",
+					func(_ *NamespaceReconciler, _ context.Context, _ string) (map[string]*v1alpha1.Subnet, error) {
+						return map[string]*v1alpha1.Subnet{}, nil
+					})
+
+				// Mock processNewSharedSubnets
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "processNewSharedSubnets",
+					func(_ *NamespaceReconciler, _ context.Context, _ string, _ *v1alpha1.VPCNetworkConfiguration, _ map[string]*v1alpha1.Subnet) (map[string]*v1alpha1.Subnet, error) {
+						return map[string]*v1alpha1.Subnet{}, nil
+					})
+
+				// Mock deleteUnusedSharedSubnets
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "deleteUnusedSharedSubnets",
+					func(_ *NamespaceReconciler, _ context.Context, _ string, _ map[string]*v1alpha1.Subnet) error {
+						return nil
+					})
+
+				return patches
+			},
+		},
+		{
+			name:            "Error getting existing shared subnets",
+			existingSubnets: []client.Object{},
+			vpcNetConfig: &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					Subnets: []string{"/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1"},
+				},
+			},
+			expectedError: true,
+			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
+				// Create a custom client that returns an error when listing subnet CRs
+				customClient := &CustomClient{
+					Client: r.Client,
+				}
+
+				// Override the List method to return an error for SubnetList
+				customClient.ListFunc = func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+					if _, ok := list.(*v1alpha1.SubnetList); ok {
+						return fmt.Errorf("error listing subnet CRs")
+					}
+					return customClient.Client.List(ctx, list, opts...)
+				}
+
+				// Replace the client in the reconciler with our custom client
+				r.Client = customClient
+
+				// Mock the syncSharedSubnets method to return an error
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "syncSharedSubnets",
+					func(_ *NamespaceReconciler, _ context.Context, _ string, _ *v1alpha1.VPCNetworkConfiguration) error {
+						return fmt.Errorf("error getting existing shared subnets")
+					})
+
+				return patches
+			},
+		},
+		{
+			name:            "Error deleting unused shared subnets",
+			existingSubnets: []client.Object{},
+			vpcNetConfig: &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					Subnets: []string{"/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1"},
+				},
+			},
+			expectedError: true,
+			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
+				// Mock getExistingSharedSubnetCRs
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getExistingSharedSubnetCRs",
+					func(_ *NamespaceReconciler, _ context.Context, _ string) (map[string]*v1alpha1.Subnet, error) {
+						return map[string]*v1alpha1.Subnet{}, nil
+					})
+
+				// Mock processNewSharedSubnets
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "processNewSharedSubnets",
+					func(_ *NamespaceReconciler, _ context.Context, _ string, _ *v1alpha1.VPCNetworkConfiguration, _ map[string]*v1alpha1.Subnet) (map[string]*v1alpha1.Subnet, error) {
+						return map[string]*v1alpha1.Subnet{}, nil
+					})
+
+				// Mock deleteUnusedSharedSubnets to return an error
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "deleteUnusedSharedSubnets",
+					func(_ *NamespaceReconciler, _ context.Context, _ string, _ map[string]*v1alpha1.Subnet) error {
+						return fmt.Errorf("error deleting unused shared subnets")
+					})
+
+				return patches
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := createTestNamespaceReconciler(tt.existingSubnets)
+
+			if tt.setupMocks != nil {
+				patches := tt.setupMocks(r)
+				if patches != nil {
+					defer patches.Reset()
+				}
+			}
+
+			// Call the function being tested
+			err := r.syncSharedSubnets(context.Background(), "test-ns", tt.vpcNetConfig)
+
+			// Check the result
+			if tt.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

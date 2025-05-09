@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -51,6 +52,10 @@ type SubnetReconciler struct {
 	BindingService    *subnetbinding.BindingService
 	Recorder          record.EventRecorder
 	StatusUpdater     common.StatusUpdater
+	// sharedSubnetsMap is a map of namespaced names to associated resources for shared subnets that need polling
+	sharedSubnetsMap map[types.NamespacedName]string
+	// mutex to protect the sharedSubnetsMap map
+	sharedSubnetsMutex sync.RWMutex
 }
 
 func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -109,6 +114,13 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
 			return ResultRequeue, err
 		}
+
+		// Check if this is a shared subnet with associated_resource annotation
+		if associatedResource, ok := subnetCR.Annotations[servicecommon.AnnotationAssociatedResource]; ok && associatedResource != "" {
+			log.Info("Skipping deletion of shared Subnet", "Subnet", req.NamespacedName, "AssociatedResource", associatedResource)
+			return ResultNormal, nil
+		}
+
 		if err := r.deleteSubnetByID(string(subnetCR.GetUID())); err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
 			return ResultRequeue, err
@@ -119,10 +131,50 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	r.StatusUpdater.IncreaseUpdateTotal()
 
+	// Check if this is a shared subnet with associated_resource annotation
+	if associatedResource, ok := subnetCR.Annotations[servicecommon.AnnotationAssociatedResource]; ok && associatedResource != "" {
+		return r.handleSharedSubnet(ctx, subnetCR, req.NamespacedName, associatedResource)
+	}
+
+	// List VPC Info
+	vpcInfoList := r.VPCService.ListVPCInfo(req.Namespace)
+	if len(vpcInfoList) == 0 {
+		log.Info("No VPC info found, requeuing", "Namespace", req.Namespace)
+		return ResultRequeueAfter10sec, nil
+	}
+
 	// Spec mutation check and update if necessary
 	specChanged := false
 	if subnetCR.Spec.AccessMode == "" {
 		subnetCR.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
+		specChanged = true
+	}
+
+	if subnetCR.Spec.VPCName == "" {
+		// Get project name and VPC name
+		projectName, err := r.VPCService.GetProjectName(vpcInfoList[0].OrgID, vpcInfoList[0].ProjectID)
+		if err != nil {
+			log.Error(err, "Failed to get project name", "Namespace", subnetCR.Namespace)
+			return ResultRequeue, nil
+		}
+
+		vpcName, err := r.VPCService.GetVPCName(vpcInfoList[0].OrgID, vpcInfoList[0].ProjectID, vpcInfoList[0].VPCID)
+		if err != nil {
+			log.Error(err, "Failed to get VPC name", "Namespace", subnetCR.Namespace)
+			return ResultRequeue, nil
+		}
+
+		// Format VPC full name
+		vpcFullName := fmt.Sprintf("%s:%s", projectName, vpcName)
+		isDefault, err := r.SubnetService.IsDefaultNSXProject(vpcInfoList[0].OrgID, vpcInfoList[0].ProjectID)
+		if err != nil {
+			log.Error(err, "Failed to check if project is default", "Namespace", subnetCR.Namespace)
+			return ResultRequeue, nil
+		}
+		if isDefault {
+			vpcFullName = fmt.Sprintf(":%s", vpcName)
+		}
+		subnetCR.Spec.VPCName = vpcFullName
 		specChanged = true
 	}
 
@@ -152,12 +204,6 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if tags == nil {
 		log.Error(nil, "Failed to generate Subnet tags", "Subnet", req.NamespacedName)
 		return ResultRequeue, errors.New("failed to generate Subnet tags")
-	}
-	// List VPC Info
-	vpcInfoList := r.VPCService.ListVPCInfo(req.Namespace)
-	if len(vpcInfoList) == 0 {
-		log.Info("No VPC info found, requeueing", "Namespace", req.Namespace)
-		return ResultRequeueAfter10sec, nil
 	}
 	// Create or update the subnet in NSX
 	if _, err := r.SubnetService.CreateOrUpdateSubnet(subnetCR, vpcInfoList[0], tags); err != nil {
@@ -205,6 +251,7 @@ func (r *SubnetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet) error {
 }
 
 func (r *SubnetReconciler) deleteSubnetByName(name, ns string) error {
+	// Since shared subnets are not in the store, we can enter this function safely
 	nsxSubnets := r.SubnetService.ListSubnetByName(ns, name)
 	return r.deleteSubnets(nsxSubnets)
 }
@@ -231,6 +278,39 @@ func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {
 		}
 	}
 	return nil
+}
+
+// handleSharedSubnet handles a shared subnet with associated_resource annotation
+// It gets the NSX subnet based on the associated resource, updates the status of the Subnet CR,
+// and adds the subnet to the polling queue for regular status updates.
+func (r *SubnetReconciler) handleSharedSubnet(ctx context.Context, subnetCR *v1alpha1.Subnet, namespacedName client.ObjectKey, associatedResource string) (ctrl.Result, error) {
+	log.Info("Subnet has associated_resource annotation, skipping NSX Subnet creation", "Subnet", namespacedName, "AssociatedResource", associatedResource)
+
+	// Get the NSX subnet based on the associated resource
+	nsxSubnet, err := r.SubnetService.GetNSXSubnetByAssociatedResource(associatedResource)
+	if err != nil {
+		r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to get NSX Subnet for associated resource", setSubnetReadyStatusFalse)
+		return ResultRequeue, err
+	}
+
+	// Get subnet status from NSX
+	statusList, err := r.SubnetService.GetSubnetStatus(nsxSubnet)
+	if err != nil {
+		r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to get Subnet status", setSubnetReadyStatusFalse)
+		return ResultRequeue, err
+	}
+
+	// Update the status with the NSX subnet information and set shared to true
+	if err := r.updateSubnetIfNeeded(ctx, subnetCR, nsxSubnet, statusList, namespacedName); err != nil {
+		log.Error(err, "Failed to update Subnet status", "Subnet", namespacedName)
+		return ResultRequeue, err
+	}
+
+	// Add the subnet to the polling queue if it's not already there
+	r.addSubnetToPollingQueue(namespacedName, associatedResource)
+
+	r.StatusUpdater.UpdateSuccess(ctx, subnetCR, setSubnetReadyStatusTrue)
+	return ResultNormal, nil
 }
 
 func setSubnetReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {
@@ -388,6 +468,7 @@ func NewSubnetReconciler(mgr ctrl.Manager, subnetService *subnet.SubnetService, 
 		VPCService:        vpcService,
 		BindingService:    bindingService,
 		Recorder:          mgr.GetEventRecorderFor("subnet-controller"),
+		sharedSubnetsMap:  make(map[types.NamespacedName]string),
 	}
 	subnetReconciler.StatusUpdater = common.NewStatusUpdater(subnetReconciler.Client, subnetReconciler.SubnetService.NSXConfig, subnetReconciler.Recorder, MetricResTypeSubnet, "Subnet", "Subnet")
 	return subnetReconciler
@@ -408,6 +489,10 @@ func (r *SubnetReconciler) start(mgr ctrl.Manager, hookServer webhook.Server) er
 				},
 			})
 	}
+
+	// Start the shared subnet polling goroutine
+	go r.pollSharedSubnets(make(chan bool))
+
 	return nil
 }
 

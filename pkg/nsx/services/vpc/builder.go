@@ -2,7 +2,6 @@ package vpc
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -82,7 +81,7 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc v1alpha1.VPC
 		}
 		vpc.Tags = util.BuildBasicTags(cluster, obj, nsObj.UID)
 		vpc.Tags = append(vpc.Tags, model.Tag{
-			Scope: common.String(common.TagScopeVPCManagedBy), Tag: common.String(common.AutoCreatedVPCTagValue)})
+			Scope: common.String(common.TagScopeManagedBy), Tag: common.String(common.AutoCreatedTagValue)})
 	}
 
 	vpc.PrivateIps = nc.Spec.PrivateIPs
@@ -117,18 +116,4 @@ func buildVpcAttachment(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster 
 		attachment.PreferredDefaultSnatIp = &obj.VPCs[0].DefaultSNATIP
 	}
 	return attachment, nil
-}
-
-func isDefaultNetworkConfigCR(vpcConfigCR *v1alpha1.VPCNetworkConfiguration) bool {
-	annos := vpcConfigCR.GetAnnotations()
-	val, exist := annos[common.AnnotationDefaultNetworkConfig]
-	if exist {
-		boolVar, err := strconv.ParseBool(val)
-		if err != nil {
-			log.Error(err, "Failed to parse annotation to check default NetworkConfig", "Annotation", annos[common.AnnotationDefaultNetworkConfig])
-			return false
-		}
-		return boolVar
-	}
-	return false
 }
