@@ -29,10 +29,12 @@ spec:
   ipv4SubnetSize: 64
   subnetDHCPConfig:
     mode: DHCPDeactivated
-  enableVLANExtension: true
+  advancedConfig:
+    connectivityState: Disconnected
+    enableVLANExtension: true
 status:
   gatewayAddresses:
   - 172.26.0.1/28
   networkAddresses:
   - 172.26.0.0/28
-  shared: true
+  preCreated: true
