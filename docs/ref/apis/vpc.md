@@ -140,6 +140,23 @@ _Appears in:_
 | `DeletionFailed` |  |
 
 
+#### ConnectivityState
+
+_Underlying type:_ _string_
+
+
+
+
+
+_Appears in:_
+- [SubnetAdvancedConfig](#subnetadvancedconfig)
+
+| Field | Description |
+| --- | --- |
+| `Connected` |  |
+| `Disconnected` |  |
+
+
 #### DHCPConfigMode
 
 _Underlying type:_ _string_
@@ -616,6 +633,23 @@ Subnet is the Schema for the subnets API.
 | `status` _[SubnetStatus](#subnetstatus)_ |  |  |  |
 
 
+#### SubnetAdvancedConfig
+
+
+
+
+
+
+
+_Appears in:_
+- [SubnetSpec](#subnetspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `connectivityState` _[ConnectivityState](#connectivitystate)_ | Connectivity status of the Subnet from other Subnets of the VPC.<br />Default value is "Connected". | Connected | Enum: [Connected Disconnected] <br /> |
+| `enableVLANExtension` _boolean_ | Whether this Subnet enabled VLAN extension.<br />Default value is false. | false |  |
+
+
 #### SubnetConnectionBindingMap
 
 
@@ -832,7 +866,7 @@ _Appears in:_
 | `accessMode` _[AccessMode](#accessmode)_ | Access mode of Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW] <br /> |
 | `ipAddresses` _string array_ | Subnet CIDRS. |  | MaxItems: 2 <br />MinItems: 0 <br /> |
 | `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | DHCP configuration for Subnet. |  |  |
-| `enableVLANExtension` _boolean_ | Whether this Subnet enabled VLAN extension. | false |  |
+| `advancedConfig` _[SubnetAdvancedConfig](#subnetadvancedconfig)_ | VPC Subnet advanced configuration. |  |  |
 
 
 #### SubnetStatus
@@ -851,8 +885,26 @@ _Appears in:_
 | `networkAddresses` _string array_ | Network address of the Subnet. |  |  |
 | `gatewayAddresses` _string array_ | Gateway address of the Subnet. |  |  |
 | `DHCPServerAddresses` _string array_ | DHCP server IP address. |  |  |
+| `vlanExtension` _[VLANExtension](#vlanextension)_ | VLAN extension configured for VPC Subnet. |  |  |
 | `shared` _boolean_ | Whether this is a pre-created Subnet shared with the Namespace. | false |  |
 | `conditions` _[Condition](#condition) array_ |  |  |  |
+
+
+#### VLANExtension
+
+
+
+VLANExtension describes VLAN extension configuration for the VPC Subnet.
+
+
+
+_Appears in:_
+- [SubnetStatus](#subnetstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `vpcGatewayConnectionEnable` _boolean_ | Flag to control whether the VLAN extension Subnet connects to the VPC gateway. |  |  |
+| `vlanId` _integer_ | VLAN ID of the VLAN extension Subnet. |  |  |
 
 
 #### VPCInfo
