@@ -142,16 +142,25 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return common.ResultRequeue, err
 		}
 		subnetPort.Status.Attachment = v1alpha1.PortAttachment{ID: *nsxSubnetPortState.Attachment.Id}
-		subnetPort.Status.NetworkInterfaceConfig = v1alpha1.NetworkInterfaceConfig{
-			IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
-				{
-					Gateway: "",
-				},
-			},
-		}
+		subnetPort.Status.NetworkInterfaceConfig = v1alpha1.NetworkInterfaceConfig{}
 		if len(nsxSubnetPortState.RealizedBindings) > 0 {
-			subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress = *nsxSubnetPortState.RealizedBindings[0].Binding.IpAddress
+			for _, rb := range nsxSubnetPortState.RealizedBindings {
+				subnetPort.Status.NetworkInterfaceConfig.IPAddresses = append(
+					subnetPort.Status.NetworkInterfaceConfig.IPAddresses,
+					v1alpha1.NetworkInterfaceIPAddress{
+						IPAddress: *rb.Binding.IpAddress,
+					},
+				)
+			}
 			subnetPort.Status.NetworkInterfaceConfig.MACAddress = strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\"")
+		} else {
+			subnetPort.Status.NetworkInterfaceConfig = v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+					{
+						Gateway: "",
+					},
+				},
+			}
 		}
 		err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnetPath)
 		if err != nil {
@@ -632,11 +641,12 @@ func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alph
 	if err != nil {
 		return err
 	}
-	// For now, we have an assumption that one subnetport only have one IP address
-	if len(subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress) > 0 {
-		subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress += fmt.Sprintf("/%d", prefix)
+	for i := range subnetPort.Status.NetworkInterfaceConfig.IPAddresses {
+		if len(subnetPort.Status.NetworkInterfaceConfig.IPAddresses[i].IPAddress) > 0 {
+			subnetPort.Status.NetworkInterfaceConfig.IPAddresses[i].IPAddress += fmt.Sprintf("/%d", prefix)
+		}
+		subnetPort.Status.NetworkInterfaceConfig.IPAddresses[i].Gateway = gateway
 	}
-	subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway = gateway
 	nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath)
 	if err != nil {
 		return err

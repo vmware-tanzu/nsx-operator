@@ -8,6 +8,7 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
+	mp_model "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,6 +35,14 @@ func TestBuildSubnetPort(t *testing.T) {
 				CoeConfig: &config.CoeConfig{
 					Cluster: "fake_cluster",
 				},
+			},
+		},
+	}
+	service.macPool = &mp_model.MacPool{
+		Ranges: []mp_model.MacRange{
+			{
+				Start: common.String("04:50:56:00:00:00"),
+				End:   common.String("04:50:56:00:ff:ff"),
 			},
 		},
 	}
@@ -69,7 +78,7 @@ func TestBuildSubnetPort(t *testing.T) {
 			},
 			nsxSubnet: &model.VpcSubnet{
 				SubnetDhcpConfig: &model.SubnetDhcpConfig{
-					Mode: common.String(v1alpha1.DHCPConfigModeServer),
+					Mode: common.String("DHCP_SERVER"),
 				},
 				Path: common.String("fake_path"),
 			},
@@ -133,7 +142,7 @@ func TestBuildSubnetPort(t *testing.T) {
 			},
 			nsxSubnet: &model.VpcSubnet{
 				SubnetDhcpConfig: &model.SubnetDhcpConfig{
-					Mode: common.String(v1alpha1.DHCPConfigModeServer),
+					Mode: common.String("DHCP_SERVER"),
 				},
 				Path: common.String("fake_path"),
 			},
@@ -182,6 +191,140 @@ func TestBuildSubnetPort(t *testing.T) {
 			expectedError: nil,
 		},
 		{
+			name: "build-NSX-port-for-subnetport-outside-nsx-mac-pool",
+			obj: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7acc",
+					Name:      "fake_subnetport",
+					Namespace: "fake_ns",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					Subnet: "subnet-1",
+					AddressBindings: []v1alpha1.PortAddressBinding{
+						{
+							IPAddress:  "10.0.0.1",
+							MACAddress: "aa:bb:cc:dd:ee:ff",
+						},
+					},
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					Mode: common.String("DHCP_DEACTIVATED"),
+				},
+				Path: common.String("fake_path"),
+			},
+			contextID: "fake_context_id",
+			labelTags: nil,
+			expectedPort: &model.VpcSubnetPort{
+				DisplayName: common.String("fake_subnetport"),
+				Id:          common.String("fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				Tags: []model.Tag{
+					{
+						Scope: common.String("nsx-op/cluster"),
+						Tag:   common.String("fake_cluster"),
+					},
+					{
+						Scope: common.String("nsx-op/version"),
+						Tag:   common.String("1.0.0"),
+					},
+					{
+						Scope: common.String("nsx-op/namespace"),
+						Tag:   common.String("fake_ns"),
+					},
+					{
+						Scope: common.String("nsx-op/subnetport_name"),
+						Tag:   common.String("fake_subnetport"),
+					},
+					{
+						Scope: common.String("nsx-op/subnetport_uid"),
+						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+					},
+				},
+				Path:       common.String("fake_path/ports/fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				ParentPath: common.String("fake_path"),
+				Attachment: &model.PortAttachment{
+					AllocateAddresses: common.String("IP_POOL"),
+					Type_:             common.String("STATIC"),
+					TrafficTag:        common.Int64(0),
+				},
+				AddressBindings: []model.PortAddressBindingEntry{
+					{
+						IpAddress:  common.String("10.0.0.1"),
+						MacAddress: common.String("aa:bb:cc:dd:ee:ff"),
+					},
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			name: "build-NSX-port-for-subnetport-inside-nsx-mac-pool",
+			obj: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7acc",
+					Name:      "fake_subnetport",
+					Namespace: "fake_ns",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					Subnet: "subnet-1",
+					AddressBindings: []v1alpha1.PortAddressBinding{
+						{
+							IPAddress:  "10.0.0.1",
+							MACAddress: "04:50:56:00:fa:00",
+						},
+					},
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					Mode: common.String("DHCP_DEACTIVATED"),
+				},
+				Path: common.String("fake_path"),
+			},
+			contextID: "fake_context_id",
+			labelTags: nil,
+			expectedPort: &model.VpcSubnetPort{
+				DisplayName: common.String("fake_subnetport"),
+				Id:          common.String("fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				Tags: []model.Tag{
+					{
+						Scope: common.String("nsx-op/cluster"),
+						Tag:   common.String("fake_cluster"),
+					},
+					{
+						Scope: common.String("nsx-op/version"),
+						Tag:   common.String("1.0.0"),
+					},
+					{
+						Scope: common.String("nsx-op/namespace"),
+						Tag:   common.String("fake_ns"),
+					},
+					{
+						Scope: common.String("nsx-op/subnetport_name"),
+						Tag:   common.String("fake_subnetport"),
+					},
+					{
+						Scope: common.String("nsx-op/subnetport_uid"),
+						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+					},
+				},
+				Path:       common.String("fake_path/ports/fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				ParentPath: common.String("fake_path"),
+				Attachment: &model.PortAttachment{
+					AllocateAddresses: common.String("BOTH"),
+					Type_:             common.String("STATIC"),
+					TrafficTag:        common.Int64(0),
+				},
+				AddressBindings: []model.PortAddressBindingEntry{
+					{
+						IpAddress:  common.String("10.0.0.1"),
+						MacAddress: common.String("04:50:56:00:fa:00"),
+					},
+				},
+			},
+			expectedError: nil,
+		},
+		{
 			name: "build-NSX-port-for-pod",
 			obj: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
@@ -196,7 +339,7 @@ func TestBuildSubnetPort(t *testing.T) {
 			},
 			nsxSubnet: &model.VpcSubnet{
 				SubnetDhcpConfig: &model.SubnetDhcpConfig{
-					Mode: common.String(v1alpha1.DHCPConfigModeServer),
+					Mode: common.String("DHCP_SERVER"),
 				},
 				Path: common.String("fake_path"),
 			},
@@ -269,7 +412,7 @@ func TestBuildSubnetPort(t *testing.T) {
 			},
 			nsxSubnet: &model.VpcSubnet{
 				SubnetDhcpConfig: &model.SubnetDhcpConfig{
-					Mode: common.String(v1alpha1.DHCPConfigModeServer),
+					Mode: common.String("DHCP_SERVER"),
 				},
 				Path: common.String("fake_path"),
 			},
@@ -336,10 +479,14 @@ func TestBuildSubnetPort(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			observedPort, err := service.buildSubnetPort(tt.obj, tt.nsxSubnet, tt.contextID, tt.labelTags, false, tt.restore)
 			// Ignore attachment id as it is random
-			tt.expectedPort.Attachment.Id = observedPort.Attachment.Id
-			assert.Equal(t, tt.expectedPort, observedPort)
-			assert.Equal(t, common.CompareResource(SubnetPortToComparable(tt.expectedPort), SubnetPortToComparable(observedPort)), false)
-			assert.Equal(t, tt.expectedError, err)
+			if tt.expectedError != nil {
+				assert.Equal(t, tt.expectedError, err)
+			} else {
+				assert.Nil(t, err)
+				tt.expectedPort.Attachment.Id = observedPort.Attachment.Id
+				assert.Equal(t, tt.expectedPort, observedPort)
+				assert.Equal(t, common.CompareResource(SubnetPortToComparable(tt.expectedPort), SubnetPortToComparable(observedPort)), false)
+			}
 		})
 	}
 

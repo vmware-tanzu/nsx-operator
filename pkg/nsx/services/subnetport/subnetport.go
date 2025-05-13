@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	mp_model "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,6 +36,7 @@ type SubnetPortService struct {
 	servicecommon.Service
 	SubnetPortStore *SubnetPortStore
 	builder         *servicecommon.PolicyTreeBuilder[*model.VpcSubnetPort]
+	macPool         *mp_model.MacPool
 }
 
 // InitializeSubnetPort sync NSX resources.
@@ -63,8 +65,11 @@ func InitializeSubnetPort(service servicecommon.Service) (*SubnetPortService, er
 			BindingType: model.VpcSubnetPortBindingType(),
 		}}
 
-	go subnetPortService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSubnetPort, nil, subnetPortService.SubnetPortStore)
+	if err := subnetPortService.loadNSXMacPool(); err != nil {
+		return subnetPortService, err
+	}
 
+	go subnetPortService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSubnetPort, nil, subnetPortService.SubnetPortStore)
 	go func() {
 		wg.Wait()
 		close(wgDone)
@@ -79,6 +84,21 @@ func InitializeSubnetPort(service servicecommon.Service) (*SubnetPortService, er
 	}
 
 	return subnetPortService, nil
+}
+
+func (service *SubnetPortService) loadNSXMacPool() error {
+	pageSize := int64(1000)
+	macPools, err := service.NSXClient.MacPoolsClient.List(nil, nil, &pageSize, nil, nil)
+	if err != nil {
+		return fmt.Errorf("failed to get NSX MAC Pools: %w", err)
+	}
+	for _, macPool := range macPools.Results {
+		if macPool.DisplayName != nil && *macPool.DisplayName == defaultContainerMacPoolName {
+			service.macPool = &macPool
+			log.V(1).Info("Get NSX MAC Pool", "MacPool", macPool)
+		}
+	}
+	return nil
 }
 
 func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, error) {
