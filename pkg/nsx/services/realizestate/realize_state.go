@@ -106,3 +106,26 @@ func (service *RealizeStateService) GetPolicyTier1UplinkPortIP(intentPath string
 
 	return "", fmt.Errorf("%s tier1 uplink port IP not found", intentPath)
 }
+
+func (service *RealizeStateService) GetPolicyServiceInterfaceSNATIP(intentPath string) (string, error) {
+	result, err := service.NSXClient.RealizedEntityClient.Get(intentPath)
+	err = nsxutil.TransNSXApiError(err)
+	if err != nil {
+		return "", err
+	}
+
+	extendAttributes := result.ExtendedAttributes
+	for i := range extendAttributes {
+		if extendAttributes[i].Key != nil && *extendAttributes[i].Key == "IpAddresses" {
+			for _, ip := range extendAttributes[i].Values {
+				parts := strings.Split(ip, "/")
+				if len(parts) != 2 {
+					continue
+				}
+				return parts[0], nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("%s DTGW LB SNAT IP not found", intentPath)
+}
