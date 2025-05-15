@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,6 +35,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	ctlcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
@@ -150,6 +152,7 @@ func TestReconcile(t *testing.T) {
 		expectRes    ctrl.Result
 		expectErrStr string
 		patches      func(r *SubnetSetReconciler) *gomonkey.Patches
+		restoreMode  bool
 	}{
 		{
 			name:      "Create a SubnetSet with find VPCNetworkConfig error",
@@ -287,6 +290,51 @@ func TestReconcile(t *testing.T) {
 				return patches
 			},
 		},
+		{
+			name:         "Restore a SubnetSet success",
+			expectRes:    ResultNormal,
+			expectErrStr: "",
+			restoreMode:  true,
+			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
+				vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 32}}
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return vpcnetworkConfig, nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+					id1 := "fake-id"
+					path := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9/subnets/fake-path"
+					basicTags1 := util.BuildBasicTags("fakeClusterName", subnetSet, "")
+					scopeNamespace := common.TagScopeNamespace
+					basicTags1 = append(basicTags1, model.Tag{
+						Scope: &scopeNamespace,
+						Tag:   &ns,
+					})
+					basicTags2 := util.BuildBasicTags("fakeClusterName", subnetSet, "")
+					ns2 := "ns2"
+					basicTags2 = append(basicTags2, model.Tag{
+						Scope: &scopeNamespace,
+						Tag:   &ns2,
+					})
+					vpcSubnet1 := model.VpcSubnet{Id: &id1, Path: &path}
+					vpcSubnet2 := model.VpcSubnet{Id: &id1, Path: &path, Tags: basicTags1}
+					vpcSubnet3 := model.VpcSubnet{Id: &id1, Path: &path, Tags: basicTags2}
+					return []*model.VpcSubnet{&vpcSubnet1, &vpcSubnet2, &vpcSubnet3}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{{}}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "RestoreSubnetSet", func(_ *subnet.SubnetService, obj *v1alpha1.SubnetSet, vpcInfo common.VPCResourceInfo, tags []model.Tag) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "UpdateSubnetSet", func(_ *subnet.SubnetService, ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag, dhcpMode string) error {
+					return nil
+				})
+				return patches
+			},
+		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -300,6 +348,7 @@ func TestReconcile(t *testing.T) {
 				patches := testCase.patches(r)
 				defer patches.Reset()
 			}
+			r.restoreMode = testCase.restoreMode
 
 			res, err := r.Reconcile(ctx, req)
 
@@ -1149,4 +1198,77 @@ func TestDeleteSubnets(t *testing.T) {
 			require.Equal(t, tc.expHasStalePort, hasPorts)
 		})
 	}
+}
+
+func TestSubnetSetReconciler_RestoreReconcile(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	r := &SubnetSetReconciler{
+		Client: k8sClient,
+	}
+
+	// Reconcile success
+	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+		subnetSetList := list.(*v1alpha1.SubnetSetList)
+		subnetSetList.Items = []v1alpha1.SubnetSet{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-1",
+					Namespace: "ns-1",
+					UID:       "subnetset-1",
+				},
+				Status: v1alpha1.SubnetSetStatus{
+					Subnets: []v1alpha1.SubnetInfo{
+						{
+							NetworkAddresses: []string{"10.0.0.0/28"},
+							GatewayAddresses: []string{"10.0.0.0"},
+						},
+					},
+				},
+			},
+		}
+		return nil
+	})
+
+	patches := gomonkey.ApplyFunc((*SubnetSetReconciler).Reconcile, func(r *SubnetSetReconciler, ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+		assert.Equal(t, "subnetset-1", req.Name)
+		assert.Equal(t, "ns-1", req.Namespace)
+		return ResultNormal, nil
+	})
+	defer patches.Reset()
+	err := r.RestoreReconcile()
+	assert.Nil(t, err)
+
+	// Reconcile failure
+	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+		subnetSetList := list.(*v1alpha1.SubnetSetList)
+		subnetSetList.Items = []v1alpha1.SubnetSet{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-1",
+					Namespace: "ns-1",
+					UID:       "subnetset-1",
+				},
+				Status: v1alpha1.SubnetSetStatus{
+					Subnets: []v1alpha1.SubnetInfo{
+						{
+							NetworkAddresses: []string{"10.0.0.0/28"},
+							GatewayAddresses: []string{"10.0.0.0"},
+						},
+					},
+				},
+			},
+		}
+		return nil
+	})
+	patches = gomonkey.ApplyFunc((*SubnetSetReconciler).Reconcile, func(r *SubnetSetReconciler, ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+		assert.Equal(t, "subnetset-1", req.Name)
+		assert.Equal(t, "ns-1", req.Namespace)
+		return ResultRequeue, nil
+	})
+	defer patches.Reset()
+	err = r.RestoreReconcile()
+	assert.Contains(t, err.Error(), "failed to restore SubnetSet ns-1/subnetset-1")
 }

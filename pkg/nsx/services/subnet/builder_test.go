@@ -103,8 +103,77 @@ func TestBuildSubnetForSubnetSet(t *testing.T) {
 		},
 	}
 
-	subnet, err := service.buildSubnet(subnetSet, tags)
+	subnet, err := service.buildSubnet(subnetSet, tags, []string{})
 	assert.Nil(t, err)
 	assert.Equal(t, "DHCP_DEACTIVATED", *subnet.SubnetDhcpConfig.Mode)
 	assert.Equal(t, true, *subnet.AdvancedConfig.StaticIpAllocation.Enabled)
+}
+
+func TestBuildSubnetForSubnet(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	service := &SubnetService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+	tags := []model.Tag{
+		{
+			Scope: common.String("nsx-op/namespace"),
+			Tag:   common.String("ns-1"),
+		},
+	}
+	subnet1 := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-1",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddresses: []string{"10.0.0.0/28"},
+		},
+	}
+
+	subnet, err := service.buildSubnet(subnet1, tags, []string{})
+	assert.Nil(t, err)
+	assert.Equal(t, "DHCP_DEACTIVATED", *subnet.SubnetDhcpConfig.Mode)
+	assert.Equal(t, true, *subnet.AdvancedConfig.StaticIpAllocation.Enabled)
+	assert.Equal(t, []string{"10.0.0.0/28"}, subnet.IpAddresses)
+
+	subnet2 := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-1",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+			},
+		},
+		Status: v1alpha1.SubnetStatus{
+			NetworkAddresses: []string{"10.0.0.0/28"},
+		},
+	}
+
+	subnet, err = service.buildSubnet(subnet2, tags, []string{})
+	assert.Nil(t, err)
+	assert.Equal(t, "DHCP_SERVER", *subnet.SubnetDhcpConfig.Mode)
+	assert.Equal(t, false, *subnet.AdvancedConfig.StaticIpAllocation.Enabled)
+	assert.Equal(t, []string{"10.0.0.0/28"}, subnet.IpAddresses)
 }

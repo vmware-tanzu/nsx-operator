@@ -49,6 +49,7 @@ type SubnetSetReconciler struct {
 	BindingService    *subnetbinding.BindingService
 	Recorder          record.EventRecorder
 	StatusUpdater     common.StatusUpdater
+	restoreMode       bool
 }
 
 func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -132,7 +133,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			return ResultRequeue, nil
 		}
 		if vpcNetworkConfig == nil {
-			err := fmt.Errorf("Failed to find VPCNetworkConfig for Namespace %s", subnetsetCR.Namespace)
+			err := fmt.Errorf("failed to find VPCNetworkConfig for Namespace %s", subnetsetCR.Namespace)
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "", setSubnetSetReadyStatusFalse)
 			return ResultRequeue, nil
 		}
@@ -149,7 +150,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	nsxSubnets := r.SubnetService.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetsetCR.UID))
-	if len(nsxSubnets) > 0 {
+	if len(nsxSubnets) > 0 || r.restoreMode {
 		// update SubnetSet tags if labels of namespace changed
 		tags := r.SubnetService.GenerateSubnetNSTags(subnetsetCR)
 		if tags == nil {
@@ -161,6 +162,18 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			err := fmt.Errorf("tags cannot exceed maximum size 26, tags length: %d", len(tags))
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Exceed tags limit", setSubnetSetReadyStatusFalse)
 			return ResultNormal, nil
+		}
+		if r.restoreMode {
+			log.V(1).Info("Restore SubnetSet", "SubnetSet", req.NamespacedName)
+			vpcInfoList := r.VPCService.ListVPCInfo(req.Namespace)
+			if len(vpcInfoList) == 0 {
+				return ResultNormal, fmt.Errorf("failed to find VPC for Namespace %s", req.Namespace)
+			}
+			if err := r.SubnetService.RestoreSubnetSet(subnetsetCR, vpcInfoList[0], tags); err != nil {
+				r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to restore SubnetSet", setSubnetSetReadyStatusFalse)
+				return ResultRequeue, nil
+			}
+			r.StatusUpdater.UpdateSuccess(ctx, subnetsetCR, setSubnetSetReadyStatusTrue)
 		}
 		if err := r.SubnetService.UpdateSubnetSet(subnetsetCR.Namespace, nsxSubnets, tags, string(subnetsetCR.Spec.SubnetDHCPConfig.Mode)); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
@@ -295,6 +308,10 @@ func (r *SubnetSetReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+func (r *SubnetSetReconciler) EnableRestoreMode() {
+	r.restoreMode = true
+}
+
 // CollectGarbage collect Subnet which there is no port attached on it.
 // it implements the interface GarbageCollector method.
 func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) error {
@@ -369,7 +386,8 @@ func (r *SubnetSetReconciler) deleteSubnetForSubnetSet(subnetSet v1alpha1.Subnet
 	// SubnetConnectionBindingMap controller do it after the binding CR is removed.
 	hasStaleSubnetPort, deleteErr := r.deleteSubnets(nsxSubnets, ignoreStaleSubnetPort)
 	common.UnlockSubnetSet(subnetSet.GetUID(), subnetSetLock)
-	if updateStatus {
+	// Skip SubnetSet status update for restore case, as we need the stale status to restore the NSX Subnet
+	if updateStatus && !r.restoreMode {
 		if err := r.SubnetService.UpdateSubnetSetStatus(&subnetSet); err != nil {
 			return err
 		}
@@ -413,6 +431,7 @@ func (r *SubnetSetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet, delet
 			deleteErrs = append(deleteErrs, deleteErr)
 			log.Error(deleteErr, "Skipping to next Subnet")
 		} else {
+			log.V(1).Info("Delete Subnet successfully", "Subnet", *nsxSubnet.Id)
 			r.SubnetPortService.DeletePortCount(*nsxSubnet.Path)
 		}
 
@@ -426,7 +445,37 @@ func (r *SubnetSetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet, delet
 }
 
 func (r *SubnetSetReconciler) RestoreReconcile() error {
+	restoreList, err := r.getRestoreList()
+	if err != nil {
+		err = fmt.Errorf("failed to get SubnetSet restore list: %w", err)
+		return err
+	}
+	var errorList []error
+	for _, key := range restoreList {
+		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+		if result.Requeue || err != nil {
+			errorList = append(errorList, fmt.Errorf("failed to restore SubnetSet %s, error: %w", key, err))
+		}
+	}
+	if len(errorList) > 0 {
+		return errors.Join(errorList...)
+	}
 	return nil
+}
+
+func (r *SubnetSetReconciler) getRestoreList() ([]types.NamespacedName, error) {
+	restoreList := []types.NamespacedName{}
+	subnetSetList := &v1alpha1.SubnetSetList{}
+	if err := r.Client.List(context.TODO(), subnetSetList); err != nil {
+		return restoreList, err
+	}
+	for _, subnetSet := range subnetSetList.Items {
+		// Restore a SubnetSet if it has Subnets in status
+		if len(subnetSet.Status.Subnets) > 0 {
+			restoreList = append(restoreList, types.NamespacedName{Namespace: subnetSet.Namespace, Name: subnetSet.Name})
+		}
+	}
+	return restoreList, nil
 }
 
 func (r *SubnetSetReconciler) StartController(mgr ctrl.Manager, hookServer webhook.Server) error {

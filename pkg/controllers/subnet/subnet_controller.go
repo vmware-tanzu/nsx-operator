@@ -12,6 +12,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -332,7 +333,38 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 }
 
 func (r *SubnetReconciler) RestoreReconcile() error {
+	restoreList, err := r.getRestoreList()
+	if err != nil {
+		err = fmt.Errorf("failed to get Subnet restore list: %w", err)
+		return err
+	}
+	var errorList []error
+	for _, key := range restoreList {
+		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+		if result.Requeue || err != nil {
+			errorList = append(errorList, fmt.Errorf("failed to restore Subnet %s, error: %w", key, err))
+		}
+	}
+	if len(errorList) > 0 {
+		return errors.Join(errorList...)
+	}
 	return nil
+}
+
+func (r *SubnetReconciler) getRestoreList() ([]types.NamespacedName, error) {
+	restoreList := []types.NamespacedName{}
+	subnetList := &v1alpha1.SubnetList{}
+	if err := r.Client.List(context.TODO(), subnetList); err != nil {
+		return restoreList, err
+	}
+	for _, subnet := range subnetList.Items {
+		// Restore a Subnet if it has NetworkAddresses
+		// Not filter the Subnet in cache as it might be updated
+		if len(subnet.Status.NetworkAddresses) > 0 {
+			restoreList = append(restoreList, types.NamespacedName{Namespace: subnet.Namespace, Name: subnet.Name})
+		}
+	}
+	return restoreList, nil
 }
 
 func (r *SubnetReconciler) StartController(mgr ctrl.Manager, hookServer webhook.Server) error {

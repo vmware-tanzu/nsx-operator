@@ -87,9 +87,47 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 	return subnetService, nil
 }
 
+func (service *SubnetService) RestoreSubnetSet(obj *v1alpha1.SubnetSet, vpcInfo common.VPCResourceInfo, tags []model.Tag) error {
+	nsxSubnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetSetCRUID, string(obj.UID))
+	var errList []error
+	for _, subnetInfo := range obj.Status.Subnets {
+		nsxSubnet, err := service.buildSubnet(obj, tags, subnetInfo.NetworkAddresses)
+		if err != nil {
+			log.Error(err, "Failed to build Subnet", "subnetInfo", subnetInfo)
+			return err
+		}
+		// If the Subnet with the same CIDR existed in cache, check if it is updated
+		// If the existing Subnet is not updated, skip the API call
+		changed := true
+		for _, existingSubnet := range nsxSubnets {
+			if nsxutil.CompareArraysWithoutOrder(existingSubnet.IpAddresses, subnetInfo.NetworkAddresses) {
+				if common.CompareResource(SubnetToComparable(existingSubnet), SubnetToComparable(nsxSubnet)) {
+					updatedSubnet := *existingSubnet
+					updatedSubnet.Tags = nsxSubnet.Tags
+					updatedSubnet.SubnetDhcpConfig = nsxSubnet.SubnetDhcpConfig
+					nsxSubnet = &updatedSubnet
+				} else {
+					changed = false
+				}
+				break
+			}
+		}
+		if changed {
+			_, err = service.createOrUpdateSubnet(obj, nsxSubnet, &vpcInfo)
+			if err != nil {
+				errList = append(errList, err)
+			}
+		}
+	}
+	if len(errList) > 0 {
+		return errors.Join(errList...)
+	}
+	return nil
+}
+
 func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (subnet *model.VpcSubnet, err error) {
 	uid := string(obj.GetUID())
-	nsxSubnet, err := service.buildSubnet(obj, tags)
+	nsxSubnet, err := service.buildSubnet(obj, tags, []string{})
 	if err != nil {
 		log.Error(err, "Failed to build Subnet")
 		return nil, err
