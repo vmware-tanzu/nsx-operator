@@ -238,6 +238,7 @@ func TestNamespaceReconciler_StartController(t *testing.T) {
 			Client: fakeClient,
 		},
 	}
+	commonService := common.Service{}
 	mockMgr := &MockManager{scheme: runtime.NewScheme()}
 	patches := gomonkey.ApplyFunc((*NamespaceReconciler).setupWithManager, func(r *NamespaceReconciler, mgr manager.Manager) error {
 		return nil
@@ -246,7 +247,7 @@ func TestNamespaceReconciler_StartController(t *testing.T) {
 		return
 	})
 	defer patches.Reset()
-	r := NewNamespaceReconciler(mockMgr, nil, vpcService)
+	r := NewNamespaceReconciler(mockMgr, nil, commonService, vpcService)
 	err := r.StartController(mockMgr, nil)
 	assert.Nil(t, err)
 }
