@@ -44,8 +44,12 @@ type IPAddressAllocationSpec struct {
 	// +kubebuilder:validation:Enum=External;Private;PrivateTGW
 	// +kubebuilder:default=Private
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPAddressBlockVisibility IPAddressVisibility `json:"ipAddressBlockVisibility,omitempty"`
 	// AllocationSize specifies the size of allocationIPs to be allocated.
+	// It should be a power of 2.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
+	// +kubebuilder:validation:Minimum:=1
 	AllocationSize int `json:"allocationSize,omitempty"`
 }
 
