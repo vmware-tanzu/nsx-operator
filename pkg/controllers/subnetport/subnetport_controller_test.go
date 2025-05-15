@@ -29,6 +29,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/mock"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -93,11 +94,13 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		},
 	}
 	r := &SubnetPortReconciler{
-		Client:            k8sClient,
-		Scheme:            nil,
-		SubnetPortService: service,
-		SubnetService:     subnetService,
-		Recorder:          fakeRecorder{},
+		Client:                     k8sClient,
+		Scheme:                     nil,
+		SubnetPortService:          service,
+		SubnetService:              subnetService,
+		Recorder:                   fakeRecorder{},
+		IpAddressAllocationService: &mock.MockIPAddressAllocationProvider{},
+		restoreMode:                false,
 	}
 	r.StatusUpdater = common.NewStatusUpdater(k8sClient, service.NSXConfig, r.Recorder, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
 	ctx := context.Background()
@@ -207,6 +210,10 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			return nil, err
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
+	patchesGetAddressBindingBySubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetAddressBindingBySubnetPort, func(_ *subnetport.SubnetPortService, _ *v1alpha1.SubnetPort) *v1alpha1.AddressBinding {
+		return nil
+	})
+	defer patchesGetAddressBindingBySubnetPort.Reset()
 	k8sClient.EXPECT().Status().Return(fakewriter)
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, err, ret)
@@ -359,7 +366,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 }
 
 func TestSubnetPortReconciler_GarbageCollector(t *testing.T) {
-	// gc collect item "2345", local store has more item than k8s cache
+	// gc collect item "sp2345", local store has more item than k8s cache
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
@@ -376,8 +383,8 @@ func TestSubnetPortReconciler_GarbageCollector(t *testing.T) {
 	patchesListNSXSubnetPortIDForCR := gomonkey.ApplyFunc((*subnetport.SubnetPortService).ListNSXSubnetPortIDForCR,
 		func(s *subnetport.SubnetPortService) sets.Set[string] {
 			a := sets.New[string]()
-			a.Insert("1234")
-			a.Insert("2345")
+			a.Insert("sp1234")
+			a.Insert("sp2345")
 			return a
 		})
 	defer patchesListNSXSubnetPortIDForCR.Reset()
@@ -388,9 +395,10 @@ func TestSubnetPortReconciler_GarbageCollector(t *testing.T) {
 	defer patchesDeleteSubnetPortById.Reset()
 
 	r := &SubnetPortReconciler{
-		Client:            k8sClient,
-		Scheme:            nil,
-		SubnetPortService: service,
+		Client:                     k8sClient,
+		Scheme:                     nil,
+		SubnetPortService:          service,
+		IpAddressAllocationService: &mock.MockIPAddressAllocationProvider{},
 	}
 	r.StatusUpdater = common.NewStatusUpdater(k8sClient, service.NSXConfig, r.Recorder, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
 	subnetPortList := &v1alpha1.SubnetPortList{}
@@ -398,8 +406,25 @@ func TestSubnetPortReconciler_GarbageCollector(t *testing.T) {
 		a := list.(*v1alpha1.SubnetPortList)
 		a.Items = append(a.Items, v1alpha1.SubnetPort{})
 		a.Items[0].ObjectMeta = metav1.ObjectMeta{}
-		a.Items[0].UID = "1234"
+		a.Items[0].UID = "sp1234"
 		a.Items[0].Name = "subnetPort1"
+		return nil
+	})
+	k8sClient.EXPECT().List(gomock.Any(), subnetPortList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+		a := list.(*v1alpha1.SubnetPortList)
+		a.Items = append(a.Items, v1alpha1.SubnetPort{})
+		a.Items[0].ObjectMeta = metav1.ObjectMeta{}
+		a.Items[0].UID = "sp1234"
+		a.Items[0].Name = "subnetPort1"
+		return nil
+	})
+	addressBindingList := &v1alpha1.AddressBindingList{}
+	k8sClient.EXPECT().List(gomock.Any(), addressBindingList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+		a := list.(*v1alpha1.AddressBindingList)
+		a.Items = append(a.Items, v1alpha1.AddressBinding{})
+		a.Items[0].ObjectMeta = metav1.ObjectMeta{}
+		a.Items[0].UID = "ab1234"
+		a.Items[0].Name = "addressBinding1"
 		return nil
 	})
 	patches := gomonkey.ApplyPrivateMethod(r, "collectAddressBindingGarbage", func(r *SubnetPortReconciler, _ context.Context) {})
@@ -1737,6 +1762,7 @@ func TestSubnetPortReconciler_StartController(t *testing.T) {
 			Client: fakeClient,
 		},
 	}
+	mockIPAddressAllocationService := mock.MockIPAddressAllocationProvider{}
 	subnetService := &subnet.SubnetService{
 		Service: servicecommon.Service{
 			Client: fakeClient,
@@ -1747,7 +1773,8 @@ func TestSubnetPortReconciler_StartController(t *testing.T) {
 		Service: servicecommon.Service{
 			Client: fakeClient,
 		},
-		SubnetPortStore: nil,
+		SubnetPortStore:            nil,
+		IpAddressAllocationService: &mockIPAddressAllocationService,
 	}
 	mockMgr := &MockManager{scheme: runtime.NewScheme()}
 	patches := gomonkey.ApplyFunc((*SubnetPortReconciler).setupWithManager, func(r *SubnetPortReconciler, mgr manager.Manager) error {
@@ -1756,8 +1783,11 @@ func TestSubnetPortReconciler_StartController(t *testing.T) {
 	patches.ApplyFunc(common.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 		return
 	})
+	patches.ApplyFunc((*SubnetPortReconciler).SetupFieldIndexers, func(r *SubnetPortReconciler, mgr manager.Manager) error {
+		return nil
+	})
 	defer patches.Reset()
-	r := NewSubnetPortReconciler(mockMgr, subnetPortService, subnetService, vpcService)
+	r := NewSubnetPortReconciler(mockMgr, subnetPortService, subnetService, vpcService, &mockIPAddressAllocationService)
 	err := r.StartController(mockMgr, nil)
 	assert.Nil(t, err)
 }

@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -111,4 +112,32 @@ func (m *MockSubnetPortServiceProvider) IsEmptySubnet(id string, path string) bo
 
 func (m *MockSubnetPortServiceProvider) DeletePortCount(path string) {
 	return
+}
+
+type MockIPAddressAllocationProvider struct {
+	mock.Mock
+}
+
+func (m *MockIPAddressAllocationProvider) BuildIPAddressAllocationID(obj metav1.Object) string {
+	return ""
+}
+
+func (m *MockIPAddressAllocationProvider) GetIPAddressAllocationByOwner(owner metav1.Object) (*model.VpcIpAddressAllocation, error) {
+	return nil, nil
+}
+
+func (m *MockIPAddressAllocationProvider) CreateIPAddressAllocationForAddressBinding(addressBinding *v1alpha1.AddressBinding, subnetPort *v1alpha1.SubnetPort, restoreMode bool) error {
+	return nil
+}
+
+func (m *MockIPAddressAllocationProvider) DeleteIPAddressAllocationForAddressBinding(obj metav1.Object) error {
+	return nil
+}
+
+func (m *MockIPAddressAllocationProvider) DeleteIPAddressAllocationByNSXResource(nsxIPAddressAllocation *model.VpcIpAddressAllocation) error {
+	return nil
+}
+
+func (m *MockIPAddressAllocationProvider) ListIPAddressAllocationWithAddressBinding() []*model.VpcIpAddressAllocation {
+	return []*model.VpcIpAddressAllocation{}
 }

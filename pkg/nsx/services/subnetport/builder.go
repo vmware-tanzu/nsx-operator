@@ -58,11 +58,15 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		appId = string(objMeta.UID)
 	}
 	var externalAddressBinding *model.ExternalAddressBinding
+	var err error
 	var addressBindings []model.PortAddressBindingEntry
 	var isIPPool bool
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
-		externalAddressBinding = service.buildExternalAddressBinding(o)
+		externalAddressBinding, err = service.buildExternalAddressBinding(o, restoreMode)
+		if err != nil {
+			return nil, err
+		}
 		// NSX only supports one IP per SubnetPort
 		if restoreMode && o.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress != "" {
 			ip := strings.Split(o.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "/")[0]
@@ -232,11 +236,25 @@ func buildSubnetPortExternalAddressBindingFromExisting(subnetPort *model.VpcSubn
 	return subnetPort
 }
 
-func (service *SubnetPortService) buildExternalAddressBinding(sp *v1alpha1.SubnetPort) *model.ExternalAddressBinding {
-	if service.GetAddressBindingBySubnetPort(sp) != nil {
-		return &model.ExternalAddressBinding{}
+func (service *SubnetPortService) buildExternalAddressBinding(sp *v1alpha1.SubnetPort, restoreMode bool) (*model.ExternalAddressBinding, error) {
+	addressBinding := service.GetAddressBindingBySubnetPort(sp)
+	if addressBinding == nil {
+		return nil, nil
 	}
-	return nil
+	portExternalAddressBinding := &model.ExternalAddressBinding{}
+	if restoreMode && len(addressBinding.Status.IPAddress) > 0 {
+		ns := sp.Namespace
+		VPCInfo := service.VPCService.ListVPCInfo(ns)
+		if len(VPCInfo) == 0 {
+			return nil, fmt.Errorf("failed to listVPCInfo for AddressBinding")
+		}
+		vpcPath := VPCInfo[0].GetVPCPath()
+		ipAddressAllocationID := service.IpAddressAllocationService.BuildIPAddressAllocationID(addressBinding)
+		externalIpPath := vpcPath + "/ip-address-allocations/" + ipAddressAllocationID
+
+		portExternalAddressBinding.AllocatedExternalIpPath = String(externalIpPath)
+	}
+	return portExternalAddressBinding, nil
 }
 
 func (service *SubnetPortService) GetAddressBindingBySubnetPort(sp *v1alpha1.SubnetPort) *v1alpha1.AddressBinding {

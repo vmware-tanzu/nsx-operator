@@ -14,7 +14,7 @@ import (
 )
 
 func TestIPAddressAllocationStore_CRUDResource(t *testing.T) {
-	ipAddressAllocationCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeIPAddressAllocationCRUID: indexFunc})
+	ipAddressAllocationCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeIPAddressAllocationCRUID: indexByIPAddressAllocation})
 	resourceStore := common.ResourceStore{
 		Indexer:     ipAddressAllocationCacheIndexer,
 		BindingType: model.VpcIpAddressAllocationBindingType(),
@@ -37,12 +37,16 @@ func TestIPAddressAllocationStore_CRUDResource(t *testing.T) {
 	}
 }
 
-func TestIPAddressAllocationStore_GetByIndex(t *testing.T) {
+func TestIPAddressAllocationStore_GetByUID(t *testing.T) {
 	p := &model.VpcIpAddressAllocation{Id: String("1"), DisplayName: String("1"),
 		Tags: []model.Tag{{Scope: String(common.TagScopeIPAddressAllocationCRUID),
 			Tag: String("1")}}}
 	ipAddressAllocationStore := &IPAddressAllocationStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeIPAddressAllocationCRUID: indexFunc}),
+		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+			common.TagScopeIPAddressAllocationCRUID: indexByIPAddressAllocation,
+			common.TagScopeAddressBindingCRUID:      indexByAddressBinding,
+			common.TagScopeSubnetPortCRUID:          indexBySubnetPort,
+		}),
 		BindingType: model.VpcIpAddressBindingType(),
 	}}
 	_ = ipAddressAllocationStore.Apply(p)
@@ -60,7 +64,7 @@ func TestIPAddressAllocationStore_GetByIndex(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ipAddressAllocationStore.GetByIndex(tt.args.uid)
+			got, err := ipAddressAllocationStore.GetByUID(tt.args.uid)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("indexedIPAddressAllocation() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -77,7 +81,7 @@ func TestIPAddressAllocationStore_GetByIndex(t *testing.T) {
 		t.Errorf("failed to apply: %v", err)
 	}
 	_ = ipAddressAllocationStore.Apply(p)
-	got, er := ipAddressAllocationStore.GetByIndex("1")
+	got, er := ipAddressAllocationStore.GetByUID("1")
 	if er != nil {
 		t.Errorf("failed to get: %v", er)
 	}
@@ -93,7 +97,7 @@ func Test_indexFunc(t *testing.T) {
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
 	}
 	t.Run("IndexFuncVpcIpAddressAllocation", func(t *testing.T) {
-		got, _ := indexFunc(m)
+		got, _ := indexByIPAddressAllocation(m)
 		if !reflect.DeepEqual(got, []string{"11111"}) {
 			t.Errorf("indexFunc() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
 		}
@@ -103,7 +107,7 @@ func Test_indexFunc(t *testing.T) {
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
 	}
 	t.Run("IndexFuncGenericPolicyRealizedResource", func(t *testing.T) {
-		got, _ := indexFunc(&modelGenericPolicyRealizedResource)
+		got, _ := indexByIPAddressAllocation(&modelGenericPolicyRealizedResource)
 		if !reflect.DeepEqual(got, []string{"11111"}) {
 			t.Errorf("indexFunc() = %v, want %v", got, model.Tag{Tag: &mTag, Scope: &mScope})
 		}
@@ -113,7 +117,7 @@ func Test_indexFunc(t *testing.T) {
 		Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
 	}
 	t.Run("IndexFuncUnknown", func(t *testing.T) {
-		_, err := indexFunc(&modelUnknown)
+		_, err := indexByIPAddressAllocation(&modelUnknown)
 		if err == nil {
 			t.Errorf("err should not be nil")
 		}

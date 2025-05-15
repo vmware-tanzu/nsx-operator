@@ -23,6 +23,8 @@ import (
 	mock_org_root "github.com/vmware-tanzu/nsx-operator/pkg/mock/orgrootclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
@@ -169,9 +171,11 @@ func Test_InitializeSubnetPort(t *testing.T) {
 					},
 				},
 			}
+			vpcService := &vpc.VPCService{}
+			ipAddressAllocationService := &ipaddressallocation.IPAddressAllocationService{}
 			patches := tt.prepareFunc(t, &commonService, ctx)
 			defer patches.Reset()
-			got, err := InitializeSubnetPort(commonService)
+			got, err := InitializeSubnetPort(commonService, vpcService, ipAddressAllocationService)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("InitializeSubnetPort() error = %v, wantErr %v", err, tt.wantErr)
 				return

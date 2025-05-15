@@ -34,13 +34,15 @@ var (
 
 type SubnetPortService struct {
 	servicecommon.Service
-	SubnetPortStore *SubnetPortStore
-	builder         *servicecommon.PolicyTreeBuilder[*model.VpcSubnetPort]
-	macPool         *mp_model.MacPool
+	SubnetPortStore            *SubnetPortStore
+	VPCService                 servicecommon.VPCServiceProvider
+	IpAddressAllocationService servicecommon.IPAddressAllocationServiceProvider
+	builder                    *servicecommon.PolicyTreeBuilder[*model.VpcSubnetPort]
+	macPool                    *mp_model.MacPool
 }
 
 // InitializeSubnetPort sync NSX resources.
-func InitializeSubnetPort(service servicecommon.Service) (*SubnetPortService, error) {
+func InitializeSubnetPort(service servicecommon.Service, vpcService servicecommon.VPCServiceProvider, ipAddressAllocationService servicecommon.IPAddressAllocationServiceProvider) (*SubnetPortService, error) {
 	builder, _ := servicecommon.PolicyPathVpcSubnetPort.NewPolicyTreeBuilder()
 
 	wg := sync.WaitGroup{}
@@ -49,7 +51,12 @@ func InitializeSubnetPort(service servicecommon.Service) (*SubnetPortService, er
 
 	wg.Add(1)
 
-	subnetPortService := &SubnetPortService{Service: service, builder: builder}
+	subnetPortService := &SubnetPortService{
+		Service:                    service,
+		VPCService:                 vpcService,
+		IpAddressAllocationService: ipAddressAllocationService,
+		builder:                    builder,
+	}
 
 	subnetPortService.SubnetPortStore = &SubnetPortStore{
 		ResourceStore: servicecommon.ResourceStore{

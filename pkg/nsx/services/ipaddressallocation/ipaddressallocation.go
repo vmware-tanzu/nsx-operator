@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
@@ -39,7 +40,9 @@ func InitializeIPAddressAllocation(service common.Service, vpcService common.VPC
 	ipAddressAllocationService := &IPAddressAllocationService{Service: service, VPCService: vpcService, builder: builder}
 	ipAddressAllocationService.ipAddressAllocationStore = &IPAddressAllocationStore{ResourceStore: common.ResourceStore{
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
-			common.TagScopeIPAddressAllocationCRUID: indexFunc,
+			common.TagScopeIPAddressAllocationCRUID: indexByIPAddressAllocation,
+			common.TagScopeAddressBindingCRUID:      indexByAddressBinding,
+			common.TagScopeSubnetPortCRUID:          indexBySubnetPort,
 			common.IndexByVPCPathFuncKey:            common.IndexByVPCFunc,
 		}),
 		BindingType: model.VpcIpAddressAllocationBindingType(),
@@ -72,7 +75,7 @@ func InitializeIPAddressAllocation(service common.Service, vpcService common.VPC
 }
 
 func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj *v1alpha1.IPAddressAllocation, restoreMode bool) (bool, error) {
-	nsxIPAddressAllocation, err := service.BuildIPAddressAllocation(obj, restoreMode)
+	nsxIPAddressAllocation, err := service.BuildIPAddressAllocation(obj, nil, restoreMode)
 	if err != nil {
 		return false, err
 	}
@@ -125,6 +128,70 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 	}
 	obj.Status.AllocationIPs = *allocation_ips
 	return true, nil
+}
+
+// CreateIPAddressAllocationForAddressBinding is only for the restore of external address binding.
+func (service *IPAddressAllocationService) CreateIPAddressAllocationForAddressBinding(addressBinding *v1alpha1.AddressBinding, subnetPort *v1alpha1.SubnetPort, restoreMode bool) error {
+	if !restoreMode {
+		// Only create the NSX IPAddressAllocation in restore stage
+		return nil
+	}
+	if len(addressBinding.Status.IPAddress) == 0 {
+		return nil
+	}
+	existingIPAddressAllocation, err := service.GetIPAddressAllocationByOwner(addressBinding)
+	if err != nil {
+		log.Error(err, "Failed to get IPAddressAllocation for AddressBinding", "AddressBinding", addressBinding)
+		return err
+	}
+	if existingIPAddressAllocation != nil {
+		log.V(1).Info("The IPAddressAllocation has been created, skipping", "AddressBinding", addressBinding)
+		return nil
+	}
+	nsxIPAddressAllocation, err := service.BuildIPAddressAllocation(addressBinding, subnetPort, restoreMode)
+	if err != nil {
+		return err
+	}
+	err = service.Apply(nsxIPAddressAllocation)
+	if err != nil {
+		log.Error(err, "Failed to create NSX IPAddressAllocation for AddressBinding", "AddressBinding", addressBinding)
+		return err
+	}
+	log.Info("Successfully created NSX IPAddressAllocation", "nsxIPAddressAllocation", nsxIPAddressAllocation)
+	return nil
+}
+
+// DeleteIPAddressAllocationForAddressBinding is to delete the NSX IPAddressAllocation for the AddressBinding generated during restore mode.
+// It's only invoked when the AddressBinding CR or SubnetPort CR is deleted.
+func (service *IPAddressAllocationService) DeleteIPAddressAllocationForAddressBinding(owner metav1.Object) error {
+	nsxIPAddressAllocation, err := service.GetIPAddressAllocationByOwner(owner)
+	if err != nil {
+		log.Error(err, "Failed to delete possible NSX IPAddressAllocation", "owner", owner)
+		return err
+	}
+	if nsxIPAddressAllocation == nil {
+		log.V(1).Info("NSX IPAddressAllocation for AddressBinding not found", "owner", owner)
+		return nil
+	}
+	err = service.DeleteIPAddressAllocationByNSXResource(nsxIPAddressAllocation)
+	if err == nil {
+		log.Info("Successfully deleted NSX IPAddressAllocation", "nsxIPAddressAllocation", nsxIPAddressAllocation)
+	}
+	return err
+}
+
+func (service *IPAddressAllocationService) DeleteIPAddressAllocationByNSXResource(nsxIPAddressAllocation *model.VpcIpAddressAllocation) error {
+	vpcResourceInfo, err := common.ParseVPCResourcePath(*nsxIPAddressAllocation.Path)
+	if err != nil {
+		return err
+	}
+	err = service.NSXClient.IPAddressAllocationClient.Delete(vpcResourceInfo.OrgID, vpcResourceInfo.ProjectID, vpcResourceInfo.VPCID, *nsxIPAddressAllocation.Id)
+	if err != nil {
+		return err
+	}
+	nsxIPAddressAllocation.MarkedForDelete = &MarkedForDelete
+	err = service.ipAddressAllocationStore.Apply(nsxIPAddressAllocation)
+	return err
 }
 
 func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.VpcIpAddressAllocation) error {
@@ -191,21 +258,11 @@ func (service *IPAddressAllocationService) DeleteIPAddressAllocation(obj interfa
 		log.Error(nil, "Failed to get ipaddressallocation from store, skip")
 		return nil
 	}
-	vpcResourceInfo, err := common.ParseVPCResourcePath(*nsxIPAddressAllocation.Path)
-	if err != nil {
-		return err
+	err = service.DeleteIPAddressAllocationByNSXResource(nsxIPAddressAllocation)
+	if err == nil {
+		log.Info("Successfully deleted nsxIPAddressAllocation", "nsxIPAddressAllocation", nsxIPAddressAllocation)
 	}
-	err = service.NSXClient.IPAddressAllocationClient.Delete(vpcResourceInfo.OrgID, vpcResourceInfo.ProjectID, vpcResourceInfo.VPCID, *nsxIPAddressAllocation.Id)
-	if err != nil {
-		return err
-	}
-	nsxIPAddressAllocation.MarkedForDelete = &MarkedForDelete
-	err = service.ipAddressAllocationStore.Apply(nsxIPAddressAllocation)
-	if err != nil {
-		return err
-	}
-	log.Info("Successfully deleted nsxIPAddressAllocation", "nsxIPAddressAllocation", nsxIPAddressAllocation)
-	return nil
+	return err
 }
 
 func (service *IPAddressAllocationService) DeleteIPAddressAllocationByNamespacedName(namespace, name string) error {
@@ -246,6 +303,22 @@ func (service *IPAddressAllocationService) ListIPAddressAllocationID() sets.Set[
 	return ipAddressAllocationSet
 }
 
+func (service *IPAddressAllocationService) ListIPAddressAllocationWithAddressBinding() []*model.VpcIpAddressAllocation {
+	var ipAddressAllocationList []*model.VpcIpAddressAllocation
+	items := service.ipAddressAllocationStore.List()
+	for _, item := range items {
+		alloc := item.(*model.VpcIpAddressAllocation)
+		if nsxutil.FindTag(alloc.Tags, common.TagScopeIPAddressAllocationCRUID) == "" && nsxutil.FindTag(alloc.Tags, common.TagScopeAddressBindingCRUID) != "" {
+			ipAddressAllocationList = append(ipAddressAllocationList, alloc)
+		}
+	}
+	return ipAddressAllocationList
+}
+
+func (service *IPAddressAllocationService) ListSubnetPortCRUIDFromNSXIPAddressAllocation() sets.Set[string] {
+	return service.ipAddressAllocationStore.ListIndexFuncValues(common.TagScopeSubnetPortCRUID)
+}
+
 func (service *IPAddressAllocationService) ListIPAddressAllocationKeys() []string {
 	ipAddressAllocationKeys := service.ipAddressAllocationStore.ListKeys()
 	return ipAddressAllocationKeys
@@ -267,4 +340,10 @@ func (service *IPAddressAllocationService) GetIPAddressAllocationUID(nsxIPAddres
 		}
 	}
 	return ""
+}
+
+// GetIPAddressAllocationByOwner gets the NSX IPAddressAllocation via SubnetPort UID or external AddrssBinding UID
+func (service *IPAddressAllocationService) GetIPAddressAllocationByOwner(owner metav1.Object) (*model.VpcIpAddressAllocation, error) {
+	existingIPAddressAllocation, err := service.indexedIPAddressAllocation(owner.GetUID())
+	return existingIPAddressAllocation, err
 }

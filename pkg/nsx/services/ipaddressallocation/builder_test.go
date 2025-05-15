@@ -8,7 +8,6 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -45,7 +44,6 @@ func createService(t *testing.T) (*vpc.VPCService, *gomock.Controller, *mocks.Mo
 	k8sClient := mock_client.NewMockClient(mockCtrl)
 
 	vpcStore := &vpc.VPCStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeStaticRouteCRUID: indexFunc}),
 		BindingType: model.VpcBindingType(),
 	}}
 
@@ -103,12 +101,12 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		})
 		defer patch.Reset()
 
-		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, false)
+		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
 		assert.Nil(t, result)
-		assert.EqualError(t, err, "failed to find VPCInfo for IPAddressAllocation CR test-ip-alloc in namespace default")
+		assert.EqualError(t, err, "failed to find VPCInfo for IPAddressAllocation CR test-ip-alloc in Namespace default")
 	})
 
-	t.Run("Success case", func(t *testing.T) {
+	t.Run("Success case for IPAddressAllocation CR", func(t *testing.T) {
 		ipAlloc := &v1alpha1.IPAddressAllocation{
 			ObjectMeta: v1.ObjectMeta{
 				Name:      "test-ip-alloc",
@@ -131,12 +129,107 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		})
 		defer patch.Reset()
 
-		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, false)
+		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
 		assert.Nil(t, err)
 		assert.Equal(t, "test-ip-alloc_uid1", *result.Id)
 		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
+		assert.Equal(t, (*string)(nil), result.AllocationIps)
 		assert.Equal(t, int64(10), *result.AllocationSize)
 		assert.Equal(t, "EXTERNAL", *result.IpAddressBlockVisibility)
 		assert.Equal(t, 5, len(result.Tags))
+	})
+
+	t.Run("Restore AllocationIPs for IPAddressAllocation CR", func(t *testing.T) {
+		ipAlloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-ip-alloc",
+				Namespace: "default",
+				UID:       "uid1",
+			},
+			Spec: v1alpha1.IPAddressAllocationSpec{
+				IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityExternal,
+				AllocationSize:           10,
+			},
+			Status: v1alpha1.IPAddressAllocationStatus{
+				AllocationIPs: "1.2.3.4",
+			},
+		}
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, _ string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{
+				{
+					OrgID:     "org1",
+					ProjectID: "proj1",
+					VPCID:     "vpc1",
+				},
+			}
+		})
+		defer patch.Reset()
+		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, true)
+		assert.Nil(t, err)
+		assert.Equal(t, "test-ip-alloc_uid1", *result.Id)
+		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
+		assert.Equal(t, "1.2.3.4", *result.AllocationIps)
+		assert.Equal(t, (*int64)(nil), result.AllocationSize)
+		assert.Equal(t, "EXTERNAL", *result.IpAddressBlockVisibility)
+		assert.Equal(t, 5, len(result.Tags))
+	})
+
+	t.Run("Handle AllocationIPs for AddressBinding CR in normal mode", func(t *testing.T) {
+		ab := &v1alpha1.AddressBinding{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-ab",
+				Namespace: "default",
+				UID:       "ab-uid1",
+			},
+			Spec: v1alpha1.AddressBindingSpec{
+				VMName:        "vm",
+				InterfaceName: "port",
+			},
+			Status: v1alpha1.AddressBindingStatus{
+				IPAddress: "1.2.3.4",
+			},
+		}
+		sp := &v1alpha1.SubnetPort{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-sp",
+				Namespace: "default",
+				UID:       "sp-uid1",
+			},
+		}
+		result, err := ipAllocService.BuildIPAddressAllocation(ab, sp, false)
+		assert.Nil(t, err)
+		assert.Nil(t, result)
+	})
+
+	t.Run("Restore AllocationIPs for AddressBinding CR", func(t *testing.T) {
+		ab := &v1alpha1.AddressBinding{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-ab",
+				Namespace: "default",
+				UID:       "ab-uid1",
+			},
+			Spec: v1alpha1.AddressBindingSpec{
+				VMName:        "vm",
+				InterfaceName: "port",
+			},
+			Status: v1alpha1.AddressBindingStatus{
+				IPAddress: "1.2.3.4",
+			},
+		}
+		sp := &v1alpha1.SubnetPort{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-sp",
+				Namespace: "default",
+				UID:       "sp-uid1",
+			},
+		}
+		result, err := ipAllocService.BuildIPAddressAllocation(ab, sp, true)
+		assert.Nil(t, err)
+		assert.Equal(t, "test-ab_ab-uid1", *result.Id)
+		assert.Equal(t, "test-ab", *result.DisplayName)
+		assert.Equal(t, "1.2.3.4", *result.AllocationIps)
+		assert.Equal(t, (*int64)(nil), result.AllocationSize)
+		assert.Equal(t, "EXTERNAL", *result.IpAddressBlockVisibility)
+		assert.Equal(t, 7, len(result.Tags))
 	})
 }

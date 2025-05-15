@@ -56,6 +56,8 @@ const (
 	TagScopeSubnetPortCRUID            string = "nsx-op/subnetport_uid"
 	TagScopeIPAddressAllocationCRName  string = "nsx-op/ipaddressallocation_name"
 	TagScopeIPAddressAllocationCRUID   string = "nsx-op/ipaddressallocation_uid"
+	TagScopeAddressBindingCRName       string = "nsx-op/addressbinding_name"
+	TagScopeAddressBindingCRUID        string = "nsx-op/addressbinding_uid"
 	TagScopeVMNamespaceUID             string = "nsx-op/vm_namespace_uid"
 	TagScopeVMNamespace                string = "nsx-op/vm_namespace"
 	TagScopeVPCManagedBy               string = "nsx/managed-by"
