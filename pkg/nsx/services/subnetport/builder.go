@@ -24,8 +24,28 @@ import (
 )
 
 var (
-	String = common.String
+	String                      = common.String
+	defaultContainerMacPoolName = "DefaultContainersMacPool"
 )
+
+func (service *SubnetPortService) isInNSXMacPool(mac string) (bool, error) {
+	mac = strings.ToLower(mac)
+	if service.macPool == nil {
+		return false, fmt.Errorf("default NSX MAC Pool not initialized")
+	}
+	for _, macRange := range service.macPool.Ranges {
+		if macRange.Start != nil && macRange.End != nil {
+			start := strings.ToLower(*macRange.Start)
+			end := strings.ToLower(*macRange.End)
+			if mac >= start && mac <= end {
+				return true, nil
+			}
+		} else {
+			log.Error(nil, "Invalid MAC range", "range", macRange)
+		}
+	}
+	return false, nil
+}
 
 func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labelTags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.VpcSubnetPort, error) {
 	var objNamespace, appId, allocateAddresses string
@@ -39,16 +59,34 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	}
 	var externalAddressBinding *model.ExternalAddressBinding
 	var addressBindings []model.PortAddressBindingEntry
+	var isIPPool bool
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
 		externalAddressBinding = service.buildExternalAddressBinding(o)
-		if restoreMode && o.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress != "" {
-			ip := strings.Split(o.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "/")[0]
-			addressBindings = []model.PortAddressBindingEntry{
-				{
-					IpAddress:  &ip,
-					MacAddress: &o.Status.NetworkInterfaceConfig.MACAddress,
-				},
+		// NSX only supports one IP per SubnetPort for now, but we implement for the common case
+		// supporting multi-IP as the API accepts the list
+		if len(o.Spec.AddressBindings) > 0 {
+			for _, addressBinding := range o.Spec.AddressBindings {
+				addressBindings = append(addressBindings, model.PortAddressBindingEntry{
+					IpAddress:  &addressBinding.IPAddress,
+					MacAddress: &addressBinding.MACAddress,
+				})
+				// Chck if the specified MAC is in NSX MAC Pool to determine the allocateAddresses
+				inNSXMacPool, err := service.isInNSXMacPool(addressBinding.MACAddress)
+				if err != nil {
+					return nil, fmt.Errorf("failed to check NSX MAC Pool: %w", err)
+				}
+				isIPPool = !inNSXMacPool
+			}
+		} else if restoreMode && len(o.Status.NetworkInterfaceConfig.IPAddresses) > 0 {
+			for _, ipAddress := range o.Status.NetworkInterfaceConfig.IPAddresses {
+				if ipAddress.IPAddress != "" {
+					ip := strings.Split(ipAddress.IPAddress, "/")[0]
+					addressBindings = append(addressBindings, model.PortAddressBindingEntry{
+						IpAddress:  &ip,
+						MacAddress: &o.Status.NetworkInterfaceConfig.MACAddress,
+					})
+				}
 			}
 		}
 	case *corev1.Pod:
@@ -67,6 +105,11 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 
 	if nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode != nsxutil.ParseDHCPMode(v1alpha1.DHCPConfigModeDeactivated) {
 		allocateAddresses = "DHCP"
+	} else if isIPPool {
+		// If MAC address from spec is not in NSX MAC Pool and we set allocateAddresses as BOTH,
+		// we will get the error `User defined address bindings are not allowed on LogicalPort
+		// InternalLogicalPort/{id} as its VIF AttachmentContext contain IP/MAC Pool {1}.`
+		allocateAddresses = "IP_POOL"
 	} else {
 		allocateAddresses = "BOTH"
 	}
