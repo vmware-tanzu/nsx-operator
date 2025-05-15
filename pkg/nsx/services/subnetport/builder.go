@@ -41,7 +41,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	var addressBindings []model.PortAddressBindingEntry
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
-		externalAddressBinding = service.buildExternalAddressBinding(o)
+		externalAddressBinding = service.buildExternalAddressBinding(o, restoreMode)
 		if restoreMode && o.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress != "" {
 			ip := strings.Split(o.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "/")[0]
 			addressBindings = []model.PortAddressBindingEntry{
@@ -184,11 +184,16 @@ func buildSubnetPortExternalAddressBindingFromExisting(subnetPort *model.VpcSubn
 	return subnetPort
 }
 
-func (service *SubnetPortService) buildExternalAddressBinding(sp *v1alpha1.SubnetPort) *model.ExternalAddressBinding {
-	if service.GetAddressBindingBySubnetPort(sp) != nil {
-		return &model.ExternalAddressBinding{}
+func (service *SubnetPortService) buildExternalAddressBinding(sp *v1alpha1.SubnetPort, restoreMode bool) *model.ExternalAddressBinding {
+	addressBinding := service.GetAddressBindingBySubnetPort(sp)
+	if addressBinding == nil {
+		return nil
 	}
-	return nil
+	portExternalAddressBinding := &model.ExternalAddressBinding{}
+	if restoreMode && len(addressBinding.Status.IPAddress) > 0 {
+		portExternalAddressBinding.ExternalIpAddress = String(addressBinding.Status.IPAddress)
+	}
+	return portExternalAddressBinding
 }
 
 func (service *SubnetPortService) GetAddressBindingBySubnetPort(sp *v1alpha1.SubnetPort) *v1alpha1.AddressBinding {
