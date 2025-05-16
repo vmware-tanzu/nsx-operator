@@ -18,16 +18,21 @@ var (
 	Bool   = common.Bool
 )
 
-func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionBindingMap, parentSubnets []*model.VpcSubnet) []*model.SubnetConnectionBindingMap {
+func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionBindingMap, parentSubnetPaths []string) []*model.SubnetConnectionBindingMap {
 	tags := util.BuildBasicTags(s.NSXConfig.Cluster, binding, "")
-	bindingMaps := make([]*model.SubnetConnectionBindingMap, len(parentSubnets))
-	for i := range parentSubnets {
-		parent := parentSubnets[i]
+	bindingMaps := make([]*model.SubnetConnectionBindingMap, len(parentSubnetPaths))
+	for i := range parentSubnetPaths {
+		path := parentSubnetPaths[i]
+		vpcSubnetInfo, err := common.ParseVPCResourcePath(path)
+		if err != nil {
+			log.Error(err, "failed to parse parent Subnet path, ignore it")
+			continue
+		}
 		bindingMaps[i] = &model.SubnetConnectionBindingMap{
-			Id:             String(buildSubnetBindingID(binding, *parent.Id)),
+			Id:             String(buildSubnetBindingID(binding, vpcSubnetInfo.ID)),
 			DisplayName:    String(binding.Name),
 			VlanTrafficTag: Int64(binding.Spec.VLANTrafficTag),
-			SubnetPath:     parent.Path,
+			SubnetPath:     &path,
 			Tags:           tags,
 		}
 	}

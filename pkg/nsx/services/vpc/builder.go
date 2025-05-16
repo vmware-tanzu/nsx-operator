@@ -1,7 +1,6 @@
 package vpc
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -114,16 +113,6 @@ func buildVpcAttachment(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster 
 	attachment.Id = common.String(common.DefaultVpcAttachmentId)
 	attachment.Tags = util.BuildBasicTags(cluster, obj, nsObj.GetUID())
 	return attachment, nil
-}
-
-// parse org id and project id from nsxProject path
-// example /orgs/default/projects/nsx_operator_e2e_test
-func nsxProjectPathToId(path string) (string, string, error) {
-	parts := strings.Split(path, "/")
-	if len(parts) < 4 {
-		return "", "", errors.New("invalid NSX project path")
-	}
-	return parts[2], parts[len(parts)-1], nil
 }
 
 func isDefaultNetworkConfigCR(vpcConfigCR *v1alpha1.VPCNetworkConfiguration) bool {

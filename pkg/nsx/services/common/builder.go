@@ -4,6 +4,7 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -53,4 +54,14 @@ func ParseVPCResourcePath(nsxResourcePath string) (VPCResourceInfo, error) {
 	info.ID = layers[size-1]
 	info.ParentID = layers[size-3]
 	return info, nil
+}
+
+// parse org id and project id from nsxProject path
+// example /orgs/default/projects/nsx_operator_e2e_test
+func NSXProjectPathToId(path string) (string, string, error) {
+	parts := strings.Split(path, "/")
+	if len(parts) < 5 {
+		return "", "", errors.New("invalid NSX project path")
+	}
+	return parts[2], parts[4], nil
 }

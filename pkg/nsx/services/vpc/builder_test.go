@@ -369,31 +369,6 @@ func Test_generateLBSKey(t *testing.T) {
 	}
 }
 
-func TestNsxProjectPathToId(t *testing.T) {
-	tests := []struct {
-		name      string
-		path      string
-		org       string
-		project   string
-		expectErr string
-	}{
-		{"Valid project path", "/orgs/default/projects/nsx_operator_e2e_test", "default", "nsx_operator_e2e_test", ""},
-		{"Invalid project path", "", "", "", "invalid NSX project path"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			o, p, err := nsxProjectPathToId(tt.path)
-			if tt.expectErr != "" {
-				assert.ErrorContains(t, err, tt.expectErr)
-			} else {
-				assert.NoError(t, err)
-			}
-			assert.Equal(t, tt.org, o)
-			assert.Equal(t, tt.project, p)
-		})
-	}
-}
-
 func TestIsDefaultNetworkConfigCR(t *testing.T) {
 	testCRD1 := v1alpha1.VPCNetworkConfiguration{}
 	testCRD1.Name = "test-1"

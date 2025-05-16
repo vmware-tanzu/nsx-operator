@@ -55,9 +55,9 @@ func InitializeService(service servicecommon.Service) (*BindingService, error) {
 // SubnetConnectionBindingMap CR and attaches it to the parentSubnets.
 func (s *BindingService) CreateOrUpdateSubnetConnectionBindingMap(
 	subnetBinding *v1alpha1.SubnetConnectionBindingMap,
-	childSubnet *model.VpcSubnet,
-	parentSubnets []*model.VpcSubnet) error {
-	desiredBMmap := bindingMapsToMap(s.buildSubnetBindings(subnetBinding, parentSubnets))
+	childSubnetPath string,
+	parentSubnetPaths []string) error {
+	desiredBMmap := bindingMapsToMap(s.buildSubnetBindings(subnetBinding, parentSubnetPaths))
 	existingBMmap := bindingMapsToMap(s.BindingStore.getBindingsByBindingMapCRUID(string(subnetBinding.UID)))
 	updatedBindingMaps := make([]*model.SubnetConnectionBindingMap, 0)
 	for k, v := range desiredBMmap {
@@ -81,7 +81,7 @@ func (s *BindingService) CreateOrUpdateSubnetConnectionBindingMap(
 		}
 	}
 
-	if err := s.Apply(*childSubnet.Path, updatedBindingMaps); err != nil {
+	if err := s.Apply(childSubnetPath, updatedBindingMaps); err != nil {
 		return err
 	}
 
@@ -113,21 +113,21 @@ func (s *BindingService) DeleteSubnetConnectionBindingMapsByParentSubnet(parentS
 // The function returns the SubnetConnectionBindingMaps associated with the subnet if exists, otherwise it returns
 // the SubnetConnectionBindingMaps connected to the subnet.
 func (s *BindingService) GetSubnetConnectionBindingMapsBySubnet(subnet *model.VpcSubnet) []*model.SubnetConnectionBindingMap {
-	bindingMapsByChild := s.GetSubnetConnectionBindingMapsByChildSubnet(subnet)
+	bindingMapsByChild := s.GetSubnetConnectionBindingMapsByChildSubnet(*subnet.Path)
 	if len(bindingMapsByChild) > 0 {
 		return bindingMapsByChild
 	}
-	return s.GetSubnetConnectionBindingMapsByParentSubnet(subnet)
+	return s.GetSubnetConnectionBindingMapsByParentSubnet(*subnet.Path)
 }
 
 // GetSubnetConnectionBindingMapsByChildSubnet returns the SubnetConnectionBindingMaps associated with the subnet.
-func (s *BindingService) GetSubnetConnectionBindingMapsByChildSubnet(subnet *model.VpcSubnet) []*model.SubnetConnectionBindingMap {
-	return s.BindingStore.getBindingsByChildSubnet(*subnet.Path)
+func (s *BindingService) GetSubnetConnectionBindingMapsByChildSubnet(subnetPath string) []*model.SubnetConnectionBindingMap {
+	return s.BindingStore.getBindingsByChildSubnet(subnetPath)
 }
 
 // GetSubnetConnectionBindingMapsByParentSubnet returns the SubnetConnectionBindingMaps connected to the subnet.
-func (s *BindingService) GetSubnetConnectionBindingMapsByParentSubnet(subnet *model.VpcSubnet) []*model.SubnetConnectionBindingMap {
-	return s.BindingStore.getBindingsByParentSubnet(*subnet.Path)
+func (s *BindingService) GetSubnetConnectionBindingMapsByParentSubnet(subnetPath string) []*model.SubnetConnectionBindingMap {
+	return s.BindingStore.getBindingsByParentSubnet(subnetPath)
 }
 
 func (s *BindingService) GetSubnetConnectionBindingMapCRsBySubnet(subnet *model.VpcSubnet) []*v1alpha1.SubnetConnectionBindingMap {
