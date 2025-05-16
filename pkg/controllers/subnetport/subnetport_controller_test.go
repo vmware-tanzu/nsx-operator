@@ -1756,6 +1756,9 @@ func TestSubnetPortReconciler_StartController(t *testing.T) {
 	patches.ApplyFunc(common.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 		return
 	})
+	patches.ApplyFunc((*SubnetPortReconciler).SetupFieldIndexers, func(r *SubnetPortReconciler, mgr manager.Manager) error {
+		return nil
+	})
 	defer patches.Reset()
 	r := NewSubnetPortReconciler(mockMgr, subnetPortService, subnetService, vpcService)
 	err := r.StartController(mockMgr, nil)

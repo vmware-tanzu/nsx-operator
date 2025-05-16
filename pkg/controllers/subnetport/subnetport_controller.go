@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"reflect"
 	"slices"
 	"strconv"
@@ -252,12 +253,6 @@ func (r *SubnetPortReconciler) deleteSubnetPortByName(ctx context.Context, ns st
 
 // setupWithManager sets up the controller with the Manager.
 func (r *SubnetPortReconciler) setupWithManager(mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.SubnetPort{}, util.SubnetPortNamespaceVMIndexKey, subnetPortNamespaceVMIndexFunc); err != nil {
-		return err
-	}
-	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.AddressBinding{}, util.AddressBindingNamespaceVMIndexKey, addressBindingNamespaceVMIndexFunc); err != nil {
-		return err
-	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.SubnetPort{}).
 		WithOptions(
@@ -270,6 +265,16 @@ func (r *SubnetPortReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Watches(&v1alpha1.AddressBinding{},
 				handler.EnqueueRequestsFromMapFunc(r.addressBindingMapFunc)).
 		Complete(r) // TODO: watch the virtualmachine event and update the labels on NSX subnet port.
+}
+
+func (r *SubnetPortReconciler) SetupFieldIndexers(mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.SubnetPort{}, util.SubnetPortNamespaceVMIndexKey, subnetPortNamespaceVMIndexFunc); err != nil {
+		return err
+	}
+	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.AddressBinding{}, util.AddressBindingNamespaceVMIndexKey, addressBindingNamespaceVMIndexFunc); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *SubnetPortReconciler) vmMapFunc(_ context.Context, vm client.Object) []reconcile.Request {
@@ -366,6 +371,11 @@ func NewSubnetPortReconciler(mgr ctrl.Manager, subnetPortService *subnetport.Sub
 		SubnetPortService: subnetPortService,
 		VPCService:        vpcService,
 		Recorder:          mgr.GetEventRecorderFor("subnetport-controller"),
+	}
+	err := subnetPortReconciler.SetupFieldIndexers(mgr)
+	if err != nil {
+		log.Error(err, "Failed to setup field indexers for the SubnetPort controller")
+		os.Exit(1)
 	}
 	subnetPortReconciler.StatusUpdater = common.NewStatusUpdater(subnetPortReconciler.Client, subnetPortReconciler.SubnetPortService.NSXConfig, subnetPortReconciler.Recorder, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
 	return subnetPortReconciler
