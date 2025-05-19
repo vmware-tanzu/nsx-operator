@@ -869,6 +869,53 @@ func TestSubnetSetReconciler_CollectGarbage(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestSubnetSetReconciler_deleteSubnetForSubnetSet(t *testing.T) {
+	r := createFakeSubnetSetReconciler(nil)
+	r.EnableRestoreMode()
+	subnetSet := v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       "fake-subnetset-uid",
+			Name:      "test-subnetset",
+			Namespace: "test-namespace",
+		},
+		Status: v1alpha1.SubnetSetStatus{
+			Subnets: []v1alpha1.SubnetInfo{
+				{
+					NetworkAddresses:    []string{"10.0.0.0/28"},
+					GatewayAddresses:    []string{"10.0.0.1/28"},
+					DHCPServerAddresses: []string{"10.0.0.3/28"},
+				},
+			},
+		},
+	}
+
+	vpcSubnet1 := &model.VpcSubnet{
+		Id:          common.String("subnet-1"),
+		Path:        common.String("/orgs/default/projects/default/vpcs/vpcs/subnets/subnet-1"),
+		IpAddresses: []string{"10.0.0.16/28"},
+	}
+	vpcSubnet2 := &model.VpcSubnet{
+		Id:          common.String("subnet-2"),
+		Path:        common.String("/orgs/default/projects/default/vpcs/vpcs/subnets/subnet-2"),
+		IpAddresses: []string{"10.0.0.0/28"},
+	}
+
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+		return []*model.VpcSubnet{
+			vpcSubnet1,
+			vpcSubnet2,
+		}
+	})
+	defer patches.Reset()
+	patches.ApplyPrivateMethod(reflect.TypeOf(r), "deleteSubnets", func(_ *SubnetSetReconciler, nsxSubnets []*model.VpcSubnet, deleteBindingMaps bool) (hasStalePort bool, err error) {
+		assert.Equal(t, vpcSubnet1, nsxSubnets[0])
+		assert.Equal(t, false, deleteBindingMaps)
+		return false, nil
+	})
+	err := r.deleteSubnetForSubnetSet(subnetSet, true, false)
+	assert.Nil(t, err)
+}
+
 type MockManager struct {
 	ctrl.Manager
 	client client.Client

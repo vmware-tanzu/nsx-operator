@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -380,6 +381,24 @@ func (r *SubnetSetReconciler) deleteSubnetBySubnetSetName(ctx context.Context, s
 func (r *SubnetSetReconciler) deleteSubnetForSubnetSet(subnetSet v1alpha1.SubnetSet, updateStatus, ignoreStaleSubnetPort bool) error {
 	subnetSetLock := common.LockSubnetSet(subnetSet.GetUID())
 	nsxSubnets := r.SubnetService.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.GetUID()))
+
+	// For restore mode, we use SubnetSet CR status as source of the truth to sync the NSX Subnet
+	// For non-restore mode, we scale down the SubnetSet by deleting NSX Subnet without ports
+	if r.restoreMode {
+		subnetCIDRSet := sets.New[string]()
+		for _, subnet := range subnetSet.Status.Subnets {
+			subnetCIDRSet.Insert(strings.Join(subnet.NetworkAddresses, ","))
+		}
+		var revisedNSXSubnet []*model.VpcSubnet
+		for _, nsxSubnet := range nsxSubnets {
+			if !subnetCIDRSet.Has(strings.Join(nsxSubnet.IpAddresses, ",")) {
+				revisedNSXSubnet = append(revisedNSXSubnet, nsxSubnet)
+			}
+		}
+		nsxSubnets = revisedNSXSubnet
+		// NSX SubnetPorts under the NSX Subnet not in CR status should be deleted before SubnetSet GC
+		ignoreStaleSubnetPort = false
+	}
 	// If ignoreStaleSubnetPort is true, we will actively delete the existing SubnetConnectionBindingMaps connected to the
 	// corresponding NSX Subnet. This happens in the GC case to scale-in the NSX Subnet if no SubnetPort exists.
 	// For SubnetSet CR deletion event, we don't delete the existing SubnetConnectionBindingMaps but let the
