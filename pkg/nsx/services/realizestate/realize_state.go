@@ -88,7 +88,8 @@ func (service *RealizeStateService) GetPolicyTier1UplinkPortIP(intentPath string
 
 	for _, result := range results.Results {
 		extendAttributes := result.ExtendedAttributes
-		if len(extendAttributes) == 0 || len(result.IntentPaths) != 1 || (result.EntityType != nil && *result.EntityType != "RealizedLogicalRouterPort") {
+		if len(extendAttributes) == 0 || len(result.IntentPaths) != 1 || *result.Id != "gateway-interface" ||
+			(result.EntityType != nil && *result.EntityType != "RealizedLogicalRouterPort") {
 			continue
 		}
 		for i := range extendAttributes {
