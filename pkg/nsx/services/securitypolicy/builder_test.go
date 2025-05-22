@@ -149,9 +149,11 @@ func Test_BuildSecurityPolicyForT1(t *testing.T) {
 		},
 	}
 
-	var s *SecurityPolicyService
-	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-		func(s *SecurityPolicyService, ns string) types.UID {
+	s := &SecurityPolicyService{
+		Service: common.Service{},
+	}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
 	defer patches.Reset()
@@ -198,8 +200,8 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 			return &VPCInfo[0], nil
 		})
 
-	patches.ApplyPrivateMethod(reflect.TypeOf(fakeService), "getNamespaceUID",
-		func(s *SecurityPolicyService, ns string) types.UID {
+	patches.ApplyMethod(reflect.TypeOf(&fakeService.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
 	defer patches.Reset()
@@ -338,9 +340,11 @@ func Test_BuildPolicyGroup(t *testing.T) {
 			expectedPolicyGroupPath: "/infra/domains/k8scl-one/groups/sp_uidA_scope",
 		},
 	}
-	var s *SecurityPolicyService
-	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-		func(s *SecurityPolicyService, ns string) types.UID {
+	s := &SecurityPolicyService{
+		Service: common.Service{},
+	}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
 	defer patches.Reset()
@@ -427,9 +431,11 @@ func Test_BuildTargetTags(t *testing.T) {
 			},
 		},
 	}
-	var s *SecurityPolicyService
-	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-		func(s *SecurityPolicyService, ns string) types.UID {
+	s := &SecurityPolicyService{
+		Service: common.Service{},
+	}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
 	defer patches.Reset()
@@ -492,9 +498,11 @@ func Test_BuildPeerTags(t *testing.T) {
 			},
 		},
 	}
-	var s *SecurityPolicyService
-	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-		func(s *SecurityPolicyService, ns string) types.UID {
+	s := &SecurityPolicyService{
+		Service: common.Service{},
+	}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
 	defer patches.Reset()
@@ -1274,8 +1282,8 @@ func Test_BuildSecurityPolicyName(t *testing.T) {
 				},
 			},
 			createdFor: common.ResourceTypeNetworkPolicy,
-			expName:    fmt.Sprintf("%s_shQDwf", strings.Repeat("a", 248)),
-			expId:      fmt.Sprintf("%s_zT4Byn", strings.Repeat("a", 248)),
+			expName:    fmt.Sprintf("%s_n5pcg9", strings.Repeat("a", 248)),
+			expId:      fmt.Sprintf("%s_tdpcna", strings.Repeat("a", 248)),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

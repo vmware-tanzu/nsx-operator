@@ -134,8 +134,8 @@ func TestBuildNSXVPC(t *testing.T) {
 			lbProviderChanged:   false,
 			serviceClusterReady: false,
 			expVPC: &model.Vpc{
-				Id:                      common.String("netinfo1_netinfouid1"),
-				DisplayName:             common.String("netinfo1_netinfouid1"),
+				Id:                      common.String("netinfo1_6igic"),
+				DisplayName:             common.String("netinfo1_6igic"),
 				LoadBalancerVpcEndpoint: &model.LoadBalancerVPCEndpoint{Enabled: common.Bool(true)},
 				PrivateIps:              []string{"192.168.3.0/24"},
 				IpAddressType:           common.String("IPV4"),
@@ -155,8 +155,8 @@ func TestBuildNSXVPC(t *testing.T) {
 			lbProviderChanged:   false,
 			serviceClusterReady: false,
 			expVPC: &model.Vpc{
-				Id:            common.String("netinfo1_netinfouid1"),
-				DisplayName:   common.String("netinfo1_netinfouid1"),
+				Id:            common.String("netinfo1_6igic"),
+				DisplayName:   common.String("netinfo1_6igic"),
 				PrivateIps:    []string{"192.168.3.0/24"},
 				IpAddressType: common.String("IPV4"),
 				Tags: []model.Tag{
@@ -179,8 +179,8 @@ func TestBuildNSXVPC(t *testing.T) {
 				VPCs:       nil,
 			},
 			expVPC: &model.Vpc{
-				Id:            common.String("test-ns-03a2def3-0087-4077-904e-23e4dd788fb7_ecc6eb9f-92b5-4893-b809-e3ebc1fcf59e"),
-				DisplayName:   common.String("test-ns-03a2def3-0087-4077-904e-23e4dd788fb7_yWOLBB"),
+				Id:            common.String("test-ns-03a2def3-0087-4077-904e-23e4dd788fb7_sm0fn"),
+				DisplayName:   common.String("test-ns-03a2def3-0087-4077-904e-23e4dd788fb7_sm0fn"),
 				PrivateIps:    []string{"192.168.3.0/24"},
 				IpAddressType: common.String("IPV4"),
 				Tags: []model.Tag{
@@ -257,7 +257,8 @@ func TestBuildNSXVPC(t *testing.T) {
 			if tc.netInfoObj != nil {
 				netInfoObj = tc.netInfoObj
 			}
-			got, err := buildNSXVPC(netInfoObj, nsObj, nc, clusterStr, tc.existingVPC, tc.useAVILB, tc.lbProviderChanged, tc.serviceClusterReady)
+			vpcSvc, _, _, _ := createService(t)
+			got, err := vpcSvc.buildNSXVPC(netInfoObj, nsObj, nc, clusterStr, tc.existingVPC, tc.useAVILB, tc.lbProviderChanged, tc.serviceClusterReady)
 			assert.Nil(t, err)
 			assert.Equal(t, tc.expVPC, got)
 		})

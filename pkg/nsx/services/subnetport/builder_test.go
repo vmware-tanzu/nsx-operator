@@ -812,9 +812,11 @@ func TestBuildExternalAddressBinding(t *testing.T) {
 					func(_ *common.VPCResourceInfo) string {
 						return "/orgs/default/projects/project-quality/vpcs/vpc-id"
 					})
-				gomonkey.ApplyMethod(reflect.TypeOf(service.IpAddressAllocationService), "BuildIPAddressAllocationID",
-					func(_ *mock.MockIPAddressAllocationProvider, obj metav1.Object) string {
-						return "alloc-id-123"
+				gomonkey.ApplyMethod(reflect.TypeOf(service.IpAddressAllocationService), "GetIPAddressAllocationByOwner",
+					func(_ *mock.MockIPAddressAllocationProvider, owner metav1.Object) (*model.VpcIpAddressAllocation, error) {
+						return &model.VpcIpAddressAllocation{
+							Id: common.String("alloc-id-123"),
+						}, nil
 					})
 			},
 			expectedAb: &model.ExternalAddressBinding{

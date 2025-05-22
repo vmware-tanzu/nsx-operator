@@ -4,7 +4,6 @@
 package securitypolicy
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +12,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -247,7 +245,7 @@ func (service *SecurityPolicyService) buildBasicTags(obj *v1alpha1.SecurityPolic
 		scopeOwnerUID = common.TagScopeNetworkPolicyUID
 	}
 
-	tags := util.BuildBasicTags(getCluster(service), obj, service.getNamespaceUID(obj.ObjectMeta.Namespace))
+	tags := util.BuildBasicTags(getCluster(service), obj, service.Service.GetNamespaceUID(obj.ObjectMeta.Namespace))
 	tags = append(tags, []model.Tag{
 		{
 			Scope: String(scopeOwnerName),
@@ -1055,7 +1053,7 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 		service.addOperatorIfNeeded(expressions, "AND")
 		nsExpression := service.buildExpression(
 			"Condition", memberType,
-			fmt.Sprintf("%s|%s", getScopeNamespaceUIDTag(service, false), string(service.getNamespaceUID(obj.ObjectMeta.Namespace))),
+			fmt.Sprintf("%s|%s", getScopeNamespaceUIDTag(service, false), string(service.GetNamespaceUID(obj.ObjectMeta.Namespace))),
 			"Tag", "EQUALS", "EQUALS",
 		)
 		expressions.Add(nsExpression)
@@ -1068,7 +1066,7 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 		service.addOperatorIfNeeded(expressions, "AND")
 		nsExpression := service.buildExpression(
 			"Condition", memberType,
-			fmt.Sprintf("%s|%s", getScopeNamespaceUIDTag(service, true), string(service.getNamespaceUID(obj.ObjectMeta.Namespace))),
+			fmt.Sprintf("%s|%s", getScopeNamespaceUIDTag(service, true), string(service.GetNamespaceUID(obj.ObjectMeta.Namespace))),
 			"Tag", "EQUALS", "EQUALS",
 		)
 		expressions.Add(nsExpression)
@@ -1533,7 +1531,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		if peer.NamespaceSelector == nil {
 			podExpression = service.buildExpression(
 				"Condition", memberType,
-				fmt.Sprintf("%s|%s", getScopeNamespaceUIDTag(service, false), string(service.getNamespaceUID(obj.ObjectMeta.Namespace))),
+				fmt.Sprintf("%s|%s", getScopeNamespaceUIDTag(service, false), string(service.GetNamespaceUID(obj.ObjectMeta.Namespace))),
 				"Tag", "EQUALS", "EQUALS")
 			mixedNsSelector = false
 		} else {
@@ -1562,7 +1560,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		if peer.NamespaceSelector == nil {
 			vmExpression = service.buildExpression(
 				"Condition", memberType,
-				fmt.Sprintf("%s|%s", getScopeNamespaceUIDTag(service, true), string(service.getNamespaceUID(obj.ObjectMeta.Namespace))),
+				fmt.Sprintf("%s|%s", getScopeNamespaceUIDTag(service, true), string(service.GetNamespaceUID(obj.ObjectMeta.Namespace))),
 				"Tag", "EQUALS", "EQUALS")
 			mixedNsSelector = false
 		} else {
@@ -1834,19 +1832,6 @@ func (service *SecurityPolicyService) buildSharedWith(vpcInfo *common.VPCResourc
 		return &sharedWith
 	}
 	return nil
-}
-
-func (service *SecurityPolicyService) getNamespaceUID(ns string) (nsUid types.UID) {
-	namespace := &corev1.Namespace{}
-	namespacedName := types.NamespacedName{
-		Name: ns,
-	}
-	if err := service.Client.Get(context.Background(), namespacedName, namespace); err != nil {
-		log.Error(err, "Failed to get namespace UID", "namespace", ns)
-		return ""
-	}
-	namespace_uid := namespace.UID
-	return namespace_uid
 }
 
 func (service *SecurityPolicyService) buildRulePortString(port v1alpha1.SecurityPolicyPort) string {

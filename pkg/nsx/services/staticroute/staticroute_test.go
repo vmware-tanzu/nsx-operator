@@ -44,6 +44,7 @@ var (
 	tagValueStaticRouteCRUID  = "uidA"
 	tagScopeCluster           = common.TagScopeCluster
 	tagScopeNamespace         = common.TagScopeNamespace
+	srNSUID                   = "nsUuid"
 )
 
 type fakeQueryClient struct{}
@@ -178,6 +179,10 @@ func TestStaticRouteService_CreateorUpdateStaticRoute(t *testing.T) {
 			}
 			var j interface{} = m
 			return j, nil
+		})
+	patches2.ApplyMethod(reflect.TypeOf(&service.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
+			return types.UID(srNSUID)
 		})
 	defer patches2.Reset()
 

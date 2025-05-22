@@ -249,7 +249,11 @@ func (service *SubnetPortService) buildExternalAddressBinding(sp *v1alpha1.Subne
 			return nil, fmt.Errorf("failed to listVPCInfo for AddressBinding")
 		}
 		vpcPath := VPCInfo[0].GetVPCPath()
-		ipAddressAllocationID := service.IpAddressAllocationService.BuildIPAddressAllocationID(addressBinding)
+		existingAddressAllocation, err := service.IpAddressAllocationService.GetIPAddressAllocationByOwner(addressBinding)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find an existing external AddressBidning: %v", err)
+		}
+		ipAddressAllocationID := *existingAddressAllocation.Id
 		externalIpPath := vpcPath + "/ip-address-allocations/" + ipAddressAllocationID
 
 		portExternalAddressBinding.AllocatedExternalIpPath = String(externalIpPath)

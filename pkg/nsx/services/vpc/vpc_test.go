@@ -2453,6 +2453,7 @@ func TestInitializeVPC(t *testing.T) {
 							map[string]data.DataValue{
 								"resource_type":     data.NewStringValue("Vpc"),
 								"id":                data.NewStringValue("vpc1"),
+								"display_name":      data.NewStringValue("vpc1_ab1cd"),
 								"path":              data.NewStringValue("/orgs/default/projects/default/vpcs/vpc1"),
 								"connectivity_path": data.NewStringValue("/orgs/default/projects/project-quality/vpc-connectivity-profiles/default"),
 							})},

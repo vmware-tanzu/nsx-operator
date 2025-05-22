@@ -8,8 +8,11 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/google/uuid"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 func QueryTagCondition(resourceType, cluster string) string {
@@ -53,4 +56,24 @@ func ParseVPCResourcePath(nsxResourcePath string) (VPCResourceInfo, error) {
 	info.ID = layers[size-1]
 	info.ParentID = layers[size-3]
 	return info, nil
+}
+
+func BuildUniqueID(idGeneratorFn func(reGenerate bool) string, idExistsFn func(id string) bool) string {
+	resId := idGeneratorFn(false)
+	for idExistsFn(resId) {
+		resId = idGeneratorFn(true)
+	}
+	return resId
+}
+
+func BuildUniqueIDWithRandomUUID(initialObject metav1.Object, idGeneratorFn func(obj metav1.Object) string, idExistsFn func(id string) bool) string {
+	resId := idGeneratorFn(initialObject)
+	for idExistsFn(resId) {
+		newObj := &metav1.ObjectMeta{
+			Name: initialObject.GetName(),
+			UID:  types.UID(uuid.New().String()),
+		}
+		resId = idGeneratorFn(newObj)
+	}
+	return resId
 }

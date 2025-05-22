@@ -4,16 +4,14 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/cache"
-
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 var (
@@ -38,15 +36,7 @@ func InitializeIPAddressAllocation(service common.Service, vpcService common.VPC
 	fatalErrors := make(chan error)
 
 	ipAddressAllocationService := &IPAddressAllocationService{Service: service, VPCService: vpcService, builder: builder}
-	ipAddressAllocationService.ipAddressAllocationStore = &IPAddressAllocationStore{ResourceStore: common.ResourceStore{
-		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
-			common.TagScopeIPAddressAllocationCRUID: indexByIPAddressAllocation,
-			common.TagScopeAddressBindingCRUID:      indexByAddressBinding,
-			common.TagScopeSubnetPortCRUID:          indexBySubnetPort,
-			common.IndexByVPCPathFuncKey:            common.IndexByVPCFunc,
-		}),
-		BindingType: model.VpcIpAddressAllocationBindingType(),
-	}}
+	ipAddressAllocationService.ipAddressAllocationStore = buildIPAddressAllocationStore()
 
 	if includeNCP {
 		wg.Add(2)
@@ -95,6 +85,9 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 		// For this kind of cases, we manually populate the allocation_size and allocation_ips before the comparison.
 		nsxIPAddressAllocation.AllocationSize = nil
 		nsxIPAddressAllocation.AllocationIps = existingIPAddressAllocation.AllocationIps
+		// Use the existing NSX resource's id and display_name.
+		nsxIPAddressAllocation.Id = String(*existingIPAddressAllocation.Id)
+		nsxIPAddressAllocation.DisplayName = String(*existingIPAddressAllocation.DisplayName)
 	}
 	ipAddressAllocationUpdated := common.CompareResource(IpAddressAllocationToComparable(existingIPAddressAllocation),
 		IpAddressAllocationToComparable(nsxIPAddressAllocation))
@@ -346,4 +339,9 @@ func (service *IPAddressAllocationService) GetIPAddressAllocationUID(nsxIPAddres
 func (service *IPAddressAllocationService) GetIPAddressAllocationByOwner(owner metav1.Object) (*model.VpcIpAddressAllocation, error) {
 	existingIPAddressAllocation, err := service.indexedIPAddressAllocation(owner.GetUID())
 	return existingIPAddressAllocation, err
+}
+
+func (service *IPAddressAllocationService) allocationIdExists(id string) bool {
+	allocation := service.ipAddressAllocationStore.GetByKey(id)
+	return allocation != nil
 }

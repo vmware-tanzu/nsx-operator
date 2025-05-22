@@ -49,5 +49,5 @@ func (service *StaticRouteService) buildStaticRoute(obj *v1alpha1.StaticRoute) (
 }
 
 func (service *StaticRouteService) buildBasicTags(obj *v1alpha1.StaticRoute) []model.Tag {
-	return util.BuildBasicTags(service.Service.NSXConfig.Cluster, obj, "")
+	return util.BuildBasicTags(service.Service.NSXConfig.Cluster, obj, service.GetNamespaceUID(obj.ObjectMeta.Namespace))
 }

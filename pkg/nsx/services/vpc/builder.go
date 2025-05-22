@@ -8,6 +8,7 @@ import (
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -52,7 +53,7 @@ func combineVPCIDAndLBSID(vpcID, lbsID string) string {
 	return fmt.Sprintf("%s_%s", vpcID, lbsID)
 }
 
-func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc v1alpha1.VPCNetworkConfiguration, cluster string,
+func (s *VPCService) buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc v1alpha1.VPCNetworkConfiguration, cluster string,
 	nsxVPC *model.Vpc, useAVILB bool, lbProviderChanged bool, serviceClusterReady bool) (*model.Vpc, error) {
 	vpc := &model.Vpc{}
 	// enable LB Endpoint for either AVI LB or day2 DTGW
@@ -71,10 +72,12 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc v1alpha1.VPC
 			vpc.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &loadBalancerVPCEndpointEnabled}
 		}
 	} else {
+		// Generate a unique id for NSX VPC from the given NetworkInfo.
+		vpcId := common.BuildUniqueIDWithRandomUUID(obj, util.GenerateIDByShortUID, s.nsxVpcIdExists)
+
 		// for creating vpc case, fill in vpc properties based on networkconfig
-		vpcName := util.GenerateIDByObjectByLimit(obj, common.MaxSubnetNameLength)
-		vpc.DisplayName = &vpcName
-		vpc.Id = common.String(util.GenerateIDByObject(obj))
+		vpc.DisplayName = common.String(vpcId)
+		vpc.Id = common.String(common.BuildUniqueIDWithRandomUUID(obj, util.GenerateIDByShortUID, s.nsxVpcIdExists))
 		vpc.IpAddressType = &DefaultVPCIPAddressType
 
 		if enableLBEndpoint {
@@ -88,6 +91,31 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc v1alpha1.VPC
 
 	vpc.PrivateIps = nc.Spec.PrivateIPs
 	return vpc, nil
+}
+
+func (s *VPCService) buildVpcName(obj metav1.Object, maxLength int) string {
+	maxNameLength := maxLength - common.UUIDHashLength - 1
+	prefix := obj.GetName()
+
+	if len(prefix) > maxNameLength {
+		prefix = prefix[:maxNameLength]
+	}
+
+	objectMeta := &metav1.ObjectMeta{
+		Name: prefix,
+		UID:  obj.GetUID(),
+	}
+	return common.BuildUniqueIDWithRandomUUID(objectMeta, util.GenerateIDByShortUID, s.nsxVpcNameExists)
+}
+
+func (s *VPCService) nsxVpcIdExists(vpcId string) bool {
+	vpc := s.VpcStore.GetByKey(vpcId)
+	return vpc != nil
+}
+
+func (s *VPCService) nsxVpcNameExists(vpcName string) bool {
+	vpc := s.VpcStore.GetByIndex(nsxVpcNameIndexKey, vpcName)
+	return vpc != nil
 }
 
 func buildNSXLBS(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster, lbsSize, vpcPath string, relaxScaleValidation *bool) (*model.LBService, error) {

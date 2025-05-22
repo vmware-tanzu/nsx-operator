@@ -88,6 +88,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 				},
 			},
 		},
+		ipAddressAllocationStore: buildIPAddressAllocationStore(),
 	}
 
 	t.Run("VPCInfo is empty", func(t *testing.T) {
@@ -131,7 +132,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 
 		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
 		assert.Nil(t, err)
-		assert.Equal(t, "test-ip-alloc_uid1", *result.Id)
+		assert.Equal(t, "test-ip-alloc_ogcol", *result.Id)
 		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
 		assert.Equal(t, (*string)(nil), result.AllocationIps)
 		assert.Equal(t, int64(10), *result.AllocationSize)
@@ -166,7 +167,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		defer patch.Reset()
 		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, true)
 		assert.Nil(t, err)
-		assert.Equal(t, "test-ip-alloc_uid1", *result.Id)
+		assert.Equal(t, "test-ip-alloc_ogcol", *result.Id)
 		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
 		assert.Equal(t, "1.2.3.4", *result.AllocationIps)
 		assert.Equal(t, (*int64)(nil), result.AllocationSize)
@@ -225,7 +226,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		}
 		result, err := ipAllocService.BuildIPAddressAllocation(ab, sp, true)
 		assert.Nil(t, err)
-		assert.Equal(t, "test-ab_ab-uid1", *result.Id)
+		assert.Equal(t, "test-ab_nhafx", *result.Id)
 		assert.Equal(t, "test-ab", *result.DisplayName)
 		assert.Equal(t, "1.2.3.4", *result.AllocationIps)
 		assert.Equal(t, (*int64)(nil), result.AllocationSize)
