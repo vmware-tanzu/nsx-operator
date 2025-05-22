@@ -775,39 +775,91 @@ func TestSubnetPortService_ListSubnetPortIDsFromCRs(t *testing.T) {
 
 func TestSubnetPortService_ListSubnetPortByName(t *testing.T) {
 	subnetPortService := createSubnetPortService()
-	subnetPort1 := &model.VpcSubnetPort{
+
+	// VM subnet port with subnetport-1 name
+	vmSubnetPort1 := &model.VpcSubnetPort{
 		Id:   &subnetPortId1,
 		Path: &subnetPortPath1,
 		Tags: []model.Tag{
 			{
-				Scope: common.String("nsx-op/vm_namespace"),
+				Scope: common.String(common.TagScopeVMNamespace),
 				Tag:   common.String("ns-1"),
 			},
 			{
-				Scope: common.String("nsx-op/subnetport_name"),
+				Scope: common.String(common.TagScopeSubnetPortCRName),
 				Tag:   common.String("subnetport-1"),
 			},
 		},
 	}
-	subnetPort2 := &model.VpcSubnetPort{
+
+	// VM subnet port with subnetport-2 name
+	vmSubnetPort2 := &model.VpcSubnetPort{
 		Id:   &subnetPortId2,
 		Path: &subnetPortPath2,
 		Tags: []model.Tag{
 			{
-				Scope: common.String("nsx-op/vm_namespace"),
+				Scope: common.String(common.TagScopeVMNamespace),
 				Tag:   common.String("ns-1"),
 			},
 			{
-				Scope: common.String("nsx-op/subnetport_name"),
+				Scope: common.String(common.TagScopeSubnetPortCRName),
 				Tag:   common.String("subnetport-2"),
 			},
 		},
 	}
-	subnetPortService.SubnetPortStore.Add(subnetPort1)
-	subnetPortService.SubnetPortStore.Add(subnetPort2)
+
+	// Pod subnet port with subnetport-1 name
+	podSubnetPortId := "subnetport-name_3"
+	podSubnetPortPath := "/orgs/org1/projects/project1/vpcs/vpc1/subnets/subnet1/ports/subnetport-name_3"
+	podSubnetPort := &model.VpcSubnetPort{
+		Id:   &podSubnetPortId,
+		Path: &podSubnetPortPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String(common.TagScopeNamespace),
+				Tag:   common.String("ns-1"),
+			},
+			{
+				Scope: common.String(common.TagScopeSubnetPortCRName),
+				Tag:   common.String("subnetport-1"),
+			},
+		},
+	}
+
+	// Add all subnet ports to the store
+	subnetPortService.SubnetPortStore.Add(vmSubnetPort1)
+	subnetPortService.SubnetPortStore.Add(vmSubnetPort2)
+	subnetPortService.SubnetPortStore.Add(podSubnetPort)
+
+	// Test 1: Get all subnet ports with name "subnetport-1" in namespace "ns-1"
+	// Should return both VM and Pod subnet ports with that name
 	subnetPorts := subnetPortService.ListSubnetPortByName("ns-1", "subnetport-1")
+	assert.Equal(t, 2, len(subnetPorts))
+
+	// Verify both VM and Pod subnet ports with name "subnetport-1" are returned
+	foundVMPort := false
+	foundPodPort := false
+	for _, port := range subnetPorts {
+		if *port.Id == *vmSubnetPort1.Id {
+			foundVMPort = true
+		}
+		if *port.Id == *podSubnetPort.Id {
+			foundPodPort = true
+		}
+	}
+	assert.True(t, foundVMPort, "VM subnet port with name 'subnetport-1' should be returned")
+	assert.True(t, foundPodPort, "Pod subnet port with name 'subnetport-1' should be returned")
+
+	// Test 2: Get all subnet ports with name "subnetport-2" in namespace "ns-1"
+	// Should return only the VM subnet port with that name
+	subnetPorts = subnetPortService.ListSubnetPortByName("ns-1", "subnetport-2")
 	assert.Equal(t, 1, len(subnetPorts))
-	assert.Equal(t, subnetPort1, subnetPorts[0])
+	assert.Equal(t, vmSubnetPort2, subnetPorts[0])
+
+	// Test 3: Get all subnet ports with non-existent name
+	// Should return empty list
+	subnetPorts = subnetPortService.ListSubnetPortByName("ns-1", "non-existent")
+	assert.Equal(t, 0, len(subnetPorts))
 }
 
 func TestSubnetPortService_ListSubnetPortByPodName(t *testing.T) {
