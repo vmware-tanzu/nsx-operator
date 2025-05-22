@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -502,7 +503,7 @@ func TestGenerateTruncName(t *testing.T) {
 				project:  strings.Repeat("s", 300),
 				cluster:  "k8scl-one",
 			},
-			want: "sr_k8scl-one_1234-456_ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss_xbJrtX_scope",
+			want: "sr_k8scl-one_1234-456_ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss_r65nxx_scope",
 		},
 	}
 	for _, tt := range tests {
@@ -656,19 +657,25 @@ func TestGenerateIDByObject(t *testing.T) {
 			name:  "no limit set",
 			obj:   &metav1.ObjectMeta{Name: "abcdefg", UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
 			limit: 0,
-			expID: "abcdefg_b720ee2c-5788-4680-9796-0f93db33d8a9",
+			expID: "abcdefg_q3qpx",
 		},
 		{
-			name:  "truncate with hash on uid",
+			name:  "truncate name and append hash on uid",
+			obj:   &metav1.ObjectMeta{Name: "abcdefg", UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
+			limit: 15,
+			expID: "abcdefg_q3qpx",
+		},
+		{
+			name:  "generated name shorter than the limit",
 			obj:   &metav1.ObjectMeta{Name: "abcdefg", UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
 			limit: 20,
-			expID: "abcdefg_vSV1eZ",
+			expID: "abcdefg_q3qpx",
 		},
 		{
 			name:  "longer name with truncate",
 			obj:   &metav1.ObjectMeta{Name: strings.Repeat("a", 256), UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
 			limit: 0,
-			expID: fmt.Sprintf("%s_vSV1eZ", strings.Repeat("a", 248)),
+			expID: fmt.Sprintf("%s_q3qpx2", strings.Repeat("a", 248)),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -676,7 +683,7 @@ func TestGenerateIDByObject(t *testing.T) {
 			if tc.limit == 0 {
 				id = GenerateIDByObject(tc.obj)
 			} else {
-				id = GenerateIDByObjectByLimit(tc.obj, tc.limit)
+				id = generateIDByLimit(tc.obj, tc.limit)
 			}
 			assert.Equal(t, tc.expID, id)
 		})
@@ -703,7 +710,7 @@ func TestGenerateIDByObjectWithSuffix(t *testing.T) {
 			obj:    &metav1.ObjectMeta{Name: strings.Repeat("a", 256), UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
 			limit:  0,
 			suffix: "28e85c0b-21e4-4cab-b1c3-597639dfe752",
-			expID:  fmt.Sprintf("%s_vSV1eZ_28e85c0b-21e4-4cab-b1c3-597639dfe752", strings.Repeat("a", 211)),
+			expID:  fmt.Sprintf("%s_q3qpx2_28e85c0b-21e4-4cab-b1c3-597639dfe752", strings.Repeat("a", 211)),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -738,18 +745,29 @@ func TestConnectStrings(t *testing.T) {
 }
 
 func TestNewSha1(t *testing.T) {
-	assert.Equal(t, "ffN5UpVkkQYbocYDKFXOAMN4AsA", Sha1WithBase62("name"))
-	assert.Equal(t, "hZBZpydbX1XIFhgs9m6Lt2for9m", Sha1WithBase62("namee"))
+	assert.Equal(t, "chl6tk4k3f8cb0c1lfpdlfjtsyfuess", Sha1WithCustomizedCharset("name"))
+	assert.Equal(t, "eqbb380p8jcm2zjaxwy0dmvb4hyevkw", Sha1WithCustomizedCharset("namee"))
 
 	allowedChars := sets.New[rune]()
-	for _, c := range base62Chars {
+	for _, c := range HashCharset {
 		allowedChars.Insert(c)
 	}
 	randUID, err := uuid.NewRandom()
 	require.NoError(t, err)
-	hashString := Sha1WithBase62(randUID.String())
+	hashString := Sha1WithCustomizedCharset(randUID.String())
 	// Verify all chars in the hash string are contained in base62Chars.
 	for _, c := range hashString {
 		assert.True(t, allowedChars.Has(c))
 	}
+}
+
+func TestCollisionWithHashCharset(t *testing.T) {
+	hashLength := 5
+	newUUID, err := uuid.NewRandom()
+	require.NoError(t, err)
+
+	hashStr := Sha1WithCustomizedCharset(newUUID.String())[:hashLength]
+	timestamp := time.Now().UnixMilli()
+	hashStrWithTime := Sha1WithCustomizedCharset(fmt.Sprintf("%s-%d", newUUID.String(), timestamp))[:hashLength]
+	require.NotEqual(t, hashStr, hashStrWithTime)
 }
