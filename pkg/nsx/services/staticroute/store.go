@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
@@ -85,5 +86,18 @@ func (StaticRouteStore *StaticRouteStore) GetByVPCPath(vpcPath string) ([]*model
 func (StaticRouteStore *StaticRouteStore) DeleteMultipleObjects(routes []*model.StaticRoutes) {
 	for _, route := range routes {
 		StaticRouteStore.Delete(route)
+	}
+}
+
+func buildStaticRouteStore() *StaticRouteStore {
+	return &StaticRouteStore{
+		ResourceStore: common.ResourceStore{
+			Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+				common.TagScopeStaticRouteCRUID: indexFunc,
+				common.TagScopeNamespace:        indexStaticRouteNamespace,
+				common.IndexByVPCPathFuncKey:    common.IndexByVPCFunc,
+			}),
+			BindingType: model.StaticRoutesBindingType(),
+		},
 	}
 }

@@ -192,6 +192,12 @@ func prepareServiceForCleanup(orgRootClient *mock_org_root.MockOrgRootClient) *S
 					},
 				},
 			},
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster:          "k8scl-one:test",
+					EnableVPCNetwork: true,
+				},
+			},
 		},
 	}
 	svc.setUpStore(common.TagScopeSecurityPolicyUID, true)

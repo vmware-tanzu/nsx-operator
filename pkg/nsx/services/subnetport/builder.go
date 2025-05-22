@@ -123,11 +123,9 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		allocateAddresses = "BOTH"
 	}
 
-	nsxSubnetPortName := service.BuildSubnetPortName(objMeta)
-	nsxSubnetPortID := service.BuildSubnetPortId(objMeta)
 	// Generate attachment uid by adding randomness to SubnetPort CR UID
 	// In restore mode we need a different attachment uid for the same SubnetPort CR
-	// to make sure hostd will not ignore the the vm network reconfigure
+	// to make sure hostd will not ignore the vm network reconfigure
 	salt := []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
 	parsedUUID, err := uuid.Parse(string(objMeta.UID))
 	if err != nil {
@@ -135,7 +133,6 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	}
 	nsxCIFID := uuid.NewSHA1(parsedUUID, salt)
 
-	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", *nsxSubnet.Path, nsxSubnetPortID)
 	namespace := &corev1.Namespace{}
 	namespacedName := types.NamespacedName{
 		Name: objNamespace,
@@ -144,6 +141,10 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		return nil, err
 	}
 	namespace_uid := namespace.UID
+
+	nsxSubnetPortID, nsxSubnetPortName := service.BuildSubnetPortIdAndName(objMeta, namespace_uid)
+	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", *nsxSubnet.Path, nsxSubnetPortID)
+
 	tags := util.BuildBasicTags(getCluster(service), obj, namespace_uid)
 
 	// Filter tags based on the type of subnet port (VM or Pod).
@@ -201,8 +202,19 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	return nsxSubnetPort, nil
 }
 
-func (service *SubnetPortService) BuildSubnetPortId(obj *metav1.ObjectMeta) string {
-	return util.GenerateIDByObject(obj)
+func (service *SubnetPortService) BuildSubnetPortIdAndName(obj *metav1.ObjectMeta, namespaceUID types.UID) (string, string) {
+	existingSubnetPort, err := service.SubnetPortStore.GetVpcSubnetPortByUID(obj.GetUID())
+	if err == nil && existingSubnetPort != nil {
+		return *existingSubnetPort.Id, *existingSubnetPort.DisplayName
+	}
+	// Note: we will use the Pod or Subnet CR's name and the Namespace UID to generate the NSX VpcSubnetPort's id.
+	objWithNamespaceUID := &metav1.ObjectMeta{
+		Name: obj.Name,
+		UID:  namespaceUID,
+	}
+	return common.BuildUniqueIDWithRandomUUID(objWithNamespaceUID, util.GenerateIDByObject, func(id string) bool {
+		return service.SubnetPortStore.GetByKey(id) != nil
+	}), service.BuildSubnetPortName(obj)
 }
 
 func (service *SubnetPortService) BuildSubnetPortName(obj *metav1.ObjectMeta) string {
@@ -249,7 +261,11 @@ func (service *SubnetPortService) buildExternalAddressBinding(sp *v1alpha1.Subne
 			return nil, fmt.Errorf("failed to listVPCInfo for AddressBinding")
 		}
 		vpcPath := VPCInfo[0].GetVPCPath()
-		ipAddressAllocationID := service.IpAddressAllocationService.BuildIPAddressAllocationID(addressBinding)
+		existingAddressAllocation, err := service.IpAddressAllocationService.GetIPAddressAllocationByOwner(addressBinding)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find an existing external AddressBidning: %v", err)
+		}
+		ipAddressAllocationID := *existingAddressAllocation.Id
 		externalIpPath := vpcPath + "/ip-address-allocations/" + ipAddressAllocationID
 
 		portExternalAddressBinding.AllocatedExternalIpPath = String(externalIpPath)

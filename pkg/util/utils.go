@@ -32,7 +32,7 @@ import (
 
 const (
 	wcpSystemResource = "vmware-system-shared-t1"
-	base62Chars       = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	HashCharset       = "0123456789abcdefghijklmnopqrstuvwxyz"
 )
 
 var (
@@ -44,10 +44,11 @@ var log = &logger.Log
 func truncateLabelHash(data string) string {
 	return Sha1(data)[:common.HashLength]
 }
+
 func NormalizeLabels(matchLabels *map[string]string) *map[string]string {
 	newLabels := make(map[string]string)
 	for k, v := range *matchLabels {
-		newLabels[NormalizeLabelKey(k, truncateLabelHash)] = NormalizeName(v, truncateLabelHash)
+		newLabels[NormalizeLabelKey(k, truncateLabelHash)] = NormalizeLabelValue(v, truncateLabelHash)
 	}
 	return &newLabels
 }
@@ -61,8 +62,8 @@ func NormalizeLabelKey(key string, shaFn func(data string) string) string {
 	return normalizeNameByLimit(key, "", common.MaxTagScopeLength, shaFn)
 }
 
-func NormalizeName(name string, shaFn func(data string) string) string {
-	return normalizeNameByLimit(name, "", common.MaxTagValueLength, shaFn)
+func NormalizeLabelValue(value string, shaFn func(data string) string) string {
+	return normalizeNameByLimit(value, "", common.MaxTagValueLength, shaFn)
 }
 
 func normalizeNameByLimit(name string, suffix string, limit int, hashFn func(data string) string) string {
@@ -110,16 +111,16 @@ func getSha1Bytes(data string) []byte {
 	return sum
 }
 
-// Sha1WithBase62 uses the chars in `base62Chars` to present the hash result on the input data. We now use Sha1 as
+// Sha1WithCustomizedCharset uses the chars in `base62Chars` to present the hash result on the input data. We now use Sha1 as
 // the hash algorithm.
-func Sha1WithBase62(data string) string {
+func Sha1WithCustomizedCharset(data string) string {
 	sum := getSha1Bytes(data)
 	value := new(big.Int).SetBytes(sum[:])
-	base := big.NewInt(int64(len(base62Chars)))
+	base := big.NewInt(int64(len(HashCharset)))
 	var result []byte
 	for value.Cmp(big.NewInt(0)) > 0 {
 		mod := new(big.Int).Mod(value, base)
-		result = append(result, base62Chars[mod.Int64()])
+		result = append(result, HashCharset[mod.Int64()])
 		value.Div(value, base)
 	}
 
@@ -417,32 +418,42 @@ func UpdateK8sResourceAnnotation(client client.Client, ctx context.Context, k8sO
 }
 
 func truncateNameOrIDHash(data string) string {
-	return Sha1WithBase62(data)[:common.Base62HashLength]
+	return Sha1WithCustomizedCharset(data)[:common.Base62HashLength]
 }
 
-// GenerateIDByObject generate string id for NSX resource using the provided Object's name and uid. Note,
-// this function is used on the resources with VPC scenario, and the provided obj is the K8s CR which is
+func TruncateUIDHash(uid string) string {
+	return Sha1WithCustomizedCharset(uid)[:common.UUIDHashLength]
+}
+
+// GenerateIDByObject generate string id for NSX resource using the provided Object's name and the hash of CR uid.
+// Note, this function is used on the resources with VPC scenario, and the provided obj is the K8s CR which is
 // used to generate the NSX resource.
+// Note: This function may use hash(obj.UID)[:5] as the return string's suffix. Since the hash suffix is short,
+// it may have collision with the existing NSX resources, the corresponding handle is provided by nsx services layer.
 func GenerateIDByObject(obj metav1.Object) string {
-	return normalizeNameByLimit(obj.GetName(), string(obj.GetUID()), common.MaxIdLength, truncateNameOrIDHash)
-}
-
-// GenerateIDByObjectByLimit generate string id for NSX resource using the provided Object's name and uid,
-// and truncate the string with the given limit length.
-func GenerateIDByObjectByLimit(obj metav1.Object, limit int) string {
-	if limit == 0 {
-		limit = common.MaxIdLength
+	limit := common.MaxIdLength
+	uidStr := string(obj.GetUID())
+	suffix := TruncateUIDHash(uidStr)
+	desiredName := connectStrings(common.ConnectorUnderline, obj.GetName(), suffix)
+	if len(desiredName) > limit {
+		valueLen := limit - len(suffix) - 1
+		desiredName = connectStrings(common.ConnectorUnderline, obj.GetName()[:valueLen], suffix)
 	}
-	return normalizeNameByLimit(obj.GetName(), string(obj.GetUID()), limit, truncateNameOrIDHash)
+	return desiredName
 }
 
+// GenerateIDByObjectWithSuffix is only used to generate the NSX Security Rule id for now.
+// TODO: remove this function after Security Rule id switch to `GenerateIDByObject`.
 func GenerateIDByObjectWithSuffix(obj metav1.Object, suffix string) string {
 	limit := common.MaxIdLength
 	limit -= len(suffix) + 1
 	return connectStrings(common.ConnectorUnderline, normalizeNameByLimit(obj.GetName(), string(obj.GetUID()), limit, truncateNameOrIDHash), suffix)
 }
 
-// GenerateID generate id for NSX resource, some resources has complex index, so set it type to string
+// GenerateID generate id for NSX resource, some resources has complex index, so set it type to string.
+// Note, this function is used with T1 scenario, and the VPC resources (e.g., Security Rule) which are not migrated
+// to the new desired ID format. For new introduced NSX VPC resources, please use functions like
+// "BuildUniqueIDWithRandomUUID" in pkg/services/common/builder.go
 func GenerateID(resID, prefix, suffix string, index string) string {
 	return connectStrings(common.ConnectorUnderline, prefix, resID, index, suffix)
 }
@@ -472,7 +483,7 @@ func GenerateTruncName(limit int, resName string, prefix, suffix, project, clust
 	}
 	oldName := generateDisplayName(common.ConnectorUnderline, resName, "", "", project, cluster)
 	if len(oldName) > adjustedLimit {
-		newName := normalizeNameByLimit(oldName, "", adjustedLimit, truncateNameOrIDHash)
+		newName := normalizeNameByLimit(oldName, "", adjustedLimit, TruncateUIDHash)
 		return generateDisplayName(common.ConnectorUnderline, newName, prefix, suffix, "", "")
 	}
 	return generateDisplayName(common.ConnectorUnderline, resName, prefix, suffix, project, cluster)

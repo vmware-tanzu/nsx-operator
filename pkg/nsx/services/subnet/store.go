@@ -4,8 +4,13 @@ import (
 	"errors"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+)
+
+const (
+	nsxSubnetNameIndexKey = "nsxSubnetNameIndex"
 )
 
 // keyFunc is used to get the key of a resource, usually, which is the ID of the resource
@@ -66,6 +71,15 @@ func subnetSetIndexFunc(obj interface{}) ([]string, error) {
 	}
 }
 
+func subnetIndexNameFunc(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case *model.VpcSubnet:
+		return []string{*o.DisplayName}, nil
+	default:
+		return nil, errors.New("subnetIndexNameFunc doesn't support unknown type")
+	}
+}
+
 // SubnetStore is a store for subnet.
 type SubnetStore struct {
 	common.ResourceStore
@@ -111,5 +125,21 @@ func (subnetStore *SubnetStore) GetByKey(key string) *model.VpcSubnet {
 func (subnetStore *SubnetStore) DeleteMultipleObjects(subnets []*model.VpcSubnet) {
 	for _, subnet := range subnets {
 		_ = subnetStore.Delete(subnet)
+	}
+}
+
+func buildSubnetStore() *SubnetStore {
+	return &SubnetStore{
+		ResourceStore: common.ResourceStore{
+			Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+				common.TagScopeSubnetCRUID:    subnetIndexFunc,
+				common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+				common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+				common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				common.IndexByVPCPathFuncKey:  common.IndexByVPCFunc,
+				nsxSubnetNameIndexKey:         subnetIndexNameFunc,
+			}),
+			BindingType: model.VpcSubnetBindingType(),
+		},
 	}
 }

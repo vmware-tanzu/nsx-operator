@@ -12,12 +12,13 @@ import (
 	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -45,6 +46,7 @@ var (
 	tagValueStaticRouteCRUID  = "uidA"
 	tagScopeCluster           = common.TagScopeCluster
 	tagScopeNamespace         = common.TagScopeNamespace
+	srNSUID                   = "nsUuid"
 )
 
 type fakeQueryClient struct{}
@@ -66,13 +68,7 @@ func createService(t *testing.T) (*StaticRouteService, *gomock.Controller, *mock
 	mockCtrl := gomock.NewController(t)
 	mockStaticRouteclient := mocks.NewMockStaticRoutesClient(mockCtrl)
 
-	staticRouteStore := &StaticRouteStore{ResourceStore: common.ResourceStore{
-		BindingType: model.StaticRoutesBindingType(),
-	}}
-	staticRouteStore.Indexer = cache.NewIndexer(keyFunc, cache.Indexers{
-		common.TagScopeStaticRouteCRUID: indexFunc,
-		common.TagScopeNamespace:        indexStaticRouteNamespace,
-	})
+	staticRouteStore := buildStaticRouteStore()
 
 	service := &StaticRouteService{
 		VPCService: &vpc.VPCService{},
@@ -149,7 +145,9 @@ func TestStaticRouteService_DeleteStaticRouteByCR(t *testing.T) {
 	id := util.GenerateIDByObject(srObj)
 	vpcPath := "/orgs/default/projects/project-1/vpcs/vpc-1"
 	path := fmt.Sprintf("%s/static-routes/%s", vpcPath, id)
-	sr1 := &model.StaticRoutes{Id: &id, Path: &path, ParentPath: &vpcPath}
+	sr1 := &model.StaticRoutes{Id: &id, Path: &path, ParentPath: &vpcPath, Tags: []model.Tag{
+		{Scope: String(common.TagScopeStaticRouteCRUID), Tag: String(string(srObj.UID))},
+	}}
 
 	// no record found
 	mockStaticRouteclient.EXPECT().Delete(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Times(0)
@@ -164,6 +162,79 @@ func TestStaticRouteService_DeleteStaticRouteByCR(t *testing.T) {
 	assert.Equal(t, err, nil)
 	srs := returnservice.StaticRouteStore.List()
 	assert.Equal(t, len(srs), 0)
+}
+
+func TestStaticRouteService_CreateorUpdateStaticRoute(t *testing.T) {
+	service, mockController, mockStaticRouteclient := createService(t)
+	defer mockController.Finish()
+	vpcPath := "/orgs/default/projects/project-1/vpcs/vpc-1"
+	var tc *bindings.TypeConverter
+	patches2 := gomonkey.ApplyMethod(reflect.TypeOf(tc), "ConvertToGolang",
+		func(_ *bindings.TypeConverter, d data.DataValue, b bindings.BindingType) (interface{}, []error) {
+			mId, mTag, mScope := "test_id", "test_tag", "test_scope"
+			m := model.StaticRoutes{
+				Id:   &mId,
+				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+			}
+			var j interface{} = m
+			return j, nil
+		})
+	patches2.ApplyMethod(reflect.TypeOf(&service.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
+			return types.UID(srNSUID)
+		})
+	defer patches2.Reset()
+
+	vpcService := &vpc.VPCService{}
+	returnservice, err := InitializeStaticRoute(service.Service, vpcService)
+	if err != nil {
+		t.Error(err)
+	}
+	id := "12345678"
+	sr1 := &v1alpha1.StaticRoute{
+		Spec: v1alpha1.StaticRouteSpec{
+			Network: "1.1.1.0/24",
+		},
+	}
+	sr1.UID = types.UID(id)
+
+	mockStaticRouteclient.EXPECT().Patch(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(1)
+	mId := "test_id"
+	scope := common.TagScopeStaticRouteCRUID
+	m := model.StaticRoutes{
+		Id:          &mId,
+		DisplayName: String("test"),
+		Tags: []model.Tag{
+			{Tag: &id, Scope: &scope},
+		},
+		Network:    String("1.1.1.0/24"),
+		ParentPath: &vpcPath,
+		Path:       String(fmt.Sprintf("%s/static-routes/%s", vpcPath, mId)),
+	}
+	mockStaticRouteclient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(m, nil).Times(1)
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(returnservice.VPCService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
+		id := "12345678"
+		return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "project-1", VPCID: "vpc-1", ID: id}}
+	})
+	defer patches.Reset()
+	err = returnservice.CreateOrUpdateStaticRoute("test", sr1)
+	assert.Equal(t, err, nil)
+
+	// no change,  update
+	err = returnservice.CreateOrUpdateStaticRoute("test", sr1)
+	assert.Equal(t, err, nil)
+
+	staticRoutesInStore := returnservice.StaticRouteStore.GetByIndex(common.TagScopeStaticRouteCRUID, string(sr1.GetUID()))
+	require.True(t, len(staticRoutesInStore) > 0)
+	staticRoute := staticRoutesInStore[0]
+	sr2 := sr1
+	sr2.Name = "newStaticRoute"
+	err = returnservice.CreateOrUpdateStaticRoute("test", sr1)
+	assert.Equal(t, err, nil)
+	newStaticRoutesInStore := returnservice.StaticRouteStore.GetByIndex(common.TagScopeStaticRouteCRUID, string(sr1.GetUID()))
+	require.True(t, len(staticRoutesInStore) > 0)
+	newStaticRoute := newStaticRoutesInStore[0]
+	assert.Equal(t, staticRoute, newStaticRoute)
 }
 
 func TestGetUID(t *testing.T) {
@@ -211,6 +282,7 @@ func TestListStaticRouteByName(t *testing.T) {
 			{Scope: pointy.String(common.TagScopeStaticRouteCRName), Tag: pointy.String("route1")},
 			{Scope: pointy.String(common.TagScopeNamespace), Tag: pointy.String("namespace1")},
 		},
+		ParentPath: String("vpc1"),
 	}
 	sr2 := &model.StaticRoutes{
 		Id: &id2,
@@ -218,6 +290,7 @@ func TestListStaticRouteByName(t *testing.T) {
 			{Scope: pointy.String(common.TagScopeStaticRouteCRName), Tag: pointy.String("route2")},
 			{Scope: pointy.String(common.TagScopeNamespace), Tag: pointy.String("namespace1")},
 		},
+		ParentPath: String("vpc1"),
 	}
 	service.StaticRouteStore.Add(sr1)
 	service.StaticRouteStore.Add(sr2)
@@ -254,6 +327,7 @@ func TestListStaticRoute(t *testing.T) {
 			{Scope: pointy.String(common.TagScopeStaticRouteCRName), Tag: pointy.String("route1")},
 			{Scope: pointy.String(common.TagScopeNamespace), Tag: pointy.String("namespace1")},
 		},
+		ParentPath: String("vpc1"),
 	}
 	sr2 := &model.StaticRoutes{
 		Id: &id2,
@@ -261,6 +335,7 @@ func TestListStaticRoute(t *testing.T) {
 			{Scope: pointy.String(common.TagScopeStaticRouteCRName), Tag: pointy.String("route2")},
 			{Scope: pointy.String(common.TagScopeNamespace), Tag: pointy.String("namespace1")},
 		},
+		ParentPath: String("vpc1"),
 	}
 	service.StaticRouteStore.Add(sr1)
 	service.StaticRouteStore.Add(sr2)
@@ -288,12 +363,14 @@ func TestStaticRouteService_Cleanup(t *testing.T) {
 	staticRoutePath1 := "/orgs/org1/projects/project1/vpcs/vpc1/staticroutes/staticroute1"
 	staticRoutePath2 := "/orgs/org2/projects/project2/vpcs/vpc2/staticroutes/staticroute2"
 	staticRoute1 := &model.StaticRoutes{
-		Id:   pointy.String("staticroute1"),
-		Path: &staticRoutePath1,
+		Id:         pointy.String("staticroute1"),
+		Path:       &staticRoutePath1,
+		ParentPath: String("/orgs/org1/projects/project1/vpcs/vpc1"),
 	}
 	staticRoute2 := &model.StaticRoutes{
-		Id:   pointy.String("staticroute2"),
-		Path: &staticRoutePath2,
+		Id:         pointy.String("staticroute2"),
+		Path:       &staticRoutePath2,
+		ParentPath: String("/orgs/org1/projects/project1/vpcs/vpc2"),
 	}
 
 	t.Run("Successful cleanup", func(t *testing.T) {
@@ -348,7 +425,7 @@ func TestStaticRouteService_DeleteStaticRoute(t *testing.T) {
 
 	t.Run("Static route exists and is deleted successfully", func(t *testing.T) {
 		staticRouteID := "staticroute1"
-		staticRoute := &model.StaticRoutes{Id: &staticRouteID}
+		staticRoute := &model.StaticRoutes{Id: &staticRouteID, ParentPath: String("/orgs/org1/projects/project1/vpcs/vpc1")}
 		service.StaticRouteStore.Add(staticRoute)
 
 		mockStaticRouteclient.EXPECT().Delete("org1", "project1", "vpc1", staticRouteID).Return(nil).Times(1)
@@ -361,7 +438,7 @@ func TestStaticRouteService_DeleteStaticRoute(t *testing.T) {
 
 	t.Run("Error deleting static route from NSX", func(t *testing.T) {
 		staticRouteID := "staticroute2"
-		staticRoute := &model.StaticRoutes{Id: &staticRouteID}
+		staticRoute := &model.StaticRoutes{Id: &staticRouteID, ParentPath: String("/orgs/org1/projects/project1/vpcs/vpc1")}
 		service.StaticRouteStore.Add(staticRoute)
 
 		mockStaticRouteclient.EXPECT().Delete("org1", "project1", "vpc1", staticRouteID).Return(fmt.Errorf("delete error")).Times(1)

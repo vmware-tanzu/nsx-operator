@@ -208,11 +208,18 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			})
 		}
 	} else {
-		subnetPortID := r.SubnetPortService.BuildSubnetPortId(&pod.ObjectMeta)
-		if err := r.SubnetPortService.DeleteSubnetPortById(subnetPortID); err != nil {
+		subnetPort, err := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(pod.GetUID())
+		if err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, pod, err)
 			return common.ResultRequeue, err
 		}
+		if subnetPort != nil {
+			if err := r.SubnetPortService.DeleteSubnetPort(subnetPort); err != nil {
+				r.StatusUpdater.DeleteFail(req.NamespacedName, pod, err)
+				return common.ResultRequeue, err
+			}
+		}
+
 		r.StatusUpdater.DeleteSuccess(req.NamespacedName, pod)
 	}
 	return common.ResultNormal, nil
@@ -330,8 +337,12 @@ func (r *PodReconciler) CollectGarbage(ctx context.Context) error {
 
 	PodSet := sets.New[string]()
 	for _, pod := range podList.Items {
-		subnetPortID := r.SubnetPortService.BuildSubnetPortId(&pod.ObjectMeta)
-		PodSet.Insert(subnetPortID)
+		subnetPort, err := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(pod.GetUID())
+		if err != nil || subnetPort == nil {
+			log.Info("Not found existing VpcSubnetPort for Pod", "CR UID", pod.GetUID())
+			continue
+		}
+		PodSet.Insert(*subnetPort.Id)
 	}
 
 	var errList []error
@@ -359,8 +370,7 @@ func (r *PodReconciler) getSubnetByPod(pod *v1.Pod, subnetSetUID string) (string
 }
 
 func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (bool, string, error) {
-	subnetPortIDForPod := r.SubnetPortService.BuildSubnetPortId(&pod.ObjectMeta)
-	subnetPath := r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(subnetPortIDForPod)
+	subnetPath := r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(pod.GetUID())
 	if len(subnetPath) > 0 {
 		log.V(1).Info("NSX SubnetPort had been created, returning the existing NSX Subnet path", "pod.UID", pod.UID, "subnetPath", subnetPath)
 		return true, subnetPath, nil

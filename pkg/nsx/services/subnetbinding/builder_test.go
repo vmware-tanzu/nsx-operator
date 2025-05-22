@@ -15,8 +15,8 @@ import (
 )
 
 var (
-	bm1ID       = "binding1_411f59c1"
-	bm2ID       = "binding1_9bc22a0c"
+	bm1ID       = "binding1_7lupl"
+	bm2ID       = "binding1_i6zuf"
 	bindingMap1 = &model.SubnetConnectionBindingMap{
 		Id:             String(bm1ID),
 		DisplayName:    String("binding1"),

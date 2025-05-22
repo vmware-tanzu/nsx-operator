@@ -497,16 +497,15 @@ func (service *SecurityPolicyService) getFinalSecurityPolicyResource(obj *v1alph
 		indexScope = common.TagScopeNetworkPolicyUID
 	}
 
-	existingSecurityPolicy := securityPolicyStore.GetByKey(*nsxSecurityPolicy.Id)
+	existingSecurityPolicies := securityPolicyStore.GetByIndex(indexScope, string(obj.GetUID()))
 	isChanged := true
-	if existingSecurityPolicy != nil {
+	finalSecurityPolicy := nsxSecurityPolicy
+	if len(existingSecurityPolicies) > 0 {
+		existingSecurityPolicy := existingSecurityPolicies[0]
 		isChanged = common.CompareResource(SecurityPolicyPtrToComparable(existingSecurityPolicy), SecurityPolicyPtrToComparable(nsxSecurityPolicy))
-	}
-	var finalSecurityPolicy *model.SecurityPolicy
-	if isChanged {
-		finalSecurityPolicy = nsxSecurityPolicy
-	} else {
-		finalSecurityPolicy = existingSecurityPolicy
+		if !isChanged {
+			finalSecurityPolicy = existingSecurityPolicy
+		}
 	}
 
 	existingRules := ruleStore.GetByIndex(indexScope, string(obj.UID))
@@ -631,24 +630,14 @@ func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alp
 	return nil
 }
 
-func (service *SecurityPolicyService) DeleteSecurityPolicy(obj interface{}, isGC bool, createdFor string) error {
+func (service *SecurityPolicyService) DeleteSecurityPolicy(spUid types.UID, isGC bool, createdFor string) error {
 	var err error
-	switch sp := obj.(type) {
-	case *networkingv1.NetworkPolicy:
-		CRPolicySet := sets.New[string]()
-		CRPolicySet.Insert(service.BuildNetworkPolicyAllowPolicyID(string(sp.UID)))
-		CRPolicySet.Insert(service.BuildNetworkPolicyIsolationPolicyID(string(sp.UID)))
-		for elem := range CRPolicySet {
-			err = service.deleteVPCSecurityPolicy(types.UID(elem), isGC, createdFor)
-		}
-	case types.UID:
-		// For VPC network, SecurityPolicy normal deletion, GC deletion and cleanup
-		if IsVPCEnabled(service) {
-			err = service.deleteVPCSecurityPolicy(sp, isGC, createdFor)
-		} else {
-			// For T1 network, SecurityPolicy normal deletion and GC deletion
-			err = service.deleteSecurityPolicy(sp)
-		}
+	// For VPC network, SecurityPolicy normal deletion, GC deletion and cleanup
+	if IsVPCEnabled(service) {
+		err = service.deleteVPCSecurityPolicy(spUid, isGC, createdFor)
+	} else {
+		// For T1 network, SecurityPolicy normal deletion and GC deletion
+		err = service.deleteSecurityPolicy(spUid)
 	}
 	return err
 }
@@ -1217,4 +1206,60 @@ func (service *SecurityPolicyService) getVPCInfo(spNameSpace string) (*common.VP
 		return nil, err
 	}
 	return &vpcInfo[0], nil
+}
+
+func (service *SecurityPolicyService) getPolicyAppliedGroupByCRUID(indexScope, uid string) *model.Group {
+	groups := service.groupStore.GetByIndex(indexScope, uid)
+	if len(groups) == 0 {
+		return nil
+	}
+	for _, group := range groups {
+		ruleTags := filterRuleTag(group.Tags)
+		if len(ruleTags) == 0 {
+			return group
+		}
+	}
+	return nil
+}
+
+func (service *SecurityPolicyService) getAppliedGroupByRuleId(createdFor, uid string, ruleIdTag string) *model.Group {
+	indexScope := common.TagValueScopeSecurityPolicyUID
+	if createdFor == common.ResourceTypeNetworkPolicy {
+		indexScope = common.TagScopeNetworkPolicyUID
+	}
+
+	if ruleIdTag == "" {
+		return service.getPolicyAppliedGroupByCRUID(indexScope, uid)
+	}
+
+	groups := service.groupStore.GetByIndex(common.TagScopeRuleID, ruleIdTag)
+	if len(groups) == 0 {
+		return nil
+	}
+
+	for _, group := range groups {
+		if strings.Contains(*group.Id, common.TargetGroupSuffix) {
+			return group
+		}
+	}
+	return nil
+}
+
+func (service *SecurityPolicyService) getPeerGroupByRuleId(ruleIdTag string, isSource bool) *model.Group {
+	groups := service.groupStore.GetByIndex(common.TagScopeRuleID, ruleIdTag)
+	if len(groups) == 0 {
+		return nil
+	}
+
+	key := common.DstGroupSuffix
+	if isSource == true {
+		key = common.SrcGroupSuffix
+	}
+
+	for _, group := range groups {
+		if strings.Contains(*group.Id, key) {
+			return group
+		}
+	}
+	return nil
 }

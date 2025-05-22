@@ -13,7 +13,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -69,20 +68,9 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
 	subnetService := &SubnetService{
-		Service: service,
-		SubnetStore: &SubnetStore{
-			ResourceStore: common.ResourceStore{
-				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
-					common.TagScopeSubnetCRUID:    subnetIndexFunc,
-					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
-					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
-					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
-					common.IndexByVPCPathFuncKey:  common.IndexByVPCFunc,
-				}),
-				BindingType: model.VpcSubnetBindingType(),
-			},
-		},
-		builder: builder,
+		Service:     service,
+		SubnetStore: buildSubnetStore(),
+		builder:     builder,
 		SharedSubnetData: SharedSubnetData{
 			NSXSubnetCache: make(map[string]struct {
 				Subnet     *model.VpcSubnet
@@ -155,11 +143,17 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 	}
 	// Only check whether it needs update when obj is v1alpha1.Subnet
 	if subnet, ok := obj.(*v1alpha1.Subnet); ok {
-		existingSubnet := service.SubnetStore.GetByKey(service.BuildSubnetID(subnet))
+		var existingSubnet *model.VpcSubnet
+		existingSubnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetCRUID, string(subnet.GetUID()))
 		changed := false
-		if existingSubnet == nil {
+		if len(existingSubnets) == 0 {
 			changed = true
 		} else {
+			existingSubnet = existingSubnets[0]
+			// Reset with the existing NSX VpcSubnet's id and display_name to keep consistent.
+			nsxSubnet.Id = common.String(*existingSubnet.Id)
+			nsxSubnet.DisplayName = common.String(*existingSubnet.DisplayName)
+
 			changed = common.CompareResource(SubnetToComparable(existingSubnet), SubnetToComparable(nsxSubnet))
 			if changed {
 				// Only tags and dhcp are expected to be updated

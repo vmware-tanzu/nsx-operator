@@ -6,6 +6,7 @@ import (
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -50,7 +51,7 @@ func combineVPCIDAndLBSID(vpcID, lbsID string) string {
 	return fmt.Sprintf("%s_%s", vpcID, lbsID)
 }
 
-func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc v1alpha1.VPCNetworkConfiguration, cluster string,
+func (s *VPCService) buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc v1alpha1.VPCNetworkConfiguration, cluster string,
 	nsxVPC *model.Vpc, useAVILB bool, lbProviderChanged bool, serviceClusterReady bool) (*model.Vpc, error) {
 	vpc := &model.Vpc{}
 	// enable LB Endpoint for either AVI LB or day2 DTGW
@@ -70,9 +71,8 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc v1alpha1.VPC
 		}
 	} else {
 		// for creating vpc case, fill in vpc properties based on networkconfig
-		vpcName := util.GenerateIDByObjectByLimit(obj, common.MaxSubnetNameLength)
-		vpc.DisplayName = &vpcName
-		vpc.Id = common.String(util.GenerateIDByObject(obj))
+		vpc.DisplayName = common.String(s.buildVpcName(obj))
+		vpc.Id = common.String(common.BuildUniqueIDWithRandomUUID(obj, util.GenerateIDByObject, s.nsxVpcIdExists))
 		vpc.IpAddressType = &DefaultVPCIPAddressType
 
 		if enableLBEndpoint {
@@ -86,6 +86,20 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc v1alpha1.VPC
 
 	vpc.PrivateIps = nc.Spec.PrivateIPs
 	return vpc, nil
+}
+
+func (s *VPCService) buildVpcName(obj metav1.Object) string {
+	return common.BuildUniqueIDWithSuffix(obj, "", common.MaxSubnetNameLength, util.GenerateIDByObject, s.nsxVpcNameExists)
+}
+
+func (s *VPCService) nsxVpcIdExists(vpcId string) bool {
+	vpc := s.VpcStore.GetByKey(vpcId)
+	return vpc != nil
+}
+
+func (s *VPCService) nsxVpcNameExists(vpcName string) bool {
+	vpcs := s.VpcStore.GetByIndex(nsxVpcNameIndexKey, vpcName)
+	return len(vpcs) > 0
 }
 
 func buildNSXLBS(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster, lbsSize, vpcPath string, relaxScaleValidation *bool) (*model.LBService, error) {

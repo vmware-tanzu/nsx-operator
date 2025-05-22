@@ -13,6 +13,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -606,6 +607,7 @@ func TestSubnetPortService_GetGatewayPrefixForSubnetPort(t *testing.T) {
 }
 
 func TestSubnetPortService_GetSubnetPathForSubnetPortFromStore(t *testing.T) {
+	crUID := types.UID("aaaaaaaa")
 	type args struct {
 		obj *model.VpcSubnetPort
 	}
@@ -615,11 +617,32 @@ func TestSubnetPortService_GetSubnetPathForSubnetPortFromStore(t *testing.T) {
 		expectedResult string
 	}{
 		{
-			name: "Success",
+			name: "Success for SubnetPort created by Pod",
 			args: args{&model.VpcSubnetPort{
 				Id:         &subnetPortId1,
 				Path:       &subnetPortPath1,
 				ParentPath: &subnetPath,
+				Tags: []model.Tag{
+					{
+						Scope: common.String(common.TagScopePodUID),
+						Tag:   common.String(string(crUID)),
+					},
+				},
+			}},
+			expectedResult: subnetPath,
+		},
+		{
+			name: "Success for SubnetPort created by SubnetPort",
+			args: args{&model.VpcSubnetPort{
+				Id:         &subnetPortId1,
+				Path:       &subnetPortPath1,
+				ParentPath: &subnetPath,
+				Tags: []model.Tag{
+					{
+						Scope: common.String(common.TagScopeSubnetPortCRUID),
+						Tag:   common.String(string(crUID)),
+					},
+				},
 			}},
 			expectedResult: subnetPath,
 		},
@@ -657,7 +680,7 @@ func TestSubnetPortService_GetSubnetPathForSubnetPortFromStore(t *testing.T) {
 				defer service.SubnetPortStore.Delete(tt.args.obj)
 			}
 
-			result := service.GetSubnetPathForSubnetPortFromStore(subnetPortId1)
+			result := service.GetSubnetPathForSubnetPortFromStore(crUID)
 			assert.Equal(t, tt.expectedResult, result)
 		})
 	}
@@ -819,7 +842,8 @@ func TestSubnetPortService_ListSubnetPortIDsFromCRs(t *testing.T) {
 		Client: k8sClient,
 	}
 	service := &SubnetPortService{
-		Service: commonService,
+		Service:         commonService,
+		SubnetPortStore: &SubnetPortStore{},
 	}
 	subnetPortList := &v1alpha1.SubnetPortList{}
 	// List failure
@@ -846,6 +870,21 @@ func TestSubnetPortService_ListSubnetPortIDsFromCRs(t *testing.T) {
 		}...)
 		return nil
 	})
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(service.SubnetPortStore), "GetVpcSubnetPortByUID", func(subnetPortStore *SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+		switch string(uid) {
+		case "1":
+			return &model.VpcSubnetPort{
+				Id: String("subnetPort1_1"),
+			}, nil
+		case "2":
+			return &model.VpcSubnetPort{
+				Id: String("subnetPort2_2"),
+			}, nil
+		default:
+			return nil, nil
+		}
+	})
+	defer patches.Reset()
 	crSubnetPortIDsSet, err := service.ListSubnetPortIDsFromCRs(context.TODO())
 	assert.Nil(t, err)
 	assert.Equal(t, 2, crSubnetPortIDsSet.Len())

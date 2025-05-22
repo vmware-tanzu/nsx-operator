@@ -5,14 +5,12 @@ import (
 	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 type StaticRouteService struct {
@@ -37,14 +35,7 @@ func InitializeStaticRoute(commonService common.Service, vpcService common.VPCSe
 
 	wg.Add(1)
 	staticRouteService := &StaticRouteService{Service: commonService, builder: builder}
-	staticRouteStore := &StaticRouteStore{}
-	staticRouteStore.Indexer = cache.NewIndexer(keyFunc, cache.Indexers{
-		common.TagScopeStaticRouteCRUID: indexFunc,
-		common.TagScopeNamespace:        indexStaticRouteNamespace,
-		common.IndexByVPCPathFuncKey:    common.IndexByVPCFunc,
-	})
-	staticRouteStore.BindingType = model.StaticRoutesBindingType()
-	staticRouteService.StaticRouteStore = staticRouteStore
+	staticRouteService.StaticRouteStore = buildStaticRouteStore()
 	staticRouteService.NSXConfig = commonService.NSXConfig
 	staticRouteService.VPCService = vpcService
 
@@ -72,9 +63,15 @@ func (service *StaticRouteService) CreateOrUpdateStaticRoute(namespace string, o
 		return err
 	}
 
-	existingStaticRoute := service.StaticRouteStore.GetByKey(*nsxStaticRoute.Id)
-	if existingStaticRoute != nil && service.compareStaticRoute(existingStaticRoute, nsxStaticRoute) {
-		return nil
+	existingStaticRoutes := service.StaticRouteStore.GetByIndex(common.TagScopeStaticRouteCRUID, string(obj.GetUID()))
+	if len(existingStaticRoutes) > 0 {
+		existingStaticRoute := existingStaticRoutes[0].(*model.StaticRoutes)
+		// Update the generated NSX static route's id and display_name with the existing configurations.
+		nsxStaticRoute.Id = String(*existingStaticRoute.Id)
+		nsxStaticRoute.DisplayName = String(*existingStaticRoute.DisplayName)
+		if service.compareStaticRoute(existingStaticRoute, nsxStaticRoute) {
+			return nil
+		}
 	}
 
 	vpc := service.VPCService.ListVPCInfo(namespace)
@@ -149,11 +146,14 @@ func (service *StaticRouteService) GetUID(staticroute *model.StaticRoutes) *stri
 }
 
 func (service *StaticRouteService) DeleteStaticRouteByCR(obj *v1alpha1.StaticRoute) error {
-	id := util.GenerateIDByObject(obj)
-	staticroute := service.StaticRouteStore.GetByKey(id)
-	if staticroute == nil {
+	// Use obj.UID as the index to search the NSX StaticRoute from the local cache. Since this function is called
+	// when the "StaticRoute" is got from the kube-apiserver and its DeletionTimestamp is not Zero, the UID field
+	// must be set in the CR.
+	staticroutes := service.StaticRouteStore.GetByIndex(common.TagScopeStaticRouteCRUID, string(obj.GetUID()))
+	if len(staticroutes) == 0 {
 		return nil
 	}
+	staticroute := staticroutes[0].(*model.StaticRoutes)
 	return service.DeleteStaticRoute(staticroute)
 }
 

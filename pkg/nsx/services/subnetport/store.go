@@ -148,3 +148,25 @@ func (subnetPortStore *SubnetPortStore) DeleteMultipleObjects(ports []*model.Vpc
 		subnetPortStore.Delete(port)
 	}
 }
+
+func (subnetPortStore *SubnetPortStore) GetVpcSubnetPortByUID(uid types.UID) (*model.VpcSubnetPort, error) {
+	subnetPort := &model.VpcSubnetPort{}
+	var indexResults []interface{}
+	for _, index := range []string{common.TagScopeSubnetPortCRUID, common.TagScopePodUID} {
+		indexResult, err := subnetPortStore.ByIndex(index, string(uid))
+		if err != nil {
+			log.Error(err, "Failed to get VpcSubnetPort", index, string(uid))
+			return nil, err
+		}
+		indexResults = append(indexResults, indexResult...)
+	}
+
+	if len(indexResults) > 0 {
+		t := indexResults[0].(*model.VpcSubnetPort)
+		subnetPort = t
+	} else {
+		log.Info("did not get VpcSubnetPort with index", "UID", string(uid))
+		return nil, nil
+	}
+	return subnetPort, nil
+}

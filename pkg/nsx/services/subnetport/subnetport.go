@@ -14,6 +14,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
@@ -58,19 +59,7 @@ func InitializeSubnetPort(service servicecommon.Service, vpcService servicecommo
 		builder:                    builder,
 	}
 
-	subnetPortService.SubnetPortStore = &SubnetPortStore{
-		ResourceStore: servicecommon.ResourceStore{
-			Indexer: cache.NewIndexer(
-				keyFunc,
-				cache.Indexers{
-					servicecommon.TagScopeSubnetPortCRUID: subnetPortIndexByCRUID,
-					servicecommon.TagScopePodUID:          subnetPortIndexByPodUID,
-					servicecommon.TagScopeVMNamespace:     subnetPortIndexNamespace,
-					servicecommon.TagScopeNamespace:       subnetPortIndexPodNamespace,
-					servicecommon.IndexKeySubnetID:        subnetPortIndexBySubnetID,
-				}),
-			BindingType: model.VpcSubnetPortBindingType(),
-		}}
+	subnetPortService.SubnetPortStore = setupStore()
 
 	if err := subnetPortService.loadNSXMacPool(); err != nil {
 		return subnetPortService, err
@@ -91,6 +80,22 @@ func InitializeSubnetPort(service servicecommon.Service, vpcService servicecommo
 	}
 
 	return subnetPortService, nil
+}
+
+func setupStore() *SubnetPortStore {
+	return &SubnetPortStore{
+		ResourceStore: servicecommon.ResourceStore{
+			Indexer: cache.NewIndexer(
+				keyFunc,
+				cache.Indexers{
+					servicecommon.TagScopeSubnetPortCRUID: subnetPortIndexByCRUID,
+					servicecommon.TagScopePodUID:          subnetPortIndexByPodUID,
+					servicecommon.TagScopeVMNamespace:     subnetPortIndexNamespace,
+					servicecommon.TagScopeNamespace:       subnetPortIndexPodNamespace,
+					servicecommon.IndexKeySubnetID:        subnetPortIndexBySubnetID,
+				}),
+			BindingType: model.VpcSubnetPortBindingType(),
+		}}
 }
 
 func (service *SubnetPortService) loadNSXMacPool() error {
@@ -191,11 +196,16 @@ func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubne
 	case *v1.Pod:
 		objMeta = o.ObjectMeta
 	}
-	portID := util.GenerateIDByObject(&objMeta)
-	nsxSubnetPort := service.SubnetPortStore.GetByKey(portID)
+
+	nsxSubnetPort, err := service.SubnetPortStore.GetVpcSubnetPortByUID(objMeta.UID)
+	if err != nil {
+		return nil, err
+	}
 	if nsxSubnetPort == nil {
 		return nil, errors.New("failed to get subnet port from store")
 	}
+
+	portID := *nsxSubnetPort.Id
 	realizeService := realizestate.InitializeRealizeState(service.Service)
 
 	if err := realizeService.CheckRealizeState(util.NSXTRealizeRetry, *nsxSubnetPort.Path, []string{}); err != nil {
@@ -215,7 +225,7 @@ func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubne
 		return nil, err
 	}
 	// TODO: avoid to get subnetport state again if we already got it.
-	nsxPortState, err := service.GetSubnetPortState(obj, nsxSubnetPath)
+	nsxPortState, err := service.GetSubnetPortState(portID, nsxSubnetPath)
 	if err != nil {
 		return nil, err
 	}
@@ -226,14 +236,7 @@ func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubne
 	return nsxPortState, nil
 }
 
-func (service *SubnetPortService) GetSubnetPortState(obj interface{}, nsxSubnetPath string) (*model.SegmentPortState, error) {
-	var nsxSubnetPortID string
-	switch o := obj.(type) {
-	case *v1alpha1.SubnetPort:
-		nsxSubnetPortID = service.BuildSubnetPortId(&o.ObjectMeta)
-	case *v1.Pod:
-		nsxSubnetPortID = service.BuildSubnetPortId(&o.ObjectMeta)
-	}
+func (service *SubnetPortService) GetSubnetPortState(nsxSubnetPortID string, nsxSubnetPath string) (*model.SegmentPortState, error) {
 	subnetInfo, _ := servicecommon.ParseVPCResourcePath(nsxSubnetPath)
 	nsxSubnetPortState, err := service.NSXClient.PortStateClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, nsxSubnetPortID, nil, nil)
 	err = nsxutil.TransNSXApiError(err)
@@ -323,13 +326,18 @@ func (service *SubnetPortService) GetGatewayPrefixForSubnetPort(obj *v1alpha1.Su
 	return gateway, prefix, nil
 }
 
-func (service *SubnetPortService) GetSubnetPathForSubnetPortFromStore(nsxSubnetPortID string) string {
-	existingSubnetPort := service.SubnetPortStore.GetByKey(nsxSubnetPortID)
+func (service *SubnetPortService) GetSubnetPathForSubnetPortFromStore(crUid types.UID) string {
+	existingSubnetPort, err := service.SubnetPortStore.GetVpcSubnetPortByUID(crUid)
+	if err != nil {
+		log.Error(err, "Failed to use the CR UID to search VpcSubnetPort, return ''", "CR UID", crUid)
+		return ""
+	}
 	if existingSubnetPort == nil {
-		log.Info("subnetport is not found in store", "nsxSubnetPortID", nsxSubnetPortID)
+		log.Info("SubnetPort is not found in store", "CR UID", crUid)
 		return ""
 	}
 	if existingSubnetPort.ParentPath == nil {
+		log.Info("SubnetPort has not set the VpcSubnet path", "CR UID", crUid, "Id", *existingSubnetPort.Id)
 		return ""
 	}
 	return *existingSubnetPort.ParentPath
@@ -350,8 +358,14 @@ func (service *SubnetPortService) ListSubnetPortIDsFromCRs(ctx context.Context) 
 
 	crSubnetPortIDsSet := sets.New[string]()
 	for _, subnetPort := range subnetPortList.Items {
-		subnetPortID := service.BuildSubnetPortId(&subnetPort.ObjectMeta)
-		crSubnetPortIDsSet.Insert(subnetPortID)
+		vpcSubnetPort, err := service.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.UID)
+		if err != nil {
+			log.Error(err, "Failed to get VpcSubnetPort by SubnetPort CR", "CR UID", subnetPort.UID)
+			continue
+		}
+		if vpcSubnetPort != nil {
+			crSubnetPortIDsSet.Insert(*vpcSubnetPort.Id)
+		}
 	}
 	return crSubnetPortIDsSet, nil
 }

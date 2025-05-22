@@ -2,12 +2,16 @@ package staticroute
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 func TestValidateStaticRoute(t *testing.T) {
@@ -34,7 +38,14 @@ func TestBuildStaticRoute(t *testing.T) {
 	obj.ObjectMeta.Name = "teststaticroute"
 	obj.ObjectMeta.Namespace = "qe"
 	obj.ObjectMeta.UID = "uuid1"
-	service := &StaticRouteService{}
+
+	service := &StaticRouteService{Service: common.Service{}, StaticRouteStore: buildStaticRouteStore()}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&service.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
+			return types.UID("nsUUID")
+		})
+	defer patches.Reset()
+
 	service.NSXConfig = &config.NSXOperatorConfig{}
 	service.NSXConfig.CoeConfig = &config.CoeConfig{}
 	service.NSXConfig.Cluster = "test_1"
@@ -43,6 +54,6 @@ func TestBuildStaticRoute(t *testing.T) {
 	assert.Equal(t, len(staticroutes.NextHops), 2)
 	expName := "teststaticroute"
 	assert.Equal(t, expName, *staticroutes.DisplayName)
-	expId := "teststaticroute_uuid1"
+	expId := "teststaticroute_du8nz"
 	assert.Equal(t, expId, *staticroutes.Id)
 }

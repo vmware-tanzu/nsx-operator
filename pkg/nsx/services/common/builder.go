@@ -10,8 +10,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 )
@@ -147,4 +150,42 @@ func ConvertSubnetPathToAssociatedResource(sharedSubnetPath string) (string, err
 	}
 
 	return fmt.Sprintf("%s:%s:%s", projectID, vpcID, subnetID), nil
+}
+
+// BuildUniqueIDWithRandomUUID returns a string with format "obj.name_hash(uid)[UUIDHashLength]". If the returned
+// string already exists, a random UUID is used to generate a hash suffix to replace "hash(uid)[UUIDHashLength]".
+// nsx services should call this function to generate the NSX resource id by avoiding id collisions.
+func BuildUniqueIDWithRandomUUID(initialObject metav1.Object, idGeneratorFn func(obj metav1.Object) string, idExistsFn func(id string) bool) string {
+	resId := idGeneratorFn(initialObject)
+	for idExistsFn(resId) {
+		newObj := &metav1.ObjectMeta{
+			Name: initialObject.GetName(),
+			UID:  types.UID(uuid.New().String()),
+		}
+		resId = idGeneratorFn(newObj)
+	}
+	return resId
+}
+
+// BuildUniqueIDWithSuffix returns a string with format "obj.name-suffixStr_hash(uid)[UUIDHashLength]". If the returned
+// string already exists, a random UUID is used to generate a hash suffix to replace "hash(uid)[UUIDHashLength]".
+// nsx services should use this function to generate the NSX resource id if a "suffixStr" is expected.
+func BuildUniqueIDWithSuffix(obj metav1.Object, suffixStr string, maxLength int, idGeneratorFn func(obj metav1.Object) string, idExistsFn func(id string) bool) string {
+	maxNameLength := maxLength - UUIDHashLength - 1
+	prefix := obj.GetName()
+	suffix := ""
+	if len(suffixStr) > 0 {
+		maxNameLength = maxNameLength - (len(suffixStr) + 1)
+		suffix = fmt.Sprintf("-%s", suffixStr)
+	}
+
+	if len(prefix) > maxNameLength {
+		prefix = prefix[:maxNameLength]
+	}
+
+	objectMeta := &metav1.ObjectMeta{
+		Name: fmt.Sprintf("%s%s", prefix, suffix),
+		UID:  obj.GetUID(),
+	}
+	return BuildUniqueIDWithRandomUUID(objectMeta, idGeneratorFn, idExistsFn)
 }

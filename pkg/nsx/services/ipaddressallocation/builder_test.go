@@ -8,6 +8,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -88,6 +89,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 				},
 			},
 		},
+		ipAddressAllocationStore: buildIPAddressAllocationStore(),
 	}
 
 	t.Run("VPCInfo is empty", func(t *testing.T) {
@@ -127,16 +129,20 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 				},
 			}
 		})
+		patch.ApplyMethod(reflect.TypeOf(&ipAllocService.Service), "GetNamespaceUID",
+			func(s *common.Service, ns string) types.UID {
+				return "nsUUid"
+			})
 		defer patch.Reset()
 
 		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
 		assert.Nil(t, err)
-		assert.Equal(t, "test-ip-alloc_uid1", *result.Id)
+		assert.Equal(t, "test-ip-alloc_ogcol", *result.Id)
 		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
 		assert.Equal(t, (*string)(nil), result.AllocationIps)
 		assert.Equal(t, int64(10), *result.AllocationSize)
 		assert.Equal(t, "EXTERNAL", *result.IpAddressBlockVisibility)
-		assert.Equal(t, 5, len(result.Tags))
+		assert.Equal(t, 6, len(result.Tags))
 	})
 
 	t.Run("Success case for IPAddressAllocation CR with allocationIPs", func(t *testing.T) {
@@ -160,15 +166,19 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 				},
 			}
 		})
+		patch.ApplyMethod(reflect.TypeOf(&ipAllocService.Service), "GetNamespaceUID",
+			func(s *common.Service, ns string) types.UID {
+				return "nsUUid"
+			})
 		defer patch.Reset()
 
 		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
 		assert.Nil(t, err)
-		assert.Equal(t, "test-ip-alloc_uid1", *result.Id)
+		assert.Equal(t, "test-ip-alloc_ogcol", *result.Id)
 		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
 		assert.Equal(t, "10.0.0.0/28", *result.AllocationIps)
 		assert.Equal(t, "EXTERNAL", *result.IpAddressBlockVisibility)
-		assert.Equal(t, 5, len(result.Tags))
+		assert.Equal(t, 6, len(result.Tags))
 	})
 
 	t.Run("Restore AllocationIPs for IPAddressAllocation CR", func(t *testing.T) {
@@ -195,15 +205,19 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 				},
 			}
 		})
+		patch.ApplyMethod(reflect.TypeOf(&ipAllocService.Service), "GetNamespaceUID",
+			func(s *common.Service, ns string) types.UID {
+				return "nsUUid"
+			})
 		defer patch.Reset()
 		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, true)
 		assert.Nil(t, err)
-		assert.Equal(t, "test-ip-alloc_uid1", *result.Id)
+		assert.Equal(t, "test-ip-alloc_ogcol", *result.Id)
 		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
 		assert.Equal(t, "1.2.3.4", *result.AllocationIps)
 		assert.Equal(t, (*int64)(nil), result.AllocationSize)
 		assert.Equal(t, "EXTERNAL", *result.IpAddressBlockVisibility)
-		assert.Equal(t, 5, len(result.Tags))
+		assert.Equal(t, 6, len(result.Tags))
 	})
 
 	t.Run("Handle AllocationIPs for AddressBinding CR in normal mode", func(t *testing.T) {
@@ -255,13 +269,18 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 				UID:       "sp-uid1",
 			},
 		}
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(&ipAllocService.Service), "GetNamespaceUID",
+			func(s *common.Service, ns string) types.UID {
+				return "nsUUid"
+			})
+		defer patch.Reset()
 		result, err := ipAllocService.BuildIPAddressAllocation(ab, sp, true)
 		assert.Nil(t, err)
-		assert.Equal(t, "test-ab_ab-uid1", *result.Id)
+		assert.Equal(t, "test-ab_nhafx", *result.Id)
 		assert.Equal(t, "test-ab", *result.DisplayName)
 		assert.Equal(t, "1.2.3.4", *result.AllocationIps)
 		assert.Equal(t, (*int64)(nil), result.AllocationSize)
 		assert.Equal(t, "EXTERNAL", *result.IpAddressBlockVisibility)
-		assert.Equal(t, 7, len(result.Tags))
+		assert.Equal(t, 8, len(result.Tags))
 	})
 }

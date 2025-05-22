@@ -31,6 +31,8 @@ const (
 	NSXLB           = LBProvider("nsx-lb")
 	AVILB           = LBProvider("avi")
 	NoneLB          = LBProvider("none")
+
+	nsxVpcNameIndexKey = "nsxVpcNameIndex"
 )
 
 var (
@@ -149,6 +151,7 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
 			common.TagScopeNamespaceUID: vpcIndexNamespaceIDFunc,
 			common.TagScopeNamespace:    vpcIndexNamespaceNameFunc,
+			nsxVpcNameIndexKey:          vpcIndexVpcNameFunc,
 		}),
 		BindingType: model.VpcBindingType(),
 	}}
@@ -508,7 +511,7 @@ func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.Networ
 	}
 
 	lbProviderChanged := s.IsLBProviderChanged(nsxVPC, lbProvider)
-	createdVpc, err := buildNSXVPC(obj, nsObj, *nc, s.NSXConfig.Cluster, nsxVPC, lbProvider == AVILB, lbProviderChanged, serviceClusterReady)
+	createdVpc, err := s.buildNSXVPC(obj, nsObj, *nc, s.NSXConfig.Cluster, nsxVPC, lbProvider == AVILB, lbProviderChanged, serviceClusterReady)
 	if err != nil {
 		log.Error(err, "Failed to build NSX VPC object")
 		return nil, err

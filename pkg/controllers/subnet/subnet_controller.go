@@ -234,11 +234,11 @@ func (r *SubnetReconciler) deleteSubnetByName(name, ns string) error {
 }
 
 func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {
-	// if the nsxSubnet is nil, GetSubnetByKey will return the error: NSX subnet not found in store
-	nsxSubnet, err := r.SubnetService.GetSubnetByKey(r.SubnetService.BuildSubnetID(obj))
-	if err != nil {
-		return fmt.Errorf("failed to get NSX Subnet from store: %v", err)
+	nsxSubnets := r.SubnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetCRUID, string(obj.GetUID()))
+	if len(nsxSubnets) == 0 {
+		return fmt.Errorf("failed to get NSX Subnet from store")
 	}
+	nsxSubnet := nsxSubnets[0]
 	obj.Status.NetworkAddresses = obj.Status.NetworkAddresses[:0]
 	obj.Status.GatewayAddresses = obj.Status.GatewayAddresses[:0]
 	obj.Status.DHCPServerAddresses = obj.Status.DHCPServerAddresses[:0]
