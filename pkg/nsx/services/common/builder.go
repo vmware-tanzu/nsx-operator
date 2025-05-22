@@ -10,8 +10,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 )
@@ -116,4 +119,44 @@ func GetVPCFullName(orgID, projectID, vpcID string, vpcService VPCServiceProvide
 	}
 
 	return vpcFullName, nil
+}
+
+func BuildUniqueID(idGeneratorFn func(reGenerate bool) string, idExistsFn func(id string) bool) string {
+	resId := idGeneratorFn(false)
+	for idExistsFn(resId) {
+		resId = idGeneratorFn(true)
+	}
+	return resId
+}
+
+func BuildUniqueIDWithRandomUUID(initialObject metav1.Object, idGeneratorFn func(obj metav1.Object) string, idExistsFn func(id string) bool) string {
+	resId := idGeneratorFn(initialObject)
+	for idExistsFn(resId) {
+		newObj := &metav1.ObjectMeta{
+			Name: initialObject.GetName(),
+			UID:  types.UID(uuid.New().String()),
+		}
+		resId = idGeneratorFn(newObj)
+	}
+	return resId
+}
+
+func BuildUniqueIDWithSuffix(obj metav1.Object, index string, maxLength int, idGeneratorFn func(obj metav1.Object) string, idExistsFn func(id string) bool) string {
+	maxNameLength := maxLength - UUIDHashLength - 1
+	prefix := obj.GetName()
+	suffix := ""
+	if len(index) > 0 {
+		maxNameLength = maxNameLength - (len(index) + 1)
+		suffix = fmt.Sprintf("-%s", index)
+	}
+
+	if len(prefix) > maxNameLength {
+		prefix = prefix[:maxNameLength]
+	}
+
+	objectMeta := &metav1.ObjectMeta{
+		Name: fmt.Sprintf("%s%s", prefix, suffix),
+		UID:  obj.GetUID(),
+	}
+	return BuildUniqueIDWithRandomUUID(objectMeta, idGeneratorFn, idExistsFn)
 }
