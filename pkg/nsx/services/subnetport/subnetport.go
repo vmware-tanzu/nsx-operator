@@ -332,10 +332,13 @@ func (service *SubnetPortService) ListSubnetPortIDsFromCRs(ctx context.Context) 
 
 func (service *SubnetPortService) ListSubnetPortByName(ns string, name string) []*model.VpcSubnetPort {
 	var result []*model.VpcSubnetPort
-	subnetports := service.SubnetPortStore.GetByIndex(servicecommon.TagScopeVMNamespace, ns)
-	for _, subnetport := range subnetports {
-		tagname := nsxutil.FindTag(subnetport.Tags, servicecommon.TagScopeSubnetPortCRName)
-		if tagname == name {
+	// Get all the SubnetPorts in the namespace, including VM and Pod(image fetcher) SubnetPorts
+	vmSubnetPorts := service.SubnetPortStore.GetByIndex(servicecommon.TagScopeVMNamespace, ns)
+	podSubnetPorts := service.SubnetPortStore.GetByIndex(servicecommon.TagScopeNamespace, ns)
+	subnetPorts := append(vmSubnetPorts, podSubnetPorts...)
+	for _, subnetport := range subnetPorts {
+		tagName := nsxutil.FindTag(subnetport.Tags, servicecommon.TagScopeSubnetPortCRName)
+		if tagName == name {
 			result = append(result, subnetport)
 		}
 	}
