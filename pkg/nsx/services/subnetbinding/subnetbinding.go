@@ -66,6 +66,9 @@ func (s *BindingService) CreateOrUpdateSubnetConnectionBindingMap(
 			updatedBindingMaps = append(updatedBindingMaps, v)
 			continue
 		}
+		// Update NSX SubnetConnectionBindingMap's id and display_name with the existing settings.
+		v.Id = String(*existBindingMap.Id)
+		v.DisplayName = String(*existBindingMap.DisplayName)
 		changed := servicecommon.CompareResource(SubnetConnectionBindingMapToComparable(existBindingMap), SubnetConnectionBindingMapToComparable(v))
 		if changed {
 			updatedBindingMaps = append(updatedBindingMaps, v)
@@ -250,10 +253,13 @@ func (s *BindingService) GetSubnetConnectionBindingMapCRName(bindingMap *model.S
 	return ""
 }
 
+// bindingMapsToMap converts a slice of NSX SubnetConnectionBindingMaps to a map, the key is the parent VpcSubnetPath
+// and the value is the SubnetConnectionBindingMap. Note, the caller should guarantee every SubnetConnectionBindingMap
+// in the slice has a different parent NSX VpcSubnet.
 func bindingMapsToMap(bindingMaps []*model.SubnetConnectionBindingMap) map[string]*model.SubnetConnectionBindingMap {
 	bmMap := make(map[string]*model.SubnetConnectionBindingMap)
 	for _, bm := range bindingMaps {
-		bmMap[*bm.Id] = bm
+		bmMap[*bm.SubnetPath] = bm
 	}
 	return bmMap
 }

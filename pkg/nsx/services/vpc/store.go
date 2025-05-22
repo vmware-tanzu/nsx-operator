@@ -54,6 +54,15 @@ func vpcIndexNamespaceIDFunc(obj interface{}) ([]string, error) {
 	}
 }
 
+func vpcIndexVpcNameFunc(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case *model.Vpc:
+		return []string{*o.DisplayName}, nil
+	default:
+		return nil, errors.New("vpcIndexVpcNameFunc doesn't support unknown type")
+	}
+}
+
 func filterTagBy(v []model.Tag, tagScope string) []string {
 	res := make([]string, 0, 5)
 	for _, tag := range v {

@@ -149,16 +149,26 @@ func Test_BuildSecurityPolicyForT1(t *testing.T) {
 		},
 	}
 
-	var s *SecurityPolicyService
-	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-		func(s *SecurityPolicyService, ns string) types.UID {
+	s := &SecurityPolicyService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster:          "k8scl-one",
+					EnableVPCNetwork: false,
+				},
+			},
+		},
+	}
+	s.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
 	defer patches.Reset()
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observedPolicy, _, _, _ := service.buildSecurityPolicy(tt.inputPolicy, common.ResourceTypeSecurityPolicy)
+			observedPolicy, _, _, _ := s.buildSecurityPolicy(tt.inputPolicy, common.ResourceTypeSecurityPolicy)
 			assert.Equal(t, tt.expectedPolicy, observedPolicy)
 		})
 	}
@@ -174,6 +184,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 	fakeService.NSXConfig.EnableVPCNetwork = true
 	mockVPCService := mock.MockVPCServiceProvider{}
 	fakeService.vpcService = &mockVPCService
+	fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 	// For VPC mode
 	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
@@ -198,8 +209,8 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 			return &VPCInfo[0], nil
 		})
 
-	patches.ApplyPrivateMethod(reflect.TypeOf(fakeService), "getNamespaceUID",
-		func(s *SecurityPolicyService, ns string) types.UID {
+	patches.ApplyMethod(reflect.TypeOf(&fakeService.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
 	defer patches.Reset()
@@ -229,8 +240,8 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 			inputPolicy: &spWithPodSelector,
 			expectedPolicy: &model.SecurityPolicy{
 				DisplayName:    common.String("spA"),
-				Id:             common.String("spA_uidA"),
-				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA_uidA_scope"},
+				Id:             common.String("spA_re0bz"),
+				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA-scope_re0bz"},
 				SequenceNumber: &seq0,
 				Rules: []model.Rule{
 					{
@@ -238,10 +249,10 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 						Id:                &podSelectorRule0IDPort000,
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionIn,
-						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA_uidA_2c822e90_scope"},
+						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA-2c822e90-scope_re0bz"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA_uidA_2c822e90_src"},
+						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-2c822e90-src_re0bz"},
 						Action:            &nsxRuleActionAllow,
 						Tags:              vpcBasicTags,
 					},
@@ -253,7 +264,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq1,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA_uidA_2a4595d0_src"},
+						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-2a4595d0-src_re0bz"},
 						Action:            &nsxRuleActionAllow,
 						ServiceEntries:    []*data.StructValue{serviceEntry},
 						Tags:              vpcBasicTags,
@@ -267,16 +278,16 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 			inputPolicy: &spWithVMSelector,
 			expectedPolicy: &model.SecurityPolicy{
 				DisplayName:    common.String("spB"),
-				Id:             common.String("spB_uidB"),
-				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spB_uidB_scope"},
+				Id:             common.String("spB_9u8w9"),
+				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spB-scope_9u8w9"},
 				SequenceNumber: &seq0,
 				Rules: []model.Rule{
 					{
 						DisplayName:       &vmSelectorRule0Name00,
 						Id:                &vmSelectorRule0IDPort000,
-						DestinationGroups: []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spB_uidB_67410606_dst"},
+						DestinationGroups: []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spB-67410606-dst_9u8w9"},
 						Direction:         &nsxRuleDirectionOut,
-						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spB_uidB_67410606_scope"},
+						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spB-67410606-scope_9u8w9"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
@@ -286,7 +297,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 					{
 						DisplayName:       &vmSelectorRule1Name00,
 						Id:                &vmSelectorRule1IDPort000,
-						DestinationGroups: []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spB_uidB_7d721f08_dst"},
+						DestinationGroups: []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spB-7d721f08-dst_9u8w9"},
 						Direction:         &nsxRuleDirectionOut,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq1,
@@ -299,7 +310,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 					{
 						DisplayName:       &vmSelectorRule2Name00,
 						Id:                &vmSelectorRule2IDPort000,
-						DestinationGroups: []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spB_uidB_a40c8139_dst"},
+						DestinationGroups: []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spB-a40c8139-dst_9u8w9"},
 						Direction:         &nsxRuleDirectionOut,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq2,
@@ -338,9 +349,11 @@ func Test_BuildPolicyGroup(t *testing.T) {
 			expectedPolicyGroupPath: "/infra/domains/k8scl-one/groups/sp_uidA_scope",
 		},
 	}
-	var s *SecurityPolicyService
-	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-		func(s *SecurityPolicyService, ns string) types.UID {
+	s := &SecurityPolicyService{
+		Service: common.Service{},
+	}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
 	defer patches.Reset()
@@ -427,15 +440,18 @@ func Test_BuildTargetTags(t *testing.T) {
 			},
 		},
 	}
-	var s *SecurityPolicyService
-	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-		func(s *SecurityPolicyService, ns string) types.UID {
+	s := &SecurityPolicyService{
+		Service: common.Service{},
+	}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
 	defer patches.Reset()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.ElementsMatch(t, tt.expectedTags, service.buildTargetTags(tt.inputPolicy, tt.inputTargets, &tt.inputPolicy.Spec.Rules[0], tt.inputIndex, common.ResourceTypeSecurityPolicy))
+			ruleBaseID := service.buildRuleID(tt.inputPolicy, tt.inputIndex)
+			assert.ElementsMatch(t, tt.expectedTags, service.buildTargetTags(tt.inputPolicy, tt.inputTargets, ruleBaseID, common.ResourceTypeSecurityPolicy))
 		})
 	}
 }
@@ -492,9 +508,11 @@ func Test_BuildPeerTags(t *testing.T) {
 			},
 		},
 	}
-	var s *SecurityPolicyService
-	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-		func(s *SecurityPolicyService, ns string) types.UID {
+	s := &SecurityPolicyService{
+		Service: common.Service{},
+	}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
 	defer patches.Reset()
@@ -1214,12 +1232,13 @@ func Test_BuildSecurityPolicyName(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name       string
-		vpcEnabled bool
-		obj        *v1alpha1.SecurityPolicy
-		createdFor string
-		expName    string
-		expId      string
+		name                   string
+		vpcEnabled             bool
+		obj                    *v1alpha1.SecurityPolicy
+		createdFor             string
+		existingSecurityPolicy *model.SecurityPolicy
+		expName                string
+		expId                  string
 	}{
 		{
 			name:       "SecurityPolicy with VPC disabled",
@@ -1229,6 +1248,30 @@ func Test_BuildSecurityPolicyName(t *testing.T) {
 					UID:       "uid1",
 					Name:      "securitypolicy1",
 					Namespace: "ns1",
+				},
+			},
+			createdFor: common.ResourceTypeSecurityPolicy,
+			expName:    "securitypolicy1",
+			expId:      "sp_uid1",
+		},
+		{
+			name:       "SecurityPolicy with VPC disabled",
+			vpcEnabled: false,
+			obj: &v1alpha1.SecurityPolicy{
+				ObjectMeta: v1.ObjectMeta{
+					UID:       "uid1",
+					Name:      "securitypolicy1",
+					Namespace: "ns1",
+				},
+			},
+			existingSecurityPolicy: &model.SecurityPolicy{
+				Id:          common.String("sp_uid1"),
+				DisplayName: common.String("securitypolicy1"),
+				Tags: []model.Tag{
+					{
+						Scope: common.String(common.TagValueScopeSecurityPolicyUID),
+						Tag:   common.String("uid1"),
+					},
 				},
 			},
 			createdFor: common.ResourceTypeSecurityPolicy,
@@ -1247,6 +1290,30 @@ func Test_BuildSecurityPolicyName(t *testing.T) {
 			},
 			createdFor: common.ResourceTypeSecurityPolicy,
 			expName:    "securitypolicy2",
+			expId:      "securitypolicy2_qh94x",
+		},
+		{
+			name:       "Upgrade case for SecurityPolicy with VPC enabled",
+			vpcEnabled: true,
+			obj: &v1alpha1.SecurityPolicy{
+				ObjectMeta: v1.ObjectMeta{
+					UID:       "uid2",
+					Name:      "securitypolicy2",
+					Namespace: "ns2",
+				},
+			},
+			existingSecurityPolicy: &model.SecurityPolicy{
+				Id:          common.String("securitypolicy2_uid2"),
+				DisplayName: common.String("securitypolicy2"),
+				Tags: []model.Tag{
+					{
+						Scope: common.String(common.TagValueScopeSecurityPolicyUID),
+						Tag:   common.String("uid2"),
+					},
+				},
+			},
+			createdFor: common.ResourceTypeSecurityPolicy,
+			expName:    "securitypolicy2",
 			expId:      "securitypolicy2_uid2",
 		},
 		{
@@ -1261,7 +1328,31 @@ func Test_BuildSecurityPolicyName(t *testing.T) {
 			},
 			createdFor: common.ResourceTypeNetworkPolicy,
 			expName:    "networkpolicy1",
-			expId:      "networkpolicy1_uid3",
+			expId:      "networkpolicy1_kjv4c",
+		},
+		{
+			name:       "Upgrade case for NetworkPolicy with VPC enabled",
+			vpcEnabled: true,
+			obj: &v1alpha1.SecurityPolicy{
+				ObjectMeta: v1.ObjectMeta{
+					UID:       "uid3",
+					Name:      "networkpolicy1",
+					Namespace: "ns3",
+				},
+			},
+			createdFor: common.ResourceTypeNetworkPolicy,
+			existingSecurityPolicy: &model.SecurityPolicy{
+				Id:          common.String("networkpolicy1_uid3"),
+				DisplayName: common.String("networkpolicy1"),
+				Tags: []model.Tag{
+					{
+						Scope: common.String(common.TagScopeNetworkPolicyUID),
+						Tag:   common.String("uid3"),
+					},
+				},
+			},
+			expName: "networkpolicy1",
+			expId:   "networkpolicy1_uid3",
 		},
 		{
 			name:       "NetworkPolicy with VPC enabled with name truncated",
@@ -1274,17 +1365,20 @@ func Test_BuildSecurityPolicyName(t *testing.T) {
 				},
 			},
 			createdFor: common.ResourceTypeNetworkPolicy,
-			expName:    fmt.Sprintf("%s_shQDwf", strings.Repeat("a", 248)),
-			expId:      fmt.Sprintf("%s_zT4Byn", strings.Repeat("a", 248)),
+			expName:    fmt.Sprintf("%s_n5pcg", strings.Repeat("a", 249)),
+			expId:      fmt.Sprintf("%s_tdpcn", strings.Repeat("a", 249)),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			svc.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 			svc.NSXConfig.EnableVPCNetwork = tc.vpcEnabled
-			name := svc.buildSecurityPolicyName(tc.obj)
+			if tc.existingSecurityPolicy != nil {
+				svc.securityPolicyStore.Add(tc.existingSecurityPolicy)
+			}
+			id, name := svc.buildSecurityPolicyIDAndName(tc.obj, tc.createdFor)
+			assert.Equal(t, tc.expId, id)
 			assert.Equal(t, tc.expName, name)
 			assert.True(t, len(name) <= common.MaxNameLength)
-			id := svc.buildSecurityPolicyID(tc.obj, tc.createdFor)
-			assert.Equal(t, tc.expId, id)
 		})
 	}
 }
@@ -1299,6 +1393,7 @@ func Test_BuildGroupName(t *testing.T) {
 			},
 		},
 	}
+	svc.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 	obj := &v1alpha1.SecurityPolicy{
 		ObjectMeta: v1.ObjectMeta{
@@ -1326,7 +1421,7 @@ func Test_BuildGroupName(t *testing.T) {
 				isSource:  true,
 				enableVPC: true,
 				expName:   "sp1_d0b8e36c_src",
-				expId:     "sp1_c5db1800-ce4c-11de-bedc-84a0de00c35b_d0b8e36c_src",
+				expId:     "sp1-d0b8e36c-src_gzkfa",
 			},
 			{
 				name:      "dst peer group for rule without user-defined name",
@@ -1334,7 +1429,7 @@ func Test_BuildGroupName(t *testing.T) {
 				isSource:  false,
 				enableVPC: true,
 				expName:   "sp1_d0b8e36c_dst",
-				expId:     "sp1_c5db1800-ce4c-11de-bedc-84a0de00c35b_d0b8e36c_dst",
+				expId:     "sp1-d0b8e36c-dst_gzkfa",
 			},
 			{
 				name:      "dst peer group for rule without user-defined name for T1",
@@ -1350,7 +1445,7 @@ func Test_BuildGroupName(t *testing.T) {
 				isSource:  true,
 				enableVPC: true,
 				expName:   "sp1_555356be_src",
-				expId:     "sp1_c5db1800-ce4c-11de-bedc-84a0de00c35b_555356be_src",
+				expId:     "sp1-555356be-src_gzkfa",
 			},
 			{
 				name:      "dst peer group for rule with user-defined name",
@@ -1358,7 +1453,7 @@ func Test_BuildGroupName(t *testing.T) {
 				isSource:  false,
 				enableVPC: true,
 				expName:   "sp1_555356be_dst",
-				expId:     "sp1_c5db1800-ce4c-11de-bedc-84a0de00c35b_555356be_dst",
+				expId:     "sp1-555356be-dst_gzkfa",
 			},
 			{
 				name:      "dst peer group for rule with user-defined name for T1",
@@ -1392,14 +1487,14 @@ func Test_BuildGroupName(t *testing.T) {
 				ruleIdx:   0,
 				enableVPC: true,
 				expName:   "sp1_d0b8e36c_scope",
-				expId:     "sp1_c5db1800-ce4c-11de-bedc-84a0de00c35b_d0b8e36c_scope",
+				expId:     "sp1-d0b8e36c-scope_gzkfa",
 			},
 			{
 				name:      "applied group for rule with user-defined name",
 				ruleIdx:   1,
 				enableVPC: true,
 				expName:   "sp1_555356be_scope",
-				expId:     "sp1_c5db1800-ce4c-11de-bedc-84a0de00c35b_555356be_scope",
+				expId:     "sp1-555356be-scope_gzkfa",
 			},
 			{
 				name:      "applied group for rule without user-defined name",
@@ -1420,7 +1515,7 @@ func Test_BuildGroupName(t *testing.T) {
 				ruleIdx:   -1,
 				enableVPC: true,
 				expName:   "sp1_scope",
-				expId:     "sp1_c5db1800-ce4c-11de-bedc-84a0de00c35b_scope",
+				expId:     "sp1-scope_gzkfa",
 			},
 			{
 				name:      "policy applied group for T1",
@@ -1432,10 +1527,9 @@ func Test_BuildGroupName(t *testing.T) {
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				svc.NSXConfig.EnableVPCNetwork = tc.enableVPC
-				dispName := svc.buildAppliedGroupName(obj, tc.ruleIdx)
-				assert.Equal(t, dispName, tc.expName)
-				id := svc.buildAppliedGroupID(obj, tc.ruleIdx)
+				id, dispName := svc.buildAppliedGroupIDAndName(obj, tc.ruleIdx, common.ResourceTypeNetworkPolicy)
 				assert.Equal(t, tc.expId, id)
+				assert.Equal(t, dispName, tc.expName)
 			})
 		}
 	})

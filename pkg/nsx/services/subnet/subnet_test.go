@@ -10,6 +10,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
@@ -203,7 +204,7 @@ func TestInitializeSubnetService(t *testing.T) {
 			expectAllSubnetNum: 0,
 			existingVPCInfo:    &vpcResourceInfo,
 			prepareFunc: func() *gomonkey.Patches {
-				fakeVpcSubnet := model.VpcSubnet{Path: &fakeSubnetPath, Id: &nsxSubnetID, Tags: basicTags, ParentPath: &fakeVPCPath}
+				fakeVpcSubnet := model.VpcSubnet{Path: &fakeSubnetPath, Id: &nsxSubnetID, Tags: basicTags, ParentPath: &fakeVPCPath, DisplayName: &nsxSubnetID}
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeSubnetsClient{}), "Get", func(_ *fakeSubnetsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnet, error) {
 					return fakeVpcSubnet, nil
 				})
@@ -277,7 +278,7 @@ func TestInitializeSubnetService(t *testing.T) {
 						Cursor: &cursor, ResultCount: &resultCount,
 					}, nil
 				})
-				fakeVpcSubnet := model.VpcSubnet{Path: &fakeSubnetPath, Id: &nsxSubnetID, Tags: basicTags, ParentPath: &fakeVPCPath}
+				fakeVpcSubnet := model.VpcSubnet{Path: &fakeSubnetPath, Id: &nsxSubnetID, Tags: basicTags, ParentPath: &fakeVPCPath, DisplayName: &nsxSubnetID}
 				patches.ApplyMethod(reflect.TypeOf(&fakeSubnetsClient{}), "Get", func(_ *fakeSubnetsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnet, error) {
 					return fakeVpcSubnet, nil
 				})
@@ -578,17 +579,7 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 				SubnetStatusClient: &fakeSubnetStatusClient{},
 			},
 		},
-		SubnetStore: &SubnetStore{
-			ResourceStore: common.ResourceStore{
-				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
-					common.TagScopeSubnetCRUID:    subnetIndexFunc,
-					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
-					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
-					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
-				}),
-				BindingType: model.VpcSubnetBindingType(),
-			},
-		},
+		SubnetStore: buildSubnetStore(),
 	}
 
 	fakeSubnet := model.VpcSubnet{
@@ -600,6 +591,8 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 				Tag:   common.String("subnetset-1"),
 			},
 		},
+		DisplayName: common.String("subnet-1"),
+		ParentPath:  common.String("/orgs/default/projects/default/vpcs/default"),
 	}
 
 	testCases := []struct {
@@ -869,7 +862,7 @@ func TestSubnetService_RestoreSubnetSet(t *testing.T) {
 				},
 			},
 		},
-		SubnetStore: &SubnetStore{},
+		SubnetStore: buildSubnetStore(),
 	}
 	tests := []struct {
 		name        string
@@ -894,7 +887,10 @@ func TestSubnetService_RestoreSubnetSet(t *testing.T) {
 			},
 			prepareFunc: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc((*SubnetStore).GetByIndex, func(s *SubnetStore, key string, value string) []*model.VpcSubnet {
-					assert.Equal(t, "pod-default-ns-1", value)
+					switch key {
+					case common.TagScopeSubnetSetCRUID:
+						assert.Equal(t, "pod-default-ns-1", value)
+					}
 					return []*model.VpcSubnet{}
 				})
 				patches.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
@@ -919,10 +915,14 @@ func TestSubnetService_RestoreSubnetSet(t *testing.T) {
 			},
 			prepareFunc: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc((*SubnetStore).GetByIndex, func(s *SubnetStore, key string, value string) []*model.VpcSubnet {
-					assert.Equal(t, "pod-default-ns-1", value)
-					return []*model.VpcSubnet{
-						{IpAddresses: []string{"10.0.0.0/28"}},
+					switch key {
+					case common.TagScopeSubnetSetCRUID:
+						assert.Equal(t, "pod-default-ns-1", value)
+						return []*model.VpcSubnet{
+							{IpAddresses: []string{"10.0.0.0/28"}},
+						}
 					}
+					return []*model.VpcSubnet{}
 				})
 				patches.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
 					return nil, nil
@@ -946,7 +946,10 @@ func TestSubnetService_RestoreSubnetSet(t *testing.T) {
 			},
 			prepareFunc: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc((*SubnetStore).GetByIndex, func(s *SubnetStore, key string, value string) []*model.VpcSubnet {
-					assert.Equal(t, "pod-default-ns-1", value)
+					switch key {
+					case common.TagScopeSubnetSetCRUID:
+						assert.Equal(t, "pod-default-ns-1", value)
+					}
 					return []*model.VpcSubnet{}
 				})
 				patches.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
@@ -1735,6 +1738,104 @@ func TestRemoveSubnetFromCache(t *testing.T) {
 			service.RemoveSubnetFromCache(tt.associatedResource, tt.reason)
 
 			assert.Equal(t, tt.expectedCache, service.NSXSubnetCache)
+		})
+	}
+}
+
+func TestSubnetService_CreateOrUpdateSubnet_Consistency(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	uuidStr := "0ca84a5b-b8b2-4e90-ae50-12caa5f847cf"
+	subnetCR := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       types.UID(uuidStr),
+			Name:      "subnet1",
+			Namespace: "ns1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddresses: []string{"10.0.0.0/28"},
+		},
+	}
+
+	basicTags := []model.Tag{
+		{Scope: String(common.TagScopeSubnetCRName), Tag: String("subnet1")},
+		{Scope: String(common.TagScopeSubnetCRUID), Tag: String(uuidStr)},
+		{Scope: String(common.TagScopeNamespaceUID), Tag: String(string("ns1"))},
+	}
+
+	subnetId := "subnet1_hlz23"
+	subnetName := "subnet1_hlz23"
+	oldSubnetId := "subnet1_0ca84a5b-b8b2-4e90-ae50-12caa5f847cf"
+	oldSubnetName := "subnet1_0ca84a5b-b8b2-4e90-ae50-12caa5f847cf"
+
+	fakeVPCPath := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9"
+	vpcResourceInfo, _ := common.ParseVPCResourcePath(fakeVPCPath)
+
+	for _, tc := range []struct {
+		name               string
+		existingSubnet     *model.VpcSubnet
+		expectedSubnetId   string
+		expectedSubnetName string
+	}{
+		{
+			name:               "create new subnet",
+			expectedSubnetId:   subnetId,
+			expectedSubnetName: subnetName,
+		},
+		{
+			name: "update existing subnet",
+			existingSubnet: &model.VpcSubnet{
+				Id:          String(oldSubnetId),
+				DisplayName: String(oldSubnetName),
+				Tags:        basicTags,
+			},
+			expectedSubnetId:   oldSubnetId,
+			expectedSubnetName: oldSubnetName,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := &SubnetService{
+				Service: common.Service{
+					Client: k8sClient,
+					NSXClient: &nsx.Client{
+						SubnetsClient:      &fakeSubnetsClient{},
+						SubnetStatusClient: &fakeSubnetStatusClient{},
+					},
+					NSXConfig: &config.NSXOperatorConfig{
+						CoeConfig: &config.CoeConfig{
+							Cluster: "k8scl-one:test",
+						},
+					},
+				},
+				SubnetStore: &SubnetStore{
+					ResourceStore: common.ResourceStore{
+						Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+							common.TagScopeSubnetCRUID:    subnetIndexFunc,
+							common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+							common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+							common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+						}),
+						BindingType: model.VpcSubnetBindingType(),
+					},
+				},
+			}
+
+			if tc.existingSubnet != nil {
+				require.NoError(t, service.SubnetStore.Apply(tc.existingSubnet))
+			}
+
+			patches := gomonkey.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
+				if *nsxSubnet.Id != tc.expectedSubnetId || *nsxSubnet.DisplayName != tc.expectedSubnetName {
+					assert.FailNow(t, fmt.Sprintf("The built NSX VpcSubnet is not as expected, expect Id %s, actual Id %s", tc.expectedSubnetId, *nsxSubnet.Id))
+				}
+				return nil, nil
+			})
+			defer patches.Reset()
+
+			_, err := service.CreateOrUpdateSubnet(subnetCR, vpcResourceInfo, basicTags)
+			require.NoError(t, err)
 		})
 	}
 }
