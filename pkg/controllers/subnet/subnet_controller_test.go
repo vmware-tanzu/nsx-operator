@@ -553,14 +553,14 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return false, nil
 				})
 
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByKey", func(_ *subnet.SubnetService, key string) (*model.VpcSubnet, error) {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetsByIndex", func(_ *subnet.SubnetService, key string, value string) []*model.VpcSubnet {
 					id1 := "fake-id"
 					path := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9/subnets/subnet_fake-path"
 					tags := []model.Tag{
 						{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-subnet-uid-2")},
 						{Scope: common.String(common.TagScopeSubnetCRName), Tag: common.String(subnetName)},
 					}
-					return &model.VpcSubnet{Id: &id1, Path: &path, Tags: tags}, nil
+					return []*model.VpcSubnet{{Id: &id1, Path: &path, Tags: tags}}
 				})
 
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetStatus", func(_ *subnet.SubnetService) ([]model.VpcSubnetStatus, error) {
@@ -609,8 +609,8 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return nil, nil
 				})
 
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByKey", func(_ *subnet.SubnetService, key string) (*model.VpcSubnet, error) {
-					return nil, fmt.Errorf("failed to get NSX Subnet from store")
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetsByIndex", func(_ *subnet.SubnetService, key string, value string) []*model.VpcSubnet {
+					return nil
 				})
 
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "IsDefaultNSXProject", func(_ *vpc.VPCService, orgID, projectID string) (bool, error) {
