@@ -268,3 +268,128 @@ func TestCompareNetworkPolicy(t *testing.T) {
 		})
 	}
 }
+func TestCompareContainerApplication(t *testing.T) {
+	testCases := []struct {
+		name           string
+		pre            interface{}
+		cur            containerinventory.ContainerApplication
+		expectedResult map[string]interface{}
+	}{
+		{
+			name: "New resource with all fields",
+			pre:  nil,
+			cur: containerinventory.ContainerApplication{
+				DisplayName:        "App1",
+				ContainerClusterId: "Cluster1",
+				ContainerProjectId: "Project1",
+				Tags:               []common.Tag{{Scope: "tag1"}, {Scope: "tag2"}},
+				Status:             "Running",
+				NetworkStatus:      "Ready",
+				NetworkErrors:      []common.NetworkError{{ErrorMessage: "none"}},
+				OriginProperties:   []common.KeyValuePair{{Key: "key1", Value: "value1"}},
+			},
+			expectedResult: map[string]interface{}{
+				"display_name":         "App1",
+				"container_cluster_id": "Cluster1",
+				"container_project_id": "Project1",
+				"tags":                 []common.Tag{{Scope: "tag1"}, {Scope: "tag2"}},
+				"status":               "Running",
+				"network_status":       "Ready",
+				"network_errors":       []common.NetworkError{{ErrorMessage: "none"}},
+				"origin_properties":    []common.KeyValuePair{{Key: "key1", Value: "value1"}},
+			},
+		},
+		{
+			name: "Update resource with changed tags",
+			pre: containerinventory.ContainerApplication{
+				Tags: []common.Tag{{Scope: "tag1"}},
+			},
+			cur: containerinventory.ContainerApplication{
+				Tags: []common.Tag{{Scope: "tag1"}, {Scope: "tag2"}},
+			},
+			expectedResult: map[string]interface{}{
+				"tags": []common.Tag{{Scope: "tag1"}, {Scope: "tag2"}},
+			},
+		},
+		{
+			name: "Update resource with changed status",
+			pre: containerinventory.ContainerApplication{
+				Status: "Stopped",
+			},
+			cur: containerinventory.ContainerApplication{
+				Status: "Running",
+			},
+			expectedResult: map[string]interface{}{
+				"status": "Running",
+			},
+		},
+		{
+			name: "Update resource with changed network status",
+			pre: containerinventory.ContainerApplication{
+				NetworkStatus: "NotReady",
+			},
+			cur: containerinventory.ContainerApplication{
+				NetworkStatus: "Ready",
+			},
+			expectedResult: map[string]interface{}{
+				"network_status": "Ready",
+			},
+		},
+		{
+			name: "Update resource with changed network errors",
+			pre: containerinventory.ContainerApplication{
+				NetworkErrors: []common.NetworkError{{ErrorMessage: "old"}},
+			},
+			cur: containerinventory.ContainerApplication{
+				NetworkErrors: []common.NetworkError{{ErrorMessage: "new"}},
+			},
+			expectedResult: map[string]interface{}{
+				"network_errors": []common.NetworkError{{ErrorMessage: "new"}},
+			},
+		},
+		{
+			name: "Update resource with changed origin properties",
+			pre: containerinventory.ContainerApplication{
+				OriginProperties: []common.KeyValuePair{{Key: "key1", Value: "value1"}},
+			},
+			cur: containerinventory.ContainerApplication{
+				OriginProperties: []common.KeyValuePair{{Key: "key1", Value: "value2"}},
+			},
+			expectedResult: map[string]interface{}{
+				"origin_properties": []common.KeyValuePair{{Key: "key1", Value: "value2"}},
+			},
+		},
+		{
+			name: "No changes between pre and cur",
+			pre: containerinventory.ContainerApplication{
+				DisplayName:        "App1",
+				ContainerClusterId: "Cluster1",
+				ContainerProjectId: "Project1",
+				Tags:               []common.Tag{{Scope: "tag1"}},
+				Status:             "Running",
+				NetworkStatus:      "Ready",
+				NetworkErrors:      []common.NetworkError{{ErrorMessage: "none"}},
+				OriginProperties:   []common.KeyValuePair{{Key: "key1", Value: "value1"}},
+			},
+			cur: containerinventory.ContainerApplication{
+				DisplayName:        "App1",
+				ContainerClusterId: "Cluster1",
+				ContainerProjectId: "Project1",
+				Tags:               []common.Tag{{Scope: "tag1"}},
+				Status:             "Running",
+				NetworkStatus:      "Ready",
+				NetworkErrors:      []common.NetworkError{{ErrorMessage: "none"}},
+				OriginProperties:   []common.KeyValuePair{{Key: "key1", Value: "value1"}},
+			},
+			expectedResult: map[string]interface{}{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			properties := make(map[string]interface{})
+			compareContainerApplication(tc.pre, tc.cur, properties)
+			assert.Equal(t, tc.expectedResult, properties)
+		})
+	}
+}
