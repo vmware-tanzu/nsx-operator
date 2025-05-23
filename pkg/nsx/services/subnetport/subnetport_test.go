@@ -9,6 +9,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
+	mp_model "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,6 +38,16 @@ var (
 	subnetPath           = "/orgs/org1/projects/project1/vpcs/vpc1/subnets/subnet1"
 	namespace            = "ns1"
 )
+
+type fakeMacPoolsClient struct{}
+
+func (c *fakeMacPoolsClient) Get(poolIdParam string) (mp_model.MacPool, error) {
+	return mp_model.MacPool{}, nil
+}
+
+func (c *fakeMacPoolsClient) List(cursorParam *string, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (mp_model.MacPoolListResult, error) {
+	return mp_model.MacPoolListResult{}, nil
+}
 
 type fakeQueryClient struct{}
 
@@ -100,11 +111,32 @@ func Test_InitializeSubnetPort(t *testing.T) {
 		wantErr     bool
 	}{
 		{
-			name: "error",
+			name: "macPoolError",
+			prepareFunc: func(t *testing.T, s *common.Service, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.MacPoolsClient, "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{mp_model.MacPoolListResult{}, fmt.Errorf("mock error")},
+					Times:  1,
+				}})
+				return patches
+			},
+			wantErr: true,
+		},
+		{
+			name: "macPoolError",
 			prepareFunc: func(t *testing.T, s *common.Service, ctx context.Context) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethodSeq(s.NSXClient.QueryClient, "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{model.SearchResponse{}, fmt.Errorf("mock error")},
 					Times:  1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient.MacPoolsClient, "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{mp_model.MacPoolListResult{
+						Results: []mp_model.MacPool{
+							{
+								DisplayName: &defaultContainerMacPoolName,
+							},
+						},
+					}, nil},
+					Times: 1,
 				}})
 				return patches
 			},
@@ -128,7 +160,8 @@ func Test_InitializeSubnetPort(t *testing.T) {
 			commonService := common.Service{
 				Client: fake.NewClientBuilder().Build(),
 				NSXClient: &nsx.Client{
-					QueryClient: &fakeQueryClient{},
+					MacPoolsClient: &fakeMacPoolsClient{},
+					QueryClient:    &fakeQueryClient{},
 					NsxConfig: &config.NSXOperatorConfig{
 						CoeConfig: &config.CoeConfig{
 							Cluster: "k8scl-one:test",

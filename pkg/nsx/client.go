@@ -14,6 +14,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
 	nsx_policy "github.com/vmware/vsphere-automation-sdk-go/services/nsxt"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/cluster/restore"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/pools"
 	mpsearch "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/search"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management/principal_identities"
@@ -104,6 +105,7 @@ type Client struct {
 	LbMonitorProfilesClient           infra.LbMonitorProfilesClient
 	SubnetConnectionBindingMapsClient subnets.SubnetConnectionBindingMapsClient
 	NsxApiClient                      *nsxt.APIClient
+	MacPoolsClient                    pools.MacPoolsClient
 
 	NSXChecker    NSXHealthChecker
 	NSXVerChecker NSXVersionChecker
@@ -210,6 +212,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	subnetConnectionBindingMapsClient := subnets.NewSubnetConnectionBindingMapsClient(connector)
 
 	nsxApiClient, _ := CreateNsxtApiClient(cf, cluster.client)
+	macPoolsClient := pools.NewMacPoolsClient(connector)
 
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
@@ -268,6 +271,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		LbPersistenceProfilesClient:       lbPersistenceProfilesClient,
 		LbMonitorProfilesClient:           lbMonitorProfilesClient,
 		NsxApiClient:                      nsxApiClient,
+		MacPoolsClient:                    macPoolsClient,
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time
