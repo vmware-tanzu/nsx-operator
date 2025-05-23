@@ -2,7 +2,6 @@ apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: SecurityPolicy
 metadata:
   name: expression-policy-1
-  namespace: test-security-policy-match-expression
 spec:
   appliedTo:
     - podSelector:

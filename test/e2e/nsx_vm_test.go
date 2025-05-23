@@ -21,7 +21,7 @@ func testCreateVMBasic(t *testing.T) {
 	_, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 
-	ns := "test-create-vm-basic-2"
+	ns := fmt.Sprintf("test-create-vm-basic-%s", getRandomString())
 
 	err := testData.createVCNamespace(ns)
 	if err != nil {

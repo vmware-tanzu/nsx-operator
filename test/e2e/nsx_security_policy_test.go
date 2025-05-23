@@ -52,7 +52,7 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 
-	ns := "test-security-policy-1"
+	ns := fmt.Sprintf("test-security-policy-basic-%s", getRandomString())
 	securityPolicyName := "isolate-policy-1"
 	ruleName0 := "all_ingress_isolation"
 	ruleName1 := "all_egress_isolation"
@@ -135,7 +135,7 @@ func testSecurityPolicyAddDeleteRule(t *testing.T) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 
-	ns := "test-security-policy-2"
+	ns := fmt.Sprintf("test-security-policy-add-delete-%s", getRandomString())
 	securityPolicyName := "isolate-policy-1"
 	ruleName0 := "all_ingress_isolation"
 	ruleName1 := "all_egress_isolation"
@@ -190,7 +190,7 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 
-	ns := "test-security-policy-match-expression"
+	ns := fmt.Sprintf("test-security-policy-match-expression-%s", getRandomString())
 	securityPolicyName := "expression-policy-1"
 	ruleName := "expression-policy-1-rule"
 
@@ -283,8 +283,8 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 // This test is to verify the named port feature of security policy.
 // When appliedTo is in policy level and there's no pod holding the related named ports.
 func testSecurityPolicyNamedPortWithoutPod(t *testing.T) {
-	nsClient := "client"
-	nsWeb := "web"
+	nsClient := fmt.Sprintf("test-security-policy-client-%s", getRandomString())
+	nsWeb := fmt.Sprintf("test-security-policy-web-%s", getRandomString())
 	securityPolicyCRName := "named-port-policy-without-pod"
 	webA := "web"
 	labelWeb := "tcp-deployment"
@@ -301,8 +301,8 @@ func testSecurityPolicyNamedPortWithoutPod(t *testing.T) {
 
 	// Create all
 	yamlPath, _ := filepath.Abs("./manifest/testSecurityPolicy/named-port-without-pod.yaml")
-	require.NoError(t, applyYAML(yamlPath, ""))
-	defer deleteYAML(yamlPath, "")
+	require.NoError(t, applyYAML(yamlPath, nsWeb))
+	defer deleteYAML(yamlPath, nsWeb)
 
 	psb, err := testData.deploymentWaitForNames(defaultTimeout, nsWeb, labelWeb)
 	log.V(2).Info("Pods", "pods", psb)
@@ -324,8 +324,8 @@ func testSecurityPolicyNamedPortWithoutPod(t *testing.T) {
 // This test is to verify the named port feature of security policy.
 // When appliedTo is in policy level and there's running pods holding the related named ports.
 func testSecurityPolicyNamedPorWithPod(t *testing.T) {
-	nsClient := "client"
-	nsWeb := "web"
+	nsClient := fmt.Sprintf("client-%s", getRandomString())
+	nsWeb := fmt.Sprintf("web-%s", getRandomString())
 	securityPolicyCRName := "named-port-policy-with-pod"
 	ruleName0 := "named-port-rule"
 	ruleName1 := "all_ingress_isolation"
@@ -358,9 +358,13 @@ func testSecurityPolicyNamedPorWithPod(t *testing.T) {
 	defer testData.deleteNamespace(nsWeb, defaultTimeout)
 
 	// Create all
-	yamlPath, _ := filepath.Abs("./manifest/testSecurityPolicy/named-port-with-pod.yaml")
-	_ = applyYAML(yamlPath, "")
-	defer deleteYAML(yamlPath, "")
+	yamlPath, _ := filepath.Abs("./manifest/testSecurityPolicy/named-port-with-pod-client.yaml")
+	_ = applyYAML(yamlPath, nsClient)
+	defer deleteYAML(yamlPath, nsClient)
+
+	yamlPath, _ = filepath.Abs("./manifest/testSecurityPolicy/named-port-with-pod-web.yaml")
+	_ = applyYAML(yamlPath, nsWeb)
+	defer deleteYAML(yamlPath, nsWeb)
 
 	clientA := "client"
 	webA := "web"

@@ -1,0 +1,14 @@
+#  test: kubectl exec -ti client -n client -- curl web ip
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client
+  labels:
+    role: client
+spec:
+  containers:
+    - name: client
+      image: "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"
+      command: [ "/bin/bash" ]
+      args: [ "-c", "while true; do echo hello, world!; sleep 60; done" ]
+  restartPolicy: Never

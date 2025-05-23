@@ -2,6 +2,5 @@ apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: SubnetSet
 metadata:
   name: user-subnetset-static
-  namespace: subnet-e2e
 spec:
   accessMode: Private

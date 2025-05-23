@@ -34,7 +34,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: tcp-deployment
-  namespace: web
 spec:
   replicas: 2
   selector:
