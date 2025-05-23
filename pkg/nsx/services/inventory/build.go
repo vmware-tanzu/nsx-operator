@@ -60,7 +60,7 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 	// Create network errors from pod conditions and status message
 	var networkErrors []common.NetworkError
 	networkStatus := NetworkStatusHealthy
-	if pod.Status.Phase != corev1.PodRunning {
+	if pod.Status.Phase != corev1.PodRunning && pod.Status.Phase != corev1.PodSucceeded {
 		networkStatus = NetworkStatusUnhealthy
 		// Check for a message in pod status
 		if pod.Status.Message != "" {
@@ -70,7 +70,9 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 		}
 		// Check conditions
 		for _, condition := range pod.Status.Conditions {
-			if condition.Message != "" {
+			// Only add error messages from conditions that indicate a problem
+			// Skip success messages like "Pod has been successfully created/updated"
+			if condition.Message != "" && condition.Status != corev1.ConditionTrue {
 				networkErrors = append(networkErrors, common.NetworkError{
 					ErrorMessage: condition.Message,
 				})
