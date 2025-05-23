@@ -389,20 +389,24 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	return path, cidr, nil
 }
 
-func (s *VPCService) GetNSXLBSNATIP(vpc model.Vpc) (string, error) {
-	log.V(2).Info("Getting VPC NSX LB SNAT IP", "VPC", *vpc.Id)
-	_, err := common.ParseVPCResourcePath(*vpc.Path)
+func (s *VPCService) GetNSXLBSNATIP(vpc model.Vpc, interfaceID string) (string, error) {
+	log.Info("Getting VPC NSX LB SNAT IP", "VPC", *vpc.Id)
+	vpcInfo, err := common.ParseVPCResourcePath(*vpc.Path)
 	if err != nil {
 		return "", err
 	}
 
 	realizeService := realizestate.InitializeRealizeState(s.Service)
-	tier1UpLinkIP, err := realizeService.GetPolicyTier1UplinkPortIP(*vpc.Path)
+	realizedPath := fmt.Sprintf("/orgs/%s/projects/%s/realized-state/enforcement-points/default/vpcs/%s/%s",
+		vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, interfaceID)
+	log.Info("Getting VPC NSX LB SNAT IP", "Path", realizedPath)
+	lbIP, err := realizeService.GetPolicyInterfaceIP(realizedPath)
 	if err != nil {
 		log.Error(err, "Failed to get VPC NSX LB SNAT IP", "VPC", *vpc.Id)
 		return "", err
 	}
-	return tier1UpLinkIP, nil
+	log.Info("Getting VPC NSX LB SNAT IP", "VPC", *vpc.Id, "SNATIP", lbIP)
+	return lbIP, nil
 }
 
 func (s *VPCService) GetVpcConnectivityProfile(nc *v1alpha1.VPCNetworkConfiguration, vpcConnectivityProfilePath string) (*model.VpcConnectivityProfile, error) {
