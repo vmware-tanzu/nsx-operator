@@ -3,9 +3,11 @@ package subnetport
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	mp_model "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/mock"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -700,4 +703,131 @@ func TestGetAddressBindingBySubnetPort(t *testing.T) {
 		})
 	}
 
+}
+
+func TestBuildExternalAddressBinding(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	commonService := common.Service{
+		Client: k8sClient,
+	}
+	mockVPCService := mock.MockVPCServiceProvider{}
+	mockIPAddressAllocationService := mock.MockIPAddressAllocationProvider{}
+	service := &SubnetPortService{
+		Service:                    commonService,
+		VPCService:                 &mockVPCService,
+		IpAddressAllocationService: &mockIPAddressAllocationService,
+	}
+	vpcInfo := &common.VPCResourceInfo{
+		OrgID:     "default",
+		ProjectID: "project-quality",
+		VPCID:     "vpc-id",
+	}
+
+	tests := []struct {
+		name          string
+		sp            *v1alpha1.SubnetPort
+		restoreMode   bool
+		preFunc       func(service *SubnetPortService, mockVPC *mock.MockVPCServiceProvider, mockIPAlloc *mock.MockIPAddressAllocationProvider)
+		expectedAb    *model.ExternalAddressBinding
+		expectedError error
+	}{
+		{
+			name: "non-restore-with-address-binding",
+			sp: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{"nsx.vmware.com/attachment_ref": "VirtualMachine/vm/port"},
+				},
+			},
+			restoreMode: false,
+			preFunc: func(service *SubnetPortService, mockVPC *mock.MockVPCServiceProvider, mockIPAlloc *mock.MockIPAddressAllocationProvider) {
+				gomonkey.ApplyMethod(reflect.TypeOf(service), "GetAddressBindingBySubnetPort",
+					func(_ *SubnetPortService, _ *v1alpha1.SubnetPort) *v1alpha1.AddressBinding {
+						return &v1alpha1.AddressBinding{
+							ObjectMeta: metav1.ObjectMeta{
+								Namespace: "ns",
+								Name:      "AddressBinding-1",
+							},
+							Spec: v1alpha1.AddressBindingSpec{
+								InterfaceName: "port",
+							},
+						}
+					},
+				)
+			},
+			expectedAb:    &model.ExternalAddressBinding{},
+			expectedError: nil,
+		},
+		{
+			name: "non-restore-without-address-binding",
+			sp: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{"nsx.vmware.com/attachment_ref": "VirtualMachine/vm/port"},
+				},
+			},
+			restoreMode: false,
+			preFunc: func(service *SubnetPortService, mockVPC *mock.MockVPCServiceProvider, mockIPAlloc *mock.MockIPAddressAllocationProvider) {
+				gomonkey.ApplyMethod(reflect.TypeOf(service), "GetAddressBindingBySubnetPort",
+					func(_ *SubnetPortService, _ *v1alpha1.SubnetPort) *v1alpha1.AddressBinding {
+						return nil
+					})
+			},
+			expectedAb:    nil,
+			expectedError: nil,
+		},
+		{
+			name: "restore-with-address-binding-status",
+			sp: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{"nsx.vmware.com/attachment_ref": "VirtualMachine/vm/port"},
+				},
+			},
+			restoreMode: true,
+			preFunc: func(service *SubnetPortService, mockVPC *mock.MockVPCServiceProvider, mockIPAlloc *mock.MockIPAddressAllocationProvider) {
+				// Mock GetAddressBindingBySubnetPort
+				gomonkey.ApplyMethod(reflect.TypeOf(service), "GetAddressBindingBySubnetPort",
+					func(_ *SubnetPortService, _ *v1alpha1.SubnetPort) *v1alpha1.AddressBinding {
+						return &v1alpha1.AddressBinding{
+							ObjectMeta: metav1.ObjectMeta{
+								Namespace: "ns",
+								Name:      "AddressBinding-1",
+							},
+							Spec: v1alpha1.AddressBindingSpec{
+								InterfaceName: "port",
+							},
+							Status: v1alpha1.AddressBindingStatus{
+								IPAddress: "1.2.3.4",
+							},
+						}
+					},
+				)
+				gomonkey.ApplyMethod(reflect.TypeOf(service.VPCService), "ListVPCInfo",
+					func(_ *mock.MockVPCServiceProvider, ns string) []common.VPCResourceInfo {
+						return []common.VPCResourceInfo{
+							*vpcInfo,
+						}
+					})
+				gomonkey.ApplyMethod(reflect.TypeOf(vpcInfo), "GetVPCPath",
+					func(_ *common.VPCResourceInfo) string {
+						return "/orgs/default/projects/project-quality/vpcs/vpc-id"
+					})
+				gomonkey.ApplyMethod(reflect.TypeOf(service.IpAddressAllocationService), "BuildIPAddressAllocationID",
+					func(_ *mock.MockIPAddressAllocationProvider, obj metav1.Object) string {
+						return "alloc-id-123"
+					})
+			},
+			expectedAb: &model.ExternalAddressBinding{
+				AllocatedExternalIpPath: String("/orgs/default/projects/project-quality/vpcs/vpc-id/ip-address-allocations/alloc-id-123"),
+			},
+			expectedError: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.preFunc(service, &mockVPCService, &mockIPAddressAllocationService)
+			actualAb, _ := service.buildExternalAddressBinding(tt.sp, tt.restoreMode)
+			assert.Equal(t, tt.expectedAb, actualAb)
+		})
+	}
 }

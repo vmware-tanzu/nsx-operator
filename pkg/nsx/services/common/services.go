@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -48,4 +49,13 @@ type IPBlocksInfoServiceProvider interface {
 	SyncIPBlocksInfo(ctx context.Context) error
 	UpdateIPBlocksInfo(ctx context.Context, vpcConfigCR *v1alpha1.VPCNetworkConfiguration) error
 	ResetPeriodicSync()
+}
+
+type IPAddressAllocationServiceProvider interface {
+	GetIPAddressAllocationByOwner(owner metav1.Object) (*model.VpcIpAddressAllocation, error)
+	CreateIPAddressAllocationForAddressBinding(addressBinding *v1alpha1.AddressBinding, subnetPort *v1alpha1.SubnetPort, restoreMode bool) error
+	DeleteIPAddressAllocationForAddressBinding(obj metav1.Object) error
+	BuildIPAddressAllocationID(obj metav1.Object) string
+	DeleteIPAddressAllocationByNSXResource(nsxIPAddressAllocation *model.VpcIpAddressAllocation) error
+	ListIPAddressAllocationWithAddressBinding() []*model.VpcIpAddressAllocation
 }

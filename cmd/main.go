@@ -162,7 +162,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		if err != nil {
 			log.Error(err, "Failed to initialize ipaddressallocation commonService", "controller", "IPAddressAllocation")
 		}
-		subnetPortService, err := subnetportservice.InitializeSubnetPort(commonService)
+		subnetPortService, err := subnetportservice.InitializeSubnetPort(commonService, vpcService, ipAddressAllocationService)
 		if err != nil {
 			log.Error(err, "Failed to initialize subnetport commonService", "controller", "SubnetPort")
 			os.Exit(1)
@@ -216,7 +216,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			subnetSetReconcile,
 			node.NewNodeReconciler(mgr, nodeService),
 			staticroutecontroller.NewStaticRouteReconciler(mgr, staticRouteService),
-			subnetport.NewSubnetPortReconciler(mgr, subnetPortService, subnetService, vpcService),
+			subnetport.NewSubnetPortReconciler(mgr, subnetPortService, subnetService, vpcService, ipAddressAllocationService),
 			pod.NewPodReconciler(mgr, subnetPortService, subnetService, vpcService, nodeService),
 			ipaddressallocation.NewIPAddressAllocationReconciler(mgr, ipAddressAllocationService, vpcService),
 			networkpolicycontroller.NewNetworkPolicyReconciler(mgr, commonService, vpcService),

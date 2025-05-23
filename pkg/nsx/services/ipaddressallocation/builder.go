@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -26,38 +27,65 @@ func convertIpAddressBlockVisibility(visibility v1alpha1.IPAddressVisibility) v1
 	return visibility
 }
 
-func (service *IPAddressAllocationService) BuildIPAddressAllocation(IPAddressAllocation *v1alpha1.IPAddressAllocation, restoreMode bool) (*model.VpcIpAddressAllocation, error) {
-	VPCInfo := service.VPCService.ListVPCInfo(IPAddressAllocation.Namespace)
-	if len(VPCInfo) == 0 {
-		log.Error(nil, "failed to find VPCInfo for IPAddressAllocation CR", "IPAddressAllocation", IPAddressAllocation.Name, "namespace", IPAddressAllocation.Namespace)
-		return nil, fmt.Errorf("failed to find VPCInfo for IPAddressAllocation CR %s in namespace %s", IPAddressAllocation.Name, IPAddressAllocation.Namespace)
+func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.Object, subnetPortCR *v1alpha1.SubnetPort, restoreMode bool) (*model.VpcIpAddressAllocation, error) {
+	ipAddressBlockVisibility := v1alpha1.IPAddressVisibilityExternal
+	var allocationIps *string
+	var allocationSize *int64
+	switch o := obj.(type) {
+	case *v1alpha1.IPAddressAllocation:
+		VPCInfo := service.VPCService.ListVPCInfo(o.Namespace)
+		if len(VPCInfo) == 0 {
+			log.Error(nil, "Failed to find VPCInfo for IPAddressAllocation CR", "IPAddressAllocation", o.Name, "Namespace", o.Namespace)
+			return nil, fmt.Errorf("failed to find VPCInfo for IPAddressAllocation CR %s in Namespace %s", o.Name, o.Namespace)
+		}
+		ipAddressBlockVisibility = convertIpAddressBlockVisibility(o.Spec.IPAddressBlockVisibility)
+		if restoreMode && len(o.Status.AllocationIPs) > 0 {
+			allocationIps = String(o.Status.AllocationIPs)
+		} else {
+			// Field AllocationIPs and AllocationSize cannot be provided together for VPC IP allocation.
+			allocationSize = Int64(int64(o.Spec.AllocationSize))
+		}
+	case *v1alpha1.AddressBinding:
+		if !restoreMode || subnetPortCR == nil {
+			return nil, nil
+		}
+		allocationIps = &o.Status.IPAddress
 	}
-
-	ipAddressBlockVisibility := convertIpAddressBlockVisibility(IPAddressAllocation.Spec.IPAddressBlockVisibility)
+	tags := service.buildIPAddressAllocationTags(obj)
+	if restoreMode && subnetPortCR != nil {
+		subnetPortTags := []model.Tag{
+			{
+				Scope: String(common.TagScopeSubnetPortCRName),
+				Tag:   &subnetPortCR.Name,
+			},
+			{
+				Scope: String(common.TagScopeSubnetPortCRUID),
+				Tag:   (*string)(&subnetPortCR.UID),
+			},
+		}
+		tags = append(tags, subnetPortTags...)
+	}
 	ipAddressBlockVisibilityStr := util.ToUpper(string(ipAddressBlockVisibility))
 	vpcIpAddressAllocation := &model.VpcIpAddressAllocation{
-		Id:                       String(service.buildIPAddressAllocationID(IPAddressAllocation)),
-		DisplayName:              String(service.buildIPAddressAllocationName(IPAddressAllocation)),
-		Tags:                     service.buildIPAddressAllocationTags(IPAddressAllocation),
+		Id:                       String(service.BuildIPAddressAllocationID(obj)),
+		DisplayName:              String(service.buildIPAddressAllocationName(obj)),
+		Tags:                     tags,
 		IpAddressBlockVisibility: &ipAddressBlockVisibilityStr,
+		AllocationIps:            allocationIps,
+		AllocationSize:           allocationSize,
 	}
-	if restoreMode && len(IPAddressAllocation.Status.AllocationIPs) > 0 {
-		vpcIpAddressAllocation.AllocationIps = String(IPAddressAllocation.Status.AllocationIPs)
-	} else {
-		// Field AllocationIPs and AllocationSize cannot be provided together for VPC IP allocation.
-		vpcIpAddressAllocation.AllocationSize = Int64(int64(IPAddressAllocation.Spec.AllocationSize))
-	}
+
 	return vpcIpAddressAllocation, nil
 }
 
-func (service *IPAddressAllocationService) buildIPAddressAllocationID(IPAddressAllocation *v1alpha1.IPAddressAllocation) string {
-	return util.GenerateIDByObject(IPAddressAllocation)
+func (service *IPAddressAllocationService) BuildIPAddressAllocationID(obj metav1.Object) string {
+	return util.GenerateIDByObject(obj)
 }
 
-func (service *IPAddressAllocationService) buildIPAddressAllocationName(IPAddressAllocation *v1alpha1.IPAddressAllocation) string {
-	return util.GenerateTruncName(common.MaxNameLength, IPAddressAllocation.ObjectMeta.Name, "", "", "", "")
+func (service *IPAddressAllocationService) buildIPAddressAllocationName(obj metav1.Object) string {
+	return util.GenerateTruncName(common.MaxNameLength, obj.GetName(), "", "", "", "")
 }
 
-func (service *IPAddressAllocationService) buildIPAddressAllocationTags(IPAddressAllocation *v1alpha1.IPAddressAllocation) []model.Tag {
-	return util.BuildBasicTags(service.NSXConfig.Cluster, IPAddressAllocation, "")
+func (service *IPAddressAllocationService) buildIPAddressAllocationTags(obj interface{}) []model.Tag {
+	return util.BuildBasicTags(service.NSXConfig.Cluster, obj, "")
 }

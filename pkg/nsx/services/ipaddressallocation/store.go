@@ -20,22 +20,46 @@ func keyFunc(obj interface{}) (string, error) {
 	}
 }
 
-func indexFunc(obj interface{}) ([]string, error) {
+func indexByIPAddressAllocation(obj interface{}) ([]string, error) {
 	res := make([]string, 0, 5)
 	switch v := obj.(type) {
 	case *model.VpcIpAddressAllocation:
-		return filterTag(v.Tags), nil
+		return filterTag(v.Tags, common.TagScopeIPAddressAllocationCRUID), nil
 	case *model.GenericPolicyRealizedResource:
-		return filterTag(v.Tags), nil
+		return filterTag(v.Tags, common.TagScopeIPAddressAllocationCRUID), nil
 	default:
-		return res, errors.New("indexFunc doesn't support unknown type")
+		return res, errors.New("indexByIPAddressAllocation doesn't support unknown type")
 	}
 }
 
-var filterTag = func(v []model.Tag) []string {
+func indexByAddressBinding(obj interface{}) ([]string, error) {
+	res := make([]string, 0, 5)
+	switch v := obj.(type) {
+	case *model.VpcIpAddressAllocation:
+		return filterTag(v.Tags, common.TagScopeAddressBindingCRUID), nil
+	case *model.GenericPolicyRealizedResource:
+		return filterTag(v.Tags, common.TagScopeAddressBindingCRUID), nil
+	default:
+		return res, errors.New("indexByAddressBinding doesn't support unknown type")
+	}
+}
+
+func indexBySubnetPort(obj interface{}) ([]string, error) {
+	res := make([]string, 0, 5)
+	switch v := obj.(type) {
+	case *model.VpcIpAddressAllocation:
+		return filterTag(v.Tags, common.TagScopeSubnetPortCRUID), nil
+	case *model.GenericPolicyRealizedResource:
+		return filterTag(v.Tags, common.TagScopeSubnetPortCRUID), nil
+	default:
+		return res, errors.New("indexByindexBySubnetPort doesn't support unknown type")
+	}
+}
+
+var filterTag = func(v []model.Tag, scope string) []string {
 	res := make([]string, 0, 5)
 	for _, tag := range v {
-		if *tag.Scope == common.TagScopeIPAddressAllocationCRUID {
+		if *tag.Scope == scope {
 			res = append(res, *tag.Tag)
 		}
 	}
@@ -65,20 +89,26 @@ func (ipAddressAllocationStore *IPAddressAllocationStore) Apply(i interface{}) e
 }
 
 func (service *IPAddressAllocationService) indexedIPAddressAllocation(uid types.UID) (*model.VpcIpAddressAllocation, error) {
-	nsxIPAddressAllocation, err := service.ipAddressAllocationStore.GetByIndex(uid)
+	nsxIPAddressAllocation, err := service.ipAddressAllocationStore.GetByUID(uid)
 	if err != nil {
 		return nil, err
 	}
 	return nsxIPAddressAllocation, nil
 }
 
-func (ipAddressAllocationStore *IPAddressAllocationStore) GetByIndex(uid types.UID) (*model.VpcIpAddressAllocation, error) {
+func (ipAddressAllocationStore *IPAddressAllocationStore) GetByUID(uid types.UID) (*model.VpcIpAddressAllocation, error) {
 	nsxIPAddressAllocation := &model.VpcIpAddressAllocation{}
-	indexResults, err := ipAddressAllocationStore.ResourceStore.ByIndex(common.TagScopeIPAddressAllocationCRUID, string(uid))
-	if err != nil {
-		log.Error(err, "failed to get ipaddressallocation", "UID", string(uid))
-		return nil, err
+	indicies := []string{common.TagScopeIPAddressAllocationCRUID, common.TagScopeAddressBindingCRUID, common.TagScopeSubnetPortCRUID}
+	var indexResults []interface{}
+	for _, index := range indicies {
+		indexResult, err := ipAddressAllocationStore.ResourceStore.ByIndex(index, string(uid))
+		if err != nil {
+			log.Error(err, "Failed to get ipaddressallocation", index, string(uid))
+			return nil, err
+		}
+		indexResults = append(indexResults, indexResult...)
 	}
+
 	if len(indexResults) > 0 {
 		t := indexResults[0].(*model.VpcIpAddressAllocation)
 		nsxIPAddressAllocation = t

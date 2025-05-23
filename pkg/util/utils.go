@@ -488,6 +488,10 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetBindingCRName), Tag: String(i.ObjectMeta.Name)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetBindingCRUID), Tag: String(string(i.ObjectMeta.UID))})
+	case *v1alpha1.AddressBinding:
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeAddressBindingCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeAddressBindingCRUID), Tag: String(string(i.UID))})
 	default:
 		log.Info("Unknown obj type", "obj", obj)
 	}
