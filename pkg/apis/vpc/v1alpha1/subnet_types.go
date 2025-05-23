@@ -9,24 +9,27 @@ import (
 
 type AccessMode string
 type DHCPConfigMode string
+type ConnectivityState string
 
 const (
-	AccessModePublic          string = "Public"
-	AccessModePrivate         string = "Private"
-	AccessModeProject         string = "PrivateTGW"
-	DHCPConfigModeDeactivated string = "DHCPDeactivated"
-	DHCPConfigModeServer      string = "DHCPServer"
-	DHCPConfigModeRelay       string = "DHCPRelay"
+	AccessModePublic              string            = "Public"
+	AccessModePrivate             string            = "Private"
+	AccessModeProject             string            = "PrivateTGW"
+	DHCPConfigModeDeactivated     string            = "DHCPDeactivated"
+	DHCPConfigModeServer          string            = "DHCPServer"
+	DHCPConfigModeRelay           string            = "DHCPRelay"
+	ConnectivityStateConnected    ConnectivityState = "Connected"
+	ConnectivityStateDisconnected ConnectivityState = "Disconnected"
 )
 
 // SubnetSpec defines the desired state of Subnet.
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.vpcName) || self.vpcName == oldSelf.vpcName",message="vpcName is immutable after set"
 // +kubebuilder:validation:XValidation:rule="has(oldSelf.subnetDHCPConfig)==has(self.subnetDHCPConfig) || (has(oldSelf.subnetDHCPConfig) && !has(self.subnetDHCPConfig) && (!has(oldSelf.subnetDHCPConfig.mode) || oldSelf.subnetDHCPConfig.mode=='DHCPDeactivated')) || (!has(oldSelf.subnetDHCPConfig) && has(self.subnetDHCPConfig) && (!has(self.subnetDHCPConfig.mode) || self.subnetDHCPConfig.mode=='DHCPDeactivated'))", message="subnetDHCPConfig mode can only switch between DHCPServer and DHCPRelay"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipv4SubnetSize) || has(self.ipv4SubnetSize)", message="ipv4SubnetSize is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.accessMode) || has(self.accessMode)", message="accessMode is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipAddresses) || has(self.ipAddresses)", message="ipAddresses is required once set"
 type SubnetSpec struct {
 	// VPC name of the Subnet.
-	// +kubebuilder:validation:XValidation:rule="!has(oldSelf) || self == oldSelf",message="Value is immutable after set"
 	VPCName string `json:"vpcName,omitempty"`
 	// Size of Subnet based upon estimated workload count.
 	// +kubebuilder:validation:Maximum:=65536
@@ -57,9 +60,8 @@ type SubnetSpec struct {
 
 	// DHCP configuration for Subnet.
 	SubnetDHCPConfig SubnetDHCPConfig `json:"subnetDHCPConfig,omitempty"`
-	// Whether this Subnet enabled VLAN extension.
-	// +kubebuilder:default=false
-	EnableVLANExtension bool `json:"enableVLANExtension,omitempty"`
+	// VPC Subnet advanced configuration.
+	AdvancedConfig SubnetAdvancedConfig `json:"advancedConfig,omitempty"`
 }
 
 // SubnetStatus defines the observed state of Subnet.
@@ -70,6 +72,8 @@ type SubnetStatus struct {
 	GatewayAddresses []string `json:"gatewayAddresses,omitempty"`
 	// DHCP server IP address.
 	DHCPServerAddresses []string `json:"DHCPServerAddresses,omitempty"`
+	// VLAN extension configured for VPC Subnet.
+	VLANExtension VLANExtension `json:"vlanExtension,omitempty"`
 	// Whether this is a pre-created Subnet shared with the Namespace.
 	// +kubebuilder:default=false
 	Shared     bool        `json:"shared,omitempty"`
@@ -103,6 +107,18 @@ type SubnetList struct {
 	Items           []Subnet `json:"items"`
 }
 
+type SubnetAdvancedConfig struct {
+	// Connectivity status of the Subnet from other Subnets of the VPC.
+	// Default value is "Connected".
+	// +kubebuilder:validation:Enum=Connected;Disconnected
+	// +kubebuilder:default=Connected
+	ConnectivityState ConnectivityState `json:"connectivityState,omitempty"`
+	// Whether this Subnet enabled VLAN extension.
+	// Default value is false.
+	// +kubebuilder:default=false
+	EnableVLANExtension bool `json:"enableVLANExtension,omitempty"`
+}
+
 // SubnetDHCPConfig is DHCP configuration for Subnet.
 // +kubebuilder:validation:XValidation:rule="has(oldSelf.mode)==has(self.mode) || (has(oldSelf.mode) && !has(self.mode)  && oldSelf.mode=='DHCPDeactivated') || (!has(oldSelf.mode) && has(self.mode) && self.mode=='DHCPDeactivated')", message="subnetDHCPConfig mode can only switch between DHCPServer and DHCPRelay"
 type SubnetDHCPConfig struct {
@@ -111,6 +127,14 @@ type SubnetDHCPConfig struct {
 	// +kubebuilder:validation:Enum=DHCPServer;DHCPRelay;DHCPDeactivated
 	// +kubebuilder:validation:XValidation:rule="oldSelf!='DHCPDeactivated' && self!='DHCPDeactivated' || oldSelf==self", message="subnetDHCPConfig mode can only switch between DHCPServer and DHCPRelay"
 	Mode DHCPConfigMode `json:"mode,omitempty"`
+}
+
+// VLANExtension describes VLAN extension configuration for the VPC Subnet.
+type VLANExtension struct {
+	// Flag to control whether the VLAN extension Subnet connects to the VPC gateway.
+	VPCGatewayConnectionEnable bool `json:"vpcGatewayConnectionEnable,omitempty"`
+	// VLAN ID of the VLAN extension Subnet.
+	VLANID int `json:"vlanId,omitempty"`
 }
 
 func init() {

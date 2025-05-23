@@ -63,10 +63,25 @@ spec:
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self == oldSelf
-              enableVLANExtension:
-                default: false
-                description: Whether this Subnet enabled VLAN extension.
-                type: boolean
+              advancedConfig:
+                description: VPC Subnet advanced configuration.
+                properties:
+                  connectivityState:
+                    default: Connected
+                    description: |-
+                      Connectivity status of the Subnet from other Subnets of the VPC.
+                      Default value is "Connected".
+                    enum:
+                    - Connected
+                    - Disconnected
+                    type: string
+                  enableVLANExtension:
+                    default: false
+                    description: |-
+                      Whether this Subnet enabled VLAN extension.
+                      Default value is false.
+                    type: boolean
+                type: object
               ipAddresses:
                 description: Subnet CIDRS.
                 items:
@@ -112,11 +127,10 @@ spec:
               vpcName:
                 description: VPC name of the Subnet.
                 type: string
-                x-kubernetes-validations:
-                - message: Value is immutable after set
-                  rule: '!has(oldSelf) || self == oldSelf'
             type: object
             x-kubernetes-validations:
+            - message: vpcName is immutable after set
+              rule: '!has(oldSelf.vpcName) || self.vpcName == oldSelf.vpcName'
             - message: subnetDHCPConfig mode can only switch between DHCPServer and
                 DHCPRelay
               rule: has(oldSelf.subnetDHCPConfig)==has(self.subnetDHCPConfig) || (has(oldSelf.subnetDHCPConfig)
@@ -181,6 +195,17 @@ spec:
                 description: Whether this is a pre-created Subnet shared with the
                   Namespace.
                 type: boolean
+              vlanExtension:
+                description: VLAN extension configured for VPC Subnet.
+                properties:
+                  vlanId:
+                    description: VLAN ID of the VLAN extension Subnet.
+                    type: integer
+                  vpcGatewayConnectionEnable:
+                    description: Flag to control whether the VLAN extension Subnet
+                      connects to the VPC gateway.
+                    type: boolean
+                type: object
             type: object
         type: object
         x-kubernetes-validations:
