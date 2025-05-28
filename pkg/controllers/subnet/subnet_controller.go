@@ -15,11 +15,14 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -432,12 +435,44 @@ func (r *SubnetReconciler) setupWithManager(mgr ctrl.Manager) error {
 			},
 			builder.WithPredicates(common.PredicateFuncsWithSubnetBindings),
 		).
+		Watches(
+			&v1alpha1.NetworkInfo{},
+			handler.EnqueueRequestsFromMapFunc(r.networkInfoMapFunc),
+			builder.WithPredicates(common.PredicateFuncsWithNetworkInfo)).
 		// Set controller options, including max concurrent reconciles
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
 		Complete(r)
+}
+
+func (r *SubnetReconciler) networkInfoMapFunc(ctx context.Context, networkInfo client.Object) []reconcile.Request {
+	subnetList := &v1alpha1.SubnetList{}
+	var requests []reconcile.Request
+	err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+		return err != nil
+	}, func() error {
+		err := r.Client.List(ctx, subnetList, &client.ListOptions{Namespace: networkInfo.GetNamespace()})
+		return err
+	})
+	if err != nil {
+		log.Error(err, "failed to list Subnet", "Namespace", networkInfo.GetNamespace())
+		return requests
+	}
+	// Requeue the Subnet if the precreated VPC SNAT/LB status is changed
+	// Private Subnet can be skipped as it does not rely on SNAT/LB
+	for _, subnet := range subnetList.Items {
+		if subnet.Spec.AccessMode != v1alpha1.AccessMode(v1alpha1.AccessModePrivate) {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      subnet.Name,
+					Namespace: subnet.Namespace,
+				},
+			})
+		}
+	}
+	return requests
 }
 
 func (r *SubnetReconciler) listSubnetIDsFromCRs(ctx context.Context) ([]string, error) {

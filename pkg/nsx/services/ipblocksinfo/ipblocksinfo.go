@@ -226,12 +226,12 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha
 		// for pre-created VPC, mark as default for those under default project
 		vpcProjectPath := fmt.Sprintf("/orgs/%s/projects/%s", vpcResInfo.OrgID, vpcResInfo.ProjectID)
 		vpcAttachments := vpcAttachmentStore.GetByVpcPath(vpcPath)
+		// pre-created VPC may not have vpc attachments
 		if len(vpcAttachments) == 0 {
-			err = fmt.Errorf("no VPC attachment found")
-			log.Error(err, "get VPC attachment", "VPC Path", vpcPath)
-			return externalIPCIDRs, privateTGWIPCIDRs, err
+			log.V(1).Info("No VPC attachment found", "VPC Path", vpcPath)
+			continue
 		}
-		log.V(2).Info("successfully fetch VPC attachment", "path", vpcPath, "VPC Attachment", vpcAttachments[0])
+		log.V(2).Info("Successfully fetch VPC attachment", "path", vpcPath, "VPC Attachment", vpcAttachments[0])
 		vpcConnectivityProfile := vpcAttachments[0].VpcConnectivityProfile
 		if vpcProjectPath == s.defaultProject {
 			vpcConnectivityProfileProjectMap[*vpcConnectivityProfile] = true
