@@ -15,9 +15,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -136,7 +140,39 @@ func (r *IPAddressAllocationReconciler) setupWithManager(mgr ctrl.Manager) error
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
 			}).
+		Watches(
+			&v1alpha1.NetworkInfo{},
+			handler.EnqueueRequestsFromMapFunc(r.networkInfoMapFunc),
+			builder.WithPredicates(common.PredicateFuncsWithNetworkInfo)).
 		Complete(r)
+}
+
+func (r *IPAddressAllocationReconciler) networkInfoMapFunc(ctx context.Context, networkInfo client.Object) []reconcile.Request {
+	ipaList := &v1alpha1.IPAddressAllocationList{}
+	var requests []reconcile.Request
+	err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+		return err != nil
+	}, func() error {
+		err := r.Client.List(ctx, ipaList, &client.ListOptions{Namespace: networkInfo.GetNamespace()})
+		return err
+	})
+	if err != nil {
+		log.Error(err, "failed to list IPAddressAllocation", "Namespace", networkInfo.GetNamespace())
+		return requests
+	}
+	// Requeue the IPAddressAllocation if the precreated VPC SNAT/LB status is changed
+	// Private IPAddressAllocation can be skipped as it does not rely on SNAT/LB
+	for _, ipa := range ipaList.Items {
+		if ipa.Spec.IPAddressBlockVisibility != v1alpha1.IPAddressVisibilityPrivate {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      ipa.Name,
+					Namespace: ipa.Namespace,
+				},
+			})
+		}
+	}
+	return requests
 }
 
 func (r *IPAddressAllocationReconciler) CollectGarbage(ctx context.Context) error {

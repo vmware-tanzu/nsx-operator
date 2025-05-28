@@ -1061,3 +1061,60 @@ func TestSubnetReconciler_RestoreReconcile(t *testing.T) {
 	err = r.RestoreReconcile()
 	assert.Contains(t, err.Error(), "failed to restore Subnet ns-1/subnet-1")
 }
+
+func TestSubnetReconciler_NetworkInfoMapFunc(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	r := &SubnetReconciler{
+		Client: k8sClient,
+	}
+	subnetList := &v1alpha1.SubnetList{}
+	k8sClient.EXPECT().List(gomock.Any(), subnetList, gomock.Any()).Return(fmt.Errorf("mocked network error"))
+	k8sClient.EXPECT().List(gomock.Any(), subnetList, gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+		a := list.(*v1alpha1.SubnetList)
+		a.Items = append(a.Items, v1alpha1.Subnet{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "ns",
+				Name:      "subent-1",
+			},
+			Spec: v1alpha1.SubnetSpec{
+				AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+			},
+		}, v1alpha1.Subnet{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "ns",
+				Name:      "subent-2",
+			},
+			Spec: v1alpha1.SubnetSpec{
+				AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			},
+		}, v1alpha1.Subnet{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "ns",
+				Name:      "subent-3",
+			},
+			Spec: v1alpha1.SubnetSpec{
+				AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModeProject),
+			},
+		})
+		return nil
+	})
+	networkInfo := &v1alpha1.NetworkInfo{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "ns"},
+	}
+	requests := r.networkInfoMapFunc(context.TODO(), networkInfo)
+	assert.Equal(t, 2, len(requests))
+	assert.Equal(t, reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      "subent-1",
+			Namespace: "ns",
+		},
+	}, requests[0])
+	assert.Equal(t, reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      "subent-3",
+			Namespace: "ns",
+		},
+	}, requests[1])
+}
