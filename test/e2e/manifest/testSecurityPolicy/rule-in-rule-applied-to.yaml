@@ -5,7 +5,6 @@ metadata:
   name: client
   labels:
     role: client
-  namespace: client
 spec:
   containers:
     - name: client
@@ -43,7 +42,6 @@ apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: SecurityPolicy
 metadata:
   name: named-port-policy
-  namespace: web
 spec:
   priority: 10
   appliedTo:

@@ -3,6 +3,8 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	stderror "errors"
 	"fmt"
@@ -935,4 +937,12 @@ func testSSHConnection(host, username, password string, port int) error {
 	defer session.Close()
 
 	return nil
+}
+
+// getRandomString generates a random string by hashing the current timestamp
+// and taking the first 8 characters of the hex-encoded hash.
+func getRandomString() string {
+	timestamp := time.Now().UnixNano()
+	hash := sha256.Sum256([]byte(fmt.Sprintf("%d", timestamp)))
+	return hex.EncodeToString(hash[:])[:8]
 }

@@ -20,8 +20,9 @@ const (
 	externalCIDR   = "192.168.0.0/16"
 	privateCIDR    = "172.26.0.0/16"
 	privateTGWCIDR = "10.246.0.0/16"
-	ns             = "test-ipaddress-allocation"
 )
+
+var ns = fmt.Sprintf("test-ipaddress-allocation-%s", getRandomString())
 
 func TestIPAddressAllocation(t *testing.T) {
 	setupTest(t, ns)

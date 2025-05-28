@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -19,9 +20,10 @@ import (
 
 const (
 	StaticRoute     = "StaticRoute"
-	TestNamespace   = "sc-a"
 	StaticRouteName = "guestcluster-staticroute-2"
 )
+
+var TestNamespace = fmt.Sprintf("staticroute-%s", getRandomString())
 
 // TestStaticRouteBasic verifies that it could successfully realize StaticRoute.
 func TestStaticRouteBasic(t *testing.T) {

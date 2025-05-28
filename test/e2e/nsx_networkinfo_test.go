@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 const (
@@ -24,14 +25,14 @@ const (
 	infraVPCNamespace       = "kube-system"
 	sharedInfraVPCNamespace = "kube-public"
 
-	e2eNetworkInfoNamespace       = "customized-ns"
-	e2eNetworkInfoNamespaceShare0 = "shared-vpc-ns-0"
-	e2eNetworkInfoNamespaceShare1 = "shared-vpc-ns-1"
-
 	customizedPrivateCIDR1 = "172.29.0.0/16"
 	customizedPrivateCIDR2 = "172.39.0.0/16"
 	customizedPrivateCIDR3 = "172.39.0.0/16"
 )
+
+var e2eNetworkInfoNamespace = fmt.Sprintf("customized-ns-%s", getRandomString())
+var e2eNetworkInfoNamespaceShare0 = fmt.Sprintf("shared-vpc-ns-0-%s", getRandomString())
+var e2eNetworkInfoNamespaceShare1 = fmt.Sprintf("shared-vpc-ns-1-%s", getRandomString())
 
 func TestNetworkInfo(t *testing.T) {
 	deleteVPCNetworkConfiguration(t, testCustomizedNetworkConfigName)
@@ -58,12 +59,21 @@ func testCustomizedNetworkInfo(t *testing.T) {
 	// Create customized networkconfig
 	ncPath, _ := filepath.Abs("./manifest/testVPC/customize_networkconfig.yaml")
 	require.NoError(t, applyYAML(ncPath, ""))
-	nsPath, _ := filepath.Abs("./manifest/testVPC/customize_ns.yaml")
-	require.NoError(t, applyYAML(nsPath, ""))
 
-	defer deleteYAML(nsPath, "")
-
-	ns := "customized-ns"
+	ns := fmt.Sprintf("customized-ns-%s", getRandomString())
+	namespace := &v12.Namespace{
+		ObjectMeta: v1.ObjectMeta{
+			Name: ns,
+			Annotations: map[string]string{
+				common.AnnotationVPCNetworkConfig: testCustomizedNetworkConfigName,
+			},
+		},
+	}
+	_, err := testData.clientset.CoreV1().Namespaces().Create(context.TODO(), namespace, v1.CreateOptions{})
+	require.NoError(t, err)
+	defer func() {
+		_ = testData.clientset.CoreV1().Namespaces().Delete(context.TODO(), ns, v1.DeleteOptions{})
+	}()
 
 	// For networkinfo CR, its CR name is the same as namespace
 	assureNetworkInfo(t, ns, ns)
@@ -93,7 +103,7 @@ func testInfraNetworkInfo(t *testing.T) {
 // Test Default NetworkInfo
 func testDefaultNetworkInfo(t *testing.T) {
 	// If no annotation on namespace, then NetworkInfo will use default network config to create vpc under each ns
-	ns := "networkinfo-default-1"
+	ns := fmt.Sprintf("networkinfo-default-%s", getRandomString())
 	setupTest(t, ns)
 	defer teardownTest(t, ns, defaultTimeout)
 
@@ -123,12 +133,37 @@ func testDefaultNetworkInfo(t *testing.T) {
 // ns1 share vpc with ns, each ns should have its own NetworkInfo
 // delete ns1, vpc should not be deleted
 func testSharedNSXVPC(t *testing.T) {
-	ns := "shared-vpc-ns-0"
-	ns1 := "shared-vpc-ns-1"
+	ns := e2eNetworkInfoNamespaceShare0
+	ns1 := e2eNetworkInfoNamespaceShare1
 
-	nsPath, _ := filepath.Abs("./manifest/testVPC/shared_ns.yaml")
-	require.NoError(t, applyYAML(nsPath, ""))
-	defer deleteYAML(nsPath, "")
+	namespace := &v12.Namespace{
+		ObjectMeta: v1.ObjectMeta{
+			Name: ns,
+			Annotations: map[string]string{
+				common.AnnotationVPCNetworkConfig: testCustomizedNetworkConfigName,
+			},
+		},
+	}
+	_, err := testData.clientset.CoreV1().Namespaces().Create(context.TODO(), namespace, v1.CreateOptions{})
+	require.NoError(t, err)
+	defer func() {
+		_ = testData.clientset.CoreV1().Namespaces().Delete(context.TODO(), ns, v1.DeleteOptions{})
+	}()
+
+	namespace1 := &v12.Namespace{
+		ObjectMeta: v1.ObjectMeta{
+			Name: ns1,
+			Annotations: map[string]string{
+				common.AnnotationVPCNetworkConfig:   testCustomizedNetworkConfigName,
+				common.AnnotationSharedVPCNamespace: ns,
+			},
+		},
+	}
+	_, err = testData.clientset.CoreV1().Namespaces().Create(context.TODO(), namespace1, v1.CreateOptions{})
+	require.NoError(t, err)
+	defer func() {
+		_ = testData.clientset.CoreV1().Namespaces().Delete(context.TODO(), ns1, v1.DeleteOptions{})
+	}()
 
 	// Check namespace cr existence
 	assureNamespace(t, ns)
@@ -149,11 +184,22 @@ func testSharedNSXVPC(t *testing.T) {
 
 // update vpcnetworkconfig, and check vpc is updated
 func testUpdateVPCNetworkconfigNetworkInfo(t *testing.T) {
-	ns := "update-ns"
+	ns := fmt.Sprintf("update-ns-%s", getRandomString())
 
-	nsPath, _ := filepath.Abs("./manifest/testVPC/update_ns.yaml")
-	require.NoError(t, applyYAML(nsPath, ""))
-	defer deleteYAML(nsPath, "")
+	// Create the namespace with the required annotation using the clientset
+	namespace := &v12.Namespace{
+		ObjectMeta: v1.ObjectMeta{
+			Name: ns,
+			Annotations: map[string]string{
+				common.AnnotationVPCNetworkConfig: testCustomizedNetworkConfigName,
+			},
+		},
+	}
+	_, err := testData.clientset.CoreV1().Namespaces().Create(context.TODO(), namespace, v1.CreateOptions{})
+	require.NoError(t, err)
+	defer func() {
+		_ = testData.clientset.CoreV1().Namespaces().Delete(context.TODO(), ns, v1.DeleteOptions{})
+	}()
 
 	vncPathOriginal, _ := filepath.Abs("./manifest/testVPC/customize_networkconfig.yaml")
 	defer applyYAML(vncPathOriginal, "")

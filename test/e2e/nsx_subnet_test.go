@@ -22,13 +22,16 @@ import (
 )
 
 const (
-	subnetTestNamespace       = "subnet-e2e"
-	subnetTestNamespaceShared = "subnet-e2e-shared"
-	subnetTestNamespaceTarget = "target-ns"
-	vpcNetworkConfigCRName    = "default"
+	vpcNetworkConfigCRName = "default"
 	// subnetDeletionTimeout requires a bigger value than defaultTimeout, it's because that it takes some time for NSX to
 	// recycle allocated IP addresses and NSX VPCSubnet won't be deleted until all IP addresses have been recycled.
 	subnetDeletionTimeout = 600 * time.Second
+)
+
+var (
+	subnetTestNamespace       = fmt.Sprintf("subnet-e2e-%s", getRandomString())
+	subnetTestNamespaceShared = fmt.Sprintf("subnet-e2e-shared-%s", getRandomString())
+	subnetTestNamespaceTarget = fmt.Sprintf("target-ns-%s", getRandomString())
 )
 
 func verifySubnetSetCR(subnetSet string) bool {
@@ -52,8 +55,34 @@ func verifySubnetSetCR(subnetSet string) bool {
 
 func TestSubnetSet(t *testing.T) {
 	setupTest(t, subnetTestNamespace)
-	nsPath, _ := filepath.Abs("./manifest/testSubnet/shared_ns.yaml")
-	require.NoError(t, applyYAML(nsPath, ""))
+
+	targetNs := &corev1.Namespace{
+		ObjectMeta: v1.ObjectMeta{
+			Name: subnetTestNamespaceTarget,
+			Annotations: map[string]string{
+				common.AnnotationSharedVPCNamespace: subnetTestNamespaceTarget,
+			},
+		},
+	}
+	_, err := testData.clientset.CoreV1().Namespaces().Create(context.TODO(), targetNs, v1.CreateOptions{})
+	require.NoError(t, err)
+	defer func() {
+		_ = testData.clientset.CoreV1().Namespaces().Delete(context.TODO(), subnetTestNamespaceTarget, v1.DeleteOptions{})
+	}()
+
+	sharedNs := &corev1.Namespace{
+		ObjectMeta: v1.ObjectMeta{
+			Name: subnetTestNamespaceShared,
+			Annotations: map[string]string{
+				common.AnnotationSharedVPCNamespace: subnetTestNamespaceTarget,
+			},
+		},
+	}
+	_, err = testData.clientset.CoreV1().Namespaces().Create(context.TODO(), sharedNs, v1.CreateOptions{})
+	require.NoError(t, err)
+	defer func() {
+		_ = testData.clientset.CoreV1().Namespaces().Delete(context.TODO(), subnetTestNamespaceShared, v1.DeleteOptions{})
+	}()
 
 	t.Cleanup(func() {
 		teardownTest(t, subnetTestNamespace, subnetDeletionTimeout)

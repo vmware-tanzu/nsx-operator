@@ -2,8 +2,6 @@ package e2e
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -43,7 +41,7 @@ var (
 
 func TestPreCreatedVPC(t *testing.T) {
 	orgID, projectID, vpcID := setupVPC(t)
-	nsName := "test-prevpc"
+	nsName := fmt.Sprintf("test-prevpc-%s", getRandomString())
 	projectPath := fmt.Sprintf(projectPathFormat, orgID, projectID)
 	profilePath := fmt.Sprintf(defaultConnectivityProfileFormat, orgID, projectID)
 	preCreatedVPCPath := fmt.Sprintf(common.VPCKey, orgID, projectID, vpcID)
@@ -243,16 +241,10 @@ func createLBService(nsName, svcName, podName string) error {
 	return nil
 }
 
-func getRandomString() string {
-	timestamp := time.Now().UnixNano()
-	hash := sha256.Sum256([]byte(fmt.Sprintf("%d", timestamp)))
-	return hex.EncodeToString(hash[:])[:8]
-}
-
 func (data *TestData) createVPC(orgID, projectID, vpcID string, privateIPs []string, useNSXLB bool) error {
 	createdVPC := &model.Vpc{
 		Id:            common.String(vpcID),
-		DisplayName:   common.String("e2e-test-pre-vpc"),
+		DisplayName:   common.String(fmt.Sprintf("e2e-test-pre-vpc-%s", getRandomString())),
 		IpAddressType: common.String("IPV4"),
 		PrivateIps:    privateIPs,
 		ResourceType:  common.String(common.ResourceTypeVpc),

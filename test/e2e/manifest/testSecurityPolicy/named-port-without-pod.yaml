@@ -2,7 +2,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: tcp-deployment
-  namespace: web
 spec:
   replicas: 2
   selector:
@@ -31,7 +30,6 @@ apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: SecurityPolicy
 metadata:
   name: named-port-policy-without-pod
-  namespace: web
 spec:
   priority: 10
   appliedTo:
