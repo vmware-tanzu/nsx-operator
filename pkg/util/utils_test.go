@@ -659,10 +659,16 @@ func TestGenerateIDByObject(t *testing.T) {
 			expID: "abcdefg_b720ee2c-5788-4680-9796-0f93db33d8a9",
 		},
 		{
-			name:  "truncate with hash on uid",
+			name:  "truncate name and append hash on uid",
+			obj:   &metav1.ObjectMeta{Name: "abcdefg", UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
+			limit: 15,
+			expID: "abcdefg_vSV1e",
+		},
+		{
+			name:  "generated name shorter than the limit",
 			obj:   &metav1.ObjectMeta{Name: "abcdefg", UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
 			limit: 20,
-			expID: "abcdefg_vSV1eZ",
+			expID: "abcdefg_vSV1e",
 		},
 		{
 			name:  "longer name with truncate",

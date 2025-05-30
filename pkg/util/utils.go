@@ -58,15 +58,19 @@ func NormalizeLabelKey(key string, shaFn func(data string) string) string {
 	}
 	splitted := strings.Split(key, "/")
 	key = splitted[len(splitted)-1]
-	return normalizeNameByLimit(key, "", common.MaxTagScopeLength, shaFn)
+	return normalizeNameByLimit(key, "", common.MaxTagScopeLength, shaFn, nil)
 }
 
 func NormalizeName(name string, shaFn func(data string) string) string {
-	return normalizeNameByLimit(name, "", common.MaxTagValueLength, shaFn)
+	return normalizeNameByLimit(name, "", common.MaxTagValueLength, shaFn, nil)
 }
 
-func normalizeNameByLimit(name string, suffix string, limit int, hashFn func(data string) string) string {
-	newName := connectStrings(common.ConnectorUnderline, name, suffix)
+func normalizeNameByLimit(name string, suffix string, limit int, hashFn func(data string) string, suffixMutateFn func(suffix string) string) string {
+	suffixVal := suffix
+	if suffixMutateFn != nil {
+		suffixVal = suffixMutateFn(suffix)
+	}
+	newName := connectStrings(common.ConnectorUnderline, name, suffixVal)
 	if len(newName) <= limit {
 		return newName
 	}
@@ -384,11 +388,19 @@ func truncateNameOrIDHash(data string) string {
 	return Sha1WithBase62(data)[:common.Base62HashLength]
 }
 
+func truncateUIDAsSuffix(uid string) string {
+	return Sha1WithBase62(uid)[:common.UUIDHanshLength]
+}
+
 // GenerateIDByObject generate string id for NSX resource using the provided Object's name and uid. Note,
 // this function is used on the resources with VPC scenario, and the provided obj is the K8s CR which is
 // used to generate the NSX resource.
 func GenerateIDByObject(obj metav1.Object) string {
-	return normalizeNameByLimit(obj.GetName(), string(obj.GetUID()), common.MaxIdLength, truncateNameOrIDHash)
+	return normalizeNameByLimit(obj.GetName(), string(obj.GetUID()), common.MaxIdLength, truncateNameOrIDHash, nil)
+}
+
+func GenerateIDByShortUID(obj metav1.Object) string {
+	return normalizeNameByLimit(obj.GetName(), string(obj.GetUID()), common.MaxIdLength, truncateNameOrIDHash, truncateUIDAsSuffix)
 }
 
 // GenerateIDByObjectByLimit generate string id for NSX resource using the provided Object's name and uid,
@@ -397,13 +409,19 @@ func GenerateIDByObjectByLimit(obj metav1.Object, limit int) string {
 	if limit == 0 {
 		limit = common.MaxIdLength
 	}
-	return normalizeNameByLimit(obj.GetName(), string(obj.GetUID()), limit, truncateNameOrIDHash)
+	return normalizeNameByLimit(obj.GetName(), string(obj.GetUID()), limit, truncateNameOrIDHash, truncateUIDAsSuffix)
 }
 
 func GenerateIDByObjectWithSuffix(obj metav1.Object, suffix string) string {
 	limit := common.MaxIdLength
 	limit -= len(suffix) + 1
-	return connectStrings(common.ConnectorUnderline, normalizeNameByLimit(obj.GetName(), string(obj.GetUID()), limit, truncateNameOrIDHash), suffix)
+	return connectStrings(common.ConnectorUnderline, normalizeNameByLimit(obj.GetName(), string(obj.GetUID()), limit, truncateNameOrIDHash, nil), suffix)
+}
+
+func GenerateIDByShortUIDWithSuffix(obj metav1.Object, suffix string) string {
+	limit := common.MaxIdLength
+	limit -= len(suffix) + 1
+	return connectStrings(common.ConnectorUnderline, normalizeNameByLimit(obj.GetName(), string(obj.GetUID()), limit, truncateNameOrIDHash, truncateUIDAsSuffix), suffix)
 }
 
 // GenerateID generate id for NSX resource, some resources has complex index, so set it type to string
@@ -436,7 +454,7 @@ func GenerateTruncName(limit int, resName string, prefix, suffix, project, clust
 	}
 	oldName := generateDisplayName(common.ConnectorUnderline, resName, "", "", project, cluster)
 	if len(oldName) > adjustedLimit {
-		newName := normalizeNameByLimit(oldName, "", adjustedLimit, truncateNameOrIDHash)
+		newName := normalizeNameByLimit(oldName, "", adjustedLimit, truncateNameOrIDHash, nil)
 		return generateDisplayName(common.ConnectorUnderline, newName, prefix, suffix, "", "")
 	}
 	return generateDisplayName(common.ConnectorUnderline, resName, prefix, suffix, project, cluster)

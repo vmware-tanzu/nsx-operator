@@ -73,7 +73,7 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc v1alpha1.VPC
 		// for creating vpc case, fill in vpc properties based on networkconfig
 		vpcName := util.GenerateIDByObjectByLimit(obj, common.MaxSubnetNameLength)
 		vpc.DisplayName = &vpcName
-		vpc.Id = common.String(util.GenerateIDByObject(obj))
+		vpc.Id = common.String(util.GenerateIDByShortUID(obj))
 		vpc.IpAddressType = &DefaultVPCIPAddressType
 
 		if enableLBEndpoint {
