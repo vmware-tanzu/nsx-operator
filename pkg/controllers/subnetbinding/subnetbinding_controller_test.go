@@ -153,8 +153,8 @@ func TestReconcile(t *testing.T) {
 			name:    "Failed to create/update SubnetConnectionBindingMap by nested dependencies",
 			objects: []client.Object{validBM1},
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) (*model.VpcSubnet, []*model.VpcSubnet, *errorWithRetry) {
-					return nil, nil, &errorWithRetry{
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
+					return "", nil, &errorWithRetry{
 						message: "Subnet is already used as target",
 						error:   fmt.Errorf("subnet is already used as target"),
 						retry:   true,
@@ -167,8 +167,8 @@ func TestReconcile(t *testing.T) {
 			name:    "Failed to create/update SubnetConnectionBindingMap due to the dependency validation error",
 			objects: []client.Object{validBM1},
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) (*model.VpcSubnet, []*model.VpcSubnet, *errorWithRetry) {
-					return nil, nil, &errorWithRetry{
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
+					return "", nil, &errorWithRetry{
 						message: "Unable to get Subnet CR net1",
 						error:   fmt.Errorf("cr not ready"),
 						retry:   true,
@@ -181,11 +181,11 @@ func TestReconcile(t *testing.T) {
 			name:    "Failed to create/update SubnetConnectionBindingMap on NSX",
 			objects: []client.Object{validBM1},
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) (*model.VpcSubnet, []*model.VpcSubnet, *errorWithRetry) {
-					return &model.VpcSubnet{Id: common.String("child")}, []*model.VpcSubnet{{Id: common.String("parent")}}, nil
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
+					return "/subnet-child", []string{"/subnet-parent"}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "CreateOrUpdateSubnetConnectionBindingMap",
-					func(_ *subnetbinding.BindingService, subnetBinding *v1alpha1.SubnetConnectionBindingMap, childSubnet *model.VpcSubnet, parentSubnets []*model.VpcSubnet) error {
+					func(_ *subnetbinding.BindingService, subnetBinding *v1alpha1.SubnetConnectionBindingMap, childSubnetPath string, parentSubnetPaths []string) error {
 						return fmt.Errorf("failed to configure NSX")
 					})
 				return patches
@@ -195,11 +195,11 @@ func TestReconcile(t *testing.T) {
 			name:    "Succeeded to create/update SubnetConnectionBindingMap",
 			objects: []client.Object{validBM1},
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) (*model.VpcSubnet, []*model.VpcSubnet, *errorWithRetry) {
-					return &model.VpcSubnet{Id: common.String("child")}, []*model.VpcSubnet{{Id: common.String("parent")}}, nil
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
+					return "/subnet-child", []string{"/subnet-parent"}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "CreateOrUpdateSubnetConnectionBindingMap",
-					func(_ *subnetbinding.BindingService, subnetBinding *v1alpha1.SubnetConnectionBindingMap, childSubnet *model.VpcSubnet, parentSubnets []*model.VpcSubnet) error {
+					func(_ *subnetbinding.BindingService, subnetBinding *v1alpha1.SubnetConnectionBindingMap, childSubnetPath string, parentSubnetPaths []string) error {
 						return nil
 					})
 				return patches
@@ -308,62 +308,60 @@ func TestValidateDependency(t *testing.T) {
 		bindingMap *v1alpha1.SubnetConnectionBindingMap
 		expErr     string
 		expMsg     string
-		expChild   *model.VpcSubnet
-		expParents []*model.VpcSubnet
+		expChild   string
+		expParents []string
 	}{
 		{
 			name:       "child subnet is not ready",
 			bindingMap: bindingCR1,
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetCR", func(_ *Reconciler, ctx context.Context, namespace, name string, isTarget bool) ([]*model.VpcSubnet, *errorWithRetry) {
-					return nil, &errorWithRetry{
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetCR", func(_ *Reconciler, ctx context.Context, namespace, name string, isTarget bool) ([]*model.VpcSubnet, *v1alpha1.Subnet, *errorWithRetry) {
+					return nil, nil, &errorWithRetry{
 						message: "Unable to get Subnet CR net1",
 						error:   fmt.Errorf("unable to get CR"),
 					}
 				})
 				return patches
 			},
-			expErr:   "unable to get CR",
-			expMsg:   "Unable to get Subnet CR net1",
-			expChild: nil,
+			expErr: "unable to get CR",
+			expMsg: "Unable to get Subnet CR net1",
 		}, {
 			name:       "parent subnet is not ready",
 			bindingMap: bindingCR1,
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetCR", func(_ *Reconciler, ctx context.Context, namespace, name string, isTarget bool) ([]*model.VpcSubnet, *errorWithRetry) {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetCR", func(_ *Reconciler, ctx context.Context, namespace, name string, isTarget bool) ([]*model.VpcSubnet, *v1alpha1.Subnet, *errorWithRetry) {
 					if !isTarget {
-						return []*model.VpcSubnet{{Id: common.String("child")}}, nil
+						return []*model.VpcSubnet{{Id: common.String("child")}}, &v1alpha1.Subnet{}, nil
 					}
-					return nil, &errorWithRetry{
+					return nil, nil, &errorWithRetry{
 						message: "Unable to get Subnet CR net1",
 						error:   fmt.Errorf("unable to get CR"),
 					}
 				})
 				return patches
 			},
-			expErr:   "unable to get CR",
-			expMsg:   "Unable to get Subnet CR net1",
-			expChild: nil,
+			expErr: "unable to get CR",
+			expMsg: "Unable to get Subnet CR net1",
 		}, {
 			name:       "parent subnet is ready",
 			bindingMap: bindingCR1,
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetCR", func(_ *Reconciler, ctx context.Context, namespace, name string, isTarget bool) ([]*model.VpcSubnet, *errorWithRetry) {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetCR", func(_ *Reconciler, ctx context.Context, namespace, name string, isTarget bool) ([]string, *v1alpha1.Subnet, *errorWithRetry) {
 					if !isTarget {
-						return []*model.VpcSubnet{{Id: common.String("child")}}, nil
+						return []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child"}, &v1alpha1.Subnet{}, nil
 					}
-					return []*model.VpcSubnet{{Id: common.String("parent")}}, nil
+					return []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-parent"}, &v1alpha1.Subnet{}, nil
 				})
 				return patches
 			},
-			expChild:   &model.VpcSubnet{Id: common.String("child")},
-			expParents: []*model.VpcSubnet{{Id: common.String("parent")}},
+			expChild:   "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child",
+			expParents: []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-parent"},
 		}, {
 			name:       "parent subnetSet is not ready",
 			bindingMap: bindingCR2,
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetCR", func(_ *Reconciler, ctx context.Context, namespace, name string, isTarget bool) ([]*model.VpcSubnet, *errorWithRetry) {
-					return []*model.VpcSubnet{{Id: common.String("child")}}, nil
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetCR", func(_ *Reconciler, ctx context.Context, namespace, name string, isTarget bool) ([]string, *v1alpha1.Subnet, *errorWithRetry) {
+					return []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child"}, &v1alpha1.Subnet{}, nil
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetSetCR", func(_ *Reconciler, ctx context.Context, namespace, name string) ([]*model.VpcSubnet, *errorWithRetry) {
 					return nil, &errorWithRetry{
@@ -373,23 +371,76 @@ func TestValidateDependency(t *testing.T) {
 				})
 				return patches
 			},
-			expErr:   "unable to get CR",
-			expMsg:   "Unable to get Subnet CR net1",
-			expChild: nil,
+			expErr: "unable to get CR",
+			expMsg: "Unable to get Subnet CR net1",
 		}, {
 			name:       "parent subnetSet is ready",
 			bindingMap: bindingCR2,
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetCR", func(_ *Reconciler, ctx context.Context, namespace, name string, isTarget bool) ([]*model.VpcSubnet, *errorWithRetry) {
-					return []*model.VpcSubnet{{Id: common.String("child")}}, nil
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetCR", func(_ *Reconciler, ctx context.Context, namespace, name string, isTarget bool) ([]string, *v1alpha1.Subnet, *errorWithRetry) {
+					return []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child"}, &v1alpha1.Subnet{}, nil
 				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetSetCR", func(_ *Reconciler, ctx context.Context, namespace, name string) ([]*model.VpcSubnet, *errorWithRetry) {
-					return []*model.VpcSubnet{{Id: common.String("parent")}}, nil
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetSetCR", func(_ *Reconciler, ctx context.Context, namespace, name string) ([]string, *errorWithRetry) {
+					return []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-parent"}, nil
 				})
 				return patches
 			},
-			expChild:   &model.VpcSubnet{Id: common.String("child")},
-			expParents: []*model.VpcSubnet{{Id: common.String("parent")}},
+			expChild:   "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child",
+			expParents: []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-parent"},
+		}, {
+			name:       "parent subnet and child subnet in different vpcName",
+			bindingMap: bindingCR1,
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetCR", func(_ *Reconciler, ctx context.Context, namespace, name string, isTarget bool) ([]string, *v1alpha1.Subnet, *errorWithRetry) {
+					if !isTarget {
+						return []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child"}, &v1alpha1.Subnet{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{common.AnnotationAssociatedResource: ":ns-1:subnet-1"},
+							},
+						}, nil
+					}
+					return []string{"/orgs/default/projects/default/vpcs/ns-2/subnets/subnet-parent"}, &v1alpha1.Subnet{}, nil
+				})
+				return patches
+			},
+			expErr: "Subnet and target Subnet are in different VPCs",
+			expMsg: "Subnet /orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child and target Subnet /orgs/default/projects/default/vpcs/ns-2/subnets/subnet-parent are in different VPCs",
+		}, {
+			name:       "parent subnetSet and child subnet in different vpcName",
+			bindingMap: bindingCR2,
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetCR", func(_ *Reconciler, ctx context.Context, namespace, name string, isTarget bool) ([]string, *v1alpha1.Subnet, *errorWithRetry) {
+					return []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child"}, &v1alpha1.Subnet{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{common.AnnotationAssociatedResource: ":ns-1:subnet-1"},
+						},
+					}, nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetSetCR", func(_ *Reconciler, ctx context.Context, namespace, name string) ([]string, *errorWithRetry) {
+					return []string{"/orgs/default/projects/default/vpcs/ns-2/subnets/subnet-parent"}, nil
+				})
+				return patches
+			},
+			expErr: "Subnet and target Subnet are in different VPCs",
+			expMsg: "Subnet /orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child and target Subnet /orgs/default/projects/default/vpcs/ns-2/subnets/subnet-parent are in different VPCs",
+		}, {
+			name:       "parent Subnet is pre-created Subnet",
+			bindingMap: bindingCR1,
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetCR", func(_ *Reconciler, ctx context.Context, namespace, name string, isTarget bool) ([]string, *v1alpha1.Subnet, *errorWithRetry) {
+					if !isTarget {
+						return []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child"}, &v1alpha1.Subnet{}, nil
+					}
+					return []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-parent"}, &v1alpha1.Subnet{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{common.AnnotationAssociatedResource: ":ns-1:subnet-1"},
+						},
+					}, nil
+				})
+				return patches
+			},
+			expErr: "pre-created Subnet default/targetSubnet cannot be a target Subnet",
+			expMsg: "Target Subnet default/targetSubnet is a pre-created Subnet",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -419,6 +470,23 @@ func TestValidateVpcSubnetsBySubnetCR(t *testing.T) {
 			UID:       "subnet-uuid",
 		},
 	}
+	sharedSubnetCR := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        subnetName,
+			Namespace:   subnetNamespace,
+			UID:         "subnet-uuid",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: ":ns-1:subnet-1"},
+		},
+		Status: v1alpha1.SubnetStatus{
+			Shared: true,
+			Conditions: []v1alpha1.Condition{
+				{
+					Type:   v1alpha1.Ready,
+					Status: corev1.ConditionTrue,
+				},
+			},
+		},
+	}
 	for _, tc := range []struct {
 		name     string
 		isTarget bool
@@ -427,7 +495,7 @@ func TestValidateVpcSubnetsBySubnetCR(t *testing.T) {
 		expErr   string
 		expMsg   string
 		expRetry bool
-		subnets  []*model.VpcSubnet
+		paths    []string
 	}{
 		{
 			name:     "Failed to get Subnet CR",
@@ -459,9 +527,9 @@ func TestValidateVpcSubnetsBySubnetCR(t *testing.T) {
 			isTarget: false,
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, id string) []*model.VpcSubnet {
-					return []*model.VpcSubnet{{Id: common.String("net1")}}
+					return []*model.VpcSubnet{{Id: common.String("net1"), Path: common.String("/subnet-1")}}
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, subnet *model.VpcSubnet) []*model.SubnetConnectionBindingMap {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, subnetPath string) []*model.SubnetConnectionBindingMap {
 					return []*model.SubnetConnectionBindingMap{{Id: common.String("binding1")}}
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapCRName", func(_ *subnetbinding.BindingService, bindingMap *model.SubnetConnectionBindingMap) string {
@@ -478,23 +546,23 @@ func TestValidateVpcSubnetsBySubnetCR(t *testing.T) {
 			isTarget: false,
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, id string) []*model.VpcSubnet {
-					return []*model.VpcSubnet{{Id: common.String("net1")}}
+					return []*model.VpcSubnet{{Id: common.String("net1"), Path: common.String("/subnet-1")}}
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, subnet *model.VpcSubnet) []*model.SubnetConnectionBindingMap {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, subnetPath string) []*model.SubnetConnectionBindingMap {
 					return []*model.SubnetConnectionBindingMap{}
 				})
 				return patches
 			},
 			objects: []client.Object{subnetCR},
-			subnets: []*model.VpcSubnet{{Id: common.String("net1")}},
+			paths:   []string{"/subnet-1"},
 		}, {
 			name:     "Parent subnet CR is also used as child",
 			isTarget: true,
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, id string) []*model.VpcSubnet {
-					return []*model.VpcSubnet{{Id: common.String("net1")}}
+					return []*model.VpcSubnet{{Id: common.String("net1"), Path: common.String("/subnet-1")}}
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByChildSubnet", func(_ *subnetbinding.BindingService, subnet *model.VpcSubnet) []*model.SubnetConnectionBindingMap {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByChildSubnet", func(_ *subnetbinding.BindingService, subnetPath string) []*model.SubnetConnectionBindingMap {
 					return []*model.SubnetConnectionBindingMap{{Id: common.String("binding1")}}
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapCRName", func(_ *subnetbinding.BindingService, bindingMap *model.SubnetConnectionBindingMap) string {
@@ -511,15 +579,29 @@ func TestValidateVpcSubnetsBySubnetCR(t *testing.T) {
 			isTarget: true,
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, id string) []*model.VpcSubnet {
-					return []*model.VpcSubnet{{Id: common.String("net1")}}
+					return []*model.VpcSubnet{{Id: common.String("net1"), Path: common.String("/subnet-1")}}
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByChildSubnet", func(_ *subnetbinding.BindingService, subnet *model.VpcSubnet) []*model.SubnetConnectionBindingMap {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByChildSubnet", func(_ *subnetbinding.BindingService, subnetPath string) []*model.SubnetConnectionBindingMap {
 					return []*model.SubnetConnectionBindingMap{}
 				})
 				return patches
 			},
 			objects: []client.Object{subnetCR},
-			subnets: []*model.VpcSubnet{{Id: common.String("net1")}},
+			paths:   []string{"/subnet-1"},
+		}, {
+			name:     "Child subnet is shared Subnet",
+			isTarget: false,
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(controllerscommon.GetSubnetPathFromAssociatedResource, func(associatedResource string) (string, error) {
+					return "/subnet-1", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, subnetPath string) []*model.SubnetConnectionBindingMap {
+					return []*model.SubnetConnectionBindingMap{}
+				})
+				return patches
+			},
+			objects: []client.Object{sharedSubnetCR},
+			paths:   []string{"/subnet-1"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -528,13 +610,13 @@ func TestValidateVpcSubnetsBySubnetCR(t *testing.T) {
 			patches := tc.patches(t, r)
 			defer patches.Reset()
 
-			subnets, err := r.validateVpcSubnetsBySubnetCR(ctx, subnetNamespace, subnetName, tc.isTarget)
+			paths, _, err := r.validateVpcSubnetsBySubnetCR(ctx, subnetNamespace, subnetName, tc.isTarget)
 			if tc.expErr != "" {
 				require.EqualError(t, err.error, tc.expErr)
 				require.Equal(t, tc.expMsg, err.message)
 				require.Equal(t, tc.expRetry, err.retry)
 			}
-			require.ElementsMatch(t, tc.subnets, subnets)
+			require.ElementsMatch(t, tc.paths, paths)
 		})
 	}
 }
@@ -555,7 +637,7 @@ func TestValidateVpcSubnetsBySubnetSetCR(t *testing.T) {
 		patches func(t *testing.T, r *Reconciler) *gomonkey.Patches
 		expErr  string
 		expMsg  string
-		subnets []*model.VpcSubnet
+		paths   []string
 	}{
 		{
 			name: "Failed to get SubnetSet CR",
@@ -582,14 +664,14 @@ func TestValidateVpcSubnetsBySubnetSetCR(t *testing.T) {
 			name: "SubnetSet CR is realized",
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnetSet", func(_ *subnet.SubnetService, id string) []*model.VpcSubnet {
-					return []*model.VpcSubnet{{Id: common.String("net1")}}
+					return []*model.VpcSubnet{{Id: common.String("net1"), Path: common.String("/subnet-1")}}
 				})
 				return patches
 			},
 			objects: []client.Object{subnetSetCR},
 			expMsg:  "",
 			expErr:  "",
-			subnets: []*model.VpcSubnet{{Id: common.String("net1")}},
+			paths:   []string{"/subnet-1"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -598,13 +680,13 @@ func TestValidateVpcSubnetsBySubnetSetCR(t *testing.T) {
 			patches := tc.patches(t, r)
 			defer patches.Reset()
 
-			subnets, err := r.validateVpcSubnetsBySubnetSetCR(ctx, namespace, name)
+			paths, err := r.validateVpcSubnetsBySubnetSetCR(ctx, namespace, name)
 			if tc.expErr != "" {
 				require.EqualError(t, err.error, tc.expErr)
 				require.Equal(t, tc.expMsg, err.message)
 				require.False(t, err.retry)
 			}
-			require.ElementsMatch(t, tc.subnets, subnets)
+			require.ElementsMatch(t, tc.paths, paths)
 		})
 	}
 }

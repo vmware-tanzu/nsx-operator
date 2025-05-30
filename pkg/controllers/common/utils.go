@@ -26,6 +26,8 @@ import (
 var (
 	log            = &logger.Log
 	SubnetSetLocks sync.Map
+	// Currently NSX only has default org
+	orgId = "default"
 )
 
 func AllocateSubnetFromSubnetSet(subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, error) {
@@ -263,4 +265,13 @@ func GetSubnetByIP(subnets []*model.VpcSubnet, ip net.IP) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("failed to find Subnet matching IP %s", ip)
+}
+
+func GetSubnetPathFromAssociatedResource(associatedResource string) (string, error) {
+	// associatedResource has the format projectID:vpcID:subnetID
+	parts := strings.Split(associatedResource, ":")
+	if len(parts) != 3 {
+		return "", fmt.Errorf("failed to parse associated resource annotation %s", associatedResource)
+	}
+	return fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s/subnets/%s", orgId, parts[0], parts[1], parts[2]), nil
 }

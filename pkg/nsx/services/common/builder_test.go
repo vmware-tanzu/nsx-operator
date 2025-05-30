@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 )
@@ -193,6 +194,31 @@ func TestParseVPCResourcePath(t *testing.T) {
 			if !reflect.DeepEqual(tt.want, got) {
 				t.Errorf("ParseVPCResourcePath() got = %v, want %v", got, tt.want)
 			}
+		})
+	}
+}
+
+func TestNsxProjectPathToId(t *testing.T) {
+	tests := []struct {
+		name      string
+		path      string
+		org       string
+		project   string
+		expectErr string
+	}{
+		{"Valid project path", "/orgs/default/projects/nsx_operator_e2e_test", "default", "nsx_operator_e2e_test", ""},
+		{"Invalid project path", "", "", "", "invalid NSX project path"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o, p, err := NSXProjectPathToId(tt.path)
+			if tt.expectErr != "" {
+				assert.ErrorContains(t, err, tt.expectErr)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, tt.org, o)
+			assert.Equal(t, tt.project, p)
 		})
 	}
 }

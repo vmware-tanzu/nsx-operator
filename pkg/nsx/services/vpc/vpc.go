@@ -121,7 +121,7 @@ func (s *VPCService) GetVPCNetworkConfigByNamespace(ns string) (*v1alpha1.VPCNet
 // incorrect configuration, and skip creating this VPC CR
 func (s *VPCService) ValidateNetworkConfig(nc *v1alpha1.VPCNetworkConfiguration) error {
 	// Skip creating VPC if NSX Project Path is invalid
-	_, _, err := nsxProjectPathToId(nc.Spec.NSXProject)
+	_, _, err := common.NSXProjectPathToId(nc.Spec.NSXProject)
 	if err != nil {
 		err = fmt.Errorf("invalid NSXProject: %s, error: %w", nc.Spec.NSXProject, err)
 		log.Error(err, "Failed to parse NSXProject in NetworkConfig")
@@ -415,7 +415,7 @@ func (s *VPCService) GetVpcConnectivityProfile(nc *v1alpha1.VPCNetworkConfigurat
 		return nil, fmt.Errorf("failed to check VPCConnectivityProfile(%s) length", nc.Spec.VPCConnectivityProfile)
 	}
 	vpcConnectivityProfileName := parts[len(parts)-1]
-	org, project, err := nsxProjectPathToId(nc.Spec.NSXProject)
+	org, project, err := common.NSXProjectPathToId(nc.Spec.NSXProject)
 	if err != nil {
 		log.Error(err, "Failed to parse NSX project in NetworkConfig", "ProjectPath", nc.Spec.NSXProject)
 		return nil, err
@@ -457,7 +457,7 @@ func (s *VPCService) IsLBProviderChanged(existingVPC *model.Vpc, lbProvider LBPr
 
 func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.NetworkInfo, nc *v1alpha1.VPCNetworkConfiguration, lbProvider LBProvider, serviceClusterReady bool) (*model.Vpc, error) {
 	// parse project path in NetworkConfig
-	org, project, err := nsxProjectPathToId(nc.Spec.NSXProject)
+	org, project, err := common.NSXProjectPathToId(nc.Spec.NSXProject)
 	if err != nil {
 		log.Error(err, "Failed to parse NSX project in NetworkConfig", "ProjectPath", nc.Spec.NSXProject)
 		return nil, err
@@ -576,7 +576,7 @@ func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.Networ
 
 func (s *VPCService) createNSXVPC(createdVpc *model.Vpc, nc *v1alpha1.VPCNetworkConfiguration, orgRoot *model.OrgRoot) error {
 	log.Info("Creating NSX VPC", "VPC", *createdVpc.Id)
-	org, project, err := nsxProjectPathToId(nc.Spec.NSXProject)
+	org, project, err := common.NSXProjectPathToId(nc.Spec.NSXProject)
 	if err != nil {
 		log.Error(err, "Failed to parse NSX project in NetworkConfig", "ProjectPath", nc.Spec.NSXProject)
 		return err
@@ -623,7 +623,7 @@ func (s *VPCService) checkLBSRealization(createdLBS *model.LBService, createdVpc
 	if createdLBS == nil {
 		return nil
 	}
-	org, project, err := nsxProjectPathToId(nc.Spec.NSXProject)
+	org, project, err := common.NSXProjectPathToId(nc.Spec.NSXProject)
 	if err != nil {
 		log.Error(err, "Failed to parse NSX project in NetworkConfig", "ProjectPath", nc.Spec.NSXProject)
 		return err
@@ -659,7 +659,7 @@ func (s *VPCService) checkVpcAttachmentRealization(createdAttachment *model.VpcA
 	if createdAttachment == nil {
 		return nil
 	}
-	org, project, err := nsxProjectPathToId(nc.Spec.NSXProject)
+	org, project, err := common.NSXProjectPathToId(nc.Spec.NSXProject)
 	if err != nil {
 		log.Error(err, "Failed to parse NSX project in NetworkConfig", "ProjectPath", nc.Spec.NSXProject)
 		return err
@@ -702,7 +702,7 @@ func (s *VPCService) GetGatewayConnectionTypeFromConnectionPath(connectionPath s
 }
 
 func (s *VPCService) ValidateConnectionStatus(nc *v1alpha1.VPCNetworkConfiguration) (*common.VPCConnectionStatus, error) {
-	org, project, err := nsxProjectPathToId(nc.Spec.NSXProject)
+	org, project, err := common.NSXProjectPathToId(nc.Spec.NSXProject)
 	if err != nil {
 		log.Error(err, "Failed to parse NSX project in NetworkConfig", "ProjectPath", nc.Spec.NSXProject)
 		return nil, err
