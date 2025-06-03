@@ -21,7 +21,6 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 )
@@ -138,7 +137,7 @@ func GenerateWebhookCerts() error {
 		Bytes: x509.MarshalPKCS1PrivateKey(serverKey),
 	})
 
-	kubeClient := kubernetes.NewForConfigOrDie(ctrl.GetConfigOrDie())
+	kubeClient := kubernetes.NewForConfigOrDie(GetConfig())
 	certSecret := &corev1.Secret{
 		TypeMeta: v1.TypeMeta{},
 		ObjectMeta: v1.ObjectMeta{
