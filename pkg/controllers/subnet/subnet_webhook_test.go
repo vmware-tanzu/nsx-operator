@@ -17,16 +17,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	mockClient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 )
 
 func TestSubnetValidator_Handle(t *testing.T) {
 	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
+	k8sClient := mockClient.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
 
 	scheme := clientgoscheme.Scheme
-	v1alpha1.AddToScheme(scheme)
+	err := v1alpha1.AddToScheme(scheme)
+	assert.NoError(t, err, "Failed to add v1alpha1 scheme")
 	decoder := admission.NewDecoder(scheme)
 	v := &SubnetValidator{
 		Client:  k8sClient,
