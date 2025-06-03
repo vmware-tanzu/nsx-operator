@@ -154,7 +154,7 @@ func (s *InventoryService) SyncInventoryObject(bufferedKeys sets.Set[InventoryKe
 	retryKeys := sets.New[InventoryKey]()
 	startTime := time.Now()
 	defer func() {
-		log.Info("Finished syncing inventory object", "duration", time.Since(startTime))
+		log.V(1).Info("Finished syncing inventory object", "duration", time.Since(startTime))
 	}()
 	for key := range bufferedKeys {
 		log.Info("Syncing inventory object", "object key", key)
@@ -288,7 +288,7 @@ func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore(ctx context.Con
 
 		// Update NSX Inventory store when the request succeeds.
 		if resp != nil {
-			log.Info("NSX request response", "response code", resp.StatusCode)
+			log.V(2).Info("NSX request response", "response code", resp.StatusCode)
 		}
 		if err == nil {
 			err = s.updateInventoryStore()
@@ -302,7 +302,7 @@ func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore(ctx context.Con
 }
 
 func (s *InventoryService) updateInventoryStore() error {
-	log.Info("Update Inventory store after NSX request succeeds")
+	log.V(1).Info("Update Inventory store after NSX request succeeds")
 	for _, addItem := range s.pendingAdd {
 		switch reflect.ValueOf(addItem).Elem().FieldByName("ResourceType").String() {
 		case string(ContainerProject):
