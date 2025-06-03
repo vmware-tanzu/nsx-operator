@@ -23,7 +23,7 @@ import (
 type fakeQueryClient struct {
 }
 
-func (qIface *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
+func (_ *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
 	cursor := "2"
 	resultCount := int64(1)
 	return model.SearchResponse{

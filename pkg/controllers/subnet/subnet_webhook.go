@@ -15,7 +15,7 @@ import (
 
 var NSXOperatorSA = "system:serviceaccount:vmware-system-nsx:ncp-svc-account"
 
-// Create validator instead of using the existing one in controller-runtime because the existing one can't
+// Create a validator instead of using the existing one in controller-runtime because the existing one can't
 // inspect admission.Request in Handle function.
 
 // +kubebuilder:webhook:path=/validate-crd-nsx-vmware-com-v1alpha1-subnet,mutating=false,failurePolicy=fail,sideEffects=None,groups=crd.nsx.vmware.com,resources=subnets,verbs=delete,versions=v1alpha1,name=subnet.validating.crd.nsx.vmware.com,admissionReviewVersions=v1

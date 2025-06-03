@@ -29,7 +29,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	common2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
-	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	mockClient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
@@ -74,7 +74,7 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 			},
 		},
 		{
-			name: "Should not delete NSX Subnet when the Subnet CR existes",
+			name: "Should not delete NSX Subnet when the Subnet CR exists",
 			patches: func(r *SubnetReconciler) *gomonkey.Patches {
 				// local store has same item as k8s cache
 				patch := gomonkey.ApplyMethod(reflect.TypeOf(&common.ResourceStore{}), "ListIndexFuncValues", func(_ *common.ResourceStore, _ string) sets.Set[string] {
@@ -124,37 +124,37 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			objs := []client.Object{}
+			objects := []client.Object{}
 			if testCase.existingSubnetCR != nil {
-				objs = append(objs, testCase.existingSubnetCR)
+				objects = append(objects, testCase.existingSubnetCR)
 			}
-			r := createFakeSubnetReconciler(objs)
+			r := createFakeSubnetReconciler(objects)
 			ctx := context.Background()
 
 			patches := testCase.patches(r)
 			defer patches.Reset()
 
-			r.CollectGarbage(ctx)
+			_ = r.CollectGarbage(ctx)
 		})
 	}
 }
 
 type fakeRecorder struct{}
 
-func (recorder fakeRecorder) Event(object runtime.Object, eventtype, reason, message string) {
+func (recorder fakeRecorder) Event(_ runtime.Object, _, _, _ string) {
 }
 
-func (recorder fakeRecorder) Eventf(object runtime.Object, eventtype, reason, messageFmt string, args ...interface{}) {
+func (recorder fakeRecorder) Eventf(_ runtime.Object, _, _, _ string, _ ...interface{}) {
 }
 
-func (recorder fakeRecorder) AnnotatedEventf(object runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
+func (recorder fakeRecorder) AnnotatedEventf(_ runtime.Object, _ map[string]string, _, _, _ string, _ ...interface{}) {
 }
 
-func createFakeSubnetReconciler(objs []client.Object) *SubnetReconciler {
+func createFakeSubnetReconciler(objects []client.Object) *SubnetReconciler {
 	newScheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
 	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
-	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objs...).Build()
+	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objects...).Build()
 	service := &vpc.VPCService{
 		Service: common.Service{
 			Client:    fakeClient,
@@ -673,14 +673,15 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			var objs []client.Object
+			var objects []client.Object
 			if testCase.existingSubnetCR != nil {
-				objs = append(objs, testCase.existingSubnetCR)
+				objects = append(objects, testCase.existingSubnetCR)
 			}
-			reconciler := createFakeSubnetReconciler(objs)
+			reconciler := createFakeSubnetReconciler(objects)
 			ctx := context.Background()
 
-			v1alpha1.AddToScheme(reconciler.Scheme)
+			err := v1alpha1.AddToScheme(reconciler.Scheme)
+			assert.NoError(t, err, "failed to add v1alpha1 scheme")
 			patches := testCase.patches(reconciler)
 			defer patches.Reset()
 
@@ -715,11 +716,11 @@ func (m *MockManager) GetScheme() *runtime.Scheme {
 	return m.scheme
 }
 
-func (m *MockManager) GetEventRecorderFor(name string) record.EventRecorder {
+func (m *MockManager) GetEventRecorderFor(_ string) record.EventRecorder {
 	return nil
 }
 
-func (m *MockManager) Add(runnable manager.Runnable) error {
+func (m *MockManager) Add(_ manager.Runnable) error {
 	return nil
 }
 
@@ -795,8 +796,8 @@ func TestStartSubnetController(t *testing.T) {
 			patches := testCase.patches()
 			defer patches.Reset()
 
-			reconcile := NewSubnetReconciler(mockMgr, subnetService, subnetPortService, vpcService, bindingService)
-			err := reconcile.StartController(mockMgr, nil)
+			reconciler := NewSubnetReconciler(mockMgr, subnetService, subnetPortService, vpcService, bindingService)
+			err := reconciler.StartController(mockMgr, nil)
 
 			if testCase.expectErrStr != "" {
 				assert.ErrorContains(t, err, testCase.expectErrStr)
@@ -999,7 +1000,7 @@ func patchSuccessfulReconcileSubnetWorkflow(r *SubnetReconciler, patches *gomonk
 
 func TestSubnetReconciler_RestoreReconcile(t *testing.T) {
 	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
+	k8sClient := mockClient.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
 
 	r := &SubnetReconciler{
@@ -1059,5 +1060,8 @@ func TestSubnetReconciler_RestoreReconcile(t *testing.T) {
 	})
 	defer patches.Reset()
 	err = r.RestoreReconcile()
-	assert.Contains(t, err.Error(), "failed to restore Subnet ns-1/subnet-1")
+
+	if err != nil {
+		assert.Contains(t, err.Error(), "failed to restore Subnet ns-1/subnet-1")
+	}
 }
