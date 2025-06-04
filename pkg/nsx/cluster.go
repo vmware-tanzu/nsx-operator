@@ -445,6 +445,9 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 	case ServiceAccountCertRotation:
 		minVersion = nsx413Version
 		validFeature = true
+	case VPCPreferredDefaultSNATIP:
+		minVersion = nsx910Version
+		validFeature = true
 	}
 
 	if validFeature {

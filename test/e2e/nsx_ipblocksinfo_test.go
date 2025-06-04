@@ -118,11 +118,11 @@ func getDefaultIPBlocksCidrs(t *testing.T) (privateTGWIPCIDRs []string, external
 			break
 		}
 		if *ipblock.Path == externalBlock {
-			externalIPCIDRs = append(externalIPCIDRs, *ipblock.Cidr)
+			externalIPCIDRs = append(externalIPCIDRs, *ipblock.Cidr) //nolint:staticcheck //ipblock.Cidr is deprecated
 			count++
 		}
 		if *ipblock.Path == privateTGWBlock {
-			privateTGWIPCIDRs = append(privateTGWIPCIDRs, *ipblock.Cidr)
+			privateTGWIPCIDRs = append(privateTGWIPCIDRs, *ipblock.Cidr) //nolint:staticcheck //ipblock.Cidr is deprecated
 			count++
 		}
 	}

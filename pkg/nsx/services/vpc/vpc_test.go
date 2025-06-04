@@ -2040,7 +2040,7 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				defer patches.Reset()
 			}
 
-			newVPCModel, err := service.CreateOrUpdateVPC(ctx, tc.existingNetworkInfo, tc.existingVPCNetworkConfig, tc.lbProvider, tc.serviceClusterReady)
+			newVPCModel, err := service.CreateOrUpdateVPC(ctx, tc.existingNetworkInfo, tc.existingVPCNetworkConfig, tc.lbProvider, tc.serviceClusterReady, false)
 
 			if tc.expectErrStr != "" {
 				assert.ErrorContains(t, err, tc.expectErrStr)
