@@ -91,6 +91,7 @@ const (
 	AnnotationDefaultNetworkConfig     string = "nsx.vmware.com/default"
 	AnnotationAttachmentRef            string = "nsx.vmware.com/attachment_ref"
 	AnnotationAssociatedResource       string = "nsx.vmware.com/associated_resource"
+	AnnotationPollTime                 string = "nsx.vmware.com/last_poll_time"
 	AnnotationRestore                  string = "nsx/restore"
 	AnnotationPodMAC                   string = "nsx.vmware.com/mac"
 	LabelCPVM                          string = "iaas.vmware.com/is-cpvm-subnetport"

@@ -22,8 +22,8 @@ jobs:
       with:
         go-version: 1.23.1
 
-#     - name: Run golangci-lint
-#       run: make golangci
+    - name: Run golangci-lint
+      run: make golangci
 
     - name: Run code-generator
       run: make generated

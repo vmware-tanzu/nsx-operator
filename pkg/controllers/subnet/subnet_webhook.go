@@ -26,16 +26,6 @@ type SubnetValidator struct {
 	decoder admission.Decoder
 }
 
-// isSharedSubnet checks if a Subnet is shared based on the associated_resource annotation
-func isSharedSubnet(subnet *v1alpha1.Subnet) bool {
-	if subnet.Annotations != nil {
-		if _, ok := subnet.Annotations[common.AnnotationAssociatedResource]; ok {
-			return true
-		}
-	}
-	return false
-}
-
 // Handle handles admission requests.
 func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	log.Info("Handling request", "user", req.UserInfo.Username, "operation", req.Operation)
@@ -58,7 +48,7 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 		}
 
 		// Shared Subnet can only be updated by NSX Operator
-		if (isSharedSubnet(subnet)) && req.UserInfo.Username != NSXOperatorSA {
+		if (common.IsSharedSubnet(subnet)) && req.UserInfo.Username != NSXOperatorSA {
 			return admission.Denied(fmt.Sprintf("Shared Subnet %s/%s can only be created by NSX Operator", subnet.Namespace, subnet.Name))
 		}
 
@@ -84,7 +74,7 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 		log.V(2).Info("VPCName comparison", "oldVPCName", oldSubnet.Spec.VPCName, "newVPCName", subnet.Spec.VPCName, "isEqual", oldSubnet.Spec.VPCName == subnet.Spec.VPCName)
 
 		// Shared Subnet can only be updated by NSX Operator
-		if (isSharedSubnet(oldSubnet) || isSharedSubnet(subnet)) && req.UserInfo.Username != NSXOperatorSA {
+		if (common.IsSharedSubnet(oldSubnet) || common.IsSharedSubnet(subnet)) && req.UserInfo.Username != NSXOperatorSA {
 			return admission.Denied(fmt.Sprintf("Shared Subnet %s/%s can only be updated by NSX Operator", subnet.Namespace, subnet.Name))
 		}
 
@@ -107,7 +97,7 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 		}
 
 		// Shared Subnet can only be deleted by NSX Operator
-		if (isSharedSubnet(oldSubnet) || isSharedSubnet(subnet)) && req.UserInfo.Username != NSXOperatorSA {
+		if (common.IsSharedSubnet(oldSubnet) || common.IsSharedSubnet(subnet)) && req.UserInfo.Username != NSXOperatorSA {
 			return admission.Denied(fmt.Sprintf("Shared Subnet %s/%s can only be deleted by NSX Operator", subnet.Namespace, subnet.Name))
 		}
 

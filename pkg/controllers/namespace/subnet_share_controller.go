@@ -183,7 +183,7 @@ func (r *NamespaceReconciler) deleteUnusedSharedSubnets(ctx context.Context, ns 
 		hasReferences, err := r.checkSubnetReferences(ctx, ns, subnet, associatedResource)
 		if err != nil {
 			log.Error(err, "Failed to check references for Subnet CR", "Namespace", ns, "Name", subnet.Name)
-			continue
+			return err
 		}
 
 		// If the Subnet CR is not referenced, delete it
@@ -196,7 +196,12 @@ func (r *NamespaceReconciler) deleteUnusedSharedSubnets(ctx context.Context, ns 
 			} else {
 				log.Info("Deleted Subnet CR for shared Subnet",
 					"Namespace", ns, "Name", subnet.Name, "AssociatedResource", associatedResource)
+				r.StatusUpdater.DeleteSuccess(client.ObjectKey{Namespace: ns, Name: subnet.Name}, subnet)
 			}
+		} else {
+			err := fmt.Errorf("subnet CR %s/%s is still referenced and cannot be deleted", subnet.Namespace, subnet.Name)
+			log.Error(nil, "Cannot delete Subnet CR for shared subnet because it is still referenced")
+			return err
 		}
 	}
 

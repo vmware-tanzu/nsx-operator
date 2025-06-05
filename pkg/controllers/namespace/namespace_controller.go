@@ -43,6 +43,7 @@ type NamespaceReconciler struct {
 	NSXConfig     *config.NSXOperatorConfig
 	VPCService    types.VPCServiceProvider
 	SubnetService *subnet.SubnetService
+	StatusUpdater common.StatusUpdater
 }
 
 func (r *NamespaceReconciler) getDefaultNetworkConfigName() (string, error) {

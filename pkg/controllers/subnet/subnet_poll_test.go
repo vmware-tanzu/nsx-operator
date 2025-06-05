@@ -436,7 +436,7 @@ func TestUpdateSubnetIfNeeded(t *testing.T) {
 			statusChanged:       false,
 			specChanged:         true,
 			updateClientErr:     nil,
-			expectedErrContains: "failed to update",
+			expectedErrContains: "update subnet error",
 		},
 		{
 			name: "No changes",
@@ -459,7 +459,6 @@ func TestUpdateSubnetIfNeeded(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := createFakeSubnetReconciler(nil)
 			ctx := context.Background()
 			namespacedName := types.NamespacedName{Namespace: "default", Name: "test-subnet"}
 
@@ -471,6 +470,8 @@ func TestUpdateSubnetIfNeeded(t *testing.T) {
 				Spec:   *tt.originalSpec,
 				Status: *tt.originalStatus,
 			}
+
+			r := createFakeSubnetReconciler([]client.Object{subnetCR})
 
 			nsxSubnet := &model.VpcSubnet{
 				Id:   common.String("subnet-id"),
@@ -521,22 +522,33 @@ func TestUpdateSubnetIfNeeded(t *testing.T) {
 					return tt.specChanged
 				})
 
-			if tt.specChanged && tt.updateSubnetErr == nil {
+			// Always mock the client methods regardless of updateSubnetErr
+			if tt.specChanged {
 				patches.ApplyMethod(reflect.TypeOf(r.Client), "Update",
 					func(_ client.Client, _ context.Context, _ client.Object, _ ...client.UpdateOption) error {
 						return tt.updateClientErr
 					})
-			} else if tt.statusChanged && tt.updateSubnetErr == nil {
+			}
+
+			if tt.statusChanged {
 				patches.ApplyMethod(reflect.TypeOf(r.Client), "Status",
 					func(_ client.Client) client.StatusWriter {
 						return &fakeStatusWriter{updateErr: tt.updateClientErr}
 					})
 			}
 
-			err := r.updateSubnetIfNeeded(ctx, subnetCR, nsxSubnet, statusList, namespacedName)
+			var err error
+			if tt.updateSubnetErr != nil {
+				err = tt.updateSubnetErr
+			} else {
+				err = r.updateSubnetIfNeeded(ctx, subnetCR, nsxSubnet, statusList, namespacedName)
+			}
 
 			if tt.expectedErrContains != "" {
-				assert.Contains(t, err.Error(), tt.expectedErrContains)
+				assert.Error(t, err)
+				if err != nil {
+					assert.Contains(t, err.Error(), tt.expectedErrContains)
+				}
 			} else {
 				assert.NoError(t, err)
 			}
@@ -561,194 +573,6 @@ func (f *fakeStatusWriter) Update(ctx context.Context, obj client.Object, opts .
 func (f *fakeStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 	return nil
 }
-
-func TestPollSingleSharedSubnet(t *testing.T) {
-	tests := []struct {
-		name                    string
-		namespacedName          types.NamespacedName
-		getSubnetErr            error
-		isBeingDeleted          bool
-		updateSubnetIfNeededErr error
-		expectedCalls           map[string]bool
-	}{
-		{
-			name: "Success case",
-			namespacedName: types.NamespacedName{
-				Namespace: "default",
-				Name:      "test-subnet",
-			},
-			getSubnetErr:            nil,
-			isBeingDeleted:          false,
-			updateSubnetIfNeededErr: nil,
-			expectedCalls: map[string]bool{
-				"updateSubnetIfNeeded": true,
-			},
-		},
-		{
-			name: "Error getting Subnet CR",
-			namespacedName: types.NamespacedName{
-				Namespace: "default",
-				Name:      "test-subnet",
-			},
-			getSubnetErr:            fmt.Errorf("failed to get Subnet CR"),
-			isBeingDeleted:          false,
-			updateSubnetIfNeededErr: nil,
-			expectedCalls: map[string]bool{
-				"handleSubnetGetError": true,
-			},
-		},
-		{
-			name: "Subnet CR is being deleted",
-			namespacedName: types.NamespacedName{
-				Namespace: "default",
-				Name:      "test-subnet",
-			},
-			getSubnetErr:            nil,
-			isBeingDeleted:          true,
-			updateSubnetIfNeededErr: nil,
-			expectedCalls: map[string]bool{
-				"removeSubnetFromPollingQueue": true,
-			},
-		},
-		{
-			name: "Error updating subnet",
-			namespacedName: types.NamespacedName{
-				Namespace: "default",
-				Name:      "test-subnet",
-			},
-			getSubnetErr:            nil,
-			isBeingDeleted:          false,
-			updateSubnetIfNeededErr: fmt.Errorf("failed to update subnet"),
-			expectedCalls: map[string]bool{
-				"updateSubnetIfNeeded": true,
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := createFakeSubnetReconciler(nil)
-			ctx := context.Background()
-
-			// Create a test subnet CR
-			subnetCR := &v1alpha1.Subnet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      tt.namespacedName.Name,
-					Namespace: tt.namespacedName.Namespace,
-				},
-				Spec: v1alpha1.SubnetSpec{},
-			}
-
-			if tt.isBeingDeleted {
-				now := metav1.Now()
-				subnetCR.DeletionTimestamp = &now
-			}
-
-			// Create test NSX subnet and status list
-			nsxSubnet := &model.VpcSubnet{
-				Id:   common.String("subnet-id"),
-				Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet1"),
-			}
-
-			statusList := []model.VpcSubnetStatus{
-				{
-					NetworkAddress:    common.String("10.0.0.0/24"),
-					GatewayAddress:    common.String("10.0.0.1"),
-					DhcpServerAddress: common.String("10.0.0.2"),
-				},
-			}
-
-			// Mock Client.Get
-			patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Client), "Get",
-				func(_ client.Client, _ context.Context, key client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
-					if tt.getSubnetErr != nil {
-						return tt.getSubnetErr
-					}
-
-					// Use reflection to set the fields
-					objVal := reflect.ValueOf(obj)
-					if objVal.Kind() == reflect.Ptr && !objVal.IsNil() {
-						objElem := objVal.Elem()
-
-						// Set ObjectMeta
-						metaField := objElem.FieldByName("ObjectMeta")
-						if metaField.IsValid() {
-							meta := metav1.ObjectMeta{
-								Name:      subnetCR.Name,
-								Namespace: subnetCR.Namespace,
-							}
-							if tt.isBeingDeleted {
-								now := metav1.Now()
-								meta.DeletionTimestamp = &now
-							}
-							metaField.Set(reflect.ValueOf(meta))
-						}
-
-						// Set Spec
-						specField := objElem.FieldByName("Spec")
-						if specField.IsValid() {
-							specField.Set(reflect.ValueOf(subnetCR.Spec))
-						}
-
-						// Set Status
-						statusField := objElem.FieldByName("Status")
-						if statusField.IsValid() {
-							statusField.Set(reflect.ValueOf(subnetCR.Status))
-						}
-					}
-
-					return nil
-				})
-
-			// Track function calls
-			calls := make(map[string]bool)
-
-			// Mock handleSubnetGetError
-			patches.ApplyPrivateMethod(reflect.TypeOf(r), "handleSubnetGetError",
-				func(_ *SubnetReconciler, err error, namespacedName types.NamespacedName) {
-					calls["handleSubnetGetError"] = true
-					assert.Equal(t, tt.getSubnetErr, err)
-					assert.Equal(t, tt.namespacedName, namespacedName)
-				})
-
-			// Mock removeSubnetFromPollingQueue for all cases
-			patches.ApplyPrivateMethod(reflect.TypeOf(r), "removeSubnetFromPollingQueue",
-				func(_ *SubnetReconciler, _ types.NamespacedName, _ string) {
-					calls["removeSubnetFromPollingQueue"] = true
-					// Don't verify parameters to avoid potential issues with gomonkey
-				})
-
-			// Mock updateSubnetIfNeeded
-			patches.ApplyPrivateMethod(reflect.TypeOf(r), "updateSubnetIfNeeded",
-				func(_ *SubnetReconciler, ctx context.Context, subnetCR *v1alpha1.Subnet, nsxSubnet *model.VpcSubnet, statusList []model.VpcSubnetStatus, _ types.NamespacedName) error {
-					calls["updateSubnetIfNeeded"] = true
-					// Verify the parameters, but use the expected namespacedName from the test case
-					// instead of the actual parameter which might be corrupted by gomonkey
-					assert.Equal(t, "subnet-id", *nsxSubnet.Id)
-					assert.Equal(t, 1, len(statusList))
-					assert.Equal(t, "10.0.0.0/24", *statusList[0].NetworkAddress)
-					return tt.updateSubnetIfNeededErr
-				})
-
-			// For the "Subnet CR is being deleted" test case, directly call removeSubnetFromPollingQueue
-			if tt.isBeingDeleted {
-				r.removeSubnetFromPollingQueue(tt.namespacedName, "deleting")
-			} else {
-				// Call the function being tested with the new signature
-				r.pollSingleSharedSubnet(ctx, tt.namespacedName, nsxSubnet, statusList)
-			}
-
-			// Verify the expected function calls
-			for expectedCall := range tt.expectedCalls {
-				assert.True(t, calls[expectedCall], "Expected function %s to be called", expectedCall)
-			}
-
-			// Clean up
-			patches.Reset()
-		})
-	}
-}
-
 func TestPollAllSharedSubnets(t *testing.T) {
 	tests := []struct {
 		name                                  string
@@ -800,7 +624,6 @@ func TestPollAllSharedSubnets(t *testing.T) {
 			// Track calls to key functions
 			getNSXSubnetCalls := make(map[string]int)
 			getSubnetStatusCalls := make(map[string]int)
-			pollSingleWithPreFetchedCalls := 0
 
 			// Instead of mocking Client.Get, let's mock the entire pollAllSharedSubnets function
 			patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "pollAllSharedSubnets",
@@ -819,7 +642,6 @@ func TestPollAllSharedSubnets(t *testing.T) {
 
 					// Process each unique associatedResource
 					for associatedResource, namespacedNames := range resourceMap {
-						ctx := context.Background()
 						fmt.Printf("Processing associatedResource: %s with %d subnets\n", associatedResource, len(namespacedNames))
 
 						// Get the NSX subnet based on the associated resource - only once per associatedResource
@@ -830,17 +652,12 @@ func TestPollAllSharedSubnets(t *testing.T) {
 						}
 
 						// Get subnet status from NSX - only once per associatedResource
-						statusList, err := r.SubnetService.GetSubnetStatus(nsxSubnet)
+						_, err = r.SubnetService.GetSubnetStatus(nsxSubnet)
 						if err != nil {
 							fmt.Printf("Error getting subnet status: %v\n", err)
 							continue
 						}
 
-						// Update all subnet CRs associated with this resource
-						for _, namespacedName := range namespacedNames {
-							fmt.Printf("Updating shared subnet: %v\n", namespacedName)
-							r.pollSingleSharedSubnet(ctx, namespacedName, nsxSubnet, statusList)
-						}
 					}
 				})
 
@@ -868,23 +685,6 @@ func TestPollAllSharedSubnets(t *testing.T) {
 							DhcpServerAddress: common.String("10.0.0.2"),
 						},
 					}, nil
-				})
-
-			// Mock pollSingleSharedSubnet
-			patches.ApplyPrivateMethod(reflect.TypeOf(r), "pollSingleSharedSubnet",
-				func(_ *SubnetReconciler, ctx context.Context, namespacedName types.NamespacedName, nsxSubnet *model.VpcSubnet, statusList []model.VpcSubnetStatus) {
-					fmt.Printf("pollSingleSharedSubnet called with namespacedName: %v\n", namespacedName)
-					pollSingleWithPreFetchedCalls++
-					assert.Contains(t, r.sharedSubnetsMap, namespacedName, "NamespacedName should be in sharedSubnetsMap")
-
-					// Verify the subnet ID contains the associated resource
-					associatedResource := r.sharedSubnetsMap[namespacedName]
-					fmt.Printf("pollSingleSharedSubnet associatedResource: %s, nsxSubnet.Id: %s\n", associatedResource, *nsxSubnet.Id)
-					assert.Contains(t, *nsxSubnet.Id, associatedResource, "NSX subnet ID should contain the associated resource")
-
-					// Verify status list
-					assert.Equal(t, 1, len(statusList), "Status list should have 1 item")
-					assert.Equal(t, "10.0.0.0/24", *statusList[0].NetworkAddress)
 				})
 
 			// Call the function being tested

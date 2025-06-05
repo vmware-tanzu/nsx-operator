@@ -82,3 +82,13 @@ func IsDefaultNetworkConfigCR(vpcConfigCR *v1alpha1.VPCNetworkConfiguration) boo
 	}
 	return false
 }
+
+// IsSharedSubnet checks if a Subnet is shared based on the associated_resource annotation
+func IsSharedSubnet(subnet *v1alpha1.Subnet) bool {
+	if subnet.Annotations != nil {
+		if _, ok := subnet.Annotations[AnnotationAssociatedResource]; ok {
+			return true
+		}
+	}
+	return false
+}
