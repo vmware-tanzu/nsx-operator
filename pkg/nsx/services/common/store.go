@@ -283,19 +283,17 @@ func IndexByVPCFunc(obj interface{}) ([]string, error) {
 		return []string{}, errors.New("indexFunc doesn't support unknown type")
 	}
 }
-func (service *Service) QueryNCPCreatedResources(resourceTypes []string, store Store, additionalQueryFn func(query string) string) error {
-	resQuery := make([]string, 0)
-	for _, rt := range resourceTypes {
-		resQuery = append(resQuery, fmt.Sprintf("%s:%s", ResourceType, rt))
-	}
 
-	var query string
-	if len(resQuery) == 1 {
-		query = resQuery[0]
+func buildResourceType(resourceTypes []string) string {
+	if len(resourceTypes) == 1 {
+		return fmt.Sprintf("%s:%s", ResourceType, resourceTypes[0])
 	} else {
-		query = fmt.Sprintf("(%s)", strings.Join(resQuery, " OR "))
+		return fmt.Sprintf("%s:(%s)", ResourceType, strings.Join(resourceTypes, " OR "))
 	}
+}
 
+func (service *Service) QueryNCPCreatedResources(resourceTypes []string, store Store, additionalQueryFn func(query string) string) error {
+	query := buildResourceType(resourceTypes)
 	query = service.AddNCPClusterTag(query)
 	if additionalQueryFn != nil {
 		query = additionalQueryFn(query)
