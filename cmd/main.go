@@ -126,11 +126,15 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 
 	checkLicense(nsxClient, cf.LicenseValidationInterval)
 
-	var err error
-	restoreMode, err = pkgutil.CompareNSXRestore(mgr.GetClient(), nsxClient)
-	if err != nil {
-		log.Error(err, "NSX restore check failed")
-		os.Exit(1)
+	if cf.K8sConfig.EnableRestore && cf.CoeConfig.EnableVPCNetwork {
+		var err error
+		restoreMode, err = pkgutil.CompareNSXRestore(mgr.GetClient(), nsxClient)
+		if err != nil {
+			log.Error(err, "NSX restore check failed")
+			os.Exit(1)
+		}
+	} else {
+		restoreMode = false
 	}
 
 	var reconcilerList []pkgutil.ReconcilerProvider
@@ -256,7 +260,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	}
 
 	// Update pod labels to determine if this pod is the master
-	err = updatePodLabels(mgr)
+	err := updatePodLabels(mgr)
 	if err != nil {
 		log.Error(err, "Failed to update Pod labels")
 		panic(err)
