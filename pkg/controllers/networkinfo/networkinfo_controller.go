@@ -34,7 +34,6 @@ import (
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
-	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -124,12 +123,11 @@ func (r *NetworkInfoReconciler) GetVpcConnectivityProfilePathByVpcPath(vpcPath s
 	}
 	vpcAttachments := vpcAttachmentsListResult.Results
 	if len(vpcAttachments) > 0 {
-		log.V(1).Info("found VPC attachment", "VPC Path", vpcPath, "VPC connectivity profile", vpcAttachments[0].VpcConnectivityProfile)
+		log.V(1).Info("Found VPC attachment", "VPC Path", vpcPath, "VPC connectivity profile", vpcAttachments[0].VpcConnectivityProfile)
 		return *vpcAttachments[0].VpcConnectivityProfile, nil
 	} else {
-		err := fmt.Errorf("no VPC attachment found")
-		log.Error(err, "List VPC attachment", "VPC Path", vpcPath)
-		return "", err
+		log.V(1).Info("No VPC attachment", "VPC Path", vpcPath)
+		return "", nil
 	}
 }
 
@@ -244,17 +242,25 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to get VPC connectivity profile path %s", vpcPath), setNetworkInfoVPCStatusWithError, nil)
 			return common.ResultRequeueAfter10sec, err
 		}
+		// Update NetworkConfig and NetworkInfo if no vpcConnectivityProfile
+		// to allow Namespace created without LB and SNAT
+		if len(vpcConnectivityProfilePath) == 0 {
+			state := &v1alpha1.VPCState{
+				Name:                    *createdVpc.DisplayName,
+				DefaultSNATIP:           "",
+				LoadBalancerIPAddresses: "",
+				PrivateIPs:              privateIPs,
+			}
+			setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, "", "", *createdVpc.Path)
+			r.StatusUpdater.UpdateSuccess(ctx, networkInfoCR, setNetworkInfoVPCStatus, state)
+			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCIsReady.getNSNetworkCondition())
+			return common.ResultNormal, nil
+		}
 		// Retrieve NSX lbs path if Supervisor is configuring with NSX LB.
 		if lbProvider == vpc.NSXLB {
 			nsxLBSPath, err = r.Service.GetLBSsFromNSXByVPC(vpcPath)
 			if err != nil {
 				r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to get NSX LBS path with pre-created VPC %s", vpcPath), setNetworkInfoVPCStatusWithError, nil)
-				setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCNsxLBSNotReady.getNSNetworkCondition(err))
-				return common.ResultRequeueAfter10sec, err
-			}
-			if nsxLBSPath == "" {
-				log.Error(nil, "NSX LB path is not set with pre-created VPC", "VPC", vpcPath)
-				err = fmt.Errorf("NSX LB does not exist")
 				setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCNsxLBSNotReady.getNSNetworkCondition(err))
 				return common.ResultRequeueAfter10sec, err
 			}
@@ -329,7 +335,8 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return common.ResultRequeueAfter10sec, err
 		}
 		lbIP = aviSECIDR
-	} else if lbProvider == vpc.NSXLB {
+	} else if lbProvider == vpc.NSXLB && len(nsxLBSPath) > 0 {
+		// Only check SNat IP when LB capability is ready.
 		if vpcConnectivityProfile.ServiceGateway != nil && len(vpcConnectivityProfile.ServiceGateway.EdgeClusterPaths) != 0 {
 			// CTGW is used for NSX LB
 			nsxLBSNATIP, err = r.Service.GetNSXLBSNATIP(*createdVpc, "gateway-interface")
@@ -403,7 +410,7 @@ func (r *NetworkInfoReconciler) Start(mgr ctrl.Manager) error {
 	}
 
 	// Start a goroutine to periodically sync the pre-created VPC's private IPs to NetworkInfo CR if used.
-	go wait.UntilWithContext(context.Background(), r.syncPreCreatedVpcIPs, preVPCSyncInterval)
+	go wait.UntilWithContext(context.Background(), r.syncPreCreatedVpcs, preVPCSyncInterval)
 
 	return nil
 }
@@ -545,7 +552,7 @@ func (r *NetworkInfoReconciler) listVPCsByNetworkConfigName(ncName string) ([]*m
 	return aliveVPCs, nil
 }
 
-func (r *NetworkInfoReconciler) syncPreCreatedVpcIPs(ctx context.Context) {
+func (r *NetworkInfoReconciler) syncPreCreatedVpcs(ctx context.Context) {
 	// Construct a map for the existing NetworkInfo CRs, the key is its Namespace, and the value is
 	// the NetworkInfo CR.
 	networkInfos := &v1alpha1.NetworkInfoList{}
@@ -559,9 +566,6 @@ func (r *NetworkInfoReconciler) syncPreCreatedVpcIPs(ctx context.Context) {
 		networkInfoMap[netInfo.Namespace] = netInfo
 	}
 
-	// Read all VPCs from NSX. Note, we can't use the cached VPC from local store for pre-created VPC case.
-	vpcPathMap := r.Service.GetAllVPCsFromNSX()
-
 	retry.OnError(util.K8sClientRetry, func(err error) bool {
 		return err != nil
 	}, func() error {
@@ -570,7 +574,7 @@ func (r *NetworkInfoReconciler) syncPreCreatedVpcIPs(ctx context.Context) {
 			return err
 		}
 
-		for ns, vpcPath := range nsVpcMap {
+		for ns := range nsVpcMap {
 			// Continue if no NetworkInfo exists in the Namespace.
 			netInfo, found := networkInfoMap[ns]
 			if !found {
@@ -589,21 +593,9 @@ func (r *NetworkInfoReconciler) syncPreCreatedVpcIPs(ctx context.Context) {
 					Namespace: netInfo.Namespace,
 				},
 			}
-
-			preVPC, found := vpcPathMap[vpcPath]
-			if !found {
-				// Notify Reconciler that the pre-created VPC does not exit.
-				r.queue.Add(req)
-				continue
-			}
-
-			vpcState := netInfo.VPCs[0]
-			if !nsxutil.CompareArraysWithoutOrder(preVPC.PrivateIps, vpcState.PrivateIPs) {
-				// Notify Reconciler that the pre-created VPC has changed private IPs.
-				r.queue.Add(req)
-				continue
-			}
-			// TODO: add the check on SNAT IP changed, and LB type changed in future if needed.
+			// Always reconcile the precreated VPC to update the
+			// PrivateIP, SNAT IP and LBS path
+			r.queue.Add(req)
 		}
 		return nil
 	})
