@@ -317,11 +317,11 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsFromStore(pathSet sets.Set[string],
 			return nil, fmt.Errorf("failed to get IPBlock %s from NSX", path)
 		}
 		ipblock := obj.(*model.IpAddressBlock)
-		if ipblock.Cidr == nil {
+		if ipblock.Cidr == nil { //nolint:staticcheck //ipblock.Cidr is deprecated
 			return nil, fmt.Errorf("failed to get CIDR from ipblock %s", path)
 		}
-		log.V(2).Info("successfully get cidr for IPBblock", "path", path, "cidr", *ipblock.Cidr)
-		ipCIDRs = append(ipCIDRs, *ipblock.Cidr)
+		log.V(2).Info("successfully get cidr for IPBblock", "path", path, "cidr", *ipblock.Cidr) //nolint:staticcheck //ipblock.Cidr is deprecated
+		ipCIDRs = append(ipCIDRs, *ipblock.Cidr)                                                 //nolint:staticcheck //ipblock.Cidr is deprecated
 	}
 	return ipCIDRs, nil
 }

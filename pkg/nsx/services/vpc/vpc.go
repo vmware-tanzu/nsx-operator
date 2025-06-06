@@ -455,7 +455,7 @@ func (s *VPCService) IsLBProviderChanged(existingVPC *model.Vpc, lbProvider LBPr
 	return false
 }
 
-func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.NetworkInfo, nc *v1alpha1.VPCNetworkConfiguration, lbProvider LBProvider, serviceClusterReady bool) (*model.Vpc, error) {
+func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.NetworkInfo, nc *v1alpha1.VPCNetworkConfiguration, lbProvider LBProvider, serviceClusterReady bool, restoreMode bool) (*model.Vpc, error) {
 	// parse project path in NetworkConfig
 	org, project, err := common.NSXProjectPathToId(nc.Spec.NSXProject)
 	if err != nil {
@@ -532,7 +532,7 @@ func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.Networ
 		createdLBS, _ = buildNSXLBS(obj, nsObj, s.NSXConfig.Cluster, lbsSize, vpcPath, relaxScaleValidation)
 	}
 	// build HAPI request
-	createdAttachment, _ := buildVpcAttachment(obj, nsObj, s.NSXConfig.Cluster, nc.Spec.VPCConnectivityProfile)
+	createdAttachment, _ := buildVpcAttachment(obj, nsObj, s.NSXConfig.Cluster, nc.Spec.VPCConnectivityProfile, restoreMode)
 	orgRoot, err := s.WrapHierarchyVPC(org, project, createdVpc, createdLBS, createdAttachment)
 	if err != nil {
 		log.Error(err, "Failed to build HAPI request")

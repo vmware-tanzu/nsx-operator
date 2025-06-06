@@ -106,12 +106,16 @@ func buildNSXLBS(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster, lbsSiz
 	return lbs, nil
 }
 
-func buildVpcAttachment(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster string, vpcconnectiveprofile string) (*model.VpcAttachment, error) {
+func buildVpcAttachment(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster string, vpcconnectiveprofile string, restoreMode bool) (*model.VpcAttachment, error) {
 	attachment := &model.VpcAttachment{}
 	attachment.VpcConnectivityProfile = &vpcconnectiveprofile
 	attachment.DisplayName = common.String(common.DefaultVpcAttachmentId)
 	attachment.Id = common.String(common.DefaultVpcAttachmentId)
 	attachment.Tags = util.BuildBasicTags(cluster, obj, nsObj.GetUID())
+	if restoreMode && len(obj.VPCs) > 0 && len(obj.VPCs[0].DefaultSNATIP) > 0 {
+		log.V(1).Info("Restoring DefaultSNATIP", "DefaultSNATIP", obj.VPCs[0].DefaultSNATIP, "NetworkInfo", obj.Name)
+		attachment.PreferredDefaultSnatIp = &obj.VPCs[0].DefaultSNATIP
+	}
 	return attachment, nil
 }
 

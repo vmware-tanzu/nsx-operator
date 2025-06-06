@@ -5,6 +5,7 @@ package networkinfo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
@@ -104,6 +106,7 @@ type NetworkInfoReconciler struct {
 	Recorder            record.EventRecorder
 	queue               workqueue.TypedRateLimitingInterface[reconcile.Request]
 	StatusUpdater       common.StatusUpdater
+	restoreMode         bool
 }
 
 func (r *NetworkInfoReconciler) GetVpcConnectivityProfilePathByVpcPath(vpcPath string) (string, error) {
@@ -222,7 +225,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Error(err, "Failed to get LB Provider")
 		return common.ResultRequeue, nil
 	}
-	createdVpc, err := r.Service.CreateOrUpdateVPC(ctx, networkInfoCR, nc, lbProvider, serviceClusterReady)
+	createdVpc, err := r.Service.CreateOrUpdateVPC(ctx, networkInfoCR, nc, lbProvider, serviceClusterReady, r.restoreMode)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to create or update VPC", setNetworkInfoVPCStatusWithError, nil)
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
@@ -635,7 +638,66 @@ func (r *NetworkInfoReconciler) getNetworkConfig(ctx context.Context, networkInf
 }
 
 func (r *NetworkInfoReconciler) RestoreReconcile() error {
+	if !r.Service.NSXClient.NSXCheckVersion(nsx.VPCPreferredDefaultSNATIP) {
+		log.Info("NetworkInfo restore is not supported")
+		return nil
+	}
+	restoreList, err := r.getRestoreList()
+	if err != nil {
+		err = fmt.Errorf("failed to get NetworkInfo restore list: %w", err)
+		return err
+	}
+	var errorList []error
+	r.restoreMode = true
+	for _, key := range restoreList {
+		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+		if result.Requeue || err != nil {
+			errorList = append(errorList, fmt.Errorf("failed to restore NetworkInfo %s, error: %w", key, err))
+		}
+	}
+	if len(errorList) > 0 {
+		return errors.Join(errorList...)
+	}
 	return nil
+}
+
+func (r *NetworkInfoReconciler) getRestoreList() ([]types.NamespacedName, error) {
+	restoreList := []types.NamespacedName{}
+	networkInfos := &v1alpha1.NetworkInfoList{}
+	err := r.Client.List(context.TODO(), networkInfos)
+	if err != nil {
+		log.Error(err, "Failed to list NetworkInfos")
+		return restoreList, err
+	}
+	nsPreCreatedVpcMap, err := r.Service.GetNamespacesWithPreCreatedVPCs()
+	if err != nil {
+		log.Error(err, "Failed to validate pre-created VPC for restore")
+		return restoreList, err
+	}
+	for _, networkInfo := range networkInfos.Items {
+		if len(networkInfo.VPCs) == 0 {
+			continue
+		}
+		_, ok := nsPreCreatedVpcMap[networkInfo.Namespace]
+		if ok {
+			log.V(1).Info("Skip handling the NetworkInfo with pre-created VPC", "NetworkInfo.Name", networkInfo.Name)
+			continue
+		}
+		nsxVPCs := r.Service.GetCurrentVPCsByNamespace(context.TODO(), networkInfo.Namespace)
+		if len(nsxVPCs) > 0 && len(nsxVPCs[0].PrivateIps) == len(networkInfo.VPCs[0].PrivateIPs) {
+			continue
+		}
+		// The NSX VPC doesn't exist or the VPC's private_ips had ever been extended after NSX backup and before NSX restore.
+		log.V(1).Info("Collected NetworkInfo for restore", "NetworkInfo", networkInfo)
+		restoreList = append(
+			restoreList,
+			types.NamespacedName{
+				Namespace: networkInfo.Namespace,
+				Name:      networkInfo.Name,
+			},
+		)
+	}
+	return restoreList, nil
 }
 
 func (r *NetworkInfoReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {

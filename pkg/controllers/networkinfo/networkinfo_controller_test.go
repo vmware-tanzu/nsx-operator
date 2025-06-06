@@ -1591,6 +1591,249 @@ func TestNetworkInfoReconciler_StartController(t *testing.T) {
 	time.Sleep(time.Second)
 }
 
+func TestNetworkInfoReconciler_RestoreReconcile(t *testing.T) {
+	defaultReq := reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: "testNamespace",
+			Name:      "testNetworkInfo",
+		},
+	}
+	testCases := []struct {
+		name                string
+		expectErrStr        string
+		expectReq           reconcile.Request
+		existingNetworkInfo *v1alpha1.NetworkInfo
+		prepareFuncs        func(r *NetworkInfoReconciler) *gomonkey.Patches
+	}{
+		{
+			name:                "NSX version not support",
+			expectErrStr:        "",
+			expectReq:           defaultReq,
+			existingNetworkInfo: nil,
+			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return false
+				})
+				return patches
+			},
+		},
+		{
+			name:                "Failed to list NetworkInfo CR",
+			expectErrStr:        "failed to get NetworkInfo restore list: failed to list NetworkInfo",
+			expectReq:           defaultReq,
+			existingNetworkInfo: nil,
+			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return true
+				})
+				mockCtl := gomock.NewController(t)
+				k8sClient := mock_client.NewMockClient(mockCtl)
+				ctx := context.TODO()
+				k8sClient.EXPECT().List(ctx, gomock.Any()).Return(fmt.Errorf("failed to list NetworkInfo"))
+				r.Client = k8sClient
+				return patches
+			},
+		},
+		{
+			name:         "Failed to validate pre-created VPC",
+			expectErrStr: "failed to get NetworkInfo restore list: failed to check pre-created VPC",
+			expectReq:    defaultReq,
+			existingNetworkInfo: &v1alpha1.NetworkInfo{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns1",
+					Name:      "networkinfo1",
+				},
+			},
+			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNamespacesWithPreCreatedVPCs", func(_ *vpc.VPCService) (map[string]string, error) {
+					return nil, fmt.Errorf("failed to check pre-created VPC")
+				})
+				return patches
+			},
+		},
+		{
+			name:         "NetworkInfo doesn't contain VPCs",
+			expectErrStr: "",
+			expectReq:    defaultReq,
+			existingNetworkInfo: &v1alpha1.NetworkInfo{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns1",
+					Name:      "networkinfo1",
+				},
+			},
+			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetCurrentVPCsByNamespace", func(_ *vpc.VPCService, _ context.Context, _ string) []*model.Vpc {
+					assert.FailNow(t, "should not be called")
+					return nil
+				})
+				return patches
+			},
+		},
+		{
+			name:         "Skip pre-created VPC",
+			expectErrStr: "",
+			expectReq:    defaultReq,
+			existingNetworkInfo: &v1alpha1.NetworkInfo{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns1",
+					Name:      "networkinfo1",
+				},
+				VPCs: []v1alpha1.VPCState{
+					{
+						Name: "vpc1",
+					},
+				},
+			},
+			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNamespacesWithPreCreatedVPCs", func(_ *vpc.VPCService) (map[string]string, error) {
+					return map[string]string{
+						"ns1": "vpc1",
+					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetCurrentVPCsByNamespace", func(_ *vpc.VPCService, _ context.Context, _ string) []*model.Vpc {
+					assert.FailNow(t, "should not be called")
+					return nil
+				})
+				return patches
+			},
+		},
+		{
+			name:         "NSX VPC exists",
+			expectErrStr: "",
+			expectReq:    defaultReq,
+			existingNetworkInfo: &v1alpha1.NetworkInfo{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns1",
+					Name:      "networkinfo1",
+				},
+				VPCs: []v1alpha1.VPCState{
+					{
+						Name: "vpc1",
+					},
+				},
+			},
+			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetCurrentVPCsByNamespace", func(_ *vpc.VPCService, _ context.Context, _ string) []*model.Vpc {
+					return []*model.Vpc{
+						{
+							DisplayName: servicecommon.String("vpc1"),
+						},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r), "Reconcile", func(_ *NetworkInfoReconciler, _ context.Context, req controllerruntime.Request) (controllerruntime.Result, error) {
+					assert.FailNow(t, "should not be called")
+					return common.ResultNormal, nil
+				})
+				return patches
+			},
+		},
+		{
+			name:         "Collect NetworkInfo",
+			expectErrStr: "",
+			expectReq:    defaultReq,
+			existingNetworkInfo: &v1alpha1.NetworkInfo{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns1",
+					Name:      "networkinfo1",
+				},
+				VPCs: []v1alpha1.VPCState{
+					{
+						Name: "vpc1",
+					},
+				},
+			},
+			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetCurrentVPCsByNamespace", func(_ *vpc.VPCService, _ context.Context, _ string) []*model.Vpc {
+					return []*model.Vpc{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r), "Reconcile", func(_ *NetworkInfoReconciler, _ context.Context, req controllerruntime.Request) (controllerruntime.Result, error) {
+					expectReq := reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Namespace: "ns1",
+							Name:      "networkinfo1",
+						},
+					}
+					assert.Equal(t, req, expectReq)
+					return common.ResultNormal, nil
+				})
+				return patches
+			},
+		},
+		{
+			name:         "Reconcile fail",
+			expectErrStr: "failed to restore NetworkInfo ns1/networkinfo1, error: reconcile failed",
+			expectReq:    defaultReq,
+			existingNetworkInfo: &v1alpha1.NetworkInfo{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns1",
+					Name:      "networkinfo1",
+				},
+				VPCs: []v1alpha1.VPCState{
+					{
+						Name: "vpc1",
+					},
+				},
+			},
+			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetCurrentVPCsByNamespace", func(_ *vpc.VPCService, _ context.Context, _ string) []*model.Vpc {
+					return []*model.Vpc{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r), "Reconcile", func(_ *NetworkInfoReconciler, _ context.Context, req controllerruntime.Request) (controllerruntime.Result, error) {
+					expectReq := reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Namespace: "ns1",
+							Name:      "networkinfo1",
+						},
+					}
+					assert.Equal(t, req, expectReq)
+					return common.ResultRequeue, fmt.Errorf("reconcile failed")
+				})
+				return patches
+			},
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			var objs []client.Object
+			if testCase.existingNetworkInfo != nil {
+				objs = append(objs, testCase.existingNetworkInfo)
+			}
+			reconciler := createNetworkInfoReconciler(objs)
+			v1alpha1.AddToScheme(reconciler.Scheme)
+			if testCase.prepareFuncs != nil {
+				patches := testCase.prepareFuncs(reconciler)
+				if patches != nil {
+					defer patches.Reset()
+				}
+			}
+			err := reconciler.RestoreReconcile()
+			if testCase.expectErrStr != "" {
+				assert.ErrorContains(t, err, testCase.expectErrStr)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 type MockManager struct {
 	controllerruntime.Manager
 	client client.Client
