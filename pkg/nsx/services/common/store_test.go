@@ -459,3 +459,29 @@ func Test_formatTagParamTag(t *testing.T) {
 		})
 	}
 }
+
+func Test_buildResourceType(t *testing.T) {
+	tests := []struct {
+		name          string
+		resourceTypes []string
+		want          string
+	}{
+		{
+			name:          "Single resource type",
+			resourceTypes: []string{"VpcSubnetPort"},
+			want:          "resource_type:VpcSubnetPort",
+		},
+		{
+			name:          "Multiple resource types",
+			resourceTypes: []string{"VpcSubnetPort", "LBService", "SecurityPolicy"},
+			want:          "resource_type:(VpcSubnetPort OR LBService OR SecurityPolicy)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildResourceType(tt.resourceTypes)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

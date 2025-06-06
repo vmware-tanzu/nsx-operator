@@ -521,7 +521,7 @@ func TestCleanupInfraDLBResources(t *testing.T) {
 			},
 			queriedObjects: []*model.LBHttpProfile{appProfile},
 			mockFn: func(svc *LBInfraCleaner, queryResponse model.SearchResponse, mockQueryClient *mocks.MockQueryClient) *gomonkey.Patches {
-				query := "(resource_type:LBHttpProfile OR resource_type:LBFastTcpProfile OR resource_type:LBFastUdpProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
+				query := "resource_type:(LBHttpProfile OR LBFastTcpProfile OR LBFastUdpProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
 				mockQueryClient.EXPECT().List(query, gomock.Any(), nil, gomock.Any(), nil, nil).Return(queryResponse, nil)
 				patches := gomonkey.ApplyMethodSeq(svc.NSXClient.LbAppProfileClient, "Delete", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
@@ -538,7 +538,7 @@ func TestCleanupInfraDLBResources(t *testing.T) {
 			},
 			queriedObjects: []*model.LBHttpProfile{appProfile},
 			mockFn: func(svc *LBInfraCleaner, queryResponse model.SearchResponse, mockQueryClient *mocks.MockQueryClient) *gomonkey.Patches {
-				query := "(resource_type:LBHttpProfile OR resource_type:LBFastTcpProfile OR resource_type:LBFastUdpProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
+				query := "resource_type:(LBHttpProfile OR LBFastTcpProfile OR LBFastUdpProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
 				mockQueryClient.EXPECT().List(query, gomock.Any(), nil, gomock.Any(), nil, nil).Return(queryResponse, nil)
 				return nil
 			},
@@ -552,7 +552,7 @@ func TestCleanupInfraDLBResources(t *testing.T) {
 			},
 			queriedObjects: []*model.LBHttpProfile{appProfile},
 			mockFn: func(svc *LBInfraCleaner, queryResponse model.SearchResponse, mockQueryClient *mocks.MockQueryClient) *gomonkey.Patches {
-				query := "(resource_type:LBHttpProfile OR resource_type:LBFastTcpProfile OR resource_type:LBFastUdpProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
+				query := "resource_type:(LBHttpProfile OR LBFastTcpProfile OR LBFastUdpProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
 				mockQueryClient.EXPECT().List(query, gomock.Any(), nil, gomock.Any(), nil, nil).Return(queryResponse, nil)
 				patches := gomonkey.ApplyMethodSeq(svc.NSXClient.LbAppProfileClient, "Delete", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{fmt.Errorf("server error")},
@@ -570,7 +570,7 @@ func TestCleanupInfraDLBResources(t *testing.T) {
 			},
 			queriedObjects: []*model.LBTcpMonitorProfile{monitorProfile},
 			mockFn: func(svc *LBInfraCleaner, queryResponse model.SearchResponse, mockQueryClient *mocks.MockQueryClient) *gomonkey.Patches {
-				query := "(resource_type:LBHttpMonitorProfile OR resource_type:LBTcpMonitorProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
+				query := "resource_type:(LBHttpMonitorProfile OR LBTcpMonitorProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
 				mockQueryClient.EXPECT().List(query, gomock.Any(), nil, gomock.Any(), nil, nil).Return(queryResponse, nil)
 				patches := gomonkey.ApplyMethodSeq(svc.NSXClient.LbMonitorProfilesClient, "Delete", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
@@ -587,7 +587,7 @@ func TestCleanupInfraDLBResources(t *testing.T) {
 			},
 			queriedObjects: []*model.LBTcpMonitorProfile{monitorProfile},
 			mockFn: func(svc *LBInfraCleaner, queryResponse model.SearchResponse, mockQueryClient *mocks.MockQueryClient) *gomonkey.Patches {
-				query := "(resource_type:LBHttpMonitorProfile OR resource_type:LBTcpMonitorProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
+				query := "resource_type:(LBHttpMonitorProfile OR LBTcpMonitorProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
 				mockQueryClient.EXPECT().List(query, gomock.Any(), nil, gomock.Any(), nil, nil).Return(queryResponse, nil)
 				return nil
 			},
@@ -601,7 +601,7 @@ func TestCleanupInfraDLBResources(t *testing.T) {
 			},
 			queriedObjects: []*model.LBTcpMonitorProfile{monitorProfile},
 			mockFn: func(svc *LBInfraCleaner, queryResponse model.SearchResponse, mockQueryClient *mocks.MockQueryClient) *gomonkey.Patches {
-				query := "(resource_type:LBHttpMonitorProfile OR resource_type:LBTcpMonitorProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
+				query := "resource_type:(LBHttpMonitorProfile OR LBTcpMonitorProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
 				mockQueryClient.EXPECT().List(query, gomock.Any(), nil, gomock.Any(), nil, nil).Return(queryResponse, nil)
 				patches := gomonkey.ApplyMethodSeq(svc.NSXClient.LbMonitorProfilesClient, "Delete", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{fmt.Errorf("server error")},
@@ -619,7 +619,7 @@ func TestCleanupInfraDLBResources(t *testing.T) {
 			},
 			queriedObjects: []*model.LBTcpMonitorProfile{monitorProfile},
 			mockFn: func(svc *LBInfraCleaner, queryResponse model.SearchResponse, mockQueryClient *mocks.MockQueryClient) *gomonkey.Patches {
-				query := "(resource_type:LBHttpMonitorProfile OR resource_type:LBTcpMonitorProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
+				query := "resource_type:(LBHttpMonitorProfile OR LBTcpMonitorProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
 				mockQueryClient.EXPECT().List(query, gomock.Any(), nil, gomock.Any(), nil, nil).Return(queryResponse, nil)
 				patches := gomonkey.ApplyMethodSeq(svc.NSXClient.LbMonitorProfilesClient, "Delete", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
@@ -636,7 +636,7 @@ func TestCleanupInfraDLBResources(t *testing.T) {
 			},
 			queriedObjects: []*model.LBTcpMonitorProfile{monitorProfile},
 			mockFn: func(svc *LBInfraCleaner, queryResponse model.SearchResponse, mockQueryClient *mocks.MockQueryClient) *gomonkey.Patches {
-				query := "(resource_type:LBHttpMonitorProfile OR resource_type:LBTcpMonitorProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
+				query := "resource_type:(LBHttpMonitorProfile OR LBTcpMonitorProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
 				mockQueryClient.EXPECT().List(query, gomock.Any(), nil, gomock.Any(), nil, nil).Return(queryResponse, nil)
 				return nil
 			},
@@ -650,7 +650,7 @@ func TestCleanupInfraDLBResources(t *testing.T) {
 			},
 			queriedObjects: []*model.LBTcpMonitorProfile{monitorProfile},
 			mockFn: func(svc *LBInfraCleaner, queryResponse model.SearchResponse, mockQueryClient *mocks.MockQueryClient) *gomonkey.Patches {
-				query := "(resource_type:LBHttpMonitorProfile OR resource_type:LBTcpMonitorProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
+				query := "resource_type:(LBHttpMonitorProfile OR LBTcpMonitorProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
 				mockQueryClient.EXPECT().List(query, gomock.Any(), nil, gomock.Any(), nil, nil).Return(queryResponse, nil)
 				patches := gomonkey.ApplyMethodSeq(svc.NSXClient.LbMonitorProfilesClient, "Delete", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{fmt.Errorf("server error")},
@@ -669,7 +669,7 @@ func TestCleanupInfraDLBResources(t *testing.T) {
 			},
 			queriedObjects: []*model.LBSourceIpPersistenceProfile{persistenceProfile},
 			mockFn: func(svc *LBInfraCleaner, queryResponse model.SearchResponse, mockQueryClient *mocks.MockQueryClient) *gomonkey.Patches {
-				query := "(resource_type:LBCookiePersistenceProfile OR resource_type:LBSourceIpPersistenceProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
+				query := "resource_type:(LBCookiePersistenceProfile OR LBSourceIpPersistenceProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
 				mockQueryClient.EXPECT().List(query, gomock.Any(), nil, gomock.Any(), nil, nil).Return(queryResponse, nil)
 				patches := gomonkey.ApplyMethodSeq(svc.NSXClient.LbPersistenceProfilesClient, "Delete", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
@@ -686,7 +686,7 @@ func TestCleanupInfraDLBResources(t *testing.T) {
 			},
 			queriedObjects: []*model.LBSourceIpPersistenceProfile{persistenceProfile},
 			mockFn: func(svc *LBInfraCleaner, queryResponse model.SearchResponse, mockQueryClient *mocks.MockQueryClient) *gomonkey.Patches {
-				query := "(resource_type:LBCookiePersistenceProfile OR resource_type:LBSourceIpPersistenceProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
+				query := "resource_type:(LBCookiePersistenceProfile OR LBSourceIpPersistenceProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
 				mockQueryClient.EXPECT().List(query, gomock.Any(), nil, gomock.Any(), nil, nil).Return(queryResponse, nil)
 				return nil
 			},
@@ -700,7 +700,7 @@ func TestCleanupInfraDLBResources(t *testing.T) {
 			},
 			queriedObjects: []*model.LBSourceIpPersistenceProfile{persistenceProfile},
 			mockFn: func(svc *LBInfraCleaner, queryResponse model.SearchResponse, mockQueryClient *mocks.MockQueryClient) *gomonkey.Patches {
-				query := "(resource_type:LBCookiePersistenceProfile OR resource_type:LBSourceIpPersistenceProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
+				query := "resource_type:(LBCookiePersistenceProfile OR LBSourceIpPersistenceProfile) AND tags.scope:ncp\\/cluster AND tags.tag:k8scl-one\\:test"
 				mockQueryClient.EXPECT().List(query, gomock.Any(), nil, gomock.Any(), nil, nil).Return(queryResponse, nil)
 				patches := gomonkey.ApplyMethodSeq(svc.NSXClient.LbPersistenceProfilesClient, "Delete", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{fmt.Errorf("server error")},
