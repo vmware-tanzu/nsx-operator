@@ -116,9 +116,7 @@ func (r *NamespaceReconciler) processNewSharedSubnets(ctx context.Context, ns st
 	vpcNetConfig *v1alpha1.VPCNetworkConfiguration, existingSharedSubnets map[string]*v1alpha1.Subnet) (map[string]*v1alpha1.Subnet, error) {
 
 	unusedSubnets := make(map[string]*v1alpha1.Subnet)
-	for k, v := range existingSharedSubnets {
-		unusedSubnets[k] = v
-	}
+	processedSubnets := make(map[string]bool)
 
 	for _, sharedSubnetPath := range vpcNetConfig.Spec.Subnets {
 		associatedResource, err := common.ConvertSubnetPathToAssociatedResource(sharedSubnetPath)
@@ -134,8 +132,13 @@ func (r *NamespaceReconciler) processNewSharedSubnets(ctx context.Context, ns st
 				return unusedSubnets, err
 			}
 		}
-		// Remove from the map to track which ones need to be deleted
-		delete(unusedSubnets, associatedResource)
+		processedSubnets[associatedResource] = true
+	}
+
+	for k, v := range existingSharedSubnets {
+		if !processedSubnets[k] {
+			unusedSubnets[k] = v
+		}
 	}
 
 	return unusedSubnets, nil
@@ -192,6 +195,7 @@ func (r *NamespaceReconciler) deleteUnusedSharedSubnets(ctx context.Context, ns 
 			if err != nil {
 				log.Error(err, "Failed to delete Subnet CR for shared Subnet",
 					"Namespace", ns, "Name", subnet.Name, "AssociatedResource", associatedResource)
+				r.StatusUpdater.DeleteFail(client.ObjectKey{Namespace: ns, Name: subnet.Name}, subnet, err)
 				return err
 			} else {
 				log.Info("Deleted Subnet CR for shared Subnet",

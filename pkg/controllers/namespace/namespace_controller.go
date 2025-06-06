@@ -12,6 +12,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -31,7 +32,8 @@ import (
 )
 
 var (
-	log = &logger.Log
+	log                 = &logger.Log
+	MetricResTypeSubnet = common.MetricResTypeSubnet
 )
 
 // NamespaceReconciler process Namespace create/delete event
@@ -43,6 +45,7 @@ type NamespaceReconciler struct {
 	NSXConfig     *config.NSXOperatorConfig
 	VPCService    types.VPCServiceProvider
 	SubnetService *subnet.SubnetService
+	Recorder      record.EventRecorder
 	StatusUpdater common.StatusUpdater
 }
 
@@ -294,6 +297,8 @@ func NewNamespaceReconciler(mgr ctrl.Manager, cf *config.NSXOperatorConfig, vpcS
 		NSXConfig:     cf,
 		VPCService:    vpcService,
 		SubnetService: subnetService,
+		Recorder:      mgr.GetEventRecorderFor("namespace-controller"),
 	}
+	nsReconciler.StatusUpdater = common.NewStatusUpdater(nsReconciler.Client, nsReconciler.SubnetService.NSXConfig, nsReconciler.Recorder, MetricResTypeSubnet, "Subnet", "Subnet")
 	return nsReconciler
 }

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"sync"
 	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -52,17 +51,6 @@ type SubnetReconciler struct {
 	BindingService    *subnetbinding.BindingService
 	Recorder          record.EventRecorder
 	StatusUpdater     common.StatusUpdater
-	// sharedSubnetsMap is a map of namespaced names to associated resources for shared subnets that need polling
-	sharedSubnetsMap map[types.NamespacedName]string
-	// mutex to protect the sharedSubnetsMap map
-	sharedSubnetsMutex sync.RWMutex
-	// nsxSubnetCache is a cache of associatedResource -> nsxSubnet and statusList mapping
-	nsxSubnetCache map[string]struct {
-		Subnet     *model.VpcSubnet
-		StatusList []model.VpcSubnetStatus
-	}
-	// mutex to protect the nsxSubnetCache map
-	nsxSubnetCacheMutex sync.RWMutex
 }
 
 func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -282,74 +270,11 @@ func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {
 	return nil
 }
 
-// getNSXSubnetFromCacheOrAPI retrieves the NSX subnet from cache if available, otherwise from the NSX API
-// It returns the NSX subnet and any error encountered
-func (r *SubnetReconciler) getNSXSubnetFromCacheOrAPI(associatedResource string, namespacedName types.NamespacedName) (*model.VpcSubnet, error) {
-	// First check if the NSX subnet is in the cache
-	r.nsxSubnetCacheMutex.RLock()
-	cachedData, exists := r.nsxSubnetCache[associatedResource]
-	r.nsxSubnetCacheMutex.RUnlock()
-
-	if exists && cachedData.Subnet != nil {
-		log.Info("Found NSX subnet in cache", "Subnet", namespacedName, "AssociatedResource", associatedResource)
-		return cachedData.Subnet, nil
-	}
-
-	// Get the NSX subnet from the NSX API
-	log.Info("NSX subnet not in cache, fetching from NSX API", "Subnet", namespacedName, "AssociatedResource", associatedResource)
-	nsxSubnet, err := r.SubnetService.GetNSXSubnetByAssociatedResource(associatedResource)
-	if err != nil {
-		log.Error(err, "Failed to get NSX Subnet", "AssociatedResource", associatedResource)
-		return nil, err
-	}
-
-	return nsxSubnet, nil
-}
-
-// getSubnetStatusFromCacheOrAPI retrieves the subnet status from cache if available, otherwise from the NSX API
-// It returns the status list and any error encountered
-func (r *SubnetReconciler) getSubnetStatusFromCacheOrAPI(nsxSubnet *model.VpcSubnet, associatedResource string, namespacedName types.NamespacedName) ([]model.VpcSubnetStatus, error) {
-	// Check if statusList is in cache
-	r.nsxSubnetCacheMutex.RLock()
-	cachedData, exists := r.nsxSubnetCache[associatedResource]
-	r.nsxSubnetCacheMutex.RUnlock()
-
-	if exists && len(cachedData.StatusList) > 0 {
-		log.Info("Found status list in cache", "Subnet", namespacedName, "AssociatedResource", associatedResource)
-		return cachedData.StatusList, nil
-	}
-
-	// Get subnet status from NSX
-	log.Info("Status list not in cache, fetching from NSX API", "Subnet", namespacedName, "AssociatedResource", associatedResource)
-	statusList, err := r.SubnetService.GetSubnetStatus(nsxSubnet)
-	if err != nil {
-		log.Error(err, "Failed to get Subnet status", "AssociatedResource", associatedResource)
-		return nil, err
-	}
-
-	return statusList, nil
-}
-
-// updateNSXSubnetCache updates the cache with the NSX subnet and status list
-func (r *SubnetReconciler) updateNSXSubnetCache(associatedResource string, nsxSubnet *model.VpcSubnet, statusList []model.VpcSubnetStatus) {
-	r.nsxSubnetCacheMutex.Lock()
-	defer r.nsxSubnetCacheMutex.Unlock()
-
-	r.nsxSubnetCache[associatedResource] = struct {
-		Subnet     *model.VpcSubnet
-		StatusList []model.VpcSubnetStatus
-	}{
-		Subnet:     nsxSubnet,
-		StatusList: statusList,
-	}
-	log.Info("Updated NSX subnet cache", "AssociatedResource", associatedResource)
-}
-
 // handleNSXSubnetError handles errors when getting NSX subnet data
 // It updates all affected subnets with the error information
 func (r *SubnetReconciler) handleNSXSubnetError(ctx context.Context, err error, validSubnets []types.NamespacedName, associatedResource, errorType string) {
 	log.Error(err, fmt.Sprintf("Failed to get %s", errorType), "AssociatedResource", associatedResource)
-	r.removeSubnetFromCache(associatedResource, "NSXSubnetError")
+	r.SubnetService.RemoveSubnetFromCache(associatedResource, "NSXSubnetError")
 	// Set subnet ready status to false for all valid subnets
 	for _, namespacedName := range validSubnets {
 		r.updateSharedSubnetWithError(ctx, namespacedName, err, associatedResource, errorType)
@@ -363,14 +288,14 @@ func (r *SubnetReconciler) handleSharedSubnet(ctx context.Context, subnetCR *v1a
 	log.Info("Subnet has associated_resource annotation, skipping NSX Subnet creation", "Subnet", namespacedName, "AssociatedResource", associatedResource)
 
 	// Get NSX subnet from cache or API
-	nsxSubnet, err := r.getNSXSubnetFromCacheOrAPI(associatedResource, namespacedName)
+	nsxSubnet, err := r.SubnetService.GetNSXSubnetFromCacheOrAPI(associatedResource, namespacedName)
 	if err != nil {
 		r.updateSharedSubnetWithError(ctx, namespacedName, err, associatedResource, "Failed to get NSX Subnet for associated resource")
 		return ResultRequeue, err
 	}
 
 	// Get subnet status from cache or API
-	statusList, err := r.getSubnetStatusFromCacheOrAPI(nsxSubnet, associatedResource, namespacedName)
+	statusList, err := r.SubnetService.GetSubnetStatusFromCacheOrAPI(nsxSubnet, associatedResource, namespacedName)
 	if err != nil {
 		// Use updateSharedSubnetWithError for consistency with pollAllSharedSubnets
 		r.updateSharedSubnetWithError(ctx, namespacedName, err, associatedResource, "NSX subnet status")
@@ -378,7 +303,7 @@ func (r *SubnetReconciler) handleSharedSubnet(ctx context.Context, subnetCR *v1a
 	}
 
 	// Update the cache with the NSX subnet and status list
-	r.updateNSXSubnetCache(associatedResource, nsxSubnet, statusList)
+	r.SubnetService.UpdateNSXSubnetCache(associatedResource, nsxSubnet, statusList)
 
 	// Update the status with the NSX subnet information and set shared to true
 	if err := r.updateSubnetIfNeeded(ctx, subnetCR, nsxSubnet, statusList, namespacedName); err != nil {
@@ -387,7 +312,7 @@ func (r *SubnetReconciler) handleSharedSubnet(ctx context.Context, subnetCR *v1a
 	}
 
 	// Add the subnet to the polling queue if it's not already there
-	r.addSubnetToPollingQueue(namespacedName, associatedResource)
+	r.SubnetService.AddSubnetToPollingQueue(namespacedName, associatedResource)
 
 	r.StatusUpdater.UpdateSuccess(ctx, subnetCR, setSubnetReadyStatusTrue)
 	return ResultNormal, nil
@@ -548,11 +473,6 @@ func NewSubnetReconciler(mgr ctrl.Manager, subnetService *subnet.SubnetService, 
 		VPCService:        vpcService,
 		BindingService:    bindingService,
 		Recorder:          mgr.GetEventRecorderFor("subnet-controller"),
-		sharedSubnetsMap:  make(map[types.NamespacedName]string),
-		nsxSubnetCache: make(map[string]struct {
-			Subnet     *model.VpcSubnet
-			StatusList []model.VpcSubnetStatus
-		}),
 	}
 	subnetReconciler.StatusUpdater = common.NewStatusUpdater(subnetReconciler.Client, subnetReconciler.SubnetService.NSXConfig, subnetReconciler.Recorder, MetricResTypeSubnet, "Subnet", "Subnet")
 	return subnetReconciler

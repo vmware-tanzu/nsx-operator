@@ -44,10 +44,16 @@ var (
 	TypeGatewayConnection     = "gateway-connections"
 )
 
+type nameCache struct {
+	projectNames map[string]string
+	vpcNames     map[string]string
+}
+
 type VPCService struct {
 	common.Service
-	VpcStore *VPCStore
-	LbsStore *LBSStore
+	VpcStore  *VPCStore
+	LbsStore  *LBSStore
+	nameCache *nameCache
 }
 
 func (s *VPCService) GetDefaultNetworkConfig() (*v1alpha1.VPCNetworkConfiguration, error) {
@@ -156,6 +162,10 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
 		BindingType: model.LBServiceBindingType(),
 	}}
+	VPCService.nameCache = &nameCache{
+		projectNames: make(map[string]string),
+		vpcNames:     make(map[string]string),
+	}
 
 	// Note: waitgroup.Add must be called before its consumptions.
 	wg.Add(2)
@@ -1003,26 +1013,37 @@ func IsPreCreatedVPC(nc *v1alpha1.VPCNetworkConfiguration) bool {
 
 // GetProjectName gets the project name from its ID
 func (s *VPCService) GetProjectName(orgID, projectID string) (string, error) {
+	key := fmt.Sprintf("%s/%s", orgID, projectID)
+	if cachedName, exists := s.nameCache.projectNames[key]; exists {
+		return cachedName, nil
+	}
+
 	proj, err := s.NSXClient.ProjectClient.Get(orgID, projectID, nil)
 	if err != nil {
 		log.Error(err, "Failed to get project", "ProjectID", projectID)
-		return projectID, err
+		return "", err
 	}
 	if proj.DisplayName != nil {
+		s.nameCache.projectNames[key] = *proj.DisplayName
 		return *proj.DisplayName, nil
 	}
-	return projectID, nil
+	return "", fmt.Errorf("project %s has no display name", projectID)
 }
 
 // GetVPCName gets the VPC name from its ID
 func (s *VPCService) GetVPCName(orgID, projectID, vpcID string) (string, error) {
+	key := fmt.Sprintf("%s/%s/%s", orgID, projectID, vpcID)
+	if cachedName, exists := s.nameCache.vpcNames[key]; exists {
+		return cachedName, nil
+	}
 	vpc, err := s.NSXClient.VPCClient.Get(orgID, projectID, vpcID)
 	if err != nil {
 		log.Error(err, "Failed to get VPC", "VPCID", vpcID)
-		return vpcID, err
+		return "", err
 	}
 	if vpc.DisplayName != nil {
+		s.nameCache.vpcNames[key] = *vpc.DisplayName
 		return *vpc.DisplayName, nil
 	}
-	return vpcID, nil
+	return "", fmt.Errorf("VPC %s has no display name", vpcID)
 }

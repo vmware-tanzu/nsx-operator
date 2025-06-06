@@ -217,11 +217,11 @@ func TestAddSubnetToPollingQueue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := createFakeSubnetReconciler(nil)
-			r.sharedSubnetsMap = tt.existingMap
+			r.SubnetService.SharedSubnetsMap = tt.existingMap
 
-			r.addSubnetToPollingQueue(tt.namespacedName, tt.associatedResource)
+			r.SubnetService.AddSubnetToPollingQueue(tt.namespacedName, tt.associatedResource)
 
-			assert.Equal(t, tt.expectedMap, r.sharedSubnetsMap)
+			assert.Equal(t, tt.expectedMap, r.SubnetService.SharedSubnetsMap)
 		})
 	}
 }
@@ -282,11 +282,11 @@ func TestRemoveSubnetFromPollingQueue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := createFakeSubnetReconciler(nil)
-			r.sharedSubnetsMap = tt.existingMap
+			r.SubnetService.SharedSubnetsMap = tt.existingMap
 
-			r.removeSubnetFromPollingQueue(tt.namespacedName, tt.reason)
+			r.SubnetService.RemoveSubnetFromPollingQueue(tt.namespacedName, tt.reason)
 
-			assert.Equal(t, tt.expectedMap, r.sharedSubnetsMap)
+			assert.Equal(t, tt.expectedMap, r.SubnetService.SharedSubnetsMap)
 		})
 	}
 }
@@ -330,11 +330,11 @@ func TestHandleSubnetGetError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := createFakeSubnetReconciler(nil)
-			r.sharedSubnetsMap = tt.existingMap
+			r.SubnetService.SharedSubnetsMap = tt.existingMap
 
 			r.handleSubnetGetError(tt.err, tt.namespacedName)
 
-			assert.Equal(t, tt.expectedMap, r.sharedSubnetsMap)
+			assert.Equal(t, tt.expectedMap, r.SubnetService.SharedSubnetsMap)
 		})
 	}
 }
@@ -619,7 +619,7 @@ func TestPollAllSharedSubnets(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := createFakeSubnetReconciler(nil)
-			r.sharedSubnetsMap = tt.sharedSubnetsMap
+			r.SubnetService.SharedSubnetsMap = tt.sharedSubnetsMap
 
 			// Track calls to key functions
 			getNSXSubnetCalls := make(map[string]int)
@@ -634,11 +634,11 @@ func TestPollAllSharedSubnets(t *testing.T) {
 					resourceMap := make(map[string][]types.NamespacedName)
 
 					// Create a read lock to safely iterate through the map
-					r.sharedSubnetsMutex.RLock()
-					for namespacedName, associatedResource := range r.sharedSubnetsMap {
+					r.SubnetService.SharedSubnetsMutex.RLock()
+					for namespacedName, associatedResource := range r.SubnetService.SharedSubnetsMap {
 						resourceMap[associatedResource] = append(resourceMap[associatedResource], namespacedName)
 					}
-					r.sharedSubnetsMutex.RUnlock()
+					r.SubnetService.SharedSubnetsMutex.RUnlock()
 
 					// Process each unique associatedResource
 					for associatedResource, namespacedNames := range resourceMap {
@@ -695,7 +695,7 @@ func TestPollAllSharedSubnets(t *testing.T) {
 
 			// Count the number of unique resources in the sharedSubnetsMap
 			uniqueResources := make(map[string]bool)
-			for _, resource := range r.sharedSubnetsMap {
+			for _, resource := range r.SubnetService.SharedSubnetsMap {
 				uniqueResources[resource] = true
 			}
 
@@ -720,7 +720,7 @@ func TestPollAllSharedSubnets(t *testing.T) {
 			// In our mocked implementation, we're directly calling pollSingleSharedSubnet
 			// so we need to count the total number of subnets in the sharedSubnetsMap
 			// which is the same as the number of times pollSingleSharedSubnet would be called
-			totalSubnets := len(r.sharedSubnetsMap)
+			totalSubnets := len(r.SubnetService.SharedSubnetsMap)
 			assert.Equal(t, tt.expectedPollSingleWithPreFetchedCalls, totalSubnets,
 				"Expected pollSingleSharedSubnet to be called %d times, got %d",
 				tt.expectedPollSingleWithPreFetchedCalls, totalSubnets)

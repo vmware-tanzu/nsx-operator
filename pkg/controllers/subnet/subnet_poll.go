@@ -47,7 +47,7 @@ func (r *SubnetReconciler) getValidSubnets(ctx context.Context, namespacedNames 
 
 		// Skip if the subnet is being deleted
 		if !subnetCR.DeletionTimestamp.IsZero() {
-			r.removeSubnetFromPollingQueue(namespacedName, "deleting")
+			r.SubnetService.RemoveSubnetFromPollingQueue(namespacedName, "deleting")
 			continue
 		}
 
@@ -67,11 +67,11 @@ func (r *SubnetReconciler) pollAllSharedSubnets() {
 	resourceMap := make(map[string][]types.NamespacedName)
 
 	// Create a read lock to safely iterate through the map
-	r.sharedSubnetsMutex.RLock()
-	for namespacedName, associatedResource := range r.sharedSubnetsMap {
+	r.SubnetService.SharedSubnetsMutex.RLock()
+	for namespacedName, associatedResource := range r.SubnetService.SharedSubnetsMap {
 		resourceMap[associatedResource] = append(resourceMap[associatedResource], namespacedName)
 	}
-	r.sharedSubnetsMutex.RUnlock()
+	r.SubnetService.SharedSubnetsMutex.RUnlock()
 
 	// Process each unique associatedResource
 	for associatedResource, namespacedNames := range resourceMap {
@@ -83,7 +83,7 @@ func (r *SubnetReconciler) pollAllSharedSubnets() {
 		if len(validSubnets) == 0 {
 			log.Info("No valid Subnets found for associated resource", "AssociatedResource", associatedResource)
 			// Remove the associatedResource from the nsxSubnetCache if it has no valid subnets
-			r.removeSubnetFromCache(associatedResource, "no valid subnets")
+			r.SubnetService.RemoveSubnetFromCache(associatedResource, "no valid subnets")
 			continue
 		}
 
@@ -110,7 +110,7 @@ func (r *SubnetReconciler) pollAllSharedSubnets() {
 		}
 
 		// Update the cache with the latest NSX subnet and status list
-		r.updateNSXSubnetCache(associatedResource, nsxSubnet, statusList)
+		r.SubnetService.UpdateNSXSubnetCache(associatedResource, nsxSubnet, statusList)
 
 		// Enqueue all subnet CRs associated with this resource for reconciliation
 		for _, namespacedName := range validSubnets {
@@ -131,7 +131,7 @@ func (r *SubnetReconciler) enqueueSubnetForReconciliation(ctx context.Context, n
 
 	// Skip if the subnet is being deleted
 	if !subnetCR.DeletionTimestamp.IsZero() {
-		r.removeSubnetFromPollingQueue(namespacedName, "deleting")
+		r.SubnetService.RemoveSubnetFromPollingQueue(namespacedName, "deleting")
 		return
 	}
 
@@ -160,7 +160,7 @@ func (r *SubnetReconciler) updateSharedSubnetWithError(ctx context.Context, name
 
 	// Skip if the subnet is being deleted
 	if !subnetCR.DeletionTimestamp.IsZero() {
-		r.removeSubnetFromPollingQueue(namespacedName, "deleting")
+		r.SubnetService.RemoveSubnetFromPollingQueue(namespacedName, "deleting")
 		return
 	}
 
@@ -174,26 +174,10 @@ func (r *SubnetReconciler) updateSharedSubnetWithError(ctx context.Context, name
 func (r *SubnetReconciler) handleSubnetGetError(err error, namespacedName types.NamespacedName) {
 	if apierrors.IsNotFound(err) {
 		// Subnet CR no longer exists, remove it from the polling queue
-		r.removeSubnetFromPollingQueue(namespacedName, "deleted")
+		r.SubnetService.RemoveSubnetFromPollingQueue(namespacedName, "deleted")
 	} else {
 		log.Error(err, "Failed to get Subnet CR during polling", "Subnet", namespacedName)
 	}
-}
-
-// removeSubnetFromPollingQueue removes a subnet from the polling queue
-func (r *SubnetReconciler) removeSubnetFromPollingQueue(namespacedName types.NamespacedName, reason string) {
-	r.sharedSubnetsMutex.Lock()
-	defer r.sharedSubnetsMutex.Unlock()
-	delete(r.sharedSubnetsMap, namespacedName)
-	log.Info("Removed shared Subnet from polling queue", "reason", reason, "Subnet", namespacedName)
-}
-
-// removeSubnetFromCache removes a subnet from the nsxSubnetCache
-func (r *SubnetReconciler) removeSubnetFromCache(associatedResource string, reason string) {
-	r.nsxSubnetCacheMutex.Lock()
-	defer r.nsxSubnetCacheMutex.Unlock()
-	delete(r.nsxSubnetCache, associatedResource)
-	log.Info("Removed Subnet from cache", "reason", reason, "AssociatedResource", associatedResource)
 }
 
 // updateSubnetIfNeeded updates the subnet if it has changed
@@ -247,17 +231,6 @@ func (r *SubnetReconciler) hasSubnetSpecChanged(originalSpec, newSpec *v1alpha1.
 	// TODO other fields to check?
 	return originalSpec.AdvancedConfig.ConnectivityState != newSpec.AdvancedConfig.ConnectivityState ||
 		originalSpec.SubnetDHCPConfig.Mode != newSpec.SubnetDHCPConfig.Mode
-}
-
-// addSubnetToPollingQueue adds a subnet to the polling queue if it's not already there
-func (r *SubnetReconciler) addSubnetToPollingQueue(namespacedName types.NamespacedName, associatedResource string) {
-	r.sharedSubnetsMutex.Lock()
-	defer r.sharedSubnetsMutex.Unlock()
-
-	if _, exists := r.sharedSubnetsMap[namespacedName]; !exists {
-		r.sharedSubnetsMap[namespacedName] = associatedResource
-		log.Info("Added shared Subnet to polling queue", "Subnet", namespacedName, "AssociatedResource", associatedResource)
-	}
 }
 
 func (r *SubnetReconciler) clearSubnetAddresses(obj client.Object) {

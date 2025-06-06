@@ -174,7 +174,12 @@ func createFakeSubnetReconciler(objs []client.Object) *SubnetReconciler {
 				},
 			},
 		},
-		SubnetStore: &subnet.SubnetStore{},
+		SubnetStore:      &subnet.SubnetStore{},
+		SharedSubnetsMap: make(map[types.NamespacedName]string),
+		NSXSubnetCache: make(map[string]struct {
+			Subnet     *model.VpcSubnet
+			StatusList []model.VpcSubnetStatus
+		}),
 	}
 
 	subnetPortService := &subnetport.SubnetPortService{
@@ -193,11 +198,6 @@ func createFakeSubnetReconciler(objs []client.Object) *SubnetReconciler {
 		SubnetPortService: subnetPortService,
 		Recorder:          &fakeRecorder{},
 		StatusUpdater:     common2.NewStatusUpdater(fakeClient, subnetService.NSXConfig, &fakeRecorder{}, MetricResTypeSubnet, "Subnet", "Subnet"),
-		sharedSubnetsMap:  make(map[types.NamespacedName]string),
-		nsxSubnetCache: make(map[string]struct {
-			Subnet     *model.VpcSubnet
-			StatusList []model.VpcSubnetStatus
-		}),
 	}
 }
 

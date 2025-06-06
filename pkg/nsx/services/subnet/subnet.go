@@ -39,6 +39,17 @@ type SubnetService struct {
 	common.Service
 	SubnetStore *SubnetStore
 	builder     *common.PolicyTreeBuilder[*model.VpcSubnet]
+	// SharedSubnetsMap is a map of namespaced names to associated resources for shared subnets that need polling
+	SharedSubnetsMap map[types.NamespacedName]string
+	// mutex to protect the SharedSubnetsMap map
+	SharedSubnetsMutex sync.RWMutex
+	// NSXSubnetCache is a cache of associatedResource -> nsxSubnet and statusList mapping
+	NSXSubnetCache map[string]struct {
+		Subnet     *model.VpcSubnet
+		StatusList []model.VpcSubnetStatus
+	}
+	// mutex to protect the NSXSubnetCache map
+	nsxSubnetCacheMutex sync.RWMutex
 }
 
 // SubnetParameters stores parameters to CRUD Subnet object
@@ -69,7 +80,12 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 				BindingType: model.VpcSubnetBindingType(),
 			},
 		},
-		builder: builder,
+		builder:          builder,
+		SharedSubnetsMap: make(map[types.NamespacedName]string),
+		NSXSubnetCache: make(map[string]struct {
+			Subnet     *model.VpcSubnet
+			StatusList []model.VpcSubnetStatus
+		}),
 	}
 
 	wg.Add(1)
@@ -598,4 +614,94 @@ func (service *SubnetService) IsDefaultNSXProject(orgID, projectID string) (bool
 		return true, nil
 	}
 	return false, nil
+}
+
+// GetNSXSubnetFromCacheOrAPI retrieves the NSX subnet from cache if available, otherwise from the NSX API
+// It returns the NSX subnet and any error encountered
+func (service *SubnetService) GetNSXSubnetFromCacheOrAPI(associatedResource string, namespacedName types.NamespacedName) (*model.VpcSubnet, error) {
+	// First check if the NSX subnet is in the cache
+	service.nsxSubnetCacheMutex.RLock()
+	cachedData, exists := service.NSXSubnetCache[associatedResource]
+	service.nsxSubnetCacheMutex.RUnlock()
+
+	if exists && cachedData.Subnet != nil {
+		log.Info("Found NSX subnet in cache", "Subnet", namespacedName, "AssociatedResource", associatedResource)
+		return cachedData.Subnet, nil
+	}
+
+	// Get the NSX subnet from the NSX API
+	log.Info("NSX subnet not in cache, fetching from NSX API", "Subnet", namespacedName, "AssociatedResource", associatedResource)
+	nsxSubnet, err := service.GetNSXSubnetByAssociatedResource(associatedResource)
+	if err != nil {
+		log.Error(err, "Failed to get NSX Subnet", "AssociatedResource", associatedResource)
+		return nil, err
+	}
+
+	return nsxSubnet, nil
+}
+
+// GetSubnetStatusFromCacheOrAPI retrieves the subnet status from cache if available, otherwise from the NSX API
+// It returns the status list and any error encountered
+func (service *SubnetService) GetSubnetStatusFromCacheOrAPI(nsxSubnet *model.VpcSubnet, associatedResource string, namespacedName types.NamespacedName) ([]model.VpcSubnetStatus, error) {
+	// Check if statusList is in cache
+	service.nsxSubnetCacheMutex.RLock()
+	cachedData, exists := service.NSXSubnetCache[associatedResource]
+	service.nsxSubnetCacheMutex.RUnlock()
+
+	if exists && len(cachedData.StatusList) > 0 {
+		log.Info("Found status list in cache", "Subnet", namespacedName, "AssociatedResource", associatedResource)
+		return cachedData.StatusList, nil
+	}
+
+	// Get subnet status from NSX
+	log.Info("Status list not in cache, fetching from NSX API", "Subnet", namespacedName, "AssociatedResource", associatedResource)
+	statusList, err := service.GetSubnetStatus(nsxSubnet)
+	if err != nil {
+		log.Error(err, "Failed to get Subnet status", "AssociatedResource", associatedResource)
+		return nil, err
+	}
+
+	return statusList, nil
+}
+
+// UpdateNSXSubnetCache updates the cache with the NSX subnet and status list
+func (service *SubnetService) UpdateNSXSubnetCache(associatedResource string, nsxSubnet *model.VpcSubnet, statusList []model.VpcSubnetStatus) {
+	service.nsxSubnetCacheMutex.Lock()
+	defer service.nsxSubnetCacheMutex.Unlock()
+
+	service.NSXSubnetCache[associatedResource] = struct {
+		Subnet     *model.VpcSubnet
+		StatusList []model.VpcSubnetStatus
+	}{
+		Subnet:     nsxSubnet,
+		StatusList: statusList,
+	}
+	log.Info("Updated NSX subnet cache", "AssociatedResource", associatedResource)
+}
+
+// AddSubnetToPollingQueue adds a subnet to the polling queue if it's not already there
+func (service *SubnetService) AddSubnetToPollingQueue(namespacedName types.NamespacedName, associatedResource string) {
+	service.SharedSubnetsMutex.Lock()
+	defer service.SharedSubnetsMutex.Unlock()
+
+	if _, exists := service.SharedSubnetsMap[namespacedName]; !exists {
+		service.SharedSubnetsMap[namespacedName] = associatedResource
+		log.Info("Added shared Subnet to polling queue", "Subnet", namespacedName, "AssociatedResource", associatedResource)
+	}
+}
+
+// RemoveSubnetFromPollingQueue removes a subnet from the polling queue
+func (service *SubnetService) RemoveSubnetFromPollingQueue(namespacedName types.NamespacedName, reason string) {
+	service.SharedSubnetsMutex.Lock()
+	defer service.SharedSubnetsMutex.Unlock()
+	delete(service.SharedSubnetsMap, namespacedName)
+	log.Info("Removed shared Subnet from polling queue", "reason", reason, "Subnet", namespacedName)
+}
+
+// RemoveSubnetFromCache removes a subnet from the NSXSubnetCache
+func (service *SubnetService) RemoveSubnetFromCache(associatedResource string, reason string) {
+	service.nsxSubnetCacheMutex.Lock()
+	defer service.nsxSubnetCacheMutex.Unlock()
+	delete(service.NSXSubnetCache, associatedResource)
+	log.Info("Removed Subnet from cache", "reason", reason, "AssociatedResource", associatedResource)
 }
