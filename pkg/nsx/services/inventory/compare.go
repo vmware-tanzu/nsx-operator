@@ -25,7 +25,7 @@ func compareResources(pre interface{}, cur interface{}) map[string]interface{} {
 	case string(ContainerNetworkPolicy):
 		compareNetworkPolicy(pre, cur, property)
 	}
-	log.Info("Compare resource", "property", property)
+	log.V(1).Info("Compare resource", "property", property)
 	return property
 }
 
