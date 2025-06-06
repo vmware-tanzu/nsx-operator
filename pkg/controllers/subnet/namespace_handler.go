@@ -80,13 +80,13 @@ func requeueSubnet(c client.Client, ns string, q workqueue.TypedRateLimitingInte
 		return err
 	}
 
-	for _, subnet_item := range subnetList.Items {
+	for _, subnetItem := range subnetList.Items {
 		log.Info("Requeue Subnet because Namespace update",
-			"Namespace", subnet_item.Namespace, "Name", subnet_item.Name)
+			"Namespace", subnetItem.Namespace, "Name", subnetItem.Name)
 		q.Add(reconcile.Request{
 			NamespacedName: types.NamespacedName{
-				Name:      subnet_item.Name,
-				Namespace: subnet_item.Namespace,
+				Name:      subnetItem.Name,
+				Namespace: subnetItem.Namespace,
 			},
 		})
 	}

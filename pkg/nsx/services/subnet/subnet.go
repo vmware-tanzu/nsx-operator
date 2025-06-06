@@ -24,14 +24,10 @@ import (
 )
 
 var (
-	log                       = &logger.Log
-	MarkedForDelete           = true
-	EnforceRevisionCheckParam = false
-	ResourceTypeSubnet        = common.ResourceTypeSubnet
-	NewConverter              = common.NewConverter
-	// Default static ip-pool under Subnet.
-	SubnetTypeError            = errors.New("unsupported type")
-	ErrorCodeUnrecognizedField = int64(287)
+	log                = &logger.Log
+	MarkedForDelete    = true
+	ResourceTypeSubnet = common.ResourceTypeSubnet
+	SubnetTypeError    = errors.New("unsupported type")
 )
 
 type SubnetService struct {
@@ -96,7 +92,7 @@ func (service *SubnetService) RestoreSubnetSet(obj *v1alpha1.SubnetSet, vpcInfo 
 			log.Error(err, "Failed to build Subnet", "subnetInfo", subnetInfo)
 			return err
 		}
-		// If the Subnet with the same CIDR existed in cache, check if it is updated
+		// If the Subnet with the same CIDR existed in the cache, check if it is updated
 		// If the existing Subnet is not updated, skip the API call
 		changed := true
 		for _, existingSubnet := range nsxSubnets {
@@ -178,7 +174,7 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 	// For SubnetSets, since the ID includes a random value, the created NSX Subnet needs to be deleted and recreated.
 	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *nsxSubnet.Path, []string{}); err != nil {
 		log.Error(err, "Failed to check Subnet realization state", "ID", *nsxSubnet.Id)
-		// Delete the subnet if realization check fails, avoiding creating duplicate subnets continuously.
+		// Delete the subnet if the realization check fails, avoiding creating duplicate subnets continuously.
 		deleteErr := service.DeleteSubnet(*nsxSubnet)
 		if deleteErr != nil {
 			log.Error(deleteErr, "Failed to delete Subnet after realization check failure", "ID", *nsxSubnet.Id)
@@ -205,7 +201,7 @@ func (service *SubnetService) DeleteSubnet(nsxSubnet model.VpcSubnet) error {
 	err := service.NSXClient.SubnetsClient.Delete(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
-		// Subnets that are not deleted successfully will finally be deleted by GC.
+		// GC will finally delete subnets that are not deleted successfully.
 		log.Error(err, "Failed to delete nsxSubnet", "ID", *nsxSubnet.Id)
 		return err
 	}
@@ -332,9 +328,11 @@ func (service *SubnetService) ListSubnetIDsFromNSXSubnets() sets.Set[string] {
 	return subnetIDs
 }
 
-// ListIndexFuncValues returns all the indexed values of the given index
-// Index maps the indexed value to a set of keys in the store that match on that value: type Index map[string]sets.String
-// see the getIndexValues function in k8s.io/client-go/tools/cache/thread_safe_store.go
+// ListAllSubnet ListIndexFuncValues returns all the indexed values of the given index
+//
+//	maps the indexed value to a set of keys in the store that match on that value: type Index map[string]sets.String
+//
+// sees the getIndexValues function in k8s.io/client-go/tools/cache/thread_safe_store.go
 func (service *SubnetService) ListAllSubnet() []*model.VpcSubnet {
 	var allNSXSubnets []*model.VpcSubnet
 	// ListSubnetCreatedBySubnet
@@ -420,7 +418,7 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 			}
 		}
 
-		// Skip this subnet if the Namespace doesn't match
+		// Skip this subject if the Namespace doesn't match
 		if !matchNamespace {
 			log.Info("Namespace mismatch, skipping subnet", "Subnet", *vpcSubnet.Id, "Namespace", ns)
 			continue
@@ -431,7 +429,7 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 		}
 		newTags := append(service.buildBasicTags(subnetSet), tags...)
 
-		// Avoid updating vpcSubnets[i] to ensure Subnet store
+		// Avoid updating vpcSubnets[i] to ensure the Subnet store
 		// is only updated after the updating succeeds.
 		updatedSubnet := *vpcSubnets[i]
 		updatedSubnet.Tags = newTags
