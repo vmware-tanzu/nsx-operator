@@ -10,15 +10,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var NSXOperatorSA = "system:serviceaccount:vmware-system-nsx:ncp-svc-account"
 
-// Create validator instead of using the existing one in controller-runtime because the existing one can't
+// Create a validator instead of using the existing one in controller-runtime because the existing one can't
 // inspect admission.Request in Handle function.
 
-// +kubebuilder:webhook:path=/validate-crd-nsx-vmware-com-v1alpha1-subnet,mutating=false,failurePolicy=fail,sideEffects=None,groups=crd.nsx.vmware.com,resources=subnets,verbs=delete,versions=v1alpha1,name=subnet.validating.crd.nsx.vmware.com,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-crd-nsx-vmware-com-v1alpha1-subnet,mutating=false,failurePolicy=fail,sideEffects=None,groups=crd.nsx.vmware.com,resources=subnets,verbs=create;update;delete,versions=v1alpha1,name=subnet.validating.crd.nsx.vmware.com,admissionReviewVersions=v1
 
 type SubnetValidator struct {
 	Client  client.Client
@@ -27,6 +28,7 @@ type SubnetValidator struct {
 
 // Handle handles admission requests.
 func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
+	log.Info("Handling request", "user", req.UserInfo.Username, "operation", req.Operation)
 	subnet := &v1alpha1.Subnet{}
 
 	var err error
@@ -39,13 +41,66 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 		log.Error(err, "error while decoding Subnet", "Subnet", req.Namespace+"/"+req.Name)
 		return admission.Errored(http.StatusBadRequest, err)
 	}
-	log.V(1).Info("Handling request", "user", req.UserInfo.Username, "operation", req.Operation)
 	switch req.Operation {
 	case admissionv1.Create:
 		if subnet.Spec.IPv4SubnetSize != 0 && !util.IsPowerOfTwo(subnet.Spec.IPv4SubnetSize) {
 			return admission.Denied(fmt.Sprintf("Subnet %s/%s has invalid size %d, which must be power of 2", subnet.Namespace, subnet.Name, subnet.Spec.IPv4SubnetSize))
 		}
+
+		// Shared Subnet can only be updated by NSX Operator
+		if (common.IsSharedSubnet(subnet)) && req.UserInfo.Username != NSXOperatorSA {
+			return admission.Denied(fmt.Sprintf("Shared Subnet %s/%s can only be created by NSX Operator", subnet.Namespace, subnet.Name))
+		}
+
+		// Prevent users from setting spec.vpcName and spec.enableVLANExtension
+		if req.UserInfo.Username != NSXOperatorSA {
+			if subnet.Spec.VPCName != "" {
+				return admission.Denied(fmt.Sprintf("Subnet %s/%s: spec.vpcName can only be set by NSX Operator", subnet.Namespace, subnet.Name))
+			}
+			if subnet.Spec.AdvancedConfig.EnableVLANExtension {
+				return admission.Denied(fmt.Sprintf("Subnet %s/%s: spec.enableVLANExtension can only be set by NSX Operator", subnet.Namespace, subnet.Name))
+			}
+		}
+	case admissionv1.Update:
+		oldSubnet := &v1alpha1.Subnet{}
+		if err := v.decoder.DecodeRaw(req.OldObject, oldSubnet); err != nil {
+			log.Error(err, "Failed to decode old Subnet", "Subnet", req.Namespace+"/"+req.Name)
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+
+		log.V(2).Info("Decoded old Subnet", "oldSubnet", oldSubnet)
+		log.V(2).Info("Decoded new Subnet", "subnet", subnet)
+		log.V(2).Info("User info", "username", req.UserInfo.Username, "isNSXOperator", req.UserInfo.Username == NSXOperatorSA)
+		log.V(2).Info("VPCName comparison", "oldVPCName", oldSubnet.Spec.VPCName, "newVPCName", subnet.Spec.VPCName, "isEqual", oldSubnet.Spec.VPCName == subnet.Spec.VPCName)
+
+		// Shared Subnet can only be updated by NSX Operator
+		if (common.IsSharedSubnet(oldSubnet) || common.IsSharedSubnet(subnet)) && req.UserInfo.Username != NSXOperatorSA {
+			return admission.Denied(fmt.Sprintf("Shared Subnet %s/%s can only be updated by NSX Operator", subnet.Namespace, subnet.Name))
+		}
+
+		// Prevent users from updating spec.vpcName and spec.enableVLANExtension
+		if req.UserInfo.Username != NSXOperatorSA {
+			// Check if vpcName is being added or changed
+			if oldSubnet.Spec.VPCName != subnet.Spec.VPCName {
+				log.V(2).Info("Denying update to vpcName", "oldVPCName", oldSubnet.Spec.VPCName, "newVPCName", subnet.Spec.VPCName)
+				return admission.Denied(fmt.Sprintf("Subnet %s/%s: spec.vpcName can only be updated by NSX Operator", subnet.Namespace, subnet.Name))
+			}
+			if oldSubnet.Spec.AdvancedConfig.EnableVLANExtension != subnet.Spec.AdvancedConfig.EnableVLANExtension {
+				return admission.Denied(fmt.Sprintf("Subnet %s/%s: spec.enableVLANExtension can only be updated by NSX Operator", subnet.Namespace, subnet.Name))
+			}
+		}
 	case admissionv1.Delete:
+		oldSubnet := &v1alpha1.Subnet{}
+		if err := v.decoder.DecodeRaw(req.OldObject, oldSubnet); err != nil {
+			log.Error(err, "Failed to decode old Subnet", "Subnet", req.Namespace+"/"+req.Name)
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+
+		// Shared Subnet can only be deleted by NSX Operator
+		if (common.IsSharedSubnet(oldSubnet) || common.IsSharedSubnet(subnet)) && req.UserInfo.Username != NSXOperatorSA {
+			return admission.Denied(fmt.Sprintf("Shared Subnet %s/%s can only be deleted by NSX Operator", subnet.Namespace, subnet.Name))
+		}
+
 		if req.UserInfo.Username != NSXOperatorSA {
 			hasSubnetPort, err := v.checkSubnetPort(ctx, subnet.Namespace, subnet.Name)
 			if err != nil {

@@ -21,6 +21,8 @@ type VPCServiceProvider interface {
 	GetDefaultNetworkConfig() (*v1alpha1.VPCNetworkConfiguration, error)
 	ListVPCInfo(ns string) []VPCResourceInfo
 	GetNetworkconfigNameFromNS(ctx context.Context, ns string) (string, error)
+	GetProjectName(orgID, projectID string) (string, error)
+	GetVPCName(orgID, projectID, vpcID string) (string, error)
 }
 
 type SubnetServiceProvider interface {
