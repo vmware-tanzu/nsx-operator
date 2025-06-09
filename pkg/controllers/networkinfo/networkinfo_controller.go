@@ -199,7 +199,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 
 		// Re-check the gateway connection and service cluster readiness in system VPC on NSX.
-		connectionStatus, err := r.Service.ValidateConnectionStatus(nc)
+		connectionStatus, err := r.Service.ValidateConnectionStatus(nc, nc.Spec.VPCConnectivityProfile)
 		if err != nil {
 			log.Error(err, "Failed to get the connection status")
 			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to validate the edge and gateway connection, Project: %s", nc.Spec.NSXProject), setNetworkInfoVPCStatusWithError, nil)
@@ -208,6 +208,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		log.Info("Got the connection status", "status", connectionStatus)
 		setVPCNetworkConfigurationStatusWithGatewayConnection(ctx, r.Client, systemVpcNetCfg, connectionStatus)
+		gatewayConnectionReady = connectionStatus.GatewayConnectionReady
 		serviceClusterReady = connectionStatus.ServiceClusterReady
 
 		// Retry after 60s if the gateway connection is still not ready in system VPC.
@@ -337,13 +338,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		lbIP = aviSECIDR
 	} else if lbProvider == vpc.NSXLB && len(nsxLBSPath) > 0 {
 		// Only check SNat IP when LB capability is ready.
-		if vpcConnectivityProfile.ServiceGateway != nil && len(vpcConnectivityProfile.ServiceGateway.EdgeClusterPaths) != 0 {
-			// CTGW is used for NSX LB
-			nsxLBSNATIP, err = r.Service.GetNSXLBSNATIP(*createdVpc, "gateway-interface")
-		} else if vpcConnectivityProfile.ServiceGateway != nil && len(vpcConnectivityProfile.ServiceGateway.ServiceClusterPaths) != 0 {
-			// DTGW is used for NSX LB
-			nsxLBSNATIP, err = r.Service.GetNSXLBSNATIP(*createdVpc, "service-interface")
-		}
+		nsxLBSNATIP, err = r.getNSXLBSNATIP(nc, createdVpc, vpcConnectivityProfilePath, gatewayConnectionReady, serviceClusterReady)
 		if err != nil {
 			log.Error(err, "Failed to read NSX LB SNAT IP", "VPC", createdVpc.Id)
 			state := &v1alpha1.VPCState{
@@ -377,6 +372,29 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCIsReady.getNSNetworkCondition())
 	return common.ResultNormal, nil
+}
+
+func (r *NetworkInfoReconciler) getNSXLBSNATIP(nc *v1alpha1.VPCNetworkConfiguration, createdVpc *model.Vpc, vpcConnectivityProfilePath string, gatewayConnectionReady, serviceClusterReady bool) (string, error) {
+	checkGatewayConnection := gatewayConnectionReady
+	checkServiceCluster := serviceClusterReady
+	// Precreated VPC uses different connectivity profile from system VPC
+	// Need to check the profile separately
+	if vpc.IsPreCreatedVPC(nc) {
+		connectionStatus, err := r.Service.ValidateConnectionStatus(nc, vpcConnectivityProfilePath)
+		if err != nil {
+			return "", err
+		}
+		checkGatewayConnection = connectionStatus.GatewayConnectionReady
+		checkServiceCluster = connectionStatus.ServiceClusterReady
+	}
+	if checkGatewayConnection {
+		// CTGW is used for NSX LB
+		return r.Service.GetNSXLBSNATIP(*createdVpc, "gateway-interface")
+	} else if checkServiceCluster {
+		// DTGW is used for NSX LB
+		return r.Service.GetNSXLBSNATIP(*createdVpc, "service-interface")
+	}
+	return "", nil
 }
 
 func (r *NetworkInfoReconciler) setupWithManager(mgr ctrl.Manager) error {

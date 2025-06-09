@@ -733,14 +733,13 @@ func TestGetGatewayConnectionTypeFromConnectionPath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			service, _, _, _ := createService(t)
-			observedType, observedError := service.GetGatewayConnectionTypeFromConnectionPath(tt.path)
+			observedType, observedError := service.GetConnectionTypeFromConnectionPath(tt.path)
 			assert.Equal(t, tt.expectedType, observedType)
 			assert.Equal(t, tt.expectedError, observedError)
 		})
 	}
 }
 
-// TODO: Add case for dtgw
 func TestValidateConnectionStatus(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -790,8 +789,22 @@ func TestValidateConnectionStatus(t *testing.T) {
 					Values: gomonkey.Params{
 						model.VpcConnectivityProfile{
 							ServiceGateway: &model.VpcServiceGatewayConfig{
-								Enable:              common.Bool(true),
-								ServiceClusterPaths: []string{"/service-cluster-path"},
+								Enable:           common.Bool(true),
+								EdgeClusterPaths: []string{"/service-cluster-path"},
+							},
+							TransitGatewayPath: common.String("/transit-gateway"),
+						},
+						nil,
+					},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.TransitGatewayAttachmentClient), "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.TransitGatewayAttachmentListResult{
+							Results: []model.TransitGatewayAttachment{
+								{
+									ConnectionPath: common.String("/infra/distributed-vlan-connections/gateway-102"),
+								},
 							},
 						},
 						nil,
@@ -818,7 +831,8 @@ func TestValidateConnectionStatus(t *testing.T) {
 					Values: gomonkey.Params{
 						model.VpcConnectivityProfile{
 							ServiceGateway: &model.VpcServiceGatewayConfig{
-								Enable: common.Bool(true),
+								Enable:           common.Bool(true),
+								EdgeClusterPaths: []string{"/edge-cluster-path"},
 							},
 							TransitGatewayPath: common.String("/transit-gateway"),
 						},
@@ -842,48 +856,6 @@ func TestValidateConnectionStatus(t *testing.T) {
 				return patches
 			},
 		},
-		{
-			name: "GatewayConnectionNotReady",
-			expectedStatus: &common.VPCConnectionStatus{
-				GatewayConnectionReady:  false,
-				GatewayConnectionReason: common.ReasonGatewayConnectionNotSet,
-				ServiceClusterReady:     false,
-				ServiceClusterReason:    common.ReasonServiceClusterNotSet,
-			},
-			vpcNetworkConfig: v1alpha1.VPCNetworkConfiguration{
-				Spec: v1alpha1.VPCNetworkConfigurationSpec{
-					NSXProject: "/orgs/default/projects/project-quality",
-				},
-			},
-			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
-				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{
-						model.VpcConnectivityProfile{
-							ServiceGateway: &model.VpcServiceGatewayConfig{
-								Enable: common.Bool(true),
-							},
-							TransitGatewayPath: common.String("/transit-gateway"),
-						},
-						nil,
-					},
-					Times: 1,
-				}})
-				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.TransitGatewayAttachmentClient), "List", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{
-						model.TransitGatewayAttachmentListResult{
-							Results: []model.TransitGatewayAttachment{
-								{
-									ConnectionPath: common.String("/infra/distributed-vlan-connections/gateway-101"),
-								},
-							},
-						},
-						nil,
-					},
-					Times: 1,
-				}})
-				return patches
-			},
-		},
 	}
 
 	service, _, _, _ := createService(t)
@@ -895,7 +867,7 @@ func TestValidateConnectionStatus(t *testing.T) {
 				patches := tt.prepareFunc(t, service)
 				defer patches.Reset()
 			}
-			status, err := service.ValidateConnectionStatus(&tt.vpcNetworkConfig)
+			status, err := service.ValidateConnectionStatus(&tt.vpcNetworkConfig, tt.vpcNetworkConfig.Spec.VPCConnectivityProfile)
 			assert.Equal(t, tt.expectedStatus, status)
 			assert.Equal(t, tt.expectedError, err)
 			return

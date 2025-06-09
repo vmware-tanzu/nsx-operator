@@ -34,14 +34,15 @@ const (
 )
 
 var (
-	log                       = &logger.Log
-	ResourceTypeVPC           = common.ResourceTypeVpc
-	NewConverter              = common.NewConverter
-	globalLbProvider          = NoneLB
-	lbProviderMutex           = &sync.Mutex{}
-	MarkedForDelete           = true
-	EnforceRevisionCheckParam = false
-	TypeGatewayConnection     = "gateway-connections"
+	log                           = &logger.Log
+	ResourceTypeVPC               = common.ResourceTypeVpc
+	NewConverter                  = common.NewConverter
+	globalLbProvider              = NoneLB
+	lbProviderMutex               = &sync.Mutex{}
+	MarkedForDelete               = true
+	EnforceRevisionCheckParam     = false
+	TypeGatewayConnection         = "gateway-connections"
+	TypeDistributedVlanConnection = "distributed-vlan-connections"
 )
 
 type VPCService struct {
@@ -689,7 +690,7 @@ func (s *VPCService) checkVpcAttachmentRealization(createdAttachment *model.VpcA
 	return nil
 }
 
-func (s *VPCService) GetGatewayConnectionTypeFromConnectionPath(connectionPath string) (string, error) {
+func (s *VPCService) GetConnectionTypeFromConnectionPath(connectionPath string) (string, error) {
 	/* examples of connection_path:
 	   /infra/distributed-vlan-connections/gateway-101
 	   /infra/gateway-connections/tenant-1
@@ -701,7 +702,7 @@ func (s *VPCService) GetGatewayConnectionTypeFromConnectionPath(connectionPath s
 	return parts[2], nil
 }
 
-func (s *VPCService) ValidateConnectionStatus(nc *v1alpha1.VPCNetworkConfiguration) (*common.VPCConnectionStatus, error) {
+func (s *VPCService) ValidateConnectionStatus(nc *v1alpha1.VPCNetworkConfiguration, profilePath string) (*common.VPCConnectionStatus, error) {
 	org, project, err := common.NSXProjectPathToId(nc.Spec.NSXProject)
 	if err != nil {
 		log.Error(err, "Failed to parse NSX project in NetworkConfig", "ProjectPath", nc.Spec.NSXProject)
@@ -714,24 +715,20 @@ func (s *VPCService) ValidateConnectionStatus(nc *v1alpha1.VPCNetworkConfigurati
 		ServiceClusterReady:     false,
 		ServiceClusterReason:    common.ReasonServiceClusterNotSet,
 	}
-	// If ServiceGateway is not enable, both gateway connection and service cluster are not ready
-	profile, err := s.GetVpcConnectivityProfile(nc, nc.Spec.VPCConnectivityProfile)
+
+	profile, err := s.GetVpcConnectivityProfile(nc, profilePath)
 	if err != nil {
-		log.Error(err, "Failed to get VPCConnectivityProfile", "path", nc.Spec.VPCConnectivityProfile)
+		log.Error(err, "Failed to get VPCConnectivityProfile", "path", profilePath)
 		return nil, err
 	}
-	if profile.ServiceGateway == nil || profile.ServiceGateway.Enable == nil || !(*profile.ServiceGateway.Enable) {
+
+	// If ServiceGateway is not enable, both gateway connection and service cluster are not ready
+	if profile.ServiceGateway == nil || profile.ServiceGateway.Enable == nil || !(*profile.ServiceGateway.Enable) || len(profile.ServiceGateway.EdgeClusterPaths) == 0 {
 		return status, nil
 	}
-	// For DTGW, in day0, even if vlan connection is set in TGW, service cluster might not be configured.
-	// Thus we check the service cluster path in connectivity profile
-	if len(profile.ServiceGateway.ServiceClusterPaths) > 0 {
-		status.ServiceClusterReady = true
-		status.ServiceClusterReason = ""
-		return status, nil
-	}
-	// For CTGW, only gateway-connection type of TGW connection can indicate the edge cluster is configured.
-	var connectionPaths []string // i.e. gateway connection paths
+	// For DTGW, distributed-vlan-connection will be set in TGW connection.
+	// For CTGW, gateway-connection will be set in TGW connection.
+	var connectionPaths []string // i.e. TGW connection paths
 	markedForDelete := false
 	transitGatewayPath := *profile.TransitGatewayPath
 	parts := strings.Split(transitGatewayPath, "/")
@@ -745,13 +742,16 @@ func (s *VPCService) ValidateConnectionStatus(nc *v1alpha1.VPCNetworkConfigurati
 		connectionPaths = append(connectionPaths, *attachment.ConnectionPath)
 	}
 	for _, connectionPath := range connectionPaths {
-		gatewayConnectionType, err := s.GetGatewayConnectionTypeFromConnectionPath(connectionPath)
+		connectionType, err := s.GetConnectionTypeFromConnectionPath(connectionPath)
 		if err != nil {
 			return status, err
 		}
-		if gatewayConnectionType == TypeGatewayConnection {
+		if connectionType == TypeGatewayConnection {
 			status.GatewayConnectionReady = true
 			status.GatewayConnectionReason = ""
+		} else if connectionType == TypeDistributedVlanConnection {
+			status.ServiceClusterReady = true
+			status.ServiceClusterReason = ""
 		}
 	}
 	return status, nil
