@@ -15,8 +15,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -276,29 +274,4 @@ func GetSubnetPathFromAssociatedResource(associatedResource string) (string, err
 		return "", fmt.Errorf("failed to parse associated resource annotation %s", associatedResource)
 	}
 	return fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s/subnets/%s", orgId, parts[0], parts[1], parts[2]), nil
-}
-
-var PredicateFuncsWithNetworkInfo = predicate.Funcs{
-	CreateFunc: func(e event.CreateEvent) bool {
-		return false
-	},
-	UpdateFunc: func(e event.UpdateEvent) bool {
-		oldNetworkInfo := e.ObjectOld.(*v1alpha1.NetworkInfo)
-		newNetworkInfo := e.ObjectNew.(*v1alpha1.NetworkInfo)
-		if len(oldNetworkInfo.VPCs) != len(newNetworkInfo.VPCs) {
-			return true
-		}
-		if len(oldNetworkInfo.VPCs) != 0 &&
-			(oldNetworkInfo.VPCs[0].DefaultSNATIP != newNetworkInfo.VPCs[0].DefaultSNATIP ||
-				oldNetworkInfo.VPCs[0].LoadBalancerIPAddresses != newNetworkInfo.VPCs[0].LoadBalancerIPAddresses) {
-			return true
-		}
-		return false
-	},
-	DeleteFunc: func(e event.DeleteEvent) bool {
-		return false
-	},
-	GenericFunc: func(e event.GenericEvent) bool {
-		return false
-	},
 }

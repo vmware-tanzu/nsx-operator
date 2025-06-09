@@ -1792,49 +1792,6 @@ func TestSubnetPortReconciler_StartController(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-func TestSubnetPortReconciler_NetworkInfoMapFunc(t *testing.T) {
-	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
-	defer mockCtl.Finish()
-	r := &SubnetPortReconciler{
-		Client: k8sClient,
-	}
-	subnetPortList := &v1alpha1.SubnetPortList{}
-	k8sClient.EXPECT().List(gomock.Any(), subnetPortList, gomock.Any()).Return(fmt.Errorf("mocked network error"))
-	k8sClient.EXPECT().List(gomock.Any(), subnetPortList, gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		a := list.(*v1alpha1.SubnetPortList)
-		a.Items = append(a.Items, v1alpha1.SubnetPort{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "ns",
-				Name:      "subentport-1",
-			},
-		}, v1alpha1.SubnetPort{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "ns",
-				Name:      "subentport-2",
-			},
-		})
-		return nil
-	})
-	networkInfo := &v1alpha1.NetworkInfo{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "ns"},
-	}
-	requests := r.networkInfoMapFunc(context.TODO(), networkInfo)
-	assert.Equal(t, 2, len(requests))
-	assert.Equal(t, reconcile.Request{
-		NamespacedName: types.NamespacedName{
-			Name:      "subentport-1",
-			Namespace: "ns",
-		},
-	}, requests[0])
-	assert.Equal(t, reconcile.Request{
-		NamespacedName: types.NamespacedName{
-			Name:      "subentport-2",
-			Namespace: "ns",
-		},
-	}, requests[1])
-}
-
 type MockManager struct {
 	controllerruntime.Manager
 	client client.Client

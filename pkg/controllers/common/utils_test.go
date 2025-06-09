@@ -18,7 +18,6 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -285,69 +284,4 @@ func TestGetSubnetPathFromAssociatedResource(t *testing.T) {
 
 	_, err = GetSubnetPathFromAssociatedResource("invalid-annotation")
 	assert.ErrorContains(t, err, "failed to parse associated resource annotation")
-}
-
-func TestPredicateFuncsWithNetworkInfo(t *testing.T) {
-	networkInfoNatLB := &v1alpha1.NetworkInfo{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "ns-1",
-			Namespace: "ns-1",
-		},
-		VPCs: []v1alpha1.VPCState{
-			{
-				Name:                    "ns-1",
-				DefaultSNATIP:           "192.168.0.1",
-				LoadBalancerIPAddresses: "172.26.0.0/26",
-				PrivateIPs:              []string{"172.26.0.0/16"},
-			},
-		},
-	}
-	networkInfoPrivateIP := &v1alpha1.NetworkInfo{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "ns-2",
-			Namespace: "ns-2",
-		},
-		VPCs: []v1alpha1.VPCState{
-			{
-				Name:                    "ns-1",
-				DefaultSNATIP:           "192.168.0.1",
-				LoadBalancerIPAddresses: "172.26.0.0/26",
-				PrivateIPs:              []string{"172.16.0.0/16"},
-			},
-		},
-	}
-	networkInfo := &v1alpha1.NetworkInfo{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "ns-4",
-			Namespace: "ns-4",
-		},
-		VPCs: []v1alpha1.VPCState{
-			{
-				Name:       "ns-4",
-				PrivateIPs: []string{"172.26.0.0/16"},
-			},
-		},
-	}
-	createEvent := event.CreateEvent{
-		Object: networkInfo,
-	}
-	assert.False(t, PredicateFuncsWithNetworkInfo.CreateFunc(createEvent))
-	deleteEvent := event.DeleteEvent{
-		Object: networkInfo,
-	}
-	assert.False(t, PredicateFuncsWithNetworkInfo.DeleteFunc(deleteEvent))
-	genericEvent := event.GenericEvent{
-		Object: networkInfo,
-	}
-	assert.False(t, PredicateFuncsWithNetworkInfo.GenericFunc(genericEvent))
-	updateEvent := event.UpdateEvent{
-		ObjectOld: networkInfo,
-		ObjectNew: networkInfoNatLB,
-	}
-	assert.True(t, PredicateFuncsWithNetworkInfo.UpdateFunc(updateEvent))
-	updateEvent = event.UpdateEvent{
-		ObjectOld: networkInfoNatLB,
-		ObjectNew: networkInfoPrivateIP,
-	}
-	assert.False(t, PredicateFuncsWithNetworkInfo.UpdateFunc(updateEvent))
 }

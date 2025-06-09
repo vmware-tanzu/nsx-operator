@@ -284,10 +284,6 @@ func (r *SubnetPortReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Watches(&vmv1alpha1.VirtualMachine{},
 			handler.EnqueueRequestsFromMapFunc(r.vmMapFunc),
 			builder.WithPredicates(predicate.LabelChangedPredicate{})).
-		Watches(
-			&v1alpha1.NetworkInfo{},
-			handler.EnqueueRequestsFromMapFunc(r.networkInfoMapFunc),
-			builder.WithPredicates(common.PredicateFuncsWithNetworkInfo)).
 		Watches(&v1alpha1.AddressBinding{},
 				handler.EnqueueRequestsFromMapFunc(r.addressBindingMapFunc)).
 		Complete(r) // TODO: watch the virtualmachine event and update the labels on NSX subnet port.
@@ -301,31 +297,6 @@ func (r *SubnetPortReconciler) SetupFieldIndexers(mgr ctrl.Manager) error {
 		return err
 	}
 	return nil
-}
-
-func (r *SubnetPortReconciler) networkInfoMapFunc(ctx context.Context, networkInfo client.Object) []reconcile.Request {
-	subnetPortList := &v1alpha1.SubnetPortList{}
-	var requests []reconcile.Request
-	err := retry.OnError(retry.DefaultRetry, func(err error) bool {
-		return err != nil
-	}, func() error {
-		err := r.Client.List(ctx, subnetPortList, &client.ListOptions{Namespace: networkInfo.GetNamespace()})
-		return err
-	})
-	if err != nil {
-		log.Error(err, "failed to list SubnetPort", "Namespace", networkInfo.GetNamespace())
-		return requests
-	}
-	// Requeue the SubnetPort if the precreated VPC SNAT/LB status is changed
-	for _, subnetPort := range subnetPortList.Items {
-		requests = append(requests, reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      subnetPort.Name,
-				Namespace: subnetPort.Namespace,
-			},
-		})
-	}
-	return requests
 }
 
 func (r *SubnetPortReconciler) vmMapFunc(_ context.Context, vm client.Object) []reconcile.Request {

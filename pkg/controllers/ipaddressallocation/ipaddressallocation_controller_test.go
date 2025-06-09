@@ -6,7 +6,6 @@ package ipaddressallocation
 import (
 	"context"
 	"errors"
-	"fmt"
 	"reflect"
 	"sync"
 	"testing"
@@ -374,63 +373,6 @@ func TestIPAddressAllocationReconciler_StartController(t *testing.T) {
 	r := NewIPAddressAllocationReconciler(mockMgr, ipAddressAllocationService, vpcService)
 	err := r.StartController(mockMgr, nil)
 	assert.Nil(t, err)
-}
-
-func TestIPAddressAllocationReconciler_NetworkInfoMapFunc(t *testing.T) {
-	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
-	defer mockCtl.Finish()
-	r := &IPAddressAllocationReconciler{
-		Client: k8sClient,
-	}
-	ipaList := &v1alpha1.IPAddressAllocationList{}
-	k8sClient.EXPECT().List(gomock.Any(), ipaList, gomock.Any()).Return(fmt.Errorf("mocked network error"))
-	k8sClient.EXPECT().List(gomock.Any(), ipaList, gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		a := list.(*v1alpha1.IPAddressAllocationList)
-		a.Items = append(a.Items, v1alpha1.IPAddressAllocation{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "ns",
-				Name:      "ipa-1",
-			},
-			Spec: v1alpha1.IPAddressAllocationSpec{
-				IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityExternal,
-			},
-		}, v1alpha1.IPAddressAllocation{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "ns",
-				Name:      "ipa-2",
-			},
-			Spec: v1alpha1.IPAddressAllocationSpec{
-				IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityPrivate,
-			},
-		}, v1alpha1.IPAddressAllocation{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "ns",
-				Name:      "ipa-3",
-			},
-			Spec: v1alpha1.IPAddressAllocationSpec{
-				IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityPrivateTGW,
-			},
-		})
-		return nil
-	})
-	networkInfo := &v1alpha1.NetworkInfo{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "ns"},
-	}
-	requests := r.networkInfoMapFunc(context.TODO(), networkInfo)
-	assert.Equal(t, 2, len(requests))
-	assert.Equal(t, reconcile.Request{
-		NamespacedName: types.NamespacedName{
-			Name:      "ipa-1",
-			Namespace: "ns",
-		},
-	}, requests[0])
-	assert.Equal(t, reconcile.Request{
-		NamespacedName: types.NamespacedName{
-			Name:      "ipa-3",
-			Namespace: "ns",
-		},
-	}, requests[1])
 }
 
 type MockManager struct {
