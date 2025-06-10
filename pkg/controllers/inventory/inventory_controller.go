@@ -93,7 +93,7 @@ func (c *InventoryController) setupWithManager(mgr ctrl.Manager) error {
 
 func (c *InventoryController) Run(stopCh <-chan struct{}) {
 	defer c.inventoryObjectQueue.ShutDown()
-	log.Info("Starting inventory controller")
+	log.V(2).Info("Starting inventory controller")
 
 	err := c.CleanStaleInventoryObjects()
 	if err != nil {
@@ -167,7 +167,7 @@ func (c *InventoryController) syncInventoryKeys() {
 			// For others, forget here stop the rate limiter from tracking it.
 			if retryKeys.Has(key) {
 				c.inventoryObjectQueue.AddRateLimited(key)
-				log.Info("Enqueue key for retrying", "key", key)
+				log.V(2).Info("Enqueue key for retrying", "key", key)
 			} else {
 				c.inventoryObjectQueue.Forget(key)
 			}
@@ -176,7 +176,7 @@ func (c *InventoryController) syncInventoryKeys() {
 }
 
 func (c *InventoryController) CleanStaleInventoryObjects() error {
-	log.Info("Clean stale inventory objects")
+	log.V(2).Info("Clean stale inventory objects")
 	err := c.service.CleanStaleInventoryApplicationInstance()
 	if err != nil {
 		return err

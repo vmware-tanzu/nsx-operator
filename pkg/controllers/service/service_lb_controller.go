@@ -70,8 +70,7 @@ func (r *ServiceLbReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	if service.Spec.Type == v1.ServiceTypeLoadBalancer {
-		log.Info("Reconciling LB service", "LBService", req.NamespacedName)
-		log.V(1).Info("Reconciling LB Service", "name", service.Name, "version", service.ResourceVersion, "status", service.Status)
+		log.Info("Reconciling LB service", "LBService", req.NamespacedName, "name", service.Name, "version", service.ResourceVersion, "status", service.Status)
 		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResType)
 
 		if service.ObjectMeta.DeletionTimestamp.IsZero() {

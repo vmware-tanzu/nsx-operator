@@ -174,13 +174,13 @@ func (limiter *AIMDRateLimter) AdjustRate(waitTime time.Duration, statusCode int
 			if r < limiter.max {
 				r++
 				limiter.l.SetLimit(rate.Limit(r))
-				log.V(1).Info("Increasing API rate limit", "rateLimit", r, "statusCode", statusCode)
+				log.V(2).Info("Increasing API rate limit", "rateLimit", r, "statusCode", statusCode)
 			}
 		} else if limiter.neg > 0 {
 			if r > 1 {
 				r = r / 2
 				limiter.l.SetLimit(rate.Limit(r))
-				log.V(1).Info("Decreasing API rate limit", "rateLimit", r, "statusCode", statusCode)
+				log.V(2).Info("Decreasing API rate limit", "rateLimit", r, "statusCode", statusCode)
 			}
 		}
 		limiter.lastAdjuctRate = now

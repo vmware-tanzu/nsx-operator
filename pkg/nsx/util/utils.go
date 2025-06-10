@@ -144,7 +144,6 @@ func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorD
 	log.V(2).Info("HTTP response", "status code", statusCode, "body", string(body))
 	ec := ErrorDetail{StatusCode: statusCode}
 	if len(body) == 0 {
-		log.V(1).Info("body length is 0")
 		return ec, nil
 	}
 	var res responseBody

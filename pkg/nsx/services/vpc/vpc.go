@@ -950,7 +950,7 @@ func (s *VPCService) GetAllVPCsFromNSX() map[string]model.Vpc {
 	if searchErr != nil {
 		log.Error(searchErr, "Failed to query VPC from NSX", "query", query)
 	} else {
-		log.V(1).Info("Query VPC", "count", count)
+		log.V(2).Info("Query VPC", "count", count)
 	}
 	vpcMap := make(map[string]model.Vpc)
 	for _, obj := range store.List() {
