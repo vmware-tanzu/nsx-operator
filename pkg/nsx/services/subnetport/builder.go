@@ -223,26 +223,26 @@ func getCluster(service *SubnetPortService) string {
 	return service.NSXConfig.Cluster
 }
 
-func buildSubnetPortExternalAddressBindingFromExisting(subnetPort *model.VpcSubnetPort, existingSubnetPort *model.VpcSubnetPort) *model.VpcSubnetPort {
-	if existingSubnetPort == nil {
-		return subnetPort
-	}
-	if existingSubnetPort.ExternalAddressBinding != nil {
-		if subnetPort.ExternalAddressBinding != nil {
-			// update is not supported, keep existing ExternalAddressBinding
-			subnetPort.ExternalAddressBinding = &model.ExternalAddressBinding{}
-		}
-	}
-	return subnetPort
-}
-
 func (service *SubnetPortService) buildExternalAddressBinding(sp *v1alpha1.SubnetPort, restoreMode bool) (*model.ExternalAddressBinding, error) {
 	addressBinding := service.GetAddressBindingBySubnetPort(sp)
 	if addressBinding == nil {
 		return nil, nil
 	}
 	portExternalAddressBinding := &model.ExternalAddressBinding{}
-	if restoreMode && len(addressBinding.Status.IPAddress) > 0 {
+	if addressBinding.Spec.IPAddressAllocationName != "" {
+		ipAllocation := &v1alpha1.IPAddressAllocation{}
+		if err := service.Client.Get(context.TODO(), types.NamespacedName{
+			Namespace: addressBinding.Namespace,
+			Name:      addressBinding.Spec.IPAddressAllocationName,
+		}, ipAllocation); err != nil {
+			return nil, err
+		}
+		ipAllocationModel, err := service.IpAddressAllocationService.GetIPAddressAllocationByOwner(ipAllocation)
+		if err != nil {
+			return nil, err
+		}
+		portExternalAddressBinding.AllocatedExternalIpPath = ipAllocationModel.Path
+	} else if restoreMode && len(addressBinding.Status.IPAddress) > 0 {
 		ns := sp.Namespace
 		VPCInfo := service.VPCService.ListVPCInfo(ns)
 		if len(VPCInfo) == 0 {
@@ -253,6 +253,7 @@ func (service *SubnetPortService) buildExternalAddressBinding(sp *v1alpha1.Subne
 		externalIpPath := vpcPath + "/ip-address-allocations/" + ipAddressAllocationID
 
 		portExternalAddressBinding.AllocatedExternalIpPath = String(externalIpPath)
+		// TODO: support backup/restore when restoreMode is false
 	}
 	return portExternalAddressBinding, nil
 }
