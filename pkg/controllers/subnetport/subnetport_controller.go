@@ -49,7 +49,7 @@ import (
 const resourceTypeAddressBinding = "AddressBinding"
 
 var (
-	log                     = &logger.Log
+	log                     = &logger.CustomLog
 	MetricResTypeSubnetPort = common.MetricResTypeSubnetPort
 )
 

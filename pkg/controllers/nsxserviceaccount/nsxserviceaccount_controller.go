@@ -104,7 +104,7 @@ var (
 )
 
 var (
-	log                     = &logger.Log
+	log                     = &logger.CustomLog
 	ResultNormal            = common.ResultNormal
 	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins

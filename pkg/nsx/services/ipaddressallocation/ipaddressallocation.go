@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	log                             = &logger.Log
+	log                             = &logger.CustomLog
 	MarkedForDelete                 = true
 	ResourceTypeIPAddressAllocation = common.ResourceTypeIPAddressAllocation
 )

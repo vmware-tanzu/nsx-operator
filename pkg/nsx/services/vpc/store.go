@@ -76,13 +76,13 @@ func (s *VPCStore) Apply(i interface{}) error {
 	vpc := i.(*model.Vpc)
 	if vpc.MarkedForDelete != nil && *vpc.MarkedForDelete {
 		err := s.Delete(vpc)
-		log.V(1).Info("delete VPC from store", "VPC", vpc)
+		log.V(2).Info("delete VPC from store", "VPC", vpc)
 		if err != nil {
 			return err
 		}
 	} else {
 		err := s.Add(vpc)
-		log.V(1).Info("add VPC to store", "VPC", vpc)
+		log.V(2).Info("add VPC to store", "VPC", vpc)
 		if err != nil {
 			return err
 		}

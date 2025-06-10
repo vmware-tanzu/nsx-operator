@@ -22,7 +22,7 @@ import (
 )
 
 var (
-	log                 = &logger.Log
+	log                 = &logger.CustomLog
 	ipBlocksInfoCRDName = "ip-blocks-info"
 	syncInterval        = 10 * time.Minute
 	retryInterval       = 30 * time.Second
@@ -109,7 +109,7 @@ func (s *IPBlocksInfoService) UpdateIPBlocksInfo(ctx context.Context, vpcConfigC
 }
 
 func (s *IPBlocksInfoService) SyncIPBlocksInfo(ctx context.Context) error {
-	log.V(1).Info("start to synchronize IPBlocksInfo")
+	log.Info("start to synchronize IPBlocksInfo")
 	// List all VpcNetworkConfiguration CRs
 	crdVpcNetworkConfigurationList := &v1alpha1.VPCNetworkConfigurationList{}
 	err := s.Client.List(ctx, crdVpcNetworkConfigurationList)

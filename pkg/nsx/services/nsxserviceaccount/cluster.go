@@ -45,7 +45,7 @@ const (
 )
 
 var (
-	log = &logger.Log
+	log = &logger.CustomLog
 
 	isProtectedTrue = true
 	vpcRole         = "ccp_internal_operator"

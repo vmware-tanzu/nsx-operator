@@ -276,7 +276,7 @@ func updateSecurityPolicyStatusConditions(client client.Client, ctx context.Cont
 				log.Error(err, "")
 			}
 		}
-		log.V(1).Info("Updated SecurityPolicy", "Name", secPolicy.Name, "Namespace", secPolicy.Namespace,
+		log.Info("Updated SecurityPolicy", "Name", secPolicy.Name, "Namespace", secPolicy.Namespace,
 			"New Conditions", newConditions)
 	}
 }
@@ -422,7 +422,7 @@ func (r *SecurityPolicyReconciler) listSecurityPolciyCRIDs() (sets.Set[string], 
 // It is triggered by associated controller like pod, namespace, etc.
 func reconcileSecurityPolicy(r *SecurityPolicyReconciler, pkgclient client.Client, pods []v1.Pod, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	podPortNames := getAllPodPortNames(pods)
-	log.V(1).Info("POD named port", "podPortNames", podPortNames)
+	log.Info("POD named port", "podPortNames", podPortNames)
 	var spList client.ObjectList
 	if securitypolicy.IsVPCEnabled(r.Service) {
 		spList = &crdv1alpha1.SecurityPolicyList{}

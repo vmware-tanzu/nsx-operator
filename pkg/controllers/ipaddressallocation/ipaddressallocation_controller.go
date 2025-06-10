@@ -28,7 +28,7 @@ import (
 )
 
 var (
-	log           = logger.Log
+	log           = logger.CustomLog
 	resultNormal  = common.ResultNormal
 	resultRequeue = common.ResultRequeue
 	MetricResType = common.MetricResTypeIPAddressAllocation

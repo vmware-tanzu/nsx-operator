@@ -53,9 +53,9 @@ func (c *InventoryController) handleNamespace(obj interface{}) {
 			return
 		}
 	}
-	log.V(1).Info("Inventory processing Namespace", "name", ns.Name)
+	log.V(2).Info("Inventory processing Namespace", "name", ns.Name)
 	// key is ObjectName{Namespace: "", Name: obj.GetName()}
 	key, _ := keyFunc(ns)
-	log.V(1).Info("Adding Namespace key to inventory object queue", "Namespace key", key)
+	log.V(2).Info("Adding Namespace key to inventory object queue", "Namespace key", key)
 	c.inventoryObjectQueue.Add(inventory.InventoryKey{InventoryType: inventory.ContainerProject, ExternalId: string(ns.UID), Key: key})
 }

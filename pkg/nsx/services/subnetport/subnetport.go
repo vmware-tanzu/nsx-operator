@@ -26,7 +26,7 @@ import (
 )
 
 var (
-	log                    = &logger.Log
+	log                    = &logger.CustomLog
 	ResourceTypeSubnetPort = servicecommon.ResourceTypeSubnetPort
 	MarkedForDelete        = true
 	IPReleaseTime          = 2 * time.Minute

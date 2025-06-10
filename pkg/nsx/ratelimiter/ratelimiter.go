@@ -16,7 +16,7 @@ import (
 // APIReduceRateCodes is http status code set which will trigger rate limiter adjust.
 var (
 	APIReduceRateCodes = [2]int{429, 503}
-	log                = &logger.Log
+	log                = &logger.CustomLog
 )
 
 const (
@@ -174,13 +174,13 @@ func (limiter *AIMDRateLimter) AdjustRate(waitTime time.Duration, statusCode int
 			if r < limiter.max {
 				r++
 				limiter.l.SetLimit(rate.Limit(r))
-				log.V(1).Info("Increasing API rate limit", "rateLimit", r, "statusCode", statusCode)
+				log.V(2).Info("Increasing API rate limit", "rateLimit", r, "statusCode", statusCode)
 			}
 		} else if limiter.neg > 0 {
 			if r > 1 {
 				r = r / 2
 				limiter.l.SetLimit(rate.Limit(r))
-				log.V(1).Info("Decreasing API rate limit", "rateLimit", r, "statusCode", statusCode)
+				log.V(2).Info("Decreasing API rate limit", "rateLimit", r, "statusCode", statusCode)
 			}
 		}
 		limiter.lastAdjuctRate = now

@@ -29,7 +29,7 @@ import (
 )
 
 var (
-	log = &logger.Log
+	log = &logger.CustomLog
 )
 
 // NamespaceReconciler process Namespace create/delete event

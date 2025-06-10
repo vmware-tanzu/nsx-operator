@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	log                       = &logger.Log
+	log                       = &logger.CustomLog
 	MarkedForDelete           = true
 	EnforceRevisionCheckParam = false
 	ResourceTypeSubnet        = common.ResourceTypeSubnet

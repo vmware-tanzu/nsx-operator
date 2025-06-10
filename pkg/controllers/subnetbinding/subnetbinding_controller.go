@@ -29,7 +29,7 @@ import (
 )
 
 var (
-	log = &logger.Log
+	log = &logger.CustomLog
 )
 
 type errorWithRetry struct {

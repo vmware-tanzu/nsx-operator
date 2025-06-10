@@ -43,7 +43,7 @@ const (
 )
 
 var (
-	log           = &logger.Log
+	log           = &logger.CustomLog
 	MetricResType = common.MetricResTypeNetworkInfo
 )
 
