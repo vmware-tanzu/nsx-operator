@@ -53,9 +53,9 @@ func (c *InventoryController) handleNode(obj interface{}) {
 			return
 		}
 	}
-	log.V(1).Info("Inventory processing Node", "name", node.Name)
+	log.Debug("Inventory processing Node", "name", node.Name)
 	// key is ObjectName{Namespace: "", Name: obj.GetName()}
 	key, _ := keyFunc(node)
-	log.V(1).Info("Adding Node key to inventory object queue", "Node key", key)
+	log.Debug("Adding Node key to inventory object queue", "Node key", key)
 	c.inventoryObjectQueue.Add(inventory.InventoryKey{InventoryType: inventory.ContainerClusterNode, ExternalId: string(node.UID), Key: key})
 }

@@ -292,7 +292,7 @@ func (service *SubnetPortService) GetAddressBindingBySubnetPort(sp *v1alpha1.Sub
 			}
 			log.Info("Found multiple SubnetPorts for a VM, ignore default AddressBinding for SubnetPort", "namespace", sp.Namespace, "name", sp.Name, "defaultAddressBindingName", ab.Name, "VM", vm)
 		} else if ab.Spec.InterfaceName == port {
-			log.V(1).Info("Found AddressBinding for SubnetPort", "namespace", sp.Namespace, "name", sp.Name, "addressBindingName", ab.Name)
+			log.Debug("Found AddressBinding for SubnetPort", "namespace", sp.Namespace, "name", sp.Name, "addressBindingName", ab.Name)
 			return &ab
 		}
 	}

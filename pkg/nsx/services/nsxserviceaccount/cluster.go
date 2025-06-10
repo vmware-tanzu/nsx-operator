@@ -45,7 +45,7 @@ const (
 )
 
 var (
-	log = &logger.Log
+	log = &logger.CustomLog
 
 	isProtectedTrue = true
 	vpcRole         = "ccp_internal_operator"
@@ -203,7 +203,7 @@ func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.
 	}
 	cert := secret.Data[SecretCertName]
 
-	log.V(1).Info("RestoreRealizedNSXServiceAccount: ",
+	log.Debug("RestoreRealizedNSXServiceAccount: ",
 		"certificate.PemEncoded==nil", certificate.PemEncoded == nil,
 		"certificate.PemEncoded", certificate.PemEncoded,
 		"cert", string(cert))
@@ -216,7 +216,7 @@ func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.
 		return fmt.Errorf("PI/CCP doesn't match")
 	}
 	_, err := s.NSXClient.ClusterControlPlanesClient.Get(siteId, enforcementpointId, normalizedClusterName)
-	log.V(1).Info("RestoreRealizedNSXServiceAccount s.NSXClient.ClusterControlPlanesClient.Get", "err", err)
+	log.Debug("RestoreRealizedNSXServiceAccount s.NSXClient.ClusterControlPlanesClient.Get", "err", err)
 	err = nsxutil.TransNSXApiError(err)
 	if err == nil {
 		return fmt.Errorf("CCP store is not synchronized")
@@ -241,10 +241,10 @@ func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.
 
 func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, vpcPath string, cert string, existingClusterId *string, obj *v1alpha1.NSXServiceAccount) (string, error) {
 	// create PI
-	log.V(1).Info("createPIAndCCP")
+	log.Debug("createPIAndCCP")
 	hasPI := len(s.PrincipalIdentityStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(obj.UID))) > 0
 	if piObj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName); !hasPI && piObj == nil {
-		log.V(1).Info("create PI")
+		log.Debug("create PI")
 		pi, err := s.NSXClient.WithCertificateClient.Create(mpmodel.PrincipalIdentityWithCertificate{
 			IsProtected: &isProtectedTrue,
 			Name:        &normalizedClusterName,
@@ -273,7 +273,7 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 		log.Error(fmt.Errorf("conflicting old PI exists"), "Failed to create PI and CCPN", "!hasPI", !hasPI, "piObj == nil", piObj == nil)
 		return "", fmt.Errorf("old PI exists")
 	} else if hasPI && (piObj != nil) {
-		log.V(1).Info("update PI with new cert")
+		log.Debug("update PI with new cert")
 		pi := piObj.(*mpmodel.PrincipalIdentity)
 		err := s.updatePICert(pi, normalizedClusterName, cert)
 		if err != nil {

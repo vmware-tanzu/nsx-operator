@@ -38,9 +38,9 @@ func testCreateVMBasic(t *testing.T) {
 	storageClassName, storagePolicyID, _ := testData.vcClient.getStoragePolicyID()
 	// storageClass uses - instead of _
 	storageClassName = strings.ReplaceAll(storageClassName, "_", "-")
-	log.V(1).Info("Get storage policy", "storagePolicyID", storagePolicyID, "storageClassName", storageClassName)
+	log.Debug("Get storage policy", "storagePolicyID", storagePolicyID, "storageClassName", storageClassName)
 	clusterImage, _ := testData.vcClient.getClusterVirtualMachineImage()
-	log.V(1).Info("Get cluster image", "clusterImage", clusterImage)
+	log.Debug("Get cluster image", "clusterImage", clusterImage)
 	// replace clusterImage with the real image name, storagePolicyID with the real storage policy ID in public_vm.yaml
 	publicVMPath, _ := filepath.Abs("./manifest/testVM/public_vm.yaml")
 
@@ -53,14 +53,11 @@ func testCreateVMBasic(t *testing.T) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	log.V(1).Info("sedCmd", "sedCmd", sedCmd)
+	log.Debug("sedCmd", "sedCmd", sedCmd)
 	if err := cmd.Run(); err != nil {
 		log.Error(err, "Failed to execute sed command", "stderr", stderr.String())
 		t.Fatalf("Failed to execute sed command: %v", err)
 	}
-
-	log.V(1).Info("stdout", "stdout", stdout.String())
-	log.V(1).Info("stderr", "stderr", stderr.String())
 
 	require.NoError(t, applyYAML(publicVMPath, ns))
 	defer deleteYAML(publicVMPath, ns)

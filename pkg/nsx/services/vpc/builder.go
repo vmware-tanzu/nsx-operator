@@ -112,7 +112,7 @@ func buildVpcAttachment(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster 
 	attachment.Id = common.String(common.DefaultVpcAttachmentId)
 	attachment.Tags = util.BuildBasicTags(cluster, obj, nsObj.GetUID())
 	if restoreMode && len(obj.VPCs) > 0 && len(obj.VPCs[0].DefaultSNATIP) > 0 {
-		log.V(1).Info("Restoring DefaultSNATIP", "DefaultSNATIP", obj.VPCs[0].DefaultSNATIP, "NetworkInfo", obj.Name)
+		log.Debug("Restoring DefaultSNATIP", "DefaultSNATIP", obj.VPCs[0].DefaultSNATIP, "NetworkInfo", obj.Name)
 		attachment.PreferredDefaultSnatIp = &obj.VPCs[0].DefaultSNATIP
 	}
 	return attachment, nil

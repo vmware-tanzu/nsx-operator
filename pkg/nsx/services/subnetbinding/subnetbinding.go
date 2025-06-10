@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	log                                    = &logger.Log
+	log                                    = &logger.CustomLog
 	ResourceTypeSubnetConnectionBindingMap = servicecommon.ResourceTypeSubnetConnectionBindingMap
 	enforceRevisionCheckParam              = false
 	markedForDelete                        = true

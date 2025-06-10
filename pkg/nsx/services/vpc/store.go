@@ -76,13 +76,13 @@ func (s *VPCStore) Apply(i interface{}) error {
 	vpc := i.(*model.Vpc)
 	if vpc.MarkedForDelete != nil && *vpc.MarkedForDelete {
 		err := s.Delete(vpc)
-		log.V(1).Info("delete VPC from store", "VPC", vpc)
+		log.Debug("delete VPC from store", "VPC", vpc)
 		if err != nil {
 			return err
 		}
 	} else {
 		err := s.Add(vpc)
-		log.V(1).Info("add VPC to store", "VPC", vpc)
+		log.Debug("add VPC to store", "VPC", vpc)
 		if err != nil {
 			return err
 		}
@@ -137,13 +137,13 @@ func (ls *LBSStore) Apply(i interface{}) error {
 	lbs := i.(*model.LBService)
 	if lbs.MarkedForDelete != nil && *lbs.MarkedForDelete {
 		err := ls.Delete(lbs)
-		log.V(1).Info("delete LBS from store", "LBS", lbs)
+		log.Debug("delete LBS from store", "LBS", lbs)
 		if err != nil {
 			return err
 		}
 	} else {
 		err := ls.Add(lbs)
-		log.V(1).Info("add LBS to store", "LBS", lbs)
+		log.Debug("add LBS to store", "LBS", lbs)
 		if err != nil {
 			return err
 		}

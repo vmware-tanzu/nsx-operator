@@ -27,15 +27,15 @@ type EnqueueRequestForNamespace struct {
 }
 
 func (e *EnqueueRequestForNamespace) Create(_ context.Context, _ event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	log.V(1).Info("NameSpace create event, do nothing")
+	log.Debug("NameSpace create event, do nothing")
 }
 
 func (e *EnqueueRequestForNamespace) Delete(_ context.Context, _ event.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	log.V(1).Info("NameSpace delete event, do nothing")
+	log.Debug("NameSpace delete event, do nothing")
 }
 
 func (e *EnqueueRequestForNamespace) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	log.V(1).Info("NameSpace generic event, do nothing")
+	log.Debug("NameSpace generic event, do nothing")
 }
 
 func (e *EnqueueRequestForNamespace) Update(_ context.Context, updateEvent event.UpdateEvent, l workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -44,7 +44,7 @@ func (e *EnqueueRequestForNamespace) Update(_ context.Context, updateEvent event
 		log.Error(err, "Failed to fetch namespace", "namespace", obj.Name)
 		return
 	} else if isInSysNs {
-		log.V(2).Info("NameSpace is in system namespace, ignore it", "namespace", obj.Name)
+		log.Debug("NameSpace is in system namespace, ignore it", "namespace", obj.Name)
 		return
 	}
 
@@ -80,7 +80,7 @@ var PredicateFuncsNs = predicate.Funcs{
 	UpdateFunc: func(e event.UpdateEvent) bool {
 		oldObj := e.ObjectOld.(*v1.Namespace)
 		newObj := e.ObjectNew.(*v1.Namespace)
-		log.V(1).Info("Receive namespace update event", "name", oldObj.Name)
+		log.Info("Receive namespace update event", "name", oldObj.Name)
 		if reflect.DeepEqual(oldObj.ObjectMeta.Labels, newObj.ObjectMeta.Labels) {
 			log.Info("Label of namespace is not changed, ignore it", "name", oldObj.Name)
 			return false

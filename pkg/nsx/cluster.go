@@ -64,7 +64,7 @@ type NsxVersion struct {
 var (
 	jarCache   = NewJar()
 	nsxVersion = &NsxVersion{}
-	log        = &logger.Log
+	log        = &logger.CustomLog
 )
 
 // NewCluster creates a cluster based on nsx Config.
@@ -157,7 +157,7 @@ func (cluster *Cluster) CreateServerUrl(host string, scheme string) string {
 	} else {
 		serverUrl = fmt.Sprintf("%s://%s", scheme, host)
 	}
-	log.V(1).Info("Create serverUrl", "serverUrl", serverUrl)
+	log.Debug("Create serverUrl", "serverUrl", serverUrl)
 	return serverUrl
 }
 
@@ -356,7 +356,7 @@ func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 		log.Error(err, "Failed to create HTTP request")
 		return nil, err
 	}
-	log.V(1).Info("Get version", "url", req.URL)
+	log.Debug("Get version", "url", req.URL)
 	err = ep.UpdateHttpRequestAuth(req)
 	if err != nil {
 		log.Error(err, "Failed to keep alive update auth")
@@ -393,7 +393,7 @@ func (cluster *Cluster) httpAction(url, method string) (*http.Response, error) {
 		log.Error(err, "Failed to create HTTP request")
 		return nil, err
 	}
-	log.V(1).Info(method+" url", "url", req.URL)
+	log.Debug(method+" url", "url", req.URL)
 	resp, err := ep.client.Do(req)
 	if err != nil {
 		return nil, err

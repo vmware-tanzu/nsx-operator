@@ -94,13 +94,13 @@ func (resourceStore *ResourceStore) Apply(i interface{}) error {
 		tempRule := rule
 		if rule.MarkedForDelete != nil && *rule.MarkedForDelete {
 			err := resourceStore.Delete(&tempRule)
-			log.V(1).Info("delete rule from store", "rule", tempRule)
+			log.Debug("delete rule from store", "rule", tempRule)
 			if err != nil {
 				return err
 			}
 		} else {
 			err := resourceStore.Add(&tempRule)
-			log.V(1).Info("add rule to store", "rule", tempRule)
+			log.Debug("add rule to store", "rule", tempRule)
 			if err != nil {
 				return err
 			}
