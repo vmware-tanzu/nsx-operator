@@ -26,15 +26,15 @@ type EnqueueRequestForNamespace struct {
 }
 
 func (e *EnqueueRequestForNamespace) Create(_ context.Context, _ event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	log.V(1).Info("Namespace create event, do nothing")
+	log.Debug("Namespace create event, do nothing")
 }
 
 func (e *EnqueueRequestForNamespace) Delete(_ context.Context, _ event.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	log.V(1).Info("Namespace delete event, do nothing")
+	log.Debug("Namespace delete event, do nothing")
 }
 
 func (e *EnqueueRequestForNamespace) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	log.V(1).Info("Namespace generic event, do nothing")
+	log.Debug("Namespace generic event, do nothing")
 }
 
 func (e *EnqueueRequestForNamespace) Update(_ context.Context, updateEvent event.UpdateEvent, l workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -52,7 +52,7 @@ var PredicateFuncsNs = predicate.Funcs{
 	UpdateFunc: func(e event.UpdateEvent) bool {
 		oldObj := e.ObjectOld.(*v1.Namespace)
 		newObj := e.ObjectNew.(*v1.Namespace)
-		log.V(1).Info("Receive Namespace update event", "Name", oldObj.Name)
+		log.Info("Receive Namespace update event", "Name", oldObj.Name)
 		if reflect.DeepEqual(oldObj.ObjectMeta.Labels, newObj.ObjectMeta.Labels) {
 			log.Info("Label of Namespace is not changed, ignore it", "name", oldObj.Name)
 			return false

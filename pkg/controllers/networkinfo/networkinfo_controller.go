@@ -42,7 +42,7 @@ const (
 )
 
 var (
-	log           = &logger.Log
+	log           = &logger.CustomLog
 	MetricResType = common.MetricResTypeNetworkInfo
 )
 
@@ -123,10 +123,10 @@ func (r *NetworkInfoReconciler) GetVpcConnectivityProfilePathByVpcPath(vpcPath s
 	}
 	vpcAttachments := vpcAttachmentsListResult.Results
 	if len(vpcAttachments) > 0 {
-		log.V(1).Info("Found VPC attachment", "VPC Path", vpcPath, "VPC connectivity profile", vpcAttachments[0].VpcConnectivityProfile)
+		log.Debug("Found VPC attachment", "VPC Path", vpcPath, "VPC connectivity profile", vpcAttachments[0].VpcConnectivityProfile)
 		return *vpcAttachments[0].VpcConnectivityProfile, nil
 	} else {
-		log.V(1).Info("No VPC attachment", "VPC Path", vpcPath)
+		log.Debug("No VPC attachment", "VPC Path", vpcPath)
 		return "", nil
 	}
 }
@@ -690,7 +690,7 @@ func (r *NetworkInfoReconciler) getRestoreList() ([]types.NamespacedName, error)
 		}
 		_, ok := nsPreCreatedVpcMap[networkInfo.Namespace]
 		if ok {
-			log.V(1).Info("Skip handling the NetworkInfo with pre-created VPC", "NetworkInfo.Name", networkInfo.Name)
+			log.Debug("Skip handling the NetworkInfo with pre-created VPC", "NetworkInfo.Name", networkInfo.Name)
 			continue
 		}
 		nsxVPCs := r.Service.GetCurrentVPCsByNamespace(context.TODO(), networkInfo.Namespace)
@@ -698,7 +698,7 @@ func (r *NetworkInfoReconciler) getRestoreList() ([]types.NamespacedName, error)
 			continue
 		}
 		// The NSX VPC doesn't exist or the VPC's private_ips had ever been extended after NSX backup and before NSX restore.
-		log.V(1).Info("Collected NetworkInfo for restore", "NetworkInfo", networkInfo)
+		log.Debug("Collected NetworkInfo for restore", "NetworkInfo", networkInfo)
 		restoreList = append(
 			restoreList,
 			types.NamespacedName{

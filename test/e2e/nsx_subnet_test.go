@@ -191,7 +191,7 @@ func defaultSubnetSet(t *testing.T) {
 	newNs, err := testData.clientset.CoreV1().Namespaces().Update(context.TODO(), ns, v1.UpdateOptions{})
 	time.Sleep(5 * time.Second)
 	require.NoError(t, err)
-	log.V(2).Info("New Namespace", "Namespace", newNs)
+	log.Debug("New Namespace", "Namespace", newNs)
 	vpcSubnet = fetchSubnetBySubnetSet(t, subnetSet)
 	found = false
 	for _, tag := range vpcSubnet.Tags {
@@ -254,7 +254,7 @@ func UserSubnetSet(t *testing.T) {
 			if port == nil || len(port.Status.NetworkInterfaceConfig.IPAddresses) == 0 {
 				return false, nil
 			}
-			log.V(2).Info("Check IP address", "IPAddress", port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "portName", portName)
+			log.Debug("Check IP address", "IPAddress", port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "portName", portName)
 			if portName == "port-in-static-subnetset" {
 				if port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress != "" {
 					return true, nil
@@ -410,7 +410,7 @@ func assureSubnet(t *testing.T, ns, subnetName string, conditionMsg string) (res
 			log.Error(err, "Error fetching Subnet", "subnet", res, "namespace", ns, "name", subnetName)
 			return false, fmt.Errorf("error when waiting for Subnet %s", subnetName)
 		}
-		log.V(2).Info("Subnet status", "status", res.Status)
+		log.Debug("Subnet status", "status", res.Status)
 		for _, con := range res.Status.Conditions {
 			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionTrue && strings.Contains(con.Message, conditionMsg) {
 				return true, nil
@@ -434,7 +434,7 @@ func assureSubnetSet(t *testing.T, ns, subnetSetName string) (res *v1alpha1.Subn
 			log.Error(err, "SubnetSet", res, "Namespace", ns, "Name", subnetSetName)
 			return false, fmt.Errorf("error when waiting for SubnetSet %s", subnetSetName)
 		}
-		log.V(2).Info("SubnetSets status", "status", res.Status)
+		log.Debug("SubnetSets status", "status", res.Status)
 		for _, con := range res.Status.Conditions {
 			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionTrue {
 				return true, nil
@@ -458,7 +458,7 @@ func assureSubnetPort(t *testing.T, ns, subnetPortName string) (res *v1alpha1.Su
 			log.Error(err, "SubnetPort", res, "Namespace", ns, "Name", subnetPortName)
 			return false, fmt.Errorf("error when waiting for SubnetPort: %s", subnetPortName)
 		}
-		log.V(2).Info("SubnetPort status", "status", res.Status)
+		log.Debug("SubnetPort status", "status", res.Status)
 		for _, con := range res.Status.Conditions {
 			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionTrue {
 				return true, nil

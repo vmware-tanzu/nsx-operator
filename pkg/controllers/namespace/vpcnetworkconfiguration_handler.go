@@ -38,11 +38,11 @@ func (e *EnqueueRequestForVPCNetworkConfiguration) Update(ctx context.Context, u
 
 func (e *EnqueueRequestForVPCNetworkConfiguration) Delete(_ context.Context, deleteEvent event.DeleteEvent, _ ReconcileQueue) {
 	obj := deleteEvent.Object.(*v1alpha1.VPCNetworkConfiguration)
-	log.V(1).Info("VPCNetworkConfiguration delete event, do nothing", "Name", obj.Name)
+	log.Debug("VPCNetworkConfiguration delete event, do nothing", "Name", obj.Name)
 }
 
 func (e *EnqueueRequestForVPCNetworkConfiguration) Generic(_ context.Context, _ event.GenericEvent, _ ReconcileQueue) {
-	log.V(1).Info("VPCNetworkConfiguration generic event, do nothing")
+	log.Debug("VPCNetworkConfiguration generic event, do nothing")
 }
 
 // PredicateFuncsVPCNetworkConfig filters VPCNetworkConfiguration events
@@ -54,7 +54,7 @@ var PredicateFuncsVPCNetworkConfig = predicate.Funcs{
 		oldObj := e.ObjectOld.(*v1alpha1.VPCNetworkConfiguration)
 		newObj := e.ObjectNew.(*v1alpha1.VPCNetworkConfiguration)
 		if reflect.DeepEqual(oldObj.Spec.Subnets, newObj.Spec.Subnets) {
-			log.V(1).Info("Subnets in VPCNetworkConfiguration are not changed, skip processing", "name", oldObj.Name)
+			log.Debug("Subnets in VPCNetworkConfiguration are not changed, skip processing", "name", oldObj.Name)
 			return false
 		}
 		return true

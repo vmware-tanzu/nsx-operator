@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	log = &logger.Log
+	log = &logger.CustomLog
 )
 
 type InventoryService struct {
@@ -116,12 +116,12 @@ func (s *InventoryService) initContainerCluster(cleanup bool) error {
 		log.Error(err, "Add cluster to store")
 		return err
 	}
-	log.Info("A new ContainerCluster is added", "cluster", newContainerCluster.DisplayName)
+	log.Debug("A new ContainerCluster is added", "cluster", newContainerCluster.DisplayName)
 	return nil
 }
 
 func (s *InventoryService) SyncInventoryStoreByType(clusterId string) error {
-	log.Info("Populating inventory object from NSX")
+	log.Debug("Populating inventory object from NSX")
 	err := s.initContainerProject(clusterId)
 	if err != nil {
 		return err
@@ -154,10 +154,10 @@ func (s *InventoryService) SyncInventoryObject(bufferedKeys sets.Set[InventoryKe
 	retryKeys := sets.New[InventoryKey]()
 	startTime := time.Now()
 	defer func() {
-		log.Info("Finished syncing inventory object", "duration", time.Since(startTime))
+		log.Debug("Finished syncing inventory object", "duration", time.Since(startTime))
 	}()
 	for key := range bufferedKeys {
-		log.Info("Syncing inventory object", "object key", key)
+		log.Debug("Syncing inventory object", "object key", key)
 		namespace, name, err := cache.SplitMetaNamespaceKey(key.Key)
 		if err != nil {
 			log.Error(err, "Failed to split meta namespace key", "key", key)
@@ -207,7 +207,7 @@ func (s *InventoryService) SyncInventoryObject(bufferedKeys sets.Set[InventoryKe
 }
 
 func (s *InventoryService) DeleteResource(externalId string, resourceType InventoryType) error {
-	log.Info("Delete inventory resource", "resource_type", resourceType, "external_id", externalId)
+	log.Debug("Delete inventory resource", "resource_type", resourceType, "external_id", externalId)
 	switch resourceType {
 	case ContainerProject:
 		inventoryObject := s.ProjectStore.GetByKey(externalId)
@@ -280,7 +280,7 @@ func (s *InventoryService) DeleteInventoryObject(resourceType InventoryType, ext
 
 func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore(ctx context.Context) error {
 	if len(s.requestBuffer) > 0 {
-		log.V(1).Info("Send update to NSX clusterId ", "ContainerInventoryData", s.requestBuffer)
+		log.Debug("Send update to NSX clusterId ", "ContainerInventoryData", s.requestBuffer)
 		// TODO, check the context.TODO() be replaced by NsxApiClient related todo
 		resp, err := s.NSXClient.NsxApiClient.ContainerInventoryApi.AddContainerInventoryUpdateUpdates(ctx,
 			s.NSXConfig.Cluster,
@@ -288,7 +288,7 @@ func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore(ctx context.Con
 
 		// Update NSX Inventory store when the request succeeds.
 		if resp != nil {
-			log.Info("NSX request response", "response code", resp.StatusCode)
+			log.Debug("NSX request response", "response code", resp.StatusCode)
 		}
 		if err == nil {
 			err = s.updateInventoryStore()
@@ -302,7 +302,7 @@ func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore(ctx context.Con
 }
 
 func (s *InventoryService) updateInventoryStore() error {
-	log.Info("Update Inventory store after NSX request succeeds")
+	log.Debug("Update Inventory store after NSX request succeeds")
 	for _, addItem := range s.pendingAdd {
 		switch reflect.ValueOf(addItem).Elem().FieldByName("ResourceType").String() {
 		case string(ContainerProject):
@@ -397,7 +397,7 @@ func (s *InventoryService) CleanupBeforeVPCDeletion(ctx context.Context) error {
 	//Cleanup cluster
 	clusters := s.ClusterStore.List()
 	if len(clusters) == 0 {
-		log.Info("No inventory cluster found while cleanup inventory cluster")
+		log.Debug("No inventory cluster found while cleanup inventory cluster")
 		return nil
 	}
 	cluster := clusters[0].(*containerinventory.ContainerCluster)
