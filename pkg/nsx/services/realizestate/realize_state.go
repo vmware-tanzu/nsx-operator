@@ -61,6 +61,13 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 					if alarm.Message != nil {
 						errMsg = append(errMsg, *alarm.Message)
 					}
+					if alarm.ErrorDetails != nil {
+						for _, relatedErr := range alarm.ErrorDetails.RelatedErrors {
+							if relatedErr.ErrorMessage != nil {
+								errMsg = append(errMsg, *relatedErr.ErrorMessage)
+							}
+						}
+					}
 					if nsxutil.IsRetryRealizeError(alarm) {
 						return nsxutil.NewRetryRealizeError(fmt.Sprintf("%s not realized with errors: %s", intentPath, errMsg))
 					}
