@@ -31,7 +31,7 @@ const (
 type WatchResourceFunc func(c *InventoryController, mgr ctrl.Manager) error
 
 var (
-	log = &logger.Log
+	log = &logger.CustomLog
 
 	// DeletionHandlingMetaNamespaceKeyFunc checks for
 	// DeletedFinalStateUnknown objects before calling
@@ -167,7 +167,7 @@ func (c *InventoryController) syncInventoryKeys() {
 			// For others, forget here stop the rate limiter from tracking it.
 			if retryKeys.Has(key) {
 				c.inventoryObjectQueue.AddRateLimited(key)
-				log.Info("Enqueue key for retrying", "key", key)
+				log.Debug("Enqueue key for retrying", "key", key)
 			} else {
 				c.inventoryObjectQueue.Forget(key)
 			}
@@ -176,7 +176,7 @@ func (c *InventoryController) syncInventoryKeys() {
 }
 
 func (c *InventoryController) CleanStaleInventoryObjects() error {
-	log.Info("Clean stale inventory objects")
+	log.Debug("Clean stale inventory objects")
 	err := c.service.CleanStaleInventoryApplicationInstance()
 	if err != nil {
 		return err

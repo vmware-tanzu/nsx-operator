@@ -22,7 +22,7 @@ type StaticRouteService struct {
 }
 
 var (
-	log    = &logger.Log
+	log    = &logger.CustomLog
 	String = common.String
 )
 

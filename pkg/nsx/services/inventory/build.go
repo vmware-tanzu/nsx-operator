@@ -18,7 +18,7 @@ import (
 )
 
 func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
-	log.Info("Add Pod ", "Pod", pod.Name, "Namespace", pod.Namespace)
+	log.Debug("Add Pod ", "Pod", pod.Name, "Namespace", pod.Namespace)
 	retry = false
 	// Calculate the services related to this Pod from pendingAdd or inventory store.
 	var containerApplicationIds []string
@@ -86,7 +86,7 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 	} else if len(pod.Status.PodIPs) == 2 {
 		ips = pod.Status.PodIPs[0].IP + "," + pod.Status.PodIPs[1].IP
 	} else {
-		log.Info("Unexpected Pod IPs found", "Pod ips", pod.Status.PodIPs)
+		log.Debug("Unexpected Pod IPs found", "Pod ips", pod.Status.PodIPs)
 	}
 	var originProperties []common.KeyValuePair
 	if ips == "" {
@@ -114,7 +114,7 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 		OriginProperties:        originProperties,
 		Status:                  status,
 	}
-	log.V(1).Info("Build pod", "current instance", containerApplicationInstance, "pre instance", preContainerApplicationInstance)
+	log.Debug("Build pod", "current instance", containerApplicationInstance, "pre instance", preContainerApplicationInstance)
 	operation, _ := s.compareAndMergeUpdate(preContainerApplicationInstance, containerApplicationInstance)
 	if operation != operationNone {
 		s.pendingAdd[containerApplicationInstance.ExternalId] = &containerApplicationInstance
@@ -133,7 +133,7 @@ func (s *InventoryService) GetNamespace(namespace string) (*corev1.Namespace, er
 }
 
 func (s *InventoryService) BuildIngress(ingress *networkingv1.Ingress) (retry bool) {
-	log.V(1).Info("Add Ingress", "Name", ingress.Name, "Namespace", ingress.Namespace)
+	log.Debug("Add Ingress", "Name", ingress.Name, "Namespace", ingress.Namespace)
 	namespace, err := s.GetNamespace(ingress.Namespace)
 	retry = true
 	if err != nil {
@@ -180,7 +180,7 @@ func (s *InventoryService) BuildIngress(ingress *networkingv1.Ingress) (retry bo
 	if len(appids) > 0 {
 		containerIngress.ContainerApplicationIds = appids
 	}
-	log.V(1).Info("Build ingress", "current instance", containerIngress, "pre instance", preIngress)
+	log.Debug("Build ingress", "current instance", containerIngress, "pre instance", preIngress)
 	operation, _ := s.compareAndMergeUpdate(preIngress, containerIngress)
 	if operation != operationNone {
 		s.pendingAdd[containerIngress.ExternalId] = &containerIngress
@@ -259,7 +259,7 @@ func (s *InventoryService) compareAndMergeUpdate(pre interface{}, cur interface{
 		return operationCreate, updateProperties
 	} else if len(updateProperties) > 2 {
 		s.requestBuffer = append(s.requestBuffer, containerinventory.ContainerInventoryObject{ContainerObject: updateProperties, ObjectUpdateType: operationUpdate})
-		log.V(1).Info("Inventory compare", "updated properties", updateProperties)
+		log.Debug("Inventory compare", "updated properties", updateProperties)
 		return operationUpdate, updateProperties
 	} else {
 		return operationNone, nil
@@ -267,7 +267,7 @@ func (s *InventoryService) compareAndMergeUpdate(pre interface{}, cur interface{
 }
 
 func (s *InventoryService) BuildNamespace(namespace *corev1.Namespace) (retry bool) {
-	log.Info("Building Namespace", "Namespace", namespace.Name)
+	log.Debug("Building Namespace", "Namespace", namespace.Name)
 	retry = false
 
 	preContainerProject := s.ProjectStore.GetByKey(string(namespace.UID))
@@ -301,13 +301,13 @@ func (s *InventoryService) BuildNamespace(namespace *corev1.Namespace) (retry bo
 	if operation != operationNone {
 		s.pendingAdd[containerProject.ExternalId] = &containerProject
 	} else {
-		log.Info("Skip, namespace not updated", "Namespace", namespace.Name)
+		log.Debug("Skip, namespace not updated", "Namespace", namespace.Name)
 	}
 	return
 }
 
 func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
-	log.Info("Building Service", "Service", service.Name, "Namespace", service.Namespace)
+	log.Debug("Building Service", "Service", service.Name, "Namespace", service.Namespace)
 	retry = false
 
 	preContainerApplication := s.ApplicationStore.GetByKey(string(service.UID))
@@ -382,12 +382,12 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 		Status:             status,
 	}
 
-	log.V(1).Info("Build service", "current application", containerApplication, "pre application", preContainerApplication)
+	log.Debug("Build service", "current application", containerApplication, "pre application", preContainerApplication)
 	operation, _ := s.compareAndMergeUpdate(preContainerApplication, containerApplication)
 	if operation != operationNone {
 		s.pendingAdd[containerApplication.ExternalId] = &containerApplication
 	} else {
-		log.Info("Skip, service not updated", "Service", service.Name, "Namespace", service.Namespace)
+		log.Debug("Skip, service not updated", "Service", service.Name, "Namespace", service.Namespace)
 	}
 	return
 }
@@ -395,7 +395,7 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 func (s *InventoryService) synchronizeServiceIDsWithApplicationInstances(podUIDs []string, service *corev1.Service) (retry bool) {
 	for _, podUID := range podUIDs {
 		if s.updateServiceIDsForApplicationInstance(podUID, service) {
-			log.Info("Endpoint creation is before pod creation, retry service to establish correlation", "Pod", podUID, "Service", service.Name)
+			log.Debug("Endpoint creation is before pod creation, retry service to establish correlation", "Pod", podUID, "Service", service.Name)
 			return true
 		}
 	}
@@ -460,7 +460,7 @@ func (s *InventoryService) removeStaleServiceIDsFromApplicationInstances(podUIDs
 }
 
 func (s *InventoryService) BuildNode(node *corev1.Node) (retry bool) {
-	log.Info("Building Node", "Node", node.Name)
+	log.Debug("Building Node", "Node", node.Name)
 	retry = false
 
 	preContainerClusterNode := s.ClusterNodeStore.GetByKey(string(node.UID))
@@ -523,13 +523,13 @@ func (s *InventoryService) BuildNode(node *corev1.Node) (retry bool) {
 		OriginProperties:   originProperties,
 	}
 
-	log.V(1).Info("Build node", "current instance", containerClusterNode, "pre instance", preContainerClusterNode)
+	log.Debug("Build node", "current instance", containerClusterNode, "pre instance", preContainerClusterNode)
 
 	operation, _ := s.compareAndMergeUpdate(preContainerClusterNode, containerClusterNode)
 	if operation != operationNone {
 		s.pendingAdd[containerClusterNode.ExternalId] = &containerClusterNode
 	} else {
-		log.Info("Skip, node not updated", "Node", node.Name)
+		log.Debug("Skip, node not updated", "Node", node.Name)
 	}
 	return
 }
@@ -545,7 +545,7 @@ func isNodeReady(node *corev1.Node) bool {
 }
 
 func (s *InventoryService) BuildNetworkPolicy(networkPolicy *networkingv1.NetworkPolicy) (retry bool) {
-	log.Info("Building NetworkPolicy", "NetworkPolicy", networkPolicy.Name, "Namespace", networkPolicy.Namespace)
+	log.Debug("Building NetworkPolicy", "NetworkPolicy", networkPolicy.Name, "Namespace", networkPolicy.Namespace)
 	retry = false
 
 	preContainerNetworkPolicy := s.NetworkPolicyStore.GetByKey(string(networkPolicy.UID))
@@ -596,7 +596,7 @@ func (s *InventoryService) BuildNetworkPolicy(networkPolicy *networkingv1.Networ
 	if operation != operationNone {
 		s.pendingAdd[containerNetworkPolicy.ExternalId] = &containerNetworkPolicy
 	} else {
-		log.Info("Skip, network policy not updated", "NetworkPolicy", networkPolicy.Name)
+		log.Debug("Skip, network policy not updated", "NetworkPolicy", networkPolicy.Name)
 	}
 	return
 }

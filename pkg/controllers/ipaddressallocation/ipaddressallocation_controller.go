@@ -28,7 +28,7 @@ import (
 )
 
 var (
-	log           = logger.Log
+	log           = logger.CustomLog
 	resultNormal  = common.ResultNormal
 	resultRequeue = common.ResultRequeue
 	MetricResType = common.MetricResTypeIPAddressAllocation
@@ -156,7 +156,7 @@ func (r *IPAddressAllocationReconciler) CollectGarbage(ctx context.Context) erro
 		CRIPAddressAllocationSet.Insert(string(ipa.UID))
 	}
 
-	log.V(2).Info("IPAddressAllocation garbage collector", "nsxIPAddressAllocationSet", ipAddressAllocationSet, "CRIPAddressAllocationSet", CRIPAddressAllocationSet)
+	log.Debug("IPAddressAllocation garbage collector", "nsxIPAddressAllocationSet", ipAddressAllocationSet, "CRIPAddressAllocationSet", CRIPAddressAllocationSet)
 
 	diffSet := ipAddressAllocationSet.Difference(CRIPAddressAllocationSet)
 	var errList []error

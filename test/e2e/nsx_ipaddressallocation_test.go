@@ -60,7 +60,7 @@ func testIPAddressAllocation(t *testing.T, yamlPath string, expectedCIDR string)
 
 	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		resp, err := testData.crdClientset.CrdV1alpha1().IPAddressAllocations(ns).Get(ctx, ipAllocName, v1.GetOptions{})
-		log.V(2).Info("Check resource", "resp", resp)
+		log.Debug("Check resource", "resp", resp)
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return true, nil
@@ -77,7 +77,7 @@ func assureIPAddressAllocationReady(t *testing.T, ns, ipAllocName string) {
 	defer deadlineCancel()
 	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		resp, err := testData.crdClientset.CrdV1alpha1().IPAddressAllocations(ns).Get(context.Background(), ipAllocName, v1.GetOptions{})
-		log.V(2).Info("Get IPAddressAllocations", "Namespace", ns, "Name", ipAllocName)
+		log.Debug("Get IPAddressAllocations", "Namespace", ns, "Name", ipAllocName)
 		if err != nil {
 			return false, fmt.Errorf("error when waiting for %s", ipAllocName)
 		}

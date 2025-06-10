@@ -36,7 +36,7 @@ import (
 )
 
 var (
-	log                     = &logger.Log
+	log                     = &logger.CustomLog
 	ResultNormal            = common.ResultNormal
 	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter10sec = common.ResultRequeueAfter10sec
@@ -365,7 +365,7 @@ func mergeSubnetStatusCondition(subnet *v1alpha1.Subnet, newCondition *v1alpha1.
 	matchedCondition := getExistingConditionOfType(newCondition.Type, subnet.Status.Conditions)
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {
-		log.V(2).Info("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+		log.Debug("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return false
 	}
 

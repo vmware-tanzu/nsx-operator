@@ -27,7 +27,7 @@ type EnqueueRequestForDependency struct {
 
 func (e *EnqueueRequestForDependency) Create(ctx context.Context, ev event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	obj := ev.Object
-	log.V(1).Info(fmt.Sprintf("%s create event", e.ResourceType), "Namespace", obj.GetNamespace(), "Name", obj.GetName())
+	log.Debug(fmt.Sprintf("%s create event", e.ResourceType), "Namespace", obj.GetNamespace(), "Name", obj.GetName())
 	if e.RequeueByCreate != nil {
 		e.RequeueByCreate(ctx, e.Client, obj, q)
 	}
@@ -35,19 +35,19 @@ func (e *EnqueueRequestForDependency) Create(ctx context.Context, ev event.Creat
 
 func (e *EnqueueRequestForDependency) Delete(ctx context.Context, ev event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	obj := ev.Object
-	log.V(1).Info(fmt.Sprintf("%s delete event", e.ResourceType), "Namespace", obj.GetNamespace(), "Name", obj.GetName())
+	log.Debug(fmt.Sprintf("%s delete event", e.ResourceType), "Namespace", obj.GetNamespace(), "Name", obj.GetName())
 	if e.RequeueByDelete != nil {
 		e.RequeueByDelete(ctx, e.Client, obj, q)
 	}
 }
 
 func (e *EnqueueRequestForDependency) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	log.V(1).Info(fmt.Sprintf("%s generic event, do nothing", e.ResourceType))
+	log.Debug(fmt.Sprintf("%s generic event, do nothing", e.ResourceType))
 }
 
 func (e *EnqueueRequestForDependency) Update(ctx context.Context, ev event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	objNew := ev.ObjectNew
-	log.V(1).Info(fmt.Sprintf("%s update event", e.ResourceType), "Namespace", objNew.GetNamespace(), "Name", objNew.GetName())
+	log.Debug(fmt.Sprintf("%s update event", e.ResourceType), "Namespace", objNew.GetNamespace(), "Name", objNew.GetName())
 	if e.RequeueByUpdate != nil {
 		objOld := ev.ObjectOld
 		e.RequeueByUpdate(ctx, e.Client, objOld, objNew, q)

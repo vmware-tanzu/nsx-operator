@@ -104,7 +104,7 @@ var (
 )
 
 var (
-	log                     = &logger.Log
+	log                     = &logger.CustomLog
 	ResultNormal            = common.ResultNormal
 	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
@@ -167,7 +167,7 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				r.StatusUpdater.UpdateFail(ctx, obj, err, "", updateNSXServiceAccountStatuswithError)
 				return ResultRequeue, err
 			}
-			log.V(1).Info("added finalizer on CR", "nsxserviceaccount", req.NamespacedName)
+			log.Debug("added finalizer on CR", "nsxserviceaccount", req.NamespacedName)
 		}
 
 		if nsxserviceaccount.IsNSXServiceAccountRealized(&obj.Status) {
@@ -292,7 +292,7 @@ func (r *NSXServiceAccountReconciler) CollectGarbage(ctx context.Context) error 
 		return err
 	}
 	gcSuccessCount, gcErrorCount = r.garbageCollector(nsxServiceAccountUIDSet, nsxServiceAccountList)
-	log.V(1).Info("gc collects NSXServiceAccount CR", "success", gcSuccessCount, "error", gcErrorCount)
+	log.Debug("gc collects NSXServiceAccount CR", "success", gcSuccessCount, "error", gcErrorCount)
 	count, ca = r.validateRealized(count, ca, nsxServiceAccountList)
 	if gcErrorCount > 0 {
 		return fmt.Errorf("errors found in NSXServiceAccount garbage collection: %d", gcErrorCount)
@@ -365,7 +365,7 @@ func (r *NSXServiceAccountReconciler) garbageCollector(nsxServiceAccountUIDSet s
 		if _, ok := nsxServiceAccountCRUIDMap[nsxServiceAccountUID]; ok {
 			continue
 		}
-		log.V(1).Info("gc collects NSXServiceAccount CR", "UID", nsxServiceAccountUID)
+		log.Debug("gc collects NSXServiceAccount CR", "UID", nsxServiceAccountUID)
 		namespacedName := r.Service.GetNSXServiceAccountNameByUID(nsxServiceAccountUID)
 		if namespacedName.Namespace == "" || namespacedName.Name == "" {
 			log.Info("gc cannot get namespace/name, skip", "namespace", namespacedName.Namespace, "name", namespacedName.Name, "uid", nsxServiceAccountUID)
@@ -390,7 +390,7 @@ func updateNSXServiceAccountStatus(client client.Client, ctx context.Context, ob
 	if err != nil {
 		log.Error(err, "Update NSXServiceAccount failed", "Namespace", nsa.Namespace, "Name", nsa.Name, "Status", nsa.Status)
 	} else {
-		log.V(1).Info("Updated NSXServiceAccount", "Namespace", nsa.Namespace, "Name", nsa.Name, "Status", nsa.Status)
+		log.Debug("Updated NSXServiceAccount", "Namespace", nsa.Namespace, "Name", nsa.Name, "Status", nsa.Status)
 	}
 }
 
@@ -407,6 +407,6 @@ func updateNSXServiceAccountStatuswithError(client client.Client, ctx context.Co
 	if err != nil {
 		log.Error(err, "Update NSXServiceAccount failed", "Namespace", nsa.Namespace, "Name", nsa.Name, "Status", nsa.Status)
 	} else {
-		log.V(1).Info("Updated NSXServiceAccount", "Namespace", nsa.Namespace, "Name", nsa.Name, "Status", nsa.Status)
+		log.Debug("Updated NSXServiceAccount", "Namespace", nsa.Namespace, "Name", nsa.Name, "Status", nsa.Status)
 	}
 }

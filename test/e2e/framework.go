@@ -39,7 +39,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/test/e2e/providers"
 )
 
-var log = &logger.Log
+var log = &logger.CustomLog
 
 const (
 	createVCNamespaceEndpoint = "/api/vcenter/namespaces/instances/v2"
@@ -304,9 +304,9 @@ func (data *TestData) createNamespace(namespace string, mutators ...func(ns *cor
 func (data *TestData) createVCNamespace(namespace string) error {
 	svID, _ := data.vcClient.getSupervisorID()
 	_, storagePolicyID, _ := data.vcClient.getStoragePolicyID()
-	log.V(1).Info("Get storage policy", "storagePolicyID", storagePolicyID)
+	log.Debug("Get storage policy", "storagePolicyID", storagePolicyID)
 	contentLibraryID, _ := data.vcClient.getContentLibraryID()
-	log.V(1).Info("Get content library", "contentLibraryID", contentLibraryID)
+	log.Debug("Get content library", "contentLibraryID", contentLibraryID)
 	vcNamespace := &VCNamespaceCreateSpec{
 		Supervisor: svID,
 		Namespace:  namespace,
@@ -341,7 +341,7 @@ func (data *TestData) createVCNamespace(namespace string) error {
 	}()
 
 	dataJson, err := json.Marshal(vcNamespace)
-	log.V(1).Info("Data json", "dataJson", string(dataJson))
+	log.Debug("Data json", "dataJson", string(dataJson))
 	if err != nil {
 		log.Error(err, "Unable convert vcNamespace object to json bytes", "namespace", namespace)
 		return fmt.Errorf("unable convert vcNamespace object to json bytes: %v", err)
@@ -742,7 +742,7 @@ func (data *TestData) waitForResourceExist(namespace string, resourceType string
 		if len(response.Results) == 0 {
 			exist = false
 		}
-		log.V(2).Info("", "QueryParam", queryParam, "exist", exist)
+		log.Debug("", "QueryParam", queryParam, "exist", exist)
 		if exist != shouldExist {
 			return false, nil
 		}

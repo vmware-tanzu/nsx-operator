@@ -61,7 +61,7 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		return admission.Errored(http.StatusBadRequest, err)
 	}
 
-	log.V(1).Info("Handling request", "user", req.UserInfo.Username, "operation", req.Operation)
+	log.Info("Handling request", "user", req.UserInfo.Username, "operation", req.Operation)
 	switch req.Operation {
 	case admissionv1.Create:
 		if subnetSet.Spec.IPv4SubnetSize != 0 && !util.IsPowerOfTwo(subnetSet.Spec.IPv4SubnetSize) {

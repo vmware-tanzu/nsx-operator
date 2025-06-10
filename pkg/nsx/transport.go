@@ -55,7 +55,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			}
 			transTime := time.Since(start) - waitTime
 			ep.adjustRate(waitTime, resp.StatusCode)
-			log.V(1).Info("RoundTrip request", "request", r.URL, "method", r.Method, "transTime", transTime)
+			log.Debug("RoundTrip request", "request", r.URL, "method", r.Method, "transTime", transTime)
 			if resp == nil {
 				return nil
 			}
@@ -86,7 +86,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			} else if util.ShouldRetry(err) {
 				return true
 			} else {
-				log.V(1).Info("Error is configured as not retriable", "error", err.Error())
+				log.Debug("Error is configured as not retriable", "error", err.Error())
 				return false
 			}
 		}), retry.LastErrorOnly(true),

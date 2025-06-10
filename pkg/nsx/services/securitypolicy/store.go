@@ -125,13 +125,13 @@ func (securityPolicyStore *SecurityPolicyStore) Apply(i interface{}) error {
 	sp := i.(*model.SecurityPolicy)
 	if sp.MarkedForDelete != nil && *sp.MarkedForDelete {
 		err := securityPolicyStore.Delete(sp)
-		log.V(1).Info("Delete security policy from store", "securitypolicy", sp)
+		log.Debug("Delete security policy from store", "securitypolicy", sp)
 		if err != nil {
 			return err
 		}
 	} else {
 		err := securityPolicyStore.Add(sp)
-		log.V(1).Info("Add security policy to store", "securitypolicy", sp)
+		log.Debug("Add security policy to store", "securitypolicy", sp)
 		if err != nil {
 			return err
 		}
@@ -169,13 +169,13 @@ func (ruleStore *RuleStore) Apply(i interface{}) error {
 		tempRule := rule
 		if rule.MarkedForDelete != nil && *rule.MarkedForDelete {
 			err := ruleStore.Delete(&tempRule)
-			log.V(1).Info("Delete rule from store", "rule", tempRule)
+			log.Debug("Delete rule from store", "rule", tempRule)
 			if err != nil {
 				return err
 			}
 		} else {
 			err := ruleStore.Add(&tempRule)
-			log.V(1).Info("Add rule to store", "rule", tempRule)
+			log.Debug("Add rule to store", "rule", tempRule)
 			if err != nil {
 				return err
 			}
@@ -205,13 +205,13 @@ func (groupStore *GroupStore) Apply(i interface{}) error {
 		tempGroup := group
 		if group.MarkedForDelete != nil && *group.MarkedForDelete {
 			err := groupStore.Delete(&tempGroup)
-			log.V(1).Info("Delete group from store", "group", tempGroup)
+			log.Debug("Delete group from store", "group", tempGroup)
 			if err != nil {
 				return err
 			}
 		} else {
 			err := groupStore.Add(&tempGroup)
-			log.V(1).Info("Add group to store", "group", tempGroup)
+			log.Debug("Add group to store", "group", tempGroup)
 			if err != nil {
 				return err
 			}
@@ -241,13 +241,13 @@ func (shareStore *ShareStore) Apply(i interface{}) error {
 		tempShare := share
 		if share.MarkedForDelete != nil && *share.MarkedForDelete {
 			err := shareStore.Delete(&tempShare)
-			log.V(1).Info("Delete share from store", "share", tempShare)
+			log.Debug("Delete share from store", "share", tempShare)
 			if err != nil {
 				return err
 			}
 		} else {
 			err := shareStore.Add(&tempShare)
-			log.V(1).Info("Add share to store", "share", tempShare)
+			log.Debug("Add share to store", "share", tempShare)
 			if err != nil {
 				return err
 			}
