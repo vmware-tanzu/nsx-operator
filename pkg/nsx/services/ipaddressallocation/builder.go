@@ -48,7 +48,7 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 			allocationSize = Int64(int64(o.Spec.AllocationSize))
 		}
 	case *v1alpha1.AddressBinding:
-		if !restoreMode || subnetPortCR == nil {
+		if !restoreMode || subnetPortCR == nil || o.Spec.IPAddressAllocationName != "" {
 			return nil, nil
 		}
 		allocationIps = &o.Status.IPAddress

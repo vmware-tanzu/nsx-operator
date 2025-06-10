@@ -3,10 +3,11 @@ package subnetport
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
-	"reflect"
 
 	admissionv1 "k8s.io/api/admission/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -56,8 +57,24 @@ func (v *AddressBindingValidator) Handle(ctx context.Context, req admission.Requ
 			log.Error(err, "error while decoding AddressBinding", "AddressBinding", req.Namespace+"/"+req.Name)
 			return admission.Errored(http.StatusBadRequest, err)
 		}
-		if !reflect.DeepEqual(ab.Spec, oldAddressBinding.Spec) {
-			return admission.Denied("update AddressBinding is not allowed")
+		if ab.Spec.VMName != oldAddressBinding.Spec.VMName || ab.Spec.InterfaceName != oldAddressBinding.Spec.InterfaceName {
+			return admission.Denied("update AddressBinding vmName/interfaceName is not allowed")
+		}
+	}
+	if ab.Spec.IPAddressAllocationName != "" {
+		ipAllocation := &v1alpha1.IPAddressAllocation{}
+		if err := v.Client.Get(context.TODO(), types.NamespacedName{
+			Namespace: ab.Namespace,
+			Name:      ab.Spec.IPAddressAllocationName,
+		}, ipAllocation); err != nil {
+			log.Error(err, "failed to get IPAddressAllocation", "IPAddressAllocation", ab.Namespace+"/"+ab.Spec.IPAddressAllocationName)
+			return admission.Denied(fmt.Sprintf("IPAddressAllocation %s does not exist", ab.Spec.IPAddressAllocationName))
+		}
+		if ipAllocation.Spec.IPAddressBlockVisibility != v1alpha1.IPAddressVisibilityExternal {
+			return admission.Denied("IPBlock visibility of IPAddressAllocation must be \"External\"")
+		}
+		if (ipAllocation.Spec.AllocationIPs != "" && net.ParseIP(ipAllocation.Spec.AllocationIPs) == nil) || (ipAllocation.Spec.AllocationIPs == "" && ipAllocation.Spec.AllocationSize != 1) {
+			return admission.Denied("IPAddressAllocation must be a single IP")
 		}
 	}
 	return admission.Allowed("")
