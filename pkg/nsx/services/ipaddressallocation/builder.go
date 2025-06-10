@@ -48,7 +48,8 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 			allocationSize = Int64(int64(o.Spec.AllocationSize))
 		}
 	case *v1alpha1.AddressBinding:
-		if !restoreMode || subnetPortCR == nil {
+		// User specified AllocatedExternalIPPath is not managed by this controller
+		if !restoreMode || subnetPortCR == nil || o.Spec.ExternalIPAddressAllocation != "" {
 			return nil, nil
 		}
 		allocationIps = &o.Status.IPAddress
