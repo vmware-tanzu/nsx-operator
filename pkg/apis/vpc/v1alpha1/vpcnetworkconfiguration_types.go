@@ -15,8 +15,7 @@ import (
 // in the default VPCNetworkConfiguration.
 type VPCNetworkConfigurationSpec struct {
 	// NSX path of the VPC the Namespace is associated with.
-	// If VPC is set, only defaultIPv4SubnetSize and defaultSubnetAccessMode
-	// take effect, other fields are ignored.
+	// If vpc is set, only defaultSubnetSize takes effect, other fields are ignored.
 	// +optional
 	VPC string `json:"vpc,omitempty"`
 
@@ -27,7 +26,7 @@ type VPCNetworkConfigurationSpec struct {
 	// NSX Project the Namespace is associated with.
 	NSXProject string `json:"nsxProject,omitempty"`
 
-	// VPCConnectivityProfile ID. This profile has configuration related to creating VPC transit gateway attachment.
+	// VPCConnectivityProfile Path. This profile has configuration related to creating VPC transit gateway attachment.
 	VPCConnectivityProfile string `json:"vpcConnectivityProfile,omitempty"`
 
 	// Private IPs.
