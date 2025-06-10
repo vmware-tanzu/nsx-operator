@@ -230,7 +230,7 @@ func buildSubnetPortExternalAddressBindingFromExisting(subnetPort *model.VpcSubn
 	if existingSubnetPort.ExternalAddressBinding != nil {
 		if subnetPort.ExternalAddressBinding != nil {
 			// update is not supported, keep existing ExternalAddressBinding
-			subnetPort.ExternalAddressBinding = &model.ExternalAddressBinding{}
+			subnetPort.ExternalAddressBinding = existingSubnetPort.ExternalAddressBinding
 		}
 	}
 	return subnetPort
@@ -242,7 +242,9 @@ func (service *SubnetPortService) buildExternalAddressBinding(sp *v1alpha1.Subne
 		return nil, nil
 	}
 	portExternalAddressBinding := &model.ExternalAddressBinding{}
-	if restoreMode && len(addressBinding.Status.IPAddress) > 0 {
+	if addressBinding.Spec.AllocatedExternalIPPath != "" {
+		portExternalAddressBinding.AllocatedExternalIpPath = &addressBinding.Spec.AllocatedExternalIPPath
+	} else if restoreMode && len(addressBinding.Status.IPAddress) > 0 {
 		ns := sp.Namespace
 		VPCInfo := service.VPCService.ListVPCInfo(ns)
 		if len(VPCInfo) == 0 {

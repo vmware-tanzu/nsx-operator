@@ -38,6 +38,10 @@ spec:
             type: object
           spec:
             properties:
+              allocatedExternalIPPath:
+                description: AllocatedExternalIPPath contains path of the allocated
+                  IP address.
+                type: string
               interfaceName:
                 description: InterfaceName contains the interface name of the VM,
                   if not set, the first interface of the VM will be used

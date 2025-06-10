@@ -7,6 +7,8 @@ type AddressBindingSpec struct {
 	VMName string `json:"vmName"`
 	// InterfaceName contains the interface name of the VM, if not set, the first interface of the VM will be used
 	InterfaceName string `json:"interfaceName,omitempty"`
+	// AllocatedExternalIPPath contains path of the allocated IP address.
+	AllocatedExternalIPPath string `json:"allocatedExternalIPPath,omitempty"`
 }
 
 type AddressBindingStatus struct {

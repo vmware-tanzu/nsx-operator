@@ -822,12 +822,113 @@ func TestBuildExternalAddressBinding(t *testing.T) {
 			},
 			expectedError: nil,
 		},
+		{
+			name: "non-restore-with-allocated-external-ip-path",
+			sp: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{"nsx.vmware.com/attachment_ref": "VirtualMachine/vm/port"},
+				},
+			},
+			restoreMode: false,
+			preFunc: func(service *SubnetPortService, mockVPC *mock.MockVPCServiceProvider, mockIPAlloc *mock.MockIPAddressAllocationProvider) {
+				gomonkey.ApplyMethod(reflect.TypeOf(service), "GetAddressBindingBySubnetPort",
+					func(_ *SubnetPortService, _ *v1alpha1.SubnetPort) *v1alpha1.AddressBinding {
+						return &v1alpha1.AddressBinding{
+							Spec: v1alpha1.AddressBindingSpec{
+								AllocatedExternalIPPath: "/orgs/default/projects/project-quality/vpcs/vpc-id/ip-address-allocations/alloc-id-123",
+							},
+						}
+					},
+				)
+			},
+			expectedAb: &model.ExternalAddressBinding{
+				AllocatedExternalIpPath: String("/orgs/default/projects/project-quality/vpcs/vpc-id/ip-address-allocations/alloc-id-123"),
+			},
+			expectedError: nil,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.preFunc(service, &mockVPCService, &mockIPAddressAllocationService)
 			actualAb, _ := service.buildExternalAddressBinding(tt.sp, tt.restoreMode)
 			assert.Equal(t, tt.expectedAb, actualAb)
+		})
+	}
+}
+
+func Test_buildSubnetPortExternalAddressBindingFromExisting(t *testing.T) {
+	type args struct {
+		subnetPort         *model.VpcSubnetPort
+		existingSubnetPort *model.VpcSubnetPort
+	}
+	tests := []struct {
+		name string
+		args args
+		want *model.VpcSubnetPort
+	}{
+		{
+			name: "existing-nil",
+			args: args{
+				subnetPort:         &model.VpcSubnetPort{},
+				existingSubnetPort: nil,
+			},
+			want: &model.VpcSubnetPort{},
+		},
+		{
+			name: "existing-has-binding",
+			args: args{
+				subnetPort: &model.VpcSubnetPort{
+					ExternalAddressBinding: &model.ExternalAddressBinding{},
+				},
+				existingSubnetPort: &model.VpcSubnetPort{
+					ExternalAddressBinding: &model.ExternalAddressBinding{
+						AllocatedExternalIpPath: String("existing-path"),
+					},
+				},
+			},
+			want: &model.VpcSubnetPort{
+				ExternalAddressBinding: &model.ExternalAddressBinding{
+					AllocatedExternalIpPath: String("existing-path"),
+				},
+			},
+		},
+		{
+			name: "both-have-binding",
+			args: args{
+				subnetPort: &model.VpcSubnetPort{
+					ExternalAddressBinding: &model.ExternalAddressBinding{
+						AllocatedExternalIpPath: String("original-path"),
+					},
+				},
+				existingSubnetPort: &model.VpcSubnetPort{
+					ExternalAddressBinding: &model.ExternalAddressBinding{
+						AllocatedExternalIpPath: String("existing-path"),
+					},
+				},
+			},
+			want: &model.VpcSubnetPort{
+				ExternalAddressBinding: &model.ExternalAddressBinding{
+					AllocatedExternalIpPath: String("existing-path"),
+				},
+			},
+		},
+		{
+			name: "existing-no-binding",
+			args: args{
+				subnetPort: &model.VpcSubnetPort{
+					ExternalAddressBinding: nil,
+				},
+				existingSubnetPort: &model.VpcSubnetPort{
+					ExternalAddressBinding: nil,
+				},
+			},
+			want: &model.VpcSubnetPort{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildSubnetPortExternalAddressBindingFromExisting(tt.args.subnetPort, tt.args.existingSubnetPort)
+			assert.Equal(t, tt.want, result)
 		})
 	}
 }
