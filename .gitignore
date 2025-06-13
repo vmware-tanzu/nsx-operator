@@ -6,3 +6,4 @@ go.work.sum
 .tool-versions
 .scannerwork/
 .coverage/
+.golangci-bin/

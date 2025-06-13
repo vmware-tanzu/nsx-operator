@@ -395,7 +395,7 @@ func TestValidateDependency(t *testing.T) {
 					if !isTarget {
 						return []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child"}, &v1alpha1.Subnet{
 							ObjectMeta: metav1.ObjectMeta{
-								Annotations: map[string]string{common.AnnotationAssociatedResource: ":ns-1:subnet-1"},
+								Labels: map[string]string{common.LabelAssociatedResource: ":ns-1:subnet-1"},
 							},
 						}, nil
 					}
@@ -412,7 +412,7 @@ func TestValidateDependency(t *testing.T) {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetCR", func(_ *Reconciler, ctx context.Context, namespace, name string, isTarget bool) ([]string, *v1alpha1.Subnet, *errorWithRetry) {
 					return []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child"}, &v1alpha1.Subnet{
 						ObjectMeta: metav1.ObjectMeta{
-							Annotations: map[string]string{common.AnnotationAssociatedResource: ":ns-1:subnet-1"},
+							Labels: map[string]string{common.LabelAssociatedResource: ":ns-1:subnet-1"},
 						},
 					}, nil
 				})
@@ -433,7 +433,7 @@ func TestValidateDependency(t *testing.T) {
 					}
 					return []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-parent"}, &v1alpha1.Subnet{
 						ObjectMeta: metav1.ObjectMeta{
-							Annotations: map[string]string{common.AnnotationAssociatedResource: ":ns-1:subnet-1"},
+							Labels: map[string]string{common.LabelAssociatedResource: ":ns-1:subnet-1"},
 						},
 					}, nil
 				})
@@ -472,10 +472,10 @@ func TestValidateVpcSubnetsBySubnetCR(t *testing.T) {
 	}
 	sharedSubnetCR := &v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        subnetName,
-			Namespace:   subnetNamespace,
-			UID:         "subnet-uuid",
-			Annotations: map[string]string{common.AnnotationAssociatedResource: ":ns-1:subnet-1"},
+			Name:      subnetName,
+			Namespace: subnetNamespace,
+			UID:       "subnet-uuid",
+			Labels:    map[string]string{common.LabelAssociatedResource: ":ns-1:subnet-1"},
 		},
 		Status: v1alpha1.SubnetStatus{
 			Shared: true,
@@ -976,6 +976,5 @@ func createFakeReconciler(objs ...client.Object) *Reconciler {
 		Service:      svc,
 		BindingStore: subnetbinding.SetupStore(),
 	}
-
 	return NewReconciler(mgr, subnetService, bindingService)
 }

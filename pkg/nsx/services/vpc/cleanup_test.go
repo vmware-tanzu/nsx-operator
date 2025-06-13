@@ -57,8 +57,8 @@ func TestListAutoCreatedVPCPaths(t *testing.T) {
 				Tag:   common.String("namespace1"),
 			},
 			{
-				Scope: common.String(common.TagScopeVPCManagedBy),
-				Tag:   common.String(common.AutoCreatedVPCTagValue),
+				Scope: common.String(common.TagScopeManagedBy),
+				Tag:   common.String(common.AutoCreatedTagValue),
 			},
 		},
 	}

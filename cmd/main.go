@@ -215,7 +215,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		reconcilerList = append(
 			reconcilerList,
 			networkinfocontroller.NewNetworkInfoReconciler(mgr, vpcService, ipblocksInfoService),
-			namespacecontroller.NewNamespaceReconciler(mgr, cf, vpcService),
+			namespacecontroller.NewNamespaceReconciler(mgr, cf, vpcService, subnetService),
 			subnet.NewSubnetReconciler(mgr, subnetService, subnetPortService, vpcService, subnetBindingService),
 			subnetSetReconcile,
 			node.NewNodeReconciler(mgr, nodeService),
