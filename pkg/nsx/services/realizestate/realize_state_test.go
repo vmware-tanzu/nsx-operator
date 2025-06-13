@@ -264,4 +264,42 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 	assert.Equal(t, ok, true)
 	assert.Equal(t, nsxutil.IPAllocationErrorCode, realizedError.GetCode())
 	patches.Reset()
+
+	// for vpc, fail with related errors
+	patches.Reset()
+
+	patches = gomonkey.ApplyFunc((*fakeRealizedEntitiesClient).List, func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+		return model.GenericPolicyRealizedResourceListResult{
+			Results: []model.GenericPolicyRealizedResource{
+				{
+					State: common.String(model.GenericPolicyRealizedResource_STATE_ERROR),
+					Alarms: []model.PolicyAlarmResource{
+						{
+							Message: common.String("Found errors in the request. Please refer to the related errors for details."),
+							ErrorDetails: &model.PolicyApiError{
+								RelatedErrors: []model.PolicyRelatedApiError{
+									{ErrorMessage: common.String("related error 1")},
+									{ErrorMessage: common.String("related error 2")},
+								},
+							},
+						},
+					},
+					EntityType: common.String("RealizedLogicalRouter"),
+				},
+			},
+		}, nil
+	})
+	backoff = wait.Backoff{
+		Duration: 10 * time.Millisecond,
+		Factor:   1,
+		Jitter:   0,
+		Steps:    1,
+	}
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc", []string{})
+
+	realizeStateError, ok = err.(*nsxutil.RealizeStateError)
+	assert.True(t, ok)
+	assert.Equal(t, "/orgs/default/projects/project-quality/vpcs/vpc realized with errors: [Found errors in the request. Please refer to the related errors for details. related error 1 related error 2]", realizeStateError.Error())
+
+	patches.Reset()
 }
