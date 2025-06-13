@@ -52,7 +52,7 @@ var PredicateFuncsNs = predicate.Funcs{
 	UpdateFunc: func(e event.UpdateEvent) bool {
 		oldObj := e.ObjectOld.(*v1.Namespace)
 		newObj := e.ObjectNew.(*v1.Namespace)
-		log.V(1).Info("Receive Namespace update event", "Name", oldObj.Name)
+		log.Info("Receive Namespace update event", "Name", oldObj.Name)
 		if reflect.DeepEqual(oldObj.ObjectMeta.Labels, newObj.ObjectMeta.Labels) {
 			log.Info("Label of Namespace is not changed, ignore it", "name", oldObj.Name)
 			return false
