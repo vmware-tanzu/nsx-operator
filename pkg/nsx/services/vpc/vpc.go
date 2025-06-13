@@ -932,6 +932,7 @@ func (s *VPCService) GetLBSsFromNSXByVPC(vpcPath string) (string, error) {
 	}
 
 	if len(lbs.Results) == 0 {
+		log.V(1).Info("No NSX LB", "VPC Path", vpcPath)
 		return "", nil
 	}
 	lbsPath := *lbs.Results[0].Path

@@ -821,6 +821,63 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "Pre-create VPC without attachment",
+			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: requestArgs.req.Namespace,
+						Name:      requestArgs.req.Name,
+					},
+				}))
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.VPCNetworkConfiguration{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "system",
+					},
+				}))
+				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (string, error) {
+					return "pre-vpc-nc", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r), "GetVpcConnectivityProfilePathByVpcPath", func(_ *NetworkInfoReconciler, _ string) (string, error) {
+					return "", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
+					return &v1alpha1.VPCNetworkConfiguration{
+						Spec: v1alpha1.VPCNetworkConfigurationSpec{
+							NSXProject: "/orgs/default/projects/project-quality",
+							VPC:        "/orgs/default/projects/nsx_operator_e2e_test/vpcs/pre-vpc",
+						},
+					}, true, nil
+				})
+				patches.ApplyFunc(getGatewayConnectionStatus, func(_ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
+					return true, ""
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
+					return vpc.AVILB, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider) (*model.Vpc, error) {
+					return &model.Vpc{
+						DisplayName: servicecommon.String("vpc-name"),
+						Path:        servicecommon.String("/orgs/default/projects/project-quality/vpcs/fake-vpc"),
+						Id:          servicecommon.String("vpc-id"),
+					}, nil
+				})
+
+				patches.ApplyFunc(setNSNetworkReadyCondition,
+					func(ctx context.Context, client client.Client, nsName string, condition *corev1.NamespaceCondition) {
+						require.True(t, nsConditionEquals(*condition, *nsMsgVPCIsReady.getNSNetworkCondition()))
+					})
+				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithLBS,
+					func(ctx context.Context, client client.Client, ncName string, vpcName string, aviSubnetPath string, nsxLBSPath string, vpcPath string) {
+						require.Equal(t, "", nsxLBSPath)
+						require.Equal(t, "vpc-name", vpcName)
+					})
+				return patches
+			},
+			args:    requestArgs,
+			want:    common.ResultNormal,
+			wantErr: false,
+		},
+		{
 			name: "NSX LB SNAT IP failure",
 			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
 				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
@@ -1389,7 +1446,7 @@ func TestNetworkInfoReconciler_GetVpcConnectivityProfilePathByVpcPath(t *testing
 				return patches
 			},
 			want:    "",
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name:    "Successful VPC attachment retrieval",
@@ -1530,12 +1587,13 @@ func TestSyncPreCreatedVpcIPs(t *testing.T) {
 	defer patches.Reset()
 
 	expRequests := []reconcile.Request{
+		{NamespacedName: types.NamespacedName{Name: "net1", Namespace: "ns1"}},
 		{NamespacedName: types.NamespacedName{Name: "net1", Namespace: "ns2"}},
 		{NamespacedName: types.NamespacedName{Name: "net1", Namespace: "ns3"}},
 		{NamespacedName: types.NamespacedName{Name: "net1", Namespace: "ns6"}},
 	}
 
-	r.syncPreCreatedVpcIPs(ctx)
+	r.syncPreCreatedVpcs(ctx)
 	r.queue.Add(stopSig)
 	requests := getQueuedReqs(r.queue)
 	assert.ElementsMatch(t, expRequests, requests)
@@ -1577,7 +1635,7 @@ func TestNetworkInfoReconciler_StartController(t *testing.T) {
 	patches := gomonkey.ApplyFunc((*NetworkInfoReconciler).setupWithManager, func(r *NetworkInfoReconciler, mgr manager.Manager) error {
 		return nil
 	})
-	patches.ApplyFunc((*NetworkInfoReconciler).syncPreCreatedVpcIPs, func(r *NetworkInfoReconciler, ctx context.Context) {
+	patches.ApplyFunc((*NetworkInfoReconciler).syncPreCreatedVpcs, func(r *NetworkInfoReconciler, ctx context.Context) {
 		return
 	})
 	patches.ApplyFunc(common.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
