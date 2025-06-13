@@ -106,7 +106,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		assert.EqualError(t, err, "failed to find VPCInfo for IPAddressAllocation CR test-ip-alloc in Namespace default")
 	})
 
-	t.Run("Success case for IPAddressAllocation CR", func(t *testing.T) {
+	t.Run("Success case for IPAddressAllocation CR with AllocationSize", func(t *testing.T) {
 		ipAlloc := &v1alpha1.IPAddressAllocation{
 			ObjectMeta: v1.ObjectMeta{
 				Name:      "test-ip-alloc",
@@ -135,6 +135,38 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
 		assert.Equal(t, (*string)(nil), result.AllocationIps)
 		assert.Equal(t, int64(10), *result.AllocationSize)
+		assert.Equal(t, "EXTERNAL", *result.IpAddressBlockVisibility)
+		assert.Equal(t, 5, len(result.Tags))
+	})
+
+	t.Run("Success case for IPAddressAllocation CR with allocationIPs", func(t *testing.T) {
+		ipAlloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-ip-alloc",
+				Namespace: "default",
+				UID:       "uid1",
+			},
+			Spec: v1alpha1.IPAddressAllocationSpec{
+				IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityExternal,
+				AllocationIPs:            "10.0.0.0/28",
+			},
+		}
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, _ string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{
+				{
+					OrgID:     "org1",
+					ProjectID: "proj1",
+					VPCID:     "vpc1",
+				},
+			}
+		})
+		defer patch.Reset()
+
+		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		assert.Nil(t, err)
+		assert.Equal(t, "test-ip-alloc_uid1", *result.Id)
+		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
+		assert.Equal(t, "10.0.0.0/28", *result.AllocationIps)
 		assert.Equal(t, "EXTERNAL", *result.IpAddressBlockVisibility)
 		assert.Equal(t, 5, len(result.Tags))
 	})

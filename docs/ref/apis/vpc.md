@@ -204,6 +204,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `ipAddressBlockVisibility` _[IPAddressVisibility](#ipaddressvisibility)_ | IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW. | Private | Enum: [External Private PrivateTGW] <br /> |
 | `allocationSize` _integer_ | AllocationSize specifies the size of allocationIPs to be allocated.<br />It should be a power of 2. |  | Minimum: 1 <br /> |
+| `allocationIPs` _string_ | AllocationIPs specifies the Allocated IP addresses in CIDR or single IP Address format. |  |  |
 
 
 #### IPAddressAllocationStatus
