@@ -39,7 +39,9 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 			return nil, fmt.Errorf("failed to find VPCInfo for IPAddressAllocation CR %s in Namespace %s", o.Name, o.Namespace)
 		}
 		ipAddressBlockVisibility = convertIpAddressBlockVisibility(o.Spec.IPAddressBlockVisibility)
-		if restoreMode && len(o.Status.AllocationIPs) > 0 {
+		if len(o.Spec.AllocationIPs) > 0 {
+			allocationIps = String(o.Spec.AllocationIPs)
+		} else if restoreMode && len(o.Status.AllocationIPs) > 0 {
 			allocationIps = String(o.Status.AllocationIPs)
 		} else {
 			// Field AllocationIPs and AllocationSize cannot be provided together for VPC IP allocation.

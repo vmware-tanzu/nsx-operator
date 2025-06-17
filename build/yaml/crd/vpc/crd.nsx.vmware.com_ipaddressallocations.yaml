@@ -48,6 +48,13 @@ spec:
           spec:
             description: IPAddressAllocationSpec defines the desired state of IPAddressAllocation.
             properties:
+              allocationIPs:
+                description: AllocationIPs specifies the Allocated IP addresses in
+                  CIDR or single IP Address format.
+                type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
               allocationSize:
                 description: |-
                   AllocationSize specifies the size of allocationIPs to be allocated.
@@ -71,6 +78,13 @@ spec:
                 - message: Value is immutable
                   rule: self == oldSelf
             type: object
+            x-kubernetes-validations:
+            - message: Only one of allocationSize or allocationIPs can be specified
+              rule: '!has(self.allocationSize) || !has(self.allocationIPs)'
+            - message: allocationSize is required once set
+              rule: '!has(oldSelf.allocationSize) || has(self.allocationSize)'
+            - message: allocationIPs is required once set
+              rule: '!has(oldSelf.allocationIPs) || has(self.allocationIPs)'
           status:
             description: IPAddressAllocationStatus defines the observed state of IPAddressAllocation.
             properties:
