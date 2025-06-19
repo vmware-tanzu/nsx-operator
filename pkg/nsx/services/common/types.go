@@ -90,7 +90,7 @@ const (
 	AnnotationSharedVPCNamespace       string = "nsx.vmware.com/shared_vpc_namespace"
 	AnnotationDefaultNetworkConfig     string = "nsx.vmware.com/default"
 	AnnotationAttachmentRef            string = "nsx.vmware.com/attachment_ref"
-	AnnotationAssociatedResource       string = "nsx.vmware.com/associated_resource"
+	AnnotationAssociatedResource       string = "nsx.vmware.com/associated-resource"
 	AnnotationRestore                  string = "nsx/restore"
 	AnnotationPodMAC                   string = "nsx.vmware.com/mac"
 	LabelCPVM                          string = "iaas.vmware.com/is-cpvm-subnetport"
