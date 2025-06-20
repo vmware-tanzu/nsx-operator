@@ -28,7 +28,7 @@ func filterTag(tags []model.Tag, tagScope string) []string {
 	return res
 }
 
-// subnetIndexFunc is used to filter out NSX Subnets which are tagged with CR UID.
+// subnetIndexFunc is used to filter out NSX Subnets, which are tagged with CR UID.
 func subnetIndexFunc(obj interface{}) ([]string, error) {
 	switch o := obj.(type) {
 	case *model.VpcSubnet:
@@ -56,7 +56,7 @@ func subnetIndexNamespaceFunc(obj interface{}) ([]string, error) {
 	}
 }
 
-// subnetIndexFunc is used to filter out NSX Subnets which are tagged with CR UID.
+// subnetIndexFunc is used to filter out NSX Subnets, which are tagged with CR UID.
 func subnetSetIndexFunc(obj interface{}) ([]string, error) {
 	switch o := obj.(type) {
 	case *model.VpcSubnet:
@@ -92,8 +92,8 @@ func (subnetStore *SubnetStore) Apply(i interface{}) error {
 
 func (subnetStore *SubnetStore) GetByIndex(key string, value string) []*model.VpcSubnet {
 	subnets := make([]*model.VpcSubnet, 0)
-	objs := subnetStore.ResourceStore.GetByIndex(key, value)
-	for _, subnet := range objs {
+	objects := subnetStore.ResourceStore.GetByIndex(key, value)
+	for _, subnet := range objects {
 		subnets = append(subnets, subnet.(*model.VpcSubnet))
 	}
 	return subnets
@@ -110,6 +110,6 @@ func (subnetStore *SubnetStore) GetByKey(key string) *model.VpcSubnet {
 
 func (subnetStore *SubnetStore) DeleteMultipleObjects(subnets []*model.VpcSubnet) {
 	for _, subnet := range subnets {
-		subnetStore.Delete(subnet)
+		_ = subnetStore.Delete(subnet)
 	}
 }

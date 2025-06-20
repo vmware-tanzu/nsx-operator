@@ -11,7 +11,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	mockClient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
@@ -67,7 +67,7 @@ func TestBuildSubnetSetName(t *testing.T) {
 
 func TestBuildSubnetForSubnetSet(t *testing.T) {
 	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
+	k8sClient := mockClient.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
 	service := &SubnetService{
 		Service: common.Service{
@@ -111,7 +111,7 @@ func TestBuildSubnetForSubnetSet(t *testing.T) {
 
 func TestBuildSubnetForSubnet(t *testing.T) {
 	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
+	k8sClient := mockClient.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
 	service := &SubnetService{
 		Service: common.Service{
