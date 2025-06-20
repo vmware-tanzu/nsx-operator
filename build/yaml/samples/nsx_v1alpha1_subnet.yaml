@@ -22,7 +22,7 @@ kind: Subnet
 metadata:
   name: vlan-subnet
   annotations:
-    nsx.vmware.com/associated_resource: project1:vpc1:vlan-subnet
+    nsx.vmware.com/associated-resource: project1:vpc1:vlan-subnet
 spec:
   vpcName: project1:vpc1
   accessMode: Public
@@ -37,4 +37,8 @@ status:
   - 172.26.0.1/28
   networkAddresses:
   - 172.26.0.0/28
-  preCreated: true
+  shared: true
+  vlanExtension: {
+    vpcGatewayConnectionEnable: true,
+    vlanId: 192
+  }
