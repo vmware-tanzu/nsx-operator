@@ -38,6 +38,10 @@ spec:
             type: object
           spec:
             properties:
+              externalIPAddressAllocation:
+                description: ExternalIPAddressAllocation contains name of the external
+                  IP address allocation CR.
+                type: string
               interfaceName:
                 description: InterfaceName contains the interface name of the VM,
                   if not set, the first interface of the VM will be used
