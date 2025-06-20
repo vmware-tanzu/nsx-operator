@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	log                             = &logger.Log
+	log                             = &logger.CustomLog
 	MarkedForDelete                 = true
 	ResourceTypeIPAddressAllocation = common.ResourceTypeIPAddressAllocation
 )
@@ -84,7 +84,7 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 		log.Error(err, "Failed to get ipaddressallocation", "UID", obj.UID)
 		return false, err
 	}
-	log.V(1).Info("Existing ipaddressallocation", "ipaddressallocation", existingIPAddressAllocation)
+	log.Debug("Existing ipaddressallocation", "ipaddressallocation", existingIPAddressAllocation)
 
 	if existingIPAddressAllocation != nil && existingIPAddressAllocation.AllocationIps != nil && existingIPAddressAllocation.AllocationSize == nil {
 		// For the restored NSX VPC IPAddressAllocation, its allocation_size is null.
@@ -145,7 +145,7 @@ func (service *IPAddressAllocationService) CreateIPAddressAllocationForAddressBi
 		return err
 	}
 	if existingIPAddressAllocation != nil {
-		log.V(1).Info("The IPAddressAllocation has been created, skipping", "AddressBinding", addressBinding)
+		log.Debug("The IPAddressAllocation has been created, skipping", "AddressBinding", addressBinding)
 		return nil
 	}
 	nsxIPAddressAllocation, err := service.BuildIPAddressAllocation(addressBinding, subnetPort, restoreMode)
@@ -170,7 +170,7 @@ func (service *IPAddressAllocationService) DeleteIPAddressAllocationForAddressBi
 		return err
 	}
 	if nsxIPAddressAllocation == nil {
-		log.V(1).Info("NSX IPAddressAllocation for AddressBinding not found", "owner", owner)
+		log.Debug("NSX IPAddressAllocation for AddressBinding not found", "owner", owner)
 		return nil
 	}
 	err = service.DeleteIPAddressAllocationByNSXResource(nsxIPAddressAllocation)
@@ -226,7 +226,7 @@ func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.V
 	if err != nil {
 		return err
 	}
-	log.V(1).Info("Successfully created or updated ipaddressallocation", "nsxIPAddressAllocation", nsxIPAddressAllocation)
+	log.Debug("Successfully created or updated ipaddressallocation", "nsxIPAddressAllocation", nsxIPAddressAllocation)
 	return nil
 }
 

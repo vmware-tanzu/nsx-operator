@@ -58,7 +58,7 @@ func enqueue(ctx context.Context, c client.Client, namespace, name string, q wor
 		log.Error(err, "Failed to get Subnet CR", "Subnet", subnetKey.String())
 		return err
 	}
-	log.V(1).Info("Enqueue Subnet CR", "Subnet", subnetKey.String())
+	log.Debug("Enqueue Subnet CR", "Subnet", subnetKey.String())
 	req := reconcile.Request{NamespacedName: subnetKey}
 	q.Add(req)
 	return nil
@@ -72,7 +72,7 @@ func requeueSubnetBySubnetBindingDelete(ctx context.Context, c client.Client, ob
 func (r *SubnetReconciler) getNSXSubnetBindingsBySubnet(subnetCRUID string) []*v1alpha1.SubnetConnectionBindingMap {
 	vpcSubnets := r.SubnetService.ListSubnetCreatedBySubnet(subnetCRUID)
 	if len(vpcSubnets) == 0 {
-		log.V(1).Info("No VpcSubnet found with Subnet", "SubnetID", subnetCRUID)
+		log.Debug("No VpcSubnet found with Subnet", "SubnetID", subnetCRUID)
 		return nil
 	}
 

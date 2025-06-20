@@ -51,7 +51,7 @@ func (c *InventoryController) handleEndpoint(obj interface{}) {
 			return
 		}
 	}
-	log.V(1).Info("Inventory processing Endpoint", "Endpoint", endpoint.Name, "Namespace", endpoint.Namespace)
+	log.Debug("Inventory processing Endpoint", "Endpoint", endpoint.Name, "Namespace", endpoint.Namespace)
 	service := &v1.Service{}
 	err := c.Client.Get(
 		context.TODO(),
@@ -70,6 +70,6 @@ func (c *InventoryController) handleEndpoint(obj interface{}) {
 
 func (c *InventoryController) triggerService(service *v1.Service) {
 	key, _ := keyFunc(service)
-	log.V(1).Info("Adding Service key to inventory object queue", "Service key", key)
+	log.Debug("Adding Service key to inventory object queue", "Service key", key)
 	c.inventoryObjectQueue.Add(inventory.InventoryKey{InventoryType: inventory.ContainerApplication, ExternalId: string(service.UID), Key: key})
 }

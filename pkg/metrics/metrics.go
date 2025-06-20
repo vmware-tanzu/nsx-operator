@@ -24,7 +24,7 @@ const (
 	ScrapeTimeout                   = 30
 )
 
-var log = &logger.Log
+var log = &logger.CustomLog
 
 var (
 	NSXOperatorHealthStats = prometheus.NewGauge(

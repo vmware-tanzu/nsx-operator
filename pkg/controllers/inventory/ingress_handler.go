@@ -53,8 +53,8 @@ func (c *InventoryController) handleIngress(obj interface{}) {
 			return
 		}
 	}
-	log.V(1).Info("Inventory processing Ingress", "Namespace", ingress.Namespace, "Name", ingress.Name)
+	log.Debug("Inventory processing Ingress", "Namespace", ingress.Namespace, "Name", ingress.Name)
 	key, _ := keyFunc(ingress)
-	log.V(1).Info("Adding Ingress key to inventory object queue", "Ingress key", key)
+	log.Debug("Adding Ingress key to inventory object queue", "Ingress key", key)
 	c.inventoryObjectQueue.Add(inventory.InventoryKey{InventoryType: inventory.ContainerIngressPolicy, ExternalId: string(ingress.UID), Key: key})
 }
