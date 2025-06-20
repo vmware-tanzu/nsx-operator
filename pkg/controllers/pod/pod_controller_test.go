@@ -230,8 +230,8 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 						return &model.VpcSubnet{}, nil
 					})
 				patches.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-					func(r *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, error) {
-						return nil, errors.New("failed to create subnetport")
+					func(r *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
+						return nil, false, errors.New("failed to create subnetport")
 					})
 
 				k8sClient.EXPECT().Status().Return(fakewriter).AnyTimes()
@@ -271,7 +271,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 						return &model.VpcSubnet{}, nil
 					})
 				patches.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-					func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string) (*model.SegmentPortState, error) {
+					func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string) (*model.SegmentPortState, bool, error) {
 						return &model.SegmentPortState{
 							RealizedBindings: []model.AddressBindingEntry{
 								{
@@ -280,7 +280,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 									},
 								},
 							},
-						}, nil
+						}, false, nil
 					})
 
 				k8sClient.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {

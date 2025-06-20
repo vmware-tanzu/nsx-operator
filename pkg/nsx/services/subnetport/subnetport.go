@@ -108,7 +108,7 @@ func (service *SubnetPortService) loadNSXMacPool() error {
 	return nil
 }
 
-func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, error) {
+func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
 	var uid string
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
@@ -120,7 +120,7 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 	nsxSubnetPort, err := service.buildSubnetPort(obj, nsxSubnet, contextID, tags, isVmSubnetPort, restoreMode)
 	if err != nil {
 		log.Error(err, "failed to build NSX subnet port", "nsxSubnetPort.Id", uid, "*nsxSubnet.Path", *nsxSubnet.Path, "contextID", contextID)
-		return nil, err
+		return nil, false, err
 	}
 	existingSubnetPort := service.SubnetPortStore.GetByKey(*nsxSubnetPort.Id)
 	isChanged := true
@@ -133,7 +133,7 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 	}
 	subnetInfo, err := servicecommon.ParseVPCResourcePath(*nsxSubnet.Path)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if !isChanged {
 		log.Info("NSX subnet port not changed, skipping the update", "nsxSubnetPort.Id", nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
@@ -145,11 +145,11 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
 			log.Error(err, "failed to create or update subnet port", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
-			return nil, err
+			return nil, false, err
 		}
 		err = service.SubnetPortStore.Apply(nsxSubnetPort)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if existingSubnetPort != nil {
 			log.Info("updated NSX subnet port", "nsxSubnetPort.Path", *nsxSubnetPort.Path)
@@ -158,29 +158,29 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		}
 	}
 	enableDHCP := false
-	if nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode != v1alpha1.DHCPConfigModeDeactivated {
+	if nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode != nsxutil.ParseDHCPMode(v1alpha1.DHCPConfigModeDeactivated) {
 		enableDHCP = true
 	}
 	nsxSubnetPortState, err := service.CheckSubnetPortState(obj, *nsxSubnet.Path, enableDHCP)
 	if err != nil {
 		log.Error(err, "check and update NSX subnet port state failed, would retry exponentially", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
-		return nil, err
+		return nil, false, err
 	}
 	createdNSXSubnetPort, err := service.NSXClient.PortClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *nsxSubnetPort.Id)
 	if err != nil {
 		log.Error(err, "check and update NSX subnet port failed, would retry exponentially", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
-		return nil, err
+		return nil, false, err
 	}
 	err = service.SubnetPortStore.Apply(&createdNSXSubnetPort)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if isChanged {
 		log.Info("successfully created or updated subnetport", "nsxSubnetPort.Id", *nsxSubnetPort.Id)
 	} else {
 		log.Info("subnetport already existed", "subnetport", *nsxSubnetPort.Id)
 	}
-	return nsxSubnetPortState, nil
+	return nsxSubnetPortState, enableDHCP, nil
 }
 
 // CheckSubnetPortState will check the port realized status then get the port state to prepare the CR status.
