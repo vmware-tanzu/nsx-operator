@@ -285,3 +285,80 @@ func TestGetSubnetPathFromAssociatedResource(t *testing.T) {
 	_, err = GetSubnetPathFromAssociatedResource("invalid-annotation")
 	assert.ErrorContains(t, err, "failed to parse associated resource annotation")
 }
+
+func TestExtractSubnetPath(t *testing.T) {
+	tests := []struct {
+		name              string
+		sharedSubnetPath  string
+		expectedSubnet    string
+		expectedProject   string
+		expectedVPC       string
+		expectedOrg       string
+		expectedErrString string
+	}{
+		{
+			name:             "Valid subnet path",
+			sharedSubnetPath: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
+			expectedSubnet:   "subnet-1",
+			expectedProject:  "proj-1",
+			expectedVPC:      "vpc-1",
+			expectedOrg:      "default",
+		},
+		{
+			name:              "Invalid subnet path",
+			sharedSubnetPath:  "invalid-path",
+			expectedErrString: "invalid subnet path format",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			orgName, projectName, vpcName, subnetName, err := ExtractSubnetPath(tt.sharedSubnetPath)
+
+			if tt.expectedErrString != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErrString)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedOrg, orgName)
+				assert.Equal(t, tt.expectedProject, projectName)
+				assert.Equal(t, tt.expectedVPC, vpcName)
+				assert.Equal(t, tt.expectedSubnet, subnetName)
+			}
+		})
+	}
+}
+
+func TestConvertSubnetPathToAssociatedResource(t *testing.T) {
+	tests := []struct {
+		name              string
+		sharedSubnetPath  string
+		expectedResource  string
+		expectedErrString string
+	}{
+		{
+			name:             "Valid subnet path",
+			sharedSubnetPath: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
+			expectedResource: "proj-1:vpc-1:subnet-1",
+		},
+		{
+			name:              "Invalid subnet path",
+			sharedSubnetPath:  "invalid-path",
+			expectedErrString: "invalid subnet path format",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resource, err := ConvertSubnetPathToAssociatedResource(tt.sharedSubnetPath)
+
+			if tt.expectedErrString != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErrString)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedResource, resource)
+			}
+		})
+	}
+}

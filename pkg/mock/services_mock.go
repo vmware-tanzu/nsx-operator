@@ -55,6 +55,21 @@ func (m *MockVPCServiceProvider) GetNetworkconfigNameFromNS(ctx context.Context,
 	return "", nil
 }
 
+func (m *MockVPCServiceProvider) GetProjectName(orgID, projectID string) (string, error) {
+	args := m.Called(orgID, projectID)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockVPCServiceProvider) GetVPCName(orgID, projectID, vpcID string) (string, error) {
+	args := m.Called(orgID, projectID, vpcID)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockVPCServiceProvider) IsDefaultNSXProject(orgID, projectID string) (bool, error) {
+	args := m.Called(orgID, projectID)
+	return args.Bool(0), args.Error(1)
+}
+
 type MockSubnetServiceProvider struct {
 	mock.Mock
 }

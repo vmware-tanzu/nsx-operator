@@ -29,6 +29,7 @@ import (
 	ctlcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
@@ -36,32 +37,44 @@ func createNameSpaceReconciler(objs []client.Object) *NamespaceReconciler {
 	newScheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
 	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
-	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objs...).Build()
+
+	// Create a fake client builder
+	clientBuilder := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objs...)
+
+	fakeClient := clientBuilder.Build()
+
+	nsxConfig := &config.NSXOperatorConfig{
+		NsxConfig: &config.NsxConfig{
+			EnforcementPoint:   "vmc-enforcementpoint",
+			UseAVILoadBalancer: false,
+		},
+	}
 
 	service := &vpc.VPCService{
 		Service: common.Service{
 			Client:    fakeClient,
 			NSXClient: &nsx.Client{},
-			NSXConfig: &config.NSXOperatorConfig{
-				NsxConfig: &config.NsxConfig{
-					EnforcementPoint:   "vmc-enforcementpoint",
-					UseAVILoadBalancer: false,
-				},
-			},
+			NSXConfig: nsxConfig,
 		},
 	}
 
-	return &NamespaceReconciler{
-		Client:     fakeClient,
-		Scheme:     fake.NewClientBuilder().Build().Scheme(),
-		VPCService: service,
-		NSXConfig: &config.NSXOperatorConfig{
-			NsxConfig: &config.NsxConfig{
-				EnforcementPoint:   "vmc-enforcementpoint",
-				UseAVILoadBalancer: false,
-			},
+	subnetService := &subnet.SubnetService{
+		Service: common.Service{
+			Client:    fakeClient,
+			NSXClient: &nsx.Client{},
+			NSXConfig: nsxConfig,
 		},
 	}
+
+	nsReconciler := &NamespaceReconciler{
+		Client:        fakeClient,
+		Scheme:        fake.NewClientBuilder().Build().Scheme(),
+		VPCService:    service,
+		SubnetService: subnetService,
+		NSXConfig:     nsxConfig,
+	}
+	nsReconciler.SubnetStatusUpdater = ctlcommon.NewStatusUpdater(nsReconciler.Client, nsReconciler.SubnetService.NSXConfig, nil, "Subnet", "Subnet", "Subnet")
+	return nsReconciler
 }
 
 func TestGetDefaultNetworkConfigName(t *testing.T) {
@@ -193,6 +206,21 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetVPCNetworkConfig", func(_ *vpc.VPCService, ncCRName string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
 					return &nc, true, nil
 				})
+				// Mock syncSharedSubnets to return nil (no error)
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "syncSharedSubnets", func(_ *NamespaceReconciler, _ context.Context, _ string,
+					_ *v1alpha1.VPCNetworkConfiguration) error {
+					return nil
+				})
+				// Mock createNetworkInfoCR to return nil (no error)
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "createNetworkInfoCR", func(_ *NamespaceReconciler, _ context.Context,
+					_ client.Object, _ string) (*v1alpha1.NetworkInfo, error) {
+					return nil, nil
+				})
+				// Mock createDefaultSubnetSet to return nil (no error)
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "createDefaultSubnetSet", func(_ *NamespaceReconciler, _ context.Context, _ string,
+					_ int) error {
+					return nil
+				})
 				return patches
 			},
 			expectRes: ctrl.Result{},
@@ -238,6 +266,11 @@ func TestNamespaceReconciler_StartController(t *testing.T) {
 			Client: fakeClient,
 		},
 	}
+	subnetService := &subnet.SubnetService{
+		Service: common.Service{
+			Client: fakeClient,
+		},
+	}
 	mockMgr := &MockManager{scheme: runtime.NewScheme()}
 	patches := gomonkey.ApplyFunc((*NamespaceReconciler).setupWithManager, func(r *NamespaceReconciler, mgr manager.Manager) error {
 		return nil
@@ -246,7 +279,7 @@ func TestNamespaceReconciler_StartController(t *testing.T) {
 		return
 	})
 	defer patches.Reset()
-	r := NewNamespaceReconciler(mockMgr, nil, vpcService)
+	r := NewNamespaceReconciler(mockMgr, nil, vpcService, subnetService)
 	err := r.StartController(mockMgr, nil)
 	assert.Nil(t, err)
 }

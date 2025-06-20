@@ -60,8 +60,8 @@ const (
 	TagScopeAddressBindingCRUID        string = "nsx-op/addressbinding_uid"
 	TagScopeVMNamespaceUID             string = "nsx-op/vm_namespace_uid"
 	TagScopeVMNamespace                string = "nsx-op/vm_namespace"
-	TagScopeVPCManagedBy               string = "nsx/managed-by"
-	AutoCreatedVPCTagValue             string = "nsx-op"
+	TagScopeManagedBy                  string = "nsx/managed-by"
+	AutoCreatedTagValue                string = "nsx-op"
 	LabelDefaultSubnetSet              string = "nsxoperator.vmware.com/default-subnetset-for"
 	LabelImageFetcher                  string = "iaas.vmware.com/image-fetcher"
 	LabelDefaultVMSubnetSet            string = "VirtualMachine"
@@ -111,9 +111,10 @@ const (
 	SubnetFinalizerName            = "subnet.nsx.vmware.com/finalizer"
 	SubnetSetFinalizerName         = "subnetset.nsx.vmware.com/finalizer"
 
-	IndexKeySubnetID            = "IndexKeySubnetID"
-	IndexKeyNodeName            = "IndexKeyNodeName"
-	GCValidationInterval uint16 = 720
+	IndexKeySubnetID                  = "IndexKeySubnetID"
+	IndexKeyNodeName                  = "IndexKeyNodeName"
+	AssociatedResourceIndexKey        = "metadata.annotations." + AnnotationAssociatedResource
+	GCValidationInterval       uint16 = 720
 
 	RuleIngress            = "ingress"
 	RuleEgress             = "egress"

@@ -43,7 +43,7 @@ var log = &logger.Log
 
 const (
 	createVCNamespaceEndpoint = "/api/vcenter/namespaces/instances/v2"
-	defaultTimeout            = 300 * time.Second
+	defaultTimeout            = 600 * time.Second
 	PolicyAPI                 = "policy/api/v1"
 )
 

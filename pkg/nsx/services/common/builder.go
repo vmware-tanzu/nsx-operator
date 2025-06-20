@@ -7,10 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 )
 
 func QueryTagCondition(resourceType, cluster string) string {
@@ -64,4 +67,53 @@ func NSXProjectPathToId(path string) (string, string, error) {
 		return "", "", errors.New("invalid NSX project path")
 	}
 	return parts[2], parts[4], nil
+}
+
+func IsDefaultNetworkConfigCR(vpcConfigCR *v1alpha1.VPCNetworkConfiguration) bool {
+	annos := vpcConfigCR.GetAnnotations()
+	val, exist := annos[AnnotationDefaultNetworkConfig]
+	if exist {
+		boolVar, err := strconv.ParseBool(val)
+		if err != nil {
+			log.Error(err, "Failed to parse annotation to check default NetworkConfig", "Annotation", annos[AnnotationDefaultNetworkConfig])
+			return false
+		}
+		return boolVar
+	}
+	return false
+}
+
+// IsSharedSubnet checks if a Subnet is shared based on the associated-resource annotation
+func IsSharedSubnet(subnet *v1alpha1.Subnet) bool {
+	if subnet.Annotations == nil {
+		return false
+	}
+	_, exists := subnet.Annotations[AnnotationAssociatedResource]
+	return exists
+}
+
+// GetVPCFullName returns the formatted VPC full name based on project and VPC names
+// If the project is a default NSX project, the format is ":vpcName", otherwise it's "projectName:vpcName"
+func GetVPCFullName(orgID, projectID, vpcID string, vpcService VPCServiceProvider) (string, error) {
+	projectName, err := vpcService.GetProjectName(orgID, projectID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get project name: %w", err)
+	}
+
+	vpcName, err := vpcService.GetVPCName(orgID, projectID, vpcID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get VPC name: %w", err)
+	}
+
+	// Format VPC full name
+	vpcFullName := fmt.Sprintf("%s:%s", projectName, vpcName)
+	isDefault, err := vpcService.IsDefaultNSXProject(orgID, projectID)
+	if err != nil {
+		return "", fmt.Errorf("failed to check if project is default: %w", err)
+	}
+	if isDefault {
+		vpcFullName = fmt.Sprintf(":%s", vpcName)
+	}
+
+	return vpcFullName, nil
 }
