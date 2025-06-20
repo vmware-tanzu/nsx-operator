@@ -322,6 +322,10 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					func(s *subnetport.SubnetPortService, portID string) error {
 						return nil
 					})
+				patchesDeleteSubnetPortById.ApplyFunc((*subnetport.SubnetPortStore).GetVpcSubnetPortByUID,
+					func(s *subnetport.SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+						return &model.VpcSubnetPort{Id: servicecommon.String("port1")}, nil
+					})
 				return patchesDeleteSubnetPortById
 			},
 			expectedResult: common.ResultNormal,
@@ -340,6 +344,10 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 				patchesDeleteSubnetPortById := gomonkey.ApplyFunc((*subnetport.SubnetPortService).DeleteSubnetPortById,
 					func(s *subnetport.SubnetPortService, portID string) error {
 						return errors.New("failed to delete subnetport")
+					})
+				patchesDeleteSubnetPortById.ApplyFunc((*subnetport.SubnetPortStore).GetVpcSubnetPortByUID,
+					func(s *subnetport.SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+						return &model.VpcSubnetPort{Id: servicecommon.String("port1")}, nil
 					})
 				return patchesDeleteSubnetPortById
 			},
@@ -432,6 +440,11 @@ func TestPodReconciler_CollectGarbage(t *testing.T) {
 			return a
 		})
 	defer ListNSXSubnetPortIDForPod.Reset()
+	patchesGetVpsSubnetPortByUID := gomonkey.ApplyFunc((*subnetport.SubnetPortStore).GetVpcSubnetPortByUID,
+		func(s *subnetport.SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+			return &model.VpcSubnetPort{Id: servicecommon.String("port1")}, nil
+		})
+	defer patchesGetVpsSubnetPortByUID.Reset()
 	patchesDeleteSubnetPortById := gomonkey.ApplyFunc((*subnetport.SubnetPortService).DeleteSubnetPortById,
 		func(s *subnetport.SubnetPortService, uid string) error {
 			return nil
@@ -521,7 +534,7 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 			name: "SubnetExisted",
 			prepareFunc: func(t *testing.T, pr *PodReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetSubnetPathForSubnetPortFromStore,
-					func(s *subnetport.SubnetPortService, nsxSubnetPortID string) string {
+					func(s *subnetport.SubnetPortService, uid types.UID) string {
 						return subnetPath
 					})
 				return patches
@@ -533,7 +546,7 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 			name: "NoGetDefaultSubnetSet",
 			prepareFunc: func(t *testing.T, pr *PodReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetSubnetPathForSubnetPortFromStore,
-					func(s *subnetport.SubnetPortService, nsxSubnetPortID string) string {
+					func(s *subnetport.SubnetPortService, uid types.UID) string {
 						return ""
 					})
 				patches.ApplyFunc(common.GetDefaultSubnetSetByNamespace,
@@ -548,7 +561,7 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 			name: "CreateSubnetFailure",
 			prepareFunc: func(t *testing.T, pr *PodReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetSubnetPathForSubnetPortFromStore,
-					func(s *subnetport.SubnetPortService, nsxSubnetPortID string) string {
+					func(s *subnetport.SubnetPortService, uid types.UID) string {
 						return ""
 					})
 				patches.ApplyFunc(common.GetDefaultSubnetSetByNamespace,
@@ -572,7 +585,7 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 			name: "CreateSubnetSuccess",
 			prepareFunc: func(t *testing.T, pr *PodReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetSubnetPathForSubnetPortFromStore,
-					func(s *subnetport.SubnetPortService, nsxSubnetPortID string) string {
+					func(s *subnetport.SubnetPortService, uid types.UID) string {
 						return ""
 					})
 				patches.ApplyFunc(common.GetDefaultSubnetSetByNamespace,
@@ -596,7 +609,7 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 			name: "Restore",
 			prepareFunc: func(t *testing.T, pr *PodReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetSubnetPathForSubnetPortFromStore,
-					func(s *subnetport.SubnetPortService, nsxSubnetPortID string) string {
+					func(s *subnetport.SubnetPortService, uid types.UID) string {
 						return ""
 					})
 				patches.ApplyFunc(common.GetDefaultSubnetSetByNamespace,
