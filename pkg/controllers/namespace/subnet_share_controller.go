@@ -11,7 +11,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
@@ -45,7 +44,7 @@ func (r *NamespaceReconciler) createSubnetCRInK8s(ctx context.Context, subnetCR 
 // createSharedSubnetCR creates a Subnet CR for a shared subnet
 func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns string, sharedSubnetPath string) error {
 	// Extract the org id, project id, VPC id, and subnet id
-	orgID, projectID, vpcID, _, err := common.ExtractSubnetPath(sharedSubnetPath)
+	orgID, projectID, vpcID, _, err := servicecommon.ExtractSubnetPath(sharedSubnetPath)
 	if err != nil {
 		return err
 	}
@@ -56,7 +55,7 @@ func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns strin
 	}
 
 	// Get associated resource name
-	associatedName, err := common.ConvertSubnetPathToAssociatedResource(sharedSubnetPath)
+	associatedName, err := servicecommon.ConvertSubnetPathToAssociatedResource(sharedSubnetPath)
 	if err != nil {
 		return err
 	}
@@ -125,7 +124,7 @@ func (r *NamespaceReconciler) processNewSharedSubnets(ctx context.Context, ns st
 	processedSubnets := make(map[string]bool)
 
 	for _, sharedSubnetPath := range vpcNetConfig.Spec.Subnets {
-		associatedResource, err := common.ConvertSubnetPathToAssociatedResource(sharedSubnetPath)
+		associatedResource, err := servicecommon.ConvertSubnetPathToAssociatedResource(sharedSubnetPath)
 		if err != nil {
 			log.Error(err, "Failed to convert Subnet path to associated resource", "Namespace", ns, "SharedSubnet", sharedSubnetPath)
 			return unusedSubnets, err

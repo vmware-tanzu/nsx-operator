@@ -101,7 +101,12 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		r.StatusUpdater.IncreaseUpdateTotal()
 
 		old_status := subnetPort.Status.DeepCopy()
-		isExisting, isParentResourceTerminating, nsxSubnetPath, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort)
+		inSharedSubnet, err := r.isInSharedSubnet(ctx, subnetPort)
+		if err != nil {
+			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to check Subnet CR", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			return common.ResultRequeue, err
+		}
+		isExisting, isParentResourceTerminating, nsxSubnetPath, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort, inSharedSubnet)
 		if isParentResourceTerminating {
 			err = errors.New("parent resource is terminating, SubnetPort cannot be created")
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
@@ -124,8 +129,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if vm != nil {
 			labels = &vm.Labels
 		}
-
-		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath)
+		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath, inSharedSubnet)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, fmt.Sprintf("Failed to get Subnet by path: %s", nsxSubnetPath), setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 			return common.ResultRequeue, err
@@ -170,7 +174,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress = *nsxSubnetPortState.RealizedBindings[0].Binding.IpAddress
 			subnetPort.Status.NetworkInterfaceConfig.MACAddress = strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\"")
 		}
-		err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnetPath)
+		err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnetPath, nsxSubnet)
 		if err != nil {
 			log.Error(err, "Failed to retrieve Subnet status for SubnetPort", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
 		}
@@ -225,6 +229,25 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		setAddressBindingStatusBySubnetPort(r.Client, ctx, subnetPort, r.SubnetPortService, metav1.Now(), vmOrInterfaceNotFoundError)
 	}
 	return common.ResultNormal, nil
+}
+
+func (r *SubnetPortReconciler) isInSharedSubnet(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, error) {
+	if len(subnetPort.Spec.Subnet) > 0 {
+		subnetCR := &v1alpha1.Subnet{}
+		namespacedName := types.NamespacedName{
+			Name:      subnetPort.Spec.Subnet,
+			Namespace: subnetPort.Namespace,
+		}
+		if err := r.Client.Get(ctx, namespacedName, subnetCR); err != nil {
+			log.Error(err, "Subnet CR not found", "SubnetCR", namespacedName)
+			return false, err
+		}
+		if !subnetCR.DeletionTimestamp.IsZero() {
+			return false, fmt.Errorf("subnet %s is being deleted, cannot operate SubnetPort %s", namespacedName, subnetPort.Name)
+		}
+		return servicecommon.IsSharedSubnet(subnetCR), nil
+	}
+	return false, nil
 }
 
 func subnetPortNamespaceVMIndexFunc(obj client.Object) []string {
@@ -610,14 +633,14 @@ func (r *SubnetPortReconciler) getSubnetBySubnetPort(subnetPort *v1alpha1.Subnet
 	return common.GetSubnetByIP(subnets, gatewayIP)
 }
 
-func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (existing bool, isStale bool, subnetPath string, err error) {
+func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort, inSharedSubnet bool) (existing bool, isStale bool, subnetPath string, err error) {
 	subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
 	subnetPath = r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(subnetPortID)
 	if len(subnetPath) > 0 {
 		// If there is a SubnetPath in store, there is a subnetport in NSX, the subnetport is not created first time.
 		// Check if the Subnet is deleted due to race condition, in which case the stale
 		// subnetport is needed to be deleted.
-		_, err = r.SubnetService.GetSubnetByPath(subnetPath)
+		_, err = r.SubnetService.GetSubnetByPath(subnetPath, inSharedSubnet)
 		if err != nil {
 			log.Info("Previous NSX Subnet is deleted, deleting the stale SubnetPort", "subnetPort.UID", subnetPort.UID, "SubnetPath", subnetPath)
 			if err = r.SubnetPortService.DeleteSubnetPortById(subnetPortID); err != nil {
@@ -644,30 +667,25 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		}
 	}
 	if len(subnetPort.Spec.Subnet) > 0 {
-		subnet := &v1alpha1.Subnet{}
+		subnetCR := &v1alpha1.Subnet{}
 		namespacedName := types.NamespacedName{
 			Name:      subnetPort.Spec.Subnet,
 			Namespace: subnetPort.Namespace,
 		}
-		if err = r.Client.Get(ctx, namespacedName, subnet); err != nil {
+		if err = r.Client.Get(ctx, namespacedName, subnetCR); err != nil {
 			log.Error(err, "subnet CR not found", "subnet CR", namespacedName)
 			return
 		}
-		if !subnet.DeletionTimestamp.IsZero() {
+		if !subnetCR.DeletionTimestamp.IsZero() {
 			isStale = true
 			err = fmt.Errorf("subnet %s is being deleted, cannot operate subnetport %s", namespacedName, subnetPort.Name)
 			return
 		}
-		subnetList := r.SubnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetCRUID, string(subnet.GetUID()))
-		if len(subnetList) == 0 {
-			err = fmt.Errorf("empty NSX resource path for subnet CR %s(%s)", subnet.Name, subnet.GetUID())
-			return
-		} else if len(subnetList) > 1 {
-			err = fmt.Errorf("multiple NSX subnets found for subnet CR %s(%s)", subnet.Name, subnet.GetUID())
-			log.Error(err, "failed to get NSX subnet by subnet CR UID", "subnetList", subnetList)
+		var nsxSubnet *model.VpcSubnet
+		nsxSubnet, err = r.SubnetService.GetSubnetByCR(subnetCR)
+		if err != nil {
 			return
 		}
-		nsxSubnet := subnetList[0]
 		if !r.SubnetPortService.AllocatePortFromSubnet(nsxSubnet) {
 			err = fmt.Errorf("no valid IP in Subnet %s", *nsxSubnet.Path)
 			return
@@ -715,7 +733,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 	return
 }
 
-func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alpha1.SubnetPort, nsxSubnetPath string) error {
+func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alpha1.SubnetPort, nsxSubnetPath string, nsxSubnet *model.VpcSubnet) error {
 	gateway, prefix, err := r.SubnetPortService.GetGatewayPrefixForSubnetPort(subnetPort, nsxSubnetPath)
 	if err != nil {
 		return err
@@ -725,10 +743,6 @@ func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alph
 		subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress += fmt.Sprintf("/%d", prefix)
 	}
 	subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway = gateway
-	nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath)
-	if err != nil {
-		return err
-	}
 	subnetPort.Status.NetworkInterfaceConfig.LogicalSwitchUUID = *nsxSubnet.RealizationId
 	return nil
 }

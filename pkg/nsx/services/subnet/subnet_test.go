@@ -347,7 +347,7 @@ func TestInitializeSubnetService(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, fakeSubnetPath, *getByKey.Path)
 
-			getByPath, err := service.GetSubnetByPath(fakeSubnetPath)
+			getByPath, err := service.GetSubnetByPath(fakeSubnetPath, false)
 			assert.NoError(t, err)
 			assert.Equal(t, nsxSubnetID, *getByPath.Id)
 
@@ -356,6 +356,140 @@ func TestInitializeSubnetService(t *testing.T) {
 
 			assert.Equal(t, 0, len(service.ListAllSubnet()))
 		})
+	}
+}
+
+func TestSubnetService_GetSubnetByCR(t *testing.T) {
+	service := &SubnetService{
+		Service: common.Service{},
+	}
+	testCases := []struct {
+		name           string
+		prepareFunc    func() *gomonkey.Patches
+		subnetCR       *v1alpha1.Subnet
+		expectedSubnet *model.VpcSubnet
+		expectedErr    string
+	}{
+		{
+			name: "sharedSubnet",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*SubnetService).GetNSXSubnetFromCacheOrAPI, func(s *SubnetService, associatedResource string) (*model.VpcSubnet, error) {
+					return &model.VpcSubnet{Id: common.String("subnet-1")}, nil
+				})
+				return patches
+			},
+			subnetCR: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "subnet-1",
+					Namespace:   "ns-1",
+					Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-1:subnet-1"},
+				},
+			},
+			expectedSubnet: &model.VpcSubnet{Id: common.String("subnet-1")},
+		},
+		{
+			name: "SubnetNotFound",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*SubnetService).GetSubnetsByIndex, func(s *SubnetService, key string, value string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				return patches
+			},
+			subnetCR: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnet-1",
+					Namespace: "ns-1",
+					UID:       "subnet-uid-1",
+				},
+			},
+			expectedErr: "empty NSX resource path for Subnet CR subnet-1(subnet-uid-1)",
+		},
+		{
+			name: "MultipleSubnet",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*SubnetService).GetSubnetsByIndex, func(s *SubnetService, key string, value string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{{Id: common.String("subnet-1")}, {Id: common.String("subnet-2")}}
+				})
+				return patches
+			},
+			subnetCR: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnet-1",
+					Namespace: "ns-1",
+					UID:       "subnet-uid-1",
+				},
+			},
+			expectedErr: "multiple NSX Subnets found for Subnet CR subnet-1(subnet-uid-1)",
+		},
+		{
+			name: "SubnetFound",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*SubnetService).GetSubnetsByIndex, func(s *SubnetService, key string, value string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{{Id: common.String("subnet-1")}}
+				})
+				return patches
+			},
+			subnetCR: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnet-1",
+					Namespace: "ns-1",
+					UID:       "subnet-uid-1",
+				},
+			},
+			expectedSubnet: &model.VpcSubnet{Id: common.String("subnet-1")},
+		},
+	}
+	for _, tc := range testCases {
+		patches := tc.prepareFunc()
+		subnets, err := service.GetSubnetByCR(tc.subnetCR)
+		if tc.expectedErr != "" {
+			assert.Contains(t, err.Error(), tc.expectedErr)
+		} else {
+			assert.Nil(t, err)
+			assert.Equal(t, tc.expectedSubnet, subnets)
+		}
+		patches.Reset()
+	}
+}
+
+func TestSubnetService_GetSubnetByPath(t *testing.T) {
+	service := &SubnetService{
+		Service: common.Service{},
+	}
+	testCases := []struct {
+		name           string
+		prepareFunc    func() *gomonkey.Patches
+		sharedSubnet   bool
+		expectedSubnet *model.VpcSubnet
+	}{
+		{
+			name: "sharedSubnet",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*SubnetService).GetNSXSubnetFromCacheOrAPI, func(s *SubnetService, associatedResource string) (*model.VpcSubnet, error) {
+					return &model.VpcSubnet{Id: common.String("subnet-1")}, nil
+				})
+				return patches
+			},
+			sharedSubnet:   true,
+			expectedSubnet: &model.VpcSubnet{Id: common.String("subnet-1")},
+		},
+		{
+			name: "notSharedSubnet",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*SubnetService).GetSubnetByKey, func(s *SubnetService, key string) (*model.VpcSubnet, error) {
+					return &model.VpcSubnet{Id: common.String("subnet-1")}, nil
+				})
+				return patches
+			},
+			expectedSubnet: &model.VpcSubnet{Id: common.String("subnet-1")},
+		},
+	}
+	for _, tc := range testCases {
+		patches := tc.prepareFunc()
+		subnets, err := service.GetSubnetByPath("/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1", tc.sharedSubnet)
+		assert.Nil(t, err)
+		assert.Equal(t, tc.expectedSubnet, subnets)
+		patches.Reset()
 	}
 }
 

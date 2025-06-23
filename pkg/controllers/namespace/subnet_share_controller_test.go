@@ -490,7 +490,7 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 			},
 			expectedUnusedCount: 0,
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(common.ConvertSubnetPathToAssociatedResource,
+				patches := gomonkey.ApplyFunc(servicecommon.ConvertSubnetPathToAssociatedResource,
 					func(path string) (string, error) {
 						return "proj-1:vpc-1:subnet-1", nil
 					})
@@ -523,7 +523,7 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 			},
 			expectedUnusedCount: 1,
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(common.ConvertSubnetPathToAssociatedResource,
+				patches := gomonkey.ApplyFunc(servicecommon.ConvertSubnetPathToAssociatedResource,
 					func(path string) (string, error) {
 						return "proj-1:vpc-1:subnet-1", nil
 					})
@@ -556,7 +556,7 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 			},
 			expectedUnusedCount: 0,
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(common.ConvertSubnetPathToAssociatedResource,
+				patches := gomonkey.ApplyFunc(servicecommon.ConvertSubnetPathToAssociatedResource,
 					func(path string) (string, error) {
 						return "proj-1:vpc-1:subnet-1", nil
 					})
@@ -832,7 +832,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			sharedSubnetPath: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// Mock ExtractSubnetPath
-				patches := gomonkey.ApplyFunc(common.ExtractSubnetPath,
+				patches := gomonkey.ApplyFunc(servicecommon.ExtractSubnetPath,
 					func(path string) (string, string, string, string, error) {
 						return "default", "proj-1", "vpc-1", "subnet-1", nil
 					})
@@ -856,7 +856,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 					})
 
 				// Mock ConvertSubnetPathToAssociatedResource
-				patches.ApplyFunc(common.ConvertSubnetPathToAssociatedResource,
+				patches.ApplyFunc(servicecommon.ConvertSubnetPathToAssociatedResource,
 					func(path string) (string, error) {
 						return "proj-1:vpc-1:subnet-1", nil
 					})
@@ -901,7 +901,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			sharedSubnetPath: "/invalid/path",
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// Mock ExtractSubnetPath to return an error
-				patches := gomonkey.ApplyFunc(common.ExtractSubnetPath,
+				patches := gomonkey.ApplyFunc(servicecommon.ExtractSubnetPath,
 					func(path string) (string, string, string, string, error) {
 						return "", "", "", "", fmt.Errorf("invalid subnet path format")
 					})
@@ -914,7 +914,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			sharedSubnetPath: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// Mock ExtractSubnetPath
-				patches := gomonkey.ApplyFunc(common.ExtractSubnetPath,
+				patches := gomonkey.ApplyFunc(servicecommon.ExtractSubnetPath,
 					func(path string) (string, string, string, string, error) {
 						return "default", "proj-1", "vpc-1", "subnet-1", nil
 					})
@@ -934,7 +934,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			sharedSubnetPath: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// Mock ExtractSubnetPath
-				patches := gomonkey.ApplyFunc(common.ExtractSubnetPath,
+				patches := gomonkey.ApplyFunc(servicecommon.ExtractSubnetPath,
 					func(path string) (string, string, string, string, error) {
 						return "default", "proj-1", "vpc-1", "subnet-1", nil
 					})
@@ -960,7 +960,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			sharedSubnetPath: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// Mock ExtractSubnetPath
-				patches := gomonkey.ApplyFunc(common.ExtractSubnetPath,
+				patches := gomonkey.ApplyFunc(servicecommon.ExtractSubnetPath,
 					func(path string) (string, string, string, string, error) {
 						return "default", "proj-1", "vpc-1", "subnet-1", nil
 					})
@@ -992,7 +992,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			sharedSubnetPath: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// Mock ExtractSubnetPath
-				patches := gomonkey.ApplyFunc(common.ExtractSubnetPath,
+				patches := gomonkey.ApplyFunc(servicecommon.ExtractSubnetPath,
 					func(path string) (string, string, string, string, error) {
 						return "default", "proj-1", "vpc-1", "subnet-1", nil
 					})
@@ -1016,7 +1016,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 					})
 
 				// Mock ConvertSubnetPathToAssociatedResource to return an error
-				patches.ApplyFunc(common.ConvertSubnetPathToAssociatedResource,
+				patches.ApplyFunc(servicecommon.ConvertSubnetPathToAssociatedResource,
 					func(path string) (string, error) {
 						return "", fmt.Errorf("failed to convert subnet path to associated resource")
 					})
@@ -1030,7 +1030,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			sharedSubnetPath: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// Mock ExtractSubnetPath
-				patches := gomonkey.ApplyFunc(common.ExtractSubnetPath,
+				patches := gomonkey.ApplyFunc(servicecommon.ExtractSubnetPath,
 					func(path string) (string, string, string, string, error) {
 						return "default", "proj-1", "vpc-1", "subnet-1", nil
 					})
@@ -1054,7 +1054,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 					})
 
 				// Mock ConvertSubnetPathToAssociatedResource
-				patches.ApplyFunc(common.ConvertSubnetPathToAssociatedResource,
+				patches.ApplyFunc(servicecommon.ConvertSubnetPathToAssociatedResource,
 					func(path string) (string, error) {
 						return "proj-1:vpc-1:subnet-1", nil
 					})
