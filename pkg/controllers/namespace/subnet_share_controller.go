@@ -5,8 +5,6 @@ import (
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -154,10 +152,7 @@ func (r *NamespaceReconciler) processNewSharedSubnets(ctx context.Context, ns st
 func (r *NamespaceReconciler) checkSubnetReferences(ctx context.Context, ns string, subnet *v1alpha1.Subnet) (bool, error) {
 	// Check if there are any SubnetPort CRs referencing this Subnet CR
 	subnetPortList := &v1alpha1.SubnetPortList{}
-	option := metav1.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector("spec.subnet", subnet.Name).String(),
-	}
-	err := r.Client.List(ctx, subnetPortList, client.InNamespace(ns), &client.ListOptions{Raw: &option})
+	err := r.Client.List(ctx, subnetPortList, client.InNamespace(ns), client.MatchingFields{"spec.subnet": subnet.Name})
 	if err != nil {
 		return false, fmt.Errorf("failed to list SubnetPort CRs: %w", err)
 	}
@@ -170,10 +165,7 @@ func (r *NamespaceReconciler) checkSubnetReferences(ctx context.Context, ns stri
 
 	// Check if there are any SubnetConnectionBindingMap CRs referencing this Subnet CR
 	subnetBindingList := &v1alpha1.SubnetConnectionBindingMapList{}
-	option = metav1.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector("spec.subnetName", subnet.Name).String(),
-	}
-	err = r.Client.List(ctx, subnetBindingList, client.InNamespace(ns), &client.ListOptions{Raw: &option})
+	err = r.Client.List(ctx, subnetBindingList, client.InNamespace(ns), client.MatchingFields{"spec.subnetName": subnet.Name})
 	if err != nil {
 		return false, fmt.Errorf("failed to list SubnetConnectionBindingMap CRs: %w", err)
 	}

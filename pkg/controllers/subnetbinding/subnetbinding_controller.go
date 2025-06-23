@@ -57,6 +57,11 @@ func (r *Reconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
 		log.Error(err, "Failed to create controller", "controller", "SubnetConnectionBindingMap")
 		return err
 	}
+	// Setup field indexers
+	if err := r.SetupFieldIndexers(mgr); err != nil {
+		log.Error(err, "Failed to setup field indexers", "controller", "SubnetConnectionBindingMap")
+		return err
+	}
 	// Start garbage collector in a separate goroutine
 	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.CollectGarbage)
 	return nil
@@ -425,4 +430,25 @@ func updateBindingMapCondition(c client.Client, ctx context.Context, bindingMap 
 		log.Error(err, "Failed to update SubnetConnectionBindingMap status", "Namespace", bindingMap.Namespace, "Name", bindingMap.Name)
 	}
 	log.V(1).Info("Updated SubnetConnectionBindingMap status", "Namespace", bindingMap.Namespace, "Name", bindingMap.Name)
+}
+
+// subnetConnectionBindingMapSubnetNameIndexFunc is an index function that indexes SubnetConnectionBindingMap by namespace and subnet name
+func subnetConnectionBindingMapSubnetNameIndexFunc(obj client.Object) []string {
+	if binding, ok := obj.(*v1alpha1.SubnetConnectionBindingMap); !ok {
+		log.Info("Invalid object", "type", reflect.TypeOf(obj))
+		return []string{}
+	} else {
+		if binding.Spec.SubnetName == "" {
+			return []string{}
+		}
+		return []string{binding.Spec.SubnetName}
+	}
+}
+
+// SetupFieldIndexers sets up the field indexers for SubnetConnectionBindingMap
+func (r *Reconciler) SetupFieldIndexers(mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.SubnetConnectionBindingMap{}, "spec.subnetName", subnetConnectionBindingMapSubnetNameIndexFunc); err != nil {
+		return err
+	}
+	return nil
 }
