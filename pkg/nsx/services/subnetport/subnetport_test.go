@@ -236,10 +236,17 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 		},
 	}
 
-	nsxSubnet := &model.VpcSubnet{
+	nsxSubnet1 := &model.VpcSubnet{
 		Path: &subnetPath,
 		SubnetDhcpConfig: &model.SubnetDhcpConfig{
-			Mode: common.String(v1alpha1.DHCPConfigModeServer),
+			Mode: common.String("DHCP_SERVER"),
+		},
+	}
+
+	nsxSubnet2 := &model.VpcSubnet{
+		Path: &subnetPath,
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{
+			Mode: common.String("DHCP_DEACTIVATED"),
 		},
 	}
 
@@ -250,12 +257,14 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
-		prepareFunc func(service *SubnetPortService) *gomonkey.Patches
-		wantErr     bool
+		name         string
+		prepareFunc  func(service *SubnetPortService) *gomonkey.Patches
+		wantErr      bool
+		expectedDHCP bool
+		nsxSubnet    *model.VpcSubnet
 	}{
 		{
-			name: "Create",
+			name: "CreateDHCPServer",
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
 				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 					namespaceCR := &corev1.Namespace{}
@@ -265,7 +274,29 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 				orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				return nil
 			},
-			wantErr: false,
+			wantErr:      false,
+			nsxSubnet:    nsxSubnet1,
+			expectedDHCP: true,
+		},
+		{
+			name: "CreateDHCPDeactivated",
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+					namespaceCR := &corev1.Namespace{}
+					namespaceCR.UID = "ns1"
+					return nil
+				})
+				orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.PortStateClient), "Get", func(c *fakePortStateClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, portIdParam string, enforcementPointPathParam *string, sourceParam *string) (model.SegmentPortState, error) {
+					return model.SegmentPortState{
+						RealizedBindings: []model.AddressBindingEntry{{Binding: &model.PacketAddressClassifier{IpAddress: common.String("10.0.0.1")}}},
+					}, nil
+				})
+				return patches
+			},
+			wantErr:      false,
+			nsxSubnet:    nsxSubnet2,
+			expectedDHCP: false,
 		},
 		{
 			name: "Update",
@@ -277,9 +308,16 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 				})
 				service.SubnetPortStore.Add(&nsxSubnetPort)
 				orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-				return nil
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.PortStateClient), "Get", func(c *fakePortStateClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, portIdParam string, enforcementPointPathParam *string, sourceParam *string) (model.SegmentPortState, error) {
+					return model.SegmentPortState{
+						RealizedBindings: []model.AddressBindingEntry{{Binding: &model.PacketAddressClassifier{IpAddress: common.String("10.0.0.1")}}},
+					}, nil
+				})
+				return patches
 			},
-			wantErr: false,
+			wantErr:      false,
+			nsxSubnet:    nsxSubnet2,
+			expectedDHCP: false,
 		},
 		{
 			name: "RealizeFailure",
@@ -296,7 +334,8 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 				}})
 				return patches
 			},
-			wantErr: true,
+			wantErr:   true,
+			nsxSubnet: nsxSubnet1,
 		},
 		{
 			name: "IPExhaustedRealizeFailure",
@@ -313,7 +352,8 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 				}})
 				return patches
 			},
-			wantErr: true,
+			wantErr:   true,
+			nsxSubnet: nsxSubnet1,
 		},
 		{
 			name: "CreateFailure",
@@ -329,7 +369,8 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 				}})
 				return patches
 			},
-			wantErr: true,
+			wantErr:   true,
+			nsxSubnet: nsxSubnet1,
 		},
 		{
 			name: "GetFailure",
@@ -345,7 +386,8 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 				}})
 				return patches
 			},
-			wantErr: true,
+			wantErr:   true,
+			nsxSubnet: nsxSubnet1,
 		},
 	}
 
@@ -355,10 +397,11 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			if patches != nil {
 				defer patches.Reset()
 			}
-			_, err := service.CreateOrUpdateSubnetPort(subnetPortCR, nsxSubnet, "", nil, false, false)
+			_, enableDHCP, err := service.CreateOrUpdateSubnetPort(subnetPortCR, tt.nsxSubnet, "", nil, false, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("CreateOrUpdateSubnetPort() error = %v, wantErr %v", err, tt.wantErr)
 			}
+			assert.Equal(t, tt.expectedDHCP, enableDHCP)
 			err = service.CleanupBeforeVPCDeletion(context.TODO())
 			assert.Nil(t, err)
 		})

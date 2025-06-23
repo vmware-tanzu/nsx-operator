@@ -206,8 +206,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 	err = errors.New("CreateOrUpdateSubnetPort failed")
 	patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, error) {
-			return nil, err
+		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
+			return nil, false, err
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
 	patchesGetAddressBindingBySubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetAddressBindingBySubnetPort, func(_ *subnetport.SubnetPortService, _ *v1alpha1.SubnetPort) *v1alpha1.AddressBinding {
@@ -242,8 +242,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		},
 	}
 	patchesCreateOrUpdateSubnetPort = gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, error) {
-			return portState, nil
+		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
+			return portState, false, nil
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
 	patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
@@ -270,9 +270,9 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 	defer patchesDeleteSubnetPortById.Reset()
 	patchesCreateOrUpdateSubnetPort = gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, error) {
+		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
 			assert.FailNow(t, "should not be called")
-			return nil, nil
+			return nil, false, nil
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
 	_, ret = r.Reconcile(ctx, req)
@@ -340,8 +340,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		},
 	}
 	patchesCreateOrUpdateSubnetPort = gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, error) {
-			return portState, nil
+		func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
+			return portState, false, nil
 		})
 	defer patchesCreateOrUpdateSubnetPort.Reset()
 	patchesSetAddressBindingStatus = gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
