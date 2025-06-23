@@ -8,10 +8,10 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
-// CleanupVPCChildResources is deleting all the NSX VpcSubnets in the given vpcPath on NSX and/or in local cache.
+// CleanupVPCChildResources is deleting all the NSX VpcSubnets in the given vpcPath on NSX and/or in the local cache.
 // If vpcPath is not empty, the function is called with an auto-created VPC case, so it only deletes in the local cache for
 // the NSX resources are already removed when VPC is deleted recursively. Otherwise, it should delete all cached VpcSubnets
-// on NSX and in local cache.
+// on NSX and in the local cache.
 func (service *SubnetService) CleanupVPCChildResources(ctx context.Context, vpcPath string) error {
 	if vpcPath != "" {
 		subnets := service.SubnetStore.GetByIndex(common.IndexByVPCPathFuncKey, vpcPath)
@@ -31,7 +31,7 @@ func (service *SubnetService) CleanupVPCChildResources(ctx context.Context, vpcP
 		subnets = append(subnets, subnet)
 	}
 
-	return service.builder.PagingUpdateResources(ctx, subnets, common.DefaultHAPIChildrenCount, service.NSXClient, func(deletedObjs []*model.VpcSubnet) {
-		service.SubnetStore.DeleteMultipleObjects(deletedObjs)
+	return service.builder.PagingUpdateResources(ctx, subnets, common.DefaultHAPIChildrenCount, service.NSXClient, func(deletedObjects []*model.VpcSubnet) {
+		service.SubnetStore.DeleteMultipleObjects(deletedObjects)
 	})
 }

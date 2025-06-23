@@ -12,7 +12,7 @@ import (
 // Test SubnetToComparable function
 func TestSubnetToComparable(t *testing.T) {
 	tagScope1 := "fakeTagScope1"
-	tagValue1 := "fakeTagvalue1"
+	tagValue1 := "fakeTagValue1"
 	tag1 := model.Tag{
 		Scope: &tagScope1,
 		Tag:   &tagValue1,

@@ -39,7 +39,6 @@ var (
 	log                     = &logger.Log
 	ResultNormal            = common.ResultNormal
 	ResultRequeue           = common.ResultRequeue
-	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
 	ResultRequeueAfter10sec = common.ResultRequeueAfter10sec
 	MetricResTypeSubnet     = common.MetricResTypeSubnet
 )
@@ -182,6 +181,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		log.Error(nil, "Failed to generate Subnet tags", "Subnet", req.NamespacedName)
 		return ResultRequeue, errors.New("failed to generate Subnet tags")
 	}
+
 	// Create or update the subnet in NSX
 	if _, err := r.SubnetService.CreateOrUpdateSubnet(subnetCR, vpcInfoList[0], tags); err != nil {
 		if errors.As(err, &nsxutil.ExceedTagsError{}) {
@@ -210,9 +210,9 @@ func (r *SubnetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet) error {
 		return nil
 	}
 	for _, nsxSubnet := range nsxSubnets {
-		portNums := len(r.SubnetPortService.GetPortsOfSubnet(*nsxSubnet.Id))
-		if portNums > 0 {
-			err := fmt.Errorf("cannot delete Subnet %s, still attached by %d port(s)", *nsxSubnet.Id, portNums)
+		portNumbers := len(r.SubnetPortService.GetPortsOfSubnet(*nsxSubnet.Id))
+		if portNumbers > 0 {
+			err := fmt.Errorf("cannot delete Subnet %s, still attached by %d port(s)", *nsxSubnet.Id, portNumbers)
 			log.Error(err, "Delete Subnet from NSX failed")
 			return err
 		}
@@ -234,7 +234,7 @@ func (r *SubnetReconciler) deleteSubnetByName(name, ns string) error {
 }
 
 func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {
-	// if the nsxSubnet is nil, GetSubnetByKey will return error: NSX subnet not found in store
+	// if the nsxSubnet is nil, GetSubnetByKey will return the error: NSX subnet not found in store
 	nsxSubnet, err := r.SubnetService.GetSubnetByKey(r.SubnetService.BuildSubnetID(obj))
 	if err != nil {
 		return fmt.Errorf("failed to get NSX Subnet from store: %v", err)
@@ -290,8 +290,8 @@ func (r *SubnetReconciler) handleSharedSubnet(ctx context.Context, subnetCR *v1a
 }
 
 func setSubnetReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {
-	subnet := obj.(*v1alpha1.Subnet)
-	dhcpMode := subnet.Spec.SubnetDHCPConfig.Mode
+	subnetCR := obj.(*v1alpha1.Subnet)
+	dhcpMode := subnetCR.Spec.SubnetDHCPConfig.Mode
 	if dhcpMode == "" {
 		dhcpMode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
 	}
@@ -304,11 +304,11 @@ func setSubnetReadyStatusTrue(client client.Client, ctx context.Context, obj cli
 			LastTransitionTime: transitionTime,
 		},
 	}
-	updateSubnetStatusConditions(client, ctx, subnet, newConditions)
+	updateSubnetStatusConditions(client, ctx, subnetCR, newConditions)
 }
 
 func setSubnetReadyStatusFalse(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, err error, args ...interface{}) {
-	subnet := obj.(*v1alpha1.Subnet)
+	subnetCR := obj.(*v1alpha1.Subnet)
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:               v1alpha1.Ready,
@@ -323,7 +323,7 @@ func setSubnetReadyStatusFalse(client client.Client, ctx context.Context, obj cl
 	} else if err != nil {
 		newConditions[0].Message = fmt.Sprintf("Error occurred while processing the Subnet CR. Please check the config and try again. Error: %v", err)
 	}
-	updateSubnetStatusConditions(client, ctx, subnet, newConditions)
+	updateSubnetStatusConditions(client, ctx, subnetCR, newConditions)
 }
 
 func (r *SubnetReconciler) setSubnetDeletionFailedStatus(ctx context.Context, subnet *v1alpha1.Subnet, transitionTime metav1.Time, msg string, reason string) {
@@ -413,11 +413,11 @@ func (r *SubnetReconciler) getRestoreList() ([]types.NamespacedName, error) {
 	if err := r.Client.List(context.TODO(), subnetList); err != nil {
 		return restoreList, err
 	}
-	for _, subnet := range subnetList.Items {
+	for _, subnetCR := range subnetList.Items {
 		// Restore a Subnet if it has NetworkAddresses
 		// Not filter the Subnet in cache as it might be updated
-		if len(subnet.Status.NetworkAddresses) > 0 {
-			restoreList = append(restoreList, types.NamespacedName{Namespace: subnet.Namespace, Name: subnet.Name})
+		if len(subnetCR.Status.NetworkAddresses) > 0 {
+			restoreList = append(restoreList, types.NamespacedName{Namespace: subnetCR.Namespace, Name: subnetCR.Name})
 		}
 	}
 	return restoreList, nil
@@ -429,7 +429,7 @@ func (r *SubnetReconciler) StartController(mgr ctrl.Manager, hookServer webhook.
 		log.Error(err, "Failed to create controller", "controller", "Subnet")
 		return err
 	}
-	// Start garbage collector in a separate goroutine
+	// Start a garbage collector in a separate goroutine
 	go common.GenericGarbageCollector(make(chan bool), servicecommon.SubnetGCInterval, r.CollectGarbage)
 	return nil
 }

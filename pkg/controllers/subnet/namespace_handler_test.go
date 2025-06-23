@@ -148,13 +148,14 @@ func TestRequeueSubnetSet(t *testing.T) {
 	}
 
 	scheme := clientgoscheme.Scheme
-	v1alpha1.AddToScheme(scheme)
+	err := v1alpha1.AddToScheme(scheme)
+	assert.NoError(t, err, "Expected no error adding SubnetSet scheme")
 
 	// Test for empty namespace (no SubnetSets found)
 	emptyClient := fake.NewClientBuilder().Build()
 	queue := workqueue.NewTypedRateLimitingQueue(
 		workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
-	err := requeueSubnet(emptyClient, "empty-namespace", queue)
+	err = requeueSubnet(emptyClient, "empty-namespace", queue)
 	assert.NoError(t, err, "Expected no error with empty namespace")
 	assert.Equal(t, 0, queue.Len(), "Expected no items to be requeued for empty namespace")
 
@@ -163,6 +164,6 @@ func TestRequeueSubnetSet(t *testing.T) {
 		workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 
 	err = requeueSubnet(client, "test-namespace", queue)
-	assert.NoError(t, err, "Expected no error while requeueing SubnetSets")
+	assert.NoError(t, err, "Expected no error while requeuing SubnetSets")
 	assert.Equal(t, 1, queue.Len(), "Expected 1 item to be requeued")
 }

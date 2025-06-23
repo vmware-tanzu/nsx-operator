@@ -302,7 +302,7 @@ func TestUpdateSubnetIfNeeded(t *testing.T) {
 				Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet1"),
 			}
 
-			// Create status list for testing
+			// Create a status list for testing
 			statusList := []model.VpcSubnetStatus{
 				{
 					NetworkAddress:    common.String("10.0.0.0/24"),
@@ -386,17 +386,18 @@ type fakeStatusWriter struct {
 	updateErr error
 }
 
-func (f *fakeStatusWriter) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
+func (f *fakeStatusWriter) Create(_ context.Context, _ client.Object, _ client.Object, _ ...client.SubResourceCreateOption) error {
 	return nil
 }
 
-func (f *fakeStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+func (f *fakeStatusWriter) Update(_ context.Context, _ client.Object, _ ...client.SubResourceUpdateOption) error {
 	return f.updateErr
 }
 
-func (f *fakeStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+func (f *fakeStatusWriter) Patch(_ context.Context, _ client.Object, _ client.Patch, _ ...client.SubResourcePatchOption) error {
 	return nil
 }
+
 func TestPollAllSharedSubnets(t *testing.T) {
 	tests := []struct {
 		name                    string

@@ -32,7 +32,7 @@ func requeueSubnetBySubnetBindingUpdate(ctx context.Context, c client.Client, ob
 	}
 	if oldBM.Spec.TargetSubnetName != "" {
 		// Enqueue to ensure the finalizer can be removed from the old target Subnet if it is not used.
-		enqueue(ctx, c, oldBM.Namespace, oldBM.Spec.TargetSubnetName, q)
+		_ = enqueue(ctx, c, oldBM.Namespace, oldBM.Spec.TargetSubnetName, q)
 	}
 }
 
@@ -42,7 +42,7 @@ func enqueueSubnets(ctx context.Context, c client.Client, bindingMap *v1alpha1.S
 	}
 
 	if bindingMap.Spec.TargetSubnetName != "" {
-		enqueue(ctx, c, bindingMap.Namespace, bindingMap.Spec.TargetSubnetName, q)
+		_ = enqueue(ctx, c, bindingMap.Namespace, bindingMap.Spec.TargetSubnetName, q)
 	}
 }
 

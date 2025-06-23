@@ -27,8 +27,8 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
-	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
-	mock_org_root "github.com/vmware-tanzu/nsx-operator/pkg/mock/orgrootclient"
+	mockClient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	mockOrgRoot "github.com/vmware-tanzu/nsx-operator/pkg/mock/orgrootclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
@@ -38,7 +38,7 @@ import (
 
 func TestGenerateSubnetNSTags(t *testing.T) {
 	scheme := clientgoscheme.Scheme
-	v1alpha1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	service := &SubnetService{
@@ -112,35 +112,35 @@ func TestGenerateSubnetNSTags(t *testing.T) {
 
 type fakeSubnetsClient struct{}
 
-func (f fakeSubnetsClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) error {
+func (_ fakeSubnetsClient) Delete(_ string, _ string, _ string, _ string) error {
 	return nil
 }
 
-func (f fakeSubnetsClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnet, error) {
+func (_ fakeSubnetsClient) Get(_ string, _ string, _ string, _ string) (model.VpcSubnet, error) {
 	return model.VpcSubnet{}, nil
 }
 
-func (f fakeSubnetsClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcSubnetListResult, error) {
+func (_ fakeSubnetsClient) List(_ string, _ string, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcSubnetListResult, error) {
 	return model.VpcSubnetListResult{}, nil
 }
 
-func (f fakeSubnetsClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, vpcSubnetParam model.VpcSubnet) error {
+func (_ fakeSubnetsClient) Patch(_ string, _ string, _ string, _ string, _ model.VpcSubnet) error {
 	return nil
 }
 
-func (f fakeSubnetsClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, vpcSubnetParam model.VpcSubnet) (model.VpcSubnet, error) {
+func (_ fakeSubnetsClient) Update(_ string, _ string, _ string, _ string, _ model.VpcSubnet) (model.VpcSubnet, error) {
 	return model.VpcSubnet{}, nil
 }
 
 type fakeSubnetStatusClient struct{}
 
-func (f fakeSubnetStatusClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnetStatusListResult, error) {
+func (_ fakeSubnetStatusClient) List(_ string, _ string, _ string, _ string) (model.VpcSubnetStatusListResult, error) {
 	return model.VpcSubnetStatusListResult{}, nil
 }
 
 type fakeRealizedEntitiesClient struct{}
 
-func (f fakeRealizedEntitiesClient) List(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+func (_ fakeRealizedEntitiesClient) List(_ string, _ *string) (model.GenericPolicyRealizedResourceListResult, error) {
 	// GenericPolicyRealizedResource
 	state := model.GenericPolicyRealizedResource_STATE_REALIZED
 	return model.GenericPolicyRealizedResourceListResult{
@@ -155,15 +155,15 @@ func (f fakeRealizedEntitiesClient) List(intentPathParam string, sitePathParam *
 
 type fakeStatusWriter struct{}
 
-func (writer fakeStatusWriter) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
+func (_ fakeStatusWriter) Create(_ context.Context, _ client.Object, _ client.Object, _ ...client.SubResourceCreateOption) error {
 	return nil
 }
 
-func (writer fakeStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+func (_ fakeStatusWriter) Update(_ context.Context, _ client.Object, _ ...client.SubResourceUpdateOption) error {
 	return nil
 }
 
-func (writer fakeStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+func (_ fakeStatusWriter) Patch(_ context.Context, _ client.Object, _ client.Patch, _ ...client.SubResourcePatchOption) error {
 	return nil
 }
 
@@ -186,7 +186,7 @@ func TestInitializeSubnetService(t *testing.T) {
 
 	vpcResourceInfo, _ := common.ParseVPCResourcePath(fakeVPCPath)
 
-	var mockOrgRootClient *mock_org_root.MockOrgRootClient
+	var mockOrgRootClient *mockOrgRoot.MockOrgRootClient
 	testCases := []struct {
 		name                          string
 		prepareFunc                   func() *gomonkey.Patches
@@ -295,7 +295,7 @@ func TestInitializeSubnetService(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
-			mockOrgRootClient = mock_org_root.NewMockOrgRootClient(ctrl)
+			mockOrgRootClient = mockOrgRoot.NewMockOrgRootClient(ctrl)
 
 			newScheme := runtime.NewScheme()
 			utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
@@ -362,7 +362,7 @@ func TestInitializeSubnetService(t *testing.T) {
 func TestSubnetService_UpdateSubnetSet(t *testing.T) {
 	fakeSubnetPath := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_xxxx/subnets/subnet_id"
 	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
+	k8sClient := mockClient.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
 	service := &SubnetService{
 		Service: common.Service{
@@ -434,7 +434,7 @@ func TestSubnetService_UpdateSubnetSet(t *testing.T) {
 
 func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
+	k8sClient := mockClient.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
 	service := &SubnetService{
 		Service: common.Service{
@@ -587,7 +587,7 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 				nsxSubnet = &fakeSubnet
 				err = nil
 				// Add the subnet to the store to match the expected behavior
-				service.SubnetStore.Apply(nsxSubnet)
+				_ = service.SubnetStore.Apply(nsxSubnet)
 
 				// Skip the call to UpdateSubnetSetStatus to avoid the Status() call
 				// Just set up the expected status directly
@@ -618,7 +618,7 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 
 func TestSubnetService_DeleteSubnet(t *testing.T) {
 	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
+	k8sClient := mockClient.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
 	service := &SubnetService{
 		Service: common.Service{
@@ -660,7 +660,7 @@ func TestSubnetService_DeleteSubnet(t *testing.T) {
 		{
 			name: "Delete Subnet for SubnetSet Failure",
 			prepareFunc: func() *gomonkey.Patches {
-				service.SubnetStore.Apply(&fakeSubnet)
+				_ = service.SubnetStore.Apply(&fakeSubnet)
 
 				// Mock ParseVPCResourcePath to avoid nil pointer dereference
 				patches := gomonkey.ApplyFunc(common.ParseVPCResourcePath, func(path string) (common.VPCResourceInfo, error) {
@@ -684,7 +684,7 @@ func TestSubnetService_DeleteSubnet(t *testing.T) {
 		{
 			name: "Delete Subnet for SubnetSet Success",
 			prepareFunc: func() *gomonkey.Patches {
-				service.SubnetStore.Apply(&fakeSubnet)
+				_ = service.SubnetStore.Apply(&fakeSubnet)
 
 				// Mock ParseVPCResourcePath to avoid nil pointer dereference
 				patches := gomonkey.ApplyFunc(common.ParseVPCResourcePath, func(path string) (common.VPCResourceInfo, error) {
@@ -824,14 +824,17 @@ func TestSubnetService_RestoreSubnetSet(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		if patches := tt.prepareFunc(); patches != nil {
-			defer patches.Reset()
-		}
+		var patches *gomonkey.Patches
+		patches = tt.prepareFunc()
 		err := service.RestoreSubnetSet(tt.subnetset, common.VPCResourceInfo{}, []model.Tag{})
 		if tt.expectedErr != "" {
+			assert.NotNil(t, err)
 			assert.Contains(t, err.Error(), tt.expectedErr)
 		} else {
 			assert.Nil(t, err)
+		}
+		if patches != nil {
+			patches.Reset()
 		}
 	}
 }
