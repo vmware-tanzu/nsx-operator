@@ -171,6 +171,23 @@ _Appears in:_
 
 
 
+#### DHCPServerAdditionalConfig
+
+
+
+Additional DHCP server config for a VPC Subnet.
+The additional configuration must not be set when the Subnet has DHCP relay enabled or DHCP is deactivated.
+
+
+
+_Appears in:_
+- [SubnetDHCPConfig](#subnetdhcpconfig)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `reservedIPRanges` _string array_ | Reserved IP ranges.<br />Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100"] |  |  |
+
+
 #### IPAddressAllocation
 
 
@@ -739,6 +756,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `mode` _[DHCPConfigMode](#dhcpconfigmode)_ | DHCP Mode. DHCPDeactivated will be used if it is not defined.<br />It cannot switch from DHCPDeactivated to DHCPServer or DHCPRelay. |  | Enum: [DHCPServer DHCPRelay DHCPDeactivated] <br /> |
+| `dhcpServerAdditionalConfig` _[DHCPServerAdditionalConfig](#dhcpserveradditionalconfig)_ | Additional DHCP server config for a VPC Subnet. |  |  |
 
 
 #### SubnetInfo
