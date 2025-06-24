@@ -303,9 +303,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `logicalSwitchUUID` _string_ | The realization id of the SubnetPort |  |  |
+| `logicalSwitchUUID` _string_ | NSX Logical Switch UUID of the Subnet. |  |  |
 | `ipAddresses` _[NetworkInterfaceIPAddress](#networkinterfaceipaddress) array_ |  |  |  |
 | `macAddress` _string_ | The MAC address. |  |  |
+| `subnetDHCPEnabled` _boolean_ | The DHCP configuration on the Subnet. |  |  |
 
 
 #### NetworkInterfaceIPAddress
@@ -541,6 +542,22 @@ _Appears in:_
 | `podSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#labelselector-v1-meta)_ | PodSelector uses label selector to select Pods. |  |  |
 
 
+#### StaticIPAllocation
+
+
+
+
+
+
+
+_Appears in:_
+- [SubnetAdvancedConfig](#subnetadvancedconfig)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `enabled` _boolean_ | Activate or deactivate static IP allocation for VPC Subnet Ports.<br />If the DHCP mode is DHCPDeactivated or not set, its default value is true.<br />If the DHCP mode is DHCPServer or DHCPRelay, its default value is false.<br />The value cannot be set to true when the DHCP mode is DHCPServer or DHCPRelay. |  |  |
+
+
 #### StaticRoute
 
 
@@ -649,6 +666,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `connectivityState` _[ConnectivityState](#connectivitystate)_ | Connectivity status of the Subnet from other Subnets of the VPC.<br />Default value is "Connected". | Connected | Enum: [Connected Disconnected] <br /> |
 | `enableVLANExtension` _boolean_ | Whether this Subnet enabled VLAN extension.<br />Default value is false. | false |  |
+| `staticIPAllocation` _[StaticIPAllocation](#staticipallocation)_ | Static IP allocation for VPC Subnet Ports. |  |  |
 
 
 #### SubnetConnectionBindingMap

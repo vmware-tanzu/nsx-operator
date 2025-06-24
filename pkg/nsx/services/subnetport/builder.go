@@ -119,6 +119,8 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		// we will get the error `User defined address bindings are not allowed on LogicalPort
 		// InternalLogicalPort/{id} as its VIF AttachmentContext contain IP/MAC Pool {1}.`
 		allocateAddresses = "IP_POOL"
+	} else if nsxSubnet.AdvancedConfig != nil && nsxSubnet.AdvancedConfig.StaticIpAllocation != nil && !*nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled {
+		allocateAddresses = "NONE"
 	} else {
 		allocateAddresses = "BOTH"
 	}
