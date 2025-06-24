@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -164,34 +165,40 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to create NSX IPAddressAllocation for AddressBinding restore", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 			return common.ResultRequeue, err
 		}
-		nsxSubnetPortState, enableDHCP, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels, isVmSubnetPort, r.restoreMode)
+		nsxSubnetPortState, enableDHCP, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels, isVmSubnetPort, r.restoreMode, subnetCR)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 			return common.ResultRequeue, err
 		}
-		if nsxSubnetPortState.ExternalAddressBinding == nil && ab == nil {
-			err = r.IpAddressAllocationService.DeleteIPAddressAllocationForAddressBinding(subnetPort)
-			if err != nil {
-				log.Error(err, "Failed to cleanup possible NSX IPAddressAllocation", "SubnetPort", subnetPort)
-				r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
-				return common.ResultRequeue, err
+		if nsxSubnetPortState == nil {
+			// If nsxSubnetPortState is nil, we only need to update the SubnetDHCPEnabled on the SubnetPort status.
+			subnetPort.Status.NetworkInterfaceConfig.SubnetDHCPEnabled = enableDHCP
+		} else {
+			if nsxSubnetPortState.ExternalAddressBinding == nil && ab == nil {
+				err = r.IpAddressAllocationService.DeleteIPAddressAllocationForAddressBinding(subnetPort)
+				if err != nil {
+					log.Error(err, "Failed to cleanup possible NSX IPAddressAllocation", "SubnetPort", subnetPort)
+					r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+					return common.ResultRequeue, err
+				}
 			}
-		}
-		subnetPort.Status.Attachment = v1alpha1.PortAttachment{ID: *nsxSubnetPortState.Attachment.Id}
-		subnetPort.Status.NetworkInterfaceConfig = v1alpha1.NetworkInterfaceConfig{
-			IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
-				{
-					Gateway: "",
+			subnetPort.Status.Attachment = v1alpha1.PortAttachment{ID: *nsxSubnetPortState.Attachment.Id}
+			subnetPort.Status.NetworkInterfaceConfig = v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+					{
+						Gateway: "",
+					},
 				},
-			},
-		}
-		if !enableDHCP && len(nsxSubnetPortState.RealizedBindings) > 0 {
-			subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress = *nsxSubnetPortState.RealizedBindings[0].Binding.IpAddress
-			subnetPort.Status.NetworkInterfaceConfig.MACAddress = strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\"")
-		}
-		err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnetPath, nsxSubnet)
-		if err != nil {
-			log.Error(err, "Failed to retrieve Subnet status for SubnetPort", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
+				SubnetDHCPEnabled: enableDHCP,
+			}
+			if !enableDHCP && len(nsxSubnetPortState.RealizedBindings) > 0 {
+				subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress = *nsxSubnetPortState.RealizedBindings[0].Binding.IpAddress
+				subnetPort.Status.NetworkInterfaceConfig.MACAddress = strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\"")
+			}
+			err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnetPath, nsxSubnet)
+			if err != nil {
+				log.Error(err, "Failed to retrieve Subnet status for SubnetPort", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
+			}
 		}
 		if reflect.DeepEqual(*old_status, subnetPort.Status) {
 			log.Info("Status (without conditions) already matched", "new status", subnetPort.Status, "existing status", old_status)
@@ -335,8 +342,11 @@ func (r *SubnetPortReconciler) setupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.vmMapFunc),
 			builder.WithPredicates(predicate.LabelChangedPredicate{})).
 		Watches(&v1alpha1.AddressBinding{},
-				handler.EnqueueRequestsFromMapFunc(r.addressBindingMapFunc)).
-		Complete(r) // TODO: watch the virtualmachine event and update the labels on NSX subnet port.
+			handler.EnqueueRequestsFromMapFunc(r.addressBindingMapFunc)).
+		Watches(&v1alpha1.Subnet{},
+			handler.EnqueueRequestsFromMapFunc(r.subnetMapFunc),
+			builder.WithPredicates(OnlyDHCPModeChangedPredicate)).
+		Complete(r)
 }
 
 func (r *SubnetPortReconciler) SetupFieldIndexers(mgr ctrl.Manager) error {
@@ -383,6 +393,56 @@ func (r *SubnetPortReconciler) vmMapFunc(_ context.Context, vm client.Object) []
 		}
 	}
 	return requests
+}
+
+func (r *SubnetPortReconciler) subnetMapFunc(_ context.Context, obj client.Object) []reconcile.Request {
+	subnet, ok := obj.(*v1alpha1.Subnet)
+	if !ok {
+		return nil
+	}
+
+	var ports v1alpha1.SubnetPortList
+	err := r.List(context.Background(), &ports, client.InNamespace(subnet.Namespace))
+	if err != nil {
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for _, sp := range ports.Items {
+		if sp.Spec.Subnet == subnet.Name {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      sp.Name,
+					Namespace: sp.Namespace,
+				},
+			})
+		}
+	}
+	return requests
+}
+
+var OnlyDHCPModeChangedPredicate = predicate.Funcs{
+	UpdateFunc: func(e event.UpdateEvent) bool {
+		oldSubnet, ok1 := e.ObjectOld.(*v1alpha1.Subnet)
+		newSubnet, ok2 := e.ObjectNew.(*v1alpha1.Subnet)
+		if !ok1 || !ok2 {
+			return false
+		}
+		if oldSubnet.Spec.SubnetDHCPConfig.Mode != newSubnet.Spec.SubnetDHCPConfig.Mode {
+			log.Info("DHCP mode changed for Subnet", "Subnet", newSubnet.Name, "OldMode", oldSubnet.Spec.SubnetDHCPConfig.Mode, "NewMode", newSubnet.Spec.SubnetDHCPConfig.Mode)
+			return true
+		}
+		return false
+	},
+	CreateFunc: func(e event.CreateEvent) bool {
+		return false
+	},
+	DeleteFunc: func(e event.DeleteEvent) bool {
+		return false
+	},
+	GenericFunc: func(e event.GenericEvent) bool {
+		return false
+	},
 }
 
 func (r *SubnetPortReconciler) RestoreReconcile() error {

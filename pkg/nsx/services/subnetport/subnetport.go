@@ -108,11 +108,16 @@ func (service *SubnetPortService) loadNSXMacPool() error {
 	return nil
 }
 
-func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
+func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, subnetCR *v1alpha1.Subnet) (*model.SegmentPortState, bool, error) {
 	var uid string
+	crStatusReady := false
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
 		uid = string(o.UID)
+		if o.Status.Attachment.ID != "" && len(o.Status.Conditions) > 0 && o.Status.Conditions[0].Status == v1.ConditionTrue {
+			// If the SubnetPort CR already has an attachment ID, it means the CR status is already created.
+			crStatusReady = true
+		}
 	case *v1.Pod:
 		uid = string(o.UID)
 	}
@@ -157,9 +162,14 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 			log.Info("created NSX subnet port", "nsxSubnetPort.Path", *nsxSubnetPort.Path)
 		}
 	}
-	enableDHCP := false
-	if nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode != nsxutil.ParseDHCPMode(v1alpha1.DHCPConfigModeDeactivated) {
-		enableDHCP = true
+	enableDHCP := util.NSXSubnetDHCPEnabled(nsxSubnet)
+	if subnetCR != nil {
+		// If the SubnetPort is associated with a Subnet CR, the subnetDHCPEnabled on SubnetPort will directly sync from Subnet CR, not NSX Subnet.
+		enableDHCP = util.CRSubnetDHCPEnabled(subnetCR)
+	}
+	if crStatusReady && !isChanged {
+		log.Info("The port has been realized and not changed, skipping checking the realized state", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
+		return nil, enableDHCP, nil
 	}
 	nsxSubnetPortState, err := service.CheckSubnetPortState(obj, *nsxSubnet.Path, enableDHCP)
 	if err != nil {
@@ -221,9 +231,6 @@ func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubne
 		return nil, err
 	}
 	log.Info("got the NSX subnet port state", "nsxPortState.RealizedBindings", nsxPortState.RealizedBindings, "uid", portID)
-	if len(nsxPortState.RealizedBindings) == 0 && !enableDHCP {
-		return nsxPortState, errors.New("empty realized bindings")
-	}
 	return nsxPortState, nil
 }
 

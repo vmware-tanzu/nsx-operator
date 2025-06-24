@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -168,6 +169,17 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		subnetCR.Spec.IPv4SubnetSize = vpcNetworkConfig.Spec.DefaultSubnetSize
 		specChanged = true
 	}
+
+	if subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled == nil {
+		specDHCPMode := string(subnetCR.Spec.SubnetDHCPConfig.Mode)
+		if strings.EqualFold(specDHCPMode, v1alpha1.DHCPConfigModeServer) || strings.EqualFold(specDHCPMode, v1alpha1.DHCPConfigModeRelay) {
+			subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = servicecommon.Bool(false)
+		} else {
+			subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = servicecommon.Bool(true)
+		}
+		specChanged = true
+	}
+
 	if specChanged {
 		if err := r.Client.Update(ctx, subnetCR); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to update Subnet", setSubnetReadyStatusFalse)

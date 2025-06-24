@@ -83,18 +83,7 @@ spec:
                     - DHCPRelay
                     - DHCPDeactivated
                     type: string
-                    x-kubernetes-validations:
-                    - message: subnetDHCPConfig mode can only switch between DHCPServer
-                        and DHCPRelay
-                      rule: oldSelf!='DHCPDeactivated' && self!='DHCPDeactivated'
-                        || oldSelf==self
                 type: object
-                x-kubernetes-validations:
-                - message: subnetDHCPConfig mode can only switch between DHCPServer
-                    and DHCPRelay
-                  rule: has(oldSelf.mode)==has(self.mode) || (has(oldSelf.mode) &&
-                    !has(self.mode)  && oldSelf.mode=='DHCPDeactivated') || (!has(oldSelf.mode)
-                    && has(self.mode) && self.mode=='DHCPDeactivated')
             type: object
             x-kubernetes-validations:
             - message: subnetDHCPConfig mode can only switch between DHCPServer and
