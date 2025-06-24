@@ -1440,3 +1440,42 @@ func Test_BuildGroupName(t *testing.T) {
 		}
 	})
 }
+
+func Test_buildRuleServiceEntries(t *testing.T) {
+	tests := []struct {
+		name     string
+		port     v1alpha1.SecurityPolicyPort
+		expected *data.StructValue
+	}{
+		{
+			name: "port with the same Port and EndPort",
+			port: v1alpha1.SecurityPolicyPort{
+				Port:     intstr.FromInt(80),
+				EndPort:  80,
+				Protocol: "TCP",
+			},
+			expected: func() *data.StructValue {
+				destinationPorts := data.NewListValue()
+				destinationPorts.Add(data.NewStringValue("80"))
+				return data.NewStructValue(
+					"",
+					map[string]data.DataValue{
+						"source_ports":      data.NewListValue(),
+						"destination_ports": destinationPorts,
+						"l4_protocol":       data.NewStringValue("TCP"),
+						"resource_type":     data.NewStringValue("L4PortSetServiceEntry"),
+						"marked_for_delete": data.NewBooleanValue(false),
+						"overridden":        data.NewBooleanValue(false),
+					},
+				)
+			}(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actual := buildRuleServiceEntries(tt.port)
+			assert.Equal(t, actual, tt.expected)
+		})
+	}
+}
