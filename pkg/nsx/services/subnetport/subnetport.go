@@ -161,11 +161,8 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 			log.Info("created NSX subnet port", "nsxSubnetPort.Path", *nsxSubnetPort.Path)
 		}
 	}
-	enableDHCP := false
-	if nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode != nsxutil.ParseDHCPMode(v1alpha1.DHCPConfigModeDeactivated) {
-		enableDHCP = true
-	}
-	nsxSubnetPortState, err := service.CheckSubnetPortState(obj, *nsxSubnet.Path, enableDHCP)
+	enableDHCP := util.NSXSubnetDHCPEnabled(nsxSubnet)
+	nsxSubnetPortState, err := service.CheckSubnetPortState(obj, *nsxSubnet.Path)
 	if err != nil {
 		log.Error(err, "check and update NSX subnet port state failed, would retry exponentially", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
 		return nil, false, err
@@ -188,7 +185,7 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 }
 
 // CheckSubnetPortState will check the port realized status then get the port state to prepare the CR status.
-func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubnetPath string, enableDHCP bool) (*model.SegmentPortState, error) {
+func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubnetPath string) (*model.SegmentPortState, error) {
 	var objMeta metav1.ObjectMeta
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
@@ -230,9 +227,6 @@ func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubne
 		return nil, err
 	}
 	log.Info("got the NSX subnet port state", "nsxPortState.RealizedBindings", nsxPortState.RealizedBindings, "uid", portID)
-	if len(nsxPortState.RealizedBindings) == 0 && !enableDHCP {
-		return nsxPortState, errors.New("empty realized bindings")
-	}
 	return nsxPortState, nil
 }
 
