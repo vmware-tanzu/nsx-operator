@@ -489,7 +489,7 @@ func buildRuleServiceEntries(port v1alpha1.SecurityPolicyPort) *data.StructValue
 	// Note: the caller ensures the given port.Port type is Int. For named port case, the caller should
 	// convert to a new SecurityPolicyPort using the correct port number.
 	// In case that the destination_port in NSX-T is 0.
-	if port.EndPort == 0 {
+	if port.EndPort == 0 || port.EndPort == port.Port.IntValue() {
 		portRange = port.Port.String()
 	} else {
 		portRange = fmt.Sprintf("%s-%d", port.Port.String(), port.EndPort)
