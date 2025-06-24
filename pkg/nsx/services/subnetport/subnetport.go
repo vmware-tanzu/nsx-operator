@@ -221,9 +221,6 @@ func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubne
 		return nil, err
 	}
 	log.Info("got the NSX subnet port state", "nsxPortState.RealizedBindings", nsxPortState.RealizedBindings, "uid", portID)
-	if len(nsxPortState.RealizedBindings) == 0 && !enableDHCP {
-		return nsxPortState, errors.New("empty realized bindings")
-	}
 	return nsxPortState, nil
 }
 

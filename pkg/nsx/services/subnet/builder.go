@@ -58,7 +58,11 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 	var staticIpAllocation bool
 	switch o := obj.(type) {
 	case *v1alpha1.Subnet:
-		staticIpAllocation = o.Spec.SubnetDHCPConfig.Mode == "" || o.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
+		if o.Spec.AdvancedConfig.StaticIPAllocation.Enabled == nil {
+			staticIpAllocation = o.Spec.SubnetDHCPConfig.Mode == "" || o.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
+		} else {
+			staticIpAllocation = *o.Spec.AdvancedConfig.StaticIPAllocation.Enabled
+		}
 		nsxSubnet = &model.VpcSubnet{
 			Id:             String(service.BuildSubnetID(o)),
 			AccessMode:     String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),

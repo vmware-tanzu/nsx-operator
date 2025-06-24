@@ -147,6 +147,11 @@ func TestBuildSubnetForSubnet(t *testing.T) {
 		},
 		Spec: v1alpha1.SubnetSpec{
 			IPAddresses: []string{"10.0.0.0/28"},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(true),
+				},
+			},
 		},
 	}
 
@@ -164,6 +169,11 @@ func TestBuildSubnetForSubnet(t *testing.T) {
 		Spec: v1alpha1.SubnetSpec{
 			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
 				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+			},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(false),
+				},
 			},
 		},
 		Status: v1alpha1.SubnetStatus{

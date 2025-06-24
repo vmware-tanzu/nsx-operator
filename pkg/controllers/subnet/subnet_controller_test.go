@@ -594,7 +594,13 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			expectSubnetCR: &v1alpha1.Subnet{
 				Spec: v1alpha1.SubnetSpec{VPCName: "project-name:vpc-name", IPv4SubnetSize: 16, AccessMode: "Private",
 					IPAddresses:      []string(nil),
-					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)}},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: common.Bool(true),
+						},
+					},
+				},
 				Status: v1alpha1.SubnetStatus{},
 			},
 		},
@@ -646,7 +652,13 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			existingSubnetCR: createNewSubnet(),
 			expectSubnetCR: &v1alpha1.Subnet{
 				Spec: v1alpha1.SubnetSpec{VPCName: "project-name:vpc-name", IPv4SubnetSize: 16, AccessMode: "Private", IPAddresses: []string(nil),
-					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)}},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: common.Bool(true),
+						},
+					},
+				},
 				Status: v1alpha1.SubnetStatus{},
 			},
 			expectRes:    ResultRequeue,
@@ -890,6 +902,11 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 			AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
 			IPv4SubnetSize: 16,
 			VPCName:        "project:test-vpc",
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(true),
+				},
+			},
 		},
 	}
 	testSubnet2 := &v1alpha1.Subnet{
@@ -898,6 +915,11 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 			AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
 			IPv4SubnetSize: 16,
 			VPCName:        "project:test-vpc",
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(true),
+				},
+			},
 		},
 	}
 	deletionTime := metav1.Now()
@@ -912,6 +934,11 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 			AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
 			IPv4SubnetSize: 16,
 			VPCName:        "project:test-vpc",
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(true),
+				},
+			},
 		},
 	}
 	for _, tc := range []struct {
