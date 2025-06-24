@@ -81,6 +81,17 @@ spec:
                       Whether this Subnet enabled VLAN extension.
                       Default value is false.
                     type: boolean
+                  staticIPAllocation:
+                    description: Static IP allocation for VPC Subnet Ports.
+                    properties:
+                      enabled:
+                        description: |-
+                          Activate or deactivate static IP allocation for VPC Subnet Ports.
+                          If the DHCP mode is DHCPDeactivated or not set, its default value is true.
+                          If the DHCP mode is DHCPServer or DHCPRelay, its default value is false.
+                          The value cannot be set to true when the DHCP mode is DHCPServer or DHCPRelay.
+                        type: boolean
+                    type: object
                 type: object
               ipAddresses:
                 description: Subnet CIDRS.
@@ -142,6 +153,11 @@ spec:
               rule: '!has(oldSelf.ipv4SubnetSize) || has(self.ipv4SubnetSize)'
             - message: accessMode is required once set
               rule: '!has(oldSelf.accessMode) || has(self.accessMode)'
+            - message: Static IP allocation and Subnet DHCP configuration cannot be
+                enabled simultaneously on a Subnet
+              rule: '!(has(self.advancedConfig) && self.advancedConfig.staticIPAllocation.enabled==true
+                && has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.mode) &&
+                (self.subnetDHCPConfig.mode==''DHCPServer'' || self.subnetDHCPConfig.mode==''DHCPRely''))'
           status:
             description: SubnetStatus defines the observed state of Subnet.
             properties:

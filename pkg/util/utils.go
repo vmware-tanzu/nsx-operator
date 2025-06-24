@@ -28,6 +28,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 const (
@@ -553,4 +554,19 @@ func GetRandomIndexString() string {
 // IsPowerOfTwo checks if a given number is a power of 2
 func IsPowerOfTwo(n int) bool {
 	return n > 0 && (n&(n-1)) == 0
+}
+
+func NSXSubnetDHCPEnabled(nsxSubnet *model.VpcSubnet) bool {
+	return nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode != nsxutil.ParseDHCPMode(v1alpha1.DHCPConfigModeDeactivated)
+}
+
+func CRSubnetDHCPEnabled(obj client.Object) bool {
+	mode := ""
+	switch o := obj.(type) {
+	case *v1alpha1.Subnet:
+		mode = string(o.Spec.SubnetDHCPConfig.Mode)
+	case *v1alpha1.SubnetSet:
+		mode = string(o.Spec.SubnetDHCPConfig.Mode)
+	}
+	return mode == v1alpha1.DHCPConfigModeServer || mode == v1alpha1.DHCPConfigModeRelay
 }

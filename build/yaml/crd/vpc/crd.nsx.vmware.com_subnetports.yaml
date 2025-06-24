@@ -131,7 +131,7 @@ spec:
                       type: object
                     type: array
                   logicalSwitchUUID:
-                    description: The realization id of the SubnetPort
+                    description: NSX Logical Switch UUID of the Subnet.
                     type: string
                   macAddress:
                     description: The MAC address.
