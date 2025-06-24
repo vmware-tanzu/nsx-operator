@@ -72,6 +72,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `vmName` _string_ | VMName contains the VM's name |  |  |
 | `interfaceName` _string_ | InterfaceName contains the interface name of the VM, if not set, the first interface of the VM will be used |  |  |
+| `ipAddressAllocationName` _string_ | IPAddressAllocationName contains name of the external IPAddressAllocation.<br />IP address will be allocated from an external IPBlock of the VPC when this field is not set. |  |  |
 
 
 #### AddressBindingStatus
@@ -168,6 +169,23 @@ _Underlying type:_ _string_
 _Appears in:_
 - [SubnetDHCPConfig](#subnetdhcpconfig)
 
+
+
+#### DHCPServerAdditionalConfig
+
+
+
+Additional DHCP server config for a VPC Subnet.
+The additional configuration must be cleared when the Subnet has DHCP relay enabled or DHCP is deactivated.
+
+
+
+_Appears in:_
+- [SubnetDHCPConfig](#subnetdhcpconfig)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `reservedIPRanges` _string array_ | Reserved IP ranges.<br />Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100"] |  |  |
 
 
 #### IPAddressAllocation
@@ -720,6 +738,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `mode` _[DHCPConfigMode](#dhcpconfigmode)_ | DHCP Mode. DHCPDeactivated will be used if it is not defined.<br />It cannot switch from DHCPDeactivated to DHCPServer or DHCPRelay. |  | Enum: [DHCPServer DHCPRelay DHCPDeactivated] <br /> |
+| `dhcpServerAdditionalConfig` _[DHCPServerAdditionalConfig](#dhcpserveradditionalconfig)_ | Additional DHCP server config for a VPC Subnet. |  |  |
 
 
 #### SubnetInfo
