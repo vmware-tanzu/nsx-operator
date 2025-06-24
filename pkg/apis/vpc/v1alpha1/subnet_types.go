@@ -28,6 +28,7 @@ const (
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipv4SubnetSize) || has(self.ipv4SubnetSize)", message="ipv4SubnetSize is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.accessMode) || has(self.accessMode)", message="accessMode is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipAddresses) || has(self.ipAddresses)", message="ipAddresses is required once set"
+// +kubebuilder:validation:XValidation:rule="!has(self.ipAddresses) && !(has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig) && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig.reservedIPRanges)) || has(self.ipAddresses)", message="ipAddresses is required to configure subnet reserved ip ranges."
 type SubnetSpec struct {
 	// VPC name of the Subnet.
 	VPCName string `json:"vpcName,omitempty"`
@@ -119,14 +120,26 @@ type SubnetAdvancedConfig struct {
 	EnableVLANExtension bool `json:"enableVLANExtension,omitempty"`
 }
 
+// Additional DHCP server config for a VPC Subnet.
+// The additional configuration must be cleared when the Subnet has DHCP relay enabled or DHCP is deactivated.
+type DHCPServerAdditionalConfig struct {
+	// Reserved IP ranges.
+	// Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100"]
+	// +kubebuilder:validation::MaxItems=10
+	ReservedIPRanges []string `json:"reservedIPRanges,omitempty"`
+}
+
 // SubnetDHCPConfig is DHCP configuration for Subnet.
 // +kubebuilder:validation:XValidation:rule="has(oldSelf.mode)==has(self.mode) || (has(oldSelf.mode) && !has(self.mode)  && oldSelf.mode=='DHCPDeactivated') || (!has(oldSelf.mode) && has(self.mode) && self.mode=='DHCPDeactivated')", message="subnetDHCPConfig mode can only switch between DHCPServer and DHCPRelay"
+// +kubebuilder:validation:XValidation:rule="(!has(self.mode)|| self.mode=='DHCPDeactivated' || self.mode=='DHCPRelay' ) && !has(self.dhcpServerAdditionalConfig) || has(self.mode) && self.mode=='DHCPServer'", message="DHCPServerAdditionalConfig must be cleared when Subnet has DHCP relay enabled or DHCP is deactivated."
 type SubnetDHCPConfig struct {
 	// DHCP Mode. DHCPDeactivated will be used if it is not defined.
 	// It cannot switch from DHCPDeactivated to DHCPServer or DHCPRelay.
 	// +kubebuilder:validation:Enum=DHCPServer;DHCPRelay;DHCPDeactivated
 	// +kubebuilder:validation:XValidation:rule="oldSelf!='DHCPDeactivated' && self!='DHCPDeactivated' || oldSelf==self", message="subnetDHCPConfig mode can only switch between DHCPServer and DHCPRelay"
 	Mode DHCPConfigMode `json:"mode,omitempty"`
+	// Additional DHCP server config for a VPC Subnet.
+	DHCPServerAdditionalConfig DHCPServerAdditionalConfig `json:"dhcpServerAdditionalConfig,omitempty"`
 }
 
 // VLANExtension describes VLAN extension configuration for the VPC Subnet.
