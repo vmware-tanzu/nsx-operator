@@ -74,6 +74,15 @@ spec:
               subnetDHCPConfig:
                 description: Subnet DHCP configuration.
                 properties:
+                  dhcpServerAdditionalConfig:
+                    description: Additional DHCP server config for a VPC Subnet.
+                    properties:
+                      reservedIPRanges:
+                        description: Reserved IP ranges.
+                        items:
+                          type: string
+                        type: array
+                    type: object
                   mode:
                     description: |-
                       DHCP Mode. DHCPDeactivated will be used if it is not defined.
@@ -95,6 +104,10 @@ spec:
                   rule: has(oldSelf.mode)==has(self.mode) || (has(oldSelf.mode) &&
                     !has(self.mode)  && oldSelf.mode=='DHCPDeactivated') || (!has(oldSelf.mode)
                     && has(self.mode) && self.mode=='DHCPDeactivated')
+                - message: DHCPServerAdditionalConfig must be cleared when Subnet
+                    has DHCP relay enabled or DHCP is deactivated.
+                  rule: (self.mode=='DHCPDeactivated' || self.mode=='DHCPRelay' )
+                    && has(self.dhcpServerAdditionalConfig)
             type: object
             x-kubernetes-validations:
             - message: subnetDHCPConfig mode can only switch between DHCPServer and
