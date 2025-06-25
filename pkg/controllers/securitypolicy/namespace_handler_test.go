@@ -18,6 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func TestEnqueueRequestForNamespace_Create(t *testing.T) {
@@ -129,10 +131,19 @@ func TestEnqueueRequestForNamespace_Update(t *testing.T) {
 		a.Items = podList.Items
 		return nil
 	})
-	patches := gomonkey.ApplyFunc(reconcileSecurityPolicy, func(r *SecurityPolicyReconciler, client client.Client, pods []v1.Pod,
+	patches := gomonkey.ApplyFuncSeq(util.IsSystemNamespace, []gomonkey.OutputCell{
+		{Values: gomonkey.Params{false, nil}},
+	})
+	patches.ApplyFunc(reconcileSecurityPolicy, func(r *SecurityPolicyReconciler, client client.Client, pods []v1.Pod,
 		q workqueue.TypedRateLimitingInterface[reconcile.Request],
 	) error {
 		return nil
+	})
+	patches.ApplyFunc(securitypolicy.IsVPCEnabled, func(_ interface{}) bool {
+		return false
+	})
+	patches.ApplyFunc(util.CheckPodHasNamedPort, func(pod v1.Pod, reason string) bool {
+		return true
 	})
 	defer patches.Reset()
 
@@ -167,6 +178,9 @@ func TestEnqueueRequestForNamespace_Update(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &EnqueueRequestForNamespace{
 				Client: tt.fields.Client,
+				SecurityPolicyReconciler: &SecurityPolicyReconciler{
+					Service: fakeService(),
+				},
 			}
 			e.Update(context.TODO(), tt.args.updateEvent, tt.args.l)
 		})

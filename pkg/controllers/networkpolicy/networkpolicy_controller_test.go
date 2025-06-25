@@ -1,4 +1,4 @@
-/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
+/* Copyright © 2025 Broadcom, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package networkpolicy
@@ -17,10 +17,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -29,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -548,6 +551,192 @@ func TestStartNetworkPolicyController(t *testing.T) {
 				assert.ErrorContains(t, err, testCase.expectErrStr)
 			} else {
 				assert.NoError(t, err, "expected no error when starting the NetworkPolicy controller")
+			}
+		})
+	}
+}
+
+func TestReconcileNetworkPolicy(t *testing.T) {
+	// Create test NetworkPolicies with named ports
+	npWithIngressNamedPort := &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "np-with-ingress-named-port",
+			Namespace: "default",
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				{
+					Ports: []networkingv1.NetworkPolicyPort{
+						{
+							Port: &intstr.IntOrString{
+								Type:   intstr.String,
+								StrVal: "http",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	npWithEgressNamedPort := &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "np-with-egress-named-port",
+			Namespace: "default",
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			Egress: []networkingv1.NetworkPolicyEgressRule{
+				{
+					Ports: []networkingv1.NetworkPolicyPort{
+						{
+							Port: &intstr.IntOrString{
+								Type:   intstr.String,
+								StrVal: "db",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	npWithNumericPort := &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "np-with-numeric-port",
+			Namespace: "default",
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				{
+					Ports: []networkingv1.NetworkPolicyPort{
+						{
+							Port: &intstr.IntOrString{
+								Type:   intstr.Int,
+								IntVal: 80,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	npWithoutPorts := &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "np-without-ports",
+			Namespace: "default",
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				{
+					Ports: []networkingv1.NetworkPolicyPort{},
+				},
+			},
+		},
+	}
+
+	testCases := []struct {
+		name                      string
+		pods                      []v1.Pod
+		networkPolicies           []client.Object
+		expectedReconcileRequests int
+		listNetworkPoliciesError  error
+	}{
+		{
+			name: "Pod with named port matching NetworkPolicy ingress",
+			pods: []v1.Pod{
+				{
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Ports: []v1.ContainerPort{
+									{Name: "http", ContainerPort: 8080},
+								},
+							},
+						},
+					},
+				},
+			},
+			networkPolicies:           []client.Object{npWithIngressNamedPort, npWithNumericPort},
+			expectedReconcileRequests: 1, // Only npWithIngressNamedPort should be reconciled
+		},
+		{
+			name: "Pod with named port matching NetworkPolicy egress",
+			pods: []v1.Pod{
+				{
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Ports: []v1.ContainerPort{
+									{Name: "db", ContainerPort: 5432},
+								},
+							},
+						},
+					},
+				},
+			},
+			networkPolicies:           []client.Object{npWithEgressNamedPort, npWithNumericPort},
+			expectedReconcileRequests: 1, // Only npWithEgressNamedPort should be reconciled
+		},
+		{
+			name: "Pod with multiple named ports matching multiple NetworkPolicies",
+			pods: []v1.Pod{
+				{
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Ports: []v1.ContainerPort{
+									{Name: "http", ContainerPort: 8080},
+									{Name: "db", ContainerPort: 5432},
+								},
+							},
+						},
+					},
+				},
+			},
+			networkPolicies:           []client.Object{npWithIngressNamedPort, npWithEgressNamedPort},
+			expectedReconcileRequests: 2, // Both NetworkPolicies should be reconciled
+		},
+		{
+			name: "NetworkPolicy without named ports",
+			pods: []v1.Pod{
+				{
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Ports: []v1.ContainerPort{
+									{Name: "http", ContainerPort: 8080},
+								},
+							},
+						},
+					},
+				},
+			},
+			networkPolicies:           []client.Object{npWithoutPorts, npWithNumericPort},
+			expectedReconcileRequests: 0, // No NetworkPolicies should be reconciled
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeClient := fake.NewClientBuilder().WithObjects(tc.networkPolicies...).Build()
+
+			// Mock workqueue to count reconcile requests
+			reconcileCount := 0
+			mockQueue := &mockWorkQueue{
+				addFunc: func(item reconcile.Request) {
+					reconcileCount++
+				},
+			}
+
+			err := reconcileNetworkPolicy(fakeClient, mockQueue)
+
+			if tc.listNetworkPoliciesError != nil {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tc.listNetworkPoliciesError.Error())
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.expectedReconcileRequests, reconcileCount)
 			}
 		})
 	}

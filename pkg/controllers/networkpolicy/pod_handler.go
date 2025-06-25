@@ -1,14 +1,13 @@
-/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
+/* Copyright © 2025 Broadcom, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
-package securitypolicy
+package networkpolicy
 
 import (
 	"context"
 	"reflect"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -19,16 +18,11 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
-// We should consider the below scenarios:
-// When a new added pod whose port name exists in security policy.
-// When a deleted pod whose port name exists in security policy.
-// When a pod's label is changed.
-// In summary, we could roughly think if the port name of security policy exists in the
-// new pod or old pod, we should reconcile the security policy.
-
+// EnqueueRequestForPod handles Pod events and triggers NetworkPolicy reconciliation
+// when Pods with named ports are created, updated, or deleted.
 type EnqueueRequestForPod struct {
-	Client                   client.Client
-	SecurityPolicyReconciler *SecurityPolicyReconciler
+	Client                  client.Client
+	NetworkPolicyReconciler *NetworkPolicyReconciler
 }
 
 func (e *EnqueueRequestForPod) Create(_ context.Context, createEvent event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -48,7 +42,6 @@ func (e *EnqueueRequestForPod) Generic(_ context.Context, genericEvent event.Gen
 }
 
 func (e *EnqueueRequestForPod) Raw(evt interface{}, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	var pods []v1.Pod
 	var obj client.Object
 
 	switch et := evt.(type) {
@@ -62,10 +55,11 @@ func (e *EnqueueRequestForPod) Raw(evt interface{}, q workqueue.TypedRateLimitin
 		obj = et.Object.(*v1.Pod)
 	default:
 		log.Error(nil, "Unknown event type", "event", evt)
+		return
 	}
 
 	pod := obj.(*v1.Pod)
-	vpcMode := securitypolicy.IsVPCEnabled(e.SecurityPolicyReconciler.Service)
+	vpcMode := securitypolicy.IsVPCEnabled(e.NetworkPolicyReconciler.Service)
 	if isInSysNs, err := util.IsSystemNamespace(e.Client, pod.Namespace, nil, vpcMode); err != nil {
 		log.Error(err, "Failed to fetch namespace", "namespace", pod.Namespace)
 		return
@@ -73,27 +67,13 @@ func (e *EnqueueRequestForPod) Raw(evt interface{}, q workqueue.TypedRateLimitin
 		log.V(2).Info("POD is in system namespace, do nothing")
 		return
 	}
-	pods = append(pods, *pod)
-	err := reconcileSecurityPolicy(e.SecurityPolicyReconciler, e.Client, pods, q)
+	err := reconcileNetworkPolicy(e.Client, q)
 	if err != nil {
-		log.Error(err, "Failed to reconcile security policy")
+		log.Error(err, "Failed to reconcile network policy")
 	}
 }
 
-func getAllPodPortNames(pods []v1.Pod) sets.Set[string] {
-	podPortNames := sets.New[string]()
-	for _, pod := range pods {
-		for _, container := range pod.Spec.Containers {
-			for _, port := range container.Ports {
-				if port.Name != "" {
-					podPortNames.Insert(port.Name)
-				}
-			}
-		}
-	}
-	return podPortNames
-}
-
+// PredicateFuncsPod filters Pod events for NetworkPolicy controller
 var PredicateFuncsPod = predicate.Funcs{
 	CreateFunc: func(e event.CreateEvent) bool {
 		if p, ok := e.Object.(*v1.Pod); ok {
@@ -110,6 +90,9 @@ var PredicateFuncsPod = predicate.Funcs{
 		if reflect.DeepEqual(oldObj.ObjectMeta.Labels, newObj.ObjectMeta.Labels) && oldObj.Status.Phase == newObj.Status.Phase {
 			log.V(1).Info("POD label and phase are not changed, ignore it", "name", oldObj.Name)
 			return false
+		}
+		if util.CheckPodHasNamedPort(*oldObj, "update") {
+			return true
 		}
 		if util.CheckPodHasNamedPort(*newObj, "update") {
 			return true
