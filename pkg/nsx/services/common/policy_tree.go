@@ -52,8 +52,10 @@ func getNSXResourcePath[T any](obj T) *string {
 		return v.Path
 	case *model.TlsCertificate:
 		return v.Path
+	case *model.SharedResource:
+		return v.Path
 	default:
-		log.Error(nil, "Unknown NSX resource type %v", v)
+		log.Error(nil, "Get NSX resource path", "unknown NSX resource type", v)
 		return nil
 	}
 }
@@ -88,8 +90,10 @@ func getNSXResourceId[T any](obj T) *string {
 		return v.Id
 	case *model.TlsCertificate:
 		return v.Id
+	case *model.SharedResource:
+		return v.Id
 	default:
-		log.Error(nil, "Unknown NSX resource type %v", v)
+		log.Error(nil, "Get NSX resource ID", "unknown NSX resource type", v)
 		return nil
 	}
 }
@@ -125,7 +129,7 @@ func leafWrapper[T any](obj T) (*data.StructValue, error) {
 	case *model.TlsCertificate:
 		return WrapCertificate(v)
 	default:
-		log.Error(nil, "Unknown NSX resource type", v)
+		log.Error(nil, "Leaf wrapper", "unknown NSX resource type", v)
 		return nil, fmt.Errorf("unsupported NSX resource type %v", v)
 	}
 }
@@ -328,7 +332,7 @@ func (b *PolicyTreeBuilder[T]) BuildRootNode(resources []T, parentPath string) *
 		}
 		orgNode, err := b.buildHNodeFromResource(path, res)
 		if err != nil {
-			log.Error(err, "Failed to build data value for resource, ignore", "Path", path)
+			log.Error(err, "Failed to build data value for resource, ignore", "path", path)
 			continue
 		}
 		rootNode.mergeChildNode(orgNode, b.leafType)
