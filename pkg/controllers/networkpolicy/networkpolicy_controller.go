@@ -1,4 +1,4 @@
-/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
+/* Copyright © 2025 Broadcom, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package networkpolicy
@@ -10,15 +10,20 @@ import (
 	"os"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -135,6 +140,22 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 func (r *NetworkPolicyReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&networkingv1.NetworkPolicy{}).
+		Watches(
+			&v1.Pod{},
+			&EnqueueRequestForPod{
+				Client:                  mgr.GetClient(),
+				NetworkPolicyReconciler: r,
+			},
+			builder.WithPredicates(PredicateFuncsPod),
+		).
+		Watches(
+			&v1.Namespace{},
+			&EnqueueRequestForNamespace{
+				Client:                  mgr.GetClient(),
+				NetworkPolicyReconciler: r,
+			},
+			builder.WithPredicates(PredicateFuncsNs),
+		).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
@@ -224,6 +245,60 @@ func (r *NetworkPolicyReconciler) StartController(mgr ctrl.Manager, _ webhook.Se
 		return err
 	}
 	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.CollectGarbage)
+	return nil
+}
+
+// reconcileNetworkPolicy is triggered by Pod events or Namespace events to reconcile NetworkPolicies with named ports
+func reconcileNetworkPolicy(pkgClient client.Client, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
+	npList := &networkingv1.NetworkPolicyList{}
+	err := pkgClient.List(context.Background(), npList)
+	if err != nil {
+		log.Error(err, "Failed to list all the network policies")
+		return err
+	}
+
+	for i := range npList.Items {
+		np := &npList.Items[i]
+		shouldReconcile := false
+
+		// Check ingress rules for named ports
+		for _, ingress := range np.Spec.Ingress {
+			for _, port := range ingress.Ports {
+				if port.Port != nil && port.Port.Type == intstr.String {
+					shouldReconcile = true
+					break
+				}
+			}
+			if shouldReconcile {
+				break
+			}
+		}
+
+		// Check egress rules for named ports
+		if !shouldReconcile {
+			for _, egress := range np.Spec.Egress {
+				for _, port := range egress.Ports {
+					if port.Port != nil && port.Port.Type == intstr.String {
+						shouldReconcile = true
+					}
+				}
+				if shouldReconcile {
+					break
+				}
+			}
+		}
+
+		if shouldReconcile {
+			log.Info("Reconcile network policy because of associated pod change",
+				"namespace", np.Namespace, "name", np.Name)
+			q.Add(reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      np.Name,
+					Namespace: np.Namespace,
+				},
+			})
+		}
+	}
 	return nil
 }
 

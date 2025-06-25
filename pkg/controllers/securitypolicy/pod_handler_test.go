@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -81,6 +82,9 @@ func TestEnqueueRequestForPod_Raw(t *testing.T) {
 	) error {
 		return nil
 	})
+	patches.ApplyFunc(securitypolicy.IsVPCEnabled, func(_ interface{}) bool {
+		return false
+	})
 	defer patches.Reset()
 
 	patches2 := gomonkey.ApplyFunc(util.IsSystemNamespace, func(client client.Client, ns string, obj *v1.Namespace,
@@ -91,7 +95,11 @@ func TestEnqueueRequestForPod_Raw(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := &EnqueueRequestForPod{}
+			e := &EnqueueRequestForPod{
+				SecurityPolicyReconciler: &SecurityPolicyReconciler{
+					Service: fakeService(),
+				},
+			}
 			e.Raw(tt.args.evt, tt.args.q)
 		})
 	}
@@ -134,7 +142,11 @@ func TestEnqueueRequestForPod_Create(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := &EnqueueRequestForPod{}
+			e := &EnqueueRequestForPod{
+				SecurityPolicyReconciler: &SecurityPolicyReconciler{
+					Service: fakeService(),
+				},
+			}
 			e.Create(context.TODO(), tt.args.evt, tt.args.q)
 		})
 	}
@@ -182,7 +194,11 @@ func TestEnqueueRequestForPod_Update(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := &EnqueueRequestForPod{}
+			e := &EnqueueRequestForPod{
+				SecurityPolicyReconciler: &SecurityPolicyReconciler{
+					Service: fakeService(),
+				},
+			}
 			e.Update(context.TODO(), tt.args.evt, tt.args.q)
 		})
 	}
@@ -225,7 +241,11 @@ func TestEnqueueRequestForPod_Delete(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := &EnqueueRequestForPod{}
+			e := &EnqueueRequestForPod{
+				SecurityPolicyReconciler: &SecurityPolicyReconciler{
+					Service: fakeService(),
+				},
+			}
 			e.Delete(context.TODO(), tt.args.evt, tt.args.q)
 		})
 	}
@@ -268,7 +288,11 @@ func TestEnqueueRequestForPod_Generic(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := &EnqueueRequestForPod{}
+			e := &EnqueueRequestForPod{
+				SecurityPolicyReconciler: &SecurityPolicyReconciler{
+					Service: fakeService(),
+				},
+			}
 			e.Generic(context.TODO(), tt.args.evt, tt.args.q)
 		})
 	}
