@@ -101,12 +101,17 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		r.StatusUpdater.IncreaseUpdateTotal()
 
 		old_status := subnetPort.Status.DeepCopy()
-		inSharedSubnet, err := r.isInSharedSubnet(ctx, subnetPort)
+		subnetCR, isParentResourceTerminating, err := r.getSubnetCR(ctx, subnetPort)
+		if isParentResourceTerminating {
+			err = errors.New("parent resource is terminating, SubnetPort cannot be created")
+			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			return common.ResultNormal, err
+		}
 		if err != nil {
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to check Subnet CR", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get Subnet CR", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 			return common.ResultRequeue, err
 		}
-		isExisting, isParentResourceTerminating, nsxSubnetPath, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort, inSharedSubnet)
+		isExisting, isParentResourceTerminating, nsxSubnetPath, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort, subnetCR)
 		if isParentResourceTerminating {
 			err = errors.New("parent resource is terminating, SubnetPort cannot be created")
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
@@ -129,8 +134,14 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if vm != nil {
 			labels = &vm.Labels
 		}
-		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath, inSharedSubnet)
+		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath, servicecommon.IsSharedSubnet(subnetCR))
 		if err != nil {
+			subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
+			log.Info("Previous NSX Subnet is deleted, deleting the stale SubnetPort", "subnetPort.UID", subnetPort.UID, "SubnetPath", nsxSubnet)
+			if e := r.SubnetPortService.DeleteSubnetPortById(subnetPortID); e != nil {
+				log.Error(e, "Failed to delete the stale SubnetPort", "subnetPort.UID", subnetPort.UID)
+				err = errors.Join(err, e)
+			}
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, fmt.Sprintf("Failed to get Subnet by path: %s", nsxSubnetPath), setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 			return common.ResultRequeue, err
 		}
@@ -231,7 +242,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return common.ResultNormal, nil
 }
 
-func (r *SubnetPortReconciler) isInSharedSubnet(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, error) {
+func (r *SubnetPortReconciler) getSubnetCR(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (*v1alpha1.Subnet, bool, error) {
 	if len(subnetPort.Spec.Subnet) > 0 {
 		subnetCR := &v1alpha1.Subnet{}
 		namespacedName := types.NamespacedName{
@@ -240,14 +251,14 @@ func (r *SubnetPortReconciler) isInSharedSubnet(ctx context.Context, subnetPort 
 		}
 		if err := r.Client.Get(ctx, namespacedName, subnetCR); err != nil {
 			log.Error(err, "Subnet CR not found", "SubnetCR", namespacedName)
-			return false, err
+			return nil, false, err
 		}
 		if !subnetCR.DeletionTimestamp.IsZero() {
-			return false, fmt.Errorf("subnet %s is being deleted, cannot operate SubnetPort %s", namespacedName, subnetPort.Name)
+			return nil, true, fmt.Errorf("subnet %s is being deleted, cannot operate SubnetPort %s", namespacedName, subnetPort.Name)
 		}
-		return servicecommon.IsSharedSubnet(subnetCR), nil
+		return subnetCR, false, nil
 	}
-	return false, nil
+	return nil, false, nil
 }
 
 func subnetPortNamespaceVMIndexFunc(obj client.Object) []string {
@@ -633,25 +644,14 @@ func (r *SubnetPortReconciler) getSubnetBySubnetPort(subnetPort *v1alpha1.Subnet
 	return common.GetSubnetByIP(subnets, gatewayIP)
 }
 
-func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort, inSharedSubnet bool) (existing bool, isStale bool, subnetPath string, err error) {
+func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetCR *v1alpha1.Subnet) (existing bool, isStale bool, subnetPath string, err error) {
 	subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
 	subnetPath = r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(subnetPortID)
 	if len(subnetPath) > 0 {
 		// If there is a SubnetPath in store, there is a subnetport in NSX, the subnetport is not created first time.
-		// Check if the Subnet is deleted due to race condition, in which case the stale
-		// subnetport is needed to be deleted.
-		_, err = r.SubnetService.GetSubnetByPath(subnetPath, inSharedSubnet)
-		if err != nil {
-			log.Info("Previous NSX Subnet is deleted, deleting the stale SubnetPort", "subnetPort.UID", subnetPort.UID, "SubnetPath", subnetPath)
-			if err = r.SubnetPortService.DeleteSubnetPortById(subnetPortID); err != nil {
-				log.Error(err, "Failed to delete the stale SubnetPort", "subnetPort.UID", subnetPort.UID)
-				return
-			}
-		} else {
-			log.V(1).Info("NSX SubnetPort had been created, returning the existing NSX Subnet path", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
-			existing = true
-			return
-		}
+		log.V(1).Info("NSX SubnetPort had been created, returning the existing NSX Subnet path", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
+		existing = true
+		return
 	}
 	if r.restoreMode {
 		// For restore case, SubnetPort will be created on the Subnet with matching CIDR
@@ -667,18 +667,8 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		}
 	}
 	if len(subnetPort.Spec.Subnet) > 0 {
-		subnetCR := &v1alpha1.Subnet{}
-		namespacedName := types.NamespacedName{
-			Name:      subnetPort.Spec.Subnet,
-			Namespace: subnetPort.Namespace,
-		}
-		if err = r.Client.Get(ctx, namespacedName, subnetCR); err != nil {
-			log.Error(err, "subnet CR not found", "subnet CR", namespacedName)
-			return
-		}
-		if !subnetCR.DeletionTimestamp.IsZero() {
-			isStale = true
-			err = fmt.Errorf("subnet %s is being deleted, cannot operate subnetport %s", namespacedName, subnetPort.Name)
+		if subnetCR == nil {
+			err = fmt.Errorf("failed to get Subnet CR %s/%s", subnetPort.Namespace, subnetPort.Spec.Subnet)
 			return
 		}
 		var nsxSubnet *model.VpcSubnet
