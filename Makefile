@@ -77,9 +77,13 @@ golangci-fix: $(GOLANGCI_LINT_BIN)
 .coverage:
 	mkdir -p $(CURDIR)/.coverage
 
-.PHONY: test
-test: manifests generate fmt vet envtest .coverage ## Run tests .
+.PHONY: test-bak
+test-bak: manifests generate fmt vet envtest .coverage ## Run tests .
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -gcflags=all=-l -coverpkg=github.com/vmware-tanzu/nsx-operator/pkg/...,github.com/vmware-tanzu/nsx-operator/cmd/... -covermode=atomic $$(go list ./... | grep -v mock | grep -v e2e | grep -v hack) -v -coverprofile $(CURDIR)/.coverage/coverage-unit.out  ## Prohibit inline optimization when using gomonkey
+
+.PHONY: test
+test: manifests generate fmt vet envtest .coverage ## Run tests with clean output (only pass/fail results)
+	./hack/test-clean.sh
 
 ##@ Build
 
