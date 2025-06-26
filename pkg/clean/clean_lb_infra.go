@@ -111,7 +111,7 @@ func (s *LBInfraCleaner) cleanupInfraSharedResources(ctx context.Context) error 
 		srSet = append(srSet, sr)
 	}
 
-	s.log.Info("Cleaning up shares", "Count", len(srSet))
+	s.log.Info("Cleaning up shared resources", "Count", len(srSet))
 	sharedResourcesBuilder, _ := common.PolicyPathInfraSharedResource.NewPolicyTreeBuilder()
 	return sharedResourcesBuilder.PagingUpdateResources(ctx, srSet, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
 }
