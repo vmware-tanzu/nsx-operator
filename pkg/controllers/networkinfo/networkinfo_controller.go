@@ -224,12 +224,27 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Error(err, "Failed to get LB Provider")
 		return common.ResultRequeue, nil
 	}
+
+	nsObj := &corev1.Namespace{}
+	err = r.Client.Get(ctx, types.NamespacedName{Name: req.Namespace}, nsObj)
+	if err != nil {
+		log.Error(err, "Failed to get namespace", "Namespace", req.Namespace)
+		return common.ResultRequeue, nil
+	}
+
 	createdVpc, err := r.Service.CreateOrUpdateVPC(ctx, networkInfoCR, nc, lbProvider, serviceClusterReady, r.restoreMode)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to create or update VPC", setNetworkInfoVPCStatusWithError, nil)
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
+		// Update namespace's annotation with the error message
+		message := fmt.Sprintf("Failed to create or update VPC: %v", err)
+		changes := map[string]string{common.AnnotationNamespaceVPCError: message}
+		_ = util.UpdateK8sResourceAnnotation(r.Client, ctx, nsObj, changes)
 		return common.ResultRequeueAfter10sec, err
 	}
+
+	// Delete the namespace's annotation when VPC creation/update succeeds
+	_ = util.DeleteK8sResourceAnnotation(r.Client, ctx, nsObj, []string{common.AnnotationNamespaceVPCError})
 
 	var privateIPs []string
 	var vpcConnectivityProfilePath string

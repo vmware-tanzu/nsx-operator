@@ -39,6 +39,7 @@ import (
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 type fakeVPCConnectivityProfilesClient struct{}
@@ -159,8 +160,61 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				return patches
 			},
 			args:    requestArgs,
-			want:    common.ResultNormal,
-			wantErr: false,
+			want:    common.ResultRequeueAfter10sec,
+			wantErr: true,
+		},
+		{
+			name: "VPCCreateUpdateError",
+			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: requestArgs.req.Namespace,
+						Name:      requestArgs.req.Name,
+					},
+				}))
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.VPCNetworkConfiguration{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "system",
+					},
+				}))
+				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, _ context.Context, _ string) (string, error) {
+					return servicecommon.SystemVPCNetworkConfigurationName, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
+					return &v1alpha1.VPCNetworkConfiguration{
+						ObjectMeta: metav1.ObjectMeta{Name: servicecommon.SystemVPCNetworkConfigurationName},
+						Spec: v1alpha1.VPCNetworkConfigurationSpec{
+							VPCConnectivityProfile: "/orgs/default/projects/nsx_operator_e2e_test/vpc-connectivity-profiles/default",
+							NSXProject:             "/orgs/default/projects/project-quality",
+						},
+					}, true, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*servicecommon.VPCConnectionStatus, error) {
+					return &servicecommon.VPCConnectionStatus{
+						GatewayConnectionReady: true,
+						ServiceClusterReady:    false,
+						ServiceClusterReason:   servicecommon.ReasonServiceClusterNotSet,
+					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
+					return vpc.NSXLB, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider, _ bool, _ bool) (*model.Vpc, error) {
+					return nil, fmt.Errorf("test vpc creation error")
+				})
+				patches.ApplyFunc(util.UpdateK8sResourceAnnotation, func(c client.Client, ctx context.Context, k8sObj client.Object, changes map[string]string) error {
+					expectedMessage := "Failed to create or update VPC: test vpc creation error"
+					assert.Equal(t, map[string]string{"nsx.vmware.com/vpc_error": expectedMessage}, changes)
+					return nil
+				})
+				patches.ApplyFunc(setNSNetworkReadyCondition, func(ctx context.Context, client client.Client, nsName string, condition *corev1.NamespaceCondition) {
+					// Verify that the error condition is set correctly
+				})
+				return patches
+			},
+			args:    requestArgs,
+			want:    common.ResultRequeueAfter10sec,
+			wantErr: true,
 		},
 		{
 			name: "GatewayConnectionReadyInSystemVPC",
@@ -195,12 +249,16 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						ServiceClusterReason:   servicecommon.ReasonServiceClusterNotSet,
 					}, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider) (*model.Vpc, error) {
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider, _ bool, _ bool) (*model.Vpc, error) {
 					return &model.Vpc{
 						DisplayName: servicecommon.String("vpc-name"),
 						Path:        servicecommon.String("/orgs/default/projects/project-quality/vpcs/fake-vpc"),
 						Id:          servicecommon.String("vpc-id"),
 					}, nil
+				})
+				patches.ApplyFunc(util.DeleteK8sResourceAnnotation, func(c client.Client, ctx context.Context, k8sObj client.Object, keys []string) error {
+					assert.Equal(t, []string{"nsx.vmware.com/vpc_error"}, keys)
+					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "IsSharedVPCNamespaceByNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (bool, error) {
 					return false, nil
@@ -1038,9 +1096,19 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			r := createNetworkInfoReconciler(nil)
 			v1alpha1.AddToScheme(r.Scheme)
 			ctx := context.TODO()
+
+			patches := gomonkey.ApplyFunc(util.DeleteK8sResourceAnnotation, func(_ client.Client, _ context.Context, _ client.Object, _ []string) error {
+				return nil
+			})
+
+			patches.ApplyMethod(reflect.TypeOf(r.Client), "Get", func(_ client.Client, _ context.Context, key types.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				return nil
+			})
+			defer patches.Reset()
+
 			if tt.prepareFunc != nil {
-				patches := tt.prepareFunc(t, r, ctx)
-				defer patches.Reset()
+				p := tt.prepareFunc(t, r, ctx)
+				defer p.Reset()
 			}
 			got, err := r.Reconcile(ctx, tt.args.req)
 			if (err != nil) != tt.wantErr {

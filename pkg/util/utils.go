@@ -380,6 +380,30 @@ func UpdateK8sResourceAnnotation(client client.Client, ctx context.Context, k8sO
 	return nil
 }
 
+// DeleteK8sResourceAnnotation deletes the specified annotations from a Kubernetes resource.
+// It takes a client, context, the Kubernetes object, and a list of annotation keys to delete.
+func DeleteK8sResourceAnnotation(client client.Client, ctx context.Context, k8sObj client.Object, keys []string) error {
+	annotations := k8sObj.GetAnnotations()
+	if annotations == nil {
+		return nil // No annotations to delete
+	}
+
+	needUpdate := false
+	for _, key := range keys {
+		if _, exists := annotations[key]; exists {
+			delete(annotations, key)
+			needUpdate = true
+		}
+	}
+
+	if !needUpdate {
+		return nil // No changes needed
+	}
+
+	k8sObj.SetAnnotations(annotations)
+	return client.Update(ctx, k8sObj)
+}
+
 func truncateNameOrIDHash(data string) string {
 	return Sha1WithBase62(data)[:common.Base62HashLength]
 }
