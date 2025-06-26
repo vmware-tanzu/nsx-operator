@@ -323,6 +323,8 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 		return
 	}
 
+	var networkErrors []common.NetworkError
+
 	// Get pods from the endpoint
 	netStatus := NetworkStatusHealthy
 	status := InventoryStatusUp
@@ -331,13 +333,18 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 		status = InventoryStatusUp
 	} else if hasAddr {
 		status = InventoryStatusUnknown
+		networkErrors = append(networkErrors, common.NetworkError{
+			ErrorMessage: "Service endpoint status is unknown",
+		})
 	} else {
 		status = InventoryStatusDown
 		netStatus = NetworkStatusUnhealthy
+		networkErrors = append(networkErrors, common.NetworkError{
+			ErrorMessage: "Failed to get endpoints for Service",
+		})
 	}
 
 	// Get network errors from service annotations
-	var networkErrors []common.NetworkError
 	if status != InventoryStatusUp {
 		// Check for NCP errors in service annotations
 		for key, value := range service.Annotations {
