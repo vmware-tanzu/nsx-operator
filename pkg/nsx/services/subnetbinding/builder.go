@@ -3,7 +3,6 @@ package subnetbinding
 import (
 	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -41,16 +40,15 @@ func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionB
 }
 
 // buildSubnetBindingID generates the ID of NSX SubnetConnectionBindingMap resource, its format is like this,
-// ${SubnetConnectionBindingMap_CR}.name_hash(${parent_VpcSubnet}.Path)[:5], e.g., binding1_9bc22
+// ${SubnetConnectionBindingMap_CR}.name_hash(${parent_VpcSubnet}.Path)[:5], e.g., binding1_9bc22. Note, if
+// the generated id has collision with the existing NSX SubnetConnectionBindingMap.id, a random UUID is used as
+// an alternative of the parent path to generate the hash suffix.
 func (s *BindingService) buildSubnetBindingID(binding *v1alpha1.SubnetConnectionBindingMap, parentSubnetPath string) string {
-	hashedValue := parentSubnetPath
-	return common.BuildUniqueID(func(reGenerate bool) string {
-		if reGenerate {
-			hashedValue = uuid.New().String()
-		}
-		suffix := util.TruncateUIDHash(hashedValue)
-		return util.GenerateID(binding.Name, "", suffix, "")
-	}, func(id string) bool {
+	idCR := &v1.ObjectMeta{
+		Name: binding.GetName(),
+		UID:  types.UID(parentSubnetPath),
+	}
+	return common.BuildUniqueIDWithRandomUUID(idCR, util.GenerateIDByObject, func(id string) bool {
 		return s.BindingStore.GetByKey(id) != nil
 	})
 }

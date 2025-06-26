@@ -31,9 +31,9 @@ func TestSha1(t *testing.T) {
 
 func TestNormalizeName(t *testing.T) {
 	shortName := strings.Repeat("a", 256)
-	assert.Equal(t, NormalizeName(shortName, truncateLabelHash), shortName)
+	assert.Equal(t, NormalizeLabelValue(shortName, truncateLabelHash), shortName)
 	longName := strings.Repeat("a", 257)
-	assert.Equal(t, NormalizeName(longName, truncateLabelHash), fmt.Sprintf("%s_%s", strings.Repeat("a", 256-common.HashLength-1), "0c103888"))
+	assert.Equal(t, NormalizeLabelValue(longName, truncateLabelHash), fmt.Sprintf("%s_%s", strings.Repeat("a", 256-common.HashLength-1), "0c103888"))
 }
 
 func TestNormalizeLabelKey(t *testing.T) {
@@ -58,7 +58,7 @@ func TestNormalizeLabels(t *testing.T) {
 				longKey: longValue,
 			},
 			expectedLabels: &map[string]string{
-				"def": NormalizeName(longValue, truncateLabelHash),
+				"def": NormalizeLabelValue(longValue, truncateLabelHash),
 			},
 		},
 		{
@@ -67,7 +67,7 @@ func TestNormalizeLabels(t *testing.T) {
 				shortKey: longValue,
 			},
 			expectedLabels: &map[string]string{
-				shortKey: NormalizeName(longValue, truncateLabelHash),
+				shortKey: NormalizeLabelValue(longValue, truncateLabelHash),
 			},
 		},
 	}
@@ -503,7 +503,7 @@ func TestGenerateTruncName(t *testing.T) {
 				project:  strings.Repeat("s", 300),
 				cluster:  "k8scl-one",
 			},
-			want: "sr_k8scl-one_1234-456_ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss_r65nxx_scope",
+			want: "sr_k8scl-one_1234-456_sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss_r65nx_scope",
 		},
 	}
 	for _, tt := range tests {
@@ -650,41 +650,22 @@ func TestGenerateIDByObject(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		obj   metav1.Object
-		limit int
 		expID string
 	}{
 		{
 			name:  "no limit set",
 			obj:   &metav1.ObjectMeta{Name: "abcdefg", UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
-			limit: 0,
-			expID: "abcdefg_q3qpx",
-		},
-		{
-			name:  "truncate name and append hash on uid",
-			obj:   &metav1.ObjectMeta{Name: "abcdefg", UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
-			limit: 15,
-			expID: "abcdefg_q3qpx",
-		},
-		{
-			name:  "generated name shorter than the limit",
-			obj:   &metav1.ObjectMeta{Name: "abcdefg", UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
-			limit: 20,
 			expID: "abcdefg_q3qpx",
 		},
 		{
 			name:  "longer name with truncate",
 			obj:   &metav1.ObjectMeta{Name: strings.Repeat("a", 256), UID: "b720ee2c-5788-4680-9796-0f93db33d8a9"},
-			limit: 0,
-			expID: fmt.Sprintf("%s_q3qpx2", strings.Repeat("a", 248)),
+			expID: fmt.Sprintf("%s_q3qpx", strings.Repeat("a", 249)),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var id string
-			if tc.limit == 0 {
-				id = GenerateIDByObject(tc.obj)
-			} else {
-				id = generateIDByLimit(tc.obj, tc.limit)
-			}
+			id = GenerateIDByObject(tc.obj)
 			assert.Equal(t, tc.expID, id)
 		})
 	}

@@ -121,14 +121,9 @@ func GetVPCFullName(orgID, projectID, vpcID string, vpcService VPCServiceProvide
 	return vpcFullName, nil
 }
 
-func BuildUniqueID(idGeneratorFn func(reGenerate bool) string, idExistsFn func(id string) bool) string {
-	resId := idGeneratorFn(false)
-	for idExistsFn(resId) {
-		resId = idGeneratorFn(true)
-	}
-	return resId
-}
-
+// BuildUniqueIDWithRandomUUID returns a string with format "obj.name_hash(uid)[UUIDHashLength]". If the returned
+// string already exists, a random UUID is used to generate a hash suffix to replace "hash(uid)[UUIDHashLength]".
+// nsx services should call this function to generate the NSX resource id by avoiding id collisions.
 func BuildUniqueIDWithRandomUUID(initialObject metav1.Object, idGeneratorFn func(obj metav1.Object) string, idExistsFn func(id string) bool) string {
 	resId := idGeneratorFn(initialObject)
 	for idExistsFn(resId) {
@@ -141,13 +136,16 @@ func BuildUniqueIDWithRandomUUID(initialObject metav1.Object, idGeneratorFn func
 	return resId
 }
 
-func BuildUniqueIDWithSuffix(obj metav1.Object, index string, maxLength int, idGeneratorFn func(obj metav1.Object) string, idExistsFn func(id string) bool) string {
+// BuildUniqueIDWithSuffix returns a string with format "obj.name-suffixStr_hash(uid)[UUIDHashLength]". If the returned
+// string already exists, a random UUID is used to generate a hash suffix to replace "hash(uid)[UUIDHashLength]".
+// nsx services should use this function to generate the NSX resource id if a "suffixStr" is expected.
+func BuildUniqueIDWithSuffix(obj metav1.Object, suffixStr string, maxLength int, idGeneratorFn func(obj metav1.Object) string, idExistsFn func(id string) bool) string {
 	maxNameLength := maxLength - UUIDHashLength - 1
 	prefix := obj.GetName()
 	suffix := ""
-	if len(index) > 0 {
-		maxNameLength = maxNameLength - (len(index) + 1)
-		suffix = fmt.Sprintf("-%s", index)
+	if len(suffixStr) > 0 {
+		maxNameLength = maxNameLength - (len(suffixStr) + 1)
+		suffix = fmt.Sprintf("-%s", suffixStr)
 	}
 
 	if len(prefix) > maxNameLength {

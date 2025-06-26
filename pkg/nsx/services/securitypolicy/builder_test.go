@@ -1365,7 +1365,7 @@ func Test_BuildSecurityPolicyName(t *testing.T) {
 				},
 			},
 			createdFor: common.ResourceTypeNetworkPolicy,
-			expName:    fmt.Sprintf("%s_n5pcg9", strings.Repeat("a", 248)),
+			expName:    fmt.Sprintf("%s_n5pcg", strings.Repeat("a", 249)),
 			expId:      fmt.Sprintf("%s_tdpcn", strings.Repeat("a", 249)),
 		},
 	} {
