@@ -5,6 +5,8 @@ import (
 	"net"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -42,12 +44,27 @@ func (service *StaticRouteService) buildStaticRoute(obj *v1alpha1.StaticRoute) (
 		nexthop.IpAddress = &obj.Spec.NextHops[index].IPAddress
 		sr.NextHops = append(sr.NextHops, nexthop)
 	}
-	sr.Id = String(util.GenerateIDByObject(obj))
+
+	tags := service.buildBasicTags(obj)
+	sr.Tags = tags
+	objForIdGeneration := &v1.ObjectMeta{
+		Name: obj.GetName(),
+		UID:  types.UID(common.GetNamespaceUUID(tags)),
+	}
+	sr.Id = String(service.buildStaticRouteId(objForIdGeneration))
 	sr.DisplayName = String(util.GenerateTruncName(common.MaxNameLength, obj.Name, "", "", "", ""))
-	sr.Tags = service.buildBasicTags(obj)
 	return sr, nil
 }
 
+func (service *StaticRouteService) buildStaticRouteId(obj v1.Object) string {
+	return common.BuildUniqueIDWithRandomUUID(obj, util.GenerateIDByObject, service.staticRoutesIdExists)
+}
+
 func (service *StaticRouteService) buildBasicTags(obj *v1alpha1.StaticRoute) []model.Tag {
-	return util.BuildBasicTags(service.Service.NSXConfig.Cluster, obj, "")
+	return util.BuildBasicTags(service.Service.NSXConfig.Cluster, obj, service.GetNamespaceUID(obj.ObjectMeta.Namespace))
+}
+
+func (service *StaticRouteService) staticRoutesIdExists(id string) bool {
+	existingStaticRoutes := service.StaticRouteStore.GetByKey(id)
+	return existingStaticRoutes != nil
 }
