@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	ctrcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/networkinfo"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -277,17 +278,24 @@ func (s *InventoryService) BuildNamespace(namespace *corev1.Namespace) (retry bo
 		preContainerProject = *preContainerProject.(*containerinventory.ContainerProject)
 	}
 
-	// Extract network errors from annotations
+	// Extract network errors from namespace conditions
 	// Initialize as empty slice to ensure NSX receives [] instead of null when clearing errors
 	networkErrors := make([]common.NetworkError, 0)
 	networkStatus := NetworkStatusHealthy
-
-	// Check for VPC error annotation
-	if errorMsg, exists := namespace.Annotations[ctrcommon.AnnotationNamespaceVPCError]; exists && errorMsg != "" {
-		networkErrors = append(networkErrors, common.NetworkError{
-			ErrorMessage: errorMsg,
-		})
-		networkStatus = NetworkStatusUnhealthy
+	for _, condition := range namespace.Status.Conditions {
+		if condition.Type == networkinfo.NamespaceNetworkReady && condition.Status == corev1.ConditionFalse {
+			// Create a network error with the reason and message
+			errorMessage := condition.Reason + ": " + condition.Message
+			networkError := common.NetworkError{
+				ErrorMessage: errorMessage,
+			}
+			networkErrors = append(networkErrors, networkError)
+			networkStatus = NetworkStatusUnhealthy
+		} else if condition.Type == networkinfo.NamespaceNetworkReady && condition.Status == corev1.ConditionTrue {
+			networkErrors = []common.NetworkError{}
+			networkStatus = NetworkStatusHealthy
+			break
+		}
 	}
 
 	containerProject := containerinventory.ContainerProject{
