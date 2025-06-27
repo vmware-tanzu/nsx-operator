@@ -59,14 +59,12 @@ func (s *LBInfraCleaner) CleanupInfraResources(ctx context.Context) error {
 		s.log.Error(err, "Failed to clean up DLB virtual servers")
 		return err
 	}
-	// SharedResource has dependencies on Group, so we can't delete sharedResources and groups in parallel.
-	if err := s.cleanupInfraSharedResources(ctx); err != nil {
-		s.log.Error(err, "Failed to clean up infra SharedResources")
+	if err := s.cleanupInfraShares(ctx); err != nil {
+		s.log.Error(err, "Failed to clean up infra Shareds")
 		return err
 	}
 
 	parallelCleaners := []func(ctx context.Context) error{
-		s.cleanupInfraShares,
 		s.cleanupInfraDLBPools,
 		s.cleanupInfraDLBServices,
 		s.cleanupInfraDLBGroups,
