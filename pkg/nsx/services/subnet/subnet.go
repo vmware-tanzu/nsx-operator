@@ -333,14 +333,38 @@ func (service *SubnetService) GetSubnetByKey(key string) (*model.VpcSubnet, erro
 	return nsxSubnet, nil
 }
 
-func (service *SubnetService) GetSubnetByPath(path string) (*model.VpcSubnet, error) {
-	pathSlice := strings.Split(path, "/")
-	if len(pathSlice) == 0 {
-		return nil, fmt.Errorf("invalid path '%s' while getting subnet", path)
+func (service *SubnetService) GetSubnetByPath(path string, sharedSubnet bool) (*model.VpcSubnet, error) {
+	if sharedSubnet {
+		associatedResource, err := common.ConvertSubnetPathToAssociatedResource(path)
+		if err != nil {
+			return nil, err
+		}
+		return service.GetNSXSubnetFromCacheOrAPI(associatedResource)
 	}
-	key := pathSlice[len(pathSlice)-1]
-	nsxSubnet, err := service.GetSubnetByKey(key)
-	return nsxSubnet, err
+	info, err := common.ParseVPCResourcePath(path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path '%s' while getting Subnet", path)
+	}
+	return service.GetSubnetByKey(info.ID)
+}
+
+// GetSubnetByCR gets NSX Subnet based on the Subnet CR
+// For shared Subnet, it gets from shared subnet cache or API
+// Otherwise it gets from Subnet store
+func (service *SubnetService) GetSubnetByCR(subnet *v1alpha1.Subnet) (*model.VpcSubnet, error) {
+	if common.IsSharedSubnet(subnet) {
+		return service.GetNSXSubnetFromCacheOrAPI(subnet.Annotations[common.AnnotationAssociatedResource])
+	}
+	subnetList := service.GetSubnetsByIndex(common.TagScopeSubnetCRUID, string(subnet.GetUID()))
+	if len(subnetList) == 0 {
+		err := fmt.Errorf("empty NSX resource path for Subnet CR %s(%s)", subnet.Name, subnet.GetUID())
+		return nil, err
+	} else if len(subnetList) > 1 {
+		err := fmt.Errorf("multiple NSX Subnets found for Subnet CR %s(%s)", subnet.Name, subnet.GetUID())
+		log.Error(err, "Failed to get NSX Subnet by Subnet CR UID", "subnetList", subnetList)
+		return nil, err
+	}
+	return subnetList[0], nil
 }
 
 func (service *SubnetService) ListSubnetSetIDsFromNSXSubnets() sets.Set[string] {

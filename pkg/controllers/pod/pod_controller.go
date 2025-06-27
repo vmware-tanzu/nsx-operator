@@ -176,7 +176,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			return common.ResultRequeue, err
 		}
 		contextID := *node.UniqueId
-		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath)
+		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath, false)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, pod, err, "", setPodReadyStatusFalse)
 			return common.ResultRequeue, err

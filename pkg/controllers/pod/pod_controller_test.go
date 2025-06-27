@@ -190,7 +190,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 						return &model.HostTransportNode{UniqueId: servicecommon.String("node-1")}, nil
 					})
 				patches.ApplyFunc((*subnet.SubnetService).GetSubnetByPath,
-					func(r *subnet.SubnetService, path string) (*model.VpcSubnet, error) {
+					func(r *subnet.SubnetService, path string, sharedSubnet bool) (*model.VpcSubnet, error) {
 						return nil, errors.New("failed to get subnet")
 					})
 
@@ -226,7 +226,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 						return &model.HostTransportNode{UniqueId: servicecommon.String("node-1")}, nil
 					})
 				patches.ApplyFunc((*subnet.SubnetService).GetSubnetByPath,
-					func(r *subnet.SubnetService, path string) (*model.VpcSubnet, error) {
+					func(r *subnet.SubnetService, path string, sharedSubnet bool) (*model.VpcSubnet, error) {
 						return &model.VpcSubnet{}, nil
 					})
 				patches.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
@@ -267,7 +267,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 						return &model.HostTransportNode{UniqueId: servicecommon.String("node-1")}, nil
 					})
 				patches.ApplyFunc((*subnet.SubnetService).GetSubnetByPath,
-					func(s *subnet.SubnetService, path string) (*model.VpcSubnet, error) {
+					func(s *subnet.SubnetService, path string, sharedSubnet bool) (*model.VpcSubnet, error) {
 						return &model.VpcSubnet{}, nil
 					})
 				patches.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,

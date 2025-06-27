@@ -106,11 +106,16 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	ctx := context.Background()
 	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
 	patchesGetSubnetByPath := gomonkey.ApplyFunc((*subnet.SubnetService).GetSubnetByPath,
-		func(s *subnet.SubnetService, nsxSubnetPath string) (*model.VpcSubnet, error) {
+		func(s *subnet.SubnetService, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
 			nsxSubnet := &model.VpcSubnet{}
 			return nsxSubnet, nil
 		})
 	defer patchesGetSubnetByPath.Reset()
+	patchesGetSubnetCR := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetCR,
+		func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (*v1alpha1.Subnet, bool, error) {
+			return &v1alpha1.Subnet{}, false, nil
+		})
+	defer patchesGetSubnetCR.Reset()
 
 	// fail to get
 	errFailToGet := errors.New("failed to get CR")
@@ -145,7 +150,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	sp := &v1alpha1.SubnetPort{}
 	err = errors.New("CheckAndGetSubnetPathForSubnetPort failed")
 	patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
-		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort) (bool, bool, string, error) {
+		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort, subnetCR *v1alpha1.Subnet) (bool, bool, string, error) {
 			return false, false, "", err
 		})
 	defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
@@ -167,7 +172,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	// getVirtualMachine fails
 	err = errors.New("getVirtualMachine failed")
 	patchesCheckAndGetSubnetPathForSubnetPort = gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
-		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort) (bool, bool, string, error) {
+		func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort, subnetCR *v1alpha1.Subnet) (bool, bool, string, error) {
 			return true, false, "", nil
 		})
 	defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
@@ -541,6 +546,115 @@ func TestSubnetPortReconciler_vmMapFunc(t *testing.T) {
 	}, requests[0])
 }
 
+func TestSubnetPortReconciler_getSubnetCR(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	service := &subnetport.SubnetPortService{}
+	r := &SubnetPortReconciler{
+		Client:            k8sClient,
+		SubnetPortService: service,
+	}
+	tests := []struct {
+		name           string
+		subnetPort     *v1alpha1.SubnetPort
+		preparedFunc   func()
+		expectedResult *v1alpha1.Subnet
+		expectedErr    string
+		isStale        bool
+	}{
+		{
+			name: "PortOnSubnetSet",
+			subnetPort: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "port-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					SubnetSet: "subnetset-1",
+				},
+			},
+		},
+		{
+			name: "PortOnSubnet",
+			subnetPort: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "port-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					Subnet: "subnet-1",
+				},
+			},
+			preparedFunc: func() {
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+					subnetCR := obj.(*v1alpha1.Subnet)
+					subnetCR.ObjectMeta = metav1.ObjectMeta{
+						Name:      "subnet-1",
+						Namespace: "ns-1",
+					}
+					return nil
+				})
+			},
+			expectedResult: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnet-1",
+					Namespace: "ns-1",
+				},
+			},
+		},
+		{
+			name: "SubnetNotExist",
+			subnetPort: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "port-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					Subnet: "subnet-1",
+				},
+			},
+			preparedFunc: func() {
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("mock error"))
+			},
+			expectedErr: "mock error",
+		},
+		{
+			name: "SubnetDeleting",
+			subnetPort: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "port-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					Subnet: "subnet-1",
+				},
+			},
+			preparedFunc: func() {
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+					subnetCR := obj.(*v1alpha1.Subnet)
+					subnetCR.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+					return nil
+				})
+			},
+			expectedErr: "subnet ns-1/subnet-1 is being deleted, cannot operate SubnetPort port-1",
+			isStale:     true,
+		},
+	}
+	for _, tc := range tests {
+		if tc.preparedFunc != nil {
+			tc.preparedFunc()
+		}
+		subnetCR, isStale, err := r.getSubnetCR(context.Background(), tc.subnetPort)
+		if tc.expectedErr != "" {
+			assert.Contains(t, err.Error(), tc.expectedErr)
+		} else {
+			assert.Equal(t, tc.expectedResult, subnetCR)
+			assert.Equal(t, tc.isStale, isStale)
+		}
+	}
+}
+
 func TestSubnetPortReconciler_deleteSubnetPortByName(t *testing.T) {
 	subnetportId1 := "subnetport-id-1"
 	subnetportId2 := "subnetport-id-2"
@@ -680,6 +794,7 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 		expectedIsExisting bool
 		restoreMode        bool
 		subnetport         *v1alpha1.SubnetPort
+		subnet             *v1alpha1.Subnet
 	}{
 		{
 			name: "ExistedSubnet",
@@ -689,7 +804,7 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 						return "subnet-path-1"
 					})
 				patches.ApplyFunc((*subnet.SubnetService).GetSubnetByPath,
-					func(s *subnet.SubnetService, path string) (*model.VpcSubnet, error) {
+					func(s *subnet.SubnetService, path string, sharedSubnet bool) (*model.VpcSubnet, error) {
 						return nil, nil
 					})
 				return patches
@@ -704,120 +819,12 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 			expectedIsExisting: true,
 		},
 		{
-			name: "FailedToDeleteSubnetPort",
-			prepareFunc: func(t *testing.T, spr *SubnetPortReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetSubnetPathForSubnetPortFromStore,
-					func(s *subnetport.SubnetPortService, nsxSubnetPortID string) string {
-						return "subnet-1"
-					})
-				patches.ApplyFunc((*subnet.SubnetService).GetSubnetByPath,
-					func(s *subnet.SubnetService, path string) (*model.VpcSubnet, error) {
-						return nil, fmt.Errorf("mock error")
-					})
-				patches.ApplyFunc((*subnetport.SubnetPortService).DeleteSubnetPortById,
-					func(s *subnetport.SubnetPortService, portID string) error {
-						return fmt.Errorf("failed to delete")
-					})
-				return patches
-			},
-			expectedErr: "failed to delete",
-			subnetport: &v1alpha1.SubnetPort{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "subnetport-1",
-					Namespace: "ns-1",
-				},
-			},
-		},
-		{
-			name: "SpecificSubnetNotExisted",
-			prepareFunc: func(t *testing.T, spr *SubnetPortReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetSubnetPathForSubnetPortFromStore,
-					func(s *subnetport.SubnetPortService, nsxSubnetPortID string) string {
-						return ""
-					})
-				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("not found"))
-				return patches
-			},
-			expectedErr: "not found",
-			subnetport: &v1alpha1.SubnetPort{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "subnetport-1",
-					Namespace: "ns-1",
-				},
-				Spec: v1alpha1.SubnetPortSpec{
-					Subnet: "subnet-1",
-				},
-			},
-		},
-		{
-			name: "SpecificSubnetDeleted",
-			prepareFunc: func(t *testing.T, spr *SubnetPortReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetSubnetPathForSubnetPortFromStore,
-					func(s *subnetport.SubnetPortService, nsxSubnetPortID string) string {
-						return ""
-					})
-				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
-					subnetCR := obj.(*v1alpha1.Subnet)
-					subnetCR.DeletionTimestamp = &metav1.Time{Time: time.Now()}
-					return nil
-				})
-				return patches
-			},
-			expectedErr:     "subnet ns-1/subnet-1 is being deleted, cannot operate subnetport subnetport-1",
-			expectedIsStale: true,
-			subnetport: &v1alpha1.SubnetPort{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "subnetport-1",
-					Namespace: "ns-1",
-				},
-				Spec: v1alpha1.SubnetPortSpec{
-					Subnet: "subnet-1",
-				},
-			},
-		},
-		{
-			name: "SpecificSubnetFoundMultiple",
-			prepareFunc: func(t *testing.T, spr *SubnetPortReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetSubnetPathForSubnetPortFromStore,
-					func(s *subnetport.SubnetPortService, nsxSubnetPortID string) string {
-						return ""
-					})
-				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
-					subnetCR := obj.(*v1alpha1.Subnet)
-					subnetCR.Name = "subnet-1"
-					subnetCR.UID = "subnet-id-1"
-					return nil
-				})
-				patches.ApplyFunc((*subnet.SubnetService).GetSubnetsByIndex,
-					func(s *subnet.SubnetService, key string, value string) []*model.VpcSubnet {
-						return []*model.VpcSubnet{{}, {}}
-					})
-				return patches
-			},
-			expectedErr: "multiple NSX subnets found for subnet CR subnet-1(subnet-id-1)",
-			subnetport: &v1alpha1.SubnetPort{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "subnetport-1",
-					Namespace: "ns-1",
-				},
-				Spec: v1alpha1.SubnetPortSpec{
-					Subnet: "subnet-1",
-				},
-			},
-		},
-		{
 			name: "SpecificSubnetSuccess",
 			prepareFunc: func(t *testing.T, spr *SubnetPortReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetSubnetPathForSubnetPortFromStore,
 					func(s *subnetport.SubnetPortService, nsxSubnetPortID string) string {
 						return ""
 					})
-				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
-					subnetCR := obj.(*v1alpha1.Subnet)
-					subnetCR.Name = "subnet-1"
-					subnetCR.UID = "subnet-id-1"
-					return nil
-				})
 				patches.ApplyFunc((*subnet.SubnetService).GetSubnetsByIndex,
 					func(s *subnet.SubnetService, key string, value string) []*model.VpcSubnet {
 						return []*model.VpcSubnet{{
@@ -831,6 +838,12 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 						return true
 					})
 				return patches
+			},
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "subnet-1",
+					UID:  "subnet-id-1",
+				},
 			},
 			expectedSubnetPath: "subnet-path-1",
 			subnetport: &v1alpha1.SubnetPort{
@@ -1013,7 +1026,7 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 			patches := tt.prepareFunc(t, r)
 			defer patches.Reset()
 			r.restoreMode = tt.restoreMode
-			isExisting, isStale, subnetPath, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, tt.subnetport)
+			isExisting, isStale, subnetPath, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, tt.subnetport, tt.subnet)
 			assert.Equal(t, tt.expectedIsStale, isStale)
 			assert.Equal(t, tt.expectedIsExisting, isExisting)
 			if tt.expectedErr != "" {
@@ -1031,13 +1044,6 @@ func TestSubnetPortReconciler_updateSubnetStatusOnSubnetPort(t *testing.T) {
 			return "10.0.0.1", 28, nil
 		})
 	defer patchesGetGatewayPrefixForSubnetPort.Reset()
-	patchesGetSubnetByPath := gomonkey.ApplyFunc((*subnet.SubnetService).GetSubnetByPath,
-		func(s *subnet.SubnetService, path string) (*model.VpcSubnet, error) {
-			return &model.VpcSubnet{
-				RealizationId: servicecommon.String("realization-id-1"),
-			}, nil
-		})
-	defer patchesGetSubnetByPath.Reset()
 	sp := &v1alpha1.SubnetPort{
 		Status: v1alpha1.SubnetPortStatus{
 			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
@@ -1051,7 +1057,9 @@ func TestSubnetPortReconciler_updateSubnetStatusOnSubnetPort(t *testing.T) {
 		SubnetPortService: &subnetport.SubnetPortService{},
 		SubnetService:     &subnet.SubnetService{},
 	}
-	err := r.updateSubnetStatusOnSubnetPort(sp, "subnet-path-1")
+	err := r.updateSubnetStatusOnSubnetPort(sp, "subnet-path-1", &model.VpcSubnet{
+		RealizationId: servicecommon.String("realization-id-1"),
+	})
 	assert.Nil(t, err)
 	expectedSp := &v1alpha1.SubnetPort{
 		Status: v1alpha1.SubnetPortStatus{

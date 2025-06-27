@@ -16,6 +16,11 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 )
 
+var (
+	// Currently NSX only has default org
+	orgId = "default"
+)
+
 func QueryTagCondition(resourceType, cluster string) string {
 	return fmt.Sprintf("%s:%s AND tags.scope:%s AND tags.tag:%s",
 		ResourceType, resourceType,
@@ -116,4 +121,40 @@ func GetVPCFullName(orgID, projectID, vpcID string, vpcService VPCServiceProvide
 	}
 
 	return vpcFullName, nil
+}
+
+func GetSubnetPathFromAssociatedResource(associatedResource string) (string, error) {
+	// associatedResource has the format projectID:vpcID:subnetID
+	parts := strings.Split(associatedResource, ":")
+	if len(parts) != 3 {
+		return "", fmt.Errorf("failed to parse associated resource annotation %s", associatedResource)
+	}
+	return fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s/subnets/%s", orgId, parts[0], parts[1], parts[2]), nil
+}
+
+// ExtractSubnetPath extracts the org id, project id, VPC id, and subnet id from a subnet path
+func ExtractSubnetPath(sharedSubnetPath string) (orgID, projectID, vpcID, subnetID string, err error) {
+	// Format: /orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1
+	vpcResourceInfo, err := ParseVPCResourcePath(sharedSubnetPath)
+	if err != nil {
+		return "", "", "", "", fmt.Errorf("invalid subnet path format: %s", sharedSubnetPath)
+	}
+
+	orgID = vpcResourceInfo.OrgID
+	projectID = vpcResourceInfo.ProjectID
+	vpcID = vpcResourceInfo.VPCID
+	subnetID = vpcResourceInfo.ID
+	return orgID, projectID, vpcID, subnetID, nil
+}
+
+// ConvertSubnetPathToAssociatedResource converts a subnet path to the associated resource format
+// e.g., /orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1 -> proj-1:vpc-1:subnet-1
+func ConvertSubnetPathToAssociatedResource(sharedSubnetPath string) (string, error) {
+	// Extract the org id, project id, VPC id, and subnet id using ExtractSubnetPath
+	_, projectID, vpcID, subnetID, err := ExtractSubnetPath(sharedSubnetPath)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%s:%s:%s", projectID, vpcID, subnetID), nil
 }

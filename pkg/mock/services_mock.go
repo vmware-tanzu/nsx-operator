@@ -78,7 +78,7 @@ func (m *MockSubnetServiceProvider) GetSubnetByKey(key string) (*model.VpcSubnet
 	return nil, nil
 }
 
-func (m *MockSubnetServiceProvider) GetSubnetByPath(path string) (*model.VpcSubnet, error) {
+func (m *MockSubnetServiceProvider) GetSubnetByPath(path string, sharedSubnet bool) (*model.VpcSubnet, error) {
 	return nil, nil
 }
 
@@ -103,6 +103,10 @@ func (m *MockSubnetServiceProvider) ListSubnetByName(ns, name string) []*model.V
 
 func (m *MockSubnetServiceProvider) ListSubnetBySubnetSetName(ns, subnetSetName string) []*model.VpcSubnet {
 	return []*model.VpcSubnet{}
+}
+
+func (m *MockSubnetServiceProvider) GetSubnetByCR(subnet *v1alpha1.Subnet) (*model.VpcSubnet, error) {
+	return nil, nil
 }
 
 type MockSubnetPortServiceProvider struct {
