@@ -219,6 +219,21 @@ func WrapShare(share *model.Share) (*data.StructValue, error) {
 	return dataValue.(*data.StructValue), nil
 }
 
+func WrapSharedResource(sharedResource *model.SharedResource) (*data.StructValue, error) {
+	sharedResource.ResourceType = &ResourceTypeSharedResource
+	childSharedResource := model.ChildSharedResource{
+		ResourceType:    ResourceTypeChildSharedResource,
+		Id:              sharedResource.Id,
+		MarkedForDelete: sharedResource.MarkedForDelete,
+		SharedResource:  sharedResource,
+	}
+	dataValue, errors := NewConverter().ConvertToVapi(childSharedResource, childSharedResource.GetType__())
+	if len(errors) > 0 {
+		return nil, errors[0]
+	}
+	return dataValue.(*data.StructValue), nil
+}
+
 func WrapLBService(lbService *model.LBService) (*data.StructValue, error) {
 	lbService.ResourceType = &ResourceTypeLBService
 	childLBService := model.ChildLBService{

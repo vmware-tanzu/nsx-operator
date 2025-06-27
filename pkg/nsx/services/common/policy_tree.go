@@ -128,6 +128,8 @@ func leafWrapper[T any](obj T) (*data.StructValue, error) {
 		return WrapLBPool(v)
 	case *model.TlsCertificate:
 		return WrapCertificate(v)
+	case *model.SharedResource:
+		return WrapSharedResource(v)
 	default:
 		log.Error(nil, "Leaf wrapper", "unknown NSX resource type", v)
 		return nil, fmt.Errorf("unsupported NSX resource type %v", v)
@@ -456,8 +458,8 @@ func (b *PolicyTreeBuilder[T]) UpdateMultipleResourcesOnNSX(objects []T, nsxClie
 			return err
 		}
 		if err = nsxClient.OrgRootClient.Patch(*orgRoot, &enforceRevisionCheckParam); err != nil {
-			log.Error(err, "Failed to delete multiple resources on NSX with HAPI", "resourceType", b.leafType)
 			err = util.TransNSXApiError(err)
+			log.Error(err, "Failed to delete multiple resources on NSX with HAPI", "resourceType", b.leafType)
 			return err
 		}
 		return nil
@@ -469,8 +471,8 @@ func (b *PolicyTreeBuilder[T]) UpdateMultipleResourcesOnNSX(objects []T, nsxClie
 		return err
 	}
 	if err = nsxClient.InfraClient.Patch(*infraRoot, &enforceRevisionCheckParam); err != nil {
-		log.Error(err, "Failed to delete multiple resources on NSX with HAPI", "resourceType", b.leafType)
 		err = util.TransNSXApiError(err)
+		log.Error(err, "Failed to delete multiple resources on NSX with HAPI", "resourceType", b.leafType)
 		return err
 	}
 
