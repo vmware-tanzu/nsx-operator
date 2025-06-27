@@ -1052,6 +1052,7 @@ func TestBuildService(t *testing.T) {
 		Spec: corev1.ServiceSpec{
 			ClusterIP: "10.0.0.1",
 			Type:      corev1.ServiceTypeClusterIP,
+			Selector:  map[string]string{"app": "inventory"},
 		},
 	}
 
