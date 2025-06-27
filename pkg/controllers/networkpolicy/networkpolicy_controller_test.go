@@ -420,7 +420,7 @@ func TestNetworkPolicyReconciler_listNetworkPolciyCRIDs(t *testing.T) {
 	// list returns an error
 	errList := errors.New("list error")
 	k8sClient.EXPECT().List(ctx, gomock.Any()).Return(errList)
-	_, err := r.listNetworkPolciyCRIDs()
+	_, err := r.listNetworkPolicyCRIDs()
 	assert.Equal(t, err, errList)
 
 	// list returns no error, but no items
@@ -429,7 +429,7 @@ func TestNetworkPolicyReconciler_listNetworkPolciyCRIDs(t *testing.T) {
 		networkPolicyList.Items = []networkingv1.NetworkPolicy{}
 		return nil
 	})
-	crIDs, err := r.listNetworkPolciyCRIDs()
+	crIDs, err := r.listNetworkPolicyCRIDs()
 	assert.NoError(t, err)
 	assert.Equal(t, 0, crIDs.Len())
 
@@ -441,7 +441,7 @@ func TestNetworkPolicyReconciler_listNetworkPolciyCRIDs(t *testing.T) {
 		}
 		return nil
 	})
-	crIDs, err = r.listNetworkPolciyCRIDs()
+	crIDs, err = r.listNetworkPolicyCRIDs()
 	assert.NoError(t, err)
 	assert.Equal(t, 2, crIDs.Len())
 	assert.True(t, crIDs.Has("uid1_allow"))
