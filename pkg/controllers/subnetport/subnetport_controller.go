@@ -134,7 +134,11 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if vm != nil {
 			labels = &vm.Labels
 		}
-		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath, servicecommon.IsSharedSubnet(subnetCR))
+		inSharedSubnet := false
+		if subnetCR != nil {
+			inSharedSubnet = servicecommon.IsSharedSubnet(subnetCR)
+		}
+		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath, inSharedSubnet)
 		if err != nil {
 			subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
 			log.Info("Previous NSX Subnet is deleted, deleting the stale SubnetPort", "subnetPort.UID", subnetPort.UID, "SubnetPath", nsxSubnet)
