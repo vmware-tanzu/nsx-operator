@@ -351,7 +351,7 @@ func (r *SecurityPolicyReconciler) CollectGarbage(ctx context.Context) error {
 		return nil
 	}
 
-	CRPolicySet, err := r.listSecurityPolciyCRIDs()
+	CRPolicySet, err := r.listSecurityPolicyCRIDs()
 	if err != nil {
 		return err
 	}
@@ -389,7 +389,7 @@ func (r *SecurityPolicyReconciler) deleteSecurityPolicyByName(ns, name string) e
 	return nil
 }
 
-func (r *SecurityPolicyReconciler) listSecurityPolciyCRIDs() (sets.Set[string], error) {
+func (r *SecurityPolicyReconciler) listSecurityPolicyCRIDs() (sets.Set[string], error) {
 	var objectList client.ObjectList
 	if securitypolicy.IsVPCEnabled(r.Service) {
 		objectList = &crdv1alpha1.SecurityPolicyList{}
