@@ -949,6 +949,50 @@ func TestPredicateFuncsBindingMaps(t *testing.T) {
 	assert.False(t, PredicateFuncsForBindingMaps.GenericFunc(genericEvent))
 }
 
+func TestSubnetConnectionBindingMapNameIndexFunc(t *testing.T) {
+	tests := []struct {
+		name           string
+		expectedResult []string
+		obj            client.Object
+	}{
+		{
+			name:           "Success",
+			expectedResult: []string{"subnet1"},
+			obj: &v1alpha1.SubnetConnectionBindingMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns1",
+				},
+				Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+					SubnetName: "subnet1",
+				},
+			},
+		},
+		{
+			name:           "EmptySubnetName",
+			expectedResult: []string{},
+			obj: &v1alpha1.SubnetConnectionBindingMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns1",
+				},
+				Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+					SubnetName: "",
+				},
+			},
+		},
+		{
+			name:           "InvalidObj",
+			expectedResult: []string{},
+			obj:            &v1alpha1.Subnet{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := subnetConnectionBindingMapSubnetNameIndexFunc(tt.obj)
+			assert.Equal(t, tt.expectedResult, result)
+		})
+	}
+}
+
 func createFakeReconciler(objs ...client.Object) *Reconciler {
 	var mgr ctrl.Manager
 	if len(objs) == 0 {

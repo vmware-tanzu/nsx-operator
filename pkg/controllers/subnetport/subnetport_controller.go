@@ -284,6 +284,18 @@ func addressBindingNamespaceVMIndexFunc(obj client.Object) []string {
 	}
 }
 
+func subnetPortSubnetIndexFunc(obj client.Object) []string {
+	if subnetPort, ok := obj.(*v1alpha1.SubnetPort); !ok {
+		log.Info("Invalid object", "type", reflect.TypeOf(obj))
+		return []string{}
+	} else {
+		if subnetPort.Spec.Subnet == "" {
+			return []string{}
+		}
+		return []string{subnetPort.Spec.Subnet}
+	}
+}
+
 func (r *SubnetPortReconciler) deleteSubnetPortByName(ctx context.Context, ns string, name string) error {
 	// NamespacedName is a unique identity in store as only one worker can deal with the NamespacedName at a time
 	nsxSubnetPorts := r.SubnetPortService.ListSubnetPortByName(ns, name)
@@ -330,6 +342,10 @@ func (r *SubnetPortReconciler) SetupFieldIndexers(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.AddressBinding{}, util.AddressBindingNamespaceVMIndexKey, addressBindingNamespaceVMIndexFunc); err != nil {
 		return err
 	}
+	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.SubnetPort{}, "spec.subnet", subnetPortSubnetIndexFunc); err != nil {
+		return err
+	}
+
 	return nil
 }
 

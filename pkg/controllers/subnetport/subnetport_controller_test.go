@@ -508,6 +508,50 @@ func TestSubnetPortReconciler_addressBindingNamespaceVMIndexFunc(t *testing.T) {
 	}
 }
 
+func TestSubnetPortReconciler_subnetPortSubnetIndexFunc(t *testing.T) {
+	tests := []struct {
+		name           string
+		expectedResult []string
+		obj            client.Object
+	}{
+		{
+			name:           "Success",
+			expectedResult: []string{"subnet1"},
+			obj: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns1",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					Subnet: "subnet1",
+				},
+			},
+		},
+		{
+			name:           "EmptySubnet",
+			expectedResult: []string{},
+			obj: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns1",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					Subnet: "",
+				},
+			},
+		},
+		{
+			name:           "InvalidObj",
+			expectedResult: []string{},
+			obj:            &v1alpha1.Subnet{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := subnetPortSubnetIndexFunc(tt.obj)
+			assert.Equal(t, tt.expectedResult, result)
+		})
+	}
+}
+
 func TestSubnetPortReconciler_vmMapFunc(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
