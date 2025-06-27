@@ -963,10 +963,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `vpc` _string_ | NSX path of the VPC the Namespace is associated with.<br />If VPC is set, only defaultIPv4SubnetSize and defaultSubnetAccessMode<br />take effect, other fields are ignored. |  |  |
+| `vpc` _string_ | NSX path of the VPC the Namespace is associated with.<br />If vpc is set, only defaultSubnetSize takes effect, other fields are ignored. |  |  |
 | `subnets` _string array_ | NSX path of the shared Subnets the Namespace is associated with. |  |  |
 | `nsxProject` _string_ | NSX Project the Namespace is associated with. |  |  |
-| `vpcConnectivityProfile` _string_ | VPCConnectivityProfile ID. This profile has configuration related to creating VPC transit gateway attachment. |  |  |
+| `vpcConnectivityProfile` _string_ | VPCConnectivityProfile Path. This profile has configuration related to creating VPC transit gateway attachment. |  |  |
 | `privateIPs` _string array_ | Private IPs. |  |  |
 | `defaultSubnetSize` _integer_ | Default size of Subnets.<br />Defaults to 32. | 32 | Maximum: 65536 <br />Minimum: 16 <br /> |
 

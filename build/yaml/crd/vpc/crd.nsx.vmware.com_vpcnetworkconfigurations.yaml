@@ -75,11 +75,10 @@ spec:
               vpc:
                 description: |-
                   NSX path of the VPC the Namespace is associated with.
-                  If VPC is set, only defaultIPv4SubnetSize and defaultSubnetAccessMode
-                  take effect, other fields are ignored.
+                  If vpc is set, only defaultSubnetSize takes effect, other fields are ignored.
                 type: string
               vpcConnectivityProfile:
-                description: VPCConnectivityProfile ID. This profile has configuration
+                description: VPCConnectivityProfile Path. This profile has configuration
                   related to creating VPC transit gateway attachment.
                 type: string
             type: object
