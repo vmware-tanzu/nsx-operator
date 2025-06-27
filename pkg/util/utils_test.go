@@ -753,3 +753,248 @@ func TestNewSha1(t *testing.T) {
 		assert.True(t, allowedChars.Has(c))
 	}
 }
+
+func TestUpdateK8sResourceAnnotation(t *testing.T) {
+	client := fake.NewClientBuilder().Build()
+	ctx := context.TODO()
+
+	tests := []struct {
+		name          string
+		existingNs    *v1.Namespace
+		changes       map[string]string
+		expectedAnnos map[string]string
+		expectError   bool
+	}{
+		{
+			name: "Add annotation to namespace without existing annotations",
+			existingNs: &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-ns",
+				},
+			},
+			changes: map[string]string{
+				"nsx.vmware.com/vpc_error": "VPC creation failed",
+			},
+			expectedAnnos: map[string]string{
+				"nsx.vmware.com/vpc_error": "VPC creation failed",
+			},
+			expectError: false,
+		},
+		{
+			name: "Add annotation to namespace with existing annotations",
+			existingNs: &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-ns",
+					Annotations: map[string]string{
+						"existing.annotation": "existing-value",
+					},
+				},
+			},
+			changes: map[string]string{
+				"nsx.vmware.com/vpc_error": "VPC creation failed",
+			},
+			expectedAnnos: map[string]string{
+				"existing.annotation":      "existing-value",
+				"nsx.vmware.com/vpc_error": "VPC creation failed",
+			},
+			expectError: false,
+		},
+		{
+			name: "Update existing annotation",
+			existingNs: &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-ns",
+					Annotations: map[string]string{
+						"nsx.vmware.com/vpc_error": "old error",
+					},
+				},
+			},
+			changes: map[string]string{
+				"nsx.vmware.com/vpc_error": "new error",
+			},
+			expectedAnnos: map[string]string{
+				"nsx.vmware.com/vpc_error": "new error",
+			},
+			expectError: false,
+		},
+		{
+			name: "Remove annotation by setting empty value",
+			existingNs: &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-ns",
+					Annotations: map[string]string{
+						"nsx.vmware.com/vpc_error": "error message",
+						"keep.annotation":          "keep-value",
+					},
+				},
+			},
+			changes: map[string]string{
+				"nsx.vmware.com/vpc_error": "",
+			},
+			expectedAnnos: map[string]string{
+				"keep.annotation": "keep-value",
+			},
+			expectError: false,
+		},
+		{
+			name: "No changes when no update needed",
+			existingNs: &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-ns",
+					Annotations: map[string]string{
+						"existing.annotation": "existing-value",
+					},
+				},
+			},
+			changes: map[string]string{
+				"non-existing.annotation": "",
+			},
+			expectedAnnos: map[string]string{
+				"existing.annotation": "existing-value",
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := client.Create(ctx, tt.existingNs)
+			require.NoError(t, err)
+
+			err = UpdateK8sResourceAnnotation(client, ctx, tt.existingNs, tt.changes)
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedAnnos, tt.existingNs.GetAnnotations())
+			}
+
+			err = client.Delete(ctx, tt.existingNs)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestDeleteK8sResourceAnnotation(t *testing.T) {
+	client := fake.NewClientBuilder().Build()
+	ctx := context.TODO()
+
+	tests := []struct {
+		name          string
+		existingNs    *v1.Namespace
+		keysToDelete  []string
+		expectedAnnos map[string]string
+		expectError   bool
+	}{
+		{
+			name: "Delete single annotation",
+			existingNs: &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-ns",
+					Annotations: map[string]string{
+						"nsx.vmware.com/vpc_error": "VPC creation failed",
+						"keep.annotation":          "keep-value",
+					},
+				},
+			},
+			keysToDelete: []string{"nsx.vmware.com/vpc_error"},
+			expectedAnnos: map[string]string{
+				"keep.annotation": "keep-value",
+			},
+			expectError: false,
+		},
+		{
+			name: "Delete multiple annotations",
+			existingNs: &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-ns",
+					Annotations: map[string]string{
+						"nsx.vmware.com/vpc_error": "VPC creation failed",
+						"remove.annotation":        "remove-value",
+						"keep.annotation":          "keep-value",
+					},
+				},
+			},
+			keysToDelete: []string{"nsx.vmware.com/vpc_error", "remove.annotation"},
+			expectedAnnos: map[string]string{
+				"keep.annotation": "keep-value",
+			},
+			expectError: false,
+		},
+		{
+			name: "Delete non-existing annotation",
+			existingNs: &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-ns",
+					Annotations: map[string]string{
+						"keep.annotation": "keep-value",
+					},
+				},
+			},
+			keysToDelete: []string{"non-existing.annotation"},
+			expectedAnnos: map[string]string{
+				"keep.annotation": "keep-value",
+			},
+			expectError: false,
+		},
+		{
+			name: "Delete from namespace with no annotations",
+			existingNs: &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-ns",
+				},
+			},
+			keysToDelete:  []string{"nsx.vmware.com/vpc_error"},
+			expectedAnnos: nil,
+			expectError:   false,
+		},
+		{
+			name: "Delete all annotations",
+			existingNs: &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-ns",
+					Annotations: map[string]string{
+						"nsx.vmware.com/vpc_error": "VPC creation failed",
+					},
+				},
+			},
+			keysToDelete:  []string{"nsx.vmware.com/vpc_error"},
+			expectedAnnos: nil,
+			expectError:   false,
+		},
+		{
+			name: "Delete with empty keys list",
+			existingNs: &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-ns",
+					Annotations: map[string]string{
+						"keep.annotation": "keep-value",
+					},
+				},
+			},
+			keysToDelete: []string{},
+			expectedAnnos: map[string]string{
+				"keep.annotation": "keep-value",
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := client.Create(ctx, tt.existingNs)
+			require.NoError(t, err)
+
+			err = DeleteK8sResourceAnnotation(client, ctx, tt.existingNs, tt.keysToDelete)
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedAnnos, tt.existingNs.GetAnnotations())
+			}
+
+			err = client.Delete(ctx, tt.existingNs)
+			require.NoError(t, err)
+		})
+	}
+}
