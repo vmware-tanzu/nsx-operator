@@ -506,6 +506,67 @@ var (
 	}
 )
 
+func Test_ConvertNetworkPolicyPortToSecurityPolicyPort(t *testing.T) {
+	service := &SecurityPolicyService{
+		Service: common.Service{NSXClient: nil},
+	}
+
+	// Test case 1: Protocol is nil, Port is nil, EndPort is nil
+	npPort1 := &networkingv1.NetworkPolicyPort{}
+	spPort1, err := service.convertNetworkPolicyPortToSecurityPolicyPort(npPort1)
+	assert.NoError(t, err)
+	assert.Equal(t, corev1.Protocol(""), spPort1.Protocol)
+	assert.Equal(t, intstr.FromString("ANY"), spPort1.Port)
+	assert.Equal(t, 0, spPort1.EndPort)
+
+	// Test case 2: Protocol is set, Port is nil, EndPort is nil
+	proto := corev1.ProtocolTCP
+	npPort2 := &networkingv1.NetworkPolicyPort{
+		Protocol: &proto,
+	}
+	spPort2, err := service.convertNetworkPolicyPortToSecurityPolicyPort(npPort2)
+	assert.NoError(t, err)
+	assert.Equal(t, proto, spPort2.Protocol)
+	assert.Equal(t, intstr.FromString("ANY"), spPort2.Port)
+	assert.Equal(t, 0, spPort2.EndPort)
+
+	// Test case 3: Protocol is set, Port is set, EndPort is nil
+	port := intstr.FromInt(8080)
+	npPort3 := &networkingv1.NetworkPolicyPort{
+		Protocol: &proto,
+		Port:     &port,
+	}
+	spPort3, err := service.convertNetworkPolicyPortToSecurityPolicyPort(npPort3)
+	assert.NoError(t, err)
+	assert.Equal(t, proto, spPort3.Protocol)
+	assert.Equal(t, port, spPort3.Port)
+	assert.Equal(t, 0, spPort3.EndPort)
+
+	// Test case 4: Protocol is set, Port is set, EndPort is set
+	endPort := int32(8090)
+	npPort4 := &networkingv1.NetworkPolicyPort{
+		Protocol: &proto,
+		Port:     &port,
+		EndPort:  &endPort,
+	}
+	spPort4, err := service.convertNetworkPolicyPortToSecurityPolicyPort(npPort4)
+	assert.NoError(t, err)
+	assert.Equal(t, proto, spPort4.Protocol)
+	assert.Equal(t, port, spPort4.Port)
+	assert.Equal(t, int(endPort), spPort4.EndPort)
+
+	// Test case 5: Protocol is nil, Port is set, EndPort is set
+	npPort5 := &networkingv1.NetworkPolicyPort{
+		Port:    &port,
+		EndPort: &endPort,
+	}
+	spPort5, err := service.convertNetworkPolicyPortToSecurityPolicyPort(npPort5)
+	assert.NoError(t, err)
+	assert.Equal(t, corev1.Protocol(""), spPort5.Protocol)
+	assert.Equal(t, port, spPort5.Port)
+	assert.Equal(t, int(endPort), spPort5.EndPort)
+}
+
 func Test_GetSecurityService(t *testing.T) {
 	fakeService := fakeSecurityPolicyService()
 	fakeService.NSXConfig.EnableVPCNetwork = true

@@ -13,6 +13,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
@@ -428,10 +429,17 @@ func (service *SecurityPolicyService) convertNetworkPolicyPeerToSecurityPolicyPe
 }
 
 func (service *SecurityPolicyService) convertNetworkPolicyPortToSecurityPolicyPort(npPort *networkingv1.NetworkPolicyPort) (*v1alpha1.SecurityPolicyPort, error) {
-	spPort := &v1alpha1.SecurityPolicyPort{
-		Protocol: *npPort.Protocol,
-		Port:     *npPort.Port,
+	spPort := &v1alpha1.SecurityPolicyPort{}
+	if npPort.Protocol != nil {
+		spPort.Protocol = *npPort.Protocol
 	}
+
+	if npPort.Port != nil {
+		spPort.Port = *npPort.Port
+	} else {
+		spPort.Port = intstr.FromString("ANY")
+	}
+
 	if npPort.EndPort != nil {
 		spPort.EndPort = int(*npPort.EndPort)
 	}
