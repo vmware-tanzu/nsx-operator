@@ -1107,6 +1107,35 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "Map NSX Subnet with ReservedIpRanges",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:  common.String("Public"),
+				IpAddresses: []string{"192.168.1.0/24"},
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					Mode: common.String("DHCP_SERVER"),
+					DhcpServerAdditionalConfig: &model.DhcpServerAdditionalConfig{
+						ReservedIpRanges: []string{"192.168.1.4-192.168.1.10"},
+					},
+				},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPv4SubnetSize: 0,
+					IPAddresses:    []string{"192.168.1.0/24"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+						DHCPServerAdditionalConfig: v1alpha1.DHCPServerAdditionalConfig{
+							ReservedIPRanges: []string{"192.168.1.4-192.168.1.10"},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1123,6 +1152,9 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			assert.Equal(t, tt.expectedSubnet.Spec.IPv4SubnetSize, subnetCR.Spec.IPv4SubnetSize)
 			assert.Equal(t, tt.expectedSubnet.Spec.IPAddresses, subnetCR.Spec.IPAddresses)
 			assert.Equal(t, tt.expectedSubnet.Spec.SubnetDHCPConfig.Mode, subnetCR.Spec.SubnetDHCPConfig.Mode)
+			if len(subnetCR.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges) > 0 {
+				assert.Equal(t, tt.expectedSubnet.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges, subnetCR.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges)
+			}
 		})
 	}
 }
