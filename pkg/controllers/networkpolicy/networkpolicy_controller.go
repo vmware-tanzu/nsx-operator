@@ -30,7 +30,7 @@ import (
 )
 
 var (
-	log                     = &logger.Log
+	log                     = &logger.CustomLog
 	ResultNormal            = common.ResultNormal
 	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
@@ -168,7 +168,7 @@ func (r *NetworkPolicyReconciler) CollectGarbage(ctx context.Context) error {
 	var errList []error
 	diffSet := nsxPolicySet.Difference(CRPolicySet)
 	for elem := range diffSet {
-		log.V(1).Info("GC collected NetworkPolicy", "ID", elem)
+		log.Debug("GC collected NetworkPolicy", "ID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
 		err = r.Service.DeleteSecurityPolicy(types.UID(elem), true, servicecommon.ResourceTypeNetworkPolicy)
 		if err != nil {

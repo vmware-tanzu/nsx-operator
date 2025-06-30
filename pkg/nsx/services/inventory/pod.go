@@ -45,7 +45,7 @@ func (s *InventoryService) SyncContainerApplicationInstance(name string, namespa
 
 func (s *InventoryService) initContainerApplicationInstance(clusterId string) error {
 	cursor := ""
-	log.Info("Retrieving ContainerApplicationInstances for cluster", "cluster id", clusterId)
+	log.Debug("Retrieving ContainerApplicationInstances for cluster", "cluster id", clusterId)
 	for {
 		opts := &nsxt.ListContainerApplicationInstancesOpts{ContainerClusterId: optional.NewString(clusterId)}
 		if cursor != "" {
@@ -87,7 +87,7 @@ func (s *InventoryService) DeleteContainerApplicationInstance(externalId string,
 			}
 		*/
 	} else {
-		log.Info("Cannot update Pods for removed service id since namespaceId is nil", "External Id", externalId, "Name", inventoryObject.DisplayName)
+		log.Debug("Cannot update Pods for removed service id since namespaceId is nil", "External Id", externalId, "Name", inventoryObject.DisplayName)
 	}
 	return nil
 }
@@ -105,7 +105,7 @@ func (s *InventoryService) DeleteStalePods() error {
 }
 
 func (s *InventoryService) CleanStaleInventoryApplicationInstance() error {
-	log.Info("Clean stale InventoryApplicationInstance")
+	log.Debug("Clean stale InventoryApplicationInstance")
 	containerApplicationInstances := s.ApplicationInstanceStore.List()
 	for _, applicationInstance := range containerApplicationInstances {
 		applicationInstance := applicationInstance.(*containerinventory.ContainerApplicationInstance)

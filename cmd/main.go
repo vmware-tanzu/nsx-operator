@@ -63,7 +63,7 @@ import (
 
 var (
 	scheme               = runtime.NewScheme()
-	log                  = logger.Log
+	log                  = logger.CustomLog
 	cf                   *config.NSXOperatorConfig
 	nsxOperatorNamespace = "default"
 	nsxOperatorPodName   = "default"

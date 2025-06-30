@@ -111,13 +111,13 @@ func (vs *SubnetPortStore) Apply(i interface{}) error {
 	subnetPort := i.(*model.VpcSubnetPort)
 	if subnetPort.MarkedForDelete != nil && *subnetPort.MarkedForDelete {
 		err := vs.Delete(subnetPort)
-		log.V(1).Info("delete SubnetPort from store", "subnetport", subnetPort)
+		log.Debug("delete SubnetPort from store", "subnetport", subnetPort)
 		if err != nil {
 			return err
 		}
 	} else {
 		err := vs.Add(subnetPort)
-		log.V(1).Info("add SubnetPort to store", "subnetport", subnetPort)
+		log.Debug("add SubnetPort to store", "subnetport", subnetPort)
 		if err != nil {
 			return err
 		}

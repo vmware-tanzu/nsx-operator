@@ -77,13 +77,13 @@ func (ipAddressAllocationStore *IPAddressAllocationStore) Apply(i interface{}) e
 		if err != nil {
 			return err
 		}
-		log.V(1).Info("delete ipAddressAllocation from store", "ipAddressAllocation", ipAddressAllocation)
+		log.Debug("delete ipAddressAllocation from store", "ipAddressAllocation", ipAddressAllocation)
 	} else {
 		err := ipAddressAllocationStore.Add(ipAddressAllocation)
 		if err != nil {
 			return err
 		}
-		log.V(1).Info("add ipAddressAllocation to store", "ipAddressAllocation", ipAddressAllocation)
+		log.Debug("add ipAddressAllocation to store", "ipAddressAllocation", ipAddressAllocation)
 	}
 	return nil
 }

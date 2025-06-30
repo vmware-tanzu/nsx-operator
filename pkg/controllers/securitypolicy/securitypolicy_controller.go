@@ -42,7 +42,7 @@ import (
 )
 
 var (
-	log                         = &logger.Log
+	log                         = &logger.CustomLog
 	ResultNormal                = common.ResultNormal
 	ResultRequeue               = common.ResultRequeue
 	ResultRequeueAfter5mins     = common.ResultRequeueAfter5mins
@@ -203,7 +203,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				r.StatusUpdater.DeleteFail(req.NamespacedName, realObj, err)
 				return ResultRequeue, err
 			}
-			log.V(1).Info("Removed finalizer", "securitypolicy", req.NamespacedName)
+			log.Debug("Removed finalizer", "securitypolicy", req.NamespacedName)
 		}
 		if err := r.Service.DeleteSecurityPolicy(realObj.UID, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, realObj, err)
@@ -276,7 +276,7 @@ func updateSecurityPolicyStatusConditions(client client.Client, ctx context.Cont
 				log.Error(err, "")
 			}
 		}
-		log.V(1).Info("Updated SecurityPolicy", "Name", secPolicy.Name, "Namespace", secPolicy.Namespace,
+		log.Info("Updated SecurityPolicy", "Name", secPolicy.Name, "Namespace", secPolicy.Namespace,
 			"New Conditions", newConditions)
 	}
 }
@@ -285,7 +285,7 @@ func mergeSecurityPolicyStatusCondition(secPolicy *v1alpha1.SecurityPolicy, newC
 	matchedCondition := getExistingConditionOfType(newCondition.Type, secPolicy.Status.Conditions)
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {
-		log.V(2).Info("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+		logger.CustomLog.Debug("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return false
 	}
 
@@ -359,7 +359,7 @@ func (r *SecurityPolicyReconciler) CollectGarbage(ctx context.Context) error {
 	var errList []error
 	diffSet := nsxPolicySet.Difference(CRPolicySet)
 	for elem := range diffSet {
-		log.V(1).Info("GC collected SecurityPolicy CR", "securityPolicyUID", elem)
+		log.Debug("GC collected SecurityPolicy CR", "securityPolicyUID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
 		err = r.Service.DeleteSecurityPolicy(types.UID(elem), true, servicecommon.ResourceTypeSecurityPolicy)
 		if err != nil {
@@ -422,7 +422,7 @@ func (r *SecurityPolicyReconciler) listSecurityPolciyCRIDs() (sets.Set[string], 
 // It is triggered by associated controller like pod, namespace, etc.
 func reconcileSecurityPolicy(r *SecurityPolicyReconciler, pkgclient client.Client, pods []v1.Pod, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	podPortNames := getAllPodPortNames(pods)
-	log.V(1).Info("POD named port", "podPortNames", podPortNames)
+	log.Info("POD named port", "podPortNames", podPortNames)
 	var spList client.ObjectList
 	if securitypolicy.IsVPCEnabled(r.Service) {
 		spList = &crdv1alpha1.SecurityPolicyList{}

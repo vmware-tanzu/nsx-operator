@@ -69,6 +69,6 @@ func UpdateFeatureLicense(licenses *NsxLicense) {
 		licenseNames := Feature_license_map[feature]
 		license := searchLicense(licenses, licenseNames)
 		UpdateLicense(feature, license)
-		log.V(1).Info("Update license", "feature", feature, "license", license)
+		log.Debug("Update license", "feature", feature, "license", license)
 	}
 }
