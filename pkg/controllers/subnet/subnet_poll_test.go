@@ -75,6 +75,92 @@ func TestHasSubnetSpecChanged(t *testing.T) {
 			},
 			expected: true,
 		},
+		{
+			name: "ReservedIPRanges not changed",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+				SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+					DHCPServerAdditionalConfig: v1alpha1.DHCPServerAdditionalConfig{
+						ReservedIPRanges: []string{"172.26.0.4-172.26.0.10"},
+					},
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+				SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+					DHCPServerAdditionalConfig: v1alpha1.DHCPServerAdditionalConfig{
+						ReservedIPRanges: []string{"172.26.0.4-172.26.0.10"},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "ReservedIPRanges changed from nil to value",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+				SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+					DHCPServerAdditionalConfig: v1alpha1.DHCPServerAdditionalConfig{
+						ReservedIPRanges: []string{"172.26.0.4-172.26.0.10"},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "ReservedIPRanges changed from value to nil",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+				SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+					DHCPServerAdditionalConfig: v1alpha1.DHCPServerAdditionalConfig{
+						ReservedIPRanges: []string{"172.26.0.4-172.26.0.10"},
+					},
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "ReservedIPRanges changed value",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+				SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+					DHCPServerAdditionalConfig: v1alpha1.DHCPServerAdditionalConfig{
+						ReservedIPRanges: []string{"172.26.0.4-172.26.0.10"},
+					},
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+				SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+					DHCPServerAdditionalConfig: v1alpha1.DHCPServerAdditionalConfig{
+						ReservedIPRanges: []string{"172.26.0.4-172.26.0.10", "172.26.0.13"},
+					},
+				},
+			},
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {

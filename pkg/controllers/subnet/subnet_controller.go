@@ -194,6 +194,14 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Tags limit exceeded", setSubnetReadyStatusFalse)
 			return ResultNormal, nil
 		}
+		var nsxErr *nsxutil.NSXApiError
+		if errors.As(err, &nsxErr) {
+			if *(nsxErr.ApiError.ErrorCode) == nsxutil.ReservedIPRangesOverlappedErrorCode || *(nsxErr.ApiError.ErrorCode) == nsxutil.ReservedIPRangesOutOfSubnetRangeErrorCode {
+				// No need to requeue for invalid reservedIPRanges
+				r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to create/update Subnet", setSubnetReadyStatusFalse)
+				return ResultNormal, err
+			}
+		}
 		r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to create/update Subnet", setSubnetReadyStatusFalse)
 		return ResultRequeue, err
 	}
