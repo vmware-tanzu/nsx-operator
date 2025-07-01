@@ -534,11 +534,10 @@ func (s *InventoryService) BuildNode(node *corev1.Node) (retry bool) {
 	return
 }
 
-// isNodeReady returns true if a node is ready; false otherwise.
 func isNodeReady(node *corev1.Node) bool {
-	for _, condition := range node.Status.Conditions {
-		if condition.Type == corev1.NodeReady {
-			return condition.Status == corev1.ConditionTrue
+	for i := range node.Status.Conditions {
+		if node.Status.Conditions[i].Type == corev1.NodeReady {
+			return node.Status.Conditions[i].Status == corev1.ConditionTrue
 		}
 	}
 	return false
