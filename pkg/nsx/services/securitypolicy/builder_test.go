@@ -1470,6 +1470,25 @@ func Test_buildRuleServiceEntries(t *testing.T) {
 				)
 			}(),
 		},
+		{
+			name: "zero port (ANY)",
+			port: v1alpha1.SecurityPolicyPort{
+				Protocol: "TCP",
+			},
+			expected: func() *data.StructValue {
+				return data.NewStructValue(
+					"",
+					map[string]data.DataValue{
+						"source_ports":      data.NewListValue(),
+						"destination_ports": data.NewListValue(),
+						"l4_protocol":       data.NewStringValue("TCP"),
+						"resource_type":     data.NewStringValue("L4PortSetServiceEntry"),
+						"marked_for_delete": data.NewBooleanValue(false),
+						"overridden":        data.NewBooleanValue(false),
+					},
+				)
+			}(),
+		},
 	}
 
 	for _, tt := range tests {

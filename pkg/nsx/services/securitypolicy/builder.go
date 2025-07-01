@@ -486,15 +486,17 @@ func buildRuleServiceEntries(port v1alpha1.SecurityPolicyPort) *data.StructValue
 	sourcePorts := data.NewListValue()
 	destinationPorts := data.NewListValue()
 
-	// Note: the caller ensures the given port.Port type is Int. For named port case, the caller should
+	// For the named port case, the caller should
 	// convert to a new SecurityPolicyPort using the correct port number.
-	// In case that the destination_port in NSX-T is 0.
-	if port.EndPort == 0 || port.EndPort == port.Port.IntValue() {
-		portRange = port.Port.String()
-	} else {
-		portRange = fmt.Sprintf("%s-%d", port.Port.String(), port.EndPort)
+	var zeroPort intstr.IntOrString
+	if port.Port != zeroPort {
+		if port.EndPort == 0 || port.EndPort == port.Port.IntValue() {
+			portRange = port.Port.String()
+		} else {
+			portRange = fmt.Sprintf("%s-%d", port.Port.String(), port.EndPort)
+		}
+		destinationPorts.Add(data.NewStringValue(portRange))
 	}
-	destinationPorts.Add(data.NewStringValue(portRange))
 
 	serviceEntry := data.NewStructValue(
 		"",
@@ -504,7 +506,7 @@ func buildRuleServiceEntries(port v1alpha1.SecurityPolicyPort) *data.StructValue
 			"l4_protocol":       data.NewStringValue(string(port.Protocol)),
 			"resource_type":     data.NewStringValue("L4PortSetServiceEntry"),
 			// Adding the following default values to make it easy when compare the
-			// existing object from store and the new built object
+			// existing object from the store and the newly built object
 			"marked_for_delete": data.NewBooleanValue(false),
 			"overridden":        data.NewBooleanValue(false),
 		},

@@ -3366,3 +3366,70 @@ func Test_gcInfraSharesGroups(t *testing.T) {
 		})
 	}
 }
+
+func Test_convertNetworkPolicyPortToSecurityPolicyPort(t *testing.T) {
+	fakeService := fakeSecurityPolicyService()
+
+	tests := []struct {
+		name    string
+		npPort  *networkingv1.NetworkPolicyPort
+		want    *v1alpha1.SecurityPolicyPort
+		wantErr bool
+	}{
+		{
+			name: "with protocol and port",
+			npPort: &networkingv1.NetworkPolicyPort{
+				Protocol: func() *corev1.Protocol {
+					proto := corev1.ProtocolTCP
+					return &proto
+				}(),
+				Port: &intstr.IntOrString{Type: intstr.Int, IntVal: 80},
+			},
+			want: &v1alpha1.SecurityPolicyPort{
+				Protocol: corev1.ProtocolTCP,
+				Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 80},
+			},
+			wantErr: false,
+		},
+		{
+			name: "with protocol only",
+			npPort: &networkingv1.NetworkPolicyPort{
+				Protocol: func() *corev1.Protocol {
+					proto := corev1.ProtocolTCP
+					return &proto
+				}(),
+			},
+			want: &v1alpha1.SecurityPolicyPort{
+				Protocol: corev1.ProtocolTCP,
+			},
+			wantErr: false,
+		},
+		{
+			name: "with port only",
+			npPort: &networkingv1.NetworkPolicyPort{
+				Port: &intstr.IntOrString{Type: intstr.Int, IntVal: 80},
+			},
+			want: &v1alpha1.SecurityPolicyPort{
+				Port: intstr.IntOrString{Type: intstr.Int, IntVal: 80},
+			},
+			wantErr: false,
+		},
+		{
+			name:    "with nil port",
+			npPort:  &networkingv1.NetworkPolicyPort{},
+			want:    &v1alpha1.SecurityPolicyPort{},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := fakeService.convertNetworkPolicyPortToSecurityPolicyPort(tt.npPort)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("convertNetworkPolicyPortToSecurityPolicyPort() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
