@@ -819,6 +819,92 @@ func TestSyncSharedSubnets(t *testing.T) {
 	}
 }
 
+func TestDeleteAllSharedSubnets(t *testing.T) {
+	// Test cases
+	tests := []struct {
+		name              string
+		existingSubnets   []client.Object
+		setupMocks        func(r *NamespaceReconciler) *gomonkey.Patches
+		expectedErrString string
+	}{
+		{
+			name:            "Success case - no shared subnets",
+			existingSubnets: []client.Object{},
+			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
+				// Mock getExistingSharedSubnetCRs to return empty map
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getExistingSharedSubnetCRs",
+					func(_ *NamespaceReconciler, _ context.Context, _ string) (map[string]*v1alpha1.Subnet, error) {
+						return map[string]*v1alpha1.Subnet{}, nil
+					})
+
+				// Mock deleteUnusedSharedSubnets to return nil
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "deleteUnusedSharedSubnets",
+					func(_ *NamespaceReconciler, _ context.Context, _ string, _ map[string]*v1alpha1.Subnet) error {
+						return nil
+					})
+
+				return patches
+			},
+			expectedErrString: "",
+		},
+		{
+			name:            "Success case - with shared subnets",
+			existingSubnets: []client.Object{},
+			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
+				// Mock getExistingSharedSubnetCRs to return a map with shared subnets
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getExistingSharedSubnetCRs",
+					func(_ *NamespaceReconciler, _ context.Context, _ string) (map[string]*v1alpha1.Subnet, error) {
+						return map[string]*v1alpha1.Subnet{
+							"proj-1:vpc-1:subnet-1": {
+								ObjectMeta: metav1.ObjectMeta{
+									Name:      "subnet-1",
+									Namespace: "test-ns",
+									Annotations: map[string]string{
+										servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+									},
+								},
+							},
+						}, nil
+					})
+
+				// Mock deleteUnusedSharedSubnets to return nil
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "deleteUnusedSharedSubnets",
+					func(_ *NamespaceReconciler, _ context.Context, _ string, subnets map[string]*v1alpha1.Subnet) error {
+						// Verify that the subnets map contains the expected subnet
+						if _, ok := subnets["proj-1:vpc-1:subnet-1"]; !ok {
+							return fmt.Errorf("expected subnet not found in map")
+						}
+						return nil
+					})
+
+				return patches
+			},
+			expectedErrString: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a reconciler with the necessary services
+			r := createTestNamespaceReconciler(tt.existingSubnets)
+
+			patches := tt.setupMocks(r)
+			defer patches.Reset()
+
+			// Call the function being tested
+			err := r.deleteAllSharedSubnets(context.Background(), "test-ns")
+
+			// Check the result
+			if tt.expectedErrString != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErrString)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestCreateSharedSubnetCR(t *testing.T) {
 	// Test cases
 	tests := []struct {
