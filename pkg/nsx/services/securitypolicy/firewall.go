@@ -428,9 +428,13 @@ func (service *SecurityPolicyService) convertNetworkPolicyPeerToSecurityPolicyPe
 }
 
 func (service *SecurityPolicyService) convertNetworkPolicyPortToSecurityPolicyPort(npPort *networkingv1.NetworkPolicyPort) (*v1alpha1.SecurityPolicyPort, error) {
-	spPort := &v1alpha1.SecurityPolicyPort{
-		Protocol: *npPort.Protocol,
-		Port:     *npPort.Port,
+	spPort := &v1alpha1.SecurityPolicyPort{}
+	if npPort.Protocol != nil {
+		spPort.Protocol = *npPort.Protocol
+	}
+
+	if npPort.Port != nil {
+		spPort.Port = *npPort.Port
 	}
 	if npPort.EndPort != nil {
 		spPort.EndPort = int(*npPort.EndPort)
