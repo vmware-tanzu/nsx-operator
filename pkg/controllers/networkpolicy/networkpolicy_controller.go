@@ -160,7 +160,7 @@ func (r *NetworkPolicyReconciler) CollectGarbage(ctx context.Context) error {
 		return nil
 	}
 
-	CRPolicySet, err := r.listNetworkPolciyCRIDs()
+	CRPolicySet, err := r.listNetworkPolicyCRIDs()
 	if err != nil {
 		return err
 	}
@@ -198,7 +198,7 @@ func (r *NetworkPolicyReconciler) deleteNetworkPolicyByName(ns, name string) err
 	return nil
 }
 
-func (r *NetworkPolicyReconciler) listNetworkPolciyCRIDs() (sets.Set[string], error) {
+func (r *NetworkPolicyReconciler) listNetworkPolicyCRIDs() (sets.Set[string], error) {
 	networkPolicyList := &networkingv1.NetworkPolicyList{}
 	err := r.Client.List(context.Background(), networkPolicyList)
 	if err != nil {

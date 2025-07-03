@@ -642,7 +642,7 @@ func TestSecurityPolicyReconciler_listSecurityPolciyCRIDsForVPC(t *testing.T) {
 	// list returns an error
 	errList := errors.New("list error")
 	k8sClient.EXPECT().List(ctx, gomock.Any()).Return(errList)
-	_, err := r.listSecurityPolciyCRIDs()
+	_, err := r.listSecurityPolicyCRIDs()
 	assert.Equal(t, err, errList)
 
 	// list returns no error, but no items
@@ -651,7 +651,7 @@ func TestSecurityPolicyReconciler_listSecurityPolciyCRIDsForVPC(t *testing.T) {
 		networkPolicyList.Items = []crdv1alpha1.SecurityPolicy{}
 		return nil
 	})
-	crIDs, err := r.listSecurityPolciyCRIDs()
+	crIDs, err := r.listSecurityPolicyCRIDs()
 	assert.NoError(t, err)
 	assert.Equal(t, 0, crIDs.Len())
 
@@ -664,7 +664,7 @@ func TestSecurityPolicyReconciler_listSecurityPolciyCRIDsForVPC(t *testing.T) {
 		}
 		return nil
 	})
-	crIDs, err = r.listSecurityPolciyCRIDs()
+	crIDs, err = r.listSecurityPolicyCRIDs()
 	assert.NoError(t, err)
 	assert.Equal(t, 2, crIDs.Len())
 	assert.True(t, crIDs.Has("uid1"))
