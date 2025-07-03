@@ -286,6 +286,17 @@ func compareIP(ip1, ip2 net.IP) bool {
 	return ipToUint32(ip1) < ipToUint32(ip2)
 }
 
+func equalIP(ip1, ip2 net.IP) bool {
+	return ipToUint32(ip1) == ipToUint32(ip2)
+}
+
+func rangeAppend(ranges [][]net.IP, appendRange []net.IP) [][]net.IP {
+	if !compareIP(appendRange[1], appendRange[0]) {
+		ranges = append(ranges, appendRange)
+	}
+	return ranges
+}
+
 func rangesAbstractRange(ranges [][]net.IP, except []net.IP) [][]net.IP {
 	// ranges: [[172.0.0.1 172.0.255.255] [172.2.0.1 172.2.255.255]]
 	// except: [172.0.100.1 172.0.100.255]
@@ -295,21 +306,49 @@ func rangesAbstractRange(ranges [][]net.IP, except []net.IP) [][]net.IP {
 	except[1] = except[1].To4()
 	for _, r := range ranges {
 		rng := r
+		loc := func(ip net.IP) int {
+			var locIdentifier int
+			if compareIP(ip, rng[0]) {
+				locIdentifier = 0
+			} else if equalIP(ip, rng[0]) {
+				locIdentifier = 1
+			} else if compareIP(ip, rng[1]) {
+				locIdentifier = 2
+			} else if equalIP(ip, rng[1]) {
+				locIdentifier = 3
+			} else {
+				locIdentifier = 4
+			}
+			return locIdentifier
+		}
 		rng[0] = rng[0].To4()
 		rng[1] = rng[1].To4()
 		exceptPrev, _ := calculateOffsetIP(except[0], -1)
 		exceptNext, _ := calculateOffsetIP(except[1], 1)
-		if compareIP(except[0], rng[0]) && compareIP(rng[1], except[1]) {
-		} else if compareIP(rng[0], except[0]) && compareIP(except[1], rng[1]) {
-			results = append(results, []net.IP{rng[0], exceptPrev}, []net.IP{exceptNext, rng[1]})
-		} else if compareIP(rng[0], except[0]) && compareIP(except[0], rng[1]) && compareIP(rng[1], except[1]) {
-			results = append(results, []net.IP{rng[0], exceptPrev})
-		} else if compareIP(except[0], rng[0]) && compareIP(rng[0], except[1]) && compareIP(except[1], rng[1]) {
-			results = append(results, []net.IP{exceptNext, rng[1]})
-		} else if compareIP(except[1], rng[0]) {
-			results = append(results, []net.IP{rng[0], rng[1]})
-		} else if compareIP(rng[1], except[0]) {
-			results = append(results, []net.IP{rng[0], rng[1]})
+		except0Loc := loc(except[0])
+		except1Loc := loc(except[1])
+		log.Info("except0Loc", "except0Loc", except0Loc, "except1Loc", except1Loc)
+		if loc(except[0]) == 0 {
+			if loc(except[1]) == 0 {
+				results = rangeAppend(results, []net.IP{rng[0], rng[1]})
+			} else if loc(except[1]) == 1 || loc(except[1]) == 2 {
+				results = rangeAppend(results, []net.IP{exceptNext, rng[1]})
+			}
+		} else if loc(except[0]) == 1 {
+			if loc(except[1]) == 1 || loc(except[1]) == 2 {
+				results = rangeAppend(results, []net.IP{exceptNext, rng[1]})
+			}
+		} else if loc(except[0]) == 2 {
+			if loc(except[1]) == 2 {
+				results = rangeAppend(results, []net.IP{rng[0], exceptPrev})
+				results = rangeAppend(results, []net.IP{exceptNext, rng[1]})
+			} else {
+				results = rangeAppend(results, []net.IP{rng[0], exceptPrev})
+			}
+		} else if loc(except[0]) == 3 {
+			results = rangeAppend(results, []net.IP{rng[0], exceptPrev})
+		} else {
+			results = rangeAppend(results, []net.IP{rng[0], rng[1]})
 		}
 	}
 	return results
@@ -329,7 +368,9 @@ func GetCIDRRangesWithExcept(cidr string, excepts []string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		calculatedRanges = rangesAbstractRange(calculatedRanges, []net.IP{exceptStartIP, exceptEndIP})
+		newCalculatedRanges := rangesAbstractRange(calculatedRanges, []net.IP{exceptStartIP, exceptEndIP})
+		calculatedRanges = newCalculatedRanges
+		log.Info("Abstracted ranges after removing excepts", "except", except, "ranges", calculatedRanges)
 	}
 	for _, rng := range calculatedRanges {
 		resultRanges = append(resultRanges, fmt.Sprintf("%s-%s", rng[0], rng[1]))

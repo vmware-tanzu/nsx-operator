@@ -515,58 +515,6 @@ func TestGenerateTruncName(t *testing.T) {
 }
 
 func Test_rangesAbstractRange(t *testing.T) {
-	ranges1 := [][]net.IP{
-		{
-			net.ParseIP("172.0.0.1"),
-			net.ParseIP("172.0.255.255"),
-		},
-		{
-			net.ParseIP("172.2.0.1"),
-			net.ParseIP("172.2.255.255"),
-		},
-	}
-	except1 := []net.IP{
-		net.ParseIP("172.0.100.1"),
-		net.ParseIP("172.0.100.255"),
-	}
-	want1 := [][]net.IP{
-		{
-			net.ParseIP("172.0.0.1").To4(),
-			net.ParseIP("172.0.100.0").To4(),
-		},
-		{
-			net.ParseIP("172.0.101.0").To4(),
-			net.ParseIP("172.0.255.255").To4(),
-		},
-		{
-			net.ParseIP("172.2.0.1").To4(),
-			net.ParseIP("172.2.255.255").To4(),
-		},
-	}
-	ranges2 := [][]net.IP{
-		{
-			net.ParseIP("172.0.0.1"),
-			net.ParseIP("172.0.255.255"),
-		},
-		{
-			net.ParseIP("172.2.0.1"),
-			net.ParseIP("172.2.255.255"),
-		},
-	}
-	except2 := []net.IP{
-		net.ParseIP("172.0.100.1"),
-		net.ParseIP("172.2.100.255"),
-	}
-	want2 := [][]net.IP{
-		{
-			net.ParseIP("172.0.0.1").To4(),
-			net.ParseIP("172.0.100.0").To4(),
-		},
-		{
-			net.ParseIP("172.2.101.0").To4(),
-			net.ParseIP("172.2.255.255").To4(),
-		},
-	}
 	type args struct {
 		ranges [][]net.IP
 		except []net.IP
@@ -576,9 +524,70 @@ func Test_rangesAbstractRange(t *testing.T) {
 		args args
 		want [][]net.IP
 	}{
-		{"1", args{ranges1, except1}, want1},
-		{"2", args{ranges2, except2}, want2},
+		{
+			name: "1",
+			args: args{
+				ranges: [][]net.IP{
+					{
+						net.ParseIP("172.0.0.1"),
+						net.ParseIP("172.0.255.255"),
+					},
+					{
+						net.ParseIP("172.2.0.1"),
+						net.ParseIP("172.2.255.255"),
+					},
+				},
+				except: []net.IP{
+					net.ParseIP("172.0.100.1"),
+					net.ParseIP("172.0.100.255"),
+				},
+			},
+			want: [][]net.IP{
+				{
+					net.ParseIP("172.0.0.1").To4(),
+					net.ParseIP("172.0.100.0").To4(),
+				},
+				{
+					net.ParseIP("172.0.101.0").To4(),
+					net.ParseIP("172.0.255.255").To4(),
+				},
+				{
+					net.ParseIP("172.2.0.1").To4(),
+					net.ParseIP("172.2.255.255").To4(),
+				},
+			},
+		},
+		{
+			name: "2",
+			args: args{
+				ranges: [][]net.IP{
+					{
+						net.ParseIP("172.0.0.1"),
+						net.ParseIP("172.0.255.255"),
+					},
+					{
+						net.ParseIP("172.2.0.1"),
+						net.ParseIP("172.2.255.255"),
+					},
+				},
+				except: []net.IP{
+					net.ParseIP("172.0.100.1"),
+					net.ParseIP("172.2.100.255"),
+				},
+			},
+			want: [][]net.IP{
+				{
+					net.ParseIP("172.0.0.1").To4(),
+					net.ParseIP("172.0.100.0").To4(),
+				},
+				{
+					net.ParseIP("172.2.101.0").To4(),
+					net.ParseIP("172.2.255.255").To4(),
+				},
+			},
+		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := rangesAbstractRange(tt.args.ranges, tt.args.except)
@@ -590,12 +599,6 @@ func Test_rangesAbstractRange(t *testing.T) {
 }
 
 func TestGetCIDRRangesWithExcept(t *testing.T) {
-	cidr1 := "172.17.0.0/16"
-	excepts1 := []string{"172.17.1.0/24"}
-	want1 := []string{"172.17.0.0-172.17.0.255", "172.17.2.0-172.17.255.255"}
-	cidr2 := "172.0.0.0/16"
-	excepts2 := []string{"172.0.100.0/24", "172.0.102.0/24"}
-	want2 := []string{"172.0.0.0-172.0.99.255", "172.0.101.0-172.0.101.255", "172.0.103.0-172.0.255.255"}
 	type args struct {
 		cidr    string
 		excepts []string
@@ -605,8 +608,27 @@ func TestGetCIDRRangesWithExcept(t *testing.T) {
 		args args
 		want []string
 	}{
-		{"1", args{cidr1, excepts1}, want1},
-		{"2", args{cidr2, excepts2}, want2},
+		{
+			name: "1",
+			args: args{
+				cidr:    "172.17.0.0/16",
+				excepts: []string{"172.17.1.0/24"}},
+			want: []string{"172.17.0.0-172.17.0.255", "172.17.2.0-172.17.255.255"},
+		},
+		{
+			name: "2",
+			args: args{
+				cidr:    "172.0.0.0/16",
+				excepts: []string{"172.0.100.0/24", "172.0.102.0/24"}},
+			want: []string{"172.0.0.0-172.0.99.255", "172.0.101.0-172.0.101.255", "172.0.103.0-172.0.255.255"},
+		},
+		{
+			name: "3",
+			args: args{
+				cidr:    "40.0.0.0/8",
+				excepts: []string{"40.100.100.11/32", "40.100.100.15/32", "40.100.100.31/32", "40.100.100.32/32"},
+			},
+			want: []string{"40.0.0.0-40.100.100.10", "40.100.100.12-40.100.100.14", "40.100.100.16-40.100.100.30", "40.100.100.33-40.255.255.255"}},
 	}
 	for _, tt := range tests {
 		got, err := GetCIDRRangesWithExcept(tt.args.cidr, tt.args.excepts)
