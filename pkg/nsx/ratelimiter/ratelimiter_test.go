@@ -126,5 +126,5 @@ func TestRateLimiter_FixRateLimiterWait(t *testing.T) {
 	limiter.Wait()
 	after = time.Now()
 	d = after.Sub(before)
-	assert.True(t, d > time.Millisecond*10)
+	assert.True(t, d > time.Millisecond*90)
 }

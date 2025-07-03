@@ -164,7 +164,8 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if isZero {
 		r.StatusUpdater.IncreaseUpdateTotal()
 
-		if isCRInSysNs, err := util.IsSystemNamespace(r.Client, req.Namespace, nil); err != nil {
+		vpcMode := securitypolicy.IsVPCEnabled(r.Service)
+		if isCRInSysNs, err := util.IsSystemNamespace(r.Client, req.Namespace, nil, vpcMode); err != nil {
 			err = errors.New("fetch namespace associated with security policy CR failed")
 			r.StatusUpdater.UpdateFail(ctx, realObj, err, "", setSecurityPolicyReadyStatusFalse, r.Service)
 			return ResultRequeue, err
