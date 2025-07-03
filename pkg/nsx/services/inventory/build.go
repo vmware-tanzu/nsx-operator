@@ -194,7 +194,7 @@ func (s *InventoryService) BuildInventoryCluster() containerinventory.ContainerC
 		ScopeId:   s.NSXConfig.Cluster,
 		ScopeType: "CONTAINER_CLUSTER"}
 
-	clusterType := InventoryClusterTypeWCP
+	clusterType := InventoryClusterTypeSupervisor
 	clusterName := s.NSXConfig.Cluster
 	var networkErrors []common.NetworkError
 	infra := &containerinventory.ContainerInfrastructureInfo{}
