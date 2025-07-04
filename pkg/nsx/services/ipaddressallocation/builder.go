@@ -68,8 +68,9 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 		tags = append(tags, subnetPortTags...)
 	}
 	ipAddressBlockVisibilityStr := util.ToUpper(string(ipAddressBlockVisibility))
+	ipAddressAllocationid := service.BuildIPAddressAllocationID(obj)
 	vpcIpAddressAllocation := &model.VpcIpAddressAllocation{
-		Id:                       String(service.BuildIPAddressAllocationID(obj)),
+		Id:                       String(ipAddressAllocationid),
 		DisplayName:              String(service.buildIPAddressAllocationName(obj)),
 		Tags:                     tags,
 		IpAddressBlockVisibility: &ipAddressBlockVisibilityStr,
@@ -81,13 +82,13 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 }
 
 func (service *IPAddressAllocationService) BuildIPAddressAllocationID(obj metav1.Object) string {
-	return util.GenerateIDByObject(obj)
+	return common.BuildUniqueIDWithRandomUUID(obj, util.GenerateIDByObject, service.allocationIdExists)
 }
 
 func (service *IPAddressAllocationService) buildIPAddressAllocationName(obj metav1.Object) string {
 	return util.GenerateTruncName(common.MaxNameLength, obj.GetName(), "", "", "", "")
 }
 
-func (service *IPAddressAllocationService) buildIPAddressAllocationTags(obj interface{}) []model.Tag {
-	return util.BuildBasicTags(service.NSXConfig.Cluster, obj, "")
+func (service *IPAddressAllocationService) buildIPAddressAllocationTags(obj metav1.Object) []model.Tag {
+	return util.BuildBasicTags(service.NSXConfig.Cluster, obj, service.GetNamespaceUID(obj.GetNamespace()))
 }

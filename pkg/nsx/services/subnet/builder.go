@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -23,26 +25,37 @@ func getCluster(service *SubnetService) string {
 	return service.NSXConfig.Cluster
 }
 
-func (service *SubnetService) BuildSubnetID(subnet *v1alpha1.Subnet) string {
-	return util.GenerateIDByObject(subnet)
+// BuildSubnetID uses format "subnet.Name_$(hash(${namespace.UUID}))[5]" to generate the VpcSubnet's id.
+func (service *SubnetService) BuildSubnetID(obj v1.Object) string {
+	return common.BuildUniqueIDWithRandomUUID(obj, util.GenerateIDByObject, service.nsxSubnetIdExists)
 }
 
-func (service *SubnetService) buildSubnetSetID(subnetset *v1alpha1.SubnetSet, index string) string {
-	return util.GenerateIDByObjectWithSuffix(subnetset, index)
-}
-
-// buildSubnetName uses the format "subnet.Name_subnet.UUID" to ensure the Subnet's display_name is not
+// BuildSubnetName uses format "subnet.Name_$(hash(${namespace.UUID}))[5]" to ensure the Subnet's display_name is not
 // conflict with others. This is because VC will use the Subnet's display_name to created folder, so
 // the name string must be unique.
-func (service *SubnetService) buildSubnetName(subnet *v1alpha1.Subnet) string {
-	return util.GenerateIDByObjectByLimit(subnet, common.MaxSubnetNameLength)
+func (service *SubnetService) BuildSubnetName(obj v1.Object) string {
+	return common.BuildUniqueIDWithSuffix(obj, "", common.MaxSubnetNameLength, util.GenerateIDByObject, service.nsxSubnetNameExists)
 }
 
-// buildSubnetSetName uses the format "subnetset.Name_subnetset.UUID_index" to ensure the generated Subnet's
-// display_name is not conflict with others.
-func (service *SubnetService) buildSubnetSetName(subnetset *v1alpha1.SubnetSet, index string) string {
-	resName := util.GenerateIDByObjectByLimit(subnetset, common.MaxSubnetNameLength-(len(index)+1))
-	return util.GenerateTruncName(common.MaxSubnetNameLength, resName, "", index, "", "")
+// buildSubnetSetID uses format "${subnetset.Name}-index_$(hash(${namespace.UUID}))[5]" to ensure the generated Subnet's
+// // display_name is not conflict with others.
+func (service *SubnetService) buildSubnetSetID(obj v1.Object, index string) string {
+	return common.BuildUniqueIDWithSuffix(obj, index, common.MaxIdLength, util.GenerateIDByObject, service.nsxSubnetIdExists)
+}
+
+// buildSubnetSetName uses format "${subnetset.Name}-index_$(hash(${namespace.UUID}))[5]" to generate the VpcSubnet's name.
+func (service *SubnetService) buildSubnetSetName(obj v1.Object, index string) string {
+	return common.BuildUniqueIDWithSuffix(obj, index, common.MaxSubnetNameLength, util.GenerateIDByObject, service.nsxSubnetNameExists)
+}
+
+func (service *SubnetService) nsxSubnetIdExists(id string) bool {
+	existingSubnet := service.SubnetStore.GetByKey(id)
+	return existingSubnet != nil
+}
+
+func (service *SubnetService) nsxSubnetNameExists(subnetName string) bool {
+	existingSubnets := service.SubnetStore.GetByIndex(nsxSubnetNameIndexKey, subnetName)
+	return len(existingSubnets) > 0
 }
 
 func convertAccessMode(accessMode string) string {
@@ -54,16 +67,22 @@ func convertAccessMode(accessMode string) string {
 
 func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, ipAddresses []string) (*model.VpcSubnet, error) {
 	tags = append(service.buildBasicTags(obj), tags...)
+
+	nsUUID := getNamespaceUUID(tags)
+	objForIdGeneration := &v1.ObjectMeta{
+		Name: obj.GetName(),
+		UID:  types.UID(nsUUID),
+	}
 	var nsxSubnet *model.VpcSubnet
 	var staticIpAllocation bool
 	switch o := obj.(type) {
 	case *v1alpha1.Subnet:
 		staticIpAllocation = o.Spec.SubnetDHCPConfig.Mode == "" || o.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
 		nsxSubnet = &model.VpcSubnet{
-			Id:             String(service.BuildSubnetID(o)),
+			Id:             String(service.BuildSubnetID(objForIdGeneration)),
 			AccessMode:     String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),
 			Ipv4SubnetSize: Int64(int64(o.Spec.IPv4SubnetSize)),
-			DisplayName:    String(service.buildSubnetName(o)),
+			DisplayName:    String(service.BuildSubnetName(objForIdGeneration)),
 		}
 		dhcpMode := string(o.Spec.SubnetDHCPConfig.Mode)
 		if dhcpMode == "" {
@@ -81,10 +100,10 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		staticIpAllocation = o.Spec.SubnetDHCPConfig.Mode == "" || o.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
 		index := util.GetRandomIndexString()
 		nsxSubnet = &model.VpcSubnet{
-			Id:             String(service.buildSubnetSetID(o, index)),
+			Id:             String(service.buildSubnetSetID(objForIdGeneration, index)),
 			AccessMode:     String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),
 			Ipv4SubnetSize: Int64(int64(o.Spec.IPv4SubnetSize)),
-			DisplayName:    String(service.buildSubnetSetName(o, index)),
+			DisplayName:    String(service.buildSubnetSetName(objForIdGeneration, index)),
 		}
 		dhcpMode := string(o.Spec.SubnetDHCPConfig.Mode)
 		if dhcpMode == "" {
@@ -122,4 +141,16 @@ func (service *SubnetService) buildSubnetDHCPConfig(mode string, dhcpServerAddit
 
 func (service *SubnetService) buildBasicTags(obj client.Object) []model.Tag {
 	return util.BuildBasicTags(getCluster(service), obj, "")
+}
+
+func getNamespaceUUID(tags []model.Tag) string {
+	tagValues := filterTag(tags, common.TagScopeVMNamespaceUID)
+	if len(tagValues) > 0 {
+		return tagValues[0]
+	}
+	tagValues = filterTag(tags, common.TagScopeNamespaceUID)
+	if len(tagValues) > 0 {
+		return tagValues[0]
+	}
+	return ""
 }
