@@ -139,7 +139,6 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		log.Info("NSX subnet port not changed, skipping the update", "nsxSubnetPort.Id", nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
 		// We don't need to update it but still need to check realized state.
 	} else {
-		nsxSubnetPort = buildSubnetPortExternalAddressBindingFromExisting(nsxSubnetPort, existingSubnetPort)
 		log.Info("updating the NSX subnet port", "existingSubnetPort", existingSubnetPort, "desiredSubnetPort", nsxSubnetPort)
 		err = service.NSXClient.PortClient.Patch(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *nsxSubnetPort.Id, *nsxSubnetPort)
 		err = nsxutil.TransNSXApiError(err)

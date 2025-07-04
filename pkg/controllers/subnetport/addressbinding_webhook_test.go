@@ -52,6 +52,17 @@ func TestAddressBindingValidator_Handle(t *testing.T) {
 			InterfaceName: "inf2",
 		},
 	})
+	req3, _ := json.Marshal(&v1alpha1.AddressBinding{
+		ObjectMeta: v1.ObjectMeta{
+			Namespace: "ns1",
+			Name:      "ab3",
+		},
+		Spec: v1alpha1.AddressBindingSpec{
+			VMName:                  "vm1",
+			InterfaceName:           "inf3",
+			IPAddressAllocationName: "ip1",
+		},
+	})
 	type args struct {
 		req admission.Request
 	}
@@ -100,7 +111,141 @@ func TestAddressBindingValidator_Handle(t *testing.T) {
 		{
 			name: "update changed",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Update, Object: runtime.RawExtension{Raw: req1New}, OldObject: runtime.RawExtension{Raw: req1}}}},
-			want: admission.Denied("update AddressBinding is not allowed"),
+			want: admission.Denied("update AddressBinding vmName/interfaceName is not allowed"),
+		},
+		{
+			name: "create with valid ip allocation 1",
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
+			prepareFunc: func(t *testing.T, c client.Client, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				c.Create(context.TODO(), &v1alpha1.IPAddressAllocation{
+					TypeMeta:   v1.TypeMeta{},
+					ObjectMeta: v1.ObjectMeta{Namespace: "ns1", Name: "ip1"},
+					Spec:       v1alpha1.IPAddressAllocationSpec{IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityExternal, AllocationIPs: "10.0.0.8"},
+					Status:     v1alpha1.IPAddressAllocationStatus{},
+				})
+				return patches
+			},
+			want: admission.Allowed(""),
+		},
+		{
+			name: "create with valid ip allocation 2",
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
+			prepareFunc: func(t *testing.T, c client.Client, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				c.Create(context.TODO(), &v1alpha1.IPAddressAllocation{
+					TypeMeta:   v1.TypeMeta{},
+					ObjectMeta: v1.ObjectMeta{Namespace: "ns1", Name: "ip1"},
+					Spec:       v1alpha1.IPAddressAllocationSpec{IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityExternal, AllocationSize: 1},
+					Status:     v1alpha1.IPAddressAllocationStatus{},
+				})
+				return patches
+			},
+			want: admission.Allowed(""),
+		},
+		{
+			name: "create with invalid ip allocation",
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
+			prepareFunc: func(t *testing.T, client client.Client, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(client, "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				return patches
+			},
+			want: admission.Denied(fmt.Sprintf("IPAddressAllocation %s does not exist", "ip1")),
+		},
+		{
+			name: "create with invalid visibility",
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
+			prepareFunc: func(t *testing.T, c client.Client, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				c.Create(context.TODO(), &v1alpha1.IPAddressAllocation{
+					TypeMeta:   v1.TypeMeta{},
+					ObjectMeta: v1.ObjectMeta{Namespace: "ns1", Name: "ip1"},
+					Spec:       v1alpha1.IPAddressAllocationSpec{IPAddressBlockVisibility: ""},
+					Status:     v1alpha1.IPAddressAllocationStatus{AllocationIPs: "10.0.0.8"},
+				})
+				return patches
+			},
+			want: admission.Denied("IPBlock visibility of IPAddressAllocation must be \"External\""),
+		},
+		{
+			name: "create with specified ip cidr",
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
+			prepareFunc: func(t *testing.T, c client.Client, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				c.Create(context.TODO(), &v1alpha1.IPAddressAllocation{
+					TypeMeta:   v1.TypeMeta{},
+					ObjectMeta: v1.ObjectMeta{Namespace: "ns1", Name: "ip1"},
+					Spec:       v1alpha1.IPAddressAllocationSpec{IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityExternal, AllocationIPs: "10.0.0.8/24"},
+				})
+				return patches
+			},
+			want: admission.Denied("IPAddressAllocation must be a single IP"),
+		},
+		{
+			name: "create with specified ip cidr",
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
+			prepareFunc: func(t *testing.T, c client.Client, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				c.Create(context.TODO(), &v1alpha1.IPAddressAllocation{
+					TypeMeta:   v1.TypeMeta{},
+					ObjectMeta: v1.ObjectMeta{Namespace: "ns1", Name: "ip1"},
+					Spec:       v1alpha1.IPAddressAllocationSpec{IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityExternal, AllocationSize: 1, AllocationIPs: "10.0.0.8/24"},
+				})
+				return patches
+			},
+			want: admission.Denied("IPAddressAllocation must be a single IP"),
+		},
+		{
+			name: "create with specified /32 ip cidr",
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
+			prepareFunc: func(t *testing.T, c client.Client, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				c.Create(context.TODO(), &v1alpha1.IPAddressAllocation{
+					TypeMeta:   v1.TypeMeta{},
+					ObjectMeta: v1.ObjectMeta{Namespace: "ns1", Name: "ip1"},
+					Spec:       v1alpha1.IPAddressAllocationSpec{IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityExternal, AllocationSize: 1, AllocationIPs: "10.0.0.8/32"},
+				})
+				return patches
+			},
+			want: admission.Denied("IPAddressAllocation must be a single IP"),
+		},
+		{
+			name: "create with invalid ip allocation size",
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
+			prepareFunc: func(t *testing.T, c client.Client, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				c.Create(context.TODO(), &v1alpha1.IPAddressAllocation{
+					TypeMeta:   v1.TypeMeta{},
+					ObjectMeta: v1.ObjectMeta{Namespace: "ns1", Name: "ip1"},
+					Spec:       v1alpha1.IPAddressAllocationSpec{IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityExternal, AllocationSize: 0},
+				})
+				return patches
+			},
+			want: admission.Denied("IPAddressAllocation must be a single IP"),
 		},
 	}
 	for _, tt := range tests {
