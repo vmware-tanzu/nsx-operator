@@ -52,6 +52,25 @@ func TestAddressBindingValidator_Handle(t *testing.T) {
 			InterfaceName: "inf2",
 		},
 	})
+	req2d, _ := json.Marshal(&v1alpha1.AddressBinding{
+		ObjectMeta: v1.ObjectMeta{
+			Namespace: "ns1",
+			Name:      "ab2",
+		},
+		Spec: v1alpha1.AddressBindingSpec{
+			VMName: "vm1",
+		},
+	})
+	req3, _ := json.Marshal(&v1alpha1.AddressBinding{
+		ObjectMeta: v1.ObjectMeta{
+			Namespace: "ns1",
+			Name:      "ab3",
+		},
+		Spec: v1alpha1.AddressBindingSpec{
+			VMName:        "vm2",
+			InterfaceName: "inf2",
+		},
+	})
 	type args struct {
 		req admission.Request
 	}
@@ -93,6 +112,16 @@ func TestAddressBindingValidator_Handle(t *testing.T) {
 			want: admission.Denied("interface already has AddressBinding"),
 		},
 		{
+			name: "create dup with default",
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req2d}}}},
+			want: admission.Denied("interface already has AddressBinding"),
+		},
+		{
+			name: "create dup with existing default",
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
+			want: admission.Denied("interface already has AddressBinding"),
+		},
+		{
 			name: "update decode error",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Update, Object: runtime.RawExtension{Raw: req1}}}},
 			want: admission.Errored(http.StatusBadRequest, fmt.Errorf("there is no content to decode")),
@@ -118,6 +147,15 @@ func TestAddressBindingValidator_Handle(t *testing.T) {
 				Spec: v1alpha1.AddressBindingSpec{
 					VMName:        "vm1",
 					InterfaceName: "inf2",
+				},
+			})
+			client.Create(ctx, &v1alpha1.AddressBinding{
+				ObjectMeta: v1.ObjectMeta{
+					Namespace: "ns1",
+					Name:      "ab3a",
+				},
+				Spec: v1alpha1.AddressBindingSpec{
+					VMName: "vm2",
 				},
 			})
 			if tt.prepareFunc != nil {
