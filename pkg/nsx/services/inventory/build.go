@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	ctrcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/networkinfo"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -275,16 +276,29 @@ func (s *InventoryService) BuildNamespace(namespace *corev1.Namespace) (retry bo
 		preContainerProject = *preContainerProject.(*containerinventory.ContainerProject)
 	}
 
-	// Extract network errors from annotations
+	// Extract network errors from namespace conditions
 	var networkErrors []common.NetworkError
 	networkStatus := NetworkStatusHealthy
 
-	// Check for VPC error annotation
-	if errorMsg, exists := namespace.Annotations[ctrcommon.AnnotationNamespaceVPCError]; exists && errorMsg != "" {
-		networkErrors = append(networkErrors, common.NetworkError{
-			ErrorMessage: errorMsg,
-		})
-		networkStatus = NetworkStatusUnhealthy
+	// Check for NamespaceNetworkReady condition with status False
+	for _, condition := range namespace.Status.Conditions {
+		if condition.Type == networkinfo.NamespaceNetworkReady && condition.Status == corev1.ConditionFalse {
+			// Create a network error with the condition message
+			networkError := common.NetworkError{
+				ErrorMessage: condition.Message,
+			}
+
+			// Add a reason to the error message if it's one of the known reasons
+			if condition.Reason == networkinfo.NSReasonVPCNetConfigNotReady ||
+				condition.Reason == networkinfo.NSReasonVPCNotReady ||
+				condition.Reason == networkinfo.NSReasonVPCSnatNotReady {
+				networkError.ErrorMessage = fmt.Sprintf("%s: %s", condition.Reason, condition.Message)
+			}
+
+			networkErrors = append(networkErrors, networkError)
+			networkStatus = NetworkStatusUnhealthy
+			break
+		}
 	}
 
 	containerProject := containerinventory.ContainerProject{
