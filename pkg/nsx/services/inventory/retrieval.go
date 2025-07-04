@@ -14,7 +14,7 @@ func GetPodIDsFromEndpoint(ctx context.Context, c client.Client, name string, na
 	podIDs = []string{}
 	hasAddr = false
 
-	// Get the endpoints object corresponding to the service
+	// Get the endpoint object corresponding to the service
 	endpoint := &v1.Endpoints{}
 	err := c.Get(ctx, types.NamespacedName{
 		Name:      name,
@@ -30,7 +30,7 @@ func GetPodIDsFromEndpoint(ctx context.Context, c client.Client, name string, na
 	for _, subset := range endpoint.Subsets {
 		for _, address := range subset.Addresses {
 			hasAddr = true
-			if address.TargetRef != nil && address.TargetRef.Kind == "Pod" {
+			if address.TargetRef != nil && (address.TargetRef.Kind == "Pod" || address.TargetRef.Kind == "VirtualMachine") {
 				podIDs = append(podIDs, string(address.TargetRef.UID))
 			}
 		}
@@ -73,7 +73,7 @@ func GetServicesUIDByPodUID(ctx context.Context, c client.Client, podUID types.U
 
 	var serviceUIDs []string
 	for _, svc := range serviceList.Items {
-		// Get the endpoints object associated with the service
+		// Get the endpoint object associated with the service
 		endpoints := &v1.Endpoints{}
 		err := c.Get(ctx, types.NamespacedName{Name: svc.Name, Namespace: namespace}, endpoints)
 		if err != nil {
