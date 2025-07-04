@@ -245,3 +245,23 @@ func (r *NamespaceReconciler) syncSharedSubnets(ctx context.Context, ns string, 
 
 	return nil
 }
+
+// deleteAllSharedSubnets deletes all shared Subnet CRs in a namespace
+func (r *NamespaceReconciler) deleteAllSharedSubnets(ctx context.Context, ns string) error {
+	// Get existing shared Subnet CRs
+	existingSharedSubnets, err := r.getExistingSharedSubnetCRs(ctx, ns)
+	if err != nil {
+		log.Error(err, "Failed to get existing shared Subnet CRs", "Namespace", ns)
+		return err
+	}
+
+	// Delete all shared Subnet CRs
+	err = r.deleteUnusedSharedSubnets(ctx, ns, existingSharedSubnets)
+	if err != nil {
+		log.Error(err, "Failed to delete shared Subnet CRs", "Namespace", ns)
+		return err
+	}
+
+	log.Info("Deleted all shared Subnet CRs", "Namespace", ns)
+	return nil
+}

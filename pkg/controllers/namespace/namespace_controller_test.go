@@ -151,7 +151,13 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 			name: "Namespace with Finalizer",
 			req:  ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-ns"}},
 			patches: func(r *NamespaceReconciler) *gomonkey.Patches {
-				return nil
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "deleteDefaultSubnetSet", func(_ *NamespaceReconciler, _ string) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "deleteAllSharedSubnets", func(_ *NamespaceReconciler, _ string) error {
+					return nil
+				})
+				return patches
 			},
 			expectRes: ctrl.Result{},
 			existingNamespaceCR: &v1.Namespace{

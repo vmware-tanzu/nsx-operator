@@ -249,6 +249,10 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if err := r.deleteDefaultSubnetSet(ns); err != nil {
 			return common.ResultRequeueAfter10sec, err
 		}
+		// delete all shared Subnet so that Subnet webhook can permit the delete request
+		if err := r.deleteAllSharedSubnets(ctx, ns); err != nil {
+			return common.ResultRequeueAfter10sec, err
+		}
 		return common.ResultNormal, nil
 	}
 }
