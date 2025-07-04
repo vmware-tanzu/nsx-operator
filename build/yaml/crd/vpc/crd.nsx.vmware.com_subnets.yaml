@@ -142,8 +142,6 @@ spec:
               rule: '!has(oldSelf.ipv4SubnetSize) || has(self.ipv4SubnetSize)'
             - message: accessMode is required once set
               rule: '!has(oldSelf.accessMode) || has(self.accessMode)'
-            - message: ipAddresses is required once set
-              rule: '!has(oldSelf.ipAddresses) || has(self.ipAddresses)'
           status:
             description: SubnetStatus defines the observed state of Subnet.
             properties:

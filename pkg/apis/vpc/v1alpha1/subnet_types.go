@@ -27,7 +27,6 @@ const (
 // +kubebuilder:validation:XValidation:rule="has(oldSelf.subnetDHCPConfig)==has(self.subnetDHCPConfig) || (has(oldSelf.subnetDHCPConfig) && !has(self.subnetDHCPConfig) && (!has(oldSelf.subnetDHCPConfig.mode) || oldSelf.subnetDHCPConfig.mode=='DHCPDeactivated')) || (!has(oldSelf.subnetDHCPConfig) && has(self.subnetDHCPConfig) && (!has(self.subnetDHCPConfig.mode) || self.subnetDHCPConfig.mode=='DHCPDeactivated'))", message="subnetDHCPConfig mode can only switch between DHCPServer and DHCPRelay"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipv4SubnetSize) || has(self.ipv4SubnetSize)", message="ipv4SubnetSize is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.accessMode) || has(self.accessMode)", message="accessMode is required once set"
-// +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipAddresses) || has(self.ipAddresses)", message="ipAddresses is required once set"
 type SubnetSpec struct {
 	// VPC name of the Subnet.
 	VPCName string `json:"vpcName,omitempty"`
