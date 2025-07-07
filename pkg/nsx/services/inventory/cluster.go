@@ -14,7 +14,7 @@ func (s *InventoryService) GetContainerCluster() (containerinventory.ContainerCl
 
 func (s *InventoryService) AddContainerCluster(cluster containerinventory.ContainerCluster) (containerinventory.ContainerCluster, error) {
 	log.Info("Send request to NSX to create inventory cluster", "Cluster", s.NSXConfig.Cluster)
-	cluster.ClusterType = InventoryClusterTypeWCP
+	cluster.ClusterType = InventoryClusterTypeSupervisor
 	cluster, _, err := s.NSXClient.NsxApiClient.ContainerClustersApi.AddContainerCluster(context.TODO(), cluster)
 	return cluster, err
 }

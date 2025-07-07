@@ -23,9 +23,8 @@ const (
 	ContainerNetworkPolicy InventoryType = "ContainerNetworkPolicy"
 	ContainerIngressPolicy InventoryType = "ContainerIngressPolicy"
 
-	// InventoryClusterTypeWCP Inventory cluster type
-	InventoryClusterTypeWCP = "WCP"
-	InventoryClusterCNIType = "NCP"
+	InventoryClusterTypeSupervisor = "SupervisorCluster"
+	InventoryClusterCNIType        = "NCP"
 
 	// NetworkStatusHealthy Inventory network status
 	NetworkStatusHealthy   = "HEALTHY"
