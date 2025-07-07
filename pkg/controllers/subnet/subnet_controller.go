@@ -144,13 +144,13 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	if subnetCR.Spec.VPCName == "" {
-		// Get VPC full name
-		vpcFullName, err := servicecommon.GetVPCFullName(vpcInfoList[0].OrgID, vpcInfoList[0].ProjectID, vpcInfoList[0].VPCID, r.VPCService)
+		// Get VPC full ID
+		vpcFullID, err := servicecommon.GetVPCFullID(vpcInfoList[0].OrgID, vpcInfoList[0].ProjectID, vpcInfoList[0].VPCID, r.VPCService)
 		if err != nil {
-			log.Error(err, "Failed to get VPC full name", "Namespace", subnetCR.Namespace)
+			log.Error(err, "Failed to get VPC full ID", "Namespace", subnetCR.Namespace)
 			return ResultRequeue, nil
 		}
-		subnetCR.Spec.VPCName = vpcFullName
+		subnetCR.Spec.VPCName = vpcFullID
 		specChanged = true
 	}
 

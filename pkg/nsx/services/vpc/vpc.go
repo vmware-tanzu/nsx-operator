@@ -45,16 +45,10 @@ var (
 	TypeDistributedVlanConnection = "distributed-vlan-connections"
 )
 
-type nameCache struct {
-	projectNames map[string]string
-	vpcNames     map[string]string
-}
-
 type VPCService struct {
 	common.Service
-	VpcStore  *VPCStore
-	LbsStore  *LBSStore
-	nameCache *nameCache
+	VpcStore *VPCStore
+	LbsStore *LBSStore
 }
 
 func (s *VPCService) GetDefaultNetworkConfig() (*v1alpha1.VPCNetworkConfiguration, error) {
@@ -163,11 +157,6 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
 		BindingType: model.LBServiceBindingType(),
 	}}
-	VPCService.nameCache = &nameCache{
-		projectNames: make(map[string]string),
-		vpcNames:     make(map[string]string),
-	}
-
 	// Note: waitgroup.Add must be called before its consumptions.
 	wg.Add(2)
 	// initialize vpc store, lbs store
@@ -1010,43 +999,6 @@ func (s *VPCService) cleanupAviSubnetPorts(ctx context.Context) error {
 
 func IsPreCreatedVPC(nc *v1alpha1.VPCNetworkConfiguration) bool {
 	return nc.Spec.VPC != ""
-}
-
-// GetProjectName gets the project name from its ID
-func (s *VPCService) GetProjectName(orgID, projectID string) (string, error) {
-	key := fmt.Sprintf("%s/%s", orgID, projectID)
-	if cachedName, exists := s.nameCache.projectNames[key]; exists {
-		return cachedName, nil
-	}
-
-	proj, err := s.NSXClient.ProjectClient.Get(orgID, projectID, nil)
-	if err != nil {
-		log.Error(err, "Failed to get project", "ProjectID", projectID)
-		return "", err
-	}
-	if proj.DisplayName != nil {
-		s.nameCache.projectNames[key] = *proj.DisplayName
-		return *proj.DisplayName, nil
-	}
-	return "", fmt.Errorf("project %s has no display name", projectID)
-}
-
-// GetVPCName gets the VPC name from its ID
-func (s *VPCService) GetVPCName(orgID, projectID, vpcID string) (string, error) {
-	key := fmt.Sprintf("%s/%s/%s", orgID, projectID, vpcID)
-	if cachedName, exists := s.nameCache.vpcNames[key]; exists {
-		return cachedName, nil
-	}
-	vpc, err := s.NSXClient.VPCClient.Get(orgID, projectID, vpcID)
-	if err != nil {
-		log.Error(err, "Failed to get VPC", "VPCID", vpcID)
-		return "", err
-	}
-	if vpc.DisplayName != nil {
-		s.nameCache.vpcNames[key] = *vpc.DisplayName
-		return *vpc.DisplayName, nil
-	}
-	return "", fmt.Errorf("VPC %s has no display name", vpcID)
 }
 
 // IsDefaultNSXProject checks if the given project is a default project

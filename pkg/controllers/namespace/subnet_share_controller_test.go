@@ -923,18 +923,6 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 						return "default", "proj-1", "vpc-1", "subnet-1", nil
 					})
 
-				// Mock GetProjectName
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetProjectName",
-					func(_ servicecommon.VPCServiceProvider, orgID, projID string) (string, error) {
-						return "project-1", nil
-					})
-
-				// Mock GetVPCName
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCName",
-					func(_ servicecommon.VPCServiceProvider, orgID, projID, vpcID string) (string, error) {
-						return "vpc-1", nil
-					})
-
 				// Mock IsDefaultNSXProject
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "IsDefaultNSXProject",
 					func(_ servicecommon.VPCServiceProvider, orgID, projectID string) (bool, error) {
@@ -957,7 +945,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 
 				// Mock BuildSubnetCR
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "BuildSubnetCR",
-					func(_ *subnet.SubnetService, ns, subnetName, vpcFullName, associatedName string) *v1alpha1.Subnet {
+					func(_ *subnet.SubnetService, ns, subnetName, vpcFullID, associatedName string) *v1alpha1.Subnet {
 						return &v1alpha1.Subnet{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:      subnetName,
@@ -967,7 +955,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 								},
 							},
 							Spec: v1alpha1.SubnetSpec{
-								VPCName: vpcFullName,
+								VPCName: vpcFullID,
 							},
 						}
 					})
@@ -996,52 +984,6 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			expectedErrString: "invalid subnet path format",
 		},
 		{
-			name:             "Error getting project name",
-			sharedSubnetPath: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
-			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
-				// Mock ExtractSubnetPath
-				patches := gomonkey.ApplyFunc(servicecommon.ExtractSubnetPath,
-					func(path string) (string, string, string, string, error) {
-						return "default", "proj-1", "vpc-1", "subnet-1", nil
-					})
-
-				// Mock GetProjectName to return an error
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetProjectName",
-					func(_ servicecommon.VPCServiceProvider, orgID, projID string) (string, error) {
-						return "", fmt.Errorf("failed to get project name")
-					})
-
-				return patches
-			},
-			expectedErrString: "failed to get project name",
-		},
-		{
-			name:             "Error getting VPC name",
-			sharedSubnetPath: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
-			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
-				// Mock ExtractSubnetPath
-				patches := gomonkey.ApplyFunc(servicecommon.ExtractSubnetPath,
-					func(path string) (string, string, string, string, error) {
-						return "default", "proj-1", "vpc-1", "subnet-1", nil
-					})
-
-				// Mock GetProjectName
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetProjectName",
-					func(_ servicecommon.VPCServiceProvider, orgID, projID string) (string, error) {
-						return "project-1", nil
-					})
-
-				// Mock GetVPCName to return an error
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCName",
-					func(_ servicecommon.VPCServiceProvider, orgID, projID, vpcID string) (string, error) {
-						return "", fmt.Errorf("failed to get VPC name")
-					})
-
-				return patches
-			},
-			expectedErrString: "failed to get VPC name",
-		},
-		{
 			name:             "Error checking if project is default",
 			sharedSubnetPath: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
@@ -1049,18 +991,6 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 				patches := gomonkey.ApplyFunc(servicecommon.ExtractSubnetPath,
 					func(path string) (string, string, string, string, error) {
 						return "default", "proj-1", "vpc-1", "subnet-1", nil
-					})
-
-				// Mock GetProjectName
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetProjectName",
-					func(_ servicecommon.VPCServiceProvider, orgID, projID string) (string, error) {
-						return "project-1", nil
-					})
-
-				// Mock GetVPCName
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCName",
-					func(_ servicecommon.VPCServiceProvider, orgID, projID, vpcID string) (string, error) {
-						return "vpc-1", nil
 					})
 
 				// Mock IsDefaultNSXProject to return an error
@@ -1081,18 +1011,6 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 				patches := gomonkey.ApplyFunc(servicecommon.ExtractSubnetPath,
 					func(path string) (string, string, string, string, error) {
 						return "default", "proj-1", "vpc-1", "subnet-1", nil
-					})
-
-				// Mock GetProjectName
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetProjectName",
-					func(_ servicecommon.VPCServiceProvider, orgID, projID string) (string, error) {
-						return "project-1", nil
-					})
-
-				// Mock GetVPCName
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCName",
-					func(_ servicecommon.VPCServiceProvider, orgID, projID, vpcID string) (string, error) {
-						return "vpc-1", nil
 					})
 
 				// Mock IsDefaultNSXProject
@@ -1121,18 +1039,6 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 						return "default", "proj-1", "vpc-1", "subnet-1", nil
 					})
 
-				// Mock GetProjectName
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetProjectName",
-					func(_ servicecommon.VPCServiceProvider, orgID, projID string) (string, error) {
-						return "project-1", nil
-					})
-
-				// Mock GetVPCName
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCName",
-					func(_ servicecommon.VPCServiceProvider, orgID, projID, vpcID string) (string, error) {
-						return "vpc-1", nil
-					})
-
 				// Mock IsDefaultNSXProject
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "IsDefaultNSXProject",
 					func(_ servicecommon.VPCServiceProvider, orgID, projectID string) (bool, error) {
@@ -1155,7 +1061,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 
 				// Mock BuildSubnetCR
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "BuildSubnetCR",
-					func(_ *subnet.SubnetService, ns, subnetName, vpcFullName, associatedName string) *v1alpha1.Subnet {
+					func(_ *subnet.SubnetService, ns, subnetName, vpcFullID, associatedName string) *v1alpha1.Subnet {
 						return &v1alpha1.Subnet{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:      subnetName,
@@ -1165,7 +1071,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 								},
 							},
 							Spec: v1alpha1.SubnetSpec{
-								VPCName: vpcFullName,
+								VPCName: vpcFullID,
 							},
 						}
 					})

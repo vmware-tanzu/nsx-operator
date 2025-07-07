@@ -97,30 +97,20 @@ func IsSharedSubnet(subnet *v1alpha1.Subnet) bool {
 	return exists
 }
 
-// GetVPCFullName returns the formatted VPC full name based on project and VPC names
-// If the project is a default NSX project, the format is ":vpcName", otherwise it's "projectName:vpcName"
-func GetVPCFullName(orgID, projectID, vpcID string, vpcService VPCServiceProvider) (string, error) {
-	projectName, err := vpcService.GetProjectName(orgID, projectID)
-	if err != nil {
-		return "", fmt.Errorf("failed to get project name: %w", err)
-	}
-
-	vpcName, err := vpcService.GetVPCName(orgID, projectID, vpcID)
-	if err != nil {
-		return "", fmt.Errorf("failed to get VPC name: %w", err)
-	}
-
-	// Format VPC full name
-	vpcFullName := fmt.Sprintf("%s:%s", projectName, vpcName)
+// GetVPCFullID returns the formatted VPC full naIDme based on project and VPC IDs
+// If the project is a default NSX project, the format is ":vpcId", otherwise it's "projectId:vpcId"
+func GetVPCFullID(orgID, projectID, vpcID string, vpcService VPCServiceProvider) (string, error) {
+	// Format VPC full ID
+	vpcFullID := fmt.Sprintf("%s:%s", projectID, vpcID)
 	isDefault, err := vpcService.IsDefaultNSXProject(orgID, projectID)
 	if err != nil {
 		return "", fmt.Errorf("failed to check if project is default: %w", err)
 	}
 	if isDefault {
-		vpcFullName = fmt.Sprintf(":%s", vpcName)
+		vpcFullID = fmt.Sprintf(":%s", vpcID)
 	}
 
-	return vpcFullName, nil
+	return vpcFullID, nil
 }
 
 func GetSubnetPathFromAssociatedResource(associatedResource string) (string, error) {

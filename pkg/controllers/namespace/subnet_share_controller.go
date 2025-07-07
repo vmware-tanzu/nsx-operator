@@ -47,7 +47,7 @@ func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns strin
 		return err
 	}
 
-	vpcFullName, err := servicecommon.GetVPCFullName(orgID, projectID, vpcID, r.VPCService)
+	vpcFullID, err := servicecommon.GetVPCFullID(orgID, projectID, vpcID, r.VPCService)
 	if err != nil {
 		return err
 	}
@@ -71,7 +71,7 @@ func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns strin
 	subnetName := *nsxSubnet.DisplayName
 
 	// Create the Subnet CR object
-	subnetCR := r.SubnetService.BuildSubnetCR(ns, subnetName, vpcFullName, associatedName)
+	subnetCR := r.SubnetService.BuildSubnetCR(ns, subnetName, vpcFullID, associatedName)
 
 	// Create the Subnet CR in Kubernetes
 	err = r.createSubnetCRInK8s(ctx, subnetCR)
