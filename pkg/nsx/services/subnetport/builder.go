@@ -140,12 +140,12 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	if err := service.Client.Get(context.Background(), namespacedName, namespace); err != nil {
 		return nil, err
 	}
-	namespace_uid := namespace.UID
+	namespaceUid := namespace.UID
 
-	nsxSubnetPortID, nsxSubnetPortName := service.BuildSubnetPortIdAndName(objMeta, namespace_uid)
+	nsxSubnetPortID, nsxSubnetPortName := service.BuildSubnetPortIdAndName(objMeta, namespaceUid)
 	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", *nsxSubnet.Path, nsxSubnetPortID)
 
-	tags := util.BuildBasicTags(getCluster(service), obj, namespace_uid)
+	tags := util.BuildBasicTags(getCluster(service), obj, namespaceUid)
 
 	// Filter tags based on the type of subnet port (VM or Pod).
 	// For VM subnet ports, we need to filter out tags with scope VMNamespaceUID and VMNamespace.

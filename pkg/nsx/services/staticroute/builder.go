@@ -49,7 +49,7 @@ func (service *StaticRouteService) buildStaticRoute(obj *v1alpha1.StaticRoute) (
 	sr.Tags = tags
 	objForIdGeneration := &v1.ObjectMeta{
 		Name: obj.GetName(),
-		UID:  types.UID(common.GetNamespaceUUID(tags)),
+		UID:  types.UID(common.GetNamespaceUIDFromTag(tags)),
 	}
 	sr.Id = String(service.buildStaticRouteId(objForIdGeneration))
 	sr.DisplayName = String(util.GenerateTruncName(common.MaxNameLength, obj.Name, "", "", "", ""))

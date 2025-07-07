@@ -339,7 +339,7 @@ func (r *PodReconciler) CollectGarbage(ctx context.Context) error {
 	for _, pod := range podList.Items {
 		subnetPort, err := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(pod.GetUID())
 		if err != nil || subnetPort == nil {
-			log.Info("Not found existing VpcSubnetPort for Pod", "CR UID", pod.GetUID())
+			log.Info("Not found existing VpcSubnetPort for Pod", "POD UID", pod.GetUID())
 			continue
 		}
 		PodSet.Insert(*subnetPort.Id)

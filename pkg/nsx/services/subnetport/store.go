@@ -165,7 +165,7 @@ func (subnetPortStore *SubnetPortStore) GetVpcSubnetPortByUID(uid types.UID) (*m
 		t := indexResults[0].(*model.VpcSubnetPort)
 		subnetPort = t
 	} else {
-		log.Info("did not get VpcSubnetPort with index", "UID", string(uid))
+		log.Info("Did not get VpcSubnetPort with index", "UID", string(uid))
 		return nil, nil
 	}
 	return subnetPort, nil

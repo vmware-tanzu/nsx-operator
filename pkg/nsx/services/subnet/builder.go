@@ -68,10 +68,10 @@ func convertAccessMode(accessMode string) string {
 func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, ipAddresses []string) (*model.VpcSubnet, error) {
 	tags = append(service.buildBasicTags(obj), tags...)
 
-	nsUUID := getNamespaceUUID(tags)
+	nsUID := getNamespaceUUID(tags)
 	objForIdGeneration := &v1.ObjectMeta{
 		Name: obj.GetName(),
-		UID:  types.UID(nsUUID),
+		UID:  types.UID(nsUID),
 	}
 	var nsxSubnet *model.VpcSubnet
 	var staticIpAllocation bool
