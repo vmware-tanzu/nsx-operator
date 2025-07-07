@@ -64,10 +64,10 @@ func (service *SecurityPolicyService) buildSecurityPolicyIDAndName(obj *v1alpha1
 		// using format of ${NetworkPolicy}.Name-${suffixInUid}_$hash(${NetworkPolicy}.UID)[:5].
 		// Regarding the user created SecurityPolicy CRs, no suffix exists in the UID field, so the generated NSX
 		// SecurityPolicy id is using format of ${NetworkPolicy}.Name_$hash(${NetworkPolicy}.UID)[:5]
-		spUUID, suffixInUid := parseSuffixInUid(obj.GetUID())
+		spUID, suffixInUid := parseSuffixInUid(obj.GetUID())
 		objForIdGeneration := &v1.ObjectMeta{
 			Name: obj.GetName(),
-			UID:  types.UID(spUUID),
+			UID:  types.UID(spUID),
 		}
 		return common.BuildUniqueIDWithSuffix(objForIdGeneration, suffixInUid, common.MaxIdLength, util.GenerateIDByObject, func(id string) bool {
 			return service.securityPolicyStore.GetByKey(id) != nil
@@ -387,7 +387,7 @@ func (service *SecurityPolicyService) buildExpressionsMatchExpression(matchExpre
 	return err
 }
 
-// build appliedTo group ID for both policy and rule levels.
+// build appliedTo group ID and name for both policy and rule levels.
 func (service *SecurityPolicyService) buildAppliedGroupIDAndName(obj *v1alpha1.SecurityPolicy, ruleIdx int, createdFor string) (string, string) {
 	if IsVPCEnabled(service) {
 		ruleHash := ""
@@ -827,7 +827,7 @@ func (service *SecurityPolicyService) buildVpcGroupIdByRuleAndGroupType(obj *v1a
 	if len(suffixInUid) > 0 {
 		suffixes = append([]string{suffixInUid}, suffixes...)
 	}
-	groupSuffix := strings.Join(suffixes, "-")
+	groupSuffix := strings.Join(suffixes, common.ConnectorHyphen)
 	return common.BuildUniqueIDWithSuffix(objForIdGeneration, groupSuffix, common.MaxIdLength, util.GenerateIDByObject, groupIdExistsFn)
 }
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -87,6 +88,14 @@ func (StaticRouteStore *StaticRouteStore) DeleteMultipleObjects(routes []*model.
 	for _, route := range routes {
 		StaticRouteStore.Delete(route)
 	}
+}
+
+func (StaticRouteStore *StaticRouteStore) GetStaticRoutesByCRUID(uid types.UID) *model.StaticRoutes {
+	staticRoutes := StaticRouteStore.ResourceStore.GetByIndex(common.TagScopeStaticRouteCRUID, string(uid))
+	if len(staticRoutes) == 0 {
+		return nil
+	}
+	return staticRoutes[0].(*model.StaticRoutes)
 }
 
 func buildStaticRouteStore() *StaticRouteStore {

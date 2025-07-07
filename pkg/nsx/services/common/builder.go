@@ -176,7 +176,7 @@ func BuildUniqueIDWithSuffix(obj metav1.Object, suffixStr string, maxLength int,
 	suffix := ""
 	if len(suffixStr) > 0 {
 		maxNameLength = maxNameLength - (len(suffixStr) + 1)
-		suffix = fmt.Sprintf("-%s", suffixStr)
+		suffix = fmt.Sprintf("%s%s", ConnectorHyphen, suffixStr)
 	}
 
 	if len(prefix) > maxNameLength {

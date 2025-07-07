@@ -70,9 +70,10 @@ func (s *VPCService) buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace,
 			vpc.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &loadBalancerVPCEndpointEnabled}
 		}
 	} else {
-		// for creating vpc case, fill in vpc properties based on networkconfig
-		vpc.DisplayName = common.String(s.buildVpcName(obj))
-		vpc.Id = common.String(common.BuildUniqueIDWithRandomUUID(obj, util.GenerateIDByObject, s.nsxVpcIdExists))
+		// for creating vpc case, fill in vpc properties based on networkconfig. Note, the NetworkInfo and the Namespace
+		// have the same value on the Name field, here we use the Namespace object to generate the NSX Vpc id and display_name.
+		vpc.DisplayName = common.String(s.buildVpcName(nsObj))
+		vpc.Id = common.String(common.BuildUniqueIDWithRandomUUID(nsObj, util.GenerateIDByObject, s.nsxVpcIdExists))
 		vpc.IpAddressType = &DefaultVPCIPAddressType
 
 		if enableLBEndpoint {

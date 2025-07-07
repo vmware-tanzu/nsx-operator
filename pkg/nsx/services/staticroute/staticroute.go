@@ -11,6 +11,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 type StaticRouteService struct {
@@ -63,9 +64,8 @@ func (service *StaticRouteService) CreateOrUpdateStaticRoute(namespace string, o
 		return err
 	}
 
-	existingStaticRoutes := service.StaticRouteStore.GetByIndex(common.TagScopeStaticRouteCRUID, string(obj.GetUID()))
-	if len(existingStaticRoutes) > 0 {
-		existingStaticRoute := existingStaticRoutes[0].(*model.StaticRoutes)
+	existingStaticRoute := service.StaticRouteStore.GetStaticRoutesByCRUID(obj.GetUID())
+	if existingStaticRoute != nil {
 		// Update the generated NSX static route's id and display_name with the existing configurations.
 		nsxStaticRoute.Id = String(*existingStaticRoute.Id)
 		nsxStaticRoute.DisplayName = String(*existingStaticRoute.DisplayName)

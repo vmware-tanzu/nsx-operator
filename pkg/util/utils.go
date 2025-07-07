@@ -111,7 +111,7 @@ func getSha1Bytes(data string) []byte {
 	return sum
 }
 
-// Sha1WithCustomizedCharset uses the chars in `base62Chars` to present the hash result on the input data. We now use Sha1 as
+// Sha1WithCustomizedCharset uses the chars in `HashCharset` to present the hash result on the input data. We now use Sha1 as
 // the hash algorithm.
 func Sha1WithCustomizedCharset(data string) string {
 	sum := getSha1Bytes(data)
@@ -450,7 +450,7 @@ func GenerateIDByObjectWithSuffix(obj metav1.Object, suffix string) string {
 	return connectStrings(common.ConnectorUnderline, normalizeNameByLimit(obj.GetName(), string(obj.GetUID()), limit, truncateNameOrIDHash), suffix)
 }
 
-// GenerateID generate id for NSX resource, some resources has complex index, so set it type to string.
+// GenerateID generate id for NSX resource, some resources has complex index, so set its type to string.
 // Note, this function is used with T1 scenario, and the VPC resources (e.g., Security Rule) which are not migrated
 // to the new desired ID format. For new introduced NSX VPC resources, please use functions like
 // "BuildUniqueIDWithRandomUUID" in pkg/services/common/builder.go

@@ -17,11 +17,11 @@ func (service *Service) GetNamespaceUID(ns string) (nsUid types.UID) {
 		log.Error(err, "Failed to get namespace UID", "namespace", ns)
 		return ""
 	}
-	namespace_uid := namespace.UID
-	return namespace_uid
+	namespaceUid := namespace.UID
+	return namespaceUid
 }
 
-func GetNamespaceUUID(tags []model.Tag) string {
+func GetNamespaceUIDFromTag(tags []model.Tag) string {
 	for _, tag := range tags {
 		if *tag.Scope == TagScopeNamespaceUID {
 			return *tag.Tag
