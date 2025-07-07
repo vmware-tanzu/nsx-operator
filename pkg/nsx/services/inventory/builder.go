@@ -39,7 +39,6 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 		log.Error(err, "Failed to build Pod", "Pod", pod)
 		return
 	}
-
 	node := &corev1.Node{}
 	err = s.Client.Get(context.TODO(), types.NamespacedName{Name: pod.Spec.NodeName}, node)
 	if err != nil {
@@ -48,8 +47,8 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 			retry = true
 		}
 		log.Error(err, "Cannot find node for Pod", "Pod", pod.Name, "Namespace", pod.Namespace, "Node", pod.Spec.NodeName, "retry", retry)
-		return
 	}
+
 	status := InventoryStatusDown
 	if pod.Status.Phase == corev1.PodRunning {
 		status = InventoryStatusUp
