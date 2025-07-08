@@ -124,11 +124,10 @@ func Test_InitializeSubnetPort(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "macPoolError",
+			name: "searchResourceError",
 			prepareFunc: func(t *testing.T, s *common.Service, ctx context.Context) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethodSeq(s.NSXClient.QueryClient, "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{model.SearchResponse{}, fmt.Errorf("mock error")},
-					Times:  1,
 				}})
 				patches.ApplyMethodSeq(s.NSXClient.MacPoolsClient, "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{mp_model.MacPoolListResult{
@@ -149,8 +148,20 @@ func Test_InitializeSubnetPort(t *testing.T) {
 			prepareFunc: func(t *testing.T, s *common.Service, ctx context.Context) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethodSeq(s.NSXClient.QueryClient, "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{model.SearchResponse{}, nil},
-					Times:  1,
+					Times:  3,
 				}})
+				// patches.ApplyMethodSeq(s.NSXClient.QueryClient, "List", []gomonkey.OutputCell{{
+				// 	Values: gomonkey.Params{model.SearchResponse{}, nil},
+				// }})
+				// patches.ApplyMethodSeq(s.NSXClient.MacPoolsClient, "List", []gomonkey.OutputCell{{
+				// 	Values: gomonkey.Params{mp_model.MacPoolListResult{
+				// 		Results: []mp_model.MacPool{
+				// 			{
+				// 				DisplayName: &defaultContainerMacPoolName,
+				// 			},
+				// 		},
+				// 	}, nil},
+				// }})
 				return patches
 			},
 			wantErr: false,

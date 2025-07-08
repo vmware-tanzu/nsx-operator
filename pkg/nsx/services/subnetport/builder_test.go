@@ -58,14 +58,15 @@ func TestBuildSubnetPort(t *testing.T) {
 		}).AnyTimes()
 
 	tests := []struct {
-		name          string
-		obj           interface{}
-		nsxSubnet     *model.VpcSubnet
-		contextID     string
-		labelTags     *map[string]string
-		restore       bool
-		expectedPort  *model.VpcSubnetPort
-		expectedError error
+		name                  string
+		obj                   interface{}
+		nsxSubnet             *model.VpcSubnet
+		contextID             string
+		labelTags             *map[string]string
+		restore               bool
+		expectedPort          *model.VpcSubnetPort
+		expectedStaticBinding *model.DhcpV4StaticBindingConfig
+		expectedError         error
 	}{
 		{
 			name: "build-NSX-port-for-subnetport",
@@ -477,11 +478,84 @@ func TestBuildSubnetPort(t *testing.T) {
 			expectedError: nil,
 			restore:       true,
 		},
+		{
+			name: "build-NSX-port-for-subnetport-on-DHCPServer-subnet",
+			obj: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7acc",
+					Name:      "fake_subnetport",
+					Namespace: "fake_ns",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					Subnet: "subnet-1",
+					AddressBindings: []v1alpha1.PortAddressBinding{
+						{
+							IPAddress:  "10.0.0.1",
+							MACAddress: "aa:bb:cc:dd:ee:ff",
+						},
+					},
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					Mode: common.String("DHCP_SERVER"),
+				},
+				Path: common.String("fake_path"),
+			},
+			contextID: "fake_context_id",
+			labelTags: nil,
+			expectedPort: &model.VpcSubnetPort{
+				DisplayName: common.String("fake_subnetport"),
+				Id:          common.String("fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				Tags: []model.Tag{
+					{
+						Scope: common.String("nsx-op/cluster"),
+						Tag:   common.String("fake_cluster"),
+					},
+					{
+						Scope: common.String("nsx-op/version"),
+						Tag:   common.String("1.0.0"),
+					},
+					{
+						Scope: common.String("nsx-op/namespace"),
+						Tag:   common.String("fake_ns"),
+					},
+					{
+						Scope: common.String("nsx-op/subnetport_name"),
+						Tag:   common.String("fake_subnetport"),
+					},
+					{
+						Scope: common.String("nsx-op/subnetport_uid"),
+						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+					},
+				},
+				Path:       common.String("fake_path/ports/fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				ParentPath: common.String("fake_path"),
+				Attachment: &model.PortAttachment{
+					AllocateAddresses: common.String("DHCP"),
+					Type_:             common.String("STATIC"),
+					TrafficTag:        common.Int64(0),
+				},
+				AddressBindings: []model.PortAddressBindingEntry{
+					{
+						IpAddress:  common.String("10.0.0.1"),
+						MacAddress: common.String("aa:bb:cc:dd:ee:ff"),
+					},
+				},
+			},
+			expectedStaticBinding: &model.DhcpV4StaticBindingConfig{
+				Id:           common.String("fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				ResourceType: "DhcpV4StaticBindingConfig",
+				IpAddress:    common.String("10.0.0.1"),
+				MacAddress:   common.String("aa:bb:cc:dd:ee:ff"),
+			},
+			expectedError: nil,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observedPort, err := service.buildSubnetPort(tt.obj, tt.nsxSubnet, tt.contextID, tt.labelTags, false, tt.restore)
+			observedPort, observedStaticBinding, err := service.buildSubnetPort(tt.obj, tt.nsxSubnet, tt.contextID, tt.labelTags, false, tt.restore)
 			// Ignore attachment id as it is random
 			if tt.expectedError != nil {
 				assert.Equal(t, tt.expectedError, err)
@@ -490,6 +564,9 @@ func TestBuildSubnetPort(t *testing.T) {
 				tt.expectedPort.Attachment.Id = observedPort.Attachment.Id
 				assert.Equal(t, tt.expectedPort, observedPort)
 				assert.Equal(t, common.CompareResource(SubnetPortToComparable(tt.expectedPort), SubnetPortToComparable(observedPort)), false)
+				if tt.expectedStaticBinding != nil {
+					assert.Equal(t, tt.expectedStaticBinding, observedStaticBinding)
+				}
 			}
 		})
 	}

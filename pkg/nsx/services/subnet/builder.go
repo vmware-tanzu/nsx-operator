@@ -76,7 +76,9 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 				dhcpServerAdditionalConfig.ReservedIpRanges = append(dhcpServerAdditionalConfig.ReservedIpRanges, o.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges[index])
 			}
 		}
+		log.Info("xiaopp dhcpServerAdditionalConfig.ReservedIpRanges", "dhcpServerAdditionalConfig.ReservedIpRanges", dhcpServerAdditionalConfig.ReservedIpRanges)
 		nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode, dhcpServerAdditionalConfig)
+		log.Info("xiaopp nsxSubnet.SubnetDhcpConfig", "nsxSubnet.SubnetDhcpConfig", nsxSubnet.SubnetDhcpConfig)
 		if len(o.Spec.IPAddresses) > 0 {
 			nsxSubnet.IpAddresses = o.Spec.IPAddresses
 		} else if len(o.Status.NetworkAddresses) > 0 {

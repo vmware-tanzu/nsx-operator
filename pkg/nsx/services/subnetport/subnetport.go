@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	mp_model "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
@@ -35,6 +36,7 @@ var (
 type SubnetPortService struct {
 	servicecommon.Service
 	SubnetPortStore            *SubnetPortStore
+	DHCPStaticBindingStore     *DHCPStaticBindingStore
 	VPCService                 servicecommon.VPCServiceProvider
 	IpAddressAllocationService servicecommon.IPAddressAllocationServiceProvider
 	builder                    *servicecommon.PolicyTreeBuilder[*model.VpcSubnetPort]
@@ -49,7 +51,8 @@ func InitializeSubnetPort(service servicecommon.Service, vpcService servicecommo
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
 
-	wg.Add(1)
+	// defer close(fatalErrors)
+	wg.Add(2)
 
 	subnetPortService := &SubnetPortService{
 		Service:                    service,
@@ -72,11 +75,18 @@ func InitializeSubnetPort(service servicecommon.Service, vpcService servicecommo
 			BindingType: model.VpcSubnetPortBindingType(),
 		}}
 
+	subnetPortService.DHCPStaticBindingStore = &DHCPStaticBindingStore{
+		ResourceStore: servicecommon.ResourceStore{
+			Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+			BindingType: model.DhcpV4StaticBindingConfigBindingType(),
+		}}
+
 	if err := subnetPortService.loadNSXMacPool(); err != nil {
 		return subnetPortService, err
 	}
 
 	go subnetPortService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSubnetPort, nil, subnetPortService.SubnetPortStore)
+	go subnetPortService.InitializeResourceStore(&wg, fatalErrors, servicecommon.ResourceTypeDhcpV4StaticBindingConfig, nil, subnetPortService.DHCPStaticBindingStore)
 	go func() {
 		wg.Wait()
 		close(wgDone)
@@ -86,7 +96,6 @@ func InitializeSubnetPort(service servicecommon.Service, vpcService servicecommo
 	case <-wgDone:
 		break
 	case err := <-fatalErrors:
-		close(fatalErrors)
 		return subnetPortService, err
 	}
 
@@ -117,7 +126,7 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		uid = string(o.UID)
 	}
 	log.Info("creating or updating subnetport", "nsxSubnetPort.Id", uid, "nsxSubnetPath", *nsxSubnet.Path)
-	nsxSubnetPort, err := service.buildSubnetPort(obj, nsxSubnet, contextID, tags, isVmSubnetPort, restoreMode)
+	nsxSubnetPort, staticBinding, err := service.buildSubnetPort(obj, nsxSubnet, contextID, tags, isVmSubnetPort, restoreMode)
 	if err != nil {
 		log.Error(err, "failed to build NSX subnet port", "nsxSubnetPort.Id", uid, "*nsxSubnet.Path", *nsxSubnet.Path, "contextID", contextID)
 		return nil, false, err
@@ -178,6 +187,40 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		log.Info("successfully created or updated subnetport", "nsxSubnetPort.Id", *nsxSubnetPort.Id)
 	} else {
 		log.Info("subnetport already existed", "subnetport", *nsxSubnetPort.Id)
+	}
+	// create DHCP static binding if needed
+	if staticBinding != nil {
+		log.Info("creating or updating DHCP static binding", "staticBinding.Id", staticBinding.Id, "staticBinding.IpAddress", staticBinding.IpAddress)
+		tags := data.NewListValue()
+		for index := range staticBinding.Tags {
+			dataValue := data.NewStructValue(
+				"",
+				map[string]data.DataValue{
+					"scope": data.NewStringValue(*staticBinding.Tags[index].Scope),
+					"tag":   data.NewStringValue(*staticBinding.Tags[index].Tag),
+				})
+			tags.Add(dataValue)
+		}
+		staticBindingStruct := data.NewStructValue(
+			"",
+			map[string]data.DataValue{
+				"id":            data.NewStringValue(*staticBinding.Id),
+				"resource_type": data.NewStringValue(staticBinding.ResourceType),
+				"ip_address":    data.NewStringValue(*staticBinding.IpAddress),
+				"mac_address":   data.NewStringValue(*staticBinding.MacAddress),
+				"tags":          tags,
+			},
+		)
+		err = service.NSXClient.DhcpStaticBindingConfigsClient.Patch(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *nsxSubnetPort.Id, staticBindingStruct)
+		if err != nil {
+			log.Error(err, "failed to create or update DHCP static binding", "staticBinding.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
+			return nil, false, err
+		}
+
+	}
+	err = service.DHCPStaticBindingStore.Apply(staticBinding)
+	if err != nil {
+		return nil, false, err
 	}
 	return nsxSubnetPortState, enableDHCP, nil
 }
@@ -256,6 +299,17 @@ func (service *SubnetPortService) DeleteSubnetPort(nsxSubnetPort *model.VpcSubne
 		return err
 	}
 	log.Info("successfully deleted nsxSubnetPort", "nsxSubnetPortID", *nsxSubnetPort.Id)
+	// delete DHCP static binding if needed
+	staticBinding := service.DHCPStaticBindingStore.GetByKey(*nsxSubnetPort.Id)
+	if staticBinding != nil {
+		err = service.NSXClient.DhcpStaticBindingConfigsClient.Delete(subnetPortInfo.OrgID, subnetPortInfo.ProjectID, subnetPortInfo.VPCID, subnetPortInfo.ParentID, *nsxSubnetPort.Id)
+		err = nsxutil.TransNSXApiError(err)
+		if err != nil {
+			log.Error(err, "failed to delete DHCP static binding", "dhcpStaticBinding.Id", *nsxSubnetPort.Id)
+			return err
+		}
+		service.DHCPStaticBindingStore.Delete(staticBinding)
+	}
 	return nil
 }
 

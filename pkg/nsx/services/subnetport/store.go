@@ -16,6 +16,8 @@ func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
 	case *model.VpcSubnetPort:
 		return *v.Id, nil
+	case *model.DhcpV4StaticBindingConfig:
+		return *v.Id, nil
 	case types.UID:
 		return string(v), nil
 	case string:
@@ -147,4 +149,40 @@ func (subnetPortStore *SubnetPortStore) DeleteMultipleObjects(ports []*model.Vpc
 	for _, port := range ports {
 		subnetPortStore.Delete(port)
 	}
+}
+
+// DHCPStaticBindingStore is a store for DHCPStaticBindings
+type DHCPStaticBindingStore struct {
+	common.ResourceStore
+}
+
+func (staticBindingStore *DHCPStaticBindingStore) Apply(i interface{}) error {
+	if i == nil {
+		return nil
+	}
+	staticBinding := i.(*model.DhcpV4StaticBindingConfig)
+	if staticBinding.MarkedForDelete != nil && *staticBinding.MarkedForDelete {
+		err := staticBindingStore.Delete(staticBinding)
+		log.V(1).Info("delete DhcpV4StaticBindingConfig from store", "staticBinding", staticBinding)
+		if err != nil {
+			return err
+		}
+	} else {
+		err := staticBindingStore.Add(staticBinding)
+		log.V(1).Info("add DhcpV4StaticBindingConfig to store", "staticBinding", staticBinding)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (staticBindingStore *DHCPStaticBindingStore) GetByKey(key string) *model.DhcpV4StaticBindingConfig {
+	var staticBinding *model.DhcpV4StaticBindingConfig
+	obj := staticBindingStore.ResourceStore.GetByKey(key)
+	if obj != nil {
+		staticBinding = obj.(*model.DhcpV4StaticBindingConfig)
+	}
+	return staticBinding
 }
