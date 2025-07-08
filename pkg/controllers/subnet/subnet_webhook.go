@@ -11,6 +11,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -88,6 +89,9 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 			if oldSubnet.Spec.AdvancedConfig.EnableVLANExtension != subnet.Spec.AdvancedConfig.EnableVLANExtension {
 				return admission.Denied(fmt.Sprintf("Subnet %s/%s: spec.enableVLANExtension can only be updated by NSX Operator", subnet.Namespace, subnet.Name))
 			}
+		}
+		if !nsxutil.CompareArraysWithoutOrder(oldSubnet.Spec.IPAddresses, subnet.Spec.IPAddresses) {
+			return admission.Denied("ipAddresses is immutable")
 		}
 	case admissionv1.Delete:
 		oldSubnet := &v1alpha1.Subnet{}
