@@ -510,14 +510,6 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
 					}
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetProjectName", func(_ *vpc.VPCService,
-					orgID, projID string) (string, error) {
-					return "project-name", nil
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCName", func(_ *vpc.VPCService,
-					orgID, projID, vpcID string) (string, error) {
-					return "vpc-name", nil
-				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "CreateOrUpdateSubnet", func(_ *subnet.SubnetService, obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (*model.VpcSubnet, error) {
 					return nil, errors.New("create or update failed")
 				})
@@ -553,15 +545,6 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
 					}
 				})
-
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetProjectName", func(_ *vpc.VPCService,
-					orgID, projID string) (string, error) {
-					return "project-name", nil
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCName", func(_ *vpc.VPCService,
-					orgID, projID, vpcID string) (string, error) {
-					return "vpc-name", nil
-				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "CreateOrUpdateSubnet", func(_ *subnet.SubnetService, obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (*model.VpcSubnet, error) {
 					return nil, nil
 				})
@@ -592,7 +575,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			},
 			existingSubnetCR: createNewSubnet(),
 			expectSubnetCR: &v1alpha1.Subnet{
-				Spec: v1alpha1.SubnetSpec{VPCName: "project-name:vpc-name", IPv4SubnetSize: 16, AccessMode: "Private",
+				Spec: v1alpha1.SubnetSpec{VPCName: "project-id:vpc-id", IPv4SubnetSize: 16, AccessMode: "Private",
 					IPAddresses:      []string(nil),
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)}},
 				Status: v1alpha1.SubnetStatus{},
@@ -622,14 +605,6 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					}
 				})
 
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetProjectName", func(_ *vpc.VPCService,
-					orgID, projID string) (string, error) {
-					return "project-name", nil
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCName", func(_ *vpc.VPCService,
-					orgID, projID, vpcID string) (string, error) {
-					return "vpc-name", nil
-				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "CreateOrUpdateSubnet", func(_ *subnet.SubnetService, obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (*model.VpcSubnet, error) {
 					return nil, nil
 				})
@@ -645,7 +620,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			},
 			existingSubnetCR: createNewSubnet(),
 			expectSubnetCR: &v1alpha1.Subnet{
-				Spec: v1alpha1.SubnetSpec{VPCName: "project-name:vpc-name", IPv4SubnetSize: 16, AccessMode: "Private", IPAddresses: []string(nil),
+				Spec: v1alpha1.SubnetSpec{VPCName: "project-id:vpc-id", IPv4SubnetSize: 16, AccessMode: "Private", IPAddresses: []string(nil),
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)}},
 				Status: v1alpha1.SubnetStatus{},
 			},
@@ -684,14 +659,6 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return []common.VPCResourceInfo{
 						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
 					}
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetProjectName", func(_ *vpc.VPCService,
-					orgID, projID string) (string, error) {
-					return "project-name", nil
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCName", func(_ *vpc.VPCService,
-					orgID, projID, vpcID string) (string, error) {
-					return "vpc-name", nil
 				})
 
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "IsDefaultNSXProject", func(_ *vpc.VPCService, orgID, projectID string) (bool, error) {

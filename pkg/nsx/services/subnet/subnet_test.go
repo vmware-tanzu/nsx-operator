@@ -979,7 +979,7 @@ func TestBuildSubnetCR(t *testing.T) {
 		name           string
 		ns             string
 		subnetName     string
-		vpcFullName    string
+		vpcFullID      string
 		associatedName string
 		nsxSubnet      *model.VpcSubnet
 		expectedSubnet *v1alpha1.Subnet
@@ -988,7 +988,7 @@ func TestBuildSubnetCR(t *testing.T) {
 			name:           "Build Subnet CR with NSX Subnet",
 			ns:             "test-ns",
 			subnetName:     "test-subnet",
-			vpcFullName:    "proj-1:vpc-1",
+			vpcFullID:      "proj-1:vpc-1",
 			associatedName: "proj-1:vpc-1:subnet-1",
 			expectedSubnet: &v1alpha1.Subnet{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1011,7 +1011,7 @@ func TestBuildSubnetCR(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			service := &SubnetService{}
-			subnetCR := service.BuildSubnetCR(tt.ns, tt.subnetName, tt.vpcFullName, tt.associatedName)
+			subnetCR := service.BuildSubnetCR(tt.ns, tt.subnetName, tt.vpcFullID, tt.associatedName)
 			assert.Equal(t, tt.expectedSubnet, subnetCR)
 		})
 	}

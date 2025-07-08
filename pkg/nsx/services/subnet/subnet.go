@@ -626,7 +626,7 @@ func (service *SubnetService) MapNSXSubnetStatusToSubnetCRStatus(subnetCR *v1alp
 }
 
 // BuildSubnetCR creates a Subnet CR object with the given parameters
-func (service *SubnetService) BuildSubnetCR(ns, subnetName, vpcFullName, associatedName string) *v1alpha1.Subnet {
+func (service *SubnetService) BuildSubnetCR(ns, subnetName, vpcFullID, associatedName string) *v1alpha1.Subnet {
 	// Create the Subnet CR
 	subnetCR := &v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -637,7 +637,7 @@ func (service *SubnetService) BuildSubnetCR(ns, subnetName, vpcFullName, associa
 			},
 		},
 		Spec: v1alpha1.SubnetSpec{
-			VPCName: vpcFullName,
+			VPCName: vpcFullID,
 		},
 	}
 	log.Info("Build Subnet CR", "Subnet", subnetCR)
