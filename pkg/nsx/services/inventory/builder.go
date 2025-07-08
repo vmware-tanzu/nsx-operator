@@ -326,13 +326,21 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 	netStatus := NetworkStatusHealthy
 	status := InventoryStatusUp
 	podIDs, hasAddr := GetPodIDsFromEndpoint(context.TODO(), s.Client, service.Name, service.Namespace)
+
+	// Check if a service has a selector - services without selectors are valid
+	hasSelector := len(service.Spec.Selector) > 0
+
 	if len(podIDs) > 0 {
 		status = InventoryStatusUp
 	} else if hasAddr {
 		status = InventoryStatusUnknown
-	} else {
+	} else if hasSelector {
+		// Only mark as down if service has selector but no endpoints
 		status = InventoryStatusDown
 		netStatus = NetworkStatusUnhealthy
+	} else {
+		// Service without a selector is valid even without endpoints
+		status = InventoryStatusUp
 	}
 
 	// Get network errors from service annotations
