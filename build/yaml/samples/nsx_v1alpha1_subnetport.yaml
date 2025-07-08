@@ -49,7 +49,7 @@ metadata:
   name: subnetport-sample-c
 spec:
   subnet: vm-subnet
-  address_bindings:
+  addressBindings:
   - ipAddress: 172.26.0.3
     macAddress: 04:50:56:00:94:00
 status:
