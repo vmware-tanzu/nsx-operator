@@ -8,7 +8,8 @@ import (
 )
 
 type (
-	SubnetPort model.VpcSubnetPort
+	SubnetPort        model.VpcSubnetPort
+	DhcpStaticBinding model.DhcpV4StaticBindingConfig
 )
 
 type Comparable = common.Comparable
@@ -36,6 +37,14 @@ func (sp *SubnetPort) Value() data.DataValue {
 			Type_:             sp.Attachment.AllocateAddresses,
 		}
 	}
+	if sp.AddressBindings != nil {
+		s.AddressBindings = []model.PortAddressBindingEntry{
+			{
+				IpAddress:  sp.AddressBindings[0].IpAddress,
+				MacAddress: sp.AddressBindings[0].MacAddress,
+			},
+		}
+	}
 	if sp.ExternalAddressBinding != nil {
 		s.ExternalAddressBinding = &model.ExternalAddressBinding{AllocatedExternalIpPath: sp.ExternalAddressBinding.AllocatedExternalIpPath}
 	}
@@ -49,4 +58,28 @@ func SubnetPortToComparable(sp *model.VpcSubnetPort) Comparable {
 
 func ComparableToSubnetPort(sp Comparable) *model.VpcSubnetPort {
 	return (*model.VpcSubnetPort)(sp.(*SubnetPort))
+}
+
+func (binding *DhcpStaticBinding) Key() string {
+	return *binding.Id
+}
+
+func (binding *DhcpStaticBinding) Value() data.DataValue {
+	s := &DhcpStaticBinding{
+		Id:         binding.Id,
+		Tags:       binding.Tags,
+		IpAddress:  binding.IpAddress,
+		MacAddress: binding.MacAddress,
+	}
+
+	dataValue, _ := ComparableToDhcpStaticBinding(s).GetDataValue__()
+	return dataValue
+}
+
+func DhcpStaticBindingToComparable(binding *model.DhcpV4StaticBindingConfig) Comparable {
+	return (*DhcpStaticBinding)(binding)
+}
+
+func ComparableToDhcpStaticBinding(binding Comparable) *model.DhcpV4StaticBindingConfig {
+	return (*model.DhcpV4StaticBindingConfig)(binding.(*DhcpStaticBinding))
 }
