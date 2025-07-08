@@ -105,7 +105,7 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 		Tags:                    GetTagsFromLabels(pod.Labels),
 		ClusterNodeId:           string(node.UID),
 		ContainerApplicationIds: containerApplicationIds,
-		ContainerClusterId:      s.NSXConfig.Cluster,
+		ContainerClusterId:      util.GetClusterUUID(s.NSXConfig.Cluster).String(),
 		ContainerProjectId:      string(namespace.UID),
 		ExternalId:              string(pod.UID),
 		NetworkErrors:           networkErrors,
@@ -167,7 +167,7 @@ func (s *InventoryService) BuildIngress(ingress *networkingv1.Ingress) (retry bo
 		ResourceType:            string(ContainerIngressPolicy),
 		Tags:                    GetTagsFromLabels(ingress.Labels),
 		ContainerApplicationIds: nil,
-		ContainerClusterId:      s.NSXConfig.Cluster,
+		ContainerClusterId:      util.GetClusterUUID(s.NSXConfig.Cluster).String(),
 		ContainerProjectId:      string(namespace.UID),
 		ExternalId:              string(ingress.UID),
 		NetworkErrors:           networkErrors,
@@ -190,11 +190,11 @@ func (s *InventoryService) BuildIngress(ingress *networkingv1.Ingress) (retry bo
 
 func (s *InventoryService) BuildInventoryCluster() containerinventory.ContainerCluster {
 	scope := containerinventory.DiscoveredResourceScope{
-		ScopeId:   s.NSXConfig.Cluster,
+		ScopeId:   util.GetClusterUUID(s.NSXConfig.Cluster).String(),
 		ScopeType: "CONTAINER_CLUSTER"}
 
 	clusterType := InventoryClusterTypeSupervisor
-	clusterName := s.NSXConfig.Cluster
+	clusterName := util.GetClusterUUID(s.NSXConfig.Cluster).String()
 	var networkErrors []common.NetworkError
 	infra := &containerinventory.ContainerInfrastructureInfo{}
 	infra.InfraType = InventoryInfraTypeVsphere
@@ -203,7 +203,7 @@ func (s *InventoryService) BuildInventoryCluster() containerinventory.ContainerC
 		ResourceType:   string(ContainerCluster),
 		Scope:          []containerinventory.DiscoveredResourceScope{scope},
 		ClusterType:    clusterType,
-		ExternalId:     s.NSXConfig.Cluster,
+		ExternalId:     util.GetClusterUUID(s.NSXConfig.Cluster).String(),
 		NetworkErrors:  networkErrors,
 		NetworkStatus:  NetworkStatusHealthy,
 		Infrastructure: infra,
@@ -290,7 +290,7 @@ func (s *InventoryService) BuildNamespace(namespace *corev1.Namespace) (retry bo
 		DisplayName:        namespace.Name,
 		ResourceType:       string(ContainerProject),
 		Tags:               GetTagsFromLabels(namespace.Labels),
-		ContainerClusterId: s.NSXConfig.Cluster,
+		ContainerClusterId: util.GetClusterUUID(s.NSXConfig.Cluster).String(),
 		ExternalId:         string(namespace.UID),
 		NetworkErrors:      networkErrors,
 		NetworkStatus:      networkStatus,
@@ -380,7 +380,7 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 		DisplayName:        service.Name,
 		ResourceType:       string(ContainerApplication),
 		Tags:               GetTagsFromLabels(service.Labels),
-		ContainerClusterId: s.NSXConfig.Cluster,
+		ContainerClusterId: util.GetClusterUUID(s.NSXConfig.Cluster).String(),
 		ContainerProjectId: string(namespace.UID),
 		ExternalId:         string(service.UID),
 		NetworkErrors:      networkErrors,
@@ -522,7 +522,7 @@ func (s *InventoryService) BuildNode(node *corev1.Node) (retry bool) {
 		DisplayName:        node.Name,
 		ResourceType:       string(ContainerClusterNode),
 		Tags:               GetTagsFromLabels(node.Labels),
-		ContainerClusterId: s.NSXConfig.Cluster,
+		ContainerClusterId: util.GetClusterUUID(s.NSXConfig.Cluster).String(),
 		ExternalId:         string(node.UID),
 		IpAddresses:        ipAddresses,
 		NetworkErrors:      networkErrors,
@@ -590,7 +590,7 @@ func (s *InventoryService) BuildNetworkPolicy(networkPolicy *networkingv1.Networ
 		DisplayName:        networkPolicy.Name,
 		ResourceType:       string(ContainerNetworkPolicy),
 		Tags:               GetTagsFromLabels(networkPolicy.Labels),
-		ContainerClusterId: s.NSXConfig.Cluster,
+		ContainerClusterId: util.GetClusterUUID(s.NSXConfig.Cluster).String(),
 		ContainerProjectId: string(namespace.UID),
 		ExternalId:         string(networkPolicy.UID),
 		NetworkErrors:      networkErrors,
