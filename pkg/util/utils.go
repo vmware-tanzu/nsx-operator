@@ -36,7 +36,8 @@ const (
 )
 
 var (
-	String = common.String
+	String      = common.String
+	clusterUUID uuid.UUID
 )
 
 var log = &logger.Log
@@ -564,4 +565,11 @@ func GetRandomIndexString() string {
 // IsPowerOfTwo checks if a given number is a power of 2
 func IsPowerOfTwo(n int) bool {
 	return n > 0 && (n&(n-1)) == 0
+}
+
+func GetClusterUUID(clusterID string) uuid.UUID {
+	if clusterUUID == uuid.Nil {
+		clusterUUID = uuid.NewSHA1(uuid.NameSpaceX500, []byte(clusterID))
+	}
+	return clusterUUID
 }

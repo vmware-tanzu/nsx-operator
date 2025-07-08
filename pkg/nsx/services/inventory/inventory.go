@@ -10,6 +10,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 
 	"github.com/vmware/go-vmware-nsxt/containerinventory"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -17,7 +18,8 @@ import (
 )
 
 var (
-	log = &logger.Log
+	log         = &logger.Log
+	clusterUUID string
 )
 
 type InventoryService struct {
@@ -40,6 +42,7 @@ type InventoryService struct {
 func InitializeService(service commonservice.Service, cleanup bool) (*InventoryService, error) {
 	inventoryService := NewInventoryService(service)
 	err := inventoryService.Initialize(cleanup)
+	clusterUUID = util.GetClusterUUID(inventoryService.NSXConfig.Cluster).String()
 	return inventoryService, err
 }
 
@@ -131,27 +134,27 @@ func (s *InventoryService) initContainerCluster(cleanup bool) error {
 
 func (s *InventoryService) SyncInventoryStoreByType(clusterId string) error {
 	log.Info("Populating inventory object from NSX")
-	err := s.initContainerProject(clusterId)
+	err := s.initContainerProject(clusterUUID)
 	if err != nil {
 		return err
 	}
-	err = s.initContainerApplicationInstance(clusterId)
+	err = s.initContainerApplicationInstance(clusterUUID)
 	if err != nil {
 		return err
 	}
-	err = s.initContainerApplication(clusterId)
+	err = s.initContainerApplication(clusterUUID)
 	if err != nil {
 		return err
 	}
-	err = s.initContainerClusterNode(clusterId)
+	err = s.initContainerClusterNode(clusterUUID)
 	if err != nil {
 		return err
 	}
-	err = s.initContainerNetworkPolicy(clusterId)
+	err = s.initContainerNetworkPolicy(clusterUUID)
 	if err != nil {
 		return err
 	}
-	err = s.initContainerIngressPolicy(clusterId)
+	err = s.initContainerIngressPolicy(clusterUUID)
 	if err != nil {
 		return err
 	}
@@ -292,7 +295,7 @@ func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore(ctx context.Con
 		log.V(1).Info("Send update to NSX clusterId ", "ContainerInventoryData", s.requestBuffer)
 		// TODO, check the context.TODO() be replaced by NsxApiClient related todo
 		resp, err := s.NSXClient.NsxApiClient.ContainerInventoryApi.AddContainerInventoryUpdateUpdates(ctx,
-			s.NSXConfig.Cluster,
+			clusterUUID,
 			containerinventory.ContainerInventoryData{ContainerInventoryObjects: s.requestBuffer})
 
 		// Update NSX Inventory store when the request succeeds.
