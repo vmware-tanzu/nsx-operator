@@ -16,10 +16,10 @@ spec:
   ipAddresses:
   - 172.26.2.0/28
   subnetDHCPConfig:
+    mode: DHCPServer
     dhcpServerAdditionalConfig:
       reservedIPRanges:
       - 172.26.2.4-172.26.2.10
-    mode: DHCPServer
 ---
 # Subnet CR sample for assigned VLAN extension Subnet
 apiVersion: crd.nsx.vmware.com/v1alpha1
