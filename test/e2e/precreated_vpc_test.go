@@ -28,7 +28,7 @@ const (
 
 	lbServicePort     = int32(8080)
 	podPort           = int32(80)
-	resourceReadyTime = 5 * time.Minute
+	resourceReadyTime = 10 * time.Hour
 	nsDeleteTime      = 2 * time.Minute
 
 	nsPrivilegedLabel = "pod-security.kubernetes.io/enforce"

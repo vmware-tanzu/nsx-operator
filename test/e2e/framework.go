@@ -913,28 +913,41 @@ func checkTrafficByCurl(ns, podname, containername, ip string, port int32, inter
 	return trafficErr
 }
 
-func testSSHConnection(host, username, password string, port int) error {
+func testSSHConnection(host, username, password string, port int, timeout time.Duration) error {
 	config := &ssh.ClientConfig{
 		User: username,
 		Auth: []ssh.AuthMethod{
 			ssh.Password(password),
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // #nosec G106
-		Timeout:         5 * time.Second,
+		// Set a shorter timeout for each connection attempt
+		Timeout: 5 * time.Second,
 	}
 
 	address := fmt.Sprintf("%s:%d", host, port)
-	client, err := ssh.Dial("tcp", address, config)
-	if err != nil {
-		return fmt.Errorf("failed to dial: %v", err)
-	}
-	defer client.Close()
 
-	session, err := client.NewSession()
+	// Use polling with retries
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
+		client, err := ssh.Dial("tcp", address, config)
+		if err != nil {
+			log.V(1).Info("SSH connection attempt failed", "error", err)
+			return false, nil // Return false to retry
+		}
+		defer client.Close()
+
+		session, err := client.NewSession()
+		if err != nil {
+			log.V(1).Info("SSH session creation failed", "error", err)
+			return false, nil // Return false to retry
+		}
+		defer session.Close()
+
+		return true, nil // Success
+	})
+
 	if err != nil {
-		return fmt.Errorf("failed to create session: %v", err)
+		return fmt.Errorf("failed to establish SSH connection after retries: %v", err)
 	}
-	defer session.Close()
 
 	return nil
 }
