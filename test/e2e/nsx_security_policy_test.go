@@ -69,20 +69,20 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 	}()
 
 	// Create pods
-	clientPodName := "client-pod"
-	serverPodName := "server-pod"
-	_, err = testData.createPod(ns, clientPodName, containerName, podImage, corev1.ProtocolTCP, podPort)
-	require.NoErrorf(t, err, "Client Pod '%s/%s' should be created", ns, clientPodName)
-	_, err = testData.createPod(ns, serverPodName, containerName, podImage, corev1.ProtocolTCP, podPort)
-	require.NoErrorf(t, err, "Server Pod '%s/%s' should be created", ns, serverPodName)
-	_, err = testData.podWaitForIPs(resourceReadyTime, clientPodName, ns)
-	require.NoErrorf(t, err, "Client Pod '%s/%s' is not ready within time %s", ns, clientPodName, resourceReadyTime.String())
-	iPs, err := testData.podWaitForIPs(resourceReadyTime, serverPodName, ns)
-	require.NoErrorf(t, err, "Server Pod '%s/%s' is not ready within time %s", ns, serverPodName, resourceReadyTime.String())
-	log.Info("Server Pod in the Namespace is ready", "Namespace", ns, "Pod", serverPodName)
+	deploymentName := "server-client"
+	_, err = testData.createDeployment(ns, deploymentName, containerName, podImage, corev1.ProtocolTCP, podPort, 2)
+	require.NoErrorf(t, err, "Deloyment '%s/%s' should be created", ns, deploymentName)
+	serverClientIPs, serverClientNames, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, ns, deploymentName, 2)
+	require.NoError(t, err, "Error when waiting for IP for Deployment '%s/%s'", ns, deploymentName)
+
+	serverPodName := serverClientNames[0]
+	clientPodName := serverClientNames[1]
+	serverPodIP := serverClientIPs[0]
+
+	log.Info("Server and Client Pod in the Namespace is ready", "Namespace", ns, "ServerPod", serverPodName, "ClientPod", clientPodName)
 
 	// Test traffic from client Pod to server Pod
-	trafficErr := checkTrafficByCurl(ns, clientPodName, containerName, iPs.ipv4.String(), podPort, timeInterval, timeOut10)
+	trafficErr := checkTrafficByCurl(ns, clientPodName, containerName, serverPodIP, podPort, timeInterval, timeOut10)
 	require.NoError(t, trafficErr, "Basic traffic should work")
 	log.Info("Verified traffic from client Pod to the server Pod")
 
@@ -98,7 +98,7 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, true))
 
 	// Test traffic from client Pod to server Pod
-	trafficErr = checkTrafficByCurl(ns, clientPodName, containerName, iPs.ipv4.String(), podPort, timeInterval, timeOut5)
+	trafficErr = checkTrafficByCurl(ns, clientPodName, containerName, serverPodIP, podPort, timeInterval, timeOut5)
 	require.Error(t, trafficErr, "Basic traffic should not work")
 	log.Info("Verified traffic from client Pod to the server Pod")
 
@@ -123,7 +123,7 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, false))
 
 	// Test traffic from client Pod to server Pod
-	trafficErr = checkTrafficByCurl(ns, clientPodName, containerName, iPs.ipv4.String(), podPort, timeInterval, timeOut10)
+	trafficErr = checkTrafficByCurl(ns, clientPodName, containerName, serverPodIP, podPort, timeInterval, timeOut10)
 	require.NoError(t, trafficErr, "Basic traffic should work")
 	log.Info("Verified traffic from client Pod to the server Pod")
 }
@@ -373,7 +373,7 @@ func testSecurityPolicyNamedPorWithPod(t *testing.T) {
 	clientPodIPs, err := testData.podWaitForIPs(defaultTimeout, clientA, nsClient)
 	t.Logf("client Pods are %v", clientPodIPs)
 	assert.NoError(t, err, "Error when waiting for IP for Pod %s", clientA)
-	namedPortPodIPs, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb)
+	namedPortPodIPs, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb, 2)
 	t.Logf("NamedPort Pods are %v", namedPortPodIPs)
 	assert.NoError(t, err, "Error when waiting for IP for Pod %s", webA)
 	assureSecurityPolicyReady(t, nsWeb, securityPolicyCRName)
