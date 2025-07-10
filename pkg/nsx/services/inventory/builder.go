@@ -2,7 +2,7 @@ package inventory
 
 import (
 	"context"
-	"crypto/sha1" // #nosec G505: not used for security purposes
+	"crypto/sha1" // #nosec G505: not used for security
 	"fmt"
 	"sort"
 
@@ -20,7 +20,7 @@ import (
 func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 	log.Info("Add Pod ", "Pod", pod.Name, "Namespace", pod.Namespace)
 	retry = false
-	// Calculate the services related to this Pod from pendingAdd or inventory store.
+	// Calculate the services related to this Pod from the pendingAdd or inventory store.
 	var containerApplicationIds []string
 	if s.pendingAdd[string(pod.UID)] != nil {
 		containerApplicationInstance := s.pendingAdd[string(pod.UID)].(*containerinventory.ContainerApplicationInstance)
@@ -57,7 +57,8 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 	}
 
 	// Create network errors from pod conditions and status message
-	var networkErrors []common.NetworkError
+	// Initialize as an empty slice to ensure NSX receives [] instead of null when clearing errors
+	networkErrors := make([]common.NetworkError, 0)
 	networkStatus := NetworkStatusHealthy
 	if pod.Status.Phase != corev1.PodRunning && pod.Status.Phase != corev1.PodSucceeded {
 		networkStatus = NetworkStatusUnhealthy
@@ -151,7 +152,8 @@ func (s *InventoryService) BuildIngress(ingress *networkingv1.Ingress) (retry bo
 	}
 
 	// Get network errors from ingress annotations
-	var networkErrors []common.NetworkError
+	// Initialize as empty slice to ensure NSX receives [] instead of null when clearing errors
+	networkErrors := make([]common.NetworkError, 0)
 	networkStatus := NetworkStatusHealthy
 	for key, value := range ingress.Annotations {
 		if key == NcpLbError {
@@ -175,9 +177,9 @@ func (s *InventoryService) BuildIngress(ingress *networkingv1.Ingress) (retry bo
 		OriginProperties:        nil,
 		Spec:                    string(spec),
 	}
-	appids := s.getIngressAppIds(ingress)
-	if len(appids) > 0 {
-		containerIngress.ContainerApplicationIds = appids
+	appIDs := s.getIngressAppIds(ingress)
+	if len(appIDs) > 0 {
+		containerIngress.ContainerApplicationIds = appIDs
 	}
 	log.V(1).Info("Build ingress", "current instance", containerIngress, "pre instance", preIngress)
 	operation, _ := s.compareAndMergeUpdate(preIngress, containerIngress)
@@ -195,7 +197,8 @@ func (s *InventoryService) BuildInventoryCluster() containerinventory.ContainerC
 
 	clusterType := InventoryClusterTypeSupervisor
 	clusterName := s.NSXConfig.Cluster
-	var networkErrors []common.NetworkError
+	// Initialize as an empty slice to ensure NSX receives [] instead of null when clearing errors
+	networkErrors := make([]common.NetworkError, 0)
 	infra := &containerinventory.ContainerInfrastructureInfo{}
 	infra.InfraType = InventoryInfraTypeVsphere
 	newContainerCluster := containerinventory.ContainerCluster{
@@ -242,7 +245,7 @@ func normalize(name string, maxLength int) string {
 	if len(name) <= maxLength {
 		return name
 	}
-	// #nosec G401: not used for security purposes
+	// #nosec G401: not used for security
 	hashId := sha1.Sum([]byte(name))
 	nameLength := maxLength - 9
 	newname := fmt.Sprintf("%s-%s", name[:nameLength], hashId[:8])
@@ -275,7 +278,8 @@ func (s *InventoryService) BuildNamespace(namespace *corev1.Namespace) (retry bo
 	}
 
 	// Extract network errors from annotations
-	var networkErrors []common.NetworkError
+	// Initialize as empty slice to ensure NSX receives [] instead of null when clearing errors
+	networkErrors := make([]common.NetworkError, 0)
 	networkStatus := NetworkStatusHealthy
 
 	// Check for VPC error annotation
@@ -322,8 +326,8 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 		return
 	}
 
-	var networkErrors []common.NetworkError
-
+	// Initialize as an empty slice to ensure NSX receives [] instead of null when clearing errors
+	networkErrors := make([]common.NetworkError, 0)
 	// Get pods from the endpoint
 	netStatus := NetworkStatusHealthy
 	status := InventoryStatusUp
@@ -497,7 +501,7 @@ func (s *InventoryService) BuildNode(node *corev1.Node) (retry bool) {
 	}
 
 	// Create network errors from node conditions
-	var networkErrors []common.NetworkError
+	networkErrors := make([]common.NetworkError, 0)
 	if !isNodeReady(node) {
 		for _, condition := range node.Status.Conditions {
 			networkErrors = append(networkErrors, common.NetworkError{
@@ -583,7 +587,7 @@ func (s *InventoryService) BuildNetworkPolicy(networkPolicy *networkingv1.Networ
 
 	// Get network errors from network policy annotations
 	networkStatus := NetworkStatusHealthy
-	var networkErrors []common.NetworkError
+	networkErrors := make([]common.NetworkError, 0)
 	for key, value := range networkPolicy.Annotations {
 		if key == ctrcommon.NSXOperatorError {
 			networkStatus = NetworkStatusUnhealthy
