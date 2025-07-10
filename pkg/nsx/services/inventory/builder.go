@@ -345,15 +345,19 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 
 	// Get network errors from service annotations
 	var networkErrors []common.NetworkError
-	if status != InventoryStatusUp {
-		// Check for NCP errors in service annotations
-		for key, value := range service.Annotations {
-			if util.Contains(ServiceNCPErrors, key) {
-				networkErrors = append(networkErrors, common.NetworkError{
-					ErrorMessage: key + ":" + value,
-				})
-			}
+
+	// Check for NCP errors in service annotations
+	for key, value := range service.Annotations {
+		if util.Contains(ServiceNCPErrors, key) {
+			networkErrors = append(networkErrors, common.NetworkError{
+				ErrorMessage: key + ":" + value,
+			})
 		}
+	}
+
+	if len(networkErrors) > 0 {
+		status = InventoryStatusDown
+		netStatus = NetworkStatusUnhealthy
 	}
 
 	// Update the Pods' service IDs, which are related to this service
