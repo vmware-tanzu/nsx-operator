@@ -18,6 +18,7 @@ import (
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"golang.org/x/crypto/ssh"
+	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -559,29 +560,31 @@ func (data *TestData) podWaitForIPs(timeout time.Duration, name, namespace strin
 }
 
 // deploymentWaitForIPsOrNames polls the K8s apiServer until the specified Pod in deployment has an IP address
-func (data *TestData) deploymentWaitForIPsOrNames(timeout time.Duration, namespace, deployment string) ([]string, []string, error) {
-	podIPStrings := sets.NewString()
+func (data *TestData) deploymentWaitForIPsOrNames(timeout time.Duration, namespace, deployment string, replica int) ([]string, []string, error) {
+	var podIPStrings []string
 	var podNames []string
 	opt := metav1.ListOptions{
 		LabelSelector: "deployment=" + deployment,
 	}
 
 	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
+		podIPStrings = podIPStrings[:0]
+		podNames = podNames[:0]
 		if pods, err := data.clientset.CoreV1().Pods(namespace).List(context.TODO(), opt); err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil
 			}
-			return false, fmt.Errorf("error when getting Pod  %v", err)
+			return false, fmt.Errorf("error when getting Pod %v", err)
 		} else {
 			for _, p := range pods.Items {
-				if p.Status.Phase != corev1.PodRunning {
-					return false, nil
-				} else if p.Status.PodIP == "" {
-					return false, nil
-				} else {
-					podIPStrings.Insert(p.Status.PodIP)
-					podNames = append(podNames, p.Name)
+				if p.Status.Phase != corev1.PodRunning || p.Status.PodIP == "" {
+					continue
 				}
+				podIPStrings = append(podIPStrings, p.Status.PodIP)
+				podNames = append(podNames, p.Name)
+			}
+			if len(podNames) < replica {
+				return false, nil
 			}
 			return true, nil
 		}
@@ -589,7 +592,7 @@ func (data *TestData) deploymentWaitForIPsOrNames(timeout time.Duration, namespa
 	if err != nil {
 		return nil, nil, err
 	}
-	return podIPStrings.List(), podNames, nil
+	return podIPStrings, podNames, nil
 }
 
 func parsePodIPs(podIPStrings sets.Set[string]) (*PodIPs, error) {
@@ -860,6 +863,59 @@ func (data *TestData) createPod(namespace, podName, containerName, image string,
 		mutator(&pod)
 	}
 	return data.clientset.CoreV1().Pods(namespace).Create(context.TODO(), &pod, metav1.CreateOptions{})
+}
+
+func (data *TestData) createDeployment(namespace, deploymentName, containerName, image string,
+	protocol corev1.Protocol, containerPort int32, replicas int32,
+	mutators ...func(deployment *v1.Deployment),
+) (*v1.Deployment, error) {
+	deployment := v1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        deploymentName,
+			Namespace:   namespace,
+			Annotations: map[string]string{},
+		},
+		Spec: v1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"nsx-op-e2e": deploymentName,
+					"deployment": deploymentName,
+				},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"nsx-op-e2e": deploymentName,
+						"deployment": deploymentName,
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:            containerName,
+							Image:           image,
+							ImagePullPolicy: corev1.PullIfNotPresent,
+							Ports: []corev1.ContainerPort{
+								{
+									Protocol:      protocol,
+									ContainerPort: containerPort,
+								},
+							},
+						},
+					},
+					HostNetwork: false,
+					// Set it to 1s for immediate shutdown to reduce test run time and to avoid affecting subsequent tests.
+					TerminationGracePeriodSeconds: ptr.To[int64](1),
+				},
+			},
+		},
+	}
+
+	for _, mutator := range mutators {
+		mutator(&deployment)
+	}
+	return data.clientset.AppsV1().Deployments(namespace).Create(context.TODO(), &deployment, metav1.CreateOptions{})
 }
 
 func (data *TestData) serviceWaitFor(readyTime time.Duration, namespace string, name string, conditionFunc func(svc *corev1.Service) (bool, error)) (*corev1.Service, error) {
