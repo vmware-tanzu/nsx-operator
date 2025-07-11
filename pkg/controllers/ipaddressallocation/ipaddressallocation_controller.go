@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -210,10 +211,19 @@ func (r *IPAddressAllocationReconciler) getRestoreList() ([]types.NamespacedName
 	return restoreList, nil
 }
 
-func (r *IPAddressAllocationReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+func (r *IPAddressAllocationReconciler) StartController(mgr ctrl.Manager, hookServer webhook.Server) error {
 	if err := r.setupWithManager(mgr); err != nil {
 		log.Error(err, "Failed to create ipaddressallocation controller")
 		return err
+	}
+	if hookServer != nil {
+		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-ipaddressallocation",
+			&webhook.Admission{
+				Handler: &IPAddressAllocationValidator{
+					Client:  mgr.GetClient(),
+					decoder: admission.NewDecoder(mgr.GetScheme()),
+				},
+			})
 	}
 	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.CollectGarbage)
 	return nil

@@ -288,6 +288,15 @@ func addressBindingNamespaceVMIndexFunc(obj client.Object) []string {
 	}
 }
 
+func addressBindingIPAddressAllocationNameIndexFunc(obj client.Object) []string {
+	if ab, ok := obj.(*v1alpha1.AddressBinding); !ok {
+		log.Info("Invalid object", "type", reflect.TypeOf(obj))
+		return []string{}
+	} else {
+		return []string{fmt.Sprintf("%s", ab.Spec.IPAddressAllocationName)}
+	}
+}
+
 func subnetPortSubnetIndexFunc(obj client.Object) []string {
 	if subnetPort, ok := obj.(*v1alpha1.SubnetPort); !ok {
 		log.Info("Invalid object", "type", reflect.TypeOf(obj))
@@ -344,6 +353,9 @@ func (r *SubnetPortReconciler) SetupFieldIndexers(mgr ctrl.Manager) error {
 		return err
 	}
 	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.AddressBinding{}, util.AddressBindingNamespaceVMIndexKey, addressBindingNamespaceVMIndexFunc); err != nil {
+		return err
+	}
+	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.AddressBinding{}, util.AddressBindingIPAddressAllocationNameIndexKey, addressBindingIPAddressAllocationNameIndexFunc); err != nil {
 		return err
 	}
 	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.SubnetPort{}, "spec.subnet", subnetPortSubnetIndexFunc); err != nil {
