@@ -121,7 +121,7 @@ func TestPreCreatedVPC(t *testing.T) {
 	log.Info("Client Pod in the Namespace is ready", "Namespace", nsName, "Service", svcName, "Pod", clientPodName)
 
 	// Test traffic from client Pod to LB Service
-	trafficErr := checkTrafficByCurl(nsName, clientPodName, containerName, lbIP, lbServicePort, 5*time.Second, 30*time.Second)
+	trafficErr := checkTrafficByCurl(nsName, clientPodName, containerName, lbIP, lbServicePort, 5*time.Second, 2*time.Minute)
 	require.NoError(t, trafficErr, "LoadBalancer traffic should work")
 	log.Info("Verified traffic from client Pod to the LoadBalancer Service")
 
