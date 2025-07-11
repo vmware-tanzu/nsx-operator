@@ -1267,7 +1267,7 @@ func TestBuildService(t *testing.T) {
 		assert.Equal(t, NetworkStatusUnhealthy, containerApplication.NetworkStatus)
 
 		// Verify network errors
-		assert.Equal(t, 3, len(containerApplication.NetworkErrors))
+		assert.Equal(t, 4, len(containerApplication.NetworkErrors))
 
 		// Create a map of error messages for easier verification
 		errorMessages := make(map[string]bool)
