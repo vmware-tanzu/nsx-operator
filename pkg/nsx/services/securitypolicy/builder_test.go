@@ -1498,3 +1498,91 @@ func Test_buildRuleServiceEntries(t *testing.T) {
 		})
 	}
 }
+
+func Test_dedupBlocks(t *testing.T) {
+	svc := &SecurityPolicyService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "cluster1",
+				},
+			},
+		},
+	}
+	tests := []struct {
+		name     string
+		input    []v1alpha1.SecurityPolicyPeer
+		expected []v1alpha1.SecurityPolicyPeer
+	}{
+		{
+			name: "no deduplicated",
+			input: []v1alpha1.SecurityPolicyPeer{
+				{
+					IPBlocks: []v1alpha1.IPBlock{
+						{
+							CIDR: "1.2.3.0/24",
+						},
+					},
+				},
+				{
+					IPBlocks: []v1alpha1.IPBlock{
+						{
+							CIDR: "2.3.4.0/24",
+						},
+					},
+				},
+			},
+			expected: []v1alpha1.SecurityPolicyPeer{
+				{
+					IPBlocks: []v1alpha1.IPBlock{
+						{
+							CIDR: "1.2.3.0/24",
+						},
+					},
+				},
+				{
+					IPBlocks: []v1alpha1.IPBlock{
+						{
+							CIDR: "2.3.4.0/24",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "remove deduplicated",
+			input: []v1alpha1.SecurityPolicyPeer{
+				{
+					IPBlocks: []v1alpha1.IPBlock{
+						{
+							CIDR: "1.2.3.0/24",
+						},
+					},
+				},
+				{
+					IPBlocks: []v1alpha1.IPBlock{
+						{
+							CIDR: "1.2.3.0/24",
+						},
+					},
+				},
+			},
+			expected: []v1alpha1.SecurityPolicyPeer{
+				{
+					IPBlocks: []v1alpha1.IPBlock{
+						{
+							CIDR: "1.2.3.0/24",
+						},
+					},
+				},
+				{},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actual := svc.dedupBlocks(tt.input)
+			assert.Equal(t, tt.expected, actual)
+		})
+	}
+}
