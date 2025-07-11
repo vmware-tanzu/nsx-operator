@@ -127,7 +127,7 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	} else {
 		log.Info("Reconciling CR to delete networkPolicy", "networkPolicy", req.NamespacedName)
 		r.StatusUpdater.IncreaseDeleteTotal()
-		if err := r.Service.DeleteSecurityPolicy(networkPolicy, false, servicecommon.ResourceTypeNetworkPolicy); err != nil {
+		if err := r.deleteNetworkPolicyByName(req.Namespace, req.Name); err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
 			return ResultRequeue, err
 		}

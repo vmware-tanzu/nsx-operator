@@ -514,7 +514,7 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 		a := sets.New[string]()
 		return a
 	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, createdFor string) error {
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj types.UID, isGc bool, createdFor string) error {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
@@ -705,12 +705,9 @@ func TestSecurityPolicyReconciler_deleteSecuritypolicyByName(t *testing.T) {
 		}
 	})
 
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, createdFor string) error {
-		switch sp := obj.(type) {
-		case types.UID:
-			if sp == "uid2" {
-				return errors.New("delete failed")
-			}
+	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj types.UID, isGc bool, createdFor string) error {
+		if obj == "uid2" {
+			return errors.New("delete failed")
 		}
 		return nil
 	})

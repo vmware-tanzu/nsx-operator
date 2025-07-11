@@ -80,9 +80,9 @@ func TestSecurityPolicyService_buildRuleIPGroup(t *testing.T) {
 			"ip_addresses":  addresses,
 		},
 	)
-	var s *SecurityPolicyService
-	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-		func(s *SecurityPolicyService, ns string) types.UID {
+	s := &SecurityPolicyService{Service: common.Service{}}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
 	defer patches.Reset()

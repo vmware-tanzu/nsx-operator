@@ -18,6 +18,7 @@ import (
 const (
 	HashLength                         int    = 8
 	Base62HashLength                   int    = 6
+	UUIDHashLength                     int    = 5
 	MaxTagsCount                       int    = 26
 	MaxTagScopeLength                  int    = 128
 	MaxTagValueLength                  int    = 256
@@ -100,6 +101,7 @@ const (
 	ValueMinorVersion                  string = "0"
 	ValuePatchVersion                  string = "0"
 	ConnectorUnderline                 string = "_"
+	ConnectorHyphen                    string = "-"
 
 	GCInterval       = 10 * 60 * time.Second
 	SubnetGCInterval = 60 * time.Second

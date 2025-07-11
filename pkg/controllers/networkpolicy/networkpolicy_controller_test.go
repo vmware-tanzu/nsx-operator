@@ -261,7 +261,7 @@ func TestNetworkPolicyReconciler_Reconcile(t *testing.T) {
 			name: "NetworkPolicy with DeletionTimestamp not zero and delete success",
 			req:  ctrl.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: npName}},
 			patches: func(r *NetworkPolicyReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, createdFor string) error {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "deleteNetworkPolicyByName", func(_ *NetworkPolicyReconciler, ns, name string) error {
 					return nil
 				})
 				return patches
@@ -273,7 +273,7 @@ func TestNetworkPolicyReconciler_Reconcile(t *testing.T) {
 			name: "NetworkPolicy with DeletionTimestamp not zero and delete fail",
 			req:  ctrl.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: npName}},
 			patches: func(r *NetworkPolicyReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, createdFor string) error {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "deleteNetworkPolicyByName", func(_ *NetworkPolicyReconciler, ns, name string) error {
 					return errors.New("delete networkpolicy failed")
 				})
 				return patches
@@ -469,12 +469,9 @@ func TestNetworkPolicyReconciler_deleteNetworkPolicyByName(t *testing.T) {
 		}
 	})
 
-	patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, createdFor string) error {
-		switch sp := obj.(type) {
-		case types.UID:
-			if sp == "uid2" {
-				return errors.New("delete failed")
-			}
+	patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj types.UID, isGc bool, createdFor string) error {
+		if obj == "uid2" {
+			return errors.New("delete failed")
 		}
 		return nil
 	})

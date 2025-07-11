@@ -63,7 +63,11 @@ func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVp
 	k8sClient := mock_client.NewMockClient(mockCtrl)
 
 	vpcStore := &VPCStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+			common.TagScopeNamespaceUID: vpcIndexNamespaceIDFunc,
+			common.TagScopeNamespace:    vpcIndexNamespaceNameFunc,
+			nsxVpcNameIndexKey:          vpcIndexVpcNameFunc,
+		}),
 		BindingType: model.VpcBindingType(),
 	}}
 
@@ -1501,7 +1505,8 @@ func TestVPCService_DeleteVPC(t *testing.T) {
 				ConnectivityPath: &mockConnectityPath,
 			},
 			Vpc: &model.Vpc{
-				Id: &mockVpc,
+				Id:          &mockVpc,
+				DisplayName: &mockVpc,
 			},
 			path:          "/orgs/default/projects/proj1/vpcs/mockVpc",
 			want:          fakeErr,
@@ -1531,7 +1536,8 @@ func TestVPCService_DeleteVPC(t *testing.T) {
 				ConnectivityPath: &mockConnectityPath,
 			},
 			Vpc: &model.Vpc{
-				Id: &mockVpc,
+				Id:          &mockVpc,
+				DisplayName: &mockVpc,
 			},
 			path:          "/orgs/default/projects/proj1/vpcs/mockVpc",
 			want:          nil,
@@ -2425,6 +2431,7 @@ func TestInitializeVPC(t *testing.T) {
 							map[string]data.DataValue{
 								"resource_type":     data.NewStringValue("Vpc"),
 								"id":                data.NewStringValue("vpc1"),
+								"display_name":      data.NewStringValue("vpc1_ab1cd"),
 								"path":              data.NewStringValue("/orgs/default/projects/default/vpcs/vpc1"),
 								"connectivity_path": data.NewStringValue("/orgs/default/projects/project-quality/vpc-connectivity-profiles/default"),
 							})},
