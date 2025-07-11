@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/networkinfo"
 	mockClient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
@@ -386,26 +387,176 @@ func TestBuildNamespace(t *testing.T) {
 		assert.NotContains(t, inventoryService.pendingAdd, string(testNamespace.UID))
 	})
 
-	t.Run("NamespaceWithAnnotations", func(t *testing.T) {
+	t.Run("NamespaceWithNetworkReadyCondition", func(t *testing.T) {
 		inventoryService, _ := createService(t)
 
-		// Create a namespace with VPC error annotation
-		namespaceWithAnnotations := testNamespace.DeepCopy()
-		if namespaceWithAnnotations.Annotations == nil {
-			namespaceWithAnnotations.Annotations = make(map[string]string)
+		// Create a namespace with NamespaceNetworkReady condition
+		namespaceWithCondition := testNamespace.DeepCopy()
+
+		// Add a condition with VPCNetConfigNotReady reason
+		namespaceWithCondition.Status.Conditions = []corev1.NamespaceCondition{
+			{
+				Type:    networkinfo.NamespaceNetworkReady,
+				Status:  corev1.ConditionFalse,
+				Reason:  networkinfo.NSReasonVPCNetConfigNotReady,
+				Message: "VPC network configuration is not ready",
+			},
 		}
-		namespaceWithAnnotations.Annotations["nsx.vmware.com/vpc_error"] = "VPC creation failed"
 
 		// Build the namespace
-		retry := inventoryService.BuildNamespace(namespaceWithAnnotations)
+		retry := inventoryService.BuildNamespace(namespaceWithCondition)
 
 		assert.False(t, retry)
 		assert.Contains(t, inventoryService.pendingAdd, "namespace-uid-123")
 
-		// Verify the network errors are created
+		// Verify the network errors are created with the reason code included
 		containerProject := inventoryService.pendingAdd["namespace-uid-123"].(*containerinventory.ContainerProject)
 		assert.Len(t, containerProject.NetworkErrors, 1)
-		assert.Equal(t, "VPC creation failed", containerProject.NetworkErrors[0].ErrorMessage)
+		assert.Equal(t, "VPCNetworkConfigurationNotReady: VPC network configuration is not ready", containerProject.NetworkErrors[0].ErrorMessage)
+		assert.Equal(t, NetworkStatusUnhealthy, containerProject.NetworkStatus)
+	})
+
+	t.Run("NamespaceWithVPCNotReadyCondition", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+
+		// Create a namespace with NamespaceNetworkReady condition and VPCNotReady reason
+		namespaceWithCondition := testNamespace.DeepCopy()
+
+		namespaceWithCondition.Status.Conditions = []corev1.NamespaceCondition{
+			{
+				Type:    networkinfo.NamespaceNetworkReady,
+				Status:  corev1.ConditionFalse,
+				Reason:  networkinfo.NSReasonVPCNotReady,
+				Message: "VPC is not ready",
+			},
+		}
+
+		// Build the namespace
+		retry := inventoryService.BuildNamespace(namespaceWithCondition)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "namespace-uid-123")
+
+		// Verify the network errors are created with the reason code included
+		containerProject := inventoryService.pendingAdd["namespace-uid-123"].(*containerinventory.ContainerProject)
+		assert.Len(t, containerProject.NetworkErrors, 1)
+		assert.Equal(t, "VPCNotReady: VPC is not ready", containerProject.NetworkErrors[0].ErrorMessage)
+		assert.Equal(t, NetworkStatusUnhealthy, containerProject.NetworkStatus)
+	})
+
+	t.Run("NamespaceWithVPCSnatNotReadyCondition", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+
+		// Create a namespace with NamespaceNetworkReady condition and VPCSnatNotReady reason
+		namespaceWithCondition := testNamespace.DeepCopy()
+
+		namespaceWithCondition.Status.Conditions = []corev1.NamespaceCondition{
+			{
+				Type:    networkinfo.NamespaceNetworkReady,
+				Status:  corev1.ConditionFalse,
+				Reason:  networkinfo.NSReasonVPCSnatNotReady,
+				Message: "VPC SNAT is not ready",
+			},
+		}
+
+		// Build the namespace
+		retry := inventoryService.BuildNamespace(namespaceWithCondition)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "namespace-uid-123")
+
+		// Verify the network errors are created with the reason code included
+		containerProject := inventoryService.pendingAdd["namespace-uid-123"].(*containerinventory.ContainerProject)
+		assert.Len(t, containerProject.NetworkErrors, 1)
+		assert.Equal(t, "VPCSnatNotReady: VPC SNAT is not ready", containerProject.NetworkErrors[0].ErrorMessage)
+		assert.Equal(t, NetworkStatusUnhealthy, containerProject.NetworkStatus)
+	})
+
+	t.Run("NamespaceWithNetworkReadyConditionTrue", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+
+		// Create a namespace with NamespaceNetworkReady condition but status True
+		namespaceWithCondition := testNamespace.DeepCopy()
+
+		namespaceWithCondition.Status.Conditions = []corev1.NamespaceCondition{
+			{
+				Type:    networkinfo.NamespaceNetworkReady,
+				Status:  corev1.ConditionTrue,
+				Reason:  "",
+				Message: "",
+			},
+		}
+
+		// Build the namespace
+		retry := inventoryService.BuildNamespace(namespaceWithCondition)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "namespace-uid-123")
+
+		// Verify no network errors are created since the condition is True
+		containerProject := inventoryService.pendingAdd["namespace-uid-123"].(*containerinventory.ContainerProject)
+		assert.Len(t, containerProject.NetworkErrors, 0)
+		assert.Equal(t, NetworkStatusHealthy, containerProject.NetworkStatus)
+	})
+
+	t.Run("NamespaceWithBothReadyAndNotReadyConditions", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+
+		// Create a namespace with both ready and not ready conditions
+		namespaceWithCondition := testNamespace.DeepCopy()
+
+		namespaceWithCondition.Status.Conditions = []corev1.NamespaceCondition{
+			{
+				Type:    networkinfo.NamespaceNetworkReady,
+				Status:  corev1.ConditionTrue,
+				Reason:  "",
+				Message: "",
+			},
+			{
+				Type:    networkinfo.NamespaceNetworkReady,
+				Status:  corev1.ConditionFalse,
+				Reason:  networkinfo.NSReasonVPCNetConfigNotReady,
+				Message: "VPC network configuration is not ready",
+			},
+		}
+
+		// Build the namespace
+		retry := inventoryService.BuildNamespace(namespaceWithCondition)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "namespace-uid-123")
+
+		// Verify no network errors are created since the True condition takes precedence
+		containerProject := inventoryService.pendingAdd["namespace-uid-123"].(*containerinventory.ContainerProject)
+		assert.Len(t, containerProject.NetworkErrors, 0)
+		assert.Equal(t, NetworkStatusHealthy, containerProject.NetworkStatus)
+	})
+
+	t.Run("NamespaceWithUnknownReasonCondition", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+
+		// Create a namespace with NamespaceNetworkReady condition but unknown reason
+		namespaceWithCondition := testNamespace.DeepCopy()
+
+		namespaceWithCondition.Status.Conditions = []corev1.NamespaceCondition{
+			{
+				Type:    networkinfo.NamespaceNetworkReady,
+				Status:  corev1.ConditionFalse,
+				Reason:  "SomeOtherReason",
+				Message: "Some other error occurred",
+			},
+		}
+
+		// Build the namespace
+		retry := inventoryService.BuildNamespace(namespaceWithCondition)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "namespace-uid-123")
+
+		// Verify the network errors are created with the reason code in the message
+		containerProject := inventoryService.pendingAdd["namespace-uid-123"].(*containerinventory.ContainerProject)
+		assert.Len(t, containerProject.NetworkErrors, 1)
+		assert.Equal(t, "SomeOtherReason: Some other error occurred", containerProject.NetworkErrors[0].ErrorMessage)
 		assert.Equal(t, NetworkStatusUnhealthy, containerProject.NetworkStatus)
 	})
 }
