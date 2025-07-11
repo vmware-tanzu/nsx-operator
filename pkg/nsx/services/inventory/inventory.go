@@ -3,7 +3,9 @@ package inventory
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -103,9 +105,16 @@ func (s *InventoryService) initContainerCluster(cleanup bool) error {
 		return err
 	}
 	if cleanup {
-		return nil
+		if strings.Contains(err.Error(), http.StatusText(http.StatusNotFound)) {
+			log.Info("No existing container cluster found")
+			return nil
+		}
+		return err
 	}
-	log.Error(err, "Cannot find existing container cluster, will create one")
+	if !strings.Contains(err.Error(), http.StatusText(http.StatusNotFound)) {
+		return err
+	}
+	log.Info("Cannot find existing container cluster, will create one")
 	newContainerCluster := s.BuildInventoryCluster()
 	cluster, err = s.AddContainerCluster(newContainerCluster)
 	if err != nil {

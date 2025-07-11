@@ -773,6 +773,9 @@ func TestCleanupInfraResources(t *testing.T) {
 				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupLBMonitorProfiles", func(_ *LBInfraCleaner, ctx context.Context) error {
 					return nil
 				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDomain", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
 				return patches
 			},
 		}, {
@@ -816,6 +819,9 @@ func TestCleanupInfraResources(t *testing.T) {
 					return nil
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupLBMonitorProfiles", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDomain", func(_ *LBInfraCleaner, ctx context.Context) error {
 					return nil
 				})
 				return patches

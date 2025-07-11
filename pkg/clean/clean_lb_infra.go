@@ -46,6 +46,8 @@ func keyFunc(obj interface{}) (string, error) {
 		return *v.Path, nil
 	case *model.Group:
 		return *v.Path, nil
+	case *model.Domain:
+		return *v.Path, nil
 	default:
 		return "", errors.New("keyFunc doesn't support unknown type")
 	}
@@ -74,6 +76,7 @@ func (s *LBInfraCleaner) CleanupInfraResources(ctx context.Context) error {
 		s.cleanupLBAppProfiles,
 		s.cleanupLBPersistenceProfiles,
 		s.cleanupLBMonitorProfiles,
+		s.cleanupInfraDomain,
 	}
 
 	cleanerCount := len(parallelCleaners)
@@ -119,7 +122,7 @@ func (s *LBInfraCleaner) cleanupInfraSharedResources(ctx context.Context) error 
 func (s *LBInfraCleaner) cleanupInfraShares(ctx context.Context) error {
 	store, err := s.queryNCPCreatedResources([]string{common.ResourceTypeShare}, model.ShareBindingType(), nil)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	var sharesSet []*model.Share
@@ -137,7 +140,7 @@ func (s *LBInfraCleaner) cleanupInfraShares(ctx context.Context) error {
 func (s *LBInfraCleaner) cleanupInfraCerts(ctx context.Context) error {
 	store, err := s.queryNCPCreatedResources([]string{common.ResourceTypeTlsCertificate}, model.TlsCertificateBindingType(), nil)
 	if err != nil {
-		return nil
+		return err
 	}
 	var certsSet []*model.TlsCertificate
 	for _, obj := range store.List() {
@@ -149,6 +152,23 @@ func (s *LBInfraCleaner) cleanupInfraCerts(ctx context.Context) error {
 	s.log.Info("Cleaning up certificates", "Count", len(certsSet))
 	certsBuilder, _ := common.PolicyPathInfraCert.NewPolicyTreeBuilder()
 	return certsBuilder.PagingUpdateResources(ctx, certsSet, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
+}
+
+func (s *LBInfraCleaner) cleanupInfraDomain(ctx context.Context) error {
+	store, err := s.queryNCPCreatedResources([]string{common.ResourceTypeDomain}, model.DomainBindingType(), nil)
+	if err != nil {
+		return err
+	}
+	var domainSet []*model.Domain
+	for _, obj := range store.List() {
+		domain := obj.(*model.Domain)
+		domain.MarkedForDelete = &MarkedForDelete
+		domainSet = append(domainSet, domain)
+	}
+
+	s.log.Info("Cleaning up Domain", "Count", len(domainSet))
+	domainBuilder, _ := common.PolicyPathInfraDomain.NewPolicyTreeBuilder()
+	return domainBuilder.PagingUpdateResources(ctx, domainSet, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
 }
 
 type ResourceStore struct {
@@ -180,7 +200,7 @@ func (s *LBInfraCleaner) queryDLBResources(resourceTypes []string, resourceBindi
 func (s *LBInfraCleaner) cleanupInfraDLBVirtualServers(ctx context.Context) error {
 	store, err := s.queryDLBResources([]string{common.ResourceTypeLBVirtualServer}, model.LBVirtualServerBindingType())
 	if err != nil {
-		return nil
+		return err
 	}
 
 	var vss []*model.LBVirtualServer
@@ -198,7 +218,7 @@ func (s *LBInfraCleaner) cleanupInfraDLBVirtualServers(ctx context.Context) erro
 func (s *LBInfraCleaner) cleanupInfraDLBPools(ctx context.Context) error {
 	store, err := s.queryDLBResources([]string{common.ResourceTypeLBPool}, model.LBPoolBindingType())
 	if err != nil {
-		return nil
+		return err
 	}
 
 	var pools []*model.LBPool
@@ -216,7 +236,7 @@ func (s *LBInfraCleaner) cleanupInfraDLBPools(ctx context.Context) error {
 func (s *LBInfraCleaner) cleanupInfraDLBServices(ctx context.Context) error {
 	store, err := s.queryDLBResources([]string{common.ResourceTypeLBService}, model.LBServiceBindingType())
 	if err != nil {
-		return nil
+		return err
 	}
 
 	var lbServices []*model.LBService
@@ -234,7 +254,7 @@ func (s *LBInfraCleaner) cleanupInfraDLBServices(ctx context.Context) error {
 func (s *LBInfraCleaner) cleanupInfraDLBGroups(ctx context.Context) error {
 	store, err := s.queryDLBResources([]string{common.ResourceTypeGroup}, model.GroupBindingType())
 	if err != nil {
-		return nil
+		return err
 	}
 
 	var lbGroups []*model.Group
@@ -249,10 +269,10 @@ func (s *LBInfraCleaner) cleanupInfraDLBGroups(ctx context.Context) error {
 	return groupBuilder.PagingUpdateResources(ctx, lbGroups, common.DefaultHAPIChildrenCount, s.NSXClient, nil)
 }
 
-func (s *LBInfraCleaner) ListLBAppProfile() []*model.LBAppProfile {
+func (s *LBInfraCleaner) ListLBAppProfile() ([]*model.LBAppProfile, error) {
 	store, err := s.queryNCPCreatedResources([]string{common.ResourceTypeLBHttpProfile, common.ResourceTypeLBFastTcpProfile, common.ResourceTypeLBFastUdpProfile}, model.LBAppProfileBindingType(), nil)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	lbAppProfiles := store.List()
@@ -261,26 +281,26 @@ func (s *LBInfraCleaner) ListLBAppProfile() []*model.LBAppProfile {
 		appProfile := obj.(*model.LBAppProfile)
 		lbAppProfilesSet = append(lbAppProfilesSet, appProfile)
 	}
-	return lbAppProfilesSet
+	return lbAppProfilesSet, nil
 }
 
-func (s *LBInfraCleaner) ListLBPersistenceProfile() []*model.LBPersistenceProfile {
+func (s *LBInfraCleaner) ListLBPersistenceProfile() ([]*model.LBPersistenceProfile, error) {
 	store, err := s.queryNCPCreatedResources([]string{common.ResourceTypeLBCookiePersistenceProfile, common.ResourceTypeLBSourceIpPersistenceProfile}, model.LBPersistenceProfileBindingType(), nil)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	lbPersistenceProfiles := store.List()
 	var lbPersistenceProfilesSet []*model.LBPersistenceProfile
 	for _, lbPersistenceProfile := range lbPersistenceProfiles {
 		lbPersistenceProfilesSet = append(lbPersistenceProfilesSet, lbPersistenceProfile.(*model.LBPersistenceProfile))
 	}
-	return lbPersistenceProfilesSet
+	return lbPersistenceProfilesSet, nil
 }
 
-func (s *LBInfraCleaner) ListLBMonitorProfile() []model.LBMonitorProfile {
+func (s *LBInfraCleaner) ListLBMonitorProfile() ([]model.LBMonitorProfile, error) {
 	store, err := s.queryNCPCreatedResources([]string{common.ResourceTypeLBHttpMonitorProfile, common.ResourceTypeLBTcpMonitorProfile}, model.LBMonitorProfileBindingType(), nil)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	lbMonitorProfiles := store.List()
@@ -288,11 +308,15 @@ func (s *LBInfraCleaner) ListLBMonitorProfile() []model.LBMonitorProfile {
 	for _, lbMonitorProfile := range lbMonitorProfiles {
 		lbMonitorProfilesSet = append(lbMonitorProfilesSet, *lbMonitorProfile.(*model.LBMonitorProfile))
 	}
-	return lbMonitorProfilesSet
+	return lbMonitorProfilesSet, nil
 }
 
 func (s *LBInfraCleaner) cleanupLBAppProfiles(ctx context.Context) error {
-	lbAppProfiles := s.ListLBAppProfile()
+	lbAppProfiles, err := s.ListLBAppProfile()
+	if err != nil {
+		s.log.Error(err, "Failed to list lbAppProfiles")
+		return err
+	}
 	s.log.Info("Cleaning up lbAppProfiles", "Count", len(lbAppProfiles))
 	var delErr error
 	for _, lbAppProfile := range lbAppProfiles {
@@ -318,7 +342,11 @@ func (s *LBInfraCleaner) cleanupLBAppProfiles(ctx context.Context) error {
 }
 
 func (s *LBInfraCleaner) cleanupLBPersistenceProfiles(ctx context.Context) error {
-	lbPersistenceProfiles := s.ListLBPersistenceProfile()
+	lbPersistenceProfiles, err := s.ListLBPersistenceProfile()
+	if err != nil {
+		s.log.Error(err, "Failed to list lbPersistenceProfiles")
+		return err
+	}
 	s.log.Info("Cleaning up lbPersistenceProfiles", "Count", len(lbPersistenceProfiles))
 	var delErr error
 	for _, lbPersistenceProfile := range lbPersistenceProfiles {
@@ -344,7 +372,11 @@ func (s *LBInfraCleaner) cleanupLBPersistenceProfiles(ctx context.Context) error
 }
 
 func (s *LBInfraCleaner) cleanupLBMonitorProfiles(ctx context.Context) error {
-	lbMonitorProfiles := s.ListLBMonitorProfile()
+	lbMonitorProfiles, err := s.ListLBMonitorProfile()
+	if err != nil {
+		s.log.Error(err, "Failed to list lbMonitorProfiles")
+		return err
+	}
 	s.log.Info("Cleaning up lbMonitorProfiles", "Count", len(lbMonitorProfiles))
 	var delErr error
 	for _, lbMonitorProfile := range lbMonitorProfiles {
