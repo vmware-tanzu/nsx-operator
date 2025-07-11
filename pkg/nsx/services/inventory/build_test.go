@@ -976,6 +976,7 @@ func TestBuildNode(t *testing.T) {
 			Tags:               GetTagsFromLabels(labels),
 			ContainerClusterId: inventoryService.NSXConfig.Cluster,
 			ExternalId:         string(testNode.UID),
+			NetworkErrors:      []common.NetworkError{},
 			NetworkStatus:      NetworkStatusHealthy,
 			IpAddresses:        []string{"192.168.99.1"},
 			OriginProperties: []common.KeyValuePair{
