@@ -116,7 +116,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Path:       common.String("fake_path/ports/fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
-					AllocateAddresses: common.String("DHCP"),
+					AllocateAddresses: common.String("NONE"),
 					Type_:             common.String("STATIC"),
 					TrafficTag:        common.Int64(0),
 				},
@@ -181,7 +181,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Path:       common.String("fake_path/ports/fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
-					AllocateAddresses: common.String("DHCP"),
+					AllocateAddresses: common.String("NONE"),
 					Type_:             common.String("STATIC"),
 					TrafficTag:        common.Int64(0),
 				},
@@ -388,7 +388,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Path:       common.String("fake_path/ports/fake_pod_c5db1800-ce4c-11de-a935-8105ba7ace78"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
-					AllocateAddresses: common.String("DHCP"),
+					AllocateAddresses: common.String("NONE"),
 					Type_:             common.String("STATIC"),
 					TrafficTag:        common.Int64(0),
 					AppId:             common.String("c5db1800-ce4c-11de-a935-8105ba7ace78"),
@@ -461,7 +461,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Path:       common.String("fake_path/ports/fake_pod_c5db1800-ce4c-11de-a935-8105ba7ace78"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
-					AllocateAddresses: common.String("DHCP"),
+					AllocateAddresses: common.String("NONE"),
 					Type_:             common.String("STATIC"),
 					TrafficTag:        common.Int64(0),
 					AppId:             common.String("c5db1800-ce4c-11de-a935-8105ba7ace78"),
@@ -476,6 +476,67 @@ func TestBuildSubnetPort(t *testing.T) {
 			},
 			expectedError: nil,
 			restore:       true,
+		},
+		{
+			name: "build-NSX-port-for-subnetport-no-ip",
+			obj: &v1alpha1.SubnetPort{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: "v1alpha1",
+					Kind:       "SubnetPort",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7acc",
+					Name:      "fake_subnetport",
+					Namespace: "fake_ns",
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					Mode: common.String("DHCP_DEACTIVATED"),
+				},
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: common.Bool(false),
+					},
+				},
+				Path: common.String("fake_path"),
+			},
+			contextID: "fake_context_id",
+			labelTags: nil,
+			expectedPort: &model.VpcSubnetPort{
+				DisplayName: common.String("fake_subnetport"),
+				Id:          common.String("fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				Tags: []model.Tag{
+					{
+						Scope: common.String("nsx-op/cluster"),
+						Tag:   common.String("fake_cluster"),
+					},
+					{
+						Scope: common.String("nsx-op/version"),
+						Tag:   common.String("1.0.0"),
+					},
+					{
+						Scope: common.String("nsx-op/namespace"),
+						Tag:   common.String("fake_ns"),
+					},
+					{
+						Scope: common.String("nsx-op/subnetport_name"),
+						Tag:   common.String("fake_subnetport"),
+					},
+					{
+						Scope: common.String("nsx-op/subnetport_uid"),
+						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+					},
+				},
+				Path:       common.String("fake_path/ports/fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				ParentPath: common.String("fake_path"),
+				Attachment: &model.PortAttachment{
+					AllocateAddresses: common.String("NONE"),
+					Type_:             common.String("STATIC"),
+					TrafficTag:        common.Int64(0),
+				},
+			},
+			expectedError: nil,
 		},
 	}
 

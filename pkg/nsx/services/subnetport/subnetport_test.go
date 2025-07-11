@@ -397,7 +397,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			if patches != nil {
 				defer patches.Reset()
 			}
-			_, enableDHCP, err := service.CreateOrUpdateSubnetPort(subnetPortCR, tt.nsxSubnet, "", nil, false, false)
+			_, enableDHCP, err := service.CreateOrUpdateSubnetPort(subnetPortCR, tt.nsxSubnet, "", nil, false, false, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("CreateOrUpdateSubnetPort() error = %v, wantErr %v", err, tt.wantErr)
 			}
