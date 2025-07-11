@@ -10,6 +10,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -87,6 +88,16 @@ func (service *StaticRouteService) CreateOrUpdateStaticRoute(namespace string, o
 	staticRoute, err := service.NSXClient.StaticRouteClient.Get(vpc[0].OrgID, vpc[0].ProjectID, vpc[0].ID, *nsxStaticRoute.Id)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
+		return err
+	}
+	realizeService := realizestate.InitializeRealizeState(service.Service)
+	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *nsxStaticRoute.Path, []string{}); err != nil {
+		log.Error(err, "Failed to check static route realization state", "ID", *nsxStaticRoute.Id)
+		deleteErr := service.DeleteStaticRoute(&staticRoute)
+		if deleteErr != nil {
+			log.Error(deleteErr, "Failed to delete static route after realization check failure", "ID", *nsxStaticRoute.Id)
+			return fmt.Errorf("realization check failed: %v; deletion failed: %v", err, deleteErr)
+		}
 		return err
 	}
 	err = service.StaticRouteStore.Add(&staticRoute)
