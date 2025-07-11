@@ -84,7 +84,7 @@ func TestUtil_IsNsInSystemNamespace(t *testing.T) {
 	client.Create(ctx, dummyNs)
 	ns := types.NamespacedName{Namespace: "dummy", Name: "dummy"}
 
-	isCRInSysNs, err := IsSystemNamespace(client, ns.Namespace, nil)
+	isCRInSysNs, err := IsSystemNamespace(client, ns.Namespace, nil, false)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
@@ -103,7 +103,7 @@ func TestUtil_IsNsInSystemNamespace(t *testing.T) {
 	client.Create(ctx, sysNs)
 	ns = types.NamespacedName{Namespace: "sys-ns", Name: "dummy"}
 
-	isCRInSysNs, err = IsSystemNamespace(client, ns.Namespace, nil)
+	isCRInSysNs, err = IsSystemNamespace(client, ns.Namespace, nil, false)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}

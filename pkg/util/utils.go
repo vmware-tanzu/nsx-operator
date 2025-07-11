@@ -155,7 +155,30 @@ func CalculateSubnetSize(mask int) int64 {
 	return int64(size)
 }
 
-func IsSystemNamespace(c client.Client, ns string, obj *v1.Namespace) (bool, error) {
+func IsSystemNamespace(c client.Client, ns string, obj *v1.Namespace, vpcMode bool) (bool, error) {
+	// Only check VPC system namespace if VPC mode is enabled
+	if vpcMode {
+		isSysNs, err := IsVPCSystemNamespace(c, ns, obj)
+		if err != nil {
+			return false, err
+		}
+		if isSysNs {
+			return true, nil
+		}
+	} else {
+		// Only check T1 system namespace if VPC mode is disabled
+		isSysNs, err := IsT1Namespace(c, ns, obj)
+		if err != nil {
+			return false, err
+		}
+		if isSysNs {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func IsT1Namespace(c client.Client, ns string, obj *v1.Namespace) (bool, error) {
 	nsObj := &v1.Namespace{}
 	if obj != nil {
 		nsObj = obj
@@ -168,8 +191,21 @@ func IsSystemNamespace(c client.Client, ns string, obj *v1.Namespace) (bool, err
 	return false, nil
 }
 
+func IsVPCSystemNamespace(c client.Client, ns string, obj *v1.Namespace) (bool, error) {
+	nsObj := &v1.Namespace{}
+	if obj != nil {
+		nsObj = obj
+	} else if err := c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: ns}, nsObj); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	if sharedVPCNs, ok := nsObj.Annotations[common.AnnotationSharedVPCNamespace]; ok && sharedVPCNs == "kube-system" {
+		return true, nil
+	}
+	return false, nil
+}
+
 // CheckPodHasNamedPort checks if the pod has a named port, it filters the pod events
-// we don't want give concern.
+// we don't want to give concern.
 func CheckPodHasNamedPort(pod v1.Pod, reason string) bool {
 	for _, container := range pod.Spec.Containers {
 		for _, port := range container.Ports {
