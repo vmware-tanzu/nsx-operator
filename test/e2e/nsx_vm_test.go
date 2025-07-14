@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -69,7 +70,7 @@ func testCreateVMBasic(t *testing.T) {
 	log.Info("Get public VM IP", "ipv4", ipv4)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, ipv4)
-	err = testSSHConnection(ipv4, "vmware", "Admin!23", 22)
+	err = testSSHConnection(ipv4, "vmware", "Admin!23", 22, 5*time.Second, 3, 2*time.Second)
 	assert.NoError(t, err)
 	log.Info("Public VM is ready")
 }

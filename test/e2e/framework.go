@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +38,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/third_party/retry"
 	"github.com/vmware-tanzu/nsx-operator/test/e2e/providers"
 )
 
@@ -969,30 +971,53 @@ func checkTrafficByCurl(ns, podname, containername, ip string, port int32, inter
 	return trafficErr
 }
 
-func testSSHConnection(host, username, password string, port int) error {
-	config := &ssh.ClientConfig{
+func testSSHConnection(host, username, password string, port int, timeout time.Duration, attempts uint, delay time.Duration) error {
+	if host == "" || username == "" {
+		return fmt.Errorf("host and username are required")
+	}
+
+	cfg := &ssh.ClientConfig{
 		User: username,
 		Auth: []ssh.AuthMethod{
 			ssh.Password(password),
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // #nosec G106
-		Timeout:         5 * time.Second,
+		Timeout:         timeout,
 	}
 
-	address := fmt.Sprintf("%s:%d", host, port)
-	client, err := ssh.Dial("tcp", address, config)
-	if err != nil {
-		return fmt.Errorf("failed to dial: %v", err)
-	}
-	defer client.Close()
+	address := net.JoinHostPort(host, strconv.Itoa(port))
 
-	session, err := client.NewSession()
-	if err != nil {
-		return fmt.Errorf("failed to create session: %v", err)
-	}
-	defer session.Close()
+	return retry.Do(
+		func() error {
+			conn, err := ssh.Dial("tcp", address, cfg)
+			if err != nil {
+				return fmt.Errorf("failed to establish SSH connection to %s: %w", address, err)
+			}
+			defer func() {
+				if closeErr := conn.Close(); closeErr != nil {
+					log.Error(closeErr, "Failed to close SSH connection")
+				}
+			}()
 
-	return nil
+			session, err := conn.NewSession()
+			if err != nil {
+				return fmt.Errorf("failed to create SSH session: %w", err)
+			}
+			defer func() {
+				if closeErr := session.Close(); closeErr != nil {
+					log.Error(closeErr, "Failed to close SSH session")
+				}
+			}()
+
+			return nil
+		},
+		retry.Attempts(attempts),
+		retry.Delay(delay),
+		retry.OnRetry(func(n uint, err error) {
+			log.Info("Retrying SSH connection", "attempt", n+1, "total_attempts", attempts, "error", err)
+		}),
+		retry.LastErrorOnly(true),
+	)
 }
 
 // getRandomString generates a random string by hashing the current timestamp
