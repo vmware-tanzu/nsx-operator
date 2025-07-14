@@ -59,7 +59,7 @@ func testCreateVMBasic(t *testing.T) {
 		t.Fatalf("Failed to execute sed command: %v", err)
 	}
 
-	log.V(1).Info("stdout", "stdout", stdout.String())
+	log.V(2).Info("stdout", "stdout", stdout.String())
 	log.V(1).Info("stderr", "stderr", stderr.String())
 
 	require.NoError(t, applyYAML(publicVMPath, ns))
