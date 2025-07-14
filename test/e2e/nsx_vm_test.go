@@ -38,7 +38,7 @@ func testCreateVMBasic(t *testing.T) {
 	storageClassName, storagePolicyID, _ := testData.vcClient.getStoragePolicyID()
 	// storageClass uses - instead of _
 	storageClassName = strings.ReplaceAll(storageClassName, "_", "-")
-	log.V(1).Info("Get storage policy", "storagePolicyID", storagePolicyID, "storageClassName", storageClassName)
+	log.V(2).Info("Get storage policy", "storagePolicyID", storagePolicyID, "storageClassName", storageClassName)
 	clusterImage, _ := testData.vcClient.getClusterVirtualMachineImage()
 	log.V(1).Info("Get cluster image", "clusterImage", clusterImage)
 	// replace clusterImage with the real image name, storagePolicyID with the real storage policy ID in public_vm.yaml
