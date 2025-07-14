@@ -54,6 +54,8 @@ func getNSXResourcePath[T any](obj T) *string {
 		return v.Path
 	case *model.SharedResource:
 		return v.Path
+	case *model.Domain:
+		return v.Path
 	default:
 		log.Error(nil, "Get NSX resource path", "unknown NSX resource type", v)
 		return nil
@@ -92,6 +94,8 @@ func getNSXResourceId[T any](obj T) *string {
 		return v.Id
 	case *model.SharedResource:
 		return v.Id
+	case *model.Domain:
+		return v.Id
 	default:
 		log.Error(nil, "Get NSX resource ID", "unknown NSX resource type", v)
 		return nil
@@ -128,6 +132,8 @@ func leafWrapper[T any](obj T) (*data.StructValue, error) {
 		return WrapLBPool(v)
 	case *model.TlsCertificate:
 		return WrapCertificate(v)
+	case *model.Domain:
+		return WrapDomain(v)
 	default:
 		log.Error(nil, "Leaf wrapper", "unknown NSX resource type", v)
 		return nil, fmt.Errorf("unsupported NSX resource type %v", v)
@@ -236,6 +242,7 @@ var (
 	PolicyPathInfraLBVirtualServer          PolicyResourcePath[*model.LBVirtualServer]            = []PolicyResourceType{PolicyResourceInfra, PolicyResourceInfraLBVirtualServer}
 	PolicyPathInfraLBPool                   PolicyResourcePath[*model.LBPool]                     = []PolicyResourceType{PolicyResourceInfra, PolicyResourceInfraLBPool}
 	PolicyPathInfraLBService                PolicyResourcePath[*model.LBService]                  = []PolicyResourceType{PolicyResourceInfra, PolicyResourceInfraLBService}
+	PolicyPathInfraDomain                   PolicyResourcePath[*model.Domain]                     = []PolicyResourceType{PolicyResourceInfra, PolicyResourceDomain}
 )
 
 type hNodeKey struct {

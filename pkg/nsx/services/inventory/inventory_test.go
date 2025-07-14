@@ -42,14 +42,27 @@ func TestInventoryService_initContainerCluster(t *testing.T) {
 	})
 
 	t.Run("GetContainerCluster failed, AddContainerCluster succ", func(t *testing.T) {
+		getErr := errors.New("get error")
 		patches := gomonkey.ApplyMethod(inventoryService, "GetContainerCluster", func(*InventoryService) (containerinventory.ContainerCluster, error) {
-			return containerinventory.ContainerCluster{}, errors.New("get error")
+			return containerinventory.ContainerCluster{}, getErr
 		})
 		patches.ApplyMethod(inventoryService, "AddContainerCluster", func(_ *InventoryService, _ containerinventory.ContainerCluster) (containerinventory.ContainerCluster, error) {
 			return containerinventory.ContainerCluster{}, nil
 		})
 		err := inventoryService.initContainerCluster(false)
 		patches.Reset()
+		assert.Equal(t, err, getErr)
+
+		// "not found" will return nil
+		patches.Reset()
+		patches = gomonkey.ApplyMethod(inventoryService, "GetContainerCluster", func(*InventoryService) (containerinventory.ContainerCluster, error) {
+			return containerinventory.ContainerCluster{}, errors.New("Not Found")
+		})
+		patches.ApplyMethod(inventoryService, "AddContainerCluster", func(_ *InventoryService, _ containerinventory.ContainerCluster) (containerinventory.ContainerCluster, error) {
+			return containerinventory.ContainerCluster{}, nil
+		})
+		defer patches.Reset()
+		err = inventoryService.initContainerCluster(true)
 		assert.Nil(t, err)
 	})
 

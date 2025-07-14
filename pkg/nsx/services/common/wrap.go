@@ -294,6 +294,21 @@ func WrapCertificate(cert *model.TlsCertificate) (*data.StructValue, error) {
 	return dataValue.(*data.StructValue), nil
 }
 
+func WrapDomain(domain *model.Domain) (*data.StructValue, error) {
+	domain.ResourceType = &ResourceTypeDomain
+	childDomain := model.ChildDomain{
+		Id:              domain.Id,
+		MarkedForDelete: domain.MarkedForDelete,
+		ResourceType:    "ChildDomain",
+		Domain:          domain,
+	}
+	dataValue, errs := NewConverter().ConvertToVapi(childDomain, childDomain.GetType__())
+	if len(errs) > 0 {
+		return nil, errs[0]
+	}
+	return dataValue.(*data.StructValue), nil
+}
+
 func buildInfraFromChildren(children []*data.StructValue) *model.Infra {
 	// This is the outermost layer of the hierarchy infra client.
 	// It doesn't need ID field.
