@@ -91,7 +91,7 @@ func (service *StaticRouteService) CreateOrUpdateStaticRoute(namespace string, o
 		return err
 	}
 	realizeService := realizestate.InitializeRealizeState(service.Service)
-	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *nsxStaticRoute.Path, []string{}); err != nil {
+	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *staticRoute.Path, []string{}); err != nil {
 		log.Error(err, "Failed to check static route realization state", "ID", *nsxStaticRoute.Id)
 		deleteErr := service.DeleteStaticRoute(&staticRoute)
 		if deleteErr != nil {
