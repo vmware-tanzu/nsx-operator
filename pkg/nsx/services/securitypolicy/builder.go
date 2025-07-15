@@ -853,6 +853,7 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 	rulePeerGroupCriteriaCount, rulePeerGroupTotalExprCount := 0, 0
 	criteriaCount, totalExprCount := 0, 0
 	errorMsg := ""
+	rulePeers = service.dedupBlocks(rulePeers)
 	for i := range rulePeers {
 		criteriaCount, totalExprCount, err = service.updatePeerExpressions(
 			obj,
@@ -925,6 +926,32 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 	}
 
 	return &rulePeerGroup, rulePeerGroupPath, nil, err
+}
+
+// dedupBlocks removes duplicated IPBlock CIDRs from the rule peers.
+func (service *SecurityPolicyService) dedupBlocks(rulePeers []v1alpha1.SecurityPolicyPeer) []v1alpha1.SecurityPolicyPeer {
+	cachedCIDR := sets.Set[string]{}
+	deduplicatedRulePeers := make([]v1alpha1.SecurityPolicyPeer, 0, len(rulePeers))
+	for _, rulePeer := range rulePeers {
+		if len(rulePeer.IPBlocks) == 0 {
+			continue
+		}
+		var dedupBlocks []v1alpha1.IPBlock
+		for _, ipBlock := range rulePeer.IPBlocks {
+			if ipBlock.CIDR == "" {
+				continue
+			}
+			if !cachedCIDR.Has(ipBlock.CIDR) {
+				cachedCIDR.Insert(ipBlock.CIDR)
+				dedupBlocks = append(dedupBlocks, ipBlock)
+			} else {
+				log.V(2).Info("Duplicated IPBlock CIDR found, skipping", "CIDR", ipBlock.CIDR, "rulePeer", rulePeer)
+			}
+		}
+		rulePeer.IPBlocks = dedupBlocks
+		deduplicatedRulePeers = append(deduplicatedRulePeers, rulePeer)
+	}
+	return deduplicatedRulePeers
 }
 
 // Build rule basic info, ruleIdx is the index of the rules of security policy,
