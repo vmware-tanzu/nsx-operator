@@ -218,6 +218,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	nsxApiClient, _ := CreateNsxtApiClient(cf, cluster.client)
 	macPoolsClient := pools.NewMacPoolsClient(connector)
 
+	// Health clients are now using REST API directly
+
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
 	}
@@ -244,6 +246,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		CertificatesClient:         certificatesClient,
 		PrincipalIdentitiesClient:  principalIdentitiesClient,
 		WithCertificateClient:      withCertificateClient,
+
+		// Health clients are now using REST API directly
 
 		OrgRootClient:                     orgRootClient,
 		ProjectInfraClient:                projectInfraClient,
