@@ -48,25 +48,6 @@ webhooks:
     - addressbindings
   sideEffects: None
 - admissionReviewVersions:
-    - v1
-  clientConfig:
-    service:
-      name: vmware-system-nsx-operator-webhook-service
-      namespace: vmware-system-nsx
-      path: /validate-crd-nsx-vmware-com-v1alpha1-ipaddressallocation
-  failurePolicy: Fail
-  name: ipaddressallocation.validating.crd.nsx.vmware.com
-  rules:
-    - apiGroups:
-        - crd.nsx.vmware.com
-      apiVersions:
-        - v1alpha1
-      operations:
-        - DELETE
-      resources:
-        - ipaddressallocations
-  sideEffects: None
-- admissionReviewVersions:
   - v1
   clientConfig:
     service:
@@ -86,4 +67,25 @@ webhooks:
     - DELETE
     resources:
     - subnets
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: vmware-system-nsx-operator-webhook-service
+      namespace: vmware-system-nsx
+      path: /validate-crd-nsx-vmware-com-v1alpha1-ipaddressallocation
+  failurePolicy: Fail
+  name: ipaddressallocation.validating.crd.nsx.vmware.com
+  rules:
+  - apiGroups:
+    - crd.nsx.vmware.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    - DELETE
+    resources:
+    - ipaddressallocations
   sideEffects: None
