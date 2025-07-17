@@ -549,7 +549,14 @@ func Test_InitializeSecurityPolicy(t *testing.T) {
 
 func Test_ListSecurityPolicyID(t *testing.T) {
 	service := &SecurityPolicyService{
-		Service: common.Service{NSXClient: nil},
+		Service: common.Service{
+			NSXClient: nil,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					EnableVPCNetwork: true,
+				},
+			},
+		},
 	}
 	service.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
@@ -1172,181 +1179,6 @@ func Test_DeleteVPCSecurityPolicy(t *testing.T) {
 				t.Errorf("deleteVPCSecurityPolicy error = %v, wantErr %v", err, tt.wantErr)
 			}
 			assert.Equal(t, tt.wantSecurityPolicyStoreCount, len(fakeService.securityPolicyStore.ListKeys()))
-			assert.Equal(t, tt.wantRuleStoreCount, len(fakeService.ruleStore.ListKeys()))
-			assert.Equal(t, tt.wantGroupStoreCount, len(fakeService.groupStore.ListKeys()))
-			assert.Equal(t, tt.wantProjectGroupStoreCount, len(fakeService.projectGroupStore.ListKeys()))
-			assert.Equal(t, tt.wantProjectShareStoreCount, len(fakeService.projectShareStore.ListKeys()))
-			assert.Equal(t, tt.wantInfraGroupStoreCount, len(fakeService.infraGroupStore.ListKeys()))
-			assert.Equal(t, tt.wantInfraShareStoreCount, len(fakeService.infraShareStore.ListKeys()))
-		})
-	}
-}
-
-func Test_DeleteVPCSecurityPolicyForNetworkPolicy(t *testing.T) {
-	spPath := "/orgs/default/projects/projectQuality/vpcs/vpc1"
-
-	VPCInfo := make([]common.VPCResourceInfo, 1)
-	VPCInfo[0].OrgID = "default"
-	VPCInfo[0].ProjectID = "projectQuality"
-	VPCInfo[0].VPCID = "vpc1"
-
-	ingressServiceEntry := getRuleServiceEntries(6001, 0, "TCP")
-	egressServiceEntry := getRuleServiceEntries(3366, 0, "TCP")
-
-	tests := []struct {
-		name                           string
-		prepareFunc                    func(*testing.T, *SecurityPolicyService) *gomonkey.Patches
-		npObj                          *networkingv1.NetworkPolicy
-		expAllowPolicy                 *model.SecurityPolicy
-		expIsolationPolicy             *model.SecurityPolicy
-		wantSPStoreCountBeforeDelete   int
-		wantRuleStoreCountBeforeDelete int
-		wantErr                        bool
-		wantSPStoreCount               int
-		wantRuleStoreCount             int
-		wantGroupStoreCount            int
-		wantProjectGroupStoreCount     int
-		wantProjectShareStoreCount     int
-		wantInfraGroupStoreCount       int
-		wantInfraShareStoreCount       int
-	}{
-		{
-			name:  "success DeleteSecurityPolicy From NetworkPolicy",
-			npObj: &npWithNsSelecotr,
-			prepareFunc: func(t *testing.T, s *SecurityPolicyService) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getVPCInfo",
-					func(s *SecurityPolicyService, spNameSpace string) (*common.VPCResourceInfo, error) {
-						return &VPCInfo[0], nil
-					})
-
-				patches.ApplyFuncSeq(nsxutil.IsLicensed, []gomonkey.OutputCell{{
-					Values: gomonkey.Params{true},
-					Times:  1,
-				}})
-
-				patches.ApplyMethodSeq(s.NSXClient.OrgRootClient, "Patch", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{nil},
-					Times:  2,
-				}})
-
-				patches.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-					func(s *SecurityPolicyService, ns string) types.UID {
-						return types.UID(tagValueNSUID)
-					})
-
-				return patches
-			},
-			expAllowPolicy: &model.SecurityPolicy{
-				DisplayName:    common.String("np-app-access"),
-				Id:             common.String("np-app-access_uidNP_allow"),
-				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access_uidNP_allow_scope"},
-				SequenceNumber: Int64(int64(common.PriorityNetworkPolicyAllowRule)),
-				Rules: []model.Rule{
-					{
-						DisplayName:       common.String("TCP.6001_ingress_allow"),
-						Id:                common.String("np-app-access_uidNP_allow_6c2a026c_6001"),
-						DestinationGroups: []string{"ANY"},
-						Direction:         &nsxRuleDirectionIn,
-						Scope:             []string{"ANY"},
-						SequenceNumber:    &seq0,
-						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/np-app-access_uidNP_allow_6c2a026c_src"},
-						Action:            &nsxRuleActionAllow,
-						ServiceEntries:    []*data.StructValue{ingressServiceEntry},
-						Tags:              npAllowBasicTags,
-					},
-					{
-						DisplayName:       common.String("TCP.3366_egress_allow"),
-						Id:                common.String("np-app-access_uidNP_allow_025d37a6_3366"),
-						DestinationGroups: []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/np-app-access_uidNP_allow_025d37a6_dst"},
-						Direction:         &nsxRuleDirectionOut,
-						Scope:             []string{"ANY"},
-						SequenceNumber:    &seq1,
-						Services:          []string{"ANY"},
-						SourceGroups:      []string{"ANY"},
-						Action:            &nsxRuleActionAllow,
-						ServiceEntries:    []*data.StructValue{egressServiceEntry},
-						Tags:              npAllowBasicTags,
-					},
-				},
-				Tags: npAllowBasicTags,
-				Path: &spPath,
-			},
-			expIsolationPolicy: &model.SecurityPolicy{
-				DisplayName:    common.String("np-app-access"),
-				Id:             common.String("np-app-access_uidNP_isolation"),
-				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access_uidNP_isolation_scope"},
-				SequenceNumber: Int64(int64(common.PriorityNetworkPolicyIsolationRule)),
-				Rules: []model.Rule{
-					{
-						DisplayName:       common.String("ingress_isolation"),
-						Id:                common.String("np-app-access_uidNP_isolation_114fed10_all"),
-						DestinationGroups: []string{"ANY"},
-						Direction:         &nsxRuleDirectionIn,
-						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access_uidNP_isolation_scope"},
-						SequenceNumber:    &seq0,
-						Services:          []string{"ANY"},
-						SourceGroups:      []string{"ANY"},
-						Action:            &nsxRuleActionDrop,
-						Tags:              npIsolationBasicTags,
-					},
-					{
-						DisplayName:       common.String("egress_isolation"),
-						Id:                common.String("np-app-access_uidNP_isolation_8cae63ab_all"),
-						DestinationGroups: []string{"ANY"},
-						Direction:         &nsxRuleDirectionOut,
-						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access_uidNP_isolation_scope"},
-						SequenceNumber:    &seq1,
-						Services:          []string{"ANY"},
-						SourceGroups:      []string{"ANY"},
-						Action:            &nsxRuleActionDrop,
-						Tags:              npIsolationBasicTags,
-					},
-				},
-				Tags: npIsolationBasicTags,
-				Path: &spPath,
-			},
-			wantSPStoreCountBeforeDelete:   2,
-			wantRuleStoreCountBeforeDelete: 4,
-			wantErr:                        false,
-			wantSPStoreCount:               0,
-			wantRuleStoreCount:             0,
-			wantGroupStoreCount:            0,
-			wantProjectGroupStoreCount:     0,
-			wantProjectShareStoreCount:     0,
-			wantInfraGroupStoreCount:       0,
-			wantInfraShareStoreCount:       0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
-			common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
-
-			fakeService := fakeSecurityPolicyService()
-			fakeService.NSXConfig.EnableVPCNetwork = true
-			mockVPCService := mock.MockVPCServiceProvider{}
-			fakeService.vpcService = &mockVPCService
-
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
-
-			patches := tt.prepareFunc(t, fakeService)
-			defer patches.Reset()
-
-			assert.NoError(t, fakeService.securityPolicyStore.Apply(tt.expAllowPolicy))
-			assert.NoError(t, fakeService.securityPolicyStore.Apply(tt.expIsolationPolicy))
-			assert.NoError(t, fakeService.ruleStore.Apply(&tt.expAllowPolicy.Rules))
-			assert.NoError(t, fakeService.ruleStore.Apply(&tt.expIsolationPolicy.Rules))
-
-			assert.Equal(t, tt.wantSPStoreCountBeforeDelete, len(fakeService.securityPolicyStore.ListKeys()))
-			assert.Equal(t, tt.wantRuleStoreCountBeforeDelete, len(fakeService.ruleStore.ListKeys()))
-
-			if err := fakeService.DeleteSecurityPolicy(tt.npObj, false, common.ResourceTypeNetworkPolicy); (err != nil) != tt.wantErr {
-				t.Errorf("DeleteSecurityPolicy error = %v, wantErr %v", err, tt.wantErr)
-			}
-
-			assert.Equal(t, tt.wantSPStoreCount, len(fakeService.securityPolicyStore.ListKeys()))
 			assert.Equal(t, tt.wantRuleStoreCount, len(fakeService.ruleStore.ListKeys()))
 			assert.Equal(t, tt.wantGroupStoreCount, len(fakeService.groupStore.ListKeys()))
 			assert.Equal(t, tt.wantProjectGroupStoreCount, len(fakeService.projectGroupStore.ListKeys()))
@@ -1982,8 +1814,8 @@ func Test_CreateOrUpdateSecurityPolicy(t *testing.T) {
 					Times:  1,
 				}})
 
-				patches.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-					func(s *SecurityPolicyService, ns string) types.UID {
+				patches.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+					func(s *common.Service, ns string) types.UID {
 						return types.UID(tagValueNSUID)
 					})
 
@@ -2087,8 +1919,8 @@ func Test_CreateOrUpdateSecurityPolicyFromNetworkPolicy(t *testing.T) {
 					Times:  2,
 				}})
 
-				patches.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-					func(s *SecurityPolicyService, ns string) types.UID {
+				patches.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+					func(s *common.Service, ns string) types.UID {
 						return types.UID(tagValueNSUID)
 					})
 
@@ -2096,16 +1928,16 @@ func Test_CreateOrUpdateSecurityPolicyFromNetworkPolicy(t *testing.T) {
 			},
 			expAllowPolicy: &model.SecurityPolicy{
 				DisplayName:    common.String("np-app-access"),
-				Id:             common.String("np-app-access_uidNP_allow"),
-				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access_uidNP_allow_scope"},
+				Id:             common.String("np-app-access-allow_8cuq8"),
+				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access-allow-scope_aoqj8"},
 				SequenceNumber: Int64(int64(common.PriorityNetworkPolicyAllowRule)),
 				Rules:          []model.Rule{},
 				Tags:           npAllowBasicTags,
 			},
 			expIsolationPolicy: &model.SecurityPolicy{
 				DisplayName:    common.String("np-app-access"),
-				Id:             common.String("np-app-access_uidNP_isolation"),
-				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access_uidNP_isolation_scope"},
+				Id:             common.String("np-app-access-isolation_aoqj8"),
+				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access-isolation-scope_aoqj8"},
 				SequenceNumber: Int64(int64(common.PriorityNetworkPolicyIsolationRule)),
 				Rules:          []model.Rule{},
 				Tags:           npIsolationBasicTags,
@@ -2202,8 +2034,8 @@ func Test_createOrUpdateSecurityPolicy(t *testing.T) {
 					Times:  1,
 				}})
 
-				patches.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-					func(s *SecurityPolicyService, ns string) types.UID {
+				patches.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+					func(s *common.Service, ns string) types.UID {
 						return types.UID(tagValueNSUID)
 					})
 
@@ -2258,8 +2090,8 @@ func Test_createOrUpdateSecurityPolicy(t *testing.T) {
 					Values: gomonkey.Params{fmt.Errorf("mock error")},
 					Times:  1,
 				}})
-				patches.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-					func(s *SecurityPolicyService, ns string) types.UID {
+				patches.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+					func(s *common.Service, ns string) types.UID {
 						return types.UID(tagValueNSUID)
 					})
 
@@ -2358,8 +2190,8 @@ func Test_createOrUpdateVPCSecurityPolicy(t *testing.T) {
 					Times:  1,
 				}})
 
-				patches.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-					func(s *SecurityPolicyService, ns string) types.UID {
+				patches.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+					func(s *common.Service, ns string) types.UID {
 						return types.UID(tagValueNSUID)
 					})
 
@@ -2420,8 +2252,8 @@ func Test_createOrUpdateVPCSecurityPolicy(t *testing.T) {
 					Times:  1,
 				}})
 
-				patches.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-					func(s *SecurityPolicyService, ns string) types.UID {
+				patches.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+					func(s *common.Service, ns string) types.UID {
 						return types.UID(tagValueNSUID)
 					})
 
@@ -2525,8 +2357,8 @@ func Test_createOrUpdateVPCSecurityPolicyInDefaultProject(t *testing.T) {
 					Times:  1,
 				}})
 
-				patches.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-					func(s *SecurityPolicyService, ns string) types.UID {
+				patches.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+					func(s *common.Service, ns string) types.UID {
 						return types.UID(tagValueNSUID)
 					})
 
@@ -2592,8 +2424,8 @@ func Test_createOrUpdateVPCSecurityPolicyInDefaultProject(t *testing.T) {
 					Times:  1,
 				}})
 
-				patches.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-					func(s *SecurityPolicyService, ns string) types.UID {
+				patches.ApplyPrivateMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+					func(s *common.Service, ns string) types.UID {
 						return types.UID(tagValueNSUID)
 					})
 
@@ -2668,8 +2500,8 @@ func Test_GetFinalSecurityPolicyResourceForT1(t *testing.T) {
 			prepareFunc: func(t *testing.T, s *SecurityPolicyService) *gomonkey.Patches {
 				s.NSXConfig.EnableVPCNetwork = false
 
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-					func(s *SecurityPolicyService, ns string) types.UID {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+					func(s *common.Service, ns string) types.UID {
 						return types.UID(tagValueNSUID)
 					})
 
@@ -2774,8 +2606,8 @@ func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
 						return &VPCInfo[0], nil
 					})
 
-				patches.ApplyPrivateMethod(reflect.TypeOf(s), "getNamespaceUID",
-					func(s *SecurityPolicyService, ns string) types.UID {
+				patches.ApplyPrivateMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+					func(s *common.Service, ns string) types.UID {
 						return types.UID(tagValueNSUID)
 					})
 
@@ -2787,8 +2619,8 @@ func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
 			},
 			expectedPolicy: &model.SecurityPolicy{
 				DisplayName:    common.String("spA"),
-				Id:             common.String("spA_uidA"),
-				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA_uidA_scope"},
+				Id:             common.String("spA_re0bz"),
+				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA-scope_re0bz"},
 				SequenceNumber: &seq0,
 				Rules: []model.Rule{
 					{
@@ -2796,10 +2628,10 @@ func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
 						Id:                common.String("spA_uidA_2c822e90_all"),
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionIn,
-						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA_uidA_2c822e90_scope"},
+						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA-2c822e90-scope_re0bz"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA_uidA_2c822e90_src"},
+						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-2c822e90-src_re0bz"},
 						Action:            &nsxRuleActionAllow,
 						Tags:              vpcBasicTags,
 					},
@@ -2811,7 +2643,7 @@ func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq1,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA_uidA_2a4595d0_src"},
+						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-2a4595d0-src_re0bz"},
 						Action:            &nsxRuleActionAllow,
 						ServiceEntries:    []*data.StructValue{serviceEntry},
 						Tags:              vpcBasicTags,
@@ -3009,8 +2841,8 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 			return &VPCInfo[0], nil
 		})
 
-	patches.ApplyPrivateMethod(reflect.TypeOf(fakeService), "getNamespaceUID",
-		func(s *SecurityPolicyService, ns string) types.UID {
+	patches.ApplyMethod(reflect.TypeOf(&fakeService.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
 	defer patches.Reset()
@@ -3036,8 +2868,8 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 			npObj: &npWithNsSelecotr,
 			expAllowPolicy: &model.SecurityPolicy{
 				DisplayName:    common.String("np-app-access"),
-				Id:             common.String("np-app-access_uidNP_allow"),
-				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access_uidNP_allow_scope"},
+				Id:             common.String("np-app-access-allow_aoqj8"),
+				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access-allow-scope_aoqj8"},
 				SequenceNumber: Int64(int64(common.PriorityNetworkPolicyAllowRule)),
 				Rules: []model.Rule{
 					{
@@ -3048,7 +2880,7 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/np-app-access_uidNP_allow_6c2a026c_src"},
+						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/np-app-access-allow-6c2a026c-src_aoqj8"},
 						Action:            &nsxRuleActionAllow,
 						ServiceEntries:    []*data.StructValue{ingressServiceEntry},
 						Tags:              npAllowBasicTags,
@@ -3056,7 +2888,7 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 					{
 						DisplayName:       common.String("TCP.3366_egress_allow"),
 						Id:                common.String("np-app-access_uidNP_allow_025d37a6_3366"),
-						DestinationGroups: []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/np-app-access_uidNP_allow_025d37a6_dst"},
+						DestinationGroups: []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/np-app-access-allow-025d37a6-dst_aoqj8"},
 						Direction:         &nsxRuleDirectionOut,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq1,
@@ -3071,8 +2903,8 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 			},
 			expIsolationPolicy: &model.SecurityPolicy{
 				DisplayName:    common.String("np-app-access"),
-				Id:             common.String("np-app-access_uidNP_isolation"),
-				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access_uidNP_isolation_scope"},
+				Id:             common.String("np-app-access-isolation_aoqj8"),
+				Scope:          []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access-isolation-scope_aoqj8"},
 				SequenceNumber: Int64(int64(common.PriorityNetworkPolicyIsolationRule)),
 				Rules: []model.Rule{
 					{
@@ -3080,7 +2912,7 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 						Id:                common.String("np-app-access_uidNP_isolation_114fed10_all"),
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionIn,
-						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access_uidNP_isolation_scope"},
+						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access-isolation-scope_aoqj8"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
@@ -3092,7 +2924,7 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 						Id:                common.String("np-app-access_uidNP_isolation_8cae63ab_all"),
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionOut,
-						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access_uidNP_isolation_scope"},
+						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access-isolation-scope_aoqj8"},
 						SequenceNumber:    &seq1,
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},

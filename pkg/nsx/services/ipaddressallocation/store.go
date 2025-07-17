@@ -5,6 +5,7 @@ import (
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
@@ -136,4 +137,16 @@ func (ipAddressAllocationStore *IPAddressAllocationStore) DeleteMultipleObjects(
 	for _, allocation := range allocations {
 		ipAddressAllocationStore.Delete(allocation)
 	}
+}
+
+func buildIPAddressAllocationStore() *IPAddressAllocationStore {
+	return &IPAddressAllocationStore{ResourceStore: common.ResourceStore{
+		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+			common.TagScopeIPAddressAllocationCRUID: indexByIPAddressAllocation,
+			common.TagScopeAddressBindingCRUID:      indexByAddressBinding,
+			common.TagScopeSubnetPortCRUID:          indexBySubnetPort,
+			common.IndexByVPCPathFuncKey:            common.IndexByVPCFunc,
+		}),
+		BindingType: model.VpcIpAddressAllocationBindingType(),
+	}}
 }

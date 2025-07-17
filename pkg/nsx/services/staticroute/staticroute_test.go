@@ -16,8 +16,8 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -66,13 +66,7 @@ func createService(t *testing.T) (*StaticRouteService, *gomock.Controller, *mock
 	mockCtrl := gomock.NewController(t)
 	mockStaticRouteclient := mocks.NewMockStaticRoutesClient(mockCtrl)
 
-	staticRouteStore := &StaticRouteStore{ResourceStore: common.ResourceStore{
-		BindingType: model.StaticRoutesBindingType(),
-	}}
-	staticRouteStore.Indexer = cache.NewIndexer(keyFunc, cache.Indexers{
-		common.TagScopeStaticRouteCRUID: indexFunc,
-		common.TagScopeNamespace:        indexStaticRouteNamespace,
-	})
+	staticRouteStore := buildStaticRouteStore()
 
 	service := &StaticRouteService{
 		VPCService: &vpc.VPCService{},
@@ -149,7 +143,9 @@ func TestStaticRouteService_DeleteStaticRouteByCR(t *testing.T) {
 	id := util.GenerateIDByObject(srObj)
 	vpcPath := "/orgs/default/projects/project-1/vpcs/vpc-1"
 	path := fmt.Sprintf("%s/static-routes/%s", vpcPath, id)
-	sr1 := &model.StaticRoutes{Id: &id, Path: &path, ParentPath: &vpcPath}
+	sr1 := &model.StaticRoutes{Id: &id, Path: &path, ParentPath: &vpcPath, Tags: []model.Tag{
+		{Scope: String(common.TagScopeStaticRouteCRUID), Tag: String(string(srObj.UID))},
+	}}
 
 	// no record found
 	mockStaticRouteclient.EXPECT().Delete(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Times(0)
@@ -211,6 +207,7 @@ func TestListStaticRouteByName(t *testing.T) {
 			{Scope: pointy.String(common.TagScopeStaticRouteCRName), Tag: pointy.String("route1")},
 			{Scope: pointy.String(common.TagScopeNamespace), Tag: pointy.String("namespace1")},
 		},
+		ParentPath: String("vpc1"),
 	}
 	sr2 := &model.StaticRoutes{
 		Id: &id2,
@@ -218,6 +215,7 @@ func TestListStaticRouteByName(t *testing.T) {
 			{Scope: pointy.String(common.TagScopeStaticRouteCRName), Tag: pointy.String("route2")},
 			{Scope: pointy.String(common.TagScopeNamespace), Tag: pointy.String("namespace1")},
 		},
+		ParentPath: String("vpc1"),
 	}
 	service.StaticRouteStore.Add(sr1)
 	service.StaticRouteStore.Add(sr2)
@@ -254,6 +252,7 @@ func TestListStaticRoute(t *testing.T) {
 			{Scope: pointy.String(common.TagScopeStaticRouteCRName), Tag: pointy.String("route1")},
 			{Scope: pointy.String(common.TagScopeNamespace), Tag: pointy.String("namespace1")},
 		},
+		ParentPath: String("vpc1"),
 	}
 	sr2 := &model.StaticRoutes{
 		Id: &id2,
@@ -261,6 +260,7 @@ func TestListStaticRoute(t *testing.T) {
 			{Scope: pointy.String(common.TagScopeStaticRouteCRName), Tag: pointy.String("route2")},
 			{Scope: pointy.String(common.TagScopeNamespace), Tag: pointy.String("namespace1")},
 		},
+		ParentPath: String("vpc1"),
 	}
 	service.StaticRouteStore.Add(sr1)
 	service.StaticRouteStore.Add(sr2)
@@ -288,12 +288,14 @@ func TestStaticRouteService_Cleanup(t *testing.T) {
 	staticRoutePath1 := "/orgs/org1/projects/project1/vpcs/vpc1/staticroutes/staticroute1"
 	staticRoutePath2 := "/orgs/org2/projects/project2/vpcs/vpc2/staticroutes/staticroute2"
 	staticRoute1 := &model.StaticRoutes{
-		Id:   pointy.String("staticroute1"),
-		Path: &staticRoutePath1,
+		Id:         pointy.String("staticroute1"),
+		Path:       &staticRoutePath1,
+		ParentPath: String("/orgs/org1/projects/project1/vpcs/vpc1"),
 	}
 	staticRoute2 := &model.StaticRoutes{
-		Id:   pointy.String("staticroute2"),
-		Path: &staticRoutePath2,
+		Id:         pointy.String("staticroute2"),
+		Path:       &staticRoutePath2,
+		ParentPath: String("/orgs/org1/projects/project1/vpcs/vpc2"),
 	}
 
 	t.Run("Successful cleanup", func(t *testing.T) {
@@ -348,7 +350,7 @@ func TestStaticRouteService_DeleteStaticRoute(t *testing.T) {
 
 	t.Run("Static route exists and is deleted successfully", func(t *testing.T) {
 		staticRouteID := "staticroute1"
-		staticRoute := &model.StaticRoutes{Id: &staticRouteID}
+		staticRoute := &model.StaticRoutes{Id: &staticRouteID, ParentPath: String("/orgs/org1/projects/project1/vpcs/vpc1")}
 		service.StaticRouteStore.Add(staticRoute)
 
 		mockStaticRouteclient.EXPECT().Delete("org1", "project1", "vpc1", staticRouteID).Return(nil).Times(1)
@@ -361,7 +363,7 @@ func TestStaticRouteService_DeleteStaticRoute(t *testing.T) {
 
 	t.Run("Error deleting static route from NSX", func(t *testing.T) {
 		staticRouteID := "staticroute2"
-		staticRoute := &model.StaticRoutes{Id: &staticRouteID}
+		staticRoute := &model.StaticRoutes{Id: &staticRouteID, ParentPath: String("/orgs/org1/projects/project1/vpcs/vpc1")}
 		service.StaticRouteStore.Add(staticRoute)
 
 		mockStaticRouteclient.EXPECT().Delete("org1", "project1", "vpc1", staticRouteID).Return(fmt.Errorf("delete error")).Times(1)
@@ -374,126 +376,288 @@ func TestStaticRouteService_DeleteStaticRoute(t *testing.T) {
 		assert.Contains(t, err.Error(), "delete error")
 	})
 }
+
 func TestStaticRouteService_CreateOrUpdateStaticRoute(t *testing.T) {
 	service, mockController, mockStaticRouteclient := createService(t)
 	defer mockController.Finish()
 
-	// Patch buildStaticRoute to return error
-	patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute) (*model.StaticRoutes, error) {
-		return nil, fmt.Errorf("build error")
-	})
-	defer patchBuild.Reset()
-
-	err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "build error")
-
-	// Patch buildStaticRoute to return valid static route
-	patchBuild.Reset()
 	staticRouteID := "sr-id"
 	staticRoutePath := "/orgs/org1/projects/proj1/vpcs/vpc1/static-routes/sr-id"
+	vpcPath := "/orgs/org1/projects/proj1/vpcs/vpc1"
+	displayName := "sr1"
 	nsxStaticRoute := &model.StaticRoutes{
-		Id:   &staticRouteID,
-		Path: &staticRoutePath,
+		Id:          &staticRouteID,
+		DisplayName: &displayName,
+		Path:        &staticRoutePath,
+		ParentPath:  &vpcPath,
 	}
-	patchBuild = gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute) (*model.StaticRoutes, error) {
-		return nsxStaticRoute, nil
-	})
-	defer patchBuild.Reset()
 
-	// Patch compareStaticRoute to return true (no update needed)
-	patchCompare := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "compareStaticRoute", func(_ *StaticRouteService, a, b *model.StaticRoutes) bool {
-		return true
-	})
-	defer patchCompare.Reset()
-
-	// Add existing static route to store
-	service.StaticRouteStore.Add(nsxStaticRoute)
-	err = service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
-	assert.NoError(t, err)
-
-	// Patch compareStaticRoute to return false (update needed)
-	patchCompare.Reset()
-	patchCompare = gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "compareStaticRoute", func(_ *StaticRouteService, a, b *model.StaticRoutes) bool {
-		return false
-	})
-	defer patchCompare.Reset()
-
-	// Patch VPCService.ListVPCInfo to return empty (no VPC found)
-	patchVPC := gomonkey.ApplyMethod(reflect.TypeOf(service.VPCService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
-		return []common.VPCResourceInfo{}
-	})
-	defer patchVPC.Reset()
-
-	err = service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no vpc found for ns ns")
-
-	// Patch VPCService.ListVPCInfo to return valid VPC
-	patchVPC.Reset()
-	patchVPC = gomonkey.ApplyMethod(reflect.TypeOf(service.VPCService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
-		return []common.VPCResourceInfo{{OrgID: "org1", ProjectID: "proj1", VPCID: "vpc1", ID: "vpc1"}}
-	})
-	defer patchVPC.Reset()
-
-	// Patch patch to return error
-	patchPatch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "patch", func(_ *StaticRouteService, orgId, projectId, vpcId string, st *model.StaticRoutes) error {
-		return fmt.Errorf("patch error")
-	})
-	defer patchPatch.Reset()
-
-	err = service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "patch error")
-
-	// Patch patch to succeed, but StaticRouteClient.Get returns error
-	patchPatch.Reset()
-	patchPatch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "patch", func(_ *StaticRouteService, orgId, projectId, vpcId string, st *model.StaticRoutes) error {
-		return nil
-	})
-	defer patchPatch.Reset()
-
-	mockStaticRouteclient.EXPECT().Get("org1", "proj1", "vpc1", staticRouteID).Return(model.StaticRoutes{}, fmt.Errorf("get error")).Times(1)
-	err = service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "get error")
-
-	// Patch StaticRouteClient.Get to succeed, but realization check fails and delete fails
-	mockStaticRouteclient.EXPECT().Get("org1", "proj1", "vpc1", staticRouteID).Return(*nsxStaticRoute, nil).Times(1)
-	patchRealize := gomonkey.ApplyFunc((*realizestate.RealizeStateService).CheckRealizeState,
-		func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []string) error {
-			return nsxutil.NewRealizeStateError("mocked realized error", 0)
+	// Patch buildStaticRoute to return error
+	t.Run("buildStaticRoute retruns error", func(t *testing.T) {
+		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute) (*model.StaticRoutes, error) {
+			return nil, fmt.Errorf("build error")
 		})
-	defer patchRealize.Reset()
-	patchDelete := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *StaticRouteService, _ *model.StaticRoutes) error {
-		return fmt.Errorf("delete error")
+		defer patchBuild.Reset()
+
+		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "build error")
 	})
-	defer patchDelete.Reset()
 
-	err = service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "realization check failed")
-	assert.Contains(t, err.Error(), "deletion failed")
+	t.Run("no update occurs if the StaticRoute is not modified", func(t *testing.T) {
+		// Patch buildStaticRoute to return valid static route
+		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute) (*model.StaticRoutes, error) {
+			return nsxStaticRoute, nil
+		})
+		defer patchBuild.Reset()
+		patchGetByIndex := gomonkey.ApplyMethod(reflect.TypeOf(service.StaticRouteStore), "GetStaticRoutesByCRUID", func(_ *StaticRouteStore, uid types.UID) *model.StaticRoutes {
+			return &model.StaticRoutes{
+				Id:          &staticRouteID,
+				DisplayName: &displayName,
+			}
+		})
+		defer patchGetByIndex.Reset()
 
-	// Patch DeleteStaticRoute to succeed
-	patchDelete.Reset()
-	patchDelete = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *StaticRouteService, _ *model.StaticRoutes) error {
-		return nil
+		// Patch compareStaticRoute to return true (no update needed)
+		patchCompare := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "compareStaticRoute", func(_ *StaticRouteService, a, b *model.StaticRoutes) bool {
+			return true
+		})
+		defer patchCompare.Reset()
+		// Add existing static route to store
+		service.StaticRouteStore.Add(nsxStaticRoute)
+		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
+		assert.NoError(t, err)
 	})
-	defer patchDelete.Reset()
-	mockStaticRouteclient.EXPECT().Get("org1", "proj1", "vpc1", staticRouteID).Return(*nsxStaticRoute, nil).Times(1)
-	err = service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "realized error")
 
-	// Patch Add to succeed, should return nil
-	patchRealize.Reset()
-	patchRealize = gomonkey.ApplyFunc((*realizestate.RealizeStateService).CheckRealizeState,
-		func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []string) error {
+	t.Run("update failed if VPC is not found", func(t *testing.T) {
+		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute) (*model.StaticRoutes, error) {
+			return nsxStaticRoute, nil
+		})
+		defer patchBuild.Reset()
+		patchGetByIndex := gomonkey.ApplyMethod(reflect.TypeOf(service.StaticRouteStore), "GetStaticRoutesByCRUID", func(_ *StaticRouteStore, uid types.UID) *model.StaticRoutes {
+			return &model.StaticRoutes{
+				Id:          &staticRouteID,
+				DisplayName: &displayName,
+			}
+		})
+		defer patchGetByIndex.Reset()
+		// Patch compareStaticRoute to return false (update needed)
+		patchCompare := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "compareStaticRoute", func(_ *StaticRouteService, a, b *model.StaticRoutes) bool {
+			return false
+		})
+		defer patchCompare.Reset()
+
+		// Patch VPCService.ListVPCInfo to return empty (no VPC found)
+		patchVPC := gomonkey.ApplyMethod(reflect.TypeOf(service.VPCService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{}
+		})
+		defer patchVPC.Reset()
+
+		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no vpc found for ns ns")
+	})
+
+	t.Run("update failed NSX patch error", func(t *testing.T) {
+		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute) (*model.StaticRoutes, error) {
+			return nsxStaticRoute, nil
+		})
+		defer patchBuild.Reset()
+		patchGetByIndex := gomonkey.ApplyMethod(reflect.TypeOf(service.StaticRouteStore), "GetStaticRoutesByCRUID", func(_ *StaticRouteStore, uid types.UID) *model.StaticRoutes {
+			return &model.StaticRoutes{
+				Id:          &staticRouteID,
+				DisplayName: &displayName,
+			}
+		})
+		defer patchGetByIndex.Reset()
+		// Patch compareStaticRoute to return false (update needed)
+		patchCompare := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "compareStaticRoute", func(_ *StaticRouteService, a, b *model.StaticRoutes) bool {
+			return false
+		})
+		defer patchCompare.Reset()
+
+		// Patch VPCService.ListVPCInfo to return valid VPC
+		patchVPC := gomonkey.ApplyMethod(reflect.TypeOf(service.VPCService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{{OrgID: "org1", ProjectID: "proj1", VPCID: "vpc1", ID: "vpc1"}}
+		})
+		defer patchVPC.Reset()
+
+		// Patch patch to return error
+		patchPatch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "patch", func(_ *StaticRouteService, orgId, projectId, vpcId string, st *model.StaticRoutes) error {
+			return fmt.Errorf("patch error")
+		})
+		defer patchPatch.Reset()
+
+		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "patch error")
+	})
+
+	t.Run("update failed with StaticRouteClient error", func(t *testing.T) {
+		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute) (*model.StaticRoutes, error) {
+			return nsxStaticRoute, nil
+		})
+		defer patchBuild.Reset()
+		patchGetByIndex := gomonkey.ApplyMethod(reflect.TypeOf(service.StaticRouteStore), "GetStaticRoutesByCRUID", func(_ *StaticRouteStore, uid types.UID) *model.StaticRoutes {
+			return &model.StaticRoutes{
+				Id:          &staticRouteID,
+				DisplayName: &displayName,
+			}
+		})
+		defer patchGetByIndex.Reset()
+		// Patch compareStaticRoute to return false (update needed)
+		patchCompare := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "compareStaticRoute", func(_ *StaticRouteService, a, b *model.StaticRoutes) bool {
+			return false
+		})
+		defer patchCompare.Reset()
+
+		// Patch VPCService.ListVPCInfo to return valid VPC
+		patchVPC := gomonkey.ApplyMethod(reflect.TypeOf(service.VPCService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{{OrgID: "org1", ProjectID: "proj1", VPCID: "vpc1", ID: "vpc1"}}
+		})
+		defer patchVPC.Reset()
+
+		// Patch patch to succeed, but StaticRouteClient.Get returns error
+		patchPatch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "patch", func(_ *StaticRouteService, orgId, projectId, vpcId string, st *model.StaticRoutes) error {
 			return nil
 		})
-	defer patchRealize.Reset()
-	mockStaticRouteclient.EXPECT().Get("org1", "proj1", "vpc1", staticRouteID).Return(*nsxStaticRoute, nil).Times(1)
-	err = service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
-	assert.NoError(t, err)
+		defer patchPatch.Reset()
+
+		mockStaticRouteclient.EXPECT().Get("org1", "proj1", "vpc1", staticRouteID).Return(model.StaticRoutes{}, fmt.Errorf("get error")).Times(1)
+		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "get error")
+	})
+
+	t.Run("update failed with realization check error", func(t *testing.T) {
+		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute) (*model.StaticRoutes, error) {
+			return nsxStaticRoute, nil
+		})
+		defer patchBuild.Reset()
+		patchGetByIndex := gomonkey.ApplyMethod(reflect.TypeOf(service.StaticRouteStore), "GetStaticRoutesByCRUID", func(_ *StaticRouteStore, uid types.UID) *model.StaticRoutes {
+			return &model.StaticRoutes{
+				Id:          &staticRouteID,
+				DisplayName: &displayName,
+			}
+		})
+		defer patchGetByIndex.Reset()
+		// Patch compareStaticRoute to return false (update needed)
+		patchCompare := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "compareStaticRoute", func(_ *StaticRouteService, a, b *model.StaticRoutes) bool {
+			return false
+		})
+		defer patchCompare.Reset()
+
+		// Patch VPCService.ListVPCInfo to return valid VPC
+		patchVPC := gomonkey.ApplyMethod(reflect.TypeOf(service.VPCService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{{OrgID: "org1", ProjectID: "proj1", VPCID: "vpc1", ID: "vpc1"}}
+		})
+		defer patchVPC.Reset()
+
+		// Patch patch to succeed, but StaticRouteClient.Get returns error
+		patchPatch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "patch", func(_ *StaticRouteService, orgId, projectId, vpcId string, st *model.StaticRoutes) error {
+			return nil
+		})
+		defer patchPatch.Reset()
+		// Patch StaticRouteClient.Get to succeed, but realization check fails and delete fails
+		mockStaticRouteclient.EXPECT().Get("org1", "proj1", "vpc1", staticRouteID).Return(*nsxStaticRoute, nil).Times(1)
+		patchRealize := gomonkey.ApplyFunc((*realizestate.RealizeStateService).CheckRealizeState,
+			func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []string) error {
+				return nsxutil.NewRealizeStateError("mocked realized error", 0)
+			})
+		defer patchRealize.Reset()
+		patchDelete := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *StaticRouteService, _ *model.StaticRoutes) error {
+			return fmt.Errorf("delete error")
+		})
+		defer patchDelete.Reset()
+
+		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "realization check failed")
+		assert.Contains(t, err.Error(), "deletion failed")
+	})
+
+	t.Run("update failed and successfully delete the failed route", func(t *testing.T) {
+		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute) (*model.StaticRoutes, error) {
+			return nsxStaticRoute, nil
+		})
+		defer patchBuild.Reset()
+		patchGetByIndex := gomonkey.ApplyMethod(reflect.TypeOf(service.StaticRouteStore), "GetStaticRoutesByCRUID", func(_ *StaticRouteStore, uid types.UID) *model.StaticRoutes {
+			return &model.StaticRoutes{
+				Id:          &staticRouteID,
+				DisplayName: &displayName,
+			}
+		})
+		defer patchGetByIndex.Reset()
+		// Patch compareStaticRoute to return false (update needed)
+		patchCompare := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "compareStaticRoute", func(_ *StaticRouteService, a, b *model.StaticRoutes) bool {
+			return false
+		})
+		defer patchCompare.Reset()
+
+		// Patch VPCService.ListVPCInfo to return valid VPC
+		patchVPC := gomonkey.ApplyMethod(reflect.TypeOf(service.VPCService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{{OrgID: "org1", ProjectID: "proj1", VPCID: "vpc1", ID: "vpc1"}}
+		})
+		defer patchVPC.Reset()
+
+		// Patch patch to succeed, but StaticRouteClient.Get returns error
+		patchPatch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "patch", func(_ *StaticRouteService, orgId, projectId, vpcId string, st *model.StaticRoutes) error {
+			return nil
+		})
+		defer patchPatch.Reset()
+		// Patch StaticRouteClient.Get to succeed, but realization check fails and delete fails
+		mockStaticRouteclient.EXPECT().Get("org1", "proj1", "vpc1", staticRouteID).Return(*nsxStaticRoute, nil).Times(1)
+		patchRealize := gomonkey.ApplyFunc((*realizestate.RealizeStateService).CheckRealizeState,
+			func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []string) error {
+				return nsxutil.NewRealizeStateError("mocked realized error", 0)
+			})
+		defer patchRealize.Reset()
+		// Patch DeleteStaticRoute to succeed
+		patchDelete := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *StaticRouteService, _ *model.StaticRoutes) error {
+			return nil
+		})
+		defer patchDelete.Reset()
+		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "realized error")
+	})
+
+	t.Run("successfully patch static route", func(t *testing.T) {
+		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute) (*model.StaticRoutes, error) {
+			return nsxStaticRoute, nil
+		})
+		defer patchBuild.Reset()
+		patchGetByIndex := gomonkey.ApplyMethod(reflect.TypeOf(service.StaticRouteStore), "GetStaticRoutesByCRUID", func(_ *StaticRouteStore, uid types.UID) *model.StaticRoutes {
+			return &model.StaticRoutes{
+				Id:          &staticRouteID,
+				DisplayName: &displayName,
+			}
+		})
+		defer patchGetByIndex.Reset()
+		// Patch compareStaticRoute to return false (update needed)
+		patchCompare := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "compareStaticRoute", func(_ *StaticRouteService, a, b *model.StaticRoutes) bool {
+			return false
+		})
+		defer patchCompare.Reset()
+
+		// Patch VPCService.ListVPCInfo to return valid VPC
+		patchVPC := gomonkey.ApplyMethod(reflect.TypeOf(service.VPCService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{{OrgID: "org1", ProjectID: "proj1", VPCID: "vpc1", ID: "vpc1"}}
+		})
+		defer patchVPC.Reset()
+
+		patchPatch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "patch", func(_ *StaticRouteService, orgId, projectId, vpcId string, st *model.StaticRoutes) error {
+			return nil
+		})
+		defer patchPatch.Reset()
+		// Patch Add to succeed, should return nil
+		patchRealize := gomonkey.ApplyFunc((*realizestate.RealizeStateService).CheckRealizeState,
+			func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []string) error {
+				return nil
+			})
+		defer patchRealize.Reset()
+		mockStaticRouteclient.EXPECT().Get("org1", "proj1", "vpc1", staticRouteID).Return(*nsxStaticRoute, nil).Times(1)
+		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
+		assert.NoError(t, err)
+	})
 }

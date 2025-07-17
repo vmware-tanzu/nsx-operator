@@ -8,7 +8,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -38,15 +37,7 @@ func InitializeIPAddressAllocation(service common.Service, vpcService common.VPC
 	fatalErrors := make(chan error)
 
 	ipAddressAllocationService := &IPAddressAllocationService{Service: service, VPCService: vpcService, builder: builder}
-	ipAddressAllocationService.ipAddressAllocationStore = &IPAddressAllocationStore{ResourceStore: common.ResourceStore{
-		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
-			common.TagScopeIPAddressAllocationCRUID: indexByIPAddressAllocation,
-			common.TagScopeAddressBindingCRUID:      indexByAddressBinding,
-			common.TagScopeSubnetPortCRUID:          indexBySubnetPort,
-			common.IndexByVPCPathFuncKey:            common.IndexByVPCFunc,
-		}),
-		BindingType: model.VpcIpAddressAllocationBindingType(),
-	}}
+	ipAddressAllocationService.ipAddressAllocationStore = buildIPAddressAllocationStore()
 
 	if includeNCP {
 		wg.Add(2)
@@ -86,15 +77,20 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 	}
 	log.V(1).Info("Existing ipaddressallocation", "ipaddressallocation", existingIPAddressAllocation)
 
-	if existingIPAddressAllocation != nil && existingIPAddressAllocation.AllocationIps != nil && existingIPAddressAllocation.AllocationSize == nil {
-		// For the restored NSX VPC IPAddressAllocation, its allocation_size is null.
-		// After the restore, if the built variable nsxIPAddressAllocation still has the nonempty
-		// allocation_size, we need to remove it from the parameters, otherwise the NSX operator
-		// will keep reporting the following error and retrying:
-		// "nsx error code: 612866, message: Properties IP block, allocation IPs, allocation IP, IP block visibility, allocation size and IPAddressType of existing Vpc IP address allocation: <VPC IP address allocation path> can not be modified."
-		// For this kind of cases, we manually populate the allocation_size and allocation_ips before the comparison.
-		nsxIPAddressAllocation.AllocationSize = nil
-		nsxIPAddressAllocation.AllocationIps = existingIPAddressAllocation.AllocationIps
+	if existingIPAddressAllocation != nil {
+		if existingIPAddressAllocation.AllocationIps != nil && existingIPAddressAllocation.AllocationSize == nil {
+			// For the restored NSX VPC IPAddressAllocation, its allocation_size is null.
+			// After the restore, if the built variable nsxIPAddressAllocation still has the nonempty
+			// allocation_size, we need to remove it from the parameters, otherwise the NSX operator
+			// will keep reporting the following error and retrying:
+			// "nsx error code: 612866, message: Properties IP block, allocation IPs, allocation IP, IP block visibility, allocation size and IPAddressType of existing Vpc IP address allocation: <VPC IP address allocation path> can not be modified."
+			// For this kind of cases, we manually populate the allocation_size and allocation_ips before the comparison.
+			nsxIPAddressAllocation.AllocationSize = nil
+			nsxIPAddressAllocation.AllocationIps = existingIPAddressAllocation.AllocationIps
+		}
+		// Use the existing NSX resource's id and display_name.
+		nsxIPAddressAllocation.Id = String(*existingIPAddressAllocation.Id)
+		nsxIPAddressAllocation.DisplayName = String(*existingIPAddressAllocation.DisplayName)
 	}
 	ipAddressAllocationUpdated := common.CompareResource(IpAddressAllocationToComparable(existingIPAddressAllocation),
 		IpAddressAllocationToComparable(nsxIPAddressAllocation))
@@ -346,4 +342,9 @@ func (service *IPAddressAllocationService) GetIPAddressAllocationUID(nsxIPAddres
 func (service *IPAddressAllocationService) GetIPAddressAllocationByOwner(owner metav1.Object) (*model.VpcIpAddressAllocation, error) {
 	existingIPAddressAllocation, err := service.indexedIPAddressAllocation(owner.GetUID())
 	return existingIPAddressAllocation, err
+}
+
+func (service *IPAddressAllocationService) allocationIdExists(id string) bool {
+	allocation := service.ipAddressAllocationStore.GetByKey(id)
+	return allocation != nil
 }

@@ -140,11 +140,15 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath, inSharedSubnet)
 		if err != nil {
-			subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
-			log.Info("Previous NSX Subnet is deleted, deleting the stale SubnetPort", "subnetPort.UID", subnetPort.UID, "SubnetPath", nsxSubnet)
-			if e := r.SubnetPortService.DeleteSubnetPortById(subnetPortID); e != nil {
-				log.Error(e, "Failed to delete the stale SubnetPort", "subnetPort.UID", subnetPort.UID)
-				err = errors.Join(err, e)
+			vpcSubnetPort, searchErr := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
+			if searchErr != nil {
+				log.Error(searchErr, "failed to use the SubnetPort CR to search VpcSubnetPort", "CR UID", subnetPort.GetUID())
+				err = errors.Join(err, searchErr)
+			} else if vpcSubnetPort != nil {
+				if e := r.SubnetPortService.DeleteSubnetPort(vpcSubnetPort); e != nil {
+					log.Error(e, "Failed to delete the stale SubnetPort", "subnetPort.UID", subnetPort.UID)
+					err = errors.Join(err, e)
+				}
 			}
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, fmt.Sprintf("Failed to get Subnet by path: %s", nsxSubnetPath), setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 			return common.ResultRequeue, err
@@ -228,14 +232,22 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 	} else {
 		r.StatusUpdater.IncreaseDeleteTotal()
-		subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
-		if err := r.SubnetPortService.DeleteSubnetPortById(subnetPortID); err != nil {
+		vpcSubnetPort, err := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
+		if err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
 			setAddressBindingStatusBySubnetPort(r.Client, ctx, subnetPort, r.SubnetPortService, metav1.Now(), subnetPortRealizationError)
 			return common.ResultRequeue, err
 		}
+		if vpcSubnetPort != nil {
+			if err = r.SubnetPortService.DeleteSubnetPort(vpcSubnetPort); err != nil {
+				r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
+				setAddressBindingStatusBySubnetPort(r.Client, ctx, subnetPort, r.SubnetPortService, metav1.Now(), subnetPortRealizationError)
+				return common.ResultRequeue, err
+			}
+		}
+
 		ab := r.SubnetPortService.GetAddressBindingBySubnetPort(subnetPort)
-		err := r.IpAddressAllocationService.DeleteIPAddressAllocationForAddressBinding(ab)
+		err = r.IpAddressAllocationService.DeleteIPAddressAllocationForAddressBinding(ab)
 		if err != nil {
 			log.Error(err, "Failed to delete IPAddressAllocation for AddressBinding", "AddressBinding", ab)
 			return common.ResultRequeue, err
@@ -441,8 +453,10 @@ func (r *SubnetPortReconciler) getRestoreList() ([]types.NamespacedName, error) 
 			continue
 		}
 		// The SubnetPort does have related external AddressBinding. We need to check when the AddressBinding was realized, i.e. before the backup or after the backup.
-		subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetport.ObjectMeta)
-		nsxSubnetPort := r.SubnetPortService.SubnetPortStore.GetByKey(subnetPortID)
+		nsxSubnetPort, err := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetport.GetUID())
+		if err != nil {
+			return restoreList, err
+		}
 		if nsxSubnetPort == nil {
 			return restoreList, fmt.Errorf("NSX subnet port for SubnetPort CR %s not found", subnetport.UID)
 		}
@@ -677,9 +691,13 @@ func (r *SubnetPortReconciler) getSubnetBySubnetPort(subnetPort *v1alpha1.Subnet
 }
 
 func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetCR *v1alpha1.Subnet) (existing bool, isStale bool, subnetPath string, err error) {
-	subnetPortID := r.SubnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
-	subnetPath = r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(subnetPortID)
-	if len(subnetPath) > 0 {
+	existingSubnetPort, err := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
+	if err != nil {
+		log.Error(err, "failed to use the SubnetPort CR to search VpcSubnetPort", "CR UID", subnetPort.GetUID())
+		return false, false, "", err
+	}
+	if existingSubnetPort != nil && existingSubnetPort.ParentPath != nil && len(*existingSubnetPort.ParentPath) > 0 {
+		subnetPath = *existingSubnetPort.ParentPath
 		// If there is a SubnetPath in store, there is a subnetport in NSX, the subnetport is not created first time.
 		log.V(1).Info("NSX SubnetPort had been created, returning the existing NSX Subnet path", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
 		existing = true
@@ -922,9 +940,11 @@ func (r *SubnetPortReconciler) collectAddressBindingGarbage(ctx context.Context,
 
 func setAddressBindingStatusBySubnetPort(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, e error) {
 	ipAddress := ""
-	subnetPortID := subnetPortService.BuildSubnetPortId(&subnetPort.ObjectMeta)
-	nsxSubnetPort := subnetPortService.SubnetPortStore.GetByKey(subnetPortID)
-	if nsxSubnetPort == nil {
+	nsxSubnetPort, err := subnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
+	if err != nil {
+		log.Error(err, "Failed to get VpcSubnetPort from cache using SubnetPort CR", "CR UID", subnetPort.UID)
+		e = err
+	} else if nsxSubnetPort == nil {
 		log.Info("Missing SubnetPort", "id", subnetPort.UID)
 		if e == nil {
 			e = vmOrInterfaceNotFoundError

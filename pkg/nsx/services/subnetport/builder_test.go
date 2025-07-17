@@ -41,6 +41,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				},
 			},
 		},
+		SubnetPortStore: setupStore(),
 	}
 	service.macPool = &mp_model.MacPool{
 		Ranges: []mp_model.MacRange{
@@ -90,7 +91,7 @@ func TestBuildSubnetPort(t *testing.T) {
 			labelTags: nil,
 			expectedPort: &model.VpcSubnetPort{
 				DisplayName: common.String("fake_subnetport"),
-				Id:          common.String("fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				Id:          common.String("fake_subnetport_phoia"),
 				Tags: []model.Tag{
 					{
 						Scope: common.String("nsx-op/cluster"),
@@ -113,7 +114,7 @@ func TestBuildSubnetPort(t *testing.T) {
 						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
 					},
 				},
-				Path:       common.String("fake_path/ports/fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
 					AllocateAddresses: common.String("DHCP"),
@@ -155,7 +156,7 @@ func TestBuildSubnetPort(t *testing.T) {
 			restore:   true,
 			expectedPort: &model.VpcSubnetPort{
 				DisplayName: common.String("fake_subnetport"),
-				Id:          common.String("fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				Id:          common.String("fake_subnetport_phoia"),
 				Tags: []model.Tag{
 					{
 						Scope: common.String("nsx-op/cluster"),
@@ -178,7 +179,7 @@ func TestBuildSubnetPort(t *testing.T) {
 						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
 					},
 				},
-				Path:       common.String("fake_path/ports/fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
 					AllocateAddresses: common.String("DHCP"),
@@ -222,7 +223,7 @@ func TestBuildSubnetPort(t *testing.T) {
 			labelTags: nil,
 			expectedPort: &model.VpcSubnetPort{
 				DisplayName: common.String("fake_subnetport"),
-				Id:          common.String("fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				Id:          common.String("fake_subnetport_phoia"),
 				Tags: []model.Tag{
 					{
 						Scope: common.String("nsx-op/cluster"),
@@ -245,7 +246,7 @@ func TestBuildSubnetPort(t *testing.T) {
 						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
 					},
 				},
-				Path:       common.String("fake_path/ports/fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
 					AllocateAddresses: common.String("IP_POOL"),
@@ -289,7 +290,7 @@ func TestBuildSubnetPort(t *testing.T) {
 			labelTags: nil,
 			expectedPort: &model.VpcSubnetPort{
 				DisplayName: common.String("fake_subnetport"),
-				Id:          common.String("fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				Id:          common.String("fake_subnetport_phoia"),
 				Tags: []model.Tag{
 					{
 						Scope: common.String("nsx-op/cluster"),
@@ -312,7 +313,7 @@ func TestBuildSubnetPort(t *testing.T) {
 						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
 					},
 				},
-				Path:       common.String("fake_path/ports/fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
 					AllocateAddresses: common.String("BOTH"),
@@ -354,7 +355,7 @@ func TestBuildSubnetPort(t *testing.T) {
 			},
 			expectedPort: &model.VpcSubnetPort{
 				DisplayName: common.String("fake_pod"),
-				Id:          common.String("fake_pod_c5db1800-ce4c-11de-a935-8105ba7ace78"),
+				Id:          common.String("fake_pod_phoia"),
 				Tags: []model.Tag{
 					{
 						Scope: common.String("nsx-op/cluster"),
@@ -385,7 +386,7 @@ func TestBuildSubnetPort(t *testing.T) {
 						Tag:   common.String("domain-c11"),
 					},
 				},
-				Path:       common.String("fake_path/ports/fake_pod_c5db1800-ce4c-11de-a935-8105ba7ace78"),
+				Path:       common.String("fake_path/ports/fake_pod_phoia"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
 					AllocateAddresses: common.String("DHCP"),
@@ -427,7 +428,7 @@ func TestBuildSubnetPort(t *testing.T) {
 			},
 			expectedPort: &model.VpcSubnetPort{
 				DisplayName: common.String("fake_pod"),
-				Id:          common.String("fake_pod_c5db1800-ce4c-11de-a935-8105ba7ace78"),
+				Id:          common.String("fake_pod_phoia"),
 				Tags: []model.Tag{
 					{
 						Scope: common.String("nsx-op/cluster"),
@@ -458,7 +459,7 @@ func TestBuildSubnetPort(t *testing.T) {
 						Tag:   common.String("domain-c11"),
 					},
 				},
-				Path:       common.String("fake_path/ports/fake_pod_c5db1800-ce4c-11de-a935-8105ba7ace78"),
+				Path:       common.String("fake_path/ports/fake_pod_phoia"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
 					AllocateAddresses: common.String("DHCP"),
@@ -813,9 +814,11 @@ func TestBuildExternalAddressBinding(t *testing.T) {
 					func(_ *common.VPCResourceInfo) string {
 						return "/orgs/default/projects/project-quality/vpcs/vpc-id"
 					})
-				patches.ApplyMethod(reflect.TypeOf(service.IpAddressAllocationService), "BuildIPAddressAllocationID",
-					func(_ *mock.MockIPAddressAllocationProvider, obj metav1.Object) string {
-						return "alloc-id-123"
+				patches.ApplyMethod(reflect.TypeOf(service.IpAddressAllocationService), "GetIPAddressAllocationByOwner",
+					func(_ *mock.MockIPAddressAllocationProvider, owner metav1.Object) (*model.VpcIpAddressAllocation, error) {
+						return &model.VpcIpAddressAllocation{
+							Id: common.String("alloc-id-123"),
+						}, nil
 					})
 				return patches
 			},
@@ -922,7 +925,9 @@ func TestBuildExternalAddressBinding(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			patches := tt.preFunc(service, &mockVPCService, &mockIPAddressAllocationService)
-			defer patches.Reset()
+			if patches != nil {
+				defer patches.Reset()
+			}
 			actualAb, _ := service.buildExternalAddressBinding(tt.sp, tt.restoreMode)
 			assert.Equal(t, tt.expectedAb, actualAb)
 		})

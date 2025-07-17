@@ -29,7 +29,7 @@ func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionB
 			continue
 		}
 		bindingMaps[i] = &model.SubnetConnectionBindingMap{
-			Id:             String(buildSubnetBindingID(binding, vpcSubnetInfo.ID)),
+			Id:             String(s.buildSubnetBindingID(binding, vpcSubnetInfo.ID)),
 			DisplayName:    String(binding.Name),
 			VlanTrafficTag: Int64(binding.Spec.VLANTrafficTag),
 			SubnetPath:     &path,
@@ -40,10 +40,17 @@ func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionB
 }
 
 // buildSubnetBindingID generates the ID of NSX SubnetConnectionBindingMap resource, its format is like this,
-// ${SubnetConnectionBindingMap_CR}.name_hash(${parent_VpcSubnet}.Id)[:8], e.g., binding1_9bc22a0c
-func buildSubnetBindingID(binding *v1alpha1.SubnetConnectionBindingMap, parentSubnetID string) string {
-	suffix := util.Sha1(parentSubnetID)[:common.HashLength]
-	return util.GenerateID(binding.Name, "", suffix, "")
+// ${SubnetConnectionBindingMap_CR}.name_hash(${parent_VpcSubnet}.Path)[:5], e.g., binding1_9bc22. Note, if
+// the generated id has collision with the existing NSX SubnetConnectionBindingMap.id, a random UUID is used as
+// an alternative of the parent path to generate the hash suffix.
+func (s *BindingService) buildSubnetBindingID(binding *v1alpha1.SubnetConnectionBindingMap, parentSubnetPath string) string {
+	idCR := &v1.ObjectMeta{
+		Name: binding.GetName(),
+		UID:  types.UID(parentSubnetPath),
+	}
+	return common.BuildUniqueIDWithRandomUUID(idCR, util.GenerateIDByObject, func(id string) bool {
+		return s.BindingStore.GetByKey(id) != nil
+	})
 }
 
 func buildSubnetConnectionBindingMapCR(bindingMap *model.SubnetConnectionBindingMap) (*v1alpha1.SubnetConnectionBindingMap, error) {

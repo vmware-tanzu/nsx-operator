@@ -5,6 +5,7 @@ import (
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -68,8 +69,14 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 		tags = append(tags, subnetPortTags...)
 	}
 	ipAddressBlockVisibilityStr := util.ToUpper(string(ipAddressBlockVisibility))
+	// objForIdGeneration is an object to use the Namespace's UID, which is used to generate the NSX IpAddressAllocation ID.
+	objForIdGeneration := &metav1.ObjectMeta{
+		Name: obj.GetName(),
+		UID:  types.UID(common.GetNamespaceUIDFromTag(tags)),
+	}
+	ipAddressAllocationId := service.BuildIPAddressAllocationID(objForIdGeneration)
 	vpcIpAddressAllocation := &model.VpcIpAddressAllocation{
-		Id:                       String(service.BuildIPAddressAllocationID(obj)),
+		Id:                       String(ipAddressAllocationId),
 		DisplayName:              String(service.buildIPAddressAllocationName(obj)),
 		Tags:                     tags,
 		IpAddressBlockVisibility: &ipAddressBlockVisibilityStr,
@@ -81,13 +88,13 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 }
 
 func (service *IPAddressAllocationService) BuildIPAddressAllocationID(obj metav1.Object) string {
-	return util.GenerateIDByObject(obj)
+	return common.BuildUniqueIDWithRandomUUID(obj, util.GenerateIDByObject, service.allocationIdExists)
 }
 
 func (service *IPAddressAllocationService) buildIPAddressAllocationName(obj metav1.Object) string {
 	return util.GenerateTruncName(common.MaxNameLength, obj.GetName(), "", "", "", "")
 }
 
-func (service *IPAddressAllocationService) buildIPAddressAllocationTags(obj interface{}) []model.Tag {
-	return util.BuildBasicTags(service.NSXConfig.Cluster, obj, "")
+func (service *IPAddressAllocationService) buildIPAddressAllocationTags(obj metav1.Object) []model.Tag {
+	return util.BuildBasicTags(service.NSXConfig.Cluster, obj, service.GetNamespaceUID(obj.GetNamespace()))
 }
