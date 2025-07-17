@@ -673,10 +673,10 @@ func applyYAML(filename string, ns string) error {
 	log.Info("Executing", "cmd", cmd)
 
 	err := command.Run()
-	_, _ = stdout.String(), stderr.String()
+	_, errorString := stdout.String(), stderr.String()
 
 	if err != nil {
-		log.Info("Failed to execute", "cmd error", err)
+		log.Info("Failed to execute", "cmd error", err, "detail error", errorString)
 		return fmt.Errorf("failed to apply YAML: %w", err)
 	}
 	return nil

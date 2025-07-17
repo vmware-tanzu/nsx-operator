@@ -22,6 +22,7 @@ type CleanupService struct {
 	vpcPreCleaners      []vpcPreCleaner
 	vpcChildrenCleaners []vpcChildrenCleaner
 	infraCleaners       []infraCleaner
+	healthCleaners      []healthCleaner
 	svcErr              error
 }
 
@@ -48,6 +49,9 @@ func (c *CleanupService) AddCleanupService(f cleanupFunc) *CleanupService {
 	}
 	if svc, ok := clean.(infraCleaner); ok {
 		c.infraCleaners = append(c.infraCleaners, svc)
+	}
+	if svc, ok := clean.(healthCleaner); ok {
+		c.healthCleaners = append(c.healthCleaners, svc)
 	}
 
 	return c
@@ -242,6 +246,36 @@ func (c *CleanupService) cleanupInfraResources(ctx context.Context) error {
 		}
 
 		wgForInfraCleaners.Wait()
+		if len(cleanErrs) > 0 {
+			return cleanErrs[0]
+		}
+
+		return nil
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *CleanupService) cleanupHealthResources(ctx context.Context) error {
+	if err := retry.OnError(Backoff, c.retriable, func() error {
+		cleanersCount := len(c.healthCleaners)
+		cleanErrs := make([]error, 0)
+		wgForHealthCleaners := sync.WaitGroup{}
+		wgForHealthCleaners.Add(cleanersCount)
+
+		for idx := range c.healthCleaners {
+			cleaner := c.healthCleaners[idx]
+			go func() {
+				defer wgForHealthCleaners.Done()
+				err := cleaner.CleanupHealthResources(ctx)
+				if err != nil {
+					cleanErrs = append(cleanErrs, err)
+				}
+			}()
+		}
+
+		wgForHealthCleaners.Wait()
 		if len(cleanErrs) > 0 {
 			return cleanErrs[0]
 		}

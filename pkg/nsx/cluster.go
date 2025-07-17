@@ -4,10 +4,13 @@
 package nsx
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -372,7 +375,7 @@ func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 	return nsxVersion, err
 }
 
-// HttpGet sends a http GET request to the cluster, exported for use
+// HttpGet sends an http GET request to the cluster, exported for use
 func (cluster *Cluster) HttpGet(url string) (map[string]interface{}, error) {
 	resp, err := cluster.httpAction(url, "GET")
 	if err != nil {
@@ -384,15 +387,34 @@ func (cluster *Cluster) HttpGet(url string) (map[string]interface{}, error) {
 	return respJson, err
 }
 
-func (cluster *Cluster) httpAction(url, method string) (*http.Response, error) {
+func (cluster *Cluster) httpAction(url, method string, requestBody ...interface{}) (*http.Response, error) {
 	ep := cluster.endpoints[0]
 	serverUrl := cluster.CreateServerUrl(cluster.endpoints[0].Host(), cluster.endpoints[0].Scheme())
 	url = fmt.Sprintf("%s/%s", serverUrl, url)
-	req, err := http.NewRequest(method, url, nil)
+
+	var bodyReader io.Reader
+	if len(requestBody) > 0 && requestBody[0] != nil {
+		// Convert request body to JSON
+		requestBodyBytes, err := json.Marshal(requestBody[0])
+		if err != nil {
+			log.Error(err, "Failed to marshal request body")
+			return nil, fmt.Errorf("failed to marshal request body: %v", err)
+		}
+		bodyReader = bytes.NewBuffer(requestBodyBytes)
+	}
+
+	req, err := http.NewRequest(method, url, bodyReader)
 	if err != nil {
 		log.Error(err, "Failed to create HTTP request")
 		return nil, err
 	}
+
+	// Set headers for JSON content if we have a request body
+	if len(requestBody) > 0 && requestBody[0] != nil {
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+	}
+
 	log.V(1).Info(method+" url", "url", req.URL)
 	resp, err := ep.client.Do(req)
 	if err != nil {
@@ -401,7 +423,7 @@ func (cluster *Cluster) httpAction(url, method string) (*http.Response, error) {
 	return resp, nil
 }
 
-// HttpDelete sends a http DELETE request to the cluster, exported for use
+// HttpDelete sends an http DELETE request to the cluster, exported for use
 func (cluster *Cluster) HttpDelete(url string) error {
 	_, err := cluster.httpAction(url, "DELETE")
 	if err != nil {
@@ -409,6 +431,19 @@ func (cluster *Cluster) HttpDelete(url string) error {
 		return err
 	}
 	return nil
+}
+
+// HttpPost sends an http POST request to the cluster with a JSON body, exported for use
+func (cluster *Cluster) HttpPost(url string, requestBody interface{}) (map[string]interface{}, error) {
+	resp, err := cluster.httpAction(url, "POST", requestBody)
+	if err != nil {
+		log.Error(err, "Failed to do HTTP POST operation")
+		return nil, err
+	}
+
+	respJson := make(map[string]interface{})
+	err, _ = util.HandleHTTPResponse(resp, &respJson, true)
+	return respJson, err
 }
 
 func (nsxVersion *NsxVersion) Validate() error {
