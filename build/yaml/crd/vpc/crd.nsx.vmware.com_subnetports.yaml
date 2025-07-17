@@ -136,6 +136,9 @@ spec:
                   macAddress:
                     description: The MAC address.
                     type: string
+                  subnetDHCPEnabled:
+                    description: The DHCP configuration on the Subnet.
+                    type: boolean
                 type: object
             type: object
         type: object

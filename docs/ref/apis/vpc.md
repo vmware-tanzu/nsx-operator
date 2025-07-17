@@ -307,6 +307,7 @@ _Appears in:_
 | `logicalSwitchUUID` _string_ | NSX Logical Switch UUID of the Subnet. |  |  |
 | `ipAddresses` _[NetworkInterfaceIPAddress](#networkinterfaceipaddress) array_ |  |  |  |
 | `macAddress` _string_ | The MAC address. |  |  |
+| `subnetDHCPEnabled` _boolean_ | The DHCP configuration on the Subnet. |  |  |
 
 
 #### NetworkInterfaceIPAddress

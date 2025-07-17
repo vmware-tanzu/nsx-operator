@@ -184,6 +184,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 					Gateway: "",
 				},
 			},
+			SubnetDHCPEnabled: enableDHCP,
 		}
 		if !enableDHCP && len(nsxSubnetPortState.RealizedBindings) > 0 {
 			subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress = *nsxSubnetPortState.RealizedBindings[0].Binding.IpAddress
