@@ -306,6 +306,7 @@ _Appears in:_
 | `logicalSwitchUUID` _string_ | The realization id of the SubnetPort |  |  |
 | `ipAddresses` _[NetworkInterfaceIPAddress](#networkinterfaceipaddress) array_ |  |  |  |
 | `macAddress` _string_ | The MAC address. |  |  |
+| `dhcpDeactivatedOnSubnet` _boolean_ | DHCPDeactivatedOnSubnet indicates whether DHCP is deactivated on the Subnet. |  |  |
 
 
 #### NetworkInterfaceIPAddress

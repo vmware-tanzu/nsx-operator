@@ -47,6 +47,8 @@ type NetworkInterfaceConfig struct {
 	IPAddresses       []NetworkInterfaceIPAddress `json:"ipAddresses,omitempty"`
 	// The MAC address.
 	MACAddress string `json:"macAddress,omitempty"`
+	// DHCPDeactivatedOnSubnet indicates whether DHCP is deactivated on the Subnet.
+	DHCPDeactivatedOnSubnet bool `json:"dhcpDeactivatedOnSubnet,omitempty"`
 }
 
 type NetworkInterfaceIPAddress struct {

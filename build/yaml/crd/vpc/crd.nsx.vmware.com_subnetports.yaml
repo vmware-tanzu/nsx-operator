@@ -119,6 +119,10 @@ spec:
                 type: array
               networkInterfaceConfig:
                 properties:
+                  dhcpDeactivatedOnSubnet:
+                    description: DHCPDeactivatedOnSubnet indicates whether DHCP is
+                      deactivated on the Subnet.
+                    type: boolean
                   ipAddresses:
                     items:
                       properties:
