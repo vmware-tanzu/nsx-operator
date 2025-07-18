@@ -94,18 +94,8 @@ spec:
                     - DHCPRelay
                     - DHCPDeactivated
                     type: string
-                    x-kubernetes-validations:
-                    - message: subnetDHCPConfig mode can only switch between DHCPServer
-                        and DHCPRelay
-                      rule: oldSelf!='DHCPDeactivated' && self!='DHCPDeactivated'
-                        || oldSelf==self
                 type: object
                 x-kubernetes-validations:
-                - message: subnetDHCPConfig mode can only switch between DHCPServer
-                    and DHCPRelay
-                  rule: has(oldSelf.mode)==has(self.mode) || (has(oldSelf.mode) &&
-                    !has(self.mode)  && oldSelf.mode=='DHCPDeactivated') || (!has(oldSelf.mode)
-                    && has(self.mode) && self.mode=='DHCPDeactivated')
                 - message: DHCPServerAdditionalConfig must be cleared when Subnet
                     has DHCP relay enabled or DHCP is deactivated.
                   rule: (!has(self.mode)|| self.mode=='DHCPDeactivated' || self.mode=='DHCPRelay'
@@ -114,13 +104,6 @@ spec:
                     || has(self.mode) && self.mode=='DHCPServer'
             type: object
             x-kubernetes-validations:
-            - message: subnetDHCPConfig mode can only switch between DHCPServer and
-                DHCPRelay
-              rule: has(oldSelf.subnetDHCPConfig)==has(self.subnetDHCPConfig) || (has(oldSelf.subnetDHCPConfig)
-                && !has(self.subnetDHCPConfig) && (!has(oldSelf.subnetDHCPConfig.mode)
-                || oldSelf.subnetDHCPConfig.mode=='DHCPDeactivated')) || (!has(oldSelf.subnetDHCPConfig)
-                && has(self.subnetDHCPConfig) && (!has(self.subnetDHCPConfig.mode)
-                || self.subnetDHCPConfig.mode=='DHCPDeactivated'))
             - message: accessMode is required once set
               rule: '!has(oldSelf.accessMode) || has(self.accessMode)'
             - message: ipv4SubnetSize is required once set
