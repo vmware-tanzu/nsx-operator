@@ -752,3 +752,24 @@ func TestCollisionWithHashCharset(t *testing.T) {
 	hashStrWithTime := Sha1WithCustomizedCharset(fmt.Sprintf("%s-%d", newUUID.String(), timestamp))[:hashLength]
 	require.NotEqual(t, hashStr, hashStrWithTime)
 }
+
+func TestGetClusterUUID(t *testing.T) {
+	// Save original clusterUUID and restore after test to avoid side effects
+	origClusterUUID := clusterUUID
+	defer func() { clusterUUID = origClusterUUID }()
+
+	// Test that a new UUID is generated for a given clusterID
+	clusterID := "test-cluster"
+	clusterUUID = uuid.Nil
+	uuid1 := GetClusterUUID(clusterID)
+	assert.NotEqual(t, uuid.Nil, uuid1, "UUID should not be nil after generation")
+
+	// Test that calling again returns the same UUID (cached)
+	uuid2 := GetClusterUUID("another-cluster")
+	assert.Equal(t, uuid1, uuid2, "UUID should be cached and not change for different input")
+
+	// Test that the UUID is deterministic for the same clusterID if cache is reset
+	clusterUUID = uuid.Nil
+	uuid3 := GetClusterUUID(clusterID)
+	assert.Equal(t, uuid1, uuid3, "UUID should be deterministic for the same clusterID")
+}

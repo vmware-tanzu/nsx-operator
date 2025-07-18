@@ -27,9 +27,11 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func createService(t *testing.T) (*InventoryService, *mockClient.MockClient) {
+	clusterUUID = util.GetClusterUUID("k8scl-one:test").String()
 	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{"127.0.0.1"})
 
 	cluster, _ := nsx.NewCluster(config2)
@@ -136,7 +138,7 @@ func TestBuildPod(t *testing.T) {
 		assert.Equal(t, applicationInstance.ContainerProjectId, string(namespace.UID))
 		assert.Equal(t, applicationInstance.ClusterNodeId, string(node.UID))
 		assert.Equal(t, applicationInstance.ExternalId, string(testPod.UID))
-		assert.Equal(t, applicationInstance.ContainerClusterId, inventoryService.NSXConfig.Cluster)
+		assert.Equal(t, applicationInstance.ContainerClusterId, clusterUUID)
 
 		keypaire := common.KeyValuePair{Key: "ip", Value: "192.168.1.1"}
 		assert.Contains(t, applicationInstance.OriginProperties, keypaire)
@@ -314,7 +316,7 @@ func TestBuildNamespace(t *testing.T) {
 		assert.Equal(t, "test-namespace", containerProject.DisplayName)
 		assert.Equal(t, string(ContainerProject), containerProject.ResourceType)
 		assert.Equal(t, string(testNamespace.UID), containerProject.ExternalId)
-		assert.Equal(t, inventoryService.NSXConfig.Cluster, containerProject.ContainerClusterId)
+		assert.Equal(t, clusterUUID, containerProject.ContainerClusterId)
 		assert.Equal(t, NetworkStatusHealthy, containerProject.NetworkStatus)
 
 		// Verify tags are created from labels
@@ -334,7 +336,7 @@ func TestBuildNamespace(t *testing.T) {
 			DisplayName:        "old-name",
 			ResourceType:       string(ContainerProject),
 			Tags:               []common.Tag{},
-			ContainerClusterId: inventoryService.NSXConfig.Cluster,
+			ContainerClusterId: clusterUUID,
 			ExternalId:         string(testNamespace.UID),
 			NetworkStatus:      NetworkStatusHealthy,
 		}
@@ -868,7 +870,7 @@ func TestBuildIngress(t *testing.T) {
 				assert.Equal(t, tt.ingress.Name, newPolicy.DisplayName)
 				assert.Equal(t, tt.ingress.Name, newPolicy.DisplayName)
 				assert.Equal(t, string(tt.ingress.UID), newPolicy.ExternalId)
-				assert.Equal(t, "k8scl-one:test", newPolicy.ContainerClusterId)
+				assert.Equal(t, clusterUUID, newPolicy.ContainerClusterId)
 				assert.Equal(t, string(tt.namespace.UID), newPolicy.ContainerProjectId)
 
 				// Verify network errors if the test case has annotations
@@ -1062,7 +1064,7 @@ func TestBuildNode(t *testing.T) {
 		assert.Equal(t, "test-node", containerClusterNode.DisplayName)
 		assert.Equal(t, string(ContainerClusterNode), containerClusterNode.ResourceType)
 		assert.Equal(t, string(testNode.UID), containerClusterNode.ExternalId)
-		assert.Equal(t, inventoryService.NSXConfig.Cluster, containerClusterNode.ContainerClusterId)
+		assert.Equal(t, clusterUUID, containerClusterNode.ContainerClusterId)
 		assert.Equal(t, NetworkStatusHealthy, containerClusterNode.NetworkStatus)
 		assert.Contains(t, containerClusterNode.IpAddresses, "192.168.99.1")
 
@@ -1085,7 +1087,7 @@ func TestBuildNode(t *testing.T) {
 			DisplayName:        "old-node-name",
 			ResourceType:       string(ContainerClusterNode),
 			Tags:               []common.Tag{},
-			ContainerClusterId: inventoryService.NSXConfig.Cluster,
+			ContainerClusterId: clusterUUID,
 			ExternalId:         string(testNode.UID),
 			NetworkStatus:      NetworkStatusHealthy,
 		}
@@ -1125,7 +1127,7 @@ func TestBuildNode(t *testing.T) {
 			DisplayName:        "test-node",
 			ResourceType:       string(ContainerClusterNode),
 			Tags:               GetTagsFromLabels(labels),
-			ContainerClusterId: inventoryService.NSXConfig.Cluster,
+			ContainerClusterId: clusterUUID,
 			ExternalId:         string(testNode.UID),
 			NetworkErrors:      []common.NetworkError{},
 			NetworkStatus:      NetworkStatusHealthy,
@@ -1253,7 +1255,7 @@ func TestBuildService(t *testing.T) {
 		assert.Equal(t, "test-service", containerApplication.DisplayName)
 		assert.Equal(t, string(ContainerApplication), containerApplication.ResourceType)
 		assert.Equal(t, string(testService.UID), containerApplication.ExternalId)
-		assert.Equal(t, inventoryService.NSXConfig.Cluster, containerApplication.ContainerClusterId)
+		assert.Equal(t, clusterUUID, containerApplication.ContainerClusterId)
 		assert.Equal(t, NetworkStatusHealthy, containerApplication.NetworkStatus)
 		assert.Equal(t, InventoryStatusUp, containerApplication.Status)
 
@@ -1343,7 +1345,7 @@ func TestBuildService(t *testing.T) {
 			DisplayName:        "old-name",
 			ResourceType:       string(ContainerApplication),
 			Tags:               []common.Tag{},
-			ContainerClusterId: inventoryService.NSXConfig.Cluster,
+			ContainerClusterId: clusterUUID,
 			ExternalId:         string(testService.UID),
 			NetworkStatus:      NetworkStatusHealthy,
 		}
@@ -1474,7 +1476,7 @@ func TestBuildNetworkPolicy(t *testing.T) {
 		assert.Equal(t, "test-networkpolicy", containerNetworkPolicy.DisplayName)
 		assert.Equal(t, string(ContainerNetworkPolicy), containerNetworkPolicy.ResourceType)
 		assert.Equal(t, string(testNetworkPolicy.UID), containerNetworkPolicy.ExternalId)
-		assert.Equal(t, inventoryService.NSXConfig.Cluster, containerNetworkPolicy.ContainerClusterId)
+		assert.Equal(t, clusterUUID, containerNetworkPolicy.ContainerClusterId)
 		assert.Equal(t, "HEALTHY", containerNetworkPolicy.NetworkStatus)
 
 		// Verify tags are created from labels

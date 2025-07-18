@@ -9,6 +9,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -19,7 +20,7 @@ import (
 
 func TestInitializeService(t *testing.T) {
 	// Initialize the service
-	service := commonservice.Service{}
+	service := commonservice.Service{NSXConfig: &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{Cluster: "test-cluster"}}}
 	inventoryService := NewInventoryService(service)
 	patches := gomonkey.ApplyMethod(inventoryService, "Initialize", func(*InventoryService) error {
 		return nil
