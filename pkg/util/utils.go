@@ -28,6 +28,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 const (
@@ -572,4 +573,19 @@ func GetClusterUUID(clusterID string) uuid.UUID {
 		clusterUUID = uuid.NewSHA1(uuid.NameSpaceX500, []byte(clusterID))
 	}
 	return clusterUUID
+}
+
+func NSXSubnetDHCPEnabled(nsxSubnet *model.VpcSubnet) bool {
+	return nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode != nsxutil.ParseDHCPMode(v1alpha1.DHCPConfigModeDeactivated)
+}
+
+func CRSubnetDHCPEnabled(obj client.Object) bool {
+	mode := ""
+	switch o := obj.(type) {
+	case *v1alpha1.Subnet:
+		mode = string(o.Spec.SubnetDHCPConfig.Mode)
+	case *v1alpha1.SubnetSet:
+		mode = string(o.Spec.SubnetDHCPConfig.Mode)
+	}
+	return mode == v1alpha1.DHCPConfigModeServer || mode == v1alpha1.DHCPConfigModeRelay
 }

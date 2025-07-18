@@ -42,7 +42,7 @@ type PortAttachment struct {
 }
 
 type NetworkInterfaceConfig struct {
-	// The realization id of the SubnetPort
+	// NSX Logical Switch UUID of the Subnet.
 	LogicalSwitchUUID string                      `json:"logicalSwitchUUID,omitempty"`
 	IPAddresses       []NetworkInterfaceIPAddress `json:"ipAddresses,omitempty"`
 	// The MAC address.

@@ -33,6 +33,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetbinding"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -168,6 +169,12 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		subnetCR.Spec.IPv4SubnetSize = vpcNetworkConfig.Spec.DefaultSubnetSize
 		specChanged = true
 	}
+
+	if subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled == nil {
+		subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = servicecommon.Bool(!util.CRSubnetDHCPEnabled(subnetCR))
+		specChanged = true
+	}
+
 	if specChanged {
 		if err := r.Client.Update(ctx, subnetCR); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to update Subnet", setSubnetReadyStatusFalse)
