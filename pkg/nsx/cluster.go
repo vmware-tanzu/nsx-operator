@@ -4,8 +4,10 @@
 package nsx
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -409,6 +411,41 @@ func (cluster *Cluster) HttpDelete(url string) error {
 		return err
 	}
 	return nil
+}
+
+// HttpPost sends an http POST request to the cluster with a JSON body, exported for use
+func (cluster *Cluster) HttpPost(url string, requestBody interface{}) (map[string]interface{}, error) {
+	// Convert request body to JSON
+	requestBodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		log.Error(err, "Failed to marshal request body")
+		return nil, fmt.Errorf("failed to marshal request body: %v", err)
+	}
+
+	ep := cluster.endpoints[0]
+	serverUrl := cluster.CreateServerUrl(cluster.endpoints[0].Host(), cluster.endpoints[0].Scheme())
+	fullUrl := fmt.Sprintf("%s/%s", serverUrl, url)
+	req, err := http.NewRequest("POST", fullUrl, bytes.NewBuffer(requestBodyBytes))
+	if err != nil {
+		log.Error(err, "Failed to create HTTP request")
+		return nil, err
+	}
+
+	// Set headers for JSON content
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	log.V(1).Info("POST url", "url", req.URL)
+
+	resp, err := ep.client.Do(req)
+	if err != nil {
+		log.Error(err, "Failed to do HTTP POST operation")
+		return nil, err
+	}
+
+	respJson := make(map[string]interface{})
+	err, _ = util.HandleHTTPResponse(resp, &respJson, true)
+	return respJson, err
 }
 
 func (nsxVersion *NsxVersion) Validate() error {
