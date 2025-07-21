@@ -74,10 +74,13 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		UID:  types.UID(nsUID),
 	}
 	var nsxSubnet *model.VpcSubnet
-	var staticIpAllocation bool
+	staticIpAllocation := !util.CRSubnetDHCPEnabled(obj)
 	switch o := obj.(type) {
 	case *v1alpha1.Subnet:
-		staticIpAllocation = o.Spec.SubnetDHCPConfig.Mode == "" || o.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
+		if o.Spec.AdvancedConfig.StaticIPAllocation.Enabled != nil {
+			staticIpAllocation = *o.Spec.AdvancedConfig.StaticIPAllocation.Enabled
+		}
+
 		nsxSubnet = &model.VpcSubnet{
 			Id:             String(service.BuildSubnetID(objForIdGeneration)),
 			AccessMode:     String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),
@@ -97,7 +100,6 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 	case *v1alpha1.SubnetSet:
 		// The index is a random string with the length of 8 chars. It is the first 8 chars of the hash
 		// value on a random UUID string.
-		staticIpAllocation = o.Spec.SubnetDHCPConfig.Mode == "" || o.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
 		index := util.GetRandomIndexString()
 		nsxSubnet = &model.VpcSubnet{
 			Id:             String(service.buildSubnetSetID(objForIdGeneration, index)),
