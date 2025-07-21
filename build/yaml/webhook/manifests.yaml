@@ -11,6 +11,25 @@ webhooks:
     service:
       name: vmware-system-nsx-operator-webhook-service
       namespace: vmware-system-nsx
+      path: /validate-v1-namespace
+  failurePolicy: Fail
+  name: namespace.validating.nsx.vmware.com
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - UPDATE
+    resources:
+    - namespaces
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: vmware-system-nsx-operator-webhook-service
+      namespace: vmware-system-nsx
       # kubebuilder webhookpath.
       path: /validate-crd-nsx-vmware-com-v1alpha1-subnetset
   failurePolicy: Fail

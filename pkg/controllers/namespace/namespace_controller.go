@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -285,11 +286,24 @@ func (r *NamespaceReconciler) CollectGarbage(_ context.Context) error {
 	return nil
 }
 
-func (r *NamespaceReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+func (r *NamespaceReconciler) StartController(mgr ctrl.Manager, hookServer webhook.Server) error {
 	if err := r.Start(mgr); err != nil {
 		log.Error(err, "Failed to create namespace controller", "controller", "Namespace")
 		return err
 	}
+
+	// Register the namespace webhook
+	if hookServer != nil {
+		hookServer.Register("/validate-v1-namespace",
+			&webhook.Admission{
+				Handler: &NamespaceValidator{
+					Client:  mgr.GetClient(),
+					decoder: admission.NewDecoder(mgr.GetScheme()),
+				},
+			})
+		log.Info("Registered namespace webhook")
+	}
+
 	return nil
 }
 
