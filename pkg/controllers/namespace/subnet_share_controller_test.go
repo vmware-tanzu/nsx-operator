@@ -760,6 +760,7 @@ func TestSyncSharedSubnets(t *testing.T) {
 		existingSubnets []client.Object
 		vpcNetConfig    *v1alpha1.VPCNetworkConfiguration
 		expectedError   bool
+		expectedErrMsg  string
 		setupMocks      func(r *NamespaceReconciler) *gomonkey.Patches
 	}{
 		{
@@ -812,6 +813,9 @@ func TestSyncSharedSubnets(t *testing.T) {
 			// Check the result
 			if tt.expectedError {
 				assert.Error(t, err)
+				if tt.expectedErrMsg != "" {
+					assert.Contains(t, err.Error(), tt.expectedErrMsg)
+				}
 			} else {
 				assert.NoError(t, err)
 			}
