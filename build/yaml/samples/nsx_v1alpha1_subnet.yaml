@@ -12,8 +12,13 @@ metadata:
   name: subnet-sample-b
 spec:
   accessMode: Private
-  ipv4SubnetSize: 64
+  ipAddresses:
+  - 172.26.0.0/28
+  ipv4SubnetSize: 16
   subnetDHCPConfig:
+    dhcpServerAdditionalConfig:
+      reservedIPRanges:
+      - 172.26.0.4-172.26.0.10
     mode: DHCPServer
 ---
 # Subnet CR sample for assigned VLAN extension Subnet
