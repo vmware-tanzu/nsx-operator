@@ -16,6 +16,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/inventory"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	sr "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
@@ -191,6 +192,9 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 	patches.ApplyFunc(inventory.InitializeService, func(service common.Service, _ bool) (*inventory.InventoryService, error) {
 		return &inventory.InventoryService{}, nil
 	})
+	patches.ApplyFunc(nsxserviceaccount.InitializeNSXServiceAccount, func(service common.Service) (*nsxserviceaccount.NSXServiceAccountService, error) {
+		return &nsxserviceaccount.NSXServiceAccountService{}, nil
+	})
 
 	// Mock the NewHealthCleaner function to avoid nil pointer dereference
 	patches.ApplyFunc(NewHealthCleaner, func(service common.Service, log *logr.Logger, nsxClient *nsx.Client, clusterID string) *HealthCleaner {
@@ -205,7 +209,7 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 	cleanupService, err := InitializeCleanupService(cf, nsxClient, &log)
 	assert.NoError(t, err)
 	assert.NotNil(t, cleanupService)
-	assert.Len(t, cleanupService.vpcPreCleaners, 4)
+	assert.Len(t, cleanupService.vpcPreCleaners, 5)
 	assert.Len(t, cleanupService.vpcChildrenCleaners, 5)
 	assert.Len(t, cleanupService.infraCleaners, 2)
 }

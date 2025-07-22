@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -20,7 +21,7 @@ import (
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -685,7 +686,7 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 				Name:      tt.args.obj.Name,
 			}, actualCR)
 			if tt.expectedCR == nil {
-				assert.True(t, errors.IsNotFound(err))
+				assert.True(t, k8serrors.IsNotFound(err))
 			} else {
 				assert.Equal(t, tt.expectedCR.ObjectMeta, actualCR.ObjectMeta)
 				assert.Equal(t, tt.expectedCR.Spec, actualCR.Spec)
@@ -2211,6 +2212,64 @@ func TestUpdateProxyEndpointsIfNeeded(t *testing.T) {
 			err := s.UpdateProxyEndpointsIfNeeded(ctx, tt.nsxServiceAccount)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedProxyEndpoints, tt.nsxServiceAccount.Status.ProxyEndpoints)
+		})
+	}
+}
+
+func TestCleanupBeforeVPCDeletion(t *testing.T) {
+	tests := []struct {
+		name        string
+		prepareFunc func(*testing.T, *NSXServiceAccountService, context.Context) *gomonkey.Patches
+		expectedErr string
+	}{
+		{
+			name: "Cleanup with no cluster control plane found",
+		},
+		{
+			name: "Cleanup with no errors",
+			prepareFunc: func(t *testing.T, nsxsaService *NSXServiceAccountService, ctx context.Context) *gomonkey.Patches {
+				ccp1ID := "antreacluster"
+				ccp2ID := "kindcluster"
+				assert.NoError(t, nsxsaService.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{Id: &ccp1ID}))
+				assert.NoError(t, nsxsaService.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{Id: &ccp2ID}))
+				patches := gomonkey.ApplyMethodSeq(nsxsaService.NSXClient.ClusterControlPlanesClient, "Delete", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  2,
+				}})
+				return patches
+			},
+		},
+		{
+			name: "Cleanup with cluster control plane deletion error",
+			prepareFunc: func(t *testing.T, nsxsaService *NSXServiceAccountService, ctx context.Context) *gomonkey.Patches {
+				ccpID := "antreacluster"
+				assert.NoError(t, nsxsaService.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{Id: &ccpID}))
+				patches := gomonkey.ApplyMethodSeq(nsxsaService.NSXClient.ClusterControlPlanesClient, "Delete", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{errors.New("ccp deletion error")},
+					Times:  1,
+				}})
+				return patches
+			},
+			expectedErr: "ccp deletion error",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			commonService := newFakeCommonService()
+			nsxsaService := &NSXServiceAccountService{Service: commonService}
+			nsxsaService.SetUpStore()
+			ctx := context.TODO()
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc(t, nsxsaService, ctx)
+				defer patches.Reset()
+			}
+
+			err := nsxsaService.CleanupBeforeVPCDeletion(ctx)
+			if tt.expectedErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.EqualError(t, err, tt.expectedErr)
+			}
 		})
 	}
 }
