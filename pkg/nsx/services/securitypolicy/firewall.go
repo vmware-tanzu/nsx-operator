@@ -632,14 +632,14 @@ func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alp
 	return nil
 }
 
-func (service *SecurityPolicyService) DeleteSecurityPolicy(spUid types.UID, isGC bool, createdFor string) error {
+func (service *SecurityPolicyService) DeleteSecurityPolicy(ns string, spUid types.UID, isGC bool, createdFor string) error {
 	var err error
 	// For VPC network, SecurityPolicy normal deletion, GC deletion and cleanup
 	if IsVPCEnabled(service) {
-		err = service.deleteVPCSecurityPolicy(spUid, isGC, createdFor)
+		err = service.deleteVPCSecurityPolicy(ns, spUid, isGC, createdFor)
 	} else {
 		// For T1 network, SecurityPolicy normal deletion and GC deletion
-		err = service.deleteSecurityPolicy(spUid)
+		err = service.deleteSecurityPolicy(ns, spUid)
 	}
 	return err
 }
