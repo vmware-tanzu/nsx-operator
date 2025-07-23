@@ -46,8 +46,17 @@ func (v *AddressBindingValidator) Handle(ctx context.Context, req admission.Requ
 			log.Error(err, "failed to list AddressBinding from cache", "indexValue", abIndexValue)
 			return admission.Errored(http.StatusInternalServerError, err)
 		}
+		hasDefault := ab.Spec.InterfaceName == ""
+		if !hasDefault {
+			for _, existingAddressBinding := range existingAddressBindingList.Items {
+				if existingAddressBinding.Spec.InterfaceName == "" {
+					hasDefault = true
+					break
+				}
+			}
+		}
 		for _, existingAddressBinding := range existingAddressBindingList.Items {
-			if ab.Name != existingAddressBinding.Name && ab.Spec.InterfaceName == existingAddressBinding.Spec.InterfaceName {
+			if ab.Name != existingAddressBinding.Name && (hasDefault || ab.Spec.InterfaceName == existingAddressBinding.Spec.InterfaceName) {
 				return admission.Denied("interface already has AddressBinding")
 			}
 		}
