@@ -219,7 +219,33 @@ func TestIPBlocksInfoService_getIPBlockCIDRsFromStore(t *testing.T) {
 	pathSet = sets.New[string]()
 	pathSet.Insert(ipBlocksPath1)
 	_, err = service.getIPBlockCIDRsFromStore(pathSet, ipBlockStore)
-	assert.ErrorContains(t, err, "failed to get CIDR from ipblock")
+	assert.ErrorContains(t, err, "failed to get CIDR from IPBlock")
+
+	// get IPBlocks from NSX <= 9.0
+	ipblock3 := model.IpAddressBlock{
+		Path: &ipBlocksPath3,
+		Cidr: common.String(ipBlocksMap[ipBlocksPath3]),
+	}
+	ipBlockStore.Apply(&ipblock3)
+	pathSet = sets.New[string]()
+	pathSet.Insert(ipBlocksPath3)
+	cidrs, err := service.getIPBlockCIDRsFromStore(pathSet, ipBlockStore)
+	assert.Nil(t, err)
+	assert.Equal(t, 1, len(cidrs))
+	assert.Equal(t, ipBlocksMap[ipBlocksPath3], cidrs[0])
+
+	// get IPBlocks from NSX > 9.0
+	ipblock4 := model.IpAddressBlock{
+		Path:     &ipBlocksPath4,
+		CidrList: []string{ipBlocksMap[ipBlocksPath4]},
+	}
+	ipBlockStore.Apply(&ipblock4)
+	pathSet = sets.New[string]()
+	pathSet.Insert(ipBlocksPath4)
+	cidrs, err = service.getIPBlockCIDRsFromStore(pathSet, ipBlockStore)
+	assert.Nil(t, err)
+	assert.Equal(t, 1, len(cidrs))
+	assert.Equal(t, ipBlocksMap[ipBlocksPath4], cidrs[0])
 }
 
 func TestIPBlocksInfoService_createOrUpdateIPBlocksInfo(t *testing.T) {
