@@ -11,7 +11,6 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -344,102 +343,6 @@ func (r *SecurityPolicyReconciler) Start(mgr ctrl.Manager) error {
 	return nil
 }
 
-// CollectGroupGarbage removes groups that are no longer associated with any security policy or rule
-func (r *SecurityPolicyReconciler) CollectGroupGarbage(_ context.Context) error {
-	var errList []error
-
-	log.Info("Checking for orphan groups")
-	securityPolicyStore, ruleStore, groupStore := r.Service.GetSecurityPolicyResourceStores()
-	infraGroupStore, infraShareStore, projectGroupStore, projectShareStore := r.Service.GetVPCShareResourceStores()
-
-	// Get all security policy and rule IDs
-	allSecurityPolicyIDs := sets.New[string]()
-	for _, indexScope := range []string{servicecommon.TagValueScopeSecurityPolicyUID, servicecommon.TagScopeNetworkPolicyUID} {
-		allSecurityPolicyIDs = allSecurityPolicyIDs.Union(securityPolicyStore.ListIndexFuncValues(indexScope))
-		allSecurityPolicyIDs = allSecurityPolicyIDs.Union(ruleStore.ListIndexFuncValues(indexScope))
-		allSecurityPolicyIDs = allSecurityPolicyIDs.Union(infraGroupStore.ListIndexFuncValues(indexScope))
-		allSecurityPolicyIDs = allSecurityPolicyIDs.Union(infraShareStore.ListIndexFuncValues(indexScope))
-		allSecurityPolicyIDs = allSecurityPolicyIDs.Union(projectGroupStore.ListIndexFuncValues(indexScope))
-		allSecurityPolicyIDs = allSecurityPolicyIDs.Union(projectShareStore.ListIndexFuncValues(indexScope))
-	}
-
-	// Check each group store for orphans
-	for _, storeInfo := range []struct {
-		store *securitypolicy.GroupStore
-		name  string
-		isVPC bool
-	}{
-		{groupStore, "main", false},
-		{infraGroupStore, "infra", true},
-		{projectGroupStore, "project", true},
-	} {
-		log.Info("Checking for orphan groups in store", "store", storeInfo.name)
-
-		// Get all groups from the store
-		cachedObjs := storeInfo.store.List()
-		if len(cachedObjs) == 0 {
-			log.Info("No groups found in store", "store", storeInfo.name)
-			continue
-		}
-
-		for _, obj := range cachedObjs {
-			group := obj.(*model.Group)
-			if group.Id == nil {
-				log.Info("Group has no ID, skipping", "group", group)
-				continue
-			}
-
-			// Check if this group is associated with any security policy or rule
-			isOrphan := true
-			for _, indexScope := range []string{servicecommon.TagValueScopeSecurityPolicyUID, servicecommon.TagScopeNetworkPolicyUID} {
-				// Extract all security policy IDs from the group's tags
-				for _, tag := range group.Tags {
-					if tag.Scope != nil && *tag.Scope == indexScope && tag.Tag != nil {
-						if allSecurityPolicyIDs.Has(*tag.Tag) {
-							isOrphan = false
-							break
-						}
-					}
-				}
-				if !isOrphan {
-					break
-				}
-			}
-
-			if isOrphan {
-				log.Info("Found orphan group, deleting", "groupID", *group.Id)
-
-				// Get VPC info if needed
-				var vpcInfo *servicecommon.VPCResourceInfo
-				if storeInfo.isVPC && group.Path != nil {
-					vpcPathParts, err := servicecommon.ParseVPCResourcePath(*group.Path)
-					if err != nil {
-						log.Error(err, "Failed to parse VPC path from group", "groupID", *group.Id, "path", *group.Path)
-						errList = append(errList, err)
-						continue
-					}
-					vpcInfo = &vpcPathParts
-				}
-
-				// Delete the group
-				groups := []model.Group{*group}
-				err := r.Service.DeleteGroupsWithStore(&groups, vpcInfo, storeInfo.store)
-				if err != nil {
-					log.Error(err, "Failed to delete orphan group", "groupID", *group.Id)
-					errList = append(errList, err)
-				} else {
-					log.Info("Successfully deleted orphan group", "groupID", *group.Id)
-				}
-			}
-		}
-	}
-
-	if len(errList) > 0 {
-		return fmt.Errorf("errors found in Group garbage collection: %s", errList)
-	}
-	return nil
-}
-
 // CollectGarbage collect securitypolicy which has been removed from k8s,
 // it implements the interface GarbageCollector method.
 func (r *SecurityPolicyReconciler) CollectGarbage(_ context.Context) error {
@@ -587,7 +490,6 @@ func (r *SecurityPolicyReconciler) StartController(mgr ctrl.Manager, _ webhook.S
 		return err
 	}
 	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.CollectGarbage)
-	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.CollectGroupGarbage)
 	return nil
 }
 
