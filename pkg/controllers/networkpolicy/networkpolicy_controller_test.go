@@ -351,7 +351,7 @@ func TestNetworkPolicyReconciler_GarbageCollector(t *testing.T) {
 					res := sets.New[string]("1234_ingress", "1234_isolation")
 					return res
 				})
-				patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, createdFor string) error {
+				patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, ns string, obj interface{}, isGc bool, createdFor string) error {
 					return nil
 				})
 				return patch
@@ -365,7 +365,7 @@ func TestNetworkPolicyReconciler_GarbageCollector(t *testing.T) {
 					res := sets.New[string]("1234_allow", "1234_isolation")
 					return res
 				})
-				patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, createdFor string) error {
+				patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, ns string, obj interface{}, isGc bool, createdFor string) error {
 					assert.FailNow(t, "should not be called")
 					return nil
 				})
@@ -386,7 +386,7 @@ func TestNetworkPolicyReconciler_GarbageCollector(t *testing.T) {
 					res := sets.New[string]("1234_allow", "1234_isolation")
 					return res
 				})
-				patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, createdFor string) error {
+				patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, ns string, obj interface{}, isGc bool, createdFor string) error {
 					return errors.New("delete failed")
 				})
 				return patch
@@ -469,7 +469,8 @@ func TestNetworkPolicyReconciler_deleteNetworkPolicyByName(t *testing.T) {
 		}
 	})
 
-	patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj types.UID, isGc bool, createdFor string) error {
+	patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, ns string, obj types.UID,
+		isGc bool, createdFor string) error {
 		if obj == "uid2" {
 			return errors.New("delete failed")
 		}

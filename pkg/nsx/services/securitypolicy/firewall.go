@@ -644,7 +644,7 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(spUid types.UID, isGC
 	return err
 }
 
-func (service *SecurityPolicyService) deleteSecurityPolicy(sp types.UID) error {
+func (service *SecurityPolicyService) deleteSecurityPolicy(ns string, sp types.UID) error {
 	var nsxSecurityPolicy *model.SecurityPolicy
 	var err error
 	g := make([]model.Group, 0)
@@ -660,13 +660,13 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(sp types.UID) error {
 	indexScope := common.TagValueScopeSecurityPolicyUID
 	existingSecurityPolices := securityPolicyStore.GetByIndex(indexScope, string(sp))
 	if len(existingSecurityPolices) == 0 {
-		log.Info("NSX SecurityPolicy is not found in store, skip deleting it", "nsxSecurityPolicyUID", sp)
+		log.Info("NSX SecurityPolicy is not found in store, skip deleting it", "namespace", ns, "nsxSecurityPolicyUID", sp)
 		return nil
 	}
 	nsxSecurityPolicy = existingSecurityPolices[0]
 	if nsxSecurityPolicy.Path == nil {
 		err = errors.New("nsxSecurityPolicy path is empty")
-		log.Error(err, "Failed to delete SecurityPolicy", "nsxSecurityPolicyUID", sp)
+		log.Error(err, "Failed to delete SecurityPolicy", "namespace", ns, "nsxSecurityPolicyUID", sp)
 		return err
 	}
 
@@ -757,7 +757,7 @@ func (service *SecurityPolicyService) DeleteGroupsWithStore(nsxGroups *[]model.G
 	return nil
 }
 
-func (service *SecurityPolicyService) deleteVPCSecurityPolicy(sp types.UID, isGC bool, createdFor string) error {
+func (service *SecurityPolicyService) deleteVPCSecurityPolicy(ns string, sp types.UID, isGC bool, createdFor string) error {
 	var nsxSecurityPolicy *model.SecurityPolicy
 	var err error
 	g := make([]model.Group, 0)
@@ -788,11 +788,11 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(sp types.UID, isGC
 		// When the NSX security policy, rules, and groups at the VPC level are deleted,
 		// The following infra API call to delete infra share resources fails or NSX Operator restarts suddenly.
 		// So, there is no more NSX security policy, but the related NSX infra share resources became stale.
-		log.Info("NSX SecurityPolicy is not found in store, but there are stale NSX infra share resource to be GC", "nsxSecurityPolicyUID", sp, "createdFor", createdFor)
+		log.Info("NSX SecurityPolicy is not found in store, but there are stale NSX infra share resource to be GC", "namespace", ns, "nsxSecurityPolicyUID", sp, "createdFor", createdFor)
 		return service.gcInfraSharesGroups(sp, indexScope)
 	}
 	if len(existingSecurityPolices) == 0 {
-		log.Info("NSX SecurityPolicy is not found in store, skip deleting it", "nsxSecurityPolicyUID", sp, "createdFor", createdFor)
+		log.Info("NSX SecurityPolicy is not found in store, skip deleting it", "namespace", ns, "nsxSecurityPolicyUID", sp, "createdFor", createdFor)
 		return nil
 	}
 	nsxSecurityPolicy = existingSecurityPolices[0]
@@ -801,7 +801,7 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(sp types.UID, isGC
 	// Get orgID, projectID, vpcID from security policy path "/orgs/<orgID>/projects/<projectID>/vpcs/<vpcID>/security-policies/<spID>"
 	if nsxSecurityPolicy.Path == nil {
 		err = errors.New("nsxSecurityPolicy path is empty")
-		log.Error(err, "Failed to delete SecurityPolicy in VPC", "nsxSecurityPolicyUID", sp)
+		log.Error(err, "Failed to delete SecurityPolicy in VPC", "namespace", ns, "nsxSecurityPolicyUID", sp)
 		return err
 	}
 	vpcInfo, _ := common.ParseVPCResourcePath(*(nsxSecurityPolicy.Path))
@@ -862,7 +862,7 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(sp types.UID, isGC
 		return err
 	}
 
-	log.Info("Successfully deleted NSX SecurityPolicy in VPC", "nsxSecurityPolicy", finalSecurityPolicyCopy)
+	log.Info("Successfully deleted NSX SecurityPolicy in VPC", "namespace", ns, "nsxSecurityPolicy", finalSecurityPolicyCopy)
 	return nil
 }
 
