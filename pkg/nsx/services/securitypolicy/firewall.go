@@ -1248,6 +1248,70 @@ func (service *SecurityPolicyService) getGCSecurityPolicyIDSet(indexScope string
 	return groupSet.Union(policySet).Union(projectShareSet).Union(projectGroupSet).Union(infraShareSet).Union(infraGroupSet)
 }
 
+// GetGCSecurityPolicyNamespace receives a nsxPolicyID, iterates all the store,
+// returns the first namespace which the nsxPolicyID resides in
+func (service *SecurityPolicyService) GetGCSecurityPolicyNamespace(nsxPolicyID string) string {
+	// First check if the policy exists in the securityPolicyStore
+	securityPolicy := service.securityPolicyStore.GetByKey(nsxPolicyID)
+	if securityPolicy != nil {
+		// Extract namespace from the policy's tags
+		namespace := nsxutil.FindTag(securityPolicy.Tags, common.TagScopeNamespace)
+		if namespace != "" {
+			return namespace
+		}
+	}
+
+	// If not found in securityPolicyStore, check the groupStore
+	// Get groups associated with this policy ID
+	indexScope := common.TagValueScopeSecurityPolicyUID
+	groups := service.groupStore.GetByIndex(indexScope, nsxPolicyID)
+	for _, group := range groups {
+		namespace := nsxutil.FindTag(group.Tags, common.TagScopeNamespace)
+		if namespace != "" {
+			return namespace
+		}
+	}
+
+	// Also check the infraGroupStore
+	infraGroups := service.infraGroupStore.GetByIndex(indexScope, nsxPolicyID)
+	for _, group := range infraGroups {
+		namespace := nsxutil.FindTag(group.Tags, common.TagScopeNamespace)
+		if namespace != "" {
+			return namespace
+		}
+	}
+
+	// Also check the projectGroupStore
+	projectGroups := service.projectGroupStore.GetByIndex(indexScope, nsxPolicyID)
+	for _, group := range projectGroups {
+		namespace := nsxutil.FindTag(group.Tags, common.TagScopeNamespace)
+		if namespace != "" {
+			return namespace
+		}
+	}
+
+	// Also check the infraShareStore
+	infraShares := service.infraShareStore.GetByIndex(indexScope, nsxPolicyID)
+	for _, share := range infraShares {
+		namespace := nsxutil.FindTag(share.Tags, common.TagScopeNamespace)
+		if namespace != "" {
+			return namespace
+		}
+	}
+
+	// Also check the projectShareStore
+	projectShares := service.projectShareStore.GetByIndex(indexScope, nsxPolicyID)
+	for _, share := range projectShares {
+		namespace := nsxutil.FindTag(share.Tags, common.TagScopeNamespace)
+		if namespace != "" {
+			return namespace
+		}
+	}
+
+	// This is a fallback mechanism in case the policy is not in any store
+	return ""
+}
+
 func (service *SecurityPolicyService) getVPCInfo(spNameSpace string) (*common.VPCResourceInfo, error) {
 	vpcInfo := service.vpcService.ListVPCInfo(spNameSpace)
 	if len(vpcInfo) == 0 {

@@ -351,6 +351,9 @@ func TestNetworkPolicyReconciler_GarbageCollector(t *testing.T) {
 					res := sets.New[string]("1234_ingress", "1234_isolation")
 					return res
 				})
+				patch.ApplyMethod(reflect.TypeOf(r.Service), "GetGCSecurityPolicyNamespace", func(_ *securitypolicy.SecurityPolicyService, nsxPolicyID string) string {
+					return "test-namespace"
+				})
 				patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, ns string, obj interface{}, isGc bool, createdFor string) error {
 					return nil
 				})
@@ -364,6 +367,9 @@ func TestNetworkPolicyReconciler_GarbageCollector(t *testing.T) {
 				patch := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "ListNetworkPolicyID", func(_ *securitypolicy.SecurityPolicyService) sets.Set[string] {
 					res := sets.New[string]("1234_allow", "1234_isolation")
 					return res
+				})
+				patch.ApplyMethod(reflect.TypeOf(r.Service), "GetGCSecurityPolicyNamespace", func(_ *securitypolicy.SecurityPolicyService, nsxPolicyID string) string {
+					return "test-namespace"
 				})
 				patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, ns string, obj interface{}, isGc bool, createdFor string) error {
 					assert.FailNow(t, "should not be called")
@@ -385,6 +391,9 @@ func TestNetworkPolicyReconciler_GarbageCollector(t *testing.T) {
 				patch := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "ListNetworkPolicyID", func(_ *securitypolicy.SecurityPolicyService) sets.Set[string] {
 					res := sets.New[string]("1234_allow", "1234_isolation")
 					return res
+				})
+				patch.ApplyMethod(reflect.TypeOf(r.Service), "GetGCSecurityPolicyNamespace", func(_ *securitypolicy.SecurityPolicyService, nsxPolicyID string) string {
+					return "test-namespace"
 				})
 				patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, ns string, obj interface{}, isGc bool, createdFor string) error {
 					return errors.New("delete failed")

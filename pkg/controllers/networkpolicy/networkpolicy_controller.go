@@ -191,7 +191,12 @@ func (r *NetworkPolicyReconciler) CollectGarbage(ctx context.Context) error {
 	for elem := range diffSet {
 		log.V(1).Info("GC collected NetworkPolicy", "ID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
-		err = r.Service.DeleteSecurityPolicy("", types.UID(elem), true, servicecommon.ResourceTypeNetworkPolicy)
+
+		// Get the namespace for this policy ID
+		namespace := r.Service.GetGCSecurityPolicyNamespace(elem)
+
+		// Delete the security policy with the found namespace (or empty if not found)
+		err = r.Service.DeleteSecurityPolicy(namespace, types.UID(elem), true, servicecommon.ResourceTypeNetworkPolicy)
 		if err != nil {
 			errList = append(errList, err)
 			r.StatusUpdater.IncreaseDeleteFailTotal()

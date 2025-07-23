@@ -481,6 +481,12 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 		a.Insert("2345")
 		return a
 	})
+	patch.ApplyMethod(reflect.TypeOf(service), "GetGCSecurityPolicyNamespace", func(_ *securitypolicy.SecurityPolicyService, nsxPolicyID string) string {
+		if nsxPolicyID == "2345" {
+			return "test-namespace"
+		}
+		return ""
+	})
 	k8sClient.EXPECT().List(ctx, policyList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 		a := list.(*v1alpha1.SecurityPolicyList)
 		a.Items = append(a.Items, v1alpha1.SecurityPolicy{})
@@ -501,6 +507,9 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 		assert.FailNow(t, "should not be called")
 		return nil
 	})
+	patch.ApplyMethod(reflect.TypeOf(r.Service), "GetGCSecurityPolicyNamespace", func(_ *securitypolicy.SecurityPolicyService, nsxPolicyID string) string {
+		return "test-namespace"
+	})
 	k8sClient.EXPECT().List(gomock.Any(), policyList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 		a := list.(*v1alpha1.SecurityPolicyList)
 		a.Items = append(a.Items, v1alpha1.SecurityPolicy{})
@@ -520,6 +529,9 @@ func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
 		isGc bool, createdFor string) error {
 		assert.FailNow(t, "should not be called")
 		return nil
+	})
+	patch.ApplyMethod(reflect.TypeOf(service), "GetGCSecurityPolicyNamespace", func(_ *securitypolicy.SecurityPolicyService, nsxPolicyID string) string {
+		return "test-namespace"
 	})
 	k8sClient.EXPECT().List(ctx, policyList).Return(nil).Times(0)
 	r.CollectGarbage(ctx)
