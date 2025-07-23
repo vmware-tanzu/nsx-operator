@@ -1413,8 +1413,8 @@ func Test_deleteSecurityPolicy(t *testing.T) {
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
-				patches.ApplyPrivateMethod(reflect.TypeOf(s), "DeleteGroupsWithStore", func(_ *SecurityPolicyService, _ *[]model.Group,
-					_ *common.VPCResourceInfo, _ *GroupStore) error {
+				patches.ApplyPrivateMethod(reflect.TypeOf(s), "DeleteT1GroupsWithStore", func(_ *SecurityPolicyService, _ *[]model.Group,
+					_ *GroupStore) error {
 					groupStore := make([]*model.Group, 0)
 					for _, obj := range s.groupStore.List() {
 						group := obj.(*model.Group)
