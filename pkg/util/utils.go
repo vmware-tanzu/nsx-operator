@@ -6,15 +6,10 @@ package util
 import (
 	"context"
 	"crypto/sha1" // #nosec G505: not used for security purposes
-	"encoding/binary"
-	"errors"
 	"fmt"
 	"math/big"
-	"net"
-	"strconv"
 	"strings"
 
-	"github.com/apparentlymart/go-cidr/cidr"
 	mapset "github.com/deckarep/golang-set"
 	"github.com/google/uuid"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -239,141 +234,6 @@ func FilterOut(s []string, strToRemove string) []string {
 		}
 	}
 	return result
-}
-
-// RemoveIPPrefix remove the prefix from an IP address, e.g.
-// "1.2.3.4/24" -> "1.2.3.4"
-func RemoveIPPrefix(ipAddress string) (string, error) {
-	ip := strings.Split(ipAddress, "/")[0]
-	if net.ParseIP(ip) == nil {
-		return "", errors.New("invalid IP address")
-	}
-	return ip, nil
-}
-
-// GetIPPrefix get the prefix from an IP address, e.g.
-// "1.2.3.4/24" -> 24
-func GetIPPrefix(ipAddress string) (int, error) {
-	num, err := strconv.Atoi(strings.Split(ipAddress, "/")[1])
-	if err != nil {
-		return -1, err
-	}
-	return num, err
-}
-
-// GetSubnetMask get the mask for a given prefix length, e.g.
-// 24 -> "255.255.255.0"
-func GetSubnetMask(subnetLength int) (string, error) {
-	if subnetLength < 0 || subnetLength > 32 {
-		return "", errors.New("invalid subnet mask length")
-	}
-	// Create a 32-bit subnet mask with leading 1's and trailing 0's
-	subnetBinary := uint32(0xffffffff) << (32 - subnetLength)
-	// Convert the binary representation to dotted-decimal format
-	subnetMask := net.IPv4(byte(subnetBinary>>24), byte(subnetBinary>>16), byte(subnetBinary>>8), byte(subnetBinary))
-	return subnetMask.String(), nil
-}
-
-func CalculateIPFromCIDRs(IPAddresses []string) (int, error) {
-	total := 0
-	for _, addr := range IPAddresses {
-		mask, err := strconv.Atoi(strings.Split(addr, "/")[1])
-		if err != nil {
-			return -1, err
-		}
-		total += int(cidr.AddressCount(&net.IPNet{
-			IP:   net.ParseIP(strings.Split(addr, "/")[0]),
-			Mask: net.CIDRMask(mask, 32),
-		}))
-	}
-	return total, nil
-}
-
-func parseCIDRRange(cidr string) (startIP, endIP net.IP, err error) {
-	// TODO: confirm whether the error message is enough
-	_, ipnet, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return nil, nil, err
-	}
-	startIP = ipnet.IP
-	endIP = make(net.IP, len(startIP))
-	copy(endIP, startIP)
-	for i := len(startIP) - 1; i >= 0; i-- {
-		endIP[i] = startIP[i] | ^ipnet.Mask[i]
-	}
-	return startIP, endIP, nil
-}
-
-func calculateOffsetIP(ip net.IP, offset int) (net.IP, error) {
-	ipInt := ipToUint32(ip)
-	ipInt += uint32(offset)
-	return uint32ToIP(ipInt), nil
-}
-
-func ipToUint32(ip net.IP) uint32 {
-	ip = ip.To4()
-	return binary.BigEndian.Uint32(ip)
-}
-
-func uint32ToIP(ipInt uint32) net.IP {
-	ip := make(net.IP, net.IPv4len)
-	binary.BigEndian.PutUint32(ip, ipInt)
-	return ip
-}
-
-func compareIP(ip1, ip2 net.IP) bool {
-	return ipToUint32(ip1) < ipToUint32(ip2)
-}
-
-func rangesAbstractRange(ranges [][]net.IP, except []net.IP) [][]net.IP {
-	// ranges: [[172.0.0.1 172.0.255.255] [172.2.0.1 172.2.255.255]]
-	// except: [172.0.100.1 172.0.100.255]
-	// return: [[172.0.0.1 172.0.100.0] [172.0.101.0 172.0.255.255] [172.2.0.1 172.2.255.255]]
-	var results [][]net.IP
-	except[0] = except[0].To4()
-	except[1] = except[1].To4()
-	for _, r := range ranges {
-		rng := r
-		rng[0] = rng[0].To4()
-		rng[1] = rng[1].To4()
-		exceptPrev, _ := calculateOffsetIP(except[0], -1)
-		exceptNext, _ := calculateOffsetIP(except[1], 1)
-		if compareIP(except[0], rng[0]) && compareIP(rng[1], except[1]) {
-		} else if compareIP(rng[0], except[0]) && compareIP(except[1], rng[1]) {
-			results = append(results, []net.IP{rng[0], exceptPrev}, []net.IP{exceptNext, rng[1]})
-		} else if compareIP(rng[0], except[0]) && compareIP(except[0], rng[1]) && compareIP(rng[1], except[1]) {
-			results = append(results, []net.IP{rng[0], exceptPrev})
-		} else if compareIP(except[0], rng[0]) && compareIP(rng[0], except[1]) && compareIP(except[1], rng[1]) {
-			results = append(results, []net.IP{exceptNext, rng[1]})
-		} else if compareIP(except[1], rng[0]) {
-			results = append(results, []net.IP{rng[0], rng[1]})
-		} else if compareIP(rng[1], except[0]) {
-			results = append(results, []net.IP{rng[0], rng[1]})
-		}
-	}
-	return results
-}
-
-func GetCIDRRangesWithExcept(cidr string, excepts []string) ([]string, error) {
-	var calculatedRanges [][]net.IP
-	var resultRanges []string
-	mainStartIP, mainEndIP, err := parseCIDRRange(cidr)
-	calculatedRanges = append(calculatedRanges, []net.IP{mainStartIP, mainEndIP})
-	if err != nil {
-		return nil, err
-	}
-	for _, ept := range excepts {
-		except := ept
-		exceptStartIP, exceptEndIP, err := parseCIDRRange(except)
-		if err != nil {
-			return nil, err
-		}
-		calculatedRanges = rangesAbstractRange(calculatedRanges, []net.IP{exceptStartIP, exceptEndIP})
-	}
-	for _, rng := range calculatedRanges {
-		resultRanges = append(resultRanges, fmt.Sprintf("%s-%s", rng[0], rng[1]))
-	}
-	return resultRanges, nil
 }
 
 func If(condition bool, trueVal, falseVal interface{}) interface{} {
