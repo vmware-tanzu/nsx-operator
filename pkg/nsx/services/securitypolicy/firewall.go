@@ -706,7 +706,7 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(ns string, sp types.U
 	}
 
 	// Delete groups after security policy and rules are deleted
-	err = service.DeleteGroupsWithStore(nsxGroups, nil, groupStore)
+	err = service.DeleteT1GroupsWithStore(nsxGroups, groupStore)
 	if err != nil {
 		return err
 	}
@@ -715,25 +715,52 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(ns string, sp types.U
 	return nil
 }
 
-// DeleteGroupsWithStore deletes NSX groups from NSX and the group store.
+// DeleteT1GroupsWithStore deletes NSX groups from NSX and the group store for T1 networks.
 // It handles ResourceInUse errors by logging them but continuing execution.
 // Returns an error if deletion fails with a non-ResourceInUse error or if applying to the store fails.
-func (service *SecurityPolicyService) DeleteGroupsWithStore(nsxGroups *[]model.Group, vpcInfo *common.VPCResourceInfo, groupStore *GroupStore) error {
+func (service *SecurityPolicyService) DeleteT1GroupsWithStore(nsxGroups *[]model.Group, groupStore *GroupStore) error {
 	if len(*nsxGroups) == 0 {
 		return nil
 	}
 
 	for _, group := range *nsxGroups {
 		groupID := *group.Id
-		var err error
+		failIfSubtreeExists, forceDelete := false, false
+		err := service.NSXClient.GroupClient.Delete(getDomain(service), groupID, &failIfSubtreeExists, &forceDelete)
 
-		// Use the appropriate client based on whether VPC is enabled
-		if IsVPCEnabled(service) {
-			err = service.NSXClient.VpcGroupClient.Delete(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, groupID)
+		err = nsxutil.TransNSXApiError(err)
+		if err != nil {
+			// Special handling for ResourceInUse errors - we can continue in this case
+			var nsxApiErr *nsxutil.NSXApiError
+			if errors.As(err, &nsxApiErr) && nsxApiErr.Type() == apierrors.ErrorType_RESOURCE_IN_USE {
+				log.Error(err, "Some NSX groups are in use and cannot be deleted, continuing", "groupID", groupID)
+				// We don't return an error for ResourceInUse as this is an acceptable condition
+			} else {
+				// For other types of errors, log and return the error
+				log.Error(err, "Failed to delete NSX groups", "nsxGroups", *nsxGroups)
+				return err
+			}
 		} else {
-			failIfSubtreeExists, forceDelete := false, false
-			err = service.NSXClient.GroupClient.Delete(getDomain(service), groupID, &failIfSubtreeExists, &forceDelete)
+			if err := groupStore.Apply(&[]model.Group{group}); err != nil {
+				log.Error(err, "Failed to apply changes to group store", "nsxGroups", nsxGroups)
+				return err
+			}
 		}
+	}
+	return nil
+}
+
+// DeleteVPCGroupsWithStore deletes NSX groups from NSX and the group store for VPC networks.
+// It handles ResourceInUse errors by logging them but continuing execution.
+// Returns an error if deletion fails with a non-ResourceInUse error or if applying to the store fails.
+func (service *SecurityPolicyService) DeleteVPCGroupsWithStore(nsxGroups *[]model.Group, vpcInfo *common.VPCResourceInfo, groupStore *GroupStore) error {
+	if len(*nsxGroups) == 0 {
+		return nil
+	}
+
+	for _, group := range *nsxGroups {
+		groupID := *group.Id
+		err := service.NSXClient.VpcGroupClient.Delete(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, groupID)
 
 		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
@@ -853,7 +880,7 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(ns string, sp type
 	}
 
 	// Delete groups after security policy and rules are deleted
-	err = service.DeleteGroupsWithStore(nsxGroups, &vpcInfo, groupStore)
+	err = service.DeleteVPCGroupsWithStore(nsxGroups, &vpcInfo, groupStore)
 	if err != nil {
 		return err
 	}
