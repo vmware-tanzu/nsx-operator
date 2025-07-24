@@ -26,7 +26,10 @@ const (
 	MaxConcurrentReconciles                 = 8
 	NSXOperatorError                        = "nsx-op/error"
 	//sync the error with NCP side
-	ErrorNoDFWLicense = "NO_DFW_LICENSE"
+	ErrorNoDFWLicense                  = "NO_DFW_LICENSE"
+	ErrorNetworkPolicyValidationFailed = "NETWORK_POLICY_VALIDATION_FAILED"
+	ErrorNetworkPolicyUpdateFailed     = "NETWORK_POLICY_UPDATE_FAILED"
+	ErrorNetworkPolicyUpdatePending    = "NETWORK_POLICY_UPDATE_PENDING"
 
 	LabelK8sMasterRole  = "node-role.kubernetes.io/master"
 	LabelK8sControlRole = "node-role.kubernetes.io/control-plane"
