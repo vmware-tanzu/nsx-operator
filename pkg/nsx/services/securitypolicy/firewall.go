@@ -686,8 +686,8 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(ns string, sp types.U
 	finalSecurityPolicyCopy.Rules = nsxSecurityPolicy.Rules
 
 	// Separate the security policy and rules deletion from groups deletion in case group deletion may block security policy/rule deletion in HAPI
-	nsxGroupsEmpty := &([]model.Group{})
-	infraSecurityPolicy, err := service.WrapHierarchySecurityPolicy(nsxSecurityPolicy, *nsxGroupsEmpty)
+	nsxEmptyGroups := &([]model.Group{})
+	infraSecurityPolicy, err := service.WrapHierarchySecurityPolicy(nsxSecurityPolicy, *nsxEmptyGroups)
 	if err != nil {
 		log.Error(err, "Failed to wrap SecurityPolicy", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
 		return err
@@ -700,7 +700,7 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(ns string, sp types.U
 	}
 
 	// Apply security policy and rules to store
-	err = service.applySecurityPolicyStore(finalSecurityPolicyCopy, finalSecurityPolicyCopy.Rules, *nsxGroupsEmpty, true)
+	err = service.applySecurityPolicyStore(finalSecurityPolicyCopy, finalSecurityPolicyCopy.Rules, *nsxEmptyGroups, true)
 	if err != nil {
 		return err
 	}
@@ -883,16 +883,16 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(ns string, sp type
 	finalSecurityPolicyCopy.Rules = nsxSecurityPolicy.Rules
 
 	// Separate the security policy and rules deletion from groups deletion in case group deletion may block security policy/rule deletion in HAPI
-	nsxGroupsEmpty := &([]model.Group{})
+	nsxEmptyGroups := &([]model.Group{})
 	if !isDefaultProject {
-		_, err = service.manipulateSecurityPolicy(nsxSecurityPolicy, *nsxGroupsEmpty, *nsxShares, *nsxShareGroups, true, &vpcInfo)
+		_, err = service.manipulateSecurityPolicy(nsxSecurityPolicy, *nsxEmptyGroups, *nsxShares, *nsxShareGroups, true, &vpcInfo)
 	} else {
-		_, err = service.manipulateSecurityPolicyForDefaultProject(nsxSecurityPolicy, *nsxGroupsEmpty, *nsxShares, *nsxShareGroups, true, &vpcInfo)
+		_, err = service.manipulateSecurityPolicyForDefaultProject(nsxSecurityPolicy, *nsxEmptyGroups, *nsxShares, *nsxShareGroups, true, &vpcInfo)
 	}
 	if err != nil {
 		return err
 	}
-	err = service.applySecurityPolicyStore(finalSecurityPolicyCopy, finalSecurityPolicyCopy.Rules, *nsxGroupsEmpty, true)
+	err = service.applySecurityPolicyStore(finalSecurityPolicyCopy, finalSecurityPolicyCopy.Rules, *nsxEmptyGroups, true)
 	if err != nil {
 		return err
 	}
