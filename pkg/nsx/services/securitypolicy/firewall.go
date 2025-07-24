@@ -784,15 +784,25 @@ func (service *SecurityPolicyService) DeleteVPCGroupsWithStore(nsxGroups *[]mode
 	return nil
 }
 
-func (service *SecurityPolicyService) gcOrphan(ns string, existingNsxInfraShares []*model.Share, existingNsxInfraShareGroups []*model.Group, sp types.UID, createdFor string, indexScope string) error {
+func (service *SecurityPolicyService) gcOrphan(ns string, existingGroups []*model.Group, existingNsxInfraShares []*model.Share,
+	existingNsxInfraShareGroups []*model.Group, sp types.UID, indexScope string) error {
+
 	if len(existingNsxInfraShares) != 0 || len(existingNsxInfraShareGroups) != 0 {
 		// There is a specific case that needs to be handled in a GC process, that is,
 		// When the NSX security policy, rules, and groups at the VPC level are deleted,
 		// The following infra API call to delete infra share resources fails or NSX Operator restarts suddenly.
 		// So, there is no more NSX security policy, but the related NSX infra share resources became stale.
-		log.Info("NSX SecurityPolicy is not found in store, but there are stale NSX infra share resource to be GC", "namespace", ns, "nsxSecurityPolicyUID", sp, "createdFor", createdFor)
+		log.Info("NSX SecurityPolicy is not found in store, but there are stale NSX infra share resource to be GC", "namespace", ns, "nsxSecurityPolicyUID", sp)
 		return service.gcInfraSharesGroups(sp, indexScope)
 	}
+
+	if len(existingGroups) != 0 {
+		// Similar to the above case, but for regular groups
+		// When the NSX security policy is deleted, but the related NSX groups became stale
+		log.Info("NSX SecurityPolicy is not found in store, but there are stale NSX groups to be GC", "namespace", ns, "nsxSecurityPolicyUID", sp)
+		return service.gcGroups(ns, existingGroups)
+	}
+
 	return nil
 }
 
@@ -819,11 +829,12 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(ns string, sp type
 	if createdFor == common.ResourceTypeNetworkPolicy {
 		indexScope = common.TagScopeNetworkPolicyUID
 	}
+	existingGroups := groupStore.GetByIndex(indexScope, string(sp))
 	existingSecurityPolices := securityPolicyStore.GetByIndex(indexScope, string(sp))
 	existingNsxInfraShares := infraShareStore.GetByIndex(indexScope, string(sp))
 	existingNsxInfraShareGroups := infraGroupStore.GetByIndex(indexScope, string(sp))
 	if isGC && len(existingSecurityPolices) == 0 {
-		return service.gcOrphan(ns, existingNsxInfraShares, existingNsxInfraShareGroups, sp, createdFor, indexScope)
+		return service.gcOrphan(ns, existingGroups, existingNsxInfraShares, existingNsxInfraShareGroups, sp, indexScope)
 	}
 	if len(existingSecurityPolices) == 0 {
 		log.Info("NSX SecurityPolicy is not found in store, skip deleting it", "namespace", ns, "nsxSecurityPolicyUID", sp, "createdFor", createdFor)
@@ -848,7 +859,7 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(ns string, sp type
 
 	// There is no NSX groups/rules in the security policy retrieved from the securityPolicy store.
 	// The groups/rules associated with the deleting security policy can only be gotten from the group / rule store.
-	existingGroups := groupStore.GetByIndex(indexScope, string(sp))
+	// Use the existing groups from above
 	service.markDeleteGroups(existingGroups, nsxGroups, sp)
 
 	existingRules := ruleStore.GetByIndex(indexScope, string(sp))
@@ -1235,6 +1246,37 @@ func (service *SecurityPolicyService) ListNetworkPolicyByName(ns, name string) [
 	return result
 }
 
+func (service *SecurityPolicyService) gcGroups(ns string, existingGroups []*model.Group) error {
+
+	// Get VPC information for the namespace
+	vpcInfo, err := service.getVPCInfo(ns)
+	if err != nil {
+		log.Error(err, "Failed to get VPC info for namespace", "namespace", ns)
+		return err
+	}
+
+	_, _, groupStore := service.GetSecurityPolicyResourceStores()
+
+	// Convert []*model.Group to *[]model.Group for DeleteVPCGroupsWithStore
+	g := make([]model.Group, 0, len(existingGroups))
+	for _, group := range existingGroups {
+		g = append(g, *group)
+	}
+	nsxGroups := &g
+
+	// Delete the stale groups from NSX
+	err = service.DeleteVPCGroupsWithStore(nsxGroups, vpcInfo, groupStore)
+	if err != nil {
+		log.Error(err, "Failed to delete stale NSX groups", "namespace", ns)
+		return err
+	}
+
+	// Delete the stale groups from the store
+	groupStore.DeleteMultipleObjects(existingGroups)
+
+	return nil
+}
+
 func (service *SecurityPolicyService) gcInfraSharesGroups(sp types.UID, indexScope string) error {
 	var err error
 	var infraResource *model.Infra
@@ -1289,7 +1331,7 @@ func (service *SecurityPolicyService) getGCSecurityPolicyIDSet(indexScope string
 // GetGCSecurityPolicyNamespace receives a nsxPolicyID, iterates all the store,
 // returns the first namespace which the nsxPolicyID resides in
 func (service *SecurityPolicyService) GetGCSecurityPolicyNamespace(nsxPolicyID string) string {
-	// First check if the policy exists in the securityPolicyStore
+	// First, check if the policy exists in the securityPolicyStore
 	securityPolicy := service.securityPolicyStore.GetByKey(nsxPolicyID)
 	if securityPolicy != nil {
 		// Extract namespace from the policy's tags
@@ -1389,7 +1431,7 @@ func (service *SecurityPolicyService) getAppliedGroupByRuleId(createdFor, uid st
 		return nil
 	}
 
-	// The id of an appliedTo group generated by a security rule should have key word like "-scope_".
+	// The id of an appliedTo group generated by a security rule should have a key word like "-scope_".
 	groupTypeKey := fmt.Sprintf("%s%s%s", common.ConnectorHyphen, common.TargetGroupSuffix, common.ConnectorUnderline)
 
 	for _, group := range groups {
@@ -1411,7 +1453,7 @@ func (service *SecurityPolicyService) getPeerGroupByRuleId(ruleIdTag string, isS
 		key = common.SrcGroupSuffix
 	}
 
-	// A peer Group's id should have key word like "-dst_" or "-src_" according to it is a dst group or a src group.
+	// A peer Group's id should have a key word like "-dst_" or "-src_" according to it is a dst group or a src group.
 	groupTypeKey := fmt.Sprintf("%s%s%s", common.ConnectorHyphen, key, common.ConnectorUnderline)
 
 	for _, group := range groups {
