@@ -784,6 +784,18 @@ func (service *SecurityPolicyService) DeleteVPCGroupsWithStore(nsxGroups *[]mode
 	return nil
 }
 
+func (service *SecurityPolicyService) gcOrphan(ns string, existingNsxInfraShares []*model.Share, existingNsxInfraShareGroups []*model.Group, sp types.UID, createdFor string, indexScope string) error {
+	if len(existingNsxInfraShares) != 0 || len(existingNsxInfraShareGroups) != 0 {
+		// There is a specific case that needs to be handled in a GC process, that is,
+		// When the NSX security policy, rules, and groups at the VPC level are deleted,
+		// The following infra API call to delete infra share resources fails or NSX Operator restarts suddenly.
+		// So, there is no more NSX security policy, but the related NSX infra share resources became stale.
+		log.Info("NSX SecurityPolicy is not found in store, but there are stale NSX infra share resource to be GC", "namespace", ns, "nsxSecurityPolicyUID", sp, "createdFor", createdFor)
+		return service.gcInfraSharesGroups(sp, indexScope)
+	}
+	return nil
+}
+
 func (service *SecurityPolicyService) deleteVPCSecurityPolicy(ns string, sp types.UID, isGC bool, createdFor string) error {
 	var nsxSecurityPolicy *model.SecurityPolicy
 	var err error
@@ -810,13 +822,8 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(ns string, sp type
 	existingSecurityPolices := securityPolicyStore.GetByIndex(indexScope, string(sp))
 	existingNsxInfraShares := infraShareStore.GetByIndex(indexScope, string(sp))
 	existingNsxInfraShareGroups := infraGroupStore.GetByIndex(indexScope, string(sp))
-	if isGC && len(existingSecurityPolices) == 0 && (len(existingNsxInfraShares) != 0 || len(existingNsxInfraShareGroups) != 0) {
-		// There is a specific case that needs to be handled in a GC process, that is,
-		// When the NSX security policy, rules, and groups at the VPC level are deleted,
-		// The following infra API call to delete infra share resources fails or NSX Operator restarts suddenly.
-		// So, there is no more NSX security policy, but the related NSX infra share resources became stale.
-		log.Info("NSX SecurityPolicy is not found in store, but there are stale NSX infra share resource to be GC", "namespace", ns, "nsxSecurityPolicyUID", sp, "createdFor", createdFor)
-		return service.gcInfraSharesGroups(sp, indexScope)
+	if isGC && len(existingSecurityPolices) == 0 {
+		return service.gcOrphan(ns, existingNsxInfraShares, existingNsxInfraShareGroups, sp, createdFor, indexScope)
 	}
 	if len(existingSecurityPolices) == 0 {
 		log.Info("NSX SecurityPolicy is not found in store, skip deleting it", "namespace", ns, "nsxSecurityPolicyUID", sp, "createdFor", createdFor)
