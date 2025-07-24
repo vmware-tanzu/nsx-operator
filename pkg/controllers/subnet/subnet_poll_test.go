@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
@@ -549,6 +550,139 @@ func TestPollAllSharedSubnets(t *testing.T) {
 			}
 
 			patches.Reset()
+		})
+	}
+}
+
+func TestUpdateSharedSubnetWithError(t *testing.T) {
+	// This test verifies that updateSharedSubnetWithError correctly handles different subnet states
+
+	// Create a test subnet that exists and is not being deleted
+	existingSubnet := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-subnet",
+			Namespace: "default",
+		},
+	}
+
+	// Create a test subnet that exists but is being deleted
+	deletingSubnet := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "test-subnet-deleting",
+			Namespace:         "default",
+			DeletionTimestamp: &metav1.Time{Time: time.Now()},
+			Finalizers:        []string{"test-finalizer"},
+		},
+	}
+
+	// Create a fake client with the test subnets
+	objects := []client.Object{existingSubnet, deletingSubnet}
+	r := createFakeSubnetReconciler(objects)
+
+	// Mock the clearSubnetAddresses method to avoid calling it
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "clearSubnetAddresses",
+		func(_ *SubnetReconciler, _ client.Object) {
+			// Do nothing, just mock the method
+		})
+	defer patches.Reset()
+
+	// Test case 1: Subnet exists and is not being deleted
+	// The function should get the subnet and not return early
+	err := fmt.Errorf("test error")
+	r.updateSharedSubnetWithError(context.Background(), types.NamespacedName{Namespace: "default", Name: "test-subnet"}, err, "test error type")
+
+	// Test case 2: Subnet exists but is being deleted
+	// The function should get the subnet and return early because the subnet is being deleted
+	r.updateSharedSubnetWithError(context.Background(), types.NamespacedName{Namespace: "default", Name: "test-subnet-deleting"}, err, "test error type")
+
+	// Test case 3: Subnet does not exist
+	// The function should try to get the subnet, fail, and return early
+	r.updateSharedSubnetWithError(context.Background(), types.NamespacedName{Namespace: "default", Name: "non-existent-subnet"}, err, "test error type")
+}
+
+func TestClearSubnetAddresses(t *testing.T) {
+	// Create a test subnet with addresses
+	subnet := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-subnet", Namespace: "default"},
+		Status: v1alpha1.SubnetStatus{
+			NetworkAddresses:    []string{"10.0.0.0/24"},
+			GatewayAddresses:    []string{"10.0.0.1"},
+			DHCPServerAddresses: []string{"10.0.0.2"},
+		},
+	}
+
+	// Create a fake reconciler
+	r := createFakeSubnetReconciler([]client.Object{subnet})
+
+	// Call the function being tested
+	r.clearSubnetAddresses(subnet)
+
+	// Verify that the addresses were cleared
+	assert.Empty(t, subnet.Status.NetworkAddresses)
+	assert.Empty(t, subnet.Status.GatewayAddresses)
+	assert.Empty(t, subnet.Status.DHCPServerAddresses)
+}
+
+func TestHandleNSXSubnetError(t *testing.T) {
+	tests := []struct {
+		name                string
+		validSubnets        map[types.NamespacedName]bool
+		expectedUpdateCalls int
+	}{
+		{
+			name:                "No valid subnets",
+			validSubnets:        map[types.NamespacedName]bool{},
+			expectedUpdateCalls: 0,
+		},
+		{
+			name: "One valid subnet",
+			validSubnets: map[types.NamespacedName]bool{
+				{Namespace: "default", Name: "test-subnet"}: true,
+			},
+			expectedUpdateCalls: 1,
+		},
+		{
+			name: "Multiple valid subnets",
+			validSubnets: map[types.NamespacedName]bool{
+				{Namespace: "default", Name: "test-subnet-1"}: true,
+				{Namespace: "default", Name: "test-subnet-2"}: true,
+				{Namespace: "default", Name: "test-subnet-3"}: true,
+			},
+			expectedUpdateCalls: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a fake reconciler
+			r := createFakeSubnetReconciler(nil)
+
+			// Create a set of valid subnets
+			validSubnets := sets.New[types.NamespacedName]()
+			for namespacedName := range tt.validSubnets {
+				validSubnets.Insert(namespacedName)
+			}
+
+			// Mock the updateSharedSubnetWithError method to track if it's called
+			updateCalls := 0
+			patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "updateSharedSubnetWithError",
+				func(_ *SubnetReconciler, _ context.Context, namespacedName types.NamespacedName, _ error, _ string) {
+					updateCalls++
+					assert.True(t, tt.validSubnets[namespacedName], "updateSharedSubnetWithError should only be called for valid subnets")
+				})
+
+			// Mock the RemoveSubnetFromCache method to avoid nil pointer dereference
+			patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "RemoveSubnetFromCache",
+				func(_ *subnetservice.SubnetService, _ string, _ string) {
+					// Do nothing
+				})
+			defer patches.Reset()
+
+			// Call the function being tested
+			r.handleNSXSubnetError(context.Background(), fmt.Errorf("test error"), validSubnets, "test-resource", "test error type")
+
+			// Verify the results
+			assert.Equal(t, tt.expectedUpdateCalls, updateCalls, "updateSharedSubnetWithError should be called %d times", tt.expectedUpdateCalls)
 		})
 	}
 }

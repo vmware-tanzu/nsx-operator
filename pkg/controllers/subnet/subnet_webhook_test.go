@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -34,6 +33,7 @@ func TestSubnetValidator_Handle(t *testing.T) {
 		decoder: decoder,
 	}
 
+	// Regular subnet
 	req1, _ := json.Marshal(&v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "ns-1",
@@ -43,6 +43,8 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			IPv4SubnetSize: 16,
 		},
 	})
+
+	// Subnet with invalid IPv4SubnetSize
 	req2, _ := json.Marshal(&v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "ns-2",
@@ -52,21 +54,128 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			IPv4SubnetSize: 24,
 		},
 	})
-	type args struct {
-		req admission.Request
-	}
-	tests := []struct {
+
+	// Shared subnet with annotation
+	sharedSubnet, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-3",
+			Name:      "shared-subnet",
+			Annotations: map[string]string{
+				"nsx.vmware.com/associated-resource": "project1:vpc1:subnet1",
+			},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPv4SubnetSize: 16,
+		},
+	})
+
+	// Subnet with VPCName set
+	subnetWithVPCName, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-4",
+			Name:      "subnet-with-vpc",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPv4SubnetSize: 16,
+			VPCName:        "vpc-1",
+		},
+	})
+
+	// Subnet with EnableVLANExtension set
+	subnetWithVLANExt, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-5",
+			Name:      "subnet-with-vlan",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPv4SubnetSize: 16,
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				EnableVLANExtension: true,
+			},
+		},
+	})
+
+	// For update tests
+	oldSubnet, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-6",
+			Name:      "subnet-to-update",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPv4SubnetSize: 16,
+			IPAddresses:    []string{"192.168.1.0/24"},
+		},
+	})
+
+	// Updated subnet with changed VPCName
+	updatedSubnetVPC, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-6",
+			Name:      "subnet-to-update",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPv4SubnetSize: 16,
+			VPCName:        "vpc-1",
+			IPAddresses:    []string{"192.168.1.0/24"},
+		},
+	})
+
+	// Updated subnet with changed EnableVLANExtension
+	updatedSubnetVLAN, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-6",
+			Name:      "subnet-to-update",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPv4SubnetSize: 16,
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				EnableVLANExtension: true,
+			},
+			IPAddresses: []string{"192.168.1.0/24"},
+		},
+	})
+
+	// Updated subnet with changed IPAddresses
+	updatedSubnetIP, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-6",
+			Name:      "subnet-to-update",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPv4SubnetSize: 16,
+			IPAddresses:    []string{"192.168.2.0/24"},
+		},
+	})
+
+	// Old shared subnet for update test
+	oldSharedSubnet, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-7",
+			Name:      "shared-subnet-to-update",
+			Annotations: map[string]string{
+				"nsx.vmware.com/associated-resource": "project1:vpc1:subnet1",
+			},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPv4SubnetSize: 16,
+		},
+	})
+
+	type testCase struct {
 		name        string
-		args        args
+		operation   admissionv1.Operation
+		object      []byte
+		oldObject   []byte
+		user        string
 		prepareFunc func(t *testing.T)
 		want        admission.Response
-	}{
+	}
+
+	tests := []testCase{
 		{
-			name: "DeleteSuccess",
-			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
-				Operation: admissionv1.Delete,
-				OldObject: runtime.RawExtension{Raw: req1},
-			}}},
+			name:      "DeleteSuccess",
+			operation: admissionv1.Delete,
+			oldObject: req1,
 			prepareFunc: func(t *testing.T) {
 				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					a := list.(*v1alpha1.SubnetPortList)
@@ -82,11 +191,9 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			want: admission.Allowed(""),
 		},
 		{
-			name: "DeleteDenied",
-			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
-				Operation: admissionv1.Delete,
-				OldObject: runtime.RawExtension{Raw: req1},
-			}}},
+			name:      "DeleteDenied",
+			operation: admissionv1.Delete,
+			oldObject: req1,
 			prepareFunc: func(t *testing.T) {
 				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					a := list.(*v1alpha1.SubnetPortList)
@@ -102,45 +209,147 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			want: admission.Denied("Subnet ns-1/subnet-1 with stale SubnetPorts cannot be deleted"),
 		},
 		{
-			name: "ListSubnetPortFailure",
-			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
-				Operation: admissionv1.Delete,
-				OldObject: runtime.RawExtension{Raw: req1},
-			}}},
+			name:      "ListSubnetPortFailure",
+			operation: admissionv1.Delete,
+			oldObject: req1,
 			prepareFunc: func(t *testing.T) {
 				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("list failure"))
 			},
 			want: admission.Errored(http.StatusBadRequest, errors.New("failed to list SubnetPort: list failure")),
 		},
 		{
-			name: "DecodeOldSubnetFailure",
-			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
-				Operation: admissionv1.Delete,
-			}}},
-			want: admission.Errored(http.StatusBadRequest, errors.New("there is no content to decode")),
+			name:      "DecodeOldSubnetFailure",
+			operation: admissionv1.Delete,
+			want:      admission.Errored(http.StatusBadRequest, errors.New("there is no content to decode")),
 		},
 		{
-			name: "DecodeSubnetFailure",
-			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
-				Operation: admissionv1.Create,
-			}}},
-			want: admission.Errored(http.StatusBadRequest, errors.New("there is no content to decode")),
+			name:      "DecodeSubnetFailure",
+			operation: admissionv1.Create,
+			want:      admission.Errored(http.StatusBadRequest, errors.New("there is no content to decode")),
 		},
 		{
-			name: "CreateSubnet with invalid IPv4SubnetSize",
-			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
-				Operation: admissionv1.Create,
-				Object:    runtime.RawExtension{Raw: req2},
-			}}},
-			want: admission.Denied("Subnet ns-2/subnet-2 has invalid size 24, which must be power of 2"),
+			name:      "CreateSubnet with invalid IPv4SubnetSize",
+			operation: admissionv1.Create,
+			object:    req2,
+			want:      admission.Denied("Subnet ns-2/subnet-2 has invalid size 24, which must be power of 2"),
 		},
 		{
-			name: "CreateSubnet",
-			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
-				Operation: admissionv1.Create,
-				Object:    runtime.RawExtension{Raw: req1},
-			}}},
-			want: admission.Allowed(""),
+			name:      "CreateSubnet",
+			operation: admissionv1.Create,
+			object:    req1,
+			want:      admission.Allowed(""),
+		},
+		{
+			name:      "Create shared subnet by non-NSX Operator",
+			operation: admissionv1.Create,
+			object:    sharedSubnet,
+			user:      "non-nsx-operator",
+			want:      admission.Denied("Shared Subnet ns-3/shared-subnet can only be created by NSX Operator"),
+		},
+		{
+			name:      "Create shared subnet by NSX Operator",
+			operation: admissionv1.Create,
+			object:    sharedSubnet,
+			user:      NSXOperatorSA,
+			want:      admission.Allowed(""),
+		},
+		{
+			name:      "Create subnet with VPCName by non-NSX Operator",
+			operation: admissionv1.Create,
+			object:    subnetWithVPCName,
+			user:      "non-nsx-operator",
+			want:      admission.Denied("Subnet ns-4/subnet-with-vpc: spec.vpcName can only be set by NSX Operator"),
+		},
+		{
+			name:      "Create subnet with VPCName by NSX Operator",
+			operation: admissionv1.Create,
+			object:    subnetWithVPCName,
+			user:      NSXOperatorSA,
+			want:      admission.Allowed(""),
+		},
+		{
+			name:      "Create subnet with EnableVLANExtension by non-NSX Operator",
+			operation: admissionv1.Create,
+			object:    subnetWithVLANExt,
+			user:      "non-nsx-operator",
+			want:      admission.Denied("Subnet ns-5/subnet-with-vlan: spec.enableVLANExtension can only be set by NSX Operator"),
+		},
+		{
+			name:      "Create subnet with EnableVLANExtension by NSX Operator",
+			operation: admissionv1.Create,
+			object:    subnetWithVLANExt,
+			user:      NSXOperatorSA,
+			want:      admission.Allowed(""),
+		},
+		{
+			name:      "Update subnet with changed VPCName by non-NSX Operator",
+			operation: admissionv1.Update,
+			object:    updatedSubnetVPC,
+			oldObject: oldSubnet,
+			user:      "non-nsx-operator",
+			want:      admission.Denied("Subnet ns-6/subnet-to-update: spec.vpcName can only be updated by NSX Operator"),
+		},
+		{
+			name:      "Update subnet with changed VPCName by NSX Operator",
+			operation: admissionv1.Update,
+			object:    updatedSubnetVPC,
+			oldObject: oldSubnet,
+			user:      NSXOperatorSA,
+			want:      admission.Allowed(""),
+		},
+		{
+			name:      "Update subnet with changed EnableVLANExtension by non-NSX Operator",
+			operation: admissionv1.Update,
+			object:    updatedSubnetVLAN,
+			oldObject: oldSubnet,
+			user:      "non-nsx-operator",
+			want:      admission.Denied("Subnet ns-6/subnet-to-update: spec.enableVLANExtension can only be updated by NSX Operator"),
+		},
+		{
+			name:      "Update subnet with changed EnableVLANExtension by NSX Operator",
+			operation: admissionv1.Update,
+			object:    updatedSubnetVLAN,
+			oldObject: oldSubnet,
+			user:      NSXOperatorSA,
+			want:      admission.Allowed(""),
+		},
+		{
+			name:      "Update subnet with changed IPAddresses",
+			operation: admissionv1.Update,
+			object:    updatedSubnetIP,
+			oldObject: oldSubnet,
+			user:      "non-nsx-operator",
+			want:      admission.Denied("ipAddresses is immutable"),
+		},
+		{
+			name:      "Update shared subnet by non-NSX Operator",
+			operation: admissionv1.Update,
+			object:    oldSharedSubnet, // Using same content, just testing the check
+			oldObject: oldSharedSubnet,
+			user:      "non-nsx-operator",
+			want:      admission.Denied("Shared Subnet ns-7/shared-subnet-to-update can only be updated by NSX Operator"),
+		},
+		{
+			name:      "Update shared subnet by NSX Operator",
+			operation: admissionv1.Update,
+			object:    oldSharedSubnet, // Using same content, just testing the check
+			oldObject: oldSharedSubnet,
+			user:      NSXOperatorSA,
+			want:      admission.Allowed(""),
+		},
+		{
+			name:      "Delete shared subnet by non-NSX Operator",
+			operation: admissionv1.Delete,
+			oldObject: oldSharedSubnet,
+			user:      "non-nsx-operator",
+			want:      admission.Denied("Shared Subnet ns-7/shared-subnet-to-update can only be deleted by NSX Operator"),
+		},
+		{
+			name:      "Delete shared subnet by NSX Operator",
+			operation: admissionv1.Delete,
+			oldObject: oldSharedSubnet,
+			user:      NSXOperatorSA,
+			want:      admission.Allowed(""),
 		},
 	}
 	for _, tt := range tests {
@@ -148,7 +357,30 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			if tt.prepareFunc != nil {
 				tt.prepareFunc(t)
 			}
-			res := v.Handle(context.TODO(), tt.args.req)
+
+			// Create a new request for each test
+			req := admission.Request{}
+
+			// Set the operation
+			req.Operation = tt.operation
+
+			// Set the object if provided
+			if tt.object != nil {
+				req.Object.Raw = tt.object
+			}
+
+			// Set the old object if provided
+			if tt.oldObject != nil {
+				req.OldObject.Raw = tt.oldObject
+			}
+
+			// Set the user if provided
+			if tt.user != "" {
+				req.UserInfo.Username = tt.user
+			}
+
+			// Call the handler
+			res := v.Handle(context.TODO(), req)
 			assert.Equal(t, tt.want, res)
 		})
 	}
