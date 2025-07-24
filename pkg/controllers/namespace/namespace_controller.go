@@ -41,6 +41,7 @@ var (
 // invoking method that should be exposed to other module.
 type NamespaceReconciler struct {
 	Client              client.Client
+	APIReader           client.Reader
 	Scheme              *apimachineryruntime.Scheme
 	NSXConfig           *config.NSXOperatorConfig
 	VPCService          types.VPCServiceProvider
@@ -297,6 +298,7 @@ func NewNamespaceReconciler(mgr ctrl.Manager, cf *config.NSXOperatorConfig, vpcS
 	subnetService *subnet.SubnetService) *NamespaceReconciler {
 	nsReconciler := &NamespaceReconciler{
 		Client:        mgr.GetClient(),
+		APIReader:     mgr.GetAPIReader(),
 		Scheme:        mgr.GetScheme(),
 		NSXConfig:     cf,
 		VPCService:    vpcService,

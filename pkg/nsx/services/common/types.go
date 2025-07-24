@@ -113,10 +113,9 @@ const (
 	SubnetFinalizerName            = "subnet.nsx.vmware.com/finalizer"
 	SubnetSetFinalizerName         = "subnetset.nsx.vmware.com/finalizer"
 
-	IndexKeySubnetID                  = "IndexKeySubnetID"
-	IndexKeyNodeName                  = "IndexKeyNodeName"
-	AssociatedResourceIndexKey        = "metadata.annotations." + AnnotationAssociatedResource
-	GCValidationInterval       uint16 = 720
+	IndexKeySubnetID            = "IndexKeySubnetID"
+	IndexKeyNodeName            = "IndexKeyNodeName"
+	GCValidationInterval uint16 = 720
 
 	RuleIngress            = "ingress"
 	RuleEgress             = "egress"
