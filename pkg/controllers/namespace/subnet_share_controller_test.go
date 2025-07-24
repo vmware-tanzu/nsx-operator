@@ -38,14 +38,6 @@ func createTestNamespaceReconciler(objs []client.Object) *NamespaceReconciler {
 	// Create a fake client builder
 	clientBuilder := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objs...)
 
-	// Set up the field indexer for Subnet CRs
-	clientBuilder = clientBuilder.WithIndex(&v1alpha1.Subnet{}, servicecommon.AssociatedResourceIndexKey, func(obj client.Object) []string {
-		if _, ok := obj.GetAnnotations()[servicecommon.AnnotationAssociatedResource]; ok {
-			return []string{"true"}
-		}
-		return nil
-	})
-
 	fakeClient := clientBuilder.Build()
 
 	nsxConfig := &config.NSXOperatorConfig{
@@ -80,6 +72,7 @@ func createTestNamespaceReconciler(objs []client.Object) *NamespaceReconciler {
 
 	nsReconciler := &NamespaceReconciler{
 		Client:        fakeClient,
+		APIReader:     fakeClient,
 		Scheme:        newScheme,
 		VPCService:    vpcService,
 		SubnetService: subnetService,
@@ -892,8 +885,12 @@ func TestDeleteAllSharedSubnets(t *testing.T) {
 			// Create a reconciler with the necessary services
 			r := createTestNamespaceReconciler(tt.existingSubnets)
 
-			patches := tt.setupMocks(r)
-			defer patches.Reset()
+			if tt.setupMocks != nil {
+				patches := tt.setupMocks(r)
+				if patches != nil {
+					defer patches.Reset()
+				}
+			}
 
 			// Call the function being tested
 			err := r.deleteAllSharedSubnets(context.Background(), "test-ns")
@@ -1108,8 +1105,12 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			})
 
 			// Setup mocks
-			patches := tt.setupMocks(r)
-			defer patches.Reset()
+			if tt.setupMocks != nil {
+				patches := tt.setupMocks(r)
+				if patches != nil {
+					defer patches.Reset()
+				}
+			}
 
 			// Call the function being tested
 			err := r.createSharedSubnetCR(context.Background(), "test-ns", tt.sharedSubnetPath)
