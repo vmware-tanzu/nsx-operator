@@ -1256,6 +1256,10 @@ func (service *SecurityPolicyService) gcInfraSharesGroups(sp types.UID, indexSco
 		log.Error(err, "Failed to delete NSX infra Resource in GC", "securityPolicyUID", sp)
 		return err
 	}
+
+	infraShareStore.DeleteMultipleObjects(existingNsxShares)
+	infraGroupStore.DeleteMultipleObjects(existingNsxGroups)
+
 	return nil
 }
 
