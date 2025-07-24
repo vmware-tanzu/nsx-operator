@@ -639,12 +639,12 @@ func (service *SecurityPolicyService) DeleteSecurityPolicy(ns string, spUid type
 		err = service.deleteVPCSecurityPolicy(ns, spUid, isGC, createdFor)
 	} else {
 		// For T1 network, SecurityPolicy normal deletion and GC deletion
-		err = service.deleteSecurityPolicy(ns, spUid)
+		err = service.deleteSecurityPolicy(ns, spUid, isGC)
 	}
 	return err
 }
 
-func (service *SecurityPolicyService) deleteSecurityPolicy(ns string, sp types.UID) error {
+func (service *SecurityPolicyService) deleteSecurityPolicy(ns string, sp types.UID, isGC bool) error {
 	var nsxSecurityPolicy *model.SecurityPolicy
 	var err error
 	g := make([]model.Group, 0)
@@ -658,7 +658,11 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(ns string, sp types.U
 	// but still has a corresponding NSX SecurityPolicy object.
 	// We use SecurityPolicy's UID from store to get NSX SecurityPolicy object
 	indexScope := common.TagValueScopeSecurityPolicyUID
+	existingGroups := groupStore.GetByIndex(indexScope, string(sp))
 	existingSecurityPolices := securityPolicyStore.GetByIndex(indexScope, string(sp))
+	if isGC && len(existingSecurityPolices) == 0 {
+		return service.gcT1Groups(existingGroups, groupStore)
+	}
 	if len(existingSecurityPolices) == 0 {
 		log.Info("NSX SecurityPolicy is not found in store, skip deleting it", "namespace", ns, "nsxSecurityPolicyUID", sp)
 		return nil
@@ -674,7 +678,6 @@ func (service *SecurityPolicyService) deleteSecurityPolicy(ns string, sp types.U
 
 	// There is no NSX groups/rules in the security policy retrieved from the securityPolicy store.
 	// The groups/rules associated with the deleting security policy can only be gotten from the group/rules store.
-	existingGroups := groupStore.GetByIndex(indexScope, string(sp))
 	service.markDeleteGroups(existingGroups, nsxGroups, sp)
 
 	existingRules := ruleStore.GetByIndex(indexScope, string(sp))
@@ -1271,8 +1274,30 @@ func (service *SecurityPolicyService) gcGroups(ns string, existingGroups []*mode
 		return err
 	}
 
-	// Delete the stale groups from the store
-	groupStore.DeleteMultipleObjects(existingGroups)
+	return nil
+}
+
+// gcT1Groups handles garbage collection for orphaned T1 groups
+func (service *SecurityPolicyService) gcT1Groups(existingGroups []*model.Group, groupStore *GroupStore) error {
+	if len(existingGroups) == 0 {
+		return nil
+	}
+	// When the NSX security policy is deleted, but the related NSX groups became stale
+	log.Info("NSX SecurityPolicy is not found in store, but there are stale NSX groups to be GC", "existingGroups", existingGroups)
+
+	// Convert []*model.Group to *[]model.Group for DeleteT1GroupsWithStore
+	g := make([]model.Group, 0, len(existingGroups))
+	for _, group := range existingGroups {
+		g = append(g, *group)
+	}
+	nsxGroups := &g
+
+	// Delete the stale groups from NSX
+	err := service.DeleteT1GroupsWithStore(nsxGroups, groupStore)
+	if err != nil {
+		log.Error(err, "Failed to delete stale NSX T1 groups")
+		return err
+	}
 
 	return nil
 }

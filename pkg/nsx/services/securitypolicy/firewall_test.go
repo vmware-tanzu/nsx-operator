@@ -1369,7 +1369,7 @@ func Test_deleteSecurityPolicy(t *testing.T) {
 			patches := tt.prepareFunc(t, fakeService)
 			defer patches.Reset()
 
-			if err := fakeService.deleteSecurityPolicy("", tt.args.uid); (err != nil) != tt.wantErr {
+			if err := fakeService.deleteSecurityPolicy("", tt.args.uid, false); (err != nil) != tt.wantErr {
 				t.Errorf("deleteSecurityPolicy error = %v, wantErr %v", err, tt.wantErr)
 			}
 			assert.Equal(t, tt.wantSecurityPolicyStoreCount, len(fakeService.securityPolicyStore.ListKeys()))
