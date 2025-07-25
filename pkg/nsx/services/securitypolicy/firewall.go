@@ -744,6 +744,7 @@ func (service *SecurityPolicyService) DeleteT1GroupsWithStore(nsxGroups *[]model
 				return err
 			}
 		} else {
+			group.MarkedForDelete = &MarkedForDelete
 			if err := groupStore.Apply(&[]model.Group{group}); err != nil {
 				log.Error(err, "Failed to apply changes to group store", "nsxGroups", nsxGroups)
 				return err
@@ -778,6 +779,7 @@ func (service *SecurityPolicyService) DeleteVPCGroupsWithStore(nsxGroups *[]mode
 				return err
 			}
 		} else {
+			group.MarkedForDelete = &MarkedForDelete
 			if err := groupStore.Apply(&[]model.Group{group}); err != nil {
 				log.Error(err, "Failed to apply changes to group store", "nsxGroups", nsxGroups)
 				return err
