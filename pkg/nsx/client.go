@@ -245,6 +245,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		PrincipalIdentitiesClient:  principalIdentitiesClient,
 		WithCertificateClient:      withCertificateClient,
 
+		// Health clients are now using REST API directly
+
 		OrgRootClient:                     orgRootClient,
 		ProjectInfraClient:                projectInfraClient,
 		VPCClient:                         vpcClient,

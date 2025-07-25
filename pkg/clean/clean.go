@@ -21,6 +21,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -89,6 +90,10 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig, log *logr.Logger, 
 	}
 
 	if err := cleanupService.cleanupInfraResources(ctx); err != nil {
+		return errors.Join(nsxutil.CleanupResourceFailed, err)
+	}
+
+	if err := cleanupService.cleanupHealthResources(ctx); err != nil {
 		return errors.Join(nsxutil.CleanupResourceFailed, err)
 	}
 
@@ -161,6 +166,13 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 		}
 	}
 
+	wrapInitializeHealthCleaner := func(service common.Service) cleanupFunc {
+		return func() (interface{}, error) {
+			clusterUUID := util.GetClusterUUID(cf.Cluster).String()
+			return NewHealthCleaner(service, log, nsxClient, clusterUUID), nil
+		}
+	}
+
 	cleanupService.vpcService = vpcService
 	// TODO: initialize other CR services
 	cleanupService = cleanupService.
@@ -172,7 +184,8 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 		AddCleanupService(wrapInitializeVPC(commonService)).
 		AddCleanupService(wrapInitializeIPAddressAllocation(commonService)).
 		AddCleanupService(wrapInitializeInventory(commonService)).
-		AddCleanupService(wrapInitializeLBInfraCleaner(commonService))
+		AddCleanupService(wrapInitializeLBInfraCleaner(commonService)).
+		AddCleanupService(wrapInitializeHealthCleaner(commonService))
 
 	return cleanupService, nil
 }

@@ -42,6 +42,7 @@ import (
 	subnetbindingcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetbinding"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetset"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/health"
 	inventoryservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/inventory"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
 	nodeservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/node"
@@ -115,6 +116,11 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			log.Info("Successfully generated webhook certificates")
 		}
 		go refreshCertPeriodically()
+	}
+
+	// Initialize and start the system health reporter
+	if cf.CoeConfig.EnableVPCNetwork {
+		health.Start(nsxClient, cf, mgr.GetClient())
 	}
 
 	//  Embed the common commonService to sub-services.

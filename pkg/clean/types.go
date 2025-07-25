@@ -30,4 +30,9 @@ type infraCleaner interface {
 	CleanupInfraResources(ctx context.Context) error
 }
 
+type healthCleaner interface {
+	// CleanupHealthResources is to clean up the health checker resources.
+	CleanupHealthResources(ctx context.Context) error
+}
+
 type cleanupFunc func() (interface{}, error)
