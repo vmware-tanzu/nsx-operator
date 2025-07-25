@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"reflect"
 	"time"
 
@@ -470,18 +469,6 @@ func (r *SubnetReconciler) start(mgr ctrl.Manager, hookServer webhook.Server) er
 					decoder: admission.NewDecoder(mgr.GetScheme()),
 				},
 			})
-	}
-
-	// Register field index for Subnet CRs with associated-resource annotation
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &v1alpha1.Subnet{}, servicecommon.AssociatedResourceIndexKey,
-		func(obj client.Object) []string {
-			if _, ok := obj.GetAnnotations()[servicecommon.AnnotationAssociatedResource]; ok {
-				return []string{"true"}
-			}
-			return nil
-		}); err != nil {
-		log.Error(err, "Failed to set up field indexer for Subnet CRs")
-		os.Exit(1)
 	}
 
 	// Start the shared subnet polling goroutine
