@@ -14,6 +14,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/inventory"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	sr "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
@@ -172,6 +173,11 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 			return NewHealthCleaner(service, log, nsxClient, clusterUUID), nil
 		}
 	}
+	wrapInitializeNSXServiceAccount := func(service common.Service) cleanupFunc {
+		return func() (interface{}, error) {
+			return nsxserviceaccount.InitializeNSXServiceAccount(service)
+		}
+	}
 
 	cleanupService.vpcService = vpcService
 	// TODO: initialize other CR services
@@ -185,7 +191,8 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 		AddCleanupService(wrapInitializeIPAddressAllocation(commonService)).
 		AddCleanupService(wrapInitializeInventory(commonService)).
 		AddCleanupService(wrapInitializeLBInfraCleaner(commonService)).
-		AddCleanupService(wrapInitializeHealthCleaner(commonService))
+		AddCleanupService(wrapInitializeHealthCleaner(commonService)).
+		AddCleanupService(wrapInitializeNSXServiceAccount(commonService))
 
 	return cleanupService, nil
 }
