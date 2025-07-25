@@ -10,9 +10,11 @@ import (
 	"os"
 	"time"
 
+	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -66,7 +68,8 @@ func setNetworkPolicyErrorAnnotation(ctx context.Context, networkPolicy *network
 	log.Info("Updated NetworkPolicy with error annotation", "error", info)
 }
 
-func cleanNetworkPolicyErrorAnnotation(ctx context.Context, networkPolicy *networkingv1.NetworkPolicy, client client.Client) {
+func cleanNetworkPolicyErrorAnnotation(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, args ...interface{}) {
+	networkPolicy := obj.(*networkingv1.NetworkPolicy)
 	if networkPolicy.Annotations == nil {
 		return
 	}
@@ -119,11 +122,10 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				setNetworkPolicyErrorAnnotation(ctx, networkPolicy, r.Client, common.ErrorNoDFWLicense)
 				os.Exit(1)
 			}
-			r.StatusUpdater.UpdateFail(ctx, networkPolicy, err, "", nil)
+			r.StatusUpdater.UpdateFail(ctx, networkPolicy, err, "", clarifyAndSetNetworkPolicyErrorAnnotation)
 			return ResultRequeue, err
 		}
-		r.StatusUpdater.UpdateSuccess(ctx, networkPolicy, nil)
-		cleanNetworkPolicyErrorAnnotation(ctx, networkPolicy, r.Client)
+		r.StatusUpdater.UpdateSuccess(ctx, networkPolicy, cleanNetworkPolicyErrorAnnotation)
 	} else {
 		log.Info("Reconciling CR to delete networkPolicy", "networkPolicy", req.NamespacedName)
 		r.StatusUpdater.IncreaseDeleteTotal()
@@ -311,4 +313,17 @@ func NewNetworkPolicyReconciler(mgr ctrl.Manager, commonService servicecommon.Se
 	networkPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService, vpcService)
 	networkPolicyReconcile.StatusUpdater = common.NewStatusUpdater(networkPolicyReconcile.Client, networkPolicyReconcile.Service.NSXConfig, networkPolicyReconcile.Recorder, MetricResType, "NetworkPolicy", "NetworkPolicy")
 	return networkPolicyReconcile
+}
+
+func clarifyAndSetNetworkPolicyErrorAnnotation(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, err error, args ...interface{}) {
+	var nsxErr *nsxutil.NSXApiError
+	var validationErr *nsxutil.ValidationError
+	annotationError := common.ErrorNetworkPolicyUpdateFailed
+	if errors.As(err, &validationErr) {
+		annotationError = common.ErrorNetworkPolicyValidationFailed
+	} else if errors.As(err, &nsxErr) && nsxErr != nil && (nsxErr.ErrorTypeEnum == stderrors.ErrorType_SERVICE_UNAVAILABLE || nsxErr.ErrorTypeEnum == stderrors.ErrorType_TIMED_OUT || nsxErr.ErrorTypeEnum == stderrors.ErrorType_INTERNAL_SERVER_ERROR) {
+		annotationError = common.ErrorNetworkPolicyUpdatePending
+	}
+	log.Info("Setting NetworkPolicy annotation for error", "error", annotationError, "networkPolicy", obj.GetName(), "namespace", obj.GetNamespace())
+	setNetworkPolicyErrorAnnotation(ctx, obj.(*networkingv1.NetworkPolicy), client, annotationError)
 }

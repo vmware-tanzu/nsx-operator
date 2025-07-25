@@ -589,6 +589,14 @@ type ExceedTagsError struct {
 
 func (err ExceedTagsError) Error() string { return err.Desc }
 
+type ValidationError struct {
+	Desc string
+}
+
+func (err ValidationError) Error() string {
+	return err.Desc
+}
+
 type Status struct {
 	Code    uint32
 	Message string
