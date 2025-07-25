@@ -125,9 +125,10 @@ spec:
               rule: '!has(oldSelf.accessMode) || has(self.accessMode)'
             - message: ipv4SubnetSize is required once set
               rule: '!has(oldSelf.ipv4SubnetSize) || has(self.ipv4SubnetSize)'
-            - message: dhcpServerAdditionalConfig is not supported in SubnetSet
+            - message: reservedIPRanges is not supported in SubnetSet
               rule: '!has(self.subnetDHCPConfig) || has(self.subnetDHCPConfig) &&
-                !has(self.subnetDHCPConfig.dhcpServerAdditionalConfig)'
+                !has(self.subnetDHCPConfig.dhcpServerAdditionalConfig) || has(self.subnetDHCPConfig)
+                && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig) && !has(self.subnetDHCPConfig.dhcpServerAdditionalConfig.reservedIPRanges)'
           status:
             description: SubnetSetStatus defines the observed state of SubnetSet.
             properties:
