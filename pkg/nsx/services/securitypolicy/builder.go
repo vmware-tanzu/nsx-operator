@@ -982,6 +982,7 @@ func (service *SecurityPolicyService) dedupBlocks(rulePeers []v1alpha1.SecurityP
 	deduplicatedRulePeers := make([]v1alpha1.SecurityPolicyPeer, 0, len(rulePeers))
 	for _, rulePeer := range rulePeers {
 		if len(rulePeer.IPBlocks) == 0 {
+			deduplicatedRulePeers = append(deduplicatedRulePeers, rulePeer)
 			continue
 		}
 		var dedupBlocks []v1alpha1.IPBlock

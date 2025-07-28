@@ -1609,7 +1609,7 @@ func Test_dedupBlocks(t *testing.T) {
 		expected []v1alpha1.SecurityPolicyPeer
 	}{
 		{
-			name: "no deduplicated",
+			name: "no deduplicated without selector",
 			input: []v1alpha1.SecurityPolicyPeer{
 				{
 					IPBlocks: []v1alpha1.IPBlock{
@@ -1631,6 +1631,55 @@ func Test_dedupBlocks(t *testing.T) {
 					IPBlocks: []v1alpha1.IPBlock{
 						{
 							CIDR: "1.2.3.0/24",
+						},
+					},
+				},
+				{
+					IPBlocks: []v1alpha1.IPBlock{
+						{
+							CIDR: "2.3.4.0/24",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "no deduplicated with selector",
+			input: []v1alpha1.SecurityPolicyPeer{
+				{
+					IPBlocks: []v1alpha1.IPBlock{
+						{
+							CIDR: "1.2.3.0/24",
+						},
+					},
+				},
+				{
+					PodSelector: &v1.LabelSelector{
+						MatchLabels: map[string]string{
+							"key1": "value1",
+						},
+					},
+				},
+				{
+					IPBlocks: []v1alpha1.IPBlock{
+						{
+							CIDR: "2.3.4.0/24",
+						},
+					},
+				},
+			},
+			expected: []v1alpha1.SecurityPolicyPeer{
+				{
+					IPBlocks: []v1alpha1.IPBlock{
+						{
+							CIDR: "1.2.3.0/24",
+						},
+					},
+				},
+				{
+					PodSelector: &v1.LabelSelector{
+						MatchLabels: map[string]string{
+							"key1": "value1",
 						},
 					},
 				},
