@@ -13,6 +13,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -28,7 +29,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	ctlcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	servicetypes "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
@@ -51,7 +52,7 @@ func createNameSpaceReconciler(objs []client.Object) *NamespaceReconciler {
 	}
 
 	service := &vpc.VPCService{
-		Service: common.Service{
+		Service: servicetypes.Service{
 			Client:    fakeClient,
 			NSXClient: &nsx.Client{},
 			NSXConfig: nsxConfig,
@@ -59,7 +60,7 @@ func createNameSpaceReconciler(objs []client.Object) *NamespaceReconciler {
 	}
 
 	subnetService := &subnet.SubnetService{
-		Service: common.Service{
+		Service: servicetypes.Service{
 			Client:    fakeClient,
 			NSXClient: &nsx.Client{},
 			NSXConfig: nsxConfig,
@@ -68,7 +69,7 @@ func createNameSpaceReconciler(objs []client.Object) *NamespaceReconciler {
 
 	nsReconciler := &NamespaceReconciler{
 		Client:        fakeClient,
-		Scheme:        fake.NewClientBuilder().Build().Scheme(),
+		Scheme:        newScheme,
 		VPCService:    service,
 		SubnetService: subnetService,
 		NSXConfig:     nsxConfig,
@@ -81,7 +82,7 @@ func TestGetDefaultNetworkConfigName(t *testing.T) {
 	fakeNC := &v1alpha1.VPCNetworkConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "fake-name",
-			Annotations: map[string]string{common.AnnotationDefaultNetworkConfig: "true"},
+			Annotations: map[string]string{servicetypes.AnnotationDefaultNetworkConfig: "true"},
 		},
 	}
 	r := createNameSpaceReconciler(nil)
@@ -119,7 +120,7 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 	nc := v1alpha1.VPCNetworkConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "fake-VPCNetworkConfig",
-			Annotations: map[string]string{common.AnnotationDefaultNetworkConfig: "true"},
+			Annotations: map[string]string{servicetypes.AnnotationDefaultNetworkConfig: "true"},
 		},
 		Spec: v1alpha1.VPCNetworkConfigurationSpec{
 			VPCConnectivityProfile: "",
@@ -268,12 +269,12 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 func TestNamespaceReconciler_StartController(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithObjects().Build()
 	vpcService := &vpc.VPCService{
-		Service: common.Service{
+		Service: servicetypes.Service{
 			Client: fakeClient,
 		},
 	}
 	subnetService := &subnet.SubnetService{
-		Service: common.Service{
+		Service: servicetypes.Service{
 			Client: fakeClient,
 		},
 	}
@@ -288,6 +289,184 @@ func TestNamespaceReconciler_StartController(t *testing.T) {
 	r := NewNamespaceReconciler(mockMgr, nil, vpcService, subnetService)
 	err := r.StartController(mockMgr, nil)
 	assert.Nil(t, err)
+}
+
+func TestGetAccessMode(t *testing.T) {
+	tests := []struct {
+		name           string
+		subnetSetName  string
+		expectedResult v1alpha1.AccessMode
+	}{
+		{
+			name:           "VM Subnet Set",
+			subnetSetName:  servicetypes.DefaultVMSubnetSet,
+			expectedResult: v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+		},
+		{
+			name:           "Pod Subnet Set",
+			subnetSetName:  servicetypes.DefaultPodSubnetSet,
+			expectedResult: v1alpha1.AccessMode(v1alpha1.AccessModeProject),
+		},
+		{
+			name:           "Unknown Subnet Set",
+			subnetSetName:  "unknown-subnet-set",
+			expectedResult: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getAccessMode(tt.subnetSetName)
+			assert.Equal(t, tt.expectedResult, result)
+		})
+	}
+}
+
+func TestCreateDefaultSubnetSet(t *testing.T) {
+	tests := []struct {
+		name               string
+		namespace          string
+		defaultSubnetSize  int
+		existingResources  []client.Object
+		expectedError      bool
+		expectedSubnetSets int
+		setupMocks         func(r *NamespaceReconciler) *gomonkey.Patches
+	}{
+		{
+			name:               "Success case - create new SubnetSets",
+			namespace:          "test-ns",
+			defaultSubnetSize:  24,
+			existingResources:  []client.Object{},
+			expectedError:      false,
+			expectedSubnetSets: 0, // VM and Pod subnet sets
+			setupMocks:         func(r *NamespaceReconciler) *gomonkey.Patches { return nil },
+		},
+		{
+			name:              "Success case - SubnetSets already exist",
+			namespace:         "test-ns",
+			defaultSubnetSize: 24,
+			existingResources: []client.Object{
+				&v1alpha1.SubnetSet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      servicetypes.DefaultVMSubnetSet,
+						Namespace: "test-ns",
+						Labels: map[string]string{
+							servicetypes.LabelDefaultSubnetSet: servicetypes.LabelDefaultVMSubnetSet,
+						},
+					},
+					Spec: v1alpha1.SubnetSetSpec{
+						AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+						IPv4SubnetSize: 24,
+					},
+				},
+				&v1alpha1.SubnetSet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      servicetypes.DefaultPodSubnetSet,
+						Namespace: "test-ns",
+						Labels: map[string]string{
+							servicetypes.LabelDefaultSubnetSet: servicetypes.LabelDefaultPodSubnetSet,
+						},
+					},
+					Spec: v1alpha1.SubnetSetSpec{
+						AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModeProject),
+						IPv4SubnetSize: 24,
+					},
+				},
+			},
+			expectedError:      false,
+			expectedSubnetSets: 2, // VM and Pod subnet sets
+			setupMocks:         func(r *NamespaceReconciler) *gomonkey.Patches { return nil },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := createNameSpaceReconciler(tt.existingResources)
+
+			if tt.setupMocks != nil {
+				patches := tt.setupMocks(r)
+				if patches != nil {
+					defer patches.Reset()
+				}
+			}
+
+			// Call the function being tested
+			err := r.createDefaultSubnetSet(context.Background(), tt.namespace, tt.defaultSubnetSize)
+
+			// Check the result
+			if tt.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+
+				// Verify that the SubnetSets were created
+				subnetSetList := &v1alpha1.SubnetSetList{}
+				err = r.Client.List(context.Background(), subnetSetList, client.InNamespace(tt.namespace))
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedSubnetSets, len(subnetSetList.Items))
+
+				// Check that the SubnetSets have the correct properties
+				if len(subnetSetList.Items) > 0 {
+					for _, subnetSet := range subnetSetList.Items {
+						if subnetSet.Name == servicetypes.DefaultVMSubnetSet {
+							assert.Equal(t, v1alpha1.AccessMode(v1alpha1.AccessModePrivate), subnetSet.Spec.AccessMode)
+						} else if subnetSet.Name == servicetypes.DefaultPodSubnetSet {
+							assert.Equal(t, v1alpha1.AccessMode(v1alpha1.AccessModeProject), subnetSet.Spec.AccessMode)
+						}
+						assert.Equal(t, tt.defaultSubnetSize, subnetSet.Spec.IPv4SubnetSize)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestDeleteDefaultSubnetSet(t *testing.T) {
+	tests := []struct {
+		name              string
+		namespace         string
+		existingResources []client.Object
+		expectedError     bool
+		setupMocks        func(r *NamespaceReconciler) *gomonkey.Patches
+	}{
+		{
+			name:              "Success case - SubnetSets don't exist",
+			namespace:         "test-ns",
+			existingResources: []client.Object{},
+			expectedError:     false,
+			setupMocks:        func(r *NamespaceReconciler) *gomonkey.Patches { return nil },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := createNameSpaceReconciler(tt.existingResources)
+
+			if tt.setupMocks != nil {
+				patches := tt.setupMocks(r)
+				if patches != nil {
+					defer patches.Reset()
+				}
+			}
+
+			// Call the function being tested
+			err := r.deleteDefaultSubnetSet(tt.namespace)
+
+			// Check the result
+			if tt.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+
+				// Verify that the SubnetSets were deleted
+				for _, name := range []string{servicetypes.DefaultVMSubnetSet, servicetypes.DefaultPodSubnetSet} {
+					subnetSet := &v1alpha1.SubnetSet{}
+					err = r.Client.Get(context.Background(), client.ObjectKey{Namespace: tt.namespace, Name: name}, subnetSet)
+					assert.True(t, apierrors.IsNotFound(err), "SubnetSet should be deleted")
+				}
+			}
+		})
+	}
 }
 
 type MockManager struct {
