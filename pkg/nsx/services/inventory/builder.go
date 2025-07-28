@@ -63,17 +63,23 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 	networkStatus := NetworkStatusHealthy
 	if pod.Status.Phase != corev1.PodRunning && pod.Status.Phase != corev1.PodSucceeded {
 		networkStatus = NetworkStatusUnhealthy
+		// Use a map to track unique error messages
+		uniqueErrors := make(map[string]bool)
+
 		// Check for a message in pod status
 		if pod.Status.Message != "" {
+			uniqueErrors[pod.Status.Message] = true
 			networkErrors = append(networkErrors, common.NetworkError{
 				ErrorMessage: pod.Status.Message,
 			})
 		}
+
 		// Check conditions
 		for _, condition := range pod.Status.Conditions {
 			// Only add error messages from conditions that indicate a problem
 			// Skip success messages like "Pod has been successfully created/updated"
-			if condition.Message != "" && condition.Status != corev1.ConditionTrue {
+			if condition.Message != "" && condition.Status != corev1.ConditionTrue && !uniqueErrors[condition.Message] {
+				uniqueErrors[condition.Message] = true
 				networkErrors = append(networkErrors, common.NetworkError{
 					ErrorMessage: condition.Message,
 				})
@@ -156,12 +162,18 @@ func (s *InventoryService) BuildIngress(ingress *networkingv1.Ingress) (retry bo
 	// Initialize as empty slice to ensure NSX receives [] instead of null when clearing errors
 	networkErrors := make([]common.NetworkError, 0)
 	networkStatus := NetworkStatusHealthy
+	// Use a map to track unique error messages
+	uniqueErrors := make(map[string]bool)
 	for key, value := range ingress.Annotations {
 		if key == NcpLbError {
 			networkStatus = NetworkStatusUnhealthy
-			networkErrors = append(networkErrors, common.NetworkError{
-				ErrorMessage: key + ":" + value,
-			})
+			errorMessage := key + ":" + value
+			if !uniqueErrors[errorMessage] {
+				uniqueErrors[errorMessage] = true
+				networkErrors = append(networkErrors, common.NetworkError{
+					ErrorMessage: errorMessage,
+				})
+			}
 		}
 	}
 
@@ -279,18 +291,23 @@ func (s *InventoryService) BuildNamespace(namespace *corev1.Namespace) (retry bo
 	}
 
 	// Extract network errors from namespace conditions
-	// Initialize as empty slice to ensure NSX receives [] instead of null when clearing errors
+	// Initialize as an empty slice to ensure NSX receives [] instead of null when clearing errors
 	networkErrors := make([]common.NetworkError, 0)
 	networkStatus := NetworkStatusHealthy
+	// Use a map to track unique error messages
+	uniqueErrors := make(map[string]bool)
 	for _, condition := range namespace.Status.Conditions {
 		if condition.Type == networkinfo.NamespaceNetworkReady && condition.Status == corev1.ConditionFalse {
 			// Create a network error with the reason and message
 			errorMessage := condition.Reason + ": " + condition.Message
-			networkError := common.NetworkError{
-				ErrorMessage: errorMessage,
+			if !uniqueErrors[errorMessage] {
+				uniqueErrors[errorMessage] = true
+				networkError := common.NetworkError{
+					ErrorMessage: errorMessage,
+				}
+				networkErrors = append(networkErrors, networkError)
+				networkStatus = NetworkStatusUnhealthy
 			}
-			networkErrors = append(networkErrors, networkError)
-			networkStatus = NetworkStatusUnhealthy
 		} else if condition.Type == networkinfo.NamespaceNetworkReady && condition.Status == corev1.ConditionTrue {
 			networkErrors = []common.NetworkError{}
 			networkStatus = NetworkStatusHealthy
@@ -344,19 +361,26 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 	// Check if a service has a selector - services without selectors are valid
 	hasSelector := len(service.Spec.Selector) > 0
 
+	// Use a map to track unique error messages
+	uniqueErrors := make(map[string]bool)
+
 	if len(podIDs) > 0 {
 		status = InventoryStatusUp
 	} else if hasAddr {
 		status = InventoryStatusUnknown
+		errorMessage := "Service endpoint status is unknown"
+		uniqueErrors[errorMessage] = true
 		networkErrors = append(networkErrors, common.NetworkError{
-			ErrorMessage: "Service endpoint status is unknown",
+			ErrorMessage: errorMessage,
 		})
 	} else if hasSelector {
 		// Only mark as down if service has selector but no endpoints
 		status = InventoryStatusDown
 		netStatus = NetworkStatusUnhealthy
+		errorMessage := "Failed to get endpoints for Service"
+		uniqueErrors[errorMessage] = true
 		networkErrors = append(networkErrors, common.NetworkError{
-			ErrorMessage: "Failed to get endpoints for Service",
+			ErrorMessage: errorMessage,
 		})
 	} else {
 		// Service without a selector is valid even without endpoints
@@ -366,9 +390,13 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 	// Check for NCP errors in service annotations
 	for key, value := range service.Annotations {
 		if util.Contains(ServiceNCPErrors, key) {
-			networkErrors = append(networkErrors, common.NetworkError{
-				ErrorMessage: key + ":" + value,
-			})
+			errorMessage := key + ":" + value
+			if !uniqueErrors[errorMessage] {
+				uniqueErrors[errorMessage] = true
+				networkErrors = append(networkErrors, common.NetworkError{
+					ErrorMessage: errorMessage,
+				})
+			}
 		}
 	}
 
@@ -513,10 +541,15 @@ func (s *InventoryService) BuildNode(node *corev1.Node) (retry bool) {
 	// Create network errors from node conditions
 	networkErrors := make([]common.NetworkError, 0)
 	if !isNodeReady(node) {
+		// Use a map to track unique error messages
+		uniqueErrors := make(map[string]bool)
 		for _, condition := range node.Status.Conditions {
-			networkErrors = append(networkErrors, common.NetworkError{
-				ErrorMessage: condition.Message,
-			})
+			if condition.Message != "" && !uniqueErrors[condition.Message] {
+				uniqueErrors[condition.Message] = true
+				networkErrors = append(networkErrors, common.NetworkError{
+					ErrorMessage: condition.Message,
+				})
+			}
 		}
 		// Sort network errors by lastTransitionTime in descending order
 		sort.Slice(networkErrors, func(i, j int) bool {
@@ -598,12 +631,18 @@ func (s *InventoryService) BuildNetworkPolicy(networkPolicy *networkingv1.Networ
 	// Get network errors from network policy annotations
 	networkStatus := NetworkStatusHealthy
 	networkErrors := make([]common.NetworkError, 0)
+	// Use a map to track unique error messages
+	uniqueErrors := make(map[string]bool)
 	for key, value := range networkPolicy.Annotations {
 		if key == ctrcommon.NSXOperatorError {
 			networkStatus = NetworkStatusUnhealthy
-			networkErrors = append(networkErrors, common.NetworkError{
-				ErrorMessage: key + ":" + value,
-			})
+			errorMessage := key + ":" + value
+			if !uniqueErrors[errorMessage] {
+				uniqueErrors[errorMessage] = true
+				networkErrors = append(networkErrors, common.NetworkError{
+					ErrorMessage: errorMessage,
+				})
+			}
 		}
 	}
 
