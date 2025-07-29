@@ -30,6 +30,10 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
+var (
+	clusterUUID string
+)
+
 func createService(t *testing.T) (*InventoryService, *mockClient.MockClient) {
 	clusterUUID = util.GetClusterUUID("k8scl-one:test").String()
 	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{"127.0.0.1"})

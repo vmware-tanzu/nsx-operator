@@ -194,8 +194,11 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			log.Error(err, "Failed to initialize SubnetConnectionBindingMap commonService")
 			os.Exit(1)
 		}
-		inventoryService := inventoryservice.NewInventoryService(commonService)
-		inventoryService.Initialize(false)
+		inventoryService, err := inventoryservice.InitializeService(commonService, false)
+		if err != nil {
+			log.Error(err, "Failed to initialize inventory commonService", "controller", "Inventory")
+			os.Exit(1)
+		}
 
 		if _, err := os.Stat(config.WebhookCertDir); errors.Is(err, os.ErrNotExist) {
 			log.Error(err, "Server cert not found, disabling webhook server", "cert", config.WebhookCertDir)
