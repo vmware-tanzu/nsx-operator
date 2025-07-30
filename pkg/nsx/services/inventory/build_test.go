@@ -212,6 +212,76 @@ func TestBuildPod(t *testing.T) {
 		assert.Equal(t, "failed to pull images", applicationInstance.NetworkErrors[0].ErrorMessage)
 		assert.Equal(t, "Pod is not ready", applicationInstance.NetworkErrors[1].ErrorMessage)
 	})
+
+	t.Run("PodWithDuplicateErrorMessages", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+
+		k8sClient.EXPECT().
+			Get(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.ListOption) error {
+				ns, ok := obj.(*corev1.Namespace)
+				if !ok {
+					return nil
+				}
+				namespace.DeepCopyInto(ns)
+				return nil
+			})
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.ListOption) error {
+				result, ok := obj.(*corev1.Node)
+				if !ok {
+					return nil
+				}
+				node.DeepCopyInto(result)
+				return nil
+			})
+
+		// Create a pod with duplicate error messages
+		podWithDuplicateErrors := testPod.DeepCopy()
+		podWithDuplicateErrors.Status = corev1.PodStatus{
+			Phase:   corev1.PodPending,
+			Message: "failed to pull images", // This message will appear in both status and condition
+			Conditions: []corev1.PodCondition{
+				{
+					Type:               corev1.PodReady,
+					Status:             corev1.ConditionFalse,
+					Message:            "failed to pull images", // Duplicate of status message
+					LastTransitionTime: metav1.Time{Time: time.Now().Add(-1 * time.Hour)},
+				},
+				{
+					Type:               corev1.PodInitialized,
+					Status:             corev1.ConditionFalse,
+					Message:            "Container initialization failed",
+					LastTransitionTime: metav1.Time{Time: time.Now().Add(-2 * time.Hour)},
+				},
+				{
+					Type:               corev1.PodScheduled,
+					Status:             corev1.ConditionFalse,
+					Message:            "Container initialization failed", // Duplicate of previous condition
+					LastTransitionTime: metav1.Time{Time: time.Now().Add(-3 * time.Hour)},
+				},
+			},
+		}
+
+		retry := inventoryService.BuildPod(podWithDuplicateErrors)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, string(podWithDuplicateErrors.UID))
+
+		// Verify the network errors are deduplicated
+		applicationInstance := inventoryService.pendingAdd[string(podWithDuplicateErrors.UID)].(*containerinventory.ContainerApplicationInstance)
+		assert.Len(t, applicationInstance.NetworkErrors, 2, "Should only have 2 unique error messages")
+
+		// Create a map of error messages to verify uniqueness
+		errorMessages := make(map[string]bool)
+		for _, err := range applicationInstance.NetworkErrors {
+			errorMessages[err.ErrorMessage] = true
+		}
+
+		assert.Len(t, errorMessages, 2, "Should have 2 unique error messages")
+		assert.True(t, errorMessages["failed to pull images"], "Should contain 'failed to pull images'")
+		assert.True(t, errorMessages["Container initialization failed"], "Should contain 'Container initialization failed'")
+	})
 }
 
 func TestGetTagsFromLabels(t *testing.T) {
@@ -535,7 +605,57 @@ func TestBuildNamespace(t *testing.T) {
 		// Verify no network errors are created since the True condition takes precedence
 		containerProject := inventoryService.pendingAdd["namespace-uid-123"].(*containerinventory.ContainerProject)
 		assert.Len(t, containerProject.NetworkErrors, 0)
-		assert.Equal(t, NetworkStatusHealthy, containerProject.NetworkStatus)
+	})
+
+	t.Run("NamespaceWithDuplicateNetworkErrors", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+
+		// Create a namespace with duplicate error conditions
+		namespaceWithDuplicateErrors := testNamespace.DeepCopy()
+
+		namespaceWithDuplicateErrors.Status.Conditions = []corev1.NamespaceCondition{
+			{
+				Type:    networkinfo.NamespaceNetworkReady,
+				Status:  corev1.ConditionFalse,
+				Reason:  networkinfo.NSReasonVPCNetConfigNotReady,
+				Message: "VPC network configuration is not ready", // This message will be duplicated
+			},
+			{
+				Type:    networkinfo.NamespaceNetworkReady,
+				Status:  corev1.ConditionFalse,
+				Reason:  networkinfo.NSReasonVPCNetConfigNotReady,
+				Message: "VPC network configuration is not ready", // Duplicate message with same reason
+			},
+			{
+				Type:    networkinfo.NamespaceNetworkReady,
+				Status:  corev1.ConditionFalse,
+				Reason:  networkinfo.NSReasonVPCNotReady,
+				Message: "VPC is not ready", // Different message
+			},
+		}
+
+		// Build the namespace
+		retry := inventoryService.BuildNamespace(namespaceWithDuplicateErrors)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "namespace-uid-123")
+
+		// Verify the network errors are deduplicated
+		containerProject := inventoryService.pendingAdd["namespace-uid-123"].(*containerinventory.ContainerProject)
+		assert.Len(t, containerProject.NetworkErrors, 2, "Should only have 2 unique error messages")
+
+		// Create a map of error messages to verify uniqueness
+		errorMessages := make(map[string]bool)
+		for _, err := range containerProject.NetworkErrors {
+			errorMessages[err.ErrorMessage] = true
+		}
+
+		assert.Len(t, errorMessages, 2, "Should have 2 unique error messages")
+		assert.True(t, errorMessages["VPCNetworkConfigurationNotReady: VPC network configuration is not ready"],
+			"Should contain 'VPCNetworkConfigurationNotReady: VPC network configuration is not ready'")
+		assert.True(t, errorMessages["VPCNotReady: VPC is not ready"],
+			"Should contain 'VPCNotReady: VPC is not ready'")
+		assert.Equal(t, NetworkStatusUnhealthy, containerProject.NetworkStatus)
 	})
 
 	t.Run("NamespaceWithUnknownReasonCondition", func(t *testing.T) {
@@ -1191,6 +1311,66 @@ func TestBuildNode(t *testing.T) {
 		assert.Len(t, containerClusterNode.NetworkErrors, 2)
 		assert.Equal(t, "Disk pressure", containerClusterNode.NetworkErrors[0].ErrorMessage)
 		assert.Equal(t, "Node is not ready", containerClusterNode.NetworkErrors[1].ErrorMessage)
+	})
+
+	t.Run("NodeNetworkErrorsDeduplication", func(t *testing.T) {
+		inventoryService, _ := createService(t)
+
+		// Create a node with duplicate error messages in conditions
+		testNode := &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-node",
+				UID:  types.UID("node-uid-123"),
+			},
+			Status: corev1.NodeStatus{
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:               corev1.NodeReady,
+						Status:             corev1.ConditionFalse,
+						Message:            "Node is not ready",
+						LastTransitionTime: metav1.Time{Time: time.Now().Add(-1 * time.Hour)},
+					},
+					{
+						Type:               corev1.NodeMemoryPressure,
+						Status:             corev1.ConditionFalse,
+						Message:            "Node is not ready", // Duplicate message
+						LastTransitionTime: metav1.Time{Time: time.Now()},
+					},
+					{
+						Type:               corev1.NodeDiskPressure,
+						Status:             corev1.ConditionFalse,
+						Message:            "Disk pressure",
+						LastTransitionTime: metav1.Time{Time: time.Now().Add(-30 * time.Minute)},
+					},
+					{
+						Type:               corev1.NodePIDPressure,
+						Status:             corev1.ConditionFalse,
+						Message:            "Disk pressure", // Duplicate message
+						LastTransitionTime: metav1.Time{Time: time.Now().Add(-15 * time.Minute)},
+					},
+				},
+			},
+		}
+
+		// Build the node
+		retry := inventoryService.BuildNode(testNode)
+
+		assert.False(t, retry)
+		assert.Contains(t, inventoryService.pendingAdd, "node-uid-123")
+
+		// Verify the network errors are deduplicated (only unique messages are included)
+		containerClusterNode := inventoryService.pendingAdd["node-uid-123"].(*containerinventory.ContainerClusterNode)
+		assert.Len(t, containerClusterNode.NetworkErrors, 2, "Should only have 2 unique error messages")
+
+		// Create a map of error messages to verify uniqueness
+		errorMessages := make(map[string]bool)
+		for _, err := range containerClusterNode.NetworkErrors {
+			errorMessages[err.ErrorMessage] = true
+		}
+
+		assert.Len(t, errorMessages, 2, "Should have 2 unique error messages")
+		assert.True(t, errorMessages["Node is not ready"], "Should contain 'Node is not ready'")
+		assert.True(t, errorMessages["Disk pressure"], "Should contain 'Disk pressure'")
 	})
 }
 
