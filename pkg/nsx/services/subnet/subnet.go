@@ -578,6 +578,11 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 				subnetCR.Spec.AdvancedConfig.ConnectivityState = v1alpha1.ConnectivityStateDisconnected
 			}
 		}
+
+		// Map StaticIpAllocation from NSX Subnet
+		if nsxSubnet.AdvancedConfig.StaticIpAllocation != nil && nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled != nil {
+			subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled
+		}
 	}
 }
 
