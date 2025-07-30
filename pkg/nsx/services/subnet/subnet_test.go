@@ -1050,6 +1050,41 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			},
 		},
 		{
+			name: "Map NSX Subnet with StaticIpAllocation enabled",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{},
+					},
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:     common.String("Public"),
+				Ipv4SubnetSize: common.Int64(24),
+				IpAddresses:    []string{"192.168.1.0/24"},
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: common.Bool(true),
+					},
+				},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPv4SubnetSize: 24,
+					IPAddresses:    []string{"192.168.1.0/24"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: common.Bool(true),
+						},
+					},
+				},
+			},
+		},
+		{
 			name: "Map NSX Subnet with Private_TGW AccessMode",
 			subnetCR: &v1alpha1.Subnet{
 				Spec: v1alpha1.SubnetSpec{},
@@ -1126,6 +1161,12 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			assert.Equal(t, tt.expectedSubnet.Spec.IPv4SubnetSize, subnetCR.Spec.IPv4SubnetSize)
 			assert.Equal(t, tt.expectedSubnet.Spec.IPAddresses, subnetCR.Spec.IPAddresses)
 			assert.Equal(t, tt.expectedSubnet.Spec.SubnetDHCPConfig.Mode, subnetCR.Spec.SubnetDHCPConfig.Mode)
+
+			// Check StaticIPAllocation if expected
+			if tt.expectedSubnet.Spec.AdvancedConfig.StaticIPAllocation.Enabled != nil {
+				assert.NotNil(t, subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled)
+				assert.Equal(t, *tt.expectedSubnet.Spec.AdvancedConfig.StaticIPAllocation.Enabled, *subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled)
+			}
 		})
 	}
 }
