@@ -42,7 +42,11 @@ func createNameSpaceReconciler(objs []client.Object) *NamespaceReconciler {
 	// Create a fake client builder
 	clientBuilder := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objs...)
 
+	// Create a separate client builder for APIReader
+	apiReaderBuilder := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objs...)
+
 	fakeClient := clientBuilder.Build()
+	fakeAPIReader := apiReaderBuilder.Build()
 
 	nsxConfig := &config.NSXOperatorConfig{
 		NsxConfig: &config.NsxConfig{
@@ -70,6 +74,7 @@ func createNameSpaceReconciler(objs []client.Object) *NamespaceReconciler {
 	nsReconciler := &NamespaceReconciler{
 		Client:        fakeClient,
 		Scheme:        newScheme,
+		APIReader:     fakeAPIReader,
 		VPCService:    service,
 		SubnetService: subnetService,
 		NSXConfig:     nsxConfig,
@@ -85,7 +90,6 @@ func TestGetDefaultNetworkConfigName(t *testing.T) {
 			Annotations: map[string]string{servicetypes.AnnotationDefaultNetworkConfig: "true"},
 		},
 	}
-	r := createNameSpaceReconciler(nil)
 	tests := []struct {
 		name       string
 		exist      bool
@@ -98,12 +102,14 @@ func TestGetDefaultNetworkConfigName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			r := createNameSpaceReconciler(nil)
 			patch := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetDefaultNetworkConfig", func(_ *vpc.VPCService) (*v1alpha1.VPCNetworkConfiguration, error) {
 				if !tt.exist {
 					return tt.nc, fmt.Errorf("not found")
 				}
 				return tt.nc, nil
 			})
+			defer patch.Reset()
 			name, err := r.getDefaultNetworkConfigName()
 			assert.Equal(t, tt.expectName, name)
 			if name == "" {
@@ -268,6 +274,7 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 
 func TestNamespaceReconciler_StartController(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithObjects().Build()
+	fakeAPIReader := fake.NewClientBuilder().WithObjects().Build()
 	vpcService := &vpc.VPCService{
 		Service: servicetypes.Service{
 			Client: fakeClient,
@@ -278,7 +285,7 @@ func TestNamespaceReconciler_StartController(t *testing.T) {
 			Client: fakeClient,
 		},
 	}
-	mockMgr := &MockManager{scheme: runtime.NewScheme()}
+	mockMgr := &MockManager{scheme: runtime.NewScheme(), client: fakeClient, apiReader: fakeAPIReader}
 	patches := gomonkey.ApplyFunc((*NamespaceReconciler).setupWithManager, func(r *NamespaceReconciler, mgr manager.Manager) error {
 		return nil
 	})
@@ -471,12 +478,17 @@ func TestDeleteDefaultSubnetSet(t *testing.T) {
 
 type MockManager struct {
 	ctrl.Manager
-	client client.Client
-	scheme *runtime.Scheme
+	client    client.Client
+	apiReader client.Reader
+	scheme    *runtime.Scheme
 }
 
 func (m *MockManager) GetClient() client.Client {
 	return m.client
+}
+
+func (m *MockManager) GetAPIReader() client.Reader {
+	return m.apiReader
 }
 
 func (m *MockManager) GetScheme() *runtime.Scheme {

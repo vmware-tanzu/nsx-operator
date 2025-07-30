@@ -91,13 +91,10 @@ func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns strin
 
 // getExistingSharedSubnetCRs gets a map of existing shared Subnet CRs in the namespace
 func (r *NamespaceReconciler) getExistingSharedSubnetCRs(ctx context.Context, ns string) (map[string]*v1alpha1.Subnet, error) {
-	// Get the list of Subnet CRs in the namespace that have the associated-resource annotation
+	// We met a bug in Client.List where it cannot list the latest CRs, thus leading to create duplicate Shared Subnet CRs.
+	// To avoid this, we list all Subnet CRs directly from the APIReader instead of the cache.
 	subnetList := &v1alpha1.SubnetList{}
-	err := r.Client.List(ctx, subnetList,
-		client.InNamespace(ns),
-		client.MatchingFields{
-			servicecommon.AssociatedResourceIndexKey: "true",
-		})
+	err := r.APIReader.List(ctx, subnetList, client.InNamespace(ns))
 	if err != nil {
 		return nil, fmt.Errorf("failed to list Subnet CRs: %w", err)
 	}
@@ -106,8 +103,11 @@ func (r *NamespaceReconciler) getExistingSharedSubnetCRs(ctx context.Context, ns
 	existingSharedSubnets := make(map[string]*v1alpha1.Subnet)
 	for i := range subnetList.Items {
 		subnet := &subnetList.Items[i]
-		if subnet.Annotations[servicecommon.AnnotationAssociatedResource] != "" {
-			existingSharedSubnets[subnet.Annotations[servicecommon.AnnotationAssociatedResource]] = subnet
+		if servicecommon.IsSharedSubnet(subnet) {
+			value := subnet.Annotations[servicecommon.AnnotationAssociatedResource]
+			if value != "" {
+				existingSharedSubnets[value] = subnet
+			}
 		}
 	}
 
