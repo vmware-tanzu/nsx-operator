@@ -4,16 +4,19 @@ import (
 	"context"
 
 	"github.com/vmware/go-vmware-nsxt/containerinventory"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func (s *InventoryService) GetContainerCluster() (containerinventory.ContainerCluster, error) {
+	clusterUUID := util.GetClusterUUID(s.NSXConfig.Cluster).String()
 	log.Info("Send request to NSX to get inventory cluster", "Cluster id", clusterUUID)
 	containerCluster, _, err := s.NSXClient.NsxApiClient.ContainerClustersApi.GetContainerCluster(context.TODO(), clusterUUID)
 	return containerCluster, err
 }
 
 func (s *InventoryService) AddContainerCluster(cluster containerinventory.ContainerCluster) (containerinventory.ContainerCluster, error) {
-	log.Info("Send request to NSX to create inventory cluster", "Cluster", clusterUUID)
+	log.Info("Send request to NSX to create inventory cluster", "Cluster", cluster)
 	cluster.ClusterType = InventoryClusterTypeSupervisor
 	cluster, _, err := s.NSXClient.NsxApiClient.ContainerClustersApi.AddContainerCluster(context.TODO(), cluster)
 	return cluster, err
