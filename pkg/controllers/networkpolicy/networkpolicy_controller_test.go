@@ -16,6 +16,7 @@ import (
 	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -42,6 +43,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 type fakeRecorder struct{}
@@ -156,6 +158,56 @@ func Test_setNetworkPolicyErrorAnnotation(t *testing.T) {
 	setNetworkPolicyErrorAnnotation(ctx, networkPolicy, k8sClient, info)
 }
 
+func Test_clarifyAndSetNetworkPolicyErrorAnnotation(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+	k8sClient := mock_client.NewMockClient(mockCtl)
+
+	ctx := context.TODO()
+	validationErr := &util.ValidationError{Desc: "Validation failed for NetworkPolicy"}
+	errTypeInternalServer := apierrors.ErrorTypeEnum("INTERNAL_SERVER_ERROR")
+	errTypeInvalidRequest := apierrors.ErrorTypeEnum("INVALID_REQUEST")
+	intrnalServerErr := &model.ApiError{
+		ErrorCode:    pointy.Int64(123),
+		ErrorMessage: pointy.String("Test error message"),
+		Details:      pointy.String("Test details"),
+	}
+	internalServerErr := util.NewNSXApiError(intrnalServerErr, errTypeInternalServer)
+	invalidRequestErr := util.NewNSXApiError(intrnalServerErr, errTypeInvalidRequest)
+
+	// Create a sample NetworkPolicy without annotations
+	networkPolicy := &networkingv1.NetworkPolicy{}
+
+	// annotation error for NETWORK_POLICY_VALIDATION_FAILED
+	k8sClient.EXPECT().
+		Update(ctx, networkPolicy).
+		Return(nil)
+	clarifyAndSetNetworkPolicyErrorAnnotation(k8sClient, ctx, networkPolicy, metav1.Now(), validationErr)
+	require.NotNil(t, networkPolicy.Annotations)
+	assert.Equal(t, "NETWORK_POLICY_VALIDATION_FAILED", networkPolicy.Annotations[ctrcommon.NSXOperatorError])
+
+	// annotation error for NETWORK_POLICY_UPDATE_FAILED
+	k8sClient.EXPECT().
+		Update(ctx, networkPolicy).
+		Return(nil)
+	clarifyAndSetNetworkPolicyErrorAnnotation(k8sClient, ctx, networkPolicy, metav1.Now(), invalidRequestErr)
+	require.NotNil(t, networkPolicy.Annotations)
+	assert.Equal(t, "NETWORK_POLICY_UPDATE_FAILED", networkPolicy.Annotations[ctrcommon.NSXOperatorError])
+
+	// annotation error for NETWORK_POLICY_UPDATE_PENDING
+	k8sClient.EXPECT().
+		Update(ctx, networkPolicy).
+		Return(nil)
+	clarifyAndSetNetworkPolicyErrorAnnotation(k8sClient, ctx, networkPolicy, metav1.Now(), internalServerErr)
+	require.NotNil(t, networkPolicy.Annotations)
+	assert.Equal(t, "NETWORK_POLICY_UPDATE_PENDING", networkPolicy.Annotations[ctrcommon.NSXOperatorError])
+
+	// Call the function again with the same info; Update should not be called
+	clarifyAndSetNetworkPolicyErrorAnnotation(k8sClient, ctx, networkPolicy, metav1.Now(), internalServerErr)
+	require.NotNil(t, networkPolicy.Annotations)
+	assert.Equal(t, "NETWORK_POLICY_UPDATE_PENDING", networkPolicy.Annotations[ctrcommon.NSXOperatorError])
+}
+
 func Test_cleanNetworkPolicyErrorAnnotation(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	defer mockCtl.Finish()
@@ -181,7 +233,7 @@ func Test_cleanNetworkPolicyErrorAnnotation(t *testing.T) {
 			Times(1)
 
 		// Call the function under test
-		cleanNetworkPolicyErrorAnnotation(ctx, networkPolicy, k8sClient)
+		cleanNetworkPolicyErrorAnnotation(k8sClient, ctx, networkPolicy, metav1.Now())
 
 		// Check that the annotation was removed
 		assert.NotContains(t, networkPolicy.Annotations, ctrcommon.NSXOperatorError)
@@ -195,7 +247,7 @@ func Test_cleanNetworkPolicyErrorAnnotation(t *testing.T) {
 		k8sClient.EXPECT().Update(ctx, networkPolicy).Times(0)
 
 		// Call the function under test
-		cleanNetworkPolicyErrorAnnotation(ctx, networkPolicy, k8sClient)
+		cleanNetworkPolicyErrorAnnotation(k8sClient, ctx, networkPolicy, metav1.Now())
 	})
 }
 

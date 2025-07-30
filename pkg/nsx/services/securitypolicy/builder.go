@@ -5,7 +5,6 @@ package securitypolicy
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -206,7 +205,7 @@ func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPol
 	}
 
 	if len(errorMsg) != 0 {
-		err = errors.New(errorMsg)
+		err = &nsxutil.ValidationError{Desc: errorMsg}
 		return nil, "", err
 	}
 	policyAppliedGroupPath, err := service.buildAppliedGroupPath(obj, policyAppliedGroupId)
@@ -382,7 +381,7 @@ func (service *SecurityPolicyService) buildExpressionsMatchExpression(matchExpre
 	}
 
 	if len(errorMsg) != 0 {
-		err = errors.New(errorMsg)
+		err = &nsxutil.ValidationError{Desc: errorMsg}
 	}
 	return err
 }
@@ -714,7 +713,7 @@ func (service *SecurityPolicyService) buildRuleDisplayName(rule *v1alpha1.Securi
 func (service *SecurityPolicyService) buildRuleAppliedGroupByPolicy(obj *v1alpha1.SecurityPolicy, nsxRuleSrcGroupPath string, nsxRuleDstGroupPath string, policyAppliedGroupPath string) (string, error) {
 	var nsxRuleAppliedGroupPath string
 	if len(obj.Spec.AppliedTo) == 0 {
-		return "", errors.New("appliedTo needs to be set in either spec or rules")
+		return "", nsxutil.ValidationError{Desc: "appliedTo needs to be set in either spec or rules"}
 	}
 	if nsxRuleSrcGroupPath == "ANY" && nsxRuleDstGroupPath == "ANY" {
 		// NSX-T manager will report error if all the rule's scope/src/dst are "ANY".
@@ -774,7 +773,7 @@ func (service *SecurityPolicyService) buildRuleAppliedGroupByRule(obj *v1alpha1.
 	}
 
 	if len(errorMsg) != 0 {
-		err = errors.New(errorMsg)
+		err = &nsxutil.ValidationError{Desc: errorMsg}
 		return nil, "", err
 	}
 
@@ -936,7 +935,7 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 	}
 
 	if len(errorMsg) != 0 {
-		err = errors.New(errorMsg)
+		err = &nsxutil.ValidationError{Desc: errorMsg}
 		return nil, "", nil, err
 	}
 
@@ -1108,7 +1107,7 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 
 	if target.PodSelector != nil && target.VMSelector != nil {
 		errorMsg := "PodSelector and VMSelector are not allowed to set in one group"
-		err = errors.New(errorMsg)
+		err = &nsxutil.ValidationError{Desc: errorMsg}
 		return 0, 0, err
 	}
 
@@ -1306,7 +1305,7 @@ func (service *SecurityPolicyService) validateSelectorOpIn(matchExpressions []v1
 	}
 
 	if len(errorMsg) != 0 {
-		err = errors.New(errorMsg)
+		err = &nsxutil.ValidationError{Desc: errorMsg}
 	}
 	return mexprInValueCount, err
 }
@@ -1318,7 +1317,7 @@ func (service *SecurityPolicyService) validateNsSelectorOpNotIn(nsMatchExpressio
 	for _, expr := range nsMatchExpressions {
 		if expr.Operator == v1.LabelSelectorOpNotIn {
 			errorMsg = "operator 'NotIn' for NamespaceSelector is not supported in NSX-T since its member type is Segment"
-			err = errors.New(errorMsg)
+			err = &nsxutil.ValidationError{Desc: errorMsg}
 			break
 		}
 	}
@@ -1350,7 +1349,7 @@ func (service *SecurityPolicyService) validateSelectorExpressions(matchLabelsCou
 	}
 
 	if len(errorMsg) != 0 {
-		err = errors.New(errorMsg)
+		err = &nsxutil.ValidationError{Desc: errorMsg}
 		return 0, 0, err
 	}
 
@@ -1451,7 +1450,7 @@ func (service *SecurityPolicyService) updateMixedExpressionsMatchExpression(nsMa
 
 	if nsFound && portFound {
 		errorMsg := "operator 'In' is set in both Pod/VM selector and NamespaceSelector"
-		err = errors.New(errorMsg)
+		err = &nsxutil.ValidationError{Desc: errorMsg}
 		return err
 	}
 
@@ -1560,7 +1559,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 	}
 
 	if len(errorMsg) != 0 {
-		err = errors.New(errorMsg)
+		err = &nsxutil.ValidationError{Desc: errorMsg}
 		return 0, 0, err
 	}
 
@@ -1703,7 +1702,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 
 			if opInValueCount > 0 && nsOpInValCount > 0 {
 				errorMsg = "operator 'In' is set in both Pod/VM selector and NamespaceSelector"
-				err = errors.New(errorMsg)
+				err = &nsxutil.ValidationError{Desc: errorMsg}
 				return 0, 0, err
 			}
 

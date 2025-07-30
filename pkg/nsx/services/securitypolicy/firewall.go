@@ -328,7 +328,7 @@ func (service *SecurityPolicyService) populateRulesForIsolationSection(spIsolati
 			})
 		} else {
 			// This logic branch is impossible, leave it just for following the coding rules.
-			return fmt.Errorf("invalid network policy type %s", policyType)
+			return &nsxutil.ValidationError{Desc: fmt.Sprintf("invalid network policy type %s", policyType)}
 		}
 	}
 	return nil
@@ -423,7 +423,7 @@ func (service *SecurityPolicyService) convertNetworkPolicyPeerToSecurityPolicyPe
 			IPBlocks: ipBlocks,
 		}, nil
 	}
-	err := fmt.Errorf("unsupported NetworkPolicyPeer: %s", npPeer)
+	err := &nsxutil.ValidationError{Desc: fmt.Sprintf("unsupported NetworkPolicyPeer: %s", npPeer)}
 	return nil, err
 }
 
