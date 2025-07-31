@@ -36,9 +36,10 @@ func getRuleAction(rule *v1alpha1.SecurityPolicyRule) (string, error) {
 
 func getRuleDirection(rule *v1alpha1.SecurityPolicyRule) (string, error) {
 	ruleDirection := util.ToUpper(*rule.Direction)
-	if ruleDirection == ruleDirectionIngress || ruleDirection == ruleDirectionIn {
+	switch ruleDirection {
+	case ruleDirectionIngress, ruleDirectionIn:
 		return "IN", nil
-	} else if ruleDirection == ruleDirectionEgress || ruleDirection == ruleDirectionOut {
+	case ruleDirectionEgress, ruleDirectionOut:
 		return "OUT", nil
 	}
 	return "", errors.New("invalid rule direction")

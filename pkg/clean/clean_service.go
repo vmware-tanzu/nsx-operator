@@ -81,7 +81,6 @@ func (c *CleanupService) cleanupBeforeVPCDeletion(ctx context.Context) error {
 				if err != nil {
 					errorChans <- err
 				}
-				return
 			}()
 		}
 		wgForPreVPCCleaners.Wait()
@@ -167,7 +166,7 @@ func (c *CleanupService) cleanPreCreatedVPCs(ctx context.Context) error {
 }
 
 func (c *CleanupService) cleanupAutoCreatedVPCs(ctx context.Context) error {
-	queue := workqueue.NewTypedRateLimitingQueue[string](workqueue.DefaultTypedControllerRateLimiter[string]())
+	queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]())
 	defer queue.ShutDown()
 
 	autoCreatedVPCs := c.vpcService.ListAutoCreatedVPCPaths()

@@ -255,11 +255,12 @@ func UserSubnetSet(t *testing.T) {
 				return false, nil
 			}
 			log.V(2).Info("Check IP address", "IPAddress", port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "portName", portName)
-			if portName == "port-in-static-subnetset" {
+			switch portName {
+			case "port-in-static-subnetset":
 				if port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress != "" {
 					return true, nil
 				}
-			} else if portName == "port-in-dhcp-subnetset" {
+			case "port-in-dhcp-subnetset":
 				if port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress == "" {
 					return true, nil
 				}

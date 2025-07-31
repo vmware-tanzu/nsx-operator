@@ -101,7 +101,7 @@ func TestInitErrorFromResponse(t *testing.T) {
 	assert.Equal(string(body), result, "Read resp body error")
 
 	//body is nil
-	handler = func(w http.ResponseWriter, r *http.Request) {
+	handler = func(w http.ResponseWriter, _ *http.Request) {
 		io.WriteString(w, "")
 	}
 

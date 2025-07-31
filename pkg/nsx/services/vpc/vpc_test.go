@@ -874,7 +874,6 @@ func TestValidateConnectionStatus(t *testing.T) {
 			status, err := service.ValidateConnectionStatus(&tt.vpcNetworkConfig, tt.vpcNetworkConfig.Spec.VPCConnectivityProfile)
 			assert.Equal(t, tt.expectedStatus, status)
 			assert.Equal(t, tt.expectedError, err)
-			return
 		})
 	}
 }
