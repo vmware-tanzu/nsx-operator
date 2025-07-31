@@ -96,6 +96,8 @@ func TestSubnetSet(t *testing.T) {
 	t.Run("case=UserSubnetSet", UserSubnetSet)
 	t.Run("case=SharedSubnetSet", sharedSubnetSet)
 	t.Run("case=SubnetCIDR", SubnetCIDR)
+	t.Run("case=NoIPSubnet", NoIPSubnet)
+	t.Run("case=SubnetValidate", SubnetValidate)
 }
 
 func transSearchResponsetoSubnet(response model.SearchResponse) []model.VpcSubnet {
@@ -468,4 +470,61 @@ func assureSubnetPort(t *testing.T, ns, subnetPortName string) (res *v1alpha1.Su
 	})
 	require.NoError(t, err)
 	return
+}
+
+func NoIPSubnet(t *testing.T) {
+	noIPSubnetPath, _ := filepath.Abs("./manifest/testSubnet/subnet-no-ip.yaml")
+	require.NoError(t, applyYAML(noIPSubnetPath, subnetTestNamespace))
+	defer deleteYAML(noIPSubnetPath, subnetTestNamespace)
+
+	noIPPortPath, _ := filepath.Abs("./manifest/testSubnet/subnetport-in-no-ip-subnet.yaml")
+	require.NoError(t, applyYAML(noIPPortPath, subnetTestNamespace))
+	defer deleteYAML(noIPPortPath, subnetTestNamespace)
+
+	assureSubnetPort(t, subnetTestNamespace, "port-in-no-ip-subnet")
+
+	// Check the no IP Subnet.
+	subnet, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), "subnet-no-ip", v1.GetOptions{})
+	require.NoError(t, err)
+	require.NotNil(t, subnet.Status, "No Status info in Subnet")
+
+	// Check the no IP SubnetPort.
+	port, err := testData.crdClientset.CrdV1alpha1().SubnetPorts(subnetTestNamespace).Get(context.TODO(), "port-in-no-ip-subnet", v1.GetOptions{})
+	require.NoError(t, err)
+	require.NotNil(t, port.Status.NetworkInterfaceConfig, "No NetworkInterfaceConfig in SubnetPort")
+	require.Empty(t, port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "IPAddresses should be empty for Subnet with no IP addresses")
+	require.Equal(t, port.Status.NetworkInterfaceConfig.DHCPDeactivatedOnSubnet, true, "DHCPDeactivatedOnSubnet should be true for Subnet with no IP addresses")
+}
+
+func SubnetValidate(t *testing.T) {
+	// Ensure that the staticIPAllocation and DHCP cannot be enabled at the same time.
+	subnetPath, _ := filepath.Abs("./manifest/testSubnet/subnet-static-dhcpserver.yaml")
+	err := applyYAML(subnetPath, subnetTestNamespace)
+	require.NotNil(t, err, "Subnet with staticIPAllocation enabled should not be created with DHCPServer mode")
+
+	// Ensure that the DHCP mode cannot be changed from DHCPServer to DHCPDeactivated.
+	subnetPath, _ = filepath.Abs("./manifest/testSubnet/subnet-dhcp-modify_1.yaml")
+	require.NoError(t, applyYAML(subnetPath, subnetTestNamespace))
+	defer deleteYAML(subnetPath, subnetTestNamespace)
+	assureSubnet(t, subnetTestNamespace, "subnet-dhcp-modify", "")
+	subnetPath, _ = filepath.Abs("./manifest/testSubnet/subnet-dhcp-modify_2.yaml")
+	err = applyYAML(subnetPath, subnetTestNamespace)
+	require.NotNil(t, err, "Subnet DHCP mode should not be changed from DHCPServer to DHCPDeactivated")
+
+	// Ensure that the NSX operator can populate the staticIPAllocation field in Subnet with DHCPServer mode.
+	subnetPath, _ = filepath.Abs("./manifest/testSubnet/subnet-only-dhcp.yaml")
+	require.NoError(t, applyYAML(subnetPath, subnetTestNamespace))
+	defer deleteYAML(subnetPath, subnetTestNamespace)
+	assureSubnet(t, subnetTestNamespace, "subnet-only-dhcp", "")
+	subnet, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), "subnet-only-dhcp", v1.GetOptions{})
+	require.Nil(t, err)
+	require.Equal(t, *subnet.Spec.AdvancedConfig.StaticIPAllocation.Enabled, false, "StaticIPAllocation should be disabled for Subnet with DHCPServer mode")
+
+	subnetPath, _ = filepath.Abs("./manifest/testSubnet/subnet-only-no-dhcp.yaml")
+	require.NoError(t, applyYAML(subnetPath, subnetTestNamespace))
+	defer deleteYAML(subnetPath, subnetTestNamespace)
+	assureSubnet(t, subnetTestNamespace, "subnet-only-no-dhcp", "")
+	subnet, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), "subnet-only-no-dhcp", v1.GetOptions{})
+	require.Nil(t, err)
+	require.Equal(t, *subnet.Spec.AdvancedConfig.StaticIPAllocation.Enabled, true, "StaticIPAllocation should be enabled for Subnet with DHCPDeactivated mode")
 }

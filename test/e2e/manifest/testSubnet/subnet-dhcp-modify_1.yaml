@@ -1,0 +1,11 @@
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: Subnet
+metadata:
+  name: subnet-dhcp-modify
+spec:
+  accessMode: Private
+  advancedConfig:
+    staticIPAllocation:
+      enabled: false
+  subnetDHCPConfig:
+    mode: DHCPServer
