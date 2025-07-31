@@ -96,6 +96,8 @@ func TestSubnetSet(t *testing.T) {
 	t.Run("case=UserSubnetSet", UserSubnetSet)
 	t.Run("case=SharedSubnetSet", sharedSubnetSet)
 	t.Run("case=SubnetCIDR", SubnetCIDR)
+	t.Run("case=NoIPSubnet", NoIPSubnet)
+	t.Run("case=SubnetValidate", SubnetValidate)
 }
 
 func transSearchResponsetoSubnet(response model.SearchResponse) []model.VpcSubnet {
@@ -419,7 +421,7 @@ func assureSubnet(t *testing.T, ns, subnetName string, conditionMsg string) (res
 		return false, nil
 	})
 	require.NoError(t, err)
-	return
+	return res
 }
 
 func assureSubnetSet(t *testing.T, ns, subnetSetName string) (res *v1alpha1.SubnetSet) {
@@ -467,5 +469,136 @@ func assureSubnetPort(t *testing.T, ns, subnetPortName string) (res *v1alpha1.Su
 		return false, nil
 	})
 	require.NoError(t, err)
-	return
+	return res
+}
+
+func createSubnetWithCheck(t *testing.T, subnet *v1alpha1.Subnet) (res *v1alpha1.Subnet) {
+	_, err := testData.crdClientset.CrdV1alpha1().Subnets(subnet.Namespace).Create(context.TODO(), subnet, v1.CreateOptions{})
+	if err != nil && errors.IsAlreadyExists(err) {
+		err = nil
+	}
+	require.NoError(t, err)
+	res = assureSubnet(t, subnet.Namespace, subnet.Name, "")
+	return res
+}
+
+func createSubnetPortWithCheck(t *testing.T, subnetPort *v1alpha1.SubnetPort) (res *v1alpha1.SubnetPort) {
+	_, err := testData.crdClientset.CrdV1alpha1().SubnetPorts(subnetPort.Namespace).Create(context.TODO(), subnetPort, v1.CreateOptions{})
+	if err != nil && errors.IsAlreadyExists(err) {
+		err = nil
+	}
+	require.NoError(t, err)
+	port := assureSubnetPort(t, subnetPort.Namespace, subnetPort.Name)
+	return port
+}
+
+func NoIPSubnet(t *testing.T) {
+	noIPSubnet := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-no-ip",
+			Namespace: subnetTestNamespace,
+		},
+		Spec: v1alpha1.SubnetSpec{
+			AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(false),
+				},
+			},
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+			},
+		},
+	}
+	createSubnetWithCheck(t, noIPSubnet)
+
+	noIPSubnetPort := &v1alpha1.SubnetPort{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "port-in-no-ip-subnet",
+			Namespace: subnetTestNamespace,
+		},
+		Spec: v1alpha1.SubnetPortSpec{
+			Subnet: "subnet-no-ip",
+		},
+	}
+	portCreated := createSubnetPortWithCheck(t, noIPSubnetPort)
+	require.NotNil(t, portCreated.Status.NetworkInterfaceConfig, "No NetworkInterfaceConfig in SubnetPort")
+	require.Empty(t, portCreated.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "IPAddresses should be empty for Subnet with no IP addresses")
+	require.Equal(t, true, portCreated.Status.NetworkInterfaceConfig.DHCPDeactivatedOnSubnet, "DHCPDeactivatedOnSubnet should be true for Subnet with no IP addresses")
+}
+
+func SubnetValidate(t *testing.T) {
+	// Ensure that the staticIPAllocation and DHCP cannot be enabled at the same time.
+	subnetStaticDHCPServer := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-static-dhcpserver",
+			Namespace: subnetTestNamespace,
+		},
+		Spec: v1alpha1.SubnetSpec{
+			AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(true),
+				},
+			},
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+			},
+		},
+	}
+	_, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetStaticDHCPServer.Namespace).Create(context.TODO(), subnetStaticDHCPServer, v1.CreateOptions{})
+	require.NotNil(t, err, "Subnet with staticIPAllocation enabled should not be created with DHCPServer mode")
+
+	// Ensure that the DHCP mode cannot be changed from DHCPServer to DHCPDeactivated.
+	subnetDHCPModify := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-dhcp-modify",
+			Namespace: subnetTestNamespace,
+		},
+		Spec: v1alpha1.SubnetSpec{
+			AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(false),
+				},
+			},
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+			},
+		},
+	}
+	subnetDHCPModifyCreated := createSubnetWithCheck(t, subnetDHCPModify)
+	subnetDHCPModifyCreated.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
+	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Update(context.TODO(), subnetDHCPModifyCreated, v1.UpdateOptions{})
+	require.NotNil(t, err, "Subnet DHCP mode should not be changed from DHCPServer to DHCPDeactivated")
+
+	// Ensure that the NSX operator can populate the staticIPAllocation field in Subnet with DHCPServer mode.
+	subnetOnlyDHCP := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-only-dhcp",
+			Namespace: subnetTestNamespace,
+		},
+		Spec: v1alpha1.SubnetSpec{
+			AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+			},
+		},
+	}
+	subnetOnlyDHCPCreated := createSubnetWithCheck(t, subnetOnlyDHCP)
+	require.Equal(t, false, *subnetOnlyDHCPCreated.Spec.AdvancedConfig.StaticIPAllocation.Enabled, "StaticIPAllocation should be disabled for Subnet with DHCPServer mode")
+	subnetOnlyNoDHCP := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-only-no-dhcp",
+			Namespace: subnetTestNamespace,
+		},
+		Spec: v1alpha1.SubnetSpec{
+			AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+			},
+		},
+	}
+	subnetOnlyNoDHPCreated := createSubnetWithCheck(t, subnetOnlyNoDHCP)
+	require.Equal(t, true, *subnetOnlyNoDHPCreated.Spec.AdvancedConfig.StaticIPAllocation.Enabled, "StaticIPAllocation should be enabled for Subnet with DHCPDeactivated mode")
 }
