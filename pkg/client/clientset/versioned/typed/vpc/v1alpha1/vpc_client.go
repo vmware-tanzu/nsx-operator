@@ -23,6 +23,7 @@ type CrdV1alpha1Interface interface {
 	StaticRoutesGetter
 	SubnetsGetter
 	SubnetConnectionBindingMapsGetter
+	SubnetIPReservationsGetter
 	SubnetPortsGetter
 	SubnetSetsGetter
 	VPCNetworkConfigurationsGetter
@@ -63,6 +64,10 @@ func (c *CrdV1alpha1Client) Subnets(namespace string) SubnetInterface {
 
 func (c *CrdV1alpha1Client) SubnetConnectionBindingMaps(namespace string) SubnetConnectionBindingMapInterface {
 	return newSubnetConnectionBindingMaps(c, namespace)
+}
+
+func (c *CrdV1alpha1Client) SubnetIPReservations(namespace string) SubnetIPReservationInterface {
+	return newSubnetIPReservations(c, namespace)
 }
 
 func (c *CrdV1alpha1Client) SubnetPorts(namespace string) SubnetPortInterface {

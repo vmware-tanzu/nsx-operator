@@ -27,6 +27,8 @@ type Interface interface {
 	Subnets() SubnetInformer
 	// SubnetConnectionBindingMaps returns a SubnetConnectionBindingMapInformer.
 	SubnetConnectionBindingMaps() SubnetConnectionBindingMapInformer
+	// SubnetIPReservations returns a SubnetIPReservationInformer.
+	SubnetIPReservations() SubnetIPReservationInformer
 	// SubnetPorts returns a SubnetPortInformer.
 	SubnetPorts() SubnetPortInformer
 	// SubnetSets returns a SubnetSetInformer.
@@ -84,6 +86,11 @@ func (v *version) Subnets() SubnetInformer {
 // SubnetConnectionBindingMaps returns a SubnetConnectionBindingMapInformer.
 func (v *version) SubnetConnectionBindingMaps() SubnetConnectionBindingMapInformer {
 	return &subnetConnectionBindingMapInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// SubnetIPReservations returns a SubnetIPReservationInformer.
+func (v *version) SubnetIPReservations() SubnetIPReservationInformer {
+	return &subnetIPReservationInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // SubnetPorts returns a SubnetPortInformer.
