@@ -179,7 +179,7 @@ spec:
               rule: '!(has(self.advancedConfig) && has(self.advancedConfig.staticIPAllocation)
                 && has(self.advancedConfig.staticIPAllocation.enabled) && self.advancedConfig.staticIPAllocation.enabled==true
                 && has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.mode) &&
-                (self.subnetDHCPConfig.mode==''DHCPServer'' || self.subnetDHCPConfig.mode==''DHCPRely''))'
+                (self.subnetDHCPConfig.mode==''DHCPServer'' || self.subnetDHCPConfig.mode==''DHCPRelay''))'
             - message: ipAddresses is required to configure subnet reserved ip ranges.
               rule: '!has(self.ipAddresses) && !(has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig)
                 && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig.reservedIPRanges))
