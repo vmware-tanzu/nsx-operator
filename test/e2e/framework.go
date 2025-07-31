@@ -730,12 +730,17 @@ func (data *TestData) queryResource(resourceType string, tags []string) (model.S
 func (data *TestData) waitForResourceExist(namespace string, resourceType string, key string, value string, shouldExist bool) error {
 	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (bool, error) {
 		exist := true
-		tagScopeClusterKey := strings.Replace(common.TagScopeNamespace, "/", "\\/", -1)
-		tagScopeClusterValue := strings.Replace(namespace, ":", "\\:", -1)
-		tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
 		resourceParam := fmt.Sprintf("%s:%s AND %s:*%s*", common.ResourceType, resourceType, key, value)
-		queryParam := resourceParam + " AND " + tagParam
-		queryParam += " AND marked_for_delete:false"
+		queryParam := resourceParam
+
+		// Only add the tag query if namespace is not empty and not for inventory resources
+		if namespace != "" && !strings.HasPrefix(resourceType, "Container") {
+			tagScopeClusterKey := strings.Replace(common.TagScopeNamespace, "/", "\\/", -1)
+			tagScopeClusterValue := strings.Replace(namespace, ":", "\\:", -1)
+			tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
+			queryParam = resourceParam + " AND " + tagParam
+			queryParam += " AND marked_for_delete:false"
+		}
 
 		var cursor *string
 		var pageSize int64 = 500
