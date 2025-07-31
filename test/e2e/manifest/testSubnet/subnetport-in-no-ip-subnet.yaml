@@ -1,0 +1,6 @@
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: SubnetPort
+metadata:
+  name: port-in-no-ip-subnet
+spec:
+  subnet: subnet-no-ip

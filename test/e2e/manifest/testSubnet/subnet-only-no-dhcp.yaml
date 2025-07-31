@@ -1,0 +1,8 @@
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: Subnet
+metadata:
+  name: subnet-only-no-dhcp
+spec:
+  accessMode: Private
+  subnetDHCPConfig:
+    mode: DHCPDeactivated
