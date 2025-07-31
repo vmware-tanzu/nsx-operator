@@ -441,7 +441,7 @@ func (service *SubnetService) GenerateSubnetNSTags(obj client.Object) []model.Ta
 
 func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag, dhcpMode string) error {
 	if dhcpMode == "" {
-		dhcpMode = v1alpha1.DHCPConfigModeDeactivated
+		dhcpMode = string(v1alpha1.DHCPConfigModeDeactivated)
 	}
 	for i, vpcSubnet := range vpcSubnets {
 		subnetSet := &v1alpha1.SubnetSet{}
@@ -529,13 +529,13 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 	if nsxSubnet.AccessMode != nil {
 		accessMode := *nsxSubnet.AccessMode
 		// Convert from NSX format to v1alpha1 format
-		if accessMode == "Private_TGW" {
-			subnetCR.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModeProject)
+		if accessMode == AccessModeProjectInNSX {
+			subnetCR.Spec.AccessMode = v1alpha1.AccessModeProject
 		} else {
 			subnetCR.Spec.AccessMode = v1alpha1.AccessMode(accessMode)
 		}
 	} else {
-		subnetCR.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePublic)
+		subnetCR.Spec.AccessMode = v1alpha1.AccessModePublic
 	}
 
 	// Map IPv4SubnetSize
@@ -552,14 +552,14 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 		// Convert from NSX format to v1alpha1 format
 		switch dhcpMode {
 		case "DHCP_SERVER":
-			subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer)
+			subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigModeServer
 		case "DHCP_RELAY":
-			subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay)
+			subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigModeRelay
 		default:
-			subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
+			subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigModeDeactivated
 		}
 	} else {
-		subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
+		subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigModeDeactivated
 	}
 
 	// Map AdvancedConfig
