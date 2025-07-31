@@ -1,0 +1,7 @@
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: SubnetIPReservation
+metadata:
+  name: subnet-ipa-1
+spec:
+  subnet: subnet-1
+  numberOfIPs: 10

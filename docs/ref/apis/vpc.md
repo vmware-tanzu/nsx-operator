@@ -18,6 +18,7 @@
 - [StaticRoute](#staticroute)
 - [Subnet](#subnet)
 - [SubnetConnectionBindingMap](#subnetconnectionbindingmap)
+- [SubnetIPReservation](#subnetipreservation)
 - [SubnetPort](#subnetport)
 - [SubnetSet](#subnetset)
 - [VPCNetworkConfiguration](#vpcnetworkconfiguration)
@@ -106,6 +107,7 @@ _Appears in:_
 - [SecurityPolicyStatus](#securitypolicystatus)
 - [StaticRouteCondition](#staticroutecondition)
 - [SubnetConnectionBindingMapStatus](#subnetconnectionbindingmapstatus)
+- [SubnetIPReservationStatus](#subnetipreservationstatus)
 - [SubnetPortStatus](#subnetportstatus)
 - [SubnetSetStatus](#subnetsetstatus)
 - [SubnetStatus](#subnetstatus)
@@ -757,6 +759,59 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `mode` _[DHCPConfigMode](#dhcpconfigmode)_ | DHCP Mode. DHCPDeactivated will be used if it is not defined.<br />It cannot switch from DHCPDeactivated to DHCPServer or DHCPRelay. |  | Enum: [DHCPServer DHCPRelay DHCPDeactivated] <br /> |
 | `dhcpServerAdditionalConfig` _[DHCPServerAdditionalConfig](#dhcpserveradditionalconfig)_ | Additional DHCP server config for a VPC Subnet. |  |  |
+
+
+#### SubnetIPReservation
+
+
+
+SubnetIPReservation is the Schema for the subnetipreservations API
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `crd.nsx.vmware.com/v1alpha1` | | |
+| `kind` _string_ | `SubnetIPReservation` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[SubnetIPReservationSpec](#subnetipreservationspec)_ |  |  | Required: \{\} <br /> |
+| `status` _[SubnetIPReservationStatus](#subnetipreservationstatus)_ |  |  |  |
+
+
+#### SubnetIPReservationSpec
+
+
+
+SubnetIPReservationSpec defines the desired state of SubnetIPReservation
+
+
+
+_Appears in:_
+- [SubnetIPReservation](#subnetipreservation)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `subnet` _string_ | Subnet specifies the Subnet to reserve IPs from. |  | Required: \{\} <br /> |
+| `numberOfIPs` _integer_ | NumberOfIPs defines number of IPs requested to be reserved. |  | Maximum: 100 <br />Minimum: 1 <br />Required: \{\} <br /> |
+
+
+#### SubnetIPReservationStatus
+
+
+
+SubnetIPReservationStatus defines the observed state of SubnetIPReservation
+
+
+
+_Appears in:_
+- [SubnetIPReservation](#subnetipreservation)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[Condition](#condition) array_ | Conditions described if the SubnetIPReservation is configured on NSX or not.<br />Condition type "" |  |  |
+| `ips` _string array_ | List of reserved IPs.<br />Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100"] |  |  |
 
 
 #### SubnetInfo
