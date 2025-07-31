@@ -34,7 +34,11 @@ func AllocateSubnetFromSubnetSet(subnetSet *v1alpha1.SubnetSet, vpcService servi
 	defer UnlockSubnetSet(subnetSet.GetUID(), subnetSetLock)
 	subnetList := subnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.GetUID()))
 	for _, nsxSubnet := range subnetList {
-		if subnetPortService.AllocatePortFromSubnet(nsxSubnet) {
+		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet)
+		if err != nil {
+			return "", err
+		}
+		if canAllocate {
 			return *nsxSubnet.Path, nil
 		}
 	}
@@ -53,8 +57,14 @@ func AllocateSubnetFromSubnetSet(subnetSet *v1alpha1.SubnetSet, vpcService servi
 	if err != nil {
 		return "", err
 	}
-	subnetPortService.AllocatePortFromSubnet(nsxSubnet)
-	return *nsxSubnet.Path, nil
+	canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet)
+	if err != nil {
+		return "", err
+	}
+	if canAllocate {
+		return *nsxSubnet.Path, nil
+	}
+	return "", fmt.Errorf("cannot allocate Port from SubnetSet %s", subnetSet.Name)
 }
 
 func GetDefaultSubnetSetByNamespace(client k8sclient.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {

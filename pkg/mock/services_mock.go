@@ -111,8 +111,8 @@ func (m *MockSubnetPortServiceProvider) GetPortsOfSubnet(nsxSubnetID string) (po
 	return
 }
 
-func (m *MockSubnetPortServiceProvider) AllocatePortFromSubnet(subnet *model.VpcSubnet) bool {
-	return true
+func (m *MockSubnetPortServiceProvider) AllocatePortFromSubnet(subnet *model.VpcSubnet) (bool, error) {
+	return true, nil
 }
 
 func (m *MockSubnetPortServiceProvider) ReleasePortInSubnet(path string) {

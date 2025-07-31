@@ -32,6 +32,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/nat"
 	vpc_sp "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/dhcp_server_config"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ip_pools"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ports"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
@@ -92,6 +93,7 @@ type Client struct {
 	PortStateClient                   ports.StateClient
 	IPPoolClient                      subnets.IpPoolsClient
 	IPAllocationClient                ip_pools.IpAllocationsClient
+	DhcpServerConfigStatsClient       dhcp_server_config.StatsClient
 	SubnetsClient                     vpcs.SubnetsClient
 	IPAddressAllocationClient         vpcs.IpAddressAllocationsClient
 	VPCLBSClient                      vpcs.VpcLbsClient
@@ -200,6 +202,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	portStateClient := ports.NewStateClient(connector)
 	ipPoolClient := subnets.NewIpPoolsClient(connector)
 	ipAllocationClient := ip_pools.NewIpAllocationsClient(connector)
+	statsClient := dhcp_server_config.NewStatsClient(connector)
 	subnetsClient := vpcs.NewSubnetsClient(connector)
 	subnetStatusClient := subnets.NewStatusClient(connector)
 	ipAddressAllocationClient := vpcs.NewIpAddressAllocationsClient(connectorAllowOverwrite)
@@ -271,6 +274,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		NSXVerChecker:                     *nsxVersionChecker,
 		IPPoolClient:                      ipPoolClient,
 		IPAllocationClient:                ipAllocationClient,
+		DhcpServerConfigStatsClient:       statsClient,
 		SubnetsClient:                     subnetsClient,
 		IPAddressAllocationClient:         ipAddressAllocationClient,
 		TransitGatewayClient:              transitGatewayClient,
