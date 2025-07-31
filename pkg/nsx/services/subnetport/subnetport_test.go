@@ -107,6 +107,22 @@ func (c *fakeSubnetStatusClient) List(orgIdParam string, projectIdParam string, 
 	return model.VpcSubnetStatusListResult{}, nil
 }
 
+type fakeIPPoolClient struct{}
+
+func (c *fakeIPPoolClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error) {
+	return model.IpAddressPool{}, nil
+}
+
+func (c *fakeIPPoolClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.IpAddressPoolListResult, error) {
+	return model.IpAddressPoolListResult{}, nil
+}
+
+type fakeStatsClient struct{}
+
+func (c *fakeStatsClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, cursorParam *string, enforcementPointPathParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.DhcpServerStatistics, error) {
+	return model.DhcpServerStatistics{}, nil
+}
+
 func Test_InitializeSubnetPort(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -745,7 +761,7 @@ func TestSubnetPortService_Cleanup(t *testing.T) {
 }
 
 func TestSubnetPortService_ListNSXSubnetPortIDForCR(t *testing.T) {
-	subnetPortService := createSubnetPortService()
+	subnetPortService := createSubnetPortService(t)
 	crName := "fake_subnetport"
 	crUUID := "2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"
 	subnetPortByCR := &model.VpcSubnetPort{
@@ -789,7 +805,7 @@ func TestSubnetPortService_ListNSXSubnetPortIDForCR(t *testing.T) {
 }
 
 func TestSubnetPortService_ListNSXSubnetPortIDForPod(t *testing.T) {
-	subnetPortService := createSubnetPortService()
+	subnetPortService := createSubnetPortService(t)
 	podName := "fake_pod"
 	podUUID := "c5db1800-ce4c-11de-a935-8105ba7ace78"
 	subnetPortByPod := &model.VpcSubnetPort{
@@ -893,7 +909,7 @@ func TestSubnetPortService_ListSubnetPortIDsFromCRs(t *testing.T) {
 }
 
 func TestSubnetPortService_ListSubnetPortByName(t *testing.T) {
-	subnetPortService := createSubnetPortService()
+	subnetPortService := createSubnetPortService(t)
 
 	// VM subnet port with subnetport-1 name
 	vmSubnetPort1 := &model.VpcSubnetPort{
@@ -982,7 +998,7 @@ func TestSubnetPortService_ListSubnetPortByName(t *testing.T) {
 }
 
 func TestSubnetPortService_ListSubnetPortByPodName(t *testing.T) {
-	subnetPortService := createSubnetPortService()
+	subnetPortService := createSubnetPortService(t)
 	subnetPort1 := &model.VpcSubnetPort{
 		Id:   &subnetPortId1,
 		Path: &subnetPortPath1,
@@ -1018,7 +1034,7 @@ func TestSubnetPortService_ListSubnetPortByPodName(t *testing.T) {
 	assert.Equal(t, subnetPort2, subnetPorts[0])
 }
 
-func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
+func TestSubnetPortService_AllocateAndReleasePortFromSubnet(t *testing.T) {
 	subnetPath := "subnet-path-1"
 	subnetId := "subnet-id-1"
 	subnet := &model.VpcSubnet{
@@ -1026,8 +1042,12 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 		IpAddresses:    []string{"10.0.0.1/28"},
 		Path:           &subnetPath,
 		Id:             &subnetId,
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{
+			Mode: common.String("DHCP_RELAY"),
+		},
 	}
-	subnetPortService := createSubnetPortService()
+
+	subnetPortService := createSubnetPortService(t)
 	ok := subnetPortService.AllocatePortFromSubnet(subnet)
 	assert.True(t, ok)
 	empty := subnetPortService.IsEmptySubnet(subnetId, subnetPath)
@@ -1041,8 +1061,186 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func createSubnetPortService() *SubnetPortService {
+func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
+	subnetPath := "subnet-path-1"
+	subnetId := "subnet-id-1"
+	staticSubnet := &model.VpcSubnet{
+		Ipv4SubnetSize: common.Int64(16),
+		IpAddresses:    []string{"10.0.0.1/28"},
+		Path:           &subnetPath,
+		Id:             &subnetId,
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{
+			Mode: common.String("DHCP_DEACTIVATED"),
+		},
+	}
+	dhcpServerSubnet := &model.VpcSubnet{
+		Ipv4SubnetSize: common.Int64(16),
+		IpAddresses:    []string{"10.0.0.1/28"},
+		Path:           &subnetPath,
+		Id:             &subnetId,
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{
+			Mode: common.String("DHCP_SERVER"),
+		},
+	}
+	dhcpRelaySubnet := &model.VpcSubnet{
+		Ipv4SubnetSize: common.Int64(16),
+		IpAddresses:    []string{"10.0.0.1/28"},
+		Path:           &subnetPath,
+		Id:             &subnetId,
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{
+			Mode: common.String("DHCP_RELAY"),
+		},
+	}
+	dhcpRelaySubnet1 := &model.VpcSubnet{
+		Ipv4SubnetSize: common.Int64(16),
+		IpAddresses:    []string{"10.0.0.1/30"},
+		Path:           &subnetPath,
+		Id:             &subnetId,
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{
+			Mode: common.String("DHCP_RELAY"),
+		},
+	}
+	tests := []struct {
+		name          string
+		subnet        *model.VpcSubnet
+		prepareFunc   func(service *SubnetPortService) *gomonkey.Patches
+		expectedValue bool
+	}{
+		{
+			name:   "Failed to get subnet static ip pool",
+			subnet: staticSubnet,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(c *fakeIPPoolClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error) {
+					return model.IpAddressPool{}, fmt.Errorf("mock error")
+				})
+				return patches
+			},
+			expectedValue: false,
+		},
+		{
+			name:   "Failed to get subnet static ip pool",
+			subnet: dhcpServerSubnet,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.StatsClient), "Get", func(c *fakeStatsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, cursorParam *string, enforcementPointPathParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.DhcpServerStatistics, error) {
+					return model.DhcpServerStatistics{}, fmt.Errorf("mock error")
+				})
+				return patches
+			},
+			expectedValue: false,
+		},
+		{
+			name:   "Allocate SubnetPort from static Subnet failed",
+			subnet: staticSubnet,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(c *fakeIPPoolClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error) {
+					return model.IpAddressPool{
+						PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(0)},
+					}, nil
+				})
+				return patches
+			},
+			expectedValue: false,
+		},
+		{
+			name:   "Allocate SubnetPort from dhcp server Subnet failed",
+			subnet: dhcpServerSubnet,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.StatsClient), "Get", func(c *fakeStatsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, cursorParam *string, enforcementPointPathParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.DhcpServerStatistics, error) {
+					return model.DhcpServerStatistics{
+						IpPoolStats: []model.DhcpIpPoolUsage{{PoolSize: common.Int64(0)}},
+					}, nil
+				})
+				return patches
+			},
+			expectedValue: false,
+		},
+		{
+			name:   "Allocate SubnetPort from dhcp relay Subnet failed",
+			subnet: dhcpRelaySubnet1,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				return nil
+			},
+			expectedValue: false,
+		},
+		{
+			name:   "Allocate SubnetPort from static Subnet",
+			subnet: staticSubnet,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(c *fakeIPPoolClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error) {
+					return model.IpAddressPool{
+						PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(10)},
+					}, nil
+				})
+				return patches
+			},
+			expectedValue: true,
+		},
+		{
+			name:   "Allocate SubnetPort from dhcp server Subnet",
+			subnet: dhcpServerSubnet,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.StatsClient), "Get", func(c *fakeStatsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, cursorParam *string, enforcementPointPathParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.DhcpServerStatistics, error) {
+					return model.DhcpServerStatistics{
+						IpPoolStats: []model.DhcpIpPoolUsage{{PoolSize: common.Int64(10)}},
+					}, nil
+				})
+				return patches
+			},
+			expectedValue: true,
+		},
+		{
+			name:   "Allocate SubnetPort from dhcp relay Subnet",
+			subnet: dhcpRelaySubnet,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				return nil
+			},
+			expectedValue: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subnetPortService := createSubnetPortService(t)
+			patches := tt.prepareFunc(subnetPortService)
+			if patches != nil {
+				defer patches.Reset()
+			}
+			canAllocate := subnetPortService.AllocatePortFromSubnet(tt.subnet)
+			assert.Equal(t, tt.expectedValue, canAllocate)
+		})
+	}
+}
+
+func createSubnetPortService(t *testing.T) *SubnetPortService {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	orgRootClient := mock_org_root.NewMockOrgRootClient(mockCtl)
+	commonService := common.Service{
+		Client: k8sClient,
+		NSXClient: &nsx.Client{
+			QueryClient:            &fakeQueryClient{},
+			MacPoolsClient:         &fakeMacPoolsClient{},
+			PortClient:             &fakePortClient{},
+			IPPoolClient:           &fakeIPPoolClient{},
+			StatsClient:            &fakeStatsClient{},
+			RealizedEntitiesClient: &fakeRealizedEntitiesClient{},
+			PortStateClient:        &fakePortStateClient{},
+			OrgRootClient:          orgRootClient,
+			NsxConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		NSXConfig: &config.NSXOperatorConfig{
+			CoeConfig: &config.CoeConfig{
+				Cluster: "k8scl-one:test",
+			},
+		},
+	}
 	return &SubnetPortService{
+		Service: commonService,
 		SubnetPortStore: &SubnetPortStore{ResourceStore: common.ResourceStore{
 			Indexer: cache.NewIndexer(
 				keyFunc,

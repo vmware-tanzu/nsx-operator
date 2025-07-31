@@ -401,15 +401,42 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 
 	info.lock.Lock()
 	defer info.lock.Unlock()
+
 	if !ok {
-		totalIP := int(*subnet.Ipv4SubnetSize)
-		if len(subnet.IpAddresses) > 0 {
-			// totalIP will be overrided if IpAddresses are specified.
-			totalIP, _ = util.CalculateIPFromCIDRs(subnet.IpAddresses)
+		dhcpMode := "DHCP_DEACTIVATED"
+		subnetInfo, _ := servicecommon.ParseVPCResourcePath(*subnet.Path)
+		if subnet.SubnetDhcpConfig != nil && subnet.SubnetDhcpConfig.Mode != nil {
+			dhcpMode = *subnet.SubnetDhcpConfig.Mode
 		}
-		// NSX reserves 4 ip addresses in each subnet for network address, gateway address,
-		// dhcp server address and broadcast address.
-		info.totalIP = totalIP - 4
+		// For DHCP Deactivated mode Subnet, get total IPs from IP pool static-ipv4-default
+		if dhcpMode == "DHCP_DEACTIVATED" {
+			staticIPPool, err := service.NSXClient.IPPoolClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, "static-ipv4-default")
+			if err != nil {
+				log.Info("Failed to get Subnet static IP Pool static-ipv4-default", "Subnet", *subnet.Path)
+				return false
+			}
+			info.totalIP = int(*staticIPPool.PoolUsage.TotalIps)
+		}
+		// For DHCP Server mode Subnet, get total IPs from DHCP IP Pool
+		if dhcpMode == "DHCP_SERVER" {
+			dhcpServerStats, err := service.NSXClient.StatsClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, nil, nil, nil, nil, nil, nil, nil)
+			if err != nil {
+				log.Info("Failed to get Subnet dhcp-server-config stats", "Subnet", *subnet.Path)
+				return false
+			}
+			info.totalIP = int(*dhcpServerStats.IpPoolStats[0].PoolSize)
+		}
+		// For DHCP Relay mode Subnet, assume 4 reserved IPs
+		if dhcpMode == "DHCP_RELAY" {
+			totalIP := int(*subnet.Ipv4SubnetSize)
+			if len(subnet.IpAddresses) > 0 {
+				// totalIP will be overrided if IpAddresses are specified.
+				totalIP, _ = util.CalculateIPFromCIDRs(subnet.IpAddresses)
+			}
+			// NSX reserves 4 ip addresses in each subnet for network address, gateway address,
+			// dhcp server address and broadcast address.
+			info.totalIP = totalIP - 4
+		}
 	}
 
 	if time.Since(info.exhaustedCheckTime) < IPReleaseTime {
