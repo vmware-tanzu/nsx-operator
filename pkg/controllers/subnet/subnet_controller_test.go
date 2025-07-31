@@ -48,7 +48,7 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 			name: "Delete stale NSX Subnets success",
 			patches: func(r *SubnetReconciler) *gomonkey.Patches {
 				patch := gomonkey.ApplyMethod(reflect.TypeOf(&common.ResourceStore{}), "ListIndexFuncValues", func(_ *common.ResourceStore, _ string) sets.Set[string] {
-					res := sets.New[string]("fake-id1", "fake-id2")
+					res := sets.New("fake-id1", "fake-id2")
 					return res
 				})
 				patch.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string) []*model.VpcSubnet {
@@ -68,7 +68,6 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 					return nil
 				})
 				patch.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
-					return
 				})
 				return patch
 			},
@@ -78,7 +77,7 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 			patches: func(r *SubnetReconciler) *gomonkey.Patches {
 				// local store has same item as k8s cache
 				patch := gomonkey.ApplyMethod(reflect.TypeOf(&common.ResourceStore{}), "ListIndexFuncValues", func(_ *common.ResourceStore, _ string) sets.Set[string] {
-					res := sets.New[string]("fake-id2")
+					res := sets.New("fake-id2")
 					return res
 				})
 				patch.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
@@ -99,7 +98,7 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 			name: "Delete NSX Subnet error",
 			patches: func(r *SubnetReconciler) *gomonkey.Patches {
 				patch := gomonkey.ApplyMethod(reflect.TypeOf(&common.ResourceStore{}), "ListIndexFuncValues", func(_ *common.ResourceStore, _ string) sets.Set[string] {
-					res := sets.New[string]("fake-id1", "fake-id2")
+					res := sets.New("fake-id1", "fake-id2")
 					return res
 				})
 				patch.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string) []*model.VpcSubnet {
@@ -286,7 +285,6 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
-					return
 				})
 				return patches
 			},
@@ -360,7 +358,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
-					return
+
 				})
 				return patches
 			},
@@ -438,7 +436,6 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
-					return
 				})
 				return patches
 			},
@@ -814,7 +811,6 @@ func TestStartSubnetController(t *testing.T) {
 			name: "StartSubnetController with webhook",
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(common2.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
 					return nil
@@ -830,7 +826,6 @@ func TestStartSubnetController(t *testing.T) {
 			expectErrStr: "failed to setupWithManager",
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(common2.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
 					return nil

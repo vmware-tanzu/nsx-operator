@@ -148,7 +148,6 @@ func assertIPBlocksInfo(t *testing.T, privateTGWIPCIDRs []string, externalIPCIDR
 		return false, nil
 	})
 	require.NoError(t, err)
-	return
 }
 
 func transSearchResponsetoIPBlock(response model.SearchResponse) []model.IpAddressBlock {

@@ -94,7 +94,7 @@ func Test_InitializeVPCStore(t *testing.T) {
 				},
 			},
 		},
-		VpcStore: vpcStore,
+		//VpcStore: vpcStore,
 	}
 
 	wg := sync.WaitGroup{}

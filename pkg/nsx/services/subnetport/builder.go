@@ -297,7 +297,8 @@ func (service *SubnetPortService) GetAddressBindingBySubnetPort(sp *v1alpha1.Sub
 		return a.CreationTimestamp.UTC().Compare(b.CreationTimestamp.UTC())
 	})
 	for _, ab := range abList.Items {
-		if ab.Spec.InterfaceName == "" {
+		switch ab.Spec.InterfaceName {
+		case "":
 			spList := &v1alpha1.SubnetPortList{}
 			spIndexValue := fmt.Sprintf("%s/%s", ab.Namespace, ab.Spec.VMName)
 			err = service.Client.List(context.TODO(), spList, client.MatchingFields{util.SubnetPortNamespaceVMIndexKey: spIndexValue})
@@ -310,7 +311,7 @@ func (service *SubnetPortService) GetAddressBindingBySubnetPort(sp *v1alpha1.Sub
 				return &ab
 			}
 			log.Info("Found multiple SubnetPorts for a VM, ignore default AddressBinding for SubnetPort", "namespace", sp.Namespace, "name", sp.Name, "defaultAddressBindingName", ab.Name, "VM", vm)
-		} else if ab.Spec.InterfaceName == port {
+		case port:
 			log.V(1).Info("Found AddressBinding for SubnetPort", "namespace", sp.Namespace, "name", sp.Name, "addressBindingName", ab.Name)
 			return &ab
 		}

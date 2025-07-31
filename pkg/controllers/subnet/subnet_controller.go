@@ -540,7 +540,7 @@ func (r *SubnetReconciler) CollectGarbage(ctx context.Context) error {
 		log.Error(err, "Failed to list Subnet CRs")
 		return err
 	}
-	crdSubnetIDsSet := sets.New[string](crdSubnetIDs...)
+	crdSubnetIDsSet := sets.New(crdSubnetIDs...)
 
 	var errList []error
 	subnetUIDs := r.SubnetService.ListSubnetIDsFromNSXSubnets()

@@ -129,7 +129,7 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 			return securitypolicy.InitializeSecurityPolicy(service, vpcService, true)
 		}
 	}
-	wrapInitializeVPC := func(service common.Service) cleanupFunc {
+	wrapInitializeVPC := func(_ common.Service) cleanupFunc {
 		return func() (interface{}, error) {
 			return vpcService, vpcErr
 		}
@@ -146,7 +146,7 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 			return subnetport.InitializeSubnetPort(service, vpcService, ipAddressAllocationService)
 		}
 	}
-	wrapInitializeIPAddressAllocation := func(service common.Service) cleanupFunc {
+	wrapInitializeIPAddressAllocation := func(_ common.Service) cleanupFunc {
 		return func() (interface{}, error) {
 			return ipAddressAllocationService, nil
 		}

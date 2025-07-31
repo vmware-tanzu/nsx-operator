@@ -357,9 +357,7 @@ func updateHealthMetricsPeriodically(nsxClient *nsx.Client) {
 		if err := getHealthStatus(nsxClient); err != nil {
 			log.Error(err, "Failed to fetch health info")
 		}
-		select {
-		case <-time.After(metrics.ScrapeTimeout):
-		}
+		time.Sleep(metrics.ScrapeTimeout)
 	}
 }
 
@@ -382,9 +380,7 @@ func checkLicense(nsxClient *nsx.Client, interval int) {
 
 func updateLicensePeriodically(nsxClient *nsx.Client, interval time.Duration) {
 	for {
-		select {
-		case <-time.After(interval):
-		}
+		time.Sleep(interval)
 		err := nsxClient.ValidateLicense(false)
 		if err != nil {
 			os.Exit(1)
@@ -396,15 +392,12 @@ func refreshCertPeriodically() {
 	ticker := time.NewTicker(30 * 24 * time.Hour) // 30 days
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			log.Info("Refreshing webhook certificates...")
-			if err := pkgutil.GenerateWebhookCerts(); err != nil {
-				log.Error(err, "Failed to refresh webhook certificates")
-			} else {
-				log.Info("Successfully refreshed webhook certificates")
-			}
+	for range ticker.C {
+		log.Info("Refreshing webhook certificates...")
+		if err := pkgutil.GenerateWebhookCerts(); err != nil {
+			log.Error(err, "Failed to refresh webhook certificates")
+		} else {
+			log.Info("Successfully refreshed webhook certificates")
 		}
 	}
 }

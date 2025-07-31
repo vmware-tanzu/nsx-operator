@@ -134,7 +134,7 @@ func (s *VPCService) ValidateNetworkConfig(nc *v1alpha1.VPCNetworkConfiguration)
 		// if network config is using a pre-created VPC, skip the check on PrivateIPs.
 		return nil
 	}
-	if nc.Spec.PrivateIPs != nil && len(nc.Spec.PrivateIPs) != 0 {
+	if len(nc.Spec.PrivateIPs) != 0 {
 		return nil
 	}
 	return fmt.Errorf("missing private cidr")
@@ -343,7 +343,7 @@ func (s *VPCService) GetDefaultSNATIP(vpc model.Vpc) (string, error) {
 		return "", err
 	}
 
-	if results.Results == nil || len(results.Results) == 0 {
+	if len(results.Results) == 0 {
 		log.Info("No SNAT rule found under VPC", "VPC", vpc.Id)
 		return "", nil
 	}
@@ -748,10 +748,11 @@ func (s *VPCService) ValidateConnectionStatus(nc *v1alpha1.VPCNetworkConfigurati
 		if err != nil {
 			return status, err
 		}
-		if connectionType == TypeGatewayConnection {
+		switch connectionType {
+		case TypeGatewayConnection:
 			status.GatewayConnectionReady = true
 			status.GatewayConnectionReason = ""
-		} else if connectionType == TypeDistributedVlanConnection {
+		case TypeDistributedVlanConnection:
 			status.ServiceClusterReady = true
 			status.ServiceClusterReason = ""
 		}
