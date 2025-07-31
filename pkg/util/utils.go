@@ -436,7 +436,8 @@ func GetClusterUUID(clusterID string) uuid.UUID {
 }
 
 func NSXSubnetDHCPEnabled(nsxSubnet *model.VpcSubnet) bool {
-	return nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode != nsxutil.ParseDHCPMode(v1alpha1.DHCPConfigModeDeactivated)
+	return nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode != nsxutil.
+		ParseDHCPMode(string(v1alpha1.DHCPConfigModeDeactivated))
 }
 
 func CRSubnetDHCPEnabled(obj client.Object) bool {
@@ -447,5 +448,5 @@ func CRSubnetDHCPEnabled(obj client.Object) bool {
 	case *v1alpha1.SubnetSet:
 		mode = string(o.Spec.SubnetDHCPConfig.Mode)
 	}
-	return mode == v1alpha1.DHCPConfigModeServer || mode == v1alpha1.DHCPConfigModeRelay
+	return mode == string(v1alpha1.DHCPConfigModeServer) || mode == string(v1alpha1.DHCPConfigModeRelay)
 }

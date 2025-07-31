@@ -59,6 +59,7 @@ spec:
                 - Private
                 - Public
                 - PrivateTGW
+                - Isolated
                 type: string
                 x-kubernetes-validations:
                 - message: Value is immutable
@@ -70,7 +71,7 @@ spec:
                     default: Connected
                     description: |-
                       Connectivity status of the Subnet from other Subnets of the VPC.
-                      Default value is "Connected".
+                      The default value is "Connected".
                     enum:
                     - Connected
                     - Disconnected
