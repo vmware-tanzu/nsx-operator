@@ -15,7 +15,11 @@ import (
 )
 
 func TestCreateVM(t *testing.T) {
-	t.Run("testCreateVMBasic", func(t *testing.T) { testCreateVMBasic(t) })
+	t.Parallel()
+	t.Run("testCreateVMBasic", func(t *testing.T) {
+		t.Parallel()
+		testCreateVMBasic(t)
+	})
 }
 
 func testCreateVMBasic(t *testing.T) {
