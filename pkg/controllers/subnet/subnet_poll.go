@@ -176,8 +176,12 @@ func (r *SubnetReconciler) hasStatusChanged(originalStatus, newStatus *v1alpha1.
 
 // hasSubnetSpecChanged checks if the subnet spec has changed
 func (r *SubnetReconciler) hasSubnetSpecChanged(originalSpec, newSpec *v1alpha1.SubnetSpec) bool {
-	return originalSpec.AdvancedConfig.ConnectivityState != newSpec.AdvancedConfig.ConnectivityState ||
-		originalSpec.SubnetDHCPConfig.Mode != newSpec.SubnetDHCPConfig.Mode
+	// Check for changes in ConnectivityState or DHCP Mode
+	if originalSpec.AdvancedConfig.ConnectivityState != newSpec.AdvancedConfig.ConnectivityState ||
+		originalSpec.SubnetDHCPConfig.Mode != newSpec.SubnetDHCPConfig.Mode {
+		return true
+	}
+	return false
 }
 
 func (r *SubnetReconciler) clearSubnetAddresses(obj client.Object) {
