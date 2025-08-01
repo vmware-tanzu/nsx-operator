@@ -176,8 +176,9 @@ func TestInitializeSubnetService(t *testing.T) {
 	subnet := &v1alpha1.Subnet{
 		TypeMeta:   metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{UID: types.UID(subnetID), Name: subnetName, Namespace: nsName},
-		Spec:       v1alpha1.SubnetSpec{},
-		Status:     v1alpha1.SubnetStatus{},
+		Spec: v1alpha1.SubnetSpec{
+			AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePublic)},
+		Status: v1alpha1.SubnetStatus{},
 	}
 	nsxSubnetID := util.GenerateIDByObject(subnet)
 
@@ -235,6 +236,7 @@ func TestInitializeSubnetService(t *testing.T) {
 							map[string]data.DataValue{
 								"resource_type":      data.NewStringValue("VpcSubnet"),
 								"id":                 data.NewStringValue(nsxSubnetID),
+								"access_mode":        data.NewStringValue("Public"),
 								"display_name":       data.NewStringValue(subnetName),
 								"path":               data.NewStringValue(fakeSubnetPath),
 								"parent_path":        data.NewStringValue(fakeVPCPath),
@@ -248,6 +250,7 @@ func TestInitializeSubnetService(t *testing.T) {
 				mockOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 				return patches
 			},
+			subnetCRTags:                  []model.Tag{},
 			expectAllSubnetNum:            1,
 			expectAllSubnetNumAfterCreate: 1,
 			expectCreateSubnetUID:         nsxSubnetID,
@@ -1110,6 +1113,35 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "Map NSX Subnet with ReservedIpRanges",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:  common.String("Public"),
+				IpAddresses: []string{"192.168.1.0/24"},
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					Mode: common.String("DHCP_SERVER"),
+					DhcpServerAdditionalConfig: &model.DhcpServerAdditionalConfig{
+						ReservedIpRanges: []string{"192.168.1.4-192.168.1.10"},
+					},
+				},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPv4SubnetSize: 0,
+					IPAddresses:    []string{"192.168.1.0/24"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+						DHCPServerAdditionalConfig: v1alpha1.DHCPServerAdditionalConfig{
+							ReservedIPRanges: []string{"192.168.1.4-192.168.1.10"},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1126,6 +1158,9 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			assert.Equal(t, tt.expectedSubnet.Spec.IPv4SubnetSize, subnetCR.Spec.IPv4SubnetSize)
 			assert.Equal(t, tt.expectedSubnet.Spec.IPAddresses, subnetCR.Spec.IPAddresses)
 			assert.Equal(t, tt.expectedSubnet.Spec.SubnetDHCPConfig.Mode, subnetCR.Spec.SubnetDHCPConfig.Mode)
+			if subnetCR.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges != nil && len(subnetCR.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges) > 0 {
+				assert.Equal(t, tt.expectedSubnet.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges, subnetCR.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges)
+			}
 		})
 	}
 }

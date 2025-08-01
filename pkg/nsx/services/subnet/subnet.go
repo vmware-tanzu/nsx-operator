@@ -137,6 +137,7 @@ func (service *SubnetService) RestoreSubnetSet(obj *v1alpha1.SubnetSet, vpcInfo 
 func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (subnet *model.VpcSubnet, err error) {
 	uid := string(obj.GetUID())
 	nsxSubnet, err := service.buildSubnet(obj, tags, []string{})
+
 	if err != nil {
 		log.Error(err, "Failed to build Subnet")
 		return nil, err
@@ -553,6 +554,10 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 		switch dhcpMode {
 		case "DHCP_SERVER":
 			subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer)
+			if len(nsxSubnet.SubnetDhcpConfig.DhcpServerAdditionalConfig.ReservedIpRanges) > 0 {
+				subnetCR.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges = nsxSubnet.SubnetDhcpConfig.DhcpServerAdditionalConfig.ReservedIpRanges
+			}
+
 		case "DHCP_RELAY":
 			subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay)
 		default:
