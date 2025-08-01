@@ -19,7 +19,7 @@ import (
 )
 
 func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
-	log.Info("Add Pod ", "Pod", pod.Name, "Namespace", pod.Namespace)
+	log.V(2).Info("Add Pod", "Pod", pod.Name, "Namespace", pod.Namespace)
 	retry = false
 	// Calculate the services related to this Pod from the pendingAdd or inventory store.
 	var containerApplicationIds []string
@@ -335,7 +335,7 @@ func (s *InventoryService) BuildNamespace(namespace *corev1.Namespace) (retry bo
 }
 
 func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
-	log.Info("Building Service", "Service", service.Name, "Namespace", service.Namespace)
+	log.V(2).Info("Building Service", "Service", service.Name, "Namespace", service.Namespace)
 	retry = false
 
 	preContainerApplication := s.ApplicationStore.GetByKey(string(service.UID))
@@ -443,7 +443,7 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 	if operation != operationNone {
 		s.pendingAdd[containerApplication.ExternalId] = &containerApplication
 	} else {
-		log.Info("Skip, service not updated", "Service", service.Name, "Namespace", service.Namespace)
+		log.V(1).Info("Skip, service not updated", "Service", service.Name, "Namespace", service.Namespace)
 	}
 	return
 }
@@ -516,7 +516,7 @@ func (s *InventoryService) removeStaleServiceIDsFromApplicationInstances(podUIDs
 }
 
 func (s *InventoryService) BuildNode(node *corev1.Node) (retry bool) {
-	log.Info("Building Node", "Node", node.Name)
+	log.V(2).Info("Building Node", "Node", node.Name)
 	retry = false
 
 	preContainerClusterNode := s.ClusterNodeStore.GetByKey(string(node.UID))
@@ -590,7 +590,7 @@ func (s *InventoryService) BuildNode(node *corev1.Node) (retry bool) {
 	if operation != operationNone {
 		s.pendingAdd[containerClusterNode.ExternalId] = &containerClusterNode
 	} else {
-		log.Info("Skip, node not updated", "Node", node.Name)
+		log.V(1).Info("Skip, node not updated", "Node", node.Name)
 	}
 	return
 }
@@ -606,7 +606,7 @@ func isNodeReady(node *corev1.Node) bool {
 }
 
 func (s *InventoryService) BuildNetworkPolicy(networkPolicy *networkingv1.NetworkPolicy) (retry bool) {
-	log.Info("Building NetworkPolicy", "NetworkPolicy", networkPolicy.Name, "Namespace", networkPolicy.Namespace)
+	log.V(2).Info("Building NetworkPolicy", "NetworkPolicy", networkPolicy.Name, "Namespace", networkPolicy.Namespace)
 	retry = false
 
 	preContainerNetworkPolicy := s.NetworkPolicyStore.GetByKey(string(networkPolicy.UID))
@@ -663,7 +663,7 @@ func (s *InventoryService) BuildNetworkPolicy(networkPolicy *networkingv1.Networ
 	if operation != operationNone {
 		s.pendingAdd[containerNetworkPolicy.ExternalId] = &containerNetworkPolicy
 	} else {
-		log.Info("Skip, network policy not updated", "NetworkPolicy", networkPolicy.Name)
+		log.V(1).Info("Skip, network policy not updated", "NetworkPolicy", networkPolicy.Name)
 	}
 	return
 }
