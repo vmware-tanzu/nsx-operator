@@ -39,11 +39,27 @@ const (
 )
 
 func TestSecurityPolicy(t *testing.T) {
-	t.Run("testSecurityPolicyBasicTraffic", func(t *testing.T) { testSecurityPolicyBasicTraffic(t) })
-	t.Run("testSecurityPolicyAddDeleteRule", func(t *testing.T) { testSecurityPolicyAddDeleteRule(t) })
-	t.Run("testSecurityPolicyMatchExpression", func(t *testing.T) { testSecurityPolicyMatchExpression(t) })
-	t.Run("testSecurityPolicyNamedPortWithoutPod", func(t *testing.T) { testSecurityPolicyNamedPortWithoutPod(t) })
-	t.Run("testSecurityPolicyNamedPorWithPod", func(t *testing.T) { testSecurityPolicyNamedPorWithPod(t) })
+	t.Parallel()
+	t.Run("testSecurityPolicyBasicTraffic", func(t *testing.T) {
+		t.Parallel()
+		testSecurityPolicyBasicTraffic(t)
+	})
+	t.Run("testSecurityPolicyAddDeleteRule", func(t *testing.T) {
+		t.Parallel()
+		testSecurityPolicyAddDeleteRule(t)
+	})
+	t.Run("testSecurityPolicyMatchExpression", func(t *testing.T) {
+		t.Parallel()
+		testSecurityPolicyMatchExpression(t)
+	})
+	t.Run("testSecurityPolicyNamedPortWithoutPod", func(t *testing.T) {
+		t.Parallel()
+		testSecurityPolicyNamedPortWithoutPod(t)
+	})
+	t.Run("testSecurityPolicyNamedPorWithPod", func(t *testing.T) {
+		t.Parallel()
+		testSecurityPolicyNamedPorWithPod(t)
+	})
 }
 
 // TestSecurityPolicyBasicTraffic verifies that the basic traffic of security policy.

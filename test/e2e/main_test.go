@@ -1,5 +1,5 @@
-// e2e test for nsx-operator, in nsx_operator directory, run command below:
-// e2e=true go test -v github.com/vmware-tanzu/nsx-operator/test/e2e -remote.sshconfig /root/.ssh/config -remote.kubeconfig /root/. kube/config -operator-cfg-path /etc/nsx-ujo/ncp.ini -test.timeout 15m
+// e2e test for nsx-operator, in nsx_operator directory, run the command below:
+// e2e=true go test -v github.com/vmware-tanzu/nsx-operator/test/e2e -remote.sshconfig /root/.ssh/config -remote.kubeconfig /root/.kube/config-operator-cfg-path /etc/nsx-ujo/ncp.ini -test.timeout 15m
 // Note: set a reasonable timeout when running e2e tests, otherwise the test will be terminated by the framework.
 package e2e
 
