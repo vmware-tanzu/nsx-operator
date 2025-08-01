@@ -59,7 +59,7 @@ func (service *SubnetService) nsxSubnetNameExists(subnetName string) bool {
 }
 
 func convertAccessMode(accessMode string) string {
-	if accessMode == v1alpha1.AccessModeProject {
+	if accessMode == string(v1alpha1.AccessModeProject) {
 		return AccessModeProjectInNSX
 	}
 	return accessMode
@@ -89,7 +89,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		}
 		dhcpMode := string(o.Spec.SubnetDHCPConfig.Mode)
 		if dhcpMode == "" {
-			dhcpMode = v1alpha1.DHCPConfigModeDeactivated
+			dhcpMode = string(v1alpha1.DHCPConfigModeDeactivated)
 		}
 		nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode, nil)
 		if len(o.Spec.IPAddresses) > 0 {
@@ -109,7 +109,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		}
 		dhcpMode := string(o.Spec.SubnetDHCPConfig.Mode)
 		if dhcpMode == "" {
-			dhcpMode = v1alpha1.DHCPConfigModeDeactivated
+			dhcpMode = string(v1alpha1.DHCPConfigModeDeactivated)
 		}
 		nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode, nil)
 		if len(ipAddresses) > 0 {

@@ -444,7 +444,11 @@ func TestSubnetService_GetSubnetByCR(t *testing.T) {
 		patches := tc.prepareFunc()
 		subnets, err := service.GetSubnetByCR(tc.subnetCR)
 		if tc.expectedErr != "" {
-			assert.Contains(t, err.Error(), tc.expectedErr)
+			if err != nil {
+				assert.Contains(t, err.Error(), tc.expectedErr)
+			} else {
+				assert.NotNil(t, err, "Expected error but got nil")
+			}
 		} else {
 			assert.Nil(t, err)
 			assert.Equal(t, tc.expectedSubnet, subnets)
@@ -1110,6 +1114,27 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "Map NSX Subnet with Isolated AccessMode",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:     common.String("Isolated"),
+				Ipv4SubnetSize: common.Int64(24),
+				IpAddresses:    []string{"192.168.1.0/24"},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModeIsolated),
+					IPv4SubnetSize: 24,
+					IPAddresses:    []string{"192.168.1.0/24"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1762,7 +1787,7 @@ func TestSubnetService_CreateOrUpdateSubnet_Consistency(t *testing.T) {
 	basicTags := []model.Tag{
 		{Scope: String(common.TagScopeSubnetCRName), Tag: String("subnet1")},
 		{Scope: String(common.TagScopeSubnetCRUID), Tag: String(uuidStr)},
-		{Scope: String(common.TagScopeNamespaceUID), Tag: String(string("ns1"))},
+		{Scope: String(common.TagScopeNamespaceUID), Tag: String("ns1")},
 	}
 
 	subnetId := "subnet1_hlz23"
