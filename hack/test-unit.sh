@@ -141,8 +141,12 @@ export KUBEBUILDER_ASSETS="${KUBEBUILDER_ASSETS:-bin/k8s/1.28.0-darwin-arm64/}" 
 # Enable clean test mode to suppress verbose logging
 export NSX_TEST_CLEAN_MODE=true
 
+# Set default parallelism for tests (can be overridden with PARALLEL env var)
+PARALLEL="${PARALLEL:-4}"  # Default to 4 parallel tests
+
 echo -e "${PURPLE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${NERD} Configuration: GOARCH=amd64, KUBEBUILDER_ASSETS=$KUBEBUILDER_ASSETS"
+echo -e "${THUNDER} Parallelism: ${PARALLEL} tests in parallel"
 echo -e "${PURPLE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
 # Create coverage directory if it doesn't exist
@@ -166,6 +170,7 @@ echo "Executing complete test command:"
 echo "GOARCH=amd64 KUBEBUILDER_ASSETS=${KUBEBUILDER_ASSETS} go test -gcflags=all=-l \\"
 echo "  -coverpkg=\"${COVERPKG}\" \\"
 echo "  -covermode=atomic \\"
+echo "  -parallel=${PARALLEL} \\"
 echo "  -v -coverprofile $(pwd)/.coverage/coverage-unit.out "
 echo -e "${PURPLE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo "  Testing packages:"
@@ -175,7 +180,7 @@ echo ""
 
 # Execute the command and capture both output and errors
 if GOARCH=amd64 KUBEBUILDER_ASSETS="$KUBEBUILDER_ASSETS" go test -gcflags=all=-l \
-    -coverpkg="$COVERPKG" -covermode=atomic \
+    -coverpkg="$COVERPKG" -covermode=atomic -parallel="$PARALLEL" \
     ${PACKAGES} -v -coverprofile "$(pwd)/.coverage/coverage-unit.out" 2>&1 | \
     tee "$TEMP_OUTPUT" | \
     while IFS= read -r line; do
