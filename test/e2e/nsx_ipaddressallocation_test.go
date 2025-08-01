@@ -27,8 +27,8 @@ const (
 var ns = fmt.Sprintf("test-ipaddress-allocation-%s", getRandomString())
 
 func TestIPAddressAllocation(t *testing.T) {
-	prepare(t)
-	defer destroy(t)
+	prepare(t, ns)
+	defer destroy(t, ns, defaultTimeout)
 	t.Run("testIPAddressAllocationExternal", func(t *testing.T) {
 		testIPAddressAllocation(t, "./manifest/testIPAddressAllocation/ipaddressallocation_external.yaml", externalCIDR)
 	})
@@ -41,19 +41,6 @@ func TestIPAddressAllocation(t *testing.T) {
 	t.Run("testIPAddressAllocationWithServiceVIP", func(t *testing.T) {
 		testServiceWithAllocatedIP(t)
 	})
-}
-
-func prepare(t *testing.T) {
-	err := testData.createVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
-}
-func destroy(t *testing.T) {
-	err := testData.deleteVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to delete VC namespace: %v", err)
-	}
 }
 
 func testIPAddressAllocation(t *testing.T, yamlPath string, expectedCIDR string) {

@@ -27,8 +27,8 @@ var TestNamespace = fmt.Sprintf("staticroute-%s", getRandomString())
 
 // TestStaticRouteBasic verifies that it could successfully realize StaticRoute.
 func TestStaticRouteBasic(t *testing.T) {
-	setupTest(t, TestNamespace)
-	defer teardownTest(t, TestNamespace, defaultTimeout)
+	prepare(t, TestNamespace)
+	defer destroy(t, TestNamespace, defaultTimeout)
 	t.Run("case=CreateStaticRoute", CreateStaticRoute)
 	t.Run("case=DeleteStaticRoute", DeleteStaticRoute)
 }
