@@ -124,6 +124,7 @@ type NsxConfig struct {
 	NSXLBSize                 string   `ini:"service_size"`
 	InventoryBatchPeriod      int      `ini:"inventory_batch_period"`
 	InventoryBatchSize        int      `ini:"inventory_batch_size"`
+	EnableInventory           bool     `ini:"enable_inventory"`
 }
 
 type K8sConfig struct {

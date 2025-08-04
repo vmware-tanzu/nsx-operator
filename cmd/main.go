@@ -194,10 +194,13 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			log.Error(err, "Failed to initialize SubnetConnectionBindingMap commonService")
 			os.Exit(1)
 		}
-		inventoryService, err := inventoryservice.InitializeService(commonService, false)
-		if err != nil {
-			log.Error(err, "Failed to initialize inventory commonService", "controller", "Inventory")
-			os.Exit(1)
+		var inventoryService *inventoryservice.InventoryService
+		if cf.EnableInventory {
+			inventoryService, err = inventoryservice.InitializeService(commonService, false)
+			if err != nil {
+				log.Error(err, "Failed to initialize inventory commonService", "controller", "Inventory")
+				os.Exit(1)
+			}
 		}
 
 		if _, err := os.Stat(config.WebhookCertDir); errors.Is(err, os.ErrNotExist) {
@@ -235,8 +238,10 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			networkpolicycontroller.NewNetworkPolicyReconciler(mgr, commonService, vpcService),
 			service.NewServiceLbReconciler(mgr, commonService),
 			subnetbindingcontroller.NewReconciler(mgr, subnetService, subnetBindingService),
-			inventory.NewInventoryController(mgr.GetClient(), inventoryService, cf),
 		)
+		if cf.EnableInventory {
+			reconcilerList = append(reconcilerList, inventory.NewInventoryController(mgr.GetClient(), inventoryService, cf))
+		}
 	}
 
 	// Add controllers which can run in non-VPC mode
