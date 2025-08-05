@@ -71,7 +71,7 @@ func (s *InventoryService) SyncContainerNetworkPolicy(name, namespace string, ke
 }
 
 func (s *InventoryService) CleanStaleInventoryNetworkPolicy() error {
-	log.Info("Clean stale InventoryNetworkPolicy")
+	log.V(1).Info("Clean stale InventoryNetworkPolicy")
 	containerNetworkPolicies := s.NetworkPolicyStore.List()
 	for _, networkPolicy := range containerNetworkPolicies {
 		networkPolicyObj := networkPolicy.(*containerinventory.ContainerNetworkPolicy)
