@@ -55,6 +55,26 @@ func TestHasSubnetSpecChanged(t *testing.T) {
 			},
 			expected: true,
 		},
+		{
+			name: "DHCP Mode changed",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+				SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+					Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+				SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+					Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+				},
+			},
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {
