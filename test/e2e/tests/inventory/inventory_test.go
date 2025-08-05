@@ -1,4 +1,7 @@
-package e2e
+// Copyright © 2019-2021 VMware, Inc. All Rights Reserved.
+// SPDX-License-Identifier: BSD-2-Clause
+
+package inventory
 
 import (
 	"context"
@@ -12,16 +15,53 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
+	"github.com/vmware-tanzu/nsx-operator/test/e2e/framework"
 )
 
+var (
+	// f is the framework data instance
+	f = framework.Data
+	// defaultTimeout is the default timeout for operations
+	defaultTimeout = framework.DefaultTimeout
+	// resourceReadyTime is the time to wait for resources to be ready
+	resourceReadyTime = framework.DefaultTimeout
+	// containerName is the name of the container to use in tests
+	containerName = "nginx"
+	// podImage is the image to use for pods in tests
+	podImage = "nginx:latest"
+)
+
+// TestInventorySync runs all inventory sync tests in parallel.
+// Each subtest creates its own resources with unique names to avoid conflicts.
 func TestInventorySync(t *testing.T) {
-	t.Run("testContainerCluster", func(t *testing.T) { testContainerCluster(t) })
-	t.Run("testNamespaceSync", func(t *testing.T) { testNamespaceSync(t) })
-	t.Run("testPodSync", func(t *testing.T) { testPodSync(t) })
-	t.Run("testServiceSync", func(t *testing.T) { testServiceSync(t) })
-	t.Run("testNodeSync", func(t *testing.T) { testNodeSync(t) })
-	t.Run("testNetworkPolicySync", func(t *testing.T) { testNetworkPolicySync(t) })
-	t.Run("testIngressSync", func(t *testing.T) { testIngressSync(t) })
+	t.Run("testContainerCluster", func(t *testing.T) {
+		t.Parallel()
+		testContainerCluster(t)
+	})
+	t.Run("testNamespaceSync", func(t *testing.T) {
+		t.Parallel()
+		testNamespaceSync(t)
+	})
+	t.Run("testPodSync", func(t *testing.T) {
+		t.Parallel()
+		testPodSync(t)
+	})
+	t.Run("testServiceSync", func(t *testing.T) {
+		t.Parallel()
+		testServiceSync(t)
+	})
+	t.Run("testNodeSync", func(t *testing.T) {
+		t.Parallel()
+		testNodeSync(t)
+	})
+	t.Run("testNetworkPolicySync", func(t *testing.T) {
+		t.Parallel()
+		testNetworkPolicySync(t)
+	})
+	t.Run("testIngressSync", func(t *testing.T) {
+		t.Parallel()
+		testIngressSync(t)
+	})
 }
 
 // testNamespaceSync tests that a Kubernetes namespace is synced to the NSX inventory as a ContainerProject
@@ -30,25 +70,26 @@ func testNamespaceSync(t *testing.T) {
 	defer deadlineCancel()
 
 	// Create a namespace with a unique name
-	ns := fmt.Sprintf("test-namespace-sync-%s", getRandomString())
+	ns := fmt.Sprintf("test-namespace-sync-%s", framework.GetRandomString())
 
-	err := testData.createVCNamespace(ns)
+	// Create a VC namespace
+	err := f.CreateVCNamespace(ns)
 	if err != nil {
 		t.Fatalf("Failed to create VC namespace: %v", err)
 	}
 
 	// Wait for the namespace to be synced to the NSX inventory as a ContainerProject
-	err = testData.waitForResourceExistOrNot(ns, "ContainerProject", ns, true)
+	err = f.WaitForResourceExistOrNot(ns, "ContainerProject", ns, true)
 	assert.NoError(t, err, "Namespace was not synced to NSX inventory as ContainerProject")
 
 	// Delete the namespace and verify it's removed from the NSX inventory
-	err = testData.deleteVCNamespace(ns)
+	err = f.DeleteVCNamespace(ns)
 	if err != nil {
 		t.Fatalf("Failed to delete VC namespace: %v", err)
 	}
 
 	// Wait for the namespace to be removed from the NSX inventory
-	err = testData.waitForResourceExistOrNot(ns, "ContainerProject", ns, false)
+	err = f.WaitForResourceExistOrNot(ns, "ContainerProject", ns, false)
 	assert.NoError(t, err, "Namespace was not removed from NSX inventory")
 }
 
@@ -58,14 +99,15 @@ func testPodSync(t *testing.T) {
 	defer deadlineCancel()
 
 	// Create a namespace with a unique name
-	ns := fmt.Sprintf("test-pod-sync-%s", getRandomString())
+	ns := fmt.Sprintf("test-pod-sync-%s", framework.GetRandomString())
 
-	err := testData.createVCNamespace(ns)
+	// Create a VC namespace
+	err := f.CreateVCNamespace(ns)
 	if err != nil {
 		t.Fatalf("Failed to create VC namespace: %v", err)
 	}
 	defer func() {
-		err := testData.deleteVCNamespace(ns)
+		err := f.DeleteVCNamespace(ns)
 		if err != nil {
 			t.Fatalf("Failed to delete VC namespace: %v", err)
 		}
@@ -73,13 +115,13 @@ func testPodSync(t *testing.T) {
 
 	// Create a pod
 	podName := "test-pod"
-	_, err = testData.createPod(ns, podName, containerName, podImage, corev1.ProtocolTCP, 80)
+	_, err = f.CreatePod(ns, podName, containerName, podImage, corev1.ProtocolTCP, 80)
 	if err != nil {
 		t.Fatalf("Failed to create pod: %v", err)
 	}
 
 	// Wait for the pod to be ready
-	_, err = testData.podWaitFor(resourceReadyTime, podName, ns, func(pod *corev1.Pod) (bool, error) {
+	_, err = f.PodWaitFor(resourceReadyTime, podName, ns, func(pod *corev1.Pod) (bool, error) {
 		return pod.Status.Phase == corev1.PodRunning, nil
 	})
 	if err != nil {
@@ -87,17 +129,17 @@ func testPodSync(t *testing.T) {
 	}
 
 	// Wait for the pod to be synced to the NSX inventory as a ContainerApplicationInstance
-	err = testData.waitForResourceExistOrNot(ns, "ContainerApplicationInstance", podName, true)
+	err = f.WaitForResourceExistOrNot(ns, "ContainerApplicationInstance", podName, true)
 	assert.NoError(t, err, "Pod was not synced to NSX inventory as ContainerApplicationInstance")
 
 	// Delete the pod
-	err = testData.clientset.CoreV1().Pods(ns).Delete(context.TODO(), podName, metav1.DeleteOptions{})
+	err = f.ClientSet.CoreV1().Pods(ns).Delete(context.TODO(), podName, metav1.DeleteOptions{})
 	if err != nil {
 		t.Fatalf("Failed to delete pod: %v", err)
 	}
 
 	// Wait for the pod to be removed from the NSX inventory
-	err = testData.waitForResourceExistOrNot(ns, "ContainerApplicationInstance", podName, false)
+	err = f.WaitForResourceExistOrNot(ns, "ContainerApplicationInstance", podName, false)
 	assert.NoError(t, err, "Pod was not removed from NSX inventory")
 }
 
@@ -107,14 +149,15 @@ func testServiceSync(t *testing.T) {
 	defer deadlineCancel()
 
 	// Create a namespace with a unique name
-	ns := fmt.Sprintf("test-service-sync-%s", getRandomString())
+	ns := fmt.Sprintf("test-service-sync-%s", framework.GetRandomString())
 
-	err := testData.createVCNamespace(ns)
+	// Create a VC namespace
+	err := f.CreateVCNamespace(ns)
 	if err != nil {
 		t.Fatalf("Failed to create VC namespace: %v", err)
 	}
 	defer func() {
-		err := testData.deleteVCNamespace(ns)
+		err := f.DeleteVCNamespace(ns)
 		if err != nil {
 			t.Fatalf("Failed to delete VC namespace: %v", err)
 		}
@@ -126,23 +169,23 @@ func testServiceSync(t *testing.T) {
 	targetPort := int32(8080)
 	selector := map[string]string{"app": "test"}
 
-	_, err = testData.createService(ns, serviceName, port, targetPort, corev1.ProtocolTCP, selector, corev1.ServiceTypeClusterIP)
+	_, err = f.CreateService(ns, serviceName, port, targetPort, corev1.ProtocolTCP, selector, corev1.ServiceTypeClusterIP)
 	if err != nil {
 		t.Fatalf("Failed to create service: %v", err)
 	}
 
 	// Wait for the service to be synced to the NSX inventory as a ContainerApplication
-	err = testData.waitForResourceExistOrNot(ns, "ContainerApplication", serviceName, true)
+	err = f.WaitForResourceExistOrNot(ns, "ContainerApplication", serviceName, true)
 	assert.NoError(t, err, "Service was not synced to NSX inventory as ContainerApplication")
 
 	// Delete the service
-	err = testData.clientset.CoreV1().Services(ns).Delete(context.TODO(), serviceName, metav1.DeleteOptions{})
+	err = f.ClientSet.CoreV1().Services(ns).Delete(context.TODO(), serviceName, metav1.DeleteOptions{})
 	if err != nil {
 		t.Fatalf("Failed to delete service: %v", err)
 	}
 
 	// Wait for the service to be removed from the NSX inventory
-	err = testData.waitForResourceExistOrNot(ns, "ContainerApplication", serviceName, false)
+	err = f.WaitForResourceExistOrNot(ns, "ContainerApplication", serviceName, false)
 	assert.NoError(t, err, "Service was not removed from NSX inventory")
 }
 
@@ -152,7 +195,7 @@ func testNodeSync(t *testing.T) {
 	defer deadlineCancel()
 
 	// Get a list of nodes
-	nodes, err := testData.clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	nodes, err := f.ClientSet.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		t.Fatalf("Failed to list nodes: %v", err)
 	}
@@ -166,7 +209,7 @@ func testNodeSync(t *testing.T) {
 
 	// Verify the node is synced to the NSX inventory as a ContainerClusterNode
 	// Note: We don't need to create a node as they already exist in the cluster
-	err = testData.waitForResourceExistOrNot("", "ContainerClusterNode", nodeName, true)
+	err = f.WaitForResourceExistOrNot("", "ContainerClusterNode", nodeName, true)
 	assert.NoError(t, err, "Node was not synced to NSX inventory as ContainerClusterNode")
 
 	// We don't delete the node as it's part of the cluster
@@ -178,14 +221,15 @@ func testNetworkPolicySync(t *testing.T) {
 	defer deadlineCancel()
 
 	// Create a namespace with a unique name
-	ns := fmt.Sprintf("test-netpol-sync-%s", getRandomString())
+	ns := fmt.Sprintf("test-netpol-sync-%s", framework.GetRandomString())
 
-	err := testData.createVCNamespace(ns)
+	// Create a VC namespace
+	err := f.CreateVCNamespace(ns)
 	if err != nil {
 		t.Fatalf("Failed to create VC namespace: %v", err)
 	}
 	defer func() {
-		err := testData.deleteVCNamespace(ns)
+		err := f.DeleteVCNamespace(ns)
 		if err != nil {
 			t.Fatalf("Failed to delete VC namespace: %v", err)
 		}
@@ -209,23 +253,23 @@ func testNetworkPolicySync(t *testing.T) {
 		},
 	}
 
-	_, err = testData.clientset.NetworkingV1().NetworkPolicies(ns).Create(context.TODO(), networkPolicy, metav1.CreateOptions{})
+	_, err = f.ClientSet.NetworkingV1().NetworkPolicies(ns).Create(context.TODO(), networkPolicy, metav1.CreateOptions{})
 	if err != nil {
 		t.Fatalf("Failed to create NetworkPolicy: %v", err)
 	}
 
 	// Wait for the NetworkPolicy to be synced to the NSX inventory as a ContainerNetworkPolicy
-	err = testData.waitForResourceExistOrNot(ns, "ContainerNetworkPolicy", policyName, true)
+	err = f.WaitForResourceExistOrNot(ns, "ContainerNetworkPolicy", policyName, true)
 	assert.NoError(t, err, "NetworkPolicy was not synced to NSX inventory as ContainerNetworkPolicy")
 
 	// Delete the NetworkPolicy
-	err = testData.clientset.NetworkingV1().NetworkPolicies(ns).Delete(context.TODO(), policyName, metav1.DeleteOptions{})
+	err = f.ClientSet.NetworkingV1().NetworkPolicies(ns).Delete(context.TODO(), policyName, metav1.DeleteOptions{})
 	if err != nil {
 		t.Fatalf("Failed to delete NetworkPolicy: %v", err)
 	}
 
 	// Wait for the NetworkPolicy to be removed from the NSX inventory
-	err = testData.waitForResourceExistOrNot(ns, "ContainerNetworkPolicy", policyName, false)
+	err = f.WaitForResourceExistOrNot(ns, "ContainerNetworkPolicy", policyName, false)
 	assert.NoError(t, err, "NetworkPolicy was not removed from NSX inventory")
 }
 
@@ -235,14 +279,15 @@ func testIngressSync(t *testing.T) {
 	defer deadlineCancel()
 
 	// Create a namespace with a unique name
-	ns := fmt.Sprintf("test-ingress-sync-%s", getRandomString())
+	ns := fmt.Sprintf("test-ingress-sync-%s", framework.GetRandomString())
 
-	err := testData.createVCNamespace(ns)
+	// Create a VC namespace
+	err := f.CreateVCNamespace(ns)
 	if err != nil {
 		t.Fatalf("Failed to create VC namespace: %v", err)
 	}
 	defer func() {
-		err := testData.deleteVCNamespace(ns)
+		err := f.DeleteVCNamespace(ns)
 		if err != nil {
 			t.Fatalf("Failed to delete VC namespace: %v", err)
 		}
@@ -254,7 +299,7 @@ func testIngressSync(t *testing.T) {
 	targetPort := int32(8080)
 	selector := map[string]string{"app": "test"}
 
-	_, err = testData.createService(ns, serviceName, port, targetPort, corev1.ProtocolTCP, selector, corev1.ServiceTypeClusterIP)
+	_, err = f.CreateService(ns, serviceName, port, targetPort, corev1.ProtocolTCP, selector, corev1.ServiceTypeClusterIP)
 	if err != nil {
 		t.Fatalf("Failed to create service: %v", err)
 	}
@@ -295,27 +340,27 @@ func testIngressSync(t *testing.T) {
 		},
 	}
 
-	_, err = testData.clientset.NetworkingV1().Ingresses(ns).Create(context.TODO(), ingress, metav1.CreateOptions{})
+	_, err = f.ClientSet.NetworkingV1().Ingresses(ns).Create(context.TODO(), ingress, metav1.CreateOptions{})
 	if err != nil {
 		t.Fatalf("Failed to create Ingress: %v", err)
 	}
 
 	// Wait for the Ingress to be synced to the NSX inventory as a ContainerIngressPolicy
-	err = testData.waitForResourceExistOrNot(ns, "ContainerIngressPolicy", ingressName, true)
+	err = f.WaitForResourceExistOrNot(ns, "ContainerIngressPolicy", ingressName, true)
 	assert.NoError(t, err, "Ingress was not synced to NSX inventory as ContainerIngressPolicy")
 
 	// Delete the Ingress
-	err = testData.clientset.NetworkingV1().Ingresses(ns).Delete(context.TODO(), ingressName, metav1.DeleteOptions{})
+	err = f.ClientSet.NetworkingV1().Ingresses(ns).Delete(context.TODO(), ingressName, metav1.DeleteOptions{})
 	if err != nil {
 		t.Fatalf("Failed to delete Ingress: %v", err)
 	}
 
 	// Wait for the Ingress to be removed from the NSX inventory
-	err = testData.waitForResourceExistOrNot(ns, "ContainerIngressPolicy", ingressName, false)
+	err = f.WaitForResourceExistOrNot(ns, "ContainerIngressPolicy", ingressName, false)
 	assert.NoError(t, err, "Ingress was not removed from NSX inventory")
 
 	// Clean up the service
-	err = testData.clientset.CoreV1().Services(ns).Delete(context.TODO(), serviceName, metav1.DeleteOptions{})
+	err = f.ClientSet.CoreV1().Services(ns).Delete(context.TODO(), serviceName, metav1.DeleteOptions{})
 	if err != nil {
 		t.Fatalf("Failed to delete service: %v", err)
 	}
@@ -340,7 +385,7 @@ func testContainerCluster(t *testing.T) {
 
 	// Verify the cluster is synced to the NSX inventory as a ContainerCluster
 	// Use external_id instead of display_name for the query
-	err = testData.waitForResourceExist("", "ContainerCluster", "external_id", clusterUUID, true)
+	err = f.WaitForResourceExist("", "ContainerCluster", "external_id", clusterUUID, true)
 	assert.NoError(t, err, "Cluster was not synced to NSX inventory as ContainerCluster")
 
 	// We don't delete the cluster as it's the environment we're testing in

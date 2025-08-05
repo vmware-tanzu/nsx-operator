@@ -1,7 +1,7 @@
 // Copyright © 2019-2021 VMware, Inc. All Rights Reserved.
 // SPDX-License-Identifier: BSD-2-Clause
 
-package e2e
+package clients
 
 import (
 	"fmt"
@@ -10,10 +10,12 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 )
 
+// NSXClient wraps the nsx.Client to provide NSX API interaction
 type NSXClient struct {
 	*nsx.Client
 }
 
+// NewNSXClient creates a new NSXClient instance
 func NewNSXClient(cf *config.NSXOperatorConfig) (*NSXClient, error) {
 	// nsxClient is used to interact with NSX API.
 	client := nsx.GetClient(cf)
