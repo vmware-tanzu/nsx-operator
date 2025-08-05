@@ -47,8 +47,7 @@ const (
 )
 
 const (
-	maxNSXGetRetries = 10
-	NSXGetDelay      = 2 * time.Second
+	NSXGetDelay = 2 * time.Second
 )
 
 // Cluster consists of endpoint and provides http.Client used to send http requests.

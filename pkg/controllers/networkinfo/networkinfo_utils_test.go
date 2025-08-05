@@ -256,7 +256,7 @@ func TestSetNSNetworkReadyCondition(t *testing.T) {
 		Type:    NamespaceNetworkReady,
 		Status:  corev1.ConditionFalse,
 		Reason:  NSReasonVPCNotReady,
-		Message: fmt.Sprintf("Error happened to create or update VPC: failed to connect to NSX"),
+		Message: "Error happened to create or update VPC: failed to connect to NSX",
 	}
 
 	ctx := context.Background()
@@ -295,7 +295,7 @@ func TestSetNSNetworkReadyCondition(t *testing.T) {
 									Type:    NamespaceNetworkReady,
 									Status:  corev1.ConditionFalse,
 									Reason:  NSReasonVPCNetConfigNotReady,
-									Message: fmt.Sprintf("Error happened to get system VPC network configuration: failed to connect to NSX"),
+									Message: "Error happened to get system VPC network configuration: failed to connect to NSX",
 								},
 							},
 						}

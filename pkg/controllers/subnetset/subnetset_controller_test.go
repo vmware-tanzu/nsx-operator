@@ -843,7 +843,7 @@ func TestSubnetSetReconciler_CollectGarbage(t *testing.T) {
 	})
 
 	patches.ApplyMethod(reflect.TypeOf(&common.ResourceStore{}), "ListIndexFuncValues", func(_ *common.ResourceStore, _ string) sets.Set[string] {
-		res := sets.New[string]("fake-subnetSet-uid-2")
+		res := sets.New("fake-subnetSet-uid-2")
 		return res
 	})
 	// ListSubnetCreatedBySubnetSet
@@ -945,7 +945,6 @@ func (m *MockManager) Start(context.Context) error {
 type mockWebhookServer struct{}
 
 func (m *mockWebhookServer) Register(path string, hook http.Handler) {
-	return
 }
 
 func (m *mockWebhookServer) Start(ctx context.Context) error {
@@ -1000,7 +999,6 @@ func TestStartSubnetSetController(t *testing.T) {
 			webHookServer: &mockWebhookServer{},
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
 					return nil
@@ -1017,7 +1015,6 @@ func TestStartSubnetSetController(t *testing.T) {
 			webHookServer: nil,
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
 					return nil
@@ -1034,7 +1031,6 @@ func TestStartSubnetSetController(t *testing.T) {
 			webHookServer: &mockWebhookServer{},
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
 					return nil

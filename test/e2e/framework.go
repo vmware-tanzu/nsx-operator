@@ -533,7 +533,7 @@ func (data *TestData) podWaitForIPs(timeout time.Duration, name, namespace strin
 	if pod.Status.PodIP == "" {
 		return nil, fmt.Errorf("pod is running but has no assigned IP, which should never happen")
 	}
-	podIPStrings := sets.New[string](pod.Status.PodIP)
+	podIPStrings := sets.New(pod.Status.PodIP)
 	for _, podIP := range pod.Status.PodIPs {
 		ipStr := strings.TrimSpace(podIP.IP)
 		if ipStr != "" {
@@ -700,7 +700,7 @@ func deleteYAML(filename string, ns string) error {
 		// log.Error(err, "Error when deleting YAML file")
 		return nil
 	}
-	_, _ = string(stdout.Bytes()), string(stderr.Bytes())
+	_, _ = stdout.String(), stderr.String()
 	return nil
 }
 

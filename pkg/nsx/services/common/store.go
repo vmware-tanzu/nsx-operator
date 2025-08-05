@@ -48,10 +48,8 @@ type ResourceStore struct {
 // subclass could reuse it, distinguish the resource by bindingType and resourceAssertion
 func (resourceStore *ResourceStore) TransResourceToStore(entity *data.StructValue) error {
 	obj, err := NewConverter().ConvertToGolang(entity, resourceStore.BindingType)
-	if err != nil {
-		for _, e := range err {
-			return e
-		}
+	for _, e := range err {
+		return e
 	}
 	objAddr := nsxutil.CasttoPointer(obj)
 	if objAddr == nil {

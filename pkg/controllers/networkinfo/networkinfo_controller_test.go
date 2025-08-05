@@ -1081,7 +1081,7 @@ func TestNetworkInfoReconciler_deleteStaleVPCs(t *testing.T) {
 					}
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "listNamespaceCRsNameIDSet", func(_ *NetworkInfoReconciler, _ context.Context) (sets.Set[string], sets.Set[string], error) {
-					return sets.Set[string]{}, sets.New[string]("vpc1"), nil
+					return sets.Set[string]{}, sets.New("vpc1"), nil
 				})
 				return patches
 			},
@@ -1708,10 +1708,8 @@ func TestNetworkInfoReconciler_StartController(t *testing.T) {
 		return nil
 	})
 	patches.ApplyFunc((*NetworkInfoReconciler).syncPreCreatedVpcs, func(r *NetworkInfoReconciler, ctx context.Context) {
-		return
 	})
 	patches.ApplyFunc(common.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-		return
 	})
 	defer patches.Reset()
 	r := NewNetworkInfoReconciler(mockMgr, vpcService, ipblocksInfoService)

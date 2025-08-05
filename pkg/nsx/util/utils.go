@@ -308,11 +308,9 @@ func DumpHttpRequest(request *http.Request) {
 	if request.Body == nil {
 		return
 	}
-	if request != nil {
-		body, err = io.ReadAll(request.Body)
-		if err != nil {
-			return
-		}
+	body, err = io.ReadAll(request.Body)
+	if err != nil {
+		return
 	}
 	request.Body.Close()
 	request.Body = io.NopCloser(bytes.NewReader(body))

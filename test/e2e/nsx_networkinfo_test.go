@@ -264,7 +264,6 @@ func assureNetworkInfoDeleted(t *testing.T, ns string) {
 		return false, nil
 	})
 	require.NoError(t, err)
-	return
 }
 
 func assureNamespace(t *testing.T, ns string) (res *v12.Namespace) {
@@ -307,7 +306,6 @@ func assureNamespaceDeleted(t *testing.T, ns string) {
 		return false, nil
 	})
 	require.NoError(t, err)
-	return
 }
 
 func getNetworkInfoWithPrivateIPs(t *testing.T, ns, networkInfoName string) (networkInfo *v1alpha1.NetworkInfo) {
