@@ -18,3 +18,16 @@ func teardownTest(tb testing.TB, testNamespace string, timeout time.Duration) {
 		tb.Fatalf("Error when tearing down test: %v", err)
 	}
 }
+
+func prepare(t *testing.T, testNamespace string) {
+	err := testData.createVCNamespace(testNamespace)
+	if err != nil {
+		t.Fatalf("Failed to create VC namespace: %v", err)
+	}
+}
+func destroy(t *testing.T, testNamespace string, timeout time.Duration) {
+	err := testData.deleteVCNamespace(testNamespace, timeout)
+	if err != nil {
+		t.Fatalf("Failed to delete VC namespace: %v", err)
+	}
+}
