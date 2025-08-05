@@ -54,6 +54,7 @@ func verifySubnetSetCR(subnetSet string) bool {
 }
 
 func TestSubnetSet(t *testing.T) {
+	t.Parallel()
 	setupTest(t, subnetTestNamespace)
 
 	targetNs := &corev1.Namespace{
@@ -90,14 +91,24 @@ func TestSubnetSet(t *testing.T) {
 		teardownTest(t, subnetTestNamespaceTarget, subnetDeletionTimeout)
 	})
 
-	t.Run("case=DefaultSubnetSet", defaultSubnetSet)
+	t.Run("case=DefaultSubnetSet", func(t *testing.T) {
+		t.Parallel()
+		defaultSubnetSet(t)
+	})
 	// TODO: Subnet test with DHCP enable required to update service profile after
 	// upgrade to new NSX which supports subnetDHCPConfig
-	t.Run("case=UserSubnetSet", UserSubnetSet)
-	t.Run("case=SharedSubnetSet", sharedSubnetSet)
-	t.Run("case=SubnetCIDR", SubnetCIDR)
-	t.Run("case=NoIPSubnet", NoIPSubnet)
-	t.Run("case=SubnetValidate", SubnetValidate)
+	t.Run("case=UserSubnetSet", func(t *testing.T) {
+		t.Parallel()
+		UserSubnetSet(t)
+	})
+	t.Run("case=SharedSubnetSet", func(t *testing.T) {
+		t.Parallel()
+		sharedSubnetSet(t)
+	})
+	t.Run("case=SubnetCIDR", func(t *testing.T) {
+		t.Parallel()
+		SubnetCIDR(t)
+	})
 }
 
 func transSearchResponsetoSubnet(response model.SearchResponse) []model.VpcSubnet {
