@@ -32,6 +32,10 @@ var (
 	subnetTestNamespace       = fmt.Sprintf("subnet-e2e-%s", getRandomString())
 	subnetTestNamespaceShared = fmt.Sprintf("subnet-e2e-shared-%s", getRandomString())
 	subnetTestNamespaceTarget = fmt.Sprintf("target-ns-%s", getRandomString())
+
+	ns1      = fmt.Sprintf("ns1-%s", getRandomString())
+	ns2      = fmt.Sprintf("ns2-%s", getRandomString())
+	targetNs = fmt.Sprintf("target-ns-%s", getRandomString())
 )
 
 func verifySubnetSetCR(subnetSet string) bool {
@@ -98,6 +102,45 @@ func TestSubnetSet(t *testing.T) {
 	t.Run("case=SubnetCIDR", SubnetCIDR)
 	t.Run("case=NoIPSubnet", NoIPSubnet)
 	t.Run("case=SubnetValidate", SubnetValidate)
+}
+
+func TestSubnetPrecreated(t *testing.T) {
+	// Create three namespaces: ns1, ns2, and target-ns
+	err := testData.createVCNamespace(ns1)
+	require.NoError(t, err)
+	defer func() {
+		err := testData.deleteVCNamespace(ns1)
+		if err != nil {
+			t.Logf("Failed to delete VC namespace %s: %v", ns1, err)
+		}
+	}()
+
+	err = testData.createVCNamespace(ns2)
+	require.NoError(t, err)
+	defer func() {
+		err := testData.deleteVCNamespace(ns2)
+		if err != nil {
+			t.Logf("Failed to delete VC namespace %s: %v", ns2, err)
+		}
+	}()
+
+	err = testData.createVCNamespace(targetNs)
+	require.NoError(t, err)
+	defer func() {
+		err := testData.deleteVCNamespace(targetNs)
+		if err != nil {
+			t.Logf("Failed to delete VC namespace %s: %v", targetNs, err)
+		}
+	}()
+
+	t.Run("case=PrecreatedSubnetBasic", PrecreatedSharedSubnetBasic)
+	t.Run("case=PrecreatedSubnetRemovePath", PrecreatedSharedSubnetRemovePath)
+	t.Run("case=PrecreatedSharedSubnetAddPath", PrecreatedSharedSubnetAddPath)
+	t.Run("case=PrecreatedSharedSubnetDeleteFail", PrecreatedSharedSubnetDeleteFail)
+	t.Run("case=PrecreatedSharedSubnetUpdateFail", PrecreatedSharedSubnetUpdateFail)
+	t.Run("case=NormalSubnetManagedByNSXOp", NormalSubnetManagedByNSXOp)
+	t.Run("case=SubnetWithAssociatedResourceAnnotation", SubnetWithAssociatedResourceAnnotation)
+	t.Run("case=PrecreatedSharedSubnetPoll", PrecreatedSharedSubnetPoll)
 }
 
 func transSearchResponsetoSubnet(response model.SearchResponse) []model.VpcSubnet {
@@ -400,6 +443,60 @@ func (data *TestData) fetchSubnetBySubnetUID(t *testing.T, subnetUID string) (re
 	return
 }
 
+func (data *TestData) fetchSubnetByNameAndNamespace(t *testing.T, name, namespace string) (res []model.VpcSubnet, path string) {
+	// First, try to find by display_name directly
+	queryParam := fmt.Sprintf("%s:%s AND display_name:%s AND marked_for_delete:false",
+		common.ResourceType, common.ResourceTypeSubnet, name)
+
+	var cursor *string
+	var pageSize int64 = 500
+	results, err := data.nsxClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
+	require.NoError(t, err)
+
+	subnets := transSearchResponsetoSubnet(results)
+	if len(subnets) == 0 {
+		// If not found by display_name, try with the subnet_name tag
+		tags := []string{common.TagScopeSubnetCRName, name}
+		results, err := data.queryResource(common.ResourceTypeSubnet, tags)
+		require.NoError(t, err)
+
+		subnets = transSearchResponsetoSubnet(results)
+		if len(subnets) == 0 {
+			log.Info("No subnets found with name", "name", name)
+			return nil, ""
+		}
+	}
+
+	log.Info("Found subnets with name", "name", name, "count", len(subnets))
+
+	// Filter by namespace if multiple subnets found
+	if len(subnets) > 1 {
+		for _, subnet := range subnets {
+			for _, tag := range subnet.Tags {
+				if *tag.Scope == common.TagScopeNamespace && *tag.Tag == namespace {
+					res = append(res, subnet)
+					log.Info("Found subnet with matching namespace", "namespace", namespace)
+					break
+				}
+			}
+		}
+	} else {
+		res = subnets
+	}
+
+	// Get the path if we found a subnet
+	if len(res) > 0 && res[0].Path != nil {
+		path = *res[0].Path
+		log.Info("Using subnet path", "path", path)
+	} else if len(res) > 0 {
+		log.Info("Subnet found but path is nil", "id", *res[0].Id)
+	} else {
+		log.Info("No matching subnet found for namespace", "namespace", namespace)
+	}
+
+	return
+}
+
 func assureSubnet(t *testing.T, ns, subnetName string, conditionMsg string) (res *v1alpha1.Subnet) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 2*defaultTimeout)
 	defer deadlineCancel()
@@ -601,4 +698,571 @@ func SubnetValidate(t *testing.T) {
 	}
 	subnetOnlyNoDHPCreated := createSubnetWithCheck(t, subnetOnlyNoDHCP)
 	require.Equal(t, true, *subnetOnlyNoDHPCreated.Spec.AdvancedConfig.StaticIPAllocation.Enabled, "StaticIPAllocation should be enabled for Subnet with DHCPDeactivated mode")
+}
+
+// getVPCIDFromNamespace retrieves the VPC ID from a namespace's VPC network configuration
+func getVPCIDFromNamespace(t *testing.T, namespace string) string {
+	// Get the VPC ID for the target namespace
+	nsObj, err := testData.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, v1.GetOptions{})
+	require.NoError(t, err)
+	vpcNetworkConfigName := nsObj.Annotations[common.AnnotationVPCNetworkConfig]
+	require.NotEmpty(t, vpcNetworkConfigName, "vpc_network_config annotation should not be empty")
+
+	vpcNetworkConfig, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(context.TODO(), vpcNetworkConfigName, v1.GetOptions{})
+	require.NoError(t, err)
+
+	// Extract VPC ID from the VPC path in the status
+	var vpcID string
+	if len(vpcNetworkConfig.Status.VPCs) > 0 {
+		vpcPath := vpcNetworkConfig.Status.VPCs[0].VPCPath
+		parts := strings.Split(vpcPath, "/")
+		if len(parts) > 0 {
+			vpcID = parts[len(parts)-1]
+		}
+	}
+	require.NotEmpty(t, vpcID, "Failed to get VPC ID")
+	return vpcID
+}
+
+// constructSubnetAPIPaths constructs the API paths for creating and retrieving a subnet
+func constructSubnetAPIPaths(vpcID, subnetID string) (string, string) {
+	commonPath := fmt.Sprintf("orgs/default/projects/project-quality/vpcs/%s/subnets/%s", vpcID, subnetID)
+	subnetPathPatch := fmt.Sprintf("policy/api/v1/%s", commonPath)
+	subnetPathGet := fmt.Sprintf("/%s", commonPath)
+	return subnetPathPatch, subnetPathGet
+}
+
+// createSubnetRequestBody creates the request body for subnet creation
+func createSubnetRequestBody(subnetID string) map[string]interface{} {
+	return map[string]interface{}{
+		"display_name": subnetID,
+		"advanced_config": map[string]interface{}{
+			"static_ip_allocation": map[string]interface{}{
+				"enabled": true,
+			},
+		},
+		"id": subnetID,
+	}
+}
+
+// createAndWaitForSubnet creates a subnet using NSX REST API and waits for it to be available
+func createAndWaitForSubnet(t *testing.T, subnetPathPatch, subnetPathGet string, requestBody map[string]interface{}) {
+	// Make the REST API call
+	log.Info("Creating subnet using NSX REST API", "url", subnetPathPatch, "body", requestBody)
+	respJson, err := testData.nsxClient.Cluster.HttpPatch(subnetPathPatch, requestBody)
+	require.NoError(t, err, "Failed to create subnet using NSX REST API")
+	log.Info("Subnet created successfully", "response", respJson)
+
+	// Wait for the subnet to be available
+	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 10*time.Second, false, func(ctx context.Context) (bool, error) {
+		exists := testData.waitForResourceExistByPath(subnetPathGet, true) == nil
+		return exists, nil
+	})
+	require.NoError(t, err, "Subnet was not created in NSX")
+}
+
+// createSharedSubnet creates a shared subnet in NSX and returns the subnet path
+func createSharedSubnet(t *testing.T, subnetName string) (string, string) {
+	subnetID := fmt.Sprintf("%s-%s", subnetName, getRandomString()[:5])
+
+	// Get VPC ID from the target namespace
+	vpcID := getVPCIDFromNamespace(t, targetNs)
+	// Construct API paths
+	subnetPathPatch, subnetPathGet := constructSubnetAPIPaths(vpcID, subnetID)
+	// Create the request body
+	requestBody := createSubnetRequestBody(subnetID)
+	// Create the subnet and wait for it to be available
+	createAndWaitForSubnet(t, subnetPathPatch, subnetPathGet, requestBody)
+	log.Info("Using subnet path", "path", subnetPathGet)
+	return subnetPathGet, subnetID
+}
+
+// updateVPCNetworkConfigWithSubnet updates the VPC network configuration for a namespace with a subnet path
+func updateVPCNetworkConfigWithSubnet(t *testing.T, namespace string, subnetPath string) {
+	// Get the vpc_network_config annotation from the namespace
+	nsObj, err := testData.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, v1.GetOptions{})
+	require.NoError(t, err)
+	vpcNetworkConfigName := nsObj.Annotations[common.AnnotationVPCNetworkConfig]
+	require.NotEmpty(t, vpcNetworkConfigName, "vpc_network_config annotation should not be empty")
+
+	// Get the VPC network configuration using the annotation value
+	vpcNetworkConfig, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(context.TODO(), vpcNetworkConfigName, v1.GetOptions{})
+	require.NoError(t, err)
+	vpcNetworkConfig.Spec.Subnets = []string{subnetPath}
+	_, err = testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Update(context.TODO(), vpcNetworkConfig, v1.UpdateOptions{})
+	require.NoError(t, err)
+}
+
+// clearVPCNetworkConfigSubnets removes all subnet paths from the VPC network configuration for a namespace
+func clearVPCNetworkConfigSubnets(t *testing.T, namespace string) {
+	// Get the vpc_network_config annotation from the namespace
+	nsObj, err := testData.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, v1.GetOptions{})
+	require.NoError(t, err)
+	vpcNetworkConfigName := nsObj.Annotations[common.AnnotationVPCNetworkConfig]
+	require.NotEmpty(t, vpcNetworkConfigName, "vpc_network_config annotation should not be empty")
+
+	// Get the VPC network configuration using the annotation value
+	vpcNetworkConfig, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(context.TODO(), vpcNetworkConfigName, v1.GetOptions{})
+	require.NoError(t, err)
+	vpcNetworkConfig.Spec.Subnets = []string{} // Remove all subnet paths
+	_, err = testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Update(context.TODO(), vpcNetworkConfig, v1.UpdateOptions{})
+	require.NoError(t, err)
+}
+
+// listNamespaceSubnets lists all subnets in a namespace
+func listNamespaceSubnets(ctx context.Context, namespace string) (*v1alpha1.SubnetList, error) {
+	subnetList, err := testData.crdClientset.CrdV1alpha1().Subnets(namespace).List(ctx, v1.ListOptions{})
+	if err != nil {
+		log.Error(err, "Failed to list subnets", "namespace", namespace)
+	}
+	return subnetList, err
+}
+
+// verifySharedSubnets is a unified function that verifies shared subnets in a namespace
+// Parameters:
+// - t: testing.T instance
+// - namespace: namespace to check
+// - expectedCount: expected number of shared subnets (0 for none, 1 for single, >1 for multiple)
+// - namePrefixes: optional list of name prefixes to validate (ignored if expectedCount is 0)
+// Returns:
+// - []*v1alpha1.Subnet: list of found shared subnets (empty if expectedCount is 0)
+func verifySharedSubnets(t *testing.T, namespace string, expectedCount int, namePrefixes ...string) []*v1alpha1.Subnet {
+	var actionMsg string
+	switch {
+	case expectedCount == 0:
+		actionMsg = "to be removed"
+	case expectedCount == 1:
+		actionMsg = "to be created"
+	default:
+		actionMsg = fmt.Sprintf("%d to be created", expectedCount)
+	}
+
+	log.Info(fmt.Sprintf("Waiting for shared subnet(s) %s", actionMsg), "namespace", namespace)
+	var sharedSubnets []*v1alpha1.Subnet
+
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 100*time.Second, false, func(ctx context.Context) (bool, error) {
+		// Get all subnets from the namespace
+		subnetList, err := listNamespaceSubnets(ctx, namespace)
+		if err != nil {
+			return false, err
+		}
+
+		// Find and collect shared subnets
+		sharedSubnets = []*v1alpha1.Subnet{}
+		log.Info("Checking subnets in namespace", "namespace", namespace, "count", len(subnetList.Items))
+		for i := range subnetList.Items {
+			subnet := &subnetList.Items[i]
+			log.Info("Examining subnet", "namespace", namespace, "name", subnet.Name, "shared", subnet.Status.Shared)
+			if subnet.Status.Shared {
+				sharedSubnets = append(sharedSubnets, subnet)
+			}
+		}
+
+		// Check if we have the expected number of shared subnets
+		if len(sharedSubnets) != expectedCount {
+			log.Info("Waiting for expected number of shared subnets",
+				"namespace", namespace,
+				"currentCount", len(sharedSubnets),
+				"expectedCount", expectedCount)
+			return false, nil
+		}
+
+		// If expectedCount is 0, we're done
+		if expectedCount == 0 {
+			return true, nil
+		}
+
+		// Verify name prefixes if provided and if we expect subnets
+		if len(namePrefixes) > 0 {
+			for _, subnet := range sharedSubnets {
+				hasExpectedPrefix := false
+				for _, prefix := range namePrefixes {
+					if strings.HasPrefix(subnet.Name, prefix) {
+						hasExpectedPrefix = true
+						break
+					}
+				}
+				if !hasExpectedPrefix {
+					log.Info("Shared subnet has unexpected name prefix",
+						"namespace", namespace,
+						"name", subnet.Name,
+						"expectedPrefixes", namePrefixes)
+					return false, nil
+				}
+			}
+		}
+
+		return true, nil
+	})
+
+	// Handle assertions based on expected count
+	if expectedCount == 0 {
+		require.NoError(t, err, "Shared subnet should be removed from %s", namespace)
+	} else {
+		require.NoError(t, err, "Failed to find %d shared subnet(s) in %s", expectedCount, namespace)
+		require.Equal(t, expectedCount, len(sharedSubnets),
+			"Expected %d shared subnet(s) in %s, got %d", expectedCount, namespace, len(sharedSubnets))
+
+		// Additional validation for single subnet case
+		if expectedCount == 1 && len(namePrefixes) > 0 {
+			require.NotNil(t, sharedSubnets[0], "Shared subnet in %s should not be nil", namespace)
+			require.True(t, strings.HasPrefix(sharedSubnets[0].Name, namePrefixes[0]),
+				"Shared subnet name should be prefixed with '%s', got: %s", namePrefixes[0], sharedSubnets[0].Name)
+		}
+	}
+
+	return sharedSubnets
+}
+
+// verifyNoSharedSubnet verifies that no shared subnet exists in the namespace
+func verifyNoSharedSubnet(t *testing.T, namespace string) {
+	verifySharedSubnets(t, namespace, 0)
+}
+
+// verifySharedSubnet verifies that a shared subnet with the expected name prefix exists in the namespace
+func verifySharedSubnet(t *testing.T, namespace string, namePrefix string) *v1alpha1.Subnet {
+	subnets := verifySharedSubnets(t, namespace, 1, namePrefix)
+	return subnets[0]
+}
+
+// verifyMultipleSharedSubnets verifies that multiple shared subnets with the expected name prefixes exist in the namespace
+func verifyMultipleSharedSubnets(t *testing.T, namespace string, expectedCount int, namePrefixes ...string) []*v1alpha1.Subnet {
+	return verifySharedSubnets(t, namespace, expectedCount, namePrefixes...)
+}
+
+// PrecreatedSharedSubnetBasic tests sharing a subnet with multiple namespaces
+func PrecreatedSharedSubnetBasic(t *testing.T) {
+	// The subnet is created directly in the target namespace using the NSX client REST API
+	// because the nsx-operator will append an underscore to the subnet name.
+	// When retrieving this name from nsx to create the CR again,
+	// the presence of an underscore causes the CR creation to fail
+	subnetName := "shared-subnet"
+	subnetPath, _ := createSharedSubnet(t, subnetName)
+	// Update ns1 VPC networkconfig CR with shared subnet
+	updateVPCNetworkConfigWithSubnet(t, ns1, subnetPath)
+	// Update ns2 VPC networkconfig CR with shared subnet
+	updateVPCNetworkConfigWithSubnet(t, ns2, subnetPath)
+	// Verify the shared subnets exist in ns1 and ns2 with correct properties
+	sharedSubnet1 := verifySharedSubnet(t, ns1, subnetName)
+	sharedSubnet2 := verifySharedSubnet(t, ns2, subnetName)
+	log.Info("Shared subnet verification complete", "ns1_subnet", sharedSubnet1.Name, "ns2_subnet", sharedSubnet2.Name)
+}
+
+// PrecreatedSharedSubnetRemovePath tests removing a shared subnet path from one namespace
+func PrecreatedSharedSubnetRemovePath(t *testing.T) {
+	// Remove the shared subnet path from ns1 vpcNetworkConfig
+	// ns1 should not have the shared subnet anymore, but ns2 should still have it
+	clearVPCNetworkConfigSubnets(t, ns1)
+	// Verify the shared subnet is removed from ns1
+	verifyNoSharedSubnet(t, ns1)
+	// Verify ns2 still has the shared subnet with correct properties
+	sharedSubnet2 := verifySharedSubnet(t, ns2, "shared-subnet")
+	log.Info("Shared subnet verification after removal complete", "ns2_subnet", sharedSubnet2.Name)
+}
+
+// updateSubnetConnectivityState updates a subnet's connectivity state in NSX
+func updateSubnetConnectivityState(t *testing.T, namespace, subnetName, connectivityState string) {
+	// Find the subnet in NSX by name and namespace
+	subnets, subnetPath := testData.fetchSubnetByNameAndNamespace(t, subnetName, namespace)
+	require.NotEmpty(t, subnets, "No subnet found with name %s in namespace %s", subnetName, namespace)
+	require.NotEmpty(t, subnetPath, "Subnet path is empty for subnet %s in namespace %s", subnetName, namespace)
+
+	// Use the first subnet from the query results
+	subnet := subnets[0]
+	require.NotNil(t, subnet.Path, "Subnet path is nil")
+
+	// Parse the VPC resource path to get orgID, projectID, vpcID
+	parts := strings.Split(*subnet.Path, "/")
+	require.GreaterOrEqual(t, len(parts), 4, "Invalid subnet path format")
+
+	orgID := parts[2] // /orgs/{orgID}/projects/{projectID}/vpcs/{vpcID}/subnets/{subnetID}
+	projectID := parts[4]
+	vpcID := parts[6]
+	subnetID := *subnet.Id
+
+	// Update the subnet's connectivity state using the existing subnet object
+	updatedSubnet := subnet
+	if updatedSubnet.AdvancedConfig == nil {
+		updatedSubnet.AdvancedConfig = &model.SubnetAdvancedConfig{}
+	}
+	updatedSubnet.AdvancedConfig.ConnectivityState = &connectivityState
+
+	log.Info("Updating subnet connectivity state using SubnetsClient", "subnetID", subnetID, "state", connectivityState)
+	err := testData.nsxClient.SubnetsClient.Patch(orgID, projectID, vpcID, subnetID, updatedSubnet)
+	require.NoError(t, err, "Failed to update subnet connectivity state")
+	log.Info("Subnet connectivity state updated successfully", "subnetID", subnetID, "state", connectivityState)
+}
+
+// PrecreatedSharedSubnetAddPath tests adding another shared subnet path to a namespace
+func PrecreatedSharedSubnetAddPath(t *testing.T) {
+	// Create a second shared subnet
+	subnetName := "shared-subnet-2"
+	subnetPath, _ := createSharedSubnet(t, subnetName)
+	// Get the existing subnet path from ns2 VPC network config
+	nsObj, err := testData.clientset.CoreV1().Namespaces().Get(context.TODO(), ns2, v1.GetOptions{})
+	require.NoError(t, err)
+	vpcNetworkConfigName := nsObj.Annotations[common.AnnotationVPCNetworkConfig]
+	require.NotEmpty(t, vpcNetworkConfigName, "vpc_network_config annotation should not be empty")
+	vpcNetworkConfig, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(context.TODO(), vpcNetworkConfigName, v1.GetOptions{})
+	require.NoError(t, err)
+	// Add the new subnet path to the existing paths in ns2 VPC network config
+	existingSubnets := vpcNetworkConfig.Spec.Subnets
+	vpcNetworkConfig.Spec.Subnets = append(existingSubnets, subnetPath)
+	_, err = testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Update(context.TODO(), vpcNetworkConfig, v1.UpdateOptions{})
+	require.NoError(t, err)
+	// Verify ns2 has two shared subnets with correct properties
+	sharedSubnets := verifyMultipleSharedSubnets(t, ns2, 2, "shared-subnet", "shared-subnet-2")
+	log.Info("Multiple shared subnet verification complete", "ns2_subnet1", sharedSubnets[0].Name, "ns2_subnet2", sharedSubnets[1].Name)
+}
+
+// findSubnetByNamePrefix finds a subnet with the given name prefix in a list of subnets
+func findSubnetByNamePrefix(subnets []*v1alpha1.Subnet, namePrefix string) *v1alpha1.Subnet {
+	for _, subnet := range subnets {
+		if strings.HasPrefix(subnet.Name, namePrefix) {
+			return subnet
+		}
+	}
+	return nil
+}
+
+// getOppositeConnectivityState returns the opposite connectivity state
+func getOppositeConnectivityState(currentState v1alpha1.ConnectivityState) string {
+	if currentState == v1alpha1.ConnectivityStateConnected {
+		return "DISCONNECTED"
+	}
+	return "CONNECTED"
+}
+
+// convertToConnectivityState converts a string state to v1alpha1.ConnectivityState
+func convertToConnectivityState(state string) v1alpha1.ConnectivityState {
+	if state == "CONNECTED" {
+		return v1alpha1.ConnectivityStateConnected
+	}
+	return v1alpha1.ConnectivityStateDisconnected
+}
+
+// waitForConnectivityStateUpdate waits for a subnet's connectivity state to update
+func waitForConnectivityStateUpdate(t *testing.T, namespace, subnetName, expectedStateStr string) *v1alpha1.Subnet {
+	expectedState := convertToConnectivityState(expectedStateStr)
+
+	log.Info("Waiting for subnet connectivity state to update", "subnet", subnetName, "expected", expectedStateStr)
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 12*time.Minute, false, func(ctx context.Context) (bool, error) {
+		updatedSubnet, err := testData.crdClientset.CrdV1alpha1().Subnets(namespace).Get(context.TODO(), subnetName, v1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+
+		log.Info("Current connectivity state", "subnet", updatedSubnet.Name, "state", updatedSubnet.Spec.AdvancedConfig.ConnectivityState)
+		return updatedSubnet.Spec.AdvancedConfig.ConnectivityState == expectedState, nil
+	})
+	require.NoError(t, err, "Failed to update connectivity state for subnet %s", subnetName)
+
+	// Get the final updated subnet
+	updatedSubnet, err := testData.crdClientset.CrdV1alpha1().Subnets(namespace).Get(context.TODO(), subnetName, v1.GetOptions{})
+	require.NoError(t, err)
+
+	require.Equal(t, expectedState, updatedSubnet.Spec.AdvancedConfig.ConnectivityState,
+		"Subnet %s connectivity state should be %s, got %s",
+		subnetName, expectedState, updatedSubnet.Spec.AdvancedConfig.ConnectivityState)
+
+	return updatedSubnet
+}
+
+// PrecreatedSharedSubnetPoll tests if nsx-operator subnet_poll can update a shared subnet
+func PrecreatedSharedSubnetPoll(t *testing.T) {
+	// Find the shared-subnet-2 in ns2
+	sharedSubnets := verifyMultipleSharedSubnets(t, ns2, 2, "shared-subnet", "shared-subnet-2")
+	// Find the shared-subnet-2 instance
+	subnet2 := findSubnetByNamePrefix(sharedSubnets, "shared-subnet-2")
+	require.NotNil(t, subnet2, "Could not find shared-subnet-2 in namespace %s", ns2)
+	// Check the initial connectivity state and determine the new state
+	initialState := subnet2.Spec.AdvancedConfig.ConnectivityState
+	newState := getOppositeConnectivityState(initialState)
+	log.Info("Initial connectivity state", "subnet", subnet2.Name, "state", initialState)
+	// Update the subnet's connectivity state
+	updateSubnetConnectivityState(t, ns2, subnet2.Name, newState)
+	// Wait for and verify the connectivity state update
+	updatedSubnet := waitForConnectivityStateUpdate(t, ns2, subnet2.Name, newState)
+	log.Info("Subnet connectivity state updated successfully",
+		"subnet", updatedSubnet.Name,
+		"initialState", initialState,
+		"newState", updatedSubnet.Spec.AdvancedConfig.ConnectivityState)
+}
+
+// PrecreatedSharedSubnetDeleteFail tests that attempting to delete a shared subnet fails
+func PrecreatedSharedSubnetDeleteFail(t *testing.T) {
+	// Find the shared-subnet-2 in ns2
+	sharedSubnets := verifyMultipleSharedSubnets(t, ns2, 2, "shared-subnet", "shared-subnet-2")
+	// Find the shared-subnet-2 instance
+	subnet2 := findSubnetByNamePrefix(sharedSubnets, "shared-subnet-2")
+	require.NotNil(t, subnet2, "Could not find shared-subnet-2 in namespace %s", ns2)
+	log.Info("Attempting to delete shared subnet", "subnet", subnet2.Name)
+	// Attempt to delete the subnet
+	err := testData.crdClientset.CrdV1alpha1().Subnets(ns2).Delete(context.TODO(), subnet2.Name, v1.DeleteOptions{})
+	// Verify that the deletion fails with a specific error
+	require.Error(t, err, "Deleting shared subnet %s should fail", subnet2.Name)
+	// Verify the subnet still exists
+	stillExists := false
+	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 30*time.Second, false, func(ctx context.Context) (bool, error) {
+		_, err := testData.crdClientset.CrdV1alpha1().Subnets(ns2).Get(context.TODO(), subnet2.Name, v1.GetOptions{})
+		if err == nil {
+			stillExists = true
+			return true, nil
+		}
+		return false, nil
+	})
+	require.NoError(t, err, "Error while checking if subnet still exists")
+	require.True(t, stillExists, "Shared subnet %s should still exist after deletion attempt", subnet2.Name)
+	log.Info("Verified that shared subnet cannot be deleted", "subnet", subnet2.Name)
+}
+
+// PrecreatedSharedSubnetUpdateFail tests that attempting to update vpcName or enableVlanExtension in a shared subnet fails
+func PrecreatedSharedSubnetUpdateFail(t *testing.T) {
+	// Find the shared-subnet-2 in ns2
+	sharedSubnets := verifyMultipleSharedSubnets(t, ns2, 2, "shared-subnet", "shared-subnet-2")
+	// Find the shared-subnet-2 instance
+	subnet2 := findSubnetByNamePrefix(sharedSubnets, "shared-subnet-2")
+	require.NotNil(t, subnet2, "Could not find shared-subnet-2 in namespace %s", ns2)
+
+	// Save original values for verification later
+	originalVPCName := subnet2.Spec.VPCName
+	originalEnableVLANExtension := subnet2.Spec.AdvancedConfig.EnableVLANExtension
+
+	log.Info("Attempting to update VPCName in shared subnet", "subnet", subnet2.Name)
+
+	// First try to update VPCName
+	updatedSubnet := subnet2.DeepCopy()
+	updatedSubnet.Spec.VPCName = "new-vpc-name"
+	_, err := testData.crdClientset.CrdV1alpha1().Subnets(ns2).Update(context.TODO(), updatedSubnet, v1.UpdateOptions{})
+
+	// Verify that the update fails with a specific error
+	require.Error(t, err, "Updating VPCName in shared subnet %s should fail", subnet2.Name)
+	require.Contains(t, err.Error(), "vpcName is immutable", "Error message should indicate that VPCName is immutable")
+
+	// Now try to update EnableVLANExtension
+	log.Info("Attempting to update EnableVLANExtension in shared subnet", "subnet", subnet2.Name)
+
+	// Get the latest version of the subnet
+	latestSubnet, err := testData.crdClientset.CrdV1alpha1().Subnets(ns2).Get(context.TODO(), subnet2.Name, v1.GetOptions{})
+	require.NoError(t, err, "Failed to get latest version of subnet %s", subnet2.Name)
+
+	updatedSubnet = latestSubnet.DeepCopy()
+	updatedSubnet.Spec.AdvancedConfig.EnableVLANExtension = !originalEnableVLANExtension
+	_, err = testData.crdClientset.CrdV1alpha1().Subnets(ns2).Update(context.TODO(), updatedSubnet, v1.UpdateOptions{})
+
+	// Verify that the update fails or is denied
+	if err != nil {
+		require.Contains(t, err.Error(), "denied", "Error message should indicate that the update is denied")
+	} else {
+		// If no error, verify that the value didn't change
+		time.Sleep(2 * time.Second) // Give time for any webhook to process
+		verifiedSubnet, err := testData.crdClientset.CrdV1alpha1().Subnets(ns2).Get(context.TODO(), subnet2.Name, v1.GetOptions{})
+		require.NoError(t, err, "Failed to get verified subnet %s", subnet2.Name)
+		require.Equal(t, originalEnableVLANExtension, verifiedSubnet.Spec.AdvancedConfig.EnableVLANExtension,
+			"EnableVLANExtension should not have changed")
+	}
+
+	// Final verification that the subnet properties remain unchanged
+	finalSubnet, err := testData.crdClientset.CrdV1alpha1().Subnets(ns2).Get(context.TODO(), subnet2.Name, v1.GetOptions{})
+	require.NoError(t, err, "Failed to get final subnet %s", subnet2.Name)
+	require.Equal(t, originalVPCName, finalSubnet.Spec.VPCName, "VPCName should remain unchanged")
+	require.Equal(t, originalEnableVLANExtension, finalSubnet.Spec.AdvancedConfig.EnableVLANExtension,
+		"EnableVLANExtension should remain unchanged")
+
+	log.Info("Verified that shared subnet properties cannot be updated", "subnet", subnet2.Name)
+}
+
+// NormalSubnetManagedByNSXOp tests that when a namespace user creates a normal Subnet CR in the namespace,
+// its status.shared is false, and when getting the subnet from NSX, its tags contain nsx/managed-by:nsx-op
+func NormalSubnetManagedByNSXOp(t *testing.T) {
+	// Create a normal subnet in the namespace
+	normalSubnet := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "normal-subnet",
+			Namespace: ns1,
+		},
+		Spec: v1alpha1.SubnetSpec{
+			AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(true),
+				},
+			},
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+			},
+		},
+	}
+
+	// Create the subnet and verify it's created successfully
+	createdSubnet := createSubnetWithCheck(t, normalSubnet)
+	require.NotNil(t, createdSubnet, "Failed to create normal subnet in namespace %s", ns1)
+
+	// Verify that status.shared is false
+	require.False(t, createdSubnet.Status.Shared, "Normal subnet should have status.shared=false")
+	log.Info("Verified normal subnet has status.shared=false", "subnet", createdSubnet.Name)
+
+	// Get the subnet from NSX using the subnet UID
+	subnetCRUID := string(createdSubnet.UID)
+	nsxSubnets := testData.fetchSubnetBySubnetUID(t, subnetCRUID)
+	require.Equal(t, 1, len(nsxSubnets), "Expected to find exactly one NSX subnet for the created subnet")
+
+	// Check that the NSX subnet has the nsx/managed-by:nsx-op tag
+	nsxSubnet := nsxSubnets[0]
+	found := false
+	for _, tag := range nsxSubnet.Tags {
+		if *tag.Scope == common.TagScopeManagedBy && *tag.Tag == common.AutoCreatedTagValue {
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "NSX subnet should have the tag %s:%s", common.TagScopeManagedBy, common.AutoCreatedTagValue)
+	log.Info("Verified NSX subnet has the correct managed-by tag", "subnet", createdSubnet.Name)
+
+	// Clean up - delete the subnet
+	err := testData.crdClientset.CrdV1alpha1().Subnets(ns1).Delete(context.TODO(), normalSubnet.Name, v1.DeleteOptions{})
+	require.NoError(t, err, "Failed to delete normal subnet %s", normalSubnet.Name)
+
+	// Wait for the subnet to be deleted
+	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 30*time.Second, false, func(ctx context.Context) (bool, error) {
+		_, err := testData.crdClientset.CrdV1alpha1().Subnets(ns1).Get(context.TODO(), normalSubnet.Name, v1.GetOptions{})
+		return errors.IsNotFound(err), nil
+	})
+	require.NoError(t, err, "Timed out waiting for subnet to be deleted")
+	log.Info("Successfully deleted normal subnet", "subnet", normalSubnet.Name)
+}
+
+// SubnetWithAssociatedResourceAnnotation tests that creating a normal SubnetCR with
+// nsx.vmware.com/associated-resource annotation should be refused
+func SubnetWithAssociatedResourceAnnotation(t *testing.T) {
+	// Create a subnet with the associated-resource annotation
+	subnetWithAnnotation := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-with-annotation",
+			Namespace: ns1,
+			Annotations: map[string]string{
+				common.AnnotationAssociatedResource: "project1:vpc1:subnet1",
+			},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(true),
+				},
+			},
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+			},
+		},
+	}
+
+	// Attempt to create the subnet and verify it's refused
+	_, err := testData.crdClientset.CrdV1alpha1().Subnets(ns1).Create(context.TODO(), subnetWithAnnotation, v1.CreateOptions{})
+
+	// Verify that the creation is refused with an appropriate error message
+	require.Error(t, err, "Creating subnet with associated-resource annotation should fail")
+	require.Contains(t, err.Error(), "denied", "Error message should mention the denied")
+
+	log.Info("Verified that creating a subnet with associated-resource annotation is refused", "error", err.Error())
 }
