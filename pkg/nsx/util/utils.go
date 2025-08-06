@@ -273,6 +273,13 @@ func HandleHTTPResponse(response *http.Response, result interface{}, debug bool)
 	if debug {
 		log.V(2).Info("Received HTTP response", "response", string(body))
 	}
+
+	// If the body is empty, return nil without trying to unmarshal
+	if len(body) == 0 {
+		log.V(1).Info("Empty response body, skipping JSON unmarshalling")
+		return nil, body
+	}
+
 	if err := json.Unmarshal(body, result); err != nil {
 		log.Error(err, "Failed to convert HTTP response to result", "result type", result)
 		return err, body
