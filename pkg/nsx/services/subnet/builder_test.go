@@ -172,6 +172,7 @@ func TestBuildSubnetForSubnet(t *testing.T) {
 	assert.Equal(t, "DHCP_DEACTIVATED", *subnet.SubnetDhcpConfig.Mode)
 	assert.Equal(t, true, *subnet.AdvancedConfig.StaticIpAllocation.Enabled)
 	assert.Equal(t, []string{"10.0.0.0/28"}, subnet.IpAddresses)
+	assert.Nil(t, subnet.Ipv4SubnetSize)
 
 	subnet2 := &v1alpha1.Subnet{
 		ObjectMeta: v1.ObjectMeta{
@@ -206,4 +207,28 @@ func TestBuildSubnetForSubnet(t *testing.T) {
 	newSubnet, err := service.buildSubnet(subnet2, tags, []string{})
 	assert.Nil(t, err)
 	assert.NotEqual(t, *subnet.Id, *newSubnet.Id)
+
+	// has both IPAddresses, Ipv4SubnetSize, only IPAddresses used
+	subnet1 = &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-1",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddresses: []string{"10.0.0.0/28"},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(true),
+				},
+			},
+			IPv4SubnetSize: 28,
+		},
+	}
+
+	subnet, err = service.buildSubnet(subnet1, tags, []string{})
+	assert.Nil(t, err)
+	assert.Equal(t, "DHCP_DEACTIVATED", *subnet.SubnetDhcpConfig.Mode)
+	assert.Equal(t, true, *subnet.AdvancedConfig.StaticIpAllocation.Enabled)
+	assert.Equal(t, []string{"10.0.0.0/28"}, subnet.IpAddresses)
+	assert.Equal(t, Int64(28), subnet.Ipv4SubnetSize)
 }
