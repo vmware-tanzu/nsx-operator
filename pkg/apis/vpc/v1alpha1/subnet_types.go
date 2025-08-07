@@ -12,12 +12,13 @@ type DHCPConfigMode string
 type ConnectivityState string
 
 const (
-	AccessModePublic              string            = "Public"
-	AccessModePrivate             string            = "Private"
-	AccessModeProject             string            = "PrivateTGW"
-	DHCPConfigModeDeactivated     string            = "DHCPDeactivated"
-	DHCPConfigModeServer          string            = "DHCPServer"
-	DHCPConfigModeRelay           string            = "DHCPRelay"
+	AccessModePublic              AccessMode        = "Public"
+	AccessModePrivate             AccessMode        = "Private"
+	AccessModeProject             AccessMode        = "PrivateTGW"
+	AccessModeIsolated            AccessMode        = "Isolated"
+	DHCPConfigModeDeactivated     DHCPConfigMode    = "DHCPDeactivated"
+	DHCPConfigModeServer          DHCPConfigMode    = "DHCPServer"
+	DHCPConfigModeRelay           DHCPConfigMode    = "DHCPRelay"
 	ConnectivityStateConnected    ConnectivityState = "Connected"
 	ConnectivityStateDisconnected ConnectivityState = "Disconnected"
 )
@@ -39,7 +40,7 @@ type SubnetSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPv4SubnetSize int `json:"ipv4SubnetSize,omitempty"`
 	// Access mode of Subnet, accessible only from within VPC or from outside VPC.
-	// +kubebuilder:validation:Enum=Private;Public;PrivateTGW
+	// +kubebuilder:validation:Enum=Private;Public;PrivateTGW;Isolated
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	AccessMode AccessMode `json:"accessMode,omitempty"`
 	// Subnet CIDRS.
@@ -50,7 +51,7 @@ type SubnetSpec struct {
 
 	// DHCP mode of a Subnet can only switch between DHCPServer or DHCPRelay.
 	// If subnetDHCPConfig is not set, the DHCP mode is DHCPDeactivated by default.
-	// In order to enforce this rule, three XValidation rules are defined.
+	// To enforce this rule, three XValidation rules are defined.
 	// The rule on SubnetSpec prevents the condition that subnetDHCPConfig is not set in
 	// old or current SubnetSpec while the current or old SubnetSpec specifies a Mode
 	// other than DHCPDeactivated.
@@ -111,7 +112,7 @@ type SubnetList struct {
 
 type SubnetAdvancedConfig struct {
 	// Connectivity status of the Subnet from other Subnets of the VPC.
-	// Default value is "Connected".
+	// The default value is "Connected".
 	// +kubebuilder:validation:Enum=Connected;Disconnected
 	// +kubebuilder:default=Connected
 	ConnectivityState ConnectivityState `json:"connectivityState,omitempty"`
@@ -131,7 +132,7 @@ type StaticIPAllocation struct {
 	Enabled *bool `json:"enabled,omitempty"`
 }
 
-// Additional DHCP server config for a VPC Subnet.
+// DHCPServerAdditionalConfig defines the additional DHCP server config for a VPC Subnet.
 // The additional configuration must not be set when the Subnet has DHCP relay enabled or DHCP is deactivated.
 type DHCPServerAdditionalConfig struct {
 	// Reserved IP ranges.
@@ -140,7 +141,7 @@ type DHCPServerAdditionalConfig struct {
 	ReservedIPRanges []string `json:"reservedIPRanges,omitempty"`
 }
 
-// SubnetDHCPConfig is DHCP configuration for Subnet.
+// SubnetDHCPConfig is a DHCP configuration for Subnet.
 // +kubebuilder:validation:XValidation:rule="has(oldSelf.mode)==has(self.mode) || (has(oldSelf.mode) && !has(self.mode)  && oldSelf.mode=='DHCPDeactivated') || (!has(oldSelf.mode) && has(self.mode) && self.mode=='DHCPDeactivated')", message="subnetDHCPConfig mode can only switch between DHCPServer and DHCPRelay"
 // +kubebuilder:validation:XValidation:rule="(!has(self.mode)|| self.mode=='DHCPDeactivated' || self.mode=='DHCPRelay' ) && (!has(self.dhcpServerAdditionalConfig) || !has(self.dhcpServerAdditionalConfig.reservedIPRanges) || size(self.dhcpServerAdditionalConfig.reservedIPRanges)==0) || has(self.mode) && self.mode=='DHCPServer'", message="DHCPServerAdditionalConfig must be cleared when Subnet has DHCP relay enabled or DHCP is deactivated."
 type SubnetDHCPConfig struct {

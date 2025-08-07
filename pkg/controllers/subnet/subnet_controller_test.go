@@ -219,7 +219,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				IPv4SubnetSize: 0,
 				AccessMode:     "",
 				SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
-					Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					Mode: v1alpha1.DHCPConfigModeDeactivated,
 				},
 			},
 		}
@@ -575,9 +575,9 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			},
 			existingSubnetCR: createNewSubnet(),
 			expectSubnetCR: &v1alpha1.Subnet{
-				Spec: v1alpha1.SubnetSpec{VPCName: "project-id:vpc-id", IPv4SubnetSize: 16, AccessMode: "Private",
+				Spec: v1alpha1.SubnetSpec{VPCName: "project-id:vpc-id", IPv4SubnetSize: 16, AccessMode: v1alpha1.AccessModePrivate,
 					IPAddresses:      []string(nil),
-					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{Mode: v1alpha1.DHCPConfigModeDeactivated},
 					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{
 							Enabled: common.Bool(true),
@@ -626,8 +626,8 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			},
 			existingSubnetCR: createNewSubnet(),
 			expectSubnetCR: &v1alpha1.Subnet{
-				Spec: v1alpha1.SubnetSpec{VPCName: "project-id:vpc-id", IPv4SubnetSize: 16, AccessMode: "Private", IPAddresses: []string(nil),
-					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)},
+				Spec: v1alpha1.SubnetSpec{VPCName: "project-id:vpc-id", IPv4SubnetSize: 16, AccessMode: v1alpha1.AccessModePrivate, IPAddresses: []string(nil),
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{Mode: v1alpha1.DHCPConfigModeDeactivated},
 					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{
 							Enabled: common.Bool(true),
@@ -866,7 +866,7 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 	testSubnet1 := &v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{Name: subnetName, Namespace: ns},
 		Spec: v1alpha1.SubnetSpec{
-			AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			AccessMode:     v1alpha1.AccessModePrivate,
 			IPv4SubnetSize: 16,
 			VPCName:        "project:test-vpc",
 			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
@@ -879,7 +879,7 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 	testSubnet2 := &v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{Name: subnetName, Namespace: ns, Finalizers: []string{common.SubnetFinalizerName}},
 		Spec: v1alpha1.SubnetSpec{
-			AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			AccessMode:     v1alpha1.AccessModePrivate,
 			IPv4SubnetSize: 16,
 			VPCName:        "project:test-vpc",
 			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
@@ -898,7 +898,7 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 			DeletionTimestamp: &deletionTime,
 		},
 		Spec: v1alpha1.SubnetSpec{
-			AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			AccessMode:     v1alpha1.AccessModePrivate,
 			IPv4SubnetSize: 16,
 			VPCName:        "project:test-vpc",
 			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
@@ -1250,10 +1250,10 @@ func TestHandleSharedSubnet(t *testing.T) {
 			if tt.nsxSubnet != nil && tt.nsxSubnetErr == nil && tt.getStatusErr == nil {
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "MapNSXSubnetToSubnetCR",
 					func(_ *subnet.SubnetService, subnetCR *v1alpha1.Subnet, _ *model.VpcSubnet) {
-						subnetCR.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePublic)
+						subnetCR.Spec.AccessMode = v1alpha1.AccessModePublic
 						subnetCR.Spec.IPv4SubnetSize = 24
 						subnetCR.Spec.IPAddresses = []string{"192.168.1.0/24"}
-						subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer)
+						subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigModeServer
 					})
 			}
 

@@ -25,25 +25,25 @@ func getCluster(service *SubnetService) string {
 	return service.NSXConfig.Cluster
 }
 
-// BuildSubnetID uses format "subnet.Name_$(hash(${namespace.UUID}))[5]" to generate the VpcSubnet's id.
+// BuildSubnetID uses the format "subnet.Name_$(hash(${namespace.UUID}))[5]" to generate the VpcSubnet's id.
 func (service *SubnetService) BuildSubnetID(obj v1.Object) string {
 	return common.BuildUniqueIDWithRandomUUID(obj, util.GenerateIDByObject, service.nsxSubnetIdExists)
 }
 
-// BuildSubnetName uses format "subnet.Name_$(hash(${namespace.UUID}))[5]" to ensure the Subnet's display_name is not
+// BuildSubnetName uses the format "subnet.Name_$(hash(${namespace.UUID}))[5]" to ensure the Subnet's display_name is not
 // conflict with others. This is because VC will use the Subnet's display_name to created folder, so
 // the name string must be unique.
 func (service *SubnetService) BuildSubnetName(obj v1.Object) string {
 	return common.BuildUniqueIDWithSuffix(obj, "", common.MaxSubnetNameLength, util.GenerateIDByObject, service.nsxSubnetNameExists)
 }
 
-// buildSubnetSetID uses format "${subnetset.Name}-index_$(hash(${namespace.UUID}))[5]" to ensure the generated Subnet's
+// buildSubnetSetID uses the format "${subnetset.Name}-index_$(hash(${namespace.UUID}))[5]" to ensure the generated Subnet's
 // // display_name is not conflict with others.
 func (service *SubnetService) buildSubnetSetID(obj v1.Object, index string) string {
 	return common.BuildUniqueIDWithSuffix(obj, index, common.MaxIdLength, util.GenerateIDByObject, service.nsxSubnetIdExists)
 }
 
-// buildSubnetSetName uses format "${subnetset.Name}-index_$(hash(${namespace.UUID}))[5]" to generate the VpcSubnet's name.
+// buildSubnetSetName uses the format "${subnetset.Name}-index_$(hash(${namespace.UUID}))[5]" to generate the VpcSubnet's name.
 func (service *SubnetService) buildSubnetSetName(obj v1.Object, index string) string {
 	return common.BuildUniqueIDWithSuffix(obj, index, common.MaxSubnetNameLength, util.GenerateIDByObject, service.nsxSubnetNameExists)
 }
@@ -59,7 +59,7 @@ func (service *SubnetService) nsxSubnetNameExists(subnetName string) bool {
 }
 
 func convertAccessMode(accessMode string) string {
-	if accessMode == v1alpha1.AccessModeProject {
+	if accessMode == string(v1alpha1.AccessModeProject) {
 		return AccessModeProjectInNSX
 	}
 	return accessMode
@@ -89,7 +89,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		}
 		dhcpMode := string(o.Spec.SubnetDHCPConfig.Mode)
 		if dhcpMode == "" {
-			dhcpMode = v1alpha1.DHCPConfigModeDeactivated
+			dhcpMode = string(v1alpha1.DHCPConfigModeDeactivated)
 		}
 		nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode, nil)
 		if len(o.Spec.IPAddresses) > 0 {
@@ -109,7 +109,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		}
 		dhcpMode := string(o.Spec.SubnetDHCPConfig.Mode)
 		if dhcpMode == "" {
-			dhcpMode = v1alpha1.DHCPConfigModeDeactivated
+			dhcpMode = string(v1alpha1.DHCPConfigModeDeactivated)
 		}
 		nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode, nil)
 		if len(ipAddresses) > 0 {

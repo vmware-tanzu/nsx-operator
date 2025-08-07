@@ -36,6 +36,12 @@ _Appears in:_
 - [SubnetSetSpec](#subnetsetspec)
 - [SubnetSpec](#subnetspec)
 
+| Field | Description |
+| --- | --- |
+| `Public` |  |
+| `Private` |  |
+| `PrivateTGW` |  |
+| `Isolated` |  |
 
 
 #### AddressBinding
@@ -169,13 +175,18 @@ _Underlying type:_ _string_
 _Appears in:_
 - [SubnetDHCPConfig](#subnetdhcpconfig)
 
+| Field | Description |
+| --- | --- |
+| `DHCPDeactivated` |  |
+| `DHCPServer` |  |
+| `DHCPRelay` |  |
 
 
 #### DHCPServerAdditionalConfig
 
 
 
-Additional DHCP server config for a VPC Subnet.
+DHCPServerAdditionalConfig defines the additional DHCP server config for a VPC Subnet.
 The additional configuration must not be set when the Subnet has DHCP relay enabled or DHCP is deactivated.
 
 
@@ -682,7 +693,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `connectivityState` _[ConnectivityState](#connectivitystate)_ | Connectivity status of the Subnet from other Subnets of the VPC.<br />Default value is "Connected". | Connected | Enum: [Connected Disconnected] <br /> |
+| `connectivityState` _[ConnectivityState](#connectivitystate)_ | Connectivity status of the Subnet from other Subnets of the VPC.<br />The default value is "Connected". | Connected | Enum: [Connected Disconnected] <br /> |
 | `enableVLANExtension` _boolean_ | Whether this Subnet enabled VLAN extension.<br />Default value is false. | false |  |
 | `staticIPAllocation` _[StaticIPAllocation](#staticipallocation)_ | Static IP allocation for VPC Subnet Ports. |  |  |
 
@@ -745,7 +756,7 @@ _Appears in:_
 
 
 
-SubnetDHCPConfig is DHCP configuration for Subnet.
+SubnetDHCPConfig is a DHCP configuration for Subnet.
 
 
 
@@ -901,7 +912,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `vpcName` _string_ | VPC name of the Subnet. |  |  |
 | `ipv4SubnetSize` _integer_ | Size of Subnet based upon estimated workload count. |  | Maximum: 65536 <br />Minimum: 16 <br /> |
-| `accessMode` _[AccessMode](#accessmode)_ | Access mode of Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW] <br /> |
+| `accessMode` _[AccessMode](#accessmode)_ | Access mode of Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW Isolated] <br /> |
 | `ipAddresses` _string array_ | Subnet CIDRS. |  | MaxItems: 2 <br />MinItems: 0 <br /> |
 | `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | DHCP configuration for Subnet. |  |  |
 | `advancedConfig` _[SubnetAdvancedConfig](#subnetadvancedconfig)_ | VPC Subnet advanced configuration. |  |  |
