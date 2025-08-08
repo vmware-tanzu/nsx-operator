@@ -25,6 +25,15 @@ func TestSubnetToComparable(t *testing.T) {
 	}
 	id1 := "fakeSubnetID1"
 	id2 := "fakeSubnetID2"
+	connectivityStateConnected := "Connected"
+	connectivityStateDisconnected := "Disconnected"
+	enableVlanTrue := true
+	enableVlanFalse := false
+	gatewayAddr1 := "192.168.1.1"
+	gatewayAddr2 := "192.168.1.2"
+	dhcpAddr1 := "192.168.1.100"
+	dhcpAddr2 := "192.168.1.200"
+
 	testCases := []struct {
 		name           string
 		existingSubnet *model.VpcSubnet
@@ -48,6 +57,106 @@ func TestSubnetToComparable(t *testing.T) {
 			expectChanged:  true,
 			nsxSubnet:      &model.VpcSubnet{Tags: []model.Tag{tag2}},
 			existingSubnet: &model.VpcSubnet{Tags: []model.Tag{tag1}},
+		},
+		{
+			name: "AdvancedConfig with different ConnectivityState should not cause change",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &id1,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					ConnectivityState: &connectivityStateConnected,
+				},
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id: &id2,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					ConnectivityState: &connectivityStateDisconnected,
+				},
+			},
+			expectChanged: false,
+		},
+		{
+			name: "AdvancedConfig with different EnableVlanExtension should not cause change",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &id1,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					EnableVlanExtension: &enableVlanTrue,
+				},
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id: &id2,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					EnableVlanExtension: &enableVlanFalse,
+				},
+			},
+			expectChanged: false,
+		},
+		{
+			name: "AdvancedConfig with different GatewayAddresses should cause change",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &id1,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					GatewayAddresses: []string{gatewayAddr1},
+				},
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id: &id2,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					GatewayAddresses: []string{gatewayAddr2},
+				},
+			},
+			expectChanged: true,
+		},
+		{
+			name: "AdvancedConfig with different DhcpServerAddresses should cause change",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &id1,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					DhcpServerAddresses: []string{dhcpAddr1},
+				},
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id: &id2,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					DhcpServerAddresses: []string{dhcpAddr2},
+				},
+			},
+			expectChanged: true,
+		},
+		{
+			name: "AdvancedConfig with same GatewayAddresses should not cause change",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &id1,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					GatewayAddresses: []string{gatewayAddr1},
+				},
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id: &id2,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					GatewayAddresses: []string{gatewayAddr1},
+				},
+			},
+			expectChanged: false,
+		},
+		{
+			name: "AdvancedConfig with mixed changes - ConnectivityState different but GatewayAddresses same",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &id1,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					ConnectivityState:   &connectivityStateConnected,
+					GatewayAddresses:    []string{gatewayAddr1},
+					EnableVlanExtension: &enableVlanTrue,
+				},
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id: &id2,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					ConnectivityState:   &connectivityStateDisconnected,
+					GatewayAddresses:    []string{gatewayAddr1},
+					EnableVlanExtension: &enableVlanFalse,
+				},
+			},
+			expectChanged: false,
 		},
 	}
 	for _, tc := range testCases {

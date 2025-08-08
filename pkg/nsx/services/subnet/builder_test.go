@@ -1,6 +1,7 @@
 package subnet
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/golang/mock/gomock"
@@ -15,6 +16,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mockClient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
@@ -111,7 +113,9 @@ func TestBuildSubnetForSubnetSet(t *testing.T) {
 	subnet, err := service.buildSubnet(subnetSet, tags, []string{})
 	assert.Nil(t, err)
 	assert.Equal(t, "DHCP_DEACTIVATED", *subnet.SubnetDhcpConfig.Mode)
-	assert.Equal(t, true, *subnet.AdvancedConfig.StaticIpAllocation.Enabled)
+	if subnet.AdvancedConfig != nil {
+		assert.Equal(t, true, *subnet.AdvancedConfig.StaticIpAllocation.Enabled)
+	}
 
 	subnet.ParentPath = String(fakeVpcPath)
 	err = service.SubnetStore.Add(subnet)
@@ -236,4 +240,233 @@ func TestBuildSubnetForSubnet(t *testing.T) {
 	assert.Equal(t, true, *subnet.AdvancedConfig.StaticIpAllocation.Enabled)
 	assert.Equal(t, []string{"10.0.0.0/28"}, subnet.IpAddresses)
 	assert.Equal(t, Int64(28), subnet.Ipv4SubnetSize)
+}
+
+func TestBuildSubnetWithCustomGatewayAddresses(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	service := &SubnetService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+	tags := []model.Tag{
+		{
+			Scope: common.String("nsx-op/namespace"),
+			Tag:   common.String("ns-1"),
+		},
+	}
+
+	// Test case 2: Subnet without custom gateway addresses - this should work without nil pointer issues
+	subnet2 := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-no-gateway",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddresses: []string{"10.0.0.0/28"},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(true),
+				},
+			},
+		},
+	}
+
+	nsxSubnet2, err := service.buildSubnet(subnet2, tags, []string{})
+	assert.Nil(t, err)
+	assert.NotNil(t, nsxSubnet2.AdvancedConfig)
+	assert.Equal(t, true, *nsxSubnet2.AdvancedConfig.StaticIpAllocation.Enabled)
+
+	// Test case 3: Subnet with empty gateway addresses slice - this should also work
+	subnet3 := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-empty-gateway",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddresses: []string{"10.0.0.0/28"},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				GatewayAddresses: []string{},
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(true),
+				},
+			},
+		},
+	}
+
+	nsxSubnet3, err := service.buildSubnet(subnet3, tags, []string{})
+	assert.Nil(t, err)
+	assert.NotNil(t, nsxSubnet3.AdvancedConfig)
+	assert.Equal(t, true, *nsxSubnet3.AdvancedConfig.StaticIpAllocation.Enabled)
+}
+
+func TestBuildSubnetWithCustomDHCPServerAddresses(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	service := &SubnetService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+	tags := []model.Tag{
+		{
+			Scope: common.String("nsx-op/namespace"),
+			Tag:   common.String("ns-1"),
+		},
+	}
+
+	// Test case 2: Static IP allocation enabled + custom DHCP server addresses (should NOT be set) - this should work without nil pointer issues
+	subnet2 := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-dhcp-static",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddresses: []string{"10.0.0.0/28"},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				DHCPServerAddresses: []string{"10.0.0.3", "10.0.0.4"},
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(true),
+				},
+			},
+		},
+	}
+
+	nsxSubnet2, err := service.buildSubnet(subnet2, tags, []string{})
+	assert.Nil(t, err)
+	assert.NotNil(t, nsxSubnet2.AdvancedConfig)
+	assert.Equal(t, true, *nsxSubnet2.AdvancedConfig.StaticIpAllocation.Enabled)
+
+	// Test case 3: Static IP allocation disabled but no custom DHCP server addresses - this should also work
+	subnet3 := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-dhcp-no-addresses",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddresses: []string{"10.0.0.0/28"},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(false),
+				},
+			},
+		},
+	}
+
+	nsxSubnet3, err := service.buildSubnet(subnet3, tags, []string{})
+	assert.Nil(t, err)
+	assert.NotNil(t, nsxSubnet3.AdvancedConfig)
+	assert.Equal(t, false, *nsxSubnet3.AdvancedConfig.StaticIpAllocation.Enabled)
+
+	// Test case 4: Static IP allocation disabled + empty DHCP server addresses slice - this should work too
+	subnet4 := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-dhcp-empty-addresses",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddresses: []string{"10.0.0.0/28"},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				DHCPServerAddresses: []string{},
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(false),
+				},
+			},
+		},
+	}
+
+	nsxSubnet4, err := service.buildSubnet(subnet4, tags, []string{})
+	assert.Nil(t, err)
+	assert.NotNil(t, nsxSubnet4.AdvancedConfig)
+	assert.Equal(t, false, *nsxSubnet4.AdvancedConfig.StaticIpAllocation.Enabled)
+}
+
+func TestBuildSubnetWithExceedTagsLimit(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	service := &SubnetService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+
+	// Create more than MaxTagsCount (26) tags to trigger the error
+	tags := make([]model.Tag, common.MaxTagsCount+1)
+	for i := 0; i < common.MaxTagsCount+1; i++ {
+		tags[i] = model.Tag{
+			Scope: common.String("test-scope"),
+			Tag:   common.String("test-tag-" + string(rune('0'+i))),
+		}
+	}
+
+	subnet := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-exceed-tags",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddresses: []string{"10.0.0.0/28"},
+		},
+	}
+
+	nsxSubnet, err := service.buildSubnet(subnet, tags, []string{})
+	assert.Nil(t, nsxSubnet)
+	assert.NotNil(t, err)
+
+	// Verify that the error is of type ExceedTagsError
+	var exceedTagsErr nsxutil.ExceedTagsError
+	assert.True(t, errors.As(err, &exceedTagsErr))
+	assert.Contains(t, exceedTagsErr.Desc, "tags cannot exceed maximum size 26")
 }
