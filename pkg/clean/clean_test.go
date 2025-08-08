@@ -21,6 +21,7 @@ import (
 	sr "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetbinding"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetipreservation"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
@@ -189,6 +190,9 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 	patches.ApplyFunc(subnetbinding.InitializeService, func(service common.Service) (*subnetbinding.BindingService, error) {
 		return &subnetbinding.BindingService{}, nil
 	})
+	patches.ApplyFunc(subnetipreservation.InitializeService, func(service common.Service) (*subnetipreservation.IPReservationService, error) {
+		return &subnetipreservation.IPReservationService{}, nil
+	})
 	patches.ApplyFunc(inventory.InitializeService, func(service common.Service, _ bool) (*inventory.InventoryService, error) {
 		return &inventory.InventoryService{}, nil
 	})
@@ -209,7 +213,7 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 	cleanupService, err := InitializeCleanupService(cf, nsxClient, &log)
 	assert.NoError(t, err)
 	assert.NotNil(t, cleanupService)
-	assert.Len(t, cleanupService.vpcPreCleaners, 5)
+	assert.Len(t, cleanupService.vpcPreCleaners, 6)
 	assert.Len(t, cleanupService.vpcChildrenCleaners, 5)
 	assert.Len(t, cleanupService.infraCleaners, 2)
 }
@@ -243,13 +247,16 @@ func TestInitializeCleanupService_VPCError(t *testing.T) {
 	patches.ApplyFunc(subnetbinding.InitializeService, func(service common.Service) (*subnetbinding.BindingService, error) {
 		return &subnetbinding.BindingService{}, nil
 	})
+	patches.ApplyFunc(subnetipreservation.InitializeService, func(service common.Service) (*subnetipreservation.IPReservationService, error) {
+		return &subnetipreservation.IPReservationService{}, nil
+	})
 
 	cleanupService, err := InitializeCleanupService(cf, nsxClient, &log)
 	assert.NoError(t, err)
 	assert.NotNil(t, cleanupService)
 	// Note, the services added after VPCService should fail because of the error returned in `InitializeVPC`.
 	assert.Len(t, cleanupService.vpcChildrenCleaners, 3)
-	assert.Len(t, cleanupService.vpcPreCleaners, 2)
+	assert.Len(t, cleanupService.vpcPreCleaners, 3)
 	assert.Len(t, cleanupService.infraCleaners, 1)
 	assert.Equal(t, expectedError, cleanupService.svcErr)
 }

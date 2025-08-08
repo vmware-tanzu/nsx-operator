@@ -309,6 +309,21 @@ func WrapDomain(domain *model.Domain) (*data.StructValue, error) {
 	return dataValue.(*data.StructValue), nil
 }
 
+func WrapDynamicIpAddressReservation(ipr *model.DynamicIpAddressReservation) (*data.StructValue, error) {
+	ipr.ResourceType = &ResourceTypeDynamicIpAddressReservation
+	childDynamicIpAddressReservation := model.ChildDynamicIpAddressReservation{
+		Id:                          ipr.Id,
+		MarkedForDelete:             ipr.MarkedForDelete,
+		ResourceType:                ResourceTypeChildDynamicIpAddressReservation,
+		DynamicIpAddressReservation: ipr,
+	}
+	dataValue, errors := NewConverter().ConvertToVapi(childDynamicIpAddressReservation, childDynamicIpAddressReservation.GetType__())
+	if len(errors) > 0 {
+		return nil, errors[0]
+	}
+	return dataValue.(*data.StructValue), nil
+}
+
 func buildInfraFromChildren(children []*data.StructValue) *model.Infra {
 	// This is the outermost layer of the hierarchy infra client.
 	// It doesn't need ID field.
