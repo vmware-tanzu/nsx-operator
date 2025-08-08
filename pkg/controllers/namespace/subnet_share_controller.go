@@ -170,7 +170,7 @@ func (r *NamespaceReconciler) processNewSharedSubnets(ctx context.Context, ns st
 	return unusedSubnets, nil
 }
 
-// checkSubnetReferences checks if a Subnet CR is referenced by any SubnetPort CRs or SubnetConnectionBindingMap CRs
+// checkSubnetReferences checks if a Subnet CR is referenced by any SubnetPort CRs, SubnetConnectionBindingMap CRs or SubnetIPReservation CRs
 func (r *NamespaceReconciler) checkSubnetReferences(ctx context.Context, ns string, subnet *v1alpha1.Subnet) (bool, error) {
 	// Check if there are any SubnetPort CRs referencing this Subnet CR
 	subnetPortList := &v1alpha1.SubnetPortList{}
@@ -195,6 +195,19 @@ func (r *NamespaceReconciler) checkSubnetReferences(ctx context.Context, ns stri
 	if len(subnetBindingList.Items) > 0 {
 		log.Info("Cannot delete Subnet CR for shared subnet because it is referenced by a SubnetConnectionBindingMap CR",
 			"Namespace", ns, "Name", subnet.Name, "SubnetBinding", subnetBindingList.Items[0].Name)
+		return true, nil
+	}
+
+	// Check if there are any SubnetIPReservation CRs referencing this Subnet CR
+	ipReservationList := &v1alpha1.SubnetIPReservationList{}
+	err = r.Client.List(ctx, ipReservationList, client.InNamespace(ns), client.MatchingFields{"spec.subnet": subnet.Name})
+	if err != nil {
+		return false, fmt.Errorf("failed to list SubnetIPReservation CRs: %w", err)
+	}
+
+	if len(ipReservationList.Items) > 0 {
+		log.Info("Cannot delete Subnet CR for shared subnet because it is referenced by a SubnetIPReservation CR",
+			"Namespace", ns, "Name", subnet.Name, "SubnetIPReservation", ipReservationList.Items[0].Name)
 		return true, nil
 	}
 

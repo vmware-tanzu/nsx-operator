@@ -18,6 +18,7 @@ const (
 	MetricResTypeSubnet                     = "subnet"
 	MetricResTypeSubnetSet                  = "subnetset"
 	MetricResTypeSubnetConnectionBindingMap = "subnetconnectionbindingmap"
+	MetricResTypeSubnetIPReservation        = "subnetipreservation"
 	MetricResTypeNetworkInfo                = "networkinfo"
 	MetricResTypeNamespace                  = "namespace"
 	MetricResTypePod                        = "pod"
