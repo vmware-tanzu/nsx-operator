@@ -157,13 +157,14 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 
 			changed = common.CompareResource(SubnetToComparable(existingSubnet), SubnetToComparable(nsxSubnet))
 			if changed {
-				// Only tags and dhcp are expected to be updated
+				// Only tags, dhcp and advancedConfig are expected to be updated
 				// inherit other fields from the existing Subnet
 				// Avoid modification on existingSubnet to ensure
 				// Subnet store is only updated after the updating succeeds.
 				updatedSubnet := *existingSubnet
 				updatedSubnet.Tags = nsxSubnet.Tags
 				updatedSubnet.SubnetDhcpConfig = nsxSubnet.SubnetDhcpConfig
+				updatedSubnet.AdvancedConfig = nsxSubnet.AdvancedConfig
 				nsxSubnet = &updatedSubnet
 			}
 		}
@@ -589,6 +590,16 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 		// Map StaticIpAllocation from NSX Subnet
 		if nsxSubnet.AdvancedConfig.StaticIpAllocation != nil && nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled != nil {
 			subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled
+		}
+
+		// Map GatewayAddresses from NSX Subnet for shared subnets
+		if len(nsxSubnet.AdvancedConfig.GatewayAddresses) != 0 {
+			subnetCR.Spec.AdvancedConfig.GatewayAddresses = nsxSubnet.AdvancedConfig.GatewayAddresses
+		}
+
+		// Map DHCPServerAddresses from NSX Subnet for shared subnets
+		if len(nsxSubnet.AdvancedConfig.DhcpServerAddresses) != 0 {
+			subnetCR.Spec.AdvancedConfig.DHCPServerAddresses = nsxSubnet.AdvancedConfig.DhcpServerAddresses
 		}
 	}
 }
