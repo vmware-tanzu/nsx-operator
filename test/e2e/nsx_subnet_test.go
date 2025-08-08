@@ -549,7 +549,7 @@ func SubnetValidate(t *testing.T) {
 	_, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetStaticDHCPServer.Namespace).Create(context.TODO(), subnetStaticDHCPServer, v1.CreateOptions{})
 	require.NotNil(t, err, "Subnet with staticIPAllocation enabled should not be created with DHCPServer mode")
 
-	// Ensure that the DHCP mode cannot be changed from DHCPServer to DHCPDeactivated.
+	// Ensure that the DHCP mode is able to be changed between DHCPServer and DHCPDeactivated.
 	subnetDHCPModify := &v1alpha1.Subnet{
 		ObjectMeta: v1.ObjectMeta{
 			Name:      "subnet-dhcp-modify",
@@ -570,7 +570,11 @@ func SubnetValidate(t *testing.T) {
 	subnetDHCPModifyCreated := createSubnetWithCheck(t, subnetDHCPModify)
 	subnetDHCPModifyCreated.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
 	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Update(context.TODO(), subnetDHCPModifyCreated, v1.UpdateOptions{})
-	require.NotNil(t, err, "Subnet DHCP mode should not be changed from DHCPServer to DHCPDeactivated")
+	require.Nil(t, err, "Subnet DHCP mode should be able to be changed from DHCPServer to DHCPDeactivated")
+	subnetDHCPModifyUpdated := assureSubnet(t, subnetTestNamespace, subnetDHCPModifyCreated.Name, "DHCPDeactivated")
+	subnetDHCPModifyUpdated.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer)
+	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Update(context.TODO(), subnetDHCPModifyUpdated, v1.UpdateOptions{})
+	require.Nil(t, err, "Subnet DHCP mode should be able to be changed from DHCPDeactivated to DHCPServer")
 
 	// Ensure that the NSX operator can populate the staticIPAllocation field in Subnet with DHCPServer mode.
 	subnetOnlyDHCP := &v1alpha1.Subnet{
