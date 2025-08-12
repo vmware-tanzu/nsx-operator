@@ -179,8 +179,12 @@ func TestBuildSubnetForSubnet(t *testing.T) {
 			Namespace: "ns-1",
 		},
 		Spec: v1alpha1.SubnetSpec{
+			IPAddresses: []string{"10.0.0.0/28"},
 			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
 				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+				DHCPServerAdditionalConfig: v1alpha1.DHCPServerAdditionalConfig{
+					ReservedIPRanges: []string{"10.0.0.4-10.0.0.10"},
+				},
 			},
 			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 				StaticIPAllocation: v1alpha1.StaticIPAllocation{
@@ -206,4 +210,5 @@ func TestBuildSubnetForSubnet(t *testing.T) {
 	newSubnet, err := service.buildSubnet(subnet2, tags, []string{})
 	assert.Nil(t, err)
 	assert.NotEqual(t, *subnet.Id, *newSubnet.Id)
+	assert.Equal(t, []string{"10.0.0.4-10.0.0.10"}, subnet.SubnetDhcpConfig.DhcpServerAdditionalConfig.ReservedIpRanges)
 }
