@@ -163,7 +163,7 @@ func AddFlags() {
 	flag.StringVar(&configFilePath, "nsxconfig", nsxOperatorDefaultConf, "NSX Operator configuration file path")
 	flag.StringVar(&ProbeAddr, "health-probe-bind-address", ":8384", "The address the probe endpoint binds to.")
 	flag.StringVar(&MetricsAddr, "metrics-bind-address", ":8093", "The address the metrics endpoint binds to.")
-	flag.IntVar(&LogLevel, "log-level", 0, "Use zap-core log system.")
+	flag.IntVar(&LogLevel, "log-level", 2, "Use zap-core log system.")
 	flag.IntVar(&WebhookServerPort, "webhook-server-port", defaultWebhookPort, "Port number to expose the controller webhook server")
 	flag.Parse()
 }
