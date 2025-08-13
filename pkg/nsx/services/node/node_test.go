@@ -123,7 +123,7 @@ func TestNodeService_GetNodeByName(t *testing.T) {
 }
 
 func TestNodeService_SyncNodeStore(t *testing.T) {
-	logf.SetLogger(logger.ZapLogger(false, 0))
+	logf.SetLogger(logger.ZapCustomLogger(false, 0).Logger)
 	service := createMockNodeService()
 	nodeName := "test-node"
 	// Test case: Node not found

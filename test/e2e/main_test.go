@@ -26,10 +26,9 @@ func testMain(m *testing.M) int {
 	flag.Parse()
 
 	if testOptions.debugLog {
-		logf.SetLogger(logger.ZapLogger(true, 2))
+		logf.SetLogger(logger.ZapCustomLogger(true, 2).Logger)
 	} else {
-		logf.SetLogger(logger.ZapLogger(false, 0))
-
+		logf.SetLogger(logger.ZapCustomLogger(false, 0).Logger)
 	}
 
 	if err := initProvider(); err != nil {

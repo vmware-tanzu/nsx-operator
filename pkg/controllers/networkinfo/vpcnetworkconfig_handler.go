@@ -83,7 +83,7 @@ func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.Upd
 		}
 	}
 	if util.CompareArraysWithoutOrder(oldNc.Spec.Subnets, newNc.Spec.Subnets) {
-		log.V(1).Info("Skip processing VPC NetworkConfig subnets", "newNc", newNc, "oldNc", oldNc)
+		log.Debug("Skip processing VPC NetworkConfig subnets", "newNc", newNc, "oldNc", oldNc)
 		return
 	}
 

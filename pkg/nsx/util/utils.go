@@ -33,10 +33,10 @@ import (
 )
 
 var log = logger.Log
+
 const (
 	HeaderAuthorization = "Authorization"
 )
-
 
 var (
 	HttpCommonError   = errors.New("received HTTP Error")
@@ -148,9 +148,9 @@ func dumpResponseBody(body []byte, statusCode int) {
 	if log.V(2).Enabled() {
 		var parsedBody interface{}
 		if err := json.Unmarshal(body, &parsedBody); err == nil {
-			log.V(2).Info("Received HTTP response", "status code", statusCode, "body", parsedBody)
+			log.Trace("Received HTTP response", "status code", statusCode, "body", parsedBody)
 		} else {
-			log.V(2).Info("Received HTTP response", "status code", statusCode, "body", string(body))
+			log.Trace("Received HTTP response", "status code", statusCode, "body", string(body))
 		}
 	}
 }
@@ -346,7 +346,7 @@ func DumpHttpRequest(request *http.Request) {
 	}
 	request.Body.Close()
 	request.Body = io.NopCloser(bytes.NewReader(body))
-	log.Trace("HTTP request", "url", request.URL, "body", string(body), "head", request.Header)
+	log.Trace("HTTP request", "url", request.URL, "body", string(body), "head", sanitizeHeaders(request.Header))
 }
 
 type NSXApiError struct {

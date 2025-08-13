@@ -25,14 +25,14 @@ func (s *IPReservationStore) Apply(i interface{}) error {
 			log.Error(err, "Failed to delete SubnetIPReservation", "SubnetIPReservation", ipr)
 			return err
 		}
-		log.V(1).Info("Deleted SubnetIPReservation from store", "SubnetIPReservation", ipr)
+		log.Debug("Deleted SubnetIPReservation from store", "SubnetIPReservation", ipr)
 	} else {
 		err := s.Add(ipr)
 		if err != nil {
 			log.Error(err, "Failed to add SubnetIPReservation", "SubnetIPReservation", ipr)
 			return err
 		}
-		log.V(1).Info("Added SubnetIPReservation to store", "SubnetIPReservation", ipr)
+		log.Debug("Added SubnetIPReservation to store", "SubnetIPReservation", ipr)
 	}
 	return nil
 }

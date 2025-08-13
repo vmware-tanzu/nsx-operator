@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	log                             = &logger.Log
+	log                             = logger.Log
 	MarkedForDelete                 = true
 	ResourceTypeSubnetIPReservation = "DynamicIpAddressReservation"
 	ipReservationCRUIDIndexKey      = "ipReservationCRUID"
@@ -74,7 +74,7 @@ func (s *IPReservationService) InitializeIPReservationStore(wg *sync.WaitGroup, 
 		log.Error(err, "failed to get all NSX Subnets")
 		return
 	}
-	log.V(2).Info("Successfully fetch all Subnet from NSX", "count", count)
+	log.Trace("Successfully fetch all Subnet from NSX", "count", count)
 	for _, obj := range subnetStore.List() {
 		subnet := obj.(*model.VpcSubnet)
 		subnetInfo, err := common.ParseVPCResourcePath(*subnet.Path)

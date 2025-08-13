@@ -528,7 +528,7 @@ func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) error {
 	log.Info("subnetport garbage collector started")
 	nsxSubnetPortSet := r.SubnetPortService.ListNSXSubnetPortIDForCR()
 	if len(nsxSubnetPortSet) == 0 {
-		log.V(2).Info("There is no SubnetPort in store")
+		log.Trace("There is no SubnetPort in store")
 	}
 
 	crSubnetPortIDsSet, err := r.SubnetPortService.ListSubnetPortIDsFromCRs(ctx)

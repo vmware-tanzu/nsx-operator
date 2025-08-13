@@ -44,7 +44,7 @@ func TestZapLoggerLevels(t *testing.T) {
 			t.Logf("Testing: %s", tc.description)
 
 			// Create logger with specified configuration
-			logger := ZapLogger(tc.debug, tc.logLevel)
+			logger := ZapCustomLogger(tc.debug, tc.logLevel).Logger
 
 			// Test various log levels
 			logger.Info("This is an info message", "test_case", tc.name, "timestamp", time.Now().Format("15:04:05"))

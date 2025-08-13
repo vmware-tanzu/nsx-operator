@@ -49,10 +49,9 @@ var Backoff = wait.Backoff{
 func Clean(ctx context.Context, cf *config.NSXOperatorConfig, log *logr.Logger, debug bool, logLevel int) error {
 	// Clean needs to support many instances which each have its own logger
 	if log == nil {
-		logg := logger.ZapLogger(debug, logLevel)
+		logg := logger.ZapCustomLogger(debug, logLevel).Logger
 		log = &logg
 	}
-	logger.InitLog(log)
 
 	log.Info("Starting NSX cleanup")
 	if err := cf.ValidateConfigFromCmd(); err != nil {

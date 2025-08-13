@@ -58,7 +58,7 @@ func main() {
 	flag.StringVar(&cluster, "cluster", "", "cluster name")
 	flag.StringVar(&envoyHost, "envoyhost", "", "envoy host")
 	flag.IntVar(&envoyPort, "envoyport", 0, "envoy port")
-	flag.IntVar(&config.LogLevel, "log-level", 0, "Use zap-core log system.")
+	flag.IntVar(&config.LogLevel, "log-level", 2, "Use zap-core log system.")
 	flag.Parse()
 
 	cf = config.NewNSXOpertorConfig()
@@ -79,6 +79,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
 	defer cancel()
 	log = logger.ZapCustomLogger(cf.DefaultConfig.Debug, config.LogLevel)
+	logger.Log = log
 	err := clean.Clean(ctx, cf, &log.Logger, cf.DefaultConfig.Debug, config.LogLevel)
 	if err != nil {
 		log.Error(err, "Failed to clean nsx resources")

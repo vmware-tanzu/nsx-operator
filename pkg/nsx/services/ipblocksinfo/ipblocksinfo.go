@@ -220,7 +220,7 @@ func (s *IPBlocksInfoService) createOrUpdateIPBlocksInfo(ctx context.Context, ip
 		util.CompareArraysWithoutOrder(ipBlocksInfoOld.PrivateTGWIPCIDRs, ipBlocksInfo.PrivateTGWIPCIDRs) &&
 		util.CompareArraysWithoutOrder(ipBlocksInfoOld.ExternalIPRanges, ipBlocksInfo.ExternalIPRanges) &&
 		util.CompareArraysWithoutOrder(ipBlocksInfoOld.PrivateTGWIPRanges, ipBlocksInfo.PrivateTGWIPRanges) {
-		log.V(1).Info("IPBlocksInfo CR is up to date, no need to update", "name", ipBlocksInfoOld.Name)
+		log.Debug("IPBlocksInfo CR is up to date, no need to update", "name", ipBlocksInfoOld.Name)
 		// no need to update if all IPBlocks do not change
 		return nil
 	}
@@ -248,13 +248,13 @@ func (s *IPBlocksInfoService) getSharedSubnetsCIDRs(vpcConfigList []v1alpha1.VPC
 	for _, subnetPath := range sharedSubnet.UnsortedList() {
 		vpcInfo, err := common.ParseVPCResourcePath(subnetPath)
 		if err != nil {
-			log.V(1).Error(fmt.Errorf("failed to parse VPC resource path: %w", err), "path", subnetPath)
+			log.Warn("failed to parse VPC resource path: err", err, "path", subnetPath)
 			continue
 		}
 		associate := fmt.Sprintf("%s:%s:%s", vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
 		subnet, err := s.subnetService.GetNSXSubnetFromCacheOrAPI(associate)
 		if err != nil {
-			log.Error(err, "failed to get nsx subnet", "subnetPath", associate)
+			log.Warn("failed to get nsx subnet: err", err, "subnetPath", associate)
 			continue
 		}
 
@@ -421,7 +421,7 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsAndRangesFromStore(pathSet sets.Set
 			ipCIDRs = append(ipCIDRs, ipblock.Cidrs...)
 			log.Trace("Successfully get cidrs for IPBlock", "path", path, "cidrs", ipblock.Cidrs)
 		} else if ipblock.Cidr != nil { //nolint:staticcheck //ipblock.Cidr is deprecated
-			ipCIDRs = append(ipCIDRs, *ipblock.Cidr)                                                 //nolint:staticcheck //ipblock.Cidr is deprecated
+			ipCIDRs = append(ipCIDRs, *ipblock.Cidr)                                             //nolint:staticcheck //ipblock.Cidr is deprecated
 			log.Trace("Successfully get cidrs for IPBlock", "path", path, "cidrs", ipblock.Cidr) //nolint:staticcheck //ipblock.Cidr is deprecated
 		} else {
 			log.Info("No CIDRs found for IPBlock", "path", path)
@@ -436,6 +436,6 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsAndRangesFromStore(pathSet sets.Set
 			}
 		}
 	}
-	log.V(2).Info("Successfully get all CIDRs/Ranges from IPBlocks", "cidrs", ipCIDRs, "ranges", ipRanges, "pathset", pathSet.UnsortedList())
+	log.Trace("Successfully get all CIDRs/Ranges from IPBlocks", "cidrs", ipCIDRs, "ranges", ipRanges, "pathset", pathSet.UnsortedList())
 	return ipCIDRs, ipRanges, nil
 }
