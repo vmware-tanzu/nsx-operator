@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	log            = &logger.Log
+	log            = logger.Log
 	SubnetSetLocks sync.Map
 )
 
@@ -221,14 +221,14 @@ func NewStatusUpdater(client k8sclient.Client, nsxConfig *config.NSXOperatorConf
 func LockSubnetSet(uuid types.UID) *sync.Mutex {
 	lock := sync.Mutex{}
 	subnetSetLock, _ := SubnetSetLocks.LoadOrStore(uuid, &lock)
-	log.V(1).Info("Lock SubnetSet", "uuid", uuid)
+	log.Debug("Lock SubnetSet", "uuid", uuid)
 	subnetSetLock.(*sync.Mutex).Lock()
 	return subnetSetLock.(*sync.Mutex)
 }
 
 func UnlockSubnetSet(uuid types.UID, subnetSetLock *sync.Mutex) {
 	if subnetSetLock != nil {
-		log.V(1).Info("Unlock SubnetSet", "uuid", uuid)
+		log.Debug("Unlock SubnetSet", "uuid", uuid)
 		subnetSetLock.Unlock()
 	}
 }

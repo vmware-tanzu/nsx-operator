@@ -107,7 +107,7 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 	_ = deleteYAML(nsIsolationPath, ns)
 	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		resp, err := testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(ctx, securityPolicyName, v1.GetOptions{})
-		log.V(2).Info("Check resource", "resp", resp)
+		log.Trace("Check resource", "resp", resp)
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return true, nil
@@ -169,7 +169,7 @@ func testSecurityPolicyAddDeleteRule(t *testing.T) {
 
 	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		resp, err := testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(ctx, securityPolicyName, v1.GetOptions{})
-		log.V(2).Info("Check resource", "resp", resp)
+		log.Trace("Check resource", "resp", resp)
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return true, nil
@@ -255,7 +255,7 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 
 	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		resp, err := testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(ctx, securityPolicyName, v1.GetOptions{})
-		log.V(2).Info("Check resource", "resp", resp)
+		log.Trace("Check resource", "resp", resp)
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return true, nil
@@ -306,7 +306,7 @@ func testSecurityPolicyNamedPortWithoutPod(t *testing.T) {
 	defer deleteYAML(yamlPath, nsWeb)
 
 	psb, err := testData.deploymentWaitForNames(defaultTimeout, nsWeb, labelWeb)
-	log.V(2).Info("Pods", "pods", psb)
+	log.Trace("Pods", "pods", psb)
 	assert.NoError(t, err, "Error when waiting for IP for Pod %s", webA)
 	assureSecurityPolicyReady(t, nsWeb, securityPolicyCRName)
 
@@ -404,7 +404,7 @@ func assureSecurityPolicyReady(t *testing.T, ns, spName string) {
 	defer deadlineCancel()
 	err := wait.PollUntilContextTimeout(deadlineCtx, timeInterval, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		resp, err := testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(context.Background(), spName, v1.GetOptions{})
-		log.V(2).Info("Get resources", "SecurityPolicies", resp, "Namespace", ns, "Name", spName)
+		log.Trace("Get resources", "SecurityPolicies", resp, "Namespace", ns, "Name", spName)
 		if err != nil {
 			return false, fmt.Errorf("error when waiting for  %s", spName)
 		}

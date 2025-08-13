@@ -19,7 +19,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -65,7 +64,7 @@ import (
 
 var (
 	scheme               = runtime.NewScheme()
-	log                  = logger.Log
+	log                  logger.CustomLogger
 	cf                   *config.NSXOperatorConfig
 	nsxOperatorNamespace = "default"
 	nsxOperatorPodName   = "default"
@@ -88,7 +87,7 @@ func init() {
 		os.Exit(1)
 	}
 
-	logf.SetLogger(logger.ZapLogger(cf.DefaultConfig.Debug, config.LogLevel))
+	log = logger.ZapCustomLogger(cf.DefaultConfig.Debug, config.LogLevel)
 
 	if os.Getenv("NSX_OPERATOR_NAMESPACE") != "" {
 		nsxOperatorNamespace = os.Getenv("NSX_OPERATOR_NAMESPACE")
@@ -109,7 +108,7 @@ func init() {
 }
 
 func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
-	// Generate webhook certificates, and start refreshing webhook certificates periodically
+	// Generate webhook certificates and start refreshing webhook certificates periodically
 	if cf.CoeConfig.EnableVPCNetwork {
 		if err := pkgutil.GenerateWebhookCerts(); err != nil {
 			log.Error(err, "Failed to generate webhook certificates")
@@ -374,8 +373,8 @@ func checkLicense(nsxClient *nsx.Client, interval int) {
 	if err != nil {
 		os.Exit(1)
 	}
-	// if there is no dfw license enabled, check license more frequently
-	// if customer set it in config, use it, else use licenseTimeoutNoDFW
+	// if there is no dfw license enabled, check the license more frequently
+	// if the customer set it in config, use it, else use licenseTimeoutNoDFW
 	if interval == 0 {
 		if !util.IsLicensed(util.FeatureDFW) {
 			interval = config.LicenseIntervalForDFW

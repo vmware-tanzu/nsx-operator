@@ -32,11 +32,11 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
+var log = logger.Log
 const (
 	HeaderAuthorization = "Authorization"
 )
 
-var log = &logger.Log
 
 var (
 	HttpCommonError   = errors.New("received HTTP Error")
@@ -156,8 +156,10 @@ func dumpResponseBody(body []byte, statusCode int) {
 }
 
 func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorDetail, error) {
+	log.Trace("HTTP response", "status code", statusCode, "body", string(body))
 	ec := ErrorDetail{StatusCode: statusCode}
 	if len(body) == 0 {
+		log.Debug("body length is 0")
 		return ec, nil
 	}
 	var res responseBody
@@ -283,6 +285,9 @@ func HandleHTTPResponse(response *http.Response, result interface{}, debug bool)
 		return nil, nil
 	}
 
+	if debug {
+		log.Trace("Received HTTP response", "response", string(body))
+	}
 	if err := json.Unmarshal(body, result); err != nil {
 		log.Error(err, "Failed to convert HTTP response to result", "result type", result)
 		return err, body
@@ -341,7 +346,7 @@ func DumpHttpRequest(request *http.Request) {
 	}
 	request.Body.Close()
 	request.Body = io.NopCloser(bytes.NewReader(body))
-	log.V(2).Info("HTTP request", "url", request.URL, "body", string(body), "head", sanitizeHeaders(request.Header))
+	log.Trace("HTTP request", "url", request.URL, "body", string(body), "head", request.Header)
 }
 
 type NSXApiError struct {

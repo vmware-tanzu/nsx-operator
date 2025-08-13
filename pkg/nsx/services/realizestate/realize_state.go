@@ -16,7 +16,7 @@ import (
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
-var log = &logger.Log
+var log = logger.Log
 
 type RealizeStateService struct {
 	common.Service

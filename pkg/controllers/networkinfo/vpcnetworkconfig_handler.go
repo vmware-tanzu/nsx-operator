@@ -46,11 +46,11 @@ func (h *VPCNetworkConfigurationHandler) Delete(ctx context.Context, e event.Del
 }
 
 func (h *VPCNetworkConfigurationHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	log.V(1).Info("VPCNetworkConfiguration generic event, do nothing")
+	log.Debug("VPCNetworkConfiguration generic event, do nothing")
 }
 
 func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	log.V(1).Info("Start processing VPC NetworkConfig update event")
+	log.Debug("Start processing VPC NetworkConfig update event")
 	newNc := e.ObjectNew.(*v1alpha1.VPCNetworkConfiguration)
 
 	oldNc := e.ObjectOld.(*v1alpha1.VPCNetworkConfiguration)

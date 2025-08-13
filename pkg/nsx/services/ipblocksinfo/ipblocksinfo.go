@@ -22,7 +22,7 @@ import (
 )
 
 var (
-	log                 = &logger.Log
+	log                 = logger.Log
 	ipBlocksInfoCRDName = "ip-blocks-info"
 	syncInterval        = 10 * time.Minute
 	retryInterval       = 30 * time.Second
@@ -150,7 +150,7 @@ func maskContains(sMask, tMask net.IPMask) bool {
 }
 
 func (s *IPBlocksInfoService) UpdateIPBlocksInfo(ctx context.Context, vpcConfigCR *v1alpha1.VPCNetworkConfiguration) error {
-	log.V(1).Info("update IPBlocksInfo for VPCNetworkConfiguration", "name", vpcConfigCR.Name)
+	log.Debug("update IPBlocksInfo for VPCNetworkConfiguration", "name", vpcConfigCR.Name)
 	return s.updateIPBlocksInfo(ctx, []v1alpha1.VPCNetworkConfiguration{*vpcConfigCR}, true)
 }
 
@@ -179,7 +179,7 @@ func (s *IPBlocksInfoService) updateIPBlocksInfo(ctx context.Context, vpcConfigL
 }
 
 func (s *IPBlocksInfoService) SyncIPBlocksInfo(ctx context.Context) error {
-	log.V(1).Info("start to synchronize IPBlocksInfo")
+	log.Debug("start to synchronize IPBlocksInfo")
 	// List all VpcNetworkConfiguration CRs
 	crdVpcNetworkConfigurationList := &v1alpha1.VPCNetworkConfigurationList{}
 	err := s.Client.List(ctx, crdVpcNetworkConfigurationList)
@@ -206,7 +206,7 @@ func (s *IPBlocksInfoService) createOrUpdateIPBlocksInfo(ctx context.Context, ip
 				log.Error(err, "failed to create IPBlocksInfo CR", "name", ipBlocksInfo.Name)
 				return err
 			}
-			log.V(1).Info("Successfully created IPBlocksInfo CR", "IPBlocksInfo", ipBlocksInfo)
+			log.Debug("Successfully created IPBlocksInfo CR", "IPBlocksInfo", ipBlocksInfo)
 			return err
 		}
 	}
@@ -234,7 +234,7 @@ func (s *IPBlocksInfoService) createOrUpdateIPBlocksInfo(ctx context.Context, ip
 		log.Error(err, "failed to update IPBlocksInfo CR", "name", ipBlocksInfoOld.Name)
 		return err
 	}
-	log.V(1).Info("Successfully updated IPBlocksInfo CR", "IPBlocksInfo", ipBlocksInfoOld)
+	log.Debug("Successfully updated IPBlocksInfo CR", "IPBlocksInfo", ipBlocksInfoOld)
 	return nil
 }
 
@@ -317,7 +317,7 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha
 		log.Error(err, "failed to query VPC attachment")
 		return
 	}
-	log.V(2).Info("successfully fetch all VPC Attachment from NSX", "count", count)
+	log.Trace("successfully fetch all VPC Attachment from NSX", "count", count)
 
 	for vpcPath := range vpcs {
 		var vpcResInfo common.VPCResourceInfo
@@ -331,10 +331,10 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha
 		vpcAttachments := vpcAttachmentStore.GetByVpcPath(vpcPath)
 		// pre-created VPC may not have vpc attachments
 		if len(vpcAttachments) == 0 {
-			log.V(1).Info("No VPC attachment found", "VPC Path", vpcPath)
+			log.Debug("No VPC attachment found", "VPC Path", vpcPath)
 			continue
 		}
-		log.V(2).Info("Successfully fetch VPC attachment", "path", vpcPath, "VPC Attachment", vpcAttachments[0])
+		log.Trace("Successfully fetch VPC attachment", "path", vpcPath, "VPC Attachment", vpcAttachments[0])
 		vpcConnectivityProfile := vpcAttachments[0].VpcConnectivityProfile
 		if vpcProjectPath == s.defaultProject {
 			vpcConnectivityProfileProjectMap[*vpcConnectivityProfile] = true
@@ -356,7 +356,7 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha
 	if err != nil {
 		return
 	}
-	log.V(2).Info("successfully fetch all VPCConnectivityProfile from NSX", "count", count)
+	log.Trace("successfully fetch all VPCConnectivityProfile from NSX", "count", count)
 
 	for profilePath, isDefault := range vpcConnectivityProfileProjectMap {
 		obj := vpcConnectivityProfileStore.GetByKey(profilePath)
@@ -365,7 +365,7 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha
 			return
 		}
 		vpcConnectivityProfile := obj.(*model.VpcConnectivityProfile)
-		log.V(2).Info("successfully fetch VPCConnectivityProfile", "path", profilePath, "isDefault", isDefault)
+		log.Trace("successfully fetch VPCConnectivityProfile", "path", profilePath, "isDefault", isDefault)
 		// save external_ip_blocks path in set for all profile
 		for _, externalIPBlock := range vpcConnectivityProfile.ExternalIpBlocks {
 			externalIPBlockPaths.Insert(externalIPBlock)
@@ -388,7 +388,7 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha
 	if err != nil {
 		return
 	}
-	log.V(2).Info("successfully fetch all IPBlocks from NSX", "count", count)
+	log.Debug("successfully fetch all IPBlocks from NSX", "count", count)
 	return s.getCIDRsRangesFromStore(externalIPBlockPaths, privateTgwIPBlockPaths, ipBlockStore)
 }
 
@@ -419,15 +419,15 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsAndRangesFromStore(pathSet sets.Set
 		ipblock := obj.(*model.IpAddressBlock)
 		if ipblock.Cidrs != nil {
 			ipCIDRs = append(ipCIDRs, ipblock.Cidrs...)
-			log.V(2).Info("Successfully get cidrs for IPBlock", "path", path, "cidrs", ipblock.Cidrs)
+			log.Trace("Successfully get cidrs for IPBlock", "path", path, "cidrs", ipblock.Cidrs)
 		} else if ipblock.Cidr != nil { //nolint:staticcheck //ipblock.Cidr is deprecated
 			ipCIDRs = append(ipCIDRs, *ipblock.Cidr)                                                 //nolint:staticcheck //ipblock.Cidr is deprecated
-			log.V(2).Info("Successfully get cidrs for IPBlock", "path", path, "cidrs", ipblock.Cidr) //nolint:staticcheck //ipblock.Cidr is deprecated
+			log.Trace("Successfully get cidrs for IPBlock", "path", path, "cidrs", ipblock.Cidr) //nolint:staticcheck //ipblock.Cidr is deprecated
 		} else {
 			log.Info("No CIDRs found for IPBlock", "path", path)
 		}
 		if ipblock.Ranges != nil {
-			log.V(2).Info("Successfully get ranges for IPBlock", "path", path, "ranges", ipblock.Ranges)
+			log.Trace("Successfully get ranges for IPBlock", "path", path, "ranges", ipblock.Ranges)
 			for _, r := range ipblock.Ranges {
 				ipRanges = append(ipRanges, v1alpha1.IPPoolRange{
 					Start: *r.Start,

@@ -139,7 +139,7 @@ func (ck *NSXHealthChecker) CheckNSXHealth(req *http.Request) error {
 	if GREEN == health || ORANGE == health {
 		return nil
 	} else {
-		log.V(1).Info("NSX cluster status is down: ", " Current status: ", health)
+		log.Debug("NSX cluster status is down: ", " Current status: ", health)
 		return errors.New("NSX Current Status is down")
 	}
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
-var log = &logger.Log
+var log = logger.Log
 
 type Comparable interface {
 	Key() string
@@ -42,16 +42,16 @@ func CompareResources(existing []Comparable, expected []Comparable) (changed []C
 			if isChanged := CompareResource(existed_item, expected_item); !isChanged {
 				continue
 			}
-			log.V(1).Info("Resource changed", "existing", existed_item, "expected", expected_item)
+			log.Debug("Resource changed", "existing", existed_item, "expected", expected_item)
 		}
 		changed = append(changed, expected_item)
 	}
 	for key, existed_item := range existingMap {
 		if _, ok := expectedMap[key]; !ok {
-			log.V(1).Info("Resource stale", "existing", existed_item)
+			log.Debug("Resource stale", "existing", existed_item)
 			stale = append(stale, existed_item)
 		}
 	}
-	log.V(1).Info("Resources differ", "stale", stale, "changed", changed)
+	log.Debug("Resources differ", "stale", stale, "changed", changed)
 	return changed, stale
 }

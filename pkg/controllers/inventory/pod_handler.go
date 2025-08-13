@@ -53,8 +53,8 @@ func (c *InventoryController) handlePod(obj interface{}) {
 			return
 		}
 	}
-	log.V(1).Info("Inventory processing Pod", "namespace", pod.Namespace, "name", pod.Name)
+	log.Debug("Inventory processing Pod", "namespace", pod.Namespace, "name", pod.Name)
 	key, _ := keyFunc(pod)
-	log.V(1).Info("Adding Pod key to inventory object queue", "Pod key", key)
+	log.Debug("Adding Pod key to inventory object queue", "Pod key", key)
 	c.inventoryObjectQueue.Add(inventory.InventoryKey{InventoryType: inventory.ContainerApplicationInstance, ExternalId: string(pod.UID), Key: key})
 }

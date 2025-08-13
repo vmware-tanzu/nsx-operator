@@ -119,7 +119,7 @@ func (c *ClusterHealthChecker) CheckClusterHealth() HealthStatus {
 
 	for checkItem, checkHandler := range handlers {
 		if err := checkHandler(); err != nil {
-			log.V(1).Info("Health check failed", "component", checkItem, "error", err)
+			log.Debug("Health check failed", "component", checkItem, "error", err)
 			hasErrors = true
 		}
 	}
@@ -201,14 +201,14 @@ func (r *SystemHealthReporter) updateReportInterval(interval int) {
 	newInterval := time.Duration(interval) * time.Second
 	r.ticker.Reset(newInterval)
 	r.reportInterval = newInterval
-	log.V(1).Info("Updated health report interval", "interval", interval)
+	log.Debug("Updated health report interval", "interval", interval)
 }
 
 // reportHealthStatus reports the current health status to NSX and returns the reporting interval
 func (r *SystemHealthReporter) reportHealthStatus() (int, error) {
 	healthStatus := r.healthChecker.CheckClusterHealth()
 
-	log.V(1).Info("Reporting health status", "status", healthStatus, "cluster", r.clusterID)
+	log.Debug("Reporting health status", "status", healthStatus, "cluster", r.clusterID)
 
 	// Send health status to NSX Manager
 	response, err := r.sendHealthStatusToNSX(healthStatus)
@@ -218,7 +218,7 @@ func (r *SystemHealthReporter) reportHealthStatus() (int, error) {
 
 	// Extract and validate an interval from response
 	interval := r.extractIntervalFromResponse(response)
-	log.V(1).Info("Health status reported", "cluster", r.clusterID, "status", healthStatus, "interval", interval)
+	log.Debug("Health status reported", "cluster", r.clusterID, "status", healthStatus, "interval", interval)
 
 	return interval, nil
 }

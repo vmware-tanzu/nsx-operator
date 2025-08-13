@@ -49,7 +49,7 @@ import (
 const resourceTypeAddressBinding = "AddressBinding"
 
 var (
-	log                     = &logger.Log
+	log                     = logger.Log
 	MetricResTypeSubnetPort = common.MetricResTypeSubnetPort
 )
 
@@ -539,7 +539,7 @@ func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) error {
 	var errList []error
 	diffSet := nsxSubnetPortSet.Difference(crSubnetPortIDsSet)
 	for elem := range diffSet {
-		log.V(1).Info("GC collected SubnetPort CR", "UID", elem)
+		log.Debug("GC collected SubnetPort CR", "UID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
 		err = r.SubnetPortService.DeleteSubnetPortById(elem)
 		if err != nil {
@@ -642,7 +642,7 @@ func updateSubnetPortStatusConditions(client client.Client, ctx context.Context,
 	}
 	if conditionsUpdated {
 		client.Status().Update(ctx, subnetPort)
-		log.V(1).Info("Updated SubnetPort CR", "Name", subnetPort.Name, "Namespace", subnetPort.Namespace,
+		log.Debug("Updated SubnetPort CR", "Name", subnetPort.Name, "Namespace", subnetPort.Namespace,
 			"New Conditions", newConditions)
 	}
 }
@@ -651,7 +651,7 @@ func mergeSubnetPortStatusCondition(subnetPort *v1alpha1.SubnetPort, newConditio
 	matchedCondition := getExistingConditionOfType(newCondition.Type, subnetPort.Status.Conditions)
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {
-		log.V(2).Info("conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+		log.Trace("conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return false
 	}
 
@@ -700,7 +700,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 	if existingSubnetPort != nil && existingSubnetPort.ParentPath != nil && len(*existingSubnetPort.ParentPath) > 0 {
 		subnetPath = *existingSubnetPort.ParentPath
 		// If there is a SubnetPath in store, there is a subnetport in NSX, the subnetport is not created first time.
-		log.V(1).Info("NSX SubnetPort had been created, returning the existing NSX Subnet path", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
+		log.Debug("NSX SubnetPort had been created, returning the existing NSX Subnet path", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
 		existing = true
 		return
 	}
@@ -713,7 +713,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 				return
 			}
 			existing = true
-			log.V(1).Info("NSX SubnetPort will be restored on the existing NSX Subnet", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
+			log.Debug("NSX SubnetPort will be restored on the existing NSX Subnet", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
 			return
 		}
 	}
@@ -833,7 +833,7 @@ func (r *SubnetPortReconciler) addressBindingMapFunc(ctx context.Context, obj cl
 	})
 	if ab.Spec.InterfaceName == "" {
 		if len(spList.Items) == 1 {
-			log.V(1).Info("Enqueue SubnetPort for default AddressBinding", "namespace", ab.Namespace, "name", ab.Name, "SubnetPortName", spList.Items[0].Name, "VM", ab.Spec.VMName)
+			log.Debug("Enqueue SubnetPort for default AddressBinding", "namespace", ab.Namespace, "name", ab.Name, "SubnetPortName", spList.Items[0].Name, "VM", ab.Spec.VMName)
 		} else {
 			// Reconcile the oldest SubnetPort to check if the ExternalAddress should be removed.
 			log.Info("Found multiple SubnetPorts for a VM, enqueue oldest SubnetPort", "namespace", ab.Namespace, "name", ab.Name, "subnetPortCount", len(spList.Items), "VM", ab.Spec.VMName)
@@ -853,7 +853,7 @@ func (r *SubnetPortReconciler) addressBindingMapFunc(ctx context.Context, obj cl
 			continue
 		}
 		if ab.Spec.InterfaceName == port {
-			log.V(1).Info("Enqueue SubnetPort for AddressBinding", "namespace", ab.Namespace, "name", ab.Name, "SubnetPortName", spList.Items[0].Name, "VM", ab.Spec.VMName, "port", port)
+			log.Debug("Enqueue SubnetPort for AddressBinding", "namespace", ab.Namespace, "name", ab.Name, "SubnetPortName", spList.Items[0].Name, "VM", ab.Spec.VMName, "port", port)
 
 			return []reconcile.Request{{
 				NamespacedName: types.NamespacedName{
@@ -981,7 +981,7 @@ func setAddressBindingStatus(client client.Client, ctx context.Context, ab *v1al
 		ab = ab.DeepCopy()
 		ab.Status.IPAddress = ipAddress
 		err := client.Status().Update(ctx, ab)
-		log.V(1).Info("Updated AddressBinding CR status", "namespace", ab.Namespace, "name", ab.Name, "status", ab.Status, "err", err)
+		log.Debug("Updated AddressBinding CR status", "namespace", ab.Namespace, "name", ab.Name, "status", ab.Status, "err", err)
 	}
 }
 
@@ -1017,7 +1017,7 @@ func mergeCondition(existingConditions []v1alpha1.Condition, newCondition *v1alp
 		newConditionCopy.LastTransitionTime = matchedCondition.LastTransitionTime
 	}
 	if reflect.DeepEqual(matchedCondition, newConditionCopy) {
-		log.V(2).Info("conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+		log.Trace("conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return existingConditions, false
 	}
 

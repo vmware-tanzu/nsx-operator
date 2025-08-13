@@ -50,8 +50,8 @@ func (c *InventoryController) handleService(obj interface{}) {
 			return
 		}
 	}
-	log.V(1).Info("Inventory processing Service", "Service", service.Name, "Namespace", service.Namespace)
+	log.Debug("Inventory processing Service", "Service", service.Name, "Namespace", service.Namespace)
 	key, _ := keyFunc(service)
-	log.V(1).Info("Adding Service key to inventory object queue", "Service key", key)
+	log.Debug("Adding Service key to inventory object queue", "Service key", key)
 	c.inventoryObjectQueue.Add(inventory.InventoryKey{InventoryType: inventory.ContainerApplication, ExternalId: string(service.UID), Key: key})
 }

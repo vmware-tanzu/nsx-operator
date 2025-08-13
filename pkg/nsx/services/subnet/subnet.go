@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	log                = &logger.Log
+	log                = logger.Log
 	MarkedForDelete    = true
 	ResourceTypeSubnet = common.ResourceTypeSubnet
 	SubnetTypeError    = errors.New("unsupported type")
@@ -680,12 +680,12 @@ func (service *SubnetService) GetNSXSubnetFromCacheOrAPI(associatedResource stri
 	service.nsxSubnetCacheMutex.RUnlock()
 
 	if exists && cachedData.Subnet != nil {
-		log.V(1).Info("Found NSX subnet in cache", "AssociatedResource", associatedResource)
+		log.Debug("Found NSX subnet in cache", "AssociatedResource", associatedResource)
 		return cachedData.Subnet, nil
 	}
 
 	// Get the NSX subnet from the NSX API
-	log.V(1).Info("NSX subnet not in cache, fetching from NSX API", "AssociatedResource", associatedResource)
+	log.Debug("NSX subnet not in cache, fetching from NSX API", "AssociatedResource", associatedResource)
 	nsxSubnet, err := service.GetNSXSubnetByAssociatedResource(associatedResource)
 	if err != nil {
 		log.Error(err, "Failed to get NSX Subnet", "AssociatedResource", associatedResource)
@@ -706,12 +706,12 @@ func (service *SubnetService) GetSubnetStatusFromCacheOrAPI(nsxSubnet *model.Vpc
 	service.nsxSubnetCacheMutex.RUnlock()
 
 	if exists && len(cachedData.StatusList) > 0 {
-		log.V(1).Info("Found status list in cache", "AssociatedResource", associatedResource)
+		log.Debug("Found status list in cache", "AssociatedResource", associatedResource)
 		return cachedData.StatusList, nil
 	}
 
 	// Get subnet status from NSX
-	log.V(1).Info("Status list not in cache, fetching from NSX API", "AssociatedResource", associatedResource)
+	log.Debug("Status list not in cache, fetching from NSX API", "AssociatedResource", associatedResource)
 	statusList, err := service.GetSubnetStatus(nsxSubnet)
 	if err != nil {
 		log.Error(err, "Failed to get Subnet status", "AssociatedResource", associatedResource)
