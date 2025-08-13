@@ -58,7 +58,7 @@ func main() {
 	flag.StringVar(&cluster, "cluster", "", "cluster name")
 	flag.StringVar(&envoyHost, "envoyhost", "", "envoy host")
 	flag.IntVar(&envoyPort, "envoyport", 0, "envoy port")
-	flag.IntVar(&config.LogLevel, "log-level", 0, "Use zap-core log system.")
+	flag.IntVar(&config.LogLevel, "log-level", 2, "Use zap-core log system.")
 	flag.Parse()
 
 	cf = config.NewNSXOpertorConfig()

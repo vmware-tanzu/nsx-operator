@@ -356,7 +356,7 @@ func (service *SubnetPortService) DeleteSubnetPort(nsxSubnetPort *model.VpcSubne
 	// delete DHCP static binding if needed
 	dhcpStaticBinding := service.DHCPStaticBindingStore.GetByKey(*nsxSubnetPort.Id)
 	if dhcpStaticBinding == nil || dhcpStaticBinding.Id == nil {
-		log.V(2).Info("DHCP static binding is not found in store, skip deleting it")
+		log.Trace("DHCP static binding is not found in store, skip deleting it")
 	} else {
 		err := service.DeleteDHCPStaticBinding(subnetPortInfo, *dhcpStaticBinding.Id)
 		if err != nil {
@@ -397,7 +397,7 @@ func (service *SubnetPortService) DeleteSubnetPortById(portID string) error {
 	// delete DHCP static binding if exists
 	dhcpStaticBinding := service.DHCPStaticBindingStore.GetByKey(portID)
 	if dhcpStaticBinding == nil || dhcpStaticBinding.Id == nil {
-		log.V(2).Info("DHCP static binding is not found in store, skip deleting it")
+		log.Trace("DHCP static binding is not found in store, skip deleting it")
 	} else {
 		staticBindingInfo, _ := servicecommon.ParseVPCResourcePath(*dhcpStaticBinding.Path)
 		err := service.DeleteDHCPStaticBinding(staticBindingInfo, portID)
@@ -674,7 +674,7 @@ func (service *SubnetPortService) DeletePortCount(path string) {
 }
 
 func (service *SubnetPortService) ListIDsFromDhcpStaticBindingStore() sets.Set[string] {
-	log.V(2).Info("listing subnet port CR UIDs from DHCPStaticBindingStore")
+	log.Trace("listing subnet port CR UIDs from DHCPStaticBindingStore")
 	subnetPortSet := sets.New[string]()
 	for _, subnetPortCRUid := range service.DHCPStaticBindingStore.ListIndexFuncValues(servicecommon.TagScopeSubnetPortCRUID).UnsortedList() {
 		subnetPortIDs, _ := service.DHCPStaticBindingStore.IndexKeys(servicecommon.TagScopeSubnetPortCRUID, subnetPortCRUid)

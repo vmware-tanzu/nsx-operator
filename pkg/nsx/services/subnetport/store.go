@@ -196,13 +196,13 @@ func (staticBindingStore *DHCPStaticBindingStore) Apply(i interface{}) error {
 	staticBinding := i.(*model.DhcpV4StaticBindingConfig)
 	if staticBinding.MarkedForDelete != nil && *staticBinding.MarkedForDelete {
 		err := staticBindingStore.Delete(staticBinding)
-		log.V(1).Info("delete DhcpV4StaticBindingConfig from store", "staticBinding", staticBinding)
+		log.Debug("delete DhcpV4StaticBindingConfig from store", "staticBinding", staticBinding)
 		if err != nil {
 			return err
 		}
 	} else {
 		err := staticBindingStore.Add(staticBinding)
-		log.V(1).Info("add DhcpV4StaticBindingConfig to store", "staticBinding", staticBinding)
+		log.Debug("add DhcpV4StaticBindingConfig to store", "staticBinding", staticBinding)
 		if err != nil {
 			return err
 		}

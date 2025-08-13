@@ -147,7 +147,7 @@ func ZapLogger(cfDebug bool, cfLogLevel int) logr.Logger {
 		FormatFieldValue: func(i interface{}) string {
 			return fmt.Sprintf("%s", i)
 		},
-		FieldsExclude: []string{},
+		FieldsExclude: []string{"logger", "v"},
 	}
 
 	// Set the log level based on the calculated level
@@ -219,7 +219,7 @@ func ZapCustomLogger(cfDebug bool, cfLogLevel int) CustomLogger {
 		FormatFieldValue: func(i interface{}) string {
 			return fmt.Sprintf("%s", i)
 		},
-		FieldsExclude: []string{},
+		FieldsExclude: []string{"logger", "v"},
 	}
 
 	// Set the log level based on the calculated level
