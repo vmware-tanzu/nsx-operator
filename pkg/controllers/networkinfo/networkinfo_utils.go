@@ -159,7 +159,7 @@ func mergeStatusCondition(conditions *[]v1alpha1.Condition, newCondition *v1alph
 	}
 
 	if reflect.DeepEqual(existingCondition, newCondition) {
-		log.V(2).Info("conditions already match", "New Condition", newCondition, "Existing Condition", existingCondition)
+		log.Trace("conditions already match", "New Condition", newCondition, "Existing Condition", existingCondition)
 		return false
 	}
 

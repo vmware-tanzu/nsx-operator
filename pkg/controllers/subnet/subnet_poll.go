@@ -43,7 +43,7 @@ func (r *SubnetReconciler) pollAllSharedSubnets() {
 
 	// Process each unique associatedResource
 	for associatedResource, namespacedNames := range r.SubnetService.SharedSubnetResourceMap {
-		log.V(1).Info("Polling shared Subnets", "AssociatedResource", associatedResource, "SubnetCount", len(namespacedNames))
+		log.Debug("Polling shared Subnets", "AssociatedResource", associatedResource, "SubnetCount", len(namespacedNames))
 
 		// Update the nsxSubnetCache with the latest NSX subnet data and status list
 		// This is done here to ensure the cache is updated during polling
@@ -52,7 +52,7 @@ func (r *SubnetReconciler) pollAllSharedSubnets() {
 		var err error
 
 		// Get NSX subnet from API (not from cache during polling to ensure fresh data)
-		log.V(1).Info("Fetching NSX subnet during polling", "AssociatedResource", associatedResource)
+		log.Debug("Fetching NSX subnet during polling", "AssociatedResource", associatedResource)
 		nsxSubnet, err = r.SubnetService.GetNSXSubnetByAssociatedResource(associatedResource)
 		if err != nil {
 			r.handleNSXSubnetError(ctx, err, namespacedNames, associatedResource, "NSX subnet")
@@ -60,7 +60,7 @@ func (r *SubnetReconciler) pollAllSharedSubnets() {
 		}
 
 		// Get subnet status from NSX (not from cache during polling to ensure fresh data)
-		log.V(1).Info("Fetching status list during polling", "AssociatedResource", associatedResource)
+		log.Debug("Fetching status list during polling", "AssociatedResource", associatedResource)
 		statusList, err = r.SubnetService.GetSubnetStatus(nsxSubnet)
 		if err != nil {
 			r.handleNSXSubnetError(ctx, err, namespacedNames, associatedResource, "subnet status")
@@ -79,7 +79,7 @@ func (r *SubnetReconciler) pollAllSharedSubnets() {
 
 	for associatedResource := range r.SubnetService.NSXSubnetCache {
 		if _, ok := r.SubnetService.SharedSubnetResourceMap[associatedResource]; !ok {
-			log.V(1).Info("Remove Subnet from cache", "AssociatedResource", associatedResource)
+			log.Debug("Remove Subnet from cache", "AssociatedResource", associatedResource)
 			r.SubnetService.RemoveSubnetFromCache(associatedResource, "no valid subnets")
 		}
 	}
