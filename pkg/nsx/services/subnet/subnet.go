@@ -563,6 +563,8 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 	}
 
 	// Map AdvancedConfig
+	enabled := false
+	subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = &enabled
 	if nsxSubnet.AdvancedConfig != nil {
 		// Map EnableVLANExtension from NSX Subnet
 		if nsxSubnet.AdvancedConfig.EnableVlanExtension != nil {
