@@ -36,7 +36,7 @@ import (
 )
 
 var (
-	log              = &logger.Log
+	log              = logger.Log
 	MetricResTypePod = common.MetricResTypePod
 )
 
@@ -98,7 +98,7 @@ func updatePodStatusConditions(client client.Client, ctx context.Context, pod *v
 		if err != nil {
 			log.Error(err, "Failed to update Pod status", "Name", pod.Name, "Namespace", pod.Namespace)
 		}
-		log.V(2).Info("Updated pod", "Name", pod.Name, "Namespace", pod.Namespace,
+		log.Trace("Updated pod", "Name", pod.Name, "Namespace", pod.Namespace,
 			"New Conditions", newConditions)
 	}
 }
@@ -107,7 +107,7 @@ func mergePodStatusCondition(pod *v1.Pod, newCondition *v1.PodCondition) bool {
 	matchedCondition := getExistingConditionOfType(newCondition.Type, pod.Status.Conditions)
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {
-		log.V(2).Info("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return false
 	}
 
@@ -348,7 +348,7 @@ func (r *PodReconciler) CollectGarbage(ctx context.Context) error {
 	var errList []error
 	diffSet := nsxSubnetPortSet.Difference(PodSet)
 	for elem := range diffSet {
-		log.V(1).Info("GC collected Pod", "NSXSubnetPortID", elem)
+		log.Debug("GC collected Pod", "NSXSubnetPortID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
 		err = r.SubnetPortService.DeleteSubnetPortById(elem)
 		if err != nil {
@@ -372,7 +372,7 @@ func (r *PodReconciler) getSubnetByPod(pod *v1.Pod, subnetSetUID string) (string
 func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (bool, string, error) {
 	subnetPath := r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(pod.GetUID())
 	if len(subnetPath) > 0 {
-		log.V(1).Info("NSX SubnetPort had been created, returning the existing NSX Subnet path", "pod.UID", pod.UID, "subnetPath", subnetPath)
+		log.Debug("NSX SubnetPort had been created, returning the existing NSX Subnet path", "pod.UID", pod.UID, "subnetPath", subnetPath)
 		return true, subnetPath, nil
 	}
 	subnetSet, err := common.GetDefaultSubnetSetByNamespace(r.SubnetPortService.Client, pod.Namespace, servicecommon.LabelDefaultPodSubnetSet)
@@ -388,7 +388,7 @@ func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (b
 				log.Error(err, "Failed to find Subnet for restored Pod", "Pod", pod)
 				return false, "", err
 			}
-			log.V(1).Info("NSX SubnetPort will be restored on the existing NSX Subnet", "pod.UID", pod.UID, "subnetPath", subnetPath)
+			log.Debug("NSX SubnetPort will be restored on the existing NSX Subnet", "pod.UID", pod.UID, "subnetPath", subnetPath)
 			return true, subnetPath, nil
 		}
 	}

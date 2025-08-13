@@ -23,15 +23,15 @@ const (
 )
 
 var (
-	Log logr.Logger
+	Log CustomLogger
 )
 
 func init() {
-	Log = logf.Log.WithName("nsx-operator")
+	logrLogger := logf.Log.WithName("nsx-operator")
+	Log = NewCustomLogger(logrLogger)
 }
-
 func InitLog(log *logr.Logger) {
-	Log = *log
+	Log = NewCustomLogger(*log)
 }
 
 // CustomLogger wraps a logr.Logger to provide TRACE, DEBUG, WARN, INFO, ERROR methods

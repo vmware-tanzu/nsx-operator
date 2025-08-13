@@ -93,7 +93,7 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 					ipSetGroup = group
 					// Clear ip set group in NSX
 					ipSetGroup.Expression = nil
-					log.V(1).Info("Clear ruleIPSetGroup", "ruleIPSetGroup", ipSetGroup)
+					log.Debug("Clear ruleIPSetGroup", "ruleIPSetGroup", ipSetGroup)
 					err3 := service.createOrUpdateGroups(obj, []*model.Group{ipSetGroup})
 					if err3 != nil {
 						return nil, nil, err3
@@ -150,10 +150,10 @@ func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.Security
 		ruleIPSetGroup.Path = String(IPSetGroupPath)
 
 		nsxRule.DestinationGroups = []string{IPSetGroupPath}
-		log.V(1).Info("Built ruleIPSetGroup", "ruleIPSetGroup", ruleIPSetGroup)
+		log.Debug("Built ruleIPSetGroup", "ruleIPSetGroup", ruleIPSetGroup)
 		nsxGroups = append(nsxGroups, ruleIPSetGroup)
 	}
-	log.V(1).Info("Built rule by service entry", "nsxRule", nsxRule)
+	log.Debug("Built rule by service entry", "nsxRule", nsxRule)
 	return nsxGroups, nsxRule, nil
 }
 
@@ -172,7 +172,7 @@ func (service *SecurityPolicyService) resolveNamedPort(obj *v1alpha1.SecurityPol
 	for _, selector := range podSelectors {
 		podSelector := selector
 		podsList := &v1.PodList{}
-		log.V(2).Info("Port", "podSelector", podSelector)
+		log.Trace("Port", "podSelector", podSelector)
 		err := service.Client.List(context.Background(), podsList, &podSelector)
 		if err != nil {
 			return nil, err
@@ -195,7 +195,7 @@ func (service *SecurityPolicyService) resolvePodPort(pod v1.Pod, spPort *v1alpha
 	for _, c := range pod.Spec.Containers {
 		container := c
 		for _, port := range container.Ports {
-			log.V(2).Info("ResolvePodPort", "nameSpace", pod.Namespace, "podName", pod.Name,
+			log.Trace("ResolvePodPort", "nameSpace", pod.Namespace, "podName", pod.Name,
 				"portName", port.Name, "containerPort", port.ContainerPort,
 				"protocol", port.Protocol, "podIP", pod.Status.PodIP)
 			if port.Name == spPort.Port.String() && port.Protocol == spPort.Protocol {

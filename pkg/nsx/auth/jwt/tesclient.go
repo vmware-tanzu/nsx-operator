@@ -58,7 +58,7 @@ func newTokenExchange(samlToken string, useOldAudience bool) *tokenExchange {
 func (client *TESClient) ExchangeJWT(samlToken string, useOldAudience bool) (string, error) {
 	// assume that response should have "access_token" field
 	// no retry while hit "Unknown audience value" error
-	log.V(1).Info("Sending saml token to TES for JWT")
+	log.Debug("Sending saml token to TES for JWT")
 
 	exchange := newTokenExchange(samlToken, useOldAudience)
 	body, err := json.Marshal(*exchange)
@@ -75,6 +75,6 @@ func (client *TESClient) ExchangeJWT(samlToken string, useOldAudience bool) (str
 		log.Error(tesErr, "Failed to exchange JWT")
 		return "", errors.New(msg)
 	}
-	log.V(1).Info("Exchanged JWT")
+	log.Debug("Exchanged JWT")
 	return res.Value["access_token"].(string), nil
 }
