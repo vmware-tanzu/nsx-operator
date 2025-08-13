@@ -166,7 +166,7 @@ func ZapLogger(cfDebug bool, cfLogLevel int) logr.Logger {
 		Level(zeroLogLevel).
 		With().
 		Timestamp().
-		CallerWithSkipFrameCount(1).
+		CallerWithSkipFrameCount(3).
 		Logger()
 
 	// Convert to logr.Logger
@@ -238,7 +238,7 @@ func ZapCustomLogger(cfDebug bool, cfLogLevel int) CustomLogger {
 		Level(zeroLogLevel).
 		With().
 		Timestamp().
-		CallerWithSkipFrameCount(1).
+		CallerWithSkipFrameCount(3).
 		Logger()
 
 	// Convert to logr.Logger and create CustomLogger with both
