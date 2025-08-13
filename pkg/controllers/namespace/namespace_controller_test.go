@@ -1,16 +1,18 @@
-/* Copyright © 2023 VMware, Inc. All Rights Reserved.
+/* Copyright © 2023-2025 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package namespace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -28,10 +30,13 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	ctlcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	servicetypes "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func createNameSpaceReconciler(objs []client.Object) *NamespaceReconciler {
@@ -117,7 +122,6 @@ func TestGetDefaultNetworkConfigName(t *testing.T) {
 			} else {
 				assert.Nil(t, err)
 			}
-			patch.Reset()
 		})
 	}
 }
@@ -254,9 +258,11 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 			}
 			r := createNameSpaceReconciler(objs)
 
-			if tc.patches(r) != nil {
+			if tc.patches != nil {
 				patches := tc.patches(r)
-				defer patches.Reset()
+				if patches != nil {
+					defer patches.Reset()
+				}
 			}
 
 			res, err := r.Reconcile(context.Background(), tc.req)
@@ -345,7 +351,7 @@ func TestCreateDefaultSubnetSet(t *testing.T) {
 			defaultSubnetSize:  24,
 			existingResources:  []client.Object{},
 			expectedError:      false,
-			expectedSubnetSets: 0, // VM and Pod subnet sets
+			expectedSubnetSets: 2, // VM and Pod subnet sets
 			setupMocks:         func(r *NamespaceReconciler) *gomonkey.Patches { return nil },
 		},
 		{
@@ -474,6 +480,80 @@ func TestDeleteDefaultSubnetSet(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNamespaceReconciler_createNetworkInfoCR(t *testing.T) {
+	r := createNameSpaceReconciler([]client.Object{})
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	r.Client = k8sClient
+	ctx := context.TODO()
+
+	k8sClient.EXPECT().List(ctx, gomock.Any(), gomock.Any()).Return(errors.New("fake-error"))
+	info, err := r.createNetworkInfoCR(ctx, nil, "test-ns")
+	assert.Error(t, err)
+	assert.Nil(t, info)
+
+	k8sClient.EXPECT().List(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+		func(_ context.Context, list client.ObjectList, opts client.InNamespace) error {
+			networkInfos, _ := list.(*v1alpha1.NetworkInfoList)
+			networkInfos.Items = []v1alpha1.NetworkInfo{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "net1", Namespace: "ns1"},
+					VPCs: []v1alpha1.VPCState{
+						{PrivateIPs: []string{"1.1.1.0/24"}},
+					},
+				}, {
+					ObjectMeta: metav1.ObjectMeta{Name: "net1", Namespace: "ns2"},
+					VPCs: []v1alpha1.VPCState{
+						{PrivateIPs: []string{"1.1.1.0/24"}},
+					},
+				},
+			}
+
+			return nil
+		})
+	info, err = r.createNetworkInfoCR(ctx, nil, "test-ns")
+	assert.Nil(t, err)
+	assert.Equal(t, *info, v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "net1", Namespace: "ns1"},
+		VPCs: []v1alpha1.VPCState{
+			{PrivateIPs: []string{"1.1.1.0/24"}},
+		}})
+
+	k8sClient.EXPECT().List(ctx, gomock.Any(), gomock.Any()).Return(nil)
+	k8sClient.EXPECT().Create(ctx, gomock.Any()).Return(errors.New("fake-error"))
+	patches := gomonkey.ApplyFunc((*NamespaceReconciler).namespaceError, func(_ *NamespaceReconciler, ctx context.Context, k8sObj client.Object, msg string, err error) {
+	})
+	info, err = r.createNetworkInfoCR(ctx, nil, "test-ns")
+	assert.Error(t, err)
+	assert.Nil(t, info)
+	patches.Reset()
+
+	k8sClient.EXPECT().List(ctx, gomock.Any(), gomock.Any()).Return(nil)
+	k8sClient.EXPECT().Create(ctx, gomock.Any()).Return(nil)
+	patches = gomonkey.ApplyFunc(util.UpdateK8sResourceAnnotation, func(client client.Client, ctx context.Context, k8sObj client.Object, changes map[string]string) error {
+		return errors.New("fake-error")
+	})
+	info, err = r.createNetworkInfoCR(ctx, nil, "test-ns")
+	assert.Error(t, err)
+	assert.Nil(t, info)
+	patches.Reset()
+
+	k8sClient.EXPECT().List(ctx, gomock.Any(), gomock.Any()).Return(nil)
+	k8sClient.EXPECT().Create(ctx, gomock.Any()).Return(nil)
+	patches = gomonkey.ApplyFunc(util.UpdateK8sResourceAnnotation, func(client client.Client, ctx context.Context, k8sObj client.Object, changes map[string]string) error {
+		return nil
+	})
+	info, err = r.createNetworkInfoCR(ctx, nil, "test-ns")
+	assert.Nil(t, err)
+	assert.Equal(t, *info, v1alpha1.NetworkInfo{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-ns",
+			Namespace: "test-ns",
+		},
+		VPCs: []v1alpha1.VPCState{},
+	})
+	patches.Reset()
 }
 
 type MockManager struct {
