@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/ptr"
 
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -526,12 +527,11 @@ func buildRuleServiceEntries(port v1alpha1.SecurityPolicyPort) *data.StructValue
 
 	// For the named port case, the caller should
 	// convert to a new SecurityPolicyPort using the correct port number.
-	var zeroPort intstr.IntOrString
-	if port.Port != zeroPort {
-		if port.EndPort == 0 || port.EndPort == port.Port.IntValue() {
+	if port.Port != nil {
+		if port.EndPort == nil || port.EndPort != nil && *port.EndPort == port.Port.IntValue() {
 			portRange = port.Port.String()
 		} else {
-			portRange = fmt.Sprintf("%s-%d", port.Port.String(), port.EndPort)
+			portRange = fmt.Sprintf("%s-%d", port.Port.String(), *port.EndPort)
 		}
 		destinationPorts.Add(data.NewStringValue(portRange))
 	}
@@ -1974,10 +1974,15 @@ func (service *SecurityPolicyService) buildRulePortNumberString(port v1alpha1.Se
 	// - protocol: UDP
 	//   port: 3308
 	// The built port number string is: 3308
-	if port.EndPort != 0 {
-		return fmt.Sprintf("%s.%d", (port.Port).String(), port.EndPort)
+	// - protocol: UDP
+	// The built port number string is: all
+	if port.EndPort != nil && port.Port != nil {
+		return fmt.Sprintf("%s.%d", (port.Port).String(), *port.EndPort)
 	}
-	return (port.Port).String()
+	if port.Port != nil {
+		return (port.Port).String()
+	}
+	return common.RuleAnyPorts
 }
 
 func (service *SecurityPolicyService) buildRulePortsNumberString(ports []v1alpha1.SecurityPolicyPort) string {
@@ -2148,7 +2153,7 @@ func newPortInfoForNamedPort(portAddr nsxutil.PortAddress, protocol corev1.Proto
 	return &portInfo{
 		port: v1alpha1.SecurityPolicyPort{
 			Protocol: protocol,
-			Port:     intstr.FromInt32(int32(portAddr.Port)),
+			Port:     ptr.To(intstr.FromInt32(int32(portAddr.Port))),
 		},
 		ips:      portAddr.IPs,
 		idSuffix: fmt.Sprintf("0%s0", common.ConnectorUnderline),

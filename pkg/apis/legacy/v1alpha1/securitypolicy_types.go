@@ -103,9 +103,9 @@ type SecurityPolicyPort struct {
 	// +kubebuilder:default=TCP
 	Protocol corev1.Protocol `json:"protocol,omitempty"`
 	// Port is the name or port number.
-	Port intstr.IntOrString `json:"port,omitempty"`
+	Port *intstr.IntOrString `json:"port,omitempty"`
 	// EndPort defines the end of port range.
-	EndPort int `json:"endPort,omitempty"`
+	EndPort *int `json:"endPort,omitempty"`
 }
 
 // SecurityPolicyStatus defines the observed state of SecurityPolicy.

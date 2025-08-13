@@ -14,6 +14,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -542,7 +543,7 @@ func TestReconcileSecurityPolicy(t *testing.T) {
 		Ports: []v1alpha1.SecurityPolicyPort{
 			{
 				Protocol: v1.ProtocolUDP,
-				Port:     intstr.IntOrString{Type: intstr.String, StrVal: "named-port"},
+				Port:     ptr.To(intstr.IntOrString{Type: intstr.String, StrVal: "named-port"}),
 			},
 		},
 	}
@@ -812,7 +813,7 @@ func TestReconcileSecurityPolicyForVPC(t *testing.T) {
 		Ports: []crdv1alpha1.SecurityPolicyPort{
 			{
 				Protocol: v1.ProtocolUDP,
-				Port:     intstr.IntOrString{Type: intstr.String, StrVal: "named-port"},
+				Port:     ptr.To(intstr.IntOrString{Type: intstr.String, StrVal: "named-port"}),
 			},
 		},
 	}

@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/utils/ptr"
 
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -441,10 +442,10 @@ func (service *SecurityPolicyService) convertNetworkPolicyPortToSecurityPolicyPo
 	}
 
 	if npPort.Port != nil {
-		spPort.Port = *npPort.Port
+		spPort.Port = npPort.Port
 	}
 	if npPort.EndPort != nil {
-		spPort.EndPort = int(*npPort.EndPort)
+		spPort.EndPort = ptr.To(int(*npPort.EndPort))
 	}
 	return spPort, nil
 }
