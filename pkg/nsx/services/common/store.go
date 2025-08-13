@@ -303,7 +303,7 @@ func (service *Service) QueryNCPCreatedResources(resourceTypes []string, store S
 		log.Error(searchErr, "Failed to query resources", "query", query)
 		return searchErr
 	}
-	log.V(1).Info("Queried resources", "count", count)
+	log.Debug("Queried resources", "count", count)
 	return nil
 }
 

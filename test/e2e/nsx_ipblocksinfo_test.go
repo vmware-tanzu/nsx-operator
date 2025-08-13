@@ -141,7 +141,7 @@ func assertIPBlocksInfo(t *testing.T, privateTGWIPCIDRs []string, externalIPCIDR
 			log.Error(err, "Error fetching IPBlocksInfo", "IPBlocksInfo", res, "Name", ipBlocksInfoCRDName)
 			return false, fmt.Errorf("error when waiting for IPBlocksInfo")
 		}
-		log.V(2).Info("IPBlocksInfo cidrs", "externalIPCIDRs", res.ExternalIPCIDRs, "privateTGWIPCIDRs", res.PrivateTGWIPCIDRs)
+		log.Trace("IPBlocksInfo cidrs", "externalIPCIDRs", res.ExternalIPCIDRs, "privateTGWIPCIDRs", res.PrivateTGWIPCIDRs)
 		if nsxutil.CompareArraysWithoutOrder(res.ExternalIPCIDRs, externalIPCIDRs) && nsxutil.CompareArraysWithoutOrder(res.PrivateTGWIPCIDRs, privateTGWIPCIDRs) {
 			return true, nil
 		}

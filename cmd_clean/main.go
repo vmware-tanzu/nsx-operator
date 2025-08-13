@@ -27,7 +27,7 @@ import (
 //
 //	./clean -cluster=domain-c9:d75735a3-2847-45d2-a652-ef2d146afd54 -nsx-user=admin -nsx-passwd='xxx'  -mgr-ip=nsxmanager-ob-22386469-1-dev-integ-nsxt-8791 -envoyhost=localhost -envoyport=1080 -log-level=1 -thumbprint=8bc2fa2b5879c27b1180fa44e5f747832f2ded6be483e3c3d2c4816a38870868
 var (
-	log         = logger.Log
+	log         logger.CustomLogger
 	cf          *config.NSXOperatorConfig
 	mgrIp       string
 	vcEndpoint  string
@@ -78,8 +78,8 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
 	defer cancel()
-	log = logger.ZapLogger(cf.DefaultConfig.Debug, config.LogLevel)
-	err := clean.Clean(ctx, cf, &log, cf.DefaultConfig.Debug, config.LogLevel)
+	log = logger.ZapCustomLogger(cf.DefaultConfig.Debug, config.LogLevel)
+	err := clean.Clean(ctx, cf, &log.Logger, cf.DefaultConfig.Debug, config.LogLevel)
 	if err != nil {
 		log.Error(err, "Failed to clean nsx resources")
 		os.Exit(1)
