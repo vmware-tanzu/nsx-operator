@@ -32,7 +32,7 @@ import (
 )
 
 var (
-	log                 = &logger.Log
+	log                 = logger.Log
 	MetricResTypeSubnet = common.MetricResTypeSubnet
 )
 

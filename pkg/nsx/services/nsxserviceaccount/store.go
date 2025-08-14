@@ -25,7 +25,7 @@ func (s *PrincipalIdentityStore) Apply(i interface{}) error {
 	pi := i.(*mpmodel.PrincipalIdentity)
 	// MP resource doesn't have MarkedForDelete tag.
 	err := s.Add(pi)
-	log.V(1).Info("add PI to store", "pi", pi)
+	log.Debug("add PI to store", "pi", pi)
 	if err != nil {
 		return err
 	}
@@ -48,13 +48,13 @@ func (s *ClusterControlPlaneStore) Apply(i interface{}) error {
 	ccp := i.(*model.ClusterControlPlane)
 	if ccp.MarkedForDelete != nil && *ccp.MarkedForDelete {
 		err := s.Delete(ccp)
-		log.V(1).Info("delete ClusterCP from store", "ClusterCP", ccp)
+		log.Debug("delete ClusterCP from store", "ClusterCP", ccp)
 		if err != nil {
 			return err
 		}
 	} else {
 		err := s.Add(ccp)
-		log.V(1).Info("add ClusterCP to store", "ClusterCP", ccp)
+		log.Debug("add ClusterCP to store", "ClusterCP", ccp)
 		if err != nil {
 			return err
 		}
