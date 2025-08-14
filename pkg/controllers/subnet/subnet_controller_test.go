@@ -1298,3 +1298,150 @@ func TestHandleSharedSubnet(t *testing.T) {
 		})
 	}
 }
+
+func TestDeleteAndRecreateSubnetIfNeeded(t *testing.T) {
+	ctx := context.TODO()
+
+	tests := []struct {
+		name               string
+		subnetCR           *v1alpha1.Subnet
+		namespacedName     client.ObjectKey
+		associatedResource string
+		deleteError        error
+		createError        error
+		expectedError      string
+		expectRecreation   bool
+	}{
+		{
+			name: "successful deletion and recreation",
+			subnetCR: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-subnet",
+					Namespace: "test-ns",
+					Annotations: map[string]string{
+						common.AnnotationAssociatedResource: "project1:vpc1:subnet1",
+					},
+				},
+				Spec: v1alpha1.SubnetSpec{
+					VPCName: "project1:vpc1",
+				},
+			},
+			namespacedName:     client.ObjectKey{Namespace: "test-ns", Name: "test-subnet"},
+			associatedResource: "project1:vpc1:subnet1",
+			deleteError:        nil,
+			createError:        nil,
+			expectedError:      "",
+			expectRecreation:   true,
+		},
+		{
+			name: "failed to delete subnet CR",
+			subnetCR: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-subnet",
+					Namespace: "test-ns",
+					Annotations: map[string]string{
+						common.AnnotationAssociatedResource: "project1:vpc1:subnet1",
+					},
+				},
+				Spec: v1alpha1.SubnetSpec{
+					VPCName: "project1:vpc1",
+				},
+			},
+			namespacedName:     client.ObjectKey{Namespace: "test-ns", Name: "test-subnet"},
+			associatedResource: "project1:vpc1:subnet1",
+			deleteError:        errors.New("delete failed"),
+			createError:        nil,
+			expectedError:      "delete failed",
+			expectRecreation:   false,
+		},
+		{
+			name: "failed to create new subnet CR",
+			subnetCR: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-subnet",
+					Namespace: "test-ns",
+					Annotations: map[string]string{
+						common.AnnotationAssociatedResource: "project1:vpc1:subnet1",
+					},
+				},
+				Spec: v1alpha1.SubnetSpec{
+					VPCName: "project1:vpc1",
+				},
+			},
+			namespacedName:     client.ObjectKey{Namespace: "test-ns", Name: "test-subnet"},
+			associatedResource: "project1:vpc1:subnet1",
+			deleteError:        nil,
+			createError:        errors.New("create failed"),
+			expectedError:      "create failed",
+			expectRecreation:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockCtl := gomock.NewController(t)
+			defer mockCtl.Finish()
+
+			mockClient := mockClient.NewMockClient(mockCtl)
+
+			// Setup delete expectation
+			mockClient.EXPECT().Delete(ctx, tt.subnetCR).Return(tt.deleteError)
+
+			// Setup create expectations only if delete succeeds
+			if tt.deleteError == nil {
+				// Mock BuildSubnetCR method
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&subnet.SubnetService{}), "BuildSubnetCR",
+					func(_ *subnet.SubnetService, ns, subnetName, vpcFullID, associatedName string) *v1alpha1.Subnet {
+						assert.Equal(t, tt.namespacedName.Namespace, ns)
+						assert.Equal(t, tt.namespacedName.Name, subnetName)
+						assert.Equal(t, tt.subnetCR.Spec.VPCName, vpcFullID)
+						assert.Equal(t, tt.associatedResource, associatedName)
+
+						return &v1alpha1.Subnet{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      subnetName,
+								Namespace: ns,
+								Annotations: map[string]string{
+									common.AnnotationAssociatedResource: associatedName,
+								},
+							},
+							Spec: v1alpha1.SubnetSpec{
+								VPCName: vpcFullID,
+							},
+						}
+					})
+				defer patches.Reset()
+
+				// Mock CreateSubnetCRInK8s method
+				patches.ApplyMethod(reflect.TypeOf(&subnet.SubnetService{}), "CreateSubnetCRInK8s",
+					func(_ *subnet.SubnetService, ctx context.Context, client client.Client, subnetCR *v1alpha1.Subnet) error {
+						return tt.createError
+					})
+			}
+
+			// Create reconciler with mocked client
+			r := &SubnetReconciler{
+				Client:        mockClient,
+				SubnetService: &subnet.SubnetService{},
+			}
+
+			// Call the method under test
+			result, err := r.deleteAndRecreateSubnetIfNeeded(ctx, tt.subnetCR, tt.namespacedName, tt.associatedResource)
+
+			// Verify results
+			if tt.expectedError != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedError)
+				assert.Nil(t, result)
+			} else {
+				assert.NoError(t, err)
+				if tt.expectRecreation {
+					assert.NotNil(t, result)
+					assert.Equal(t, tt.namespacedName.Name, result.Name)
+					assert.Equal(t, tt.namespacedName.Namespace, result.Namespace)
+					assert.Equal(t, tt.associatedResource, result.Annotations[common.AnnotationAssociatedResource])
+				}
+			}
+		})
+	}
+}

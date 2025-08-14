@@ -14,6 +14,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -1877,6 +1878,96 @@ func TestSubnetService_CreateOrUpdateSubnet_Consistency(t *testing.T) {
 
 			_, err := service.CreateOrUpdateSubnet(subnetCR, vpcResourceInfo, basicTags)
 			require.NoError(t, err)
+		})
+	}
+}
+
+func TestCreateSubnetCRInK8s(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+
+	ctx := context.TODO()
+
+	// Test subnet CR
+	subnetCR := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-subnet",
+			Namespace: "test-ns",
+			Annotations: map[string]string{
+				common.AnnotationAssociatedResource: "project1:vpc1:subnet1",
+			},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			VPCName: "project1:vpc1",
+		},
+	}
+
+	tests := []struct {
+		name           string
+		subnetCR       *v1alpha1.Subnet
+		clientBehavior func(client *mockClient.MockClient)
+		wantErr        bool
+		expectedError  string
+	}{
+		{
+			name:     "successful creation",
+			subnetCR: subnetCR.DeepCopy(),
+			clientBehavior: func(client *mockClient.MockClient) {
+				client.EXPECT().Create(ctx, gomock.Any()).Return(nil)
+			},
+			wantErr: false,
+		},
+		{
+			name:     "already exists - use generateName",
+			subnetCR: subnetCR.DeepCopy(),
+			clientBehavior: func(client *mockClient.MockClient) {
+				// First call returns AlreadyExists error
+				client.EXPECT().Create(ctx, gomock.Any()).Return(k8serrors.NewAlreadyExists(v1alpha1.Resource("subnets"), "test-subnet"))
+				// Second call with generateName succeeds
+				client.EXPECT().Create(ctx, gomock.Any()).Return(nil)
+			},
+			wantErr: false,
+		},
+		{
+			name:     "already exists - generateName also fails",
+			subnetCR: subnetCR.DeepCopy(),
+			clientBehavior: func(client *mockClient.MockClient) {
+				// First call returns AlreadyExists error
+				client.EXPECT().Create(ctx, gomock.Any()).Return(k8serrors.NewAlreadyExists(v1alpha1.Resource("subnets"), "test-subnet"))
+				// Second call with generateName also fails
+				client.EXPECT().Create(ctx, gomock.Any()).Return(errors.New("create failed"))
+			},
+			wantErr:       true,
+			expectedError: "failed to create Subnet CR with generateName",
+		},
+		{
+			name:     "other creation error",
+			subnetCR: subnetCR.DeepCopy(),
+			clientBehavior: func(client *mockClient.MockClient) {
+				client.EXPECT().Create(ctx, gomock.Any()).Return(errors.New("some other error"))
+			},
+			wantErr:       true,
+			expectedError: "failed to create Subnet CR",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := mockClient.NewMockClient(mockCtl)
+			tt.clientBehavior(mockClient)
+
+			service := &SubnetService{}
+			err := service.CreateSubnetCRInK8s(ctx, mockClient, tt.subnetCR)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.expectedError != "" {
+					assert.Contains(t, err.Error(), tt.expectedError)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+
 		})
 	}
 }
