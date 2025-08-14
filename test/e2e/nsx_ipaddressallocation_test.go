@@ -24,39 +24,71 @@ const (
 	privateTGWCIDR = "10.246.0.0/16"
 )
 
-var ns = fmt.Sprintf("test-ipaddress-allocation-%s", getRandomString())
-
 func TestIPAddressAllocation(t *testing.T) {
-	prepare(t)
-	defer destroy(t)
+	t.Parallel()
 	t.Run("testIPAddressAllocationExternal", func(t *testing.T) {
-		testIPAddressAllocation(t, "./manifest/testIPAddressAllocation/ipaddressallocation_external.yaml", externalCIDR)
+		t.Parallel()
+		ns := fmt.Sprintf("test-ipaddress-allocation-external-%s", getRandomString())
+		err := testData.createVCNamespace(ns)
+		if err != nil {
+			t.Fatalf("Failed to create VC namespace: %v", err)
+		}
+		defer func() {
+			err := testData.deleteVCNamespace(ns)
+			if err != nil {
+				t.Fatalf("Failed to delete VC namespace: %v", err)
+			}
+		}()
+		testIPAddressAllocation(t, "./manifest/testIPAddressAllocation/ipaddressallocation_external.yaml", externalCIDR, ns)
 	})
 	t.Run("testIPAddressAllocationPrivate", func(t *testing.T) {
-		testIPAddressAllocation(t, "./manifest/testIPAddressAllocation/ipaddressallocation_private.yaml", privateCIDR)
+		t.Parallel()
+		ns := fmt.Sprintf("test-ipaddress-allocation-private-%s", getRandomString())
+		err := testData.createVCNamespace(ns)
+		if err != nil {
+			t.Fatalf("Failed to create VC namespace: %v", err)
+		}
+		defer func() {
+			err := testData.deleteVCNamespace(ns)
+			if err != nil {
+				t.Fatalf("Failed to delete VC namespace: %v", err)
+			}
+		}()
+		testIPAddressAllocation(t, "./manifest/testIPAddressAllocation/ipaddressallocation_private.yaml", privateCIDR, ns)
 	})
 	t.Run("testIPAddressAllocationPrivateTGW", func(t *testing.T) {
-		testIPAddressAllocation(t, "./manifest/testIPAddressAllocation/ipaddressallocation_privatetgw.yaml", privateTGWCIDR)
+		t.Parallel()
+		ns := fmt.Sprintf("test-ipaddress-allocation-privatetgw-%s", getRandomString())
+		err := testData.createVCNamespace(ns)
+		if err != nil {
+			t.Fatalf("Failed to create VC namespace: %v", err)
+		}
+		defer func() {
+			err := testData.deleteVCNamespace(ns)
+			if err != nil {
+				t.Fatalf("Failed to delete VC namespace: %v", err)
+			}
+		}()
+		testIPAddressAllocation(t, "./manifest/testIPAddressAllocation/ipaddressallocation_privatetgw.yaml", privateTGWCIDR, ns)
 	})
 	t.Run("testIPAddressAllocationWithServiceVIP", func(t *testing.T) {
-		testServiceWithAllocatedIP(t)
+		t.Parallel()
+		ns := fmt.Sprintf("test-ipaddress-allocation-service-vip-%s", getRandomString())
+		err := testData.createVCNamespace(ns)
+		if err != nil {
+			t.Fatalf("Failed to create VC namespace: %v", err)
+		}
+		defer func() {
+			err := testData.deleteVCNamespace(ns)
+			if err != nil {
+				t.Fatalf("Failed to delete VC namespace: %v", err)
+			}
+		}()
+		testServiceWithAllocatedIP(t, ns)
 	})
 }
 
-func prepare(t *testing.T) {
-	err := testData.createVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
-}
-func destroy(t *testing.T) {
-	err := testData.deleteVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to delete VC namespace: %v", err)
-	}
-}
-
-func testIPAddressAllocation(t *testing.T, yamlPath string, expectedCIDR string) {
+func testIPAddressAllocation(t *testing.T, yamlPath string, expectedCIDR string, namespace string) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 
@@ -64,20 +96,20 @@ func testIPAddressAllocation(t *testing.T, yamlPath string, expectedCIDR string)
 
 	// Parse YAML to get CR's name
 	ipAllocPath, _ := filepath.Abs(yamlPath)
-	require.NoError(t, applyYAML(ipAllocPath, ns))
+	require.NoError(t, applyYAML(ipAllocPath, namespace))
 
 	// Assume the name is the same as defined in the respective YAML
 	ipAllocName := getNameFromYAML(ipAllocPath)
-	assureIPAddressAllocationReady(t, ns, ipAllocName)
+	assureIPAddressAllocationReady(t, namespace, ipAllocName)
 
 	// Check AllocationIPs
-	assertAllocationCIDR(t, ns, ipAllocName, expectedCIDR)
+	assertAllocationCIDR(t, namespace, ipAllocName, expectedCIDR)
 
 	// Delete IPAddressAllocation
-	_ = deleteYAML(ipAllocPath, ns)
+	_ = deleteYAML(ipAllocPath, namespace)
 
 	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
-		resp, err := testData.crdClientset.CrdV1alpha1().IPAddressAllocations(ns).Get(ctx, ipAllocName, v1.GetOptions{})
+		resp, err := testData.crdClientset.CrdV1alpha1().IPAddressAllocations(namespace).Get(ctx, ipAllocName, v1.GetOptions{})
 		log.V(2).Info("Check resource", "resp", resp)
 		if err != nil {
 			if errors.IsNotFound(err) {
@@ -184,23 +216,23 @@ func getNameFromYAML(yamlPath string) string {
 	}
 }
 
-func testServiceWithAllocatedIP(t *testing.T) {
+func testServiceWithAllocatedIP(t *testing.T, namespace string) {
 	serviceYaml := "./manifest/testIPAddressAllocation/tea-svc.yaml"
 	ipAllocyaml := "./manifest/testIPAddressAllocation/tea-ipalloc.yaml"
 
 	// Parse YAML to get CR's name
 	ipAllocPath, _ := filepath.Abs(ipAllocyaml)
-	require.NoError(t, applyYAML(ipAllocPath, ns))
+	require.NoError(t, applyYAML(ipAllocPath, namespace))
 
 	// 1. Apply Service YAML
-	require.NoError(t, applyYAML(serviceYaml, ns))
+	require.NoError(t, applyYAML(serviceYaml, namespace))
 
 	// 2. Wait for IPAddressAllocation to be ready
 	ipAllocName := getNameFromYAML(ipAllocPath)
-	assureIPAddressAllocationReady(t, ns, ipAllocName)
+	assureIPAddressAllocationReady(t, namespace, ipAllocName)
 
 	// 3. Get first IP from allocationIPs
-	cidr := getAllocationCIDR(t, ns, ipAllocName)
+	cidr := getAllocationCIDR(t, namespace, ipAllocName)
 	require.NotEmpty(t, cidr)
 	ip, _, err := net.ParseCIDR(cidr)
 	require.NoError(t, err)
@@ -209,18 +241,18 @@ func testServiceWithAllocatedIP(t *testing.T) {
 
 	// 4. Patch Service to set spec.loadBalancerIP
 	patch := []byte(fmt.Sprintf(`{"spec":{"loadBalancerIP":"%s"}}`, firstIP))
-	_, err = testData.clientset.CoreV1().Services(ns).Patch(context.Background(), "tea-svc", types.MergePatchType, patch, v1.PatchOptions{})
+	_, err = testData.clientset.CoreV1().Services(namespace).Patch(context.Background(), "tea-svc", types.MergePatchType, patch, v1.PatchOptions{})
 	require.NoError(t, err)
 
 	// 5. Verify Service has correct loadBalancerIP
-	err = waitforServiceReady(ns, "tea-svc", firstIP)
+	err = waitforServiceReady(namespace, "tea-svc", firstIP)
 	require.NoError(t, err)
 
 	// 6. try to delete the ip allocation, webhook should deny the request
-	err = testData.crdClientset.CrdV1alpha1().IPAddressAllocations(ns).Delete(context.TODO(), ipAllocName, v1.DeleteOptions{})
+	err = testData.crdClientset.CrdV1alpha1().IPAddressAllocations(namespace).Delete(context.TODO(), ipAllocName, v1.DeleteOptions{})
 	log.Info("Delete IPAddressAllocation", "Name", ipAllocName, "error", err)
 	require.ErrorContains(t, err, "denied the request")
 
 	// 7. Clean up
-	_ = deleteYAML(serviceYaml, ns)
+	_ = deleteYAML(serviceYaml, namespace)
 }
