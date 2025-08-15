@@ -91,7 +91,12 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		if dhcpMode == "" {
 			dhcpMode = v1alpha1.DHCPConfigModeDeactivated
 		}
-		nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode, nil)
+		var dhcpServerAdditionalConfig *model.DhcpServerAdditionalConfig
+		if len(o.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges) > 0 {
+			dhcpServerAdditionalConfig = &model.DhcpServerAdditionalConfig{}
+			dhcpServerAdditionalConfig.ReservedIpRanges = o.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges
+		}
+		nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode, dhcpServerAdditionalConfig)
 		if len(o.Spec.IPAddresses) > 0 {
 			nsxSubnet.IpAddresses = o.Spec.IPAddresses
 		} else if len(o.Status.NetworkAddresses) > 0 {

@@ -10,9 +10,11 @@ import (
 )
 
 const (
-	InvalidLicenseErrorCode   = 505
-	ProviderNotReadyErrorCode = 500042
-	IPAllocationErrorCode     = 8212
+	InvalidLicenseErrorCode                   = 505
+	ProviderNotReadyErrorCode                 = 500042
+	IPAllocationErrorCode                     = 8212
+	ReservedIPRangesOverlappedErrorCode       = 508134
+	ReservedIPRangesOutOfSubnetRangeErrorCode = 508135
 )
 
 type NsxError interface {

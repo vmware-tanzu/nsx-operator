@@ -10,6 +10,7 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
+	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -26,6 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	common2 "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -36,6 +39,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetbinding"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 func TestSubnetReconciler_GarbageCollector(t *testing.T) {
@@ -711,6 +715,45 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			},
 			existingSubnetCR: createNewSubnet(),
 			expectRes:        ResultRequeueAfter10sec,
+		},
+		{
+			name: "Create or Update Subnet with reservedIPRanges failure",
+			req:  ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "test-subnet"}},
+			patches: func(r *SubnetReconciler) *gomonkey.Patches {
+				vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 16}}
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return vpcnetworkConfig, nil
+				})
+
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnet", func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{}
+				})
+
+				tags := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-tag")}}
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GenerateSubnetNSTags", func(_ *subnet.SubnetService, obj client.Object) []model.Tag {
+					return tags
+				})
+
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "CreateOrUpdateSubnet", func(_ *subnet.SubnetService, obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (*model.VpcSubnet, error) {
+					return nil, nsxutil.NewNSXApiError(&model.ApiError{
+						ErrorCode:    pointy.Int64(508134),
+						ErrorMessage: pointy.String("Test error message"),
+						Details:      pointy.String("Reserved IP ranges cannot be overlapped"),
+					}, apierrors.ErrorType_INVALID_REQUEST)
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "IsDefaultNSXProject", func(_ *vpc.VPCService, orgID, projectID string) (bool, error) {
+					return false, nil
+				})
+				return patches
+			},
+			existingSubnetCR: createNewSubnet(),
+			expectErrStr:     "Reserved IP ranges cannot be overlapped",
+			expectRes:        ResultNormal,
 		},
 	}
 	for _, testCase := range testCases {
