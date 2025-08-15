@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -91,13 +92,12 @@ func TestSubnetSet(t *testing.T) {
 	})
 
 	t.Run("case=DefaultSubnetSet", defaultSubnetSet)
-	// TODO: Subnet test with DHCP enable required to update service profile after
-	// upgrade to new NSX which supports subnetDHCPConfig
 	t.Run("case=UserSubnetSet", UserSubnetSet)
 	t.Run("case=SharedSubnetSet", sharedSubnetSet)
 	t.Run("case=SubnetCIDR", SubnetCIDR)
 	t.Run("case=NoIPSubnet", NoIPSubnet)
 	t.Run("case=SubnetValidate", SubnetValidate)
+	t.Run("case=SubnetPortWithIP", SubnetPortWithIP)
 }
 
 func transSearchResponsetoSubnet(response model.SearchResponse) []model.VpcSubnet {
@@ -127,6 +127,24 @@ func fetchSubnetBySubnetSet(t *testing.T, subnetSet *v1alpha1.SubnetSet) model.V
 	return subnets[0]
 }
 
+func transSearchResponsetoSubnetPort(response model.SearchResponse) []model.VpcSubnetPort {
+	var resources []model.VpcSubnetPort
+	if response.Results == nil {
+		return resources
+	}
+	for _, result := range response.Results {
+		obj, err := common.NewConverter().ConvertToGolang(result, model.VpcSubnetPortBindingType())
+		if err != nil {
+			log.Info("Failed to convert to golang SubnetPort", "error", err)
+			return resources
+		}
+		if subnetport, ok := obj.(model.VpcSubnetPort); ok {
+			resources = append(resources, subnetport)
+		}
+	}
+	return resources
+}
+
 func defaultSubnetSet(t *testing.T) {
 	// 1. Check whether default-vm-subnetset and default-pod-subnetset are created.
 	assureSubnetSet(t, subnetTestNamespace, common.DefaultVMSubnetSet)
@@ -138,7 +156,7 @@ func defaultSubnetSet(t *testing.T) {
 
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_1.yaml")
 	require.NoError(t, applyYAML(portPath, subnetTestNamespace))
-	assureSubnetPort(t, subnetTestNamespace, "port-e2e-test-1")
+	assureSubnetPort(t, subnetTestNamespace, "port-e2e-test-1", conditionSubnetPortRealized)
 	defer deleteYAML(portPath, subnetTestNamespace)
 
 	// 3. Check SubnetSet CR status should be updated with NSX Subnet info.
@@ -239,7 +257,7 @@ func UserSubnetSet(t *testing.T) {
 
 		portPath, _ := filepath.Abs(portYAML)
 		require.NoError(t, applyYAML(portPath, subnetTestNamespace))
-		assureSubnetPort(t, subnetTestNamespace, portName)
+		assureSubnetPort(t, subnetTestNamespace, portName, conditionSubnetPortRealized)
 
 		// 3. Check SubnetSet CR status should be updated with NSX Subnet info.
 		subnetSet, err := testData.crdClientset.CrdV1alpha1().SubnetSets(subnetTestNamespace).Get(context.TODO(), subnetSetName, v1.GetOptions{})
@@ -292,7 +310,7 @@ func sharedSubnetSet(t *testing.T) {
 	portPath, _ := filepath.Abs("./manifest/testSubnet/subnetport_3.yaml")
 	require.NoError(t, applyYAML(portPath, subnetTestNamespaceShared))
 
-	assureSubnetPort(t, subnetTestNamespaceShared, "port-e2e-test-3")
+	assureSubnetPort(t, subnetTestNamespaceShared, "port-e2e-test-3", conditionSubnetPortRealized)
 	defer deleteYAML(portPath, subnetTestNamespaceShared)
 
 	// 3. Check SubnetSet CR status should be updated with NSX Subnet info.
@@ -448,7 +466,16 @@ func assureSubnetSet(t *testing.T, ns, subnetSetName string) (res *v1alpha1.Subn
 	return
 }
 
-func assureSubnetPort(t *testing.T, ns, subnetPortName string) (res *v1alpha1.SubnetPort) {
+func conditionSubnetPortRealized(subnetport *v1alpha1.SubnetPort) (bool, error) {
+	for _, con := range subnetport.Status.Conditions {
+		if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionTrue {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func assureSubnetPort(t *testing.T, ns, subnetPortName string, condition func(subnetport *v1alpha1.SubnetPort) (bool, error)) (res *v1alpha1.SubnetPort) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 2*defaultTimeout)
 	defer deadlineCancel()
 	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
@@ -461,12 +488,7 @@ func assureSubnetPort(t *testing.T, ns, subnetPortName string) (res *v1alpha1.Su
 			return false, fmt.Errorf("error when waiting for SubnetPort: %s", subnetPortName)
 		}
 		log.V(2).Info("SubnetPort status", "status", res.Status)
-		for _, con := range res.Status.Conditions {
-			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionTrue {
-				return true, nil
-			}
-		}
-		return false, nil
+		return condition(res)
 	})
 	require.NoError(t, err)
 	return res
@@ -488,7 +510,7 @@ func createSubnetPortWithCheck(t *testing.T, subnetPort *v1alpha1.SubnetPort) (r
 		err = nil
 	}
 	require.NoError(t, err)
-	port := assureSubnetPort(t, subnetPort.Namespace, subnetPort.Name)
+	port := assureSubnetPort(t, subnetPort.Namespace, subnetPort.Name, conditionSubnetPortRealized)
 	return port
 }
 
@@ -602,4 +624,129 @@ func SubnetValidate(t *testing.T) {
 	}
 	subnetOnlyNoDHPCreated := createSubnetWithCheck(t, subnetOnlyNoDHCP)
 	require.Equal(t, true, *subnetOnlyNoDHPCreated.Spec.AdvancedConfig.StaticIPAllocation.Enabled, "StaticIPAllocation should be enabled for Subnet with DHCPDeactivated mode")
+}
+
+func SubnetPortWithIP(t *testing.T) {
+	subnet := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-cidr",
+			Namespace: subnetTestNamespace,
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPv4SubnetSize: 16,
+		},
+	}
+	// Create a Subnet
+	subnetCreated := createSubnetWithCheck(t, subnet)
+	require.Equal(t, 1, len(subnetCreated.Status.NetworkAddresses))
+	ip, cidr, err := net.ParseCIDR(subnetCreated.Status.NetworkAddresses[0])
+	require.Nil(t, err)
+	ip = ip.To4()
+	require.NotNil(t, ip, "Subnet IP should be ipv4")
+	// get the first available IP from the Subnet cidr
+	ip[3] += 4
+
+	// Case 1: SubnetPort with a valid IP
+	subnetportInMACPool := &v1alpha1.SubnetPort{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "port-with-ip-1",
+			Namespace: subnetTestNamespace,
+		},
+		Spec: v1alpha1.SubnetPortSpec{
+			Subnet: "subnet-cidr",
+			AddressBindings: []v1alpha1.PortAddressBinding{
+				{
+					IPAddress: ip.To4().String(),
+				},
+			},
+		},
+	}
+	subnetportInMACPool = createSubnetPortWithCheck(t, subnetportInMACPool)
+	nsxSubnetPort := fetchSubnetPortBySubnetPortUID(t, string(subnetportInMACPool.GetUID()))
+	require.Equal(t, ip.String(), *nsxSubnetPort.AddressBindings[0].IpAddress)
+	require.NotNil(t, nsxSubnetPort.Attachment)
+	require.Equal(t, "BOTH", *(*nsxSubnetPort.Attachment).AllocateAddresses)
+
+	// Case 2: SubnetPort with MAC out of NSX MAC POOL
+	// NSX MAC pool range is usually 04:50:56:00:00:00-04:50:56:00:ff:ff
+	// Hard code the MAC POOL as we use IP_POOL as allocate_addresses for
+	// MAC out of the NSX pool and NSX does not check the MAC conflicts for IP_POOL
+	macOutOfPool := "ff:50:56:00:00:00"
+	ip[3] += 1
+	subnetportOutOfMACPool := &v1alpha1.SubnetPort{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "port-with-ip-2",
+			Namespace: subnetTestNamespace,
+		},
+		Spec: v1alpha1.SubnetPortSpec{
+			Subnet: "subnet-cidr",
+			AddressBindings: []v1alpha1.PortAddressBinding{
+				{
+					IPAddress:  ip.To4().String(),
+					MACAddress: macOutOfPool,
+				},
+			},
+		},
+	}
+	createSubnetPortWithCheck(t, subnetportOutOfMACPool)
+	subnetportOutOfMACPool = createSubnetPortWithCheck(t, subnetportOutOfMACPool)
+	nsxSubnetPort = fetchSubnetPortBySubnetPortUID(t, string(subnetportOutOfMACPool.GetUID()))
+	require.Equal(t, ip.String(), *nsxSubnetPort.AddressBindings[0].IpAddress)
+	require.Equal(t, macOutOfPool, *nsxSubnetPort.AddressBindings[0].MacAddress)
+	require.NotNil(t, nsxSubnetPort.Attachment)
+	require.Equal(t, "IP_POOL", *(*nsxSubnetPort.Attachment).AllocateAddresses)
+
+	// Case 3: SubnetPort with an IP out of Subnet CIDR
+	// Set a finite for retry loop
+	for range 5 {
+		ip, err = randomIPv4()
+		if err == nil && !cidr.Contains(ip) {
+			break
+		}
+	}
+	subnetportOutOfSubnet := &v1alpha1.SubnetPort{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "port-with-ip-3",
+			Namespace: subnetTestNamespace,
+		},
+		Spec: v1alpha1.SubnetPortSpec{
+			Subnet: "subnet-cidr",
+			AddressBindings: []v1alpha1.PortAddressBinding{
+				{
+					IPAddress: ip.To4().String(),
+				},
+			},
+		},
+	}
+	_, err = testData.crdClientset.CrdV1alpha1().SubnetPorts(subnetTestNamespace).Create(context.TODO(), subnetportOutOfSubnet, v1.CreateOptions{})
+	if err != nil && errors.IsAlreadyExists(err) {
+		err = nil
+	}
+	require.NoError(t, err)
+	conditionMsg := fmt.Sprintf("IP Address %s does not belong to any of the existing ranges in the pool", ip.To4().String())
+	assureSubnetPort(t, subnetTestNamespace, subnetportOutOfSubnet.Name, func(subnetport *v1alpha1.SubnetPort) (bool, error) {
+		for _, con := range subnetport.Status.Conditions {
+			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionFalse && strings.Contains(con.Message, conditionMsg) {
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+}
+
+func randomIPv4() (net.IP, error) {
+	b := make([]byte, 4)
+	_, err := rand.Read(b)
+	if err != nil {
+		return nil, err
+	}
+	return net.IPv4(b[0], b[1], b[2], b[3]), nil
+}
+
+func fetchSubnetPortBySubnetPortUID(t *testing.T, subnetPortUID string) *model.VpcSubnetPort {
+	tags := []string{common.TagScopeSubnetPortCRUID, subnetPortUID}
+	results, err := testData.queryResource(common.ResourceTypeSubnetPort, tags)
+	require.NoError(t, err)
+	res := transSearchResponsetoSubnetPort(results)
+	return &res[0]
 }
