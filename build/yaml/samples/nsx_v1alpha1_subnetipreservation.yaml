@@ -4,4 +4,4 @@ metadata:
   name: subnet-ipa-1
 spec:
   subnet: subnet-1
-  requestedNumberOfIPs: 10
+  numberOfIPs: 10

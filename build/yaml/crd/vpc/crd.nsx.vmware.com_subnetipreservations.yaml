@@ -20,8 +20,8 @@ spec:
       name: Subnet
       type: string
     - description: Number of IPs requested to be reserved.
-      jsonPath: .spec.requestedNumberOfIPs
-      name: RequestedNumberOfIPs
+      jsonPath: .spec.numberOfIPs
+      name: NumberOfIPs
       type: string
     - description: List of reserved IPs.
       jsonPath: .status.ips[:]
@@ -53,14 +53,13 @@ spec:
           spec:
             description: SubnetIPReservationSpec defines the desired state of SubnetIPReservation
             properties:
-              requestedNumberOfIPs:
-                description: RequestedNumberOfIPs defines number of IPs requested
-                  to be reserved.
+              numberOfIPs:
+                description: NumberOfIPs defines number of IPs requested to be reserved.
                 maximum: 100
                 minimum: 1
                 type: integer
                 x-kubernetes-validations:
-                - message: RequestedNumberOfIPs is immutable
+                - message: NumberOfIPs is immutable
                   rule: self == oldSelf
               subnet:
                 description: Subnet specifies the Subnet to reserve IPs from.
@@ -69,7 +68,7 @@ spec:
                 - message: Subnet is immutable
                   rule: self == oldSelf
             required:
-            - requestedNumberOfIPs
+            - numberOfIPs
             - subnet
             type: object
           status:

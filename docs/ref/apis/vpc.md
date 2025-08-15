@@ -794,7 +794,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `subnet` _string_ | Subnet specifies the Subnet to reserve IPs from. |  | Required: \{\} <br /> |
-| `requestedNumberOfIPs` _integer_ | RequestedNumberOfIPs defines number of IPs requested to be reserved. |  | Maximum: 100 <br />Minimum: 1 <br />Required: \{\} <br /> |
+| `numberOfIPs` _integer_ | NumberOfIPs defines number of IPs requested to be reserved. |  | Maximum: 100 <br />Minimum: 1 <br />Required: \{\} <br /> |
 
 
 #### SubnetIPReservationStatus

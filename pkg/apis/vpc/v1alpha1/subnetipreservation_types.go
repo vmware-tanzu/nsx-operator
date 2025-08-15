@@ -14,12 +14,12 @@ type SubnetIPReservationSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Subnet is immutable"
 	Subnet string `json:"subnet"`
 
-	// RequestedNumberOfIPs defines number of IPs requested to be reserved.
+	// NumberOfIPs defines number of IPs requested to be reserved.
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="RequestedNumberOfIPs is immutable"
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="NumberOfIPs is immutable"
 	// +kubebuilder:validation:Maximum:=100
 	// +kubebuilder:validation:Minimum:=1
-	RequestedNumberOfIPs int `json:"requestedNumberOfIPs"`
+	NumberOfIPs int `json:"numberOfIPs"`
 }
 
 // SubnetIPReservationStatus defines the observed state of SubnetIPReservation
@@ -39,7 +39,7 @@ type SubnetIPReservationStatus struct {
 
 // SubnetIPReservation is the Schema for the subnetipreservations API
 // +kubebuilder:printcolumn:name="Subnet",type=string,JSONPath=`.spec.subnet`,description="The parent Subnet name of the SubnetIPReservation."
-// +kubebuilder:printcolumn:name="RequestedNumberOfIPs",type=string,JSONPath=`.spec.requestedNumberOfIPs`,description="Number of IPs requested to be reserved."
+// +kubebuilder:printcolumn:name="NumberOfIPs",type=string,JSONPath=`.spec.numberOfIPs`,description="Number of IPs requested to be reserved."
 // +kubebuilder:printcolumn:name="IPs",type=string,JSONPath=`.status.ips[:]`,description="List of reserved IPs."
 type SubnetIPReservation struct {
 	metav1.TypeMeta   `json:",inline"`
