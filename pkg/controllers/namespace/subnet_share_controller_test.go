@@ -1125,3 +1125,140 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 		})
 	}
 }
+
+func TestIsValidKubernetesName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{
+			name:     "Valid name with lowercase and hyphens",
+			input:    "valid-subnet-name",
+			expected: true,
+		},
+		{
+			name:     "Valid name with dots",
+			input:    "subnet.with.dots",
+			expected: true,
+		},
+		{
+			name:     "Valid single character",
+			input:    "a",
+			expected: true,
+		},
+		{
+			name:     "Valid name starting with number",
+			input:    "1subnet",
+			expected: true,
+		},
+		{
+			name:     "Invalid name with uppercase",
+			input:    "Invalid-Subnet-Name",
+			expected: false,
+		},
+		{
+			name:     "Invalid name with underscores",
+			input:    "subnet_with_underscores",
+			expected: false,
+		},
+		{
+			name:     "Invalid name ending with hyphen",
+			input:    "invalid-end-",
+			expected: false,
+		},
+		{
+			name:     "Invalid name starting with hyphen",
+			input:    "-invalid-start",
+			expected: false,
+		},
+		{
+			name:     "Invalid name ending with dot",
+			input:    "invalid.end.",
+			expected: false,
+		},
+		{
+			name:     "Invalid empty string",
+			input:    "",
+			expected: false,
+		},
+		{
+			name:     "Original problematic name with underscores",
+			input:    "stapple-stapple_vpc_sttest_1-private_subnet_1",
+			expected: false,
+		},
+		{
+			name:     "Valid name with mixed lowercase alphanumeric and hyphens",
+			input:    "subnet-123-test",
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isValidKubernetesName(tt.input)
+			assert.Equal(t, tt.expected, result, "Expected %v for input '%s', got %v", tt.expected, tt.input, result)
+		})
+	}
+}
+
+func TestGenerateValidSubnetName(t *testing.T) {
+	tests := []struct {
+		name           string
+		subnetID       string
+		shouldBeHashed bool
+	}{
+		{
+			name:           "Valid subnet ID should be returned as-is",
+			subnetID:       "valid-subnet-name",
+			shouldBeHashed: false,
+		},
+		{
+			name:           "Valid subnet ID with dots should be returned as-is",
+			subnetID:       "subnet.with.dots",
+			shouldBeHashed: false,
+		},
+		{
+			name:           "Invalid subnet ID with underscores should be hashed",
+			subnetID:       "subnet_with_underscores",
+			shouldBeHashed: true,
+		},
+		{
+			name:           "Invalid subnet ID with uppercase should be hashed",
+			subnetID:       "Invalid-Subnet-Name",
+			shouldBeHashed: true,
+		},
+		{
+			name:           "Invalid subnet ID ending with hyphen should be hashed",
+			subnetID:       "invalid-end-",
+			shouldBeHashed: true,
+		},
+		{
+			name:           "Original problematic name should be hashed",
+			subnetID:       "stapple-stapple_vpc_sttest_1-private_subnet_1",
+			shouldBeHashed: true,
+		},
+		{
+			name:           "Empty string should be hashed",
+			subnetID:       "",
+			shouldBeHashed: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := generateValidSubnetName(tt.subnetID)
+
+			// The result should always be a valid Kubernetes name
+			assert.True(t, isValidKubernetesName(result), "Result '%s' should be a valid Kubernetes name", result)
+
+			if tt.shouldBeHashed {
+				// If it should be hashed, the result should be different from the input
+				assert.NotEqual(t, tt.subnetID, result, "Expected input '%s' to be hashed, but got same value", tt.subnetID)
+			} else {
+				// If it shouldn't be hashed, the result should be the same as the input
+				assert.Equal(t, tt.subnetID, result, "Expected input '%s' to remain unchanged, but got '%s'", tt.subnetID, result)
+			}
+		})
+	}
+}

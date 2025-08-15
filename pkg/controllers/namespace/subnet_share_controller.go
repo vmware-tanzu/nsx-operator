@@ -3,6 +3,7 @@ package namespace
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -10,7 +11,24 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
+
+// isValidKubernetesName checks if a name meets Kubernetes RFC 1123 subdomain naming standards
+func isValidKubernetesName(name string) bool {
+	// RFC 1123 subdomain: lowercase alphanumeric characters, '-' or '.', and must-start and end with alphanumeric
+	validNameRegex := regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
+	return validNameRegex.MatchString(name)
+}
+
+// generateValidSubnetName creates a valid Kubernetes name from subnet ID
+func generateValidSubnetName(subnetID string) string {
+	if isValidKubernetesName(subnetID) {
+		return subnetID
+	}
+	// Hash the whole subnet ID if it doesn't meet standards
+	return "shared-subnet-" + util.TruncateUIDHash(subnetID)
+}
 
 // createSubnetCRInK8s creates the Subnet CR in Kubernetes
 func (r *NamespaceReconciler) createSubnetCRInK8s(ctx context.Context, subnetCR *v1alpha1.Subnet) error {
@@ -42,7 +60,7 @@ func (r *NamespaceReconciler) createSubnetCRInK8s(ctx context.Context, subnetCR 
 // createSharedSubnetCR creates a Subnet CR for a shared subnet
 func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns string, sharedSubnetPath string) error {
 	// Extract the org id, project id, VPC id, and subnet id
-	orgID, projectID, vpcID, _, err := servicecommon.ExtractSubnetPath(sharedSubnetPath)
+	orgID, projectID, vpcID, subnetID, err := servicecommon.ExtractSubnetPath(sharedSubnetPath)
 	if err != nil {
 		return err
 	}
@@ -58,17 +76,14 @@ func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns strin
 		return err
 	}
 
-	nsxSubnet, err := r.SubnetService.GetNSXSubnetFromCacheOrAPI(associatedName)
+	_, err = r.SubnetService.GetNSXSubnetFromCacheOrAPI(associatedName)
 	if err != nil {
 		return err
 	}
 
-	// Get the subnet name from the NSX subnet
-	if nsxSubnet.DisplayName == nil {
-		log.Error(err, "Failed to get subnet name from NSX subnet", "Namespace", ns, "Name", associatedName)
-		return fmt.Errorf("failed to get subnet name from NSX subnet: %w", err)
-	}
-	subnetName := *nsxSubnet.DisplayName
+	// Generate a valid Kubernetes name from the subnet ID
+	// If subnet ID meets Kubernetes standards, use it; otherwise hash it
+	subnetName := generateValidSubnetName(subnetID)
 
 	// Create the Subnet CR object
 	subnetCR := r.SubnetService.BuildSubnetCR(ns, subnetName, vpcFullID, associatedName)
