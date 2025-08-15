@@ -26,12 +26,35 @@ func GetPodIDsFromEndpoint(ctx context.Context, c client.Client, name string, na
 		return
 	}
 
+	// Pre-fetch pods in the namespace to allow IP->Pod fallback when TargetRef is nil
+	podList := &v1.PodList{}
+	if err := c.List(ctx, podList, &client.ListOptions{
+		Namespace: namespace,
+	}); err != nil {
+		log.Error(err, "Failed to list pods for IP fallback", "Namespace", namespace)
+	}
+
+	// Build a quick index of PodIP -> PodUID
+	ipToUID := map[string]types.UID{}
+	for _, p := range podList.Items {
+		if p.Status.PodIP != "" {
+			ipToUID[p.Status.PodIP] = p.UID
+		}
+	}
+
 	// Check for addresses in endpoints
 	for _, subset := range endpoint.Subsets {
 		for _, address := range subset.Addresses {
 			hasAddr = true
 			if address.TargetRef != nil && (address.TargetRef.Kind == "Pod" || address.TargetRef.Kind == "VirtualMachine") {
 				podIDs = append(podIDs, string(address.TargetRef.UID))
+				continue
+			}
+			// Fallback: if TargetRef is nil, try to map by IP to a Pod in the same namespace
+			if address.IP != "" {
+				if uid, ok := ipToUID[address.IP]; ok {
+					podIDs = append(podIDs, string(uid))
+				}
 			}
 		}
 

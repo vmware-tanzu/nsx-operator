@@ -38,6 +38,33 @@ func TestGetPodIDsFromEndpoint(t *testing.T) {
 		},
 	}
 
+	// Mock the pod list for IP fallback functionality
+	podList := &v1.PodList{
+		Items: []v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					UID: "pod-uid-123",
+				},
+				Status: v1.PodStatus{
+					PodIP: "10.244.0.1",
+				},
+			},
+		},
+	}
+
+	// Mock the List call for pods (IP fallback functionality)
+	k8sClient.EXPECT().
+		List(ctx, gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, o client.ObjectList, _ ...client.ListOption) error {
+			pl, ok := o.(*v1.PodList)
+			if !ok {
+				return errors.New("invalid type")
+			}
+			*pl = *podList
+			return nil
+		})
+
+	// Mock the Get call for endpoints
 	k8sClient.EXPECT().
 		Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ types.NamespacedName, o client.Object, _ ...client.GetOption) error {
