@@ -187,7 +187,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			log.Error(err, "Failed to initialize staticroute commonService", "controller", "StaticRoute")
 			os.Exit(1)
 		}
-		ipblocksInfoService := ipblocksinfo.InitializeIPBlocksInfoService(commonService)
+		ipblocksInfoService := ipblocksinfo.InitializeIPBlocksInfoService(commonService, subnetService)
 
 		subnetBindingService, err := subnetbindingservice.InitializeService(commonService)
 		if err != nil {

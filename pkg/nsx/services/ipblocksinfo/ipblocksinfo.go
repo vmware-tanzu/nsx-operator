@@ -3,6 +3,7 @@ package ipblocksinfo
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +31,7 @@ var (
 
 type IPBlocksInfoService struct {
 	common.Service
+	subnetService  common.SubnetServiceProvider
 	SyncTask       *IPBlocksInfoSyncTask
 	defaultProject string
 }
@@ -51,10 +53,11 @@ func NewIPBlocksInfoSyncTask(syncInterval time.Duration, retryInterval time.Dura
 	}
 }
 
-func InitializeIPBlocksInfoService(service common.Service) *IPBlocksInfoService {
+func InitializeIPBlocksInfoService(service common.Service, subnetService common.SubnetServiceProvider) *IPBlocksInfoService {
 	ipBlocksInfoService := &IPBlocksInfoService{
-		Service:  service,
-		SyncTask: NewIPBlocksInfoSyncTask(syncInterval, retryInterval),
+		Service:       service,
+		SyncTask:      NewIPBlocksInfoSyncTask(syncInterval, retryInterval),
+		subnetService: subnetService,
 	}
 	go ipBlocksInfoService.StartPeriodicSync()
 	return ipBlocksInfoService
@@ -90,12 +93,78 @@ func (s *IPBlocksInfoService) ResetPeriodicSync() {
 	s.SyncTask.resetChan <- struct{}{}
 }
 
+// mergeIPCidrs merges target CIDRs into source CIDRs if not already covered by source.
+// Only considers IPv4, assumes no overlaps and all CIDRs are valid.
+// Assume there were no duplicate cidr in target,
+// None of the elements in target will be a subset of another element
+// consider using radix tree or sort + binary search for large scale
+func (s *IPBlocksInfoService) mergeIPCidrs(source []string, target []string) []string {
+	if len(source) == 0 {
+		return target
+	}
+	// Parse source CIDRs
+	var sourceNets []*net.IPNet
+	var result []string
+	for _, cidr := range source {
+		_, net, err := net.ParseCIDR(cidr)
+		if err != nil {
+			log.Error(err, "failed to parse CIDR", "cidr", cidr)
+			continue
+		}
+		sourceNets = append(sourceNets, net)
+		result = append(result, cidr)
+	}
+
+	for _, t := range target {
+		ip, tNet, err := net.ParseCIDR(t)
+		if err != nil {
+			log.Error(err, "failed to parse CIDR", "cidr", t)
+			continue
+		}
+		covered := false
+		for _, sNet := range sourceNets {
+			// Check if tNet is fully contained in sNet
+			if cidrSubset(ip, tNet, sNet) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			result = append(result, t)
+			sourceNets = append(sourceNets, tNet)
+		}
+	}
+	return result
+}
+
+// cidrSubset returns true if tNet is a subset of sNet
+func cidrSubset(ip net.IP, tNet, sNet *net.IPNet) bool {
+	return sNet.Contains(ip) && maskContains(sNet.Mask, tNet.Mask)
+}
+
+// maskContains returns true if sMask is equal or shorter than tMask
+func maskContains(sMask, tMask net.IPMask) bool {
+	onesS, bitsS := sMask.Size()
+	onesT, bitsT := tMask.Size()
+	return bitsS == bitsT && onesT >= onesS
+}
+
 func (s *IPBlocksInfoService) UpdateIPBlocksInfo(ctx context.Context, vpcConfigCR *v1alpha1.VPCNetworkConfiguration) error {
 	log.V(1).Info("update IPBlocksInfo for VPCNetworkConfiguration", "name", vpcConfigCR.Name)
-	externalIPCIDRs, privateTGWIPCIDRs, err := s.getIPBlockCIDRsByVPCConfig([]v1alpha1.VPCNetworkConfiguration{*vpcConfigCR})
+	return s.updateIPBlocksInfo(ctx, []v1alpha1.VPCNetworkConfiguration{*vpcConfigCR}, true)
+}
+
+func (s *IPBlocksInfoService) updateIPBlocksInfo(ctx context.Context, vpcConfigList []v1alpha1.VPCNetworkConfiguration, incremental bool) error {
+	externalIPCIDRs, privateTGWIPCIDRs, err := s.getIPBlockCIDRsByVPCConfig(vpcConfigList)
 	if err != nil {
 		return err
 	}
+	externalSubnetCIDRs, privateTGWSubnetCIDRS, err := s.getSharedSubnetsCIDRs(vpcConfigList)
+	if err != nil {
+		return err
+	}
+	externalIPCIDRs = s.mergeIPCidrs(externalIPCIDRs, externalSubnetCIDRs)
+	privateTGWIPCIDRs = s.mergeIPCidrs(privateTGWIPCIDRs, privateTGWSubnetCIDRS)
 	// create or update IPBlocksInfo CR
 	ipBlocksInfo := &v1alpha1.IPBlocksInfo{
 		ObjectMeta: metav1.ObjectMeta{
@@ -104,7 +173,7 @@ func (s *IPBlocksInfoService) UpdateIPBlocksInfo(ctx context.Context, vpcConfigC
 		ExternalIPCIDRs:   externalIPCIDRs,
 		PrivateTGWIPCIDRs: privateTGWIPCIDRs,
 	}
-	return s.createOrUpdateIPBlocksInfo(ctx, ipBlocksInfo, true)
+	return s.createOrUpdateIPBlocksInfo(ctx, ipBlocksInfo, incremental)
 }
 
 func (s *IPBlocksInfoService) SyncIPBlocksInfo(ctx context.Context) error {
@@ -116,20 +185,7 @@ func (s *IPBlocksInfoService) SyncIPBlocksInfo(ctx context.Context) error {
 		log.Error(err, "failed to list VpcnetworkConfiguration CR")
 		return err
 	}
-	externalIPCIDRs, privateTGWIPCIDRs, err := s.getIPBlockCIDRsByVPCConfig(crdVpcNetworkConfigurationList.Items)
-	if err != nil {
-		return err
-	}
-
-	// create or update IPBlocksInfo CR
-	ipBlocksInfo := &v1alpha1.IPBlocksInfo{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: ipBlocksInfoCRDName,
-		},
-		ExternalIPCIDRs:   externalIPCIDRs,
-		PrivateTGWIPCIDRs: privateTGWIPCIDRs,
-	}
-	return s.createOrUpdateIPBlocksInfo(ctx, ipBlocksInfo, false)
+	return s.updateIPBlocksInfo(ctx, crdVpcNetworkConfigurationList.Items, false)
 }
 
 func (s *IPBlocksInfoService) createOrUpdateIPBlocksInfo(ctx context.Context, ipBlocksInfo *v1alpha1.IPBlocksInfo, incremental bool) error {
@@ -153,8 +209,8 @@ func (s *IPBlocksInfoService) createOrUpdateIPBlocksInfo(ctx context.Context, ip
 		}
 	}
 	if incremental {
-		ipBlocksInfo.ExternalIPCIDRs = util.MergeArraysWithoutDuplicate(ipBlocksInfoOld.ExternalIPCIDRs, ipBlocksInfo.ExternalIPCIDRs)
-		ipBlocksInfo.PrivateTGWIPCIDRs = util.MergeArraysWithoutDuplicate(ipBlocksInfoOld.PrivateTGWIPCIDRs, ipBlocksInfo.PrivateTGWIPCIDRs)
+		ipBlocksInfo.ExternalIPCIDRs = s.mergeIPCidrs(ipBlocksInfoOld.ExternalIPCIDRs, ipBlocksInfo.ExternalIPCIDRs)
+		ipBlocksInfo.PrivateTGWIPCIDRs = s.mergeIPCidrs(ipBlocksInfoOld.PrivateTGWIPCIDRs, ipBlocksInfo.PrivateTGWIPCIDRs)
 	}
 	if util.CompareArraysWithoutOrder(ipBlocksInfoOld.ExternalIPCIDRs, ipBlocksInfo.ExternalIPCIDRs) &&
 		util.CompareArraysWithoutOrder(ipBlocksInfoOld.PrivateTGWIPCIDRs, ipBlocksInfo.PrivateTGWIPCIDRs) {
@@ -170,6 +226,40 @@ func (s *IPBlocksInfoService) createOrUpdateIPBlocksInfo(ctx context.Context, ip
 	}
 	log.V(1).Info("successfully updated IPBlocksInfo CR", "IPBlocksInfo", ipBlocksInfoOld)
 	return nil
+}
+
+func (s *IPBlocksInfoService) getSharedSubnetsCIDRs(vpcConfigList []v1alpha1.VPCNetworkConfiguration) (externalIPCIDRs []string, privateTGWIPCIDRs []string, err error) {
+	sharedSubnet := sets.New[string]()
+	for _, vpcConfigCR := range vpcConfigList {
+		for _, subnet := range vpcConfigCR.Spec.Subnets {
+			sharedSubnet.Insert(subnet)
+		}
+	}
+	for _, subnetPath := range sharedSubnet.UnsortedList() {
+		vpcInfo, err := common.ParseVPCResourcePath(subnetPath)
+		if err != nil {
+			log.V(1).Error(fmt.Errorf("failed to parse VPC resource path: %w", err), "path", subnetPath)
+			continue
+		}
+		associate := fmt.Sprintf("%s:%s:%s", vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
+		subnet, err := s.subnetService.GetNSXSubnetFromCacheOrAPI(associate)
+		if err != nil {
+			log.Error(err, "failed to get nsx subnet", "subnetPath", associate)
+			continue
+		}
+
+		switch *subnet.AccessMode {
+		case model.VpcSubnet_ACCESS_MODE_PUBLIC:
+			externalIPCIDRs = append(externalIPCIDRs, subnet.IpAddresses...)
+
+		case model.VpcSubnet_ACCESS_MODE_PRIVATE_TGW:
+			project := fmt.Sprintf("/orgs/%s/projects/%s", vpcInfo.OrgID, vpcInfo.ProjectID)
+			if project == s.defaultProject {
+				privateTGWIPCIDRs = append(privateTGWIPCIDRs, subnet.IpAddresses...)
+			}
+		}
+	}
+	return externalIPCIDRs, privateTGWIPCIDRs, nil
 }
 
 func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha1.VPCNetworkConfiguration) (externalIPCIDRs []string, privateTGWIPCIDRs []string, err error) {
