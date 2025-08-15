@@ -21,6 +21,7 @@ import (
 	sr "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetbinding"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetipreservation"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
@@ -188,6 +189,9 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 	})
 	patches.ApplyFunc(subnetbinding.InitializeService, func(service common.Service) (*subnetbinding.BindingService, error) {
 		return &subnetbinding.BindingService{}, nil
+	})
+	patches.ApplyFunc(subnetipreservation.InitializeService, func(service common.Service) (*subnetipreservation.IPReservationService, error) {
+		return &subnetipreservation.IPReservationService{}, nil
 	})
 	patches.ApplyFunc(inventory.InitializeService, func(service common.Service, _ bool) (*inventory.InventoryService, error) {
 		return &inventory.InventoryService{}, nil

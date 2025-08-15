@@ -114,6 +114,13 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 			if hasSubnetPort {
 				return admission.Denied(fmt.Sprintf("Subnet %s/%s with stale SubnetPorts cannot be deleted", subnet.Namespace, subnet.Name))
 			}
+			hasSubnetIPReservation, err := v.checkSubnetIPReservation(ctx, subnet.Namespace, subnet.Name)
+			if err != nil {
+				return admission.Errored(http.StatusBadRequest, err)
+			}
+			if hasSubnetIPReservation {
+				return admission.Denied(fmt.Sprintf("Subnet %s/%s with stale SubnetIPReservations cannot be deleted", subnet.Namespace, subnet.Name))
+			}
 		}
 	}
 	return admission.Allowed("")
@@ -127,6 +134,20 @@ func (v *SubnetValidator) checkSubnetPort(ctx context.Context, ns string, subnet
 	}
 	for _, crdSubnetPort := range crdSubnetPorts.Items {
 		if crdSubnetPort.Spec.Subnet == subnetName {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (v *SubnetValidator) checkSubnetIPReservation(ctx context.Context, ns string, subnetName string) (bool, error) {
+	crdSubnetIPReservations := &v1alpha1.SubnetIPReservationList{}
+	err := v.Client.List(ctx, crdSubnetIPReservations, client.InNamespace(ns))
+	if err != nil {
+		return false, fmt.Errorf("failed to list SubnetIPReservations: %v", err)
+	}
+	for _, crdSubnetIPReservation := range crdSubnetIPReservations.Items {
+		if crdSubnetIPReservation.Spec.Subnet == subnetName {
 			return true, nil
 		}
 	}
