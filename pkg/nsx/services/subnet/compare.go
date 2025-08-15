@@ -24,6 +24,7 @@ func (subnet *Subnet) Value() data.DataValue {
 	s := &Subnet{
 		Tags:             subnet.Tags,
 		SubnetDhcpConfig: subnet.SubnetDhcpConfig,
+		AdvancedConfig:   subnet.AdvancedConfig,
 	}
 	dataValue, _ := (*model.VpcSubnet)(s).GetDataValue__()
 	return dataValue
