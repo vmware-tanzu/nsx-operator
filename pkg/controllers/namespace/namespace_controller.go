@@ -85,7 +85,11 @@ func (r *NamespaceReconciler) createNetworkInfoCR(ctx context.Context, obj clien
 	}
 
 	changes := map[string]string{common.AnnotationNamespaceVPCError: ""}
-	util.UpdateK8sResourceAnnotation(r.Client, ctx, obj, changes)
+	err := util.UpdateK8sResourceAnnotation(r.Client, ctx, obj, changes)
+	if err != nil {
+		log.Error(err, "Failed to cleanup k8s ns annotation to remove VPC error", "Namespace", networkInfoCR.Namespace)
+		return nil, err
+	}
 
 	log.Info("Created NetworkInfo CR", "NetworkInfo", networkInfoCR.Name, "Namespace", networkInfoCR.Namespace)
 	return networkInfoCR, nil
