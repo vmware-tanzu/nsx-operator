@@ -42,7 +42,7 @@ func testNamespaceSync(t *testing.T) {
 	assert.NoError(t, err, "Namespace was not synced to NSX inventory as ContainerProject")
 
 	// Delete the namespace and verify it's removed from the NSX inventory
-	err = testData.deleteVCNamespace(ns)
+	err = testData.deleteVCNamespace(ns, defaultTimeout)
 	if err != nil {
 		t.Fatalf("Failed to delete VC namespace: %v", err)
 	}
@@ -65,7 +65,7 @@ func testPodSync(t *testing.T) {
 		t.Fatalf("Failed to create VC namespace: %v", err)
 	}
 	defer func() {
-		err := testData.deleteVCNamespace(ns)
+		err := testData.deleteVCNamespace(ns, defaultTimeout)
 		if err != nil {
 			t.Fatalf("Failed to delete VC namespace: %v", err)
 		}
@@ -114,7 +114,7 @@ func testServiceSync(t *testing.T) {
 		t.Fatalf("Failed to create VC namespace: %v", err)
 	}
 	defer func() {
-		err := testData.deleteVCNamespace(ns)
+		err := testData.deleteVCNamespace(ns, defaultTimeout)
 		if err != nil {
 			t.Fatalf("Failed to delete VC namespace: %v", err)
 		}
@@ -185,7 +185,7 @@ func testNetworkPolicySync(t *testing.T) {
 		t.Fatalf("Failed to create VC namespace: %v", err)
 	}
 	defer func() {
-		err := testData.deleteVCNamespace(ns)
+		err := testData.deleteVCNamespace(ns, defaultTimeout)
 		if err != nil {
 			t.Fatalf("Failed to delete VC namespace: %v", err)
 		}
@@ -242,7 +242,7 @@ func testIngressSync(t *testing.T) {
 		t.Fatalf("Failed to create VC namespace: %v", err)
 	}
 	defer func() {
-		err := testData.deleteVCNamespace(ns)
+		err := testData.deleteVCNamespace(ns, defaultTimeout)
 		if err != nil {
 			t.Fatalf("Failed to delete VC namespace: %v", err)
 		}
