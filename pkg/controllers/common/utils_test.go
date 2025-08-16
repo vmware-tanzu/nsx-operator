@@ -218,7 +218,7 @@ func (recorder fakeRecorder) Eventf(object runtime.Object, eventtype, reason, me
 func (recorder fakeRecorder) AnnotatedEventf(object runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
 }
 
-func createStatusUpdater(t *testing.T) StatusUpdater {
+func createStatusUpdater() StatusUpdater {
 	statusUpdater := StatusUpdater{
 		Client: fake.NewClientBuilder().Build(),
 		NSXConfig: &config.NSXOperatorConfig{
@@ -234,19 +234,19 @@ func createStatusUpdater(t *testing.T) StatusUpdater {
 	return statusUpdater
 }
 func TestStatusUpdater_UpdateSuccess(t *testing.T) {
-	statusUpdater := createStatusUpdater(t)
+	statusUpdater := createStatusUpdater()
 	statusUpdater.UpdateSuccess(context.TODO(), &v1alpha1.Subnet{}, func(client.Client, context.Context, client.Object, metav1.Time, ...interface{}) {})
 }
 
 func TestStatusUpdater_UpdateFail(t *testing.T) {
-	statusUpdater := createStatusUpdater(t)
+	statusUpdater := createStatusUpdater()
 	statusUpdater.UpdateFail(context.TODO(), &v1alpha1.Subnet{}, fmt.Errorf("mock error"), "log message", func(_ client.Client, _ context.Context, _ client.Object, _ metav1.Time, e error, _ ...interface{}) {
 		assert.Contains(t, e.Error(), "mock error")
 	})
 }
 
 func TestStatusUpdater_DeleteSuccess(t *testing.T) {
-	statusUpdater := createStatusUpdater(t)
+	statusUpdater := createStatusUpdater()
 
 	patchesRecordEvent := gomonkey.ApplyFunc((record.EventRecorder).Event,
 		func(r record.EventRecorder, object runtime.Object, eventtype string, reason string, message string) {
@@ -254,7 +254,6 @@ func TestStatusUpdater_DeleteSuccess(t *testing.T) {
 			assert.Equal(t, v1.EventTypeNormal, eventtype)
 			assert.Equal(t, ReasonSuccessfulDelete, reason)
 			assert.Equal(t, "Subnet CR has been successfully deleted", message)
-			return
 		})
 	defer patchesRecordEvent.Reset()
 
@@ -262,7 +261,7 @@ func TestStatusUpdater_DeleteSuccess(t *testing.T) {
 }
 
 func TestStatusUpdater_DeleteFail(t *testing.T) {
-	statusUpdater := createStatusUpdater(t)
+	statusUpdater := createStatusUpdater()
 
 	patchesRecordEvent := gomonkey.ApplyFunc((record.EventRecorder).Event,
 		func(r record.EventRecorder, object runtime.Object, eventtype string, reason string, message string) {
@@ -270,7 +269,6 @@ func TestStatusUpdater_DeleteFail(t *testing.T) {
 			assert.Equal(t, v1.EventTypeWarning, eventtype)
 			assert.Equal(t, ReasonFailDelete, reason)
 			assert.Equal(t, "mock error", message)
-			return
 		})
 	defer patchesRecordEvent.Reset()
 

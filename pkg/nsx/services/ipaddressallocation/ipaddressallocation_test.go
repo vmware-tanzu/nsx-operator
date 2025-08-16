@@ -74,7 +74,6 @@ func Test_InitializeIPAddressAllocationStore(t *testing.T) {
 		fatalErrors chan error, resourceTypeValue string, tags []model.Tag, store common.Store,
 	) {
 		wg.Done()
-		return
 	})
 	defer patch.Reset()
 

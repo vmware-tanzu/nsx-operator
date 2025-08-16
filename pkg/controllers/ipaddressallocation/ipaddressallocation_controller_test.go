@@ -225,7 +225,7 @@ func TestIPAddressAllocationReconciler_RestoreReconcile(t *testing.T) {
 
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListIPAddressAllocationID",
 		func(_ *ipaddressallocation.IPAddressAllocationService) sets.Set[string] {
-			return sets.New[string]("ipa-uid-1")
+			return sets.New("ipa-uid-1")
 		})
 	// defer patches.Reset()
 	ipAddressAllocationList := &v1alpha1.IPAddressAllocationList{}
@@ -367,7 +367,6 @@ func TestIPAddressAllocationReconciler_StartController(t *testing.T) {
 		return nil
 	})
 	patches.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-		return
 	})
 	defer patches.Reset()
 	r := NewIPAddressAllocationReconciler(mockMgr, ipAddressAllocationService, vpcService)

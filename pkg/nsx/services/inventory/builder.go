@@ -51,9 +51,10 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 	}
 
 	status := InventoryStatusDown
-	if pod.Status.Phase == corev1.PodRunning {
+	switch pod.Status.Phase {
+	case corev1.PodRunning:
 		status = InventoryStatusUp
-	} else if pod.Status.Phase == corev1.PodUnknown {
+	case corev1.PodUnknown:
 		status = InventoryStatusUnknown
 	}
 
