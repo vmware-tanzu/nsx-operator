@@ -24,6 +24,11 @@ var (
 	orgId = "default"
 )
 
+const (
+	ErrorMsgFailedToGetNSXSubnet       = "Failed to get NSX Subnet for associated resource"
+	ErrorMsgFailedToGetNSXSubnetStatus = "Failed to get NSX subnet status"
+)
+
 func QueryTagCondition(resourceType, cluster string) string {
 	return fmt.Sprintf("%s:%s AND tags.scope:%s AND tags.tag:%s",
 		ResourceType, resourceType,
@@ -98,6 +103,16 @@ func IsSharedSubnet(subnet *v1alpha1.Subnet) bool {
 	}
 	_, exists := subnet.Annotations[AnnotationAssociatedResource]
 	return exists
+}
+
+func IsSharedSubnetNotFindNSX(subnet *v1alpha1.Subnet) bool {
+	for _, condition := range subnet.Status.Conditions {
+		if strings.Contains(condition.Message, ErrorMsgFailedToGetNSXSubnet) {
+			log.Info("Found condition with ErrorMsgFailedToGetNSXSubnet", "Subnet", subnet)
+			return true
+		}
+	}
+	return false
 }
 
 // GetVPCFullID returns the formatted VPC full naIDme based on project and VPC IDs

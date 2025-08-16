@@ -335,3 +335,112 @@ func TestConvertSubnetPathToAssociatedResource(t *testing.T) {
 		})
 	}
 }
+
+func TestIsSharedSubnetNotFindNSX(t *testing.T) {
+	tests := []struct {
+		name     string
+		subnet   *v1alpha1.Subnet
+		expected bool
+	}{
+		{
+			name: "subnet with NSX not found error condition",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-subnet",
+					Namespace: "test-ns",
+				},
+				Status: v1alpha1.SubnetStatus{
+					Conditions: []v1alpha1.Condition{
+						{
+							Type:    "Ready",
+							Status:  "False",
+							Message: ErrorMsgFailedToGetNSXSubnet + " - subnet not found",
+							Reason:  "NSXSubnetNotFound",
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "subnet with other error condition",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-subnet",
+					Namespace: "test-ns",
+				},
+				Status: v1alpha1.SubnetStatus{
+					Conditions: []v1alpha1.Condition{
+						{
+							Type:    "Ready",
+							Status:  "False",
+							Message: "Some other error message",
+							Reason:  "OtherError",
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "subnet with no conditions",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-subnet",
+					Namespace: "test-ns",
+				},
+				Status: v1alpha1.SubnetStatus{
+					Conditions: []v1alpha1.Condition{},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "subnet with ready condition",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-subnet",
+					Namespace: "test-ns",
+				},
+				Status: v1alpha1.SubnetStatus{
+					Conditions: []v1alpha1.Condition{
+						{
+							Type:    "Ready",
+							Status:  "True",
+							Message: "Subnet is ready",
+							Reason:  "Ready",
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "subnet with partial NSX error message match",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-subnet",
+					Namespace: "test-ns",
+				},
+				Status: v1alpha1.SubnetStatus{
+					Conditions: []v1alpha1.Condition{
+						{
+							Type:    "Ready",
+							Status:  "False",
+							Message: "Failed to get subnet info from NSX",
+							Reason:  "NSXError",
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsSharedSubnetNotFindNSX(tt.subnet)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

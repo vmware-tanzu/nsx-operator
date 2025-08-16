@@ -4,40 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
-
-// createSubnetCRInK8s creates the Subnet CR in Kubernetes
-func (r *NamespaceReconciler) createSubnetCRInK8s(ctx context.Context, subnetCR *v1alpha1.Subnet) error {
-	err := r.Client.Create(ctx, subnetCR)
-	if err != nil {
-		// If the Subnet CR already exists with the same name, try using generateName
-		if apierrors.IsAlreadyExists(err) {
-			log.Info("Subnet CR with the same name already exists, using generateName",
-				"Namespace", subnetCR.Namespace, "Name", subnetCR.Name)
-
-			// Create a new Subnet CR with generateName
-			// subnetCR.ObjectMeta.Name will be subnetName + "-" + randomSuffix
-			subnetCR.GenerateName = subnetCR.Name + "-"
-			subnetCR.Name = ""
-
-			err = r.Client.Create(ctx, subnetCR)
-			if err != nil {
-				return fmt.Errorf("failed to create Subnet CR with generateName: %w", err)
-			}
-		} else {
-			log.Error(err, "Failed to create Subnet CR", "Namespace", subnetCR.Namespace, "Name", subnetCR.Name)
-			return fmt.Errorf("failed to create Subnet CR: %w", err)
-		}
-	}
-
-	return nil
-}
 
 // createSharedSubnetCR creates a Subnet CR for a shared subnet
 func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns string, sharedSubnetPath string) error {
@@ -74,7 +46,7 @@ func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns strin
 	subnetCR := r.SubnetService.BuildSubnetCR(ns, subnetName, vpcFullID, associatedName)
 
 	// Create the Subnet CR in Kubernetes
-	err = r.createSubnetCRInK8s(ctx, subnetCR)
+	err = r.SubnetService.CreateSubnetCRInK8s(ctx, r.Client, subnetCR)
 	if err != nil {
 		return err
 	}

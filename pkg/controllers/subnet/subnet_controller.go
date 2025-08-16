@@ -102,6 +102,10 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	if !subnetCR.DeletionTimestamp.IsZero() {
+		// If it's a shared subnet, and it is deleted on the NSX side
+		if servicecommon.IsSharedSubnetNotFindNSX(subnetCR) {
+			return ResultNormal, nil
+		}
 		r.StatusUpdater.IncreaseDeleteTotal()
 		bindingsOnNSX := r.getNSXSubnetBindingsBySubnet(string(subnetCR.UID))
 		if len(bindingsOnNSX) > 0 {
@@ -281,7 +285,7 @@ func (r *SubnetReconciler) handleSharedSubnet(ctx context.Context, subnetCR *v1a
 	// Get NSX subnet from cache or API
 	nsxSubnet, err := r.SubnetService.GetNSXSubnetFromCacheOrAPI(associatedResource)
 	if err != nil {
-		r.updateSharedSubnetWithError(ctx, namespacedName, err, "Failed to get NSX Subnet for associated resource")
+		r.updateSharedSubnetWithError(ctx, namespacedName, err, servicecommon.ErrorMsgFailedToGetNSXSubnet)
 		return ResultRequeue, err
 	}
 
@@ -289,8 +293,18 @@ func (r *SubnetReconciler) handleSharedSubnet(ctx context.Context, subnetCR *v1a
 	statusList, err := r.SubnetService.GetSubnetStatusFromCacheOrAPI(nsxSubnet, associatedResource)
 	if err != nil {
 		// Use updateSharedSubnetWithError for consistency with pollAllSharedSubnets
-		r.updateSharedSubnetWithError(ctx, namespacedName, err, "NSX subnet status")
+		r.updateSharedSubnetWithError(ctx, namespacedName, err, servicecommon.ErrorMsgFailedToGetNSXSubnetStatus)
 		return ResultRequeue, err
+	}
+
+	// Check and handle subnet recreation if needed.
+	// This is to handle the case where the shared subnet is deleted and recreated in NSX with the same name.
+	// AccessMode may be changed in the recreation, and CRD doesn't allow it to be changed, so we have to delete and recreate the Subnet CR.
+	if servicecommon.IsSharedSubnetNotFindNSX(subnetCR) {
+		subnetCR, err = r.deleteAndRecreateSubnetIfNeeded(ctx, subnetCR, namespacedName, associatedResource)
+		if err != nil {
+			return ResultRequeue, err
+		}
 	}
 
 	// Update the status with the NSX subnet information and set shared to true

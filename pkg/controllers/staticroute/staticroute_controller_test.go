@@ -408,7 +408,9 @@ func TestStaticRouteReconciler_deleteStaticRouteByName(t *testing.T) {
 		},
 	}
 
+	mockClient := mock_client.NewMockClient(mockCtl)
 	r := &StaticRouteReconciler{
+		Client:  mockClient,
 		Scheme:  nil,
 		Service: service,
 	}
