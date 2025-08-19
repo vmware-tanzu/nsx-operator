@@ -354,8 +354,6 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 	// Initialize as an empty slice to ensure NSX receives [] instead of null when clearing errors
 	networkErrors := make([]common.NetworkError, 0)
 	// Get pods from the endpoint
-	netStatus := NetworkStatusHealthy
-	status := InventoryStatusUp
 	podIDs, hasAddr := GetPodIDsFromEndpoint(context.TODO(), s.Client, service.Name, service.Namespace)
 
 	// Check if a service has a selector - services without selectors are valid
@@ -364,46 +362,8 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 	// Use a map to track unique error messages
 	uniqueErrors := make(map[string]bool)
 
-	if len(podIDs) > 0 {
-		status = InventoryStatusUp
-	} else if hasAddr {
-		status = InventoryStatusUnknown
-		errorMessage := "Service endpoint status is unknown"
-		uniqueErrors[errorMessage] = true
-		networkErrors = append(networkErrors, common.NetworkError{
-			ErrorMessage: errorMessage,
-		})
-	} else if hasSelector {
-		// Only mark as down if service has selector but no endpoints
-		status = InventoryStatusDown
-		netStatus = NetworkStatusUnhealthy
-		errorMessage := "Failed to get endpoints for Service"
-		uniqueErrors[errorMessage] = true
-		networkErrors = append(networkErrors, common.NetworkError{
-			ErrorMessage: errorMessage,
-		})
-	} else {
-		// Service without a selector is valid even without endpoints
-		status = InventoryStatusUp
-	}
-
-	// Check for NCP errors in service annotations
-	for key, value := range service.Annotations {
-		if util.Contains(ServiceNCPErrors, key) {
-			errorMessage := key + ":" + value
-			if !uniqueErrors[errorMessage] {
-				uniqueErrors[errorMessage] = true
-				networkErrors = append(networkErrors, common.NetworkError{
-					ErrorMessage: errorMessage,
-				})
-			}
-		}
-	}
-
-	if len(networkErrors) > 0 {
-		status = InventoryStatusDown
-		netStatus = NetworkStatusUnhealthy
-	}
+	// Determine complete service status with all available information
+	status, netStatus := s.determineServiceStatus(podIDs, hasAddr, hasSelector, service.Annotations, &networkErrors, uniqueErrors)
 
 	// Update the Pods' service IDs, which are related to this service
 	retry = s.synchronizeServiceIDsWithApplicationInstances(podIDs, service)
@@ -446,6 +406,56 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 		log.V(1).Info("Skip, service not updated", "Service", service.Name, "Namespace", service.Namespace)
 	}
 	return
+}
+
+// determineServiceStatus determines the complete service status with all available information in one go
+func (s *InventoryService) determineServiceStatus(podIDs []string, hasAddr, hasSelector bool, annotations map[string]string, networkErrors *[]common.NetworkError, uniqueErrors map[string]bool) (string, string) {
+	status := InventoryStatusUp
+	netStatus := NetworkStatusHealthy
+
+	hasAnnotationError := false
+	for key, value := range annotations {
+		if util.Contains(ServiceNCPErrors, key) {
+			hasAnnotationError = true
+			errorMessage := key + ":" + value
+			if !uniqueErrors[errorMessage] {
+				uniqueErrors[errorMessage] = true
+				*networkErrors = append(*networkErrors, common.NetworkError{
+					ErrorMessage: errorMessage,
+				})
+			}
+		}
+	}
+
+	if len(podIDs) > 0 {
+		status = InventoryStatusUp
+		netStatus = NetworkStatusHealthy
+		if hasAnnotationError {
+			netStatus = NetworkStatusUnhealthy
+		}
+	} else if hasAddr {
+		status = InventoryStatusUnknown
+		if hasAnnotationError {
+			status = InventoryStatusDown
+		}
+		netStatus = NetworkStatusUnhealthy
+		errorMessage := "Service endpoint status is unknown"
+		uniqueErrors[errorMessage] = true
+		*networkErrors = append(*networkErrors, common.NetworkError{
+			ErrorMessage: errorMessage,
+		})
+	} else if hasSelector {
+		// Only mark as down if service has selector but no endpoints
+		status = InventoryStatusDown
+		netStatus = NetworkStatusUnhealthy
+		errorMessage := "Failed to get endpoints for Service"
+		uniqueErrors[errorMessage] = true
+		*networkErrors = append(*networkErrors, common.NetworkError{
+			ErrorMessage: errorMessage,
+		})
+	}
+
+	return status, netStatus
 }
 
 func (s *InventoryService) synchronizeServiceIDsWithApplicationInstances(podUIDs []string, service *corev1.Service) (retry bool) {
