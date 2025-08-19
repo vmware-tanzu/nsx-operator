@@ -154,7 +154,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		specChanged = true
 	}
 
-	if subnetCR.Spec.IPv4SubnetSize == 0 {
+	if subnetCR.Spec.IPv4SubnetSize == 0 && len(subnetCR.Spec.IPAddresses) == 0 {
 		vpcNetworkConfig, err := r.VPCService.GetVPCNetworkConfigByNamespace(subnetCR.Namespace)
 		if err != nil {
 			log.Error(err, "Failed to get VPCNetworkConfig", "Namespace", subnetCR.Namespace)

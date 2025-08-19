@@ -82,10 +82,9 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		}
 
 		nsxSubnet = &model.VpcSubnet{
-			Id:             String(service.BuildSubnetID(objForIdGeneration)),
-			AccessMode:     String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),
-			Ipv4SubnetSize: Int64(int64(o.Spec.IPv4SubnetSize)),
-			DisplayName:    String(service.BuildSubnetName(objForIdGeneration)),
+			Id:          String(service.BuildSubnetID(objForIdGeneration)),
+			AccessMode:  String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),
+			DisplayName: String(service.BuildSubnetName(objForIdGeneration)),
 		}
 		dhcpMode := string(o.Spec.SubnetDHCPConfig.Mode)
 		if dhcpMode == "" {
@@ -101,6 +100,9 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 			nsxSubnet.IpAddresses = o.Spec.IPAddresses
 		} else if len(o.Status.NetworkAddresses) > 0 {
 			nsxSubnet.IpAddresses = o.Status.NetworkAddresses
+		}
+		if o.Spec.IPv4SubnetSize > 0 {
+			nsxSubnet.Ipv4SubnetSize = Int64(int64(o.Spec.IPv4SubnetSize))
 		}
 	case *v1alpha1.SubnetSet:
 		// The index is a random string with the length of 8 chars. It is the first 8 chars of the hash
