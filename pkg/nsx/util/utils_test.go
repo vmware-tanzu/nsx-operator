@@ -843,10 +843,11 @@ func TestDumpHttpRequest(t *testing.T) {
 
 func TestNewNSXApiError(t *testing.T) {
 	tests := []struct {
-		name       string
-		apiError   *model.ApiError
-		errTypeNum apierrors.ErrorTypeEnum
-		wantError  *NSXApiError
+		name             string
+		apiError         *model.ApiError
+		errTypeNum       apierrors.ErrorTypeEnum
+		wantError        *NSXApiError
+		wantErrorMessage string
 	}{
 		{
 			name:       "ValidApiError",
@@ -864,11 +865,43 @@ func TestNewNSXApiError(t *testing.T) {
 					Details:      pointy.String("Test details"),
 				},
 			},
+			wantErrorMessage: "nsx error code: 123, message: Test error message, details: Test details",
 		},
 		{
-			name:      "NilApiError",
-			apiError:  nil,
-			wantError: &NSXApiError{ApiError: nil},
+			name:       "ApiErrorWithoutDetails",
+			errTypeNum: apierrors.ErrorType_NOT_FOUND,
+			apiError: &model.ApiError{
+				ErrorCode:    pointy.Int64(500157),
+				ErrorMessage: pointy.String("Error while creating objects of type:Project"),
+				RelatedErrors: []model.RelatedApiError{
+					{
+						ErrorCode:    pointy.Int64(612853),
+						ErrorMessage: pointy.String("Tgw external connection /infra/gateway-connections/GwConn2 is already used in another project."),
+						ModuleName:   pointy.String("Policy"),
+					},
+				},
+			},
+			wantError: &NSXApiError{
+				ErrorTypeEnum: apierrors.ErrorType_NOT_FOUND,
+				ApiError: &model.ApiError{
+					ErrorCode:    pointy.Int64(500157),
+					ErrorMessage: pointy.String("Error while creating objects of type:Project"),
+					RelatedErrors: []model.RelatedApiError{
+						{
+							ErrorCode:    pointy.Int64(612853),
+							ErrorMessage: pointy.String("Tgw external connection /infra/gateway-connections/GwConn2 is already used in another project."),
+							ModuleName:   pointy.String("Policy"),
+						},
+					},
+				},
+			},
+			wantErrorMessage: "nsx error code: 500157, message: Error while creating objects of type:Project, related error: [{ErrorCode: 612853, ErrorMessage: Tgw external connection /infra/gateway-connections/GwConn2 is already used in another project., ModuleName: Policy}]",
+		},
+		{
+			name:             "NilApiError",
+			apiError:         nil,
+			wantError:        &NSXApiError{ApiError: nil},
+			wantErrorMessage: "SDKError: unknown error",
 		},
 	}
 
@@ -876,6 +909,7 @@ func TestNewNSXApiError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gotError := NewNSXApiError(tt.apiError, tt.errTypeNum)
 			assert.Equal(t, tt.wantError, gotError)
+			assert.Equal(t, tt.wantErrorMessage, gotError.Error())
 		})
 	}
 }
@@ -899,7 +933,7 @@ func TestNSXApiError_Error(t *testing.T) {
 					},
 				},
 			},
-			expected: "nsx error code: 123, message: Test error message, details: Test details, related error: [{Details: , ErrorCode: 456,  ErrorMessage: Related error message, ModuleName: }]",
+			expected: "nsx error code: 123, message: Test error message, details: Test details, related error: [{ErrorCode: 456, ErrorMessage: Related error message, ModuleName: }]",
 		},
 		{
 			name:     "NilApiError",
@@ -1268,7 +1302,7 @@ func TestRelatedErrorToString(t *testing.T) {
 				ErrorMessage: pointy.String("Some error message"),
 				ModuleName:   pointy.String("Some module"),
 			},
-			expected: "{Details: Some details, ErrorCode: 123,  ErrorMessage: Some error message, ModuleName: Some module}",
+			expected: "{Details: Some details, ErrorCode: 123, ErrorMessage: Some error message, ModuleName: Some module}",
 		},
 		{
 			name: "EmptyFields",
@@ -1278,7 +1312,7 @@ func TestRelatedErrorToString(t *testing.T) {
 				ErrorMessage: nil,
 				ModuleName:   nil,
 			},
-			expected: "{Details: , ErrorCode: 0,  ErrorMessage: , ModuleName: }",
+			expected: "{ErrorCode: 0, ErrorMessage: , ModuleName: }",
 		},
 	}
 
@@ -1315,7 +1349,7 @@ func TestRelatedErrorsToString(t *testing.T) {
 					ModuleName:   pointy.String("Some module"),
 				},
 			},
-			expected: "[{Details: Some details, ErrorCode: 123,  ErrorMessage: Some error message, ModuleName: Some module}]",
+			expected: "[{Details: Some details, ErrorCode: 123, ErrorMessage: Some error message, ModuleName: Some module}]",
 		},
 		{
 			name: "MultipleErrors",
@@ -1333,7 +1367,7 @@ func TestRelatedErrorsToString(t *testing.T) {
 					ModuleName:   pointy.String("Second module"),
 				},
 			},
-			expected: "[{Details: First details, ErrorCode: 123,  ErrorMessage: First error message, ModuleName: First module}, {Details: Second details, ErrorCode: 456,  ErrorMessage: Second error message, ModuleName: Second module}]",
+			expected: "[{Details: First details, ErrorCode: 123, ErrorMessage: First error message, ModuleName: First module}, {Details: Second details, ErrorCode: 456, ErrorMessage: Second error message, ModuleName: Second module}]",
 		},
 	}
 

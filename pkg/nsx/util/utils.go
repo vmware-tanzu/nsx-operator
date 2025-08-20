@@ -334,9 +334,20 @@ func NewNSXApiError(apiError *model.ApiError, errorType apierrors.ErrorTypeEnum)
 func (e *NSXApiError) Error() string {
 	if e.ApiError != nil {
 		apierror := e.ApiError
-		return fmt.Sprintf("nsx error code: %d, message: %s, details: %s, related error: %s",
-			safeInt(apierror.ErrorCode), safeString(apierror.ErrorMessage), safeString(apierror.Details),
-			relatedErrorsToString(apierror.RelatedErrors))
+		msg := fmt.Sprintf("nsx error code: %d, message: %s",
+			safeInt(apierror.ErrorCode), safeString(apierror.ErrorMessage))
+
+		details := safeString(apierror.Details)
+		if details != "" {
+			msg += fmt.Sprintf(", details: %s", details)
+		}
+
+		relatedErrStr := relatedErrorsToString(apierror.RelatedErrors)
+		if relatedErrStr != "nil" && relatedErrStr != "[]" {
+			msg += fmt.Sprintf(", related error: %s", relatedErrStr)
+		}
+
+		return msg
 	}
 	return "SDKError: unknown error"
 }
@@ -363,9 +374,18 @@ func relatedErrorToString(err *model.RelatedApiError) string {
 		return "nil"
 	}
 
+	details := safeString(err.Details)
+	if details != "" {
+		return fmt.Sprintf(
+			"{Details: %s, ErrorCode: %d, ErrorMessage: %s, ModuleName: %s}",
+			details,
+			safeInt(err.ErrorCode),
+			safeString(err.ErrorMessage),
+			safeString(err.ModuleName),
+		)
+	}
 	return fmt.Sprintf(
-		"{Details: %s, ErrorCode: %d,  ErrorMessage: %s, ModuleName: %s}",
-		safeString(err.Details),
+		"{ErrorCode: %d, ErrorMessage: %s, ModuleName: %s}",
 		safeInt(err.ErrorCode),
 		safeString(err.ErrorMessage),
 		safeString(err.ModuleName),
