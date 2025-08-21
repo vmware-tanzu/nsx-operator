@@ -153,11 +153,15 @@ func (u *StatusUpdater) UpdateSuccess(ctx context.Context, obj k8sclient.Object,
 }
 
 func (u *StatusUpdater) UpdateFail(ctx context.Context, obj k8sclient.Object, err error, msg string, setStatusFn UpdateFailStatusFn, args ...interface{}) {
+	wrappedErr := fmt.Errorf("%w", err)
+	if msg != "" {
+		wrappedErr = fmt.Errorf("%w %s", err, msg)
+	}
 	log.Error(err, fmt.Sprintf("Failed to create or update %s CR", u.ResourceType), "Reason", msg, u.ResourceType, obj)
 	if setStatusFn != nil {
-		setStatusFn(u.Client, ctx, obj, metav1.Now(), err, args...)
+		setStatusFn(u.Client, ctx, obj, metav1.Now(), wrappedErr, args...)
 	}
-	u.Recorder.Event(obj, v1.EventTypeWarning, ReasonFailUpdate, fmt.Sprintf("%v", err))
+	u.Recorder.Event(obj, v1.EventTypeWarning, ReasonFailUpdate, fmt.Sprintf("%v", wrappedErr))
 	metrics.CounterInc(u.NSXConfig, metrics.ControllerUpdateFailTotal, u.MetricResType)
 }
 

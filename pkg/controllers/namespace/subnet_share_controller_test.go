@@ -4,13 +4,11 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -101,100 +99,6 @@ func (c *CustomClient) List(ctx context.Context, list client.ObjectList, opts ..
 		return c.ListFunc(ctx, list, opts...)
 	}
 	return c.Client.List(ctx, list, opts...)
-}
-
-func TestCreateSubnetCRInK8s(t *testing.T) {
-	// Create a test subnet CR
-	subnetCR := &v1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-subnet",
-			Namespace: "test-ns",
-		},
-		Spec: v1alpha1.SubnetSpec{
-			VPCName: "proj-1:vpc-1",
-			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
-				EnableVLANExtension: true,
-			},
-		},
-	}
-
-	// Test cases
-	tests := []struct {
-		name              string
-		existingSubnets   []client.Object
-		expectedErrString string
-		expectedName      string
-	}{
-		{
-			name:            "Create new Subnet CR",
-			existingSubnets: []client.Object{},
-			expectedName:    "test-subnet",
-		},
-		{
-			name: "Subnet CR already exists",
-			existingSubnets: []client.Object{
-				&v1alpha1.Subnet{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-subnet",
-						Namespace: "test-ns",
-					},
-				},
-			},
-			expectedName: "test-subnet-",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := createTestNamespaceReconciler(tt.existingSubnets)
-
-			// Create a copy of the subnet CR for each test
-			testSubnet := subnetCR.DeepCopy()
-
-			// For the "Subnet CR already exists" case, we need to use a custom client
-			if tt.name == "Subnet CR already exists" {
-				createCount := 0
-				customClient := &CustomClient{
-					Client: r.Client,
-					CreateFunc: func(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
-						createCount++
-
-						if createCount == 1 {
-							// First call should return "already exists" error
-							return apierrors.NewAlreadyExists(v1alpha1.Resource("subnets"), obj.GetName())
-						}
-
-						// Second call should succeed and set a name with the generateName prefix
-						if obj.GetGenerateName() != "" {
-							obj.SetName(obj.GetGenerateName() + "random-suffix")
-							// Make sure the name is set in the original testSubnet object
-							testSubnet.SetName(obj.GetName())
-						}
-						return nil
-					},
-				}
-
-				// Replace the client in the reconciler with our custom client
-				r.Client = customClient
-			}
-
-			err := r.createSubnetCRInK8s(context.Background(), testSubnet)
-
-			if tt.expectedErrString != "" {
-				assert.Error(t, err)
-				assert.Contains(t, err.Error(), tt.expectedErrString)
-			} else {
-				assert.NoError(t, err)
-				if tt.expectedName == "test-subnet" {
-					assert.Equal(t, tt.expectedName, testSubnet.Name)
-				} else {
-					// For generateName case, check that the name starts with the expected prefix
-					assert.True(t, len(testSubnet.Name) > len(tt.expectedName))
-					assert.True(t, strings.HasPrefix(testSubnet.Name, tt.expectedName))
-				}
-			}
-		})
-	}
 }
 
 func TestGetExistingSharedSubnets(t *testing.T) {
@@ -961,9 +865,9 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 						}
 					})
 
-				// Mock createSubnetCRInK8s
-				patches.ApplyPrivateMethod(reflect.TypeOf(r), "createSubnetCRInK8s",
-					func(_ *NamespaceReconciler, _ context.Context, _ *v1alpha1.Subnet, _ string) error {
+				// Mock CreateSubnetCRInK8s
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "CreateSubnetCRInK8s",
+					func(_ *subnet.SubnetService, _ context.Context, _ client.Client, _ *v1alpha1.Subnet) error {
 						return nil
 					})
 
@@ -1077,9 +981,9 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 						}
 					})
 
-				// Mock createSubnetCRInK8s to return an error
-				patches.ApplyPrivateMethod(reflect.TypeOf(r), "createSubnetCRInK8s",
-					func(_ *NamespaceReconciler, _ context.Context, _ *v1alpha1.Subnet, _ string) error {
+				// Mock CreateSubnetCRInK8s to return an error
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "CreateSubnetCRInK8s",
+					func(_ *subnet.SubnetService, _ context.Context, _ client.Client, _ *v1alpha1.Subnet) error {
 						return fmt.Errorf("failed to create Subnet CR")
 					})
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -629,6 +630,33 @@ func (service *SubnetService) MapNSXSubnetStatusToSubnetCRStatus(subnetCR *v1alp
 			subnetCR.Status.VLANExtension = vlanExtension
 		}
 	}
+}
+
+// CreateSubnetCRInK8s creates the Subnet CR in Kubernetes
+func (service *SubnetService) CreateSubnetCRInK8s(ctx context.Context, client client.Client, subnetCR *v1alpha1.Subnet) error {
+	err := client.Create(ctx, subnetCR)
+	if err != nil {
+		// If the Subnet CR already exists with the same name, try using generateName
+		if apierrors.IsAlreadyExists(err) {
+			log.Info("Subnet CR with the same name already exists, using generateName",
+				"Namespace", subnetCR.Namespace, "Name", subnetCR.Name)
+
+			// Create a new Subnet CR with generateName
+			// subnetCR.ObjectMeta.Name will be subnetName + "-" + randomSuffix
+			subnetCR.GenerateName = subnetCR.Name + "-"
+			subnetCR.Name = ""
+
+			err = client.Create(ctx, subnetCR)
+			if err != nil {
+				return fmt.Errorf("failed to create Subnet CR with generateName: %w", err)
+			}
+		} else {
+			log.Error(err, "Failed to create Subnet CR", "Namespace", subnetCR.Namespace, "Name", subnetCR.Name)
+			return fmt.Errorf("failed to create Subnet CR: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // BuildSubnetCR creates a Subnet CR object with the given parameters

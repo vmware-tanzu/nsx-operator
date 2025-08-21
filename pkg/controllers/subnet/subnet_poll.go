@@ -124,7 +124,7 @@ func (r *SubnetReconciler) updateSharedSubnetWithError(ctx context.Context, name
 
 	// Set the subnet ready status to false with the appropriate error message
 	r.clearSubnetAddresses(subnetCR)
-	r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to get Subnet status", setSubnetReadyStatusFalse)
+	r.StatusUpdater.UpdateFail(ctx, subnetCR, err, errorType, setSubnetReadyStatusFalse)
 	log.Info("Set Subnet ready status to false", "errorType", errorType, "Subnet", namespacedName)
 }
 
@@ -163,6 +163,23 @@ func (r *SubnetReconciler) updateSubnetIfNeeded(ctx context.Context, subnetCR *v
 		log.Info("No changes in shared Subnet, skipping update", "Subnet", namespacedName)
 	}
 	return nil
+}
+
+// deleteAndRecreateSubnetIfNeeded checks if subnet needs to be deleted and recreated based on error conditions.
+// Returns the new subnetCR if recreation occurred, or original subnetCR if no action is needed.
+func (r *SubnetReconciler) deleteAndRecreateSubnetIfNeeded(ctx context.Context, subnetCR *v1alpha1.Subnet, namespacedName client.ObjectKey, associatedResource string) (*v1alpha1.Subnet, error) {
+	log.Info("Recreating shared Subnet CR due to previous NSX not found error", "Subnet", namespacedName, "AssociatedResource", associatedResource)
+	if err := r.Client.Delete(ctx, subnetCR); err != nil {
+		log.Error(err, "Failed to delete subnet CR", "Subnet", namespacedName)
+		return nil, err
+	}
+
+	// Use BuildSubnetCR and CreateSubnetCRInK8s to create a new one
+	newSubnetCR := r.SubnetService.BuildSubnetCR(namespacedName.Namespace, namespacedName.Name, subnetCR.Spec.VPCName, associatedResource)
+	if err := r.SubnetService.CreateSubnetCRInK8s(ctx, r.Client, newSubnetCR); err != nil {
+		return nil, err
+	}
+	return newSubnetCR, nil
 }
 
 // hasStatusChanged checks if the subnet status has changed
