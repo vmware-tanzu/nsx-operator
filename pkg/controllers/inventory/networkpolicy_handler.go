@@ -50,12 +50,12 @@ func (c *InventoryController) handleNetworkPolicy(obj interface{}) {
 			return
 		}
 	}
-	log.V(1).Info("Inventory processing NetworkPolicy", "Name", networkPolicy.Name, "Namespace", networkPolicy.Namespace)
+	log.Debug("Inventory processing NetworkPolicy", "Name", networkPolicy.Name, "Namespace", networkPolicy.Namespace)
 	key, err := keyFunc(networkPolicy)
 	if err != nil {
 		log.Error(err, "Failed to get key for NetworkPolicy", "NetworkPolicy", networkPolicy)
 		return
 	}
-	log.V(1).Info("Adding NetworkPolicy key to inventory object queue", "NetworkPolicy key", key)
+	log.Debug("Adding NetworkPolicy key to inventory object queue", "NetworkPolicy key", key)
 	c.inventoryObjectQueue.Add(inventory.InventoryKey{InventoryType: inventory.ContainerNetworkPolicy, ExternalId: string(networkPolicy.UID), Key: key})
 }
