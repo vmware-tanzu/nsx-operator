@@ -21,6 +21,7 @@ import (
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
@@ -46,12 +47,18 @@ var (
 func createService(t *testing.T) (*IPBlocksInfoService, *gomock.Controller, *mock_client.MockClient) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
-
+	subnetService := &subnet.SubnetService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{},
+			Client:    k8sClient,
+		},
+	}
 	service := &IPBlocksInfoService{
 		Service: common.Service{
 			NSXClient: &nsx.Client{},
 			Client:    k8sClient,
 		},
+		subnetService: subnetService,
 	}
 	return service, mockCtl, k8sClient
 }
@@ -91,6 +98,8 @@ func fakeSearchResource(_ *common.Service, resourceTypeValue string, _ string, s
 			store.Apply(ipblocks)
 		}
 		count = uint64(len(ipBlocksMap))
+	case common.ResourceTypeSubnet:
+		count = 0
 	default:
 		return count, fmt.Errorf("unsupported search type %s", resourceTypeValue)
 	}
@@ -116,6 +125,7 @@ func TestIPBlocksInfoService_UpdateIPBlocksInfo(t *testing.T) {
 		assert.Equal(t, actualUpdated.PrivateTGWIPCIDRs, []string{ipBlocksMap[ipBlocksPath2]})
 		return nil
 	})
+
 	err := service.UpdateIPBlocksInfo(context.TODO(), &v1alpha1.VPCNetworkConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
@@ -250,4 +260,161 @@ func TestIPBlocksInfoService_createOrUpdateIPBlocksInfo(t *testing.T) {
 	mockK8sClient.EXPECT().Update(gomock.Any(), gomock.Any()).Return(mockErr)
 	err = service.createOrUpdateIPBlocksInfo(context.TODO(), &ipBlocksInfo, false)
 	assert.ErrorIs(t, err, mockErr)
+}
+func TestIPBlocksInfoService_mergeIPCidrs(t *testing.T) {
+	service := &IPBlocksInfoService{}
+
+	tests := []struct {
+		name     string
+		source   []string
+		target   []string
+		expected []string
+	}{
+		{
+			name:     "source is empty, should add all target",
+			source:   []string{},
+			target:   []string{"192.168.1.0/24", "192.168.0.32/27"},
+			expected: []string{"192.168.1.0/24", "192.168.0.32/27"},
+		},
+		{
+			name:     "target CIDR is subset of source, should not add",
+			source:   []string{"192.168.0.0/16", "10.246.0.0/16"},
+			target:   []string{"192.168.1.0/24", "192.168.0.32/27", "10.246.0.0/27", "10.246.0.0/16"},
+			expected: []string{"192.168.0.0/16", "10.246.0.0/16"},
+		},
+		{
+			name:     "target CIDR is not subset, should add",
+			source:   []string{"192.168.0.0/16"},
+			target:   []string{"10.0.0.0/8"},
+			expected: []string{"192.168.0.0/16", "10.0.0.0/8"},
+		},
+		{
+			name:     "multiple targets, some subset, some not",
+			source:   []string{"10.0.0.0/8"},
+			target:   []string{"10.1.0.0/16", "192.168.1.0/24"},
+			expected: []string{"10.0.0.0/8", "192.168.1.0/24"},
+		},
+		{
+			name:     "empty source, all targets added",
+			source:   []string{},
+			target:   []string{"10.0.0.0/8", "192.168.1.0/24"},
+			expected: []string{"10.0.0.0/8", "192.168.1.0/24"},
+		},
+		{
+			name:     "empty target, source unchanged",
+			source:   []string{"10.0.0.0/8"},
+			target:   []string{},
+			expected: []string{"10.0.0.0/8"},
+		},
+		{
+			name:     "identical CIDRs in source and target, no duplicates",
+			source:   []string{"10.0.0.0/8"},
+			target:   []string{"10.0.0.0/8"},
+			expected: []string{"10.0.0.0/8"},
+		},
+		{
+			name:     "invalid target, source",
+			source:   []string{"10.0.0.0/8", "192.168.1.0/24/24"},
+			target:   []string{"10.0.0.1", "192.168.1.0/-1"},
+			expected: []string{"10.0.0.0/8"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := service.mergeIPCidrs(tt.source, tt.target)
+			assert.ElementsMatch(t, tt.expected, result)
+		})
+	}
+}
+func TestIPBlocksInfoService_getSharedSubnetsCIDRs(t *testing.T) {
+	service, _, _ := createService(t)
+	service.defaultProject = "/orgs/default/projects/default"
+	publicSubnetPath := "/orgs/default/projects/default/vpcs/vpc1/vpc-subnets/public-subnet"
+	privateTgwSubnetPath := "/orgs/default/projects/default/vpcs/vpc1/vpc-subnets/private-tgw-subnet"
+	privateTgwSubnetPath1 := "/orgs/default/projects/test-project/vpcs/vpc1/vpc-subnets/private-tgw-subnet"
+
+	const (
+		associatePublicSubnet     = "default:vpc1:public-subnet"
+		associatePrivateTgwSubnet = "default:vpc1:private-tgw-subnet"
+	)
+
+	getSubnetPatch := gomonkey.ApplyMethod(reflect.TypeOf(service.subnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, associate string) (*model.VpcSubnet, error) {
+		public := "Public"
+		privateTgw := "Private_TGW"
+
+		publicSubnet := &model.VpcSubnet{
+			Path:        &publicSubnetPath,
+			AccessMode:  &public,
+			IpAddresses: []string{"192.168.10.0/24"},
+		}
+		privateTgwSubnet := &model.VpcSubnet{
+			Path:        &privateTgwSubnetPath,
+			AccessMode:  &privateTgw,
+			IpAddresses: []string{"10.10.0.0/16"},
+		}
+		switch associate {
+		case associatePublicSubnet:
+			return publicSubnet, nil
+		case associatePrivateTgwSubnet:
+			return privateTgwSubnet, nil
+		}
+		return nil, fmt.Errorf("subnet not found")
+	})
+
+	// Test: both subnets present in Spec.Subnets
+	vpcConfigList := []v1alpha1.VPCNetworkConfiguration{
+		{
+			Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				Subnets: []string{publicSubnetPath, privateTgwSubnetPath},
+			},
+		},
+	}
+	external, private, err := service.getSharedSubnetsCIDRs(vpcConfigList)
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []string{"192.168.10.0/24"}, external)
+	assert.ElementsMatch(t, []string{"10.10.0.0/16"}, private)
+
+	// Test: only private_tgw subnet present with different project
+	vpcConfigList = []v1alpha1.VPCNetworkConfiguration{
+		{
+			Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				Subnets: []string{privateTgwSubnetPath1},
+			},
+		},
+	}
+	external, private, err = service.getSharedSubnetsCIDRs(vpcConfigList)
+	assert.NoError(t, err)
+	assert.Empty(t, external)
+	assert.Empty(t, private)
+
+	// Test: subnet not found in store
+	vpcConfigList = []v1alpha1.VPCNetworkConfiguration{
+		{
+			Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				Subnets: []string{"/infra/vpc-subnets/non-existent"},
+			},
+		},
+	}
+	external, private, err = service.getSharedSubnetsCIDRs(vpcConfigList)
+	assert.NoError(t, err)
+	assert.Empty(t, external)
+	assert.Empty(t, private)
+
+	// Test: SearchResource returns error
+	getSubnetPatch.Reset()
+	getSubnetPatch = gomonkey.ApplyMethod(reflect.TypeOf(service.subnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, associate string) (*model.VpcSubnet, error) {
+		return nil, fmt.Errorf("get subnet error")
+	})
+	defer getSubnetPatch.Reset()
+	vpcConfigList = []v1alpha1.VPCNetworkConfiguration{
+		{
+			Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				Subnets: []string{privateTgwSubnetPath1},
+			},
+		},
+	}
+	external, private, _ = service.getSharedSubnetsCIDRs(vpcConfigList)
+	assert.Empty(t, external)
+	assert.Empty(t, private)
 }

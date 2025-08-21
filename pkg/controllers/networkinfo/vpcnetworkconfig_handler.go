@@ -13,6 +13,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	commontypes "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 // VPCNetworkConfigurationHandler handles VPC NetworkConfiguration event, and reconcile VPC event:
@@ -80,6 +81,14 @@ func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.Upd
 				},
 			})
 		}
+	}
+	if util.CompareArraysWithoutOrder(oldNc.Spec.Subnets, newNc.Spec.Subnets) {
+		log.V(1).Info("Skip processing VPC NetworkConfig subnets", "newNc", newNc, "oldNc", oldNc)
+		return
+	}
+
+	if err := h.ipBlocksInfoService.UpdateIPBlocksInfo(ctx, newNc); err != nil {
+		log.Error(err, "Failed to update the IPBlocksInfo", "VPCNetworkConfiguration", newNc.Name)
 	}
 }
 

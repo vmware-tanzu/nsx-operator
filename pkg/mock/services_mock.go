@@ -99,6 +99,10 @@ func (m *MockSubnetServiceProvider) GetSubnetByCR(subnet *v1alpha1.Subnet) (*mod
 	return nil, nil
 }
 
+func (m *MockSubnetServiceProvider) GetNSXSubnetFromCacheOrAPI(associate string) (*model.VpcSubnet, error) {
+	return nil, nil
+}
+
 type MockSubnetPortServiceProvider struct {
 	mock.Mock
 }

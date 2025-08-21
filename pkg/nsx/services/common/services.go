@@ -33,6 +33,7 @@ type SubnetServiceProvider interface {
 	ListSubnetByName(ns, name string) []*model.VpcSubnet
 	ListSubnetBySubnetSetName(ns, subnetSetName string) []*model.VpcSubnet
 	GetSubnetByCR(subnet *v1alpha1.Subnet) (*model.VpcSubnet, error)
+	GetNSXSubnetFromCacheOrAPI(associatedResource string) (*model.VpcSubnet, error)
 }
 
 type SubnetPortServiceProvider interface {
