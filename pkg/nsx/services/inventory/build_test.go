@@ -1490,7 +1490,7 @@ func TestBuildService(t *testing.T) {
 
 		containerApplication := inventoryService.pendingAdd["service-uid-123"].(*containerinventory.ContainerApplication)
 		assert.Equal(t, InventoryStatusUnknown, containerApplication.Status)
-		assert.Equal(t, NetworkStatusUnhealthy, containerApplication.NetworkStatus)
+		assert.Equal(t, NetworkStatusHealthy, containerApplication.NetworkStatus)
 	})
 
 	t.Run("NoEndpointsNoAddress", func(t *testing.T) {
