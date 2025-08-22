@@ -402,7 +402,10 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 	info.lock.Lock()
 	defer info.lock.Unlock()
 	if !ok {
-		totalIP := int(*subnet.Ipv4SubnetSize)
+		var totalIP int
+		if subnet.Ipv4SubnetSize != nil {
+			totalIP = int(*subnet.Ipv4SubnetSize)
+		}
 		if len(subnet.IpAddresses) > 0 {
 			// totalIP will be overrided if IpAddresses are specified.
 			totalIP, _ = util.CalculateIPFromCIDRs(subnet.IpAddresses)

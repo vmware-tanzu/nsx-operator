@@ -1021,14 +1021,14 @@ func TestSubnetPortService_ListSubnetPortByPodName(t *testing.T) {
 func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 	subnetPath := "subnet-path-1"
 	subnetId := "subnet-id-1"
-	subnet := &model.VpcSubnet{
+	subnet1 := &model.VpcSubnet{
 		Ipv4SubnetSize: common.Int64(16),
 		IpAddresses:    []string{"10.0.0.1/28"},
 		Path:           &subnetPath,
 		Id:             &subnetId,
 	}
 	subnetPortService := createSubnetPortService()
-	ok := subnetPortService.AllocatePortFromSubnet(subnet)
+	ok := subnetPortService.AllocatePortFromSubnet(subnet1)
 	assert.True(t, ok)
 	empty := subnetPortService.IsEmptySubnet(subnetId, subnetPath)
 	assert.False(t, empty)
@@ -1037,8 +1037,16 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 	assert.True(t, empty)
 	// Update Subnet as exhausted and check port cannot be allocated
 	subnetPortService.updateExhaustedSubnet(subnetPath)
-	ok = subnetPortService.AllocatePortFromSubnet(subnet)
+	ok = subnetPortService.AllocatePortFromSubnet(subnet1)
 	assert.False(t, ok)
+
+	subnet2 := &model.VpcSubnet{
+		IpAddresses: []string{"10.0.1.1/28"},
+		Path:        common.String("subnet-path-2"),
+		Id:          common.String("subnet-id-2"),
+	}
+	ok = subnetPortService.AllocatePortFromSubnet(subnet2)
+	assert.True(t, ok)
 }
 
 func createSubnetPortService() *SubnetPortService {
