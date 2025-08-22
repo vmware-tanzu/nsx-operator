@@ -106,6 +106,7 @@ type Client struct {
 	LbPersistenceProfilesClient       infra.LbPersistenceProfilesClient
 	LbMonitorProfilesClient           infra.LbMonitorProfilesClient
 	SubnetConnectionBindingMapsClient subnets.SubnetConnectionBindingMapsClient
+	DynamicIPReservationsClient       subnets.DynamicIpReservationsClient
 	NsxApiClient                      *nsxt.APIClient
 	MacPoolsClient                    pools.MacPoolsClient
 
@@ -214,6 +215,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	transitGatewayAttachmentClient := transit_gateways.NewAttachmentsClient(connector)
 
 	subnetConnectionBindingMapsClient := subnets.NewSubnetConnectionBindingMapsClient(connector)
+	DynamicIPReservationsClient := subnets.NewDynamicIpReservationsClient(connector)
 
 	nsxApiClient, _ := CreateNsxtApiClient(cf, cluster.client)
 	macPoolsClient := pools.NewMacPoolsClient(connector)
@@ -274,6 +276,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		TransitGatewayClient:              transitGatewayClient,
 		TransitGatewayAttachmentClient:    transitGatewayAttachmentClient,
 		SubnetConnectionBindingMapsClient: subnetConnectionBindingMapsClient,
+		DynamicIPReservationsClient:       DynamicIPReservationsClient,
 		LbAppProfileClient:                lbAppProfileClient,
 		LbPersistenceProfilesClient:       lbPersistenceProfilesClient,
 		LbMonitorProfilesClient:           lbMonitorProfilesClient,
