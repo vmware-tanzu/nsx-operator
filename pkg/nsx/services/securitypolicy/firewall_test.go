@@ -1175,7 +1175,7 @@ func Test_DeleteVPCSecurityPolicy(t *testing.T) {
 			patches := tt.prepareFunc(t, fakeService)
 			defer patches.Reset()
 
-			if err := fakeService.DeleteSecurityPolicy(tt.args.uid, false, tt.args.createdFor); (err != nil) != tt.wantErr {
+			if err := fakeService.DeleteSecurityPolicy("", tt.args.uid, false, tt.args.createdFor); (err != nil) != tt.wantErr {
 				t.Errorf("deleteVPCSecurityPolicy error = %v, wantErr %v", err, tt.wantErr)
 			}
 			assert.Equal(t, tt.wantSecurityPolicyStoreCount, len(fakeService.securityPolicyStore.ListKeys()))
@@ -1238,6 +1238,16 @@ func Test_deleteSecurityPolicy(t *testing.T) {
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
+				patches.ApplyPrivateMethod(reflect.TypeOf(s), "DeleteT1GroupsWithStore", func(_ *SecurityPolicyService, _ *[]model.Group,
+					_ *GroupStore) error {
+					groupStore := make([]*model.Group, 0)
+					for _, obj := range s.groupStore.List() {
+						group := obj.(*model.Group)
+						groupStore = append(groupStore, group)
+					}
+					s.groupStore.DeleteMultipleObjects(groupStore)
+					return nil
+				})
 				return patches
 			},
 			args: args{
@@ -1359,7 +1369,7 @@ func Test_deleteSecurityPolicy(t *testing.T) {
 			patches := tt.prepareFunc(t, fakeService)
 			defer patches.Reset()
 
-			if err := fakeService.deleteSecurityPolicy(tt.args.uid); (err != nil) != tt.wantErr {
+			if err := fakeService.deleteSecurityPolicy("", tt.args.uid, false); (err != nil) != tt.wantErr {
 				t.Errorf("deleteSecurityPolicy error = %v, wantErr %v", err, tt.wantErr)
 			}
 			assert.Equal(t, tt.wantSecurityPolicyStoreCount, len(fakeService.securityPolicyStore.ListKeys()))
@@ -1554,7 +1564,7 @@ func Test_deleteVPCSecurityPolicy(t *testing.T) {
 			patches := tt.prepareFunc(t, fakeService)
 			defer patches.Reset()
 
-			if err := fakeService.deleteVPCSecurityPolicy(tt.args.uid, false, tt.args.createdFor); (err != nil) != tt.wantErr {
+			if err := fakeService.deleteVPCSecurityPolicy("", tt.args.uid, false, tt.args.createdFor); (err != nil) != tt.wantErr {
 				t.Errorf("deleteVPCSecurityPolicy error = %v, wantErr %v", err, tt.wantErr)
 			}
 			assert.Equal(t, tt.wantSecurityPolicyStoreCount, len(fakeService.securityPolicyStore.ListKeys()))
@@ -1758,7 +1768,7 @@ func Test_deleteVPCSecurityPolicyInDefaultProject(t *testing.T) {
 			patches := tt.prepareFunc(t, fakeService)
 			defer patches.Reset()
 
-			if err := fakeService.deleteVPCSecurityPolicy(tt.args.uid, false, tt.args.createdFor); (err != nil) != tt.wantErr {
+			if err := fakeService.deleteVPCSecurityPolicy("", tt.args.uid, false, tt.args.createdFor); (err != nil) != tt.wantErr {
 				t.Errorf("deleteVPCSecurityPolicy error = %v, wantErr %v", err, tt.wantErr)
 			}
 			assert.Equal(t, tt.wantSecurityPolicyStoreCount, len(fakeService.securityPolicyStore.ListKeys()))

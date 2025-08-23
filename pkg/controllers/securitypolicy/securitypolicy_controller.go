@@ -157,7 +157,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if !r.Service.NSXClient.NSXCheckVersion(nsx.SecurityPolicy) {
 		err := errors.New("NSX version check failed, SecurityPolicy feature is not supported")
 		r.StatusUpdater.UpdateFail(ctx, realObj, err, "", setSecurityPolicyReadyStatusFalse, r.Service)
-		// if NSX version check fails, it will be put back to reconcile queue and be reconciled after 5 minutes
+		// if the NSX version check fails, it will be put back to the reconciled queue and be reconciled after 5 minutes
 		return ResultRequeueAfter5mins, nil
 	}
 
@@ -196,7 +196,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		log.Info("Reconciling CR to delete securitypolicy", "securitypolicy", req.NamespacedName)
 		r.StatusUpdater.IncreaseDeleteTotal()
 
-		// For T1 upgrade, the upgraded CRs still has finalizer
+		// For T1 upgrade, the upgraded CRs still have a finalizer
 		if controllerutil.ContainsFinalizer(obj, finalizerName) {
 			controllerutil.RemoveFinalizer(obj, finalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
@@ -206,7 +206,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 			log.V(1).Info("Removed finalizer", "securitypolicy", req.NamespacedName)
 		}
-		if err := r.Service.DeleteSecurityPolicy(realObj.UID, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
+		if err := r.Service.DeleteSecurityPolicy(req.Namespace, realObj.UID, false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, realObj, err)
 			return ResultRequeue, err
 		}
@@ -334,7 +334,7 @@ func (r *SecurityPolicyReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// Start setup manager and launch GC
+// Start the setup manager and launch GC
 func (r *SecurityPolicyReconciler) Start(mgr ctrl.Manager) error {
 	err := r.setupWithManager(mgr)
 	if err != nil {
@@ -345,7 +345,7 @@ func (r *SecurityPolicyReconciler) Start(mgr ctrl.Manager) error {
 
 // CollectGarbage collect securitypolicy which has been removed from k8s,
 // it implements the interface GarbageCollector method.
-func (r *SecurityPolicyReconciler) CollectGarbage(ctx context.Context) error {
+func (r *SecurityPolicyReconciler) CollectGarbage(_ context.Context) error {
 	log.Info("SecurityPolicy garbage collector started")
 	nsxPolicySet := r.Service.ListSecurityPolicyID()
 	if len(nsxPolicySet) == 0 {
@@ -362,7 +362,12 @@ func (r *SecurityPolicyReconciler) CollectGarbage(ctx context.Context) error {
 	for elem := range diffSet {
 		log.V(1).Info("GC collected SecurityPolicy CR", "securityPolicyUID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
-		err = r.Service.DeleteSecurityPolicy(types.UID(elem), true, servicecommon.ResourceTypeSecurityPolicy)
+
+		// Get the namespace for this policy ID
+		namespace := r.Service.GetGCSecurityPolicyNamespace(elem)
+
+		// Delete the security policy with the found namespace (or empty if not found)
+		err = r.Service.DeleteSecurityPolicy(namespace, types.UID(elem), true, servicecommon.ResourceTypeSecurityPolicy)
 		if err != nil {
 			errList = append(errList, err)
 			r.StatusUpdater.IncreaseDeleteFailTotal()
@@ -381,7 +386,7 @@ func (r *SecurityPolicyReconciler) deleteSecurityPolicyByName(ns, name string) e
 	for _, item := range nsxSecurityPolicies {
 		uid := nsxutil.FindTag(item.Tags, servicecommon.TagValueScopeSecurityPolicyUID)
 		log.Info("Deleting SecurityPolicy", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
-		if err := r.Service.DeleteSecurityPolicy(types.UID(uid), false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
+		if err := r.Service.DeleteSecurityPolicy(ns, types.UID(uid), false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
 			log.Error(err, "Failed to delete SecurityPolicy", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
 			return err
 		}
