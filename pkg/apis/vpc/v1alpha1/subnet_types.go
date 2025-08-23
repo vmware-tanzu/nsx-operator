@@ -28,7 +28,10 @@ const (
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.accessMode) || has(self.accessMode)", message="accessMode is required once set"
 // +kubebuilder:validation:XValidation:rule="!(has(oldSelf.advancedConfig) && has(oldSelf.advancedConfig.staticIPAllocation) && has(oldSelf.advancedConfig.staticIPAllocation.enabled) && (!has(self.advancedConfig.staticIPAllocation.enabled) || oldSelf.advancedConfig.staticIPAllocation.enabled != self.advancedConfig.staticIPAllocation.enabled))", message="staticIPAllocation enabled cannot be changed once set"
 // +kubebuilder:validation:XValidation:rule="!(has(self.advancedConfig) && has(self.advancedConfig.staticIPAllocation) && has(self.advancedConfig.staticIPAllocation.enabled) && self.advancedConfig.staticIPAllocation.enabled==true && has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.mode) && (self.subnetDHCPConfig.mode=='DHCPServer' || self.subnetDHCPConfig.mode=='DHCPRelay'))", message="Static IP allocation and Subnet DHCP configuration cannot be enabled simultaneously on a Subnet"
+// +kubebuilder:validation:XValidation:rule="!(has(self.advancedConfig) && has(self.advancedConfig.dhcpServerAddresses) && size(self.advancedConfig.dhcpServerAddresses)>0 && (!has(self.subnetDHCPConfig) || !has(self.subnetDHCPConfig.mode) || self.subnetDHCPConfig.mode!='DHCPServer'))", message="DHCPServerAddresses can only be set when DHCP mode is DHCPServer"
 // +kubebuilder:validation:XValidation:rule="!has(self.ipAddresses) && !(has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig) && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig.reservedIPRanges)) || has(self.ipAddresses)", message="ipAddresses is required to configure subnet reserved ip ranges."
+// +kubebuilder:validation:XValidation:rule="!(has(self.advancedConfig) && has(self.advancedConfig.gatewayAddresses) && size(self.advancedConfig.gatewayAddresses)>0) || has(self.ipAddresses)", message="ipAddresses is required when custom gatewayAddresses are specified"
+// +kubebuilder:validation:XValidation:rule="!(has(self.advancedConfig) && has(self.advancedConfig.dhcpServerAddresses) && size(self.advancedConfig.dhcpServerAddresses)>0) || has(self.ipAddresses)", message="ipAddresses is required when custom dhcpServerAddresses are specified"
 type SubnetSpec struct {
 	// VPC name of the Subnet.
 	VPCName string `json:"vpcName,omitempty"`
@@ -110,7 +113,7 @@ type SubnetList struct {
 
 type SubnetAdvancedConfig struct {
 	// Connectivity status of the Subnet from other Subnets of the VPC.
-	// Default value is "Connected".
+	// The default value is "Connected".
 	// +kubebuilder:validation:Enum=Connected;Disconnected
 	// +kubebuilder:default=Connected
 	ConnectivityState ConnectivityState `json:"connectivityState,omitempty"`
@@ -120,6 +123,12 @@ type SubnetAdvancedConfig struct {
 	EnableVLANExtension bool `json:"enableVLANExtension,omitempty"`
 	// Static IP allocation for VPC Subnet Ports.
 	StaticIPAllocation StaticIPAllocation `json:"staticIPAllocation,omitempty"`
+	// GatewayAddresses specifies custom gateway IP addresses for the Subnet.
+	// +kubebuilder:validation:MaxItems=1
+	GatewayAddresses []string `json:"gatewayAddresses,omitempty"`
+	// DHCPServerAddresses specifies custom DHCP server IP addresses for the Subnet.
+	// +kubebuilder:validation:MaxItems=1
+	DHCPServerAddresses []string `json:"dhcpServerAddresses,omitempty"`
 }
 
 type StaticIPAllocation struct {
@@ -139,7 +148,7 @@ type DHCPServerAdditionalConfig struct {
 	ReservedIPRanges []string `json:"reservedIPRanges,omitempty"`
 }
 
-// SubnetDHCPConfig is DHCP configuration for Subnet.
+// SubnetDHCPConfig is a DHCP configuration for Subnet.
 // +kubebuilder:validation:XValidation:rule="(!has(self.mode)|| self.mode=='DHCPDeactivated' || self.mode=='DHCPRelay' ) && (!has(self.dhcpServerAdditionalConfig) || !has(self.dhcpServerAdditionalConfig.reservedIPRanges) || size(self.dhcpServerAdditionalConfig.reservedIPRanges)==0) || has(self.mode) && self.mode=='DHCPServer'", message="DHCPServerAdditionalConfig must be cleared when Subnet has DHCP relay enabled or DHCP is deactivated."
 type SubnetDHCPConfig struct {
 	// DHCP Mode. DHCPDeactivated will be used if it is not defined.

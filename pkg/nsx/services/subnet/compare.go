@@ -21,9 +21,18 @@ func (subnet *Subnet) Value() data.DataValue {
 	// IPv4SubnetSize/AccessMode/IPAddresses are immutable field,
 	// Changes of tags and subnetDHCPConfig are considered as changed.
 	// TODO AccessMode may also need to be compared in future.
+	var advancedConfig *model.SubnetAdvancedConfig
+	if subnet.AdvancedConfig != nil {
+		// Only compare gateway_addresses and dhcp_server_address from AdvancedConfig
+		advancedConfig = &model.SubnetAdvancedConfig{
+			GatewayAddresses:    subnet.AdvancedConfig.GatewayAddresses,
+			DhcpServerAddresses: subnet.AdvancedConfig.DhcpServerAddresses,
+		}
+	}
 	s := &Subnet{
 		Tags:             subnet.Tags,
 		SubnetDhcpConfig: subnet.SubnetDhcpConfig,
+		AdvancedConfig:   advancedConfig,
 	}
 	dataValue, _ := (*model.VpcSubnet)(s).GetDataValue__()
 	return dataValue

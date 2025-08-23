@@ -70,17 +70,31 @@ spec:
                     default: Connected
                     description: |-
                       Connectivity status of the Subnet from other Subnets of the VPC.
-                      Default value is "Connected".
+                      The default value is "Connected".
                     enum:
                     - Connected
                     - Disconnected
                     type: string
+                  dhcpServerAddresses:
+                    description: DHCPServerAddresses specifies custom DHCP server
+                      IP addresses for the Subnet.
+                    items:
+                      type: string
+                    maxItems: 1
+                    type: array
                   enableVLANExtension:
                     default: false
                     description: |-
                       Whether this Subnet enabled VLAN extension.
                       Default value is false.
                     type: boolean
+                  gatewayAddresses:
+                    description: GatewayAddresses specifies custom gateway IP addresses
+                      for the Subnet.
+                    items:
+                      type: string
+                    maxItems: 1
+                    type: array
                   staticIPAllocation:
                     description: Static IP allocation for VPC Subnet Ports.
                     properties:
@@ -163,10 +177,21 @@ spec:
                 && has(self.advancedConfig.staticIPAllocation.enabled) && self.advancedConfig.staticIPAllocation.enabled==true
                 && has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.mode) &&
                 (self.subnetDHCPConfig.mode==''DHCPServer'' || self.subnetDHCPConfig.mode==''DHCPRelay''))'
+            - message: DHCPServerAddresses can only be set when DHCP mode is DHCPServer
+              rule: '!(has(self.advancedConfig) && has(self.advancedConfig.dhcpServerAddresses)
+                && size(self.advancedConfig.dhcpServerAddresses)>0 && (!has(self.subnetDHCPConfig)
+                || !has(self.subnetDHCPConfig.mode) || self.subnetDHCPConfig.mode!=''DHCPServer''))'
             - message: ipAddresses is required to configure subnet reserved ip ranges.
               rule: '!has(self.ipAddresses) && !(has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig)
                 && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig.reservedIPRanges))
                 || has(self.ipAddresses)'
+            - message: ipAddresses is required when custom gatewayAddresses are specified
+              rule: '!(has(self.advancedConfig) && has(self.advancedConfig.gatewayAddresses)
+                && size(self.advancedConfig.gatewayAddresses)>0) || has(self.ipAddresses)'
+            - message: ipAddresses is required when custom dhcpServerAddresses are
+                specified
+              rule: '!(has(self.advancedConfig) && has(self.advancedConfig.dhcpServerAddresses)
+                && size(self.advancedConfig.dhcpServerAddresses)>0) || has(self.ipAddresses)'
           status:
             description: SubnetStatus defines the observed state of Subnet.
             properties:
