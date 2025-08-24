@@ -309,6 +309,40 @@ func WrapDomain(domain *model.Domain) (*data.StructValue, error) {
 	return dataValue.(*data.StructValue), nil
 }
 
+func WrapDhcpV4StaticBindingConfig(staticBinding *model.DhcpV4StaticBindingConfig) (*data.StructValue, error) {
+	tags := data.NewListValue()
+	for index := range staticBinding.Tags {
+		dataValue := data.NewStructValue(
+			"",
+			map[string]data.DataValue{
+				"scope": data.NewStringValue(*staticBinding.Tags[index].Scope),
+				"tag":   data.NewStringValue(*staticBinding.Tags[index].Tag),
+			})
+		tags.Add(dataValue)
+	}
+	staticBindingStruct := data.NewStructValue(
+		"",
+		map[string]data.DataValue{
+			"id":            data.NewStringValue(*staticBinding.Id),
+			"resource_type": data.NewStringValue(staticBinding.ResourceType),
+			"ip_address":    data.NewStringValue(*staticBinding.IpAddress),
+			"mac_address":   data.NewStringValue(*staticBinding.MacAddress),
+			"tags":          tags,
+		},
+	)
+	childStaticBinding := model.ChildDhcpStaticBindingConfig{
+		Id:                      staticBinding.Id,
+		MarkedForDelete:         staticBinding.MarkedForDelete,
+		ResourceType:            "ChildDhcpStaticBindingConfig",
+		DhcpStaticBindingConfig: staticBindingStruct,
+	}
+	dataValue, errs := NewConverter().ConvertToVapi(childStaticBinding, childStaticBinding.GetType__())
+	if len(errs) > 0 {
+		return nil, errs[0]
+	}
+	return dataValue.(*data.StructValue), nil
+}
+
 func buildInfraFromChildren(children []*data.StructValue) *model.Infra {
 	// This is the outermost layer of the hierarchy infra client.
 	// It doesn't need ID field.

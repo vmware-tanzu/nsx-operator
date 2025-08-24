@@ -183,6 +183,15 @@ func testVPCResources(t *testing.T) {
 				ResourceType: String(ResourceTypeSubnetPort),
 			}},
 		}, {
+			name: "delete DhcpV4StaticBindingConfig",
+			objects: []*model.DhcpV4StaticBindingConfig{{
+				Id:           String("staticBinding1"),
+				Path:         String("/orgs/default/projects/p1/vpcs/vpc1/subnets/subnet1/dhcp-static-binding-configs/staticBinding1"),
+				ResourceType: ResourceTypeDhcpV4StaticBindingConfig,
+				IpAddress:    String("172.26.0.3"),
+				MacAddress:   String("04:50:56:00:94:00"),
+			}},
+		}, {
 			name: "delete SubnetConnectionBindingMap",
 			objects: []*model.SubnetConnectionBindingMap{{
 				Id:           String("bm1"),
@@ -277,6 +286,9 @@ func testVPCResources(t *testing.T) {
 				case []*model.VpcSubnetPort:
 					res := tc.objects.([]*model.VpcSubnetPort)
 					err = testPolicyPathBuilderDeletion(t, PolicyPathVpcSubnetPort, res, nsxClient)
+				case []*model.DhcpV4StaticBindingConfig:
+					res := tc.objects.([]*model.DhcpV4StaticBindingConfig)
+					err = testPolicyPathBuilderDeletion(t, PolicyPathDhcpStaticBinding, res, nsxClient)
 				case []*model.SubnetConnectionBindingMap:
 					res := tc.objects.([]*model.SubnetConnectionBindingMap)
 					err = testPolicyPathBuilderDeletion(t, PolicyPathVpcSubnetConnectionBindingMap, res, nsxClient)

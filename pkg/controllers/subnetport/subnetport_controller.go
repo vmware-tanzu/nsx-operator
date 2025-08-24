@@ -528,7 +528,7 @@ func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) error {
 	log.Info("subnetport garbage collector started")
 	nsxSubnetPortSet := r.SubnetPortService.ListNSXSubnetPortIDForCR()
 	if len(nsxSubnetPortSet) == 0 {
-		return nil
+		log.V(2).Info("There is no SubnetPort in store")
 	}
 
 	crSubnetPortIDsSet, err := r.SubnetPortService.ListSubnetPortIDsFromCRs(ctx)
@@ -549,6 +549,25 @@ func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) error {
 			r.StatusUpdater.IncreaseDeleteSuccessTotal()
 		}
 	}
+
+	// In case of there are still some DHCP static bindings for SubnetPort CR in store
+	nsxStaticBindingIdSet := r.SubnetPortService.ListIDsFromDhcpStaticBindingStore()
+	if len(nsxStaticBindingIdSet) == 0 {
+		log.V(2).Info("There is no Dhcp Static Binding in store")
+	}
+	diffSet = nsxStaticBindingIdSet.Difference(crSubnetPortIDsSet)
+	for elem := range diffSet {
+		log.V(1).Info("GC collected SubnetPort CR", "UID", elem)
+		r.StatusUpdater.IncreaseDeleteTotal()
+		err = r.SubnetPortService.DeleteSubnetPortById(elem)
+		if err != nil {
+			errList = append(errList, err)
+			r.StatusUpdater.IncreaseDeleteFailTotal()
+		} else {
+			r.StatusUpdater.IncreaseDeleteSuccessTotal()
+		}
+	}
+
 	addressBindingUIDSet, err := r.getAddressBindingCRUIDSet(ctx)
 	if err != nil {
 		return err

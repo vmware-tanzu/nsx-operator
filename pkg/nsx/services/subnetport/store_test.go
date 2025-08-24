@@ -5,6 +5,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/client-go/tools/cache"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 func Test_subnetPortIndexPodNamespace(t *testing.T) {
@@ -217,6 +220,43 @@ func Test_subnetPortIndexByCRUID(t *testing.T) {
 				assert.Equal(t, 1, len(result))
 				assert.Equal(t, tt.expectedResult, result[0])
 			}
+		})
+	}
+}
+
+func TestDHCPStaticBindingStore_Apply(t *testing.T) {
+	dhcpStaticBindingStore := &DHCPStaticBindingStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.DhcpV4StaticBindingConfigBindingType(),
+	}}
+
+	id := "binding1"
+	staticBindingPath := "/orgs/default/projects/project1/vpcs/vpc1/subnets/subnet1/dhcp-static-binding-configs/binding1"
+	fakeDeleted := true
+	staticBinding1 := model.DhcpV4StaticBindingConfig{
+		Id:   &id,
+		Path: &staticBindingPath,
+	}
+	staticBinding2 := model.DhcpV4StaticBindingConfig{
+		Id:              &id,
+		Path:            &staticBindingPath,
+		MarkedForDelete: &fakeDeleted,
+	}
+
+	type args struct {
+		i interface{}
+	}
+	tests := []struct {
+		name string
+		args args
+	}{
+		{"Add", args{i: &staticBinding1}},
+		{"Delete", args{i: &staticBinding2}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := dhcpStaticBindingStore.Apply(tt.args.i)
+			assert.Nil(t, err)
 		})
 	}
 }

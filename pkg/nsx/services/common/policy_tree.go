@@ -56,6 +56,8 @@ func getNSXResourcePath[T any](obj T) *string {
 		return v.Path
 	case *model.Domain:
 		return v.Path
+	case *model.DhcpV4StaticBindingConfig:
+		return v.Path
 	default:
 		log.Error(nil, "Get NSX resource path", "unknown NSX resource type", v)
 		return nil
@@ -96,6 +98,8 @@ func getNSXResourceId[T any](obj T) *string {
 		return v.Id
 	case *model.Domain:
 		return v.Id
+	case *model.DhcpV4StaticBindingConfig:
+		return v.Id
 	default:
 		log.Error(nil, "Get NSX resource ID", "unknown NSX resource type", v)
 		return nil
@@ -134,6 +138,8 @@ func leafWrapper[T any](obj T) (*data.StructValue, error) {
 		return WrapCertificate(v)
 	case *model.Domain:
 		return WrapDomain(v)
+	case *model.DhcpV4StaticBindingConfig:
+		return WrapDhcpV4StaticBindingConfig(v)
 	default:
 		log.Error(nil, "Leaf wrapper", "unknown NSX resource type", v)
 		return nil, fmt.Errorf("unsupported NSX resource type %v", v)
@@ -206,6 +212,7 @@ var (
 	PolicyResourceStaticRoutes                  = PolicyResourceType{ModelKey: ResourceTypeStaticRoutes, PathKey: "static-routes"}
 	PolicyResourceVpcSubnet                     = PolicyResourceType{ModelKey: ResourceTypeSubnet, PathKey: "subnets"}
 	PolicyResourceVpcSubnetPort                 = PolicyResourceType{ModelKey: ResourceTypeSubnetPort, PathKey: "ports"}
+	PolicyResourceDhcpStaticBinding             = PolicyResourceType{ModelKey: ResourceTypeDhcpV4StaticBindingConfig, PathKey: "dhcp-static-binding-configs"}
 	PolicyResourceVpcSubnetConnectionBindingMap = PolicyResourceType{ModelKey: ResourceTypeSubnetConnectionBindingMap, PathKey: "subnet-connection-binding-maps"}
 	PolicyResourceVpcLBService                  = PolicyResourceType{ModelKey: ResourceTypeLBService, PathKey: "vpc-lbs"}
 	PolicyResourceVpcLBPool                     = PolicyResourceType{ModelKey: ResourceTypeLBPool, PathKey: "vpc-lb-pools"}
@@ -225,6 +232,7 @@ var (
 	PolicyPathVpcSubnet                     PolicyResourcePath[*model.VpcSubnet]                  = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet}
 	PolicyPathVpcSubnetConnectionBindingMap PolicyResourcePath[*model.SubnetConnectionBindingMap] = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceVpcSubnetConnectionBindingMap}
 	PolicyPathVpcSubnetPort                 PolicyResourcePath[*model.VpcSubnetPort]              = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceVpcSubnetPort}
+	PolicyPathDhcpStaticBinding             PolicyResourcePath[*model.DhcpV4StaticBindingConfig]  = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceDhcpStaticBinding}
 	PolicyPathVpcLBPool                     PolicyResourcePath[*model.LBPool]                     = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcLBPool}
 	PolicyPathVpcLBService                  PolicyResourcePath[*model.LBService]                  = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcLBService}
 	PolicyPathVpcLBVirtualServer            PolicyResourcePath[*model.LBVirtualServer]            = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcLBVirtualServer}
