@@ -746,8 +746,13 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		if err != nil {
 			return
 		}
-		if !r.SubnetPortService.AllocatePortFromSubnet(nsxSubnet) {
-			err = fmt.Errorf("no valid IP in Subnet %s", *nsxSubnet.Path)
+		var canAllocate bool
+		canAllocate, err = r.SubnetPortService.AllocatePortFromSubnet(nsxSubnet)
+		if err != nil {
+			return
+		}
+		if !canAllocate {
+			err = fmt.Errorf("Subnet %s is exhausted", *nsxSubnet.Id)
 			return
 		}
 		subnetPath = *nsxSubnet.Path

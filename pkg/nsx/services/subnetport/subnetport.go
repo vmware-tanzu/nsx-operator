@@ -543,29 +543,73 @@ func (service *SubnetPortService) ListSubnetPortByPodName(ns string, name string
 // AllocatePortFromSubnet checks the number of SubnetPorts on the Subnet.
 // If the Subnet has capacity for the new SubnetPorts, it will increase
 // the number of SubnetPort under creation and return true.
-func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet) bool {
+func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet) (bool, error) {
 	info := &CountInfo{}
 	obj, ok := service.SubnetPortStore.PortCountInfo.LoadOrStore(*subnet.Path, info)
 	info = obj.(*CountInfo)
 
 	info.lock.Lock()
 	defer info.lock.Unlock()
+
+	dhcpMode := "DHCP_DEACTIVATED"
+	subnetInfo, _ := servicecommon.ParseVPCResourcePath(*subnet.Path)
+	if subnet.SubnetDhcpConfig != nil && subnet.SubnetDhcpConfig.Mode != nil {
+		dhcpMode = *subnet.SubnetDhcpConfig.Mode
+	}
+	// For DHCP Server mode Subnet, get total IPs from DHCP IP Pool from NSX each time
+	// since user might update reservedIPRanges for the subnet and it impacts the DHCP Pool size
+	if dhcpMode == "DHCP_SERVER" {
+		dhcpServerStats, err := service.NSXClient.DhcpServerConfigStatsClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, nil, nil, nil, nil, nil, nil, nil)
+		if err != nil {
+			log.Error(err, "Failed to get Subnet dhcp-server-config stats", "Subnet", *subnet.Path)
+			return false, err
+		}
+		if len(dhcpServerStats.IpPoolStats) > 0 && dhcpServerStats.IpPoolStats[0].PoolSize != nil {
+			info.totalIP = int(*dhcpServerStats.IpPoolStats[0].PoolSize)
+		}
+	}
+
 	if !ok {
-		var totalIP int
-		if subnet.Ipv4SubnetSize != nil {
-			totalIP = int(*subnet.Ipv4SubnetSize)
+		// For DHCP Deactivated mode Subnet, get total IPs from IP pool static-ipv4-default
+		if dhcpMode == "DHCP_DEACTIVATED" {
+			staticIpAllocationEnabled := false
+			if subnet.AdvancedConfig != nil && subnet.AdvancedConfig.StaticIpAllocation != nil && subnet.AdvancedConfig.StaticIpAllocation.Enabled != nil {
+				staticIpAllocationEnabled = *subnet.AdvancedConfig.StaticIpAllocation.Enabled
+			}
+			if !staticIpAllocationEnabled {
+				// for staticIpAllocation enable:false case, it can create SubnetPort and skip check the IP count
+				return true, nil
+			}
+			// only get Subnet total IPs from static IP Pool if staticIpAllocation enabled
+			if staticIpAllocationEnabled {
+				staticIPPool, err := service.NSXClient.IPPoolClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, "static-ipv4-default")
+				if err != nil {
+					log.Error(err, "Failed to get Subnet static IP Pool static-ipv4-default", "Subnet", *subnet.Path)
+					return false, err
+				}
+				if staticIPPool.PoolUsage.TotalIps != nil {
+					info.totalIP = int(*staticIPPool.PoolUsage.TotalIps)
+				}
+			}
 		}
-		if len(subnet.IpAddresses) > 0 {
-			// totalIP will be overrided if IpAddresses are specified.
-			totalIP, _ = util.CalculateIPFromCIDRs(subnet.IpAddresses)
+		// For DHCP Relay mode Subnet, assume 4 reserved IPs
+		if dhcpMode == "DHCP_RELAY" {
+			var totalIP int
+			if subnet.Ipv4SubnetSize != nil {
+				totalIP = int(*subnet.Ipv4SubnetSize)
+			}
+			if len(subnet.IpAddresses) > 0 {
+				// totalIP will be overrided if IpAddresses are specified.
+				totalIP, _ = util.CalculateIPFromCIDRs(subnet.IpAddresses)
+			}
+			// NSX reserves 4 ip addresses in each subnet for network address, gateway address,
+			// dhcp server address and broadcast address.
+			info.totalIP = totalIP - 4
 		}
-		// NSX reserves 4 ip addresses in each subnet for network address, gateway address,
-		// dhcp server address and broadcast address.
-		info.totalIP = totalIP - 4
 	}
 
 	if time.Since(info.exhaustedCheckTime) < IPReleaseTime {
-		return false
+		return false, nil
 	}
 	// Number of SubnetPorts on the Subnet includes the SubnetPorts under creation
 	// and the SubnetPorts already created
@@ -573,9 +617,9 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 	if info.dirtyCount+existingPortCount < info.totalIP {
 		info.dirtyCount += 1
 		log.V(2).Info("Allocate Subnetport to Subnet", "Subnet", *subnet.Path, "dirtyPortCount", info.dirtyCount, "existingPortCount", existingPortCount)
-		return true
+		return true, nil
 	}
-	return false
+	return false, nil
 }
 
 func (service *SubnetPortService) updateExhaustedSubnet(path string) {

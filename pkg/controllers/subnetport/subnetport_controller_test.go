@@ -963,8 +963,8 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 						}}
 					})
 				patches.ApplyFunc((*subnetport.SubnetPortService).AllocatePortFromSubnet,
-					func(s *subnetport.SubnetPortService, nsxSubnet *model.VpcSubnet) bool {
-						return true
+					func(s *subnetport.SubnetPortService, nsxSubnet *model.VpcSubnet) (bool, error) {
+						return true, nil
 					})
 				return patches
 			},
