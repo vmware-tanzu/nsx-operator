@@ -679,7 +679,7 @@ func UpdateRequestURL(reqUrl *url.URL, nsxtHost string, thumbprint string) {
 	}
 }
 
-func MergeArraysWithoutDuplicate(oldArray []string, newArray []string) []string {
+func MergeArraysWithoutDuplicate[T comparable](oldArray []T, newArray []T) []T {
 	if len(oldArray) == 0 {
 		return newArray
 	}
@@ -688,11 +688,10 @@ func MergeArraysWithoutDuplicate(oldArray []string, newArray []string) []string 
 	}
 	set := sets.New(oldArray...)
 	set.Insert(newArray...)
-
 	return set.UnsortedList()
 }
 
-func CompareArraysWithoutOrder(oldArray []string, newArray []string) bool {
+func CompareArraysWithoutOrder[T comparable](oldArray []T, newArray []T) bool {
 	if len(oldArray) != len(newArray) {
 		return false
 	}

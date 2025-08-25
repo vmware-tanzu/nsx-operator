@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"k8s.io/apimachinery/pkg/api/errors"
+	api_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -155,7 +155,7 @@ func (s *IPBlocksInfoService) UpdateIPBlocksInfo(ctx context.Context, vpcConfigC
 }
 
 func (s *IPBlocksInfoService) updateIPBlocksInfo(ctx context.Context, vpcConfigList []v1alpha1.VPCNetworkConfiguration, incremental bool) error {
-	externalIPCIDRs, privateTGWIPCIDRs, err := s.getIPBlockCIDRsByVPCConfig(vpcConfigList)
+	externalIPCIDRs, privateTGWIPCIDRs, externalIPRanges, privateTGWIPRanges, err := s.getIPBlockCIDRsByVPCConfig(vpcConfigList)
 	if err != nil {
 		return err
 	}
@@ -170,8 +170,10 @@ func (s *IPBlocksInfoService) updateIPBlocksInfo(ctx context.Context, vpcConfigL
 		ObjectMeta: metav1.ObjectMeta{
 			Name: ipBlocksInfoCRDName,
 		},
-		ExternalIPCIDRs:   externalIPCIDRs,
-		PrivateTGWIPCIDRs: privateTGWIPCIDRs,
+		ExternalIPCIDRs:    externalIPCIDRs,
+		PrivateTGWIPCIDRs:  privateTGWIPCIDRs,
+		ExternalIPRanges:   externalIPRanges,
+		PrivateTGWIPRanges: privateTGWIPRanges,
 	}
 	return s.createOrUpdateIPBlocksInfo(ctx, ipBlocksInfo, incremental)
 }
@@ -195,7 +197,7 @@ func (s *IPBlocksInfoService) createOrUpdateIPBlocksInfo(ctx context.Context, ip
 	namespacedName := types.NamespacedName{Name: ipBlocksInfo.Name}
 	err := s.Client.Get(ctx, namespacedName, ipBlocksInfoOld)
 	if err != nil {
-		if !errors.IsNotFound(err) {
+		if !api_errors.IsNotFound(err) {
 			log.Error(err, "failed to get IPBlocksInfo CR", "name", ipBlocksInfo.Name)
 			return err
 		} else {
@@ -204,7 +206,7 @@ func (s *IPBlocksInfoService) createOrUpdateIPBlocksInfo(ctx context.Context, ip
 				log.Error(err, "failed to create IPBlocksInfo CR", "name", ipBlocksInfo.Name)
 				return err
 			}
-			log.V(1).Info("successfully created IPBlocksInfo CR", "IPBlocksInfo", ipBlocksInfo)
+			log.V(1).Info("Successfully created IPBlocksInfo CR", "IPBlocksInfo", ipBlocksInfo)
 			return err
 		}
 	}
@@ -213,18 +215,24 @@ func (s *IPBlocksInfoService) createOrUpdateIPBlocksInfo(ctx context.Context, ip
 		ipBlocksInfo.PrivateTGWIPCIDRs = s.mergeIPCidrs(ipBlocksInfoOld.PrivateTGWIPCIDRs, ipBlocksInfo.PrivateTGWIPCIDRs)
 	}
 	if util.CompareArraysWithoutOrder(ipBlocksInfoOld.ExternalIPCIDRs, ipBlocksInfo.ExternalIPCIDRs) &&
-		util.CompareArraysWithoutOrder(ipBlocksInfoOld.PrivateTGWIPCIDRs, ipBlocksInfo.PrivateTGWIPCIDRs) {
+		util.CompareArraysWithoutOrder(ipBlocksInfoOld.PrivateTGWIPCIDRs, ipBlocksInfo.PrivateTGWIPCIDRs) &&
+		util.CompareArraysWithoutOrder(ipBlocksInfoOld.ExternalIPRanges, ipBlocksInfo.ExternalIPRanges) &&
+		util.CompareArraysWithoutOrder(ipBlocksInfoOld.PrivateTGWIPRanges, ipBlocksInfo.PrivateTGWIPRanges) {
+		log.V(1).Info("IPBlocksInfo CR is up to date, no need to update", "name", ipBlocksInfoOld.Name)
 		// no need to update if all IPBlocks do not change
 		return nil
 	}
 	ipBlocksInfoOld.ExternalIPCIDRs = ipBlocksInfo.ExternalIPCIDRs
 	ipBlocksInfoOld.PrivateTGWIPCIDRs = ipBlocksInfo.PrivateTGWIPCIDRs
+	ipBlocksInfoOld.ExternalIPRanges = ipBlocksInfo.ExternalIPRanges
+	ipBlocksInfoOld.PrivateTGWIPRanges = ipBlocksInfo.PrivateTGWIPRanges
+
 	err = s.Client.Update(ctx, ipBlocksInfoOld)
 	if err != nil {
 		log.Error(err, "failed to update IPBlocksInfo CR", "name", ipBlocksInfoOld.Name)
 		return err
 	}
-	log.V(1).Info("successfully updated IPBlocksInfo CR", "IPBlocksInfo", ipBlocksInfoOld)
+	log.V(1).Info("Successfully updated IPBlocksInfo CR", "IPBlocksInfo", ipBlocksInfoOld)
 	return nil
 }
 
@@ -262,10 +270,11 @@ func (s *IPBlocksInfoService) getSharedSubnetsCIDRs(vpcConfigList []v1alpha1.VPC
 	return externalIPCIDRs, privateTGWIPCIDRs, nil
 }
 
-func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha1.VPCNetworkConfiguration) (externalIPCIDRs []string, privateTGWIPCIDRs []string, err error) {
+func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha1.VPCNetworkConfiguration) (externalIPCIDRs, privateTGWIPCIDRs []string, externalIPRanges, privateTGWIPRanges []v1alpha1.IPPoolRange, err error) {
 	// Map saves the resource path and if it associated with a default project
 	vpcConnectivityProfileProjectMap := make(map[string]bool)
 	vpcs := sets.New[string]()
+	var count uint64
 	for _, vpcConfigCR := range vpcConfigList {
 		// all auto-created VPCs share the same VPCConnectivityProfile which is associated with default project
 		// only archieve the VPCConnectivityProfile for the default one
@@ -294,23 +303,26 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha
 	}
 	// Skip the IPBlocksInfo updating before the default project is found
 	if s.defaultProject == "" {
-		return externalIPCIDRs, privateTGWIPCIDRs, fmt.Errorf("default project not found, try later")
+		err = fmt.Errorf("default project not found, try later")
+		return
 	}
 
 	// for all VPC path, get VPCConnectivityProfile from VPC attachment
 	vpcAttachmentStore := NewVpcAttachmentStore()
 	queryParam := fmt.Sprintf("%s:%s", common.ResourceType, common.ResourceTypeVpcAttachment)
-	count, err := s.SearchResource(common.ResourceTypeVpcAttachment, queryParam, vpcAttachmentStore, nil)
+	count, err = s.SearchResource(common.ResourceTypeVpcAttachment, queryParam, vpcAttachmentStore, nil)
 	if err != nil {
 		log.Error(err, "failed to query VPC attachment")
-		return externalIPCIDRs, privateTGWIPCIDRs, err
+		return
 	}
 	log.V(2).Info("successfully fetch all VPC Attachment from NSX", "count", count)
 
 	for vpcPath := range vpcs {
-		vpcResInfo, err := common.ParseVPCResourcePath(vpcPath)
+		var vpcResInfo common.VPCResourceInfo
+		vpcResInfo, err = common.ParseVPCResourcePath(vpcPath)
 		if err != nil {
-			return externalIPCIDRs, privateTGWIPCIDRs, fmt.Errorf("invalid VPC path %s", vpcPath)
+			log.Error(err, "failed to parse VPC resource path")
+			return
 		}
 		// for pre-created VPC, mark as default for those under default project
 		vpcProjectPath := fmt.Sprintf("/orgs/%s/projects/%s", vpcResInfo.OrgID, vpcResInfo.ProjectID)
@@ -340,14 +352,15 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha
 	queryParam = fmt.Sprintf("%s:%s", common.ResourceType, common.ResourceTypeVpcConnectivityProfile)
 	count, err = s.SearchResource(common.ResourceTypeVpcConnectivityProfile, queryParam, vpcConnectivityProfileStore, nil)
 	if err != nil {
-		return externalIPCIDRs, privateTGWIPCIDRs, err
+		return
 	}
 	log.V(2).Info("successfully fetch all VPCConnectivityProfile from NSX", "count", count)
 
 	for profilePath, isDefault := range vpcConnectivityProfileProjectMap {
 		obj := vpcConnectivityProfileStore.GetByKey(profilePath)
 		if obj == nil {
-			return externalIPCIDRs, privateTGWIPCIDRs, fmt.Errorf("failed to get VPCConnectivityProfile %s from NSX", profilePath)
+			err = fmt.Errorf("failed to get VPCConnectivityProfile %s from NSX", profilePath)
+			return
 		}
 		vpcConnectivityProfile := obj.(*model.VpcConnectivityProfile)
 		log.V(2).Info("successfully fetch VPCConnectivityProfile", "path", profilePath, "isDefault", isDefault)
@@ -371,32 +384,55 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha
 	queryParam = fmt.Sprintf("%s:%s", common.ResourceType, common.ResourceTypeIPBlock)
 	count, err = s.SearchResource(common.ResourceTypeIPBlock, queryParam, ipBlockStore, nil)
 	if err != nil {
-		return externalIPCIDRs, privateTGWIPCIDRs, err
+		return
 	}
 	log.V(2).Info("successfully fetch all IPBlocks from NSX", "count", count)
-
-	if externalIPCIDRs, err = s.getIPBlockCIDRsFromStore(externalIPBlockPaths, ipBlockStore); err != nil {
-		return nil, nil, err
-	}
-	if privateTGWIPCIDRs, err = s.getIPBlockCIDRsFromStore(privateTgwIPBlockPaths, ipBlockStore); err != nil {
-		return nil, nil, err
-	}
-	return externalIPCIDRs, privateTGWIPCIDRs, nil
+	return s.getCIDRsRangesFromStore(externalIPBlockPaths, privateTgwIPBlockPaths, ipBlockStore)
 }
 
-func (s *IPBlocksInfoService) getIPBlockCIDRsFromStore(pathSet sets.Set[string], ipBlockStore *IPBlockStore) ([]string, error) {
+func (s *IPBlocksInfoService) getCIDRsRangesFromStore(externalIPBlockPaths, privateTgwIPBlockPaths sets.Set[string], ipBlockStore *IPBlockStore) (externalIPCIDRs, privateTGWIPCIDRs []string, externalIPRanges, privateTGWIPRanges []v1alpha1.IPPoolRange, err error) {
+	externalIPCIDRs, externalIPRanges, err = s.getIPBlockCIDRsAndRangesFromStore(externalIPBlockPaths, ipBlockStore)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	privateTGWIPCIDRs, privateTGWIPRanges, err = s.getIPBlockCIDRsAndRangesFromStore(privateTgwIPBlockPaths, ipBlockStore)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	return externalIPCIDRs, privateTGWIPCIDRs, externalIPRanges, privateTGWIPRanges, nil
+}
+
+// getIPBlockCIDRsAndRangesFromStore retrieves the CIDRs/CIDR/ranges for the given IPBlock paths from the store.
+// It will not return error if no CIDRs/CIDR found, since one ipblock may only have ranges
+func (s *IPBlocksInfoService) getIPBlockCIDRsAndRangesFromStore(pathSet sets.Set[string], ipBlockStore *IPBlockStore) (cidrs []string, ranges []v1alpha1.IPPoolRange, err error) {
 	ipCIDRs := []string{}
+	ipRanges := []v1alpha1.IPPoolRange{}
 	for path := range pathSet {
 		obj := ipBlockStore.GetByKey(path)
 		if obj == nil {
-			return nil, fmt.Errorf("failed to get IPBlock %s from NSX", path)
+			err := fmt.Errorf("failed to get IPBlock %s from NSX", path)
+			log.Error(err, "get CIDRs/Ranges from ipblock")
+			return nil, nil, err
 		}
 		ipblock := obj.(*model.IpAddressBlock)
-		if ipblock.Cidr == nil { //nolint:staticcheck //ipblock.Cidr is deprecated
-			return nil, fmt.Errorf("failed to get CIDR from ipblock %s", path)
+		if ipblock.Cidrs != nil {
+			ipCIDRs = append(ipCIDRs, ipblock.Cidrs...)
+			log.V(2).Info("Successfully get cidrs for IPBlock", "path", path, "cidrs", ipblock.Cidrs)
+		} else if ipblock.Cidr != nil { //nolint:staticcheck //ipblock.Cidr is deprecated
+			ipCIDRs = append(ipCIDRs, *ipblock.Cidr)                                                 //nolint:staticcheck //ipblock.Cidr is deprecated
+			log.V(2).Info("Successfully get cidrs for IPBlock", "path", path, "cidrs", ipblock.Cidr) //nolint:staticcheck //ipblock.Cidr is deprecated
+		} else {
+			log.Info("No CIDRs found for IPBlock", "path", path)
 		}
-		log.V(2).Info("successfully get cidr for IPBblock", "path", path, "cidr", *ipblock.Cidr) //nolint:staticcheck //ipblock.Cidr is deprecated
-		ipCIDRs = append(ipCIDRs, *ipblock.Cidr)                                                 //nolint:staticcheck //ipblock.Cidr is deprecated
+		if ipblock.Ranges != nil {
+			log.V(2).Info("Successfully get ranges for IPBlock", "path", path, "ranges", ipblock.Ranges)
+			for _, r := range ipblock.Ranges {
+				ipRanges = append(ipRanges, v1alpha1.IPPoolRange{
+					Start: *r.Start,
+					End:   *r.End,
+				})
+			}
+		}
 	}
-	return ipCIDRs, nil
+	return ipCIDRs, ipRanges, nil
 }

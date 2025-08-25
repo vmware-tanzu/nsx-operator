@@ -34,6 +34,23 @@ spec:
             items:
               type: string
             type: array
+          externalIPRanges:
+            description: |-
+              ExternalIPRanges is an array of contiguous IP address space represented by start and end IPs.
+              The visibility of the IPBlocks is External.
+            items:
+              properties:
+                end:
+                  description: The end IP Address of the IP Range.
+                  type: string
+                start:
+                  description: The start IP Address of the IP Range.
+                  type: string
+              required:
+              - end
+              - start
+              type: object
+            type: array
           kind:
             description: |-
               Kind is a string value representing the REST resource this object represents.
@@ -51,6 +68,23 @@ spec:
               IPBlocks is Private Transit Gateway. Only IPBlocks in default project will be included.
             items:
               type: string
+            type: array
+          privateTGWIPRanges:
+            description: |-
+              PrivateTGWIPRanges is an array of contiguous IP address space represented by start and end IPs.
+              The visibility of the IPBlocks is Private Transit Gateway.
+            items:
+              properties:
+                end:
+                  description: The end IP Address of the IP Range.
+                  type: string
+                start:
+                  description: The start IP Address of the IP Range.
+                  type: string
+              required:
+              - end
+              - start
+              type: object
             type: array
         type: object
     served: true

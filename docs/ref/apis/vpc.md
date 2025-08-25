@@ -290,6 +290,25 @@ IPBlocksInfo is the Schema for the ipblocksinfo API
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `externalIPCIDRs` _string array_ | ExternalIPCIDRs is a list of CIDR strings. Each CIDR is a contiguous IP address<br />spaces represented by network address and prefix length. The visibility of the<br />IPBlocks is External. |  |  |
 | `privateTGWIPCIDRs` _string array_ | PrivateTGWIPCIDRs is a list of CIDR strings. Each CIDR is a contiguous IP address<br />spaces represented by network address and prefix length. The visibility of the<br />IPBlocks is Private Transit Gateway. Only IPBlocks in default project will be included. |  |  |
+| `externalIPRanges` _[IPPoolRange](#ippoolrange) array_ | ExternalIPRanges is an array of contiguous IP address space represented by start and end IPs.<br />The visibility of the IPBlocks is External. |  |  |
+| `privateTGWIPRanges` _[IPPoolRange](#ippoolrange) array_ | PrivateTGWIPRanges is an array of contiguous IP address space represented by start and end IPs.<br />The visibility of the IPBlocks is Private Transit Gateway. |  |  |
+
+
+#### IPPoolRange
+
+
+
+
+
+
+
+_Appears in:_
+- [IPBlocksInfo](#ipblocksinfo)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `start` _string_ | The start IP Address of the IP Range. |  |  |
+| `end` _string_ | The end IP Address of the IP Range. |  |  |
 
 
 #### NetworkInfo

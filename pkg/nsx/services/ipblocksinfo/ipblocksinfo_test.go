@@ -208,30 +208,6 @@ func TestIPBlocksInfoService_StartPeriodicSync(t *testing.T) {
 	}
 }
 
-func TestIPBlocksInfoService_getIPBlockCIDRsFromStore(t *testing.T) {
-	ipBlockStore := &IPBlockStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
-		BindingType: model.IpAddressBlockBindingType(),
-	}}
-	ipblock1 := model.IpAddressBlock{
-		Path: &ipBlocksPath1,
-	}
-	ipBlockStore.Apply(&ipblock1)
-	service := &IPBlocksInfoService{}
-
-	// Fetch non-existed IPBlocks
-	pathSet := sets.New[string]()
-	pathSet.Insert(ipBlocksPath2)
-	_, err := service.getIPBlockCIDRsFromStore(pathSet, ipBlockStore)
-	assert.ErrorContains(t, err, "failed to get IPBlock")
-
-	// No CIDR in IPBlocks
-	pathSet = sets.New[string]()
-	pathSet.Insert(ipBlocksPath1)
-	_, err = service.getIPBlockCIDRsFromStore(pathSet, ipBlockStore)
-	assert.ErrorContains(t, err, "failed to get CIDR from ipblock")
-}
-
 func TestIPBlocksInfoService_createOrUpdateIPBlocksInfo(t *testing.T) {
 	service, mockController, mockK8sClient := createService(t)
 	defer mockController.Finish()
@@ -261,6 +237,7 @@ func TestIPBlocksInfoService_createOrUpdateIPBlocksInfo(t *testing.T) {
 	err = service.createOrUpdateIPBlocksInfo(context.TODO(), &ipBlocksInfo, false)
 	assert.ErrorIs(t, err, mockErr)
 }
+
 func TestIPBlocksInfoService_mergeIPCidrs(t *testing.T) {
 	service := &IPBlocksInfoService{}
 
@@ -327,6 +304,200 @@ func TestIPBlocksInfoService_mergeIPCidrs(t *testing.T) {
 		})
 	}
 }
+
+func stringPtr(s string) *string {
+	return &s
+}
+
+func TestIPBlocksInfoService_getCIDRsRangesFromStore(t *testing.T) {
+	service := &IPBlocksInfoService{}
+	ipBlockStore := &IPBlockStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.IpAddressBlockBindingType(),
+	}}
+
+	// Helper to add IpAddressBlock to store
+	addBlock := func(path string, cidr *string, cidrs []string, ranges []model.IpPoolRange) {
+		block := &model.IpAddressBlock{
+			Path:   &path,
+			Cidr:   cidr,
+			Cidrs:  cidrs,
+			Ranges: ranges,
+		}
+		ipBlockStore.Apply(block)
+	}
+
+	// Case: getIPBlockCIDRsFromStore returns NoCIDRsFoundError, fallback to getIPBlockCIDRFromStore
+	pathSet := sets.New[string]()
+	pathSet.Insert("block1")
+	addBlock("block1", stringPtr("10.0.0.0/24"), nil, nil)
+	extCIDRs, privCIDRs, extRanges, privRanges, err := service.getCIDRsRangesFromStore(pathSet, sets.New[string](), ipBlockStore)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"10.0.0.0/24"}, extCIDRs)
+	assert.Empty(t, privCIDRs)
+	assert.Empty(t, extRanges)
+	assert.Empty(t, privRanges)
+
+	// Case: getIPBlockCIDRsFromStore returns CIDRs, getIPBlockRangesFromStore returns ranges
+	ipRange1 := model.IpPoolRange{Start: stringPtr("192.168.1.10"), End: stringPtr("192.168.1.20")}
+
+	pathSet = sets.New[string]()
+	pathSet.Insert("block2")
+	addBlock("block2", nil, []string{"192.168.1.0/24"}, []model.IpPoolRange{ipRange1})
+	extCIDRs, privCIDRs, extRanges, privRanges, err = service.getCIDRsRangesFromStore(pathSet, sets.New[string](), ipBlockStore)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"192.168.1.0/24"}, extCIDRs)
+	assert.Empty(t, privCIDRs)
+	assert.Equal(t, []v1alpha1.IPPoolRange{{Start: "192.168.1.10", End: "192.168.1.20"}}, extRanges)
+	assert.Empty(t, privRanges)
+
+	// Case: getIPBlockCIDRsFromStore scan all the blocks even if some are not found
+	pathSet = sets.New[string]()
+	pathSet.Insert("block3") // block3 not in store
+	pathSet.Insert("block2")
+	extCIDRs, privCIDRs, extRanges, privRanges, err = service.getCIDRsRangesFromStore(pathSet, sets.New[string](), ipBlockStore)
+	assert.ErrorContains(t, err, "failed to get IPBlock")
+	assert.Empty(t, extCIDRs)
+	assert.Empty(t, privCIDRs)
+	assert.Empty(t, extRanges)
+	assert.Empty(t, privRanges)
+
+	// Case: privateTGWIPBlockPaths with CIDRs and ranges
+	extSet := sets.New[string]()
+	privSet := sets.New[string]()
+	extSet.Insert("block2")
+	privSet.Insert("block4")
+	addBlock("block4", nil, []string{"10.1.1.0/24"}, []model.IpPoolRange{
+		{Start: stringPtr("10.1.1.10"), End: stringPtr("10.1.1.20")},
+	})
+	extCIDRs, privCIDRs, extRanges, privRanges, err = service.getCIDRsRangesFromStore(extSet, privSet, ipBlockStore)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"192.168.1.0/24"}, extCIDRs)
+	assert.Equal(t, []string{"10.1.1.0/24"}, privCIDRs)
+	assert.Equal(t, []v1alpha1.IPPoolRange{{Start: "192.168.1.10", End: "192.168.1.20"}}, extRanges)
+	assert.Equal(t, []v1alpha1.IPPoolRange{{Start: "10.1.1.10", End: "10.1.1.20"}}, privRanges)
+
+	// Case: only has cidr
+	ipBlockStore.Delete("block1")
+	ipBlockStore.Delete("block2")
+	ipBlockStore.Delete("block3")
+	ipBlockStore.Delete("block4")
+	ipBlockStore.Delete("block5")
+	addBlock("block1", stringPtr("10.0.0.0/24"), nil, nil)
+	addBlock("block2", stringPtr("10.0.1.0/24"), nil, nil)
+	addBlock("block3", stringPtr("10.0.2.0/24"), nil, nil)
+	pathSet = sets.New[string]()
+	pathSet.Insert("block1")
+	pathSet.Insert("block2")
+	pathSet.Insert("block3")
+
+	extCIDRs, privCIDRs, extRanges, privRanges, err = service.getCIDRsRangesFromStore(pathSet, sets.New[string](), ipBlockStore)
+	assert.NoError(t, err)
+	assert.True(t, util.CompareArraysWithoutOrder([]string{"10.0.0.0/24", "10.0.1.0/24", "10.0.2.0/24"}, extCIDRs))
+	assert.Empty(t, privCIDRs)
+	assert.Empty(t, extRanges)
+	assert.Empty(t, privRanges)
+	ipBlockStore.Delete("block1")
+	ipBlockStore.Delete("block2")
+	ipBlockStore.Delete("block3")
+
+	// Case : part of have ranges
+	addBlock("block1", nil, []string{"10.1.1.0/24"}, []model.IpPoolRange{
+		{Start: stringPtr("10.1.1.10"), End: stringPtr("10.1.1.20")}})
+	addBlock("block2", nil, []string{"10.1.2.0/24"}, nil)
+	addBlock("block3", nil, []string{"10.1.3.0/24"}, []model.IpPoolRange{
+		{Start: stringPtr("10.1.3.10"), End: stringPtr("10.1.3.20")}})
+	addBlock("block4", nil, []string{"10.1.4.0/24"}, nil)
+	pathSet.Insert("block4")
+	extCIDRs, privCIDRs, extRanges, privRanges, err = service.getCIDRsRangesFromStore(pathSet, sets.New[string](), ipBlockStore)
+	assert.NoError(t, err)
+	assert.True(t, util.CompareArraysWithoutOrder([]string{"10.1.1.0/24", "10.1.2.0/24", "10.1.3.0/24", "10.1.4.0/24"}, extCIDRs))
+	assert.True(t, util.CompareArraysWithoutOrder([]v1alpha1.IPPoolRange{
+		{Start: "10.1.1.10", End: "10.1.1.20"},
+		{Start: "10.1.3.10", End: "10.1.3.20"},
+	}, extRanges))
+	assert.Empty(t, privCIDRs)
+	assert.Empty(t, privRanges)
+	ipBlockStore.Delete("block1")
+	ipBlockStore.Delete("block2")
+	ipBlockStore.Delete("block3")
+	ipBlockStore.Delete("block4")
+
+	// Case: have both cidr/cidrs
+	addBlock("block1", stringPtr("10.1.1.0/24"), []string{"10.1.1.0/24", "10.2.1.0/24"}, []model.IpPoolRange{
+		{Start: stringPtr("10.1.1.10"), End: stringPtr("10.1.1.20")},
+		{Start: stringPtr("10.2.1.10"), End: stringPtr("10.2.1.20")},
+	})
+	addBlock("block2", stringPtr("10.1.2.0/24"), []string{"10.1.2.0/24"}, nil)
+	addBlock("block3", stringPtr("10.1.3.0/24"), []string{"10.1.3.0/24"}, []model.IpPoolRange{
+		{Start: stringPtr("10.1.3.10"), End: stringPtr("10.1.3.20")}})
+	addBlock("block4", stringPtr("10.1.4.0/24"), []string{"10.1.4.0/24"}, nil)
+	extCIDRs, privCIDRs, extRanges, privRanges, err = service.getCIDRsRangesFromStore(pathSet, sets.New[string](), ipBlockStore)
+	assert.NoError(t, err)
+	assert.True(t, util.CompareArraysWithoutOrder([]string{"10.1.1.0/24", "10.1.2.0/24", "10.1.3.0/24", "10.1.4.0/24", "10.2.1.0/24"}, extCIDRs))
+	assert.True(t, util.CompareArraysWithoutOrder([]v1alpha1.IPPoolRange{
+		{Start: "10.1.1.10", End: "10.1.1.20"},
+		{Start: "10.1.3.10", End: "10.1.3.20"},
+		{Start: "10.2.1.10", End: "10.2.1.20"},
+	}, extRanges))
+	assert.Empty(t, privCIDRs)
+	assert.Empty(t, privRanges)
+	ipBlockStore.Delete("block1")
+	ipBlockStore.Delete("block2")
+	ipBlockStore.Delete("block3")
+	ipBlockStore.Delete("block4")
+
+	// Case: only have ranges
+	addBlock("block1", nil, nil, []model.IpPoolRange{
+		{Start: stringPtr("10.1.1.10"), End: stringPtr("10.1.1.20")},
+	})
+	addBlock("block2", nil, nil, nil)
+	addBlock("block3", nil, nil, []model.IpPoolRange{
+		{Start: stringPtr("10.1.3.10"), End: stringPtr("10.1.3.20")},
+	})
+	addBlock("block4", nil, nil, []model.IpPoolRange{
+		{Start: stringPtr("10.1.4.10"), End: stringPtr("10.1.4.20")},
+	})
+	extCIDRs, privCIDRs, extRanges, privRanges, err = service.getCIDRsRangesFromStore(pathSet, sets.New[string](), ipBlockStore)
+	assert.NoError(t, err)
+	assert.Empty(t, extCIDRs)
+	assert.Empty(t, privCIDRs)
+	assert.True(t, util.CompareArraysWithoutOrder([]v1alpha1.IPPoolRange{
+		{Start: "10.1.1.10", End: "10.1.1.20"},
+		{Start: "10.1.3.10", End: "10.1.3.20"},
+		{Start: "10.1.4.10", End: "10.1.4.20"},
+	}, extRanges))
+	assert.Empty(t, privRanges)
+	ipBlockStore.Delete("block1")
+	ipBlockStore.Delete("block2")
+	ipBlockStore.Delete("block3")
+	ipBlockStore.Delete("block4")
+
+	// Case: part have only ranges
+	addBlock("block1", stringPtr("10.1.1.0/24"), []string{"10.1.1.0/24", "10.2.1.0/24"}, []model.IpPoolRange{
+		{Start: stringPtr("10.1.1.10"), End: stringPtr("10.1.1.20")},
+		{Start: stringPtr("10.2.1.10"), End: stringPtr("10.2.1.20")},
+	})
+	addBlock("block2", stringPtr("10.1.2.0/24"), []string{"10.1.2.0/24"}, nil)
+	addBlock("block3", nil, nil, []model.IpPoolRange{
+		{Start: stringPtr("10.1.3.10"), End: stringPtr("10.1.3.20")}})
+	addBlock("block4", stringPtr("10.1.4.0/24"), []string{"10.1.4.0/24"}, nil)
+	extCIDRs, privCIDRs, extRanges, privRanges, err = service.getCIDRsRangesFromStore(pathSet, sets.New[string](), ipBlockStore)
+	assert.NoError(t, err)
+	assert.True(t, util.CompareArraysWithoutOrder([]v1alpha1.IPPoolRange{
+		{Start: "10.1.1.10", End: "10.1.1.20"},
+		{Start: "10.1.3.10", End: "10.1.3.20"},
+		{Start: "10.2.1.10", End: "10.2.1.20"},
+	}, extRanges))
+	assert.True(t, util.CompareArraysWithoutOrder([]string{"10.1.1.0/24", "10.1.2.0/24", "10.1.4.0/24", "10.2.1.0/24"}, extCIDRs))
+	assert.Empty(t, privCIDRs)
+	assert.Empty(t, privRanges)
+	ipBlockStore.Delete("block1")
+	ipBlockStore.Delete("block2")
+	ipBlockStore.Delete("block3")
+	ipBlockStore.Delete("block4")
+}
+
 func TestIPBlocksInfoService_getSharedSubnetsCIDRs(t *testing.T) {
 	service, _, _ := createService(t)
 	service.defaultProject = "/orgs/default/projects/default"
