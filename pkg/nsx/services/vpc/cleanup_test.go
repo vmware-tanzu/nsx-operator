@@ -89,7 +89,7 @@ func TestGetStaleSLBVirtualServers(t *testing.T) {
 	}
 
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "ListAutoCreatedVPCPaths", func(*VPCService) sets.Set[string] {
-		return sets.New[string](autoVpcPath)
+		return sets.New(autoVpcPath)
 	})
 	defer patches.Reset()
 
@@ -306,7 +306,7 @@ func TestGetStaleSLBPools(t *testing.T) {
 	}
 
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "ListAutoCreatedVPCPaths", func(*VPCService) sets.Set[string] {
-		return sets.New[string](autoVpcPath)
+		return sets.New(autoVpcPath)
 	})
 	defer patches.Reset()
 

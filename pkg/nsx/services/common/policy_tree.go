@@ -518,7 +518,7 @@ func (p *PolicyResourcePath[T]) NewPolicyTreeBuilder() (*PolicyTreeBuilder[T], e
 	return &PolicyTreeBuilder[T]{
 		pathFormat:    pathFormat,
 		modelFormat:   modelFormat,
-		hasInnerInfra: sets.New[string](pathFormat...).Has(PolicyResourceInfra.PathKey),
+		hasInnerInfra: sets.New(pathFormat...).Has(PolicyResourceInfra.PathKey),
 		rootType:      rootType,
 		leafType:      modelFormat[len(modelFormat)-1],
 

@@ -472,7 +472,8 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 	ruleBaseId := service.buildRuleID(obj, ruleIdx)
 
 	for _, nsxRule := range nsxRules {
-		if ruleDirection == "IN" {
+		switch ruleDirection {
+		case "IN":
 			nsxRuleSrcGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, nsxGroupShare, err = service.buildRuleInGroup(
 				obj, rule, nsxRule, ruleIdx, createdFor)
 			if err != nil {
@@ -482,7 +483,7 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 			if nsxRuleSrcGroup != nil {
 				ruleGroups = append(ruleGroups, nsxRuleSrcGroup)
 			}
-		} else if ruleDirection == "OUT" {
+		case "OUT":
 			nsxRuleDstGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, nsxGroupShare, err = service.buildRuleOutGroup(
 				obj, rule, nsxRule, ruleIdx, createdFor)
 			if err != nil {
@@ -632,7 +633,7 @@ func (service *SecurityPolicyService) buildRuleID(obj *v1alpha1.SecurityPolicy, 
 // So, in VPC network, the rule port numbers, which either are defined in rule Port or resolved from named port, will be appended as CR rule baseID to distinguish them.
 // For T1, the portIdx and portAddressIdx are appended as suffix.
 func (service *SecurityPolicyService) buildExpandedRuleID(obj *v1alpha1.SecurityPolicy, ruleIdx int,
-	createdFor string, namedPort *portInfo,
+	_ string, namedPort *portInfo,
 ) string {
 	ruleBaseID := service.buildRuleID(obj, ruleIdx)
 
@@ -1918,7 +1919,7 @@ func (service *SecurityPolicyService) buildRulePortString(port v1alpha1.Security
 }
 
 func (service *SecurityPolicyService) buildRulePortsString(ports []v1alpha1.SecurityPolicyPort) string {
-	if ports == nil || len(ports) == 0 {
+	if len(ports) == 0 {
 		return common.RuleAnyPorts
 	}
 	portStrings := make([]string, len(ports))
@@ -1945,7 +1946,7 @@ func (service *SecurityPolicyService) buildRulePortNumberString(port v1alpha1.Se
 }
 
 func (service *SecurityPolicyService) buildRulePortsNumberString(ports []v1alpha1.SecurityPolicyPort) string {
-	if ports == nil || len(ports) == 0 {
+	if len(ports) == 0 {
 		return common.RuleAnyPorts
 	}
 

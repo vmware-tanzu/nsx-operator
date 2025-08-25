@@ -368,7 +368,7 @@ func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) error {
 	return nil
 }
 
-func (r *SubnetSetReconciler) deleteSubnetBySubnetSetName(ctx context.Context, subnetSetName, ns string) error {
+func (r *SubnetSetReconciler) deleteSubnetBySubnetSetName(_ context.Context, subnetSetName, ns string) error {
 	nsxSubnets := r.SubnetService.ListSubnetBySubnetSetName(ns, subnetSetName)
 	// We also actively delete the SubnetConnectionBindingMaps associated with the empty NSX Subnet that has no SubnetPort.
 	hasStaleSubnetPort, err := r.deleteSubnets(nsxSubnets, true)

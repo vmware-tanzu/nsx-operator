@@ -115,7 +115,7 @@ func TestClean_Cleanup(t *testing.T) {
 		return cleanupService, nil
 	})
 	patches.ApplyMethod(reflect.TypeOf(cleanupService.vpcService), "ListAutoCreatedVPCPaths", func(_ *vpc.VPCService) sets.Set[string] {
-		return sets.New[string]("/orgs/default/projects/p1/vpcs/vpc-1")
+		return sets.New("/orgs/default/projects/p1/vpcs/vpc-1")
 	})
 	patches.ApplyMethod(reflect.TypeOf(cleanupService.vpcService), "DeleteVPC", func(_ *vpc.VPCService, path string) error {
 		return nil

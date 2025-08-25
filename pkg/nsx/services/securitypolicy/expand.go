@@ -286,7 +286,8 @@ func (service *SecurityPolicyService) getPodSelectors(obj *v1alpha1.SecurityPoli
 		return nil, err
 	}
 
-	if ruleDirection == "IN" {
+	switch ruleDirection {
+	case "IN":
 		if len(obj.Spec.AppliedTo) > 0 {
 			for _, target := range obj.Spec.AppliedTo {
 				selector := client.ListOptions{}
@@ -315,7 +316,7 @@ func (service *SecurityPolicyService) getPodSelectors(obj *v1alpha1.SecurityPoli
 				}
 			}
 		}
-	} else if ruleDirection == "OUT" {
+	case "OUT":
 		if len(rule.Destinations) > 0 {
 			for _, target := range rule.Destinations {
 				var namespaceSelectors []client.ListOptions // ResolveNamespace may return multiple namespaces

@@ -710,13 +710,14 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 			var err error
 
 			// For all test cases, we'll skip the actual call to createOrUpdateSubnet and just set the expected result
-			if tt.name == "Update Subnet with RealizedState and deletion error" {
+			switch tt.name {
+			case "Update Subnet with RealizedState and deletion error":
 				nsxSubnet = nil
 				err = fmt.Errorf("realization check failed: mocked realized error; deletion failed: mocked deletion error")
-			} else if tt.name == "Create Subnet for SubnetSet Failure" {
+			case "Create Subnet for SubnetSet Failure":
 				nsxSubnet = nil
 				err = apierrors.NewInvalidRequest()
-			} else if tt.name == "Create Subnet for SubnetSet Success" {
+			case "Create Subnet for SubnetSet Success":
 				nsxSubnet = &fakeSubnet
 				err = nil
 				// Add the subnet to the store to match the expected behavior
@@ -734,7 +735,7 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 						},
 					}
 				}
-			} else {
+			default:
 				// This should never happen as we've covered all test cases
 				t.Fatalf("Unexpected test case: %s", tt.name)
 			}

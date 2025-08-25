@@ -355,11 +355,12 @@ func handleHTTPResponse(response *http.Response, result interface{}) (int, error
 	}
 
 	var err error
-	if statusCode == http.StatusNotFound {
+	switch statusCode {
+	case http.StatusNotFound:
 		err = util.HttpNotFoundError
-	} else if statusCode == http.StatusBadRequest {
+	case http.StatusBadRequest:
 		err = util.HttpBadRequest
-	} else {
+	default:
 		err = fmt.Errorf("HTTP response with errorcode %d", response.StatusCode)
 	}
 	return statusCode, err

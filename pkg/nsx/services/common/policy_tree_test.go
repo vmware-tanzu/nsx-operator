@@ -568,7 +568,7 @@ func TestBuildRootNodePerformance(t *testing.T) {
 	require.NoError(t, err)
 	start := time.Now()
 	builder.BuildRootNode(bindings, "")
-	cost := time.Now().Sub(start)
+	cost := time.Since(start)
 	assert.Truef(t, cost.Seconds() < 3, "It takes %s to build Org root with 10K resources", cost.String())
 }
 

@@ -46,7 +46,6 @@ func setNetworkInfoVPCStatus(client client.Client, ctx context.Context, obj clie
 	}
 	networkInfo.VPCs = []v1alpha1.VPCState{*createdVPC}
 	client.Update(ctx, networkInfo)
-	return
 }
 
 func setVPCNetworkConfigurationStatusWithLBS(ctx context.Context, client client.Client, ncName, vpcName, aviSubnetPath, nsxLBSPath, vpcPath string) {
