@@ -308,7 +308,7 @@ var secPolicy = &v1alpha1.SecurityPolicy{
 func Test_ExpandRule(t *testing.T) {
 	ruleTagsFn := func(policyType string) []model.Tag {
 		return []model.Tag{
-			{Scope: common.String("nsx-op/cluster"), Tag: common.String("")},
+			{Scope: common.String("nsx-op/cluster"), Tag: common.String("k8scl-one")},
 			{Scope: common.String("nsx-op/version"), Tag: common.String("1.0.0")},
 			{Scope: common.String("nsx-op/namespace"), Tag: common.String("ns1")},
 			{Scope: common.String("nsx-op/namespace_uid"), Tag: common.String("ns1-uid")},
@@ -370,9 +370,13 @@ func Test_ExpandRule(t *testing.T) {
 			{Scope: common.String("nsx-op/selector_hash"), Tag: common.String("2be88ca4242c76e8253ac62474851065032d6833")},
 		}
 		groupTags = append(groupTags, ruleTagsFn(policyType)...)
+
+		path := fmt.Sprintf("/infra/domains/k8scl-one/groups/%s", id)
+
 		if isVPC {
 			groupTags = append(groupTags,
 				model.Tag{Scope: common.String("nsx-op/nsx_share_created_for"), Tag: common.String("notShared")})
+			path = fmt.Sprintf("/orgs/default/projects/pro1/vpcs/vpc1/groups/%s", id)
 		}
 
 		addresses := data.NewListValue()
@@ -382,6 +386,7 @@ func Test_ExpandRule(t *testing.T) {
 			Id:          common.String(id),
 			DisplayName: common.String(displayName),
 			Tags:        groupTags,
+			Path:        common.String(path),
 			Expression: []*data.StructValue{
 				data.NewStructValue(
 					"",
@@ -517,7 +522,7 @@ func Test_ExpandRule(t *testing.T) {
 					Services:          []string{"ANY"},
 					ServiceEntries:    []*data.StructValue{getRuleServiceEntries(8080, 0, "TCP")},
 					Tags:              spT1RuleTags,
-					DestinationGroups: []string{"/infra/domains//groups/sp_uid1_94b44028488f3e719879abbc27c75e5cb44872b7_2_0_0_ipset"},
+					DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uid1_94b44028488f3e719879abbc27c75e5cb44872b7_2_0_0_ipset"},
 				}, {
 					Id:             common.String("sp_uid1_94b44028488f3e719879abbc27c75e5cb44872b7_2_1_0"),
 					DisplayName:    common.String("TCP.http_UDP.1236.1237.UDP.1236.1237_ingress_allow"),
@@ -545,7 +550,10 @@ func Test_ExpandRule(t *testing.T) {
 				Service: common.Service{
 					Client: k8sClient,
 					NSXConfig: &config.NSXOperatorConfig{
-						CoeConfig: &config.CoeConfig{EnableVPCNetwork: tc.vpcEnabled},
+						CoeConfig: &config.CoeConfig{
+							EnableVPCNetwork: tc.vpcEnabled,
+							Cluster:          "k8scl-one",
+						},
 					},
 				},
 				vpcService: &mockVPCService,

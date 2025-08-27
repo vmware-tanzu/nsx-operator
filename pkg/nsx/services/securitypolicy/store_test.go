@@ -316,6 +316,8 @@ func Test_SecurityPolicyStore_Apply(t *testing.T) {
 		wantErr assert.ErrorAssertionFunc
 	}{
 		{"1", args{i: &model.SecurityPolicy{Id: String("1")}}, assert.NoError},
+		{"nil untyped interface", args{i: nil}, assert.NoError},
+		{"nil typed interface", args{i: (*model.SecurityPolicy)(nil)}, assert.NoError},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -333,7 +333,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 	}
 }
 
-func Test_BuildPolicyGroup(t *testing.T) {
+func Test_BuildPolicyGroupForT1(t *testing.T) {
 	tests := []struct {
 		name                    string
 		inputPolicy             *v1alpha1.SecurityPolicy
@@ -362,6 +362,59 @@ func Test_BuildPolicyGroup(t *testing.T) {
 			observedGroup, observedGroupPath, _ := service.buildPolicyGroup(tt.inputPolicy, common.ResourceTypeSecurityPolicy)
 			assert.Equal(t, tt.expectedPolicyGroupID, observedGroup.Id)
 			assert.Equal(t, tt.expectedPolicyGroupName, observedGroup.DisplayName)
+			assert.Equal(t, tt.expectedPolicyGroupPath, observedGroupPath)
+		})
+	}
+}
+
+func Test_BuildPolicyGroupForVPC(t *testing.T) {
+	VPCInfo := make([]common.VPCResourceInfo, 1)
+	VPCInfo[0].OrgID = "default"
+	VPCInfo[0].ProjectID = "project1"
+	VPCInfo[0].VPCID = "vpc1"
+
+	fakeService := fakeSecurityPolicyService()
+	fakeService.NSXConfig.EnableVPCNetwork = true
+	mockVPCService := mock.MockVPCServiceProvider{}
+	fakeService.vpcService = &mockVPCService
+	fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
+
+	// For VPC mode
+	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
+	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
+
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(fakeService), "getVPCInfo",
+		func(s *SecurityPolicyService, spNameSpace string) (*common.VPCResourceInfo, error) {
+			return &VPCInfo[0], nil
+		})
+
+	patches.ApplyMethod(reflect.TypeOf(&fakeService.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
+			return types.UID(tagValueNSUID)
+		})
+	defer patches.Reset()
+
+	tests := []struct {
+		name                    string
+		inputPolicy             *v1alpha1.SecurityPolicy
+		expectedPolicyGroupID   *string
+		expectedPolicyGroupName *string
+		expectedPolicyGroupPath string
+	}{
+		{
+			name:                    "group-with-pod-selector",
+			inputPolicy:             &spWithPodSelector,
+			expectedPolicyGroupID:   common.String("spA-scope_re0bz"),
+			expectedPolicyGroupName: common.String("spA_scope"),
+			expectedPolicyGroupPath: "/orgs/default/projects/project1/vpcs/vpc1/groups/spA-scope_re0bz",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			observedGroup, observedGroupPath, _ := fakeService.buildPolicyGroup(tt.inputPolicy, common.ResourceTypeSecurityPolicy)
+			assert.Equal(t, *tt.expectedPolicyGroupID, *observedGroup.Id)
+			assert.Equal(t, *tt.expectedPolicyGroupName, *observedGroup.DisplayName)
 			assert.Equal(t, tt.expectedPolicyGroupPath, observedGroupPath)
 		})
 	}

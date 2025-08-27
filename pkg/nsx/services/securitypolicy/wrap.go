@@ -227,20 +227,22 @@ func (service *SecurityPolicyService) wrapProject(sp *model.SecurityPolicy, gs [
 }
 
 func (service *SecurityPolicyService) wrapVPC(sp *model.SecurityPolicy, gs []model.Group, vpcID string) ([]*data.StructValue, error) {
-	rulesChildren, err := service.wrapRules(sp.Rules)
-	if err != nil {
-		return nil, err
-	}
-	sp.Rules = nil
-	sp.Children = rulesChildren
-	sp.ResourceType = &common.ResourceTypeSecurityPolicy
-
-	securityPolicyChildren, err := service.wrapSecurityPolicy(sp)
-	if err != nil {
-		return nil, err
-	}
 	var resourceReferenceChildren []*data.StructValue
-	resourceReferenceChildren = append(resourceReferenceChildren, securityPolicyChildren...)
+	if sp != nil {
+		rulesChildren, err := service.wrapRules(sp.Rules)
+		if err != nil {
+			return nil, err
+		}
+		sp.Rules = nil
+		sp.Children = rulesChildren
+		sp.ResourceType = &common.ResourceTypeSecurityPolicy
+		securityPolicyChildren, err := service.wrapSecurityPolicy(sp)
+		if err != nil {
+			return nil, err
+		}
+		resourceReferenceChildren = append(resourceReferenceChildren, securityPolicyChildren...)
+	}
+
 	groupsChildren, err := service.wrapGroups(gs)
 	if err != nil {
 		return nil, err
@@ -249,7 +251,6 @@ func (service *SecurityPolicyService) wrapVPC(sp *model.SecurityPolicy, gs []mod
 
 	targetType := common.ResourceTypeVpc
 	resourceType := common.ResourceTypeChildResourceReference
-
 	childVPC := model.ChildResourceReference{
 		Id:           &vpcID,
 		ResourceType: resourceType,

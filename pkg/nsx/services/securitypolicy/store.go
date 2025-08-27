@@ -122,7 +122,10 @@ func (securityPolicyStore *SecurityPolicyStore) Apply(i interface{}) error {
 	if i == nil {
 		return nil
 	}
-	sp := i.(*model.SecurityPolicy)
+	sp, ok := i.(*model.SecurityPolicy)
+	if !ok || sp == nil {
+		return nil
+	}
 	if sp.MarkedForDelete != nil && *sp.MarkedForDelete {
 		err := securityPolicyStore.Delete(sp)
 		log.V(1).Info("Delete security policy from store", "securitypolicy", sp)
