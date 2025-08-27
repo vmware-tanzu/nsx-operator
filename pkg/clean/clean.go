@@ -189,10 +189,13 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 		AddCleanupService(wrapInitializeStaticRoute(commonService)).
 		AddCleanupService(wrapInitializeVPC(commonService)).
 		AddCleanupService(wrapInitializeIPAddressAllocation(commonService)).
-		AddCleanupService(wrapInitializeInventory(commonService)).
 		AddCleanupService(wrapInitializeLBInfraCleaner(commonService)).
 		AddCleanupService(wrapInitializeHealthCleaner(commonService)).
 		AddCleanupService(wrapInitializeNSXServiceAccount(commonService))
+
+	if cf.EnableInventory {
+		cleanupService = cleanupService.AddCleanupService(wrapInitializeInventory(commonService))
+	}
 
 	return cleanupService, nil
 }
