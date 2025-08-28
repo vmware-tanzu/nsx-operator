@@ -2,14 +2,14 @@ package inventory
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"net/http"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsx_util "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 
 	"github.com/vmware/go-vmware-nsxt/containerinventory"
@@ -96,7 +96,7 @@ func (s *InventoryService) Initialize(cleanup bool) error {
 }
 
 func (s *InventoryService) initContainerCluster(cleanup bool) error {
-	cluster, err := s.GetContainerCluster()
+	cluster, err := s.GetContainerCluster(cleanup)
 	// If there is no such cluster, create one.
 	// Otherwise, sync with NSX for different types of inventory objects.
 	if err == nil {
@@ -107,13 +107,13 @@ func (s *InventoryService) initContainerCluster(cleanup bool) error {
 		return err
 	}
 	if cleanup {
-		if strings.Contains(err.Error(), http.StatusText(http.StatusNotFound)) {
+		if errors.Is(err, nsx_util.HttpNotFoundError) {
 			log.Info("No existing container cluster found")
 			return nil
 		}
 		return err
 	}
-	if !strings.Contains(err.Error(), http.StatusText(http.StatusNotFound)) {
+	if !errors.Is(err, nsx_util.HttpNotFoundError) {
 		return err
 	}
 	log.Info("Cannot find existing container cluster, will create one")

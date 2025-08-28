@@ -142,7 +142,6 @@ func (cluster *Cluster) CreateServerUrl(host string, scheme string) string {
 		index := strings.Index(host, ":")
 		mgrIP := ""
 		if index == -1 {
-			log.Info("No port provided, use default port 443", "host", host)
 			mgrIP = host + "/443"
 		} else {
 			mgrIP = strings.ReplaceAll(host, ":", "/")
@@ -385,6 +384,17 @@ func (cluster *Cluster) HttpGet(url string) (map[string]interface{}, error) {
 	respJson := make(map[string]interface{})
 	err, _ = util.HandleHTTPResponse(resp, &respJson, true)
 	return respJson, err
+}
+
+// HttpGetAndDecode sends an http GET request to the cluster and decode the response to result
+func (cluster *Cluster) HttpGetAndDecode(url string, result interface{}) error {
+	resp, err := cluster.httpAction(url, "GET")
+	if err != nil {
+		log.Error(err, "Failed to do HTTP GET operation")
+		return err
+	}
+	err, _ = util.HandleHTTPResponse(resp, result, true)
+	return err
 }
 
 func (cluster *Cluster) httpAction(url, method string, requestBody ...interface{}) (*http.Response, error) {
