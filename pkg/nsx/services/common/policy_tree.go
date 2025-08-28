@@ -58,6 +58,8 @@ func getNSXResourcePath[T any](obj T) *string {
 		return v.Path
 	case *model.DhcpV4StaticBindingConfig:
 		return v.Path
+	case *model.DynamicIpAddressReservation:
+		return v.Path
 	default:
 		log.Error(nil, "Get NSX resource path", "unknown NSX resource type", v)
 		return nil
@@ -100,6 +102,8 @@ func getNSXResourceId[T any](obj T) *string {
 		return v.Id
 	case *model.DhcpV4StaticBindingConfig:
 		return v.Id
+	case *model.DynamicIpAddressReservation:
+		return v.Id
 	default:
 		log.Error(nil, "Get NSX resource ID", "unknown NSX resource type", v)
 		return nil
@@ -140,6 +144,8 @@ func leafWrapper[T any](obj T) (*data.StructValue, error) {
 		return WrapDomain(v)
 	case *model.DhcpV4StaticBindingConfig:
 		return WrapDhcpV4StaticBindingConfig(v)
+	case *model.DynamicIpAddressReservation:
+		return WrapDynamicIpAddressReservation(v)
 	default:
 		log.Error(nil, "Leaf wrapper", "unknown NSX resource type", v)
 		return nil, fmt.Errorf("unsupported NSX resource type %v", v)
@@ -228,29 +234,31 @@ var (
 	PolicyResourceRule                          = PolicyResourceType{ModelKey: ResourceTypeRule, PathKey: "rules"}
 	PolicyResourceSecurityPolicy                = PolicyResourceType{ModelKey: ResourceTypeSecurityPolicy, PathKey: "security-policies"}
 	PolicyResourceTlsCertificate                = PolicyResourceType{ModelKey: ResourceTypeTlsCertificate, PathKey: "certificates"}
+	PolicyResourceVpcDynamicIPReservation       = PolicyResourceType{ModelKey: ResourceTypeDynamicIpAddressReservation, PathKey: "dynamic-ip-reservations"}
 
-	PolicyPathVpcSubnet                     PolicyResourcePath[*model.VpcSubnet]                  = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet}
-	PolicyPathVpcSubnetConnectionBindingMap PolicyResourcePath[*model.SubnetConnectionBindingMap] = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceVpcSubnetConnectionBindingMap}
-	PolicyPathVpcSubnetPort                 PolicyResourcePath[*model.VpcSubnetPort]              = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceVpcSubnetPort}
-	PolicyPathDhcpStaticBinding             PolicyResourcePath[*model.DhcpV4StaticBindingConfig]  = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceDhcpStaticBinding}
-	PolicyPathVpcLBPool                     PolicyResourcePath[*model.LBPool]                     = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcLBPool}
-	PolicyPathVpcLBService                  PolicyResourcePath[*model.LBService]                  = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcLBService}
-	PolicyPathVpcLBVirtualServer            PolicyResourcePath[*model.LBVirtualServer]            = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcLBVirtualServer}
-	PolicyPathVpcIPAddressAllocation        PolicyResourcePath[*model.VpcIpAddressAllocation]     = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcIPAddressAllocation}
-	PolicyPathVpcSecurityPolicy             PolicyResourcePath[*model.SecurityPolicy]             = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceSecurityPolicy}
-	PolicyPathVpcStaticRoutes               PolicyResourcePath[*model.StaticRoutes]               = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceStaticRoutes}
-	PolicyPathVpcSecurityPolicyRule         PolicyResourcePath[*model.Rule]                       = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceSecurityPolicy, PolicyResourceRule}
-	PolicyPathVpcGroup                      PolicyResourcePath[*model.Group]                      = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceGroup}
-	PolicyPathProjectGroup                  PolicyResourcePath[*model.Group]                      = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceInfra, PolicyResourceDomain, PolicyResourceGroup}
-	PolicyPathProjectShare                  PolicyResourcePath[*model.Share]                      = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceInfra, PolicyResourceShare}
-	PolicyPathInfraGroup                    PolicyResourcePath[*model.Group]                      = []PolicyResourceType{PolicyResourceInfra, PolicyResourceDomain, PolicyResourceGroup}
-	PolicyPathInfraShare                    PolicyResourcePath[*model.Share]                      = []PolicyResourceType{PolicyResourceInfra, PolicyResourceShare}
-	PolicyPathInfraSharedResource           PolicyResourcePath[*model.SharedResource]             = []PolicyResourceType{PolicyResourceInfra, PolicyResourceShare, PolicyResourceSharedResource}
-	PolicyPathInfraCert                     PolicyResourcePath[*model.TlsCertificate]             = []PolicyResourceType{PolicyResourceInfra, PolicyResourceTlsCertificate}
-	PolicyPathInfraLBVirtualServer          PolicyResourcePath[*model.LBVirtualServer]            = []PolicyResourceType{PolicyResourceInfra, PolicyResourceInfraLBVirtualServer}
-	PolicyPathInfraLBPool                   PolicyResourcePath[*model.LBPool]                     = []PolicyResourceType{PolicyResourceInfra, PolicyResourceInfraLBPool}
-	PolicyPathInfraLBService                PolicyResourcePath[*model.LBService]                  = []PolicyResourceType{PolicyResourceInfra, PolicyResourceInfraLBService}
-	PolicyPathInfraDomain                   PolicyResourcePath[*model.Domain]                     = []PolicyResourceType{PolicyResourceInfra, PolicyResourceDomain}
+	PolicyPathVpcSubnet                     PolicyResourcePath[*model.VpcSubnet]                   = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet}
+	PolicyPathVpcSubnetConnectionBindingMap PolicyResourcePath[*model.SubnetConnectionBindingMap]  = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceVpcSubnetConnectionBindingMap}
+	PolicyPathVpcSubnetPort                 PolicyResourcePath[*model.VpcSubnetPort]               = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceVpcSubnetPort}
+	PolicyPathDhcpStaticBinding             PolicyResourcePath[*model.DhcpV4StaticBindingConfig]   = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceDhcpStaticBinding}
+	PolicyPathVpcLBPool                     PolicyResourcePath[*model.LBPool]                      = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcLBPool}
+	PolicyPathVpcLBService                  PolicyResourcePath[*model.LBService]                   = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcLBService}
+	PolicyPathVpcLBVirtualServer            PolicyResourcePath[*model.LBVirtualServer]             = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcLBVirtualServer}
+	PolicyPathVpcIPAddressAllocation        PolicyResourcePath[*model.VpcIpAddressAllocation]      = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcIPAddressAllocation}
+	PolicyPathVpcSecurityPolicy             PolicyResourcePath[*model.SecurityPolicy]              = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceSecurityPolicy}
+	PolicyPathVpcStaticRoutes               PolicyResourcePath[*model.StaticRoutes]                = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceStaticRoutes}
+	PolicyPathVpcSecurityPolicyRule         PolicyResourcePath[*model.Rule]                        = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceSecurityPolicy, PolicyResourceRule}
+	PolicyPathVpcGroup                      PolicyResourcePath[*model.Group]                       = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceGroup}
+	PolicyPathProjectGroup                  PolicyResourcePath[*model.Group]                       = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceInfra, PolicyResourceDomain, PolicyResourceGroup}
+	PolicyPathProjectShare                  PolicyResourcePath[*model.Share]                       = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceInfra, PolicyResourceShare}
+	PolicyPathInfraGroup                    PolicyResourcePath[*model.Group]                       = []PolicyResourceType{PolicyResourceInfra, PolicyResourceDomain, PolicyResourceGroup}
+	PolicyPathInfraShare                    PolicyResourcePath[*model.Share]                       = []PolicyResourceType{PolicyResourceInfra, PolicyResourceShare}
+	PolicyPathInfraSharedResource           PolicyResourcePath[*model.SharedResource]              = []PolicyResourceType{PolicyResourceInfra, PolicyResourceShare, PolicyResourceSharedResource}
+	PolicyPathInfraCert                     PolicyResourcePath[*model.TlsCertificate]              = []PolicyResourceType{PolicyResourceInfra, PolicyResourceTlsCertificate}
+	PolicyPathInfraLBVirtualServer          PolicyResourcePath[*model.LBVirtualServer]             = []PolicyResourceType{PolicyResourceInfra, PolicyResourceInfraLBVirtualServer}
+	PolicyPathInfraLBPool                   PolicyResourcePath[*model.LBPool]                      = []PolicyResourceType{PolicyResourceInfra, PolicyResourceInfraLBPool}
+	PolicyPathInfraLBService                PolicyResourcePath[*model.LBService]                   = []PolicyResourceType{PolicyResourceInfra, PolicyResourceInfraLBService}
+	PolicyPathInfraDomain                   PolicyResourcePath[*model.Domain]                      = []PolicyResourceType{PolicyResourceInfra, PolicyResourceDomain}
+	PolicyPathVpcSubnetDynamicIPReservation PolicyResourcePath[*model.DynamicIpAddressReservation] = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceVpcDynamicIPReservation}
 )
 
 type hNodeKey struct {
