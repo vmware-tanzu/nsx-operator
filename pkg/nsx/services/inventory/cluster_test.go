@@ -19,7 +19,7 @@ func TestInventoryService_GetContainerCluster(t *testing.T) {
 		return containerinventory.ContainerCluster{}, nil, nil
 	})
 	defer patches.Reset()
-	_, err := inventoryService.GetContainerCluster()
+	_, err := inventoryService.GetContainerCluster(false)
 	assert.Nil(t, err)
 
 }
