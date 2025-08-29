@@ -56,6 +56,46 @@ func TestHasSubnetSpecChanged(t *testing.T) {
 			expected: true,
 		},
 		{
+			name: "EnableVLANExtension no changed",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					EnableVLANExtension: false,
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "EnableVLANExtension changed from false to true",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					EnableVLANExtension: false,
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					EnableVLANExtension: true,
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "EnableVLANExtension changed from true to false",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					EnableVLANExtension: true,
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					EnableVLANExtension: false,
+				},
+			},
+			expected: true,
+		},
+		{
 			name: "DHCP Mode changed",
 			originalSpec: &v1alpha1.SubnetSpec{
 				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
