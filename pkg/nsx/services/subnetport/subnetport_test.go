@@ -169,9 +169,9 @@ func Test_InitializeSubnetPort(t *testing.T) {
 		{
 			name: "searchResourceError",
 			prepareFunc: func(t *testing.T, s *common.Service, ctx context.Context) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(s.NSXClient.QueryClient, "List", []gomonkey.OutputCell{
-					{Values: gomonkey.Params{model.SearchResponse{}, fmt.Errorf("mock error")}},
-					{Values: gomonkey.Params{model.SearchResponse{}, nil}}})
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeQueryClient{}), "List", func(_ *fakeQueryClient, _ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
+					return model.SearchResponse{}, fmt.Errorf("mock error")
+				})
 				patches.ApplyMethodSeq(s.NSXClient.MacPoolsClient, "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{mp_model.MacPoolListResult{
 						Results: []mp_model.MacPool{
@@ -189,9 +189,9 @@ func Test_InitializeSubnetPort(t *testing.T) {
 		{
 			name: "success",
 			prepareFunc: func(t *testing.T, s *common.Service, ctx context.Context) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(s.NSXClient.QueryClient, "List", []gomonkey.OutputCell{
-					{Values: gomonkey.Params{model.SearchResponse{}, nil}},
-					{Values: gomonkey.Params{model.SearchResponse{}, nil}}})
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeQueryClient{}), "List", func(_ *fakeQueryClient, _ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
+					return model.SearchResponse{}, nil
+				})
 				return patches
 			},
 			wantErr: false,
