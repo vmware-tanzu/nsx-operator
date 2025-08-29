@@ -11,6 +11,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
@@ -57,13 +58,13 @@ func TestInventoryService_initContainerCluster(t *testing.T) {
 		// "not found" will return nil
 		patches.Reset()
 		patches = gomonkey.ApplyMethod(inventoryService, "GetContainerCluster", func(*InventoryService) (containerinventory.ContainerCluster, error) {
-			return containerinventory.ContainerCluster{}, errors.New("Not Found")
+			return containerinventory.ContainerCluster{}, util.HttpNotFoundError
 		})
 		patches.ApplyMethod(inventoryService, "AddContainerCluster", func(_ *InventoryService, _ containerinventory.ContainerCluster) (containerinventory.ContainerCluster, error) {
 			return containerinventory.ContainerCluster{}, nil
 		})
 		defer patches.Reset()
-		err = inventoryService.initContainerCluster(true)
+		err = inventoryService.initContainerCluster(false)
 		assert.Nil(t, err)
 	})
 

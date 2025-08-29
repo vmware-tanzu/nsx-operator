@@ -2,17 +2,43 @@ package inventory
 
 import (
 	"context"
+	"fmt"
+
+	"net/http"
 
 	"github.com/vmware/go-vmware-nsxt/containerinventory"
 
+	nsx_util "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
-func (s *InventoryService) GetContainerCluster() (containerinventory.ContainerCluster, error) {
+const (
+	baseUrl = "api/v1/fabric/container-clusters/%s"
+)
+
+func (s *InventoryService) GetContainerCluster(cleanup bool) (containerinventory.ContainerCluster, error) {
 	clusterUUID := util.GetClusterUUID(s.NSXConfig.Cluster).String()
-	log.Info("Send request to NSX to get inventory cluster", "Cluster id", clusterUUID)
-	containerCluster, _, err := s.NSXClient.NsxApiClient.ContainerClustersApi.GetContainerCluster(context.TODO(), clusterUUID)
-	return containerCluster, err
+	log.Info("Send request to NSX to get inventory cluster", "ClusterUID", clusterUUID)
+	if cleanup {
+		url := fmt.Sprintf(baseUrl, clusterUUID)
+		containerCluster := containerinventory.ContainerCluster{}
+		err := s.NSXClient.Cluster.HttpGetAndDecode(url, &containerCluster)
+		if err == nil {
+			log.Info("Get inventory cluster", "response", containerCluster)
+			return containerCluster, nil
+		}
+		log.Error(err, "Failed to get inventory cluster", "ClusterUID", clusterUUID)
+		return containerCluster, err
+	}
+	containerCluster, resp, err := s.NSXClient.NsxApiClient.ContainerClustersApi.GetContainerCluster(context.TODO(), clusterUUID)
+	// there was no error_code in the err, so we need to check the response to return the HttpNotFoundError error
+	if resp != nil && resp.StatusCode == http.StatusNotFound {
+		return containerCluster, nsx_util.HttpNotFoundError
+	}
+	if err != nil {
+		return containerCluster, err
+	}
+	return containerCluster, nil
 }
 
 func (s *InventoryService) AddContainerCluster(cluster containerinventory.ContainerCluster) (containerinventory.ContainerCluster, error) {
@@ -23,7 +49,12 @@ func (s *InventoryService) AddContainerCluster(cluster containerinventory.Contai
 }
 
 func (s *InventoryService) DeleteContainerCluster(clusterID string, ctx context.Context) error {
-	log.Info("Send request to NSX to delete inventory cluster", "Cluster", clusterID)
-	_, err := s.NSXClient.NsxApiClient.ContainerClustersApi.DeleteContainerCluster(ctx, clusterID)
+	log.Info("Send request to NSX to delete inventory cluster", "ClusterUID", clusterID)
+	err := s.NSXClient.Cluster.HttpDelete(fmt.Sprintf(baseUrl, clusterID))
+	if err != nil {
+		log.Error(err, "Failed to delete inventory cluster", "ClusterUID", clusterID)
+	} else {
+		log.Info("Delete inventory cluster succeeded", "ClusterUID", clusterID)
+	}
 	return err
 }
