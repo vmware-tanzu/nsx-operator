@@ -212,6 +212,7 @@ func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPol
 	if err != nil {
 		return nil, "", err
 	}
+	policyAppliedGroup.Path = String(policyAppliedGroupPath)
 
 	log.V(1).Info("Built policy target group", "policyAppliedGroup", policyAppliedGroup)
 	return &policyAppliedGroup, policyAppliedGroupPath, nil
@@ -740,6 +741,7 @@ func (service *SecurityPolicyService) buildRuleAppliedGroupByRule(obj *v1alpha1.
 		Id:          &ruleAppliedGroupID,
 		DisplayName: &ruleAppliedGroupName,
 		Tags:        targetTags,
+		Path:        &ruleAppliedGroupPath,
 	}
 
 	ruleGroupCriteriaCount, ruleGroupTotalExprCount := 0, 0
@@ -895,6 +897,7 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 		Id:          &rulePeerGroupID,
 		DisplayName: &rulePeerGroupName,
 		Tags:        peerTags,
+		Path:        &rulePeerGroupPath,
 	}
 
 	rulePeerGroupCriteriaCount, rulePeerGroupTotalExprCount := 0, 0

@@ -147,6 +147,8 @@ func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.Security
 		if err != nil {
 			return nil, nil, err
 		}
+		ruleIPSetGroup.Path = String(IPSetGroupPath)
+
 		nsxRule.DestinationGroups = []string{IPSetGroupPath}
 		log.V(1).Info("Built ruleIPSetGroup", "ruleIPSetGroup", ruleIPSetGroup)
 		nsxGroups = append(nsxGroups, ruleIPSetGroup)
