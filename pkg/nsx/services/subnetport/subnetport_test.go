@@ -1464,6 +1464,16 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			} else {
 				assert.Nil(t, err)
 			}
+			if tt.expectedValue {
+				canAllocate, err = subnetPortService.AllocatePortFromSubnet(tt.subnet)
+				assert.Equal(t, tt.expectedValue, canAllocate)
+				if tt.expectedErr != "" {
+					assert.Contains(t, err.Error(), tt.expectedErr)
+				} else {
+					assert.Nil(t, err)
+				}
+			}
+
 		})
 	}
 }

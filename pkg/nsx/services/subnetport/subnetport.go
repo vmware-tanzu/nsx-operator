@@ -544,6 +544,24 @@ func (service *SubnetPortService) ListSubnetPortByPodName(ns string, name string
 // If the Subnet has capacity for the new SubnetPorts, it will increase
 // the number of SubnetPort under creation and return true.
 func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet) (bool, error) {
+	dhcpMode := "DHCP_DEACTIVATED"
+	subnetInfo, _ := servicecommon.ParseVPCResourcePath(*subnet.Path)
+	if subnet.SubnetDhcpConfig != nil && subnet.SubnetDhcpConfig.Mode != nil {
+		dhcpMode = *subnet.SubnetDhcpConfig.Mode
+	}
+	// For DHCP Deactivated mode Subnet, if staticIpAllocation enable:false, skip check IP count
+	// and always return true
+	staticIpAllocationEnabled := false
+	if dhcpMode == "DHCP_DEACTIVATED" {
+		if subnet.AdvancedConfig != nil && subnet.AdvancedConfig.StaticIpAllocation != nil && subnet.AdvancedConfig.StaticIpAllocation.Enabled != nil {
+			staticIpAllocationEnabled = *subnet.AdvancedConfig.StaticIpAllocation.Enabled
+		}
+		if !staticIpAllocationEnabled {
+			// for staticIpAllocation enable:false case, it can create SubnetPort and skip check the IP count
+			return true, nil
+		}
+	}
+
 	info := &CountInfo{}
 	obj, ok := service.SubnetPortStore.PortCountInfo.LoadOrStore(*subnet.Path, info)
 	info = obj.(*CountInfo)
@@ -551,11 +569,6 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 	info.lock.Lock()
 	defer info.lock.Unlock()
 
-	dhcpMode := "DHCP_DEACTIVATED"
-	subnetInfo, _ := servicecommon.ParseVPCResourcePath(*subnet.Path)
-	if subnet.SubnetDhcpConfig != nil && subnet.SubnetDhcpConfig.Mode != nil {
-		dhcpMode = *subnet.SubnetDhcpConfig.Mode
-	}
 	// For DHCP Server mode Subnet, get total IPs from DHCP IP Pool from NSX each time
 	// since user might update reservedIPRanges for the subnet and it impacts the DHCP Pool size
 	if dhcpMode == "DHCP_SERVER" {
@@ -572,14 +585,6 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 	if !ok {
 		// For DHCP Deactivated mode Subnet, get total IPs from IP pool static-ipv4-default
 		if dhcpMode == "DHCP_DEACTIVATED" {
-			staticIpAllocationEnabled := false
-			if subnet.AdvancedConfig != nil && subnet.AdvancedConfig.StaticIpAllocation != nil && subnet.AdvancedConfig.StaticIpAllocation.Enabled != nil {
-				staticIpAllocationEnabled = *subnet.AdvancedConfig.StaticIpAllocation.Enabled
-			}
-			if !staticIpAllocationEnabled {
-				// for staticIpAllocation enable:false case, it can create SubnetPort and skip check the IP count
-				return true, nil
-			}
 			// only get Subnet total IPs from static IP Pool if staticIpAllocation enabled
 			if staticIpAllocationEnabled {
 				staticIPPool, err := service.NSXClient.IPPoolClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, "static-ipv4-default")
