@@ -356,14 +356,11 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 	// Get pods from the endpoint
 	podIDs, hasAddr := GetPodIDsFromEndpoint(context.TODO(), s.Client, service.Name, service.Namespace)
 
-	// Check if a service has a selector - services without selectors are valid
-	hasSelector := len(service.Spec.Selector) > 0
-
 	// Use a map to track unique error messages
 	uniqueErrors := make(map[string]bool)
 
 	// Determine complete service status with all available information
-	status, netStatus := s.determineServiceStatus(podIDs, hasAddr, hasSelector, service.Annotations, &networkErrors, uniqueErrors)
+	status, netStatus := s.determineServiceStatus(podIDs, hasAddr, service.Annotations, &networkErrors, uniqueErrors)
 
 	// Update the Pods' service IDs, which are related to this service
 	retry = s.synchronizeServiceIDsWithApplicationInstances(podIDs, service)
@@ -409,9 +406,9 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 }
 
 // determineServiceStatus determines the complete service status with all available information in one go
-func (s *InventoryService) determineServiceStatus(podIDs []string, hasAddr, hasSelector bool, annotations map[string]string, networkErrors *[]common.NetworkError, uniqueErrors map[string]bool) (string, string) {
-	status := InventoryStatusUp
-	netStatus := NetworkStatusHealthy
+func (s *InventoryService) determineServiceStatus(podIDs []string, hasAddr bool, annotations map[string]string, networkErrors *[]common.NetworkError, uniqueErrors map[string]bool) (string, string) {
+	var status string
+	var netStatus string
 
 	hasAnnotationError := false
 	for key, value := range annotations {
@@ -427,26 +424,22 @@ func (s *InventoryService) determineServiceStatus(podIDs []string, hasAddr, hasS
 		}
 	}
 
+	if hasAnnotationError {
+		netStatus = NetworkStatusUnhealthy
+	} else {
+		netStatus = NetworkStatusHealthy
+	}
 	if len(podIDs) > 0 {
 		status = InventoryStatusUp
-		netStatus = NetworkStatusHealthy
-		if hasAnnotationError {
-			netStatus = NetworkStatusUnhealthy
-		}
 	} else if hasAddr {
 		status = InventoryStatusUnknown
-		if hasAnnotationError {
-			netStatus = NetworkStatusUnhealthy
-		}
 		errorMessage := "Service endpoint status is unknown"
 		uniqueErrors[errorMessage] = true
 		*networkErrors = append(*networkErrors, common.NetworkError{
 			ErrorMessage: errorMessage,
 		})
-	} else if hasSelector {
-		// Only mark as down if service has selector but no endpoints
+	} else {
 		status = InventoryStatusDown
-		netStatus = NetworkStatusUnhealthy
 		errorMessage := "Failed to get endpoints for Service"
 		uniqueErrors[errorMessage] = true
 		*networkErrors = append(*networkErrors, common.NetworkError{
