@@ -361,7 +361,7 @@ func (nsxConfig *NsxConfig) validateCert() error {
 		return err
 	}
 	if caCount > 0 {
-		configLog.Infof("Validate CA file: %s", caCount)
+		configLog.Infof("Validate CA file: %d", caCount)
 		if caCount > 1 && caCount != mCount {
 			err := errors.New("ca or cert file count not match manager count")
 			configLog.Error(err, "Validate NsxConfig failed", "cert count", caCount, "manager count", mCount)

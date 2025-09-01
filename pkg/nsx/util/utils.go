@@ -32,6 +32,10 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
+const (
+	HeaderAuthorization = "Authorization"
+)
+
 var log = &logger.Log
 
 var (
@@ -140,11 +144,20 @@ func InitErrorFromResponse(host string, statusCode int, body []byte) NsxError {
 	return httpErrortoNSXError(&detail)
 }
 
+func dumpResponseBody(body []byte, statusCode int) {
+	if log.V(2).Enabled() {
+		var parsedBody interface{}
+		if err := json.Unmarshal(body, &parsedBody); err == nil {
+			log.V(2).Info("Received HTTP response", "status code", statusCode, "body", parsedBody)
+		} else {
+			log.V(2).Info("Received HTTP response", "status code", statusCode, "body", string(body))
+		}
+	}
+}
+
 func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorDetail, error) {
-	log.V(2).Info("HTTP response", "status code", statusCode, "body", string(body))
 	ec := ErrorDetail{StatusCode: statusCode}
 	if len(body) == 0 {
-		log.V(1).Info("body length is 0")
 		return ec, nil
 	}
 	var res responseBody
@@ -152,7 +165,7 @@ func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorD
 		log.Error(err, "Failed to decode response body for extracting HTTP detail")
 		return ec, CreateGeneralManagerError(host, "decode body", err.Error())
 	}
-
+	dumpResponseBody(body, statusCode)
 	ec.ErrorCode = res.ErrorCode
 	msg := []string{res.ErrorMsg}
 	for _, a := range res.RelatedErr {
@@ -270,12 +283,12 @@ func HandleHTTPResponse(response *http.Response, result interface{}, debug bool)
 		return nil, nil
 	}
 
-	if debug {
-		log.V(2).Info("Received HTTP response", "response", string(body))
-	}
 	if err := json.Unmarshal(body, result); err != nil {
 		log.Error(err, "Failed to convert HTTP response to result", "result type", result)
 		return err, body
+	}
+	if debug {
+		dumpResponseBody(body, response.StatusCode)
 	}
 	return nil, body
 }
@@ -299,6 +312,18 @@ func MergeAddressByPort(portAddressOriginal []PortAddress) []PortAddress {
 	return portAddress
 }
 
+func sanitizeHeaders(headers http.Header) http.Header {
+	safeHeaders := make(http.Header)
+	for key, values := range headers {
+		if key == HeaderAuthorization {
+			safeHeaders[key] = []string{"--- CENSORED ---"}
+		} else {
+			safeHeaders[key] = values
+		}
+	}
+	return safeHeaders
+}
+
 func DumpHttpRequest(request *http.Request) {
 	var body []byte
 	var err error
@@ -316,7 +341,7 @@ func DumpHttpRequest(request *http.Request) {
 	}
 	request.Body.Close()
 	request.Body = io.NopCloser(bytes.NewReader(body))
-	log.V(2).Info("HTTP request", "url", request.URL, "body", string(body), "head", request.Header)
+	log.V(2).Info("HTTP request", "url", request.URL, "body", string(body), "head", sanitizeHeaders(request.Header))
 }
 
 type NSXApiError struct {
