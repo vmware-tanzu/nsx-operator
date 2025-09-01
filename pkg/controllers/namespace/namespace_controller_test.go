@@ -488,12 +488,20 @@ func TestNamespaceReconciler_createNetworkInfoCR(t *testing.T) {
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	r.Client = k8sClient
 	ctx := context.TODO()
+	ns := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "test-ns",
+			Annotations: map[string]string{ctlcommon.AnnotationNamespaceVPCError: "failed to create vpc"},
+		},
+	}
 
+	// list NetworkInfo error
 	k8sClient.EXPECT().List(ctx, gomock.Any(), gomock.Any()).Return(errors.New("fake-error"))
-	info, err := r.createNetworkInfoCR(ctx, nil, "test-ns")
+	info, err := r.createNetworkInfoCR(ctx, ns, "test-ns")
 	assert.Error(t, err)
 	assert.Nil(t, info)
 
+	// existing NetworkInfo
 	k8sClient.EXPECT().List(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
 		func(_ context.Context, list client.ObjectList, opts client.InNamespace) error {
 			networkInfos, _ := list.(*v1alpha1.NetworkInfoList)
@@ -513,38 +521,73 @@ func TestNamespaceReconciler_createNetworkInfoCR(t *testing.T) {
 
 			return nil
 		})
-	info, err = r.createNetworkInfoCR(ctx, nil, "test-ns")
+	patches := gomonkey.ApplyFunc(util.UpdateK8sResourceAnnotation, func(client client.Client, ctx context.Context, k8sObj client.Object, changes map[string]string) error {
+		return nil
+	})
+	info, err = r.createNetworkInfoCR(ctx, ns, "test-ns")
 	assert.Nil(t, err)
 	assert.Equal(t, *info, v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "net1", Namespace: "ns1"},
 		VPCs: []v1alpha1.VPCState{
 			{PrivateIPs: []string{"1.1.1.0/24"}},
 		}})
+	patches.Reset()
 
-	k8sClient.EXPECT().List(ctx, gomock.Any(), gomock.Any()).Return(nil)
-	k8sClient.EXPECT().Create(ctx, gomock.Any()).Return(errors.New("fake-error"))
-	patches := gomonkey.ApplyFunc((*NamespaceReconciler).namespaceError, func(_ *NamespaceReconciler, ctx context.Context, k8sObj client.Object, msg string, err error) {
+	// Update annotation error when NetworkInfo existed
+	k8sClient.EXPECT().List(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+		func(_ context.Context, list client.ObjectList, opts client.InNamespace) error {
+			networkInfos, _ := list.(*v1alpha1.NetworkInfoList)
+			networkInfos.Items = []v1alpha1.NetworkInfo{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "net1", Namespace: "ns1"},
+					VPCs: []v1alpha1.VPCState{
+						{PrivateIPs: []string{"1.1.1.0/24"}},
+					},
+				}, {
+					ObjectMeta: metav1.ObjectMeta{Name: "net1", Namespace: "ns2"},
+					VPCs: []v1alpha1.VPCState{
+						{PrivateIPs: []string{"1.1.1.0/24"}},
+					},
+				},
+			}
+
+			return nil
+		})
+	patches = gomonkey.ApplyFunc(util.UpdateK8sResourceAnnotation, func(client client.Client, ctx context.Context, k8sObj client.Object, changes map[string]string) error {
+		return errors.New("fake-error")
 	})
-	info, err = r.createNetworkInfoCR(ctx, nil, "test-ns")
+	info, err = r.createNetworkInfoCR(ctx, ns, "test-ns")
 	assert.Error(t, err)
 	assert.Nil(t, info)
 	patches.Reset()
 
+	// NetworkInfo CR creation error
+	k8sClient.EXPECT().List(ctx, gomock.Any(), gomock.Any()).Return(nil)
+	k8sClient.EXPECT().Create(ctx, gomock.Any()).Return(errors.New("fake-error"))
+	patches = gomonkey.ApplyFunc((*NamespaceReconciler).namespaceError, func(_ *NamespaceReconciler, ctx context.Context, k8sObj client.Object, msg string, err error) {
+	})
+	info, err = r.createNetworkInfoCR(ctx, ns, "test-ns")
+	assert.Error(t, err)
+	assert.Nil(t, info)
+	patches.Reset()
+
+	// Update annotation error after NetworkInfo creation
 	k8sClient.EXPECT().List(ctx, gomock.Any(), gomock.Any()).Return(nil)
 	k8sClient.EXPECT().Create(ctx, gomock.Any()).Return(nil)
 	patches = gomonkey.ApplyFunc(util.UpdateK8sResourceAnnotation, func(client client.Client, ctx context.Context, k8sObj client.Object, changes map[string]string) error {
 		return errors.New("fake-error")
 	})
-	info, err = r.createNetworkInfoCR(ctx, nil, "test-ns")
+	info, err = r.createNetworkInfoCR(ctx, ns, "test-ns")
 	assert.Error(t, err)
 	assert.Nil(t, info)
 	patches.Reset()
 
+	// Happy path
 	k8sClient.EXPECT().List(ctx, gomock.Any(), gomock.Any()).Return(nil)
 	k8sClient.EXPECT().Create(ctx, gomock.Any()).Return(nil)
 	patches = gomonkey.ApplyFunc(util.UpdateK8sResourceAnnotation, func(client client.Client, ctx context.Context, k8sObj client.Object, changes map[string]string) error {
 		return nil
 	})
-	info, err = r.createNetworkInfoCR(ctx, nil, "test-ns")
+	info, err = r.createNetworkInfoCR(ctx, ns, "test-ns")
 	assert.Nil(t, err)
 	assert.Equal(t, *info, v1alpha1.NetworkInfo{
 		ObjectMeta: metav1.ObjectMeta{

@@ -67,6 +67,14 @@ func (r *NamespaceReconciler) createNetworkInfoCR(ctx context.Context, obj clien
 	if len(networkInfos.Items) > 0 {
 		// if there is already one networkInfo, return this networkInfo
 		log.Info("NetworkInfo already exists", "NetworkInfo", networkInfos.Items[0].Name, "Namespace", ns)
+		// In rare case, k8s may return error even if the NetworkInfo CR creation succeeds.
+		// In this case, we need to clear the error annotation on k8s ns when NetworkInfo CR exists.
+		changes := map[string]string{common.AnnotationNamespaceVPCError: ""}
+		err := util.UpdateK8sResourceAnnotation(r.Client, ctx, obj, changes)
+		if err != nil {
+			log.Error(err, "Failed to cleanup k8s ns annotation to remove VPC error", "Namespace", ns)
+			return nil, err
+		}
 		return &networkInfos.Items[0], nil
 	}
 
