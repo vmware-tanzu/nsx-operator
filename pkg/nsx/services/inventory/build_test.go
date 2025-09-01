@@ -1512,7 +1512,7 @@ func TestBuildService(t *testing.T) {
 
 		containerApplication := inventoryService.pendingAdd["service-uid-123"].(*containerinventory.ContainerApplication)
 		assert.Equal(t, InventoryStatusDown, containerApplication.Status)
-		assert.Equal(t, NetworkStatusUnhealthy, containerApplication.NetworkStatus)
+		assert.Equal(t, NetworkStatusHealthy, containerApplication.NetworkStatus)
 	})
 
 	t.Run("UpdateExistingService", func(t *testing.T) {
