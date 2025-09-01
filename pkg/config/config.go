@@ -28,7 +28,7 @@ const (
 	// LicenseIntervalForDFW is the timeout for checking license status while no DFW license enabled
 	LicenseIntervalForDFW = 1800
 	defaultWebhookPort    = 9981
-	WebhookCertDir        = "/tmp/k8s-webhook-server/serving-certs"
+	WebhookCertDir        = "/etc/nsx-operator/webhook-certs"
 )
 
 var (
