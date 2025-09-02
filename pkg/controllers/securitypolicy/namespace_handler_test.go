@@ -19,7 +19,7 @@ import (
 
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 func TestEnqueueRequestForNamespace_Create(t *testing.T) {
@@ -131,7 +131,7 @@ func TestEnqueueRequestForNamespace_Update(t *testing.T) {
 		a.Items = podList.Items
 		return nil
 	})
-	patches := gomonkey.ApplyFuncSeq(util.IsSystemNamespace, []gomonkey.OutputCell{
+	patches := gomonkey.ApplyFuncSeq(nsxutil.IsSystemNamespace, []gomonkey.OutputCell{
 		{Values: gomonkey.Params{false, nil}},
 	})
 	patches.ApplyFunc(reconcileSecurityPolicy, func(r *SecurityPolicyReconciler, client client.Client, pods []v1.Pod,
@@ -142,7 +142,7 @@ func TestEnqueueRequestForNamespace_Update(t *testing.T) {
 	patches.ApplyFunc(securitypolicy.IsVPCEnabled, func(_ interface{}) bool {
 		return false
 	})
-	patches.ApplyFunc(util.CheckPodHasNamedPort, func(pod v1.Pod, reason string) bool {
+	patches.ApplyFunc(nsxutil.CheckPodHasNamedPort, func(pod v1.Pod, reason string) bool {
 		return true
 	})
 	defer patches.Reset()

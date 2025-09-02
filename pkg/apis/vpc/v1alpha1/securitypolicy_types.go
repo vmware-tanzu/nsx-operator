@@ -1,4 +1,4 @@
-/* Copyright © 2021 VMware, Inc. All Rights Reserved.
+/* Copyright © 2025 Broadcom, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 // +kubebuilder:object:generate=true

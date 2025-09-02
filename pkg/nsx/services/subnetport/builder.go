@@ -75,7 +75,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	nsxSubnetPortID, nsxSubnetPortName := service.BuildSubnetPortIdAndName(objMeta, namespaceUid)
 	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", *nsxSubnet.Path, nsxSubnetPortID)
 
-	tags := util.BuildBasicTags(getCluster(service), obj, namespaceUid)
+	tags := common.BuildBasicTags(getCluster(service), obj, namespaceUid)
 
 	// Filter tags based on the type of subnet port (VM or Pod).
 	// For VM subnet ports, we need to filter out tags with scope VMNamespaceUID and VMNamespace.
@@ -157,7 +157,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		}
 	}
 
-	if util.NSXSubnetDHCPEnabled(nsxSubnet) {
+	if nsxutil.NSXSubnetDHCPEnabled(nsxSubnet) {
 		// DHCP was never implemented for SubnetPort. Subnet's DHCP config is the only place to identify if port has DHCP config.
 		allocateAddresses = "NONE"
 	} else if isIPPool {

@@ -34,19 +34,6 @@ func GetIPPrefix(ipAddress string) (int, error) {
 	return num, err
 }
 
-// GetSubnetMask get the mask for a given prefix length, e.g.
-// 24 -> "255.255.255.0"
-func GetSubnetMask(subnetLength int) (string, error) {
-	if subnetLength < 0 || subnetLength > 32 {
-		return "", errors.New("invalid subnet mask length")
-	}
-	// Create a 32-bit subnet mask with leading 1's and trailing 0's
-	subnetBinary := uint32(0xffffffff) << (32 - subnetLength)
-	// Convert the binary representation to dotted-decimal format
-	subnetMask := net.IPv4(byte(subnetBinary>>24), byte(subnetBinary>>16), byte(subnetBinary>>8), byte(subnetBinary))
-	return subnetMask.String(), nil
-}
-
 func CalculateIPFromCIDRs(IPAddresses []string) (int, error) {
 	total := 0
 	for _, addr := range IPAddresses {
@@ -117,7 +104,7 @@ func rangesAbstractRange(ranges [][]net.IP, except []net.IP) [][]net.IP {
 	except[0] = except[0].To4()
 	except[1] = except[1].To4()
 	const (
-		// Location identifiers for the except range point in relation to the given range
+		// LocationBeforeStart identifiers for the except range point in relation to the given range
 		LocationBeforeStart = iota // 0: before rng[0]
 		LocationAtStart            // 1: at rng[0]
 		LocationBetween            // 2: between rng[0] and rng[1]
@@ -127,8 +114,8 @@ func rangesAbstractRange(ranges [][]net.IP, except []net.IP) [][]net.IP {
 	for _, r := range ranges {
 		rng := r
 		// Define a function to determine the position of the except IPs in relation to the range,
-		// so that we can use a function to identify the location of the except range point in relation to the given range
-		// to cover all the cases.
+		// so that we can use a function to identify the location of the except range point in relation
+		// to the given range to cover all the cases.
 		getIPPositionInRange := func(ip net.IP) int {
 			var position int
 			if compareIP(ip, rng[0]) {
