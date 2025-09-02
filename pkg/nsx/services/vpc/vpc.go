@@ -278,7 +278,7 @@ func (s *VPCService) resolveSharedVPCNamespace(ctx context.Context, ns string) (
 	}
 
 	// If no annotation nsx.vmware.com/shared_vpc_namespace on ns, this is not a shared vpc
-	nsForSharedVPCs, exist := annos[common.AnnotationSharedVPCNamespace]
+	nsForSharedVPCs, exist := annos[nsxutil.AnnotationSharedVPCNamespace]
 	if !exist {
 		return obj, nil, nil
 	}

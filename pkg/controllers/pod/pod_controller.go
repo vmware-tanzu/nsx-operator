@@ -32,6 +32,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -192,7 +193,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			podAnnotationChanges := map[string]string{
 				servicecommon.AnnotationPodMAC: strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\""),
 			}
-			err = util.UpdateK8sResourceAnnotation(r.Client, ctx, pod, podAnnotationChanges)
+			err = nsxutil.UpdateK8sResourceAnnotation(r.Client, ctx, pod, podAnnotationChanges)
 			if err != nil {
 				log.Error(err, "Failed to update Pod annotation", "pod.Name", req.NamespacedName, "pod.UID", pod.UID, "podAnnotationChanges", podAnnotationChanges)
 				return common.ResultNormal, err

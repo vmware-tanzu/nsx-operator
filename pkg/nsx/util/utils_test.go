@@ -1,4 +1,4 @@
-/* Copyright © 2021 VMware, Inc. All Rights Reserved.
+/* Copyright © 2025 Broadcom, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package util
@@ -25,6 +25,8 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestHttpErrortoNSXError(t *testing.T) {
@@ -1543,6 +1545,53 @@ func TestFindTag(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := FindTag(tt.tags, tt.tagScope)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func Test_CheckPodHasNamedPort(t *testing.T) {
+	pod := v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pod",
+			Namespace: "test-namespace",
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Ports: []v1.ContainerPort{
+						{Name: "test-port", ContainerPort: 8080},
+					},
+				},
+			},
+		},
+	}
+	pod3 := v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pod-3",
+			Namespace: "test",
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Ports: []v1.ContainerPort{},
+				},
+			},
+		},
+	}
+	type args struct {
+		pod *v1.Pod
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{"1", args{&pod}, true},
+		{"3", args{&pod3}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, CheckPodHasNamedPort(*tt.args.pod, ""), "checkPodHasNamedPort(%v)", tt.args.pod)
 		})
 	}
 }

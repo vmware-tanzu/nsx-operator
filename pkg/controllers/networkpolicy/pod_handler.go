@@ -15,7 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 // EnqueueRequestForPod handles Pod events and triggers NetworkPolicy reconciliation
@@ -60,7 +60,7 @@ func (e *EnqueueRequestForPod) Raw(evt interface{}, q workqueue.TypedRateLimitin
 
 	pod := obj.(*v1.Pod)
 	vpcMode := securitypolicy.IsVPCEnabled(e.NetworkPolicyReconciler.Service)
-	if isInSysNs, err := util.IsSystemNamespace(e.Client, pod.Namespace, nil, vpcMode); err != nil {
+	if isInSysNs, err := nsxutil.IsSystemNamespace(e.Client, pod.Namespace, nil, vpcMode); err != nil {
 		log.Error(err, "Failed to fetch namespace", "namespace", pod.Namespace)
 		return
 	} else if isInSysNs {
@@ -78,7 +78,7 @@ var PredicateFuncsPod = predicate.Funcs{
 	CreateFunc: func(e event.CreateEvent) bool {
 		if p, ok := e.Object.(*v1.Pod); ok {
 			log.Debug("Receive pod create event", "namespace", p.Namespace, "name", p.Name)
-			return util.CheckPodHasNamedPort(*p, "create")
+			return nsxutil.CheckPodHasNamedPort(*p, "create")
 		}
 		return false
 	},
@@ -91,10 +91,10 @@ var PredicateFuncsPod = predicate.Funcs{
 			log.Debug("POD label and phase are not changed, ignore it", "name", oldObj.Name)
 			return false
 		}
-		if util.CheckPodHasNamedPort(*oldObj, "update") {
+		if nsxutil.CheckPodHasNamedPort(*oldObj, "update") {
 			return true
 		}
-		if util.CheckPodHasNamedPort(*newObj, "update") {
+		if nsxutil.CheckPodHasNamedPort(*newObj, "update") {
 			return true
 		}
 		return false
@@ -102,7 +102,7 @@ var PredicateFuncsPod = predicate.Funcs{
 	DeleteFunc: func(e event.DeleteEvent) bool {
 		if p, ok := e.Object.(*v1.Pod); ok {
 			log.Debug("Receive pod delete event", "namespace", p.Namespace, "name", p.Name)
-			return util.CheckPodHasNamedPort(*p, "delete")
+			return nsxutil.CheckPodHasNamedPort(*p, "delete")
 		}
 		return false
 	},

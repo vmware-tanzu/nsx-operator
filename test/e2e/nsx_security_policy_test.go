@@ -403,7 +403,7 @@ func assureSecurityPolicyReady(t *testing.T, ns, spName string) {
 	defer deadlineCancel()
 	err := wait.PollUntilContextTimeout(deadlineCtx, timeInterval, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		resp, err := testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(context.Background(), spName, v1.GetOptions{})
-		log.Trace("Get resources", "SecurityPolicies", resp, "Namespace", ns, "Name", spName)
+		log.Trace("Get resources", "Namespace", ns, "Name", spName)
 		if err != nil {
 			return false, fmt.Errorf("error when waiting for  %s", spName)
 		}

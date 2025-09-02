@@ -16,7 +16,8 @@ import (
 
 const (
 	DefaultRSABits = 2048
-	// For now the ClusterControlPlane API doesn't support rotating certificate. We set long valid time to avoid certificate expiration.
+	// For now the ClusterControlPlane API doesn't support rotating certificate.
+	// We set a long valid time to avoid certificate expiration.
 	DefaultValidDays             = 3650
 	DefaultValidDaysWithRotation = 365
 	DefaultRotateDays            = 7
