@@ -270,7 +270,7 @@ func (service *SecurityPolicyService) buildBasicTags(obj *v1alpha1.SecurityPolic
 		scopeOwnerUID = common.TagScopeNetworkPolicyUID
 	}
 
-	tags := util.BuildBasicTags(getCluster(service), obj, service.Service.GetNamespaceUID(obj.ObjectMeta.Namespace))
+	tags := common.BuildBasicTags(getCluster(service), obj, service.Service.GetNamespaceUID(obj.ObjectMeta.Namespace))
 	tags = append(tags, []model.Tag{
 		{
 			Scope: String(scopeOwnerName),
@@ -1962,7 +1962,7 @@ func (service *SecurityPolicyService) buildRulePortsNumberString(ports []v1alpha
 
 func (service *SecurityPolicyService) buildLimitedRuleHashString(rule *v1alpha1.SecurityPolicyRule) string {
 	serializedBytes, _ := json.Marshal(rule)
-	return util.Sha1(string(serializedBytes))[:common.HashLength]
+	return util.Sha1(string(serializedBytes))[:util.HashLength]
 }
 
 func (service *SecurityPolicyService) buildRuleHashString(rule *v1alpha1.SecurityPolicyRule) string {

@@ -38,7 +38,6 @@ import (
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -165,7 +164,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		r.StatusUpdater.IncreaseUpdateTotal()
 
 		vpcMode := securitypolicy.IsVPCEnabled(r.Service)
-		if isCRInSysNs, err := util.IsSystemNamespace(r.Client, req.Namespace, nil, vpcMode); err != nil {
+		if isCRInSysNs, err := nsxutil.IsSystemNamespace(r.Client, req.Namespace, nil, vpcMode); err != nil {
 			err = errors.New("fetch namespace associated with security policy CR failed")
 			r.StatusUpdater.UpdateFail(ctx, realObj, err, "", setSecurityPolicyReadyStatusFalse, r.Service)
 			return ResultRequeue, err
