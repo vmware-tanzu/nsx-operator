@@ -36,7 +36,7 @@ var (
 	clusterUUID uuid.UUID
 )
 
-var log = &logger.Log
+var log = logger.Log
 
 func truncateLabelHash(data string) string {
 	return Sha1(data)[:common.HashLength]
@@ -208,12 +208,12 @@ func CheckPodHasNamedPort(pod v1.Pod, reason string) bool {
 	for _, container := range pod.Spec.Containers {
 		for _, port := range container.Ports {
 			if port.Name != "" {
-				log.V(1).Info(fmt.Sprintf("%s pod %s has a named port %s", reason, pod.Name, port.Name))
+				log.Debug(fmt.Sprintf("%s pod %s has a named port %s", reason, pod.Name, port.Name))
 				return true
 			}
 		}
 	}
-	log.V(1).Info(fmt.Sprintf("%s pod %s has no named port", reason, pod.Name))
+	log.Debug(fmt.Sprintf("%s pod %s has no named port", reason, pod.Name))
 	return false
 }
 

@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	log              = &logger.Log
+	log              = logger.Log
 	ResourceTypeNode = servicecommon.ResourceTypeNode
 	MarkedForDelete  = true
 )

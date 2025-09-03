@@ -69,10 +69,10 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 			return admission.Errored(http.StatusBadRequest, err)
 		}
 
-		log.V(2).Info("Decoded old Subnet", "oldSubnet", oldSubnet)
-		log.V(2).Info("Decoded new Subnet", "subnet", subnet)
-		log.V(2).Info("User info", "username", req.UserInfo.Username, "isNSXOperator", req.UserInfo.Username == NSXOperatorSA)
-		log.V(2).Info("VPCName comparison", "oldVPCName", oldSubnet.Spec.VPCName, "newVPCName", subnet.Spec.VPCName, "isEqual", oldSubnet.Spec.VPCName == subnet.Spec.VPCName)
+		log.Trace("Decoded old Subnet", "oldSubnet", oldSubnet)
+		log.Trace("Decoded new Subnet", "subnet", subnet)
+		log.Trace("User info", "username", req.UserInfo.Username, "isNSXOperator", req.UserInfo.Username == NSXOperatorSA)
+		log.Trace("VPCName comparison", "oldVPCName", oldSubnet.Spec.VPCName, "newVPCName", subnet.Spec.VPCName, "isEqual", oldSubnet.Spec.VPCName == subnet.Spec.VPCName)
 
 		// Shared Subnet can only be updated by NSX Operator
 		if (common.IsSharedSubnet(oldSubnet) || common.IsSharedSubnet(subnet)) && req.UserInfo.Username != NSXOperatorSA {
@@ -83,7 +83,7 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 		if req.UserInfo.Username != NSXOperatorSA {
 			// Check if vpcName is being added or changed
 			if oldSubnet.Spec.VPCName != subnet.Spec.VPCName {
-				log.V(2).Info("Denying update to vpcName", "oldVPCName", oldSubnet.Spec.VPCName, "newVPCName", subnet.Spec.VPCName)
+				log.Trace("Denying update to vpcName", "oldVPCName", oldSubnet.Spec.VPCName, "newVPCName", subnet.Spec.VPCName)
 				return admission.Denied(fmt.Sprintf("Subnet %s/%s: spec.vpcName can only be updated by NSX Operator", subnet.Namespace, subnet.Name))
 			}
 			if oldSubnet.Spec.AdvancedConfig.EnableVLANExtension != subnet.Spec.AdvancedConfig.EnableVLANExtension {

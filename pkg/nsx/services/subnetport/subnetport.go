@@ -29,7 +29,7 @@ import (
 )
 
 var (
-	log                    = &logger.Log
+	log                    = logger.Log
 	ResourceTypeSubnetPort = servicecommon.ResourceTypeSubnetPort
 	MarkedForDelete        = true
 	IPReleaseTime          = 2 * time.Minute
@@ -124,7 +124,7 @@ func (service *SubnetPortService) loadNSXMacPool() error {
 	for _, macPool := range macPools.Results {
 		if macPool.DisplayName != nil && *macPool.DisplayName == defaultContainerMacPoolName {
 			service.macPool = &macPool
-			log.V(1).Info("Get NSX MAC Pool", "MacPool", macPool)
+			log.Debug("Get NSX MAC Pool", "MacPool", macPool)
 		}
 	}
 	return nil
@@ -356,7 +356,7 @@ func (service *SubnetPortService) DeleteSubnetPort(nsxSubnetPort *model.VpcSubne
 	// delete DHCP static binding if needed
 	dhcpStaticBinding := service.DHCPStaticBindingStore.GetByKey(*nsxSubnetPort.Id)
 	if dhcpStaticBinding == nil || dhcpStaticBinding.Id == nil {
-		log.V(2).Info("DHCP static binding is not found in store, skip deleting it")
+		log.Trace("DHCP static binding is not found in store, skip deleting it")
 	} else {
 		err := service.DeleteDHCPStaticBinding(subnetPortInfo, *dhcpStaticBinding.Id)
 		if err != nil {
@@ -397,7 +397,7 @@ func (service *SubnetPortService) DeleteSubnetPortById(portID string) error {
 	// delete DHCP static binding if exists
 	dhcpStaticBinding := service.DHCPStaticBindingStore.GetByKey(portID)
 	if dhcpStaticBinding == nil || dhcpStaticBinding.Id == nil {
-		log.V(2).Info("DHCP static binding is not found in store, skip deleting it")
+		log.Trace("DHCP static binding is not found in store, skip deleting it")
 	} else {
 		staticBindingInfo, _ := servicecommon.ParseVPCResourcePath(*dhcpStaticBinding.Path)
 		err := service.DeleteDHCPStaticBinding(staticBindingInfo, portID)
@@ -415,7 +415,7 @@ func (service *SubnetPortService) DeleteSubnetPortById(portID string) error {
 }
 
 func (service *SubnetPortService) ListNSXSubnetPortIDForCR() sets.Set[string] {
-	log.V(2).Info("listing subnet port CR UIDs")
+	log.Trace("listing subnet port CR UIDs")
 	subnetPortSet := sets.New[string]()
 	for _, subnetPortCRUid := range service.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopeSubnetPortCRUID).UnsortedList() {
 		subnetPortIDs, _ := service.SubnetPortStore.IndexKeys(servicecommon.TagScopeSubnetPortCRUID, subnetPortCRUid)
@@ -425,7 +425,7 @@ func (service *SubnetPortService) ListNSXSubnetPortIDForCR() sets.Set[string] {
 }
 
 func (service *SubnetPortService) ListNSXSubnetPortIDForPod() sets.Set[string] {
-	log.V(2).Info("listing pod UIDs")
+	log.Trace("listing pod UIDs")
 	subnetPortSet := sets.New[string]()
 	for _, podUID := range service.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopePodUID).UnsortedList() {
 		subnetPortIDs, _ := service.SubnetPortStore.IndexKeys(servicecommon.TagScopePodUID, podUID)
@@ -621,7 +621,7 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 	existingPortCount := len(service.GetPortsOfSubnet(*subnet.Id))
 	if info.dirtyCount+existingPortCount < info.totalIP {
 		info.dirtyCount += 1
-		log.V(2).Info("Allocate Subnetport to Subnet", "Subnet", *subnet.Path, "dirtyPortCount", info.dirtyCount, "existingPortCount", existingPortCount)
+		log.Trace("Allocate Subnetport to Subnet", "Subnet", *subnet.Path, "dirtyPortCount", info.dirtyCount, "existingPortCount", existingPortCount)
 		return true, nil
 	}
 	return false, nil
@@ -636,7 +636,7 @@ func (service *SubnetPortService) updateExhaustedSubnet(path string) {
 	info := obj.(*CountInfo)
 	info.lock.Lock()
 	defer info.lock.Unlock()
-	log.V(2).Info("Mark Subnet as exhausted", "Subnet", path)
+	log.Trace("Mark Subnet as exhausted", "Subnet", path)
 	info.exhaustedCheckTime = time.Now()
 }
 
@@ -655,7 +655,7 @@ func (service *SubnetPortService) ReleasePortInSubnet(path string) {
 		return
 	}
 	info.dirtyCount -= 1
-	log.V(2).Info("Release Subnetport from Subnet", "Subnet", path, "dirtyPortCount", info.dirtyCount)
+	log.Trace("Release Subnetport from Subnet", "Subnet", path, "dirtyPortCount", info.dirtyCount)
 }
 
 // IsEmptySubnet check if there is any SubnetPort created or being creating on the Subnet.
@@ -674,7 +674,7 @@ func (service *SubnetPortService) DeletePortCount(path string) {
 }
 
 func (service *SubnetPortService) ListIDsFromDhcpStaticBindingStore() sets.Set[string] {
-	log.V(2).Info("listing subnet port CR UIDs from DHCPStaticBindingStore")
+	log.Trace("listing subnet port CR UIDs from DHCPStaticBindingStore")
 	subnetPortSet := sets.New[string]()
 	for _, subnetPortCRUid := range service.DHCPStaticBindingStore.ListIndexFuncValues(servicecommon.TagScopeSubnetPortCRUID).UnsortedList() {
 		subnetPortIDs, _ := service.DHCPStaticBindingStore.IndexKeys(servicecommon.TagScopeSubnetPortCRUID, subnetPortCRUid)

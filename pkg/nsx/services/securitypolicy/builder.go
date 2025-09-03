@@ -88,7 +88,7 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 	var nsxShares []model.Share
 	var nsxGroupShares []GroupShare
 
-	log.V(1).Info("Building the model SecurityPolicy from CR SecurityPolicy", "object", *obj)
+	log.Debug("Building the model SecurityPolicy from CR SecurityPolicy", "object", *obj)
 	nsxSecurityPolicy := &model.SecurityPolicy{}
 	tags := service.buildBasicTags(obj, createdFor)
 
@@ -190,7 +190,7 @@ func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPol
 			return nil, "", err
 		}
 	}
-	log.V(2).Info("Build policy target group criteria",
+	log.Trace("Build policy target group criteria",
 		"totalCriteria", targetGroupCriteriaCount, "totalExprsOfCriteria", targetGroupTotalExprCount)
 
 	if targetGroupCriteriaCount > MaxCriteria {
@@ -214,7 +214,7 @@ func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPol
 	}
 	policyAppliedGroup.Path = String(policyAppliedGroupPath)
 
-	log.V(1).Info("Built policy target group", "policyAppliedGroup", policyAppliedGroup)
+	log.Debug("Built policy target group", "policyAppliedGroup", policyAppliedGroup)
 	return &policyAppliedGroup, policyAppliedGroupPath, nil
 }
 
@@ -542,7 +542,7 @@ func buildRuleServiceEntries(port v1alpha1.SecurityPolicyPort) *data.StructValue
 			"overridden":        data.NewBooleanValue(false),
 		},
 	)
-	log.V(1).Info("Built rule service entry", "destinationPorts", portRange, "protocol", port.Protocol)
+	log.Debug("Built rule service entry", "destinationPorts", portRange, "protocol", port.Protocol)
 	return serviceEntry
 }
 
@@ -563,7 +563,7 @@ func (service *SecurityPolicyService) buildRuleAppliedToGroup(obj *v1alpha1.Secu
 			return nil, "", err
 		}
 	}
-	log.V(1).Info("Built rule target group", "ruleAppliedGroup", nsxRuleAppliedGroup)
+	log.Debug("Built rule target group", "ruleAppliedGroup", nsxRuleAppliedGroup)
 	return nsxRuleAppliedGroup, nsxRuleAppliedGroupPath, nil
 }
 
@@ -761,7 +761,7 @@ func (service *SecurityPolicyService) buildRuleAppliedGroupByRule(obj *v1alpha1.
 			return nil, "", err
 		}
 	}
-	log.V(2).Info("Build rule applied group criteria", "totalCriteria",
+	log.Trace("Build rule applied group criteria", "totalCriteria",
 		ruleGroupCriteriaCount, "totalExprsOfCriteria", ruleGroupTotalExprCount)
 
 	if ruleGroupCriteriaCount > MaxCriteria {
@@ -919,7 +919,7 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 			return nil, "", nil, err
 		}
 	}
-	log.V(2).Info(fmt.Sprintf("Build rule %s group criteria", ruleDirection),
+	log.Trace(fmt.Sprintf("Build rule %s group criteria", ruleDirection),
 		"totalCriteria", rulePeerGroupCriteriaCount, "totalExprsOfCriteria", rulePeerGroupTotalExprCount)
 
 	if rulePeerGroupCriteriaCount > MaxCriteria {
@@ -946,7 +946,7 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 		var projectGroupShare GroupShare
 		var infraGroupShare GroupShare
 
-		log.V(1).Info("Building share in Namespace", "Namespace", obj.ObjectMeta.Namespace)
+		log.Debug("Building share in Namespace", "Namespace", obj.ObjectMeta.Namespace)
 		if infraGroupShared == true {
 			infraGroupShare.shareGroup = &rulePeerGroup
 			// Share group with the project in which SecurityPolicy rule is put
@@ -996,7 +996,7 @@ func (service *SecurityPolicyService) dedupBlocks(rulePeers []v1alpha1.SecurityP
 				cachedCIDR.Insert(ipBlock.CIDR)
 				dedupBlocks = append(dedupBlocks, ipBlock)
 			} else {
-				log.V(2).Info("Duplicated IPBlock CIDR found, skipping", "CIDR", ipBlock.CIDR, "rulePeer", rulePeer)
+				log.Trace("Duplicated IPBlock CIDR found, skipping", "CIDR", ipBlock.CIDR, "rulePeer", rulePeer)
 			}
 		}
 		rulePeer.IPBlocks = dedupBlocks
@@ -1033,7 +1033,7 @@ func (service *SecurityPolicyService) buildRuleBasicInfo(obj *v1alpha1.SecurityP
 		Services:       []string{"ANY"},
 		Tags:           service.buildBasicTags(obj, createdFor),
 	}
-	log.V(1).Info("Built rule basic info", "nsxRule", nsxRule)
+	log.Debug("Built rule basic info", "nsxRule", nsxRule)
 	return &nsxRule, nil
 }
 
@@ -1114,7 +1114,7 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 		return 0, 0, err
 	}
 
-	log.V(2).Info("update target expressions", "ruleIndex", ruleIdx)
+	log.Trace("update target expressions", "ruleIndex", ruleIdx)
 	service.appendOperatorIfNeeded(&group.Expression, "OR")
 	expressions := service.buildGroupExpression(&group.Expression)
 
@@ -1552,7 +1552,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 		group.Expression = append(group.Expression, blockExpression)
 	}
 
-	log.V(2).Info("Update peer expressions", "ruleIndex", ruleIdx)
+	log.Trace("Update peer expressions", "ruleIndex", ruleIdx)
 	if peer.PodSelector == nil && peer.VMSelector == nil && peer.NamespaceSelector == nil {
 		return 0, 0, nil
 	} else if peer.PodSelector != nil && peer.VMSelector != nil && peer.NamespaceSelector == nil {

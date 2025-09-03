@@ -133,7 +133,7 @@ func (ep *Endpoint) keepAlive() error {
 	} else {
 		req, err = http.NewRequest("GET", fmt.Sprintf(healthURL, ep.Scheme(), ep.Host()), nil)
 	}
-	log.V(1).Info("Keep alive request", "url", req.URL.String())
+	log.Debug("Keep alive request", "url", req.URL.String())
 	if err != nil {
 		log.Error(err, "Failed to create keep alive request")
 		return err
@@ -157,7 +157,7 @@ func (ep *Endpoint) keepAlive() error {
 		ep.setStatus(UP)
 		return nil
 	}
-	log.V(2).Info("keepAlive", "body", body)
+	log.Trace("keepAlive", "body", body)
 	err = util.InitErrorFromResponse(ep.Host(), resp.StatusCode, body)
 	if util.ShouldRegenerate(err) {
 		log.Error(err, "Failed to validate API cluster due to an exception that calls for regeneration", "endpoint", ep.Host())
@@ -201,7 +201,7 @@ func (ep *Endpoint) KeepAlive() {
 }
 
 func (ep *Endpoint) setup() {
-	log.V(2).Info("Begin to setup endpoint")
+	log.Trace("Begin to setup endpoint")
 	err := ep.keepAlive()
 	if err != nil {
 		log.Error(err, "Failed to setup endpoint")
@@ -275,11 +275,11 @@ func (ep *Endpoint) ConnNumber() int {
 
 func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, tokenProvider auth.TokenProvider, username string, password string, jar *Jar) error {
 	if certProvider != nil {
-		log.V(2).Info("Skipping session creation with client certificate auth")
+		log.Trace("Skipping session creation with client certificate auth")
 		return nil
 	}
 	if tokenProvider != nil {
-		log.V(2).Info("Skipping session create with JWT based auth")
+		log.Trace("Skipping session create with JWT based auth")
 		return nil
 	}
 
@@ -305,7 +305,7 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
-	log.V(1).Info("Creating auth session", "url", req.URL.String(), "endpoint", ep.Host(), "request header", req.Header)
+	log.Debug("Creating auth session", "url", req.URL.String(), "endpoint", ep.Host(), "request header", req.Header)
 	ep.UpdateCAforEnvoy(req)
 	resp, err := ep.noBalancerClient.Do(req)
 	if err != nil {
@@ -377,7 +377,7 @@ func (ep *Endpoint) UpdateHttpRequestAuth(request *http.Request) error {
 				request.Header.Set("Cookie", cookie.String())
 			}
 		} else {
-			log.V(2).Info("Update user/password")
+			log.Trace("Update user/password")
 			request.SetBasicAuth(ep.user, ep.password)
 		}
 	}
