@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/ptr"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -182,7 +183,7 @@ var (
 					Ports: []v1alpha1.SecurityPolicyPort{
 						{
 							Protocol: corev1.ProtocolUDP,
-							Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 53},
+							Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 53}),
 						},
 					},
 					Sources: []v1alpha1.SecurityPolicyPeer{
@@ -2637,7 +2638,7 @@ func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
 	mockVPCService := mock.MockVPCServiceProvider{}
 	fakeService.vpcService = &mockVPCService
 
-	serviceEntry := getRuleServiceEntries(53, 0, "UDP")
+	serviceEntry := getRuleServiceEntries(ptr.To(53), nil, "UDP")
 
 	type args struct {
 		spObj      *v1alpha1.SecurityPolicy
@@ -2812,7 +2813,7 @@ func Test_ConvertNetworkPolicyToInternalSecurityPolicies(t *testing.T) {
 							Ports: []v1alpha1.SecurityPolicyPort{
 								{
 									Protocol: corev1.ProtocolTCP,
-									Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 6001},
+									Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 6001}),
 								},
 							},
 						},
@@ -2837,7 +2838,7 @@ func Test_ConvertNetworkPolicyToInternalSecurityPolicies(t *testing.T) {
 							Ports: []v1alpha1.SecurityPolicyPort{
 								{
 									Protocol: corev1.ProtocolTCP,
-									Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 3366},
+									Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 3366}),
 								},
 							},
 						},
@@ -2895,8 +2896,8 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 	mockVPCService := mock.MockVPCServiceProvider{}
 	fakeService.vpcService = &mockVPCService
 
-	ingressServiceEntry := getRuleServiceEntries(6001, 0, "TCP")
-	egressServiceEntry := getRuleServiceEntries(3366, 0, "TCP")
+	ingressServiceEntry := getRuleServiceEntries(ptr.To(6001), nil, "TCP")
+	egressServiceEntry := getRuleServiceEntries(ptr.To(3366), nil, "TCP")
 
 	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(fakeService), "getVPCInfo",
 		func(s *SecurityPolicyService, spNameSpace string) (*common.VPCResourceInfo, error) {
@@ -3277,11 +3278,11 @@ func Test_convertNetworkPolicyPortToSecurityPolicyPort(t *testing.T) {
 					proto := corev1.ProtocolTCP
 					return &proto
 				}(),
-				Port: &intstr.IntOrString{Type: intstr.Int, IntVal: 80},
+				Port: ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 80}),
 			},
 			want: &v1alpha1.SecurityPolicyPort{
 				Protocol: corev1.ProtocolTCP,
-				Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 80},
+				Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 80}),
 			},
 			wantErr: false,
 		},
@@ -3301,10 +3302,10 @@ func Test_convertNetworkPolicyPortToSecurityPolicyPort(t *testing.T) {
 		{
 			name: "with port only",
 			npPort: &networkingv1.NetworkPolicyPort{
-				Port: &intstr.IntOrString{Type: intstr.Int, IntVal: 80},
+				Port: ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 80}),
 			},
 			want: &v1alpha1.SecurityPolicyPort{
-				Port: intstr.IntOrString{Type: intstr.Int, IntVal: 80},
+				Port: ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 80}),
 			},
 			wantErr: false,
 		},
