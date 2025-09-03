@@ -21,6 +21,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -33,6 +34,7 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/utils/ptr"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -305,7 +307,22 @@ func (data *TestData) createNamespace(namespace string, mutators ...func(ns *cor
 
 // createVCNamespace creates a VC namespace with the provided namespace.
 func (data *TestData) createVCNamespace(namespace string) error {
-	svID, _ := data.vcClient.getSupervisorID()
+	// the supervisor may in status CONFIGURING, waiting for it to be RUNNING
+	var svID = ""
+	err := wait.PollUntilContextTimeout(context.TODO(), 10*time.Second, 120*time.Second, false, func(ctx context.Context) (done bool, err error) {
+		superID, err := data.vcClient.getSupervisorID()
+		if err != nil {
+			log.Error(err, "Failed to get supervisor ID")
+			return false, nil
+		}
+		svID = superID
+		return true, nil
+	})
+
+	if err != nil {
+		log.Error(err, "Failed to get supervisor ID")
+		return fmt.Errorf("failed to get supervisor ID: %v", err)
+	}
 	_, storagePolicyID, _ := data.vcClient.getStoragePolicyID()
 	log.Debug("Get storage policy", "storagePolicyID", storagePolicyID)
 	contentLibraryID, _ := data.vcClient.getContentLibraryID()
@@ -335,7 +352,7 @@ func (data *TestData) createVCNamespace(namespace string) error {
 		},
 	}
 
-	err := testData.vcClient.startSession()
+	err = testData.vcClient.startSession()
 	if err != nil {
 		return err
 	}
@@ -801,6 +818,17 @@ func (data *TestData) waitForResourceExistByPath(pathPolicy string, shouldExist 
 	return err
 }
 
+func (data *TestData) updateService(service *corev1.Service) error {
+	svc, err := data.clientset.CoreV1().Services(service.Namespace).Get(context.TODO(), service.Name, metav1.GetOptions{})
+	if err != nil {
+		log.Debug("Failed to get service", "service", service.Name, "namespace", service.Namespace, "error", err)
+		return err
+	}
+	svc.Spec = service.Spec
+	_, err = data.clientset.CoreV1().Services(service.Namespace).Update(context.TODO(), svc, metav1.UpdateOptions{})
+	return err
+}
+
 func (data *TestData) createService(namespace, serviceName string, port, targetPort int32, protocol corev1.Protocol, selector map[string]string,
 	serviceType corev1.ServiceType, mutators ...func(service *corev1.Service),
 ) (*corev1.Service, error) {
@@ -818,6 +846,7 @@ func (data *TestData) createService(namespace, serviceName string, port, targetP
 		Spec: corev1.ServiceSpec{
 			SessionAffinity: corev1.ServiceAffinityNone,
 			Ports: []corev1.ServicePort{{
+				Name:       strings.ToLower(string(protocol)),
 				Port:       port,
 				TargetPort: intstr.FromInt32(targetPort),
 				Protocol:   protocol,
@@ -925,8 +954,110 @@ func (data *TestData) createDeployment(namespace, deploymentName, containerName,
 	return data.clientset.AppsV1().Deployments(namespace).Create(context.TODO(), &deployment, metav1.CreateOptions{})
 }
 
+func (data *TestData) createIpAddressAllocation(namespace, name string, visibility string, size int, ip string) error {
+
+	allocation := &v1alpha1.IPAddressAllocation{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: v1alpha1.IPAddressAllocationSpec{
+			IPAddressBlockVisibility: v1alpha1.IPAddressVisibility(visibility),
+		},
+	}
+	if ip != "" {
+		allocation.Spec.AllocationIPs = ip
+	} else {
+		if size > 0 {
+			allocation.Spec.AllocationSize = size
+		} else {
+			allocation.Spec.AllocationSize = 32
+		}
+	}
+	_, err := data.crdClientset.CrdV1alpha1().IPAddressAllocations(namespace).Create(context.TODO(), allocation, metav1.CreateOptions{})
+	return err
+}
+
+type IngressRule struct {
+	Path        string
+	ServiceName string
+	ServicePort int32
+	PathType    networkingv1.PathType
+}
+
+func (data *TestData) createIngress(
+	namespace, ingressName string,
+	host string,
+	tlsSecretName string,
+	defaultBackendService string,
+	defaultBackendPort int32,
+	rules []IngressRule,
+	annotations map[string]string,
+	mutators ...func(ingress *networkingv1.Ingress),
+) (*networkingv1.Ingress, error) {
+
+	// Build Ingress object
+	ingress := networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ingressName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"nsx-op-e2e": ingressName,
+				"app":        ingressName,
+			},
+			Annotations: annotations,
+		},
+		Spec: networkingv1.IngressSpec{
+			TLS: []networkingv1.IngressTLS{{
+				Hosts:      []string{host},
+				SecretName: tlsSecretName,
+			}},
+			DefaultBackend: &networkingv1.IngressBackend{
+				Service: &networkingv1.IngressServiceBackend{
+					Name: defaultBackendService,
+					Port: networkingv1.ServiceBackendPort{
+						Number: defaultBackendPort,
+					},
+				},
+			},
+			Rules: []networkingv1.IngressRule{{
+				Host: host,
+				IngressRuleValue: networkingv1.IngressRuleValue{
+					HTTP: &networkingv1.HTTPIngressRuleValue{
+						Paths: []networkingv1.HTTPIngressPath{},
+					},
+				},
+			}},
+		},
+	}
+
+	// Add rules to paths
+	for _, rule := range rules {
+		ingress.Spec.Rules[0].HTTP.Paths = append(ingress.Spec.Rules[0].HTTP.Paths, networkingv1.HTTPIngressPath{
+			Path:     rule.Path,
+			PathType: &rule.PathType,
+			Backend: networkingv1.IngressBackend{
+				Service: &networkingv1.IngressServiceBackend{
+					Name: rule.ServiceName,
+					Port: networkingv1.ServiceBackendPort{
+						Number: rule.ServicePort,
+					},
+				},
+			},
+		})
+	}
+
+	// Apply mutators
+	for _, mutator := range mutators {
+		mutator(&ingress)
+	}
+
+	// Create Ingress
+	return data.clientset.NetworkingV1().Ingresses(namespace).Create(context.TODO(), &ingress, metav1.CreateOptions{})
+}
+
 func (data *TestData) serviceWaitFor(readyTime time.Duration, namespace string, name string, conditionFunc func(svc *corev1.Service) (bool, error)) (*corev1.Service, error) {
-	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, readyTime, false, func(ctx context.Context) (bool, error) {
+	err := wait.PollUntilContextTimeout(context.TODO(), 3*time.Second, readyTime, false, func(ctx context.Context) (bool, error) {
 		if svc, err := data.clientset.CoreV1().Services(namespace).Get(context.TODO(), name, metav1.GetOptions{}); err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil
@@ -942,6 +1073,23 @@ func (data *TestData) serviceWaitFor(readyTime time.Duration, namespace string, 
 	return data.clientset.CoreV1().Services(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 }
 
+func (data *TestData) ingressWaitFor(readyTime time.Duration, namespace string, name string, conditionFunc func(ingress *networkingv1.Ingress) (bool, error)) (*networkingv1.Ingress, error) {
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, readyTime, false, func(ctx context.Context) (bool, error) {
+		if ingress, err := data.clientset.NetworkingV1().Ingresses(namespace).Get(context.TODO(), name, metav1.GetOptions{}); err != nil {
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("error when getting Ingress '%s/%s': %v", namespace, name, err)
+		} else {
+			return conditionFunc(ingress)
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	return data.clientset.NetworkingV1().Ingresses(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+}
+
 func (data *TestData) deleteService(nsName string, svcName string) error {
 	ctx := context.TODO()
 	err := data.clientset.CoreV1().Services(nsName).Delete(ctx, svcName, metav1.DeleteOptions{})
@@ -955,12 +1103,61 @@ func (data *TestData) useWCPSetup() bool {
 	return data.vcClient != nil
 }
 
-func checkTrafficByCurl(ns, podname, containername, ip string, port int32, interval, timeout time.Duration) error {
-	// Test traffic from client Pod to server Pod
-	url := fmt.Sprintf("http://%s:%d", ip, port)
-	cmd := []string{
-		`/bin/sh`, "-c", fmt.Sprintf(`curl -s -o /dev/null -w %%{http_code} %s`, url),
+type CurlOptions struct {
+	Scheme  string            // "http" or "https", defaults to "http"
+	Path    string            // e.g., "/coffee", defaults to ""
+	Headers map[string]string // e.g., {"host": "cafe.example.com"}, defaults to nil
+}
+type CurlOption func(*CurlOptions)
+
+// WithScheme sets the HTTP scheme (http or https)
+func WithScheme(scheme string) CurlOption {
+	return func(o *CurlOptions) {
+		o.Scheme = scheme
 	}
+}
+
+// WithPath sets the URL path
+func WithPath(path string) CurlOption {
+	return func(o *CurlOptions) {
+		o.Path = path
+	}
+
+}
+
+// WithHeaders sets the HTTP headers
+func WithHeaders(headers map[string]string) CurlOption {
+	return func(o *CurlOptions) {
+		o.Headers = headers
+	}
+}
+
+func checkTrafficByCurl(ns, podname, containername, ip string, port int32, interval, timeout time.Duration, opts ...CurlOption) error {
+	// Test traffic from client Pod to server Pod
+	// Default options
+	options := &CurlOptions{
+		Scheme:  "http",
+		Path:    "",
+		Headers: nil,
+	}
+
+	// Apply provided options
+	for _, option := range opts {
+		option(options)
+	}
+
+	cmd := []string{"/bin/sh", "-c"}
+	url := fmt.Sprintf("%s://%s:%d%s", options.Scheme, ip, port, options.Path)
+	curlArgs := []string{"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}"}
+	if options.Scheme == "https" {
+		curlArgs = append(curlArgs, "-k") // Skip SSL verification for HTTPS
+	}
+	for key, value := range options.Headers {
+		curlArgs = append(curlArgs, "-H", fmt.Sprintf("'%s: %s'", key, value))
+	}
+	curlArgs = append(curlArgs, url)
+	cmd = append(cmd, strings.Join(curlArgs, " "))
+	log.Debug("Curl command", "cmd", cmd)
 	trafficErr := wait.PollUntilContextTimeout(context.TODO(), interval, timeout, true, func(ctx context.Context) (bool, error) {
 		stdOut, _, err := testData.runCommandFromPod(ns, podname, containername, cmd)
 		if err != nil {
