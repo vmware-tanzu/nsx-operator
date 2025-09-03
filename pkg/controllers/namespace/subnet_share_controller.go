@@ -149,6 +149,14 @@ func (r *NamespaceReconciler) processNewSharedSubnets(ctx context.Context, ns st
 				log.Error(err, "Failed to create Subnet CR for shared Subnet", "Namespace", ns, "SharedSubnet", sharedSubnetPath)
 				return unusedSubnets, err
 			}
+		} else {
+			// For existing shared subnets, we still need to add them to the SharedSubnetResourceMap
+			existingSubnet := existingSharedSubnets[associatedResource]
+			namespacedName := types.NamespacedName{
+				Namespace: existingSubnet.Namespace,
+				Name:      existingSubnet.Name,
+			}
+			r.SubnetService.AddSharedSubnetToResourceMap(associatedResource, namespacedName)
 		}
 		processedSubnets[associatedResource] = true
 	}
@@ -245,12 +253,14 @@ func (r *NamespaceReconciler) syncSharedSubnets(ctx context.Context, ns string, 
 	if err != nil {
 		return err
 	}
+	log.V(2).Info("Existing shared Subnet CRs", "Namespace", ns, "Subnets", existingSharedSubnets)
 
 	// Process new shared subnets and get remaining subnets that might need to be deleted
 	unusedSubnets, err := r.processNewSharedSubnets(ctx, ns, vpcNetConfig, existingSharedSubnets)
 	if err != nil {
 		return err
 	}
+	log.V(2).Info("Unused shared Subnet CRs", "Namespace", ns, "Subnets", unusedSubnets)
 
 	// Delete unused Subnet CRs
 	err = r.deleteUnusedSharedSubnets(ctx, ns, unusedSubnets)
