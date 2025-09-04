@@ -68,6 +68,7 @@ var (
 	jarCache   = NewJar()
 	nsxVersion = &NsxVersion{}
 	log        = &logger.Log
+	once       sync.Once
 )
 
 // NewCluster creates a cluster based on nsx Config.
@@ -159,7 +160,10 @@ func (cluster *Cluster) CreateServerUrl(host string, scheme string) string {
 	} else {
 		serverUrl = fmt.Sprintf("%s://%s", scheme, host)
 	}
-	log.V(1).Info("Create serverUrl", "serverUrl", serverUrl)
+
+	once.Do(func() {
+		log.V(1).Info("Create serverUrl", "serverUrl", serverUrl)
+	})
 	return serverUrl
 }
 
