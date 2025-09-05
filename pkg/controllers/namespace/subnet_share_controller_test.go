@@ -556,6 +556,35 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 				return patches
 			},
 		},
+		{
+			name: "Existing subnet should be added to SharedSubnetResourceMap",
+			existingSubnets: []client.Object{
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "existing-subnet",
+						Namespace: "test-ns",
+						Annotations: map[string]string{
+							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:existing-subnet",
+						},
+					},
+				},
+			},
+			vpcNetConfig: &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					Subnets: []string{
+						"/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/existing-subnet",
+					},
+				},
+			},
+			expectedUnusedCount: 0,
+			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(servicecommon.ConvertSubnetPathToAssociatedResource,
+					func(path string) (string, error) {
+						return "proj-1:vpc-1:existing-subnet", nil
+					})
+				return patches
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -569,20 +598,41 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 				}
 			}
 
-			// Initialize SharedSubnetResourceMap with the existing subnets
-			r.SubnetService.SharedSubnetResourceMap = make(map[string]sets.Set[types.NamespacedName])
-			for _, obj := range tt.existingSubnets {
-				subnet, ok := obj.(*v1alpha1.Subnet)
-				if !ok {
-					continue
-				}
-				if subnet.Annotations != nil && subnet.Annotations[servicecommon.AnnotationAssociatedResource] != "" {
-					associatedResource := subnet.Annotations[servicecommon.AnnotationAssociatedResource]
-					namespacedName := types.NamespacedName{
-						Namespace: subnet.Namespace,
-						Name:      subnet.Name,
+			// Track AddSharedSubnetToResourceMap calls for the new test case
+			var addToMapCalls []struct {
+				associatedResource string
+				namespacedName     types.NamespacedName
+			}
+
+			if tt.name == "Existing subnet should be added to SharedSubnetResourceMap" {
+				// Mock AddSharedSubnetToResourceMap to track calls
+				addToMapPatches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "AddSharedSubnetToResourceMap",
+					func(_ *subnet.SubnetService, associatedResource string, namespacedName types.NamespacedName) {
+						addToMapCalls = append(addToMapCalls, struct {
+							associatedResource string
+							namespacedName     types.NamespacedName
+						}{associatedResource, namespacedName})
+					})
+				defer addToMapPatches.Reset()
+
+				// Initialize an empty SharedSubnetResourceMap (don't pre-populate for this test)
+				r.SubnetService.SharedSubnetResourceMap = make(map[string]sets.Set[types.NamespacedName])
+			} else {
+				// Initialize the SharedSubnetResourceMap with the existing subnets for other tests
+				r.SubnetService.SharedSubnetResourceMap = make(map[string]sets.Set[types.NamespacedName])
+				for _, obj := range tt.existingSubnets {
+					existingSubnet, ok := obj.(*v1alpha1.Subnet)
+					if !ok {
+						continue
 					}
-					r.SubnetService.AddSharedSubnetToResourceMap(associatedResource, namespacedName)
+					if existingSubnet.Annotations != nil && existingSubnet.Annotations[servicecommon.AnnotationAssociatedResource] != "" {
+						associatedResource := existingSubnet.Annotations[servicecommon.AnnotationAssociatedResource]
+						namespacedName := types.NamespacedName{
+							Namespace: existingSubnet.Namespace,
+							Name:      existingSubnet.Name,
+						}
+						r.SubnetService.AddSharedSubnetToResourceMap(associatedResource, namespacedName)
+					}
 				}
 			}
 
@@ -596,6 +646,16 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 			// Check the result
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expectedUnusedCount, len(unusedSubnets))
+
+			// Verify AddSharedSubnetToResourceMap was called for existing subnet test
+			if tt.name == "Existing subnet should be added to SharedSubnetResourceMap" {
+				assert.Equal(t, 1, len(addToMapCalls), "AddSharedSubnetToResourceMap should be called once")
+				if len(addToMapCalls) > 0 {
+					assert.Equal(t, "proj-1:vpc-1:existing-subnet", addToMapCalls[0].associatedResource)
+					assert.Equal(t, "test-ns", addToMapCalls[0].namespacedName.Namespace)
+					assert.Equal(t, "existing-subnet", addToMapCalls[0].namespacedName.Name)
+				}
+			}
 		})
 	}
 }
