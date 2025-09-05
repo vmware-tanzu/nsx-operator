@@ -1822,6 +1822,176 @@ func TestRemoveSubnetFromCache(t *testing.T) {
 	}
 }
 
+func TestSubnetService_CreateOrUpdateSubnet_ConnectivityState(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	service := &SubnetService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXClient: &nsx.Client{
+				SubnetsClient:      &fakeSubnetsClient{},
+				SubnetStatusClient: &fakeSubnetStatusClient{},
+			},
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+
+	uuidStr := "test-uuid-connectivity"
+	basicTags := []model.Tag{
+		{Scope: String(common.TagScopeSubnetCRName), Tag: String("subnet-connectivity")},
+		{Scope: String(common.TagScopeSubnetCRUID), Tag: String(uuidStr)},
+		{Scope: String(common.TagScopeNamespaceUID), Tag: String("ns1")},
+	}
+
+	fakeVPCPath := "/orgs/default/projects/test/vpcs/vpc1"
+	vpcResourceInfo, _ := common.ParseVPCResourcePath(fakeVPCPath)
+
+	testCases := []struct {
+		name                      string
+		subnetSpec                v1alpha1.SubnetSpec
+		existingSubnet            *model.VpcSubnet
+		expectedConnectivityState *string
+		expectUpdate              bool
+	}{
+		{
+			name: "create subnet with connected state",
+			subnetSpec: v1alpha1.SubnetSpec{
+				IPAddresses: []string{"10.0.0.0/24"},
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: common.Bool(true),
+					},
+				},
+			},
+			expectedConnectivityState: String("CONNECTED"),
+			expectUpdate:              true,
+		},
+		{
+			name: "create subnet with disconnected state",
+			subnetSpec: v1alpha1.SubnetSpec{
+				IPAddresses: []string{"10.0.0.0/24"},
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateDisconnected,
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: common.Bool(true),
+					},
+				},
+			},
+			expectedConnectivityState: String("DISCONNECTED"),
+			expectUpdate:              true,
+		},
+		{
+			name: "update existing subnet connectivity state from connected to disconnected",
+			subnetSpec: v1alpha1.SubnetSpec{
+				IPAddresses: []string{"10.0.0.0/24"},
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateDisconnected,
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: common.Bool(true),
+					},
+				},
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id:          String("existing-subnet-id"),
+				DisplayName: String("existing-subnet-name"),
+				Tags:        basicTags,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					ConnectivityState: String("CONNECTED"),
+				},
+			},
+			expectedConnectivityState: String("DISCONNECTED"),
+			expectUpdate:              true,
+		},
+		{
+			name: "create subnet with connectivity state not set",
+			subnetSpec: v1alpha1.SubnetSpec{
+				IPAddresses: []string{"10.0.0.0/24"},
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: common.Bool(true),
+					},
+				},
+			},
+			expectedConnectivityState: nil, // ConnectivityState should not be set
+			expectUpdate:              true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Reset store for each test case
+			service.SubnetStore = &SubnetStore{
+				ResourceStore: common.ResourceStore{
+					Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+						common.TagScopeSubnetCRUID:    subnetIndexFunc,
+						common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+						common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+						common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+					}),
+					BindingType: model.VpcSubnetBindingType(),
+				},
+			}
+
+			subnetCR := &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					UID:       types.UID(uuidStr),
+					Name:      "subnet-connectivity",
+					Namespace: "ns1",
+				},
+				Spec: tc.subnetSpec,
+			}
+
+			if tc.existingSubnet != nil {
+				require.NoError(t, service.SubnetStore.Apply(tc.existingSubnet))
+			}
+
+			updateCalled := false
+			patches := gomonkey.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
+				updateCalled = true
+				// Verify the connectivity state is correctly set
+				if tc.expectedConnectivityState != nil {
+					assert.NotNil(t, nsxSubnet.AdvancedConfig, "AdvancedConfig should not be nil")
+					assert.Equal(t, *tc.expectedConnectivityState, *nsxSubnet.AdvancedConfig.ConnectivityState, "ConnectivityState should match expected value")
+				} else {
+					// When ConnectivityState is not set, it should either be nil in AdvancedConfig or AdvancedConfig.ConnectivityState should be nil
+					if nsxSubnet.AdvancedConfig != nil {
+						assert.Nil(t, nsxSubnet.AdvancedConfig.ConnectivityState, "ConnectivityState should be nil when not set")
+					}
+				}
+				return nsxSubnet, nil
+			})
+			defer patches.Reset()
+
+			_, err := service.CreateOrUpdateSubnet(subnetCR, vpcResourceInfo, basicTags)
+			require.NoError(t, err)
+
+			if tc.expectUpdate {
+				assert.True(t, updateCalled, "createOrUpdateSubnet should be called when update is expected")
+			} else {
+				assert.False(t, updateCalled, "createOrUpdateSubnet should not be called when no update is needed")
+			}
+		})
+	}
+}
+
 func TestSubnetService_CreateOrUpdateSubnet_Consistency(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mockClient.NewMockClient(mockCtl)

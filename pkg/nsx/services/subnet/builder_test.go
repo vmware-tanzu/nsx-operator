@@ -242,6 +242,103 @@ func TestBuildSubnetForSubnet(t *testing.T) {
 	assert.Equal(t, Int64(28), subnet.Ipv4SubnetSize)
 }
 
+func TestBuildSubnetWithConnectivityState(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	service := &SubnetService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+	tags := []model.Tag{
+		{
+			Scope: common.String("nsx-op/namespace"),
+			Tag:   common.String("ns-1"),
+		},
+	}
+
+	// Test with ConnectivityStateConnected
+	subnetConnected := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-connected",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddresses: []string{"10.0.0.0/28"},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(true),
+				},
+			},
+		},
+	}
+
+	subnet, err := service.buildSubnet(subnetConnected, tags, []string{})
+	assert.Nil(t, err)
+	assert.NotNil(t, subnet.AdvancedConfig.ConnectivityState)
+	assert.Equal(t, "CONNECTED", *subnet.AdvancedConfig.ConnectivityState)
+
+	// Test with ConnectivityStateDisconnected
+	subnetDisconnected := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-disconnected",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddresses: []string{"10.0.0.0/28"},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				ConnectivityState: v1alpha1.ConnectivityStateDisconnected,
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(true),
+				},
+			},
+		},
+	}
+
+	subnet, err = service.buildSubnet(subnetDisconnected, tags, []string{})
+	assert.Nil(t, err)
+	assert.NotNil(t, subnet.AdvancedConfig.ConnectivityState)
+	assert.Equal(t, "DISCONNECTED", *subnet.AdvancedConfig.ConnectivityState)
+
+	// Test with empty ConnectivityState (should not set the field)
+	subnetEmpty := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-empty",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddresses: []string{"10.0.0.0/28"},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(true),
+				},
+			},
+		},
+	}
+
+	subnet, err = service.buildSubnet(subnetEmpty, tags, []string{})
+	assert.Nil(t, err)
+	assert.Nil(t, subnet.AdvancedConfig.ConnectivityState)
+}
+
 func TestBuildSubnetWithCustomGatewayAddresses(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mockClient.NewMockClient(mockCtl)

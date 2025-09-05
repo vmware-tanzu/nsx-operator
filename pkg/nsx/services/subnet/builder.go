@@ -96,6 +96,15 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 				},
 			},
 		}
+		// Support connectivity state configuration
+		if o.Spec.AdvancedConfig.ConnectivityState != "" {
+			switch o.Spec.AdvancedConfig.ConnectivityState {
+			case v1alpha1.ConnectivityStateConnected:
+				nsxSubnet.AdvancedConfig.ConnectivityState = String("CONNECTED")
+			case v1alpha1.ConnectivityStateDisconnected:
+				nsxSubnet.AdvancedConfig.ConnectivityState = String("DISCONNECTED")
+			}
+		}
 		dhcpMode := string(o.Spec.SubnetDHCPConfig.Mode)
 		if dhcpMode == "" {
 			dhcpMode = v1alpha1.DHCPConfigModeDeactivated
