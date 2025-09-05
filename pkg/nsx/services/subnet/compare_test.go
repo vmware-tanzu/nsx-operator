@@ -59,7 +59,7 @@ func TestSubnetToComparable(t *testing.T) {
 			existingSubnet: &model.VpcSubnet{Tags: []model.Tag{tag1}},
 		},
 		{
-			name: "AdvancedConfig with different ConnectivityState should not cause change",
+			name: "AdvancedConfig with different ConnectivityState should cause change",
 			nsxSubnet: &model.VpcSubnet{
 				Id: &id1,
 				AdvancedConfig: &model.SubnetAdvancedConfig{
@@ -72,7 +72,7 @@ func TestSubnetToComparable(t *testing.T) {
 					ConnectivityState: &connectivityStateDisconnected,
 				},
 			},
-			expectChanged: false,
+			expectChanged: true,
 		},
 		{
 			name: "AdvancedConfig with different EnableVlanExtension should not cause change",
@@ -139,6 +139,22 @@ func TestSubnetToComparable(t *testing.T) {
 			expectChanged: false,
 		},
 		{
+			name: "AdvancedConfig with same ConnectivityState should not cause change",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &id1,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					ConnectivityState: &connectivityStateConnected,
+				},
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id: &id2,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					ConnectivityState: &connectivityStateConnected,
+				},
+			},
+			expectChanged: false,
+		},
+		{
 			name: "AdvancedConfig with mixed changes - ConnectivityState different but GatewayAddresses same",
 			nsxSubnet: &model.VpcSubnet{
 				Id: &id1,
@@ -156,7 +172,7 @@ func TestSubnetToComparable(t *testing.T) {
 					EnableVlanExtension: &enableVlanFalse,
 				},
 			},
-			expectChanged: false,
+			expectChanged: true,
 		},
 	}
 	for _, tc := range testCases {
