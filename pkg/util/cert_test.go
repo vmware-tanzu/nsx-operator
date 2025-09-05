@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
-	"path"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -21,26 +21,6 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 )
-
-func TestWriteFile(t *testing.T) {
-	tempDir := t.TempDir()
-	testFile := path.Join(tempDir, "test.txt")
-	testContent := []byte("test content")
-
-	err := writeFile(testFile, testContent)
-	if err != nil {
-		t.Fatalf("writeFile failed: %v", err)
-	}
-
-	content, err := os.ReadFile(testFile)
-	if err != nil {
-		t.Fatalf("Failed to read test file: %v", err)
-	}
-
-	if string(content) != string(testContent) {
-		t.Errorf("File content mismatch. Expected %s, got %s", testContent, content)
-	}
-}
 
 // Mock types
 type mockCoreV1Interface struct {
@@ -74,6 +54,18 @@ func TestGenerateWebhookCerts(t *testing.T) {
 		return &rest.Config{}
 	})
 
+	// Mock os.MkdirAll to avoid permission denied error
+	patches.ApplyFunc(os.MkdirAll, func(path string, perm os.FileMode) error {
+		// Do nothing and return nil to avoid creating actual directories
+		return nil
+	})
+
+	// Mock writeSecureFile to avoid writing actual files
+	patches.ApplyFunc(writeSecureFile, func(filename string, data []byte, perm os.FileMode) error {
+		// Do nothing and return nil to avoid writing actual files
+		return nil
+	})
+
 	// Create a mock SecretInterface
 	mockSecretInterface := &mockSecretInterface{}
 
@@ -95,7 +87,6 @@ func TestGenerateWebhookCerts(t *testing.T) {
 		t.Fatalf("GenerateWebhookCerts failed: %v", err)
 	}
 
-	// You can add more specific assertions here, e.g., check if the secret was "created" correctly
 	if !mockSecretInterface.createCalled {
 		t.Error("Create method was not called")
 	}
@@ -171,6 +162,154 @@ func TestUpdateWebhookConfig(t *testing.T) {
 		t.Errorf("updateWebhookConfig returned an error: %v", err)
 	}
 	// No update should occur in this case
+}
+
+func TestWriteSecureFile(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "writeSecureFile_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	tests := []struct {
+		name        string
+		filepath    string
+		data        []byte
+		perm        os.FileMode
+		expectError bool
+		setupFunc   func() string
+		cleanupFunc func(string)
+	}{
+		{
+			name:        "Write file with 0644 permissions",
+			data:        []byte("test certificate data"),
+			perm:        0644,
+			expectError: false,
+			setupFunc: func() string {
+				return filepath.Join(tempDir, "test_cert.crt")
+			},
+		},
+		{
+			name:        "Write file with 0600 permissions (private key)",
+			data:        []byte("test private key data"),
+			perm:        0600,
+			expectError: false,
+			setupFunc: func() string {
+				return filepath.Join(tempDir, "test_key.key")
+			},
+		},
+		{
+			name:        "Write to existing file (should overwrite)",
+			data:        []byte("new data"),
+			perm:        0644,
+			expectError: false,
+			setupFunc: func() string {
+				filePath := filepath.Join(tempDir, "existing_file.txt")
+				// Pre-create the file with different content
+				err := os.WriteFile(filePath, []byte("old data"), 0600)
+				if err != nil {
+					t.Fatalf("Failed to setup existing file: %v", err)
+				}
+				return filePath
+			},
+		},
+		{
+			name:        "Write with empty data",
+			data:        []byte(""),
+			perm:        0644,
+			expectError: false,
+			setupFunc: func() string {
+				return filepath.Join(tempDir, "empty_file.txt")
+			},
+		},
+		{
+			name:        "Write to invalid path (non-existent directory)",
+			data:        []byte("test data"),
+			perm:        0644,
+			expectError: true,
+			setupFunc: func() string {
+				return filepath.Join(tempDir, "nonexistent", "file.txt")
+			},
+		},
+		{
+			name:        "Write to read-only directory",
+			data:        []byte("test data"),
+			perm:        0644,
+			expectError: true,
+			setupFunc: func() string {
+				roDir := filepath.Join(tempDir, "readonly")
+				err := os.Mkdir(roDir, 0755)
+				if err != nil {
+					t.Fatalf("Failed to create readonly dir: %v", err)
+				}
+				// Make the directory read-only
+				err = os.Chmod(roDir, 0444)
+				if err != nil {
+					t.Fatalf("Failed to make dir readonly: %v", err)
+				}
+				return filepath.Join(roDir, "file.txt")
+			},
+			cleanupFunc: func(path string) {
+				// Restore write permissions for cleanup
+				dir := filepath.Dir(path)
+				os.Chmod(dir, 0755)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var filePath string
+			if tt.setupFunc != nil {
+				filePath = tt.setupFunc()
+			} else {
+				filePath = tt.filepath
+			}
+
+			if tt.cleanupFunc != nil {
+				defer tt.cleanupFunc(filePath)
+			}
+
+			// Test the function
+			err := writeSecureFile(filePath, tt.data, tt.perm)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			// Verify the file was created and has the correct content
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				t.Errorf("Failed to read created file: %v", err)
+				return
+			}
+
+			if !bytes.Equal(content, tt.data) {
+				t.Errorf("File content mismatch. Expected: %s, Got: %s", string(tt.data), string(content))
+			}
+
+			// Verify file permissions
+			fileInfo, err := os.Stat(filePath)
+			if err != nil {
+				t.Errorf("Failed to stat file: %v", err)
+				return
+			}
+
+			actualPerm := fileInfo.Mode().Perm()
+			if actualPerm != tt.perm {
+				t.Errorf("File permission mismatch. Expected: %v, Got: %v", tt.perm, actualPerm)
+			}
+		})
+	}
 }
 
 // Mock types
