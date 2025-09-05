@@ -23,10 +23,11 @@ func (subnet *Subnet) Value() data.DataValue {
 	// TODO AccessMode may also need to be compared in future.
 	var advancedConfig *model.SubnetAdvancedConfig
 	if subnet.AdvancedConfig != nil {
-		// Only compare gateway_addresses and dhcp_server_address from AdvancedConfig
+		// Only compare gateway_addresses, dhcp_server_address, and connectivity_state from AdvancedConfig
 		advancedConfig = &model.SubnetAdvancedConfig{
 			GatewayAddresses:    subnet.AdvancedConfig.GatewayAddresses,
 			DhcpServerAddresses: subnet.AdvancedConfig.DhcpServerAddresses,
+			ConnectivityState:   subnet.AdvancedConfig.ConnectivityState,
 		}
 	}
 	s := &Subnet{
