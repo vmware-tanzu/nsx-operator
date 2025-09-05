@@ -213,6 +213,8 @@ func (s *IPBlocksInfoService) createOrUpdateIPBlocksInfo(ctx context.Context, ip
 	if incremental {
 		ipBlocksInfo.ExternalIPCIDRs = s.mergeIPCidrs(ipBlocksInfoOld.ExternalIPCIDRs, ipBlocksInfo.ExternalIPCIDRs)
 		ipBlocksInfo.PrivateTGWIPCIDRs = s.mergeIPCidrs(ipBlocksInfoOld.PrivateTGWIPCIDRs, ipBlocksInfo.PrivateTGWIPCIDRs)
+		ipBlocksInfo.ExternalIPRanges = util.MergeArraysWithoutDuplicate(ipBlocksInfoOld.ExternalIPRanges, ipBlocksInfo.ExternalIPRanges)
+		ipBlocksInfo.PrivateTGWIPRanges = util.MergeArraysWithoutDuplicate(ipBlocksInfoOld.PrivateTGWIPRanges, ipBlocksInfo.PrivateTGWIPRanges)
 	}
 	if util.CompareArraysWithoutOrder(ipBlocksInfoOld.ExternalIPCIDRs, ipBlocksInfo.ExternalIPCIDRs) &&
 		util.CompareArraysWithoutOrder(ipBlocksInfoOld.PrivateTGWIPCIDRs, ipBlocksInfo.PrivateTGWIPCIDRs) &&
@@ -434,5 +436,6 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsAndRangesFromStore(pathSet sets.Set
 			}
 		}
 	}
+	log.V(2).Info("Successfully get all CIDRs/Ranges from IPBlocks", "cidrs", ipCIDRs, "ranges", ipRanges, "pathset", pathSet.UnsortedList())
 	return ipCIDRs, ipRanges, nil
 }
