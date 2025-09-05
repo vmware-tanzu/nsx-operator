@@ -42,7 +42,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetbinding"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 type fakeRecorder struct{}
@@ -267,13 +266,13 @@ func TestReconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
 					id1 := "fake-id"
 					path := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9/subnets/fake-path"
-					basicTags1 := util.BuildBasicTags("fakeClusterName", subnetSet, "")
+					basicTags1 := common.BuildBasicTags("fakeClusterName", subnetSet, "")
 					scopeNamespace := common.TagScopeNamespace
 					basicTags1 = append(basicTags1, model.Tag{
 						Scope: &scopeNamespace,
 						Tag:   &ns,
 					})
-					basicTags2 := util.BuildBasicTags("fakeClusterName", subnetSet, "")
+					basicTags2 := common.BuildBasicTags("fakeClusterName", subnetSet, "")
 					ns2 := "ns2"
 					basicTags2 = append(basicTags2, model.Tag{
 						Scope: &scopeNamespace,
@@ -306,13 +305,13 @@ func TestReconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
 					id1 := "fake-id"
 					path := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9/subnets/fake-path"
-					basicTags1 := util.BuildBasicTags("fakeClusterName", subnetSet, "")
+					basicTags1 := common.BuildBasicTags("fakeClusterName", subnetSet, "")
 					scopeNamespace := common.TagScopeNamespace
 					basicTags1 = append(basicTags1, model.Tag{
 						Scope: &scopeNamespace,
 						Tag:   &ns,
 					})
-					basicTags2 := util.BuildBasicTags("fakeClusterName", subnetSet, "")
+					basicTags2 := common.BuildBasicTags("fakeClusterName", subnetSet, "")
 					ns2 := "ns2"
 					basicTags2 = append(basicTags2, model.Tag{
 						Scope: &scopeNamespace,

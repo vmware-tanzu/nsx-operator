@@ -28,6 +28,7 @@ import (
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	types "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -93,7 +94,7 @@ func (r *NamespaceReconciler) createNetworkInfoCR(ctx context.Context, obj clien
 	}
 
 	changes := map[string]string{common.AnnotationNamespaceVPCError: ""}
-	err := util.UpdateK8sResourceAnnotation(r.Client, ctx, obj, changes)
+	err := nsxutil.UpdateK8sResourceAnnotation(r.Client, ctx, obj, changes)
 	if err != nil {
 		log.Error(err, "Failed to cleanup k8s ns annotation to remove VPC error", "Namespace", networkInfoCR.Namespace)
 		return nil, err
@@ -180,7 +181,7 @@ func (r *NamespaceReconciler) namespaceError(ctx context.Context, k8sObj client.
 	logErr := util.If(err == nil, errors.New(msg), err).(error)
 	log.Error(logErr, msg)
 	changes := map[string]string{common.AnnotationNamespaceVPCError: msg}
-	util.UpdateK8sResourceAnnotation(r.Client, ctx, k8sObj, changes)
+	nsxutil.UpdateK8sResourceAnnotation(r.Client, ctx, k8sObj, changes)
 }
 
 /*

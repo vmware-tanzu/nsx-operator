@@ -20,6 +20,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 const (
@@ -61,7 +62,7 @@ func TestSubnetSet(t *testing.T) {
 		ObjectMeta: v1.ObjectMeta{
 			Name: subnetTestNamespaceTarget,
 			Annotations: map[string]string{
-				common.AnnotationSharedVPCNamespace: subnetTestNamespaceTarget,
+				util.AnnotationSharedVPCNamespace: subnetTestNamespaceTarget,
 			},
 		},
 	}
@@ -75,7 +76,7 @@ func TestSubnetSet(t *testing.T) {
 		ObjectMeta: v1.ObjectMeta{
 			Name: subnetTestNamespaceShared,
 			Annotations: map[string]string{
-				common.AnnotationSharedVPCNamespace: subnetTestNamespaceTarget,
+				util.AnnotationSharedVPCNamespace: subnetTestNamespaceTarget,
 			},
 		},
 	}
