@@ -190,7 +190,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			},
 			DHCPDeactivatedOnSubnet: !enableDHCP,
 		}
-		if !enableDHCP && len(nsxSubnetPortState.RealizedBindings) > 0 {
+		if (!enableDHCP || len(subnetPort.Spec.AddressBindings) > 0) && len(nsxSubnetPortState.RealizedBindings) > 0 {
 			subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress = *nsxSubnetPortState.RealizedBindings[0].Binding.IpAddress
 			subnetPort.Status.NetworkInterfaceConfig.MACAddress = strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\"")
 		}
