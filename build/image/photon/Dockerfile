@@ -1,10 +1,10 @@
-FROM golang:1.23.1 as golang-build
+FROM golang:1.24.5 as golang-build
 
 WORKDIR /source
 
 COPY . /source
-RUN CGO_ENABLED=0 go build -o manager cmd/main.go
-RUN CGO_ENABLED=0 go build -o clean cmd_clean/main.go
+RUN CGO_ENABLED=0 GOEXPERIMENT=boringcrypto go build -o manager cmd/main.go
+RUN CGO_ENABLED=0 GOEXPERIMENT=boringcrypto go build -o clean cmd_clean/main.go
 
 FROM photon
 
