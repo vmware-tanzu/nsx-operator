@@ -97,7 +97,8 @@ func TestSubnetSet(t *testing.T) {
 	t.Run("case=SubnetCIDR", SubnetCIDR)
 	t.Run("case=NoIPSubnet", NoIPSubnet)
 	t.Run("case=SubnetValidate", SubnetValidate)
-	t.Run("case=SubnetPortWithIP", SubnetPortWithIP)
+	t.Run("case=SubnetPortWithIPAM", SubnetPortWithIPAM)
+	t.Run("case=SubnetPortWithDHCP", SubnetPortWithDHCP)
 }
 
 func transSearchResponsetoSubnet(response model.SearchResponse) []model.VpcSubnet {
@@ -466,8 +467,20 @@ func assureSubnetSet(t *testing.T, ns, subnetSetName string) (res *v1alpha1.Subn
 	return
 }
 
-func conditionSubnetPortRealized(subnetport *v1alpha1.SubnetPort) (bool, error) {
-	for _, con := range subnetport.Status.Conditions {
+func conditionSubnetPortRealized(subnetPort *v1alpha1.SubnetPort, args ...string) (bool, error) {
+	if len(args) > 0 {
+		expectedIP := args[0]
+		if len(subnetPort.Status.NetworkInterfaceConfig.IPAddresses) == 0 || !strings.Contains(subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, expectedIP+"/") {
+			return false, nil
+		}
+	}
+	if len(args) == 2 {
+		expectedMAC := args[1]
+		if !strings.Contains(subnetPort.Status.NetworkInterfaceConfig.MACAddress, expectedMAC) {
+			return false, nil
+		}
+	}
+	for _, con := range subnetPort.Status.Conditions {
 		if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionTrue {
 			return true, nil
 		}
@@ -475,7 +488,7 @@ func conditionSubnetPortRealized(subnetport *v1alpha1.SubnetPort) (bool, error) 
 	return false, nil
 }
 
-func assureSubnetPort(t *testing.T, ns, subnetPortName string, condition func(subnetport *v1alpha1.SubnetPort) (bool, error)) (res *v1alpha1.SubnetPort) {
+func assureSubnetPort(t *testing.T, ns, subnetPortName string, condition func(subnetport *v1alpha1.SubnetPort, args ...string) (bool, error), args ...string) (res *v1alpha1.SubnetPort) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 2*defaultTimeout)
 	defer deadlineCancel()
 	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
@@ -488,7 +501,7 @@ func assureSubnetPort(t *testing.T, ns, subnetPortName string, condition func(su
 			return false, fmt.Errorf("error when waiting for SubnetPort: %s", subnetPortName)
 		}
 		log.V(2).Info("SubnetPort status", "status", res.Status)
-		return condition(res)
+		return condition(res, args...)
 	})
 	require.NoError(t, err)
 	return res
@@ -504,13 +517,13 @@ func createSubnetWithCheck(t *testing.T, subnet *v1alpha1.Subnet) (res *v1alpha1
 	return res
 }
 
-func createSubnetPortWithCheck(t *testing.T, subnetPort *v1alpha1.SubnetPort) (res *v1alpha1.SubnetPort) {
+func createSubnetPortWithCheck(t *testing.T, subnetPort *v1alpha1.SubnetPort, args ...string) (res *v1alpha1.SubnetPort) {
 	_, err := testData.crdClientset.CrdV1alpha1().SubnetPorts(subnetPort.Namespace).Create(context.TODO(), subnetPort, v1.CreateOptions{})
 	if err != nil && errors.IsAlreadyExists(err) {
 		err = nil
 	}
 	require.NoError(t, err)
-	port := assureSubnetPort(t, subnetPort.Namespace, subnetPort.Name, conditionSubnetPortRealized)
+	port := assureSubnetPort(t, subnetPort.Namespace, subnetPort.Name, conditionSubnetPortRealized, args...)
 	return port
 }
 
@@ -626,8 +639,8 @@ func SubnetValidate(t *testing.T) {
 	require.Equal(t, true, *subnetOnlyNoDHPCreated.Spec.AdvancedConfig.StaticIPAllocation.Enabled, "StaticIPAllocation should be enabled for Subnet with DHCPDeactivated mode")
 }
 
-func SubnetPortWithIP(t *testing.T) {
-	subnet := &v1alpha1.Subnet{
+func SubnetPortWithIPAM(t *testing.T) {
+	ipamSubnet := &v1alpha1.Subnet{
 		ObjectMeta: v1.ObjectMeta{
 			Name:      "subnet-cidr",
 			Namespace: subnetTestNamespace,
@@ -636,8 +649,8 @@ func SubnetPortWithIP(t *testing.T) {
 			IPv4SubnetSize: 16,
 		},
 	}
-	// Create a Subnet
-	subnetCreated := createSubnetWithCheck(t, subnet)
+	// Create the IPAM Subnet
+	subnetCreated := createSubnetWithCheck(t, ipamSubnet)
 	require.Equal(t, 1, len(subnetCreated.Status.NetworkAddresses))
 	ip, cidr, err := net.ParseCIDR(subnetCreated.Status.NetworkAddresses[0])
 	require.Nil(t, err)
@@ -724,7 +737,7 @@ func SubnetPortWithIP(t *testing.T) {
 	}
 	require.NoError(t, err)
 	conditionMsg := fmt.Sprintf("IP Address %s does not belong to any of the existing ranges in the pool", ip.To4().String())
-	assureSubnetPort(t, subnetTestNamespace, subnetportOutOfSubnet.Name, func(subnetport *v1alpha1.SubnetPort) (bool, error) {
+	assureSubnetPort(t, subnetTestNamespace, subnetportOutOfSubnet.Name, func(subnetport *v1alpha1.SubnetPort, args ...string) (bool, error) {
 		for _, con := range subnetport.Status.Conditions {
 			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionFalse && strings.Contains(con.Message, conditionMsg) {
 				return true, nil
@@ -732,6 +745,93 @@ func SubnetPortWithIP(t *testing.T) {
 		}
 		return false, nil
 	})
+}
+
+func SubnetPortWithDHCP(t *testing.T) {
+	macInVCMACPool := "00:50:56:ba:d6:7a"
+	macInNSXMACPool := "04:50:56:ba:d6:7a"
+	dhcpSubnet := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-dhcp",
+			Namespace: subnetTestNamespace,
+		},
+		Spec: v1alpha1.SubnetSpec{
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+			},
+		},
+	}
+	// Create a Subnet with DHCPServer mode and reserved IP ranges.
+	// As it's hard to know the available CIDRs in the IP block in advance,
+	// we first create a Subnet with DHCPServer mode only to get the available CIDR,
+	// then delete and recreate the Subnet with the available CIDR as specified IPAddresses.
+	subnetCreated := createSubnetWithCheck(t, dhcpSubnet)
+	ipAddresses := subnetCreated.Status.NetworkAddresses[0]
+	require.NotEmpty(t, ipAddresses, "No IP address in Subnet")
+	_, subnetCIDR, err := net.ParseCIDR(ipAddresses)
+	require.NoError(t, err, "Failed to parse Subnet CIDR")
+	// get the first available IP from the Subnet cidr
+	ip := subnetCIDR.IP.To4()
+	require.NotNil(t, ip, "Subnet IP should be ipv4")
+	ip[3] += 4
+	// ipEnd is a deep copy of ip
+	ipEnd := make(net.IP, len(ip))
+	copy(ipEnd, ip)
+	ipEnd[3] += 9 // reserve 10 IPs
+	ipRange := fmt.Sprintf("%s-%s", ip.String(), ipEnd.String())
+	dhcpSubnet.Spec.IPAddresses = []string{ipAddresses}
+	dhcpSubnet.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges = []string{ipRange}
+	// Delete subnet, then recreate it with specific IPAddresses
+	err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Delete(context.TODO(), dhcpSubnet.Name, v1.DeleteOptions{})
+	require.NoError(t, err)
+	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 100*time.Second, false, func(ctx context.Context) (bool, error) {
+		_, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), dhcpSubnet.Name, v1.GetOptions{})
+		if err != nil && errors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	})
+	require.NoError(t, err)
+	subnetCreated = createSubnetWithCheck(t, dhcpSubnet)
+	log.Info("DHCP Subnet with reserved IP ranges created", "Subnet", subnetCreated)
+	require.Equal(t, 1, len(subnetCreated.Status.NetworkAddresses))
+	require.Equal(t, ipAddresses, subnetCreated.Status.NetworkAddresses[0])
+	// Case 1: SubnetPort with a MAC in VC MAC POOL, check the IP/MAC are in the SubnetPort status.
+	subnetPortInVCMACPool := &v1alpha1.SubnetPort{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "port-in-dhcp-subnet-with-address-bindings-vc-macpool",
+			Namespace: subnetTestNamespace,
+		},
+		Spec: v1alpha1.SubnetPortSpec{
+			Subnet: "subnet-dhcp",
+			AddressBindings: []v1alpha1.PortAddressBinding{
+				{
+					IPAddress:  ip.String(),
+					MACAddress: macInVCMACPool,
+				},
+			},
+		},
+	}
+	subnetPortCreated := createSubnetPortWithCheck(t, subnetPortInVCMACPool, ip.String(), macInVCMACPool)
+	require.Equal(t, false, subnetPortCreated.Status.NetworkInterfaceConfig.DHCPDeactivatedOnSubnet, "DHCPDeactivatedOnSubnet should be false for Subnet with DHCPServer mode")
+	// Case 2: SubnetPort with a MAC in NSX MAC POOL, check the IP/MAC are in the SubnetPort status.
+	subnetPortInNSXMACPool := &v1alpha1.SubnetPort{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "port-in-dhcp-subnet-with-address-bindings-nsx-macpool",
+			Namespace: subnetTestNamespace,
+		},
+		Spec: v1alpha1.SubnetPortSpec{
+			Subnet: "subnet-dhcp",
+			AddressBindings: []v1alpha1.PortAddressBinding{
+				{
+					IPAddress:  ipEnd.String(),
+					MACAddress: macInNSXMACPool,
+				},
+			},
+		},
+	}
+	subnetPortCreated = createSubnetPortWithCheck(t, subnetPortInNSXMACPool, ipEnd.String(), macInNSXMACPool)
+	require.Equal(t, false, subnetPortCreated.Status.NetworkInterfaceConfig.DHCPDeactivatedOnSubnet, "DHCPDeactivatedOnSubnet should be false for Subnet with DHCPServer mode")
 }
 
 func randomIPv4() (net.IP, error) {
