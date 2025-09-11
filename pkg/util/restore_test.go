@@ -10,6 +10,7 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
+	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -20,7 +21,6 @@ import (
 
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 func TestCompareNSXRestore(t *testing.T) {
@@ -126,7 +126,7 @@ func TestCompareNSXRestore(t *testing.T) {
 				patches := gomonkey.ApplyFunc((*fakeStatusClient).Get, func(c *fakeStatusClient, restoreComponentParam *string) (model.ClusterRestoreStatus, error) {
 					return model.ClusterRestoreStatus{
 						Status: &model.GlobalRestoreStatus{
-							Value: common.String("RUNNING"),
+							Value: pointy.String("RUNNING"),
 						},
 					}, nil
 				})
@@ -145,9 +145,9 @@ func TestCompareNSXRestore(t *testing.T) {
 				patches := gomonkey.ApplyFunc((*fakeStatusClient).Get, func(c *fakeStatusClient, restoreComponentParam *string) (model.ClusterRestoreStatus, error) {
 					return model.ClusterRestoreStatus{
 						Status: &model.GlobalRestoreStatus{
-							Value: common.String(RestoreStatusSuccess),
+							Value: pointy.String(RestoreStatusSuccess),
 						},
-						RestoreEndTime: common.Int64(time.Now().UnixMilli()),
+						RestoreEndTime: pointy.Int64(time.Now().UnixMilli()),
 					}, nil
 				})
 				return patches
@@ -164,9 +164,9 @@ func TestCompareNSXRestore(t *testing.T) {
 				patches := gomonkey.ApplyFunc((*fakeStatusClient).Get, func(c *fakeStatusClient, restoreComponentParam *string) (model.ClusterRestoreStatus, error) {
 					return model.ClusterRestoreStatus{
 						Status: &model.GlobalRestoreStatus{
-							Value: common.String(RestoreStatusSuccess),
+							Value: pointy.String(RestoreStatusSuccess),
 						},
-						RestoreEndTime: common.Int64(int64(time.Now().AddDate(0, 0, -1).UnixMilli())),
+						RestoreEndTime: pointy.Int64(int64(time.Now().AddDate(0, 0, -1).UnixMilli())),
 					}, nil
 				})
 				return patches
