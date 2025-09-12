@@ -164,13 +164,14 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 				updatedSubnet := *existingSubnet
 				updatedSubnet.Tags = nsxSubnet.Tags
 				updatedSubnet.SubnetDhcpConfig = nsxSubnet.SubnetDhcpConfig
-				// Only update gateway_addresses and dhcp_server_address from AdvancedConfig
+				// Only update gateway_addresses, dhcp_server_address, and connectivity_state from AdvancedConfig
 				if nsxSubnet.AdvancedConfig != nil {
 					if updatedSubnet.AdvancedConfig == nil {
 						updatedSubnet.AdvancedConfig = &model.SubnetAdvancedConfig{}
 					}
 					updatedSubnet.AdvancedConfig.GatewayAddresses = nsxSubnet.AdvancedConfig.GatewayAddresses
 					updatedSubnet.AdvancedConfig.DhcpServerAddresses = nsxSubnet.AdvancedConfig.DhcpServerAddresses
+					updatedSubnet.AdvancedConfig.ConnectivityState = nsxSubnet.AdvancedConfig.ConnectivityState
 				}
 				nsxSubnet = &updatedSubnet
 			}
