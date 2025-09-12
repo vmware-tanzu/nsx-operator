@@ -199,6 +199,13 @@ func testVPCResources(t *testing.T) {
 				ResourceType: String(ResourceTypeSubnetConnectionBindingMap),
 			}},
 		}, {
+			name: "delete SubnetIPReservation",
+			objects: []*model.DynamicIpAddressReservation{{
+				Id:           String("ipr1"),
+				Path:         String("/orgs/default/projects/p1/vpcs/vpc1/subnets/subnet1/dynamic-ip-reservations/ipr1"),
+				ResourceType: String(ResourceTypeDynamicIpAddressReservation),
+			}},
+		}, {
 			name: "delete SecurityPolicy",
 			objects: []*model.SecurityPolicy{{
 				Id:           String("sp1"),
@@ -292,6 +299,9 @@ func testVPCResources(t *testing.T) {
 				case []*model.SubnetConnectionBindingMap:
 					res := tc.objects.([]*model.SubnetConnectionBindingMap)
 					err = testPolicyPathBuilderDeletion(t, PolicyPathVpcSubnetConnectionBindingMap, res, nsxClient)
+				case []*model.DynamicIpAddressReservation:
+					res := tc.objects.([]*model.DynamicIpAddressReservation)
+					err = testPolicyPathBuilderDeletion(t, PolicyPathVpcSubnetDynamicIPReservation, res, nsxClient)
 				case []*model.SecurityPolicy:
 					res := tc.objects.([]*model.SecurityPolicy)
 					err = testPolicyPathBuilderDeletion(t, PolicyPathVpcSecurityPolicy, res, nsxClient)

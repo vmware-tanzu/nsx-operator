@@ -177,21 +177,13 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			operation: admissionv1.Delete,
 			oldObject: req1,
 			prepareFunc: func(t *testing.T) {
-				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-					a := list.(*v1alpha1.SubnetPortList)
-					a.Items = append(a.Items, v1alpha1.SubnetPort{
-						ObjectMeta: metav1.ObjectMeta{Name: "subnetport-1", Namespace: "ns-1"},
-						Spec: v1alpha1.SubnetPortSpec{
-							Subnet: "subnet-2",
-						},
-					})
-					return nil
-				})
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 			},
 			want: admission.Allowed(""),
 		},
 		{
-			name:      "DeleteDenied",
+			name:      "HasStaleSubnetPort",
 			operation: admissionv1.Delete,
 			oldObject: req1,
 			prepareFunc: func(t *testing.T) {
@@ -207,6 +199,26 @@ func TestSubnetValidator_Handle(t *testing.T) {
 				})
 			},
 			want: admission.Denied("Subnet ns-1/subnet-1 with stale SubnetPorts cannot be deleted"),
+		},
+		{
+			name:      "HasStaleSubnetIPReservation",
+			operation: admissionv1.Delete,
+			oldObject: req1,
+			prepareFunc: func(t *testing.T) {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					a := list.(*v1alpha1.SubnetIPReservationList)
+					a.Items = append(a.Items, v1alpha1.SubnetIPReservation{
+						ObjectMeta: metav1.ObjectMeta{Name: "subnetport-1", Namespace: "ns-1"},
+						Spec: v1alpha1.SubnetIPReservationSpec{
+							Subnet:      "subnet-1",
+							NumberOfIPs: 10,
+						},
+					})
+					return nil
+				})
+			},
+			want: admission.Denied("Subnet ns-1/subnet-1 with stale SubnetIPReservations cannot be deleted"),
 		},
 		{
 			name:      "ListSubnetPortFailure",

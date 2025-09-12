@@ -40,6 +40,7 @@ import (
 	staticroutecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnet"
 	subnetbindingcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetbinding"
+	subnetipreservationcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetipreservation"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetset"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/health"
@@ -49,6 +50,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
 	subnetservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	subnetbindingservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetbinding"
+	subnetipreservationservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetipreservation"
 	subnetportservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 
 	nsxserviceaccountcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/nsxserviceaccount"
@@ -202,6 +204,11 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 				os.Exit(1)
 			}
 		}
+		subnetIPReservationService, err := subnetipreservationservice.InitializeService(commonService)
+		if err != nil {
+			log.Error(err, "Failed to initialize SubnetIPReservation commonService", "controller", "SubnetIPReservation")
+			os.Exit(1)
+		}
 
 		if _, err := os.Stat(config.WebhookCertDir); errors.Is(err, os.ErrNotExist) {
 			log.Error(err, "Server cert not found, disabling webhook server", "cert", config.WebhookCertDir)
@@ -238,6 +245,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			networkpolicycontroller.NewNetworkPolicyReconciler(mgr, commonService, vpcService),
 			service.NewServiceLbReconciler(mgr, commonService),
 			subnetbindingcontroller.NewReconciler(mgr, subnetService, subnetBindingService),
+			subnetipreservationcontroller.NewReconciler(mgr, subnetIPReservationService, subnetService),
 		)
 		if cf.EnableInventory {
 			reconcilerList = append(reconcilerList, inventory.NewInventoryController(mgr.GetClient(), inventoryService, cf))
