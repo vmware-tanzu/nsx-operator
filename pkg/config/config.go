@@ -114,7 +114,7 @@ type NsxConfig struct {
 	EnforcementPoint          string   `ini:"enforcement_point"`
 	DefaultProject            string   `ini:"default_project"`
 	DefaultSubnetSize         int      `ini:"default_subnet_size"`
-	DefaultTimeout            int      `ini:"default_timeout"`
+	HttpTimeout               int      `ini:"http_timeout"`
 	EnvoyHost                 string   `ini:"envoy_host"`
 	EnvoyPort                 int      `ini:"envoy_port"`
 	LicenseValidationInterval int      `ini:"license_validation_interval"`
