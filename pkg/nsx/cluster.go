@@ -460,6 +460,19 @@ func (cluster *Cluster) HttpPost(url string, requestBody interface{}) (map[strin
 	return respJson, err
 }
 
+// HttpPatch sends an http PATCH request to the cluster with a JSON body, exported for use
+func (cluster *Cluster) HttpPatch(url string, requestBody interface{}) (map[string]interface{}, error) {
+	resp, err := cluster.httpAction(url, "PATCH", requestBody)
+	if err != nil {
+		log.Error(err, "Failed to do HTTP PATCH operation")
+		return nil, err
+	}
+
+	respJson := make(map[string]interface{})
+	err, _ = util.HandleHTTPResponse(resp, &respJson, true)
+	return respJson, err
+}
+
 func (nsxVersion *NsxVersion) Validate() error {
 	re, _ := regexp.Compile(`^([\d]+).([\d]+).([\d]+)`)
 	result := re.Find([]byte(nsxVersion.NodeVersion))
