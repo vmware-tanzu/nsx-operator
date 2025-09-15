@@ -115,6 +115,20 @@ func (r *Reconciler) setupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+func (r *Reconciler) setNotSupported(ctx context.Context, req ctrl.Request) error {
+	// Update CR status to inform users
+	ipReservationCR := &v1alpha1.SubnetIPReservation{}
+	if err := r.Client.Get(ctx, req.NamespacedName, ipReservationCR); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		log.Error(err, "Unable to fetch SubnetIPReservation CR", "SubnetIPReservation", req.NamespacedName)
+		return err
+	}
+	r.StatusUpdater.UpdateFail(ctx, ipReservationCR, fmt.Errorf("NSX Subnet IP Reservation is not supported"), "NSX Subnet IP Reservation is not supported", setReadyStatusFalse)
+	return nil
+}
+
 // +kubebuilder:rbac:groups=crd.nsx.vmware.com,resources=subnetipreservation,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=crd.nsx.vmware.com,resources=subnetipreservation/status,verbs=get;update;patch
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -123,6 +137,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		log.Info("Finished reconciling SubnetIPReservation", "SubnetIPReservation", req.NamespacedName, "duration(ms)", time.Since(startTime).Milliseconds())
 	}()
 	r.StatusUpdater.IncreaseSyncTotal()
+
+	if !r.IPReservationService.Supported {
+		log.V(1).Info("NSX Subnet IP Reservation is not supported", "SubnetIPReservation", req.NamespacedName)
+		if err := r.setNotSupported(ctx, req); err != nil {
+			return common.ResultRequeue, nil
+		}
+		return common.ResultNormal, nil
+	}
 
 	ipReservationCR := &v1alpha1.SubnetIPReservation{}
 	if err := r.Client.Get(ctx, req.NamespacedName, ipReservationCR); err != nil {

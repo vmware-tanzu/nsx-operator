@@ -9,6 +9,8 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -248,6 +250,7 @@ func TestInitializeIPReservationStore(t *testing.T) {
 	wg := sync.WaitGroup{}
 	fatalErrors := make(chan error, 1)
 	defer close(fatalErrors)
+	// Successful path
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(&service.Service), "SearchResource",
 		func(_ *common.Service, _ string, _ string, store common.Store, _ common.Filter) (uint64, error) {
 			store.Apply(&model.VpcSubnet{
@@ -269,6 +272,24 @@ func TestInitializeIPReservationStore(t *testing.T) {
 	assert.Equal(t, 0, len(fatalErrors))
 	assert.Equal(t, service.IPReservationStore.GetByKey("ipr-1"), &ipr1)
 	assert.Equal(t, service.IPReservationStore.GetByKey("ipr-2"), &ipr2)
+	assert.True(t, service.Supported)
+	// IPReservation is not supported
+	patches.ApplyMethod(reflect.TypeOf(service.NSXClient.DynamicIPReservationsClient), "List", func(c *fakeDynamicIPReservationsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.DynamicIpAddressReservationListResult, error) {
+		err := apierrors.NewNotFound()
+		err.Data = data.NewStructValue(
+			"",
+			map[string]data.DataValue{
+				"error_code": data.NewIntegerValue(258),
+			},
+		)
+		return model.DynamicIpAddressReservationListResult{}, *err
+	})
+	wg.Add(1)
+	go service.InitializeIPReservationStore(&wg, fatalErrors)
+	wg.Wait()
+
+	assert.Equal(t, 0, len(fatalErrors))
+	assert.False(t, service.Supported)
 }
 
 func createFakeService() *IPReservationService {
@@ -290,5 +311,6 @@ func createFakeService() *IPReservationService {
 			},
 		},
 		IPReservationStore: SetupStore(),
+		Supported:          true,
 	}
 }
