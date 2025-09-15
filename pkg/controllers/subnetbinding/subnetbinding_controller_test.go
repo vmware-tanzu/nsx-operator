@@ -516,6 +516,9 @@ func TestValidateVpcSubnetsBySubnetCR(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, id string) []*model.VpcSubnet {
 					return []*model.VpcSubnet{}
 				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetConnectionBindingMapsByParentSubnet", func(_ *Reconciler, ctx context.Context, ns, name string) ([]types.NamespacedName, error) {
+					return []types.NamespacedName{}, nil
+				})
 				return patches
 			},
 			objects:  []client.Object{subnetCR},
@@ -523,24 +526,44 @@ func TestValidateVpcSubnetsBySubnetCR(t *testing.T) {
 			expMsg:   "Subnet CR net1 is not realized on NSX",
 			expErr:   "not found NSX VpcSubnets created by Subnet CR 'default/net1'",
 		}, {
-			name:     "Child subnet CR is also used as parent",
+			name:     "Failed to list by parent Subnet",
 			isTarget: false,
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, id string) []*model.VpcSubnet {
-					return []*model.VpcSubnet{{Id: common.String("net1"), Path: common.String("/subnet-1")}}
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, subnetPath string) []*model.SubnetConnectionBindingMap {
-					return []*model.SubnetConnectionBindingMap{{Id: common.String("binding1")}}
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapCRName", func(_ *subnetbinding.BindingService, bindingMap *model.SubnetConnectionBindingMap) string {
-					return "binding1"
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetConnectionBindingMapsByParentSubnet", func(_ *Reconciler, ctx context.Context, ns, name string) ([]types.NamespacedName, error) {
+					return nil, fmt.Errorf("failed to list SubnetConnectionBindingMaps by parent Subnet")
 				})
 				return patches
 			},
 			objects:  []client.Object{subnetCR},
 			expRetry: true,
-			expMsg:   "Subnet CR net1 is working as target by binding1",
-			expErr:   "Subnet net1 already works as target in SubnetConnectionBindingMap binding1",
+			expMsg:   "Failed to get SubnetConnectionBindingMaps with Subnet as targetSubnet net1",
+			expErr:   "failed to list SubnetConnectionBindingMaps by parent Subnet",
+		}, {
+			name:     "Failed to list by child Subnet",
+			isTarget: true,
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetConnectionBindingMapsByChildSubnet", func(_ *Reconciler, ctx context.Context, ns, name string) ([]types.NamespacedName, error) {
+					return nil, fmt.Errorf("failed to list SubnetConnectionBindingMaps by child Subnet")
+				})
+				return patches
+			},
+			objects:  []client.Object{subnetCR},
+			expRetry: true,
+			expMsg:   "Failed to get SubnetConnectionBindingMaps with Subnet as associated Subnet net1",
+			expErr:   "failed to list SubnetConnectionBindingMaps by child Subnet",
+		}, {
+			name:     "Child subnet CR is also used as parent",
+			isTarget: false,
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetConnectionBindingMapsByParentSubnet", func(_ *Reconciler, ctx context.Context, ns, name string) ([]types.NamespacedName, error) {
+					return []types.NamespacedName{{Namespace: "ns-1", Name: "binding1"}}, nil
+				})
+				return patches
+			},
+			objects:  []client.Object{subnetCR},
+			expRetry: true,
+			expMsg:   "Subnet CR net1 is working as target by [ns-1/binding1]",
+			expErr:   "Subnet net1 already works as target in SubnetConnectionBindingMap [ns-1/binding1]",
 		}, {
 			name:     "Child subnet CR is not used as parent",
 			isTarget: false,
@@ -548,8 +571,8 @@ func TestValidateVpcSubnetsBySubnetCR(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, id string) []*model.VpcSubnet {
 					return []*model.VpcSubnet{{Id: common.String("net1"), Path: common.String("/subnet-1")}}
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, subnetPath string) []*model.SubnetConnectionBindingMap {
-					return []*model.SubnetConnectionBindingMap{}
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetConnectionBindingMapsByParentSubnet", func(_ *Reconciler, ctx context.Context, ns, name string) ([]types.NamespacedName, error) {
+					return []types.NamespacedName{}, nil
 				})
 				return patches
 			},
@@ -559,21 +582,15 @@ func TestValidateVpcSubnetsBySubnetCR(t *testing.T) {
 			name:     "Parent subnet CR is also used as child",
 			isTarget: true,
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, id string) []*model.VpcSubnet {
-					return []*model.VpcSubnet{{Id: common.String("net1"), Path: common.String("/subnet-1")}}
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByChildSubnet", func(_ *subnetbinding.BindingService, subnetPath string) []*model.SubnetConnectionBindingMap {
-					return []*model.SubnetConnectionBindingMap{{Id: common.String("binding1")}}
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapCRName", func(_ *subnetbinding.BindingService, bindingMap *model.SubnetConnectionBindingMap) string {
-					return "binding1"
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetConnectionBindingMapsByChildSubnet", func(_ *Reconciler, ctx context.Context, ns, name string) ([]types.NamespacedName, error) {
+					return []types.NamespacedName{{Namespace: "ns-1", Name: "binding1"}}, nil
 				})
 				return patches
 			},
 			objects:  []client.Object{subnetCR},
 			expRetry: true,
-			expMsg:   "Target Subnet CR net1 is associated by binding1",
-			expErr:   "target Subnet net1 is already associated by SubnetConnectionBindingMap binding1",
+			expMsg:   "Target Subnet CR net1 is associated by [ns-1/binding1]",
+			expErr:   "target Subnet net1 is already associated by SubnetConnectionBindingMap [ns-1/binding1]",
 		}, {
 			name:     "Parent subnet CR is not used as child",
 			isTarget: true,
@@ -581,8 +598,8 @@ func TestValidateVpcSubnetsBySubnetCR(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, id string) []*model.VpcSubnet {
 					return []*model.VpcSubnet{{Id: common.String("net1"), Path: common.String("/subnet-1")}}
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByChildSubnet", func(_ *subnetbinding.BindingService, subnetPath string) []*model.SubnetConnectionBindingMap {
-					return []*model.SubnetConnectionBindingMap{}
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetConnectionBindingMapsByChildSubnet", func(_ *Reconciler, ctx context.Context, ns, name string) ([]types.NamespacedName, error) {
+					return []types.NamespacedName{}, nil
 				})
 				return patches
 			},
@@ -595,8 +612,8 @@ func TestValidateVpcSubnetsBySubnetCR(t *testing.T) {
 				patches := gomonkey.ApplyFunc(common.GetSubnetPathFromAssociatedResource, func(associatedResource string) (string, error) {
 					return "/subnet-1", nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, subnetPath string) []*model.SubnetConnectionBindingMap {
-					return []*model.SubnetConnectionBindingMap{}
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetConnectionBindingMapsByParentSubnet", func(_ *Reconciler, ctx context.Context, ns, name string) ([]types.NamespacedName, error) {
+					return []types.NamespacedName{}, nil
 				})
 				return patches
 			},
@@ -991,6 +1008,52 @@ func TestSubnetConnectionBindingMapNameIndexFunc(t *testing.T) {
 			assert.Equal(t, tt.expectedResult, result)
 		})
 	}
+}
+
+func TestGetSubnetConnectionBindingMapsBySubnet(t *testing.T) {
+	bm1 := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-1",
+			Name:      "bm-1",
+		},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:       "subnet-child-1",
+			TargetSubnetName: "subnet-parent-1",
+		},
+	}
+
+	bm2 := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-1",
+			Name:      "bm-2",
+		},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:       "subnet-child-2",
+			TargetSubnetName: "subnet-parent-2",
+		},
+	}
+
+	r := createFakeReconciler(bm1, bm2)
+	newScheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
+	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
+	r.Client = fake.NewClientBuilder().
+		WithScheme(newScheme).
+		WithObjects(bm1, bm2).
+		WithIndex(&v1alpha1.SubnetConnectionBindingMap{}, "spec.subnetName", subnetConnectionBindingMapSubnetNameIndexFunc).
+		WithIndex(&v1alpha1.SubnetConnectionBindingMap{}, "spec.targetSubnetName", subnetConnectionBindingMapTargetSubnetNameIndexFunc).
+		Build()
+
+	ctx := context.TODO()
+	result, err := r.getSubnetConnectionBindingMapsByParentSubnet(ctx, "ns-1", "subnet-parent-1")
+	assert.Nil(t, err)
+	assert.Equal(t, 1, len(result))
+	assert.Equal(t, types.NamespacedName{Namespace: "ns-1", Name: "bm-1"}, result[0])
+
+	result, err = r.getSubnetConnectionBindingMapsByChildSubnet(ctx, "ns-1", "subnet-child-2")
+	assert.Nil(t, err)
+	assert.Equal(t, 1, len(result))
+	assert.Equal(t, types.NamespacedName{Namespace: "ns-1", Name: "bm-2"}, result[0])
 }
 
 func createFakeReconciler(objs ...client.Object) *Reconciler {
