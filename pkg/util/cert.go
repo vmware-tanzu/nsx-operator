@@ -32,18 +32,26 @@ var (
 	certName                       = "nsx-operator-webhook-cert"
 )
 
-// WriteFile writes data in the file at the given path
-func writeFile(filepath string, cert []byte) error {
-	f, err := os.Create(filepath)
+// writeSecureFile writes data in the file at the given path with secure permissions
+func writeSecureFile(filepath string, data []byte, perm os.FileMode) error {
+	f, err := os.OpenFile(filepath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	_, err = f.Write(cert)
+	_, err = f.Write(data)
 	if err != nil {
 		return err
 	}
+
+	// Explicitly set file permissions to ensure they are applied correctly,
+	// even when overwriting existing files
+	err = f.Chmod(perm)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -125,7 +133,7 @@ func GenerateWebhookCerts() error {
 		return err
 	}
 
-	// PEM encode the  server cert and key
+	// PEM encode the server cert and key
 	serverCertPEM = new(bytes.Buffer)
 	pem.Encode(serverCertPEM, &pem.Block{
 		Type:  "CERTIFICATE",
@@ -182,17 +190,17 @@ func GenerateWebhookCerts() error {
 	}); err != nil {
 		return err
 	}
-	if err = os.MkdirAll(config.WebhookCertDir, 0755); err != nil {
+	if err = os.MkdirAll(config.WebhookCertDir, 0750); err != nil {
 		log.Error(err, "Failed to create directory", "Dir", config.WebhookCertDir)
 		return err
 	}
-	if err = writeFile(path.Join(config.WebhookCertDir, "tls.crt"), certSecret.Data["tls.crt"]); err != nil {
+	if err = writeSecureFile(path.Join(config.WebhookCertDir, "tls.crt"), certSecret.Data["tls.crt"], 0644); err != nil {
 		log.Error(err, "Failed to write tls cert", "Path", path.Join(config.WebhookCertDir, "tls.crt"))
 		return err
 	}
 
-	if err = writeFile(path.Join(config.WebhookCertDir, "tls.key"), certSecret.Data["tls.key"]); err != nil {
-		log.Error(err, "Failed to write tls cert", "Path", path.Join(config.WebhookCertDir, "tls.key"))
+	if err = writeSecureFile(path.Join(config.WebhookCertDir, "tls.key"), certSecret.Data["tls.key"], 0600); err != nil {
+		log.Error(err, "Failed to write tls key", "Path", path.Join(config.WebhookCertDir, "tls.key"))
 		return err
 	}
 	return nil
