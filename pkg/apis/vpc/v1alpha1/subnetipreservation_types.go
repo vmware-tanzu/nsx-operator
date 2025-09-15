@@ -10,6 +10,7 @@ import (
 // SubnetIPReservationSpec defines the desired state of SubnetIPReservation
 type SubnetIPReservationSpec struct {
 	// Subnet specifies the Subnet to reserve IPs from.
+	// The Subnet needs to have static IP allocation activated.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Subnet is immutable"
 	Subnet string `json:"subnet"`

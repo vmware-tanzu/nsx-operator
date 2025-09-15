@@ -62,7 +62,9 @@ spec:
                 - message: NumberOfIPs is immutable
                   rule: self == oldSelf
               subnet:
-                description: Subnet specifies the Subnet to reserve IPs from.
+                description: |-
+                  Subnet specifies the Subnet to reserve IPs from.
+                  The Subnet needs to have static IP allocation activated.
                 type: string
                 x-kubernetes-validations:
                 - message: Subnet is immutable
