@@ -703,9 +703,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `connectivityState` _[ConnectivityState](#connectivitystate)_ | Connectivity status of the Subnet from other Subnets of the VPC.<br />Default value is "Connected". | Connected | Enum: [Connected Disconnected] <br /> |
+| `connectivityState` _[ConnectivityState](#connectivitystate)_ | Connectivity status of the Subnet from other Subnets of the VPC.<br />The default value is "Connected". | Connected | Enum: [Connected Disconnected] <br /> |
 | `enableVLANExtension` _boolean_ | Whether this Subnet enabled VLAN extension.<br />Default value is false. | false |  |
 | `staticIPAllocation` _[StaticIPAllocation](#staticipallocation)_ | Static IP allocation for VPC Subnet Ports. |  |  |
+| `gatewayAddresses` _string array_ | GatewayAddresses specifies custom gateway IP addresses for the Subnet. |  | MaxItems: 1 <br /> |
+| `dhcpServerAddresses` _string array_ | DHCPServerAddresses specifies custom DHCP server IP addresses for the Subnet. |  | MaxItems: 1 <br /> |
 
 
 #### SubnetConnectionBindingMap
@@ -766,7 +768,7 @@ _Appears in:_
 
 
 
-SubnetDHCPConfig is DHCP configuration for Subnet.
+SubnetDHCPConfig is a DHCP configuration for Subnet.
 
 
 
@@ -812,7 +814,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `subnet` _string_ | Subnet specifies the Subnet to reserve IPs from. |  | Required: \{\} <br /> |
+| `subnet` _string_ | Subnet specifies the Subnet to reserve IPs from.<br />The Subnet needs to have static IP allocation activated. |  | Required: \{\} <br /> |
 | `numberOfIPs` _integer_ | NumberOfIPs defines number of IPs requested to be reserved. |  | Maximum: 100 <br />Minimum: 1 <br />Required: \{\} <br /> |
 
 
