@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"os"
@@ -215,6 +216,12 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			hookServer = webhook.NewServer(webhook.Options{
 				Port:    config.WebhookServerPort,
 				CertDir: config.WebhookCertDir,
+				TLSOpts: []func(*tls.Config){
+					func(cfg *tls.Config) {
+						cfg.MinVersion = tls.VersionTLS12
+						cfg.MaxVersion = tls.VersionTLS13
+					},
+				},
 			})
 			if err := mgr.Add(hookServer); err != nil {
 				log.Error(err, "Failed to add hook server")
