@@ -458,14 +458,6 @@ func TestSubnetPortReconciler_GarbageCollector(t *testing.T) {
 			return a
 		})
 	defer patchesListNSXSubnetPortIDForCR.Reset()
-	patchesListSubnetPortCRIDsFromDhcpStaticBindingStore := gomonkey.ApplyFunc((*subnetport.SubnetPortService).ListIDsFromDhcpStaticBindingStore,
-		func(s *subnetport.SubnetPortService) sets.Set[string] {
-			a := sets.New[string]()
-			a.Insert("sp3456")
-			a.Insert("sp4567")
-			return a
-		})
-	defer patchesListSubnetPortCRIDsFromDhcpStaticBindingStore.Reset()
 	patchesGetVpcSubnetPortByUID := gomonkey.ApplyFunc((*subnetport.SubnetPortStore).GetVpcSubnetPortByUID,
 		func(s *subnetport.SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
 			if uid == "sp1234" {
@@ -474,7 +466,6 @@ func TestSubnetPortReconciler_GarbageCollector(t *testing.T) {
 			return nil, nil
 		})
 	defer patchesGetVpcSubnetPortByUID.Reset()
-
 	patchesDeleteSubnetPortById := gomonkey.ApplyFunc((*subnetport.SubnetPortService).DeleteSubnetPortById,
 		func(s *subnetport.SubnetPortService, uid string) error {
 			return nil

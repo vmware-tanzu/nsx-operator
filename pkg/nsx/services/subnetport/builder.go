@@ -19,7 +19,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -47,11 +46,11 @@ func (service *SubnetPortService) isInNSXMacPool(mac string) (bool, error) {
 	return false, nil
 }
 
-func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labelTags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.VpcSubnetPort, *model.DhcpV4StaticBindingConfig, error) {
+func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labelTags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.VpcSubnetPort, error) {
 	var objNamespace, appId, allocateAddresses string
 	objMeta := getObjectMeta(obj)
 	if objMeta == nil {
-		return nil, nil, fmt.Errorf("unsupported object: %v", obj)
+		return nil, fmt.Errorf("unsupported object: %v", obj)
 	}
 	objNamespace = objMeta.Namespace
 	if _, ok := obj.(*corev1.Pod); ok {
@@ -60,47 +59,12 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	var externalAddressBinding *model.ExternalAddressBinding
 	var err error
 	var addressBindings []model.PortAddressBindingEntry
-	var staticBinding *model.DhcpV4StaticBindingConfig
 	var isIPPool bool
-
-	namespace := &corev1.Namespace{}
-	namespacedName := types.NamespacedName{
-		Name: objNamespace,
-	}
-	if err := service.Client.Get(context.Background(), namespacedName, namespace); err != nil {
-		return nil, nil, err
-	}
-	namespaceUid := namespace.UID
-
-	nsxSubnetPortID, nsxSubnetPortName := service.BuildSubnetPortIdAndName(objMeta, namespaceUid)
-	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", *nsxSubnet.Path, nsxSubnetPortID)
-
-	tags := util.BuildBasicTags(getCluster(service), obj, namespaceUid)
-
-	// Filter tags based on the type of subnet port (VM or Pod).
-	// For VM subnet ports, we need to filter out tags with scope VMNamespaceUID and VMNamespace.
-	// For Pod subnet ports, we need to filter out tags with scope NamespaceUID and Namespace.
-	var tagsFiltered []model.Tag
-	for _, tag := range tags {
-		if isVmSubnetPort && *tag.Scope == common.TagScopeNamespaceUID {
-			continue
-		}
-		if isVmSubnetPort && *tag.Scope == common.TagScopeNamespace {
-			continue
-		}
-		if !isVmSubnetPort && *tag.Scope == common.TagScopeVMNamespaceUID {
-			continue
-		}
-		if !isVmSubnetPort && *tag.Scope == common.TagScopeVMNamespace {
-			continue
-		}
-		tagsFiltered = append(tagsFiltered, tag)
-	}
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
 		externalAddressBinding, err = service.buildExternalAddressBinding(o, restoreMode)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		// NSX only supports one IP per SubnetPort
 		if restoreMode && o.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress != "" {
@@ -114,7 +78,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 			// Check if the specified MAC is in NSX MAC Pool to determine the allocateAddresses
 			inNSXMacPool, err := service.isInNSXMacPool(o.Status.NetworkInterfaceConfig.MACAddress)
 			if err != nil {
-				return nil, nil, fmt.Errorf("failed to check NSX MAC Pool: %w", err)
+				return nil, fmt.Errorf("failed to check NSX MAC Pool: %w", err)
 			}
 			isIPPool = !inNSXMacPool
 		} else if len(o.Spec.AddressBindings) > 0 {
@@ -128,19 +92,9 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 				// Check if the specified MAC is in NSX MAC Pool to determine the allocateAddresses
 				inNSXMacPool, err := service.isInNSXMacPool(o.Spec.AddressBindings[0].MACAddress)
 				if err != nil {
-					return nil, nil, fmt.Errorf("failed to check NSX MAC Pool: %w", err)
+					return nil, fmt.Errorf("failed to check NSX MAC Pool: %w", err)
 				}
 				isIPPool = !inNSXMacPool
-			}
-			if nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode == nsxutil.ParseDHCPMode(v1alpha1.DHCPConfigModeServer) {
-				// create DHCP static binding, only for SubnetPort connecting to DHCPServer mode Subnet
-				staticBinding = &model.DhcpV4StaticBindingConfig{
-					Id:           &nsxSubnetPortID,
-					ResourceType: common.ResourceTypeDhcpV4StaticBindingConfig,
-					IpAddress:    &o.Spec.AddressBindings[0].IPAddress,
-					MacAddress:   &o.Spec.AddressBindings[0].MACAddress,
-					Tags:         tagsFiltered,
-				}
 			}
 		}
 	case *corev1.Pod:
@@ -179,9 +133,43 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	salt := []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
 	parsedUUID, err := uuid.Parse(string(objMeta.UID))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	nsxCIFID := uuid.NewSHA1(parsedUUID, salt)
+
+	namespace := &corev1.Namespace{}
+	namespacedName := types.NamespacedName{
+		Name: objNamespace,
+	}
+	if err := service.Client.Get(context.Background(), namespacedName, namespace); err != nil {
+		return nil, err
+	}
+	namespaceUid := namespace.UID
+
+	nsxSubnetPortID, nsxSubnetPortName := service.BuildSubnetPortIdAndName(objMeta, namespaceUid)
+	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", *nsxSubnet.Path, nsxSubnetPortID)
+
+	tags := util.BuildBasicTags(getCluster(service), obj, namespaceUid)
+
+	// Filter tags based on the type of subnet port (VM or Pod).
+	// For VM subnet ports, we need to filter out tags with scope VMNamespaceUID and VMNamespace.
+	// For Pod subnet ports, we need to filter out tags with scope NamespaceUID and Namespace.
+	var tagsFiltered []model.Tag
+	for _, tag := range tags {
+		if isVmSubnetPort && *tag.Scope == common.TagScopeNamespaceUID {
+			continue
+		}
+		if isVmSubnetPort && *tag.Scope == common.TagScopeNamespace {
+			continue
+		}
+		if !isVmSubnetPort && *tag.Scope == common.TagScopeVMNamespaceUID {
+			continue
+		}
+		if !isVmSubnetPort && *tag.Scope == common.TagScopeVMNamespace {
+			continue
+		}
+		tagsFiltered = append(tagsFiltered, tag)
+	}
 
 	if labelTags != nil {
 		// Append Namespace labels in order as tags
@@ -215,7 +203,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	if len(addressBindings) > 0 {
 		nsxSubnetPort.AddressBindings = addressBindings
 	}
-	return nsxSubnetPort, staticBinding, nil
+	return nsxSubnetPort, nil
 }
 
 func (service *SubnetPortService) BuildSubnetPortIdAndName(obj *metav1.ObjectMeta, namespaceUID types.UID) (string, string) {

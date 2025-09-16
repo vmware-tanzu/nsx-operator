@@ -10,7 +10,6 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	mp_model "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
@@ -41,7 +40,6 @@ var (
 	stateRealized        = "REALIZED"
 	subnetId             = "subnet1"
 	subnetPath           = "/orgs/org1/projects/project1/vpcs/vpc1/subnets/subnet1"
-	bindingPath          = "/orgs/default/projects/proj1/vpcs/vpc1/subnets/subnet1/dhcp-static-binding-configs/binding1"
 	namespace            = "ns1"
 )
 
@@ -79,29 +77,6 @@ func (c *fakePortClient) Get(orgIdParam string, projectIdParam string, vpcIdPara
 	}, nil
 }
 func (c *fakePortClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, portIdParam string) error {
-	return nil
-}
-
-type fakeDhcpStaticBindingConfigsClient struct{}
-
-func (c *fakeDhcpStaticBindingConfigsClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, bindingIdParam string, staticBindingParam *data.StructValue) error {
-	return nil
-}
-func (c *fakeDhcpStaticBindingConfigsClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, bindingIdParam string, staticBindingParam *data.StructValue) (*data.StructValue, error) {
-	return nil, nil
-}
-func (c *fakeDhcpStaticBindingConfigsClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.DhcpStaticBindingConfigListResult, error) {
-	return model.DhcpStaticBindingConfigListResult{}, nil
-}
-func (c *fakeDhcpStaticBindingConfigsClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, bindingIdParam string) (*data.StructValue, error) {
-	return data.NewStructValue(
-		"",
-		map[string]data.DataValue{
-			"id":   data.NewStringValue(subnetPortId1),
-			"path": data.NewStringValue(bindingPath),
-		}), nil
-}
-func (c *fakeDhcpStaticBindingConfigsClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, bindingIdParam string) error {
 	return nil
 }
 
@@ -236,13 +211,11 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 	commonService := common.Service{
 		Client: k8sClient,
 		NSXClient: &nsx.Client{
-			QueryClient:                    &fakeQueryClient{},
-			MacPoolsClient:                 &fakeMacPoolsClient{},
-			PortClient:                     &fakePortClient{},
-			DhcpStaticBindingConfigsClient: &fakeDhcpStaticBindingConfigsClient{},
-			RealizedEntitiesClient:         &fakeRealizedEntitiesClient{},
-			PortStateClient:                &fakePortStateClient{},
-			OrgRootClient:                  orgRootClient,
+			QueryClient:            &fakeQueryClient{},
+			PortClient:             &fakePortClient{},
+			RealizedEntitiesClient: &fakeRealizedEntitiesClient{},
+			PortStateClient:        &fakePortStateClient{},
+			OrgRootClient:          orgRootClient,
 			NsxConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "k8scl-one:test",
@@ -256,7 +229,6 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 		},
 	}
 	builder, _ := common.PolicyPathVpcSubnetPort.NewPolicyTreeBuilder()
-	staticBindingBuilder, _ := common.PolicyPathDhcpStaticBinding.NewPolicyTreeBuilder()
 	service := &SubnetPortService{
 		Service: commonService,
 		SubnetPortStore: &SubnetPortStore{ResourceStore: common.ResourceStore{
@@ -265,48 +237,18 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 				cache.Indexers{
 					common.TagScopeSubnetPortCRUID: subnetPortIndexByCRUID,
 					common.TagScopePodUID:          subnetPortIndexByPodUID,
-					common.TagScopeVMNamespace:     subnetPortIndexNamespace,
-					common.TagScopeNamespace:       subnetPortIndexPodNamespace,
 					common.IndexKeySubnetID:        subnetPortIndexBySubnetID,
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}},
-		DHCPStaticBindingStore: &DHCPStaticBindingStore{ResourceStore: common.ResourceStore{
-			Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
-			BindingType: model.DhcpV4StaticBindingConfigBindingType(),
-		}},
-		builder:              builder,
-		staticBindingBuilder: staticBindingBuilder,
+		builder: builder,
 	}
-	service.macPool = &mp_model.MacPool{
-		Ranges: []mp_model.MacRange{
-			{
-				Start: common.String("04:50:56:00:00:00"),
-				End:   common.String("04:50:56:00:ff:ff"),
-			},
-		},
-	}
+
 	subnetPortCR := &v1alpha1.SubnetPort{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      subnetPortName,
 			Namespace: namespace,
 			UID:       "00000000-0000-0000-0000-000000000001",
-		},
-	}
-
-	subnetPortWithAddressBindingCR := &v1alpha1.SubnetPort{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      subnetPortName,
-			Namespace: namespace,
-			UID:       "00000000-0000-0000-0000-000000000001",
-		},
-		Spec: v1alpha1.SubnetPortSpec{
-			AddressBindings: []v1alpha1.PortAddressBinding{
-				{
-					IPAddress:  "172.26.0.3",
-					MACAddress: "04:50:56:00:94:00",
-				},
-			},
 		},
 	}
 
@@ -332,7 +274,6 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		subnetPortCR *v1alpha1.SubnetPort
 		prepareFunc  func(service *SubnetPortService) *gomonkey.Patches
 		wantErr      bool
 		expectedDHCP bool
@@ -423,6 +364,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 
 				patches := gomonkey.ApplyMethodSeq(service.NSXClient.RealizedEntitiesClient, "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{model.GenericPolicyRealizedResourceListResult{}, nsxutil.NewRealizeStateError("realized state error", nsxutil.IPAllocationErrorCode)},
+					Times:  1,
 				}})
 				return patches
 			},
@@ -437,16 +379,14 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 					namespaceCR.UID = "ns1"
 					return nil
 				})
-				orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				patches := gomonkey.ApplyMethodSeq(service.NSXClient.PortClient, "Patch", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{fmt.Errorf("mock error")},
 					Times:  1,
 				}})
 				return patches
 			},
-			wantErr:      true,
-			nsxSubnet:    nsxSubnet2,
-			expectedDHCP: false,
+			wantErr:   true,
+			nsxSubnet: nsxSubnet1,
 		},
 		{
 			name: "GetFailure",
@@ -456,16 +396,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 					namespaceCR.UID = "ns1"
 					return nil
 				})
-				orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-				patches := gomonkey.ApplyMethodSeq(service.NSXClient.PortClient, "Patch", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{nil},
-					Times:  1,
-				}})
-				patches.ApplyMethodSeq(service.NSXClient.PortStateClient, "Get", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.SegmentPortState{}, nil},
-					Times:  1,
-				}})
-				patches.ApplyMethodSeq(service.NSXClient.PortClient, "Get", []gomonkey.OutputCell{{
+				patches := gomonkey.ApplyMethodSeq(service.NSXClient.PortClient, "Get", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{model.VpcSubnetPort{}, fmt.Errorf("mock error")},
 					Times:  1,
 				}})
@@ -474,91 +405,15 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			wantErr:   true,
 			nsxSubnet: nsxSubnet1,
 		},
-		{
-			name:         "Create DHCP static binding failure",
-			subnetPortCR: subnetPortWithAddressBindingCR,
-			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
-					namespaceCR := &corev1.Namespace{}
-					namespaceCR.UID = "ns1"
-					return nil
-				})
-				orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-				patches := gomonkey.ApplyMethodSeq(service.NSXClient.DhcpStaticBindingConfigsClient, "Patch", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{fmt.Errorf("mock error")},
-					Times:  1,
-				}})
-				return patches
-			},
-			wantErr:      true,
-			nsxSubnet:    nsxSubnet1,
-			expectedDHCP: true,
-		},
-		{
-			name:         "Create SubnetPort with AddressBinding on DHCPServer Subnet",
-			subnetPortCR: subnetPortWithAddressBindingCR,
-			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
-					namespaceCR := &corev1.Namespace{}
-					namespaceCR.UID = "ns1"
-					return nil
-				})
-				orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-				patches := gomonkey.ApplyMethodSeq(service.NSXClient.DhcpStaticBindingConfigsClient, "Patch", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{nil},
-					Times:  1,
-				}})
-				patches.ApplyMethodSeq(service.NSXClient.PortClient, "Patch", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{nil},
-					Times:  1,
-				}})
-				return patches
-			},
-			wantErr:      false,
-			nsxSubnet:    nsxSubnet1,
-			expectedDHCP: true,
-		},
-		{
-			name: "Update DHCP static binding",
-			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
-					namespaceCR := &corev1.Namespace{}
-					namespaceCR.UID = "ns1"
-					return nil
-				})
-				staticBinding := model.DhcpV4StaticBindingConfig{
-					Id:         &subnetPortId1,
-					IpAddress:  common.String("172.26.0.4"),
-					MacAddress: common.String("04:50:56:00:94:00"),
-				}
-				service.DHCPStaticBindingStore.Add(&staticBinding)
-				orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.PortStateClient), "Get", func(c *fakePortStateClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, portIdParam string, enforcementPointPathParam *string, sourceParam *string) (model.SegmentPortState, error) {
-					return model.SegmentPortState{
-						RealizedBindings: []model.AddressBindingEntry{{Binding: &model.PacketAddressClassifier{IpAddress: common.String("10.0.0.1")}}},
-					}, nil
-				})
-				return patches
-			},
-			wantErr:      false,
-			nsxSubnet:    nsxSubnet1,
-			expectedDHCP: true,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var subnetPort *v1alpha1.SubnetPort
-			if tt.subnetPortCR == nil {
-				subnetPort = subnetPortCR
-			} else {
-				subnetPort = tt.subnetPortCR
-			}
 			patches := tt.prepareFunc(service)
 			if patches != nil {
 				defer patches.Reset()
 			}
-			_, enableDHCP, err := service.CreateOrUpdateSubnetPort(subnetPort, tt.nsxSubnet, "", nil, false, false)
+			_, enableDHCP, err := service.CreateOrUpdateSubnetPort(subnetPortCR, tt.nsxSubnet, "", nil, false, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("CreateOrUpdateSubnetPort() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -592,44 +447,6 @@ func TestSubnetPortService_DeleteSubnetPort(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "Success with DHCP Static Binding",
-			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				service.SubnetPortStore.Add(&model.VpcSubnetPort{
-					Id:   &subnetPortId1,
-					Path: &subnetPortPath1,
-				})
-				patches := gomonkey.ApplyMethodSeq(service.NSXClient.PortClient, "Delete", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{nil},
-					Times:  1,
-				}})
-				service.DHCPStaticBindingStore.Add(&model.DhcpV4StaticBindingConfig{
-					Id:   &subnetPortId1,
-					Path: &bindingPath,
-				})
-				patches.ApplyMethodSeq(service.NSXClient.DhcpStaticBindingConfigsClient, "Delete", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{nil},
-					Times:  1,
-				}})
-				return patches
-			},
-			wantErr: false,
-		},
-		{
-			name: "Success with non-exist SubnetPort but DHCP Static Binding",
-			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				service.DHCPStaticBindingStore.Add(&model.DhcpV4StaticBindingConfig{
-					Id:   &subnetPortId1,
-					Path: &bindingPath,
-				})
-				patches := gomonkey.ApplyMethodSeq(service.NSXClient.DhcpStaticBindingConfigsClient, "Delete", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{nil},
-					Times:  1,
-				}})
-				return patches
-			},
-			wantErr: false,
-		},
-		{
 			name:        "DeleteNonExisted",
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches { return nil },
 			wantErr:     false,
@@ -649,36 +466,12 @@ func TestSubnetPortService_DeleteSubnetPort(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		{
-			name: "Delete DHCP Static Binding Failure",
-			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				service.SubnetPortStore.Add(&model.VpcSubnetPort{
-					Id:   &subnetPortId1,
-					Path: &subnetPortPath1,
-				})
-				patches := gomonkey.ApplyMethodSeq(service.NSXClient.PortClient, "Delete", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{nil},
-					Times:  1,
-				}})
-				service.DHCPStaticBindingStore.Add(&model.DhcpV4StaticBindingConfig{
-					Id:   &subnetPortId1,
-					Path: &bindingPath,
-				})
-				patches.ApplyMethodSeq(service.NSXClient.DhcpStaticBindingConfigsClient, "Delete", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{fmt.Errorf("mock error")},
-					Times:  1,
-				}})
-				return patches
-			},
-			wantErr: true,
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			commonService := common.Service{
 				NSXClient: &nsx.Client{
-					PortClient:                     &fakePortClient{},
-					DhcpStaticBindingConfigsClient: &fakeDhcpStaticBindingConfigsClient{},
+					PortClient: &fakePortClient{},
 				},
 			}
 			service := &SubnetPortService{
@@ -692,10 +485,6 @@ func TestSubnetPortService_DeleteSubnetPort(t *testing.T) {
 							common.IndexKeySubnetID:        subnetPortIndexBySubnetID,
 						}),
 					BindingType: model.VpcSubnetPortBindingType(),
-				}},
-				DHCPStaticBindingStore: &DHCPStaticBindingStore{ResourceStore: common.ResourceStore{
-					Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
-					BindingType: model.DhcpV4StaticBindingConfigBindingType(),
 				}},
 			}
 
@@ -899,10 +688,6 @@ func TestSubnetPortService_GetSubnetPathForSubnetPortFromStore(t *testing.T) {
 						}),
 					BindingType: model.VpcSubnetPortBindingType(),
 				}},
-				DHCPStaticBindingStore: &DHCPStaticBindingStore{ResourceStore: common.ResourceStore{
-					Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
-					BindingType: model.DhcpV4StaticBindingConfigBindingType(),
-				}},
 			}
 
 			if tt.args.obj != nil {
@@ -931,10 +716,6 @@ func TestSubnetPortService_GetPortsOfSubnet(t *testing.T) {
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}},
-		DHCPStaticBindingStore: &DHCPStaticBindingStore{ResourceStore: common.ResourceStore{
-			Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
-			BindingType: model.DhcpV4StaticBindingConfigBindingType(),
-		}},
 	}
 	service.SubnetPortStore.Add(&port)
 	ports := service.GetPortsOfSubnet(subnetId)
@@ -954,7 +735,6 @@ func TestSubnetPortService_Cleanup(t *testing.T) {
 		ParentPath: &subnetPath,
 	}
 	builder, _ := common.PolicyPathVpcSubnetPort.NewPolicyTreeBuilder()
-	staticBindingBuilder, _ := common.PolicyPathDhcpStaticBinding.NewPolicyTreeBuilder()
 	service := &SubnetPortService{
 		Service: common.Service{
 			NSXClient: &nsx.Client{
@@ -970,12 +750,7 @@ func TestSubnetPortService_Cleanup(t *testing.T) {
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}},
-		DHCPStaticBindingStore: &DHCPStaticBindingStore{ResourceStore: common.ResourceStore{
-			Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
-			BindingType: model.DhcpV4StaticBindingConfigBindingType(),
-		}},
-		builder:              builder,
-		staticBindingBuilder: staticBindingBuilder,
+		builder: builder,
 	}
 
 	service.SubnetPortStore.Add(&port)
@@ -1270,9 +1045,9 @@ func TestSubnetPortService_AllocateAndReleasePortFromSubnet(t *testing.T) {
 			Mode: common.String("DHCP_RELAY"),
 		},
 	}
-
 	subnetPortService := createSubnetPortService(t)
 	ok, err := subnetPortService.AllocatePortFromSubnet(subnet1)
+
 	assert.True(t, ok)
 	require.NoError(t, err)
 	empty := subnetPortService.IsEmptySubnet(subnetId, subnetPath)
@@ -1486,15 +1261,14 @@ func createSubnetPortService(t *testing.T) *SubnetPortService {
 	commonService := common.Service{
 		Client: k8sClient,
 		NSXClient: &nsx.Client{
-			QueryClient:                    &fakeQueryClient{},
-			MacPoolsClient:                 &fakeMacPoolsClient{},
-			PortClient:                     &fakePortClient{},
-			DhcpStaticBindingConfigsClient: &fakeDhcpStaticBindingConfigsClient{},
-			IPPoolClient:                   &fakeIPPoolClient{},
-			DhcpServerConfigStatsClient:    &fakeStatsClient{},
-			RealizedEntitiesClient:         &fakeRealizedEntitiesClient{},
-			PortStateClient:                &fakePortStateClient{},
-			OrgRootClient:                  orgRootClient,
+			QueryClient:                 &fakeQueryClient{},
+			MacPoolsClient:              &fakeMacPoolsClient{},
+			PortClient:                  &fakePortClient{},
+			IPPoolClient:                &fakeIPPoolClient{},
+			DhcpServerConfigStatsClient: &fakeStatsClient{},
+			RealizedEntitiesClient:      &fakeRealizedEntitiesClient{},
+			PortStateClient:             &fakePortStateClient{},
+			OrgRootClient:               orgRootClient,
 			NsxConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "k8scl-one:test",
@@ -1508,7 +1282,6 @@ func createSubnetPortService(t *testing.T) *SubnetPortService {
 		},
 	}
 	builder, _ := common.PolicyPathVpcSubnetPort.NewPolicyTreeBuilder()
-	staticBindingBuilder, _ := common.PolicyPathDhcpStaticBinding.NewPolicyTreeBuilder()
 	return &SubnetPortService{
 		Service: commonService,
 		SubnetPortStore: &SubnetPortStore{ResourceStore: common.ResourceStore{
@@ -1523,227 +1296,6 @@ func createSubnetPortService(t *testing.T) *SubnetPortService {
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}},
-		DHCPStaticBindingStore: &DHCPStaticBindingStore{ResourceStore: common.ResourceStore{
-			Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
-				common.TagScopeSubnetPortCRUID: staticBindingIndexByCRUID,
-			}),
-			BindingType: model.DhcpV4StaticBindingConfigBindingType(),
-		}},
-		builder:              builder,
-		staticBindingBuilder: staticBindingBuilder,
+		builder: builder,
 	}
-}
-
-func TestSubnetPortService_CheckDHCPStaticBindingRealizationState(t *testing.T) {
-	service := createSubnetPortService(t)
-	subnetInfo := common.VPCResourceInfo{}
-	tests := []struct {
-		name        string
-		prepareFunc func() *gomonkey.Patches
-		expectedErr string
-	}{
-		{
-			name: "Success",
-			prepareFunc: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(service.NSXClient.DhcpStaticBindingConfigsClient, "Get",
-					func(c *fakeDhcpStaticBindingConfigsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, bindingIdParam string) (*data.StructValue, error) {
-						return data.NewStructValue(
-							"",
-							map[string]data.DataValue{
-								"id":   data.NewStringValue(subnetPortId1),
-								"path": data.NewStringValue(bindingPath),
-							}), nil
-					})
-				patches.ApplyMethod(service.NSXClient.RealizedEntitiesClient, "List",
-					func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
-						state := model.GenericPolicyRealizedResource_STATE_REALIZED
-						return model.GenericPolicyRealizedResourceListResult{
-							Results: []model.GenericPolicyRealizedResource{
-								{
-									Id:    common.String(subnetPortId1),
-									State: &state,
-								},
-							},
-						}, nil
-					})
-				return patches
-			},
-		},
-		{
-			name: "GetFailure",
-			prepareFunc: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(service.NSXClient.DhcpStaticBindingConfigsClient, "Get",
-					func(c *fakeDhcpStaticBindingConfigsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, bindingIdParam string) (*data.StructValue, error) {
-						return nil, fmt.Errorf("mocked get error")
-					})
-				return patches
-			},
-			expectedErr: "mocked get error",
-		},
-		{
-			name: "RealizedFailure",
-			prepareFunc: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(service.NSXClient.RealizedEntitiesClient, "List",
-					func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
-						return model.GenericPolicyRealizedResourceListResult{
-							Results: []model.GenericPolicyRealizedResource{
-								{
-									Id:    common.String(subnetPortId1),
-									State: common.String(model.GenericPolicyRealizedResource_STATE_ERROR),
-								},
-							},
-						}, nil
-					})
-				patches.ApplyMethod(service, "DeleteDHCPStaticBinding", func(s *SubnetPortService, subnetPortInfo common.VPCResourceInfo, bindingId string) error {
-					return nil
-				})
-				return patches
-			},
-			expectedErr: "realized with errors",
-		},
-		{
-			name: "DeleteFailure",
-			prepareFunc: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(service.NSXClient.RealizedEntitiesClient, "List",
-					func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
-						return model.GenericPolicyRealizedResourceListResult{
-							Results: []model.GenericPolicyRealizedResource{
-								{
-									Id:    common.String(subnetPortId1),
-									State: common.String(model.GenericPolicyRealizedResource_STATE_ERROR),
-								},
-							},
-						}, nil
-					})
-				patches.ApplyMethod(service, "DeleteDHCPStaticBinding", func(s *SubnetPortService, subnetPortInfo common.VPCResourceInfo, bindingId string) error {
-					return fmt.Errorf("mocked deletion error")
-				})
-				return patches
-			},
-			expectedErr: "mocked deletion error",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.prepareFunc != nil {
-				patches := tt.prepareFunc()
-				defer patches.Reset()
-			}
-			err := service.CheckDHCPStaticBindingRealizationState(&model.DhcpV4StaticBindingConfig{Id: common.String(subnetPortId1)}, subnetInfo)
-			if tt.expectedErr != "" {
-				assert.Contains(t, err.Error(), tt.expectedErr)
-			} else {
-				assert.Nil(t, err)
-			}
-		})
-	}
-}
-
-func TestSubnetPortService_DeleteDHCPStaticBinding(t *testing.T) {
-	subnetInfo := common.VPCResourceInfo{}
-	tests := []struct {
-		name        string
-		prepareFunc func(service *SubnetPortService) *gomonkey.Patches
-		wantErr     bool
-	}{
-		{
-			name: "Success",
-			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				service.DHCPStaticBindingStore.Add(&model.DhcpV4StaticBindingConfig{
-					Id:   &subnetPortId1,
-					Path: &bindingPath,
-				})
-				patches := gomonkey.ApplyMethodSeq(service.NSXClient.DhcpStaticBindingConfigsClient, "Delete", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{nil},
-					Times:  1,
-				}})
-				return patches
-			},
-			wantErr: false,
-		},
-		{
-			name:        "DeleteNonExisted",
-			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches { return nil },
-			wantErr:     false,
-		},
-		{
-			name: "DeleteFailure",
-			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				service.DHCPStaticBindingStore.Add(&model.DhcpV4StaticBindingConfig{
-					Id:   &subnetPortId1,
-					Path: &bindingPath,
-				})
-				patches := gomonkey.ApplyMethodSeq(service.NSXClient.DhcpStaticBindingConfigsClient, "Delete", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{fmt.Errorf("mock error")},
-					Times:  1,
-				}})
-				return patches
-			},
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			commonService := common.Service{
-				NSXClient: &nsx.Client{
-					DhcpStaticBindingConfigsClient: &fakeDhcpStaticBindingConfigsClient{},
-				},
-			}
-			service := &SubnetPortService{
-				Service: commonService,
-				DHCPStaticBindingStore: &DHCPStaticBindingStore{ResourceStore: common.ResourceStore{
-					Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
-					BindingType: model.DhcpV4StaticBindingConfigBindingType(),
-				}},
-			}
-
-			patches := tt.prepareFunc(service)
-			if patches != nil {
-				defer patches.Reset()
-			}
-
-			if err := service.DeleteDHCPStaticBinding(subnetInfo, subnetPortId1); (err != nil) != tt.wantErr {
-				t.Errorf("DeleteDHCPStaticBinding() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestSubnetPortService_ListSubnetPortCRIDsFromDhcpStaticBindingStore(t *testing.T) {
-	subnetPortService := createSubnetPortService(t)
-	crName := "fake_subnetport"
-	crUUID := "2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"
-	staticBinding := &model.DhcpV4StaticBindingConfig{
-		DisplayName: common.String(crName),
-		Id:          common.String(fmt.Sprintf("%s-%s", crName, crUUID)),
-		Tags: []model.Tag{
-			{
-				Scope: common.String("nsx-op/cluster"),
-				Tag:   common.String("fake_cluster"),
-			},
-			{
-				Scope: common.String("nsx-op/version"),
-				Tag:   common.String("1.0.0"),
-			},
-			{
-				Scope: common.String("nsx-op/vm_namespace"),
-				Tag:   common.String("fake_ns"),
-			},
-			{
-				Scope: common.String("nsx-op/subnetport_name"),
-				Tag:   common.String(crName),
-			},
-			{
-				Scope: common.String("nsx-op/subnetport_uid"),
-				Tag:   common.String(crUUID),
-			},
-		},
-		Path:       common.String("/orgs/default/projects/default/vpcs/vpc1/subnets/subnet1/dhcp-static-binding-configs/fake_staticbinding-2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
-		ParentPath: common.String("/orgs/default/projects/default/vpcs/vpc1/subnets/subnet1"),
-	}
-	subnetPortService.DHCPStaticBindingStore.Add(staticBinding)
-	subnetPortIDs := subnetPortService.ListIDsFromDhcpStaticBindingStore()
-	assert.Equal(t, 1, len(subnetPortIDs))
-	assert.Equal(t, *staticBinding.Id, subnetPortIDs.UnsortedList()[0])
 }

@@ -193,7 +193,6 @@ var (
 	ResourceTypeLBVirtualServer                  = "LBVirtualServer"
 	ResourceTypeLBPool                           = "LBPool"
 	ResourceTypeSubnetConnectionBindingMap       = "SubnetConnectionBindingMap"
-	ResourceTypeDhcpV4StaticBindingConfig        = "DhcpV4StaticBindingConfig"
 	ResourceTypeDynamicIpAddressReservation      = "DynamicIpAddressReservation"
 
 	// ResourceTypeClusterControlPlane is used by NSXServiceAccountController

@@ -16,8 +16,6 @@ func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
 	case *model.VpcSubnetPort:
 		return *v.Id, nil
-	case *model.DhcpV4StaticBindingConfig:
-		return *v.Id, nil
 	case types.UID:
 		return string(v), nil
 	case string:
@@ -171,66 +169,4 @@ func (subnetPortStore *SubnetPortStore) GetVpcSubnetPortByUID(uid types.UID) (*m
 		return nil, nil
 	}
 	return subnetPort, nil
-}
-
-// staticBindingIndexByCRUID is used to get index of a resource, usually, which is the UID of the CR controller reconciles,
-// index is used to filter out resources which are related to the CR
-func staticBindingIndexByCRUID(obj interface{}) ([]string, error) {
-	switch o := obj.(type) {
-	case *model.DhcpV4StaticBindingConfig:
-		return filterTag(o.Tags, common.TagScopeSubnetPortCRUID), nil
-	default:
-		return nil, errors.New("staticBindingIndexByCRUID doesn't support unknown type")
-	}
-}
-
-// DHCPStaticBindingStore is a store for DHCPStaticBindings
-type DHCPStaticBindingStore struct {
-	common.ResourceStore
-}
-
-func (staticBindingStore *DHCPStaticBindingStore) Apply(i interface{}) error {
-	if i == nil {
-		return nil
-	}
-	staticBinding := i.(*model.DhcpV4StaticBindingConfig)
-	if staticBinding.MarkedForDelete != nil && *staticBinding.MarkedForDelete {
-		err := staticBindingStore.Delete(staticBinding)
-		log.V(1).Info("delete DhcpV4StaticBindingConfig from store", "staticBinding", staticBinding)
-		if err != nil {
-			return err
-		}
-	} else {
-		err := staticBindingStore.Add(staticBinding)
-		log.V(1).Info("add DhcpV4StaticBindingConfig to store", "staticBinding", staticBinding)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (staticBindingStore *DHCPStaticBindingStore) GetByKey(key string) *model.DhcpV4StaticBindingConfig {
-	var staticBinding *model.DhcpV4StaticBindingConfig
-	obj := staticBindingStore.ResourceStore.GetByKey(key)
-	if obj != nil {
-		staticBinding = obj.(*model.DhcpV4StaticBindingConfig)
-	}
-	return staticBinding
-}
-
-func (staticBindingStore *DHCPStaticBindingStore) GetByIndex(key string, value string) []*model.DhcpV4StaticBindingConfig {
-	staticBindings := make([]*model.DhcpV4StaticBindingConfig, 0)
-	objs := staticBindingStore.ResourceStore.GetByIndex(key, value)
-	for _, staticBinding := range objs {
-		staticBindings = append(staticBindings, staticBinding.(*model.DhcpV4StaticBindingConfig))
-	}
-	return staticBindings
-}
-
-func (staticBindingStore *DHCPStaticBindingStore) DeleteMultipleObjects(staticBindings []*model.DhcpV4StaticBindingConfig) {
-	for _, staticBinding := range staticBindings {
-		staticBindingStore.Delete(staticBinding)
-	}
 }

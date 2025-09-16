@@ -111,7 +111,6 @@ type Client struct {
 	DynamicIPReservationsClient       subnets.DynamicIpReservationsClient
 	NsxApiClient                      *nsxt.APIClient
 	MacPoolsClient                    pools.MacPoolsClient
-	DhcpStaticBindingConfigsClient    subnets.DhcpStaticBindingConfigsClient
 
 	NSXChecker    NSXHealthChecker
 	NSXVerChecker NSXVersionChecker
@@ -223,7 +222,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 
 	nsxApiClient, _ := CreateNsxtApiClient(cf, cluster.client)
 	macPoolsClient := pools.NewMacPoolsClient(connector)
-	dhcpStaticBindingConfigsClient := subnets.NewDhcpStaticBindingConfigsClient(connector)
 
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
@@ -288,7 +286,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		LbMonitorProfilesClient:           lbMonitorProfilesClient,
 		NsxApiClient:                      nsxApiClient,
 		MacPoolsClient:                    macPoolsClient,
-		DhcpStaticBindingConfigsClient:    dhcpStaticBindingConfigsClient,
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time
