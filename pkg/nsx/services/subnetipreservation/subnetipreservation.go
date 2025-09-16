@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -28,6 +29,7 @@ type IPReservationService struct {
 	common.Service
 	IPReservationStore *IPReservationStore
 	builder            *common.PolicyTreeBuilder[*model.DynamicIpAddressReservation]
+	Supported          bool
 }
 
 // InitializeService initializes SubnetIPReservationService service.
@@ -41,6 +43,7 @@ func InitializeService(service common.Service) (*IPReservationService, error) {
 		Service:            service,
 		IPReservationStore: SetupStore(),
 		builder:            builder,
+		Supported:          true,
 	}
 
 	wg.Add(1)
@@ -77,12 +80,16 @@ func (s *IPReservationService) InitializeIPReservationStore(wg *sync.WaitGroup, 
 		subnetInfo, err := common.ParseVPCResourcePath(*subnet.Path)
 		if err != nil {
 			fatalErrors <- err
-			log.Error(err, "failed to parse Subnet path", "Subnet", *subnet.Path)
+			log.Error(err, "Failed to parse Subnet path", "Subnet", *subnet.Path)
 			return
 		}
 
 		if err = s.loadIPReservationForSubnet(subnetInfo); err != nil {
 			fatalErrors <- err
+			return
+		}
+		if !s.Supported {
+			return
 		}
 	}
 	log.Info("Initialized store", "resourceType", ResourceTypeSubnetIPReservation, "count", len(s.IPReservationStore.List()))
@@ -96,6 +103,13 @@ func (s *IPReservationService) loadIPReservationForSubnet(subnetInfo common.VPCR
 		ipReservations, err := s.NSXClient.DynamicIPReservationsClient.List(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, cursor, &markedForDelete, nil, &pageSize, nil, nil)
 		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
+			if nsxErr, ok := err.(*nsxutil.NSXApiError); ok {
+				if nsxErr.Type() == apierrors.ErrorType_NOT_FOUND {
+					log.Info("NSX Subnet IPReservation is not supported. SubnetIPReservation CR will not be supported.")
+					s.Supported = false
+					return nil
+				}
+			}
 			log.Error(err, "Failed to get NSX IPReservation for Subnet", "Subnet", subnetInfo)
 			return err
 		}

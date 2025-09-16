@@ -68,6 +68,26 @@ func TestReconciler_Reconcile(t *testing.T) {
 		expectedResult ctrl.Result
 	}{
 		{
+			name:    "SubnetIPReservation not supported",
+			objects: []client.Object{ipr},
+			preparedFunc: func(r *Reconciler) *gomonkey.Patches {
+				r.IPReservationService.Supported = false
+				return nil
+			},
+			expectedResult: common.ResultNormal,
+		},
+		{
+			name: "SubnetIPReservation not supported with get error",
+			preparedFunc: func(r *Reconciler) *gomonkey.Patches {
+				r.IPReservationService.Supported = false
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Client), "Get", func(_ client.Client, ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					return fmt.Errorf("mocked get error")
+				})
+				return patches
+			},
+			expectedResult: common.ResultRequeue,
+		},
+		{
 			name: "SubnetIPReservation get error",
 			preparedFunc: func(r *Reconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Client), "Get", func(_ client.Client, ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
@@ -191,7 +211,9 @@ func TestReconciler_Reconcile(t *testing.T) {
 		result, err := r.Reconcile(context.TODO(), request)
 		assert.Nil(t, err)
 		assert.Equal(t, tc.expectedResult, result)
-		patches.Reset()
+		if patches != nil {
+			patches.Reset()
+		}
 	}
 }
 
@@ -388,6 +410,7 @@ func createFakeReconciler(objs ...client.Object) *Reconciler {
 	ipReservationService := &subnetipreservation.IPReservationService{
 		Service:            svc,
 		IPReservationStore: subnetipreservation.SetupStore(),
+		Supported:          true,
 	}
 
 	return NewReconciler(mgr, ipReservationService, subnetService)
