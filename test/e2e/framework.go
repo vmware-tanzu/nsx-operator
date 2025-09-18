@@ -344,7 +344,7 @@ func (data *TestData) createVCNamespace(namespace string) error {
 	}()
 
 	dataJson, err := json.Marshal(vcNamespace)
-	log.Debug("Data json", "dataJson", string(dataJson))
+	log.Trace("Data json", "dataJson", vcNamespace)
 	if err != nil {
 		log.Error(err, "Unable convert vcNamespace object to json bytes", "namespace", namespace)
 		return fmt.Errorf("unable convert vcNamespace object to json bytes: %v", err)

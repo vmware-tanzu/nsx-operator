@@ -156,7 +156,6 @@ func dumpResponseBody(body []byte, statusCode int) {
 }
 
 func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorDetail, error) {
-	log.Trace("HTTP response", "status code", statusCode, "body", string(body))
 	ec := ErrorDetail{StatusCode: statusCode}
 	if len(body) == 0 {
 		log.Debug("body length is 0")
@@ -285,9 +284,6 @@ func HandleHTTPResponse(response *http.Response, result interface{}, debug bool)
 		return nil, nil
 	}
 
-	if debug {
-		log.Trace("Received HTTP response", "response", string(body))
-	}
 	if err := json.Unmarshal(body, result); err != nil {
 		log.Error(err, "Failed to convert HTTP response to result", "result type", result)
 		return err, body

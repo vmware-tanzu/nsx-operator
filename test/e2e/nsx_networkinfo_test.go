@@ -253,8 +253,8 @@ func assureNetworkInfoDeleted(t *testing.T, ns string) {
 			}
 			return false, fmt.Errorf("error when deleting Namespace %s", ns)
 		}
-		res, err := testData.crdClientset.CrdV1alpha1().NetworkInfos(ns).Get(context.Background(), ns, v1.GetOptions{})
-		log.Trace("Deleting NetworkInfos", "res", res, "Namespace", ns, "Name", ns)
+		_, err = testData.crdClientset.CrdV1alpha1().NetworkInfos(ns).Get(context.Background(), ns, v1.GetOptions{})
+		log.Trace("Deleting NetworkInfos", "Namespace", ns, "Name", ns)
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return true, nil
@@ -272,7 +272,7 @@ func assureNamespace(t *testing.T, ns string) (res *v12.Namespace) {
 	defer deadlineCancel()
 	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		res, err = testData.clientset.CoreV1().Namespaces().Get(context.Background(), ns, v1.GetOptions{})
-		log.Trace("Get Namespaces", "res", res, "Name", ns)
+		log.Trace("Get Namespaces", "Name", ns)
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil
@@ -296,8 +296,8 @@ func assureNamespaceDeleted(t *testing.T, ns string) {
 			}
 			return false, fmt.Errorf("error when deleting Namespace %s", ns)
 		}
-		res, err := testData.clientset.CoreV1().Namespaces().Get(context.Background(), ns, v1.GetOptions{})
-		log.Trace("Deleting Namespace", "res", res, "Name", ns)
+		_, err = testData.clientset.CoreV1().Namespaces().Get(context.Background(), ns, v1.GetOptions{})
+		log.Trace("Deleting Namespace", "Name", ns)
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return true, nil
@@ -316,7 +316,7 @@ func getNetworkInfoWithPrivateIPs(t *testing.T, ns, networkInfoName string) (net
 	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		networkInfo, err = testData.crdClientset.CrdV1alpha1().NetworkInfos(ns).Get(ctx, networkInfoName, v1.GetOptions{})
 		if err != nil {
-			log.Trace("Check private ips of networkinfo", "networkInfo", networkInfo, "error", err)
+			log.Trace("Check private ips of networkinfo", "error", err)
 			return false, fmt.Errorf("error when waiting for vpcnetworkinfo private ips: %s", networkInfoName)
 		}
 		if len(networkInfo.VPCs) > 0 && len(networkInfo.VPCs[0].PrivateIPs) > 0 {
@@ -334,7 +334,7 @@ func getVPCPathFromVPCNetworkConfiguration(t *testing.T, ncName string) (vpcPath
 	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		resp, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(ctx, ncName, v1.GetOptions{})
 		if err != nil {
-			log.Trace("Check VPC path of vpcnetworkconfigurations", "resp", resp)
+			log.Trace("Check VPC path of vpcnetworkconfigurations", "error", err)
 			return false, fmt.Errorf("error when waiting for vpcnetworkconfigurations VPC path: %s: %v", ncName, err)
 		}
 		if len(resp.Status.VPCs) > 0 && resp.Status.VPCs[0].VPCPath != "" {
@@ -354,9 +354,9 @@ func deleteVPCNetworkConfiguration(t *testing.T, ncName string) {
 		_ = testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Delete(context.Background(), ncName, v1.DeleteOptions{})
 		log.Trace("Delete VPCNetworkConfigurations", "name", testCustomizedNetworkConfigName)
 
-		resp, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(ctx, ncName, v1.GetOptions{})
+		_, err = testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(ctx, ncName, v1.GetOptions{})
 		if err != nil {
-			log.Trace("Check stale vpcnetworkconfigurations", "resp", resp)
+			log.Trace("Check stale vpcnetworkconfigurations", "error", err)
 			if errors.IsNotFound(err) {
 				return true, nil
 			}
