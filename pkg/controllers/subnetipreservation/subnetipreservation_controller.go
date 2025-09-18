@@ -26,7 +26,7 @@ import (
 )
 
 var (
-	log = &logger.Log
+	log = logger.Log
 )
 
 type errorWithRetry struct {
@@ -139,7 +139,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	r.StatusUpdater.IncreaseSyncTotal()
 
 	if !r.IPReservationService.Supported {
-		log.V(1).Info("NSX Subnet IP Reservation is not supported", "SubnetIPReservation", req.NamespacedName)
+		log.Debug("NSX Subnet IP Reservation is not supported", "SubnetIPReservation", req.NamespacedName)
 		if err := r.setNotSupported(ctx, req); err != nil {
 			return common.ResultRequeue, nil
 		}
@@ -213,7 +213,7 @@ func (r *Reconciler) validateSubnet(ctx context.Context, ns, name string) (*v1al
 	}, subnetCR); err != nil {
 		if apierrors.IsNotFound(err) {
 			// Not requeue the SubnetIPReservation if Subnet is not created
-			log.V(1).Info("Subnet CR does not exists", "Namespace", ns, "Subnet", name)
+			log.Debug("Subnet CR does not exists", "Namespace", ns, "Subnet", name)
 			return nil, &errorWithRetry{
 				error:   err,
 				retry:   false,
@@ -236,7 +236,7 @@ func (r *Reconciler) validateSubnet(ctx context.Context, ns, name string) (*v1al
 	}
 	if !subnetRealized {
 		// Not requeue the SubnetIPReservation if Subnet is not realized
-		log.V(1).Info("Subnet is not realized", "Namespace", ns, "Subnet", name)
+		log.Debug("Subnet is not realized", "Namespace", ns, "Subnet", name)
 		return nil, &errorWithRetry{
 			error:   fmt.Errorf("Subnet is not realized"),
 			retry:   false,
@@ -298,7 +298,7 @@ func updateStatusConditions(client client.Client, ctx context.Context, ipReserva
 func mergeStatusCondition(ipReservation *v1alpha1.SubnetIPReservation, newCondition *v1alpha1.Condition) bool {
 	matchedCondition := getExistingConditionOfType(newCondition.Type, ipReservation.Status.Conditions)
 	if reflect.DeepEqual(matchedCondition, newCondition) {
-		log.V(2).Info("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return false
 	}
 
@@ -338,7 +338,7 @@ func (r *Reconciler) CollectGarbage(ctx context.Context) error {
 
 	var errList []error
 	for uid := range ipReservationIdSetInStore.Difference(ipReservationIdSetByCRs) {
-		log.V(2).Info("GC collected SubnetIPReservation CR", "UID", uid)
+		log.Trace("GC collected SubnetIPReservation CR", "UID", uid)
 		r.StatusUpdater.IncreaseDeleteTotal()
 		err = r.IPReservationService.DeleteIPReservationByCRId(uid)
 		if err != nil {

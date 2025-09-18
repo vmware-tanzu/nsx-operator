@@ -66,7 +66,7 @@ func (s *InventoryService) SyncContainerApplication(name, namespace string, key 
 }
 
 func (s *InventoryService) CleanStaleInventoryApplication() error {
-	log.V(1).Info("Clean stale InventoryApplication")
+	log.Debug("Clean stale InventoryApplication")
 	inventoryApplications := s.ApplicationStore.List()
 	for _, inventoryApplication := range inventoryApplications {
 		inventoryApplication := inventoryApplication.(*containerinventory.ContainerApplication)

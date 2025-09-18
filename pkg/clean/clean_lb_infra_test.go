@@ -922,7 +922,7 @@ func convertToResponse(t *testing.T, resources []interface{}, bindingType bindin
 }
 
 func prepareCleaner() *LBInfraCleaner {
-	log := logger.ZapLogger(false, 0)
+	log := logger.ZapCustomLogger(false, 0).Logger
 	return &LBInfraCleaner{
 		Service: common.Service{
 			NSXClient: &nsx.Client{

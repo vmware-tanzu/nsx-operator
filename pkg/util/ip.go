@@ -190,7 +190,7 @@ func GetCIDRRangesWithExcept(cidr string, excepts []string) ([]string, error) {
 		}
 		newCalculatedRanges := rangesAbstractRange(calculatedRanges, []net.IP{exceptStartIP, exceptEndIP})
 		calculatedRanges = newCalculatedRanges
-		log.V(2).Info("Abstracted ranges after removing excepts", "except", except, "ranges", calculatedRanges)
+		log.Trace("Abstracted ranges after removing excepts", "except", except, "ranges", calculatedRanges)
 	}
 	for _, rng := range calculatedRanges {
 		resultRanges = append(resultRanges, fmt.Sprintf("%s-%s", rng[0], rng[1]))

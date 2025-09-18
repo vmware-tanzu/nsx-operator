@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	log = &logger.Log
+	log = logger.Log
 )
 
 type InventoryService struct {
@@ -165,10 +165,10 @@ func (s *InventoryService) SyncInventoryObject(bufferedKeys sets.Set[InventoryKe
 	retryKeys := sets.New[InventoryKey]()
 	startTime := time.Now()
 	defer func() {
-		log.V(1).Info("Finished syncing inventory object", "duration", time.Since(startTime))
+		log.Debug("Finished syncing inventory object", "duration", time.Since(startTime))
 	}()
 	for key := range bufferedKeys {
-		log.V(1).Info("Syncing inventory object", "object key", key)
+		log.Debug("Syncing inventory object", "object key", key)
 		namespace, name, err := cache.SplitMetaNamespaceKey(key.Key)
 		if err != nil {
 			log.Error(err, "Failed to split meta namespace key", "key", key)
@@ -299,7 +299,7 @@ func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore(ctx context.Con
 
 		// Update NSX Inventory store when the request succeeds.
 		if resp != nil {
-			log.V(1).Info("NSX request response", "response code", resp.StatusCode)
+			log.Debug("NSX request response", "response code", resp.StatusCode)
 		}
 		if err == nil {
 			err = s.updateInventoryStore()
@@ -313,7 +313,7 @@ func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore(ctx context.Con
 }
 
 func (s *InventoryService) updateInventoryStore() error {
-	log.V(1).Info("Update Inventory store after NSX request succeeds")
+	log.Debug("Update Inventory store after NSX request succeeds")
 	for _, addItem := range s.pendingAdd {
 		switch reflect.ValueOf(addItem).Elem().FieldByName("ResourceType").String() {
 		case string(ContainerProject):

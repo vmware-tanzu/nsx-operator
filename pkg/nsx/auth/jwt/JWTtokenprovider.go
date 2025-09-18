@@ -16,7 +16,7 @@ const (
 	VC_SVCACCOUNT_PWD_PATH = "/etc/nsx-ujo/vc/password"
 )
 
-var log = &logger.Log
+var log = logger.Log
 
 type JWTTokenProvider struct {
 	cache *JWTCache

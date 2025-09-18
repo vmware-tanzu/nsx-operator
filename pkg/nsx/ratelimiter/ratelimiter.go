@@ -16,7 +16,7 @@ import (
 // APIReduceRateCodes is http status code set which will trigger rate limiter adjust.
 var (
 	APIReduceRateCodes = [2]int{429, 503}
-	log                = &logger.Log
+	log                = logger.Log
 )
 
 const (
@@ -121,7 +121,7 @@ func (limiter *FixRateLimiter) Wait() {
 	defer cancel()
 	err := limiter.l.WaitN(ctx, 1)
 	if err != nil {
-		log.V(1).Info("Wait for token timeout", "error", err.Error())
+		log.Debug("Wait for token timeout", "error", err.Error())
 		return
 	}
 }
@@ -146,7 +146,7 @@ func (limiter *AIMDRateLimter) Wait() {
 	defer cancel()
 	err := limiter.l.WaitN(ctx, 1)
 	if err != nil {
-		log.V(1).Info("Wait for token timeout", "error", err.Error())
+		log.Debug("Wait for token timeout", "error", err.Error())
 		return
 	}
 }
@@ -174,13 +174,13 @@ func (limiter *AIMDRateLimter) AdjustRate(waitTime time.Duration, statusCode int
 			if r < limiter.max {
 				r++
 				limiter.l.SetLimit(rate.Limit(r))
-				log.V(1).Info("Increasing API rate limit", "rateLimit", r, "statusCode", statusCode)
+				log.Debug("Increasing API rate limit", "rateLimit", r, "statusCode", statusCode)
 			}
 		} else if limiter.neg > 0 {
 			if r > 1 {
 				r = r / 2
 				limiter.l.SetLimit(rate.Limit(r))
-				log.V(1).Info("Decreasing API rate limit", "rateLimit", r, "statusCode", statusCode)
+				log.Debug("Decreasing API rate limit", "rateLimit", r, "statusCode", statusCode)
 			}
 		}
 		limiter.lastAdjuctRate = now

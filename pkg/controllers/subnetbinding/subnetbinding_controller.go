@@ -29,7 +29,7 @@ import (
 )
 
 var (
-	log = &logger.Log
+	log = logger.Log
 )
 
 type errorWithRetry struct {
@@ -472,7 +472,7 @@ func updateBindingMapCondition(c client.Client, ctx context.Context, bindingMap 
 	if err != nil {
 		log.Error(err, "Failed to update SubnetConnectionBindingMap status", "Namespace", bindingMap.Namespace, "Name", bindingMap.Name)
 	}
-	log.V(1).Info("Updated SubnetConnectionBindingMap status", "Namespace", bindingMap.Namespace, "Name", bindingMap.Name)
+	log.Debug("Updated SubnetConnectionBindingMap status", "Namespace", bindingMap.Namespace, "Name", bindingMap.Name)
 }
 
 // subnetConnectionBindingMapSubnetNameIndexFunc is an index function that indexes SubnetConnectionBindingMap by namespace and subnet name

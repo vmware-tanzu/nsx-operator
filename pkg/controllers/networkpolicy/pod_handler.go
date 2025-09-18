@@ -64,7 +64,7 @@ func (e *EnqueueRequestForPod) Raw(evt interface{}, q workqueue.TypedRateLimitin
 		log.Error(err, "Failed to fetch namespace", "namespace", pod.Namespace)
 		return
 	} else if isInSysNs {
-		log.V(2).Info("POD is in system namespace, do nothing")
+		log.Trace("POD is in system namespace, do nothing")
 		return
 	}
 	err := reconcileNetworkPolicy(e.Client, q)
@@ -77,7 +77,7 @@ func (e *EnqueueRequestForPod) Raw(evt interface{}, q workqueue.TypedRateLimitin
 var PredicateFuncsPod = predicate.Funcs{
 	CreateFunc: func(e event.CreateEvent) bool {
 		if p, ok := e.Object.(*v1.Pod); ok {
-			log.V(1).Info("Receive pod create event", "namespace", p.Namespace, "name", p.Name)
+			log.Debug("Receive pod create event", "namespace", p.Namespace, "name", p.Name)
 			return util.CheckPodHasNamedPort(*p, "create")
 		}
 		return false
@@ -85,10 +85,10 @@ var PredicateFuncsPod = predicate.Funcs{
 	UpdateFunc: func(e event.UpdateEvent) bool {
 		oldObj := e.ObjectOld.(*v1.Pod)
 		newObj := e.ObjectNew.(*v1.Pod)
-		log.V(1).Info("Receive pod update event", "namespace", oldObj.Namespace, "name", oldObj.Name)
+		log.Debug("Receive pod update event", "namespace", oldObj.Namespace, "name", oldObj.Name)
 		// The NSX operator should handle the case when the pod phase is changed from Pending to Running.
 		if reflect.DeepEqual(oldObj.ObjectMeta.Labels, newObj.ObjectMeta.Labels) && oldObj.Status.Phase == newObj.Status.Phase {
-			log.V(1).Info("POD label and phase are not changed, ignore it", "name", oldObj.Name)
+			log.Debug("POD label and phase are not changed, ignore it", "name", oldObj.Name)
 			return false
 		}
 		if util.CheckPodHasNamedPort(*oldObj, "update") {
@@ -101,7 +101,7 @@ var PredicateFuncsPod = predicate.Funcs{
 	},
 	DeleteFunc: func(e event.DeleteEvent) bool {
 		if p, ok := e.Object.(*v1.Pod); ok {
-			log.V(1).Info("Receive pod delete event", "namespace", p.Namespace, "name", p.Name)
+			log.Debug("Receive pod delete event", "namespace", p.Namespace, "name", p.Name)
 			return util.CheckPodHasNamedPort(*p, "delete")
 		}
 		return false

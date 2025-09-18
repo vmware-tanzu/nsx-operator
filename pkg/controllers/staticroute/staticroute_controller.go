@@ -30,7 +30,7 @@ import (
 )
 
 var (
-	log                      = &logger.Log
+	log                      = logger.Log
 	ResultNormal             = common.ResultNormal
 	ResultRequeue            = common.ResultRequeue
 	ResultRequeueAfter5mins  = common.ResultRequeueAfter5mins
@@ -137,7 +137,7 @@ func updateStaticRouteStatusConditions(client client.Client, ctx context.Context
 	}
 	if conditionsUpdated {
 		client.Status().Update(ctx, staticRoute)
-		log.V(1).Info("Updated Static Route CRD", "Name", staticRoute.Name, "Namespace", staticRoute.Namespace, "New Conditions", newConditions)
+		log.Debug("Updated Static Route CRD", "Name", staticRoute.Name, "Namespace", staticRoute.Namespace, "New Conditions", newConditions)
 	}
 }
 
@@ -145,7 +145,7 @@ func mergeStaticRouteStatusCondition(staticRoute *v1alpha1.StaticRoute, newCondi
 	matchedCondition := getExistingConditionOfType(v1alpha1.StaticRouteStatusCondition(newCondition.Type), staticRoute.Status.Conditions)
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {
-		log.V(2).Info("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return false
 	}
 
@@ -219,7 +219,7 @@ func (r *StaticRouteReconciler) CollectGarbage(ctx context.Context) error {
 			continue
 		}
 
-		log.V(1).Info("GC collected StaticRoute CR", "UID", elem)
+		log.Debug("GC collected StaticRoute CR", "UID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
 		err = r.Service.DeleteStaticRoute(elem)
 		if err != nil {

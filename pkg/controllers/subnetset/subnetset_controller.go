@@ -33,7 +33,7 @@ import (
 )
 
 var (
-	log                     = &logger.Log
+	log                     = logger.Log
 	ResultNormal            = common.ResultNormal
 	ResultRequeue           = common.ResultRequeue
 	ResultRequeueAfter5mins = common.ResultRequeueAfter5mins
@@ -165,7 +165,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			return ResultNormal, nil
 		}
 		if r.restoreMode {
-			log.V(1).Info("Restore SubnetSet", "SubnetSet", req.NamespacedName)
+			log.Debug("Restore SubnetSet", "SubnetSet", req.NamespacedName)
 			vpcInfoList := r.VPCService.ListVPCInfo(req.Namespace)
 			if len(vpcInfoList) == 0 {
 				return ResultNormal, fmt.Errorf("failed to find VPC for Namespace %s", req.Namespace)
@@ -261,7 +261,7 @@ func mergeSubnetSetStatusCondition(subnetSet *v1alpha1.SubnetSet, newCondition *
 	matchedCondition := getExistingConditionOfType(newCondition.Type, subnetSet.Status.Conditions)
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {
-		log.V(2).Info("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return false
 	}
 
@@ -450,7 +450,7 @@ func (r *SubnetSetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet, delet
 			deleteErrs = append(deleteErrs, deleteErr)
 			log.Error(deleteErr, "Skipping to next Subnet")
 		} else {
-			log.V(1).Info("Delete Subnet successfully", "Subnet", *nsxSubnet.Id)
+			log.Debug("Delete Subnet successfully", "Subnet", *nsxSubnet.Id)
 			r.SubnetPortService.DeletePortCount(*nsxSubnet.Path)
 		}
 

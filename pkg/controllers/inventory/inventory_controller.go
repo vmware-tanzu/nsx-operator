@@ -31,7 +31,7 @@ const (
 type WatchResourceFunc func(c *InventoryController, mgr ctrl.Manager) error
 
 var (
-	log = &logger.Log
+	log = logger.Log
 
 	// DeletionHandlingMetaNamespaceKeyFunc checks for
 	// DeletedFinalStateUnknown objects before calling

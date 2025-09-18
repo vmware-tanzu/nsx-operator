@@ -27,7 +27,7 @@ import (
 )
 
 var (
-	log                        = &logger.Log
+	log                        = logger.Log
 	MarkedForDelete            = true
 	EnforceRevisionCheckParam  = false
 	ResourceTypeSecurityPolicy = common.ResourceTypeSecurityPolicy
@@ -384,7 +384,7 @@ func (service *SecurityPolicyService) convertNetworkPolicyToInternalSecurityPoli
 	}
 
 	securityPolicies = append(securityPolicies, spAllow, spIsolation)
-	log.V(1).Info("Converted network policy to security policies", "securityPolicies", securityPolicies)
+	log.Debug("Converted network policy to security policies", "securityPolicies", securityPolicies)
 	return securityPolicies, nil
 }
 

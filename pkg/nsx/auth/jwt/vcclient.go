@@ -53,7 +53,7 @@ func createHttpClient(insecureSkipVerify bool, caCertPem []byte) *http.Client {
 		TLSClientConfig: tlsConfig,
 	}
 	if len(caCertPem) > 0 {
-		log.V(1).Info("Append CA cert")
+		log.Debug("Append CA cert")
 		clientCertPool := x509.NewCertPool()
 		clientCertPool.AppendCertsFromPEM(caCertPem)
 		tlsConfig.RootCAs = clientCertPool
@@ -155,7 +155,7 @@ func (vcClient *VCClient) reloadUsernamePass() error {
 
 // createHOKSigner creates a Hok token for the service account user.
 func (vcClient *VCClient) createHOKSigner() (*sts.Signer, error) {
-	log.V(1).Info("Creating Holder of Key signer")
+	log.Debug("Creating Holder of Key signer")
 	userName := vcClient.url.User.Username()
 	password, _ := vcClient.url.User.Password()
 	client, err := vcClient.getorCreateSTSClient()
@@ -209,7 +209,7 @@ func (vcClient *VCClient) createSCClient(vimClient *vim25.Client) *soap.Client {
 }
 
 func (vcClient *VCClient) createVimClient(ctx context.Context, vimSdkURL string) (*vim25.Client, error) {
-	log.V(1).Info("Creating vmomi client")
+	log.Debug("Creating vmomi client")
 	vcURL, err := url.Parse(vimSdkURL)
 	if err != nil {
 		return nil, err
@@ -233,7 +233,7 @@ func (client *VCClient) HandleRequest(urlPath string, data []byte, responseData 
 	if err != nil {
 		return err
 	}
-	log.V(1).Info("HTTP request", "request", request.URL, "response status", response.StatusCode)
+	log.Debug("HTTP request", "request", request.URL, "response status", response.StatusCode)
 	err, _ = util.HandleHTTPResponse(response, responseData, false)
 	return err
 }
@@ -270,7 +270,7 @@ func createCertificate(userName string) (*tls.Certificate, error) {
 	currentTime := time.Now()
 	notBeforeTime := currentTime.Add(-6 * time.Minute).UTC()
 	notAfterTime := currentTime.Add(60 * time.Minute).UTC()
-	log.V(1).Info("Generating certificate", "user", userName, "notBefore", notBeforeTime, "notAfter", notAfterTime)
+	log.Debug("Generating certificate", "user", userName, "notBefore", notBeforeTime, "notAfter", notAfterTime)
 	certTemplate := x509.Certificate{
 		SerialNumber:          serialNumber,
 		Subject:               pkix.Name{CommonName: userName},
