@@ -291,6 +291,45 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 		}
 	}
 
+	// Check if the Subnet CR is nested.
+	if !isTarget {
+		bms, err := r.getSubnetConnectionBindingMapsByParentSubnet(ctx, namespace, name)
+		if err != nil {
+			// Retry for CR list error
+			log.Error(err, "Failed to get SubnetConnectionBindingMaps with Subnet as targetSubnet", "Subnet", subnetKey.String())
+			return nil, subnetCR, &errorWithRetry{
+				message: fmt.Sprintf("Failed to get SubnetConnectionBindingMaps with Subnet as targetSubnet %s", name),
+				retry:   true,
+				error:   err,
+			}
+		}
+		if len(bms) > 0 {
+			return nil, subnetCR, &errorWithRetry{
+				message: fmt.Sprintf("Subnet CR %s is working as target by %s", name, bms),
+				error:   fmt.Errorf("Subnet %s already works as target in SubnetConnectionBindingMap %s", name, bms),
+				retry:   true,
+			}
+		}
+	} else {
+		bms, err := r.getSubnetConnectionBindingMapsByChildSubnet(ctx, namespace, name)
+		if err != nil {
+			// Retry for CR list error
+			log.Error(err, "Failed to get SubnetConnectionBindingMaps with Subnet as associated Subnet", "Subnet", subnetKey.String())
+			return nil, subnetCR, &errorWithRetry{
+				message: fmt.Sprintf("Failed to get SubnetConnectionBindingMaps with Subnet as associated Subnet %s", name),
+				retry:   true,
+				error:   err,
+			}
+		}
+		if len(bms) > 0 {
+			return nil, subnetCR, &errorWithRetry{
+				message: fmt.Sprintf("Target Subnet CR %s is associated by %s", name, bms),
+				error:   fmt.Errorf("target Subnet %s is already associated by SubnetConnectionBindingMap %s", name, bms),
+				retry:   true,
+			}
+		}
+	}
+
 	// Check the Subnet CR realization.
 	var subnetPaths []string
 	if anno, ok := subnetCR.GetAnnotations()[servicecommon.AnnotationAssociatedResource]; ok {
@@ -336,28 +375,6 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 		}
 	}
 
-	// Check if the Subnet CR is nested.
-	if !isTarget {
-		bms := r.SubnetBindingService.GetSubnetConnectionBindingMapsByParentSubnet(subnetPaths[0])
-		if len(bms) > 0 {
-			dependency := r.SubnetBindingService.GetSubnetConnectionBindingMapCRName(bms[0])
-			return nil, subnetCR, &errorWithRetry{
-				message: fmt.Sprintf("Subnet CR %s is working as target by %s", name, dependency),
-				error:   fmt.Errorf("Subnet %s already works as target in SubnetConnectionBindingMap %s", name, dependency),
-				retry:   true,
-			}
-		}
-	} else {
-		bms := r.SubnetBindingService.GetSubnetConnectionBindingMapsByChildSubnet(subnetPaths[0])
-		if len(bms) > 0 {
-			dependency := r.SubnetBindingService.GetSubnetConnectionBindingMapCRName(bms[0])
-			return nil, subnetCR, &errorWithRetry{
-				message: fmt.Sprintf("Target Subnet CR %s is associated by %s", name, dependency),
-				error:   fmt.Errorf("target Subnet %s is already associated by SubnetConnectionBindingMap %s", name, dependency),
-				retry:   true,
-			}
-		}
-	}
 	return subnetPaths, subnetCR, nil
 }
 
@@ -388,6 +405,32 @@ func (r *Reconciler) validateVpcSubnetsBySubnetSetCR(ctx context.Context, namesp
 		subnetPaths[i] = *subnets[i].Path
 	}
 	return subnetPaths, nil
+}
+
+func (r *Reconciler) getSubnetConnectionBindingMapsByParentSubnet(ctx context.Context, ns, name string) ([]types.NamespacedName, error) {
+	bmKeys := []types.NamespacedName{}
+	subnetBindingList := &v1alpha1.SubnetConnectionBindingMapList{}
+	err := r.Client.List(ctx, subnetBindingList, client.InNamespace(ns), client.MatchingFields{"spec.targetSubnetName": name})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list SubnetConnectionBindingMap CRs: %w", err)
+	}
+	for _, bm := range subnetBindingList.Items {
+		bmKeys = append(bmKeys, types.NamespacedName{Namespace: bm.Namespace, Name: bm.Name})
+	}
+	return bmKeys, nil
+}
+
+func (r *Reconciler) getSubnetConnectionBindingMapsByChildSubnet(ctx context.Context, ns, name string) ([]types.NamespacedName, error) {
+	bmKeys := []types.NamespacedName{}
+	subnetBindingList := &v1alpha1.SubnetConnectionBindingMapList{}
+	err := r.Client.List(ctx, subnetBindingList, client.InNamespace(ns), client.MatchingFields{"spec.subnetName": name})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list SubnetConnectionBindingMap CRs: %w", err)
+	}
+	for _, bm := range subnetBindingList.Items {
+		bmKeys = append(bmKeys, types.NamespacedName{Namespace: bm.Namespace, Name: bm.Name})
+	}
+	return bmKeys, nil
 }
 
 func updateBindingMapStatusWithUnreadyCondition(c client.Client, ctx context.Context, obj client.Object, _ metav1.Time, _ error, args ...interface{}) {
@@ -445,9 +488,25 @@ func subnetConnectionBindingMapSubnetNameIndexFunc(obj client.Object) []string {
 	}
 }
 
+// subnetConnectionBindingMapSubnetNameIndexFunc is an index function that indexes SubnetConnectionBindingMap by namespace and subnet name
+func subnetConnectionBindingMapTargetSubnetNameIndexFunc(obj client.Object) []string {
+	if binding, ok := obj.(*v1alpha1.SubnetConnectionBindingMap); !ok {
+		log.Info("Invalid object", "type", reflect.TypeOf(obj))
+		return []string{}
+	} else {
+		if binding.Spec.TargetSubnetName == "" {
+			return []string{}
+		}
+		return []string{binding.Spec.TargetSubnetName}
+	}
+}
+
 // SetupFieldIndexers sets up the field indexers for SubnetConnectionBindingMap
 func (r *Reconciler) SetupFieldIndexers(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.SubnetConnectionBindingMap{}, "spec.subnetName", subnetConnectionBindingMapSubnetNameIndexFunc); err != nil {
+		return err
+	}
+	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.SubnetConnectionBindingMap{}, "spec.targetSubnetName", subnetConnectionBindingMapTargetSubnetNameIndexFunc); err != nil {
 		return err
 	}
 	return nil
