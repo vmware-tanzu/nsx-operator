@@ -39,7 +39,6 @@ const (
 )
 
 func TestSecurityPolicy(t *testing.T) {
-	t.Skipf("Skip TestSecurityPolicy for now, because it is not stable yet")
 	t.Run("testSecurityPolicyBasicTraffic", func(t *testing.T) { testSecurityPolicyBasicTraffic(t) })
 	t.Run("testSecurityPolicyAddDeleteRule", func(t *testing.T) { testSecurityPolicyAddDeleteRule(t) })
 	t.Run("testSecurityPolicyMatchExpression", func(t *testing.T) { testSecurityPolicyMatchExpression(t) })
