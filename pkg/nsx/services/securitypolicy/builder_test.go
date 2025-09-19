@@ -213,6 +213,10 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
+	patches.ApplyMethod(reflect.TypeOf(fakeService.vpcService), "IsDefaultNSXProject",
+		func(_ *mock.MockVPCServiceProvider, orgID, projectID string) (bool, error) {
+			return false, nil
+		})
 	defer patches.Reset()
 
 	podSelectorRule0Name00 := "rule-with-pod-ns-selector_ingress_allow"
