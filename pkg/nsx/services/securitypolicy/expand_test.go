@@ -12,7 +12,6 @@ import (
 	gomonkey "github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -357,11 +356,10 @@ func Test_ExpandRule(t *testing.T) {
 	).AnyTimes()
 
 	mockVPCService := pkg_mock.MockVPCServiceProvider{}
-	mockVPCService.On("ListVPCInfo", mock.Anything).Return([]common.VPCResourceInfo{{
-		OrgID:     "default",
-		ProjectID: "pro1",
-		VPCID:     "vpc1",
-	}}).Maybe()
+	VPCInfo := make([]common.VPCResourceInfo, 1)
+	VPCInfo[0].OrgID = "default"
+	VPCInfo[0].ProjectID = "pro1"
+	VPCInfo[0].VPCID = "vpc1"
 
 	getTestIPsetGroup := func(id string, displayName string, ruleId string, isVPC bool, policyType string) *model.Group {
 		groupTags := []model.Tag{
@@ -559,7 +557,7 @@ func Test_ExpandRule(t *testing.T) {
 				vpcService: &mockVPCService,
 			}
 			rule := secPolicy.Spec.Rules[tc.ruleIdx]
-			nsxGroups, nsxRules, err := svc.expandRule(secPolicy, &rule, tc.ruleIdx, tc.createdFor)
+			nsxGroups, nsxRules, err := svc.expandRule(secPolicy, &rule, tc.ruleIdx, tc.createdFor, &VPCInfo[0])
 			if tc.expErr != "" {
 				require.EqualError(t, err, tc.expErr)
 			} else {

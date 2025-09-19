@@ -81,7 +81,7 @@ func (service *SecurityPolicyService) buildSecurityPolicyIDAndName(obj *v1alpha1
 	return nsxSecurityPolicyID, service.buildSecurityPolicyName(obj)
 }
 
-func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.SecurityPolicy, createdFor string) (*model.SecurityPolicy, *[]model.Group, *[]GroupShare, error) {
+func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.SecurityPolicy, createdFor string, vpcInfo *common.VPCResourceInfo, isDefaultProject bool) (*model.SecurityPolicy, *[]model.Group, *[]GroupShare, error) {
 	var nsxRules []model.Rule
 	var nsxGroups []model.Group
 	var nsxShareGroups []model.Group
@@ -89,6 +89,12 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 	var nsxGroupShares []GroupShare
 
 	log.Debug("Building the model SecurityPolicy from CR SecurityPolicy", "object", *obj)
+	if IsVPCEnabled(service) {
+		if vpcInfo == nil {
+			return nil, nil, nil, fmt.Errorf("vpcInfo is nil when building SecurityPolicy %s", obj.GetName())
+		}
+	}
+
 	nsxSecurityPolicy := &model.SecurityPolicy{}
 	tags := service.buildBasicTags(obj, createdFor)
 
@@ -98,7 +104,7 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 	// TODO: confirm the sequence number: offset
 	nsxSecurityPolicy.SequenceNumber = Int64(int64(obj.Spec.Priority))
 
-	policyGroup, policyGroupPath, err := service.buildPolicyGroup(obj, createdFor)
+	policyGroup, policyGroupPath, err := service.buildPolicyGroup(obj, createdFor, vpcInfo)
 	if err != nil {
 		log.Error(err, "Failed to build policy group", "policy", *obj)
 		return nil, nil, nil, err
@@ -112,7 +118,7 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 	for ruleIdx, r := range obj.Spec.Rules {
 		rule := r
 		// A rule containing named port may be expanded to multiple rules if the named ports map to multiple port numbers.
-		expandRules, buildGroups, buildGroupShares, err := service.buildRuleAndGroups(obj, &rule, ruleIdx, createdFor, policyGroupPath)
+		expandRules, buildGroups, buildGroupShares, err := service.buildRuleAndGroups(obj, &rule, ruleIdx, createdFor, policyGroupPath, vpcInfo, isDefaultProject)
 		if err != nil {
 			log.Error(err, "Failed to build rule and groups", "rule", rule, "ruleIndex", ruleIdx)
 			return nil, nil, nil, err
@@ -159,7 +165,7 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 	return nsxSecurityPolicy, &nsxGroups, &nsxGroupShares, nil
 }
 
-func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPolicy, createdFor string) (*model.Group, string, error) {
+func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPolicy, createdFor string, vpcInfo *common.VPCResourceInfo) (*model.Group, string, error) {
 	policyAppliedGroup := model.Group{}
 	policyAppliedGroupId, policyAppliedGroupName := service.buildAppliedGroupIDAndName(obj, -1, createdFor)
 	policyAppliedGroup.Id = String(policyAppliedGroupId)
@@ -208,7 +214,7 @@ func (service *SecurityPolicyService) buildPolicyGroup(obj *v1alpha1.SecurityPol
 		err = &nsxutil.ValidationError{Desc: errorMsg}
 		return nil, "", err
 	}
-	policyAppliedGroupPath, err := service.buildAppliedGroupPath(obj, policyAppliedGroupId)
+	policyAppliedGroupPath, err := service.buildAppliedGroupPath(obj, policyAppliedGroupId, vpcInfo)
 	if err != nil {
 		return nil, "", err
 	}
@@ -415,12 +421,8 @@ func (service *SecurityPolicyService) buildAppliedGroupIDAndName(obj *v1alpha1.S
 }
 
 // build appliedTo group path for both policy and rule levels.
-func (service *SecurityPolicyService) buildAppliedGroupPath(obj *v1alpha1.SecurityPolicy, groupID string) (string, error) {
+func (service *SecurityPolicyService) buildAppliedGroupPath(obj *v1alpha1.SecurityPolicy, groupID string, vpcInfo *common.VPCResourceInfo) (string, error) {
 	if IsVPCEnabled(service) {
-		vpcInfo, err := service.getVPCInfo(obj.ObjectMeta.Namespace)
-		if err != nil {
-			return "", err
-		}
 		orgID := (*vpcInfo).OrgID
 		projectID := (*vpcInfo).ProjectID
 		vpcID := (*vpcInfo).VPCID
@@ -442,7 +444,7 @@ func (service *SecurityPolicyService) buildAppliedGroupName(obj *v1alpha1.Securi
 }
 
 func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
-	ruleIdx int, createdFor string, policyGroupPath string,
+	ruleIdx int, createdFor string, policyGroupPath string, vpcInfo *common.VPCResourceInfo, isDefaultProject bool,
 ) ([]*model.Rule, []*model.Group, []*GroupShare, error) {
 	var ruleGroups []*model.Group
 	var nsxRuleAppliedGroup *model.Group
@@ -462,7 +464,7 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 
 	// Since a named port may map to multiple port numbers, then it would return multiple rules.
 	// We use the destination port number of service entry to group the rules.
-	ipSetGroups, nsxRules, err := service.expandRule(obj, rule, ruleIdx, createdFor)
+	ipSetGroups, nsxRules, err := service.expandRule(obj, rule, ruleIdx, createdFor, vpcInfo)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -475,7 +477,7 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 	for _, nsxRule := range nsxRules {
 		if ruleDirection == "IN" {
 			nsxRuleSrcGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, nsxGroupShare, err = service.buildRuleInGroup(
-				obj, rule, nsxRule, ruleIdx, createdFor)
+				obj, rule, nsxRule, ruleIdx, createdFor, vpcInfo, isDefaultProject)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -485,7 +487,7 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 			}
 		} else if ruleDirection == "OUT" {
 			nsxRuleDstGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, nsxGroupShare, err = service.buildRuleOutGroup(
-				obj, rule, nsxRule, ruleIdx, createdFor)
+				obj, rule, nsxRule, ruleIdx, createdFor, vpcInfo, isDefaultProject)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -502,7 +504,7 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 		nsxRule.DestinationGroups = []string{nsxRuleDstGroupPath}
 
 		nsxRuleAppliedGroup, nsxRuleAppliedGroupPath, err = service.buildRuleAppliedToGroup(
-			obj, rule, ruleIdx, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, createdFor, policyGroupPath, ruleBaseId)
+			obj, rule, ruleIdx, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, createdFor, policyGroupPath, ruleBaseId, vpcInfo)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -546,13 +548,15 @@ func buildRuleServiceEntries(port v1alpha1.SecurityPolicyPort) *data.StructValue
 	return serviceEntry
 }
 
-func (service *SecurityPolicyService) buildRuleAppliedToGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int, nsxRuleSrcGroupPath string, nsxRuleDstGroupPath string, createdFor string, policyAppliedGroupPath string, ruleBaseId string) (*model.Group, string, error) {
+func (service *SecurityPolicyService) buildRuleAppliedToGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int,
+	nsxRuleSrcGroupPath string, nsxRuleDstGroupPath string, createdFor string, policyAppliedGroupPath string, ruleBaseId string, vpcInfo *common.VPCResourceInfo,
+) (*model.Group, string, error) {
 	var nsxRuleAppliedGroup *model.Group
 	var nsxRuleAppliedGroupPath string
 	var err error
 	if len(rule.AppliedTo) > 0 {
 		nsxRuleAppliedGroup, nsxRuleAppliedGroupPath, err = service.buildRuleAppliedGroupByRule(
-			obj, rule, ruleIdx, ruleBaseId, createdFor)
+			obj, rule, ruleIdx, ruleBaseId, createdFor, vpcInfo)
 		if err != nil {
 			return nil, "", err
 		}
@@ -568,7 +572,7 @@ func (service *SecurityPolicyService) buildRuleAppliedToGroup(obj *v1alpha1.Secu
 }
 
 func (service *SecurityPolicyService) buildRuleInGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
-	nsxRule *model.Rule, ruleIdx int, createdFor string,
+	nsxRule *model.Rule, ruleIdx int, createdFor string, vpcInfo *common.VPCResourceInfo, isDefaultProject bool,
 ) (*model.Group, string, string, *GroupShare, error) {
 	var nsxRuleSrcGroup *model.Group
 	var nsxGroupShare *GroupShare
@@ -576,7 +580,7 @@ func (service *SecurityPolicyService) buildRuleInGroup(obj *v1alpha1.SecurityPol
 	var nsxRuleDstGroupPath string
 	var err error
 	if len(rule.Sources) > 0 {
-		nsxRuleSrcGroup, nsxRuleSrcGroupPath, nsxGroupShare, err = service.buildRulePeerGroup(obj, rule, ruleIdx, true, createdFor)
+		nsxRuleSrcGroup, nsxRuleSrcGroupPath, nsxGroupShare, err = service.buildRulePeerGroup(obj, rule, ruleIdx, true, createdFor, vpcInfo, isDefaultProject)
 		if err != nil {
 			return nil, "", "", nil, err
 		}
@@ -593,7 +597,7 @@ func (service *SecurityPolicyService) buildRuleInGroup(obj *v1alpha1.SecurityPol
 }
 
 func (service *SecurityPolicyService) buildRuleOutGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
-	nsxRule *model.Rule, ruleIdx int, createdFor string,
+	nsxRule *model.Rule, ruleIdx int, createdFor string, vpcInfo *common.VPCResourceInfo, isDefaultProject bool,
 ) (*model.Group, string, string, *GroupShare, error) {
 	var nsxRuleDstGroup *model.Group
 	var nsxGroupShare *GroupShare
@@ -604,7 +608,7 @@ func (service *SecurityPolicyService) buildRuleOutGroup(obj *v1alpha1.SecurityPo
 		nsxRuleDstGroupPath = nsxRule.DestinationGroups[0]
 	} else {
 		if len(rule.Destinations) > 0 {
-			nsxRuleDstGroup, nsxRuleDstGroupPath, nsxGroupShare, err = service.buildRulePeerGroup(obj, rule, ruleIdx, false, createdFor)
+			nsxRuleDstGroup, nsxRuleDstGroupPath, nsxGroupShare, err = service.buildRulePeerGroup(obj, rule, ruleIdx, false, createdFor, vpcInfo, isDefaultProject)
 			if err != nil {
 				return nil, "", "", nil, err
 			}
@@ -727,13 +731,15 @@ func (service *SecurityPolicyService) buildRuleAppliedGroupByPolicy(obj *v1alpha
 	return nsxRuleAppliedGroupPath, nil
 }
 
-func (service *SecurityPolicyService) buildRuleAppliedGroupByRule(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int, ruleBaseId string, createdFor string) (*model.Group, string, error) {
+func (service *SecurityPolicyService) buildRuleAppliedGroupByRule(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int, ruleBaseId string,
+	createdFor string, vpcInfo *common.VPCResourceInfo,
+) (*model.Group, string, error) {
 	var ruleAppliedGroupName string
 	appliedTo := rule.AppliedTo
 	ruleAppliedGroupID, ruleAppliedGroupName := service.buildAppliedGroupIDAndName(obj, ruleIdx, createdFor)
 
 	targetTags := service.buildTargetTags(obj, &appliedTo, ruleBaseId, createdFor)
-	ruleAppliedGroupPath, err := service.buildAppliedGroupPath(obj, ruleAppliedGroupID)
+	ruleAppliedGroupPath, err := service.buildAppliedGroupPath(obj, ruleAppliedGroupID, vpcInfo)
 	if err != nil {
 		return nil, "", err
 	}
@@ -847,12 +853,12 @@ func (service *SecurityPolicyService) buildRulePeerGroupPath(groupID string, inf
 }
 
 func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
-	ruleIdx int, isSource bool, createdFor string,
+	ruleIdx int, isSource bool, createdFor string, vpcInfo *common.VPCResourceInfo, isDefaultProject bool,
 ) (*model.Group, string, *GroupShare, error) {
 	var rulePeers []v1alpha1.SecurityPolicyPeer
 	var ruleDirection string
 	var err error
-	var vpcInfo *common.VPCResourceInfo
+
 	rulePeerGroupID := service.buildRulePeerGroupID(obj, ruleIdx, isSource)
 	rulePeerGroupName := service.buildRulePeerGroupName(obj, ruleIdx, isSource)
 	if isSource == true {
@@ -874,12 +880,10 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 	}
 
 	if IsVPCEnabled(service) {
-		vpcInfo, err = service.getVPCInfo(obj.ObjectMeta.Namespace)
-		if err != nil {
-			return nil, "", nil, err
-		}
+		// In VPC network, if a rule peer group is group-shared, it can be either infra-shared or project-shared.
 		if groupShared {
-			if vpcInfo.ProjectID == common.DefaultProject {
+			// For a group-shared rule peer group, it can be either infra-shared or project-shared.
+			if isDefaultProject {
 				infraGroupShared = true
 			} else {
 				projectGroupShared = true
@@ -1976,6 +1980,68 @@ func (service *SecurityPolicyService) BuildNetworkPolicyAllowPolicyID(uid string
 
 func (service *SecurityPolicyService) BuildNetworkPolicyIsolationPolicyID(uid string) string {
 	return strings.Join([]string{uid, common.RuleActionDrop}, common.ConnectorUnderline)
+}
+
+func (service *SecurityPolicyService) getPolicyAppliedGroupByCRUID(indexScope, uid string) *model.Group {
+	groups := service.groupStore.GetByIndex(indexScope, uid)
+	if len(groups) == 0 {
+		return nil
+	}
+	for _, group := range groups {
+		ruleTags := filterRuleTag(group.Tags)
+		if len(ruleTags) == 0 {
+			return group
+		}
+	}
+	return nil
+}
+
+func (service *SecurityPolicyService) getAppliedGroupByRuleId(createdFor, uid string, ruleIdTag string) *model.Group {
+	indexScope := common.TagValueScopeSecurityPolicyUID
+	if createdFor == common.ResourceTypeNetworkPolicy {
+		indexScope = common.TagScopeNetworkPolicyUID
+	}
+
+	if ruleIdTag == "" {
+		return service.getPolicyAppliedGroupByCRUID(indexScope, uid)
+	}
+
+	groups := service.groupStore.GetByIndex(common.TagScopeRuleID, ruleIdTag)
+	if len(groups) == 0 {
+		return nil
+	}
+
+	// The id of an appliedTo group generated by a security rule should have key word like "-scope_".
+	groupTypeKey := fmt.Sprintf("%s%s%s", common.ConnectorHyphen, common.TargetGroupSuffix, common.ConnectorUnderline)
+
+	for _, group := range groups {
+		if strings.Contains(*group.Id, groupTypeKey) {
+			return group
+		}
+	}
+	return nil
+}
+
+func (service *SecurityPolicyService) getPeerGroupByRuleId(ruleIdTag string, isSource bool) *model.Group {
+	groups := service.groupStore.GetByIndex(common.TagScopeRuleID, ruleIdTag)
+	if len(groups) == 0 {
+		return nil
+	}
+
+	key := common.DstGroupSuffix
+	if isSource == true {
+		key = common.SrcGroupSuffix
+	}
+
+	// A peer Group's id should have key word like "-dst_" or "-src_" according to it is a dst group or a src group.
+	groupTypeKey := fmt.Sprintf("%s%s%s", common.ConnectorHyphen, key, common.ConnectorUnderline)
+
+	for _, group := range groups {
+		if strings.Contains(*group.Id, groupTypeKey) {
+			return group
+		}
+	}
+	return nil
 }
 
 type portInfo struct {
