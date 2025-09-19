@@ -60,9 +60,6 @@ func testCreateVMBasic(t *testing.T) {
 		t.Fatalf("Failed to execute sed command: %v", err)
 	}
 
-	log.Debug("stdout", "stdout", stdout.String())
-	log.Debug("stderr", "stderr", stderr.String())
-
 	require.NoError(t, applyYAML(publicVMPath, ns))
 	defer deleteYAML(publicVMPath, ns)
 	// creating vm takes time
