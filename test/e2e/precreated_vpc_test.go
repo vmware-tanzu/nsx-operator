@@ -22,9 +22,10 @@ import (
 )
 
 const (
-	preVPCLabelKey = "prevpc-test"
-	podImage       = "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"
-	containerName  = "netexec-container"
+	preVPCLabelKey  = "prevpc-test"
+	podImage        = "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"
+	containerName   = "netexec-container"
+	noNatVPCProfile = "no-nat"
 
 	lbServicePort     = int32(8080)
 	podPort           = int32(80)
@@ -35,30 +36,80 @@ const (
 )
 
 var (
-	projectPathFormat                = "/orgs/%s/projects/%s"
-	defaultConnectivityProfileFormat = "/orgs/%s/projects/%s/vpc-connectivity-profiles/default"
+	projectPathFormat         = "/orgs/%s/projects/%s"
+	connectivityProfileFormat = "/orgs/%s/projects/%s/vpc-connectivity-profiles/%s"
 )
 
 func TestPreCreatedVPC(t *testing.T) {
-	orgID, projectID, vpcID := setupVPC(t)
-	nsName := fmt.Sprintf("test-prevpc-%s", getRandomString())
-	projectPath := fmt.Sprintf(projectPathFormat, orgID, projectID)
-	profilePath := fmt.Sprintf(defaultConnectivityProfileFormat, orgID, projectID)
-	preCreatedVPCPath := fmt.Sprintf(common.VPCKey, orgID, projectID, vpcID)
-	log.Info("Created VPC on NSX", "path", preCreatedVPCPath)
-	defer func() {
-		log.Info("Deleting the created VPC from NSX", "path", preCreatedVPCPath)
-		ctx := context.Background()
-		if pollErr := wait.PollUntilContextTimeout(ctx, 10*time.Second, resourceReadyTime, true, func(ctx context.Context) (done bool, err error) {
-			if err := testData.nsxClient.VPCClient.Delete(orgID, projectID, vpcID, common.Bool(true)); err != nil {
+	tests := []struct {
+		name                 string
+		enableNat            bool
+		createLb             bool
+		noProfile            bool
+		networkInfoCondition func(networkInfo *v1alpha1.NetworkInfo) (bool, error)
+	}{
+		{
+			name:      "testPreCreatedVPCWithSNATAndLB",
+			enableNat: true,
+			createLb:  true,
+			networkInfoCondition: func(networkInfo *v1alpha1.NetworkInfo) (bool, error) {
+				if len(networkInfo.VPCs) > 0 && len(networkInfo.VPCs[0].LoadBalancerIPAddresses) > 0 &&
+					len(networkInfo.VPCs[0].DefaultSNATIP) > 0 && len(networkInfo.VPCs[0].PrivateIPs) > 0 {
+					return true, nil
+				}
 				return false, nil
-			}
-			log.Info("The pre-created VPC is successfully deleted", "path", preCreatedVPCPath)
-			return true, nil
-		}); pollErr != nil {
-			log.Error(pollErr, "Failed to delete the pre-created VPC within 5m after the test", "path", preCreatedVPCPath)
-		}
-	}()
+			},
+		},
+		{
+			name:      "testPreCreatedVPCWithSNAT",
+			enableNat: true,
+			createLb:  false,
+			networkInfoCondition: func(networkInfo *v1alpha1.NetworkInfo) (bool, error) {
+				if len(networkInfo.VPCs) > 0 && len(networkInfo.VPCs[0].LoadBalancerIPAddresses) == 0 &&
+					len(networkInfo.VPCs[0].DefaultSNATIP) > 0 && len(networkInfo.VPCs[0].PrivateIPs) > 0 {
+					return true, nil
+				}
+				return false, nil
+			},
+		},
+		{
+			name:      "testPreCreatedVPCWithLB",
+			enableNat: false,
+			createLb:  true,
+			networkInfoCondition: func(networkInfo *v1alpha1.NetworkInfo) (bool, error) {
+				if len(networkInfo.VPCs) > 0 && len(networkInfo.VPCs[0].LoadBalancerIPAddresses) > 0 &&
+					len(networkInfo.VPCs[0].DefaultSNATIP) == 0 && len(networkInfo.VPCs[0].PrivateIPs) > 0 {
+					return true, nil
+				}
+				return false, nil
+			},
+		},
+		{
+			name:      "testPreCreatedVPCWithNoSNATAndNoLB",
+			enableNat: false,
+			createLb:  false,
+			networkInfoCondition: func(networkInfo *v1alpha1.NetworkInfo) (bool, error) {
+				if len(networkInfo.VPCs) > 0 && len(networkInfo.VPCs[0].LoadBalancerIPAddresses) == 0 &&
+					len(networkInfo.VPCs[0].DefaultSNATIP) == 0 && len(networkInfo.VPCs[0].PrivateIPs) > 0 {
+					return true, nil
+				}
+				return false, nil
+			},
+		},
+		{
+			name:      "testPreCreatedVPCWithNoProfile",
+			enableNat: false,
+			createLb:  false,
+			noProfile: true,
+			networkInfoCondition: func(networkInfo *v1alpha1.NetworkInfo) (bool, error) {
+				if len(networkInfo.VPCs) > 0 && len(networkInfo.VPCs[0].LoadBalancerIPAddresses) == 0 &&
+					len(networkInfo.VPCs[0].DefaultSNATIP) == 0 && len(networkInfo.VPCs[0].PrivateIPs) > 0 {
+					return true, nil
+				}
+				return false, nil
+			},
+		},
+	}
 
 	// Test: create NetworkConfig and NS using the pre-created VPC
 	useVCAPI := testData.useWCPSetup()
@@ -70,23 +121,74 @@ func TestPreCreatedVPC(t *testing.T) {
 		}()
 	}
 
-	err := createVPCNamespace(nsName, projectPath, profilePath, preCreatedVPCPath, nil, useVCAPI)
-	require.NoError(t, err, "VPCNetworkConfiguration and Namespace should be created")
-	log.Info("Created test Namespace", "Namespace", nsName)
-
+	err := testData.createVPCConnectivityProfileWithoutNat()
+	require.NoError(t, err, "Failed to create VPCConnectivityProfile without SNAT")
 	defer func() {
-		deleteVPCNamespace(nsName, useVCAPI)
-		_, err = testData.nsxClient.VPCClient.Get(orgID, projectID, vpcID)
-		require.NoError(t, err, "Pre-Created VPC should exist after the K8s Namespace is deleted")
+		err := testData.nsxClient.VPCConnectivityProfilesClient.Delete(defaultOrg, defaultProject, noNatVPCProfile)
+		log.Error(err, "Failed to delete VPC connectivity profile", "Name", noNatVPCProfile)
 	}()
-	// Wait until the created NetworkInfo is ready.
-	getNetworkInfoWithPrivateIPs(t, nsName, nsName)
-	log.Info("New Namespace's networkInfo is ready", "Namespace", nsName)
 
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			orgID, projectID, vpcID := setupVPC(t, tt.enableNat, tt.createLb, tt.noProfile)
+			nsName := fmt.Sprintf("test-prevpc-%s", getRandomString())
+			projectPath := fmt.Sprintf(projectPathFormat, orgID, projectID)
+			var profilePath string
+			if tt.noProfile {
+				profilePath = ""
+			} else if tt.enableNat {
+				profilePath = fmt.Sprintf(connectivityProfileFormat, orgID, projectID, defaultVPCProfile)
+			} else {
+				profilePath = fmt.Sprintf(connectivityProfileFormat, orgID, projectID, noNatVPCProfile)
+			}
+			preCreatedVPCPath := fmt.Sprintf(common.VPCKey, orgID, projectID, vpcID)
+			log.Info("Created VPC on NSX", "path", preCreatedVPCPath)
+
+			err := createVPCNamespace(nsName, projectPath, profilePath, preCreatedVPCPath, nil, useVCAPI)
+			require.NoError(t, err, "VPCNetworkConfiguration and Namespace should be created")
+			log.Info("Created test Namespace", "Namespace", nsName)
+
+			// Wait until the created NetworkInfo is ready.
+			getNetworkInfoWithCondition(t, nsName, nsName, tt.networkInfoCondition)
+			log.Info("New Namespace's networkInfo is ready", "Namespace", nsName)
+
+			if tt.createLb && tt.enableNat {
+				testPodToLBService(t, nsName)
+			} else if tt.enableNat {
+				podName := "prevpc-podvm"
+				// Wait until Pod has allocated IP
+				_, err := testData.createPod(nsName, podName, containerName, podImage, corev1.ProtocolTCP, podPort)
+				require.NoErrorf(t, err, "Failed to create Pod '%s/%s'", nsName, podName)
+				_, err = testData.podWaitForIPs(resourceReadyTime, podName, nsName)
+				require.NoErrorf(t, err, "Pod '%s/%s' is not ready within time %s", nsName, podName, resourceReadyTime.String())
+				log.Info("Pod for the LoadBalancer Service in the Namespace is ready", "Namespace", nsName, "Pod", podName)
+			}
+
+			deleteVPCNamespace(nsName, useVCAPI)
+			_, err = testData.nsxClient.VPCClient.Get(orgID, projectID, vpcID)
+			require.NoError(t, err, "Pre-Created VPC should exist after the K8s Namespace is deleted")
+
+			log.Info("Deleting the created VPC from NSX", "path", preCreatedVPCPath)
+			ctx := context.Background()
+			if pollErr := wait.PollUntilContextTimeout(ctx, 10*time.Second, resourceReadyTime, true, func(ctx context.Context) (done bool, err error) {
+				if err := testData.nsxClient.VPCClient.Delete(orgID, projectID, vpcID, common.Bool(true)); err != nil {
+					return false, nil
+				}
+				log.Info("The pre-created VPC is successfully deleted", "path", preCreatedVPCPath)
+				return true, nil
+			}); pollErr != nil {
+				log.Error(pollErr, "Failed to delete the pre-created VPC within 5m after the test", "path", preCreatedVPCPath)
+			}
+		})
+
+	}
+}
+
+func testPodToLBService(t *testing.T, nsName string) {
 	// Test create LB Service inside the NS
 	podName := "prevpc-service-pod"
 	svcName := "prevpc-loadbalancer"
-	err = createLBService(nsName, svcName, podName)
+	err := createLBService(nsName, svcName, podName)
 	require.NoError(t, err, "K8s LoadBalancer typed Service should be created")
 	log.Info("Created LoadBalancer Service in the Namespace", "Namespace", nsName, "Service", svcName)
 
@@ -156,7 +258,7 @@ func deleteVPCNamespaceOnK8s(nsName string, vpcConfigName string) {
 	}
 }
 
-func setupVPC(tb testing.TB) (string, string, string) {
+func setupVPC(tb testing.TB, enableNat bool, createLb bool, noProfile bool) (string, string, string) {
 	systemVPC, err := testData.waitForSystemNetworkConfigReady(5 * time.Minute)
 	require.NoError(tb, err)
 
@@ -168,7 +270,7 @@ func setupVPC(tb testing.TB) (string, string, string) {
 	useNSXLB := systemVPCStatus.NSXLoadBalancerPath != ""
 
 	vpcID := fmt.Sprintf("testvpc-%s", getRandomString())
-	if err := testData.createVPC(orgID, projectID, vpcID, []string{customizedPrivateCIDR1}, useNSXLB); err != nil {
+	if err := testData.createVPC(orgID, projectID, vpcID, []string{customizedPrivateCIDR1}, useNSXLB, enableNat, createLb, noProfile); err != nil {
 		tb.Fatalf("Unable to create a VPC on NSX: %v", err)
 	}
 	return orgID, projectID, vpcID
@@ -241,7 +343,31 @@ func createLBService(nsName, svcName, podName string) error {
 	return nil
 }
 
-func (data *TestData) createVPC(orgID, projectID, vpcID string, privateIPs []string, useNSXLB bool) error {
+func (data *TestData) createVPCConnectivityProfileWithoutNat() error {
+	defaultProfile, err := testData.nsxClient.VPCConnectivityProfilesClient.Get(defaultOrg, defaultProject, defaultVPCProfile)
+	if err != nil {
+		return err
+	}
+	profile := model.VpcConnectivityProfile{
+		TransitGatewayPath: defaultProfile.TransitGatewayPath,
+		ExternalIpBlocks:   defaultProfile.ExternalIpBlocks,
+		PrivateTgwIpBlocks: defaultProfile.PrivateTgwIpBlocks,
+		ServiceGateway:     defaultProfile.ServiceGateway,
+	}
+	if profile.ServiceGateway != nil && profile.ServiceGateway.NatConfig != nil && profile.ServiceGateway.NatConfig.EnableDefaultSnat != nil {
+		profile.ServiceGateway.NatConfig.EnableDefaultSnat = common.Bool(false)
+	} else {
+		return fmt.Errorf("Default VPC connectivity profile should enable default SNAT")
+	}
+
+	err = testData.nsxClient.VPCConnectivityProfilesClient.Patch(defaultOrg, defaultProject, noNatVPCProfile, profile)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (data *TestData) createVPC(orgID, projectID, vpcID string, privateIPs []string, useNSXLB bool, enableNat bool, createLb bool, noProfile bool) error {
 	createdVPC := &model.Vpc{
 		Id:            common.String(vpcID),
 		DisplayName:   common.String(fmt.Sprintf("e2e-test-pre-vpc-%s", getRandomString())),
@@ -256,18 +382,30 @@ func (data *TestData) createVPC(orgID, projectID, vpcID string, privateIPs []str
 		loadBalancerVPCEndpointEnabled := true
 		createdVPC.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &loadBalancerVPCEndpointEnabled}
 	} else {
-		lbsPath = fmt.Sprintf("%s/vpc-lbs/default", vpcPath)
-		createdLBS = &model.LBService{
-			Id:               common.String("default"),
-			ConnectivityPath: common.String(vpcPath),
-			Size:             common.String(model.LBService_SIZE_SMALL),
-			ResourceType:     common.String(common.ResourceTypeLBService),
+		if createLb {
+			lbsPath = fmt.Sprintf("%s/vpc-lbs/default", vpcPath)
+			createdLBS = &model.LBService{
+				Id:               common.String("default"),
+				ConnectivityPath: common.String(vpcPath),
+				Size:             common.String(model.LBService_SIZE_SMALL),
+				ResourceType:     common.String(common.ResourceTypeLBService),
+			}
 		}
 	}
-	attachmentPath := fmt.Sprintf("%s/attachments/default", vpcPath)
-	attachment := &model.VpcAttachment{
-		Id:                     common.String("default"),
-		VpcConnectivityProfile: common.String(fmt.Sprintf(defaultConnectivityProfileFormat, orgID, projectID)),
+	var profilePath string
+	if enableNat {
+		profilePath = fmt.Sprintf(connectivityProfileFormat, orgID, projectID, defaultVPCProfile)
+	} else if !noProfile {
+		profilePath = fmt.Sprintf(connectivityProfileFormat, orgID, projectID, noNatVPCProfile)
+	}
+	var attachment *model.VpcAttachment
+	var attachmentPath string
+	if !noProfile {
+		attachmentPath = fmt.Sprintf("%s/attachments/default", vpcPath)
+		attachment = &model.VpcAttachment{
+			Id:                     common.String("default"),
+			VpcConnectivityProfile: common.String(profilePath),
+		}
 	}
 	svc := &vpc.VPCService{}
 	orgRoot, err := svc.WrapHierarchyVPC(orgID, projectID, createdVPC, createdLBS, attachment)
@@ -283,7 +421,7 @@ func (data *TestData) createVPC(orgID, projectID, vpcID string, privateIPs []str
 	log.Info("Successfully requested VPC on NSX", "path", vpcPath)
 	realizeService := realizestate.InitializeRealizeState(common.Service{NSXClient: data.nsxClient.Client})
 	if pollErr := wait.PollUntilContextTimeout(context.Background(), 10*time.Second, 5*time.Minute, true, func(ctx context.Context) (done bool, err error) {
-		if err = realizeService.CheckRealizeState(pkgutil.NSXTRealizeRetry, vpcPath, []string{common.GatewayInterfaceId}); err != nil {
+		if err = realizeService.CheckRealizeState(pkgutil.NSXTRealizeRetry, vpcPath, []string{}); err != nil {
 			log.Error(err, "NSX VPC is not yet realized", "path", vpcPath)
 			return false, nil
 		}
@@ -293,9 +431,11 @@ func (data *TestData) createVPC(orgID, projectID, vpcID string, privateIPs []str
 				return false, nil
 			}
 		}
-		if err = realizeService.CheckRealizeState(pkgutil.NSXTRealizeRetry, attachmentPath, []string{}); err != nil {
-			log.Error(err, "VPC attachment is not yet realized", "path", attachmentPath)
-			return false, nil
+		if attachmentPath != "" {
+			if err = realizeService.CheckRealizeState(pkgutil.NSXTRealizeRetry, attachmentPath, []string{}); err != nil {
+				log.Error(err, "VPC attachment is not yet realized", "path", attachmentPath)
+				return false, nil
+			}
 		}
 		return true, nil
 	}); pollErr != nil {
