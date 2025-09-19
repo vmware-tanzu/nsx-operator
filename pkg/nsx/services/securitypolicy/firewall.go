@@ -22,6 +22,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -530,7 +531,7 @@ func (service *SecurityPolicyService) createOrUpdateT1SecurityPolicy(obj *v1alph
 		return err
 	}
 
-	// WrapHierarchyVpcSecurityPolicy will modify the input security policy rules and move the rules to Children fields for HAPI wrap,
+	// WrapHierarchySecurityPolicy will modify the input security policy rules and move the rules to Children fields for HAPI wrap,
 	// so we need to make a copy for the rules store update.
 	finalRules := finalSecurityPolicy.Rules
 
@@ -585,14 +586,16 @@ func (service *SecurityPolicyService) createOrUpdateT1SecurityPolicy(obj *v1alph
 func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alpha1.SecurityPolicy, createdFor string) error {
 	var err error
 	var finalGetNSXSecurityPolicy *model.SecurityPolicy
-
 	isDefaultProject := false
+
 	vpcInfo, err := service.getVPCInfo(obj.ObjectMeta.Namespace)
 	if err != nil {
 		return err
 	}
-	if vpcInfo.ProjectID == common.DefaultProject {
-		isDefaultProject = true
+	isDefaultProject, err = service.vpcService.IsDefaultNSXProject(vpcInfo.OrgID, vpcInfo.ProjectID)
+	if err != nil {
+		log.Error(err, "Failed to check if NSX Project is default", "nsxProjectID", vpcInfo.ProjectID)
+		return err
 	}
 
 	finalSecurityPolicy, finalGroups, finalShares, finalShareGroups, isChanged, err := service.getFinalSecurityPolicyResource(obj, createdFor, isDefaultProject)
@@ -612,9 +615,7 @@ func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alp
 	if !isDefaultProject {
 		finalGetNSXSecurityPolicy, err = service.createOrUpdateNSXSecurityPolicy(finalSecurityPolicy, finalGroups, finalShares, finalShareGroups, vpcInfo)
 	} else {
-		var gotSp model.SecurityPolicy
-		gotSp, err = service.manipulateSecurityPolicyForDefaultProject(finalSecurityPolicy, finalGroups, finalShares, finalShareGroups, false, vpcInfo)
-		finalGetNSXSecurityPolicy = &gotSp
+		finalGetNSXSecurityPolicy, err = service.createOrUpdateNSXSecurityPolicyForDefaultProject(finalSecurityPolicy, finalGroups, finalShares, finalShareGroups, vpcInfo)
 	}
 	if err != nil {
 		return err
@@ -681,7 +682,7 @@ func (service *SecurityPolicyService) deleteT1SecurityPolicy(spUid types.UID) er
 	service.markDeleteRules(existingRules, nsxRules, spUid)
 	nsxSecurityPolicy.Rules = *nsxRules
 
-	// WrapHighLevelSecurityPolicy will modify the input security policy, so we need to make a copy for the following store update.
+	// WrapHierarchySecurityPolicy will modify the input security policy, so we need to make a copy for the following store update.
 	finalSecurityPolicyCopy := *nsxSecurityPolicy
 	finalSecurityPolicyCopy.Rules = nsxSecurityPolicy.Rules
 
@@ -748,17 +749,9 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(spUID types.UID, i
 	existingGroups := groupStore.GetByIndex(indexScope, string(spUID))
 	service.markDeleteGroups(existingGroups, nsxGroups, spUID)
 
-	if isGC && len(existingSecurityPolices) == 0 && (len(existingNsxInfraShares) != 0 || len(existingNsxInfraShareGroups) != 0) {
-		// There is a specific case that needs to be handle in GC process, that is,
-		// When the NSX security policy, rules, and groups at the VPC level are deleted,
-		// The following infra API call to delete infra share resources fail or NSX Operator restarts suddenly.
-		// So, there are no more NSX security policy but the related NSX infra share resources became stale.
-		log.Info("NSX SecurityPolicy is not found in store, but there are stale NSX infra share resource to be GC", "nsxSecurityPolicyUID", spUID, "createdFor", createdFor)
-		return service.gcInfraSharesGroups(spUID, indexScope)
-	}
-
 	// For other GC cases, it will follow the normal deletion process as below.
 	var vpcInfo common.VPCResourceInfo
+	isDefaultProject := false
 	if len(existingSecurityPolices) != 0 {
 		nsxSecurityPolicy = existingSecurityPolices[0]
 		// vpcInfo should be listed directly from security policy store to avoid calling VPC service.
@@ -773,6 +766,13 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(spUID types.UID, i
 		existingRules := ruleStore.GetByIndex(indexScope, string(spUID))
 		service.markDeleteRules(existingRules, nsxRules, spUID)
 		nsxSecurityPolicy.Rules = *nsxRules
+	} else if isGC && (len(existingNsxInfraShares) != 0 || len(existingNsxInfraShareGroups) != 0) {
+		// There is a specific case for Default Project that needs to be handle in GC process, that is,
+		// When the NSX security policy, rules, and groups at the VPC level are deleted,
+		// The following infra API call to delete infra share resources fail or NSX Operator restarts suddenly.
+		// So, there are no more NSX security policy but the related NSX infra share resources became stale.
+		log.Info("NSX SecurityPolicy is not found in store, but there are stale NSX infra share resource to be GC", "nsxSecurityPolicyUID", spUID, "createdFor", createdFor)
+		isDefaultProject = true
 	} else {
 		// In case there is no NSX security policy, we still need to get vpcInfo from existing VPC groups.
 		// For each SecurityPolicy, there must be VPC groups created, either policy appliedTo or rule appliedTo
@@ -791,9 +791,13 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(spUID types.UID, i
 		}
 	}
 
-	isDefaultProject := false
-	if vpcInfo.ProjectID == common.DefaultProject {
-		isDefaultProject = true
+	// Further check if it's Default Project from vpcInfo
+	if !isDefaultProject {
+		isDefaultProject, err = service.vpcService.IsDefaultNSXProject(vpcInfo.OrgID, vpcInfo.ProjectID)
+		if err != nil {
+			log.Error(err, "Failed to check if NSX Project is default", "nsxProjectID", vpcInfo.ProjectID)
+			return err
+		}
 	}
 
 	var existingNsxShares []*model.Share
@@ -808,30 +812,8 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(spUID types.UID, i
 	service.markDeleteShares(existingNsxShares, nsxShares, spUID)
 	service.markDeleteGroups(existingNsxGroups, nsxShareGroups, spUID)
 
-	if !isDefaultProject {
-		if nsxSecurityPolicy != nil {
-			err = service.deleteNSXSecurityPolicy(nsxSecurityPolicy, &vpcInfo)
-			if err != nil {
-				log.Error(err, "Failed to delete NSX SecurityPolicy and rules in VPC", "nsxSecurityPolicyUID", spUID)
-				return err
-			}
-			err = service.applySecurityPolicyStore(nsxSecurityPolicy, *nsxRules, true)
-			if err != nil {
-				return err
-			}
-			log.Info("Successfully deleted NSX SecurityPolicy and rules only", "nsxSecurityPolicyUID", spUID)
-		}
-
-		err = service.deleteNSXSecurityPolicyGroupShare(*nsxGroups, *nsxShares, *nsxShareGroups, &vpcInfo)
-		// Ignore error here to make groups/shares to deleted in GC.
-		// Because NSX SecurityPolicy is deleted, it's unable to get SecurityPolicy from SecurityPolicyStore by requeuing the error.
-		if err != nil {
-			log.Info("NSX SecurityPolicy is deleted, the associated groups and shares of the SecurityPolicy will be GC", "nsxSecurityPolicyUID", spUID)
-			return nil
-		}
-	} else {
-		// TODO: to refactor manipulateSecurityPolicyForDefaultProject to separate NSX security policy deletion and groups/shares deletion
-		_, err = service.manipulateSecurityPolicyForDefaultProject(nsxSecurityPolicy, *nsxGroups, *nsxShares, *nsxShareGroups, true, &vpcInfo)
+	if nsxSecurityPolicy != nil {
+		err = service.deleteNSXSecurityPolicy(nsxSecurityPolicy, &vpcInfo)
 		if err != nil {
 			log.Error(err, "Failed to delete NSX SecurityPolicy and rules in VPC", "nsxSecurityPolicyUID", spUID)
 			return err
@@ -840,6 +822,20 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(spUID types.UID, i
 		if err != nil {
 			return err
 		}
+		log.Info("Successfully deleted NSX SecurityPolicy and rules only", "nsxSecurityPolicyUID", spUID)
+	}
+
+	if !isDefaultProject {
+		err = service.deleteNSXSecurityPolicyGroupShare(*nsxGroups, *nsxShares, *nsxShareGroups, &vpcInfo)
+	} else {
+		err = service.deleteNSXSecurityPolicyGroupShareForDefaultProject(*nsxGroups, *nsxShares, *nsxShareGroups, &vpcInfo)
+	}
+	// Ignore error here to make groups/shares to deleted in GC.
+	// Because NSX SecurityPolicy is deleted, it's unable to get SecurityPolicy from SecurityPolicyStore by requeuing the error.
+	// Also Ignore error that happens during GC process, because GC will be run in the next round, there is no need to return error to requeue.
+	if err != nil {
+		log.Info("NSX SecurityPolicy is deleted, the associated groups and shares of the SecurityPolicy will be GC", "nsxSecurityPolicyUID", spUID)
+		return nil
 	}
 
 	err = service.applyVPCGroupShareStore(*nsxGroups, *nsxShares, *nsxShareGroups, isDefaultProject)
@@ -1004,10 +1000,110 @@ func (service *SecurityPolicyService) createOrUpdateNSXSecurityPolicy(nsxSecurit
 		return nil, err
 	}
 
+	// Check SecurityPolicy realization state
+	err = service.checkSecurityPolicyRealizationState(&nsxGetSecurityPolicy, *(nsxGetSecurityPolicy.Path))
+	if err != nil {
+		return nil, err
+	}
+
 	return &nsxGetSecurityPolicy, nil
 }
 
-// deleteNSXSecurityPolicy deletes NSX SecurityPolicy, rules and the groups/shares for non-Default Project.
+// createOrUpdateNSXSecurityPolicyForDefaultProject uses hierarchy API call to create/update SecurityPolicy on the whole resource tree for Default Project.
+func (service *SecurityPolicyService) createOrUpdateNSXSecurityPolicyForDefaultProject(nsxSecurityPolicy *model.SecurityPolicy, nsxGroups []model.Group,
+	nsxShares []model.Share, nsxShareGroups []model.Group, vpcInfo *common.VPCResourceInfo,
+) (*model.SecurityPolicy, error) {
+	var err error
+	var infraResource *model.Infra
+	var projectInfraResource []*data.StructValue
+	nsxGetSecurityPolicy := model.SecurityPolicy{}
+
+	finalStaleShares := make([]model.Share, 0)
+	finalChangedShares := make([]model.Share, 0)
+	finalStaleShareGroups := make([]model.Group, 0)
+	finalChangedShareGroups := make([]model.Group, 0)
+
+	for i := len(nsxShares) - 1; i >= 0; i-- {
+		if nsxShares[i].MarkedForDelete != nil && (*nsxShares[i].MarkedForDelete == MarkedForDelete) {
+			finalStaleShares = append(finalStaleShares, nsxShares[i])
+		} else {
+			finalChangedShares = append(finalChangedShares, nsxShares[i])
+		}
+	}
+	for i := len(nsxShareGroups) - 1; i >= 0; i-- {
+		if nsxShareGroups[i].MarkedForDelete != nil && (*nsxShareGroups[i].MarkedForDelete == MarkedForDelete) {
+			finalStaleShareGroups = append(finalStaleShareGroups, nsxShareGroups[i])
+		} else {
+			finalChangedShareGroups = append(finalChangedShareGroups, nsxShareGroups[i])
+		}
+	}
+
+	// It's needed to create/update the infra resources before these resources are referred by VPC resources.
+	if len(finalChangedShares) != 0 || len(finalChangedShareGroups) != 0 {
+		// Wrap infra groups and shares into infra child infra.
+		infraResource, err = service.wrapHierarchyInfraResources(finalChangedShares, finalChangedShareGroups)
+		if err != nil {
+			log.Error(err, "Failed to wrap NSX infra changed groups and shares", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+			return nil, err
+		}
+
+		err = service.NSXClient.InfraClient.Patch(*infraResource, &EnforceRevisionCheckParam)
+		err = nsxutil.TransNSXApiError(err)
+		if err != nil {
+			log.Error(err, "Failed to create or update NSX infra resource", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+			return nil, err
+		}
+	}
+
+	// Wrap SecurityPolicy, groups, rules under VPC level into one hierarchy resource tree.
+	orgRoot, err := service.wrapHierarchyVpcSecurityPolicy(nsxSecurityPolicy, nsxGroups, projectInfraResource, vpcInfo)
+	if err != nil {
+		log.Error(err, "Failed to wrap SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+		return nil, err
+	}
+
+	// Create/update SecurityPolicy together with groups, rules under VPC level.
+	err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
+	err = nsxutil.TransNSXApiError(err)
+	if err != nil {
+		log.Error(err, "Failed to create or update SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+		return nil, err
+	}
+
+	// The infra share resources can be deleted only after the rules under VPC level which are referring the share resources have been deleted.
+	if len(finalStaleShares) != 0 || len(finalStaleShareGroups) != 0 {
+		// Wrap infra groups and shares into infra child infra.
+		infraResource, err = service.wrapHierarchyInfraResources(finalStaleShares, finalStaleShareGroups)
+		if err != nil {
+			log.Error(err, "Failed to wrap NSX infra stale groups and shares", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+			return nil, err
+		}
+		err = service.NSXClient.InfraClient.Patch(*infraResource, &EnforceRevisionCheckParam)
+		err = nsxutil.TransNSXApiError(err)
+		if err != nil {
+			log.Error(err, "Failed to delete NSX infra Resource", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+			return nil, err
+		}
+	}
+
+	// Get SecurityPolicy from NSX after HAPI call as NSX renders several fields like `path`/`parent_path`.
+	nsxGetSecurityPolicy, err = service.NSXClient.VPCSecurityClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *nsxSecurityPolicy.Id)
+	err = nsxutil.TransNSXApiError(err)
+	if err != nil {
+		log.Error(err, "Failed to get SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
+		return nil, err
+	}
+
+	// Check SecurityPolicy realization state
+	err = service.checkSecurityPolicyRealizationState(&nsxGetSecurityPolicy, *(nsxGetSecurityPolicy.Path))
+	if err != nil {
+		return nil, err
+	}
+
+	return &nsxGetSecurityPolicy, nil
+}
+
+// deleteNSXSecurityPolicy deletes NSX SecurityPolicy, rules and the groups/shares for both NSX Default Project and non-Default Project.
 func (service *SecurityPolicyService) deleteNSXSecurityPolicy(nsxSecurityPolicy *model.SecurityPolicy, vpcInfo *common.VPCResourceInfo) error {
 	var err error
 
@@ -1048,103 +1144,52 @@ func (service *SecurityPolicyService) deleteNSXSecurityPolicyGroupShare(nsxGroup
 	err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
-		log.Error(err, "Failed to delete NSX Groups and Shares in VPC")
+		log.Error(err, "Failed to delete NSX groups and shares in VPC")
 		return err
 	}
 
 	return nil
 }
 
-// Using hierarchy API call to manipulate SecurityPolicy CRUD on the whole resource tree for Default Project
-func (service *SecurityPolicyService) manipulateSecurityPolicyForDefaultProject(nsxSecurityPolicy *model.SecurityPolicy, nsxGroups []model.Group,
-	nsxShares []model.Share, nsxShareGroups []model.Group, isDelete bool, vpcInfo *common.VPCResourceInfo,
-) (model.SecurityPolicy, error) {
-	var err error
-	var infraResource *model.Infra
+// deleteNSXSecurityPolicyGroupShareForDefaultProject deletes NSX SecurityPolicy associated the groups/shares for Default Project.
+func (service *SecurityPolicyService) deleteNSXSecurityPolicyGroupShareForDefaultProject(nsxGroups []model.Group,
+	nsxShares []model.Share, nsxShareGroups []model.Group, vpcInfo *common.VPCResourceInfo,
+) error {
 	var projectInfraResource []*data.StructValue
-	nsxGetSecurityPolicy := model.SecurityPolicy{}
 
-	finalStaleShares := make([]model.Share, 0)
-	finalChangedShares := make([]model.Share, 0)
-	finalStaleShareGroups := make([]model.Group, 0)
-	finalChangedShareGroups := make([]model.Group, 0)
-
-	for i := len(nsxShares) - 1; i >= 0; i-- {
-		if nsxShares[i].MarkedForDelete != nil && (*nsxShares[i].MarkedForDelete == MarkedForDelete) {
-			finalStaleShares = append(finalStaleShares, nsxShares[i])
-		} else {
-			finalChangedShares = append(finalChangedShares, nsxShares[i])
-		}
-	}
-	for i := len(nsxShareGroups) - 1; i >= 0; i-- {
-		if nsxShareGroups[i].MarkedForDelete != nil && (*nsxShareGroups[i].MarkedForDelete == MarkedForDelete) {
-			finalStaleShareGroups = append(finalStaleShareGroups, nsxShareGroups[i])
-		} else {
-			finalChangedShareGroups = append(finalChangedShareGroups, nsxShareGroups[i])
-		}
-	}
-
-	// For create/update case,
-	// It's needed to create/update the infra resources before these resources are referred by VPC resources.
-	if !isDelete && (len(finalChangedShares) != 0 || len(finalChangedShareGroups) != 0) {
-		// Wrap infra groups and shares into infra child infra.
-		infraResource, err = service.wrapHierarchyInfraResources(finalChangedShares, finalChangedShareGroups)
+	if len(nsxGroups) != 0 {
+		// Wrap VPC level groups into project child infra.
+		orgRoot, err := service.wrapHierarchyVpcSecurityPolicy(nil, nsxGroups, projectInfraResource, vpcInfo)
 		if err != nil {
-			log.Error(err, "Failed to wrap NSX infra changed groups and shares", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
-			return nsxGetSecurityPolicy, err
+			log.Error(err, "Failed to wrap NSX project groups and shares")
+			return err
 		}
 
+		// Delete groups under VPC level.
+		err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
+		err = nsxutil.TransNSXApiError(err)
+		if err != nil {
+			log.Error(err, "Failed to delete NSX groups in VPC")
+			return err
+		}
+	}
+
+	if len(nsxShares) != 0 {
+		// Wrap infra groups and shares into infra child infra.
+		infraResource, err := service.wrapHierarchyInfraResources(nsxShares, nsxShareGroups)
+		if err != nil {
+			log.Error(err, "Failed to wrap NSX infra groups and shares")
+			return err
+		}
+		// Delete infra groups and shares.
 		err = service.NSXClient.InfraClient.Patch(*infraResource, &EnforceRevisionCheckParam)
 		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
-			log.Error(err, "Failed to create or update NSX infra Resource", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
-			return nsxGetSecurityPolicy, err
+			log.Error(err, "Failed to delete NSX infra groups and shares")
+			return err
 		}
 	}
-
-	// Wrap SecurityPolicy, groups, rules under VPC level into one hierarchy resource tree.
-	orgRoot, err := service.wrapHierarchyVpcSecurityPolicy(nsxSecurityPolicy, nsxGroups, projectInfraResource, vpcInfo)
-	if err != nil {
-		log.Error(err, "Failed to wrap SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
-		return nsxGetSecurityPolicy, err
-	}
-
-	// Create/update or delete SecurityPolicy together with groups, rules under VPC level.
-	err = service.NSXClient.OrgRootClient.Patch(*orgRoot, &EnforceRevisionCheckParam)
-	err = nsxutil.TransNSXApiError(err)
-	if err != nil {
-		log.Error(err, "Failed to create/update or delete SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
-		return nsxGetSecurityPolicy, err
-	}
-
-	// For delete/update case,
-	// The infra share resources can be deleted only after the rules under VPC level which are referring the share resources have been deleted.
-	if len(finalStaleShares) != 0 || len(finalStaleShareGroups) != 0 {
-		// Wrap infra groups and shares into infra child infra.
-		infraResource, err = service.wrapHierarchyInfraResources(finalStaleShares, finalStaleShareGroups)
-		if err != nil {
-			log.Error(err, "Failed to wrap NSX infra stale groups and shares", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
-			return nsxGetSecurityPolicy, err
-		}
-		err = service.NSXClient.InfraClient.Patch(*infraResource, &EnforceRevisionCheckParam)
-		err = nsxutil.TransNSXApiError(err)
-		if err != nil {
-			log.Error(err, "Failed to delete NSX infra Resource", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
-			return nsxGetSecurityPolicy, err
-		}
-	}
-
-	if !isDelete {
-		// Get SecurityPolicy from NSX after HAPI call as NSX renders several fields like `path`/`parent_path`.
-		nsxGetSecurityPolicy, err = service.NSXClient.VPCSecurityClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *nsxSecurityPolicy.Id)
-		err = nsxutil.TransNSXApiError(err)
-		if err != nil {
-			log.Error(err, "Failed to get SecurityPolicy in VPC", "nsxSecurityPolicyId", nsxSecurityPolicy.Id)
-			return nsxGetSecurityPolicy, err
-		}
-	}
-
-	return nsxGetSecurityPolicy, nil
+	return nil
 }
 
 func (service *SecurityPolicyService) applySecurityPolicyStore(nsxSecurityPolicy *model.SecurityPolicy, nsxRules []model.Rule, isChanged bool) error {
@@ -1238,38 +1283,6 @@ func (service *SecurityPolicyService) ListNetworkPolicyByName(ns, name string) [
 	return result
 }
 
-func (service *SecurityPolicyService) gcInfraSharesGroups(sp types.UID, indexScope string) error {
-	var err error
-	var infraResource *model.Infra
-	var existingNsxShares []*model.Share
-	var existingNsxGroups []*model.Group
-	g1 := make([]model.Group, 0)
-	s := make([]model.Share, 0)
-	nsxShares := &s
-	nsxShareGroups := &g1
-
-	infraGroupStore, infraShareStore, _, _ := service.getVPCShareResourceStores()
-	existingNsxShares = infraShareStore.GetByIndex(indexScope, string(sp))
-	existingNsxGroups = infraGroupStore.GetByIndex(indexScope, string(sp))
-
-	service.markDeleteShares(existingNsxShares, nsxShares, sp)
-	service.markDeleteGroups(existingNsxGroups, nsxShareGroups, sp)
-
-	infraResource, err = service.wrapHierarchyInfraResources(*nsxShares, *nsxShareGroups)
-	if err != nil {
-		log.Error(err, "Failed to wrap NSX infra groups and shares", "securityPolicyUID", sp)
-		return err
-	}
-	err = service.NSXClient.InfraClient.Patch(*infraResource, &EnforceRevisionCheckParam)
-	err = nsxutil.TransNSXApiError(err)
-	if err != nil {
-		log.Error(err, "Failed to delete NSX infra Resource in GC", "securityPolicyUID", sp)
-		return err
-	}
-
-	return nil
-}
-
 func (service *SecurityPolicyService) getGCSecurityPolicyIDSet(indexScope string) sets.Set[string] {
 	// List SecurityPolicyID to which groups resources are associated in group store
 	groupSet := service.groupStore.ListIndexFuncValues(indexScope)
@@ -1296,64 +1309,15 @@ func (service *SecurityPolicyService) getVPCInfo(spNameSpace string) (*common.VP
 	return &vpcInfo[0], nil
 }
 
-func (service *SecurityPolicyService) getPolicyAppliedGroupByCRUID(indexScope, uid string) *model.Group {
-	groups := service.groupStore.GetByIndex(indexScope, uid)
-	if len(groups) == 0 {
-		return nil
-	}
-	for _, group := range groups {
-		ruleTags := filterRuleTag(group.Tags)
-		if len(ruleTags) == 0 {
-			return group
+func (service *SecurityPolicyService) checkSecurityPolicyRealizationState(sp *model.SecurityPolicy, spPath string) error {
+	log.V(2).Info("Check NSX SecurityPolicy realization state", "nsxSecurityPolicyId", *sp.Id)
+	realizeService := realizestate.InitializeRealizeState(service.Service)
+	if err := realizeService.CheckRealizeState(util.NSXTRealizeRetry, spPath, []string{}); err != nil {
+		log.Error(err, "Failed to check NSX SecurityPolicy realization state", "nsxSecurityPolicyId", *sp.Id)
+		if nsxutil.IsRealizeStateError(err) {
+			log.Error(err, "The created SecurityPolicy is in error realization state", "nsxSecurityPolicyId", *sp.Id)
 		}
-	}
-	return nil
-}
-
-func (service *SecurityPolicyService) getAppliedGroupByRuleId(createdFor, uid string, ruleIdTag string) *model.Group {
-	indexScope := common.TagValueScopeSecurityPolicyUID
-	if createdFor == common.ResourceTypeNetworkPolicy {
-		indexScope = common.TagScopeNetworkPolicyUID
-	}
-
-	if ruleIdTag == "" {
-		return service.getPolicyAppliedGroupByCRUID(indexScope, uid)
-	}
-
-	groups := service.groupStore.GetByIndex(common.TagScopeRuleID, ruleIdTag)
-	if len(groups) == 0 {
-		return nil
-	}
-
-	// The id of an appliedTo group generated by a security rule should have key word like "-scope_".
-	groupTypeKey := fmt.Sprintf("%s%s%s", common.ConnectorHyphen, common.TargetGroupSuffix, common.ConnectorUnderline)
-
-	for _, group := range groups {
-		if strings.Contains(*group.Id, groupTypeKey) {
-			return group
-		}
-	}
-	return nil
-}
-
-func (service *SecurityPolicyService) getPeerGroupByRuleId(ruleIdTag string, isSource bool) *model.Group {
-	groups := service.groupStore.GetByIndex(common.TagScopeRuleID, ruleIdTag)
-	if len(groups) == 0 {
-		return nil
-	}
-
-	key := common.DstGroupSuffix
-	if isSource == true {
-		key = common.SrcGroupSuffix
-	}
-
-	// A peer Group's id should have key word like "-dst_" or "-src_" according to it is a dst group or a src group.
-	groupTypeKey := fmt.Sprintf("%s%s%s", common.ConnectorHyphen, key, common.ConnectorUnderline)
-
-	for _, group := range groups {
-		if strings.Contains(*group.Id, groupTypeKey) {
-			return group
-		}
+		return err
 	}
 	return nil
 }
