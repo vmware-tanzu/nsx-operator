@@ -36,7 +36,7 @@ import (
 	servicetypes "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 func createNameSpaceReconciler(objs []client.Object) *NamespaceReconciler {
@@ -521,7 +521,8 @@ func TestNamespaceReconciler_createNetworkInfoCR(t *testing.T) {
 
 			return nil
 		})
-	patches := gomonkey.ApplyFunc(util.UpdateK8sResourceAnnotation, func(client client.Client, ctx context.Context, k8sObj client.Object, changes map[string]string) error {
+	patches := gomonkey.ApplyFunc(nsxutil.UpdateK8sResourceAnnotation, func(client client.Client, ctx context.Context, k8sObj client.Object,
+		changes map[string]string) error {
 		return nil
 	})
 	info, err = r.createNetworkInfoCR(ctx, ns, "test-ns")
@@ -552,7 +553,8 @@ func TestNamespaceReconciler_createNetworkInfoCR(t *testing.T) {
 
 			return nil
 		})
-	patches = gomonkey.ApplyFunc(util.UpdateK8sResourceAnnotation, func(client client.Client, ctx context.Context, k8sObj client.Object, changes map[string]string) error {
+	patches = gomonkey.ApplyFunc(nsxutil.UpdateK8sResourceAnnotation, func(client client.Client, ctx context.Context, k8sObj client.Object,
+		changes map[string]string) error {
 		return errors.New("fake-error")
 	})
 	info, err = r.createNetworkInfoCR(ctx, ns, "test-ns")
@@ -573,7 +575,7 @@ func TestNamespaceReconciler_createNetworkInfoCR(t *testing.T) {
 	// Update annotation error after NetworkInfo creation
 	k8sClient.EXPECT().List(ctx, gomock.Any(), gomock.Any()).Return(nil)
 	k8sClient.EXPECT().Create(ctx, gomock.Any()).Return(nil)
-	patches = gomonkey.ApplyFunc(util.UpdateK8sResourceAnnotation, func(client client.Client, ctx context.Context, k8sObj client.Object, changes map[string]string) error {
+	patches = gomonkey.ApplyFunc(nsxutil.UpdateK8sResourceAnnotation, func(client client.Client, ctx context.Context, k8sObj client.Object, changes map[string]string) error {
 		return errors.New("fake-error")
 	})
 	info, err = r.createNetworkInfoCR(ctx, ns, "test-ns")
@@ -584,7 +586,7 @@ func TestNamespaceReconciler_createNetworkInfoCR(t *testing.T) {
 	// Happy path
 	k8sClient.EXPECT().List(ctx, gomock.Any(), gomock.Any()).Return(nil)
 	k8sClient.EXPECT().Create(ctx, gomock.Any()).Return(nil)
-	patches = gomonkey.ApplyFunc(util.UpdateK8sResourceAnnotation, func(client client.Client, ctx context.Context, k8sObj client.Object, changes map[string]string) error {
+	patches = gomonkey.ApplyFunc(nsxutil.UpdateK8sResourceAnnotation, func(client client.Client, ctx context.Context, k8sObj client.Object, changes map[string]string) error {
 		return nil
 	})
 	info, err = r.createNetworkInfoCR(ctx, ns, "test-ns")

@@ -182,7 +182,7 @@ func TestInitializeSubnetService(t *testing.T) {
 	}
 	nsxSubnetID := util.GenerateIDByObject(subnet)
 
-	basicTags := util.BuildBasicTags(clusterName, subnet, "")
+	basicTags := common.BuildBasicTags(clusterName, subnet, "")
 	fakeVPCPath := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9"
 	fakeSubnetPath := fmt.Sprintf("%s/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9/subnets/%s", fakeVPCPath, nsxSubnetID)
 

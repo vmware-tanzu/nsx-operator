@@ -32,7 +32,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetbinding"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -170,7 +169,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	if subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled == nil {
-		subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = servicecommon.Bool(!util.CRSubnetDHCPEnabled(subnetCR))
+		subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = servicecommon.Bool(!nsxutil.CRSubnetDHCPEnabled(subnetCR))
 		specChanged = true
 	}
 

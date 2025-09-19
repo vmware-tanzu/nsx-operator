@@ -162,7 +162,7 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 			log.Info("created NSX subnet port", "nsxSubnetPort.Path", *nsxSubnetPort.Path)
 		}
 	}
-	enableDHCP := util.NSXSubnetDHCPEnabled(nsxSubnet)
+	enableDHCP := nsxutil.NSXSubnetDHCPEnabled(nsxSubnet)
 	nsxSubnetPortState, err := service.CheckSubnetPortState(obj, *nsxSubnet.Path)
 	if err != nil {
 		log.Error(err, "check and update NSX subnet port state failed, would retry exponentially", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)

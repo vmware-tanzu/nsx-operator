@@ -118,7 +118,7 @@ func TestIPAddressAllocationService_DeleteIPAddressAllocation(t *testing.T) {
 		},
 	}
 	id := util.GenerateIDByObject(srObj)
-	tags := util.BuildBasicTags(service.NSXConfig.Cluster, srObj, "")
+	tags := common.BuildBasicTags(service.NSXConfig.Cluster, srObj, "")
 	path := fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, id)
 	sr1 := &model.VpcIpAddressAllocation{Id: &id, Path: &path, Tags: tags, ParentPath: &vpcPath}
 
@@ -398,8 +398,8 @@ func TestIPAddressAllocationService_ListIPAddressAllocationID(t *testing.T) {
 	id1 := util.GenerateIDByObject(ipa1)
 	id2 := util.GenerateIDByObject(ipa2)
 
-	sr1 := &model.VpcIpAddressAllocation{Id: &id1, ParentPath: &vpcPath, Path: String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, id1)), Tags: util.BuildBasicTags(service.NSXConfig.Cluster, ipa1, "")}
-	sr2 := &model.VpcIpAddressAllocation{Id: &id2, ParentPath: &vpcPath, Path: String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, id2)), Tags: util.BuildBasicTags(service.NSXConfig.Cluster, ipa2, "")}
+	sr1 := &model.VpcIpAddressAllocation{Id: &id1, ParentPath: &vpcPath, Path: String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, id1)), Tags: common.BuildBasicTags(service.NSXConfig.Cluster, ipa1, "")}
+	sr2 := &model.VpcIpAddressAllocation{Id: &id2, ParentPath: &vpcPath, Path: String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, id2)), Tags: common.BuildBasicTags(service.NSXConfig.Cluster, ipa2, "")}
 
 	returnService.ipAddressAllocationStore.Add(sr1)
 	returnService.ipAddressAllocationStore.Add(sr2)
@@ -452,8 +452,8 @@ func TestIPAddressAllocationService_ListIPAddressAllocationKeys(t *testing.T) {
 	id1 := util.GenerateIDByObject(ipa1)
 	id2 := util.GenerateIDByObject(ipa2)
 
-	sr1 := &model.VpcIpAddressAllocation{Id: &id1, ParentPath: &vpcPath, Path: String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, id1)), Tags: util.BuildBasicTags(service.NSXConfig.Cluster, ipa1, "")}
-	sr2 := &model.VpcIpAddressAllocation{Id: &id2, ParentPath: &vpcPath, Path: String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, id2)), Tags: util.BuildBasicTags(service.NSXConfig.Cluster, ipa2, "")}
+	sr1 := &model.VpcIpAddressAllocation{Id: &id1, ParentPath: &vpcPath, Path: String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, id1)), Tags: common.BuildBasicTags(service.NSXConfig.Cluster, ipa1, "")}
+	sr2 := &model.VpcIpAddressAllocation{Id: &id2, ParentPath: &vpcPath, Path: String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, id2)), Tags: common.BuildBasicTags(service.NSXConfig.Cluster, ipa2, "")}
 
 	returnService.ipAddressAllocationStore.Add(sr1)
 	returnService.ipAddressAllocationStore.Add(sr2)
@@ -574,7 +574,7 @@ func TestIPAddressAllocationService_DeleteIPAddressAllocation_Errors(t *testing.
 		},
 	}
 	id := util.GenerateIDByObject(srObj)
-	tags := util.BuildBasicTags(service.NSXConfig.Cluster, srObj, "")
+	tags := common.BuildBasicTags(service.NSXConfig.Cluster, srObj, "")
 	sr1 := &model.VpcIpAddressAllocation{Id: &id, ParentPath: &vpcPath, Path: String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, id)), Tags: tags}
 
 	returnservice.ipAddressAllocationStore.Add(sr1)
@@ -612,7 +612,7 @@ func TestIPAddressAllocationService_DeleteIPAddressAllocationByNamespacedName(t 
 		},
 	}
 	id := util.GenerateIDByObject(srObj)
-	tags := util.BuildBasicTags(service.NSXConfig.Cluster, srObj, "")
+	tags := common.BuildBasicTags(service.NSXConfig.Cluster, srObj, "")
 	path := "/orgs/default/projects/project-1/vpcs/vpc-1"
 	sr1 := &model.VpcIpAddressAllocation{Id: &id, Path: &path, Tags: tags}
 

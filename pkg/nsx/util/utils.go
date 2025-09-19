@@ -1,10 +1,11 @@
-/* Copyright © 2021 VMware, Inc. All Rights Reserved.
+/* Copyright © 2025 Broadcom, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package util
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha1" // #nosec G505: not used for security purposes
 	"crypto/sha256"
 	"crypto/tls"
@@ -27,8 +28,11 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
@@ -757,4 +761,78 @@ func ParseDHCPMode(mode string) string {
 	}
 	nsxMode = nsxMode[:4] + "_" + nsxMode[4:]
 	return nsxMode
+}
+
+// CheckPodHasNamedPort checks if the pod has a named port, it filters the pod events
+// we don't want to give concern.
+func CheckPodHasNamedPort(pod v1.Pod, reason string) bool {
+	for _, container := range pod.Spec.Containers {
+		for _, port := range container.Ports {
+			if port.Name != "" {
+				log.V(1).Info(fmt.Sprintf("%s pod %s has a named port %s", reason, pod.Name, port.Name))
+				return true
+			}
+		}
+	}
+	log.V(1).Info(fmt.Sprintf("%s pod %s has no named port", reason, pod.Name))
+	return false
+}
+
+// the changes map contains key/value map that you want to change.
+// if giving empty value for a key in changes map like: "mykey":"", that means removing this annotation from k8s resource
+func UpdateK8sResourceAnnotation(client client.Client, ctx context.Context, k8sObj client.Object, changes map[string]string) error {
+	needUpdate := false
+	anno := k8sObj.GetAnnotations() // here it may return a nil because ns do not have annotations.
+	newAnno := If(anno == nil, map[string]string{}, anno).(map[string]string)
+	for key, value := range changes {
+		// if value is not none, it means this key/value need to add/update
+		if value != "" {
+			needUpdate = true
+			newAnno[key] = value
+		} else { // if value is empty, then this key/value need to be removed from map
+			_, exist := newAnno[key]
+			if exist {
+				delete(newAnno, key)
+				needUpdate = true
+			} else {
+				log.Info("No need to change ns annotation")
+				needUpdate = false
+			}
+		}
+	}
+	// update k8s object
+	k8sObj.SetAnnotations(newAnno)
+
+	// only send update request when it is needed
+	if needUpdate {
+		err := client.Update(ctx, k8sObj)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func NSXSubnetDHCPEnabled(nsxSubnet *model.VpcSubnet) bool {
+	return nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode != ParseDHCPMode(v1alpha1.DHCPConfigModeDeactivated)
+}
+
+func CRSubnetDHCPEnabled(obj client.Object) bool {
+	mode := ""
+	switch o := obj.(type) {
+	case *v1alpha1.Subnet:
+		mode = string(o.Spec.SubnetDHCPConfig.Mode)
+	case *v1alpha1.SubnetSet:
+		mode = string(o.Spec.SubnetDHCPConfig.Mode)
+	}
+	return mode == v1alpha1.DHCPConfigModeServer || mode == v1alpha1.DHCPConfigModeRelay
+}
+
+// If is a ternary operator implementation
+func If(condition bool, trueVal, falseVal interface{}) interface{} {
+	if condition {
+		return trueVal
+	} else {
+		return falseVal
+	}
 }
