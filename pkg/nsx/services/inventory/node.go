@@ -66,7 +66,7 @@ func (s *InventoryService) initContainerClusterNode(clusterId string) error {
 }
 
 func (s *InventoryService) CleanStaleInventoryClusterNode() error {
-	log.Debug("Clean stale InventoryClusterNode")
+	log.Trace("Clean stale InventoryClusterNode")
 	inventoryNodes := s.ClusterNodeStore.List()
 	for _, inventoryNode := range inventoryNodes {
 		inventoryNode := inventoryNode.(*containerinventory.ContainerClusterNode)

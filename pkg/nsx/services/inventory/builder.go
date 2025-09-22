@@ -121,7 +121,7 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 		OriginProperties:        originProperties,
 		Status:                  status,
 	}
-	log.Debug("Build pod", "current instance", containerApplicationInstance, "pre instance", preContainerApplicationInstance)
+	log.Trace("Build pod", "current instance", containerApplicationInstance, "pre instance", preContainerApplicationInstance)
 	operation, _ := s.compareAndMergeUpdate(preContainerApplicationInstance, containerApplicationInstance)
 	if operation != operationNone {
 		s.pendingAdd[containerApplicationInstance.ExternalId] = &containerApplicationInstance
@@ -140,7 +140,7 @@ func (s *InventoryService) GetNamespace(namespace string) (*corev1.Namespace, er
 }
 
 func (s *InventoryService) BuildIngress(ingress *networkingv1.Ingress) (retry bool) {
-	log.Debug("Add Ingress", "Name", ingress.Name, "Namespace", ingress.Namespace)
+	log.Trace("Add Ingress", "Name", ingress.Name, "Namespace", ingress.Namespace)
 	namespace, err := s.GetNamespace(ingress.Namespace)
 	retry = true
 	if err != nil {
@@ -194,7 +194,7 @@ func (s *InventoryService) BuildIngress(ingress *networkingv1.Ingress) (retry bo
 	if len(appIDs) > 0 {
 		containerIngress.ContainerApplicationIds = appIDs
 	}
-	log.Debug("Build ingress", "current instance", containerIngress, "pre instance", preIngress)
+	log.Trace("Build ingress", "current instance", containerIngress, "pre instance", preIngress)
 	operation, _ := s.compareAndMergeUpdate(preIngress, containerIngress)
 	if operation != operationNone {
 		s.pendingAdd[containerIngress.ExternalId] = &containerIngress
@@ -274,7 +274,7 @@ func (s *InventoryService) compareAndMergeUpdate(pre interface{}, cur interface{
 		return operationCreate, updateProperties
 	} else if len(updateProperties) > 2 {
 		s.requestBuffer = append(s.requestBuffer, containerinventory.ContainerInventoryObject{ContainerObject: updateProperties, ObjectUpdateType: operationUpdate})
-		log.Debug("Inventory compare", "updated properties", updateProperties)
+		log.Trace("Inventory compare", "updated properties", updateProperties)
 		return operationUpdate, updateProperties
 	} else {
 		return operationNone, nil
@@ -329,7 +329,7 @@ func (s *InventoryService) BuildNamespace(namespace *corev1.Namespace) (retry bo
 	if operation != operationNone {
 		s.pendingAdd[containerProject.ExternalId] = &containerProject
 	} else {
-		log.Info("Skip, namespace not updated", "Namespace", namespace.Name)
+		log.Trace("Skip, namespace not updated", "Namespace", namespace.Name)
 	}
 	return
 }
@@ -395,12 +395,12 @@ func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 		Status:             status,
 	}
 
-	log.Debug("Build service", "current application", containerApplication, "pre application", preContainerApplication)
+	log.Trace("Build service", "current application", containerApplication, "pre application", preContainerApplication)
 	operation, _ := s.compareAndMergeUpdate(preContainerApplication, containerApplication)
 	if operation != operationNone {
 		s.pendingAdd[containerApplication.ExternalId] = &containerApplication
 	} else {
-		log.Debug("Skip, service not updated", "Service", service.Name, "Namespace", service.Namespace)
+		log.Trace("Skip, service not updated", "Service", service.Name, "Namespace", service.Namespace)
 	}
 	return
 }
@@ -576,13 +576,13 @@ func (s *InventoryService) BuildNode(node *corev1.Node) (retry bool) {
 		OriginProperties:   originProperties,
 	}
 
-	log.Debug("Build node", "current instance", containerClusterNode, "pre instance", preContainerClusterNode)
+	log.Trace("Build node", "current instance", containerClusterNode, "pre instance", preContainerClusterNode)
 
 	operation, _ := s.compareAndMergeUpdate(preContainerClusterNode, containerClusterNode)
 	if operation != operationNone {
 		s.pendingAdd[containerClusterNode.ExternalId] = &containerClusterNode
 	} else {
-		log.Debug("Skip, node not updated", "Node", node.Name)
+		log.Trace("Skip, node not updated", "Node", node.Name)
 	}
 	return
 }
@@ -655,7 +655,7 @@ func (s *InventoryService) BuildNetworkPolicy(networkPolicy *networkingv1.Networ
 	if operation != operationNone {
 		s.pendingAdd[containerNetworkPolicy.ExternalId] = &containerNetworkPolicy
 	} else {
-		log.Debug("Skip, network policy not updated", "NetworkPolicy", networkPolicy.Name)
+		log.Trace("Skip, network policy not updated", "NetworkPolicy", networkPolicy.Name)
 	}
 	return
 }
