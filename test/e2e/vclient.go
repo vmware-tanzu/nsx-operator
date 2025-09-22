@@ -200,7 +200,7 @@ func (c *vcClient) getStoragePolicyID() (string, string, error) {
 	}
 
 	for _, po := range response {
-		log.Info("Checking storage policy", "policy name", po.Name, "description", po.Description, "policy", po.Policy)
+		log.Trace("Checking storage policy", "policy name", po.Name, "description", po.Description, "policy", po.Policy)
 		if strings.Contains(po.Name, "global") {
 			return po.Name, po.Policy, nil
 		}
@@ -313,7 +313,7 @@ func createVCNamespaceSpec(namespace string, svID string, vpcPath string) *VCNam
 
 func (c *vcClient) prepareRequest(method string, urlPath string, data []byte) (*http.Request, error) {
 	url := fmt.Sprintf("%s://%s%s", c.url.Scheme, c.url.Host, urlPath)
-	log.Info("Requesting", "url", url)
+	log.Info("HTTP req", "url", url, "method", method)
 	req, err := http.NewRequest(method, url, bytes.NewBuffer(data))
 	if err != nil {
 		return nil, err

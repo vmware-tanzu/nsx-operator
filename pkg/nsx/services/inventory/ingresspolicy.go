@@ -109,7 +109,7 @@ func (s *InventoryService) IsIngressDeleted(namespace, name, externalId string, 
 }
 
 func (s *InventoryService) CleanStaleInventoryIngressPolicy() error {
-	log.Debug("Clean stale InventoryIngressPolicy")
+	log.Trace("Clean stale InventoryIngressPolicy")
 	containerIngressPolicies := s.IngressPolicyStore.List()
 	for _, ingressPolicy := range containerIngressPolicies {
 		ingress := ingressPolicy.(*containerinventory.ContainerIngressPolicy)
