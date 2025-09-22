@@ -123,7 +123,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	}
 
 	// Initialize and start the system health reporter
-	if cf.CoeConfig.EnableVPCNetwork && cf.EnableInventory {
+	if cf.CoeConfig.EnableVPCNetwork && cf.EnableInventory && cf.CoeConfig.EnableSha {
 		health.Start(nsxClient, cf, mgr.GetClient())
 	}
 
