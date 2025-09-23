@@ -98,6 +98,7 @@ type DefaultConfig struct {
 type CoeConfig struct {
 	Cluster          string `ini:"cluster"`
 	EnableVPCNetwork bool   `ini:"enable_vpc_network"`
+	EnableSha        bool   `ini:"enable_sha"`
 }
 
 type NsxConfig struct {
