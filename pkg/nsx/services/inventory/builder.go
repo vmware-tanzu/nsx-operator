@@ -433,18 +433,8 @@ func (s *InventoryService) determineServiceStatus(podIDs []string, hasAddr bool,
 		status = InventoryStatusUp
 	} else if hasAddr {
 		status = InventoryStatusUnknown
-		errorMessage := "Service endpoint status is unknown"
-		uniqueErrors[errorMessage] = true
-		*networkErrors = append(*networkErrors, common.NetworkError{
-			ErrorMessage: errorMessage,
-		})
 	} else {
 		status = InventoryStatusDown
-		errorMessage := "Failed to get endpoints for Service"
-		uniqueErrors[errorMessage] = true
-		*networkErrors = append(*networkErrors, common.NetworkError{
-			ErrorMessage: errorMessage,
-		})
 	}
 
 	return status, netStatus
