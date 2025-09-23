@@ -99,7 +99,7 @@ func (m *MockSubnetServiceProvider) GetSubnetByCR(subnet *v1alpha1.Subnet) (*mod
 	return nil, nil
 }
 
-func (m *MockSubnetServiceProvider) GetNSXSubnetFromCacheOrAPI(associate string) (*model.VpcSubnet, error) {
+func (m *MockSubnetServiceProvider) GetNSXSubnetFromCacheOrAPI(associate string, forceAPI bool) (*model.VpcSubnet, error) {
 	return nil, nil
 }
 

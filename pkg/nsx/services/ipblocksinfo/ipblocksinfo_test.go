@@ -510,7 +510,7 @@ func TestIPBlocksInfoService_getSharedSubnetsCIDRs(t *testing.T) {
 		associatePrivateTgwSubnet = "default:vpc1:private-tgw-subnet"
 	)
 
-	getSubnetPatch := gomonkey.ApplyMethod(reflect.TypeOf(service.subnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, associate string) (*model.VpcSubnet, error) {
+	getSubnetPatch := gomonkey.ApplyMethod(reflect.TypeOf(service.subnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, associate string, forceAPI bool) (*model.VpcSubnet, error) {
 		public := "Public"
 		privateTgw := "Private_TGW"
 
@@ -574,7 +574,7 @@ func TestIPBlocksInfoService_getSharedSubnetsCIDRs(t *testing.T) {
 
 	// Test: SearchResource returns error
 	getSubnetPatch.Reset()
-	getSubnetPatch = gomonkey.ApplyMethod(reflect.TypeOf(service.subnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, associate string) (*model.VpcSubnet, error) {
+	getSubnetPatch = gomonkey.ApplyMethod(reflect.TypeOf(service.subnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, associate string, forceAPI bool) (*model.VpcSubnet, error) {
 		return nil, fmt.Errorf("get subnet error")
 	})
 	defer getSubnetPatch.Reset()

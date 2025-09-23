@@ -173,30 +173,32 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 			return common.ResultRequeue, err
 		}
-		if nsxSubnetPortState.ExternalAddressBinding == nil && ab == nil {
-			err = r.IpAddressAllocationService.DeleteIPAddressAllocationForAddressBinding(subnetPort)
-			if err != nil {
-				log.Error(err, "Failed to cleanup possible NSX IPAddressAllocation", "SubnetPort", subnetPort)
-				r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
-				return common.ResultRequeue, err
+		if nsxSubnetPortState != nil {
+			if nsxSubnetPortState.ExternalAddressBinding == nil && ab == nil {
+				err = r.IpAddressAllocationService.DeleteIPAddressAllocationForAddressBinding(subnetPort)
+				if err != nil {
+					log.Error(err, "Failed to cleanup possible NSX IPAddressAllocation", "SubnetPort", subnetPort)
+					r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+					return common.ResultRequeue, err
+				}
 			}
-		}
-		subnetPort.Status.Attachment = v1alpha1.PortAttachment{ID: *nsxSubnetPortState.Attachment.Id}
-		subnetPort.Status.NetworkInterfaceConfig = v1alpha1.NetworkInterfaceConfig{
-			IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
-				{
-					Gateway: "",
+			subnetPort.Status.Attachment = v1alpha1.PortAttachment{ID: *nsxSubnetPortState.Attachment.Id}
+			subnetPort.Status.NetworkInterfaceConfig = v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+					{
+						Gateway: "",
+					},
 				},
-			},
-			DHCPDeactivatedOnSubnet: !enableDHCP,
-		}
-		if (!enableDHCP || len(subnetPort.Spec.AddressBindings) > 0) && len(nsxSubnetPortState.RealizedBindings) > 0 {
-			subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress = *nsxSubnetPortState.RealizedBindings[0].Binding.IpAddress
-			subnetPort.Status.NetworkInterfaceConfig.MACAddress = strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\"")
-		}
-		err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnetPath, nsxSubnet)
-		if err != nil {
-			log.Error(err, "Failed to retrieve Subnet status for SubnetPort", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
+				DHCPDeactivatedOnSubnet: !enableDHCP,
+			}
+			if (!enableDHCP || len(subnetPort.Spec.AddressBindings) > 0) && len(nsxSubnetPortState.RealizedBindings) > 0 {
+				subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress = *nsxSubnetPortState.RealizedBindings[0].Binding.IpAddress
+				subnetPort.Status.NetworkInterfaceConfig.MACAddress = strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\"")
+			}
+			err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnet)
+			if err != nil {
+				log.Error(err, "Failed to retrieve Subnet status for SubnetPort", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
+			}
 		}
 		if reflect.DeepEqual(*old_status, subnetPort.Status) {
 			log.Info("Status (without conditions) already matched", "new status", subnetPort.Status, "existing status", old_status)
@@ -779,8 +781,8 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 	return
 }
 
-func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alpha1.SubnetPort, nsxSubnetPath string, nsxSubnet *model.VpcSubnet) error {
-	gateway, prefix, err := r.SubnetPortService.GetGatewayPrefixForSubnetPort(subnetPort, nsxSubnetPath)
+func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) error {
+	gateway, prefix, err := r.SubnetPortService.GetGatewayPrefixForSubnetPort(nsxSubnet)
 	if err != nil {
 		return err
 	}

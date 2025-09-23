@@ -279,7 +279,7 @@ func (r *SubnetReconciler) handleSharedSubnet(ctx context.Context, subnetCR *v1a
 	log.Info("Subnet has associated-resource annotation, skipping NSX Subnet creation", "Subnet", namespacedName, "AssociatedResource", associatedResource)
 
 	// Get NSX subnet from cache or API
-	nsxSubnet, err := r.SubnetService.GetNSXSubnetFromCacheOrAPI(associatedResource)
+	nsxSubnet, err := r.SubnetService.GetNSXSubnetFromCacheOrAPI(associatedResource, false)
 	if err != nil {
 		r.updateSharedSubnetWithError(ctx, namespacedName, err, "Failed to get NSX Subnet for associated resource")
 		return ResultRequeue, err

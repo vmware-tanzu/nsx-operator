@@ -76,7 +76,7 @@ func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns strin
 		return err
 	}
 
-	_, err = r.SubnetService.GetNSXSubnetFromCacheOrAPI(associatedName)
+	_, err = r.SubnetService.GetNSXSubnetFromCacheOrAPI(associatedName, false)
 	if err != nil {
 		return err
 	}

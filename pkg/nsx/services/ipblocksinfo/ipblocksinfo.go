@@ -252,7 +252,7 @@ func (s *IPBlocksInfoService) getSharedSubnetsCIDRs(vpcConfigList []v1alpha1.VPC
 			continue
 		}
 		associate := fmt.Sprintf("%s:%s:%s", vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
-		subnet, err := s.subnetService.GetNSXSubnetFromCacheOrAPI(associate)
+		subnet, err := s.subnetService.GetNSXSubnetFromCacheOrAPI(associate, false)
 		if err != nil {
 			log.Warn("failed to get nsx subnet: err", err, "subnetPath", associate)
 			continue
