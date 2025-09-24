@@ -169,59 +169,59 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	connector := restConnector(cluster)
 	connectorAllowOverwrite := restConnectorAllowOverwrite(cluster)
 
-	queryClient := search.NewQueryClient(connector)
-	groupClient := domains.NewGroupsClient(connector)
-	securityClient := domains.NewSecurityPoliciesClient(connector)
-	ruleClient := security_policies.NewRulesClient(connector)
-	infraClient := nsx_policy.NewInfraClient(connector)
-	statusClient := restore.NewStatusClient(restConnector(cluster))
+	queryClient := search.NewQueryClient(connectorAllowOverwrite)
+	groupClient := domains.NewGroupsClient(connectorAllowOverwrite)
+	securityClient := domains.NewSecurityPoliciesClient(connectorAllowOverwrite)
+	ruleClient := security_policies.NewRulesClient(connectorAllowOverwrite)
+	infraClient := nsx_policy.NewInfraClient(connectorAllowOverwrite)
+	statusClient := restore.NewStatusClient(connectorAllowOverwrite)
 
-	clusterControlPlanesClient := enforcement_points.NewClusterControlPlanesClient(connector)
-	hostTransportNodesClient := enforcement_points.NewHostTransportNodesClient(connector)
-	realizedEntitiesClient := infra_realized.NewRealizedEntitiesClient(connector)
-	realizedEntityClient := infra_realized.NewRealizedEntityClient(connector)
-	mpQueryClient := mpsearch.NewQueryClient(connector)
-	certificatesClient := trust_management.NewCertificatesClient(connector)
-	principalIdentitiesClient := trust_management.NewPrincipalIdentitiesClient(connector)
-	withCertificateClient := principal_identities.NewWithCertificateClient(connector)
+	clusterControlPlanesClient := enforcement_points.NewClusterControlPlanesClient(connectorAllowOverwrite)
+	hostTransportNodesClient := enforcement_points.NewHostTransportNodesClient(connectorAllowOverwrite)
+	realizedEntitiesClient := infra_realized.NewRealizedEntitiesClient(connectorAllowOverwrite)
+	realizedEntityClient := infra_realized.NewRealizedEntityClient(connectorAllowOverwrite)
+	mpQueryClient := mpsearch.NewQueryClient(connectorAllowOverwrite)
+	certificatesClient := trust_management.NewCertificatesClient(connectorAllowOverwrite)
+	principalIdentitiesClient := trust_management.NewPrincipalIdentitiesClient(connectorAllowOverwrite)
+	withCertificateClient := principal_identities.NewWithCertificateClient(connectorAllowOverwrite)
 
-	lbAppProfileClient := infra.NewLbAppProfilesClient(connector)
-	lbPersistenceProfilesClient := infra.NewLbPersistenceProfilesClient(connector)
-	lbMonitorProfilesClient := infra.NewLbMonitorProfilesClient(connector)
+	lbAppProfileClient := infra.NewLbAppProfilesClient(connectorAllowOverwrite)
+	lbPersistenceProfilesClient := infra.NewLbPersistenceProfilesClient(connectorAllowOverwrite)
+	lbMonitorProfilesClient := infra.NewLbMonitorProfilesClient(connectorAllowOverwrite)
 
-	orgRootClient := nsx_policy.NewOrgRootClient(connector)
-	projectInfraClient := projects.NewInfraClient(connector)
-	projectClient := orgs.NewProjectsClient(connector)
+	orgRootClient := nsx_policy.NewOrgRootClient(connectorAllowOverwrite)
+	projectInfraClient := projects.NewInfraClient(connectorAllowOverwrite)
+	projectClient := orgs.NewProjectsClient(connectorAllowOverwrite)
 	vpcClient := projects.NewVpcsClient(connectorAllowOverwrite)
-	vpcConnectivityProfilesClient := projects.NewVpcConnectivityProfilesClient(connector)
-	ipBlockClient := project_infra.NewIpBlocksClient(connector)
+	vpcConnectivityProfilesClient := projects.NewVpcConnectivityProfilesClient(connectorAllowOverwrite)
+	ipBlockClient := project_infra.NewIpBlocksClient(connectorAllowOverwrite)
 	staticRouteClient := vpcs.NewStaticRoutesClient(connectorAllowOverwrite)
-	natRulesClient := nat.NewNatRulesClient(connector)
+	natRulesClient := nat.NewNatRulesClient(connectorAllowOverwrite)
 	vpcGroupClient := vpcs.NewGroupsClient(connectorAllowOverwrite)
 	portClient := subnets.NewPortsClient(connectorAllowOverwrite)
-	portStateClient := ports.NewStateClient(connector)
-	ipPoolClient := subnets.NewIpPoolsClient(connector)
-	ipAllocationClient := ip_pools.NewIpAllocationsClient(connector)
-	statsClient := dhcp_server_config.NewStatsClient(connector)
+	portStateClient := ports.NewStateClient(connectorAllowOverwrite)
+	ipPoolClient := subnets.NewIpPoolsClient(connectorAllowOverwrite)
+	ipAllocationClient := ip_pools.NewIpAllocationsClient(connectorAllowOverwrite)
+	statsClient := dhcp_server_config.NewStatsClient(connectorAllowOverwrite)
 	subnetsClient := vpcs.NewSubnetsClient(connectorAllowOverwrite)
-	subnetStatusClient := subnets.NewStatusClient(connector)
+	subnetStatusClient := subnets.NewStatusClient(connectorAllowOverwrite)
 	ipAddressAllocationClient := vpcs.NewIpAddressAllocationsClient(connectorAllowOverwrite)
 	vpcLBSClient := vpcs.NewVpcLbsClient(connectorAllowOverwrite)
 	vpcLbVirtualServersClient := vpcs.NewVpcLbVirtualServersClient(connectorAllowOverwrite)
 	vpcLbPoolsClient := vpcs.NewVpcLbPoolsClient(connectorAllowOverwrite)
-	vpcAttachmentClient := vpcs.NewAttachmentsClient(connector)
+	vpcAttachmentClient := vpcs.NewAttachmentsClient(connectorAllowOverwrite)
 
 	vpcSecurityClient := vpcs.NewSecurityPoliciesClient(connectorAllowOverwrite)
 	vpcRuleClient := vpc_sp.NewRulesClient(connectorAllowOverwrite)
 
-	transitGatewayClient := projects.NewTransitGatewaysClient(connector)
-	transitGatewayAttachmentClient := transit_gateways.NewAttachmentsClient(connector)
+	transitGatewayClient := projects.NewTransitGatewaysClient(connectorAllowOverwrite)
+	transitGatewayAttachmentClient := transit_gateways.NewAttachmentsClient(connectorAllowOverwrite)
 
-	subnetConnectionBindingMapsClient := subnets.NewSubnetConnectionBindingMapsClient(connector)
-	DynamicIPReservationsClient := subnets.NewDynamicIpReservationsClient(connector)
+	subnetConnectionBindingMapsClient := subnets.NewSubnetConnectionBindingMapsClient(connectorAllowOverwrite)
+	DynamicIPReservationsClient := subnets.NewDynamicIpReservationsClient(connectorAllowOverwrite)
 
 	nsxApiClient, _ := CreateNsxtApiClient(cf, cluster.client)
-	macPoolsClient := pools.NewMacPoolsClient(connector)
+	macPoolsClient := pools.NewMacPoolsClient(connectorAllowOverwrite)
 
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
@@ -233,7 +233,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 
 	nsxClient := &Client{
 		NsxConfig:                  cf,
-		RestConnector:              connector,
+		RestConnector:              connectorAllowOverwrite,
 		QueryClient:                queryClient,
 		GroupClient:                groupClient,
 		SecurityClient:             securityClient,
