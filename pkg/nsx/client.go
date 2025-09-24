@@ -166,7 +166,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	c.EnvoyPort = cf.EnvoyPort
 	cluster, _ := NewCluster(c)
 
-	connector := restConnector(cluster)
 	connectorAllowOverwrite := restConnectorAllowOverwrite(cluster)
 
 	queryClient := search.NewQueryClient(connectorAllowOverwrite)
