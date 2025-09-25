@@ -211,7 +211,12 @@ func testUpdateVPCNetworkconfigNetworkInfo(t *testing.T) {
 	networkInfo := assureNetworkInfo(t, ns, ns)
 	require.NotNil(t, networkInfo)
 
-	networkInfoNew := getNetworkInfoWithPrivateIPs(t, ns, networkInfo.Name)
+	networkInfoNew := getNetworkInfoWithCondition(t, ns, networkInfo.Name, func(networkInfo *v1alpha1.NetworkInfo) (bool, error) {
+		if len(networkInfo.VPCs) > 0 && len(networkInfo.VPCs[0].PrivateIPs) > 0 {
+			return true, nil
+		}
+		return false, nil
+	})
 	privateIPs := networkInfoNew.VPCs[0].PrivateIPs
 	assert.Contains(t, privateIPs, customizedPrivateCIDR1, "privateIPs %s should contain %s", privateIPs, customizedPrivateCIDR1)
 	assert.Contains(t, privateIPs, customizedPrivateCIDR2, "privateIPs %s should contain %s", privateIPs, customizedPrivateCIDR1)
@@ -219,7 +224,12 @@ func testUpdateVPCNetworkconfigNetworkInfo(t *testing.T) {
 	vncPath, _ := filepath.Abs("./manifest/testVPC/customize_networkconfig_updated.yaml")
 	require.NoError(t, applyYAML(vncPath, ""))
 
-	networkInfoNew = getNetworkInfoWithPrivateIPs(t, ns, networkInfo.Name)
+	networkInfoNew = getNetworkInfoWithCondition(t, ns, networkInfo.Name, func(networkInfo *v1alpha1.NetworkInfo) (bool, error) {
+		if len(networkInfo.VPCs) > 0 && len(networkInfo.VPCs[0].PrivateIPs) > 0 {
+			return true, nil
+		}
+		return false, nil
+	})
 	privateIPs = networkInfoNew.VPCs[0].PrivateIPs
 	assert.Contains(t, privateIPs, customizedPrivateCIDR3, "privateIPs %s should contain %s", privateIPs, customizedPrivateCIDR3)
 }
@@ -310,7 +320,7 @@ func assureNamespaceDeleted(t *testing.T, ns string) {
 	return
 }
 
-func getNetworkInfoWithPrivateIPs(t *testing.T, ns, networkInfoName string) (networkInfo *v1alpha1.NetworkInfo) {
+func getNetworkInfoWithCondition(t *testing.T, ns, networkInfoName string, condition func(networkInfo *v1alpha1.NetworkInfo) (bool, error)) (networkInfo *v1alpha1.NetworkInfo) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
@@ -319,10 +329,7 @@ func getNetworkInfoWithPrivateIPs(t *testing.T, ns, networkInfoName string) (net
 			log.Trace("Check private ips of networkinfo", "error", err)
 			return false, fmt.Errorf("error when waiting for vpcnetworkinfo private ips: %s", networkInfoName)
 		}
-		if len(networkInfo.VPCs) > 0 && len(networkInfo.VPCs[0].PrivateIPs) > 0 {
-			return true, nil
-		}
-		return false, nil
+		return condition(networkInfo)
 	})
 	require.NoError(t, err)
 	return
