@@ -80,7 +80,7 @@ func (s *VPCService) buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace,
 			loadBalancerVPCEndpointEnabled := true
 			vpc.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &loadBalancerVPCEndpointEnabled}
 		}
-		vpc.Tags = util.BuildBasicTags(cluster, obj, nsObj.UID)
+		vpc.Tags = common.BuildBasicTags(cluster, obj, nsObj.UID)
 		vpc.Tags = append(vpc.Tags, model.Tag{
 			Scope: common.String(common.TagScopeManagedBy), Tag: common.String(common.AutoCreatedTagValue)})
 	}
@@ -108,7 +108,7 @@ func buildNSXLBS(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster, lbsSiz
 	lbsName := defaultLBSName
 	lbs.Id = common.String(defaultLBSName)
 	lbs.DisplayName = &lbsName
-	lbs.Tags = util.BuildBasicTags(cluster, obj, nsObj.GetUID())
+	lbs.Tags = common.BuildBasicTags(cluster, obj, nsObj.GetUID())
 	// "created_for" is required by NCP, and "lb_t1_link_ip" is not needed for VPC
 	lbs.Tags = append(lbs.Tags, model.Tag{
 		Scope: common.String(common.TagScopeCreatedFor),
@@ -125,7 +125,7 @@ func buildVpcAttachment(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster 
 	attachment.VpcConnectivityProfile = &vpcconnectiveprofile
 	attachment.DisplayName = common.String(common.DefaultVpcAttachmentId)
 	attachment.Id = common.String(common.DefaultVpcAttachmentId)
-	attachment.Tags = util.BuildBasicTags(cluster, obj, nsObj.GetUID())
+	attachment.Tags = common.BuildBasicTags(cluster, obj, nsObj.GetUID())
 	if restoreMode && len(obj.VPCs) > 0 && len(obj.VPCs[0].DefaultSNATIP) > 0 {
 		log.Debug("Restoring DefaultSNATIP", "DefaultSNATIP", obj.VPCs[0].DefaultSNATIP, "NetworkInfo", obj.Name)
 		attachment.PreferredDefaultSnatIp = &obj.VPCs[0].DefaultSNATIP

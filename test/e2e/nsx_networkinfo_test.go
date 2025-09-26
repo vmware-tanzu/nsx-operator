@@ -16,6 +16,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 const (
@@ -154,8 +155,8 @@ func testSharedNSXVPC(t *testing.T) {
 		ObjectMeta: v1.ObjectMeta{
 			Name: ns1,
 			Annotations: map[string]string{
-				common.AnnotationVPCNetworkConfig:   testCustomizedNetworkConfigName,
-				common.AnnotationSharedVPCNamespace: ns,
+				common.AnnotationVPCNetworkConfig: testCustomizedNetworkConfigName,
+				util.AnnotationSharedVPCNamespace: ns,
 			},
 		},
 	}

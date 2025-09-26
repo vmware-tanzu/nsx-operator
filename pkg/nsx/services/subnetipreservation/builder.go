@@ -11,7 +11,7 @@ import (
 )
 
 func (s *IPReservationService) buildIPReservation(ipReservation *v1alpha1.SubnetIPReservation, subnetPath string) *model.DynamicIpAddressReservation {
-	tags := util.BuildBasicTags(getCluster(s), ipReservation, "")
+	tags := common.BuildBasicTags(getCluster(s), ipReservation, "")
 	nsxIPReservation := &model.DynamicIpAddressReservation{
 		NumberOfIps: common.Int64(int64(ipReservation.Spec.NumberOfIPs)),
 		Tags:        tags,

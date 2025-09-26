@@ -78,7 +78,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		Name: obj.GetName(),
 		UID:  types.UID(nsUID),
 	}
-	staticIpAllocation := !util.CRSubnetDHCPEnabled(obj)
+	staticIpAllocation := !nsxutil.CRSubnetDHCPEnabled(obj)
 	var nsxSubnet *model.VpcSubnet
 	switch o := obj.(type) {
 	case *v1alpha1.Subnet:
@@ -171,7 +171,7 @@ func (service *SubnetService) buildSubnetDHCPConfig(mode string, dhcpServerAddit
 }
 
 func (service *SubnetService) buildBasicTags(obj client.Object) []model.Tag {
-	return util.BuildBasicTags(getCluster(service), obj, "")
+	return common.BuildBasicTags(getCluster(service), obj, "")
 }
 
 func getNamespaceUUID(tags []model.Tag) string {

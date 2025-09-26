@@ -19,7 +19,7 @@ var (
 )
 
 func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionBindingMap, parentSubnetPaths []string) []*model.SubnetConnectionBindingMap {
-	tags := util.BuildBasicTags(s.NSXConfig.Cluster, binding, "")
+	tags := common.BuildBasicTags(s.NSXConfig.Cluster, binding, "")
 	bindingMaps := make([]*model.SubnetConnectionBindingMap, len(parentSubnetPaths))
 	for i := range parentSubnetPaths {
 		path := parentSubnetPaths[i]

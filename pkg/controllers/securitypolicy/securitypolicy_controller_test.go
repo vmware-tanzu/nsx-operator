@@ -37,6 +37,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	ctrcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -45,7 +46,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func fakeService() *securitypolicy.SecurityPolicyService {
@@ -336,7 +336,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	// DeletionTimestamp.IsZero = ture, create security policy in SystemNamespace
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
 	err := errors.New("fetch namespace associated with security policy CR failed")
-	IsSystemNamespacePatch := gomonkey.ApplyFunc(util.IsSystemNamespace, func(client client.Client, ns string, obj *v1.Namespace,
+	IsSystemNamespacePatch := gomonkey.ApplyFunc(nsxutil.IsSystemNamespace, func(client client.Client, ns string, obj *v1.Namespace,
 	) (bool, error) {
 		return true, errors.New("fetch namespace associated with security policy CR failed")
 	})
@@ -348,7 +348,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 
 	// DeletionTimestamp.IsZero = ture, create security policy fail
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
-	IsSystemNamespacePatch = gomonkey.ApplyFunc(util.IsSystemNamespace, func(client client.Client, ns string, obj *v1.Namespace,
+	IsSystemNamespacePatch = gomonkey.ApplyFunc(nsxutil.IsSystemNamespace, func(client client.Client, ns string, obj *v1.Namespace,
 	) (bool, error) {
 		return false, nil
 	})

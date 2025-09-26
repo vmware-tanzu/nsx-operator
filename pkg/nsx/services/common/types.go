@@ -1,4 +1,4 @@
-/* Copyright © 2021 VMware, Inc. All Rights Reserved.
+/* Copyright © 2025 Broadcom, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package common
@@ -16,16 +16,10 @@ import (
 )
 
 const (
-	HashLength                         int    = 8
-	Base62HashLength                   int    = 6
-	UUIDHashLength                     int    = 5
 	MaxTagsCount                       int    = 26
-	MaxTagScopeLength                  int    = 128
-	MaxTagValueLength                  int    = 256
 	MaxIdLength                        int    = 255
 	MaxNameLength                      int    = 255
 	MaxSubnetNameLength                int    = 80
-	VPCLbResourcePathMinSegments       int    = 8
 	PriorityNetworkPolicyAllowRule     int    = 2010
 	PriorityNetworkPolicyIsolationRule int    = 2090
 	TagScopeNCPCluster                 string = "ncp/cluster"
@@ -90,7 +84,6 @@ const (
 	TagValueDLB                        string = "DLB"
 	TagValueSLB                        string = "SLB"
 	AnnotationVPCNetworkConfig         string = "nsx.vmware.com/vpc_network_config"
-	AnnotationSharedVPCNamespace       string = "nsx.vmware.com/shared_vpc_namespace"
 	AnnotationDefaultNetworkConfig     string = "nsx.vmware.com/default"
 	AnnotationAttachmentRef            string = "nsx.vmware.com/attachment_ref"
 	AnnotationAssociatedResource       string = "nsx.vmware.com/associated-resource"

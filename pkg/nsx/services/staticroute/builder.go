@@ -61,7 +61,7 @@ func (service *StaticRouteService) buildStaticRouteId(obj v1.Object) string {
 }
 
 func (service *StaticRouteService) buildBasicTags(obj *v1alpha1.StaticRoute) []model.Tag {
-	return util.BuildBasicTags(service.Service.NSXConfig.Cluster, obj, service.GetNamespaceUID(obj.ObjectMeta.Namespace))
+	return common.BuildBasicTags(service.Service.NSXConfig.Cluster, obj, service.GetNamespaceUID(obj.ObjectMeta.Namespace))
 }
 
 func (service *StaticRouteService) staticRoutesIdExists(id string) bool {

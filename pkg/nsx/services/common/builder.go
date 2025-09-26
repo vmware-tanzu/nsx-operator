@@ -13,10 +13,14 @@ import (
 	"github.com/google/uuid"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	v1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	t1v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -171,7 +175,7 @@ func BuildUniqueIDWithRandomUUID(initialObject metav1.Object, idGeneratorFn func
 // string already exists, a random UUID is used to generate a hash suffix to replace "hash(uid)[UUIDHashLength]".
 // nsx services should use this function to generate the NSX resource id if a "suffixStr" is expected.
 func BuildUniqueIDWithSuffix(obj metav1.Object, suffixStr string, maxLength int, idGeneratorFn func(obj metav1.Object) string, idExistsFn func(id string) bool) string {
-	maxNameLength := maxLength - UUIDHashLength - 1
+	maxNameLength := maxLength - util.UUIDHashLength - 1
 	prefix := obj.GetName()
 	suffix := ""
 	if len(suffixStr) > 0 {
@@ -188,4 +192,69 @@ func BuildUniqueIDWithSuffix(obj metav1.Object, suffixStr string, maxLength int,
 		UID:  obj.GetUID(),
 	}
 	return BuildUniqueIDWithRandomUUID(objectMeta, idGeneratorFn, idExistsFn)
+}
+
+// BuildBasicTags creates basic tags for NSX resources based on cluster, version, and object information
+func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []model.Tag {
+	tags := []model.Tag{
+		{
+			Scope: String(TagScopeCluster),
+			Tag:   String(cluster),
+		},
+		{
+			Scope: String(TagScopeVersion),
+			Tag:   String(strings.Join(TagValueVersion, ".")),
+		},
+	}
+	switch i := obj.(type) {
+	case *v1alpha1.StaticRoute:
+		tags = append(tags, model.Tag{Scope: String(TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(TagScopeStaticRouteCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(TagScopeStaticRouteCRUID), Tag: String(string(i.UID))})
+	case *t1v1alpha1.SecurityPolicy:
+		tags = append(tags, model.Tag{Scope: String(TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+	case *networkingv1.NetworkPolicy:
+		tags = append(tags, model.Tag{Scope: String(TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+	case *v1alpha1.Subnet:
+		tags = append(tags, model.Tag{Scope: String(TagScopeSubnetCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(TagScopeSubnetCRUID), Tag: String(string(i.UID))})
+	case *v1alpha1.SubnetSet:
+		tags = append(tags, model.Tag{Scope: String(TagScopeSubnetSetCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(TagScopeSubnetSetCRUID), Tag: String(string(i.UID))})
+	case *v1alpha1.SubnetPort:
+		tags = append(tags, model.Tag{Scope: String(TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(TagScopeVMNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(TagScopeVMNamespaceUID), Tag: String(string(namespaceID))})
+		tags = append(tags, model.Tag{Scope: String(TagScopeSubnetPortCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(TagScopeSubnetPortCRUID), Tag: String(string(i.UID))})
+	case *v1.Pod:
+		tags = append(tags, model.Tag{Scope: String(TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(TagScopePodName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(TagScopePodUID), Tag: String(string(i.UID))})
+	case *v1alpha1.NetworkInfo:
+		tags = append(tags, model.Tag{Scope: String(TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+	case *v1alpha1.IPAddressAllocation:
+		tags = append(tags, model.Tag{Scope: String(TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(TagScopeIPAddressAllocationCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(TagScopeIPAddressAllocationCRUID), Tag: String(string(i.UID))})
+	case *v1alpha1.SubnetConnectionBindingMap:
+		tags = append(tags, model.Tag{Scope: String(TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(TagScopeSubnetBindingCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(TagScopeSubnetBindingCRUID), Tag: String(string(i.ObjectMeta.UID))})
+	case *v1alpha1.AddressBinding:
+		tags = append(tags, model.Tag{Scope: String(TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(TagScopeAddressBindingCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(TagScopeAddressBindingCRUID), Tag: String(string(i.UID))})
+	case *v1alpha1.SubnetIPReservation:
+		tags = append(tags, model.Tag{Scope: String(TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
+		tags = append(tags, model.Tag{Scope: String(TagScopeSubnetIPReservationCRName), Tag: String(i.ObjectMeta.Name)})
+		tags = append(tags, model.Tag{Scope: String(TagScopeSubnetIPReservationCRUID), Tag: String(string(i.ObjectMeta.UID))})
+	default:
+		log.Info("Unknown obj type", "obj", obj)
+	}
+
+	if len(namespaceID) > 0 {
+		tags = append(tags, model.Tag{Scope: String(TagScopeNamespaceUID), Tag: String(string(namespaceID))})
+	}
+	return tags
 }
