@@ -108,7 +108,9 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
 	patchesGetSubnetByPath := gomonkey.ApplyFunc((*subnet.SubnetService).GetSubnetByPath,
 		func(s *subnet.SubnetService, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
-			nsxSubnet := &model.VpcSubnet{}
+			nsxSubnet := &model.VpcSubnet{
+				Id: ptr.To("subnet-1"),
+			}
 			return nsxSubnet, nil
 		})
 	defer patchesGetSubnetByPath.Reset()
@@ -1159,7 +1161,7 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 
 func TestSubnetPortReconciler_updateSubnetStatusOnSubnetPort(t *testing.T) {
 	patchesGetGatewayPrefixForSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetGatewayPrefixForSubnetPort,
-		func(s *subnetport.SubnetPortService, obj *v1alpha1.SubnetPort, nsxSubnetPath string) (string, int, error) {
+		func(s *subnetport.SubnetPortService, obj *model.VpcSubnet) (string, int, error) {
 			return "10.0.0.1", 28, nil
 		})
 	defer patchesGetGatewayPrefixForSubnetPort.Reset()
