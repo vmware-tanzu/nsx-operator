@@ -62,7 +62,7 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 		t.Fatalf("Failed to create VC namespace: %v", err)
 	}
 	defer func() {
-		err := testData.deleteVCNamespace(ns)
+		err := testData.deleteVCNamespace(ns, defaultTimeout)
 		if err != nil {
 			t.Fatalf("Failed to delete VC namespace: %v", err)
 		}
@@ -139,8 +139,8 @@ func testSecurityPolicyAddDeleteRule(t *testing.T) {
 	securityPolicyName := "isolate-policy-1"
 	ruleName0 := "all_ingress_isolation"
 	ruleName1 := "all_egress_isolation"
-	setupTest(t, ns)
-	defer teardownTest(t, ns, defaultTimeout)
+	prepare(t, ns)
+	defer destroy(t, ns, defaultTimeout)
 
 	// Create security policy
 	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy.yaml")
@@ -194,16 +194,8 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 	securityPolicyName := "expression-policy-1"
 	ruleName := "expression-policy-1-rule"
 
-	err := testData.createVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
-	defer func() {
-		err := testData.deleteVCNamespace(ns)
-		if err != nil {
-			t.Fatalf("Failed to delete VC namespace: %v", err)
-		}
-	}()
+	prepare(t, ns)
+	defer destroy(t, ns, defaultTimeout)
 
 	// Create pods
 	podPath, _ := filepath.Abs("./manifest/testSecurityPolicy/allow-client-a-via-pod-selector-with-match-expressions.yaml")
@@ -214,7 +206,7 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 	clientB := "client-b"
 	podA := "pod-a"
 	// Wait for pods
-	_, err = testData.podWaitForIPs(defaultTimeout, clientA, ns)
+	_, err := testData.podWaitForIPs(defaultTimeout, clientA, ns)
 	assert.NoError(t, err, "Error when waiting for IP for Pod %s", clientA)
 	_, err = testData.podWaitForIPs(defaultTimeout, clientB, ns)
 	assert.NoError(t, err, "Error when waiting for IP for Pod %s", clientB)
@@ -292,12 +284,10 @@ func testSecurityPolicyNamedPortWithoutPod(t *testing.T) {
 	ruleName1 := "all_ingress_isolation"
 	ruleName2 := "all_egress_isolation"
 
-	testData.deleteNamespace(nsClient, defaultTimeout)
-	testData.deleteNamespace(nsWeb, defaultTimeout)
-	_ = testData.createNamespace(nsClient)
-	_ = testData.createNamespace(nsWeb)
-	defer testData.deleteNamespace(nsClient, defaultTimeout)
-	defer testData.deleteNamespace(nsWeb, defaultTimeout)
+	prepare(t, nsWeb)
+	defer destroy(t, nsWeb, defaultTimeout)
+	prepare(t, nsClient)
+	defer destroy(t, nsClient, defaultTimeout)
 
 	// Create all
 	yamlPath, _ := filepath.Abs("./manifest/testSecurityPolicy/named-port-without-pod.yaml")
@@ -332,30 +322,10 @@ func testSecurityPolicyNamedPorWithPod(t *testing.T) {
 	ruleName2 := "all_egress_isolation"
 	var err error
 
-	err = testData.createVCNamespace(nsClient)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
-	err = testData.createVCNamespace(nsWeb)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
-
-	defer func() {
-		err := testData.deleteVCNamespace(nsClient)
-		if err != nil {
-			t.Fatalf("Failed to delete VC namespace: %v", err)
-		}
-		err = testData.deleteVCNamespace(nsWeb)
-		if err != nil {
-			t.Fatalf("Failed to delete VC namespace: %v", err)
-		}
-	}()
-
-	_ = testData.createNamespace(nsClient)
-	_ = testData.createNamespace(nsWeb)
-	defer testData.deleteNamespace(nsClient, defaultTimeout)
-	defer testData.deleteNamespace(nsWeb, defaultTimeout)
+	prepare(t, nsWeb)
+	defer destroy(t, nsWeb, defaultTimeout)
+	prepare(t, nsClient)
+	defer destroy(t, nsClient, defaultTimeout)
 
 	// Create all
 	yamlPath, _ := filepath.Abs("./manifest/testSecurityPolicy/named-port-with-pod-client.yaml")
