@@ -93,7 +93,7 @@ func NewCustomLoggerWithZerolog(logger logr.Logger, zeroLogger *zerolog.Logger) 
 func getLogLevel(cfDebug bool, cfLogLevel int) int {
 	logLevel := 0
 	if cfDebug {
-		logLevel = 2
+		logLevel = 1
 	}
 	realLogLevel := logLevel
 	if cfLogLevel > logLevel {
