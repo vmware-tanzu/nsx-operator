@@ -144,27 +144,27 @@ func (service *SecurityPolicyService) wrapSecurityPolicy(sp *model.SecurityPolic
 
 // wrapHierarchyVpcSecurityPolicy wrap the security policy with groups and rules in VPC level and associated project infra children including project shares and groups
 // into one hierarchy resource tree for OrgRootClient to patch.
-func (service *SecurityPolicyService) wrapHierarchyVpcSecurityPolicy(sp *model.SecurityPolicy, gs []model.Group, projectInfraChildren []*data.StructValue,
+func (service *SecurityPolicyService) wrapHierarchyVpcSecurityPolicy(sp *model.SecurityPolicy, vpcGroups []model.Group, projectInfraChildren []*data.StructValue,
 	vpcInfo *common.VPCResourceInfo,
 ) (*model.OrgRoot, error) {
 	orgID := (*vpcInfo).OrgID
 	projectID := (*vpcInfo).ProjectID
 	vpcID := (*vpcInfo).VPCID
 
-	if orgRoot, err := service.wrapOrgRoot(sp, gs, projectInfraChildren, orgID, projectID, vpcID); err != nil {
+	if orgRoot, err := service.wrapOrgRoot(sp, vpcGroups, projectInfraChildren, orgID, projectID, vpcID); err != nil {
 		return nil, err
 	} else {
 		return orgRoot, nil
 	}
 }
 
-func (service *SecurityPolicyService) wrapOrgRoot(sp *model.SecurityPolicy, gs []model.Group, projectInfraChildren []*data.StructValue,
+func (service *SecurityPolicyService) wrapOrgRoot(sp *model.SecurityPolicy, vpcGroups []model.Group, projectInfraChildren []*data.StructValue,
 	orgID, projectID, vpcID string,
 ) (*model.OrgRoot, error) {
 	// This is the outermost layer of the hierarchy orgRoot client in VPC mode.
 	// It doesn't need ID field.
 	resourceType := common.ResourceTypeOrgRoot
-	children, err := service.wrapOrg(sp, gs, projectInfraChildren, orgID, projectID, vpcID)
+	children, err := service.wrapOrg(sp, vpcGroups, projectInfraChildren, orgID, projectID, vpcID)
 	if err != nil {
 		return nil, err
 	}
@@ -175,10 +175,10 @@ func (service *SecurityPolicyService) wrapOrgRoot(sp *model.SecurityPolicy, gs [
 	return &orgRoot, nil
 }
 
-func (service *SecurityPolicyService) wrapOrg(sp *model.SecurityPolicy, gs []model.Group, projectInfraChildren []*data.StructValue,
+func (service *SecurityPolicyService) wrapOrg(sp *model.SecurityPolicy, vpcGroups []model.Group, projectInfraChildren []*data.StructValue,
 	orgID, projectID, vpcID string,
 ) ([]*data.StructValue, error) {
-	children, err := service.wrapProject(sp, gs, projectInfraChildren, projectID, vpcID)
+	children, err := service.wrapProject(sp, vpcGroups, projectInfraChildren, projectID, vpcID)
 	if err != nil {
 		return nil, err
 	}
@@ -198,10 +198,10 @@ func (service *SecurityPolicyService) wrapOrg(sp *model.SecurityPolicy, gs []mod
 	return []*data.StructValue{dataValue.(*data.StructValue)}, nil
 }
 
-func (service *SecurityPolicyService) wrapProject(sp *model.SecurityPolicy, gs []model.Group, projectInfraChildren []*data.StructValue,
+func (service *SecurityPolicyService) wrapProject(sp *model.SecurityPolicy, vpcGroups []model.Group, projectInfraChildren []*data.StructValue,
 	projectID, vpcID string,
 ) ([]*data.StructValue, error) {
-	vpcChildren, err := service.wrapVPC(sp, gs, vpcID)
+	vpcChildren, err := service.wrapVPC(sp, vpcGroups, vpcID)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +226,7 @@ func (service *SecurityPolicyService) wrapProject(sp *model.SecurityPolicy, gs [
 	return []*data.StructValue{dataValue.(*data.StructValue)}, nil
 }
 
-func (service *SecurityPolicyService) wrapVPC(sp *model.SecurityPolicy, gs []model.Group, vpcID string) ([]*data.StructValue, error) {
+func (service *SecurityPolicyService) wrapVPC(sp *model.SecurityPolicy, vpcGroups []model.Group, vpcID string) ([]*data.StructValue, error) {
 	var resourceReferenceChildren []*data.StructValue
 	if sp != nil {
 		rulesChildren, err := service.wrapRules(sp.Rules)
@@ -243,7 +243,7 @@ func (service *SecurityPolicyService) wrapVPC(sp *model.SecurityPolicy, gs []mod
 		resourceReferenceChildren = append(resourceReferenceChildren, securityPolicyChildren...)
 	}
 
-	groupsChildren, err := service.wrapGroups(gs)
+	groupsChildren, err := service.wrapGroups(vpcGroups)
 	if err != nil {
 		return nil, err
 	}

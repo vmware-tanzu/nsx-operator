@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/ptr"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -707,7 +708,6 @@ func Test_createOrUpdateGroups(t *testing.T) {
 			fakeService.NSXConfig.EnableVPCNetwork = true
 			mockVPCService := mock.MockVPCServiceProvider{}
 			fakeService.vpcService = &mockVPCService
-
 			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			patches := tt.prepareFunc(t, fakeService)
@@ -931,12 +931,11 @@ func Test_GetUpdateShares(t *testing.T) {
 	}
 }
 
-func Test_MarkDeleteRules(t *testing.T) {
+func Test_GetMarkDeleteRules(t *testing.T) {
 	var sp types.UID
 	sp = "sp_test"
 	markNoDelete := false
 
-	r := make([]model.Rule, 0)
 	r1 := model.Rule{
 		DisplayName:       String("nsxrule1"),
 		Id:                String("nsxrule_1"),
@@ -953,34 +952,31 @@ func Test_MarkDeleteRules(t *testing.T) {
 	tests := []struct {
 		name          string
 		existingRules []*model.Rule
-		deleteRules   *[]model.Rule
 	}{
 		{
 			name: "test-rule-delete",
 			existingRules: []*model.Rule{
 				&r1,
 			},
-			deleteRules: &r,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service.markDeleteRules(tt.existingRules, tt.deleteRules, sp)
-			for i := len(*tt.deleteRules) - 1; i >= 0; i-- {
-				assert.Equal(t, MarkedForDelete, *((*tt.deleteRules)[i].MarkedForDelete))
+			deleteRules := service.getMarkDeleteRules(tt.existingRules, sp)
+			for i := len(deleteRules) - 1; i >= 0; i-- {
+				assert.Equal(t, MarkedForDelete, *(deleteRules[i].MarkedForDelete))
 			}
 		})
 	}
 }
 
-func Test_MarkDeleteGroups(t *testing.T) {
+func Test_GetMarkDeleteGroups(t *testing.T) {
 	var sp types.UID
 	sp = "sp_test"
 	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_cr_uid"
 	markNoDelete := false
 
-	g := make([]model.Group, 0)
 	g1 := model.Group{
 		Id:              &mId,
 		Tags:            []model.Tag{{Tag: &mTag, Scope: &mScope}},
@@ -990,34 +986,31 @@ func Test_MarkDeleteGroups(t *testing.T) {
 	tests := []struct {
 		name           string
 		existingGroups []*model.Group
-		deleteGroups   *[]model.Group
 	}{
 		{
 			name: "test-group-delete",
 			existingGroups: []*model.Group{
 				&g1,
 			},
-			deleteGroups: &g,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service.markDeleteGroups(tt.existingGroups, tt.deleteGroups, sp)
-			for i := len(*tt.deleteGroups) - 1; i >= 0; i-- {
-				assert.Equal(t, MarkedForDelete, *((*tt.deleteGroups)[i].MarkedForDelete))
+			deleteGroups := service.getMarkDeleteGroups(tt.existingGroups, sp)
+			for i := len(deleteGroups) - 1; i >= 0; i-- {
+				assert.Equal(t, MarkedForDelete, *(deleteGroups[i].MarkedForDelete))
 			}
 		})
 	}
 }
 
-func Test_MarkDeleteShares(t *testing.T) {
+func Test_GetMarkDeleteShares(t *testing.T) {
 	var sp types.UID
 	sp = "sp_test"
 	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_cr_uid"
 	markNoDelete := false
 
-	s := make([]model.Share, 0)
 	s1 := model.Share{
 		Id:              &mId,
 		Tags:            []model.Tag{{Tag: &mTag, Scope: &mScope}},
@@ -1028,28 +1021,110 @@ func Test_MarkDeleteShares(t *testing.T) {
 	tests := []struct {
 		name           string
 		existingShares []*model.Share
-		deleteShares   *[]model.Share
 	}{
 		{
 			name: "test-share-nochange",
 			existingShares: []*model.Share{
 				&s1,
 			},
-			deleteShares: &s,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service.markDeleteShares(tt.existingShares, tt.deleteShares, sp)
-			for i := len(*tt.deleteShares) - 1; i >= 0; i-- {
-				assert.Equal(t, MarkedForDelete, *((*tt.deleteShares)[i].MarkedForDelete))
+			deleteShares := service.getMarkDeleteShares(tt.existingShares, sp)
+			for i := len(deleteShares) - 1; i >= 0; i-- {
+				assert.Equal(t, MarkedForDelete, *(deleteShares)[i].MarkedForDelete)
 			}
 		})
 	}
 }
 
-func Test_DeleteVPCSecurityPolicy(t *testing.T) {
+func Test_GetStaleUpdateShares(t *testing.T) {
+	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_cr_uid"
+	markNoDelete := false
+	markDelete := true
+
+	s1 := []model.Share{
+		{
+			Id:              &mId,
+			Tags:            []model.Tag{{Tag: &mTag, Scope: &mScope}},
+			SharedWith:      []string{"/org/default/project/default/vpc/vpc1"},
+			MarkedForDelete: &markNoDelete,
+		},
+		{
+			Id:              String("22222"),
+			Tags:            []model.Tag{{Tag: &mTag, Scope: &mScope}},
+			SharedWith:      []string{"/org/default/project/default/vpc/vpc2"},
+			MarkedForDelete: &markDelete,
+		},
+	}
+
+	tests := []struct {
+		name           string
+		existingShares []model.Share
+	}{
+		{
+			name:           "test-get-share-stale-update",
+			existingShares: s1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			staleShares, updateShares := service.getStaleUpdateShares(tt.existingShares)
+			for i := len(staleShares) - 1; i >= 0; i-- {
+				assert.Equal(t, MarkedForDelete, *(staleShares)[i].MarkedForDelete)
+			}
+			for i := len(updateShares) - 1; i >= 0; i-- {
+				assert.Equal(t, false, *(updateShares)[i].MarkedForDelete)
+			}
+		})
+	}
+}
+
+func Test_GetStaleUpdateGroups(t *testing.T) {
+	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_cr_uid"
+	markNoDelete := false
+	markDelete := true
+
+	g1 := []model.Group{
+		{
+			Id:              &mId,
+			Tags:            []model.Tag{{Tag: &mTag, Scope: &mScope}},
+			MarkedForDelete: &markNoDelete,
+		},
+		{
+			Id:              String("22222"),
+			Tags:            []model.Tag{{Tag: &mTag, Scope: &mScope}},
+			MarkedForDelete: &markDelete,
+		},
+	}
+
+	tests := []struct {
+		name           string
+		existingGroups []model.Group
+	}{
+		{
+			name:           "test-group-stale-update",
+			existingGroups: g1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			staleGroups, updateGroups := service.getStaleUpdateGroups(tt.existingGroups)
+			for i := len(staleGroups) - 1; i >= 0; i-- {
+				assert.Equal(t, MarkedForDelete, *(staleGroups[i].MarkedForDelete))
+			}
+			for i := len(updateGroups) - 1; i >= 0; i-- {
+				assert.Equal(t, false, *(updateGroups[i].MarkedForDelete))
+			}
+		})
+	}
+}
+
+func Test_DeleteSecurityPolicy(t *testing.T) {
 	spPath := "/orgs/default/projects/projectQuality/vpcs/vpc1"
 
 	type args struct {
@@ -1167,16 +1242,22 @@ func Test_DeleteVPCSecurityPolicy(t *testing.T) {
 
 			fakeService := fakeSecurityPolicyService()
 			fakeService.NSXConfig.EnableVPCNetwork = true
+			mockVPCService := mock.MockVPCServiceProvider{}
+			fakeService.vpcService = &mockVPCService
 			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			assert.NoError(t, fakeService.securityPolicyStore.Apply(tt.inputPolicy))
 			assert.NoError(t, fakeService.ruleStore.Apply(&tt.inputPolicy.Rules))
 
 			patches := tt.prepareFunc(t, fakeService)
+			patches.ApplyMethod(reflect.TypeOf(fakeService.vpcService), "IsDefaultNSXProject",
+				func(_ *mock.MockVPCServiceProvider, orgID, projectID string) (bool, error) {
+					return false, nil
+				})
 			defer patches.Reset()
 
 			if err := fakeService.DeleteSecurityPolicy(tt.args.uid, false, tt.args.createdFor); (err != nil) != tt.wantErr {
-				t.Errorf("deleteVPCSecurityPolicy error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("DeleteSecurityPolicy error = %v, wantErr %v", err, tt.wantErr)
 			}
 			assert.Equal(t, tt.wantSecurityPolicyStoreCount, len(fakeService.securityPolicyStore.ListKeys()))
 			assert.Equal(t, tt.wantRuleStoreCount, len(fakeService.ruleStore.ListKeys()))
@@ -1429,10 +1510,15 @@ func Test_deleteVPCSecurityPolicy(t *testing.T) {
 				*s1 = append(*s1, projectShare)
 				assert.NoError(t, s.projectShareStore.Apply(s1))
 
-				patches := gomonkey.ApplyMethodSeq(s.NSXClient.OrgRootClient, "Patch", []gomonkey.OutputCell{{
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.VPCSecurityClient, "Delete", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
+				patches.ApplyMethodSeq(s.NSXClient.OrgRootClient, "Patch", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+
 				return patches
 			},
 			args: args{
@@ -1607,6 +1693,8 @@ func Test_deleteVPCSecurityPolicy(t *testing.T) {
 			common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 
 			fakeService := fakeSecurityPolicyService()
+			mockVPCService := mock.MockVPCServiceProvider{}
+			fakeService.vpcService = &mockVPCService
 			fakeService.NSXConfig.EnableVPCNetwork = true
 			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
@@ -1614,6 +1702,10 @@ func Test_deleteVPCSecurityPolicy(t *testing.T) {
 			assert.NoError(t, fakeService.ruleStore.Apply(&tt.inputPolicy.Rules))
 
 			patches := tt.prepareFunc(t, fakeService)
+			patches.ApplyMethod(reflect.TypeOf(fakeService.vpcService), "IsDefaultNSXProject",
+				func(_ *mock.MockVPCServiceProvider, orgID, projectID string) (bool, error) {
+					return false, nil
+				})
 			defer patches.Reset()
 
 			if err := fakeService.deleteVPCSecurityPolicy(tt.args.uid, false, tt.args.createdFor); (err != nil) != tt.wantErr {
@@ -1652,7 +1744,7 @@ func Test_deleteVPCSecurityPolicyInDefaultProject(t *testing.T) {
 		wantInfraShareStoreCount     int
 	}{
 		{
-			name: "success deleteVPCSecurityPolicy in default project",
+			name: "success deleteVPCSecurityPolicy for default project",
 			prepareFunc: func(t *testing.T, s *SecurityPolicyService) *gomonkey.Patches {
 				mGId := "spA_uidA_scope"
 				mTag, mScope := tagValuePolicyCRUID, tagScopeSecurityPolicyUID
@@ -1686,7 +1778,11 @@ func Test_deleteVPCSecurityPolicyInDefaultProject(t *testing.T) {
 				*s1 = append(*s1, infraShare)
 				assert.NoError(t, s.infraShareStore.Apply(s1))
 
-				patches := gomonkey.ApplyMethodSeq(s.NSXClient.OrgRootClient, "Patch", []gomonkey.OutputCell{{
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.VPCSecurityClient, "Delete", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient.OrgRootClient, "Patch", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
@@ -1745,7 +1841,7 @@ func Test_deleteVPCSecurityPolicyInDefaultProject(t *testing.T) {
 			wantInfraShareStoreCount:     0,
 		},
 		{
-			name: "error deleteVPCSecurityPolicy in default project",
+			name: "error deleteVPCSecurityPolicy in deleting security policy for default project",
 			prepareFunc: func(t *testing.T, s *SecurityPolicyService) *gomonkey.Patches {
 				mGId := "sp_uidA_2c822e99_scope"
 				mTag, mScope := tagValuePolicyCRUID, tagScopeSecurityPolicyUID
@@ -1758,12 +1854,8 @@ func Test_deleteVPCSecurityPolicyInDefaultProject(t *testing.T) {
 				*g1 = append(*g1, scopeGroup)
 				assert.NoError(t, s.groupStore.Apply(g1))
 
-				patches := gomonkey.ApplyMethodSeq(s.NSXClient.OrgRootClient, "Patch", []gomonkey.OutputCell{{
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.VPCSecurityClient, "Delete", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{fmt.Errorf("mock error")},
-					Times:  1,
-				}})
-				patches.ApplyMethodSeq(s.NSXClient.InfraClient, "Patch", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
 				return patches
@@ -1803,6 +1895,195 @@ func Test_deleteVPCSecurityPolicyInDefaultProject(t *testing.T) {
 			wantInfraGroupStoreCount:     0,
 			wantInfraShareStoreCount:     0,
 		},
+		{
+			name: "error deleteVPCSecurityPolicy in deleting VPC group for default project",
+			prepareFunc: func(t *testing.T, s *SecurityPolicyService) *gomonkey.Patches {
+				mGId := "spA_uidA_scope"
+				mTag, mScope := tagValuePolicyCRUID, tagScopeSecurityPolicyUID
+				g := make([]model.Group, 0)
+				g1 := &g
+				scopeGroup := model.Group{
+					Id:   &mGId,
+					Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+				}
+				*g1 = append(*g1, scopeGroup)
+				assert.NoError(t, s.groupStore.Apply(g1))
+
+				mInfraGId := "spA_uidA_2c822e90_src"
+				g = make([]model.Group, 0)
+				g2 := &g
+				infraGroup := model.Group{
+					Id:   &mInfraGId,
+					Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+				}
+				*g2 = append(*g2, infraGroup)
+				assert.NoError(t, s.infraGroupStore.Apply(g2))
+
+				mSId := "share_default_group_spA_uidA_2c822e90_src"
+				sh := make([]model.Share, 0)
+				s1 := &sh
+				infraShare := model.Share{
+					Id:         &mSId,
+					Tags:       []model.Tag{{Tag: &mTag, Scope: &mScope}},
+					SharedWith: []string{"/org/default/project/default"},
+				}
+				*s1 = append(*s1, infraShare)
+				assert.NoError(t, s.infraShareStore.Apply(s1))
+
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.VPCSecurityClient, "Delete", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient.OrgRootClient, "Patch", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{fmt.Errorf("mock error")},
+					Times:  1,
+				}})
+				return patches
+			},
+			args: args{
+				createdFor: common.ResourceTypeSecurityPolicy,
+				uid:        types.UID(tagValuePolicyCRUID),
+			},
+			inputPolicy: &model.SecurityPolicy{
+				DisplayName:    &spName,
+				Id:             common.String("spA_uidA"),
+				Scope:          []string{"/orgs/default/projects/default/vpcs/vpc1/groups/spA_uidA_scope"},
+				SequenceNumber: &seq0,
+				Rules: []model.Rule{
+					{
+						DisplayName:       &ruleNameWithPodSelector00,
+						Id:                &ruleID0,
+						DestinationGroups: []string{"ANY"},
+						Direction:         &nsxRuleDirectionIn,
+						Scope:             []string{"ANY"},
+						SequenceNumber:    &seq0,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"ANY"},
+						Action:            &nsxRuleActionAllow,
+						Tags:              vpcBasicTags,
+					},
+					{
+						DisplayName:       &ruleNameWithNsSelector00,
+						Id:                &ruleID1,
+						DestinationGroups: []string{"ANY"},
+						Direction:         &nsxRuleDirectionIn,
+						Scope:             []string{"ANY"},
+						SequenceNumber:    &seq1,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"/infra/domains/default/groups/spA_uidA_2c822e90_src"},
+						Action:            &nsxRuleActionAllow,
+						Tags:              vpcBasicTags,
+					},
+				},
+				Tags: vpcBasicTags,
+				Path: &spPath,
+			},
+			wantErr:                      false,
+			wantSecurityPolicyStoreCount: 0,
+			wantRuleStoreCount:           0,
+			wantGroupStoreCount:          1,
+			wantProjectGroupStoreCount:   0,
+			wantProjectShareStoreCount:   0,
+			wantInfraGroupStoreCount:     1,
+			wantInfraShareStoreCount:     1,
+		},
+		{
+			name: "error deleteVPCSecurityPolicy in deleting infra group for default project",
+			prepareFunc: func(t *testing.T, s *SecurityPolicyService) *gomonkey.Patches {
+				mGId := "spA_uidA_scope"
+				mTag, mScope := tagValuePolicyCRUID, tagScopeSecurityPolicyUID
+				g := make([]model.Group, 0)
+				g1 := &g
+				scopeGroup := model.Group{
+					Id:   &mGId,
+					Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+				}
+				*g1 = append(*g1, scopeGroup)
+				assert.NoError(t, s.groupStore.Apply(g1))
+
+				mInfraGId := "spA_uidA_2c822e90_src"
+				g = make([]model.Group, 0)
+				g2 := &g
+				infraGroup := model.Group{
+					Id:   &mInfraGId,
+					Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+				}
+				*g2 = append(*g2, infraGroup)
+				assert.NoError(t, s.infraGroupStore.Apply(g2))
+
+				mSId := "share_default_group_spA_uidA_2c822e90_src"
+				sh := make([]model.Share, 0)
+				s1 := &sh
+				infraShare := model.Share{
+					Id:         &mSId,
+					Tags:       []model.Tag{{Tag: &mTag, Scope: &mScope}},
+					SharedWith: []string{"/org/default/project/default"},
+				}
+				*s1 = append(*s1, infraShare)
+				assert.NoError(t, s.infraShareStore.Apply(s1))
+
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.VPCSecurityClient, "Delete", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient.OrgRootClient, "Patch", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient.InfraClient, "Patch", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{fmt.Errorf("mock error")},
+					Times:  1,
+				}})
+
+				return patches
+			},
+			args: args{
+				createdFor: common.ResourceTypeSecurityPolicy,
+				uid:        types.UID(tagValuePolicyCRUID),
+			},
+			inputPolicy: &model.SecurityPolicy{
+				DisplayName:    &spName,
+				Id:             common.String("spA_uidA"),
+				Scope:          []string{"/orgs/default/projects/default/vpcs/vpc1/groups/spA_uidA_scope"},
+				SequenceNumber: &seq0,
+				Rules: []model.Rule{
+					{
+						DisplayName:       &ruleNameWithPodSelector00,
+						Id:                &ruleID0,
+						DestinationGroups: []string{"ANY"},
+						Direction:         &nsxRuleDirectionIn,
+						Scope:             []string{"ANY"},
+						SequenceNumber:    &seq0,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"ANY"},
+						Action:            &nsxRuleActionAllow,
+						Tags:              vpcBasicTags,
+					},
+					{
+						DisplayName:       &ruleNameWithNsSelector00,
+						Id:                &ruleID1,
+						DestinationGroups: []string{"ANY"},
+						Direction:         &nsxRuleDirectionIn,
+						Scope:             []string{"ANY"},
+						SequenceNumber:    &seq1,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"/infra/domains/default/groups/spA_uidA_2c822e90_src"},
+						Action:            &nsxRuleActionAllow,
+						Tags:              vpcBasicTags,
+					},
+				},
+				Tags: vpcBasicTags,
+				Path: &spPath,
+			},
+			wantErr:                      false,
+			wantSecurityPolicyStoreCount: 0,
+			wantRuleStoreCount:           0,
+			wantGroupStoreCount:          1,
+			wantProjectGroupStoreCount:   0,
+			wantProjectShareStoreCount:   0,
+			wantInfraGroupStoreCount:     1,
+			wantInfraShareStoreCount:     1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1811,6 +2092,8 @@ func Test_deleteVPCSecurityPolicyInDefaultProject(t *testing.T) {
 			common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 
 			fakeService := fakeSecurityPolicyService()
+			mockVPCService := mock.MockVPCServiceProvider{}
+			fakeService.vpcService = &mockVPCService
 			fakeService.NSXConfig.EnableVPCNetwork = true
 			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
@@ -1818,6 +2101,10 @@ func Test_deleteVPCSecurityPolicyInDefaultProject(t *testing.T) {
 			assert.NoError(t, fakeService.ruleStore.Apply(&tt.inputPolicy.Rules))
 
 			patches := tt.prepareFunc(t, fakeService)
+			patches.ApplyMethod(reflect.TypeOf(fakeService.vpcService), "IsDefaultNSXProject",
+				func(_ *mock.MockVPCServiceProvider, orgID, projectID string) (bool, error) {
+					return true, nil
+				})
 			defer patches.Reset()
 
 			if err := fakeService.deleteVPCSecurityPolicy(tt.args.uid, false, tt.args.createdFor); (err != nil) != tt.wantErr {
@@ -1880,7 +2167,6 @@ func Test_CreateOrUpdateSecurityPolicy(t *testing.T) {
 					func(s *common.Service, ns string) types.UID {
 						return types.UID(tagValueNSUID)
 					})
-
 				return patches
 			},
 			args: args{
@@ -1893,6 +2179,7 @@ func Test_CreateOrUpdateSecurityPolicy(t *testing.T) {
 				SequenceNumber: &seq0,
 				Rules:          []model.Rule{},
 				Tags:           vpcBasicTags,
+				Path:           ptr.To("/orgs/default/projects/projectQuality/vpcs/vpc1/security-policies/sp_uidA"),
 			},
 			wantErr:                      false,
 			wantSecurityPolicyStoreCount: 1,
@@ -1914,14 +2201,21 @@ func Test_CreateOrUpdateSecurityPolicy(t *testing.T) {
 			fakeService.NSXConfig.EnableVPCNetwork = true
 			mockVPCService := mock.MockVPCServiceProvider{}
 			fakeService.vpcService = &mockVPCService
-
 			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			patches := tt.prepareFunc(t, fakeService)
+			patches.ApplyMethod(reflect.TypeOf(fakeService.vpcService), "IsDefaultNSXProject",
+				func(_ *mock.MockVPCServiceProvider, orgID, projectID string) (bool, error) {
+					return false, nil
+				})
 			patches.ApplyMethodSeq(fakeService.NSXClient.VPCSecurityClient, "Get", []gomonkey.OutputCell{{
 				Values: gomonkey.Params{*(tt.expectedPolicy), nil},
 				Times:  1,
 			}})
+			patches.ApplyPrivateMethod(reflect.TypeOf(fakeService), "checkSecurityPolicyRealizationState",
+				func(s *SecurityPolicyService, sp *model.SecurityPolicy, spPath string) error {
+					return nil
+				})
 			defer patches.Reset()
 
 			if err := fakeService.CreateOrUpdateSecurityPolicy(tt.args.spObj); (err != nil) != tt.wantErr {
@@ -1995,6 +2289,7 @@ func Test_CreateOrUpdateSecurityPolicyFromNetworkPolicy(t *testing.T) {
 				SequenceNumber: Int64(int64(common.PriorityNetworkPolicyAllowRule)),
 				Rules:          []model.Rule{},
 				Tags:           npAllowBasicTags,
+				Path:           ptr.To("/orgs/default/projects/projectQuality/vpcs/vpc1/security-policies/np-app-access-allow_8cuq8"),
 			},
 			expIsolationPolicy: &model.SecurityPolicy{
 				DisplayName:    common.String("np-app-access"),
@@ -2003,6 +2298,7 @@ func Test_CreateOrUpdateSecurityPolicyFromNetworkPolicy(t *testing.T) {
 				SequenceNumber: Int64(int64(common.PriorityNetworkPolicyIsolationRule)),
 				Rules:          []model.Rule{},
 				Tags:           npIsolationBasicTags,
+				Path:           ptr.To("/orgs/default/projects/projectQuality/vpcs/vpc1/security-policies/np-app-access-isolation_aoqj8"),
 			},
 			wantErr:                        false,
 			wantSPStoreCountBeforeCreate:   0,
@@ -2023,13 +2319,16 @@ func Test_CreateOrUpdateSecurityPolicyFromNetworkPolicy(t *testing.T) {
 			common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 
 			fakeService := fakeSecurityPolicyService()
-			fakeService.NSXConfig.EnableVPCNetwork = true
 			mockVPCService := mock.MockVPCServiceProvider{}
 			fakeService.vpcService = &mockVPCService
-
+			fakeService.NSXConfig.EnableVPCNetwork = true
 			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			patches := tt.prepareFunc(t, fakeService)
+			patches.ApplyMethod(reflect.TypeOf(fakeService.vpcService), "IsDefaultNSXProject",
+				func(_ *mock.MockVPCServiceProvider, orgID, projectID string) (bool, error) {
+					return false, nil
+				})
 			patches.ApplyMethodSeq(fakeService.NSXClient.VPCSecurityClient, "Get", []gomonkey.OutputCell{
 				{
 					Values: gomonkey.Params{*(tt.expAllowPolicy), nil},
@@ -2040,6 +2339,10 @@ func Test_CreateOrUpdateSecurityPolicyFromNetworkPolicy(t *testing.T) {
 					Times:  1, // Second call returns expIsolationPolicy
 				},
 			})
+			patches.ApplyPrivateMethod(reflect.TypeOf(fakeService), "checkSecurityPolicyRealizationState",
+				func(s *SecurityPolicyService, sp *model.SecurityPolicy, spPath string) error {
+					return nil
+				})
 			defer patches.Reset()
 
 			assert.Equal(t, tt.wantSPStoreCountBeforeCreate, len(fakeService.securityPolicyStore.ListKeys()))
@@ -2291,6 +2594,7 @@ func Test_createOrUpdateVPCSecurityPolicy(t *testing.T) {
 					},
 				},
 				Tags: vpcBasicTags,
+				Path: ptr.To("/orgs/default/projects/projectQuality/vpcs/vpc1/security-policies/sp_uidA"),
 			},
 			wantErr:                      false,
 			wantSecurityPolicyStoreCount: 1,
@@ -2345,10 +2649,18 @@ func Test_createOrUpdateVPCSecurityPolicy(t *testing.T) {
 			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			patches := tt.prepareFunc(t, fakeService)
+			patches.ApplyMethod(reflect.TypeOf(fakeService.vpcService), "IsDefaultNSXProject",
+				func(_ *mock.MockVPCServiceProvider, orgID, projectID string) (bool, error) {
+					return false, nil
+				})
 			patches.ApplyMethodSeq(fakeService.NSXClient.VPCSecurityClient, "Get", []gomonkey.OutputCell{{
 				Values: gomonkey.Params{*(tt.expectedPolicy), nil},
 				Times:  1,
 			}})
+			patches.ApplyPrivateMethod(reflect.TypeOf(fakeService), "checkSecurityPolicyRealizationState",
+				func(s *SecurityPolicyService, sp *model.SecurityPolicy, spPath string) error {
+					return nil
+				})
 			defer patches.Reset()
 
 			if err := fakeService.createOrUpdateVPCSecurityPolicy(tt.args.spObj, tt.args.createdFor); (err != nil) != tt.wantErr {
@@ -2458,6 +2770,7 @@ func Test_createOrUpdateVPCSecurityPolicyInDefaultProject(t *testing.T) {
 					},
 				},
 				Tags: vpcBasicTags,
+				Path: ptr.To("/orgs/default/projects/default/vpcs/vpc1/security-policies/sp_uidA"),
 			},
 			wantErr:                      false,
 			wantSecurityPolicyStoreCount: 1,
@@ -2517,10 +2830,17 @@ func Test_createOrUpdateVPCSecurityPolicyInDefaultProject(t *testing.T) {
 			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			patches := tt.prepareFunc(t, fakeService)
+			patches.ApplyMethod(reflect.TypeOf(fakeService.vpcService), "IsDefaultNSXProject",
+				func(_ *mock.MockVPCServiceProvider, orgID, projectID string) (bool, error) {
+					return true, nil
+				})
 			patches.ApplyMethodSeq(fakeService.NSXClient.VPCSecurityClient, "Get", []gomonkey.OutputCell{{
 				Values: gomonkey.Params{*(tt.expectedPolicy), nil},
 				Times:  1,
 			}})
+			patches.ApplyPrivateMethod(reflect.TypeOf(fakeService), "checkSecurityPolicyRealizationState", func(_ *SecurityPolicyService, sp *model.SecurityPolicy, spPath string) error {
+				return nil
+			})
 			defer patches.Reset()
 
 			if err := fakeService.createOrUpdateVPCSecurityPolicy(tt.args.spObj, tt.args.createdFor); (err != nil) != tt.wantErr {
@@ -2607,7 +2927,7 @@ func Test_GetFinalSecurityPolicyResourceForT1(t *testing.T) {
 			var isChanged bool
 			var err error
 
-			if finalSecurityPolicy, finalGroups, finalShares, finalShareGroups, isChanged, err = fakeService.getFinalSecurityPolicyResource(tt.args.spObj, tt.args.createdFor, false); (err != nil) != tt.wantErr {
+			if finalSecurityPolicy, finalGroups, finalShares, finalShareGroups, isChanged, err = fakeService.getFinalSecurityPolicyResource(tt.args.spObj, tt.args.createdFor, nil, false); (err != nil) != tt.wantErr {
 				t.Errorf("getFinalSecurityPolicyResource error = %v, wantErr %v", err, tt.wantErr)
 			}
 
@@ -2663,12 +2983,7 @@ func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
 				common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
 				common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(s), "getVPCInfo",
-					func(s *SecurityPolicyService, spNameSpace string) (*common.VPCResourceInfo, error) {
-						return &VPCInfo[0], nil
-					})
-
-				patches.ApplyPrivateMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
 					func(s *common.Service, ns string) types.UID {
 						return types.UID(tagValueNSUID)
 					})
@@ -2739,7 +3054,7 @@ func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
 			var isChanged bool
 			var err error
 
-			if finalSecurityPolicy, finalGroups, finalShares, finalShareGroups, isChanged, err = fakeService.getFinalSecurityPolicyResource(tt.args.spObj, tt.args.createdFor, false); (err != nil) != tt.wantErr {
+			if finalSecurityPolicy, finalGroups, finalShares, finalShareGroups, isChanged, err = fakeService.getFinalSecurityPolicyResource(tt.args.spObj, tt.args.createdFor, &VPCInfo[0], false); (err != nil) != tt.wantErr {
 				t.Errorf("getFinalSecurityPolicyResource error = %v, wantErr %v", err, tt.wantErr)
 			}
 
@@ -2898,12 +3213,7 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 	ingressServiceEntry := getRuleServiceEntries(6001, 0, "TCP")
 	egressServiceEntry := getRuleServiceEntries(3366, 0, "TCP")
 
-	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(fakeService), "getVPCInfo",
-		func(s *SecurityPolicyService, spNameSpace string) (*common.VPCResourceInfo, error) {
-			return &VPCInfo[0], nil
-		})
-
-	patches.ApplyMethod(reflect.TypeOf(&fakeService.Service), "GetNamespaceUID",
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeService.Service), "GetNamespaceUID",
 		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
@@ -3024,7 +3334,7 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 			convertSecurityPolicy, err := fakeService.convertNetworkPolicyToInternalSecurityPolicies(tt.npObj)
 			assert.Equal(t, nil, err)
 
-			if finalAllowSecurityPolicy, finalGroups, finalShares, finalShareGroups, isChanged, err = fakeService.getFinalSecurityPolicyResource(convertSecurityPolicy[0], common.ResourceTypeNetworkPolicy, false); (err != nil) != tt.wantErr {
+			if finalAllowSecurityPolicy, finalGroups, finalShares, finalShareGroups, isChanged, err = fakeService.getFinalSecurityPolicyResource(convertSecurityPolicy[0], common.ResourceTypeNetworkPolicy, &VPCInfo[0], false); (err != nil) != tt.wantErr {
 				t.Errorf("getFinalSecurityPolicyResource error = %v, wantErr %v", err, tt.wantErr)
 			}
 			assert.Equal(t, *tt.expAllowPolicy.Id, *finalAllowSecurityPolicy.Id)
@@ -3036,7 +3346,7 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 			assert.Equal(t, tt.wantAllowPolicyShareGroupStoreCount, len(finalShareGroups))
 			assert.ElementsMatch(t, tt.expAllowPolicy.Rules, finalAllowSecurityPolicy.Rules)
 
-			if finalIsolationSecurityPolicy, finalGroups, finalShares, finalShareGroups, isChanged, err = fakeService.getFinalSecurityPolicyResource(convertSecurityPolicy[1], common.ResourceTypeNetworkPolicy, false); (err != nil) != tt.wantErr {
+			if finalIsolationSecurityPolicy, finalGroups, finalShares, finalShareGroups, isChanged, err = fakeService.getFinalSecurityPolicyResource(convertSecurityPolicy[1], common.ResourceTypeNetworkPolicy, &VPCInfo[0], false); (err != nil) != tt.wantErr {
 				t.Errorf("getFinalSecurityPolicyResource error = %v, wantErr %v", err, tt.wantErr)
 			}
 			assert.Equal(t, *tt.expIsolationPolicy.Id, *finalIsolationSecurityPolicy.Id)
@@ -3137,7 +3447,7 @@ func Test_ListNetworkPolicyByName(t *testing.T) {
 	assert.Len(t, result, 0)
 }
 
-func Test_gcInfraSharesGroups(t *testing.T) {
+func Test_deleteVPCSecurityPolicyGC(t *testing.T) {
 	markNoDelete := false
 
 	type args struct {
@@ -3145,23 +3455,137 @@ func Test_gcInfraSharesGroups(t *testing.T) {
 		createdFor string
 	}
 	tests := []struct {
-		name                     string
-		prepareFunc              func(*testing.T, *SecurityPolicyService) *gomonkey.Patches
-		args                     args
-		inputPolicy              *model.SecurityPolicy
-		wantErr                  bool
-		wantInfraGroupStoreCount int
-		wantInfraShareStoreCount int
+		name                       string
+		prepareFunc                func(*testing.T, *SecurityPolicyService) *gomonkey.Patches
+		args                       args
+		wantErr                    bool
+		wantGroupStoreCount        int
+		wantProjectGroupStoreCount int
+		wantProjectShareStoreCount int
+		wantInfraGroupStoreCount   int
+		wantInfraShareStoreCount   int
 	}{
 		{
-			name: "success gcInfraSharesGroups",
+			name: "success GC VPCGroups and ProjectSharesGroups",
 			prepareFunc: func(t *testing.T, s *SecurityPolicyService) *gomonkey.Patches {
+				mGId := "spA_uidA_scope"
+				mTag, mScope := tagValuePolicyCRUID, tagScopeSecurityPolicyUID
+				g := make([]model.Group, 0)
+				g1 := &g
+				scopeGroup := model.Group{
+					Id:   &mGId,
+					Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+					Path: ptr.To("/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA_uidA_scope"),
+				}
+				*g1 = append(*g1, scopeGroup)
+				assert.NoError(t, s.groupStore.Apply(g1))
+
 				mProjGId := "spA_uidA_2c822e90_src"
+				g = make([]model.Group, 0)
+				g2 := &g
+				projectGroup := model.Group{
+					Id:   &mProjGId,
+					Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+				}
+				*g2 = append(*g2, projectGroup)
+				assert.NoError(t, s.projectGroupStore.Apply(g2))
+
+				mSId := "share_projectQuality_group_spA_uidA_2c822e90_src"
+				sh := make([]model.Share, 0)
+				s1 := &sh
+				projectShare := model.Share{
+					Id:         &mSId,
+					Tags:       []model.Tag{{Tag: &mTag, Scope: &mScope}},
+					SharedWith: []string{"/org/default/project/projectQuality/vpcs/vpc1"},
+				}
+				*s1 = append(*s1, projectShare)
+				assert.NoError(t, s.projectShareStore.Apply(s1))
+
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.OrgRootClient, "Patch", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				patches.ApplyMethod(reflect.TypeOf(s.vpcService), "IsDefaultNSXProject",
+					func(_ *mock.MockVPCServiceProvider, orgID, projectID string) (bool, error) {
+						return false, nil
+					})
+				return patches
+			},
+			args: args{
+				createdFor: common.ResourceTypeSecurityPolicy,
+				uid:        types.UID(tagValuePolicyCRUID),
+			},
+			wantErr:                    false,
+			wantGroupStoreCount:        0,
+			wantProjectGroupStoreCount: 0,
+			wantProjectShareStoreCount: 0,
+		},
+		{
+			name: "success GC VPCGroups and InfraSharesGroups",
+			prepareFunc: func(t *testing.T, s *SecurityPolicyService) *gomonkey.Patches {
+				mGId := "spA_uidA_scope"
+				mTag, mScope := tagValuePolicyCRUID, tagScopeSecurityPolicyUID
+				vpcg := make([]model.Group, 0)
+				g1 := &vpcg
+				scopeGroup := model.Group{
+					Id:   &mGId,
+					Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
+					Path: ptr.To("/orgs/default/projects/default/vpcs/vpc1/groups/spA_uidA_scope"),
+				}
+				*g1 = append(*g1, scopeGroup)
+				assert.NoError(t, s.groupStore.Apply(g1))
+
+				mInfraGId := "spA_uidA_2c822e90_src"
+				projectg := make([]model.Group, 0)
+				g2 := &projectg
+				infraGroup := model.Group{
+					Id:              &mInfraGId,
+					Tags:            []model.Tag{{Tag: &mTag, Scope: &mScope}},
+					MarkedForDelete: &markNoDelete,
+				}
+				*g2 = append(*g2, infraGroup)
+				assert.NoError(t, s.infraGroupStore.Apply(g2))
+
+				mSId := "share_default_group_spA_uidA_2c822e90_src"
+				sh := make([]model.Share, 0)
+				s1 := &sh
+				infraShare := model.Share{
+					Id:              &mSId,
+					Tags:            []model.Tag{{Tag: &mTag, Scope: &mScope}},
+					SharedWith:      []string{"/org/default/project/default"},
+					MarkedForDelete: &markNoDelete,
+				}
+				*s1 = append(*s1, infraShare)
+				assert.NoError(t, s.infraShareStore.Apply(s1))
+
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.OrgRootClient, "Patch", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient.InfraClient, "Patch", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				return patches
+			},
+			args: args{
+				createdFor: common.ResourceTypeSecurityPolicy,
+				uid:        types.UID(tagValuePolicyCRUID),
+			},
+			wantErr:                  false,
+			wantGroupStoreCount:      0,
+			wantInfraGroupStoreCount: 0,
+			wantInfraShareStoreCount: 0,
+		},
+		{
+			name: "success GC InfraSharesGroups",
+			prepareFunc: func(t *testing.T, s *SecurityPolicyService) *gomonkey.Patches {
+				mInfraGId := "spA_uidA_2c822e90_src"
 				mTag, mScope := tagValuePolicyCRUID, tagScopeSecurityPolicyUID
 				g := make([]model.Group, 0)
 				g1 := &g
 				infraGroup := model.Group{
-					Id:              &mProjGId,
+					Id:              &mInfraGId,
 					Tags:            []model.Tag{{Tag: &mTag, Scope: &mScope}},
 					MarkedForDelete: &markNoDelete,
 				}
@@ -3191,23 +3615,36 @@ func Test_gcInfraSharesGroups(t *testing.T) {
 				uid:        types.UID(tagValuePolicyCRUID),
 			},
 			wantErr:                  false,
-			wantInfraGroupStoreCount: 1,
-			wantInfraShareStoreCount: 1,
+			wantInfraGroupStoreCount: 0,
+			wantInfraShareStoreCount: 0,
 		},
+
 		{
 			name: "error gcInfraSharesGroups",
 			prepareFunc: func(t *testing.T, s *SecurityPolicyService) *gomonkey.Patches {
-				mProjGId := "spA_uidA_2c822e90_src"
+				mInfraGId := "spA_uidA_2c822e90_src"
 				mTag, mScope := tagValuePolicyCRUID, tagScopeSecurityPolicyUID
 				g := make([]model.Group, 0)
 				g1 := &g
 				infraGroup := model.Group{
-					Id:              &mProjGId,
+					Id:              &mInfraGId,
 					Tags:            []model.Tag{{Tag: &mTag, Scope: &mScope}},
 					MarkedForDelete: &markNoDelete,
 				}
 				*g1 = append(*g1, infraGroup)
 				assert.NoError(t, s.infraGroupStore.Apply(g1))
+
+				mSId := "share_default_group_spA_uidA_2c822e90_src"
+				sh := make([]model.Share, 0)
+				s1 := &sh
+				infraShare := model.Share{
+					Id:              &mSId,
+					Tags:            []model.Tag{{Tag: &mTag, Scope: &mScope}},
+					SharedWith:      []string{"/org/default/project/default"},
+					MarkedForDelete: &markNoDelete,
+				}
+				*s1 = append(*s1, infraShare)
+				assert.NoError(t, s.infraShareStore.Apply(s1))
 
 				patches := gomonkey.ApplyMethodSeq(s.NSXClient.InfraClient, "Patch", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{fmt.Errorf("mock error")},
@@ -3219,9 +3656,9 @@ func Test_gcInfraSharesGroups(t *testing.T) {
 				createdFor: common.ResourceTypeSecurityPolicy,
 				uid:        types.UID(tagValuePolicyCRUID),
 			},
-			wantErr:                  true,
+			wantErr:                  false,
 			wantInfraGroupStoreCount: 1,
-			wantInfraShareStoreCount: 0,
+			wantInfraShareStoreCount: 1,
 		},
 	}
 
@@ -3231,16 +3668,21 @@ func Test_gcInfraSharesGroups(t *testing.T) {
 			common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 
 			fakeService := fakeSecurityPolicyService()
+			mockVPCService := mock.MockVPCServiceProvider{}
+			fakeService.vpcService = &mockVPCService
 			fakeService.NSXConfig.EnableVPCNetwork = true
 			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
 			patches := tt.prepareFunc(t, fakeService)
 			defer patches.Reset()
 
-			if err := fakeService.gcInfraSharesGroups(tt.args.uid, tt.args.createdFor); (err != nil) != tt.wantErr {
-				t.Errorf("gcInfraSharesGroups error = %v, wantErr %v", err, tt.wantErr)
+			if err := fakeService.deleteVPCSecurityPolicy(tt.args.uid, true, tt.args.createdFor); (err != nil) != tt.wantErr {
+				t.Errorf("deleteVPCSecurityPolicyGC error = %v, wantErr %v", err, tt.wantErr)
 			}
 
+			assert.Equal(t, tt.wantGroupStoreCount, len(fakeService.groupStore.ListKeys()))
+			assert.Equal(t, tt.wantProjectGroupStoreCount, len(fakeService.projectGroupStore.ListKeys()))
+			assert.Equal(t, tt.wantProjectShareStoreCount, len(fakeService.projectShareStore.ListKeys()))
 			assert.Equal(t, tt.wantInfraGroupStoreCount, len(fakeService.infraGroupStore.ListKeys()))
 			assert.Equal(t, tt.wantInfraShareStoreCount, len(fakeService.infraShareStore.ListKeys()))
 
@@ -3255,7 +3697,11 @@ func Test_gcInfraSharesGroups(t *testing.T) {
 
 			existingShares := fakeService.infraShareStore.GetByIndex(tt.args.createdFor, string(tt.args.uid))
 			for _, share := range existingShares {
-				assert.Equal(t, true, *(*share).MarkedForDelete)
+				if tt.name == "error gcInfraSharesGroups" {
+					assert.Equal(t, false, *(*share).MarkedForDelete)
+				} else {
+					assert.Equal(t, true, *(*share).MarkedForDelete)
+				}
 			}
 		})
 	}
@@ -3324,6 +3770,145 @@ func Test_convertNetworkPolicyPortToSecurityPolicyPort(t *testing.T) {
 				return
 			}
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func Test_applyVPCGroupShareStore(t *testing.T) {
+	VPCInfo := make([]common.VPCResourceInfo, 1)
+	VPCInfo[0].OrgID = "default"
+	VPCInfo[0].ProjectID = "default"
+	VPCInfo[0].VPCID = "vpc1"
+
+	fakeService := fakeSecurityPolicyService()
+	fakeService.NSXConfig.EnableVPCNetwork = true
+	mockVPCService := mock.MockVPCServiceProvider{}
+	fakeService.vpcService = &mockVPCService
+
+	type args struct {
+		groups           []model.Group
+		shares           []model.Share
+		shareGoups       []model.Group
+		isDefaultProject bool
+	}
+	tests := []struct {
+		name                       string
+		args                       args
+		wantErr                    bool
+		wantGroupStoreCount        int
+		wantProjectGroupStoreCount int
+		wantProjectShareStoreCount int
+		wantInfraGroupStoreCount   int
+		wantInfraShareStoreCount   int
+	}{
+		{
+			name: "success applyVPCGroupShareStore in non-default project",
+			args: args{
+				groups:           []model.Group{{Id: String("1")}, {Id: String("2")}},
+				shares:           []model.Share{{Id: String("3-share")}},
+				shareGoups:       []model.Group{{Id: String("3")}},
+				isDefaultProject: false,
+			},
+			wantErr:                    false,
+			wantGroupStoreCount:        2,
+			wantProjectGroupStoreCount: 1,
+			wantProjectShareStoreCount: 1,
+			wantInfraGroupStoreCount:   0,
+			wantInfraShareStoreCount:   0,
+		},
+		{
+			name: "success applyVPCGroupShareStore in default project",
+			args: args{
+				groups:           []model.Group{{Id: String("1")}, {Id: String("2")}},
+				shares:           []model.Share{{Id: String("3-share")}},
+				shareGoups:       []model.Group{{Id: String("3")}},
+				isDefaultProject: true,
+			},
+			wantErr:                    false,
+			wantGroupStoreCount:        2,
+			wantProjectGroupStoreCount: 0,
+			wantProjectShareStoreCount: 0,
+			wantInfraGroupStoreCount:   1,
+			wantInfraShareStoreCount:   1,
+		},
+		{
+			name: "pass nil applyVPCGroupShareStore in non-default project",
+			args: args{
+				groups:           nil,
+				shares:           nil,
+				shareGoups:       nil,
+				isDefaultProject: false,
+			},
+			wantErr:                    false,
+			wantGroupStoreCount:        0,
+			wantProjectGroupStoreCount: 0,
+			wantProjectShareStoreCount: 0,
+			wantInfraGroupStoreCount:   0,
+			wantInfraShareStoreCount:   0,
+		},
+		{
+			name: "pass nil to applyVPCGroupShareStore in default project",
+			args: args{
+				groups:           nil,
+				shares:           nil,
+				shareGoups:       nil,
+				isDefaultProject: true,
+			},
+			wantErr:                    false,
+			wantGroupStoreCount:        0,
+			wantProjectGroupStoreCount: 0,
+			wantProjectShareStoreCount: 0,
+			wantInfraGroupStoreCount:   0,
+			wantInfraShareStoreCount:   0,
+		},
+		{
+			name: "pass empty list to applyVPCGroupShareStore in non-default project",
+			args: args{
+				groups:           []model.Group{},
+				shares:           []model.Share{},
+				shareGoups:       []model.Group{},
+				isDefaultProject: false,
+			},
+			wantErr:                    false,
+			wantGroupStoreCount:        0,
+			wantProjectGroupStoreCount: 0,
+			wantProjectShareStoreCount: 0,
+			wantInfraGroupStoreCount:   0,
+			wantInfraShareStoreCount:   0,
+		},
+		{
+			name: "pass empty list to applyVPCGroupShareStore in default project",
+			args: args{
+				groups:           nil,
+				shares:           nil,
+				shareGoups:       nil,
+				isDefaultProject: true,
+			},
+			wantErr:                    false,
+			wantGroupStoreCount:        0,
+			wantProjectGroupStoreCount: 0,
+			wantProjectShareStoreCount: 0,
+			wantInfraGroupStoreCount:   0,
+			wantInfraShareStoreCount:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
+			common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
+
+			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
+
+			if err := fakeService.applyVPCGroupShareStore(tt.args.groups, tt.args.shares, tt.args.shareGoups, tt.args.isDefaultProject); (err != nil) != tt.wantErr {
+				t.Errorf("applyVPCGroupShareStore error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			assert.Equal(t, tt.wantGroupStoreCount, len(fakeService.groupStore.ListKeys()))
+			assert.Equal(t, tt.wantProjectGroupStoreCount, len(fakeService.projectGroupStore.ListKeys()))
+			assert.Equal(t, tt.wantProjectShareStoreCount, len(fakeService.projectShareStore.ListKeys()))
+			assert.Equal(t, tt.wantInfraGroupStoreCount, len(fakeService.infraGroupStore.ListKeys()))
+			assert.Equal(t, tt.wantInfraShareStoreCount, len(fakeService.infraShareStore.ListKeys()))
 		})
 	}
 }
