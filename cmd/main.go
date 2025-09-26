@@ -136,6 +136,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 
 	checkLicense(nsxClient, cf.LicenseValidationInterval)
 
+	cf.K8sConfig.EnableRestore = false // disable restore in the current version
 	if cf.K8sConfig.EnableRestore && cf.CoeConfig.EnableVPCNetwork {
 		var err error
 		restoreMode, err = pkgutil.CompareNSXRestore(mgr.GetClient(), nsxClient)
