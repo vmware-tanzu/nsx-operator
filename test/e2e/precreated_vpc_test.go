@@ -414,8 +414,13 @@ func (data *TestData) createVPC(orgID, projectID, vpcID string, privateIPs []str
 		return err
 	}
 	enforceRevisionCheckParam := false
-	if err := data.nsxClient.OrgRootClient.Patch(*orgRoot, &enforceRevisionCheckParam); err != nil {
-		return err
+	if pollErr := wait.PollUntilContextTimeout(context.Background(), 10*time.Second, 2*time.Minute, true, func(ctx context.Context) (done bool, err error) {
+		if err := data.nsxClient.OrgRootClient.Patch(*orgRoot, &enforceRevisionCheckParam); err != nil {
+			return false, nil
+		}
+		return true, nil
+	}); pollErr != nil {
+		return pollErr
 	}
 
 	log.Info("Successfully requested VPC on NSX", "path", vpcPath)
