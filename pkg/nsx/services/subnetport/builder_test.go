@@ -69,6 +69,8 @@ func TestBuildSubnetPort(t *testing.T) {
 		expectedError error
 	}{
 		{
+			// DHCP/DHCPRelay - Y; StaticIPAllocation Enabled - N;
+			// AddressBinding exists - N
 			name: "build-NSX-port-for-subnetport",
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
@@ -125,6 +127,8 @@ func TestBuildSubnetPort(t *testing.T) {
 			expectedError: nil,
 		},
 		{
+			// DHCP/DHCPRelay - Y; StaticIPAllocation Enabled - N;
+			// AddressBinding exists - Y (restore); MAC in NSX MAC pool - N
 			name: "build-NSX-port-for-restore-subnetport",
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
@@ -196,6 +200,8 @@ func TestBuildSubnetPort(t *testing.T) {
 			expectedError: nil,
 		},
 		{
+			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
+			// AddressBinding exists - Y; MAC in NSX MAC pool - N
 			name: "build-NSX-port-for-subnetport-outside-nsx-mac-pool",
 			obj: &v1alpha1.SubnetPort{
 				ObjectMeta: metav1.ObjectMeta{
@@ -268,6 +274,8 @@ func TestBuildSubnetPort(t *testing.T) {
 			expectedError: nil,
 		},
 		{
+			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
+			// AddressBinding exists - Y; MAC in NSX MAC pool - Y
 			name: "build-NSX-port-for-subnetport-inside-nsx-mac-pool",
 			obj: &v1alpha1.SubnetPort{
 				ObjectMeta: metav1.ObjectMeta{
@@ -340,6 +348,8 @@ func TestBuildSubnetPort(t *testing.T) {
 			expectedError: nil,
 		},
 		{
+			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
+			// AddressBinding exists - N (pod)
 			name: "build-NSX-port-for-pod",
 			obj: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
@@ -353,8 +363,13 @@ func TestBuildSubnetPort(t *testing.T) {
 				},
 			},
 			nsxSubnet: &model.VpcSubnet{
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: common.Bool(true),
+					},
+				},
 				SubnetDhcpConfig: &model.SubnetDhcpConfig{
-					Mode: common.String("DHCP_SERVER"),
+					Mode: common.String("DHCP_DEACTIVATED"),
 				},
 				Path: common.String("fake_path"),
 			},
@@ -399,7 +414,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Path:       common.String("fake_path/ports/fake_pod_phoia"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
-					AllocateAddresses: common.String("NONE"),
+					AllocateAddresses: common.String("BOTH"),
 					Type_:             common.String("STATIC"),
 					TrafficTag:        common.Int64(0),
 					AppId:             common.String("c5db1800-ce4c-11de-a935-8105ba7ace78"),
@@ -409,6 +424,8 @@ func TestBuildSubnetPort(t *testing.T) {
 			expectedError: nil,
 		},
 		{
+			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
+			// AddressBinding exists - N (restore pod)
 			name: "build-NSX-port-for-restore-pod",
 			obj: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
@@ -419,7 +436,7 @@ func TestBuildSubnetPort(t *testing.T) {
 					UID:         "c5db1800-ce4c-11de-a935-8105ba7ace78",
 					Name:        "fake_pod",
 					Namespace:   "fake_ns",
-					Annotations: map[string]string{common.AnnotationPodMAC: "11:22:33:44:55:66"},
+					Annotations: map[string]string{common.AnnotationPodMAC: "04:50:56:00:fa:00"},
 				},
 				Status: corev1.PodStatus{
 					PodIP: "10.0.0.1",
@@ -427,7 +444,12 @@ func TestBuildSubnetPort(t *testing.T) {
 			},
 			nsxSubnet: &model.VpcSubnet{
 				SubnetDhcpConfig: &model.SubnetDhcpConfig{
-					Mode: common.String("DHCP_SERVER"),
+					Mode: common.String("DHCP_DEACTIVATED"),
+				},
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: common.Bool(true),
+					},
 				},
 				Path: common.String("fake_path"),
 			},
@@ -472,7 +494,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Path:       common.String("fake_path/ports/fake_pod_phoia"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
-					AllocateAddresses: common.String("NONE"),
+					AllocateAddresses: common.String("BOTH"),
 					Type_:             common.String("STATIC"),
 					TrafficTag:        common.Int64(0),
 					AppId:             common.String("c5db1800-ce4c-11de-a935-8105ba7ace78"),
@@ -481,7 +503,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				AddressBindings: []model.PortAddressBindingEntry{
 					{
 						IpAddress:  common.String("10.0.0.1"),
-						MacAddress: common.String("11:22:33:44:55:66"),
+						MacAddress: common.String("04:50:56:00:fa:00"),
 					},
 				},
 			},
@@ -489,6 +511,8 @@ func TestBuildSubnetPort(t *testing.T) {
 			restore:       true,
 		},
 		{
+			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - N;
+			// AddressBinding exists - N
 			name: "build-NSX-port-for-subnetport-no-ip",
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
@@ -550,6 +574,8 @@ func TestBuildSubnetPort(t *testing.T) {
 			expectedError: nil,
 		},
 		{
+			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - N;
+			// AddressBinding exists - N
 			name: "build-NSX-port-for-subnetport-no-ip-2",
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
@@ -604,6 +630,228 @@ func TestBuildSubnetPort(t *testing.T) {
 					AllocateAddresses: common.String("NONE"),
 					Type_:             common.String("STATIC"),
 					TrafficTag:        common.Int64(0),
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - N;
+			// AddressBinding exists - Y; MAC in NSX MAC pool - Y
+			name: "build-NSX-port-in-subnet-no-ip-but-binding-in-nsx-mac-pool",
+			obj: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7acc",
+					Name:      "fake_subnetport",
+					Namespace: "fake_ns",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					Subnet: "subnet-1",
+					AddressBindings: []v1alpha1.PortAddressBinding{
+						{
+							IPAddress:  "192.168.1.100",
+							MACAddress: "04:50:56:00:fa:00",
+						},
+					},
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					Mode: common.String("DHCP_DEACTIVATED"),
+				},
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: common.Bool(false),
+					},
+				},
+				Path: common.String("fake_path"),
+			},
+			contextID: "fake_context_id",
+			labelTags: nil,
+			expectedPort: &model.VpcSubnetPort{
+				DisplayName: common.String("fake_subnetport"),
+				Id:          common.String("fake_subnetport_phoia"),
+				Tags: []model.Tag{
+					{
+						Scope: common.String("nsx-op/cluster"),
+						Tag:   common.String("fake_cluster"),
+					},
+					{
+						Scope: common.String("nsx-op/version"),
+						Tag:   common.String("1.0.0"),
+					},
+					{
+						Scope: common.String("nsx-op/namespace"),
+						Tag:   common.String("fake_ns"),
+					},
+					{
+						Scope: common.String("nsx-op/subnetport_name"),
+						Tag:   common.String("fake_subnetport"),
+					},
+					{
+						Scope: common.String("nsx-op/subnetport_uid"),
+						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+					},
+				},
+				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
+				ParentPath: common.String("fake_path"),
+				Attachment: &model.PortAttachment{
+					AllocateAddresses: common.String("MAC_POOL"),
+					Type_:             common.String("STATIC"),
+					TrafficTag:        common.Int64(0),
+				},
+				AddressBindings: []model.PortAddressBindingEntry{
+					{
+						IpAddress:  common.String("192.168.1.100"),
+						MacAddress: common.String("04:50:56:00:fa:00"),
+					},
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - N;
+			// AddressBinding exists - Y; MAC in NSX MAC pool - N
+			name: "build-NSX-port-in-subnet-no-ip-but-binding-outside-nsx-mac-pool",
+			obj: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7acc",
+					Name:      "fake_subnetport",
+					Namespace: "fake_ns",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					Subnet: "subnet-1",
+					AddressBindings: []v1alpha1.PortAddressBinding{
+						{
+							IPAddress:  "192.168.1.100",
+							MACAddress: "00:50:56:00:fa:00",
+						},
+					},
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					Mode: common.String("DHCP_DEACTIVATED"),
+				},
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: common.Bool(false),
+					},
+				},
+				Path: common.String("fake_path"),
+			},
+			contextID: "fake_context_id",
+			labelTags: nil,
+			expectedPort: &model.VpcSubnetPort{
+				DisplayName: common.String("fake_subnetport"),
+				Id:          common.String("fake_subnetport_phoia"),
+				Tags: []model.Tag{
+					{
+						Scope: common.String("nsx-op/cluster"),
+						Tag:   common.String("fake_cluster"),
+					},
+					{
+						Scope: common.String("nsx-op/version"),
+						Tag:   common.String("1.0.0"),
+					},
+					{
+						Scope: common.String("nsx-op/namespace"),
+						Tag:   common.String("fake_ns"),
+					},
+					{
+						Scope: common.String("nsx-op/subnetport_name"),
+						Tag:   common.String("fake_subnetport"),
+					},
+					{
+						Scope: common.String("nsx-op/subnetport_uid"),
+						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+					},
+				},
+				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
+				ParentPath: common.String("fake_path"),
+				Attachment: &model.PortAttachment{
+					AllocateAddresses: common.String("NONE"),
+					Type_:             common.String("STATIC"),
+					TrafficTag:        common.Int64(0),
+				},
+				AddressBindings: []model.PortAddressBindingEntry{
+					{
+						IpAddress:  common.String("192.168.1.100"),
+						MacAddress: common.String("00:50:56:00:fa:00"),
+					},
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			// DHCP/DHCPRelay - Y; StaticIPAllocation Enabled - N;
+			// AddressBinding exists - Y; MAC in NSX MAC pool - Y
+			name: "build-NSX-port-in-subnet-dhcp-with-binding-in-nsx-mac-pool",
+			obj: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7acc",
+					Name:      "fake_subnetport",
+					Namespace: "fake_ns",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					Subnet: "subnet-1",
+					AddressBindings: []v1alpha1.PortAddressBinding{
+						{
+							IPAddress:  "192.168.1.100",
+							MACAddress: "04:50:56:00:fa:00",
+						},
+					},
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					Mode: common.String("DHCP_DEACTIVATED"),
+				},
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: common.Bool(false),
+					},
+				},
+				Path: common.String("fake_path"),
+			},
+			contextID: "fake_context_id",
+			labelTags: nil,
+			expectedPort: &model.VpcSubnetPort{
+				DisplayName: common.String("fake_subnetport"),
+				Id:          common.String("fake_subnetport_phoia"),
+				Tags: []model.Tag{
+					{
+						Scope: common.String("nsx-op/cluster"),
+						Tag:   common.String("fake_cluster"),
+					},
+					{
+						Scope: common.String("nsx-op/version"),
+						Tag:   common.String("1.0.0"),
+					},
+					{
+						Scope: common.String("nsx-op/namespace"),
+						Tag:   common.String("fake_ns"),
+					},
+					{
+						Scope: common.String("nsx-op/subnetport_name"),
+						Tag:   common.String("fake_subnetport"),
+					},
+					{
+						Scope: common.String("nsx-op/subnetport_uid"),
+						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+					},
+				},
+				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
+				ParentPath: common.String("fake_path"),
+				Attachment: &model.PortAttachment{
+					AllocateAddresses: common.String("MAC_POOL"),
+					Type_:             common.String("STATIC"),
+					TrafficTag:        common.Int64(0),
+				},
+				AddressBindings: []model.PortAddressBindingEntry{
+					{
+						IpAddress:  common.String("192.168.1.100"),
+						MacAddress: common.String("04:50:56:00:fa:00"),
+					},
 				},
 			},
 			expectedError: nil,
