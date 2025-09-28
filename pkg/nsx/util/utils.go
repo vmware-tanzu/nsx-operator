@@ -215,6 +215,12 @@ var (
 			"403": &InvalidCredentials{},
 			"505": &InvalidLicense{},
 		},
+		"401": // http.StatusUnauthorized
+		{
+			"98":  &BadXSRFToken{},
+			"403": &InvalidCredentials{},
+			"505": &InvalidLicense{},
+		},
 	}
 
 	errorTable1 = map[string]NsxError{
