@@ -133,7 +133,7 @@ func (ep *Endpoint) keepAlive() error {
 	} else {
 		req, err = http.NewRequest("GET", fmt.Sprintf(healthURL, ep.Scheme(), ep.Host()), nil)
 	}
-	log.Debug("Keep alive request", "url", req.URL.String())
+	log.Trace("Keep alive request", "url", req.URL.String())
 	if err != nil {
 		log.Error(err, "Failed to create keep alive request")
 		return err

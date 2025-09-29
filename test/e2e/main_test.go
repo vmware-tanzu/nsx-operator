@@ -23,13 +23,13 @@ func testMain(m *testing.M) int {
 	flag.StringVar(&testOptions.vcUser, "vc-user", "", "The username used to request vCenter API session")
 	flag.StringVar(&testOptions.vcPassword, "vc-password", "", "The password used by the user when requesting vCenter API session")
 	flag.BoolVar(&testOptions.debugLog, "debug", false, "")
+	flag.IntVar(&testOptions.logLevel, "log-level", 0, "")
 	flag.Parse()
 
-	if testOptions.debugLog {
-		logf.SetLogger(logger.ZapCustomLogger(true, 2).Logger)
-	} else {
-		logf.SetLogger(logger.ZapCustomLogger(false, 0).Logger)
-	}
+	log = logger.ZapCustomLogger(testOptions.debugLog, testOptions.logLevel)
+	logger.Log = log
+	// Set the controller-runtime logger to prevent the warning about log.SetLogger(...) never being called
+	logf.SetLogger(log.Logger)
 
 	if err := initProvider(); err != nil {
 		log.Error(err, "Error when initializing provider")

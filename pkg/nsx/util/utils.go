@@ -145,20 +145,17 @@ func InitErrorFromResponse(host string, statusCode int, body []byte) NsxError {
 }
 
 func dumpResponseBody(body []byte, statusCode int) {
-	if log.V(2).Enabled() {
-		var parsedBody interface{}
-		if err := json.Unmarshal(body, &parsedBody); err == nil {
-			log.Trace("Received HTTP response", "status code", statusCode, "body", parsedBody)
-		} else {
-			log.Trace("Received HTTP response", "status code", statusCode, "body", string(body))
-		}
+	var parsedBody interface{}
+	if err := json.Unmarshal(body, &parsedBody); err == nil {
+		log.Debug("HTTP resp", "status code", statusCode, "body", parsedBody)
+	} else {
+		log.Debug("HTTP resp", "status code", statusCode, "body", string(body))
 	}
 }
 
 func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorDetail, error) {
 	ec := ErrorDetail{StatusCode: statusCode}
 	if len(body) == 0 {
-		log.Debug("body length is 0")
 		return ec, nil
 	}
 	var res responseBody
@@ -274,7 +271,7 @@ func HandleHTTPResponse(response *http.Response, result interface{}, debug bool)
 		if response.StatusCode == http.StatusBadRequest {
 			err = HttpBadRequest
 		}
-		log.Error(err, "Handle HTTP response", "status", response.StatusCode, "request URL", response.Request.URL, "response body", string(body))
+		log.Error(err, "HTTP resp", "status", response.StatusCode, "request URL", response.Request.URL, "response body", string(body))
 		return err, nil
 	}
 	if err != nil || body == nil {
@@ -342,7 +339,7 @@ func DumpHttpRequest(request *http.Request) {
 	}
 	request.Body.Close()
 	request.Body = io.NopCloser(bytes.NewReader(body))
-	log.Trace("HTTP request", "url", request.URL, "body", string(body), "head", sanitizeHeaders(request.Header))
+	log.Trace("HTTP", "head", sanitizeHeaders(request.Header))
 }
 
 type NSXApiError struct {
