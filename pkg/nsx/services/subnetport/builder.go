@@ -27,23 +27,23 @@ var (
 	defaultContainerMacPoolName = "DefaultContainersMacPool"
 )
 
-func (service *SubnetPortService) isInNSXMacPool(mac string) (bool, error) {
+func (service *SubnetPortService) isInNSXMacPool(mac string) (*bool, error) {
 	mac = strings.ToLower(mac)
 	if service.macPool == nil {
-		return false, fmt.Errorf("default NSX MAC Pool not initialized")
+		return nil, fmt.Errorf("default NSX MAC Pool not initialized")
 	}
 	for _, macRange := range service.macPool.Ranges {
 		if macRange.Start != nil && macRange.End != nil {
 			start := strings.ToLower(*macRange.Start)
 			end := strings.ToLower(*macRange.End)
 			if mac >= start && mac <= end {
-				return true, nil
+				return common.Bool(true), nil
 			}
 		} else {
-			log.Error(nil, "Invalid MAC range", "range", macRange)
+			return nil, fmt.Errorf("invalid MAC range: %v", macRange)
 		}
 	}
-	return false, nil
+	return common.Bool(false), nil
 }
 
 func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labelTags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.VpcSubnetPort, error) {
@@ -59,7 +59,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	var externalAddressBinding *model.ExternalAddressBinding
 	var err error
 	var addressBindings []model.PortAddressBindingEntry
-	var isIPPool bool
+	var inNSXMacPool *bool // nil means no or invalid NSX MAC Pool
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
 		externalAddressBinding, err = service.buildExternalAddressBinding(o, restoreMode)
@@ -76,11 +76,10 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 				},
 			}
 			// Check if the specified MAC is in NSX MAC Pool to determine the allocateAddresses
-			inNSXMacPool, err := service.isInNSXMacPool(o.Status.NetworkInterfaceConfig.MACAddress)
+			inNSXMacPool, err = service.isInNSXMacPool(o.Status.NetworkInterfaceConfig.MACAddress)
 			if err != nil {
 				return nil, fmt.Errorf("failed to check NSX MAC Pool: %w", err)
 			}
-			isIPPool = !inNSXMacPool
 		} else if len(o.Spec.AddressBindings) > 0 {
 			addressBindings = []model.PortAddressBindingEntry{
 				{
@@ -90,11 +89,10 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 			if len(o.Spec.AddressBindings[0].MACAddress) > 0 {
 				addressBindings[0].MacAddress = &o.Spec.AddressBindings[0].MACAddress
 				// Check if the specified MAC is in NSX MAC Pool to determine the allocateAddresses
-				inNSXMacPool, err := service.isInNSXMacPool(o.Spec.AddressBindings[0].MACAddress)
+				inNSXMacPool, err = service.isInNSXMacPool(o.Spec.AddressBindings[0].MACAddress)
 				if err != nil {
 					return nil, fmt.Errorf("failed to check NSX MAC Pool: %w", err)
 				}
-				isIPPool = !inNSXMacPool
 			}
 		}
 	case *corev1.Pod:
@@ -112,19 +110,29 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	}
 
 	if util.NSXSubnetDHCPEnabled(nsxSubnet) {
-		// DHCP was never implemented for SubnetPort. Subnet's DHCP config is the only place to identify if port has DHCP config.
-		allocateAddresses = "NONE"
-	} else if isIPPool {
-		// If MAC address from spec is not in NSX MAC Pool and we set allocateAddresses as BOTH,
-		// we will get the error `User defined address bindings are not allowed on LogicalPort
-		// InternalLogicalPort/{id} as its VIF AttachmentContext contain IP/MAC Pool {1}.`
-		allocateAddresses = "IP_POOL"
-	} else if nsxSubnet.AdvancedConfig == nil || nsxSubnet.AdvancedConfig.StaticIpAllocation == nil ||
-		nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled == nil || !*nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled {
-		// StaticIpAllocation is false by default. Set allocateAddresses to NONE if StaticIpAllocation is not set or disabled.
-		allocateAddresses = "NONE"
+		// Subnet with DHCPServer/DHCPRelay.
+		if inNSXMacPool != nil && *inNSXMacPool {
+			allocateAddresses = "MAC_POOL"
+		} else {
+			// DHCP was never implemented for SubnetPort. Subnet's DHCP config is the only place to identify if port has DHCP config.
+			allocateAddresses = "NONE"
+		}
 	} else {
-		allocateAddresses = "BOTH"
+		if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) {
+			// Subnet with Static IPAM.
+			if inNSXMacPool != nil && !*inNSXMacPool {
+				allocateAddresses = "IP_POOL"
+			} else {
+				allocateAddresses = "BOTH"
+			}
+		} else {
+			// Subnet with no IP.
+			if inNSXMacPool != nil && *inNSXMacPool {
+				allocateAddresses = "MAC_POOL"
+			} else {
+				allocateAddresses = "NONE"
+			}
+		}
 	}
 
 	// Generate attachment uid by adding randomness to SubnetPort CR UID
