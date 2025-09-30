@@ -505,91 +505,54 @@ func TestSubnetPortService_GetGatewayPrefixForSubnetPort(t *testing.T) {
 	invalidGatewayAddress1 := "10.0.0.256"
 	invalidGatewayAddress2 := "10.0.0.1/a"
 	tests := []struct {
-		name        string
-		prepareFunc func(service *SubnetPortService) *gomonkey.Patches
-		wantErr     bool
+		name      string
+		nsxSubnet model.VpcSubnet
+		wantErr   bool
 	}{
 		{
 			name: "Success",
-			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(service.NSXClient.SubnetStatusClient, "List", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.VpcSubnetStatusListResult{
-						Results: []model.VpcSubnetStatus{
-							{GatewayAddress: &gatewayAddress},
-						},
-					}, nil},
-					Times: 1,
-				}})
-				return patches
+			nsxSubnet: model.VpcSubnet{
+				Id: &subnetId,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					GatewayAddresses: []string{gatewayAddress},
+				},
 			},
 			wantErr: false,
 		},
 		{
-			name: "ListSubnetStatusFailure",
-			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(service.NSXClient.SubnetStatusClient, "List", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.VpcSubnetStatusListResult{}, fmt.Errorf("mock error")},
-					Times:  1,
-				}})
-				return patches
-			},
-			wantErr: true,
-		},
-		{
-			name: "EmptySubnetStatus",
-			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(service.NSXClient.SubnetStatusClient, "List", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.VpcSubnetStatusListResult{
-						Results: []model.VpcSubnetStatus{},
-					}, nil},
-					Times: 1,
-				}})
-				return patches
+			name: "EmptySubnetGatewayAddress",
+			nsxSubnet: model.VpcSubnet{
+				Id: &subnetId,
 			},
 			wantErr: true,
 		},
 		{
 			name: "NoGatewayAddress",
-			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(service.NSXClient.SubnetStatusClient, "List", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.VpcSubnetStatusListResult{
-						Results: []model.VpcSubnetStatus{
-							{GatewayAddress: nil},
-						},
-					}, nil},
-					Times: 1,
-				}})
-				return patches
+			nsxSubnet: model.VpcSubnet{
+				Id: &subnetId,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					GatewayAddresses: []string{},
+				},
 			},
 			wantErr: true,
 		},
 		{
 			name: "InvalidIP",
-			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(service.NSXClient.SubnetStatusClient, "List", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.VpcSubnetStatusListResult{
-						Results: []model.VpcSubnetStatus{
-							{GatewayAddress: &invalidGatewayAddress1},
-						},
-					}, nil},
-					Times: 1,
-				}})
-				return patches
+			nsxSubnet: model.VpcSubnet{
+				Id: &subnetId,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					GatewayAddresses: []string{invalidGatewayAddress1},
+				},
 			},
 			wantErr: true,
 		},
 		{
-			name: "InvalidIP",
-			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(service.NSXClient.SubnetStatusClient, "List", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.VpcSubnetStatusListResult{
-						Results: []model.VpcSubnetStatus{
-							{GatewayAddress: &invalidGatewayAddress2},
-						},
-					}, nil},
-					Times: 1,
-				}})
-				return patches
+			name: "InvalidIP2",
+			nsxSubnet: model.VpcSubnet{
+				Id: &subnetId,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					GatewayAddresses: []string{invalidGatewayAddress2},
+				},
 			},
 			wantErr: true,
 		},
@@ -604,12 +567,7 @@ func TestSubnetPortService_GetGatewayPrefixForSubnetPort(t *testing.T) {
 			service := &SubnetPortService{
 				Service: commonService,
 			}
-
-			patches := tt.prepareFunc(service)
-			if patches != nil {
-				defer patches.Reset()
-			}
-			gateway, prefix, err := service.GetGatewayPrefixForSubnetPort(nil, subnetPath)
+			gateway, prefix, err := service.GetGatewayPrefixForSubnetPort(&tt.nsxSubnet)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("DeleteSubnetPort() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1298,4 +1256,82 @@ func createSubnetPortService(t *testing.T) *SubnetPortService {
 		}},
 		builder: builder,
 	}
+}
+
+func TestSubnetPortService_portAlreadyRealized(t *testing.T) {
+	service := &SubnetPortService{}
+	nsxSubnetPortWithNONE := &model.VpcSubnetPort{
+		Attachment: &model.PortAttachment{
+			AllocateAddresses: common.String("NONE"),
+		},
+	}
+	nsxSubnetPortWithBOTH := &model.VpcSubnetPort{
+		Attachment: &model.PortAttachment{
+			AllocateAddresses: common.String("BOTH"),
+		},
+	}
+	// SubnetPort: realized
+	subnetPortReady := &v1alpha1.SubnetPort{
+		Status: v1alpha1.SubnetPortStatus{
+			Conditions: []v1alpha1.Condition{
+				{
+					Reason: "SubnetPortReady",
+					Status: corev1.ConditionTrue,
+				},
+			},
+			Attachment: v1alpha1.PortAttachment{
+				ID: "some-id",
+			},
+			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+					{
+						IPAddress: "172.26.26.232",
+						Gateway:   "some-gateway",
+					},
+				},
+				MACAddress: "04:50:56:00:b4:24",
+			},
+		},
+	}
+	assert.True(t, service.portAlreadyRealized(subnetPortReady, nsxSubnetPortWithBOTH))
+
+	// SubnetPort: not realized
+	subnetPortNotReady := &v1alpha1.SubnetPort{
+		Status: v1alpha1.SubnetPortStatus{},
+	}
+	assert.False(t, service.portAlreadyRealized(subnetPortNotReady, nsxSubnetPortWithNONE))
+
+	// SubnetPort: not realized (wrong status)
+	subnetPortWrong := &v1alpha1.SubnetPort{
+		Status: v1alpha1.SubnetPortStatus{
+			Conditions: []v1alpha1.Condition{
+				{
+					Reason: "SubnetPortReady",
+					Status: corev1.ConditionFalse,
+				},
+			},
+			Attachment: v1alpha1.PortAttachment{
+				ID: "some-id",
+			},
+			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+					{
+						Gateway: "some-gateway",
+					},
+				},
+			},
+		},
+	}
+	assert.False(t, service.portAlreadyRealized(subnetPortWrong, nsxSubnetPortWithNONE))
+	// SubnetPort: not realized (missing IP with AllocateAddresses=BOTH)
+
+	// Pod: realized (annotation exists)
+	pod := &corev1.Pod{}
+	pod.Annotations = map[string]string{common.AnnotationPodMAC: "mac"}
+	assert.True(t, service.portAlreadyRealized(pod, nsxSubnetPortWithBOTH))
+
+	// Pod: not realized (annotation missing)
+	podNoMAC := &corev1.Pod{}
+	podNoMAC.Annotations = map[string]string{"other": "value"}
+	assert.False(t, service.portAlreadyRealized(podNoMAC, nsxSubnetPortWithBOTH))
 }

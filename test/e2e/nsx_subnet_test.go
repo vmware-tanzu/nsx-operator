@@ -515,17 +515,20 @@ func conditionSubnetPortRealized(subnetPort *v1alpha1.SubnetPort, args ...string
 	if len(args) > 0 {
 		expectedIP := args[0]
 		if len(subnetPort.Status.NetworkInterfaceConfig.IPAddresses) == 0 || !strings.Contains(subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, expectedIP+"/") {
+			log.Debug("SubnetPort IP address does not match", "expectedIP", expectedIP, "subnetPort.Status.NetworkInterfaceConfig.IPAddresses", subnetPort.Status.NetworkInterfaceConfig.IPAddresses)
 			return false, nil
 		}
 	}
 	if len(args) == 2 {
 		expectedMAC := args[1]
 		if !strings.Contains(subnetPort.Status.NetworkInterfaceConfig.MACAddress, expectedMAC) {
+			log.Debug("SubnetPort MAC address does not match", "expected", expectedMAC, "actual", subnetPort.Status.NetworkInterfaceConfig.MACAddress)
 			return false, nil
 		}
 	}
 	for _, con := range subnetPort.Status.Conditions {
 		if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionTrue {
+			log.Debug("SubnetPort is ready", "subnetPort", subnetPort.Name)
 			return true, nil
 		}
 	}

@@ -155,6 +155,7 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 			nsxSubnet.Id = common.String(*existingSubnet.Id)
 			nsxSubnet.DisplayName = common.String(*existingSubnet.DisplayName)
 
+			// TODO: In some cases, the existingSubnet has GatewayAddresses and DhcpServerAddresses and the built nsxSubnet doesn't, but they are actually should be recognized as not changed.
 			changed = common.CompareResource(SubnetToComparable(existingSubnet), SubnetToComparable(nsxSubnet))
 			if changed {
 				// Only tags, dhcp and specific advancedConfig fields are expected to be updated
@@ -166,12 +167,12 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 				updatedSubnet.SubnetDhcpConfig = nsxSubnet.SubnetDhcpConfig
 				// Only update gateway_addresses, dhcp_server_address, and connectivity_state from AdvancedConfig
 				if nsxSubnet.AdvancedConfig != nil {
-					if updatedSubnet.AdvancedConfig == nil {
-						updatedSubnet.AdvancedConfig = &model.SubnetAdvancedConfig{}
+					updatedSubnet.AdvancedConfig = &model.SubnetAdvancedConfig{
+						GatewayAddresses:    nsxSubnet.AdvancedConfig.GatewayAddresses,
+						DhcpServerAddresses: nsxSubnet.AdvancedConfig.DhcpServerAddresses,
+						ConnectivityState:   nsxSubnet.AdvancedConfig.ConnectivityState,
+						StaticIpAllocation:  nsxSubnet.AdvancedConfig.StaticIpAllocation,
 					}
-					updatedSubnet.AdvancedConfig.GatewayAddresses = nsxSubnet.AdvancedConfig.GatewayAddresses
-					updatedSubnet.AdvancedConfig.DhcpServerAddresses = nsxSubnet.AdvancedConfig.DhcpServerAddresses
-					updatedSubnet.AdvancedConfig.ConnectivityState = nsxSubnet.AdvancedConfig.ConnectivityState
 				}
 				nsxSubnet = &updatedSubnet
 			}
@@ -339,11 +340,13 @@ func (service *SubnetService) GetSubnetByKey(key string) (*model.VpcSubnet, erro
 
 func (service *SubnetService) GetSubnetByPath(path string, sharedSubnet bool) (*model.VpcSubnet, error) {
 	if sharedSubnet {
+		// NOTE: For the shared Subnet, always force to get from NSX API to ensure the latest gateway.
+		// If you invoke this function in the new code, please re-evaluate whether to expose the forceAPI parameter in the function for better control.
 		associatedResource, err := common.ConvertSubnetPathToAssociatedResource(path)
 		if err != nil {
 			return nil, err
 		}
-		return service.GetNSXSubnetFromCacheOrAPI(associatedResource)
+		return service.GetNSXSubnetFromCacheOrAPI(associatedResource, true)
 	}
 	info, err := common.ParseVPCResourcePath(path)
 	if err != nil {
@@ -357,7 +360,7 @@ func (service *SubnetService) GetSubnetByPath(path string, sharedSubnet bool) (*
 // Otherwise it gets from Subnet store
 func (service *SubnetService) GetSubnetByCR(subnet *v1alpha1.Subnet) (*model.VpcSubnet, error) {
 	if common.IsSharedSubnet(subnet) {
-		return service.GetNSXSubnetFromCacheOrAPI(subnet.Annotations[common.AnnotationAssociatedResource])
+		return service.GetNSXSubnetFromCacheOrAPI(subnet.Annotations[common.AnnotationAssociatedResource], false)
 	}
 	subnetList := service.GetSubnetsByIndex(common.TagScopeSubnetCRUID, string(subnet.GetUID()))
 	if len(subnetList) == 0 {
@@ -673,15 +676,17 @@ func (service *SubnetService) BuildSubnetCR(ns, subnetName, vpcFullID, associate
 
 // GetNSXSubnetFromCacheOrAPI retrieves the NSX subnet from cache if available, otherwise from the NSX API
 // It returns the NSX subnet and any error encountered
-func (service *SubnetService) GetNSXSubnetFromCacheOrAPI(associatedResource string) (*model.VpcSubnet, error) {
-	// First check if the NSX subnet is in the cache
-	service.nsxSubnetCacheMutex.RLock()
-	cachedData, exists := service.NSXSubnetCache[associatedResource]
-	service.nsxSubnetCacheMutex.RUnlock()
+func (service *SubnetService) GetNSXSubnetFromCacheOrAPI(associatedResource string, forceAPI bool) (*model.VpcSubnet, error) {
+	if !forceAPI {
+		// First check if the NSX subnet is in the cache
+		service.nsxSubnetCacheMutex.RLock()
+		cachedData, exists := service.NSXSubnetCache[associatedResource]
+		service.nsxSubnetCacheMutex.RUnlock()
 
-	if exists && cachedData.Subnet != nil {
-		log.Debug("Found NSX subnet in cache", "AssociatedResource", associatedResource)
-		return cachedData.Subnet, nil
+		if exists && cachedData.Subnet != nil {
+			log.Debug("Found NSX subnet in cache", "AssociatedResource", associatedResource)
+			return cachedData.Subnet, nil
+		}
 	}
 
 	// Get the NSX subnet from the NSX API

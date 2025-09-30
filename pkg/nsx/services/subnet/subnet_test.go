@@ -380,7 +380,7 @@ func TestSubnetService_GetSubnetByCR(t *testing.T) {
 		{
 			name: "sharedSubnet",
 			prepareFunc: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc((*SubnetService).GetNSXSubnetFromCacheOrAPI, func(s *SubnetService, associatedResource string) (*model.VpcSubnet, error) {
+				patches := gomonkey.ApplyFunc((*SubnetService).GetNSXSubnetFromCacheOrAPI, func(s *SubnetService, associatedResource string, forceAPI bool) (*model.VpcSubnet, error) {
 					return &model.VpcSubnet{Id: common.String("subnet-1")}, nil
 				})
 				return patches
@@ -472,7 +472,7 @@ func TestSubnetService_GetSubnetByPath(t *testing.T) {
 		{
 			name: "sharedSubnet",
 			prepareFunc: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc((*SubnetService).GetNSXSubnetFromCacheOrAPI, func(s *SubnetService, associatedResource string) (*model.VpcSubnet, error) {
+				patches := gomonkey.ApplyFunc((*SubnetService).GetNSXSubnetFromCacheOrAPI, func(s *SubnetService, associatedResource string, forceAPI bool) (*model.VpcSubnet, error) {
 					return &model.VpcSubnet{Id: common.String("subnet-1")}, nil
 				})
 				return patches
@@ -1433,7 +1433,7 @@ func TestGetNSXSubnetFromCacheOrAPI(t *testing.T) {
 			}
 
 			// Call the function being tested
-			subnet, err := service.GetNSXSubnetFromCacheOrAPI(tt.associatedResource)
+			subnet, err := service.GetNSXSubnetFromCacheOrAPI(tt.associatedResource, false)
 
 			// Check the result
 			if tt.expectedError != "" {
