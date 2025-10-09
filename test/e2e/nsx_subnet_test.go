@@ -1378,7 +1378,7 @@ func SubnetWithAssociatedResourceAnnotation(t *testing.T) {
 			Name:      "subnet-with-annotation",
 			Namespace: precreatedSubnetNs1,
 			Annotations: map[string]string{
-				common.AnnotationAssociatedResource: "project1:vpc1:subnet1",
+				common.AnnotationAssociatedResource: "project1%vpc1%subnet1",
 			},
 		},
 		Spec: v1alpha1.SubnetSpec{

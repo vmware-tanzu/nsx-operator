@@ -561,7 +561,7 @@ func TestPollAllSharedSubnets(t *testing.T) {
 		{
 			name: "One shared subnet",
 			sharedSubnetsMap: map[string][]types.NamespacedName{
-				"project1:vpc1:subnet1": {{Namespace: "default", Name: "test-subnet-1"}},
+				"project1%vpc1%subnet1": {{Namespace: "default", Name: "test-subnet-1"}},
 			},
 			expectedUniqueResources: 1,
 			expectedEnqueueCalls:    1,
@@ -569,9 +569,9 @@ func TestPollAllSharedSubnets(t *testing.T) {
 		{
 			name: "Multiple shared subnets with different resources",
 			sharedSubnetsMap: map[string][]types.NamespacedName{
-				"project1:vpc1:subnet1": {{Namespace: "default", Name: "test-subnet-1"}},
-				"project1:vpc1:subnet2": {{Namespace: "default", Name: "test-subnet-2"}},
-				"project1:vpc1:subnet3": {{Namespace: "default", Name: "test-subnet-3"}},
+				"project1%vpc1%subnet1": {{Namespace: "default", Name: "test-subnet-1"}},
+				"project1%vpc1%subnet2": {{Namespace: "default", Name: "test-subnet-2"}},
+				"project1%vpc1%subnet3": {{Namespace: "default", Name: "test-subnet-3"}},
 			},
 			expectedUniqueResources: 3,
 			expectedEnqueueCalls:    3,
@@ -579,11 +579,11 @@ func TestPollAllSharedSubnets(t *testing.T) {
 		{
 			name: "Multiple shared subnets with some shared resources",
 			sharedSubnetsMap: map[string][]types.NamespacedName{
-				"project1:vpc1:subnet1": {
+				"project1%vpc1%subnet1": {
 					{Namespace: "default", Name: "test-subnet-1"},
 					{Namespace: "default", Name: "test-subnet-2"}, // Same resource as subnet-1
 				},
-				"project1:vpc1:subnet2": {{Namespace: "default", Name: "test-subnet-3"}},
+				"project1%vpc1%subnet2": {{Namespace: "default", Name: "test-subnet-3"}},
 			},
 			expectedUniqueResources: 2, // Only 2 unique resources
 			expectedEnqueueCalls:    3, // But 3 subnets to update

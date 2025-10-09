@@ -141,7 +141,7 @@ func ExtractSubnetPath(sharedSubnetPath string) (orgID, projectID, vpcID, subnet
 }
 
 // ConvertSubnetPathToAssociatedResource converts a subnet path to the associated resource format
-// e.g., /orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1 -> proj-1:vpc-1:subnet-1
+// e.g., /orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1 -> proj-1%vpc-1%subnet-1
 func ConvertSubnetPathToAssociatedResource(sharedSubnetPath string) (string, error) {
 	// Extract the org id, project id, VPC id, and subnet id using ExtractSubnetPath
 	_, projectID, vpcID, subnetID, err := ExtractSubnetPath(sharedSubnetPath)
@@ -149,7 +149,7 @@ func ConvertSubnetPathToAssociatedResource(sharedSubnetPath string) (string, err
 		return "", err
 	}
 
-	return fmt.Sprintf("%s:%s:%s", projectID, vpcID, subnetID), nil
+	return fmt.Sprintf("%s%s%s%s%s", projectID, Separator, vpcID, Separator, subnetID), nil
 }
 
 // BuildUniqueIDWithRandomUUID returns a string with format "obj.name_hash(uid)[UUIDHashLength]". If the returned

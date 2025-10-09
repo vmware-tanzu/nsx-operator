@@ -219,7 +219,7 @@ func TestGetExistingSharedSubnets(t *testing.T) {
 						Name:      "shared-subnet",
 						Namespace: "test-ns",
 						Annotations: map[string]string{
-							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+							servicecommon.AnnotationAssociatedResource: "proj-1%vpc-1%subnet-1",
 						},
 					},
 				},
@@ -235,7 +235,7 @@ func TestGetExistingSharedSubnets(t *testing.T) {
 						Name:      "shared-subnet-1",
 						Namespace: "test-ns",
 						Annotations: map[string]string{
-							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+							servicecommon.AnnotationAssociatedResource: "proj-1%vpc-1%subnet-1",
 						},
 					},
 				},
@@ -244,7 +244,7 @@ func TestGetExistingSharedSubnets(t *testing.T) {
 						Name:      "shared-subnet-2",
 						Namespace: "test-ns",
 						Annotations: map[string]string{
-							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-2",
+							servicecommon.AnnotationAssociatedResource: "proj-1%vpc-1%subnet-2",
 						},
 					},
 				},
@@ -260,7 +260,7 @@ func TestGetExistingSharedSubnets(t *testing.T) {
 						Name:      "shared-subnet",
 						Namespace: "test-ns",
 						Annotations: map[string]string{
-							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+							servicecommon.AnnotationAssociatedResource: "proj-1%vpc-1%subnet-1",
 						},
 					},
 				},
@@ -485,7 +485,7 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(servicecommon.ConvertSubnetPathToAssociatedResource,
 					func(path string) (string, error) {
-						return "proj-1:vpc-1:subnet-1", nil
+						return "proj-1%vpc-1%subnet-1", nil
 					})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "createSharedSubnetCR",
 					func(_ *NamespaceReconciler, _ context.Context, _ string, _ string, _ *v1alpha1.VPCNetworkConfiguration) error {
@@ -502,7 +502,7 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 						Name:      "existing-subnet",
 						Namespace: "test-ns",
 						Annotations: map[string]string{
-							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:existing-subnet",
+							servicecommon.AnnotationAssociatedResource: "proj-1%vpc-1%existing-subnet",
 						},
 					},
 				},
@@ -518,7 +518,7 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(servicecommon.ConvertSubnetPathToAssociatedResource,
 					func(path string) (string, error) {
-						return "proj-1:vpc-1:subnet-1", nil
+						return "proj-1%vpc-1%subnet-1", nil
 					})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "createSharedSubnetCR",
 					func(_ *NamespaceReconciler, _ context.Context, _ string, _ string, _ *v1alpha1.VPCNetworkConfiguration) error {
@@ -535,7 +535,7 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 						Name:      "subnet-1",
 						Namespace: "test-ns",
 						Annotations: map[string]string{
-							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+							servicecommon.AnnotationAssociatedResource: "proj-1%vpc-1%subnet-1",
 						},
 					},
 				},
@@ -551,7 +551,7 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(servicecommon.ConvertSubnetPathToAssociatedResource,
 					func(path string) (string, error) {
-						return "proj-1:vpc-1:subnet-1", nil
+						return "proj-1%vpc-1%subnet-1", nil
 					})
 				return patches
 			},
@@ -564,7 +564,7 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 						Name:      "existing-subnet",
 						Namespace: "test-ns",
 						Annotations: map[string]string{
-							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:existing-subnet",
+							servicecommon.AnnotationAssociatedResource: "proj-1%vpc-1%existing-subnet",
 						},
 					},
 				},
@@ -580,7 +580,7 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(servicecommon.ConvertSubnetPathToAssociatedResource,
 					func(path string) (string, error) {
-						return "proj-1:vpc-1:existing-subnet", nil
+						return "proj-1%vpc-1%existing-subnet", nil
 					})
 				return patches
 			},
@@ -651,7 +651,7 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 			if tt.name == "Existing subnet should be added to SharedSubnetResourceMap" {
 				assert.Equal(t, 1, len(addToMapCalls), "AddSharedSubnetToResourceMap should be called once")
 				if len(addToMapCalls) > 0 {
-					assert.Equal(t, "proj-1:vpc-1:existing-subnet", addToMapCalls[0].associatedResource)
+					assert.Equal(t, "proj-1%vpc-1%existing-subnet", addToMapCalls[0].associatedResource)
 					assert.Equal(t, "test-ns", addToMapCalls[0].namespacedName.Namespace)
 					assert.Equal(t, "existing-subnet", addToMapCalls[0].namespacedName.Name)
 				}
@@ -684,12 +684,12 @@ func TestDeleteUnusedSharedSubnets(t *testing.T) {
 			name:            "One remaining subnet with no references",
 			existingSubnets: []client.Object{},
 			remainingSubnets: map[string]*v1alpha1.Subnet{
-				"proj-1:vpc-1:subnet-1": {
+				"proj-1%vpc-1%subnet-1": {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "subnet-1",
 						Namespace: "test-ns",
 						Annotations: map[string]string{
-							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+							servicecommon.AnnotationAssociatedResource: "proj-1%vpc-1%subnet-1",
 						},
 					},
 				},
@@ -708,12 +708,12 @@ func TestDeleteUnusedSharedSubnets(t *testing.T) {
 			name:            "One remaining subnet with references",
 			existingSubnets: []client.Object{},
 			remainingSubnets: map[string]*v1alpha1.Subnet{
-				"proj-1:vpc-1:subnet-1": {
+				"proj-1%vpc-1%subnet-1": {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "subnet-1",
 						Namespace: "test-ns",
 						Annotations: map[string]string{
-							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+							servicecommon.AnnotationAssociatedResource: "proj-1%vpc-1%subnet-1",
 						},
 					},
 				},
@@ -732,21 +732,21 @@ func TestDeleteUnusedSharedSubnets(t *testing.T) {
 			name:            "Multiple remaining subnets with mixed references",
 			existingSubnets: []client.Object{},
 			remainingSubnets: map[string]*v1alpha1.Subnet{
-				"proj-1:vpc-1:subnet-1": {
+				"proj-1%vpc-1%subnet-1": {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "subnet-1",
 						Namespace: "test-ns",
 						Annotations: map[string]string{
-							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+							servicecommon.AnnotationAssociatedResource: "proj-1%vpc-1%subnet-1",
 						},
 					},
 				},
-				"proj-1:vpc-1:subnet-2": {
+				"proj-1%vpc-1%subnet-2": {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "subnet-2",
 						Namespace: "test-ns",
 						Annotations: map[string]string{
-							servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-2",
+							servicecommon.AnnotationAssociatedResource: "proj-1%vpc-1%subnet-2",
 						},
 					},
 				},
@@ -912,12 +912,12 @@ func TestDeleteAllSharedSubnets(t *testing.T) {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getExistingSharedSubnetCRs",
 					func(_ *NamespaceReconciler, _ context.Context, _ string) (map[string]*v1alpha1.Subnet, error) {
 						return map[string]*v1alpha1.Subnet{
-							"proj-1:vpc-1:subnet-1": {
+							"proj-1%vpc-1%subnet-1": {
 								ObjectMeta: metav1.ObjectMeta{
 									Name:      "subnet-1",
 									Namespace: "test-ns",
 									Annotations: map[string]string{
-										servicecommon.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+										servicecommon.AnnotationAssociatedResource: "proj-1%vpc-1%subnet-1",
 									},
 								},
 							},
@@ -928,7 +928,7 @@ func TestDeleteAllSharedSubnets(t *testing.T) {
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "deleteUnusedSharedSubnets",
 					func(_ *NamespaceReconciler, _ context.Context, _ string, subnets map[string]*v1alpha1.Subnet) error {
 						// Verify that the subnets map contains the expected subnet
-						if _, ok := subnets["proj-1:vpc-1:subnet-1"]; !ok {
+						if _, ok := subnets["proj-1%vpc-1%subnet-1"]; !ok {
 							return fmt.Errorf("expected subnet not found in map")
 						}
 						return nil
@@ -993,7 +993,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 				// Mock ConvertSubnetPathToAssociatedResource
 				patches.ApplyFunc(servicecommon.ConvertSubnetPathToAssociatedResource,
 					func(path string) (string, error) {
-						return "proj-1:vpc-1:subnet-1", nil
+						return "proj-1%vpc-1%subnet-1", nil
 					})
 
 				// Mock GetNSXSubnetByAssociatedResource
@@ -1109,7 +1109,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 				// Mock ConvertSubnetPathToAssociatedResource
 				patches.ApplyFunc(servicecommon.ConvertSubnetPathToAssociatedResource,
 					func(path string) (string, error) {
-						return "proj-1:vpc-1:subnet-1", nil
+						return "proj-1%vpc-1%subnet-1", nil
 					})
 
 				// Mock GetNSXSubnetByAssociatedResource

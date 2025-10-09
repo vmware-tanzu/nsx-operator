@@ -312,7 +312,7 @@ func TestConvertSubnetPathToAssociatedResource(t *testing.T) {
 		{
 			name:             "Valid subnet path",
 			sharedSubnetPath: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
-			expectedResource: "proj-1:vpc-1:subnet-1",
+			expectedResource: "proj-1%vpc-1%subnet-1",
 		},
 		{
 			name:              "Invalid subnet path",

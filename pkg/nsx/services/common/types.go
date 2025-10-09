@@ -104,6 +104,7 @@ const (
 	ValuePatchVersion                  string = "0"
 	ConnectorUnderline                 string = "_"
 	ConnectorHyphen                    string = "-"
+	Separator                          string = "%"
 
 	GCInterval       = 10 * 60 * time.Second
 	SubnetGCInterval = 60 * time.Second

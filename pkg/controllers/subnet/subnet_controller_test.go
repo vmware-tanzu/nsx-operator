@@ -1204,7 +1204,7 @@ func TestHandleSharedSubnet(t *testing.T) {
 	}{
 		{
 			name:               "Success case",
-			associatedResource: "project1:vpc1:subnet1",
+			associatedResource: "project1%vpc1%subnet1",
 			nsxSubnet: &model.VpcSubnet{
 				Id:   common.String("subnet-id"),
 				Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet1"),
@@ -1216,7 +1216,7 @@ func TestHandleSharedSubnet(t *testing.T) {
 		},
 		{
 			name:                "Error getting NSX subnet",
-			associatedResource:  "project1:vpc1:subnet1",
+			associatedResource:  "project1%vpc1%subnet1",
 			nsxSubnet:           nil,
 			nsxSubnetErr:        fmt.Errorf("failed to get NSX subnet"),
 			getStatusErr:        nil,
@@ -1226,7 +1226,7 @@ func TestHandleSharedSubnet(t *testing.T) {
 		},
 		{
 			name:                "Error getting subnet status",
-			associatedResource:  "project1:vpc1:subnet1",
+			associatedResource:  "project1%vpc1%subnet1",
 			nsxSubnet:           &model.VpcSubnet{},
 			nsxSubnetErr:        nil,
 			getStatusErr:        fmt.Errorf("failed to get subnet status"),
@@ -1236,7 +1236,7 @@ func TestHandleSharedSubnet(t *testing.T) {
 		},
 		{
 			name:                "NSX subnet not found",
-			associatedResource:  "project1:vpc1:subnet1",
+			associatedResource:  "project1%vpc1%subnet1",
 			nsxSubnet:           &model.VpcSubnet{},
 			nsxSubnetErr:        nil,
 			getStatusErr:        nil,

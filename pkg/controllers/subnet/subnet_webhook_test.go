@@ -61,7 +61,7 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			Namespace: "ns-3",
 			Name:      "shared-subnet",
 			Annotations: map[string]string{
-				"nsx.vmware.com/associated-resource": "project1:vpc1:subnet1",
+				"nsx.vmware.com/associated-resource": "project1%vpc1%subnet1",
 			},
 		},
 		Spec: v1alpha1.SubnetSpec{
@@ -153,7 +153,7 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			Namespace: "ns-7",
 			Name:      "shared-subnet-to-update",
 			Annotations: map[string]string{
-				"nsx.vmware.com/associated-resource": "project1:vpc1:subnet1",
+				"nsx.vmware.com/associated-resource": "project1%vpc1%subnet1",
 			},
 		},
 		Spec: v1alpha1.SubnetSpec{

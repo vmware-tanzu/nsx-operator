@@ -516,10 +516,10 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 
 // GetNSXSubnetByAssociatedResource gets the NSX subnet based on the associated resource annotation
 func (service *SubnetService) GetNSXSubnetByAssociatedResource(associatedResource string) (*model.VpcSubnet, error) {
-	// Parse the associated resource string (format: projectID:vpcID:subnetID)
-	parts := strings.Split(associatedResource, ":")
+	// Parse the associated resource string (format: projectID%vpcID%subnetID)
+	parts := strings.Split(associatedResource, common.Separator)
 	if len(parts) != 3 {
-		return nil, fmt.Errorf("invalid associated resource format: %s, expected format: projectID:vpcID:subnetID", associatedResource)
+		return nil, fmt.Errorf("invalid associated resource format: %s, expected format: <projectID>%s<vpcID>%s<subnetID>", associatedResource, common.Separator, common.Separator)
 	}
 
 	orgID := "default" // hardcoded for now

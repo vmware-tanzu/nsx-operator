@@ -998,13 +998,13 @@ func TestBuildSubnetCR(t *testing.T) {
 			ns:             "test-ns",
 			subnetName:     "test-subnet",
 			vpcFullID:      "proj-1:vpc-1",
-			associatedName: "proj-1:vpc-1:subnet-1",
+			associatedName: "proj-1%vpc-1%subnet-1",
 			expectedSubnet: &v1alpha1.Subnet{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-subnet",
 					Namespace: "test-ns",
 					Annotations: map[string]string{
-						common.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+						common.AnnotationAssociatedResource: "proj-1%vpc-1%subnet-1",
 					},
 				},
 				Spec: v1alpha1.SubnetSpec{
@@ -1223,7 +1223,7 @@ func TestMapNSXSubnetStatusToSubnetCRStatus(t *testing.T) {
 			subnetCR: &v1alpha1.Subnet{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
-						common.AnnotationAssociatedResource: "project1:vpc1:subnet1",
+						common.AnnotationAssociatedResource: "project1%vpc1%subnet1",
 					},
 				},
 				Status: v1alpha1.SubnetStatus{
@@ -1367,12 +1367,12 @@ func TestGetNSXSubnetFromCacheOrAPI(t *testing.T) {
 	}{
 		{
 			name:               "Get subnet from cache",
-			associatedResource: "project1:vpc1:subnet1",
+			associatedResource: "project1%vpc1%subnet1",
 			cacheData: map[string]struct {
 				Subnet     *model.VpcSubnet
 				StatusList []model.VpcSubnetStatus
 			}{
-				"project1:vpc1:subnet1": {
+				"project1%vpc1%subnet1": {
 					Subnet: &model.VpcSubnet{
 						Id:   common.String("subnet-id-1"),
 						Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet1"),
@@ -1387,7 +1387,7 @@ func TestGetNSXSubnetFromCacheOrAPI(t *testing.T) {
 		},
 		{
 			name:               "Get subnet from API when not in cache",
-			associatedResource: "project1:vpc1:subnet2",
+			associatedResource: "project1%vpc1%subnet2",
 			cacheData: map[string]struct {
 				Subnet     *model.VpcSubnet
 				StatusList []model.VpcSubnetStatus
@@ -1404,8 +1404,26 @@ func TestGetNSXSubnetFromCacheOrAPI(t *testing.T) {
 			},
 		},
 		{
+			name:               "Get subnet with colon in Id from API when not in cache",
+			associatedResource: "project:1%vpc:1%subnet:2",
+			cacheData: map[string]struct {
+				Subnet     *model.VpcSubnet
+				StatusList []model.VpcSubnetStatus
+			}{},
+			mockGetNSXSubnetByAssociatedResource: func(associatedResource string) (*model.VpcSubnet, error) {
+				return &model.VpcSubnet{
+					Id:   common.String("subnet:2"),
+					Path: common.String("/projects/project:1/vpcs/vpc:1/subnets/subnet:2"),
+				}, nil
+			},
+			expectedSubnet: &model.VpcSubnet{
+				Id:   common.String("subnet:2"),
+				Path: common.String("/projects/project:1/vpcs/vpc:1/subnets/subnet:2"),
+			},
+		},
+		{
 			name:               "Error getting subnet from API",
-			associatedResource: "project1:vpc1:subnet3",
+			associatedResource: "project1%vpc1%subnet3",
 			cacheData: map[string]struct {
 				Subnet     *model.VpcSubnet
 				StatusList []model.VpcSubnetStatus
@@ -1466,12 +1484,12 @@ func TestGetSubnetStatusFromCacheOrAPI(t *testing.T) {
 				Id:   common.String("subnet-id-1"),
 				Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet1"),
 			},
-			associatedResource: "project1:vpc1:subnet1",
+			associatedResource: "project1%vpc1%subnet1",
 			cacheData: map[string]struct {
 				Subnet     *model.VpcSubnet
 				StatusList []model.VpcSubnetStatus
 			}{
-				"project1:vpc1:subnet1": {
+				"project1%vpc1%subnet1": {
 					Subnet: &model.VpcSubnet{
 						Id:   common.String("subnet-id-1"),
 						Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet1"),
@@ -1499,7 +1517,7 @@ func TestGetSubnetStatusFromCacheOrAPI(t *testing.T) {
 				Id:   common.String("subnet-id-2"),
 				Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet2"),
 			},
-			associatedResource: "project1:vpc1:subnet2",
+			associatedResource: "project1%vpc1%subnet2",
 			cacheData: map[string]struct {
 				Subnet     *model.VpcSubnet
 				StatusList []model.VpcSubnetStatus
@@ -1527,7 +1545,7 @@ func TestGetSubnetStatusFromCacheOrAPI(t *testing.T) {
 				Id:   common.String("subnet-id-3"),
 				Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet3"),
 			},
-			associatedResource: "project1:vpc1:subnet3",
+			associatedResource: "project1%vpc1%subnet3",
 			cacheData: map[string]struct {
 				Subnet     *model.VpcSubnet
 				StatusList []model.VpcSubnetStatus
@@ -1586,7 +1604,7 @@ func TestUpdateNSXSubnetCache(t *testing.T) {
 	}{
 		{
 			name:               "Add new entry to empty cache",
-			associatedResource: "project1:vpc1:subnet1",
+			associatedResource: "project1%vpc1%subnet1",
 			nsxSubnet: &model.VpcSubnet{
 				Id:   common.String("subnet-id-1"),
 				Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet1"),
@@ -1606,7 +1624,7 @@ func TestUpdateNSXSubnetCache(t *testing.T) {
 				Subnet     *model.VpcSubnet
 				StatusList []model.VpcSubnetStatus
 			}{
-				"project1:vpc1:subnet1": {
+				"project1%vpc1%subnet1": {
 					Subnet: &model.VpcSubnet{
 						Id:   common.String("subnet-id-1"),
 						Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet1"),
@@ -1623,7 +1641,7 @@ func TestUpdateNSXSubnetCache(t *testing.T) {
 		},
 		{
 			name:               "Update existing entry in cache",
-			associatedResource: "project1:vpc1:subnet1",
+			associatedResource: "project1%vpc1%subnet1",
 			nsxSubnet: &model.VpcSubnet{
 				Id:   common.String("subnet-id-1-updated"),
 				Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet1-updated"),
@@ -1639,7 +1657,7 @@ func TestUpdateNSXSubnetCache(t *testing.T) {
 				Subnet     *model.VpcSubnet
 				StatusList []model.VpcSubnetStatus
 			}{
-				"project1:vpc1:subnet1": {
+				"project1%vpc1%subnet1": {
 					Subnet: &model.VpcSubnet{
 						Id:   common.String("subnet-id-1"),
 						Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet1"),
@@ -1657,7 +1675,7 @@ func TestUpdateNSXSubnetCache(t *testing.T) {
 				Subnet     *model.VpcSubnet
 				StatusList []model.VpcSubnetStatus
 			}{
-				"project1:vpc1:subnet1": {
+				"project1%vpc1%subnet1": {
 					Subnet: &model.VpcSubnet{
 						Id:   common.String("subnet-id-1-updated"),
 						Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet1-updated"),
@@ -1704,13 +1722,13 @@ func TestRemoveSubnetFromCache(t *testing.T) {
 	}{
 		{
 			name:               "Remove existing subnet from cache",
-			associatedResource: "project1:vpc1:subnet1",
+			associatedResource: "project1%vpc1%subnet1",
 			reason:             "deleted",
 			initialCache: map[string]struct {
 				Subnet     *model.VpcSubnet
 				StatusList []model.VpcSubnetStatus
 			}{
-				"project1:vpc1:subnet1": {
+				"project1%vpc1%subnet1": {
 					Subnet: &model.VpcSubnet{
 						Id:   common.String("subnet-id-1"),
 						Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet1"),
@@ -1731,20 +1749,20 @@ func TestRemoveSubnetFromCache(t *testing.T) {
 		},
 		{
 			name:               "Remove one of multiple subnets from cache",
-			associatedResource: "project1:vpc1:subnet1",
+			associatedResource: "project1%vpc1%subnet1",
 			reason:             "deleted",
 			initialCache: map[string]struct {
 				Subnet     *model.VpcSubnet
 				StatusList []model.VpcSubnetStatus
 			}{
-				"project1:vpc1:subnet1": {
+				"project1%vpc1%subnet1": {
 					Subnet: &model.VpcSubnet{
 						Id:   common.String("subnet-id-1"),
 						Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet1"),
 					},
 					StatusList: []model.VpcSubnetStatus{},
 				},
-				"project1:vpc1:subnet2": {
+				"project1%vpc1%subnet2": {
 					Subnet: &model.VpcSubnet{
 						Id:   common.String("subnet-id-2"),
 						Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet2"),
@@ -1756,7 +1774,7 @@ func TestRemoveSubnetFromCache(t *testing.T) {
 				Subnet     *model.VpcSubnet
 				StatusList []model.VpcSubnetStatus
 			}{
-				"project1:vpc1:subnet2": {
+				"project1%vpc1%subnet2": {
 					Subnet: &model.VpcSubnet{
 						Id:   common.String("subnet-id-2"),
 						Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet2"),
@@ -1767,20 +1785,20 @@ func TestRemoveSubnetFromCache(t *testing.T) {
 		},
 		{
 			name:               "Remove non-existing subnet from cache (no change)",
-			associatedResource: "project1:vpc1:subnet3",
+			associatedResource: "project1%vpc1%subnet3",
 			reason:             "deleted",
 			initialCache: map[string]struct {
 				Subnet     *model.VpcSubnet
 				StatusList []model.VpcSubnetStatus
 			}{
-				"project1:vpc1:subnet1": {
+				"project1%vpc1%subnet1": {
 					Subnet: &model.VpcSubnet{
 						Id:   common.String("subnet-id-1"),
 						Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet1"),
 					},
 					StatusList: []model.VpcSubnetStatus{},
 				},
-				"project1:vpc1:subnet2": {
+				"project1%vpc1%subnet2": {
 					Subnet: &model.VpcSubnet{
 						Id:   common.String("subnet-id-2"),
 						Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet2"),
@@ -1792,14 +1810,14 @@ func TestRemoveSubnetFromCache(t *testing.T) {
 				Subnet     *model.VpcSubnet
 				StatusList []model.VpcSubnetStatus
 			}{
-				"project1:vpc1:subnet1": {
+				"project1%vpc1%subnet1": {
 					Subnet: &model.VpcSubnet{
 						Id:   common.String("subnet-id-1"),
 						Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet1"),
 					},
 					StatusList: []model.VpcSubnetStatus{},
 				},
-				"project1:vpc1:subnet2": {
+				"project1%vpc1%subnet2": {
 					Subnet: &model.VpcSubnet{
 						Id:   common.String("subnet-id-2"),
 						Path: common.String("/projects/project1/vpcs/vpc1/subnets/subnet2"),
