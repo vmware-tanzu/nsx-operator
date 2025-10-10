@@ -95,13 +95,12 @@ func assureIPAddressAllocationReady(t *testing.T, ns, ipAllocName string) (ips s
 	defer deadlineCancel()
 	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		resp, err := testData.crdClientset.CrdV1alpha1().IPAddressAllocations(ns).Get(context.Background(), ipAllocName, v1.GetOptions{})
-		log.Trace("Get IPAddressAllocations", "Namespace", ns, "Name", ipAllocName)
 		if err != nil {
 			return false, fmt.Errorf("error when waiting for %s", ipAllocName)
 		}
 		for _, con := range resp.Status.Conditions {
 			if con.Type == v1alpha1.Ready && resp.Status.AllocationIPs != "" {
-				log.Trace("Get IPAddressAllocations", "Namespace", ns, "Name", ipAllocName, "ip", resp.Status.AllocationIPs)
+				log.Debug("Get IPAddressAllocations", "Namespace", ns, "Name", ipAllocName, "ip", resp.Status.AllocationIPs)
 				ips = resp.Status.AllocationIPs
 				return true, nil
 			}
