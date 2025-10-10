@@ -1,6 +1,8 @@
 package common
 
 import (
+	"reflect"
+
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data/serializers/cleanjson"
 
@@ -15,6 +17,10 @@ type Comparable interface {
 }
 
 func CompareResource(existing Comparable, expected Comparable) (isChanged bool) {
+	//  avoid nil pointer
+	if reflect.ValueOf(existing).IsNil() || reflect.ValueOf(expected).IsNil() {
+		return true
+	}
 	dataValueToJSONEncoder := cleanjson.NewDataValueToJsonEncoder()
 	s1, _ := dataValueToJSONEncoder.Encode(existing.Value())
 	s2, _ := dataValueToJSONEncoder.Encode(expected.Value())
@@ -25,6 +31,20 @@ func CompareResource(existing Comparable, expected Comparable) (isChanged bool) 
 }
 
 func CompareResources(existing []Comparable, expected []Comparable) (changed []Comparable, stale []Comparable) {
+	// remove nil item in existing and expected
+	for i := 0; i < len(existing); i++ {
+		if reflect.ValueOf(existing[i]).IsNil() {
+			existing = append(existing[:i], existing[i+1:]...)
+			i--
+		}
+	}
+	for i := 0; i < len(expected); i++ {
+		if reflect.ValueOf(expected[i]).IsNil() {
+			expected = append(expected[:i], expected[i+1:]...)
+			i--
+		}
+	}
+
 	stale = make([]Comparable, 0)
 	changed = make([]Comparable, 0)
 
