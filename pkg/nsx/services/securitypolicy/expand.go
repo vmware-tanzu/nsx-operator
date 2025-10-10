@@ -26,7 +26,7 @@ import (
 // When a rule contains named port, we should consider whether the rule should be expanded to
 // multiple rules if the port name maps to conflicted port numbers.
 func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
-	ruleIdx int, createdFor string,
+	ruleIdx int, createdFor string, vpcInfo *common.VPCResourceInfo,
 ) ([]*model.Group, []*model.Rule, error) {
 	if len(rule.Ports) == 0 {
 		nsxRule, err := service.buildRuleBasicInfo(obj, rule, ruleIdx, createdFor, nil)
@@ -56,7 +56,7 @@ func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, r
 	// nsxGroups is a slice for the IPSet groups referred by a security Rule if named port is configured.
 	var nsxGroups []*model.Group
 	for portIdx, port := range rule.Ports {
-		nsxGroups2, nsxRules2, err := service.expandRuleByPort(obj, rule, ruleIdx, port, portIdx, createdFor)
+		nsxGroups2, nsxRules2, err := service.expandRuleByPort(obj, rule, ruleIdx, port, portIdx, createdFor, vpcInfo)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -68,7 +68,7 @@ func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, r
 }
 
 func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
-	ruleIdx int, port v1alpha1.SecurityPolicyPort, portIdx int, createdFor string,
+	ruleIdx int, port v1alpha1.SecurityPolicyPort, portIdx int, createdFor string, vpcInfo *common.VPCResourceInfo,
 ) ([]*model.Group, []*model.Rule, error) {
 	var portInfos []*portInfo
 
@@ -113,7 +113,7 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 	var nsxGroups []*model.Group
 	var nsxRules []*model.Rule
 	for _, portInfo := range portInfos {
-		gs, r, err := service.expandRuleByService(obj, rule, ruleIdx, createdFor, portInfo)
+		gs, r, err := service.expandRuleByService(obj, rule, ruleIdx, createdFor, portInfo, vpcInfo)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -124,7 +124,7 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 }
 
 func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule, ruleIdx int,
-	createdFor string, namedPort *portInfo,
+	createdFor string, namedPort *portInfo, vpcInfo *common.VPCResourceInfo,
 ) ([]*model.Group, *model.Rule, error) {
 	var nsxGroups []*model.Group
 
@@ -143,7 +143,7 @@ func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.Security
 		ruleIPSetGroup := service.buildRuleIPSetGroup(obj, rule, nsxRule, namedPort.ips, ruleIdx, createdFor)
 
 		// In VPC network, NSGroup with IPAddressExpression type can be supported in VPC level as well.
-		IPSetGroupPath, err := service.buildRuleIPSetGroupPath(obj, nsxRule)
+		IPSetGroupPath, err := service.buildRuleIPSetGroupPath(obj, nsxRule, vpcInfo)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -225,13 +225,12 @@ func (service *SecurityPolicyService) buildRuleIPSetGroupName(ruleModel *model.R
 	return util.GenerateTruncName(common.MaxNameLength, *ruleModel.DisplayName, "", common.IpSetGroupSuffix, "", "")
 }
 
-func (service *SecurityPolicyService) buildRuleIPSetGroupPath(obj *v1alpha1.SecurityPolicy, ruleModel *model.Rule) (string, error) {
+func (service *SecurityPolicyService) buildRuleIPSetGroupPath(obj *v1alpha1.SecurityPolicy, ruleModel *model.Rule, vpcInfo *common.VPCResourceInfo) (string, error) {
 	ipSetGroupID := service.buildRuleIPSetGroupID(ruleModel)
 
 	if IsVPCEnabled(service) {
-		vpcInfo, err := service.getVPCInfo(obj.ObjectMeta.Namespace)
-		if err != nil {
-			return "", err
+		if vpcInfo == nil {
+			return "", fmt.Errorf("vpcInfo is nil when building ruleIPSetGroupPath for rule %s", *ruleModel.Id)
 		}
 		orgID := (*vpcInfo).OrgID
 		projectID := (*vpcInfo).ProjectID
