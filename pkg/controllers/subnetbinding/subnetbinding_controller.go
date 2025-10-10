@@ -347,7 +347,7 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 				error:   err,
 			}
 		}
-		path, err := servicecommon.GetSubnetPathFromAssociatedResource(anno)
+		path, err := r.SubnetService.GetSubnetPathFromAssociatedResource(anno)
 		if err != nil {
 			// No need to retry as not support associated resource annotation
 			// changing after Subnet creation.

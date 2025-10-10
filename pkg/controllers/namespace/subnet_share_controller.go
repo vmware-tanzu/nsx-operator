@@ -60,10 +60,11 @@ func (r *NamespaceReconciler) createSubnetCRInK8s(ctx context.Context, subnetCR 
 // createSharedSubnetCR creates a Subnet CR for a shared subnet
 func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns string, sharedSubnetPath string) error {
 	// Extract the org id, project id, VPC id, and subnet id
-	orgID, projectID, vpcID, subnetID, err := servicecommon.ExtractSubnetPath(sharedSubnetPath)
+	subnetIdentifiers, err := servicecommon.ExtractSubnetPath(sharedSubnetPath)
 	if err != nil {
 		return err
 	}
+	orgID, projectID, vpcID, subnetID := subnetIdentifiers.OrgID, subnetIdentifiers.ProjectID, subnetIdentifiers.VPCID, subnetIdentifiers.SubnetID
 
 	vpcFullID, err := servicecommon.GetVPCFullID(orgID, projectID, vpcID, r.VPCService)
 	if err != nil {
@@ -142,6 +143,14 @@ func (r *NamespaceReconciler) processNewSharedSubnets(ctx context.Context, ns st
 			log.Error(err, "Failed to convert Subnet path to associated resource", "Namespace", ns, "SharedSubnet", sharedSubnetPath)
 			return unusedSubnets, err
 		}
+
+		// Extract subnet path components and add to AssociatedResourceMap
+		subnetIdentifiers, err := servicecommon.ExtractSubnetPath(sharedSubnetPath)
+		if err != nil {
+			log.Error(err, "Failed to extract Subnet path components", "Namespace", ns, "SharedSubnet", sharedSubnetPath)
+			return unusedSubnets, err
+		}
+		r.SubnetService.AddToAssociatedResourceMap(associatedResource, subnetIdentifiers)
 
 		if _, exists := existingSharedSubnets[associatedResource]; !exists {
 			err := r.createSharedSubnetCR(ctx, ns, sharedSubnetPath)
