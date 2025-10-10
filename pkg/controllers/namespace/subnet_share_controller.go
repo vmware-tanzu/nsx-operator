@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -14,17 +15,20 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
-// isValidKubernetesName checks if a name meets Kubernetes RFC 1123 subdomain naming standards
-func isValidKubernetesName(name string) bool {
-	// RFC 1123 subdomain: lowercase alphanumeric characters, '-' or '.', and must-start and end with alphanumeric
-	validNameRegex := regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
-	return validNameRegex.MatchString(name)
-}
-
 // generateValidSubnetName creates a valid Kubernetes name from subnet ID
 func generateValidSubnetName(subnetID string) string {
-	if isValidKubernetesName(subnetID) {
-		return subnetID
+	// Normalize to the lowercase and replace any non-DNS1123 characters with '-'
+	s := strings.ToLower(subnetID)
+	// Allow only lowercase alphanumerics, '-' and '.'
+	reInvalid := regexp.MustCompile(`[^a-z0-9.-]+`)
+	s = reInvalid.ReplaceAllString(s, "-")
+	// Collapse consecutive '-' or '.'
+	s = regexp.MustCompile(`-+`).ReplaceAllString(s, "-")
+	s = regexp.MustCompile(`\.+`).ReplaceAllString(s, ".")
+	// Trim leading/trailing '-' or '.' to satisfy the start /end alphanumeric rule
+	s = strings.Trim(s, "-.")
+	if len(s) < 254 {
+		return s
 	}
 	// Hash the whole subnet ID if it doesn't meet standards
 	return "shared-subnet-" + util.TruncateUIDHash(subnetID)
@@ -60,10 +64,11 @@ func (r *NamespaceReconciler) createSubnetCRInK8s(ctx context.Context, subnetCR 
 // createSharedSubnetCR creates a Subnet CR for a shared subnet
 func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns string, sharedSubnetPath string) error {
 	// Extract the org id, project id, VPC id, and subnet id
-	orgID, projectID, vpcID, subnetID, err := servicecommon.ExtractSubnetPath(sharedSubnetPath)
+	subnetIdentifiers, err := servicecommon.ExtractSubnetPath(sharedSubnetPath)
 	if err != nil {
 		return err
 	}
+	orgID, projectID, vpcID, subnetID := subnetIdentifiers.OrgID, subnetIdentifiers.ProjectID, subnetIdentifiers.VPCID, subnetIdentifiers.SubnetID
 
 	vpcFullID, err := servicecommon.GetVPCFullID(orgID, projectID, vpcID, r.VPCService)
 	if err != nil {
@@ -142,6 +147,14 @@ func (r *NamespaceReconciler) processNewSharedSubnets(ctx context.Context, ns st
 			log.Error(err, "Failed to convert Subnet path to associated resource", "Namespace", ns, "SharedSubnet", sharedSubnetPath)
 			return unusedSubnets, err
 		}
+
+		// Extract subnet path components and add to AssociatedResourceMap
+		subnetIdentifiers, err := servicecommon.ExtractSubnetPath(sharedSubnetPath)
+		if err != nil {
+			log.Error(err, "Failed to extract Subnet path components", "Namespace", ns, "SharedSubnet", sharedSubnetPath)
+			return unusedSubnets, err
+		}
+		r.SubnetService.AddToAssociatedResourceMap(associatedResource, subnetIdentifiers)
 
 		if _, exists := existingSharedSubnets[associatedResource]; !exists {
 			err := r.createSharedSubnetCR(ctx, ns, sharedSubnetPath)
