@@ -59,40 +59,31 @@ func verifySubnetSetCR(subnetSet string) bool {
 }
 
 func TestSubnetSet(t *testing.T) {
-	setupTest(t, subnetTestNamespace)
+	prepare(t, TestNamespace)
+	defer destroy(t, TestNamespace, subnetDeletionTimeout)
 
-	targetNs := &corev1.Namespace{
-		ObjectMeta: v1.ObjectMeta{
-			Name: subnetTestNamespaceTarget,
-			Annotations: map[string]string{
-				common.AnnotationSharedVPCNamespace: subnetTestNamespaceTarget,
-			},
-		},
-	}
-	_, err := testData.clientset.CoreV1().Namespaces().Create(context.TODO(), targetNs, v1.CreateOptions{})
+	// Update namespace with annotations
+	targetNs, err := testData.clientset.CoreV1().Namespaces().Get(context.TODO(), subnetTestNamespaceTarget, v1.GetOptions{})
 	require.NoError(t, err)
-	defer func() {
-		_ = testData.clientset.CoreV1().Namespaces().Delete(context.TODO(), subnetTestNamespaceTarget, v1.DeleteOptions{})
-	}()
+	targetNs.ObjectMeta.Annotations = map[string]string{
+		common.AnnotationSharedVPCNamespace: subnetTestNamespaceTarget,
+	}
+	_, err = testData.clientset.CoreV1().Namespaces().Update(context.TODO(), targetNs, v1.UpdateOptions{})
+	require.NoError(t, err)
 
-	sharedNs := &corev1.Namespace{
-		ObjectMeta: v1.ObjectMeta{
-			Name: subnetTestNamespaceShared,
-			Annotations: map[string]string{
-				common.AnnotationSharedVPCNamespace: subnetTestNamespaceTarget,
-			},
-		},
-	}
-	_, err = testData.clientset.CoreV1().Namespaces().Create(context.TODO(), sharedNs, v1.CreateOptions{})
+	// Update namespace with annotations
+	sharedNs, err := testData.clientset.CoreV1().Namespaces().Get(context.TODO(), subnetTestNamespaceShared, v1.GetOptions{})
 	require.NoError(t, err)
-	defer func() {
-		_ = testData.clientset.CoreV1().Namespaces().Delete(context.TODO(), subnetTestNamespaceShared, v1.DeleteOptions{})
-	}()
+	sharedNs.ObjectMeta.Annotations = map[string]string{
+		common.AnnotationSharedVPCNamespace: subnetTestNamespaceTarget,
+	}
+	_, err = testData.clientset.CoreV1().Namespaces().Update(context.TODO(), sharedNs, v1.UpdateOptions{})
+	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		teardownTest(t, subnetTestNamespace, subnetDeletionTimeout)
-		teardownTest(t, subnetTestNamespaceShared, subnetDeletionTimeout)
-		teardownTest(t, subnetTestNamespaceTarget, subnetDeletionTimeout)
+		destroy(t, subnetTestNamespace, subnetDeletionTimeout)
+		destroy(t, subnetTestNamespaceShared, subnetDeletionTimeout)
+		destroy(t, subnetTestNamespaceTarget, subnetDeletionTimeout)
 	})
 
 	t.Run("case=DefaultSubnetSet", defaultSubnetSet)

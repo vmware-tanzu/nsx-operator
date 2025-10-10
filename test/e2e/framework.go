@@ -391,13 +391,13 @@ func (data *TestData) createVCNamespace(namespace string) error {
 		return false, nil
 	})
 	if err != nil {
-		testData.deleteVCNamespace(namespace)
+		testData.deleteVCNamespace(namespace, defaultTimeout)
 	}
 	return err
 }
 
 // deleteVCNamespace deletes the provided VC namespace and waits for deletion to actually complete.
-func (data *TestData) deleteVCNamespace(namespace string) error {
+func (data *TestData) deleteVCNamespace(namespace string, timeout time.Duration) error {
 	err := testData.vcClient.startSession()
 	if err != nil {
 		return err
@@ -408,7 +408,7 @@ func (data *TestData) deleteVCNamespace(namespace string) error {
 
 	_ = testData.vcClient.deleteNamespace(namespace)
 	// wait for the namespace on k8s terminating
-	err = wait.PollUntilContextTimeout(context.TODO(), 10*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+	err = wait.PollUntilContextTimeout(context.TODO(), 10*time.Second, timeout, false, func(ctx context.Context) (done bool, err error) {
 		ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {

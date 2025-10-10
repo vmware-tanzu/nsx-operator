@@ -29,7 +29,7 @@ func testCreateVMBasic(t *testing.T) {
 		t.Fatalf("Failed to create VC namespace: %v", err)
 	}
 	defer func() {
-		err := testData.deleteVCNamespace(ns)
+		err := testData.deleteVCNamespace(ns, defaultTimeout)
 		if err != nil {
 			t.Fatalf("Failed to delete VC namespace: %v", err)
 		}
