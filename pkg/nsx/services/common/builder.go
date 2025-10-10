@@ -116,15 +116,6 @@ func GetVPCFullID(orgID, projectID, vpcID string, vpcService VPCServiceProvider)
 	return vpcFullID, nil
 }
 
-func GetSubnetPathFromAssociatedResource(associatedResource string) (string, error) {
-	// associatedResource has the format projectID:vpcID:subnetID
-	parts := strings.Split(associatedResource, ":")
-	if len(parts) != 3 {
-		return "", fmt.Errorf("failed to parse associated resource annotation %s", associatedResource)
-	}
-	return fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s/subnets/%s", orgId, parts[0], parts[1], parts[2]), nil
-}
-
 // ExtractSubnetPath extracts the org id, project id, VPC id, and subnet id from a subnet path
 func ExtractSubnetPath(sharedSubnetPath string) (orgID, projectID, vpcID, subnetID string, err error) {
 	// Format: /orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1

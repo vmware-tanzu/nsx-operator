@@ -2089,3 +2089,240 @@ func TestSubnetService_CreateOrUpdateSubnet_Consistency(t *testing.T) {
 		})
 	}
 }
+
+func TestSubnetService_AddToAssociatedResourceMap(t *testing.T) {
+	service := &SubnetService{
+		SharedSubnetData: SharedSubnetData{
+			AssociatedResourceMap: make(map[string]SubnetIdentifiers),
+		},
+	}
+
+	// Test adding a mapping
+	associatedResource := "test-namespace/test-subnet"
+	orgID := "test-org"
+	projectID := "test-project"
+	vpcID := "test-vpc"
+	subnetID := "test-subnet-id"
+
+	service.AddToAssociatedResourceMap(associatedResource, orgID, projectID, vpcID, subnetID)
+
+	// Verify the mapping was added
+	service.associatedResourceMapMutex.RLock()
+	identifiers, exists := service.AssociatedResourceMap[associatedResource]
+	service.associatedResourceMapMutex.RUnlock()
+
+	assert.True(t, exists, "Mapping should exist in AssociatedResourceMap")
+	assert.Equal(t, orgID, identifiers.OrgID)
+	assert.Equal(t, projectID, identifiers.ProjectID)
+	assert.Equal(t, vpcID, identifiers.VPCID)
+	assert.Equal(t, subnetID, identifiers.SubnetID)
+
+	// Test updating an existing mapping
+	newOrgID := "new-org"
+	service.AddToAssociatedResourceMap(associatedResource, newOrgID, projectID, vpcID, subnetID)
+
+	service.associatedResourceMapMutex.RLock()
+	identifiers, exists = service.AssociatedResourceMap[associatedResource]
+	service.associatedResourceMapMutex.RUnlock()
+
+	assert.True(t, exists, "Mapping should still exist")
+	assert.Equal(t, newOrgID, identifiers.OrgID, "OrgID should be updated")
+}
+
+func TestSubnetService_DeleteFromAssociatedResourceMap(t *testing.T) {
+	service := &SubnetService{
+		SharedSubnetData: SharedSubnetData{
+			AssociatedResourceMap: make(map[string]SubnetIdentifiers),
+		},
+	}
+
+	// Add a mapping first
+	associatedResource := "test-namespace/test-subnet"
+	service.AssociatedResourceMap[associatedResource] = SubnetIdentifiers{
+		OrgID:     "test-org",
+		ProjectID: "test-project",
+		VPCID:     "test-vpc",
+		SubnetID:  "test-subnet-id",
+	}
+
+	// Verify it exists
+	service.associatedResourceMapMutex.RLock()
+	_, exists := service.AssociatedResourceMap[associatedResource]
+	service.associatedResourceMapMutex.RUnlock()
+	assert.True(t, exists, "Mapping should exist before deletion")
+
+	// Delete the mapping
+	service.DeleteFromAssociatedResourceMap(associatedResource)
+
+	// Verify it was deleted
+	service.associatedResourceMapMutex.RLock()
+	_, exists = service.AssociatedResourceMap[associatedResource]
+	service.associatedResourceMapMutex.RUnlock()
+	assert.False(t, exists, "Mapping should be deleted from AssociatedResourceMap")
+
+	// Test deleting a non-existent mapping (should not panic)
+	service.DeleteFromAssociatedResourceMap("non-existent")
+}
+
+func TestSubnetService_GetSubnetPathFromAssociatedResource(t *testing.T) {
+	tests := []struct {
+		name               string
+		associatedResource string
+		setupMap           map[string]SubnetIdentifiers
+		expectedPath       string
+		expectedError      string
+	}{
+		{
+			name:               "Get path for existing mapping",
+			associatedResource: "test-namespace/test-subnet",
+			setupMap: map[string]SubnetIdentifiers{
+				"test-namespace/test-subnet": {
+					OrgID:     "org1",
+					ProjectID: "project1",
+					VPCID:     "vpc1",
+					SubnetID:  "subnet1",
+				},
+			},
+			expectedPath: "/orgs/org1/projects/project1/vpcs/vpc1/subnets/subnet1",
+		},
+		{
+			name:               "Get path with different IDs",
+			associatedResource: "ns2/subnet2",
+			setupMap: map[string]SubnetIdentifiers{
+				"ns2/subnet2": {
+					OrgID:     "default",
+					ProjectID: "proj-123",
+					VPCID:     "vpc-456",
+					SubnetID:  "subnet-789",
+				},
+			},
+			expectedPath: "/orgs/default/projects/proj-123/vpcs/vpc-456/subnets/subnet-789",
+		},
+		{
+			name:               "Error when mapping not found",
+			associatedResource: "non-existent",
+			setupMap:           map[string]SubnetIdentifiers{},
+			expectedError:      "associated resource non-existent not found in mapping",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &SubnetService{
+				SharedSubnetData: SharedSubnetData{
+					AssociatedResourceMap: tt.setupMap,
+				},
+			}
+
+			path, err := service.GetSubnetPathFromAssociatedResource(tt.associatedResource)
+
+			if tt.expectedError != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedError)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedPath, path)
+			}
+		})
+	}
+}
+
+func TestSubnetService_GetNSXSubnetByAssociatedResource(t *testing.T) {
+	tests := []struct {
+		name               string
+		associatedResource string
+		setupMap           map[string]SubnetIdentifiers
+		mockSubnet         *model.VpcSubnet
+		mockError          error
+		expectedSubnet     *model.VpcSubnet
+		expectedError      string
+	}{
+		{
+			name:               "Successfully get subnet from NSX",
+			associatedResource: "test-namespace/test-subnet",
+			setupMap: map[string]SubnetIdentifiers{
+				"test-namespace/test-subnet": {
+					OrgID:     "default",
+					ProjectID: "project1",
+					VPCID:     "vpc1",
+					SubnetID:  "subnet1",
+				},
+			},
+			mockSubnet: &model.VpcSubnet{
+				Id:          common.String("subnet1"),
+				DisplayName: common.String("test-subnet"),
+				Path:        common.String("/orgs/default/projects/project1/vpcs/vpc1/subnets/subnet1"),
+			},
+			expectedSubnet: &model.VpcSubnet{
+				Id:          common.String("subnet1"),
+				DisplayName: common.String("test-subnet"),
+				Path:        common.String("/orgs/default/projects/project1/vpcs/vpc1/subnets/subnet1"),
+			},
+		},
+		{
+			name:               "Error when mapping not found",
+			associatedResource: "non-existent",
+			setupMap:           map[string]SubnetIdentifiers{},
+			expectedError:      "associated resource non-existent not found in mapping",
+		},
+		{
+			name:               "Error from NSX client",
+			associatedResource: "test-namespace/test-subnet",
+			setupMap: map[string]SubnetIdentifiers{
+				"test-namespace/test-subnet": {
+					OrgID:     "default",
+					ProjectID: "project1",
+					VPCID:     "vpc1",
+					SubnetID:  "subnet1",
+				},
+			},
+			mockError:     fmt.Errorf("NSX API error"),
+			expectedError: "NSX API error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fakeClient := &fakeSubnetsClient{}
+			service := &SubnetService{
+				Service: common.Service{
+					NSXClient: &nsx.Client{
+						SubnetsClient: fakeClient,
+					},
+				},
+				SharedSubnetData: SharedSubnetData{
+					AssociatedResourceMap: tt.setupMap,
+				},
+			}
+
+			// Mock the NSX client Get method only if we have a valid mapping
+			var patches *gomonkey.Patches
+			if _, exists := tt.setupMap[tt.associatedResource]; exists {
+				if tt.mockError != nil {
+					patches = gomonkey.ApplyMethod(reflect.TypeOf(fakeClient), "Get",
+						func(_ *fakeSubnetsClient, _ string, _ string, _ string, _ string) (model.VpcSubnet, error) {
+							return model.VpcSubnet{}, tt.mockError
+						})
+				} else if tt.mockSubnet != nil {
+					patches = gomonkey.ApplyMethod(reflect.TypeOf(fakeClient), "Get",
+						func(_ *fakeSubnetsClient, _ string, _ string, _ string, _ string) (model.VpcSubnet, error) {
+							return *tt.mockSubnet, nil
+						})
+				}
+				if patches != nil {
+					defer patches.Reset()
+				}
+			}
+
+			subnet, err := service.GetNSXSubnetByAssociatedResource(tt.associatedResource)
+
+			if tt.expectedError != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedError)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedSubnet, subnet)
+			}
+		})
+	}
+}

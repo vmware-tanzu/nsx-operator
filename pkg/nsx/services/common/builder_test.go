@@ -293,15 +293,6 @@ func TestExtractSubnetPath(t *testing.T) {
 	}
 }
 
-func TestGetSubnetPathFromAssociatedResource(t *testing.T) {
-	path, err := GetSubnetPathFromAssociatedResource("project-1:ns-1:subnet-1")
-	assert.Nil(t, err)
-	assert.Equal(t, "/orgs/default/projects/project-1/vpcs/ns-1/subnets/subnet-1", path)
-
-	_, err = GetSubnetPathFromAssociatedResource("invalid-annotation")
-	assert.ErrorContains(t, err, "failed to parse associated resource annotation")
-}
-
 func TestConvertSubnetPathToAssociatedResource(t *testing.T) {
 	tests := []struct {
 		name              string

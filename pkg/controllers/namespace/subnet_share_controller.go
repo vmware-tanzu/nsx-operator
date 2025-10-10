@@ -143,6 +143,14 @@ func (r *NamespaceReconciler) processNewSharedSubnets(ctx context.Context, ns st
 			return unusedSubnets, err
 		}
 
+		// Extract subnet path components and add to AssociatedResourceMap
+		orgID, projectID, vpcID, subnetID, err := servicecommon.ExtractSubnetPath(sharedSubnetPath)
+		if err != nil {
+			log.Error(err, "Failed to extract Subnet path components", "Namespace", ns, "SharedSubnet", sharedSubnetPath)
+			return unusedSubnets, err
+		}
+		r.SubnetService.AddToAssociatedResourceMap(associatedResource, orgID, projectID, vpcID, subnetID)
+
 		if _, exists := existingSharedSubnets[associatedResource]; !exists {
 			err := r.createSharedSubnetCR(ctx, ns, sharedSubnetPath)
 			if err != nil {
