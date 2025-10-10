@@ -90,7 +90,7 @@ func testIPAddressAllocation(t *testing.T, yamlPath string, expectedCIDR string)
 	require.NoError(t, err)
 }
 
-func assureIPAddressAllocationReady(t *testing.T, ns, ipAllocName string) {
+func assureIPAddressAllocationReady(t *testing.T, ns, ipAllocName string) (ips string) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
@@ -101,12 +101,15 @@ func assureIPAddressAllocationReady(t *testing.T, ns, ipAllocName string) {
 		}
 		for _, con := range resp.Status.Conditions {
 			if con.Type == v1alpha1.Ready && resp.Status.AllocationIPs != "" {
+				log.Trace("Get IPAddressAllocations", "Namespace", ns, "Name", ipAllocName, "ip", resp.Status.AllocationIPs)
+				ips = resp.Status.AllocationIPs
 				return true, nil
 			}
 		}
 		return false, nil
 	})
 	require.NoError(t, err)
+	return ips
 }
 
 func getAllocationCIDR(t *testing.T, ns, ipAllocName string) string {
