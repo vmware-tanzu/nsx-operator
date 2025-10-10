@@ -19,16 +19,20 @@ import (
 )
 
 const (
-	StaticRoute     = "StaticRoute"
-	StaticRouteName = "guestcluster-staticroute-2"
+	StaticRoute             = "StaticRoute"
+	StaticRouteName         = "guestcluster-staticroute-2"
+	IpAddressAllocationName = "staticroute-ipalloc"
 )
 
 var TestNamespace = fmt.Sprintf("staticroute-%s", getRandomString())
+var ips string
 
 // TestStaticRouteBasic verifies that it could successfully realize StaticRoute.
 func TestStaticRouteBasic(t *testing.T) {
 	setupTest(t, TestNamespace)
 	defer teardownTest(t, TestNamespace, defaultTimeout)
+	ips = createIpAddressAllocation(t, TestNamespace, IpAddressAllocationName)
+	defer deleteIpAddressAllocation(t, TestNamespace, IpAddressAllocationName)
 	t.Run("case=CreateStaticRoute", CreateStaticRoute)
 	t.Run("case=DeleteStaticRoute", DeleteStaticRoute)
 }
@@ -53,11 +57,36 @@ func waitForStaticRouteCRReady(t *testing.T, ns, staticRouteName string) (res *v
 	require.NoError(t, err)
 	return
 }
+
+func createIpAddressAllocation(t *testing.T, ns, ipAllocName string) string {
+	ipAlloc := &v1alpha1.IPAddressAllocation{
+		Spec: v1alpha1.IPAddressAllocationSpec{
+			AllocationSize:           32,
+			IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityPrivateTGW,
+		}}
+	ipAlloc.Name = ipAllocName
+	_, err := testData.crdClientset.CrdV1alpha1().IPAddressAllocations(ns).Create(context.TODO(), ipAlloc, v1.CreateOptions{})
+	if err != nil && errors.IsAlreadyExists(err) {
+		err = nil
+	}
+	require.NoError(t, err)
+	ips := getAllocationCIDR(t, ns, ipAllocName)
+	log.Info("Created IPAddressAllocation", "Namespace", ns, "Name", ipAllocName, "IPs", ips)
+	require.NoError(t, err)
+	return ips
+}
+
+func deleteIpAddressAllocation(t *testing.T, ns, ipAllocName string) {
+	log.Info("Deleting IPAddressAllocation", "Namespace", ns, "Name", ipAllocName)
+	err := testData.crdClientset.CrdV1alpha1().IPAddressAllocations(ns).Delete(context.TODO(), ipAllocName, v1.DeleteOptions{})
+	require.NoError(t, err)
+}
+
 func CreateStaticRoute(t *testing.T) {
 	nextHop := v1alpha1.NextHop{IPAddress: "192.168.0.1"}
 	staticRoute := &v1alpha1.StaticRoute{
 		Spec: v1alpha1.StaticRouteSpec{
-			Network:  "45.1.2.0/24",
+			Network:  ips,
 			NextHops: []v1alpha1.NextHop{nextHop},
 		}}
 	staticRoute.Name = StaticRouteName
