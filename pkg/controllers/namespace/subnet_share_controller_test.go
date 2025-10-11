@@ -67,6 +67,7 @@ func createTestNamespaceReconciler(objs []client.Object) *NamespaceReconciler {
 				StatusList []model.VpcSubnetStatus
 			}),
 			SharedSubnetResourceMap: make(map[string]sets.Set[types.NamespacedName]),
+			AssociatedResourceMap:   make(map[string]servicecommon.SubnetIdentifiers),
 		},
 	}
 
@@ -487,6 +488,10 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 					func(path string) (string, error) {
 						return "proj-1:vpc-1:subnet-1", nil
 					})
+				patches.ApplyFunc(servicecommon.ExtractSubnetPath,
+					func(path string) (servicecommon.SubnetIdentifiers, error) {
+						return servicecommon.SubnetIdentifiers{OrgID: "default", ProjectID: "proj-1", VPCID: "vpc-1", SubnetID: "subnet-1"}, nil
+					})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "createSharedSubnetCR",
 					func(_ *NamespaceReconciler, _ context.Context, _ string, _ string, _ *v1alpha1.VPCNetworkConfiguration) error {
 						return nil
@@ -519,6 +524,10 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 				patches := gomonkey.ApplyFunc(servicecommon.ConvertSubnetPathToAssociatedResource,
 					func(path string) (string, error) {
 						return "proj-1:vpc-1:subnet-1", nil
+					})
+				patches.ApplyFunc(servicecommon.ExtractSubnetPath,
+					func(path string) (servicecommon.SubnetIdentifiers, error) {
+						return servicecommon.SubnetIdentifiers{OrgID: "default", ProjectID: "proj-1", VPCID: "vpc-1", SubnetID: "subnet-1"}, nil
 					})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "createSharedSubnetCR",
 					func(_ *NamespaceReconciler, _ context.Context, _ string, _ string, _ *v1alpha1.VPCNetworkConfiguration) error {
@@ -553,6 +562,10 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 					func(path string) (string, error) {
 						return "proj-1:vpc-1:subnet-1", nil
 					})
+				patches.ApplyFunc(servicecommon.ExtractSubnetPath,
+					func(path string) (servicecommon.SubnetIdentifiers, error) {
+						return servicecommon.SubnetIdentifiers{OrgID: "default", ProjectID: "proj-1", VPCID: "vpc-1", SubnetID: "subnet-1"}, nil
+					})
 				return patches
 			},
 		},
@@ -582,6 +595,10 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 					func(path string) (string, error) {
 						return "proj-1:vpc-1:existing-subnet", nil
 					})
+				patches.ApplyFunc(servicecommon.ExtractSubnetPath,
+					func(path string) (servicecommon.SubnetIdentifiers, error) {
+						return servicecommon.SubnetIdentifiers{OrgID: "default", ProjectID: "proj-1", VPCID: "vpc-1", SubnetID: "existing-subnet"}, nil
+					})
 				return patches
 			},
 		},
@@ -598,23 +615,39 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 				}
 			}
 
+			// Track AddToAssociatedResourceMap calls
+			var addToAssociatedResourceMapCalls []struct {
+				associatedResource string
+				identifiers        servicecommon.SubnetIdentifiers
+			}
+
+			// Mock AddToAssociatedResourceMap to track calls
+			addToAssociatedResourceMapPatches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "AddToAssociatedResourceMap",
+				func(_ *subnet.SubnetService, associatedResource string, identifiers servicecommon.SubnetIdentifiers) {
+					addToAssociatedResourceMapCalls = append(addToAssociatedResourceMapCalls, struct {
+						associatedResource string
+						identifiers        servicecommon.SubnetIdentifiers
+					}{associatedResource, identifiers})
+				})
+			defer addToAssociatedResourceMapPatches.Reset()
+
 			// Track AddSharedSubnetToResourceMap calls for the new test case
 			var addToMapCalls []struct {
 				associatedResource string
 				namespacedName     types.NamespacedName
 			}
 
-			if tt.name == "Existing subnet should be added to SharedSubnetResourceMap" {
-				// Mock AddSharedSubnetToResourceMap to track calls
-				addToMapPatches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "AddSharedSubnetToResourceMap",
-					func(_ *subnet.SubnetService, associatedResource string, namespacedName types.NamespacedName) {
-						addToMapCalls = append(addToMapCalls, struct {
-							associatedResource string
-							namespacedName     types.NamespacedName
-						}{associatedResource, namespacedName})
-					})
-				defer addToMapPatches.Reset()
+			// Mock AddSharedSubnetToResourceMap to track calls for all test cases
+			addToMapPatches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "AddSharedSubnetToResourceMap",
+				func(_ *subnet.SubnetService, associatedResource string, namespacedName types.NamespacedName) {
+					addToMapCalls = append(addToMapCalls, struct {
+						associatedResource string
+						namespacedName     types.NamespacedName
+					}{associatedResource, namespacedName})
+				})
+			defer addToMapPatches.Reset()
 
+			if tt.name == "Existing subnet should be added to SharedSubnetResourceMap" {
 				// Initialize an empty SharedSubnetResourceMap (don't pre-populate for this test)
 				r.SubnetService.SharedSubnetResourceMap = make(map[string]sets.Set[types.NamespacedName])
 			} else {
@@ -646,6 +679,22 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 			// Check the result
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expectedUnusedCount, len(unusedSubnets))
+
+			// Verify AddToAssociatedResourceMap was called for each subnet in the config
+			expectedCallCount := len(tt.vpcNetConfig.Spec.Subnets)
+			assert.Equal(t, expectedCallCount, len(addToAssociatedResourceMapCalls), "AddToAssociatedResourceMap should be called for each subnet")
+
+			// Verify the parameters for AddToAssociatedResourceMap calls
+			for i, call := range addToAssociatedResourceMapCalls {
+				if i < len(tt.vpcNetConfig.Spec.Subnets) {
+					// Verify orgID, projectID, vpcID, subnetID are correctly extracted
+					assert.Equal(t, "default", call.identifiers.OrgID, "orgID should be 'default'")
+					assert.Equal(t, "proj-1", call.identifiers.ProjectID, "projectID should be 'proj-1'")
+					assert.Equal(t, "vpc-1", call.identifiers.VPCID, "vpcID should be 'vpc-1'")
+					// subnetID varies by test case, just verify it's not empty
+					assert.NotEmpty(t, call.identifiers.SubnetID, "subnetID should not be empty")
+				}
+			}
 
 			// Verify AddSharedSubnetToResourceMap was called for existing subnet test
 			if tt.name == "Existing subnet should be added to SharedSubnetResourceMap" {
@@ -980,8 +1029,8 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// Mock ExtractSubnetPath
 				patches := gomonkey.ApplyFunc(servicecommon.ExtractSubnetPath,
-					func(path string) (string, string, string, string, error) {
-						return "default", "proj-1", "vpc-1", "subnet-1", nil
+					func(path string) (servicecommon.SubnetIdentifiers, error) {
+						return servicecommon.SubnetIdentifiers{OrgID: "default", ProjectID: "proj-1", VPCID: "vpc-1", SubnetID: "subnet-1"}, nil
 					})
 
 				// Mock IsDefaultNSXProject
@@ -1037,8 +1086,8 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// Mock ExtractSubnetPath to return an error
 				patches := gomonkey.ApplyFunc(servicecommon.ExtractSubnetPath,
-					func(path string) (string, string, string, string, error) {
-						return "", "", "", "", fmt.Errorf("invalid subnet path format")
+					func(path string) (servicecommon.SubnetIdentifiers, error) {
+						return servicecommon.SubnetIdentifiers{}, fmt.Errorf("invalid subnet path format")
 					})
 				return patches
 			},
@@ -1050,8 +1099,8 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// Mock ExtractSubnetPath
 				patches := gomonkey.ApplyFunc(servicecommon.ExtractSubnetPath,
-					func(path string) (string, string, string, string, error) {
-						return "default", "proj-1", "vpc-1", "subnet-1", nil
+					func(path string) (servicecommon.SubnetIdentifiers, error) {
+						return servicecommon.SubnetIdentifiers{OrgID: "default", ProjectID: "proj-1", VPCID: "vpc-1", SubnetID: "subnet-1"}, nil
 					})
 
 				// Mock IsDefaultNSXProject to return an error
@@ -1070,8 +1119,8 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// Mock ExtractSubnetPath
 				patches := gomonkey.ApplyFunc(servicecommon.ExtractSubnetPath,
-					func(path string) (string, string, string, string, error) {
-						return "default", "proj-1", "vpc-1", "subnet-1", nil
+					func(path string) (servicecommon.SubnetIdentifiers, error) {
+						return servicecommon.SubnetIdentifiers{OrgID: "default", ProjectID: "proj-1", VPCID: "vpc-1", SubnetID: "subnet-1"}, nil
 					})
 
 				// Mock IsDefaultNSXProject
@@ -1096,8 +1145,8 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// Mock ExtractSubnetPath
 				patches := gomonkey.ApplyFunc(servicecommon.ExtractSubnetPath,
-					func(path string) (string, string, string, string, error) {
-						return "default", "proj-1", "vpc-1", "subnet-1", nil
+					func(path string) (servicecommon.SubnetIdentifiers, error) {
+						return servicecommon.SubnetIdentifiers{OrgID: "default", ProjectID: "proj-1", VPCID: "vpc-1", SubnetID: "subnet-1"}, nil
 					})
 
 				// Mock IsDefaultNSXProject

@@ -609,7 +609,7 @@ func TestValidateVpcSubnetsBySubnetCR(t *testing.T) {
 			name:     "Child subnet is shared Subnet",
 			isTarget: false,
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(common.GetSubnetPathFromAssociatedResource, func(associatedResource string) (string, error) {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetPathFromAssociatedResource", func(_ *subnet.SubnetService, associatedResource string) (string, error) {
 					return "/subnet-1", nil
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetConnectionBindingMapsByParentSubnet", func(_ *Reconciler, ctx context.Context, ns, name string) ([]types.NamespacedName, error) {

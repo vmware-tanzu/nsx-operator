@@ -277,29 +277,20 @@ func TestExtractSubnetPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			orgName, projectName, vpcName, subnetName, err := ExtractSubnetPath(tt.sharedSubnetPath)
+			ids, err := ExtractSubnetPath(tt.sharedSubnetPath)
 
 			if tt.expectedErrString != "" {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), tt.expectedErrString)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tt.expectedOrg, orgName)
-				assert.Equal(t, tt.expectedProject, projectName)
-				assert.Equal(t, tt.expectedVPC, vpcName)
-				assert.Equal(t, tt.expectedSubnet, subnetName)
+				assert.Equal(t, tt.expectedOrg, ids.OrgID)
+				assert.Equal(t, tt.expectedProject, ids.ProjectID)
+				assert.Equal(t, tt.expectedVPC, ids.VPCID)
+				assert.Equal(t, tt.expectedSubnet, ids.SubnetID)
 			}
 		})
 	}
-}
-
-func TestGetSubnetPathFromAssociatedResource(t *testing.T) {
-	path, err := GetSubnetPathFromAssociatedResource("project-1:ns-1:subnet-1")
-	assert.Nil(t, err)
-	assert.Equal(t, "/orgs/default/projects/project-1/vpcs/ns-1/subnets/subnet-1", path)
-
-	_, err = GetSubnetPathFromAssociatedResource("invalid-annotation")
-	assert.ErrorContains(t, err, "failed to parse associated resource annotation")
 }
 
 func TestConvertSubnetPathToAssociatedResource(t *testing.T) {
