@@ -55,7 +55,6 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			}
 			transTime := time.Since(start) - waitTime
 			ep.adjustRate(waitTime, resp.StatusCode)
-			log.Debug("RoundTrip request", "request", r.URL, "method", r.Method, "transTime", transTime)
 			if resp == nil {
 				return nil
 			}

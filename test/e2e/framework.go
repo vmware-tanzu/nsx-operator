@@ -86,6 +86,7 @@ type TestOptions struct {
 	vcPassword          string
 	logsExportOnSuccess bool
 	debugLog            bool
+	logLevel            int
 }
 
 var testOptions TestOptions
@@ -361,7 +362,7 @@ func (data *TestData) createVCNamespace(namespace string) error {
 	}()
 
 	dataJson, err := json.Marshal(vcNamespace)
-	log.Trace("Data json", "dataJson", vcNamespace)
+	log.Debug("Data json", "dataJson", vcNamespace)
 	if err != nil {
 		log.Error(err, "Unable convert vcNamespace object to json bytes", "namespace", namespace)
 		return fmt.Errorf("unable convert vcNamespace object to json bytes: %v", err)
@@ -769,7 +770,6 @@ func (data *TestData) waitForResourceExist(namespace string, resourceType string
 		if len(response.Results) == 0 {
 			exist = false
 		}
-		log.Trace("", "QueryParam", queryParam, "exist", exist)
 		if exist != shouldExist {
 			return false, nil
 		}

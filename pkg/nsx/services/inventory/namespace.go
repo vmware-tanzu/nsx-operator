@@ -70,7 +70,7 @@ func (s *InventoryService) initContainerProject(clusterId string) error {
 }
 
 func (s *InventoryService) CleanStaleInventoryContainerProject() error {
-	log.Debug("Clean stale InventoryContainerProject")
+	log.Trace("Clean stale InventoryContainerProject")
 	containerProjects := s.ProjectStore.List()
 	for _, containerProject := range containerProjects {
 		project := containerProject.(*containerinventory.ContainerProject)

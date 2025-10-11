@@ -53,7 +53,7 @@ func createHttpClient(insecureSkipVerify bool, caCertPem []byte) *http.Client {
 		TLSClientConfig: tlsConfig,
 	}
 	if len(caCertPem) > 0 {
-		log.Debug("Append CA cert")
+		log.Trace("Append CA cert")
 		clientCertPool := x509.NewCertPool()
 		clientCertPool.AppendCertsFromPEM(caCertPem)
 		tlsConfig.RootCAs = clientCertPool
@@ -233,7 +233,7 @@ func (client *VCClient) HandleRequest(urlPath string, data []byte, responseData 
 	if err != nil {
 		return err
 	}
-	log.Debug("HTTP request", "request", request.URL, "response status", response.StatusCode)
+	log.Debug("HTTP req", "request", request.URL, "response status", response.StatusCode)
 	err, _ = util.HandleHTTPResponse(response, responseData, false)
 	return err
 }
