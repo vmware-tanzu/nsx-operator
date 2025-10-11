@@ -750,7 +750,7 @@ func TestSubnetPortService_ListNSXSubnetPortIDForCR(t *testing.T) {
 		ParentPath: common.String("/orgs/default/projects/default/vpcs/vpc1/subnets/subnet1"),
 		Attachment: &model.PortAttachment{
 			AllocateAddresses: common.String("DHCP"),
-			Type_:             common.String("STATIC"),
+			Type_:             common.String(model.PortAttachment_TYPE_INDEPENDENT),
 			Id:                common.String("66616b65-5f73-4562-ae65-74706f72742d"),
 			TrafficTag:        common.Int64(0),
 		},
@@ -794,7 +794,7 @@ func TestSubnetPortService_ListNSXSubnetPortIDForPod(t *testing.T) {
 		ParentPath: common.String("/orgs/default/projects/default/vpcs/vpc1/subnets/subnet1"),
 		Attachment: &model.PortAttachment{
 			AllocateAddresses: common.String("DHCP"),
-			Type_:             common.String("STATIC"),
+			Type_:             common.String(model.PortAttachment_TYPE_INDEPENDENT),
 			Id:                common.String("66616b65-5f70-4f64-ad63-356462313830"),
 			TrafficTag:        common.Int64(0),
 			AppId:             common.String(podUUID),

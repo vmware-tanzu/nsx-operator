@@ -197,7 +197,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 			AllocateAddresses: &allocateAddresses,
 			Id:                String(nsxCIFID.String()),
 			TrafficTag:        common.Int64(0),
-			Type_:             String("STATIC"),
+			Type_:             String(model.PortAttachment_TYPE_INDEPENDENT),
 		},
 		Tags:                   tagsFiltered,
 		Path:                   &nsxSubnetPortPath,
