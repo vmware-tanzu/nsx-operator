@@ -125,7 +125,9 @@ func TestPreCreatedVPC(t *testing.T) {
 	require.NoError(t, err, "Failed to create VPCConnectivityProfile without SNAT")
 	defer func() {
 		err := testData.nsxClient.VPCConnectivityProfilesClient.Delete(defaultOrg, defaultProject, noNatVPCProfile)
-		log.Error(err, "Failed to delete VPC connectivity profile", "Name", noNatVPCProfile)
+		if err != nil {
+			log.Error(err, "Failed to delete VPC connectivity profile", "Name", noNatVPCProfile)
+		}
 	}()
 
 	for _, tt := range tests {
@@ -133,6 +135,20 @@ func TestPreCreatedVPC(t *testing.T) {
 			orgID, projectID, vpcID := setupVPC(t, tt.enableNat, tt.createLb, tt.noProfile)
 			nsName := fmt.Sprintf("test-prevpc-%s", getRandomString())
 			projectPath := fmt.Sprintf(projectPathFormat, orgID, projectID)
+			defer func() {
+				path := fmt.Sprintf(common.VPCKey, orgID, projectID, vpcID)
+				log.Info("Deleting the created VPC from NSX", "path", path)
+				ctx := context.Background()
+				if pollErr := wait.PollUntilContextTimeout(ctx, 10*time.Second, resourceReadyTime, true, func(ctx context.Context) (done bool, err error) {
+					if err := testData.nsxClient.VPCClient.Delete(orgID, projectID, vpcID, common.Bool(true)); err != nil {
+						return false, nil
+					}
+					log.Info("The pre-created VPC is successfully deleted", "path", path)
+					return true, nil
+				}); pollErr != nil {
+					log.Error(pollErr, "Failed to delete the pre-created VPC within 5m after the test", "path", path)
+				}
+			}()
 			var profilePath string
 			if tt.noProfile {
 				profilePath = ""
@@ -167,20 +183,7 @@ func TestPreCreatedVPC(t *testing.T) {
 			deleteVPCNamespace(nsName, useVCAPI)
 			_, err = testData.nsxClient.VPCClient.Get(orgID, projectID, vpcID)
 			require.NoError(t, err, "Pre-Created VPC should exist after the K8s Namespace is deleted")
-
-			log.Info("Deleting the created VPC from NSX", "path", preCreatedVPCPath)
-			ctx := context.Background()
-			if pollErr := wait.PollUntilContextTimeout(ctx, 10*time.Second, resourceReadyTime, true, func(ctx context.Context) (done bool, err error) {
-				if err := testData.nsxClient.VPCClient.Delete(orgID, projectID, vpcID, common.Bool(true)); err != nil {
-					return false, nil
-				}
-				log.Info("The pre-created VPC is successfully deleted", "path", preCreatedVPCPath)
-				return true, nil
-			}); pollErr != nil {
-				log.Error(pollErr, "Failed to delete the pre-created VPC within 5m after the test", "path", preCreatedVPCPath)
-			}
 		})
-
 	}
 }
 

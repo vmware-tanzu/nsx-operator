@@ -326,8 +326,11 @@ func getNetworkInfoWithCondition(t *testing.T, ns, networkInfoName string, condi
 	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		networkInfo, err = testData.crdClientset.CrdV1alpha1().NetworkInfos(ns).Get(ctx, networkInfoName, v1.GetOptions{})
 		if err != nil {
-			log.Trace("Check private ips of networkinfo", "error", err)
-			return false, fmt.Errorf("error when waiting for vpcnetworkinfo private ips: %s", networkInfoName)
+			log.Trace("Check networkinfo status", "error", err)
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("error when waiting for vpcnetworkinfo status: %s", networkInfoName)
 		}
 		return condition(networkInfo)
 	})
