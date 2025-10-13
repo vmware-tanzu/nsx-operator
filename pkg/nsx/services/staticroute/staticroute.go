@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	v1 "k8s.io/api/core/v1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -58,6 +59,15 @@ func InitializeStaticRoute(commonService common.Service, vpcService common.VPCSe
 	return staticRouteService, nil
 }
 
+func isStaticRouteReady(staticRoute *v1alpha1.StaticRoute) bool {
+	for _, cond := range staticRoute.Status.Conditions {
+		if cond.Type == v1alpha1.Ready && cond.Status == v1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
 func (service *StaticRouteService) CreateOrUpdateStaticRoute(namespace string, obj *v1alpha1.StaticRoute) error {
 	nsxStaticRoute, err := service.buildStaticRoute(obj)
 	if err != nil {
@@ -70,6 +80,12 @@ func (service *StaticRouteService) CreateOrUpdateStaticRoute(namespace string, o
 		nsxStaticRoute.Id = String(*existingStaticRoute.Id)
 		nsxStaticRoute.DisplayName = String(*existingStaticRoute.DisplayName)
 		if service.compareStaticRoute(existingStaticRoute, nsxStaticRoute) {
+			// If operator restarts between StaticRoute is created and StaticRoute realizedstate check,
+			// unrealized StaticRoute will be saved to the store after full sync.
+			// Recheck the realizedstate if the StaticRoute CR is not ready.
+			if !isStaticRouteReady(obj) {
+				return service.checkStaticRouteRealizeState(existingStaticRoute)
+			}
 			return nil
 		}
 	}
@@ -87,18 +103,26 @@ func (service *StaticRouteService) CreateOrUpdateStaticRoute(namespace string, o
 	if err != nil {
 		return err
 	}
-	realizeService := realizestate.InitializeRealizeState(service.Service)
-	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *staticRoute.Path, []string{}); err != nil {
-		log.Error(err, "Failed to check static route realization state", "ID", *nsxStaticRoute.Id)
-		deleteErr := service.DeleteStaticRoute(&staticRoute)
-		if deleteErr != nil {
-			log.Error(deleteErr, "Failed to delete static route after realization check failure", "ID", *nsxStaticRoute.Id)
-			return fmt.Errorf("realization check failed: %v; deletion failed: %v", err, deleteErr)
-		}
+	err = service.checkStaticRouteRealizeState(&staticRoute)
+	if err != nil {
 		return err
 	}
 	err = service.StaticRouteStore.Add(&staticRoute)
 	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (service *StaticRouteService) checkStaticRouteRealizeState(staticRoute *model.StaticRoutes) error {
+	realizeService := realizestate.InitializeRealizeState(service.Service)
+	if err := realizeService.CheckRealizeState(util.NSXTRealizeRetry, *staticRoute.Path, []string{}); err != nil {
+		log.Error(err, "Failed to check static route realization state", "ID", *staticRoute.Id)
+		deleteErr := service.DeleteStaticRoute(staticRoute)
+		if deleteErr != nil {
+			log.Error(deleteErr, "Failed to delete static route after realization check failure", "ID", *staticRoute.Id)
+			return fmt.Errorf("realization check failed: %v; deletion failed: %v", err, deleteErr)
+		}
 		return err
 	}
 	return nil

@@ -110,6 +110,14 @@ func TestBuildNSXVPC(t *testing.T) {
 			},
 			nsObj: &v1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{Name: "ns1", UID: "nsuid1"},
+				Status: v1.NamespaceStatus{
+					Conditions: []v1.NamespaceCondition{
+						{
+							Type:   NamespaceNetworkReady,
+							Status: "True",
+						},
+					},
+				},
 			},
 			useAVILB:            true,
 			lbProviderChanged:   false,

@@ -33,6 +33,8 @@ const (
 	NoneLB          = LBProvider("none")
 
 	nsxVpcNameIndexKey = "nsxVpcNameIndex"
+
+	NamespaceNetworkReady v1.NamespaceConditionType = "NamespaceNetworkReady"
 )
 
 var (
@@ -458,6 +460,15 @@ func (s *VPCService) IsLBProviderChanged(existingVPC *model.Vpc, lbProvider LBPr
 	return false
 }
 
+func isNamespaceReady(nsObj *v1.Namespace) bool {
+	for _, cond := range nsObj.Status.Conditions {
+		if cond.Type == NamespaceNetworkReady && cond.Status == v1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.NetworkInfo, nc *v1alpha1.VPCNetworkConfiguration, lbProvider LBProvider, serviceClusterReady bool, restoreMode bool) (*model.Vpc, error) {
 	// parse project path in NetworkConfig
 	org, project, err := common.NSXProjectPathToId(nc.Spec.NSXProject)
@@ -517,12 +528,6 @@ func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.Networ
 		return nil, err
 	}
 
-	// if there is no change in public cidr and private cidr, build partial vpc will return nil
-	if createdVpc == nil {
-		log.Info("No VPC changes detect, skip create/update process")
-		return existingVPC[0], nil
-	}
-
 	// build NSX LBS
 	var createdLBS *model.LBService
 	if lbProvider == NSXLB {
@@ -536,6 +541,30 @@ func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.Networ
 	}
 	// build HAPI request
 	createdAttachment, _ := buildVpcAttachment(obj, nsObj, s.NSXConfig.Cluster, nc.Spec.VPCConnectivityProfile, restoreMode)
+
+	// if there is no change in public cidr and private cidr, build partial vpc will return nil
+	if createdVpc == nil {
+		log.Info("No VPC changes detect, skip create/update process")
+		// If operator restarts between Vpc is created and Vpc realizedstate check,
+		// unrealized Vpc will be saved to the store after full sync
+		// Recheck the realizedstate if the Namespace CR is not ready.
+		if !isNamespaceReady(nsObj) {
+			// Check VPC realization state
+			if err := s.checkVPCRealizationState(existingVPC[0], *existingVPC[0].Path); err != nil {
+				return nil, err
+			}
+			// Check LBS realization
+			if err := s.checkLBSRealization(createdLBS, existingVPC[0], nc, *existingVPC[0].Path); err != nil {
+				return nil, err
+			}
+			// Check VpcAttachment realization
+			if err := s.checkVpcAttachmentRealization(createdAttachment, existingVPC[0], nc, *existingVPC[0].Path); err != nil {
+				return nil, err
+			}
+		}
+		return existingVPC[0], nil
+	}
+
 	orgRoot, err := s.WrapHierarchyVPC(org, project, createdVpc, createdLBS, createdAttachment)
 	if err != nil {
 		log.Error(err, "Failed to build HAPI request")

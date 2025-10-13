@@ -134,6 +134,15 @@ func (service *SubnetService) RestoreSubnetSet(obj *v1alpha1.SubnetSet, vpcInfo 
 	return nil
 }
 
+func isSubnetReady(subnet *v1alpha1.Subnet) bool {
+	for _, cond := range subnet.Status.Conditions {
+		if cond.Type == v1alpha1.Ready && cond.Status == v1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
 func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (subnet *model.VpcSubnet, err error) {
 	uid := string(obj.GetUID())
 	nsxSubnet, err := service.buildSubnet(obj, tags, []string{})
@@ -178,11 +187,37 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 			}
 		}
 		if !changed {
+			// If operator restarts between Subnet is created and Subnet realizedstate check,
+			// unrealized Subnet will be saved to the store after full sync
+			// Recheck the realizedstate if the Subnet CR is not ready.
+			if !isSubnetReady(subnet) {
+				if err = service.checkSubnetRealizeState(nsxSubnet); err != nil {
+					return nil, err
+				}
+			}
 			log.Info("Subnet not changed, skip updating", "SubnetId", uid)
 			return existingSubnet, nil
 		}
 	}
 	return service.createOrUpdateSubnet(obj, nsxSubnet, &vpcInfo)
+}
+
+func (service *SubnetService) checkSubnetRealizeState(nsxSubnet *model.VpcSubnet) error {
+	realizeService := realizestate.InitializeRealizeState(service.Service)
+	// Failure of CheckRealizeState may result in the creation of an existing Subnet.
+	// For Subnets, it's important to reuse the already created NSXSubnet.
+	// For SubnetSets, since the ID includes a random value, the created NSX Subnet needs to be deleted and recreated.
+	if err := realizeService.CheckRealizeState(util.NSXTRealizeRetry, *nsxSubnet.Path, []string{}); err != nil {
+		log.Error(err, "Failed to check Subnet realization state", "ID", *nsxSubnet.Id)
+		// Delete the subnet if the realization check fails, avoiding creating duplicate subnets continuously.
+		deleteErr := service.DeleteSubnet(*nsxSubnet)
+		if deleteErr != nil {
+			log.Error(deleteErr, "Failed to delete Subnet after realization check failure", "ID", *nsxSubnet.Id)
+			return fmt.Errorf("realization check failed: %v; deletion failed: %v", err, deleteErr)
+		}
+		return err
+	}
+	return nil
 }
 
 func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
@@ -198,18 +233,8 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 		err = nsxutil.TransNSXApiError(err)
 		return nil, err
 	}
-	realizeService := realizestate.InitializeRealizeState(service.Service)
-	// Failure of CheckRealizeState may result in the creation of an existing Subnet.
-	// For Subnets, it's important to reuse the already created NSXSubnet.
-	// For SubnetSets, since the ID includes a random value, the created NSX Subnet needs to be deleted and recreated.
-	if err = realizeService.CheckRealizeState(util.NSXTRealizeRetry, *nsxSubnet.Path, []string{}); err != nil {
-		log.Error(err, "Failed to check Subnet realization state", "ID", *nsxSubnet.Id)
-		// Delete the subnet if the realization check fails, avoiding creating duplicate subnets continuously.
-		deleteErr := service.DeleteSubnet(*nsxSubnet)
-		if deleteErr != nil {
-			log.Error(deleteErr, "Failed to delete Subnet after realization check failure", "ID", *nsxSubnet.Id)
-			return nil, fmt.Errorf("realization check failed: %v; deletion failed: %v", err, deleteErr)
-		}
+	err = service.checkSubnetRealizeState(nsxSubnet)
+	if err != nil {
 		return nil, err
 	}
 	if err = service.SubnetStore.Apply(nsxSubnet); err != nil {

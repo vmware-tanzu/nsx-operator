@@ -2010,6 +2010,12 @@ func TestSubnetService_CreateOrUpdateSubnet_Consistency(t *testing.T) {
 	}
 
 	basicTags := []model.Tag{
+		{Scope: String(common.TagScopeNamespaceUID), Tag: String(string("ns1"))},
+	}
+
+	tags := []model.Tag{
+		{Scope: String(common.TagScopeCluster), Tag: String(string("k8scl-one:test"))},
+		{Scope: String(common.TagScopeVersion), Tag: String(string("1.0.0"))},
 		{Scope: String(common.TagScopeSubnetCRName), Tag: String("subnet1")},
 		{Scope: String(common.TagScopeSubnetCRUID), Tag: String(uuidStr)},
 		{Scope: String(common.TagScopeNamespaceUID), Tag: String(string("ns1"))},
@@ -2039,7 +2045,25 @@ func TestSubnetService_CreateOrUpdateSubnet_Consistency(t *testing.T) {
 			existingSubnet: &model.VpcSubnet{
 				Id:          String(oldSubnetId),
 				DisplayName: String(oldSubnetName),
-				Tags:        basicTags,
+				Tags:        tags,
+			},
+			expectedSubnetId:   oldSubnetId,
+			expectedSubnetName: oldSubnetName,
+		},
+		{
+			name: "subnet not updated but not realized",
+			existingSubnet: &model.VpcSubnet{
+				Id:          String(oldSubnetId),
+				DisplayName: String(oldSubnetName),
+				Tags:        tags,
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					Mode: common.String("DHCP_DEACTIVATED"),
+				},
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: common.Bool(true),
+					},
+				},
 			},
 			expectedSubnetId:   oldSubnetId,
 			expectedSubnetName: oldSubnetName,
@@ -2077,10 +2101,16 @@ func TestSubnetService_CreateOrUpdateSubnet_Consistency(t *testing.T) {
 			}
 
 			patches := gomonkey.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
+				for _, tags := range nsxSubnet.Tags {
+					fmt.Printf("tags scope %s tag %s\n", *tags.Scope, *tags.Tag)
+				}
 				if *nsxSubnet.Id != tc.expectedSubnetId || *nsxSubnet.DisplayName != tc.expectedSubnetName {
 					assert.FailNow(t, fmt.Sprintf("The built NSX VpcSubnet is not as expected, expect Id %s, actual Id %s", tc.expectedSubnetId, *nsxSubnet.Id))
 				}
 				return nil, nil
+			})
+			patches.ApplyFunc((*SubnetService).checkSubnetRealizeState, func(service *SubnetService, nsxSubnet *model.VpcSubnet) error {
+				return nil
 			})
 			defer patches.Reset()
 
@@ -2088,4 +2118,38 @@ func TestSubnetService_CreateOrUpdateSubnet_Consistency(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func Test_isSubnetReady(t *testing.T) {
+	subnetReady := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "subnet-1",
+			Namespace: "ns-1",
+		},
+		Status: v1alpha1.SubnetStatus{
+			Conditions: []v1alpha1.Condition{
+				{
+					Type:   v1alpha1.Ready,
+					Status: corev1.ConditionTrue,
+				},
+			},
+		},
+	}
+	assert.True(t, isSubnetReady(subnetReady))
+
+	subnetUnready := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "subnet-1",
+			Namespace: "ns-1",
+		},
+		Status: v1alpha1.SubnetStatus{
+			Conditions: []v1alpha1.Condition{
+				{
+					Type:   v1alpha1.Ready,
+					Status: corev1.ConditionFalse,
+				},
+			},
+		},
+	}
+	assert.False(t, isSubnetReady(subnetUnready))
 }

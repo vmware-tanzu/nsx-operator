@@ -1922,7 +1922,14 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 				TypeMeta:   metav1.TypeMeta{},
 				ObjectMeta: metav1.ObjectMeta{Name: "testNamespace"},
 				Spec:       v1.NamespaceSpec{},
-				Status:     v1.NamespaceStatus{},
+				Status: v1.NamespaceStatus{
+					Conditions: []v1.NamespaceCondition{
+						{
+							Type:   NamespaceNetworkReady,
+							Status: "True",
+						},
+					},
+				},
 			},
 			existingVPCNetworkConfig: &v1alpha1.VPCNetworkConfiguration{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1944,6 +1951,52 @@ func TestVPCService_CreateOrUpdateVPC(t *testing.T) {
 					return []*model.Vpc{
 						{Path: &vpcPath, Id: &fakeVPCID},
 					}
+				})
+				return patches
+			},
+			expectVPCModel: &model.Vpc{Id: &fakeVPCID},
+		},
+		{
+			name: "is not Shared Namespace should check the VPC realization",
+			existingNetworkInfo: &v1alpha1.NetworkInfo{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Namespace: "testNamespace"},
+				VPCs:       nil,
+			},
+			exitingNamespace: &v1.Namespace{
+				TypeMeta:   metav1.TypeMeta{},
+				ObjectMeta: metav1.ObjectMeta{Name: "testNamespace"},
+				Spec:       v1.NamespaceSpec{},
+			},
+			existingVPCNetworkConfig: &v1alpha1.VPCNetworkConfiguration{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "fakeVPCNetworkConfig",
+				},
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					NSXProject:        "/orgs/default/projects/default",
+					PrivateIPs:        nil,
+					DefaultSubnetSize: 0,
+					VPC:               "",
+				},
+			},
+			prepareFunc: func(vpcService *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "IsSharedVPCNamespaceByNS", func(_ *VPCService, ctx context.Context, _ string) (bool, error) {
+					return false, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(vpcService), "GetCurrentVPCsByNamespace", func(_ *VPCService, ctx context.Context, _ string) []*model.Vpc {
+					vpcPath := "/vpc/1"
+					return []*model.Vpc{
+						{Path: &vpcPath, Id: &fakeVPCID},
+					}
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "checkVPCRealizationState", func(_ *VPCService, createdVpc *model.Vpc, newVpcPath string) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "checkLBSRealization", func(_ *VPCService, createdLBS *model.LBService, createdVpc *model.Vpc, nc *v1alpha1.VPCNetworkConfiguration, newVpcPath string) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(vpcService), "checkVpcAttachmentRealization", func(_ *VPCService, createdAttachment *model.VpcAttachment, createdVpc *model.Vpc, nc *v1alpha1.VPCNetworkConfiguration, newVpcPath string) error {
+					return nil
 				})
 				return patches
 			},
@@ -2565,4 +2618,36 @@ func TestGetNamespacesWithPreCreatedVPCs(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, "vpc-path", nsVpcMap["ns-1"])
 	assert.Equal(t, "vpc-path", nsVpcMap["ns-2"])
+}
+
+func Test_isNamespaceReady(t *testing.T) {
+	nsReady := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns-1",
+		},
+		Status: v1.NamespaceStatus{
+			Conditions: []v1.NamespaceCondition{
+				{
+					Type:   NamespaceNetworkReady,
+					Status: "True",
+				},
+			},
+		},
+	}
+	assert.True(t, isNamespaceReady(nsReady))
+
+	nsUnready := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns-2",
+		},
+		Status: v1.NamespaceStatus{
+			Conditions: []v1.NamespaceCondition{
+				{
+					Type:   NamespaceNetworkReady,
+					Status: "False",
+				},
+			},
+		},
+	}
+	assert.False(t, isNamespaceReady(nsUnready))
 }
