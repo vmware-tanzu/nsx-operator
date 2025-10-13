@@ -319,33 +319,6 @@ func (service *SubnetPortService) ListNSXSubnetPortIDForPod() sets.Set[string] {
 	return subnetPortSet
 }
 
-func (service *SubnetPortService) GetGatewayPrefixForSubnetPort(nsxSubnet *model.VpcSubnet) (string, int, error) {
-	if nsxSubnet == nil {
-		err := fmt.Errorf("empty Subnet")
-		log.Error(err, "Failed to parse Subnet", "nsxSubnet", nsxSubnet)
-	}
-	if nsxSubnet.AdvancedConfig == nil {
-		err := fmt.Errorf("empty Subnet AdvancedConfig")
-		log.Error(err, "Failed to parse Subnet AdvancedConfig", "nsxSubnet.Id", *nsxSubnet.Id)
-		return "", -1, err
-	}
-	gatewayAddresses := nsxSubnet.AdvancedConfig.GatewayAddresses
-	if len(gatewayAddresses) == 0 {
-		err := fmt.Errorf("empty Subnet gateway address")
-		log.Error(err, "Failed to parse Subnet gateway addresses", "nsxSubnet.Id", *nsxSubnet.Id)
-		return "", -1, err
-	}
-	gateway, err := util.RemoveIPPrefix(gatewayAddresses[0])
-	if err != nil {
-		return "", -1, err
-	}
-	prefix, err := util.GetIPPrefix(gatewayAddresses[0])
-	if err != nil {
-		return "", -1, err
-	}
-	return gateway, prefix, nil
-}
-
 func (service *SubnetPortService) GetSubnetPathForSubnetPortFromStore(crUid types.UID) string {
 	existingSubnetPort, err := service.SubnetPortStore.GetVpcSubnetPortByUID(crUid)
 	if err != nil {

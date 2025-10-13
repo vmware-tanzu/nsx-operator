@@ -102,12 +102,6 @@ func (c *fakePortStateClient) Get(orgIdParam string, projectIdParam string, vpcI
 	}, nil
 }
 
-type fakeSubnetStatusClient struct{}
-
-func (c *fakeSubnetStatusClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnetStatusListResult, error) {
-	return model.VpcSubnetStatusListResult{}, nil
-}
-
 type fakeIPPoolClient struct{}
 
 func (c *fakeIPPoolClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error) {
@@ -495,85 +489,6 @@ func TestSubnetPortService_DeleteSubnetPort(t *testing.T) {
 
 			if err := service.DeleteSubnetPortById(subnetPortId1); (err != nil) != tt.wantErr {
 				t.Errorf("DeleteSubnetPort() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestSubnetPortService_GetGatewayPrefixForSubnetPort(t *testing.T) {
-	gatewayAddress := "10.0.0.1/26"
-	invalidGatewayAddress1 := "10.0.0.256"
-	invalidGatewayAddress2 := "10.0.0.1/a"
-	tests := []struct {
-		name      string
-		nsxSubnet model.VpcSubnet
-		wantErr   bool
-	}{
-		{
-			name: "Success",
-			nsxSubnet: model.VpcSubnet{
-				Id: &subnetId,
-				AdvancedConfig: &model.SubnetAdvancedConfig{
-					GatewayAddresses: []string{gatewayAddress},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "EmptySubnetGatewayAddress",
-			nsxSubnet: model.VpcSubnet{
-				Id: &subnetId,
-			},
-			wantErr: true,
-		},
-		{
-			name: "NoGatewayAddress",
-			nsxSubnet: model.VpcSubnet{
-				Id: &subnetId,
-				AdvancedConfig: &model.SubnetAdvancedConfig{
-					GatewayAddresses: []string{},
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "InvalidIP",
-			nsxSubnet: model.VpcSubnet{
-				Id: &subnetId,
-				AdvancedConfig: &model.SubnetAdvancedConfig{
-					GatewayAddresses: []string{invalidGatewayAddress1},
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "InvalidIP2",
-			nsxSubnet: model.VpcSubnet{
-				Id: &subnetId,
-				AdvancedConfig: &model.SubnetAdvancedConfig{
-					GatewayAddresses: []string{invalidGatewayAddress2},
-				},
-			},
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			commonService := common.Service{
-				NSXClient: &nsx.Client{
-					SubnetStatusClient: &fakeSubnetStatusClient{},
-				},
-			}
-			service := &SubnetPortService{
-				Service: commonService,
-			}
-			gateway, prefix, err := service.GetGatewayPrefixForSubnetPort(&tt.nsxSubnet)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("DeleteSubnetPort() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if err == nil {
-				assert.Equal(t, "10.0.0.1", gateway)
-				assert.Equal(t, 26, prefix)
 			}
 		})
 	}

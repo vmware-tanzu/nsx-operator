@@ -782,7 +782,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 }
 
 func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) error {
-	gateway, prefix, err := r.SubnetPortService.GetGatewayPrefixForSubnetPort(nsxSubnet)
+	gateway, prefix, err := r.SubnetService.GetGatewayPrefixOfSubnet(nsxSubnet)
 	if err != nil {
 		return err
 	}
