@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -43,6 +42,10 @@ type SharedSubnetData struct {
 	SharedSubnetResourceMap map[string]sets.Set[types.NamespacedName]
 	// mutex to protect the SharedSubnetResourceMap
 	sharedSubnetResourceMapMutex sync.RWMutex
+	// AssociatedResourceMap is a map from associatedResource to parsed subnet identifiers (orgID, projectID, vpcID, subnetID)
+	AssociatedResourceMap map[string]common.SubnetIdentifiers
+	// mutex to protect the AssociatedResourceMap
+	associatedResourceMapMutex sync.RWMutex
 }
 
 type SubnetService struct {
@@ -77,6 +80,7 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 				StatusList []model.VpcSubnetStatus
 			}),
 			SharedSubnetResourceMap: make(map[string]sets.Set[types.NamespacedName]),
+			AssociatedResourceMap:   make(map[string]common.SubnetIdentifiers),
 		},
 	}
 
@@ -516,16 +520,20 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 
 // GetNSXSubnetByAssociatedResource gets the NSX subnet based on the associated resource annotation
 func (service *SubnetService) GetNSXSubnetByAssociatedResource(associatedResource string) (*model.VpcSubnet, error) {
-	// Parse the associated resource string (format: projectID:vpcID:subnetID)
-	parts := strings.Split(associatedResource, ":")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("invalid associated resource format: %s, expected format: projectID:vpcID:subnetID", associatedResource)
+	// Get the parsed resource info from the AssociatedResourceMap
+	service.associatedResourceMapMutex.RLock()
+	subnetIdentifiers, exists := service.AssociatedResourceMap[associatedResource]
+	service.associatedResourceMapMutex.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("associated resource %s not found in mapping, ensure AddToAssociatedResourceMap was called", associatedResource)
 	}
 
-	orgID := "default" // hardcoded for now
-	projectID := parts[0]
-	vpcID := parts[1]
-	subnetID := parts[2]
+	// Use the mapped values
+	orgID := subnetIdentifiers.OrgID
+	projectID := subnetIdentifiers.ProjectID
+	vpcID := subnetIdentifiers.VPCID
+	subnetID := subnetIdentifiers.SubnetID
 
 	nsxSubnet, err := service.NSXClient.SubnetsClient.Get(orgID, projectID, vpcID, subnetID)
 	if err != nil {
@@ -534,6 +542,43 @@ func (service *SubnetService) GetNSXSubnetByAssociatedResource(associatedResourc
 	}
 
 	return &nsxSubnet, nil
+}
+
+// GetSubnetPathFromAssociatedResource gets the subnet path based on the associated resource annotation
+// This method uses the AssociatedResourceMap to avoid parsing issues with colons in IDs
+func (service *SubnetService) GetSubnetPathFromAssociatedResource(associatedResource string) (string, error) {
+	// Get the parsed resource info from the AssociatedResourceMap
+	service.associatedResourceMapMutex.RLock()
+	subnetIdentifiers, exists := service.AssociatedResourceMap[associatedResource]
+	service.associatedResourceMapMutex.RUnlock()
+
+	if !exists {
+		return "", fmt.Errorf("associated resource %s not found in mapping, ensure AddToAssociatedResourceMap was called", associatedResource)
+	}
+
+	// Use the mapped values
+	orgID := subnetIdentifiers.OrgID
+	projectID := subnetIdentifiers.ProjectID
+	vpcID := subnetIdentifiers.VPCID
+	subnetID := subnetIdentifiers.SubnetID
+
+	return fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s/subnets/%s", orgID, projectID, vpcID, subnetID), nil
+}
+
+// AddToAssociatedResourceMap adds a mapping from associatedResource to parsed subnet resource info
+// This should be called when shared subnet information is available to avoid string parsing issues with colons
+func (service *SubnetService) AddToAssociatedResourceMap(associatedResource string, subnetIdentifiers common.SubnetIdentifiers) {
+	service.associatedResourceMapMutex.Lock()
+	defer service.associatedResourceMapMutex.Unlock()
+	service.AssociatedResourceMap[associatedResource] = subnetIdentifiers
+}
+
+// DeleteFromAssociatedResourceMap removes a mapping from associatedResource
+// This should be called when a shared subnet is no longer in use
+func (service *SubnetService) DeleteFromAssociatedResourceMap(associatedResource string) {
+	service.associatedResourceMapMutex.Lock()
+	defer service.associatedResourceMapMutex.Unlock()
+	delete(service.AssociatedResourceMap, associatedResource)
 }
 
 // MapNSXSubnetToSubnetCR maps NSX subnet properties to Subnet CR properties
@@ -779,6 +824,7 @@ func (service *SubnetService) RemoveSharedSubnetFromResourceMap(associatedResour
 		// If the set is now empty, remove the associatedResource key
 		if namespacedNames.Len() == 0 {
 			delete(service.SharedSubnetResourceMap, associatedResource)
+			service.DeleteFromAssociatedResourceMap(associatedResource)
 		}
 	}
 }

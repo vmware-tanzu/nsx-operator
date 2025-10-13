@@ -81,6 +81,7 @@ func (r *SubnetReconciler) pollAllSharedSubnets() {
 		if _, ok := r.SubnetService.SharedSubnetResourceMap[associatedResource]; !ok {
 			log.Debug("Remove Subnet from cache", "AssociatedResource", associatedResource)
 			r.SubnetService.RemoveSubnetFromCache(associatedResource, "no valid subnets")
+			r.SubnetService.DeleteFromAssociatedResourceMap(associatedResource)
 		}
 	}
 }

@@ -251,3 +251,11 @@ type VPCConnectionStatus struct {
 	ServiceClusterReady     bool
 	ServiceClusterReason    string
 }
+
+// SubnetIdentifiers stores the parsed components of a shared subnet resource
+type SubnetIdentifiers struct {
+	OrgID     string
+	ProjectID string
+	VPCID     string
+	SubnetID  string
+}

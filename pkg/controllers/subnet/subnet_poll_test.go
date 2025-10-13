@@ -547,24 +547,33 @@ func (f *fakeStatusWriter) Patch(_ context.Context, _ client.Object, _ client.Pa
 
 func TestPollAllSharedSubnets(t *testing.T) {
 	tests := []struct {
-		name                    string
-		sharedSubnetsMap        map[string][]types.NamespacedName
-		expectedUniqueResources int // Number of unique associated resources
-		expectedEnqueueCalls    int // Number of times enqueueSubnetForReconciliation should be called
+		name                         string
+		sharedSubnetsMap             map[string][]types.NamespacedName
+		nsxSubnetCache               map[string]struct{}
+		expectedUniqueResources      int // Number of unique associated resources
+		expectedEnqueueCalls         int // Number of times enqueueSubnetForReconciliation should be called
+		expectedDeleteFromMapCalls   int // Number of times DeleteFromAssociatedResourceMap should be called
+		expectedRemoveFromCacheCalls int // Number of times RemoveSubnetFromCache should be called
 	}{
 		{
-			name:                    "Empty shared subnets map",
-			sharedSubnetsMap:        map[string][]types.NamespacedName{},
-			expectedUniqueResources: 0,
-			expectedEnqueueCalls:    0,
+			name:                         "Empty shared subnets map",
+			sharedSubnetsMap:             map[string][]types.NamespacedName{},
+			nsxSubnetCache:               map[string]struct{}{},
+			expectedUniqueResources:      0,
+			expectedEnqueueCalls:         0,
+			expectedDeleteFromMapCalls:   0,
+			expectedRemoveFromCacheCalls: 0,
 		},
 		{
 			name: "One shared subnet",
 			sharedSubnetsMap: map[string][]types.NamespacedName{
 				"project1:vpc1:subnet1": {{Namespace: "default", Name: "test-subnet-1"}},
 			},
-			expectedUniqueResources: 1,
-			expectedEnqueueCalls:    1,
+			nsxSubnetCache:               map[string]struct{}{},
+			expectedUniqueResources:      1,
+			expectedEnqueueCalls:         1,
+			expectedDeleteFromMapCalls:   0,
+			expectedRemoveFromCacheCalls: 0,
 		},
 		{
 			name: "Multiple shared subnets with different resources",
@@ -573,8 +582,11 @@ func TestPollAllSharedSubnets(t *testing.T) {
 				"project1:vpc1:subnet2": {{Namespace: "default", Name: "test-subnet-2"}},
 				"project1:vpc1:subnet3": {{Namespace: "default", Name: "test-subnet-3"}},
 			},
-			expectedUniqueResources: 3,
-			expectedEnqueueCalls:    3,
+			nsxSubnetCache:               map[string]struct{}{},
+			expectedUniqueResources:      3,
+			expectedEnqueueCalls:         3,
+			expectedDeleteFromMapCalls:   0,
+			expectedRemoveFromCacheCalls: 0,
 		},
 		{
 			name: "Multiple shared subnets with some shared resources",
@@ -585,8 +597,26 @@ func TestPollAllSharedSubnets(t *testing.T) {
 				},
 				"project1:vpc1:subnet2": {{Namespace: "default", Name: "test-subnet-3"}},
 			},
-			expectedUniqueResources: 2, // Only 2 unique resources
-			expectedEnqueueCalls:    3, // But 3 subnets to update
+			nsxSubnetCache:               map[string]struct{}{},
+			expectedUniqueResources:      2, // Only 2 unique resources
+			expectedEnqueueCalls:         3, // But 3 subnets to update
+			expectedDeleteFromMapCalls:   0,
+			expectedRemoveFromCacheCalls: 0,
+		},
+		{
+			name: "Stale cache entries should be cleaned up",
+			sharedSubnetsMap: map[string][]types.NamespacedName{
+				"project1:vpc1:subnet1": {{Namespace: "default", Name: "test-subnet-1"}},
+			},
+			nsxSubnetCache: map[string]struct{}{
+				"project1:vpc1:subnet1": {}, // Active resource
+				"project1:vpc1:subnet2": {}, // Stale resource
+				"project1:vpc1:subnet3": {}, // Stale resource
+			},
+			expectedUniqueResources:      1,
+			expectedEnqueueCalls:         1,
+			expectedDeleteFromMapCalls:   2, // Should delete 2 stale entries
+			expectedRemoveFromCacheCalls: 2, // Should remove 2 stale entries from cache
 		},
 	}
 
@@ -623,10 +653,26 @@ func TestPollAllSharedSubnets(t *testing.T) {
 				}
 			}
 
+			// Set up the NSXSubnetCache with the provided cache entries
+			for cacheKey := range tt.nsxSubnetCache {
+				r.SubnetService.NSXSubnetCache[cacheKey] = struct {
+					Subnet     *model.VpcSubnet
+					StatusList []model.VpcSubnetStatus
+				}{
+					Subnet: &model.VpcSubnet{
+						Id:   common.String("subnet-id-" + cacheKey),
+						Path: common.String("/projects/project1/vpcs/vpc1/subnets/" + cacheKey),
+					},
+					StatusList: []model.VpcSubnetStatus{},
+				}
+			}
+
 			// Track calls to key functions
 			getNSXSubnetCalls := make(map[string]int)
 			getSubnetStatusCalls := make(map[string]int)
 			enqueueSubnetCalls := make(map[types.NamespacedName]bool)
+			deleteFromMapCalls := make(map[string]bool)
+			removeFromCacheCalls := make(map[string]bool)
 
 			// Mock GetNSXSubnetByAssociatedResource
 			patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetNSXSubnetByAssociatedResource",
@@ -664,6 +710,18 @@ func TestPollAllSharedSubnets(t *testing.T) {
 					enqueueSubnetCalls[namespacedName] = true
 				})
 
+			// Mock RemoveSubnetFromCache to track calls
+			patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "RemoveSubnetFromCache",
+				func(_ *subnetservice.SubnetService, associatedResource string, reason string) {
+					removeFromCacheCalls[associatedResource] = true
+				})
+
+			// Mock DeleteFromAssociatedResourceMap to track calls
+			patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteFromAssociatedResourceMap",
+				func(_ *subnetservice.SubnetService, associatedResource string) {
+					deleteFromMapCalls[associatedResource] = true
+				})
+
 			// Call the actual function being tested
 			r.pollAllSharedSubnets()
 
@@ -694,6 +752,14 @@ func TestPollAllSharedSubnets(t *testing.T) {
 						"Subnet %s should have been enqueued for reconciliation", namespacedName)
 				}
 			}
+
+			// Verify the number of RemoveSubnetFromCache calls
+			assert.Equal(t, tt.expectedRemoveFromCacheCalls, len(removeFromCacheCalls),
+				"Number of RemoveSubnetFromCache calls should match expected")
+
+			// Verify the number of DeleteFromAssociatedResourceMap calls
+			assert.Equal(t, tt.expectedDeleteFromMapCalls, len(deleteFromMapCalls),
+				"Number of DeleteFromAssociatedResourceMap calls should match expected")
 
 			patches.Reset()
 		})
