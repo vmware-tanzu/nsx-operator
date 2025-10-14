@@ -176,11 +176,33 @@ func (r *SubnetReconciler) hasStatusChanged(originalStatus, newStatus *v1alpha1.
 
 // hasSubnetSpecChanged checks if the subnet spec has changed
 func (r *SubnetReconciler) hasSubnetSpecChanged(originalSpec, newSpec *v1alpha1.SubnetSpec) bool {
+	if originalSpec.VPCName != "" && originalSpec.VPCName != newSpec.VPCName {
+		log.Warn("VPCName is immutable once set", "err", fmt.Errorf("VPCName change detected"))
+	}
+	if originalSpec.IPv4SubnetSize != 0 && originalSpec.IPv4SubnetSize != newSpec.IPv4SubnetSize {
+		log.Warn("IPv4SubnetSize is immutable once set", "err", fmt.Errorf("IPv4SubnetSize change detected"))
+	}
+	if originalSpec.AccessMode != "" && originalSpec.AccessMode != newSpec.AccessMode {
+		log.Warn("AccessMode is immutable once set", "err", fmt.Errorf("AccessMode change detected"))
+	}
+	if len(originalSpec.IPAddresses) > 0 && !reflect.DeepEqual(originalSpec.IPAddresses, newSpec.IPAddresses) {
+		log.Warn("IPAddresses is immutable once set", "err", fmt.Errorf("IPAddresses change detected"))
+	}
+	// staticIPAllocation.enabled cannot be changed once set
+	origEnabled := originalSpec.AdvancedConfig.StaticIPAllocation.Enabled
+	newEnabled := newSpec.AdvancedConfig.StaticIPAllocation.Enabled
+	if origEnabled != nil {
+		if newEnabled == nil || *origEnabled != *newEnabled {
+			log.Warn("StaticIPAllocation.Enabled is immutable once set", "err", fmt.Errorf("StaticIPAllocation.Enabled change detected"))
+		}
+	}
+
 	if originalSpec.AdvancedConfig.ConnectivityState != newSpec.AdvancedConfig.ConnectivityState ||
 		originalSpec.AdvancedConfig.EnableVLANExtension != newSpec.AdvancedConfig.EnableVLANExtension ||
 		originalSpec.SubnetDHCPConfig.Mode != newSpec.SubnetDHCPConfig.Mode ||
 		!reflect.DeepEqual(originalSpec.AdvancedConfig.GatewayAddresses, newSpec.AdvancedConfig.GatewayAddresses) ||
-		!reflect.DeepEqual(originalSpec.AdvancedConfig.DHCPServerAddresses, newSpec.AdvancedConfig.DHCPServerAddresses) {
+		!reflect.DeepEqual(originalSpec.AdvancedConfig.DHCPServerAddresses, newSpec.AdvancedConfig.DHCPServerAddresses) ||
+		!reflect.DeepEqual(originalSpec.AdvancedConfig.StaticIPAllocation.Enabled, newSpec.AdvancedConfig.StaticIPAllocation.Enabled) {
 		return true
 	}
 	// Check for changes in DHCPServerAdditionalConfig.ReservedIPRanges
