@@ -663,25 +663,27 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 func TestDeleteUnusedSharedSubnets(t *testing.T) {
 	// Test cases
 	tests := []struct {
-		name                string
-		existingSubnets     []client.Object
-		remainingSubnets    map[string]*v1alpha1.Subnet
-		expectedDeleteCount int
-		expectError         bool
-		setupMocks          func(r *NamespaceReconciler) *gomonkey.Patches
+		name                    string
+		existingSubnets         []client.Object
+		remainingSubnets        map[string]*v1alpha1.Subnet
+		expectedDeleteCount     int
+		expectedCacheClearCalls int
+		expectError             bool
+		setupMocks              func(r *NamespaceReconciler) *gomonkey.Patches
 	}{
 		{
-			name:                "No remaining subnets",
-			existingSubnets:     []client.Object{},
-			remainingSubnets:    map[string]*v1alpha1.Subnet{},
-			expectedDeleteCount: 0,
-			expectError:         false,
+			name:                    "No remaining subnets",
+			existingSubnets:         []client.Object{},
+			remainingSubnets:        map[string]*v1alpha1.Subnet{},
+			expectedDeleteCount:     0,
+			expectedCacheClearCalls: 0,
+			expectError:             false,
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				return nil
 			},
 		},
 		{
-			name:            "One remaining subnet with no references",
+			name:            "One remaining subnet with no references - cache cleared",
 			existingSubnets: []client.Object{},
 			remainingSubnets: map[string]*v1alpha1.Subnet{
 				"proj-1:vpc-1:subnet-1": {
@@ -694,8 +696,9 @@ func TestDeleteUnusedSharedSubnets(t *testing.T) {
 					},
 				},
 			},
-			expectedDeleteCount: 1,
-			expectError:         false,
+			expectedDeleteCount:     1,
+			expectedCacheClearCalls: 1,
+			expectError:             false,
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "checkSubnetReferences",
 					func(_ *NamespaceReconciler, _ context.Context, _ string, _ *v1alpha1.Subnet, _ string) (bool, error) {
@@ -705,7 +708,7 @@ func TestDeleteUnusedSharedSubnets(t *testing.T) {
 			},
 		},
 		{
-			name:            "One remaining subnet with references",
+			name:            "One remaining subnet with references - no cache clear",
 			existingSubnets: []client.Object{},
 			remainingSubnets: map[string]*v1alpha1.Subnet{
 				"proj-1:vpc-1:subnet-1": {
@@ -718,8 +721,9 @@ func TestDeleteUnusedSharedSubnets(t *testing.T) {
 					},
 				},
 			},
-			expectedDeleteCount: 0,
-			expectError:         true,
+			expectedDeleteCount:     0,
+			expectedCacheClearCalls: 0,
+			expectError:             true,
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "checkSubnetReferences",
 					func(_ *NamespaceReconciler, _ context.Context, _ string, _ *v1alpha1.Subnet, _ string) (bool, error) {
@@ -729,7 +733,7 @@ func TestDeleteUnusedSharedSubnets(t *testing.T) {
 			},
 		},
 		{
-			name:            "Multiple remaining subnets with mixed references",
+			name:            "Multiple remaining subnets with mixed references - cache cleared only for deleted",
 			existingSubnets: []client.Object{},
 			remainingSubnets: map[string]*v1alpha1.Subnet{
 				"proj-1:vpc-1:subnet-1": {
@@ -751,8 +755,9 @@ func TestDeleteUnusedSharedSubnets(t *testing.T) {
 					},
 				},
 			},
-			expectedDeleteCount: 1,
-			expectError:         true,
+			expectedDeleteCount:     1,
+			expectedCacheClearCalls: 1,
+			expectError:             true,
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "checkSubnetReferences",
 					func(_ *NamespaceReconciler, _ context.Context, _ string, subnet *v1alpha1.Subnet, _ string) (bool, error) {
@@ -784,6 +789,15 @@ func TestDeleteUnusedSharedSubnets(t *testing.T) {
 				})
 			defer deletePatches.Reset()
 
+			// Create a counter to track cache clear calls
+			cacheClearCount := 0
+			cacheClearPatches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "RemoveSubnetFromCache",
+				func(_ *subnet.SubnetService, associatedResource string, reason string) {
+					cacheClearCount++
+					assert.Equal(t, "shared subnet CR deleted", reason)
+				})
+			defer cacheClearPatches.Reset()
+
 			// Mock SubnetStatusUpdater.DeleteSuccess to avoid nil pointer dereference
 			statusUpdaterPatches := gomonkey.ApplyMethod(reflect.TypeOf(&common.StatusUpdater{}), "DeleteSuccess",
 				func(_ *common.StatusUpdater, _ client.ObjectKey, _ client.Object) {
@@ -798,9 +812,11 @@ func TestDeleteUnusedSharedSubnets(t *testing.T) {
 			if tt.expectError {
 				assert.Error(t, err)
 				assert.Equal(t, tt.expectedDeleteCount, deleteCount)
+				assert.Equal(t, tt.expectedCacheClearCalls, cacheClearCount)
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expectedDeleteCount, deleteCount)
+				assert.Equal(t, tt.expectedCacheClearCalls, cacheClearCount)
 			}
 		})
 	}

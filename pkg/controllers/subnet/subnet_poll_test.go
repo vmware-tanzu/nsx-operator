@@ -201,6 +201,164 @@ func TestHasSubnetSpecChanged(t *testing.T) {
 			},
 			expected: true,
 		},
+		{
+			name: "VPCName changed",
+			originalSpec: &v1alpha1.SubnetSpec{
+				VPCName: "vpc-1",
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				VPCName: "vpc-2",
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "IPv4SubnetSize changed",
+			originalSpec: &v1alpha1.SubnetSpec{
+				IPv4SubnetSize: 24,
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				IPv4SubnetSize: 28,
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "AccessMode changed",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "IPAddresses changed",
+			originalSpec: &v1alpha1.SubnetSpec{
+				IPAddresses: []string{"192.168.1.0/24"},
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				IPAddresses: []string{"192.168.2.0/24"},
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "StaticIPAllocation.Enabled changed from true to false - spec changed",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: common.Bool(true),
+					},
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: common.Bool(false),
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "StaticIPAllocation.Enabled changed from false to true - spec changed",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: common.Bool(false),
+					},
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: common.Bool(true),
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "StaticIPAllocation.Enabled changed from set to nil",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: common.Bool(true),
+					},
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: nil,
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "StaticIPAllocation.Enabled not changed - both nil",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "StaticIPAllocation.Enabled not changed - both true",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: common.Bool(true),
+					},
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: common.Bool(true),
+					},
+				},
+			},
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {
