@@ -201,6 +201,102 @@ func TestHasSubnetSpecChanged(t *testing.T) {
 			},
 			expected: true,
 		},
+		{
+			name: "StaticIPAllocation Enabled both nil - no change",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{},
+			},
+			expected: false,
+		},
+		{
+			name: "StaticIPAllocation Enabled nil to true - changed",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: func(b bool) *bool { return &b }(true),
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "StaticIPAllocation Enabled false to false - no change",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: func(b bool) *bool { return &b }(false),
+					},
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: func(b bool) *bool { return &b }(false),
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "StaticIPAllocation Enabled false to true - changed",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: func(b bool) *bool { return &b }(false),
+					},
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: func(b bool) *bool { return &b }(true),
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "StaticIPAllocation Enabled true to false - changed",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: func(b bool) *bool { return &b }(true),
+					},
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: func(b bool) *bool { return &b }(false),
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "StaticIPAllocation Enabled true to true - no change",
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: func(b bool) *bool { return &b }(true),
+					},
+				},
+			},
+			newSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: func(b bool) *bool { return &b }(true),
+					},
+				},
+			},
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {

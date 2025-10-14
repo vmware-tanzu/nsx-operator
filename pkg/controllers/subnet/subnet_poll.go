@@ -180,7 +180,8 @@ func (r *SubnetReconciler) hasSubnetSpecChanged(originalSpec, newSpec *v1alpha1.
 		originalSpec.AdvancedConfig.EnableVLANExtension != newSpec.AdvancedConfig.EnableVLANExtension ||
 		originalSpec.SubnetDHCPConfig.Mode != newSpec.SubnetDHCPConfig.Mode ||
 		!reflect.DeepEqual(originalSpec.AdvancedConfig.GatewayAddresses, newSpec.AdvancedConfig.GatewayAddresses) ||
-		!reflect.DeepEqual(originalSpec.AdvancedConfig.DHCPServerAddresses, newSpec.AdvancedConfig.DHCPServerAddresses) {
+		!reflect.DeepEqual(originalSpec.AdvancedConfig.DHCPServerAddresses, newSpec.AdvancedConfig.DHCPServerAddresses) ||
+		!reflect.DeepEqual(originalSpec.AdvancedConfig.StaticIPAllocation.Enabled, newSpec.AdvancedConfig.StaticIPAllocation.Enabled) {
 		return true
 	}
 	// Check for changes in DHCPServerAdditionalConfig.ReservedIPRanges
