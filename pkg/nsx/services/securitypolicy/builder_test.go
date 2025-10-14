@@ -16,6 +16,7 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -909,12 +910,12 @@ var securityPolicyWithMultipleNormalPorts = v1alpha1.SecurityPolicy{
 				Ports: []v1alpha1.SecurityPolicyPort{
 					{
 						Protocol: "TCP",
-						Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 80},
+						Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 80}),
 					},
 					{
 						Protocol: "UDP",
-						Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 1234},
-						EndPort:  1235,
+						Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 1234}),
+						EndPort:  ptr.To(1235),
 					},
 				},
 			},
@@ -925,12 +926,12 @@ var securityPolicyWithMultipleNormalPorts = v1alpha1.SecurityPolicy{
 				Ports: []v1alpha1.SecurityPolicyPort{
 					{
 						Protocol: "TCP",
-						Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 88},
+						Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 88}),
 					},
 					{
 						Protocol: "UDP",
-						Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 1236},
-						EndPort:  1237,
+						Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 1236}),
+						EndPort:  ptr.To(1237),
 					},
 				},
 			},
@@ -940,12 +941,12 @@ var securityPolicyWithMultipleNormalPorts = v1alpha1.SecurityPolicy{
 				Ports: []v1alpha1.SecurityPolicyPort{
 					{
 						Protocol: "TCP",
-						Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 80},
+						Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 80}),
 					},
 					{
 						Protocol: "UDP",
-						Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 1234},
-						EndPort:  1234,
+						Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 1234}),
+						EndPort:  ptr.To(1234),
 					},
 				},
 			},
@@ -964,12 +965,12 @@ var securityPolicyWithOneNamedPort = v1alpha1.SecurityPolicy{
 				Ports: []v1alpha1.SecurityPolicyPort{
 					{
 						Protocol: "TCP",
-						Port:     intstr.IntOrString{Type: intstr.String, StrVal: "http"}, // http port is 80
+						Port:     ptr.To(intstr.IntOrString{Type: intstr.String, StrVal: "http"}), // http port is 80
 					},
 					{
 						Protocol: "UDP",
-						Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 1234},
-						EndPort:  1235,
+						Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 1234}),
+						EndPort:  ptr.To(1235),
 					},
 				},
 			},
@@ -979,12 +980,12 @@ var securityPolicyWithOneNamedPort = v1alpha1.SecurityPolicy{
 				Ports: []v1alpha1.SecurityPolicyPort{
 					{
 						Protocol: "TCP",
-						Port:     intstr.IntOrString{Type: intstr.String, StrVal: "https"}, // http port is 443
+						Port:     ptr.To(intstr.IntOrString{Type: intstr.String, StrVal: "https"}), // https port is 443
 					},
 					{
 						Protocol: "UDP",
-						Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 1236},
-						EndPort:  1237,
+						Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 1236}),
+						EndPort:  ptr.To(1237),
 					},
 				},
 			},
@@ -994,11 +995,11 @@ var securityPolicyWithOneNamedPort = v1alpha1.SecurityPolicy{
 				Ports: []v1alpha1.SecurityPolicyPort{
 					{
 						Protocol: "TCP",
-						Port:     intstr.IntOrString{Type: intstr.String, StrVal: "web"},
+						Port:     ptr.To(intstr.IntOrString{Type: intstr.String, StrVal: "web"}),
 					},
 					{
 						Protocol: "UDP",
-						Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 533},
+						Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 533}),
 					},
 				},
 			},
@@ -1008,7 +1009,7 @@ var securityPolicyWithOneNamedPort = v1alpha1.SecurityPolicy{
 				Ports: []v1alpha1.SecurityPolicyPort{
 					{
 						Protocol: "TCP",
-						Port:     intstr.IntOrString{Type: intstr.String, StrVal: "db"},
+						Port:     ptr.To(intstr.IntOrString{Type: intstr.String, StrVal: "db"}),
 					},
 				},
 			},
@@ -1597,8 +1598,8 @@ func Test_buildRuleServiceEntries(t *testing.T) {
 		{
 			name: "port with the same Port and EndPort",
 			port: v1alpha1.SecurityPolicyPort{
-				Port:     intstr.FromInt(80),
-				EndPort:  80,
+				Port:     ptr.To(intstr.FromInt(80)),
+				EndPort:  ptr.To(80),
 				Protocol: "TCP",
 			},
 			expected: func() *data.StructValue {
