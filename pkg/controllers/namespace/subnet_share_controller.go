@@ -16,6 +16,10 @@ import (
 
 // isValidKubernetesName checks if a name meets Kubernetes RFC 1123 subdomain naming standards
 func isValidKubernetesName(name string) bool {
+	// Check length: DNS-1123 subdomain must be at most 253 characters
+	if len(name) > 253 {
+		return false
+	}
 	// RFC 1123 subdomain: lowercase alphanumeric characters, '-' or '.', and must-start and end with alphanumeric
 	validNameRegex := regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
 	return validNameRegex.MatchString(name)

@@ -1238,6 +1238,16 @@ func TestIsValidKubernetesName(t *testing.T) {
 			expected: false,
 		},
 		{
+			name:     "Invalid name starting with dot",
+			input:    ".invalid-start",
+			expected: false,
+		},
+		{
+			name:     "Invalid name with consecutive dots",
+			input:    "invalid..dots",
+			expected: false,
+		},
+		{
 			name:     "Invalid empty string",
 			input:    "",
 			expected: false,
@@ -1251,6 +1261,17 @@ func TestIsValidKubernetesName(t *testing.T) {
 			name:     "Valid name with mixed lowercase alphanumeric and hyphens",
 			input:    "subnet-123-test",
 			expected: true,
+		},
+		{
+			name:     "Boundary: 253 characters should be valid",
+			input:    strings.Repeat("a", 63) + "." + strings.Repeat("b", 63) + "." + strings.Repeat("c", 63) + "." + strings.Repeat("d", 60),
+			expected: true,
+		},
+		{
+			name: "Boundary: 254 characters should be invalid",
+			input: strings.Repeat("a", 63) + "." + strings.Repeat("b", 63) + "." + strings.Repeat("c", 63) + "." + strings.Repeat("d",
+				61) + ".",
+			expected: false,
 		},
 	}
 
