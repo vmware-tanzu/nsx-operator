@@ -58,7 +58,7 @@ func (s *VPCService) buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace,
 	enableLBEndpoint := useAVILB || serviceClusterReady
 	if nsxVPC != nil {
 		oldEnableLBEndpoint := (nsxVPC.LoadBalancerVpcEndpoint != nil) && (nsxVPC.LoadBalancerVpcEndpoint.Enabled != nil) && *nsxVPC.LoadBalancerVpcEndpoint.Enabled
-		// for upgrade case, check changes for public/private ip block size, LBProvider and if lb endpoint enable
+		// For upgrade case, check changes for public/private ip block size, LBProvider, and if lb endpoint enable
 		if !IsVPCChanged(nc, nsxVPC) && !lbProviderChanged && (enableLBEndpoint == oldEnableLBEndpoint) {
 			log.Info("no changes on current NSX VPC, skip updating", "VPC", nsxVPC.Id)
 			return nil, nil

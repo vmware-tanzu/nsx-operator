@@ -425,7 +425,16 @@ func TestStaticRouteService_CreateOrUpdateStaticRoute(t *testing.T) {
 		defer patchCompare.Reset()
 		// Add existing static route to store
 		service.StaticRouteStore.Add(nsxStaticRoute)
-		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
+		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{
+			Status: v1alpha1.StaticRouteStatus{
+				Conditions: []v1alpha1.StaticRouteCondition{
+					{
+						Type:   v1alpha1.Ready,
+						Status: "True",
+					},
+				},
+			},
+		})
 		assert.NoError(t, err)
 	})
 
@@ -660,4 +669,38 @@ func TestStaticRouteService_CreateOrUpdateStaticRoute(t *testing.T) {
 		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
 		assert.NoError(t, err)
 	})
+}
+
+func Test_isStaticRouteReady(t *testing.T) {
+	staticRouteReady := &v1alpha1.StaticRoute{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "st-1",
+			Namespace: "ns-1",
+		},
+		Status: v1alpha1.StaticRouteStatus{
+			Conditions: []v1alpha1.StaticRouteCondition{
+				{
+					Type:   v1alpha1.Ready,
+					Status: "True",
+				},
+			},
+		},
+	}
+	assert.True(t, isStaticRouteReady(staticRouteReady))
+
+	staticRouteUnready := &v1alpha1.StaticRoute{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "st-1",
+			Namespace: "ns-1",
+		},
+		Status: v1alpha1.StaticRouteStatus{
+			Conditions: []v1alpha1.StaticRouteCondition{
+				{
+					Type:   v1alpha1.Ready,
+					Status: "False",
+				},
+			},
+		},
+	}
+	assert.False(t, isStaticRouteReady(staticRouteUnready))
 }
