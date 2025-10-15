@@ -50,10 +50,11 @@ const (
 	ServiceAccountCertRotation
 	StaticRoute
 	VPCPreferredDefaultSNATIP
+	SubnetIPReservation
 	AllFeatures
 )
 
-var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_PREFERRED_DEFAULT_SNAT_IP"}
+var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_PREFERRED_DEFAULT_SNAT_IP", "SUBNET_IP_RESERVATION"}
 
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig

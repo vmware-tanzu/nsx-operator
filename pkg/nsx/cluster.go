@@ -510,6 +510,9 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 	case VPCPreferredDefaultSNATIP:
 		minVersion = nsx910Version
 		validFeature = true
+	case SubnetIPReservation:
+		minVersion = nsx910Version
+		validFeature = true
 	}
 
 	if validFeature {

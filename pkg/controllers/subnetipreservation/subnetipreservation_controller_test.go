@@ -71,16 +71,20 @@ func TestReconciler_Reconcile(t *testing.T) {
 			name:    "SubnetIPReservation not supported",
 			objects: []client.Object{ipr},
 			preparedFunc: func(r *Reconciler) *gomonkey.Patches {
-				r.IPReservationService.Supported = false
-				return nil
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
+					return false
+				})
+				return patches
 			},
 			expectedResult: common.ResultNormal,
 		},
 		{
 			name: "SubnetIPReservation not supported with get error",
 			preparedFunc: func(r *Reconciler) *gomonkey.Patches {
-				r.IPReservationService.Supported = false
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Client), "Get", func(_ client.Client, ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
+					return false
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Client), "Get", func(_ client.Client, ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 					return fmt.Errorf("mocked get error")
 				})
 				return patches
@@ -92,6 +96,9 @@ func TestReconciler_Reconcile(t *testing.T) {
 			preparedFunc: func(r *Reconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Client), "Get", func(_ client.Client, ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 					return fmt.Errorf("mocked get error")
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
+					return true
 				})
 				return patches
 			},
@@ -106,6 +113,9 @@ func TestReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService), "DeleteIPReservationByCRName", func(_ *subnetipreservation.IPReservationService, ns string, name string) error {
 					return fmt.Errorf("mocked delete error")
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
+					return true
+				})
 				return patches
 			},
 			expectedResult: common.ResultRequeue,
@@ -118,6 +128,9 @@ func TestReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService), "DeleteIPReservationByCRName", func(_ *subnetipreservation.IPReservationService, ns string, name string) error {
 					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
+					return true
 				})
 				return patches
 			},
@@ -134,6 +147,9 @@ func TestReconciler_Reconcile(t *testing.T) {
 						message: "Subnet is not realized",
 					}
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
+					return true
+				})
 				return patches
 			},
 			expectedResult: common.ResultNormal,
@@ -149,6 +165,9 @@ func TestReconciler_Reconcile(t *testing.T) {
 						message: "fail to get Subnet",
 					}
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
+					return true
+				})
 				return patches
 			},
 			expectedResult: common.ResultRequeue,
@@ -162,6 +181,9 @@ func TestReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByCR", func(_ *subnet.SubnetService, subnet *v1alpha1.Subnet) (*model.VpcSubnet, error) {
 					return nil, fmt.Errorf("mocked get error")
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
+					return true
 				})
 				return patches
 			},
@@ -179,6 +201,9 @@ func TestReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService), "GetOrCreateSubnetIPReservation", func(_ *subnetipreservation.IPReservationService, ipReservation *v1alpha1.SubnetIPReservation, subnetPath string) (*model.DynamicIpAddressReservation, error) {
 					return nil, fmt.Errorf("mocked creation error")
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
+					return true
 				})
 				return patches
 			},
@@ -199,6 +224,9 @@ func TestReconciler_Reconcile(t *testing.T) {
 						NumberOfIps: servicecommon.Int64(10),
 						Ips:         []string{"10.0.0.1-10.0.0.9", "10.0.0.13"},
 					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
+					return true
 				})
 				return patches
 			},
@@ -410,7 +438,6 @@ func createFakeReconciler(objs ...client.Object) *Reconciler {
 	ipReservationService := &subnetipreservation.IPReservationService{
 		Service:            svc,
 		IPReservationStore: subnetipreservation.SetupStore(),
-		Supported:          true,
 	}
 
 	return NewReconciler(mgr, ipReservationService, subnetService)

@@ -1,19 +1,15 @@
 package subnetipreservation
 
 import (
-	"fmt"
 	"sync"
 
-	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
@@ -29,7 +25,6 @@ type IPReservationService struct {
 	common.Service
 	IPReservationStore *IPReservationStore
 	builder            *common.PolicyTreeBuilder[*model.DynamicIpAddressReservation]
-	Supported          bool
 }
 
 // InitializeService initializes SubnetIPReservationService service.
@@ -43,11 +38,10 @@ func InitializeService(service common.Service) (*IPReservationService, error) {
 		Service:            service,
 		IPReservationStore: SetupStore(),
 		builder:            builder,
-		Supported:          true,
 	}
 
 	wg.Add(1)
-	go ipReservationService.InitializeIPReservationStore(&wg, fatalErrors)
+	go ipReservationService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSubnetIPReservation, nil, ipReservationService.IPReservationStore)
 	wg.Wait()
 
 	if len(fatalErrors) > 0 {
@@ -56,81 +50,6 @@ func InitializeService(service common.Service) (*IPReservationService, error) {
 	}
 
 	return ipReservationService, nil
-}
-
-// NSX does not implement search API for Subnet IPReservation.
-// InitializeIPReservationStore searches all the Subnets, lists the IPReservations
-// under those Subnets and saves the IPReservations created by the current cluster to store.
-func (s *IPReservationService) InitializeIPReservationStore(wg *sync.WaitGroup, fatalErrors chan error) {
-	defer wg.Done()
-	subnetStore := &subnet.SubnetStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
-		BindingType: model.VpcSubnetBindingType(),
-	}}
-	queryParam := fmt.Sprintf("%s:%s", common.ResourceType, common.ResourceTypeSubnet)
-	count, err := s.SearchResource(common.ResourceTypeSubnet, queryParam, subnetStore, nil)
-	if err != nil {
-		fatalErrors <- err
-		log.Error(err, "failed to get all NSX Subnets")
-		return
-	}
-	log.Trace("Successfully fetch all Subnet from NSX", "count", count)
-	for _, obj := range subnetStore.List() {
-		subnet := obj.(*model.VpcSubnet)
-		subnetInfo, err := common.ParseVPCResourcePath(*subnet.Path)
-		if err != nil {
-			fatalErrors <- err
-			log.Error(err, "Failed to parse Subnet path", "Subnet", *subnet.Path)
-			return
-		}
-
-		if err = s.loadIPReservationForSubnet(subnetInfo); err != nil {
-			fatalErrors <- err
-			return
-		}
-		if !s.Supported {
-			return
-		}
-	}
-	log.Info("Initialized store", "resourceType", ResourceTypeSubnetIPReservation, "count", len(s.IPReservationStore.List()))
-}
-
-func (s *IPReservationService) loadIPReservationForSubnet(subnetInfo common.VPCResourceInfo) error {
-	var cursor *string
-	pageSize := int64(1000)
-	markedForDelete := false
-	for {
-		ipReservations, err := s.NSXClient.DynamicIPReservationsClient.List(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, cursor, &markedForDelete, nil, &pageSize, nil, nil)
-		err = nsxutil.TransNSXApiError(err)
-		if err != nil {
-			if nsxErr, ok := err.(*nsxutil.NSXApiError); ok {
-				if nsxErr.Type() == apierrors.ErrorType_NOT_FOUND {
-					log.Info("NSX Subnet IPReservation is not supported. SubnetIPReservation CR will not be supported.")
-					s.Supported = false
-					return nil
-				}
-			}
-			log.Error(err, "Failed to get NSX IPReservation for Subnet", "Subnet", subnetInfo)
-			return err
-		}
-		for _, ipr := range ipReservations.Results {
-			for _, tag := range ipr.Tags {
-				if tag.Scope != nil && *tag.Scope == common.TagScopeCluster && tag.Tag != nil && *tag.Tag == s.NSXClient.NsxConfig.Cluster {
-					err := s.IPReservationStore.Apply(&ipr)
-					if err != nil {
-						log.Error(err, "Failed to save NSX Subnet IPReservation to store", "SubnetIPReservation", ipr.Path)
-						return err
-					}
-					break
-				}
-			}
-		}
-		cursor = ipReservations.Cursor
-		if cursor == nil {
-			break
-		}
-	}
-	return nil
 }
 
 func (s *IPReservationService) GetOrCreateSubnetIPReservation(ipReservation *v1alpha1.SubnetIPReservation, subnetPath string) (*model.DynamicIpAddressReservation, error) {

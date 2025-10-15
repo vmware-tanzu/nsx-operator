@@ -21,6 +21,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetipreservation"
 )
@@ -138,8 +139,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}()
 	r.StatusUpdater.IncreaseSyncTotal()
 
-	if !r.IPReservationService.Supported {
-		log.Debug("NSX Subnet IP Reservation is not supported", "SubnetIPReservation", req.NamespacedName)
+	// SubnetIPReservation service can only be supported from NSX 9.1.0 onwards,
+	// So need to check NSX version before starting SubnetIPReservation reconcile
+	if !r.IPReservationService.NSXClient.NSXCheckVersion(nsx.SubnetIPReservation) {
+		log.Warn("NSX Subnet IP Reservation is not supported", "SubnetIPReservation", req.NamespacedName)
 		if err := r.setNotSupported(ctx, req); err != nil {
 			return common.ResultRequeue, nil
 		}
