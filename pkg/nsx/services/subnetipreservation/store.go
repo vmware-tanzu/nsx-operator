@@ -43,8 +43,6 @@ func keyFunc(obj interface{}) (string, error) {
 		return *v.Id, nil
 	case string:
 		return v, nil
-	case *model.VpcSubnet:
-		return *v.Id, nil
 	default:
 		return "", errors.New("keyFunc doesn't support unknown type")
 	}
