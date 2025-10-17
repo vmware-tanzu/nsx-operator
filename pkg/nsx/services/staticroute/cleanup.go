@@ -19,10 +19,13 @@ func (service *StaticRouteService) CleanupVPCChildResources(ctx context.Context,
 			log.Error(err, "Failed to list StaticRoutes under the VPC", "path", vpcPath)
 		}
 		if len(routes) == 0 {
+			log.Info("No StaticRoutes found for VPC", "vpcPath", vpcPath, "count", 0)
 			return nil
 		}
+		log.Info("Cleaning StaticRoutes from local store for auto-created VPC", "vpcPath", vpcPath, "count", len(routes))
 		// Delete resources from the store and return.
 		service.StaticRouteStore.DeleteMultipleObjects(routes)
+		log.Info("Successfully cleaned StaticRoutes from local store", "vpcPath", vpcPath, "count", len(routes), "status", "success")
 		return nil
 	}
 
@@ -34,6 +37,7 @@ func (service *StaticRouteService) CleanupVPCChildResources(ctx context.Context,
 		route.MarkedForDelete = &MarkedForDelete
 		routes = append(routes, route)
 	}
+	log.Info("Cleaning up StaticRoutes from pre-created VPC", "count", len(routes))
 	return service.builder.PagingUpdateResources(ctx, routes, common.DefaultHAPIChildrenCount, service.NSXClient, func(deletedObjs []*model.StaticRoutes) {
 		service.StaticRouteStore.DeleteMultipleObjects(deletedObjs)
 	})

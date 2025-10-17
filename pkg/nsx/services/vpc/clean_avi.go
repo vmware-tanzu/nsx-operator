@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -68,17 +69,32 @@ func CleanAviSubnetPorts(ctx context.Context, cluster *nsx.Cluster, vpcPath stri
 		return fmt.Errorf("error getting Avi Subnet ports: %w", err)
 	}
 
-	log.Info("Deleting Avi Subnet port", "paths", allPaths)
+	log.Info("Deleting Avi Subnet ports", "vpcPath", vpcPath, "portCount", allPaths.Len())
 	for path := range allPaths {
+		portID := extractIDFromAviPath(path)
+		log.Info("Attempting to delete Avi subnet port", "portPath", path, "portID", portID, "vpcPath", vpcPath)
 		url := PolicyAPI + path
 		select {
 		case <-ctx.Done():
 			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
 		default:
 			if err := cluster.HttpDelete(url); err != nil {
+				log.Error(err, "Failed to delete Avi subnet port", "portPath", path, "portID", portID, "vpcPath", vpcPath)
 				return fmt.Errorf("failed to delete Avi Subnet port at %s: %w", url, err)
 			}
+			log.Info("Successfully deleted Avi subnet port", "portPath", path, "portID", portID, "vpcPath", vpcPath)
 		}
 	}
 	return nil
+}
+
+func extractIDFromAviPath(path string) string {
+	if path == "" {
+		return ""
+	}
+	parts := strings.Split(strings.TrimSuffix(path, "/"), "/")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return ""
 }

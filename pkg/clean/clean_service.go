@@ -3,6 +3,7 @@ package clean
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -94,13 +95,16 @@ func (c *CleanupService) cleanupBeforeVPCDeletion(ctx context.Context) error {
 }
 
 func (c *CleanupService) cleanupVPCResourcesByVPCPath(ctx context.Context, vpcPath string) error {
-	c.log.Info("Cleaning VPC resources", "path", vpcPath)
+	c.log.Info("Cleaning VPC resources", "path", vpcPath, "status", "attempting")
 	if vpcPath != "" {
+		// Extract VPC ID from path for better logging
+		vpcID := extractIDFromPath(vpcPath)
+		c.log.Info("Attempting to delete VPC", "vpcPath", vpcPath, "vpcID", vpcID, "status", "attempting")
 		if err := c.vpcService.DeleteVPC(vpcPath); err != nil {
-			c.log.Error(err, "Failed to delete VPC on NSX", "path", vpcPath)
+			c.log.Error(err, "Failed to delete VPC on NSX", "vpcPath", vpcPath, "vpcID", vpcID, "status", "failed")
 			return err
 		}
-		c.log.Info("Deleted VPC", "Path", vpcPath)
+		c.log.Info("Successfully deleted VPC", "vpcPath", vpcPath, "vpcID", vpcID, "status", "success")
 	}
 
 	cleanersCount := len(c.vpcChildrenCleaners)
@@ -135,8 +139,12 @@ func (c *CleanupService) vpcWorker(ctx context.Context, queue workqueue.TypedRat
 	// Mark task as done
 	defer queue.Done(vpcPath)
 
+	vpcID := extractIDFromPath(vpcPath)
+	c.log.Info("VPC worker processing", "vpcPath", vpcPath, "vpcID", vpcID, "requeues", queue.NumRequeues(vpcPath))
+
 	err := c.cleanupVPCResourcesByVPCPath(ctx, vpcPath)
 	if err != nil && queue.NumRequeues(vpcPath) < maxRetries {
+		c.log.Info("VPC cleanup failed, requeuing", "vpcPath", vpcPath, "vpcID", vpcID, "requeues", queue.NumRequeues(vpcPath)+1, "maxRetries", maxRetries)
 		queue.AddAfter(vpcPath, 10*time.Second)
 		return true
 	}
@@ -146,7 +154,10 @@ func (c *CleanupService) vpcWorker(ctx context.Context, queue workqueue.TypedRat
 	defer mu.Unlock()
 
 	if err != nil {
+		c.log.Error(err, "VPC cleanup permanently failed", "vpcPath", vpcPath, "vpcID", vpcID, "status", "failed")
 		finalErrors <- err
+	} else {
+		c.log.Info("VPC cleanup completed successfully", "vpcPath", vpcPath, "vpcID", vpcID, "status", "success")
 	}
 
 	completedVPCs.Insert(vpcPath)
@@ -204,25 +215,30 @@ func (c *CleanupService) cleanupAutoCreatedVPCs(ctx context.Context) error {
 // cleanupVPCResources cleans up the VPCs and their children resources created by nsx-operator.
 func (c *CleanupService) cleanupVPCResources(ctx context.Context) error {
 	// Clean up the indirect VPC children resources before deleting the VPCs, otherwise, it may block VPC deletion request
+	resourceCount := c.getPreVPCDeletionResourceCount()
+	c.log.Info("Starting pre-VPC deletion cleanup", "resourceCount", resourceCount)
 	if err := c.cleanupBeforeVPCDeletion(ctx); err != nil {
-		c.log.Error(err, "Failed to clean up the resources before deleting VPCs")
+		c.log.Error(err, "Failed to clean up the resources before deleting VPCs", "resourceCount", resourceCount, "status", "failed")
 		return err
 	}
-	c.log.Info("Completed to clean up the resources before deleting VPCs")
+	c.log.Info("Completed to clean up the resources before deleting VPCs", "resourceCount", resourceCount, "status", "success")
 
 	// Clean up the auto-created VPC and its children resources
+	autoCreatedVPCCount := c.vpcService.ListAutoCreatedVPCPaths().Len()
+	c.log.Info("Starting auto-created VPC cleanup", "vpcCount", autoCreatedVPCCount)
 	if err := c.cleanupAutoCreatedVPCs(ctx); err != nil {
-		c.log.Error(err, "Failed to clean up the auto created VPCs and their child resources")
+		c.log.Error(err, "Failed to clean up the auto created VPCs and their child resources", "vpcCount", autoCreatedVPCCount, "status", "failed")
 		return err
 	}
-	c.log.Info("Completed to clean up the auto created VPCs and their child resources")
+	c.log.Info("Completed to clean up the auto created VPCs and their child resources", "vpcCount", autoCreatedVPCCount, "status", "success")
 
 	// Clean up the resources in pre-created VPC.
+	c.log.Info("Starting pre-created VPC resources cleanup")
 	if err := c.cleanPreCreatedVPCs(ctx); err != nil {
-		c.log.Error(err, "Failed to clean up the pre-created VPCs' child resources")
+		c.log.Error(err, "Failed to clean up the pre-created VPCs' child resources", "status", "failed")
 		return err
 	}
-	c.log.Info("Completed to clean up the pre-created VPCs' child resources")
+	c.log.Info("Completed to clean up the pre-created VPCs' child resources", "status", "success")
 
 	return nil
 }
@@ -285,4 +301,21 @@ func (c *CleanupService) cleanupHealthResources(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// Helper function to extract ID from NSX resource path
+func extractIDFromPath(path string) string {
+	if path == "" {
+		return ""
+	}
+	parts := strings.Split(strings.TrimSuffix(path, "/"), "/")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return ""
+}
+
+// Helper function to count resources before VPC deletion
+func (c *CleanupService) getPreVPCDeletionResourceCount() int {
+	return len(c.vpcPreCleaners)
 }

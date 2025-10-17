@@ -19,10 +19,13 @@ func (service *IPAddressAllocationService) CleanupVPCChildResources(ctx context.
 			log.Error(err, "Failed to list VpcIPAddressAllocations under the VPC", "path", vpcPath)
 		}
 		if len(allocations) == 0 {
+			log.Info("No VpcIPAddressAllocations found for VPC", "vpcPath", vpcPath, "count", 0)
 			return nil
 		}
+		log.Info("Cleaning VpcIPAddressAllocations from local store for auto-created VPC", "vpcPath", vpcPath, "count", len(allocations))
 		// Delete resources from the store and return.
 		service.ipAddressAllocationStore.DeleteMultipleObjects(allocations)
+		log.Info("Successfully cleaned VpcIPAddressAllocations from local store", "vpcPath", vpcPath, "count", len(allocations), "status", "success")
 		return nil
 	}
 
@@ -34,6 +37,7 @@ func (service *IPAddressAllocationService) CleanupVPCChildResources(ctx context.
 		allocations = append(allocations, allocation)
 	}
 
+	log.Info("Cleaning up VpcIPAddressAllocations from pre-created VPC", "count", len(allocations))
 	return service.builder.PagingUpdateResources(ctx, allocations, common.DefaultHAPIChildrenCount, service.NSXClient, func(deletedObjs []*model.VpcIpAddressAllocation) {
 		service.ipAddressAllocationStore.DeleteMultipleObjects(deletedObjs)
 	})
