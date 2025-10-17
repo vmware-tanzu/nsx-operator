@@ -317,25 +317,38 @@ func (s *LBInfraCleaner) cleanupLBAppProfiles(ctx context.Context) error {
 	}
 	s.log.Info("Cleaning up lbAppProfiles", "Count", len(lbAppProfiles))
 	var delErr error
+	successCount := 0
+	failedCount := 0
 	for _, lbAppProfile := range lbAppProfiles {
 		select {
 		case <-ctx.Done():
+			s.log.Info("LbAppProfile cleanup interrupted by context", "successCount", successCount, "failedCount", failedCount)
 			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
 		default:
 			id := *lbAppProfile.Id
+			name := ""
+			if lbAppProfile.DisplayName != nil {
+				name = *lbAppProfile.DisplayName
+			}
+			profileType := lbAppProfile.ResourceType
+			s.log.Info("Attempting to delete LB app profile", "profileID", id, "profileName", name, "profileType", profileType)
 			if err := s.NSXClient.LbAppProfileClient.Delete(id, &forceDelete); err != nil {
-				s.log.Error(err, "Failed to deleted NCP created lbAppProfile", "lbAppProfile", id)
+				s.log.Error(err, "Failed to delete LB app profile", "profileID", id, "profileName", name, "profileType", profileType)
+				failedCount++
 				delErr = err
 				continue
 			}
+			s.log.Info("Successfully deleted LB app profile", "profileID", id, "profileName", name, "profileType", profileType)
+			successCount++
 		}
 	}
 
 	if delErr != nil {
+		s.log.Info("LbAppProfile cleanup completed with errors", "successCount", successCount, "failedCount", failedCount)
 		return delErr
 	}
 
-	s.log.Info("Completed to clean up NCP created lbAppProfiles")
+	s.log.Info("Completed to clean up NCP created lbAppProfiles", "successCount", successCount, "failedCount", failedCount)
 	return nil
 }
 
@@ -347,25 +360,37 @@ func (s *LBInfraCleaner) cleanupLBPersistenceProfiles(ctx context.Context) error
 	}
 	s.log.Info("Cleaning up lbPersistenceProfiles", "Count", len(lbPersistenceProfiles))
 	var delErr error
+	successCount := 0
+	failedCount := 0
 	for _, lbPersistenceProfile := range lbPersistenceProfiles {
 		select {
 		case <-ctx.Done():
+			s.log.Info("LbPersistenceProfile cleanup interrupted by context", "successCount", successCount, "failedCount", failedCount)
 			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
 		default:
 			id := *lbPersistenceProfile.Id
+			name := ""
+			if lbPersistenceProfile.DisplayName != nil {
+				name = *lbPersistenceProfile.DisplayName
+			}
+			profileType := lbPersistenceProfile.ResourceType
 			if err := s.NSXClient.LbPersistenceProfilesClient.Delete(*lbPersistenceProfile.Id, &forceDelete); err != nil {
-				s.log.Error(err, "Failed to deleted NCP created lbPersistenceProfile", "lbPersistenceProfile", id)
+				s.log.Error(err, "Failed to delete LB persistence profile", "profileID", id, "profileName", name, "profileType", profileType)
+				failedCount++
 				delErr = err
 				continue
 			}
+			s.log.Info("Successfully deleted LB persistence profile", "profileID", id, "profileName", name, "profileType", profileType)
+			successCount++
 		}
 	}
 
 	if delErr != nil {
+		s.log.Info("LbPersistenceProfile cleanup completed with errors", "successCount", successCount, "failedCount", failedCount)
 		return delErr
 	}
 
-	s.log.Info("Completed to clean up NCP created lbPersistenceProfiles")
+	s.log.Info("Completed to clean up NCP created lbPersistenceProfiles", "successCount", successCount, "failedCount", failedCount)
 	return nil
 }
 
@@ -377,22 +402,34 @@ func (s *LBInfraCleaner) cleanupLBMonitorProfiles(ctx context.Context) error {
 	}
 	s.log.Info("Cleaning up lbMonitorProfiles", "Count", len(lbMonitorProfiles))
 	var delErr error
+	successCount := 0
+	failedCount := 0
 	for _, lbMonitorProfile := range lbMonitorProfiles {
 		select {
 		case <-ctx.Done():
+			s.log.Info("LbMonitorProfile cleanup interrupted by context", "successCount", successCount, "failedCount", failedCount)
 			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
 		default:
 			id := *lbMonitorProfile.Id
+			name := ""
+			if lbMonitorProfile.DisplayName != nil {
+				name = *lbMonitorProfile.DisplayName
+			}
+			profileType := lbMonitorProfile.ResourceType
 			if err := s.NSXClient.LbMonitorProfilesClient.Delete(id, &forceDelete); err != nil {
-				s.log.Error(err, "Failed to deleted NCP created lbMonitorProfile", "lbMonitorProfile", id)
+				s.log.Error(err, "Failed to delete LB monitor profile", "profileID", id, "profileName", name, "profileType", profileType)
+				failedCount++
 				delErr = err
 				continue
 			}
+			s.log.Info("Successfully deleted LB monitor profile", "profileID", id, "profileName", name, "profileType", profileType)
+			successCount++
 		}
 	}
 	if delErr != nil {
+		s.log.Info("LbMonitorProfile cleanup completed with errors", "successCount", successCount, "failedCount", failedCount)
 		return delErr
 	}
-	s.log.Info("Completed to clean up NCP created lbMonitorProfiles")
+	s.log.Info("Completed to clean up NCP created lbMonitorProfiles", "successCount", successCount, "failedCount", failedCount)
 	return nil
 }

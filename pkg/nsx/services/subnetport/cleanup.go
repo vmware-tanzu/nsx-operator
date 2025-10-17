@@ -10,8 +10,9 @@ import (
 
 func (service *SubnetPortService) CleanupBeforeVPCDeletion(ctx context.Context) error {
 	objs := service.SubnetPortStore.List()
-	log.Info("Cleaning up VpcSubnetPorts", "Count", len(objs))
+	log.Info("Cleaning up VpcSubnetPorts", "Count", len(objs), "status", "attempting")
 	if len(objs) == 0 {
+		log.Info("No VpcSubnetPorts found to clean up", "count", 0)
 		return nil
 	}
 
@@ -22,7 +23,14 @@ func (service *SubnetPortService) CleanupBeforeVPCDeletion(ctx context.Context) 
 		port.MarkedForDelete = &MarkedForDelete
 		ports[i] = port
 	}
-	return service.builder.PagingUpdateResources(ctx, ports, common.DefaultHAPIChildrenCount, service.NSXClient, func(delObjs []*model.VpcSubnetPort) {
+	log.Info("Starting deletion of VpcSubnetPorts", "count", len(ports))
+	err := service.builder.PagingUpdateResources(ctx, ports, common.DefaultHAPIChildrenCount, service.NSXClient, func(delObjs []*model.VpcSubnetPort) {
 		service.SubnetPortStore.DeleteMultipleObjects(delObjs)
 	})
+	if err != nil {
+		log.Error(err, "Failed to clean up VpcSubnetPorts", "count", len(ports), "status", "failed")
+		return err
+	}
+	log.Info("Successfully cleaned up VpcSubnetPorts", "count", len(ports), "status", "success")
+	return nil
 }

@@ -620,25 +620,36 @@ func (s *NSXServiceAccountService) UpdateProxyEndpointsIfNeeded(ctx context.Cont
 
 func (s *NSXServiceAccountService) CleanupBeforeVPCDeletion(ctx context.Context) error {
 	ccpList := s.ClusterControlPlaneStore.List()
+	log.Info("Starting cluster control plane cleanup", "count", len(ccpList), "status", "attempting")
 	if len(ccpList) == 0 {
-		log.Info("No cluster control plane found while cleanup")
+		log.Info("No cluster control plane found while cleanup", "count", 0)
 		return nil
 	}
 	// Delete ClusterControlPlanes sequentially.
 	// We cannot use PagingUpdateResources to delete ClusterControlPlanes in a batch because we need to pass a cascade=true request parameter.
+	successCount := 0
 	for i := range ccpList {
 		ccp := ccpList[i].(*model.ClusterControlPlane)
-		err := s.DeleteClusterControlPlane(ctx, *ccp.Id)
+		ccpID := *ccp.Id
+		ccpName := ""
+		if ccp.DisplayName != nil {
+			ccpName = *ccp.DisplayName
+		}
+		log.Info("Attempting to delete cluster control plane", "ccpID", ccpID, "ccpName", ccpName, "index", i+1, "total", len(ccpList))
+		err := s.DeleteClusterControlPlane(ctx, ccpID)
 		if err != nil {
-			log.Error(err, "Cleanup failed to delete cluster control plane", "ClusterControlPlane", ccp.Id)
+			log.Error(err, "Failed to delete cluster control plane from NSX", "ccpID", ccpID, "ccpName", ccpName, "status", "failed")
 			return err
 		}
 		err = s.ClusterControlPlaneStore.Delete(&model.ClusterControlPlane{Id: ccp.Id})
 		if err != nil {
-			log.Error(err, "Cleanup failed to delete cluster control plane from store", "ClusterControlPlane", ccp.Id)
+			log.Error(err, "Failed to delete cluster control plane from store", "ccpID", ccpID, "ccpName", ccpName, "status", "failed")
 			return err
 		}
+		log.Info("Successfully deleted cluster control plane", "ccpID", ccpID, "ccpName", ccpName, "status", "success")
+		successCount++
 	}
+	log.Info("Completed cluster control plane cleanup", "successCount", successCount, "status", "success")
 	return nil
 }
 

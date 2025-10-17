@@ -187,19 +187,42 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 
 	cleanupService.vpcService = vpcService
 	// TODO: initialize other CR services
-	cleanupService = cleanupService.
-		AddCleanupService(wrapInitializeSubnetPort(commonService)).
-		AddCleanupService(wrapInitializeSubnetBinding(commonService)).
-		AddCleanupService(wrapInitializeSubnetIPReservation(commonService)).
-		AddCleanupService(wrapInitializeSubnetService(commonService)).
-		AddCleanupService(wrapInitializeSecurityPolicy(commonService)).
-		AddCleanupService(wrapInitializeStaticRoute(commonService)).
-		AddCleanupService(wrapInitializeVPC(commonService)).
-		AddCleanupService(wrapInitializeIPAddressAllocation(commonService)).
-		AddCleanupService(wrapInitializeInventory(commonService)).
-		AddCleanupService(wrapInitializeLBInfraCleaner(commonService)).
-		AddCleanupService(wrapInitializeHealthCleaner(commonService)).
-		AddCleanupService(wrapInitializeNSXServiceAccount(commonService))
+	loggedAdd := func(name string, f cleanupFunc) {
+		if cleanupService.svcErr != nil {
+			log.Info("Skipping service initialization due to previous error", "service", name, "error", cleanupService.svcErr)
+			return
+		}
+		log.Info("Initializing cleanup service", "service", name)
+		cleanupService = cleanupService.AddCleanupService(f)
+		if cleanupService.svcErr != nil {
+			log.Error(cleanupService.svcErr, "Service initialization FAILED", "service", name)
+		} else {
+			log.Info("Service initialization succeeded", "service", name)
+		}
+	}
+
+	loggedAdd("SubnetPort", wrapInitializeSubnetPort(commonService))
+	loggedAdd("SubnetBinding", wrapInitializeSubnetBinding(commonService))
+	loggedAdd("SubnetIPReservation", wrapInitializeSubnetIPReservation(commonService))
+	loggedAdd("SubnetService", wrapInitializeSubnetService(commonService))
+	loggedAdd("SecurityPolicy", wrapInitializeSecurityPolicy(commonService))
+	loggedAdd("StaticRoute", wrapInitializeStaticRoute(commonService))
+	loggedAdd("VPC", wrapInitializeVPC(commonService))
+	loggedAdd("IPAddressAllocation", wrapInitializeIPAddressAllocation(commonService))
+	loggedAdd("Inventory", wrapInitializeInventory(commonService))
+	loggedAdd("LBInfraCleaner", wrapInitializeLBInfraCleaner(commonService))
+	loggedAdd("HealthCleaner", wrapInitializeHealthCleaner(commonService))
+	loggedAdd("NSXServiceAccount", wrapInitializeNSXServiceAccount(commonService))
+
+	log.Info("Cleanup service initialization summary",
+		"vpcPreCleaners", len(cleanupService.vpcPreCleaners),
+		"vpcChildrenCleaners", len(cleanupService.vpcChildrenCleaners),
+		"infraCleaners", len(cleanupService.infraCleaners),
+		"healthCleaners", len(cleanupService.healthCleaners))
+
+	if cleanupService.svcErr != nil {
+		log.Error(cleanupService.svcErr, "Service initialization error detected - some cleaners may not be registered")
+	}
 
 	return cleanupService, nil
 }
