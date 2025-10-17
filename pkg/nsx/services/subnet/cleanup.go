@@ -16,10 +16,13 @@ func (service *SubnetService) CleanupVPCChildResources(ctx context.Context, vpcP
 	if vpcPath != "" {
 		subnets := service.SubnetStore.GetByIndex(common.IndexByVPCPathFuncKey, vpcPath)
 		if len(subnets) == 0 {
+			log.Info("No VpcSubnets found for VPC", "vpcPath", vpcPath, "count", 0)
 			return nil
 		}
+		log.Info("Cleaning VpcSubnets from local store for auto-created VPC", "vpcPath", vpcPath, "count", len(subnets))
 		// Delete resources from the store and return.
 		service.SubnetStore.DeleteMultipleObjects(subnets)
+		log.Info("Successfully cleaned VpcSubnets from local store", "vpcPath", vpcPath, "count", len(subnets), "status", "success")
 		return nil
 	}
 
@@ -31,6 +34,7 @@ func (service *SubnetService) CleanupVPCChildResources(ctx context.Context, vpcP
 		subnets = append(subnets, subnet)
 	}
 
+	log.Info("Cleaning up VpcSubnets from pre-created VPC", "count", len(subnets))
 	return service.builder.PagingUpdateResources(ctx, subnets, common.DefaultHAPIChildrenCount, service.NSXClient, func(deletedObjects []*model.VpcSubnet) {
 		service.SubnetStore.DeleteMultipleObjects(deletedObjects)
 	})
