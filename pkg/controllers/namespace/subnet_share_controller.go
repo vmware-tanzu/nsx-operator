@@ -241,6 +241,9 @@ func (r *NamespaceReconciler) deleteUnusedSharedSubnets(ctx context.Context, ns 
 				}
 				r.SubnetService.RemoveSharedSubnetFromResourceMap(associatedResource, namespacedName)
 
+				// Clear the cache to prevent stale data when the subnet is recreated on NSX
+				r.SubnetService.RemoveSubnetFromCache(associatedResource, "shared subnet CR deleted")
+
 				log.Info("Deleted Subnet CR for shared Subnet",
 					"Namespace", ns, "Name", subnet.Name, "AssociatedResource", associatedResource)
 				r.SubnetStatusUpdater.DeleteSuccess(client.ObjectKey{Namespace: ns, Name: subnet.Name}, subnet)
