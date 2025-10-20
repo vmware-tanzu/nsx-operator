@@ -230,7 +230,7 @@ func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
 func NewNSXOpertorConfig() *NSXOperatorConfig {
 	defaultNSXOperatorConfig := &NSXOperatorConfig{
 		&DefaultConfig{},
-		&CoeConfig{},
+		&CoeConfig{EnableSha: true},
 		&NsxConfig{},
 		&K8sConfig{},
 		&VCConfig{},
