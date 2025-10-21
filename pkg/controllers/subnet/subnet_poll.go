@@ -176,24 +176,7 @@ func (r *SubnetReconciler) hasStatusChanged(originalStatus, newStatus *v1alpha1.
 
 // hasSubnetSpecChanged checks if the subnet spec has changed
 func (r *SubnetReconciler) hasSubnetSpecChanged(originalSpec, newSpec *v1alpha1.SubnetSpec) bool {
-	if originalSpec.AdvancedConfig.ConnectivityState != newSpec.AdvancedConfig.ConnectivityState ||
-		originalSpec.AdvancedConfig.EnableVLANExtension != newSpec.AdvancedConfig.EnableVLANExtension ||
-		originalSpec.SubnetDHCPConfig.Mode != newSpec.SubnetDHCPConfig.Mode ||
-		!reflect.DeepEqual(originalSpec.AdvancedConfig.GatewayAddresses, newSpec.AdvancedConfig.GatewayAddresses) ||
-		!reflect.DeepEqual(originalSpec.AdvancedConfig.DHCPServerAddresses, newSpec.AdvancedConfig.DHCPServerAddresses) {
-		return true
-	}
-	// Check for changes in DHCPServerAdditionalConfig.ReservedIPRanges
-	origReservedIPRanges := originalSpec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges
-	newReservedIPRanges := newSpec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges
-
-	// If both are nil or both are not nil with the same value, no change
-	if (origReservedIPRanges == nil && newReservedIPRanges == nil) ||
-		(origReservedIPRanges != nil && newReservedIPRanges != nil && reflect.DeepEqual(origReservedIPRanges, newReservedIPRanges)) {
-		return false
-	}
-	// Otherwise, there's a change
-	return true
+	return !reflect.DeepEqual(originalSpec, newSpec)
 }
 
 func (r *SubnetReconciler) clearSubnetAddresses(obj client.Object) {
