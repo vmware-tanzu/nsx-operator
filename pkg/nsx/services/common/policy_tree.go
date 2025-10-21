@@ -106,6 +106,48 @@ func getNSXResourceId[T any](obj T) *string {
 	}
 }
 
+func getNSXResourceName[T any](obj T) *string {
+	switch v := any(obj).(type) {
+	case *model.VpcIpAddressAllocation:
+		return v.DisplayName
+	case *model.VpcSubnet:
+		return v.DisplayName
+	case *model.VpcSubnetPort:
+		return v.DisplayName
+	case *model.SubnetConnectionBindingMap:
+		return v.DisplayName
+	case *model.Vpc:
+		return v.DisplayName
+	case *model.StaticRoutes:
+		return v.DisplayName
+	case *model.SecurityPolicy:
+		return v.DisplayName
+	case *model.Group:
+		return v.DisplayName
+	case *model.Rule:
+		return v.DisplayName
+	case *model.Share:
+		return v.DisplayName
+	case *model.LBService:
+		return v.DisplayName
+	case *model.LBVirtualServer:
+		return v.DisplayName
+	case *model.LBPool:
+		return v.DisplayName
+	case *model.TlsCertificate:
+		return v.DisplayName
+	case *model.SharedResource:
+		return v.DisplayName
+	case *model.Domain:
+		return v.DisplayName
+	case *model.DynamicIpAddressReservation:
+		return v.DisplayName
+	default:
+		log.Error(nil, "Get NSX resource name", "unknown NSX resource type", v)
+		return nil
+	}
+}
+
 func leafWrapper[T any](obj T) (*data.StructValue, error) {
 	switch v := any(obj).(type) {
 	case *model.VpcIpAddressAllocation:
@@ -462,6 +504,7 @@ func (b *PolicyTreeBuilder[T]) UpdateMultipleResourcesOnNSX(objects []T, nsxClie
 	if len(objects) == 0 {
 		return nil
 	}
+
 	enforceRevisionCheckParam := false
 	if b.rootType == ResourceTypeOrgRoot {
 		orgRoot, err := b.BuildOrgRoot(objects, "")
@@ -471,8 +514,37 @@ func (b *PolicyTreeBuilder[T]) UpdateMultipleResourcesOnNSX(objects []T, nsxClie
 		}
 		if err = nsxClient.OrgRootClient.Patch(*orgRoot, &enforceRevisionCheckParam); err != nil {
 			err = util.TransNSXApiError(err)
-			log.Error(err, "Failed to delete multiple resources on NSX with HAPI", "resourceType", b.leafType)
+			// Log failure for each resource
+			for _, obj := range objects {
+				resID := b.idGetter(obj)
+				resName := getNSXResourceName(obj)
+				resPath := b.pathGetter(obj)
+				var id, name, path string
+				if resID != nil {
+					id = *resID
+				}
+				if resName != nil {
+					name = *resName
+				}
+				if resPath != nil {
+					path = *resPath
+				}
+				log.Error(err, "Failed to delete resource", "resourceType", b.leafType, "resourceID", id, "resourceName", name, "resourcePath", path)
+			}
 			return err
+		}
+		// Log success for each resource
+		for _, obj := range objects {
+			resID := b.idGetter(obj)
+			resName := getNSXResourceName(obj)
+			var id, name string
+			if resID != nil {
+				id = *resID
+			}
+			if resName != nil {
+				name = *resName
+			}
+			log.Info("Successfully deleted resource", "resourceType", b.leafType, "resourceID", id, "resourceName", name)
 		}
 		return nil
 	}
@@ -484,8 +556,37 @@ func (b *PolicyTreeBuilder[T]) UpdateMultipleResourcesOnNSX(objects []T, nsxClie
 	}
 	if err = nsxClient.InfraClient.Patch(*infraRoot, &enforceRevisionCheckParam); err != nil {
 		err = util.TransNSXApiError(err)
-		log.Error(err, "Failed to delete multiple resources on NSX with HAPI", "resourceType", b.leafType)
+		// Log failure for each resource
+		for _, obj := range objects {
+			resID := b.idGetter(obj)
+			resName := getNSXResourceName(obj)
+			resPath := b.pathGetter(obj)
+			var id, name, path string
+			if resID != nil {
+				id = *resID
+			}
+			if resName != nil {
+				name = *resName
+			}
+			if resPath != nil {
+				path = *resPath
+			}
+			log.Error(err, "Failed to delete resource", "resourceType", b.leafType, "resourceID", id, "resourceName", name, "resourcePath", path)
+		}
 		return err
+	}
+	// Log success for each resource
+	for _, obj := range objects {
+		resID := b.idGetter(obj)
+		resName := getNSXResourceName(obj)
+		var id, name string
+		if resID != nil {
+			id = *resID
+		}
+		if resName != nil {
+			name = *resName
+		}
+		log.Info("Successfully deleted resource", "resourceType", b.leafType, "resourceID", id, "resourceName", name)
 	}
 
 	return nil
@@ -531,22 +632,41 @@ func (builder *PolicyTreeBuilder[T]) PagingUpdateResources(ctx context.Context, 
 	if len(objs) == 0 {
 		return nil
 	}
-	var nsxErr error
+
+	totalCount := len(objs)
 	pagedObjs := PagingNSXResources(objs, pageSize)
-	for _, partialObjs := range pagedObjs {
+	totalBatches := len(pagedObjs)
+
+	log.Info("Starting batch deletion", "resourceType", builder.leafType, "totalResources", totalCount, "totalBatches", totalBatches, "batchSize", pageSize)
+
+	var nsxErr error
+	successCount := 0
+	failedCount := 0
+
+	for batchIdx, partialObjs := range pagedObjs {
+		currentBatch := batchIdx + 1
+		log.Info("Processing batch", "resourceType", builder.leafType, "batch", fmt.Sprintf("%d/%d", currentBatch, totalBatches), "batchResourceCount", len(partialObjs))
+
 		select {
 		case <-ctx.Done():
+			log.Info("Batch deletion interrupted by context", "resourceType", builder.leafType, "processedBatches", currentBatch-1, "totalBatches", totalBatches, "successCount", successCount, "failedCount", failedCount)
 			return errors.Join(util.TimeoutFailed, ctx.Err())
 		default:
 			delErr := builder.UpdateMultipleResourcesOnNSX(partialObjs, nsxClient)
 			if delErr == nil {
+				successCount += len(partialObjs)
+				log.Info("Batch deletion succeeded", "resourceType", builder.leafType, "batch", fmt.Sprintf("%d/%d", currentBatch, totalBatches), "batchResourceCount", len(partialObjs), "cumulativeSuccess", successCount)
 				if updateObjectsFromStoreFn != nil {
 					updateObjectsFromStoreFn(partialObjs)
 				}
 				continue
 			}
+			failedCount += len(partialObjs)
+			log.Error(delErr, "Batch deletion failed", "resourceType", builder.leafType, "batch", fmt.Sprintf("%d/%d", currentBatch, totalBatches), "batchResourceCount", len(partialObjs), "cumulativeFailed", failedCount)
 			nsxErr = delErr
 		}
 	}
+
+	log.Info("Batch deletion completed", "resourceType", builder.leafType, "totalResources", totalCount, "successCount", successCount, "failedCount", failedCount)
 	return nsxErr
 }

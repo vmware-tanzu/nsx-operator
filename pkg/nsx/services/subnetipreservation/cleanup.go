@@ -10,8 +10,9 @@ import (
 
 func (s *IPReservationService) CleanupBeforeVPCDeletion(ctx context.Context) error {
 	objs := s.IPReservationStore.List()
-	log.Info("Cleaning up Subnet IPReservation", "Count", len(objs))
+	log.Info("Cleaning up Subnet IPReservation", "Count", len(objs), "status", "attempting")
 	if len(objs) == 0 {
+		log.Info("No Subnet IPReservations found to clean up", "count", 0)
 		return nil
 	}
 	// Mark the resources for delete.
@@ -21,7 +22,14 @@ func (s *IPReservationService) CleanupBeforeVPCDeletion(ctx context.Context) err
 		ipr.MarkedForDelete = &MarkedForDelete
 		iprs[i] = ipr
 	}
-	return s.builder.PagingUpdateResources(ctx, iprs, common.DefaultHAPIChildrenCount, s.NSXClient, func(delObjs []*model.DynamicIpAddressReservation) {
+	log.Info("Starting deletion of Subnet IPReservations", "count", len(iprs))
+	err := s.builder.PagingUpdateResources(ctx, iprs, common.DefaultHAPIChildrenCount, s.NSXClient, func(delObjs []*model.DynamicIpAddressReservation) {
 		s.IPReservationStore.DeleteMultipleObjects(delObjs)
 	})
+	if err != nil {
+		log.Error(err, "Failed to clean up Subnet IPReservations", "count", len(iprs), "status", "failed")
+		return err
+	}
+	log.Info("Successfully cleaned up Subnet IPReservations", "count", len(iprs), "status", "success")
+	return nil
 }

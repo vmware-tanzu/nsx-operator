@@ -34,10 +34,12 @@ func (h *HealthCleaner) CleanupHealthResources(_ context.Context) error {
 	if h.nsxClient != nil && h.clusterID != "" {
 		url := fmt.Sprintf("api/v1/systemhealth/container-cluster/%s/ncp/status", h.clusterID)
 		if err := h.nsxClient.Cluster.HttpDelete(url); err != nil {
-			h.log.Error(err, "Failed to delete health status resource from NSX")
+			h.log.Error(err, "Failed to delete health status resource from NSX", "clusterID", h.clusterID, "url", url)
 			return err
 		}
-		h.log.Info("Successfully deleted health status resource from NSX")
+		h.log.Info("Successfully deleted health status resource from NSX", "clusterID", h.clusterID)
+	} else {
+		h.log.Info("Skipping health status resource cleanup - no client or cluster ID", "hasClient", h.nsxClient != nil, "hasClusterID", h.clusterID != "")
 	}
 	return nil
 }

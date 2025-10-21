@@ -407,20 +407,25 @@ func (s *InventoryService) UpdatePendingAdd(externalId string, inventoryObject i
 func (s *InventoryService) CleanupBeforeVPCDeletion(ctx context.Context) error {
 	//Cleanup cluster
 	clusters := s.ClusterStore.List()
+	log.Info("Starting inventory cluster cleanup", "clusterCount", len(clusters), "status", "attempting")
 	if len(clusters) == 0 {
-		log.Info("No inventory cluster found while cleanup inventory cluster")
+		log.Info("No inventory cluster found while cleanup inventory cluster", "count", 0)
 		return nil
 	}
 	cluster := clusters[0].(*containerinventory.ContainerCluster)
-	err := s.DeleteContainerCluster(cluster.ExternalId, ctx)
+	clusterID := cluster.ExternalId
+	clusterName := cluster.DisplayName
+	log.Info("Attempting to delete inventory cluster", "clusterID", clusterID, "clusterName", clusterName)
+	err := s.DeleteContainerCluster(clusterID, ctx)
 	if err != nil {
-		log.Error(err, "Cleanup failed to delete inventory cluster", "Cluster", cluster.ExternalId)
+		log.Error(err, "Failed to delete inventory cluster from NSX", "clusterID", clusterID, "clusterName", clusterName, "status", "failed")
 		return err
 	}
 	err = s.ClusterStore.Delete(cluster)
 	if err != nil {
-		log.Error(err, "Cleanup failed to delete inventory cluster from store", "Cluster", cluster.ExternalId)
+		log.Error(err, "Failed to delete inventory cluster from store", "clusterID", clusterID, "clusterName", clusterName, "status", "failed")
 		return err
 	}
+	log.Info("Successfully deleted inventory cluster", "clusterID", clusterID, "clusterName", clusterName, "status", "success")
 	return nil
 }
