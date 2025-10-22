@@ -315,7 +315,7 @@ func Test_SecurityPolicyStore_Apply(t *testing.T) {
 		args    args
 		wantErr assert.ErrorAssertionFunc
 	}{
-		{"1", args{i: &model.SecurityPolicy{Id: String("1")}}, assert.NoError},
+		{"normal", args{i: &model.SecurityPolicy{Id: String("1")}}, assert.NoError},
 		{"nil untyped interface", args{i: nil}, assert.NoError},
 		{"nil typed interface", args{i: (*model.SecurityPolicy)(nil)}, assert.NoError},
 	}
@@ -373,7 +373,9 @@ func Test_RuleStore_Apply(t *testing.T) {
 		args    args
 		wantErr assert.ErrorAssertionFunc
 	}{
-		{"1", args{i: &sp.Rules}, assert.NoError},
+		{"normal", args{i: &sp.Rules}, assert.NoError},
+		{"nil untyped interface", args{i: nil}, assert.NoError},
+		{"nil typed interface", args{i: (*[]model.Rule)(nil)}, assert.NoError},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -398,11 +400,40 @@ func Test_GroupStore_Apply(t *testing.T) {
 		args    args
 		wantErr assert.ErrorAssertionFunc
 	}{
-		{"1", args{i: &groups}, assert.NoError},
+		{"normal", args{i: &groups}, assert.NoError},
+		{"nil untyped interface", args{i: nil}, assert.NoError},
+		{"nil typed interface", args{i: (*[]model.Group)(nil)}, assert.NoError},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.wantErr(t, groupStore.Apply(tt.args.i), fmt.Sprintf("Apply(%v)", tt.args.i))
+		})
+	}
+}
+
+func Test_ShareStore_Apply(t *testing.T) {
+	shareCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagValueScopeSecurityPolicyUID: indexBySecurityPolicyUID})
+	resourceStore := common.ResourceStore{
+		Indexer:     shareCacheIndexer,
+		BindingType: model.ShareBindingType(),
+	}
+	shareStore := &ShareStore{ResourceStore: resourceStore}
+	type args struct {
+		i interface{}
+	}
+	shares := []model.Share{{Id: String("1")}, {Id: String("2")}}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{"normal", args{i: &shares}, assert.NoError},
+		{"nil untyped interface", args{i: nil}, assert.NoError},
+		{"nil typed interface", args{i: (*[]model.Share)(nil)}, assert.NoError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.wantErr(t, shareStore.Apply(tt.args.i), fmt.Sprintf("Apply(%v)", tt.args.i))
 		})
 	}
 }

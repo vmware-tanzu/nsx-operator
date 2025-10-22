@@ -168,7 +168,7 @@ func Test_BuildSecurityPolicyForT1(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observedPolicy, _, _, _ := s.buildSecurityPolicy(tt.inputPolicy, common.ResourceTypeSecurityPolicy)
+			observedPolicy, _, _, _ := s.buildSecurityPolicy(tt.inputPolicy, common.ResourceTypeSecurityPolicy, nil, false)
 			assert.Equal(t, tt.expectedPolicy, observedPolicy)
 		})
 	}
@@ -204,12 +204,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 		},
 	)
 
-	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(fakeService), "getVPCInfo",
-		func(s *SecurityPolicyService, spNameSpace string) (*common.VPCResourceInfo, error) {
-			return &VPCInfo[0], nil
-		})
-
-	patches.ApplyMethod(reflect.TypeOf(&fakeService.Service), "GetNamespaceUID",
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeService.Service), "GetNamespaceUID",
 		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
@@ -327,7 +322,161 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observedPolicy, _, _, _ := fakeService.buildSecurityPolicy(tt.inputPolicy, common.ResourceTypeSecurityPolicy)
+			observedPolicy, _, _, _ := fakeService.buildSecurityPolicy(tt.inputPolicy, common.ResourceTypeSecurityPolicy, &VPCInfo[0], false)
+			assert.Equal(t, tt.expectedPolicy, observedPolicy)
+		})
+	}
+}
+
+func Test_BuildSecurityPolicyForVPCInDefaultProject(t *testing.T) {
+	VPCInfo := make([]common.VPCResourceInfo, 1)
+	VPCInfo[0].OrgID = "default"
+	VPCInfo[0].ProjectID = "default"
+	VPCInfo[0].VPCID = "vpc1"
+
+	fakeService := fakeSecurityPolicyService()
+	fakeService.NSXConfig.EnableVPCNetwork = true
+	mockVPCService := mock.MockVPCServiceProvider{}
+	fakeService.vpcService = &mockVPCService
+	fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
+
+	// For VPC mode
+	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
+	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
+
+	destinationPorts := data.NewListValue()
+	destinationPorts.Add(data.NewStringValue("53"))
+	serviceEntry := data.NewStructValue(
+		"",
+		map[string]data.DataValue{
+			"source_ports":      data.NewListValue(),
+			"destination_ports": destinationPorts,
+			"l4_protocol":       data.NewStringValue("UDP"),
+			"resource_type":     data.NewStringValue("L4PortSetServiceEntry"),
+			"marked_for_delete": data.NewBooleanValue(false),
+			"overridden":        data.NewBooleanValue(false),
+		},
+	)
+
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeService.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
+			return types.UID(tagValueNSUID)
+		})
+	defer patches.Reset()
+
+	podSelectorRule0Name00 := "rule-with-pod-ns-selector_ingress_allow"
+	podSelectorRule0IDPort000 := "spA_uidA_2c822e90_all"
+
+	podSelectorRule1Name00 := "rule-with-ns-selector_ingress_allow"
+	podSelectorRule1IDPort000 := "spA_uidA_2a4595d0_53"
+
+	vmSelectorRule0Name00 := "rule-with-VM-selector_egress_isolation"
+	vmSelectorRule0IDPort000 := "spB_uidB_67410606_all"
+
+	vmSelectorRule1Name00 := "rule-with-ns-selector_egress_isolation"
+	vmSelectorRule1IDPort000 := "spB_uidB_7d721f08_all"
+
+	vmSelectorRule2Name00 := "all_egress_isolation"
+	vmSelectorRule2IDPort000 := "spB_uidB_a40c8139_all"
+
+	tests := []struct {
+		name           string
+		inputPolicy    *v1alpha1.SecurityPolicy
+		expectedPolicy *model.SecurityPolicy
+	}{
+		{
+			name:        "security-policy-with-pod-selector For VPC",
+			inputPolicy: &spWithPodSelector,
+			expectedPolicy: &model.SecurityPolicy{
+				DisplayName:    common.String("spA"),
+				Id:             common.String("spA_re0bz"),
+				Scope:          []string{"/orgs/default/projects/default/vpcs/vpc1/groups/spA-scope_re0bz"},
+				SequenceNumber: &seq0,
+				Rules: []model.Rule{
+					{
+						DisplayName:       &podSelectorRule0Name00,
+						Id:                &podSelectorRule0IDPort000,
+						DestinationGroups: []string{"ANY"},
+						Direction:         &nsxRuleDirectionIn,
+						Scope:             []string{"/orgs/default/projects/default/vpcs/vpc1/groups/spA-2c822e90-scope_re0bz"},
+						SequenceNumber:    &seq0,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"/infra/domains/default/groups/spA-2c822e90-src_re0bz"},
+						Action:            &nsxRuleActionAllow,
+						Tags:              vpcBasicTags,
+					},
+					{
+						DisplayName:       &podSelectorRule1Name00,
+						Id:                &podSelectorRule1IDPort000,
+						DestinationGroups: []string{"ANY"},
+						Direction:         &nsxRuleDirectionIn,
+						Scope:             []string{"ANY"},
+						SequenceNumber:    &seq1,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"/infra/domains/default/groups/spA-2a4595d0-src_re0bz"},
+						Action:            &nsxRuleActionAllow,
+						ServiceEntries:    []*data.StructValue{serviceEntry},
+						Tags:              vpcBasicTags,
+					},
+				},
+				Tags: vpcBasicTags,
+			},
+		},
+		{
+			name:        "security-policy-with-VM-selector For VPC",
+			inputPolicy: &spWithVMSelector,
+			expectedPolicy: &model.SecurityPolicy{
+				DisplayName:    common.String("spB"),
+				Id:             common.String("spB_9u8w9"),
+				Scope:          []string{"/orgs/default/projects/default/vpcs/vpc1/groups/spB-scope_9u8w9"},
+				SequenceNumber: &seq0,
+				Rules: []model.Rule{
+					{
+						DisplayName:       &vmSelectorRule0Name00,
+						Id:                &vmSelectorRule0IDPort000,
+						DestinationGroups: []string{"/orgs/default/projects/default/vpcs/vpc1/groups/spB-67410606-dst_9u8w9"},
+						Direction:         &nsxRuleDirectionOut,
+						Scope:             []string{"/orgs/default/projects/default/vpcs/vpc1/groups/spB-67410606-scope_9u8w9"},
+						SequenceNumber:    &seq0,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"ANY"},
+						Action:            &nsxRuleActionDrop,
+						Tags:              vpcBasicTagsForSpWithVMSelector,
+					},
+					{
+						DisplayName:       &vmSelectorRule1Name00,
+						Id:                &vmSelectorRule1IDPort000,
+						DestinationGroups: []string{"/infra/domains/default/groups/spB-7d721f08-dst_9u8w9"},
+						Direction:         &nsxRuleDirectionOut,
+						Scope:             []string{"ANY"},
+						SequenceNumber:    &seq1,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"ANY"},
+						Action:            &nsxRuleActionDrop,
+						Tags:              vpcBasicTagsForSpWithVMSelector,
+					},
+
+					{
+						DisplayName:       &vmSelectorRule2Name00,
+						Id:                &vmSelectorRule2IDPort000,
+						DestinationGroups: []string{"/orgs/default/projects/default/vpcs/vpc1/groups/spB-a40c8139-dst_9u8w9"},
+						Direction:         &nsxRuleDirectionOut,
+						Scope:             []string{"ANY"},
+						SequenceNumber:    &seq2,
+						Services:          []string{"ANY"},
+						SourceGroups:      []string{"ANY"},
+						Action:            &nsxRuleActionDrop,
+						Tags:              vpcBasicTagsForSpWithVMSelector,
+					},
+				},
+				Tags: vpcBasicTagsForSpWithVMSelector,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			observedPolicy, _, _, _ := fakeService.buildSecurityPolicy(tt.inputPolicy, common.ResourceTypeSecurityPolicy, &VPCInfo[0], true)
 			assert.Equal(t, tt.expectedPolicy, observedPolicy)
 		})
 	}
@@ -359,7 +508,7 @@ func Test_BuildPolicyGroupForT1(t *testing.T) {
 	defer patches.Reset()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observedGroup, observedGroupPath, _ := service.buildPolicyGroup(tt.inputPolicy, common.ResourceTypeSecurityPolicy)
+			observedGroup, observedGroupPath, _ := service.buildPolicyGroup(tt.inputPolicy, common.ResourceTypeSecurityPolicy, nil)
 			assert.Equal(t, tt.expectedPolicyGroupID, observedGroup.Id)
 			assert.Equal(t, tt.expectedPolicyGroupName, observedGroup.DisplayName)
 			assert.Equal(t, tt.expectedPolicyGroupPath, observedGroupPath)
@@ -383,12 +532,7 @@ func Test_BuildPolicyGroupForVPC(t *testing.T) {
 	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
 	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 
-	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(fakeService), "getVPCInfo",
-		func(s *SecurityPolicyService, spNameSpace string) (*common.VPCResourceInfo, error) {
-			return &VPCInfo[0], nil
-		})
-
-	patches.ApplyMethod(reflect.TypeOf(&fakeService.Service), "GetNamespaceUID",
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeService.Service), "GetNamespaceUID",
 		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
@@ -412,7 +556,7 @@ func Test_BuildPolicyGroupForVPC(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observedGroup, observedGroupPath, _ := fakeService.buildPolicyGroup(tt.inputPolicy, common.ResourceTypeSecurityPolicy)
+			observedGroup, observedGroupPath, _ := fakeService.buildPolicyGroup(tt.inputPolicy, common.ResourceTypeSecurityPolicy, &VPCInfo[0])
 			assert.Equal(t, *tt.expectedPolicyGroupID, *observedGroup.Id)
 			assert.Equal(t, *tt.expectedPolicyGroupName, *observedGroup.DisplayName)
 			assert.Equal(t, tt.expectedPolicyGroupPath, observedGroupPath)

@@ -167,7 +167,13 @@ func (securityPolicyStore *SecurityPolicyStore) DeleteMultipleObjects(securityPo
 }
 
 func (ruleStore *RuleStore) Apply(i interface{}) error {
-	rules := i.(*[]model.Rule)
+	if i == nil {
+		return nil
+	}
+	rules, ok := i.(*[]model.Rule)
+	if !ok || rules == nil {
+		return nil
+	}
 	for _, rule := range *rules {
 		tempRule := rule
 		if rule.MarkedForDelete != nil && *rule.MarkedForDelete {
@@ -203,7 +209,13 @@ func (ruleStore *RuleStore) DeleteMultipleObjects(rules []*model.Rule) {
 }
 
 func (groupStore *GroupStore) Apply(i interface{}) error {
-	gs := i.(*[]model.Group)
+	if i == nil {
+		return nil
+	}
+	gs, ok := i.(*[]model.Group)
+	if !ok || gs == nil {
+		return nil
+	}
 	for _, group := range *gs {
 		tempGroup := group
 		if group.MarkedForDelete != nil && *group.MarkedForDelete {
@@ -239,7 +251,13 @@ func (groupStore *GroupStore) DeleteMultipleObjects(groups []*model.Group) {
 }
 
 func (shareStore *ShareStore) Apply(i interface{}) error {
-	shares := i.(*[]model.Share)
+	if i == nil {
+		return nil
+	}
+	shares, ok := i.(*[]model.Share)
+	if !ok || shares == nil {
+		return nil
+	}
 	for _, share := range *shares {
 		tempShare := share
 		if share.MarkedForDelete != nil && *share.MarkedForDelete {
