@@ -25,7 +25,7 @@ func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionB
 		path := parentSubnetPaths[i]
 		vpcSubnetInfo, err := common.ParseVPCResourcePath(path)
 		if err != nil {
-			log.Error(err, "failed to parse parent Subnet path, ignore it")
+			log.Error(err, "Failed to parse parent Subnet path, ignore it")
 			continue
 		}
 		bindingMaps[i] = &model.SubnetConnectionBindingMap{

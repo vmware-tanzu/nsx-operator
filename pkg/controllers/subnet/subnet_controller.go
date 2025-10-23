@@ -132,7 +132,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// List VPC Info
 	vpcInfoList := r.VPCService.ListVPCInfo(req.Namespace)
 	if len(vpcInfoList) == 0 {
-		log.Info("No VPC info found, requeuing", "Namespace", req.Namespace)
+		log.Warn("No VPC found for Subnet, will retry later", "Namespace", req.Namespace)
 		return ResultRequeueAfter10sec, nil
 	}
 
@@ -369,9 +369,9 @@ func updateSubnetStatusConditions(client client.Client, ctx context.Context, sub
 	if conditionsUpdated {
 		if err := client.Status().Update(ctx, subnet); err != nil {
 			log.Error(err, "Failed to update Subnet status", "Name", subnet.Name, "Namespace", subnet.Namespace)
-		} else {
-			log.Info("Updated Subnet", "Name", subnet.Name, "Namespace", subnet.Namespace, "New Conditions", newConditions)
+			return
 		}
+		log.Debug("Updated Subnet", "Name", subnet.Name, "Namespace", subnet.Namespace, "New Conditions", newConditions)
 	}
 }
 
@@ -416,7 +416,7 @@ func (r *SubnetReconciler) RestoreReconcile() error {
 		}
 	}
 	if len(errorList) > 0 {
-		return errors.Join(errorList...)
+		return fmt.Errorf("errors found in Subnet restore: %v", errorList)
 	}
 	return nil
 }
@@ -560,10 +560,10 @@ func (r *SubnetReconciler) CollectGarbage(ctx context.Context) error {
 		log.Info("Subnet garbage collection, cleaning stale Subnets", "Count", len(nsxSubnets))
 		if err := r.deleteSubnets(nsxSubnets); err != nil {
 			errList = append(errList, err)
-			log.Error(err, "Subnet garbage collection, failed to delete NSX subnet", "SubnetUID", subnetID)
+			log.Error(err, "Subnet garbage collection, failed to delete NSX Subnet", "SubnetUID", subnetID)
 			r.StatusUpdater.IncreaseDeleteFailTotal()
 		} else {
-			log.Info("Subnet garbage collection, successfully deleted NSX subnet", "SubnetUID", subnetID)
+			log.Info("Subnet garbage collection, successfully deleted NSX Subnet", "SubnetUID", subnetID)
 			r.StatusUpdater.IncreaseDeleteSuccessTotal()
 		}
 	}
