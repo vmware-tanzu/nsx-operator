@@ -17,6 +17,7 @@ import (
 	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
 	networkv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -148,9 +149,16 @@ func TestBuildPod(t *testing.T) {
 		assert.Contains(t, applicationInstance.OriginProperties, keypaire)
 	})
 
+	t.Run("NamespaceGetError", func(t *testing.T) {
+		inventoryService, k8sClient := createService(t)
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("mock error"))
+		retry := inventoryService.BuildPod(testPod)
+		assert.True(t, retry)
+	})
+
 	t.Run("NamespaceNotFound", func(t *testing.T) {
 		inventoryService, k8sClient := createService(t)
-		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("not found"))
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(apierrors.NewNotFound(corev1.Resource("Namespace"), "ns"))
 		retry := inventoryService.BuildPod(testPod)
 		assert.True(t, retry)
 	})
@@ -1012,8 +1020,21 @@ func TestBuildIngress_ErrorCases(t *testing.T) {
 		name         string
 		ingress      *networkv1.Ingress
 		namespaceErr error
+		namespace    *corev1.Namespace
 		expectRetry  bool
 	}{
+		{
+			name: "get namespace error",
+			ingress: &networkv1.Ingress{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-ingress",
+					Namespace: "non-existent",
+					UID:       types.UID("test-uid"),
+				},
+			},
+			namespaceErr: fmt.Errorf("failed to get namespace"),
+			expectRetry:  true,
+		},
 		{
 			name: "namespace not found",
 			ingress: &networkv1.Ingress{
@@ -1023,8 +1044,7 @@ func TestBuildIngress_ErrorCases(t *testing.T) {
 					UID:       types.UID("test-uid"),
 				},
 			},
-			namespaceErr: fmt.Errorf("namespace not found"),
-			expectRetry:  true,
+			expectRetry: true,
 		},
 	}
 
@@ -1037,12 +1057,7 @@ func TestBuildIngress_ErrorCases(t *testing.T) {
 				if tt.namespaceErr != nil {
 					return nil, tt.namespaceErr
 				}
-				return &corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: namespace,
-						UID:  types.UID("ns-uid"),
-					},
-				}, nil
+				return tt.namespace, nil
 			})
 			defer patches.Reset()
 			retry := inventoryService.BuildIngress(tt.ingress)

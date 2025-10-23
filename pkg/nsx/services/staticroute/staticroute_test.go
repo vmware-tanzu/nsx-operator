@@ -464,7 +464,7 @@ func TestStaticRouteService_CreateOrUpdateStaticRoute(t *testing.T) {
 
 		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "no vpc found for ns ns")
+		assert.Contains(t, err.Error(), "no vpc found for namespace ns")
 	})
 
 	t.Run("update failed NSX patch error", func(t *testing.T) {

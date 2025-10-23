@@ -177,8 +177,11 @@ func (r *NamespaceReconciler) deleteDefaultSubnetSet(ns string) error {
 }
 
 func (r *NamespaceReconciler) namespaceError(ctx context.Context, k8sObj client.Object, msg string, err error) {
-	logErr := util.If(err == nil, errors.New(msg), err).(error)
-	log.Error(logErr, msg)
+	if err != nil {
+		log.Error(err, msg)
+	} else {
+		log.Warn(msg)
+	}
 	changes := map[string]string{common.AnnotationNamespaceVPCError: msg}
 	util.UpdateK8sResourceAnnotation(r.Client, ctx, k8sObj, changes)
 }
@@ -229,14 +232,16 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			return common.ResultRequeue, nil
 		}
 		if !ncExist {
+			// This is expected when the Namespace is just created
+			// as NetworkConfig is created after Namespace creation
 			message := fmt.Sprintf("missing NetworkConfig %s for Namespace %s", ncName, ns)
 			r.namespaceError(ctx, obj, message, nil)
-			return common.ResultRequeueAfter10sec, errors.New(message)
+			return common.ResultRequeueAfter10sec, nil
 		}
 		if err = r.VPCService.ValidateNetworkConfig(nc); err != nil {
 			// if network config is not valid, no need to retry, skip processing
 			message := fmt.Sprintf("invalid NetworkConfig %s for Namespace %s, error: %v", ncName, ns, err)
-			r.namespaceError(ctx, obj, message, nil)
+			r.namespaceError(ctx, obj, message, err)
 			return common.ResultRequeueAfter10sec, errors.New(message)
 		}
 

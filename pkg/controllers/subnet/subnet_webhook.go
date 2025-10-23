@@ -39,7 +39,7 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 		err = v.decoder.Decode(req, subnet)
 	}
 	if err != nil {
-		log.Error(err, "error while decoding Subnet", "Subnet", req.Namespace+"/"+req.Name)
+		log.Error(err, "Error while decoding Subnet", "Subnet", req.Namespace+"/"+req.Name)
 		return admission.Errored(http.StatusBadRequest, err)
 	}
 	switch req.Operation {

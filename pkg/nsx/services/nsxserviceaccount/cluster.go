@@ -351,7 +351,7 @@ func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, 
 		secretName := namespacedName.Name + SecretSuffix
 		secretNamespace := namespacedName.Namespace
 		if err := s.Client.Delete(ctx, &v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: secretNamespace}}); err != nil && !errors.IsNotFound(err) {
-			log.Error(err, "failed to delete", "secret", secretName, "namespace", secretNamespace)
+			log.Error(err, "Failed to delete", "secret", secretName, "namespace", secretNamespace)
 			return err
 		}
 	}
@@ -366,7 +366,7 @@ func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, 
 	if isDeleteCCP {
 		if err := s.DeleteClusterControlPlane(ctx, normalizedClusterName); err != nil {
 			err = nsxutil.TransNSXApiError(err)
-			log.Error(err, "failed to delete", "ClusterControlPlane", normalizedClusterName)
+			log.Error(err, "Failed to delete", "ClusterControlPlane", normalizedClusterName)
 			return err
 		}
 		s.ClusterControlPlaneStore.Delete(&model.ClusterControlPlane{Id: &normalizedClusterName})
@@ -377,13 +377,13 @@ func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, 
 		pi := piobj.(*mpmodel.PrincipalIdentity)
 		if err := s.NSXClient.PrincipalIdentitiesClient.Delete(*pi.Id); err != nil {
 			err = nsxutil.TransNSXApiError(err)
-			log.Error(err, "failed to delete", "PrincipalIdentity", *pi.Name)
+			log.Error(err, "Failed to delete", "PrincipalIdentity", *pi.Name)
 			return err
 		}
 		if pi.CertificateId != nil && *pi.CertificateId != "" {
 			if err := s.NSXClient.CertificatesClient.Delete(*pi.CertificateId); err != nil {
 				err = nsxutil.TransNSXApiError(err)
-				log.Error(err, "failed to delete", "PrincipalIdentity", *pi.Name, "Certificate", *pi.CertificateId)
+				log.Error(err, "Failed to delete", "PrincipalIdentity", *pi.Name, "Certificate", *pi.CertificateId)
 				return err
 			}
 		}
@@ -509,7 +509,7 @@ func (s *NSXServiceAccountService) updatePICert(pi *mpmodel.PrincipalIdentity, n
 	if oldCertId != "" {
 		if err := s.NSXClient.CertificatesClient.Delete(oldCertId); err != nil {
 			err = nsxutil.TransNSXApiError(err)
-			log.Error(err, "failed to delete", "PrincipalIdentity", *pi.Name, "Old Certificate", *pi.CertificateId)
+			log.Error(err, "Failed to delete", "PrincipalIdentity", *pi.Name, "Old Certificate", *pi.CertificateId)
 		}
 	}
 	return nil
@@ -528,7 +528,7 @@ func (s *NSXServiceAccountService) ListNSXServiceAccountRealization() sets.Set[s
 func (s *NSXServiceAccountService) GetNSXServiceAccountNameByUID(uid string) (namespacedName types.NamespacedName) {
 	objs, err := s.PrincipalIdentityStore.ByIndex(common.TagScopeNSXServiceAccountCRUID, uid)
 	if err != nil {
-		log.Error(err, "failed to search PrincipalIdentityStore by UID")
+		log.Error(err, "Failed to search PrincipalIdentityStore by UID")
 		return
 	}
 	for _, obj := range objs {
@@ -547,7 +547,7 @@ func (s *NSXServiceAccountService) GetNSXServiceAccountNameByUID(uid string) (na
 	}
 	objs, err = s.ClusterControlPlaneStore.ByIndex(common.TagScopeNSXServiceAccountCRUID, uid)
 	if err != nil {
-		log.Error(err, "failed to search ClusterControlPlaneStore by UID")
+		log.Error(err, "Failed to search ClusterControlPlaneStore by UID")
 		return
 	}
 	for _, obj := range objs {

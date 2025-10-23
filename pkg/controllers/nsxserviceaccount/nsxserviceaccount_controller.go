@@ -140,12 +140,12 @@ type NSXServiceAccountReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.13.0/pkg/reconcile
 func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	obj := &nsxvmwarecomv1alpha1.NSXServiceAccount{}
-	log.Info("reconciling CR", "nsxserviceaccount", req.NamespacedName)
+	log.Info("Reconciling CR", "nsxserviceaccount", req.NamespacedName)
 
 	r.StatusUpdater.IncreaseSyncTotal()
 
 	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
-		log.Error(err, "unable to fetch NSXServiceAccount CR", "req", req.NamespacedName)
+		log.Error(err, "Unable to fetch NSXServiceAccount CR", "req", req.NamespacedName)
 		return ResultNormal, client.IgnoreNotFound(err)
 	}
 
@@ -163,17 +163,17 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		if !controllerutil.ContainsFinalizer(obj, servicecommon.NSXServiceAccountFinalizerName) {
 			controllerutil.AddFinalizer(obj, servicecommon.NSXServiceAccountFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
-				log.Error(err, "add finalizer", "nsxserviceaccount", req.NamespacedName)
+				log.Error(err, "Add finalizer", "nsxserviceaccount", req.NamespacedName)
 				r.StatusUpdater.UpdateFail(ctx, obj, err, "", updateNSXServiceAccountStatuswithError)
 				return ResultRequeue, err
 			}
-			log.Debug("added finalizer on CR", "nsxserviceaccount", req.NamespacedName)
+			log.Debug("Added finalizer on CR", "nsxserviceaccount", req.NamespacedName)
 		}
 
 		if nsxserviceaccount.IsNSXServiceAccountRealized(&obj.Status) {
 			if r.Service.NSXClient.NSXCheckVersion(nsx.ServiceAccountRestore) {
 				if err := r.Service.RestoreRealizedNSXServiceAccount(ctx, obj); err != nil {
-					log.Error(err, "update realized failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
+					log.Error(err, "Update realized failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
 					r.StatusUpdater.IncreaseDeleteFailTotal()
 					return ResultRequeue, err
 				}
@@ -203,14 +203,14 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			}
 			controllerutil.RemoveFinalizer(obj, servicecommon.NSXServiceAccountFinalizerName)
 			if err := r.Client.Update(ctx, obj); err != nil {
-				log.Error(err, "removing finalizer failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
+				log.Error(err, "Removing finalizer failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
 				r.StatusUpdater.DeleteFail(req.NamespacedName, obj, err)
 				return ResultRequeue, err
 			}
 			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 		} else {
 			// only print a message because it's not a normal case
-			log.Info("finalizers cannot be recognized", "nsxserviceaccount", req.NamespacedName)
+			log.Info("Finalizers cannot be recognized", "nsxserviceaccount", req.NamespacedName)
 		}
 	}
 
@@ -250,7 +250,7 @@ func (r *NSXServiceAccountReconciler) serviceMapFunc(ctx context.Context, _ clie
 		return err
 	})
 	if err != nil {
-		log.Error(err, "failed to list NSXServiceAccount in Service handler")
+		log.Error(err, "Failed to list NSXServiceAccount in Service handler")
 		return requests
 	}
 
@@ -277,7 +277,7 @@ func (r *NSXServiceAccountReconciler) Start(mgr ctrl.Manager) error {
 // CollectGarbage collect NSXServiceAccount which has been removed from crd.
 // it implements the interface GarbageCollector method.
 func (r *NSXServiceAccountReconciler) CollectGarbage(ctx context.Context) error {
-	log.Info("nsx service account garbage collector started")
+	log.Info("NSX service account garbage collector started")
 	ca = r.Service.NSXConfig.GetCACert()
 	nsxServiceAccountList := &nsxvmwarecomv1alpha1.NSXServiceAccountList{}
 	var gcSuccessCount, gcErrorCount uint32
@@ -288,11 +288,11 @@ func (r *NSXServiceAccountReconciler) CollectGarbage(ctx context.Context) error 
 	}
 	err = r.Client.List(ctx, nsxServiceAccountList)
 	if err != nil {
-		log.Error(err, "failed to list NSXServiceAccount CR")
+		log.Error(err, "Failed to list NSXServiceAccount CR")
 		return err
 	}
 	gcSuccessCount, gcErrorCount = r.garbageCollector(nsxServiceAccountUIDSet, nsxServiceAccountList)
-	log.Debug("gc collects NSXServiceAccount CR", "success", gcSuccessCount, "error", gcErrorCount)
+	log.Debug("GC collects NSXServiceAccount CR", "success", gcSuccessCount, "error", gcErrorCount)
 	count, ca = r.validateRealized(count, ca, nsxServiceAccountList)
 	if gcErrorCount > 0 {
 		return fmt.Errorf("errors found in NSXServiceAccount garbage collection: %d", gcErrorCount)

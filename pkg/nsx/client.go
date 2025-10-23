@@ -365,8 +365,7 @@ func (client *Client) NSXCheckVersion(feature int) bool {
 	}
 
 	if !nsxVersion.featureSupported(feature) {
-		err = errors.New("NSX version check failed")
-		log.Error(err, FeaturesName[feature]+"feature is not supported", "current version", nsxVersion.NodeVersion)
+		log.Warn(FeaturesName[feature]+" feature is not supported", "current version", nsxVersion.NodeVersion)
 		return false
 	}
 	client.NSXVerChecker.featureSupported[feature] = true

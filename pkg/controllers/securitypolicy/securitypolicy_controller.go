@@ -269,12 +269,14 @@ func updateSecurityPolicyStatusConditions(client client.Client, ctx context.Cont
 			finalObj := securitypolicy.T1ToVPC(secPolicy)
 			err := client.Status().Update(ctx, finalObj)
 			if err != nil {
-				log.Error(err, "")
+				log.Error(err, "Failed to update SecurityPolicy Status", "Name", secPolicy.Name, "Namespace", secPolicy.Namespace)
+				return
 			}
 		} else {
 			err := client.Status().Update(ctx, secPolicy)
 			if err != nil {
-				log.Error(err, "")
+				log.Error(err, "Failed to update SecurityPolicy Status", "Name", secPolicy.Name, "Namespace", secPolicy.Namespace)
+				return
 			}
 		}
 		log.Debug("Updated SecurityPolicy", "Name", secPolicy.Name, "Namespace", secPolicy.Namespace,

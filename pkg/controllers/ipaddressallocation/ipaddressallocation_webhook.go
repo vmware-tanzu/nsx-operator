@@ -39,14 +39,14 @@ func (v *IPAddressAllocationValidator) Handle(ctx context.Context, req admission
 		err = v.decoder.Decode(req, ipAddressAllocation)
 	}
 	if err != nil {
-		log.Error(err, "error while decoding IPAddressAllocation", "IPAddressAllocation", req.Namespace+"/"+req.Name)
+		log.Error(err, "Error while decoding IPAddressAllocation", "IPAddressAllocation", req.Namespace+"/"+req.Name)
 		return admission.Errored(http.StatusBadRequest, err)
 	}
 	switch req.Operation {
 	case admissionv1.Delete:
 		existingAddressBindingList := &v1alpha1.AddressBindingList{}
 		if err := v.Client.List(context.TODO(), existingAddressBindingList, client.InNamespace(ipAddressAllocation.Namespace), client.MatchingFields{util.AddressBindingIPAddressAllocationNameIndexKey: ipAddressAllocation.Name}); err != nil {
-			log.Error(err, "failed to list AddressBindings", "Namespace", ipAddressAllocation.Namespace)
+			log.Error(err, "Failed to list AddressBindings", "Namespace", ipAddressAllocation.Namespace)
 			return admission.Errored(http.StatusBadRequest, err)
 		}
 		if len(existingAddressBindingList.Items) > 0 {

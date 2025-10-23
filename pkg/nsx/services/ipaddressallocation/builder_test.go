@@ -105,7 +105,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 
 		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
 		assert.Nil(t, result)
-		assert.EqualError(t, err, "failed to find VPCInfo for IPAddressAllocation CR test-ip-alloc in Namespace default")
+		assert.EqualError(t, err, "failed to find VPCInfo for IPAddressAllocation CR test-ip-alloc in Namespace default, will retry later")
 	})
 
 	t.Run("Success case for IPAddressAllocation CR with AllocationSize", func(t *testing.T) {

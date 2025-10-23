@@ -5,7 +5,6 @@ package ipaddressallocation
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
@@ -82,7 +81,9 @@ func setReadyStatusTrue(client client.Client, ctx context.Context, obj client.Ob
 	e := client.Status().Update(ctx, ipaddressallocation)
 	if e != nil {
 		log.Error(e, "Unable to update IPAddressAllocation status", "IPAddressAllocation", ipaddressallocation)
+		return
 	}
+	log.Debug("Updated IPAddressAllocation", "Name", ipaddressallocation.Name, "Namespace", ipaddressallocation.Namespace, "Conditions", conditions)
 }
 
 func (r *IPAddressAllocationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -189,7 +190,7 @@ func (r *IPAddressAllocationReconciler) RestoreReconcile() error {
 		}
 	}
 	if len(errorList) > 0 {
-		return errors.Join(errorList...)
+		return fmt.Errorf("errors found in IPAddressAllocation restore: %v", errorList)
 	}
 	return nil
 }
@@ -213,7 +214,7 @@ func (r *IPAddressAllocationReconciler) getRestoreList() ([]types.NamespacedName
 
 func (r *IPAddressAllocationReconciler) StartController(mgr ctrl.Manager, hookServer webhook.Server) error {
 	if err := r.setupWithManager(mgr); err != nil {
-		log.Error(err, "Failed to create ipaddressallocation controller")
+		log.Error(err, "Failed to create IPAddressAllocation controller")
 		return err
 	}
 	if hookServer != nil {
