@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -1254,6 +1255,16 @@ func TestIsValidKubernetesName(t *testing.T) {
 			expected: false,
 		},
 		{
+			name:     "Invalid name starting with dot",
+			input:    ".invalid-start",
+			expected: false,
+		},
+		{
+			name:     "Invalid name with consecutive dots",
+			input:    "invalid..dots",
+			expected: false,
+		},
+		{
 			name:     "Invalid empty string",
 			input:    "",
 			expected: false,
@@ -1268,11 +1279,22 @@ func TestIsValidKubernetesName(t *testing.T) {
 			input:    "subnet-123-test",
 			expected: true,
 		},
+		{
+			name:     "Boundary: 253 characters should be valid",
+			input:    strings.Repeat("a", 63) + "." + strings.Repeat("b", 63) + "." + strings.Repeat("c", 63) + "." + strings.Repeat("d", 60),
+			expected: true,
+		},
+		{
+			name: "Boundary: 254 characters should be invalid",
+			input: strings.Repeat("a", 63) + "." + strings.Repeat("b", 63) + "." + strings.Repeat("c", 63) + "." + strings.Repeat("d",
+				61) + ".",
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := isValidKubernetesName(tt.input)
+			result := len(validation.IsDNS1123Subdomain(tt.input)) == 0
 			assert.Equal(t, tt.expected, result, "Expected %v for input '%s', got %v", tt.expected, tt.input, result)
 		})
 	}
@@ -1326,7 +1348,7 @@ func TestGenerateValidSubnetName(t *testing.T) {
 			result := generateValidSubnetName(tt.subnetID)
 
 			// The result should always be a valid Kubernetes name
-			assert.True(t, isValidKubernetesName(result), "Result '%s' should be a valid Kubernetes name", result)
+			assert.True(t, len(validation.IsDNS1123Subdomain(result)) == 0, "Result '%s' should be a valid Kubernetes name", result)
 
 			if tt.shouldBeHashed {
 				// If it should be hashed, the result should be different from the input

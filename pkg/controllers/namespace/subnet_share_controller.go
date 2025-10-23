@@ -3,10 +3,10 @@ package namespace
 import (
 	"context"
 	"fmt"
-	"regexp"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -14,16 +14,9 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
-// isValidKubernetesName checks if a name meets Kubernetes RFC 1123 subdomain naming standards
-func isValidKubernetesName(name string) bool {
-	// RFC 1123 subdomain: lowercase alphanumeric characters, '-' or '.', and must-start and end with alphanumeric
-	validNameRegex := regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
-	return validNameRegex.MatchString(name)
-}
-
 // generateValidSubnetName creates a valid Kubernetes name from subnet ID
 func generateValidSubnetName(subnetID string) string {
-	if isValidKubernetesName(subnetID) {
+	if len(validation.IsDNS1123Subdomain(subnetID)) == 0 {
 		return subnetID
 	}
 	// Hash the whole subnet ID if it doesn't meet standards
