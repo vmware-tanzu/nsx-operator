@@ -142,7 +142,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err != nil {
 			vpcSubnetPort, searchErr := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
 			if searchErr != nil {
-				log.Error(searchErr, "failed to use the SubnetPort CR to search VpcSubnetPort", "CR UID", subnetPort.GetUID())
+				log.Error(searchErr, "Failed to use the SubnetPort CR to search VpcSubnetPort", "CR UID", subnetPort.GetUID())
 				err = errors.Join(err, searchErr)
 			} else if vpcSubnetPort != nil {
 				if e := r.SubnetPortService.DeleteSubnetPort(vpcSubnetPort); e != nil {
@@ -308,7 +308,7 @@ func addressBindingIPAddressAllocationNameIndexFunc(obj client.Object) []string 
 		log.Info("Invalid object", "type", reflect.TypeOf(obj))
 		return []string{}
 	} else {
-		return []string{fmt.Sprintf("%s", ab.Spec.IPAddressAllocationName)}
+		return []string{ab.Spec.IPAddressAllocationName}
 	}
 }
 
@@ -390,7 +390,7 @@ func (r *SubnetPortReconciler) vmMapFunc(_ context.Context, vm client.Object) []
 		return err
 	})
 	if err != nil {
-		log.Error(err, "failed to list subnetport in VM handler")
+		log.Error(err, "Failed to list SubnetPort in VM handler")
 		return requests
 	}
 	for _, subnetPort := range subnetPortList.Items {
@@ -398,7 +398,7 @@ func (r *SubnetPortReconciler) vmMapFunc(_ context.Context, vm client.Object) []
 		vmName, _, err := common.GetVirtualMachineNameForSubnetPort(&port)
 		if err != nil {
 			// not block the subnetport visiting because of invalid annotations
-			log.Error(err, "failed to get virtualmachine name from subnetport", "subnetPort.UID", subnetPort.UID)
+			log.Error(err, "Failed to get VirtualMachine name from SubnetPort", "subnetPort.UID", subnetPort.UID)
 		}
 		if vmName == vm.GetName() && subnetPort.Namespace == vm.GetNamespace() {
 			requests = append(requests, reconcile.Request{
@@ -427,7 +427,7 @@ func (r *SubnetPortReconciler) RestoreReconcile() error {
 		}
 	}
 	if len(errorList) > 0 {
-		return errors.Join(errorList...)
+		return fmt.Errorf("errors found in SubnetPort restore: %v", errorList)
 	}
 	return nil
 }
@@ -530,7 +530,7 @@ func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) error {
 	log.Info("subnetport garbage collector started")
 	nsxSubnetPortSet := r.SubnetPortService.ListNSXSubnetPortIDForCR()
 	if len(nsxSubnetPortSet) == 0 {
-		log.Trace("There is no SubnetPort in store")
+		log.Debug("There is no SubnetPort in store")
 	}
 
 	crSubnetPortIDsSet, err := r.SubnetPortService.ListSubnetPortIDsFromCRs(ctx)
@@ -643,7 +643,10 @@ func updateSubnetPortStatusConditions(client client.Client, ctx context.Context,
 		}
 	}
 	if conditionsUpdated {
-		client.Status().Update(ctx, subnetPort)
+		if err := client.Status().Update(ctx, subnetPort); err != nil {
+			log.Error(err, "Failed to update SubnetPort status", "Name", subnetPort.Name, "Namespace", subnetPort.Namespace)
+			return
+		}
 		log.Debug("Updated SubnetPort CR", "Name", subnetPort.Name, "Namespace", subnetPort.Namespace,
 			"New Conditions", newConditions)
 	}
@@ -653,7 +656,7 @@ func mergeSubnetPortStatusCondition(subnetPort *v1alpha1.SubnetPort, newConditio
 	matchedCondition := getExistingConditionOfType(newCondition.Type, subnetPort.Status.Conditions)
 
 	if reflect.DeepEqual(matchedCondition, newCondition) {
-		log.Trace("conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return false
 	}
 
@@ -696,7 +699,7 @@ func (r *SubnetPortReconciler) getSubnetBySubnetPort(subnetPort *v1alpha1.Subnet
 func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetCR *v1alpha1.Subnet) (existing bool, isStale bool, subnetPath string, err error) {
 	existingSubnetPort, err := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
 	if err != nil {
-		log.Error(err, "failed to use the SubnetPort CR to search VpcSubnetPort", "CR UID", subnetPort.GetUID())
+		log.Error(err, "Failed to use the SubnetPort CR to search VpcSubnetPort", "CR UID", subnetPort.GetUID())
 		return false, false, "", err
 	}
 	if existingSubnetPort != nil && existingSubnetPort.ParentPath != nil && len(*existingSubnetPort.ParentPath) > 0 {
@@ -746,17 +749,17 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			Namespace: subnetPort.Namespace,
 		}
 		if err = r.Client.Get(context.Background(), namespacedName, subnetSet); err != nil {
-			log.Error(err, "subnetSet CR not found", "subnetSet CR", namespacedName)
+			log.Error(err, "SubnetSet CR not found", "subnetSet CR", namespacedName)
 			return
 		}
 		if !subnetSet.DeletionTimestamp.IsZero() {
 			isStale = true
-			err = fmt.Errorf("subnetset %s is being deleted, cannot operate subnetport %s", namespacedName, subnetPort.Name)
+			err = fmt.Errorf("SubnetSet %s is being deleted, cannot operate SubnetPort %s", namespacedName, subnetPort.Name)
 			return
 		}
-		log.Info("got subnetset for subnetport CR, allocating the NSX subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
+		log.Info("Got SubnetSet for SubnetPort CR, allocating the NSX Subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 		subnetPath, err = common.AllocateSubnetFromSubnetSet(subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService)
-		log.Info("allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
+		log.Info("Allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 		if err != nil {
 			return
 		}
@@ -768,12 +771,12 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		}
 		if subnetSet != nil && !subnetSet.DeletionTimestamp.IsZero() {
 			isStale = true
-			err = fmt.Errorf("default subnetset %s is being deleted, cannot operate subnetport %s", subnetSet.Name, subnetPort.Name)
+			err = fmt.Errorf("default SubnetSet %s is being deleted, cannot operate SubnetPort %s", subnetSet.Name, subnetPort.Name)
 			return
 		}
-		log.Info("got default subnetset for subnetport CR, allocating the NSX subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
+		log.Info("Got default SubnetSet for SubnetPort CR, allocating the NSX Subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 		subnetPath, err = common.AllocateSubnetFromSubnetSet(subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService)
-		log.Info("allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
+		log.Info("Allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 		if err != nil {
 			return
 		}
@@ -982,8 +985,11 @@ func setAddressBindingStatus(client client.Client, ctx context.Context, ab *v1al
 	if isUpdated {
 		ab = ab.DeepCopy()
 		ab.Status.IPAddress = ipAddress
-		err := client.Status().Update(ctx, ab)
-		log.Debug("Updated AddressBinding CR status", "namespace", ab.Namespace, "name", ab.Name, "status", ab.Status, "err", err)
+		if err := client.Status().Update(ctx, ab); err != nil {
+			log.Error(err, "Failed to update AddressBinding status", "Name", ab.Name, "Namespace", ab.Namespace)
+			return
+		}
+		log.Debug("Updated AddressBinding CR status", "Name", ab.Name, "Namespace", ab.Namespace, "status", ab.Status)
 	}
 }
 
@@ -1019,7 +1025,7 @@ func mergeCondition(existingConditions []v1alpha1.Condition, newCondition *v1alp
 		newConditionCopy.LastTransitionTime = matchedCondition.LastTransitionTime
 	}
 	if reflect.DeepEqual(matchedCondition, newConditionCopy) {
-		log.Trace("conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return existingConditions, false
 	}
 

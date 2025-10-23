@@ -71,7 +71,7 @@ func (s *IPReservationService) InitializeIPReservationStore(wg *sync.WaitGroup, 
 	count, err := s.SearchResource(common.ResourceTypeSubnet, queryParam, subnetStore, nil)
 	if err != nil {
 		fatalErrors <- err
-		log.Error(err, "failed to get all NSX Subnets")
+		log.Error(err, "Failed to get all NSX Subnets")
 		return
 	}
 	log.Trace("Successfully fetch all Subnet from NSX", "count", count)
@@ -150,14 +150,14 @@ func (s *IPReservationService) GetOrCreateSubnetIPReservation(ipReservation *v1a
 	_, err = s.NSXClient.DynamicIPReservationsClient.Patch(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *nsxIPReservation.Id, *nsxIPReservation)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
-		log.Error(err, "failed to create NSX Subnet IPReservation", "NSXSubnetIPReservation", nsxIPReservation.Path)
+		log.Error(err, "Failed to create NSX Subnet IPReservation", "NSXSubnetIPReservation", nsxIPReservation.Path)
 		return nil, err
 	}
 
 	nsxIPReservationCreated, err := s.NSXClient.DynamicIPReservationsClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *nsxIPReservation.Id)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
-		log.Error(err, "failed to get NSX Subnet IPReservation", "SubnetIPReservation", nsxIPReservation.Path)
+		log.Error(err, "Failed to get NSX Subnet IPReservation", "SubnetIPReservation", nsxIPReservation.Path)
 		return nil, err
 	}
 	err = s.IPReservationStore.Apply(&nsxIPReservationCreated)

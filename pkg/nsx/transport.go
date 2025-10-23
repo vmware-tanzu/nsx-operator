@@ -132,7 +132,7 @@ func (t *Transport) selectEndpoint() (*Endpoint, error) {
 		for _, i := range t.endpoints {
 			eps = append(eps, i.Host())
 		}
-		log.Error(errors.New("all endpoints down for cluster"), "select endpoint failed")
+		log.Error(errors.New("all endpoints down for cluster"), "Select endpoint failed")
 		id := strings.Join(eps, ",")
 		return nil, util.CreateServiceClusterUnavailable(id)
 	}

@@ -130,7 +130,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if subnetsetCR.Spec.IPv4SubnetSize == 0 {
 		vpcNetworkConfig, err := r.VPCService.GetVPCNetworkConfigByNamespace(subnetsetCR.Namespace)
 		if err != nil {
-			log.Error(err, "Failed to get VPCNetworkConfig", "Namespace", subnetsetCR.Namespace)
+			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "failed to get VPCNetworkConfig", setSubnetSetReadyStatusFalse)
 			return ResultRequeue, nil
 		}
 		if vpcNetworkConfig == nil {
@@ -168,7 +168,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			log.Debug("Restore SubnetSet", "SubnetSet", req.NamespacedName)
 			vpcInfoList := r.VPCService.ListVPCInfo(req.Namespace)
 			if len(vpcInfoList) == 0 {
-				return ResultNormal, fmt.Errorf("failed to find VPC for Namespace %s", req.Namespace)
+				return ResultNormal, fmt.Errorf("failed to find VPC for Namespace %s, will retry later", req.Namespace)
 			}
 			if err := r.SubnetService.RestoreSubnetSet(subnetsetCR, vpcInfoList[0], tags); err != nil {
 				r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to restore SubnetSet", setSubnetSetReadyStatusFalse)
@@ -252,7 +252,7 @@ func updateSubnetSetStatusConditions(client client.Client, ctx context.Context, 
 		if err := client.Status().Update(ctx, subnetSet); err != nil {
 			log.Error(err, "Failed to update status", "Name", subnetSet.Name, "Namespace", subnetSet.Namespace)
 		} else {
-			log.Info("Updated SubnetSet", "Name", subnetSet.Name, "Namespace", subnetSet.Namespace, "New Conditions", newConditions)
+			log.Debug("Updated SubnetSet", "Name", subnetSet.Name, "Namespace", subnetSet.Namespace, "New Conditions", newConditions)
 		}
 	}
 }
@@ -477,7 +477,7 @@ func (r *SubnetSetReconciler) RestoreReconcile() error {
 		}
 	}
 	if len(errorList) > 0 {
-		return errors.Join(errorList...)
+		return fmt.Errorf("errors found in SubnetSet restore: %v", errorList)
 	}
 	return nil
 }
