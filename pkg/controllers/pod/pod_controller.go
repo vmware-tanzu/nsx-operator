@@ -204,7 +204,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			retry.OnError(util.K8sClientRetry, func(err error) bool {
 				return err != nil
 			}, func() error {
-				return common.UpdateRestoreAnnotation(r.Client, ctx, pod, "true")
+				return common.UpdateReconfigureNicAnnotation(r.Client, ctx, pod, "true")
 			})
 		}
 	} else {

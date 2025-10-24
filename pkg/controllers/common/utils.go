@@ -233,7 +233,7 @@ func UnlockSubnetSet(uuid types.UID, subnetSetLock *sync.Mutex) {
 	}
 }
 
-func UpdateRestoreAnnotation(client k8sclient.Client, ctx context.Context, obj k8sclient.Object, value string) error {
+func UpdateReconfigureNicAnnotation(client k8sclient.Client, ctx context.Context, obj k8sclient.Object, value string) error {
 	key := types.NamespacedName{Namespace: obj.GetNamespace(), Name: obj.GetName()}
 	err := client.Get(ctx, key, obj)
 	if err != nil {
@@ -244,7 +244,7 @@ func UpdateRestoreAnnotation(client k8sclient.Client, ctx context.Context, obj k
 	if anno == nil {
 		anno = map[string]string{}
 	}
-	restoreValue, ok := anno[servicecommon.AnnotationRestore]
+	restoreValue, ok := anno[servicecommon.AnnotationReconfigureNic]
 	if ok {
 		// Append the value to annotation if it is an interface name
 		if restoreValue == "" || value == "true" {
@@ -255,7 +255,7 @@ func UpdateRestoreAnnotation(client k8sclient.Client, ctx context.Context, obj k
 	} else {
 		restoreValue = value
 	}
-	anno[servicecommon.AnnotationRestore] = restoreValue
+	anno[servicecommon.AnnotationReconfigureNic] = restoreValue
 	obj.SetAnnotations(anno)
 	return client.Update(ctx, obj)
 }

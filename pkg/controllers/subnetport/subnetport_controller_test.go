@@ -431,7 +431,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 				return nil
 			})
 		k8sClient.EXPECT().Update(gomock.Any(), gomock.Any()).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
-			assert.Equal(t, "cpvm", obj.GetAnnotations()[servicecommon.AnnotationRestore])
+			assert.Equal(t, "cpvm", obj.GetAnnotations()[servicecommon.AnnotationReconfigureNic])
 			return nil
 		})
 		_, ret := r.Reconcile(ctx, req)
