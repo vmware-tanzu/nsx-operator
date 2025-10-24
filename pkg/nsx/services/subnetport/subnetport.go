@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	mp_model "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
+	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,7 +39,7 @@ type SubnetPortService struct {
 	VPCService                 servicecommon.VPCServiceProvider
 	IpAddressAllocationService servicecommon.IPAddressAllocationServiceProvider
 	builder                    *servicecommon.PolicyTreeBuilder[*model.VpcSubnetPort]
-	macPool                    *mp_model.MacPool
+	macPool                    *mpmodel.MacPool
 }
 
 // InitializeSubnetPort sync NSX resources.
@@ -521,4 +521,27 @@ func (service *SubnetPortService) IsEmptySubnet(id string, path string) bool {
 
 func (service *SubnetPortService) DeletePortCount(path string) {
 	service.SubnetPortStore.PortCountInfo.Delete(path)
+}
+
+func (service *SubnetPortService) GetAllVIFs() (*VifStore, error) {
+	vifStore := NewVifStore()
+	pageSize := int64(1000)
+	var allVIFs []mpmodel.VirtualNetworkInterface
+	cursor := ""
+	for {
+		vifsPage, err := service.NSXClient.VifsClient.List(&cursor, nil, nil, nil, nil, &pageSize, nil, nil, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list VIFs: %w", err)
+		}
+		allVIFs = append(allVIFs, vifsPage.Results...)
+		if vifsPage.Cursor == nil || *vifsPage.Cursor == "" {
+			break
+		}
+		cursor = *vifsPage.Cursor
+	}
+	for _, vif := range allVIFs {
+		vifStore.Add(&vif)
+	}
+	log.Info("Initialized VIF store", "count", len(allVIFs))
+	return &vifStore, nil
 }

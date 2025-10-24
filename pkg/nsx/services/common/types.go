@@ -117,6 +117,7 @@ const (
 
 	IndexKeySubnetID            = "IndexKeySubnetID"
 	IndexKeyNodeName            = "IndexKeyNodeName"
+	IndexKeyAttachmentID        = "IndexKeyAttachmentID"
 	GCValidationInterval uint16 = 720
 
 	RuleIngress            = "ingress"

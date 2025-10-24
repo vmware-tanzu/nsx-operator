@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/stretchr/testify/mock"
+	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -117,6 +118,10 @@ func (m *MockSubnetServiceProvider) GetGatewayPrefixFromNSXSubnet(nsxSubnet *mod
 
 func (m *MockSubnetServiceProvider) GetGatewayPrefixFromNSXSubnetStatus(nsxSubnet *model.VpcSubnet) (string, int, error) {
 	return "", 0, nil
+}
+
+func (m *MockSubnetServiceProvider) GetAllVIFs() ([]mpmodel.VirtualNetworkInterface, error) {
+	return nil, nil
 }
 
 type MockSubnetPortServiceProvider struct {

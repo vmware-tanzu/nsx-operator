@@ -10,7 +10,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	mp_model "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
+	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -45,12 +45,12 @@ var (
 
 type fakeMacPoolsClient struct{}
 
-func (c *fakeMacPoolsClient) Get(poolIdParam string) (mp_model.MacPool, error) {
-	return mp_model.MacPool{}, nil
+func (c *fakeMacPoolsClient) Get(poolIdParam string) (mpmodel.MacPool, error) {
+	return mpmodel.MacPool{}, nil
 }
 
-func (c *fakeMacPoolsClient) List(cursorParam *string, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (mp_model.MacPoolListResult, error) {
-	return mp_model.MacPoolListResult{}, nil
+func (c *fakeMacPoolsClient) List(cursorParam *string, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (mpmodel.MacPoolListResult, error) {
+	return mpmodel.MacPoolListResult{}, nil
 }
 
 type fakeQueryClient struct{}
@@ -118,6 +118,12 @@ func (c *fakeStatsClient) Get(orgIdParam string, projectIdParam string, vpcIdPar
 	return model.DhcpServerStatistics{}, nil
 }
 
+type fakeVifsClient struct{}
+
+func (c *fakeVifsClient) List(cursorParam *string, hostIdParam *string, includedFieldsParam *string, lportAttachmentIdParam *string, ownerVmIdParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string, vmIdParam *string) (mpmodel.VirtualNetworkInterfaceListResult, error) {
+	return mpmodel.VirtualNetworkInterfaceListResult{}, nil
+}
+
 func Test_InitializeSubnetPort(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -128,7 +134,7 @@ func Test_InitializeSubnetPort(t *testing.T) {
 			name: "macPoolError",
 			prepareFunc: func(t *testing.T, s *common.Service, ctx context.Context) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethodSeq(s.NSXClient.MacPoolsClient, "List", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{mp_model.MacPoolListResult{}, fmt.Errorf("mock error")},
+					Values: gomonkey.Params{mpmodel.MacPoolListResult{}, fmt.Errorf("mock error")},
 					Times:  1,
 				}})
 				return patches
@@ -142,8 +148,8 @@ func Test_InitializeSubnetPort(t *testing.T) {
 					return model.SearchResponse{}, fmt.Errorf("mock error")
 				})
 				patches.ApplyMethodSeq(s.NSXClient.MacPoolsClient, "List", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{mp_model.MacPoolListResult{
-						Results: []mp_model.MacPool{
+					Values: gomonkey.Params{mpmodel.MacPoolListResult{
+						Results: []mpmodel.MacPool{
 							{
 								DisplayName: &defaultContainerMacPoolName,
 							},
@@ -1142,6 +1148,7 @@ func createSubnetPortService(t *testing.T) *SubnetPortService {
 			RealizedEntitiesClient:      &fakeRealizedEntitiesClient{},
 			PortStateClient:             &fakePortStateClient{},
 			OrgRootClient:               orgRootClient,
+			VifsClient:                  &fakeVifsClient{},
 			NsxConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "k8scl-one:test",
@@ -1249,4 +1256,149 @@ func TestSubnetPortService_portAlreadyRealized(t *testing.T) {
 	podNoMAC := &corev1.Pod{}
 	podNoMAC.Annotations = map[string]string{"other": "value"}
 	assert.False(t, service.portAlreadyRealized(podNoMAC, nsxSubnetPortWithBOTH))
+}
+
+func TestSubnetPortService_GetAllVIFs(t *testing.T) {
+	subnetPortService := createSubnetPortService(t)
+	tests := []struct {
+		name        string
+		prepareFunc func(*testing.T, *SubnetPortService, context.Context) *gomonkey.Patches
+		wantErr     bool
+	}{
+		{
+			name: "apiError",
+			prepareFunc: func(t *testing.T, s *SubnetPortService, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.VifsClient, "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{mpmodel.VirtualNetworkInterfaceListResult{}, fmt.Errorf("mock error")},
+					Times:  1,
+				}})
+				return patches
+			},
+			wantErr: true,
+		},
+		{
+			name: "success",
+			prepareFunc: func(t *testing.T, s *SubnetPortService, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.VifsClient, "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{mpmodel.VirtualNetworkInterfaceListResult{
+						Results: []mpmodel.VirtualNetworkInterface{
+							{
+								ExternalId: common.String("vif-1"),
+							},
+						},
+					}, nil},
+					Times: 1,
+				}})
+				return patches
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.prepareFunc(t, subnetPortService, context.Background())
+			_, err := subnetPortService.GetAllVIFs()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetAllVIFs() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSubnetPortService_GetMACByAttachmentID(t *testing.T) {
+	tests := []struct {
+		name          string
+		vifs          []mpmodel.VirtualNetworkInterface
+		attachmentID  string
+		expectedMAC   string
+		expectedError string
+	}{
+		{
+			name: "SingleMatch",
+			vifs: []mpmodel.VirtualNetworkInterface{
+				{
+					ExternalId:        common.String("vif-1"),
+					LportAttachmentId: common.String("attachment-1"),
+					MacAddress:        common.String("aa:bb:cc:dd:ee:ff"),
+				},
+			},
+			attachmentID: "attachment-1",
+			expectedMAC:  "aa:bb:cc:dd:ee:ff",
+		},
+		{
+			name: "MultipleSameMAC",
+			vifs: []mpmodel.VirtualNetworkInterface{
+				{
+					ExternalId:        common.String("vif-2"),
+					LportAttachmentId: common.String("attachment-1"),
+					MacAddress:        common.String("aa:bb:cc:dd:ee:ff"),
+				},
+				{
+					ExternalId:        common.String("vif-2"),
+					LportAttachmentId: common.String("attachment-1"),
+					MacAddress:        common.String("aa:bb:cc:dd:ee:ff"),
+				},
+			},
+			attachmentID: "attachment-1",
+			expectedMAC:  "aa:bb:cc:dd:ee:ff",
+		},
+		{
+			name: "MultipleDifferentMAC",
+			vifs: []mpmodel.VirtualNetworkInterface{
+				{
+					ExternalId:        common.String("vif-3"),
+					LportAttachmentId: common.String("attachment-1"),
+					MacAddress:        common.String("aa:bb:cc:dd:ee:ff"),
+				},
+				{
+					ExternalId:        common.String("vif-3"),
+					LportAttachmentId: common.String("attachment-1"),
+					MacAddress:        common.String("11:22:33:44:55:66"),
+				},
+			},
+			attachmentID:  "attachment-1",
+			expectedError: "multiple MAC addresses found",
+		},
+		{
+			name: "NoMACAddress",
+			vifs: []mpmodel.VirtualNetworkInterface{
+				{
+					ExternalId:        common.String("vif-4"),
+					LportAttachmentId: common.String("attachment-1"),
+				},
+			},
+			attachmentID:  "attachment-1",
+			expectedError: "MAC address not found",
+		},
+		{
+			name: "NoMatchingAttachment",
+			vifs: []mpmodel.VirtualNetworkInterface{
+				{
+					ExternalId:        common.String("vif-5"),
+					LportAttachmentId: common.String("attachment-2"),
+					MacAddress:        common.String("aa:bb:cc:dd:ee:ff"),
+				},
+			},
+			attachmentID:  "attachment-1",
+			expectedError: "VIF not found for attachment ID",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vifStore := NewVifStore()
+			for _, vif := range tt.vifs {
+				vifStore.Add(&vif)
+			}
+			mac, err := vifStore.GetMACByAttachmentID(tt.attachmentID)
+			if tt.expectedError != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedError)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedMAC, mac)
+			}
+		})
+	}
 }

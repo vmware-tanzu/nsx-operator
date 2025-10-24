@@ -2,11 +2,16 @@ package subnetport
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
@@ -20,6 +25,14 @@ func keyFunc(obj interface{}) (string, error) {
 		return string(v), nil
 	case string:
 		return v, nil
+	case *mpmodel.VirtualNetworkInterface:
+		// Generate a random UUID as the suffix because VIF doesn't have an Id field and the ExternalId is not unique.
+		externalID := ""
+		if v.ExternalId != nil && *v.ExternalId != "" {
+			externalID = *v.ExternalId
+		}
+		uid := fmt.Sprintf("%s-%s", externalID, uuid.New().String())
+		return uid, nil
 	default:
 		return "", errors.New("keyFunc doesn't support unknown type")
 	}
@@ -169,4 +182,59 @@ func (subnetPortStore *SubnetPortStore) GetVpcSubnetPortByUID(uid types.UID) (*m
 		return nil, nil
 	}
 	return subnetPort, nil
+}
+
+type VifStore struct {
+	common.ResourceStore
+}
+
+func vifIndexByAttachmentID(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case *mpmodel.VirtualNetworkInterface:
+		if o.LportAttachmentId == nil {
+			return []string{}, nil
+		}
+		return []string{*o.LportAttachmentId}, nil
+	default:
+		return nil, errors.New("vifIndexByAttachmentID doesn't support unknown type")
+	}
+}
+
+func NewVifStore() VifStore {
+	return VifStore{
+		ResourceStore: common.ResourceStore{
+			Indexer: cache.NewIndexer(
+				keyFunc,
+				cache.Indexers{
+					common.IndexKeyAttachmentID: vifIndexByAttachmentID,
+				}),
+			BindingType: model.VirtualNetworkInterfaceBindingType(),
+		},
+	}
+}
+
+func (vifStore *VifStore) GetMACByAttachmentID(attachmentID string) (string, error) {
+	macAddresses := sets.New[string]()
+	objects := vifStore.ResourceStore.GetByIndex(common.IndexKeyAttachmentID, attachmentID)
+	if len(objects) == 0 {
+		return "", fmt.Errorf("VIF not found for attachment ID: %s", attachmentID)
+	}
+	// We observed in some cases, multiple VIFs are returned for the same attachment ID and their MAC addresses are the same.
+	// Not sure whether it's a NSX API bug or expected behavior. Whatever, we log a warning here, then continue because this may not break our logic, i.e. multiple vifs may have the same MAC address.
+	if len(objects) > 1 {
+		log.Warn("Multiple VIFs found for attachment ID", "attachmentID", attachmentID, "objects", objects)
+	}
+	for _, obj := range objects {
+		vif := obj.(*mpmodel.VirtualNetworkInterface)
+		if vif.MacAddress != nil && *vif.MacAddress != "" {
+			macAddresses.Insert(*vif.MacAddress)
+		}
+	}
+	if macAddresses.Len() == 0 {
+		return "", fmt.Errorf("MAC address not found for attachment ID: %s", attachmentID)
+	}
+	if macAddresses.Len() > 1 {
+		return "", fmt.Errorf("multiple MAC addresses found for attachment ID: %s", attachmentID)
+	}
+	return macAddresses.UnsortedList()[0], nil
 }
