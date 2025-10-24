@@ -9,6 +9,49 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
+// CleanupBeforeVPCDeletion cleans up SecurityPolicy, Rules, and Shares before VPC deletion to avoid dependency issues.
+// SecurityPolicy and Rules must be deleted first because Shares cannot be deleted while they are still being consumed.
+func (service *SecurityPolicyService) CleanupBeforeVPCDeletion(ctx context.Context) error {
+	log.Info("Cleaning up security policies, rules, and shares before VPC deletion")
+
+	if err := service.cleanupRulesByVPC(ctx, ""); err != nil {
+		log.Error(err, "Failed to clean up rules")
+		return err
+	}
+	log.Info("Successfully cleaned all rules")
+
+	if err := service.cleanupSecurityPoliciesByVPC(ctx, ""); err != nil {
+		log.Error(err, "Failed to clean up security policies")
+		return err
+	}
+	log.Info("Successfully cleaned all security policies")
+
+	// Step 3: Clean both project and infra shares
+	for _, config := range []struct {
+		store   *ShareStore
+		builder *common.PolicyTreeBuilder[*model.Share]
+		name    string
+	}{
+		{
+			store:   service.projectShareStore,
+			builder: service.projectShareBuilder,
+			name:    "project",
+		}, {
+			store:   service.infraShareStore,
+			builder: service.infraShareBuilder,
+			name:    "infra",
+		},
+	} {
+		if err := cleanShares(ctx, config.store, config.builder, service.NSXClient); err != nil {
+			log.Error(err, "Failed to clean shares", "type", config.name)
+			return err
+		}
+		log.Info("Successfully cleaned shares", "type", config.name)
+	}
+
+	return nil
+}
+
 // CleanupVPCChildResources is called when cleaning up the VPC related resources. For the resources in an auto-created
 // VPC, this function is called after the VPC is deleted on NSX, so the provider only needs to clean up with the local
 // cache. For the resources in a pre-created VPC, this function is called to delete resources on NSX and in the local cache.
@@ -105,22 +148,6 @@ func (service *SecurityPolicyService) cleanupGroupsByVPC(ctx context.Context, vp
 
 // CleanupInfraResources is to clean up the resources created by SecurityPolicyService under path /infra.
 func (service *SecurityPolicyService) CleanupInfraResources(ctx context.Context) error {
-	for _, config := range []struct {
-		store   *ShareStore
-		builder *common.PolicyTreeBuilder[*model.Share]
-	}{
-		{
-			store:   service.projectShareStore,
-			builder: service.projectShareBuilder,
-		}, {
-			store:   service.infraShareStore,
-			builder: service.infraShareBuilder,
-		},
-	} {
-		if err := cleanShares(ctx, config.store, config.builder, service.NSXClient); err != nil {
-			return err
-		}
-	}
 	for _, config := range []struct {
 		store   *GroupStore
 		builder *common.PolicyTreeBuilder[*model.Group]
