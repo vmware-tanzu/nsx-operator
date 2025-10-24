@@ -16,6 +16,7 @@ import (
 	"time"
 
 	vmv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
+	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -193,6 +194,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			}
 			if (!enableDHCP || len(subnetPort.Spec.AddressBindings) > 0) && len(nsxSubnetPortState.RealizedBindings) > 0 {
 				subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress = *nsxSubnetPortState.RealizedBindings[0].Binding.IpAddress
+				// The MAC address is updated here when the SubnetPort's DHCP is disabled or spec.AddressBindings is specific. For the other cases, the MAC address will be updated in the VIF polling.
 				subnetPort.Status.NetworkInterfaceConfig.MACAddress = strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\"")
 			}
 			err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnet)
@@ -324,6 +326,30 @@ func subnetPortSubnetIndexFunc(obj client.Object) []string {
 	}
 }
 
+func subnetPortAttachmentVIFIDIndexFunc(obj client.Object) []string {
+	if subnetPort, ok := obj.(*v1alpha1.SubnetPort); !ok {
+		log.Info("Invalid object", "type", reflect.TypeOf(obj))
+		return []string{}
+	} else {
+		if subnetPort.Status.Attachment.ID == "" {
+			return []string{"empty"}
+		}
+		return []string{"nonempty"}
+	}
+}
+
+func subnetPortNetworkInterfaceMACAddressIndexFunc(obj client.Object) []string {
+	if subnetPort, ok := obj.(*v1alpha1.SubnetPort); !ok {
+		log.Info("Invalid object", "type", reflect.TypeOf(obj))
+		return []string{}
+	} else {
+		if subnetPort.Status.NetworkInterfaceConfig.MACAddress == "" {
+			return []string{"empty"}
+		}
+		return []string{"nonempty"}
+	}
+}
+
 func (r *SubnetPortReconciler) deleteSubnetPortByName(ctx context.Context, ns string, name string) error {
 	// NamespacedName is a unique identity in store as only one worker can deal with the NamespacedName at a time
 	nsxSubnetPorts := r.SubnetPortService.ListSubnetPortByName(ns, name)
@@ -376,7 +402,12 @@ func (r *SubnetPortReconciler) SetupFieldIndexers(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.SubnetPort{}, "spec.subnet", subnetPortSubnetIndexFunc); err != nil {
 		return err
 	}
-
+	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.SubnetPort{}, util.SubnetPortAttachmentVIFIDIndexKey, subnetPortAttachmentVIFIDIndexFunc); err != nil {
+		return err
+	}
+	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.SubnetPort{}, util.SubnetPortNetworkInterfaceMACAddressIndexKey, subnetPortNetworkInterfaceMACAddressIndexFunc); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -521,7 +552,26 @@ func (r *SubnetPortReconciler) Start(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
+	go r.pollVifs(make(chan bool))
 	return nil
+}
+
+var ticker = time.NewTicker(10 * time.Minute)
+
+// The polling can be stopped by sending a value to the stopCh channel.
+func (r *SubnetPortReconciler) pollVifs(stopCh chan bool) {
+	defer ticker.Stop()
+	r.pollAllVifs()
+	for {
+		select {
+		case <-ticker.C:
+			r.pollAllVifs()
+		case <-stopCh:
+			log.Info("Stopping VIF polling")
+			return
+		}
+	}
+
 }
 
 // CollectGarbage collect SubnetPort which has been removed from crd.
@@ -1031,4 +1081,74 @@ func mergeCondition(existingConditions []v1alpha1.Condition, newCondition *v1alp
 		existingConditions = append(existingConditions, *newCondition)
 	}
 	return existingConditions, true
+}
+
+func getMACByAttachmentID(vifs []mpmodel.VirtualNetworkInterface, attachmentID string) (string, error) {
+	filteredVifs := []mpmodel.VirtualNetworkInterface{}
+	macAddresses := sets.New[string]()
+	for _, vif := range vifs {
+		if vif.LportAttachmentId != nil && *vif.LportAttachmentId == attachmentID {
+			filteredVifs = append(filteredVifs, vif)
+		}
+	}
+	// We observed in some cases, multiple VIFs are returned for the same attachment ID and their MAC addresses are the same.
+	// Not sure whether it's a bug of NSX API or expected behavior. Whatever, we log a warning here, then continue because this won't break our logic.
+	if len(filteredVifs) > 1 {
+		log.Warn("Multiple VIFs found for attachment ID", "attachmentID", attachmentID, "filteredVifs", filteredVifs)
+	}
+	for _, vif := range filteredVifs {
+		if vif.MacAddress != nil {
+			macAddresses.Insert(*vif.MacAddress)
+		}
+	}
+	if len(macAddresses) > 1 {
+		return "", fmt.Errorf("multiple MAC addresses found for attachment ID %s, filteredVifs: %+v", attachmentID, filteredVifs)
+	} else if len(macAddresses) == 0 {
+		return "", fmt.Errorf("no MAC address found for attachment ID %s, filteredVifs: %+v", attachmentID, filteredVifs)
+	}
+	return macAddresses.UnsortedList()[0], nil
+}
+
+func (r *SubnetPortReconciler) pollAllVifs() {
+	log.Info("Starting VIF polling")
+	subnetPortList := &v1alpha1.SubnetPortList{}
+	// Only list the SubnetPorts which needs to update MAC address in status.
+	listOptions := []client.ListOption{
+		client.MatchingFields{util.SubnetPortAttachmentVIFIDIndexKey: "nonempty"},
+		client.MatchingFields{util.SubnetPortNetworkInterfaceMACAddressIndexKey: "empty"},
+	}
+	err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+		return err != nil
+	}, func() error {
+		err := r.Client.List(context.TODO(), subnetPortList, listOptions...)
+		return err
+	})
+	if err != nil {
+		log.Error(err, "Failed to list subnetport in VIF polling")
+		return
+	}
+	log.Info("Got subnetPortList in VIF polling", "count", len(subnetPortList.Items), "subnetPortList", subnetPortList)
+	pageSize := int64(1000)
+	vifs, err := r.SubnetPortService.NSXClient.VifsClient.List(nil, nil, nil, nil, nil, &pageSize, nil, nil, nil)
+	if err != nil {
+		log.Error(err, "Failed to list VIFs in VIF polling")
+		return
+	}
+	for _, subnetPort := range subnetPortList.Items {
+		attachmentID := subnetPort.Status.Attachment.ID
+		macAddress, err := getMACByAttachmentID(vifs.Results, attachmentID)
+		if err != nil {
+			log.Error(err, "Failed to get MAC by attachment ID in VIF polling", "AttachmentID", attachmentID)
+			continue
+		}
+		log.Info("Got MAC by attachment ID in VIF polling, updating the SubnetPort CR status", "AttachmentID", attachmentID, "MACAddress", macAddress, "SubnetPort.Namespace", subnetPort.Namespace, "SubnetPort.Name", subnetPort.Name, "SubnetPort.Status", subnetPort.Status)
+		subnetPort := subnetPort.DeepCopy()
+		subnetPort.Status.NetworkInterfaceConfig.MACAddress = macAddress
+		err = r.Client.Status().Update(context.TODO(), subnetPort)
+		if err != nil {
+			log.Error(err, "Failed to update SubnetPort CR status in VIF polling", "SubnetPort.Namespace", subnetPort.Namespace, "SubnetPort.Name", subnetPort.Name)
+			continue
+		}
+		log.Info("Successfully updated SubnetPort CR status in VIF polling", "SubnetPort.Namespace", subnetPort.Namespace, "SubnetPort.Name", subnetPort.Name, "MACAddress", macAddress)
+	}
 }
