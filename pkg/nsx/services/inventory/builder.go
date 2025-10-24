@@ -46,8 +46,10 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 		if pod.Spec.NodeName != "" {
 			// retry when pod has Node but Node is missing in NodeInformer
 			retry = true
+			log.Error(err, "Cannot find node for Pod", "Pod", pod.Name, "Namespace", pod.Namespace, "Node", pod.Spec.NodeName, "retry", retry)
+		} else {
+			log.Warn("Pod does not have Node specified", "Pod", pod.Name, "Namespace", pod.Namespace, "Node", pod.Spec.NodeName, "retry", retry, "error", err)
 		}
-		log.Error(err, "Cannot find node for Pod", "Pod", pod.Name, "Namespace", pod.Namespace, "Node", pod.Spec.NodeName, "retry", retry)
 	}
 
 	status := InventoryStatusDown

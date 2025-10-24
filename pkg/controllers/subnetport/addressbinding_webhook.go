@@ -33,7 +33,7 @@ func (v *AddressBindingValidator) Handle(ctx context.Context, req admission.Requ
 	} else {
 		err := v.decoder.Decode(req, ab)
 		if err != nil {
-			log.Error(err, "error while decoding AddressBinding", "AddressBinding", req.Namespace+"/"+req.Name)
+			log.Error(err, "Error while decoding AddressBinding", "AddressBinding", req.Namespace+"/"+req.Name)
 			return admission.Errored(http.StatusBadRequest, err)
 		}
 	}
@@ -43,7 +43,7 @@ func (v *AddressBindingValidator) Handle(ctx context.Context, req admission.Requ
 		abIndexValue := fmt.Sprintf("%s/%s", ab.Namespace, ab.Spec.VMName)
 		err := v.Client.List(context.TODO(), existingAddressBindingList, client.MatchingFields{util.AddressBindingNamespaceVMIndexKey: abIndexValue})
 		if err != nil {
-			log.Error(err, "failed to list AddressBinding from cache", "indexValue", abIndexValue)
+			log.Error(err, "Failed to list AddressBinding from cache", "indexValue", abIndexValue)
 			return admission.Errored(http.StatusInternalServerError, err)
 		}
 		hasDefault := ab.Spec.InterfaceName == ""
@@ -63,7 +63,7 @@ func (v *AddressBindingValidator) Handle(ctx context.Context, req admission.Requ
 	case admissionv1.Update:
 		oldAddressBinding := &v1alpha1.AddressBinding{}
 		if err := v.decoder.DecodeRaw(req.OldObject, oldAddressBinding); err != nil {
-			log.Error(err, "error while decoding AddressBinding", "AddressBinding", req.Namespace+"/"+req.Name)
+			log.Error(err, "Error while decoding AddressBinding", "AddressBinding", req.Namespace+"/"+req.Name)
 			return admission.Errored(http.StatusBadRequest, err)
 		}
 		if ab.Spec.VMName != oldAddressBinding.Spec.VMName || ab.Spec.InterfaceName != oldAddressBinding.Spec.InterfaceName {
@@ -76,7 +76,7 @@ func (v *AddressBindingValidator) Handle(ctx context.Context, req admission.Requ
 			Namespace: ab.Namespace,
 			Name:      ab.Spec.IPAddressAllocationName,
 		}, ipAllocation); err != nil {
-			log.Error(err, "failed to get IPAddressAllocation", "IPAddressAllocation", ab.Namespace+"/"+ab.Spec.IPAddressAllocationName)
+			log.Error(err, "Failed to get IPAddressAllocation", "IPAddressAllocation", ab.Namespace+"/"+ab.Spec.IPAddressAllocationName)
 			return admission.Denied(fmt.Sprintf("IPAddressAllocation %s does not exist", ab.Spec.IPAddressAllocationName))
 		}
 		if ipAllocation.Spec.IPAddressBlockVisibility != v1alpha1.IPAddressVisibilityExternal {
