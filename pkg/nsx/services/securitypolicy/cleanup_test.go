@@ -19,8 +19,6 @@ import (
 
 var (
 	projectPath         = "/orgs/default/projects/project-1"
-	infraShareId        = "infra-share"
-	projectShareId      = "proj-share"
 	infraGroupId        = "infra-group"
 	projectGroupId      = "proj-group"
 	vpcPath             = fmt.Sprintf("%s/vpcs/vpc-1", projectPath)
@@ -46,22 +44,6 @@ func TestCleanupInfraResources(t *testing.T) {
 	orgRootClient := mock_org_root.NewMockOrgRootClient(ctrl)
 	svc := prepareServiceForCleanup(orgRootClient)
 
-	infraShare := &model.Share{
-		Id:         String(infraShareId),
-		Path:       String(fmt.Sprintf("/infra/shares/%s", infraShareId)),
-		ParentPath: String("/infra"),
-		Tags:       infraResourceTags,
-	}
-	svc.infraShareStore.Add(infraShare)
-
-	projectShare := &model.Share{
-		Id:         String(projectShareId),
-		Path:       String(fmt.Sprintf("%s/shares/%s", projectPath, infraShareId)),
-		ParentPath: String(projectPath),
-		Tags:       infraResourceTags,
-	}
-	svc.projectShareStore.Add(projectShare)
-
 	infraGroup := &model.Group{
 		Id:         String(infraGroupId),
 		Path:       String(fmt.Sprintf("/infra/domains/default/groups/%s", infraGroupId)),
@@ -78,25 +60,23 @@ func TestCleanupInfraResources(t *testing.T) {
 	}
 	svc.projectGroupStore.Add(projectGroup)
 
-	assert.Equal(t, 1, len(svc.infraShareStore.List()))
 	assert.Equal(t, 1, len(svc.infraGroupStore.List()))
 	assert.Equal(t, 1, len(svc.projectGroupStore.List()))
-	assert.Equal(t, 1, len(svc.projectShareStore.List()))
 
+	// infraGroupBuilder uses InfraClient.Patch
 	patches := gomonkey.ApplyMethodSeq(svc.NSXClient.InfraClient, "Patch", []gomonkey.OutputCell{{
 		Values: gomonkey.Params{nil},
-		Times:  2,
+		Times:  1,
 	}})
 	defer patches.Reset()
-	orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+	// projectGroupBuilder uses OrgRootClient.Patch
+	orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 
 	ctx := context.Background()
 	err := svc.CleanupInfraResources(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, 0, len(svc.infraShareStore.List()))
 	assert.Equal(t, 0, len(svc.infraGroupStore.List()))
 	assert.Equal(t, 0, len(svc.projectGroupStore.List()))
-	assert.Equal(t, 0, len(svc.projectShareStore.List()))
 }
 
 func TestCleanupVPCChildResources(t *testing.T) {
@@ -138,7 +118,7 @@ func TestCleanupVPCChildResources(t *testing.T) {
 			name: "clean up with all resources",
 			mockFn: func() *mock_org_root.MockOrgRootClient {
 				client := mock_org_root.NewMockOrgRootClient(ctrl)
-				client.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).Times(3)
+				client.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 				return client
 			},
 			vpcPath: "",
@@ -163,17 +143,21 @@ func TestCleanupVPCChildResources(t *testing.T) {
 			err := svc.CleanupVPCChildResources(ctx, tc.vpcPath)
 			require.NoError(t, err)
 			if tc.vpcPath != "" {
+				// Rules and security policies are not cleaned up by CleanupVPCChildResources anymore
 				rulesAfterCleanup := svc.ruleStore.GetByIndex(common.IndexByVPCPathFuncKey, vpcPath)
-				assert.Equal(t, 0, len(rulesAfterCleanup))
+				assert.Equal(t, 1, len(rulesAfterCleanup))
 
 				securityPoliciesAfterCleanup := svc.securityPolicyStore.GetByIndex(common.IndexByVPCPathFuncKey, vpcPath)
-				assert.Equal(t, 0, len(securityPoliciesAfterCleanup))
+				assert.Equal(t, 1, len(securityPoliciesAfterCleanup))
 
+				// Only groups are cleaned up from local cache
 				groupsAfterCleanup := svc.groupStore.GetByIndex(common.IndexByVPCPathFuncKey, vpcPath)
 				assert.Equal(t, 0, len(groupsAfterCleanup))
 			} else {
-				assert.Equal(t, 0, len(svc.ruleStore.List()))
-				assert.Equal(t, 0, len(svc.securityPolicyStore.List()))
+				// Rules and security policies remain in cache
+				assert.Equal(t, 1, len(svc.ruleStore.List()))
+				assert.Equal(t, 1, len(svc.securityPolicyStore.List()))
+				// Only groups are cleaned up on NSX
 				assert.Equal(t, 0, len(svc.groupStore.List()))
 			}
 		})

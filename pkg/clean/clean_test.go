@@ -213,7 +213,8 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 	cleanupService, err := InitializeCleanupService(cf, nsxClient, &log)
 	assert.NoError(t, err)
 	assert.NotNil(t, cleanupService)
-	assert.Len(t, cleanupService.vpcPreCleaners, 6)
+	// vpcPreCleaners: SubnetPort, SubnetBinding, SubnetIPReservation, Inventory, SecurityPolicy, LBInfraCleaner, NSXServiceAccount, HealthCleaner = 8
+	assert.Len(t, cleanupService.vpcPreCleaners, 8)
 	assert.Len(t, cleanupService.vpcChildrenCleaners, 5)
 	assert.Len(t, cleanupService.infraCleaners, 2)
 }
@@ -256,7 +257,8 @@ func TestInitializeCleanupService_VPCError(t *testing.T) {
 	assert.NotNil(t, cleanupService)
 	// Note, the services added after VPCService should fail because of the error returned in `InitializeVPC`.
 	assert.Len(t, cleanupService.vpcChildrenCleaners, 3)
-	assert.Len(t, cleanupService.vpcPreCleaners, 3)
+	// vpcPreCleaners: SubnetPort, SubnetBinding, SubnetIPReservation, SecurityPolicy = 4 (services initialized before VPC error)
+	assert.Len(t, cleanupService.vpcPreCleaners, 4)
 	assert.Len(t, cleanupService.infraCleaners, 1)
 	assert.Equal(t, expectedError, cleanupService.svcErr)
 }
