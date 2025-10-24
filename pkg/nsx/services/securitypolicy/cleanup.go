@@ -9,6 +9,36 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
+// CleanupBeforeVPCDeletion cleans up share resources before VPC deletion to avoid dependency issues
+func (service *SecurityPolicyService) CleanupBeforeVPCDeletion(ctx context.Context) error {
+	log.Info("Cleaning up security policy shares before VPC deletion")
+
+	// Clean both project and infra shares
+	for _, config := range []struct {
+		store   *ShareStore
+		builder *common.PolicyTreeBuilder[*model.Share]
+		name    string
+	}{
+		{
+			store:   service.projectShareStore,
+			builder: service.projectShareBuilder,
+			name:    "project",
+		}, {
+			store:   service.infraShareStore,
+			builder: service.infraShareBuilder,
+			name:    "infra",
+		},
+	} {
+		if err := cleanShares(ctx, config.store, config.builder, service.NSXClient); err != nil {
+			log.Error(err, "Failed to clean shares", "type", config.name)
+			return err
+		}
+		log.Info("Successfully cleaned shares", "type", config.name)
+	}
+
+	return nil
+}
+
 // CleanupVPCChildResources is called when cleaning up the VPC related resources. For the resources in an auto-created
 // VPC, this function is called after the VPC is deleted on NSX, so the provider only needs to clean up with the local
 // cache. For the resources in a pre-created VPC, this function is called to delete resources on NSX and in the local cache.
@@ -105,22 +135,6 @@ func (service *SecurityPolicyService) cleanupGroupsByVPC(ctx context.Context, vp
 
 // CleanupInfraResources is to clean up the resources created by SecurityPolicyService under path /infra.
 func (service *SecurityPolicyService) CleanupInfraResources(ctx context.Context) error {
-	for _, config := range []struct {
-		store   *ShareStore
-		builder *common.PolicyTreeBuilder[*model.Share]
-	}{
-		{
-			store:   service.projectShareStore,
-			builder: service.projectShareBuilder,
-		}, {
-			store:   service.infraShareStore,
-			builder: service.infraShareBuilder,
-		},
-	} {
-		if err := cleanShares(ctx, config.store, config.builder, service.NSXClient); err != nil {
-			return err
-		}
-	}
 	for _, config := range []struct {
 		store   *GroupStore
 		builder *common.PolicyTreeBuilder[*model.Group]
