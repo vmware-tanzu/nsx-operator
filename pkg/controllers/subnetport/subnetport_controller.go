@@ -221,7 +221,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 					retry.OnError(util.K8sClientRetry, func(err error) bool {
 						return err != nil
 					}, func() error {
-						return common.UpdateRestoreAnnotation(r.Client, ctx, subnetPort, "cpvm")
+						return common.UpdateReconfigureNicAnnotation(r.Client, ctx, subnetPort, "cpvm")
 					})
 				}
 			}
@@ -229,7 +229,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				retry.OnError(util.K8sClientRetry, func(err error) bool {
 					return err != nil
 				}, func() error {
-					return common.UpdateRestoreAnnotation(r.Client, ctx, vm, nicName)
+					return common.UpdateReconfigureNicAnnotation(r.Client, ctx, vm, nicName)
 				})
 			}
 		}

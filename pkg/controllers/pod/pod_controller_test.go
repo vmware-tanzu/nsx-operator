@@ -298,7 +298,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 						assert.Equal(t, v1.PodReady, pod.Status.Conditions[0].Type)
 						return nil
 					})
-				patches.ApplyFunc(common.UpdateRestoreAnnotation, func(client client.Client, ctx context.Context, obj client.Object, value string) error {
+				patches.ApplyFunc(common.UpdateReconfigureNicAnnotation, func(client client.Client, ctx context.Context, obj client.Object, value string) error {
 					assert.Equal(t, "true", value)
 					return nil
 				})
