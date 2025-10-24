@@ -3,14 +3,10 @@ package subnetipreservation
 import (
 	"fmt"
 	"reflect"
-	"sync"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -225,73 +221,6 @@ func TestGetOrCreateSubnetIPReservation(t *testing.T) {
 	}
 }
 
-func TestInitializeIPReservationStore(t *testing.T) {
-	service := createFakeService()
-	ipr1 := model.DynamicIpAddressReservation{
-		Id:   common.String("ipr-1"),
-		Path: common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1/dynamic-ip-reservations/ipr-1"),
-		Tags: []model.Tag{
-			{
-				Scope: common.String("nsx-op/cluster"),
-				Tag:   common.String("k8scl-one:test"),
-			},
-		},
-	}
-	ipr2 := model.DynamicIpAddressReservation{
-		Id:   common.String("ipr-2"),
-		Path: common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1/dynamic-ip-reservations/ipr-2"),
-		Tags: []model.Tag{
-			{
-				Scope: common.String("nsx-op/cluster"),
-				Tag:   common.String("k8scl-one:test"),
-			},
-		},
-	}
-	wg := sync.WaitGroup{}
-	fatalErrors := make(chan error, 1)
-	defer close(fatalErrors)
-	// Successful path
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(&service.Service), "SearchResource",
-		func(_ *common.Service, _ string, _ string, store common.Store, _ common.Filter) (uint64, error) {
-			store.Apply(&model.VpcSubnet{
-				Id:   common.String("subnet-1"),
-				Path: common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1"),
-			})
-			return 1, nil
-		})
-	defer patches.Reset()
-	patches.ApplyMethod(reflect.TypeOf(service.NSXClient.DynamicIPReservationsClient), "List", func(c *fakeDynamicIPReservationsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.DynamicIpAddressReservationListResult, error) {
-		return model.DynamicIpAddressReservationListResult{
-			Results:     []model.DynamicIpAddressReservation{ipr1, ipr2},
-			ResultCount: common.Int64(2),
-		}, nil
-	})
-	wg.Add(1)
-	go service.InitializeIPReservationStore(&wg, fatalErrors)
-	wg.Wait()
-	assert.Equal(t, 0, len(fatalErrors))
-	assert.Equal(t, service.IPReservationStore.GetByKey("ipr-1"), &ipr1)
-	assert.Equal(t, service.IPReservationStore.GetByKey("ipr-2"), &ipr2)
-	assert.True(t, service.Supported)
-	// IPReservation is not supported
-	patches.ApplyMethod(reflect.TypeOf(service.NSXClient.DynamicIPReservationsClient), "List", func(c *fakeDynamicIPReservationsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.DynamicIpAddressReservationListResult, error) {
-		err := apierrors.NewNotFound()
-		err.Data = data.NewStructValue(
-			"",
-			map[string]data.DataValue{
-				"error_code": data.NewIntegerValue(258),
-			},
-		)
-		return model.DynamicIpAddressReservationListResult{}, *err
-	})
-	wg.Add(1)
-	go service.InitializeIPReservationStore(&wg, fatalErrors)
-	wg.Wait()
-
-	assert.Equal(t, 0, len(fatalErrors))
-	assert.False(t, service.Supported)
-}
-
 func createFakeService() *IPReservationService {
 	return &IPReservationService{
 		Service: common.Service{
@@ -311,6 +240,5 @@ func createFakeService() *IPReservationService {
 			},
 		},
 		IPReservationStore: SetupStore(),
-		Supported:          true,
 	}
 }
