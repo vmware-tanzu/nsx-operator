@@ -39,7 +39,11 @@ func createIPAddressAllocationService(t *testing.T) (*IPAddressAllocationService
 	mockVPCIPAddressAllocationclient := mocks.NewMockIPAddressAllocationClient(mockCtrl)
 
 	ipAddressAllocationStore := &IPAddressAllocationStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeIPAddressAllocationCRUID: indexByIPAddressAllocation}),
+		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+			common.TagScopeIPAddressAllocationCRUID: indexByIPAddressAllocation,
+			common.TagScopeAddressBindingCRUID:      indexByAddressBinding,
+			common.TagScopeSubnetPortCRUID:          indexBySubnetPort,
+		}),
 		BindingType: model.VpcIpAddressAllocationBindingType(),
 	}}
 
@@ -676,4 +680,78 @@ func TestIPAddressAllocationService_Cleanup_Error(t *testing.T) {
 	err := returnservice.CleanupVPCChildResources(ctx, "")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "delete error")
+}
+
+func TestIPAddressAllocationService_CreateIPAddressAllocationForAddressBinding(t *testing.T) {
+	ab1 := &v1alpha1.AddressBinding{
+		ObjectMeta: v1.ObjectMeta{
+			Namespace: "ns-1",
+			Name:      "ab-1",
+			UID:       "ab-1",
+		},
+		Spec: v1alpha1.AddressBindingSpec{
+			VMName: "vm-1",
+		},
+		Status: v1alpha1.AddressBindingStatus{
+			IPAddress: "192.0.0.8",
+		},
+	}
+	ab2 := &v1alpha1.AddressBinding{
+		ObjectMeta: v1.ObjectMeta{
+			Namespace: "ns-1",
+			Name:      "ab-2",
+			UID:       "ab-2",
+		},
+		Spec: v1alpha1.AddressBindingSpec{
+			VMName:                  "vm-2",
+			IPAddressAllocationName: "ipa-1",
+		},
+		Status: v1alpha1.AddressBindingStatus{
+			IPAddress: "192.0.0.10",
+		},
+	}
+	subnetport := &v1alpha1.SubnetPort{
+		ObjectMeta: v1.ObjectMeta{
+			Namespace: "ns-1",
+			Name:      "port-1",
+			UID:       "port-1",
+		},
+	}
+	ipa := &model.VpcIpAddressAllocation{
+		Id: common.String("ab-1"),
+		Tags: []model.Tag{
+			{
+				Scope: common.String(common.TagScopeAddressBindingCRUID),
+				Tag:   common.String("ab-1"),
+			},
+		},
+	}
+	service, mockController, _ := createIPAddressAllocationService(t)
+	defer mockController.Finish()
+	// No AddressBinding for SubnetPort
+	err := service.CreateIPAddressAllocationForAddressBinding(nil, subnetport, true)
+	assert.Nil(t, err)
+
+	// IPAddressAllocation exists for AddressBinding
+	service.ipAddressAllocationStore.Add(ipa)
+	err = service.CreateIPAddressAllocationForAddressBinding(ab1, subnetport, true)
+	assert.Nil(t, err)
+	service.ipAddressAllocationStore.Delete(ipa)
+
+	// AddressBinding with specified IPAddressAllocation
+	err = service.CreateIPAddressAllocationForAddressBinding(ab2, subnetport, true)
+	assert.Nil(t, err)
+
+	// Create IPAddressAllocation for AddressBinding
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "Apply",
+		func(service *IPAddressAllocationService, nsxIPAddressAllocation *model.VpcIpAddressAllocation) error {
+			return nil
+		})
+	patches.ApplyPrivateMethod(reflect.TypeOf(service), "buildIPAddressAllocationTags",
+		func(_ *IPAddressAllocationService, obj v1.Object) []model.Tag {
+			return []model.Tag{}
+		})
+	err = service.CreateIPAddressAllocationForAddressBinding(ab1, subnetport, true)
+	assert.Nil(t, err)
+	patches.Reset()
 }

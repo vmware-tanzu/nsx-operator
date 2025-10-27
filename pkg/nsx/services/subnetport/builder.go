@@ -281,7 +281,16 @@ func (service *SubnetPortService) buildExternalAddressBinding(sp *v1alpha1.Subne
 		externalIpPath := vpcPath + "/ip-address-allocations/" + ipAddressAllocationID
 
 		portExternalAddressBinding.AllocatedExternalIpPath = String(externalIpPath)
-		// TODO: support backup/restore when restoreMode is false
+	} else if len(addressBinding.Status.IPAddress) > 0 {
+		// In normal mode, also check IPAddressAllocation store to determine if the AddressBinding is restored
+		// with an IPAddressAllocation controlled by Operator
+		existingAddressAllocation, err := service.IpAddressAllocationService.GetIPAddressAllocationByOwner(addressBinding)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find an existing external AddressBidning: %v", err)
+		}
+		if existingAddressAllocation != nil {
+			portExternalAddressBinding.AllocatedExternalIpPath = existingAddressAllocation.Path
+		}
 	}
 	return portExternalAddressBinding, nil
 }

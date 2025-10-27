@@ -132,7 +132,7 @@ func (service *IPAddressAllocationService) CreateIPAddressAllocationForAddressBi
 		// Only create the NSX IPAddressAllocation in restore stage
 		return nil
 	}
-	if len(addressBinding.Status.IPAddress) == 0 {
+	if addressBinding == nil || len(addressBinding.Status.IPAddress) == 0 {
 		return nil
 	}
 	existingIPAddressAllocation, err := service.GetIPAddressAllocationByOwner(addressBinding)
@@ -147,6 +147,10 @@ func (service *IPAddressAllocationService) CreateIPAddressAllocationForAddressBi
 	nsxIPAddressAllocation, err := service.BuildIPAddressAllocation(addressBinding, subnetPort, restoreMode)
 	if err != nil {
 		return err
+	}
+	// nsxIPAddressAllocation is nil if the AddressBinding is created with IPAddressAllocationName
+	if nsxIPAddressAllocation == nil {
+		return nil
 	}
 	err = service.Apply(nsxIPAddressAllocation)
 	if err != nil {
