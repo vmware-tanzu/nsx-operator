@@ -9,6 +9,17 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
+// SetCleanupFilters sets the targetNamespace and targetVPC filters for selective cleanup
+func (service *SecurityPolicyService) SetCleanupFilters(targetNamespace, targetVPC string) {
+	service.targetNamespace = targetNamespace
+	service.targetVPC = targetVPC
+}
+
+// shouldCleanResource checks if a resource should be cleaned based on namespace/VPC filtering
+func (service *SecurityPolicyService) shouldCleanResource(path *string, tags []model.Tag) bool {
+	return common.ShouldCleanResource(service.targetNamespace, service.targetVPC, path, tags)
+}
+
 // CleanupBeforeVPCDeletion cleans up SecurityPolicy, Rules, and Shares before VPC deletion to avoid dependency issues.
 // SecurityPolicy and Rules must be deleted first because Shares cannot be deleted while they are still being consumed.
 func (service *SecurityPolicyService) CleanupBeforeVPCDeletion(ctx context.Context) error {
@@ -42,7 +53,7 @@ func (service *SecurityPolicyService) CleanupBeforeVPCDeletion(ctx context.Conte
 			name:    "infra",
 		},
 	} {
-		if err := cleanShares(ctx, config.store, config.builder, service.NSXClient); err != nil {
+		if err := cleanSharesFiltered(ctx, config.store, config.builder, service.NSXClient, service); err != nil {
 			log.Error(err, "Failed to clean shares", "type", config.name)
 			return err
 		}
@@ -91,8 +102,16 @@ func (service *SecurityPolicyService) cleanupSecurityPoliciesByVPC(ctx context.C
 	// Mark the resources for delete.
 	for _, obj := range service.securityPolicyStore.List() {
 		sp := obj.(*model.SecurityPolicy)
-		sp.MarkedForDelete = &MarkedForDelete
-		securityPolicies = append(securityPolicies, sp)
+		// Filter by namespace if specified
+		if service.shouldCleanResource(sp.Path, sp.Tags) {
+			sp.MarkedForDelete = &MarkedForDelete
+			securityPolicies = append(securityPolicies, sp)
+			if service.targetNamespace != "" || service.targetVPC != "" {
+				log.Info("Marking security policy for deletion", "path", *sp.Path, "name", *sp.DisplayName)
+			}
+		} else {
+			log.Info("Skipping security policy (not in target)", "path", *sp.Path, "targetNamespace", service.targetNamespace, "targetVPC", service.targetVPC)
+		}
 	}
 
 	return service.securityPolicyBuilder.PagingUpdateResources(ctx, securityPolicies, common.DefaultHAPIChildrenCount, service.NSXClient, func(deletedObjs []*model.SecurityPolicy) {
@@ -119,8 +138,16 @@ func (service *SecurityPolicyService) cleanupRulesByVPC(ctx context.Context, vpc
 	// Mark the resources for delete.
 	for _, obj := range service.ruleStore.List() {
 		rule := obj.(*model.Rule)
-		rule.MarkedForDelete = &MarkedForDelete
-		rules = append(rules, rule)
+		// Filter by namespace if specified
+		if service.shouldCleanResource(rule.Path, rule.Tags) {
+			rule.MarkedForDelete = &MarkedForDelete
+			rules = append(rules, rule)
+			if service.targetNamespace != "" || service.targetVPC != "" {
+				log.Info("Marking rule for deletion", "path", *rule.Path, "name", *rule.DisplayName)
+			}
+		} else {
+			log.Info("Skipping rule (not in target)", "path", *rule.Path, "targetNamespace", service.targetNamespace, "targetVPC", service.targetVPC)
+		}
 	}
 
 	return service.ruleBuilder.PagingUpdateResources(ctx, rules, common.DefaultHAPIChildrenCount, service.NSXClient, func(deletedObjs []*model.Rule) {
@@ -143,7 +170,7 @@ func (service *SecurityPolicyService) cleanupGroupsByVPC(ctx context.Context, vp
 		return nil
 	}
 
-	return cleanGroups(ctx, service.groupStore, service.groupBuilder, service.NSXClient)
+	return cleanGroupsFiltered(ctx, service.groupStore, service.groupBuilder, service.NSXClient, service)
 }
 
 // CleanupInfraResources is to clean up the resources created by SecurityPolicyService under path /infra.
@@ -160,7 +187,7 @@ func (service *SecurityPolicyService) CleanupInfraResources(ctx context.Context)
 			builder: service.infraGroupBuilder,
 		},
 	} {
-		if err := cleanGroups(ctx, config.store, config.builder, service.NSXClient); err != nil {
+		if err := cleanGroupsFiltered(ctx, config.store, config.builder, service.NSXClient, service); err != nil {
 			return err
 		}
 	}
@@ -168,17 +195,31 @@ func (service *SecurityPolicyService) CleanupInfraResources(ctx context.Context)
 }
 
 func cleanShares(ctx context.Context, store *ShareStore, builder *common.PolicyTreeBuilder[*model.Share], nsxClient *nsx.Client) error {
+	return cleanSharesFiltered(ctx, store, builder, nsxClient, nil)
+}
+
+func cleanSharesFiltered(ctx context.Context, store *ShareStore, builder *common.PolicyTreeBuilder[*model.Share], nsxClient *nsx.Client, service *SecurityPolicyService) error {
 	cachedObjs := store.List()
 	if len(cachedObjs) == 0 {
 		return nil
 	}
-	log.Info("Cleaning up Shares", "Count", len(cachedObjs))
+
 	cachedShares := make([]*model.Share, 0)
 	for _, obj := range cachedObjs {
 		share := obj.(*model.Share)
-		share.MarkedForDelete = &MarkedForDelete
-		cachedShares = append(cachedShares, share)
+		// Filter by namespace if service is provided
+		if service == nil || service.shouldCleanResource(share.Path, share.Tags) {
+			share.MarkedForDelete = &MarkedForDelete
+			cachedShares = append(cachedShares, share)
+			if service != nil && (service.targetNamespace != "" || service.targetVPC != "") {
+				log.Info("Marking share for deletion", "path", *share.Path)
+			}
+		} else if service != nil {
+			log.Info("Skipping share (not in target)", "path", *share.Path, "targetNamespace", service.targetNamespace, "targetVPC", service.targetVPC)
+		}
 	}
+
+	log.Info("Cleaning up Shares", "Total", len(cachedObjs), "ToDelete", len(cachedShares))
 
 	return builder.PagingUpdateResources(ctx, cachedShares, common.DefaultHAPIChildrenCount, nsxClient, func(deletedObjs []*model.Share) {
 		store.DeleteMultipleObjects(deletedObjs)
@@ -186,18 +227,32 @@ func cleanShares(ctx context.Context, store *ShareStore, builder *common.PolicyT
 }
 
 func cleanGroups(ctx context.Context, store *GroupStore, builder *common.PolicyTreeBuilder[*model.Group], nsxClient *nsx.Client) error {
+	return cleanGroupsFiltered(ctx, store, builder, nsxClient, nil)
+}
+
+func cleanGroupsFiltered(ctx context.Context, store *GroupStore, builder *common.PolicyTreeBuilder[*model.Group], nsxClient *nsx.Client, service *SecurityPolicyService) error {
 	cachedObjs := store.List()
 	if len(cachedObjs) == 0 {
 		return nil
 	}
-	log.Info("Cleaning up Groups", "Count", len(cachedObjs))
 
 	cachedGroups := make([]*model.Group, 0)
 	for _, obj := range cachedObjs {
 		group := obj.(*model.Group)
-		group.MarkedForDelete = &MarkedForDelete
-		cachedGroups = append(cachedGroups, group)
+		// Filter by namespace if service is provided
+		if service == nil || service.shouldCleanResource(group.Path, group.Tags) {
+			group.MarkedForDelete = &MarkedForDelete
+			cachedGroups = append(cachedGroups, group)
+			if service != nil && (service.targetNamespace != "" || service.targetVPC != "") {
+				log.Info("Marking group for deletion", "path", *group.Path)
+			}
+		} else if service != nil {
+			log.Info("Skipping group (not in target)", "path", *group.Path, "targetNamespace", service.targetNamespace, "targetVPC", service.targetVPC)
+		}
 	}
+
+	log.Info("Cleaning up Groups", "Total", len(cachedObjs), "ToDelete", len(cachedGroups))
+
 	return builder.PagingUpdateResources(ctx, cachedGroups, common.DefaultHAPIChildrenCount, nsxClient, func(deletedObjs []*model.Group) {
 		store.DeleteMultipleObjects(deletedObjs)
 	})

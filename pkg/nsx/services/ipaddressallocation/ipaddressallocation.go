@@ -26,6 +26,9 @@ type IPAddressAllocationService struct {
 	ipAddressAllocationStore *IPAddressAllocationStore
 	VPCService               common.VPCServiceProvider
 	builder                  *common.PolicyTreeBuilder[*model.VpcIpAddressAllocation]
+
+	targetNamespace string // For selective cleanup - only clean resources for this namespace
+	targetVPC       string // For selective cleanup - only clean this specific VPC
 }
 
 func InitializeIPAddressAllocation(service common.Service, vpcService common.VPCServiceProvider, includeNCP bool) (*IPAddressAllocationService,

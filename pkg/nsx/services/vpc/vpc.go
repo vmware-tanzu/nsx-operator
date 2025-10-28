@@ -53,6 +53,9 @@ type VPCService struct {
 	common.Service
 	VpcStore *VPCStore
 	LbsStore *LBSStore
+
+	targetNamespace string // For selective cleanup - only clean resources for this namespace
+	targetVPC       string // For selective cleanup - only clean this specific VPC
 }
 
 func (s *VPCService) GetDefaultNetworkConfig() (*v1alpha1.VPCNetworkConfiguration, error) {

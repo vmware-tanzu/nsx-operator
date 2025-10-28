@@ -25,6 +25,9 @@ type IPReservationService struct {
 	common.Service
 	IPReservationStore *IPReservationStore
 	builder            *common.PolicyTreeBuilder[*model.DynamicIpAddressReservation]
+
+	targetNamespace string // For selective cleanup - only clean resources for this namespace
+	targetVPC       string // For selective cleanup - only clean this specific VPC
 }
 
 // InitializeService initializes SubnetIPReservationService service.

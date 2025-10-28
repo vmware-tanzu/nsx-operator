@@ -85,6 +85,16 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig, log *logr.Logger, 
 	}
 
 	cleanupService.log = log
+	cleanupService.targetNamespace = cf.TargetNamespace
+	cleanupService.targetVPC = cf.TargetVPC
+
+	if cf.TargetNamespace != "" {
+		log.Info("Running selective cleanup for namespace", "namespace", cf.TargetNamespace)
+	} else if cf.TargetVPC != "" {
+		log.Info("Running selective cleanup for VPC", "vpc", cf.TargetVPC)
+	} else {
+		log.Info("Running full cleanup for all resources")
+	}
 
 	if err := cleanupService.cleanupVPCResources(ctx); err != nil {
 		return errors.Join(nsxutil.CleanupResourceFailed, err)
@@ -167,11 +177,11 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 			return inventory.InitializeService(service, true)
 		}
 	}
-	wrapInitializeLBInfraCleaner := func(service common.Service) cleanupFunc {
-		return func() (interface{}, error) {
-			return &LBInfraCleaner{Service: service, log: log}, nil
-		}
-	}
+	//wrapInitializeLBInfraCleaner := func(service common.Service) cleanupFunc {
+	//	return func() (interface{}, error) {
+	//		return &LBInfraCleaner{Service: service, log: log}, nil
+	//	}
+	//}
 
 	wrapInitializeHealthCleaner := func(service common.Service) cleanupFunc {
 		return func() (interface{}, error) {
@@ -210,9 +220,73 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 	loggedAdd("VPC", wrapInitializeVPC(commonService))
 	loggedAdd("IPAddressAllocation", wrapInitializeIPAddressAllocation(commonService))
 	loggedAdd("Inventory", wrapInitializeInventory(commonService))
-	loggedAdd("LBInfraCleaner", wrapInitializeLBInfraCleaner(commonService))
+	// Commented out for testing VPC deletion without LB interference
+	// loggedAdd("LBInfraCleaner", wrapInitializeLBInfraCleaner(commonService))
 	loggedAdd("HealthCleaner", wrapInitializeHealthCleaner(commonService))
 	loggedAdd("NSXServiceAccount", wrapInitializeNSXServiceAccount(commonService))
+
+	// Set targetNamespace and targetVPC for all services that support selective cleanup
+	if cf.TargetNamespace != "" || cf.TargetVPC != "" {
+		// Set filters for vpcPreCleaners
+		for _, cleaner := range cleanupService.vpcPreCleaners {
+			switch svc := cleaner.(type) {
+			case *securitypolicy.SecurityPolicyService:
+				svc.SetCleanupFilters(cf.TargetNamespace, cf.TargetVPC)
+				log.Info("Set cleanup filters for SecurityPolicyService", "targetNamespace", cf.TargetNamespace, "targetVPC", cf.TargetVPC)
+			case *vpc.VPCService:
+				svc.SetCleanupFilters(cf.TargetNamespace, cf.TargetVPC)
+				log.Info("Set cleanup filters for VPCService", "targetNamespace", cf.TargetNamespace, "targetVPC", cf.TargetVPC)
+			case *subnetport.SubnetPortService:
+				svc.SetCleanupFilters(cf.TargetNamespace, cf.TargetVPC)
+				log.Info("Set cleanup filters for SubnetPortService", "targetNamespace", cf.TargetNamespace, "targetVPC", cf.TargetVPC)
+			case *subnetbinding.BindingService:
+				svc.SetCleanupFilters(cf.TargetNamespace, cf.TargetVPC)
+				log.Info("Set cleanup filters for BindingService", "targetNamespace", cf.TargetNamespace, "targetVPC", cf.TargetVPC)
+			case *subnetipreservation.IPReservationService:
+				svc.SetCleanupFilters(cf.TargetNamespace, cf.TargetVPC)
+				log.Info("Set cleanup filters for IPReservationService", "targetNamespace", cf.TargetNamespace, "targetVPC", cf.TargetVPC)
+			case *inventory.InventoryService:
+				svc.SetCleanupFilters(cf.TargetNamespace, cf.TargetVPC)
+				log.Info("Set cleanup filters for InventoryService", "targetNamespace", cf.TargetNamespace, "targetVPC", cf.TargetVPC)
+			case *nsxserviceaccount.NSXServiceAccountService:
+				svc.SetCleanupFilters(cf.TargetNamespace, cf.TargetVPC)
+				log.Info("Set cleanup filters for NSXServiceAccountService", "targetNamespace", cf.TargetNamespace, "targetVPC", cf.TargetVPC)
+			}
+		}
+
+		// Set filters for vpcChildrenCleaners
+		for _, cleaner := range cleanupService.vpcChildrenCleaners {
+			switch svc := cleaner.(type) {
+			case *securitypolicy.SecurityPolicyService:
+				svc.SetCleanupFilters(cf.TargetNamespace, cf.TargetVPC)
+				log.Info("Set cleanup filters for SecurityPolicyService (vpcChildren)", "targetNamespace", cf.TargetNamespace, "targetVPC", cf.TargetVPC)
+			case *vpc.VPCService:
+				svc.SetCleanupFilters(cf.TargetNamespace, cf.TargetVPC)
+				log.Info("Set cleanup filters for VPCService (vpcChildren)", "targetNamespace", cf.TargetNamespace, "targetVPC", cf.TargetVPC)
+			case *subnet.SubnetService:
+				svc.SetCleanupFilters(cf.TargetNamespace, cf.TargetVPC)
+				log.Info("Set cleanup filters for SubnetService", "targetNamespace", cf.TargetNamespace, "targetVPC", cf.TargetVPC)
+			case *sr.StaticRouteService:
+				svc.SetCleanupFilters(cf.TargetNamespace, cf.TargetVPC)
+				log.Info("Set cleanup filters for StaticRouteService", "targetNamespace", cf.TargetNamespace, "targetVPC", cf.TargetVPC)
+			case *ipaddressallocation.IPAddressAllocationService:
+				svc.SetCleanupFilters(cf.TargetNamespace, cf.TargetVPC)
+				log.Info("Set cleanup filters for IPAddressAllocationService", "targetNamespace", cf.TargetNamespace, "targetVPC", cf.TargetVPC)
+			}
+		}
+
+		// Set filters for infraCleaners
+		for _, cleaner := range cleanupService.infraCleaners {
+			switch svc := cleaner.(type) {
+			case *securitypolicy.SecurityPolicyService:
+				svc.SetCleanupFilters(cf.TargetNamespace, cf.TargetVPC)
+				log.Info("Set cleanup filters for SecurityPolicyService (infra)", "targetNamespace", cf.TargetNamespace, "targetVPC", cf.TargetVPC)
+				//case *LBInfraCleaner:
+				//	svc.SetCleanupFilters(cf.TargetNamespace, cf.TargetVPC)
+				//	log.Info("Set cleanup filters for LBInfraCleaner", "targetNamespace", cf.TargetNamespace, "targetVPC", cf.TargetVPC)
+			}
+		}
+	}
 
 	log.Info("Cleanup service initialization summary",
 		"vpcPreCleaners", len(cleanupService.vpcPreCleaners),

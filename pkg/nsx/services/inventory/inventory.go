@@ -36,6 +36,9 @@ type InventoryService struct {
 	pendingDelete map[string]interface{}
 
 	stalePods map[string]interface{}
+
+	targetNamespace string // For selective cleanup - only clean resources for this namespace
+	targetVPC       string // For selective cleanup - only clean this specific VPC
 }
 
 func InitializeService(service commonservice.Service, cleanup bool) (*InventoryService, error) {
@@ -400,6 +403,12 @@ func (s *InventoryService) updateInventoryStore() error {
 
 func (s *InventoryService) UpdatePendingAdd(externalId string, inventoryObject interface{}) {
 	s.pendingAdd[externalId] = inventoryObject
+}
+
+// SetCleanupFilters sets the targetNamespace and targetVPC filters for selective cleanup
+func (s *InventoryService) SetCleanupFilters(targetNamespace, targetVPC string) {
+	s.targetNamespace = targetNamespace
+	s.targetVPC = targetVPC
 }
 
 // CleanupBeforeVPCDeletion cleans up all clusters registered in the inventory. Since the resources in inventory
