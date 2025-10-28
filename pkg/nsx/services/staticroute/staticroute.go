@@ -20,6 +20,9 @@ type StaticRouteService struct {
 	StaticRouteStore *StaticRouteStore
 	VPCService       common.VPCServiceProvider
 	builder          *common.PolicyTreeBuilder[*model.StaticRoutes]
+
+	targetNamespace string // For selective cleanup - only clean resources for this namespace
+	targetVPC       string // For selective cleanup - only clean this specific VPC
 }
 
 var (

@@ -8,6 +8,17 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
+// SetCleanupFilters sets the targetNamespace and targetVPC filters for selective cleanup
+func (service *StaticRouteService) SetCleanupFilters(targetNamespace, targetVPC string) {
+	service.targetNamespace = targetNamespace
+	service.targetVPC = targetVPC
+}
+
+// shouldCleanResource checks if a resource should be cleaned based on namespace/VPC filtering
+func (service *StaticRouteService) shouldCleanResource(path *string, tags []model.Tag) bool {
+	return common.ShouldCleanResource(service.targetNamespace, service.targetVPC, path, tags)
+}
+
 // CleanupVPCChildResources is deleting all the NSX StaticRoutes in the given vpcPath on NSX and/or in local cache.
 // If vpcPath is not empty, the function is called with an auto-created VPC case, so it only deletes in the local cache for
 // the NSX resources are already removed when VPC is deleted recursively. Otherwise, it should delete all cached StaticRoutes
@@ -34,8 +45,15 @@ func (service *StaticRouteService) CleanupVPCChildResources(ctx context.Context,
 	// Mark the resources for delete.
 	for _, obj := range service.StaticRouteStore.List() {
 		route := obj.(*model.StaticRoutes)
-		route.MarkedForDelete = &MarkedForDelete
-		routes = append(routes, route)
+		if service.shouldCleanResource(route.Path, route.Tags) {
+			route.MarkedForDelete = &MarkedForDelete
+			routes = append(routes, route)
+			if service.targetNamespace != "" || service.targetVPC != "" {
+				log.Info("Marking static route for deletion", "path", *route.Path, "name", *route.DisplayName)
+			}
+		} else {
+			log.Info("Skipping static route (not in target)", "path", *route.Path, "targetNamespace", service.targetNamespace, "targetVPC", service.targetVPC)
+		}
 	}
 	log.Info("Cleaning up StaticRoutes from pre-created VPC", "count", len(routes))
 	return service.builder.PagingUpdateResources(ctx, routes, common.DefaultHAPIChildrenCount, service.NSXClient, func(deletedObjs []*model.StaticRoutes) {

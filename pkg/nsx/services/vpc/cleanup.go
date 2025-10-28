@@ -12,6 +12,12 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
+// SetCleanupFilters sets the targetNamespace and targetVPC filters for selective cleanup
+func (s *VPCService) SetCleanupFilters(targetNamespace, targetVPC string) {
+	s.targetNamespace = targetNamespace
+	s.targetVPC = targetVPC
+}
+
 func (s *VPCService) ListAutoCreatedVPCPaths() sets.Set[string] {
 	vpcPaths := sets.New[string]()
 	for _, obj := range s.VpcStore.List() {

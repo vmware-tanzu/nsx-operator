@@ -51,6 +51,9 @@ type SubnetService struct {
 	builder     *common.PolicyTreeBuilder[*model.VpcSubnet]
 	// SharedSubnetData contains data related to shared subnets
 	SharedSubnetData
+
+	targetNamespace string // For selective cleanup - only clean resources for this namespace
+	targetVPC       string // For selective cleanup - only clean this specific VPC
 }
 
 // SubnetParameters stores parameters to CRUD Subnet object

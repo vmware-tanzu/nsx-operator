@@ -29,24 +29,28 @@ import (
 //
 //	./clean -cluster=domain-c9:d75735a3-2847-45d2-a652-ef2d146afd54 -nsx-user=admin -nsx-passwd='xxx'  -mgr-ip=nsxmanager-ob-22386469-1-dev-integ-nsxt-8791 -envoyhost=localhost -envoyport=1080 -log-level=1 -thumbprint=8bc2fa2b5879c27b1180fa44e5f747832f2ded6be483e3c3d2c4816a38870868
 var (
-	log         logger.CustomLogger
-	cf          *config.NSXOperatorConfig
-	mgrIp       string
-	vcEndpoint  string
-	vcUser      string
-	vcPasswd    string
-	nsxUser     string
-	nsxPasswd   string
-	vcSsoDomain string
-	vcHttpsPort int
-	thumbprint  string
-	caFile      string
-	cluster     string
-	envoyHost   string
-	envoyPort   int
+	log             logger.CustomLogger
+	cf              *config.NSXOperatorConfig
+	mgrIp           string
+	vcEndpoint      string
+	vcUser          string
+	vcPasswd        string
+	nsxUser         string
+	nsxPasswd       string
+	vcSsoDomain     string
+	vcHttpsPort     int
+	thumbprint      string
+	caFile          string
+	cluster         string
+	envoyHost       string
+	envoyPort       int
+	targetNamespace string
+	targetVPC       string
 )
 
 func main() {
+	flag.StringVar(&targetNamespace, "target-namespace", "", "only clean resources for this namespace (empty means all)")
+	flag.StringVar(&targetVPC, "target-vpc", "", "only clean this specific VPC (empty means all)")
 	flag.StringVar(&vcEndpoint, "vc-endpoint", "", "vc endpoint")
 	flag.StringVar(&vcSsoDomain, "vc-sso-domain", "", "vc sso domain")
 	flag.StringVar(&mgrIp, "mgr-ip", "", "nsx manager ip, it should be host name if want to verify cert")
@@ -77,12 +81,23 @@ func main() {
 	cf.Cluster = cluster
 	cf.EnvoyHost = envoyHost
 	cf.EnvoyPort = envoyPort
+	cf.TargetNamespace = targetNamespace
+	cf.TargetVPC = targetVPC
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
 	defer cancel()
 	log = logger.ZapCustomLogger(cf.DefaultConfig.Debug, config.LogLevel)
 	logger.Log = log
 	logf.SetLogger(log.Logger)
+
+	if targetNamespace != "" {
+		log.Info("Running selective cleanup", "namespace", targetNamespace)
+	} else if targetVPC != "" {
+		log.Info("Running selective cleanup", "vpc", targetVPC)
+	} else {
+		log.Info("Running full cleanup for all resources")
+	}
+
 	err := clean.Clean(ctx, cf, &log.Logger, cf.DefaultConfig.Debug, config.LogLevel)
 	if err != nil {
 		log.Error(err, "Failed to clean nsx resources")

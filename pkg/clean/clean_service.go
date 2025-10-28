@@ -19,6 +19,8 @@ import (
 type CleanupService struct {
 	log *logr.Logger
 
+	targetNamespace     string // Filter resources by namespace
+	targetVPC           string // Filter to specific VPC
 	vpcService          *vpc.VPCService
 	vpcPreCleaners      []vpcPreCleaner
 	vpcChildrenCleaners []vpcChildrenCleaner
@@ -182,6 +184,35 @@ func (c *CleanupService) cleanupAutoCreatedVPCs(ctx context.Context) error {
 	defer queue.ShutDown()
 
 	autoCreatedVPCs := c.vpcService.ListAutoCreatedVPCPaths()
+
+	// Filter VPCs by namespace or specific VPC if specified
+	if c.targetNamespace != "" || c.targetVPC != "" {
+		filteredVPCs := sets.New[string]()
+		for vpcPath := range autoCreatedVPCs {
+			vpcID := extractIDFromPath(vpcPath)
+
+			// Check if this VPC matches our filter criteria
+			if c.targetVPC != "" {
+				// Match specific VPC by ID or path
+				if vpcID == c.targetVPC || strings.Contains(vpcPath, c.targetVPC) {
+					filteredVPCs.Insert(vpcPath)
+					c.log.Info("Including specific VPC for cleanup", "vpcPath", vpcPath, "targetVPC", c.targetVPC)
+				} else {
+					c.log.Info("Skipping VPC (not target VPC)", "vpcPath", vpcPath, "targetVPC", c.targetVPC)
+				}
+			} else if c.targetNamespace != "" {
+				// Match by namespace - check if VPC belongs to this namespace
+				if strings.Contains(vpcPath, c.targetNamespace) || strings.Contains(vpcID, c.targetNamespace) {
+					filteredVPCs.Insert(vpcPath)
+					c.log.Info("Including VPC for namespace cleanup", "vpcPath", vpcPath, "namespace", c.targetNamespace)
+				} else {
+					c.log.Info("Skipping VPC (not in target namespace)", "vpcPath", vpcPath, "targetNamespace", c.targetNamespace)
+				}
+			}
+		}
+		autoCreatedVPCs = filteredVPCs
+	}
+
 	if autoCreatedVPCs.Len() == 0 {
 		return nil
 	}

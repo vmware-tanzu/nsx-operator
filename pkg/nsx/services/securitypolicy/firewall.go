@@ -56,6 +56,9 @@ type SecurityPolicyService struct {
 	projectGroupBuilder   *common.PolicyTreeBuilder[*model.Group]
 	infraShareBuilder     *common.PolicyTreeBuilder[*model.Share]
 	projectShareBuilder   *common.PolicyTreeBuilder[*model.Share]
+
+	targetNamespace string // For selective cleanup - only clean resources for this namespace
+	targetVPC       string // For selective cleanup - only clean this specific VPC
 }
 
 type GroupShare struct {

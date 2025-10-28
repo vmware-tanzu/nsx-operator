@@ -48,8 +48,10 @@ type NSXOperatorConfig struct {
 	*K8sConfig
 	*VCConfig
 	*HAConfig
-	configCache configCache
-	LibMode     bool
+	configCache     configCache
+	LibMode         bool
+	TargetNamespace string // For selective cleanup - only clean resources for this namespace
+	TargetVPC       string // For selective cleanup - only clean this specific VPC
 }
 
 func init() {
@@ -237,6 +239,8 @@ func NewNSXOpertorConfig() *NSXOperatorConfig {
 		&HAConfig{},
 		configCache{},
 		false,
+		"", // TargetNamespace
+		"", // TargetVPC
 	}
 	return defaultNSXOperatorConfig
 }

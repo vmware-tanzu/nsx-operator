@@ -40,6 +40,9 @@ type SubnetPortService struct {
 	IpAddressAllocationService servicecommon.IPAddressAllocationServiceProvider
 	builder                    *servicecommon.PolicyTreeBuilder[*model.VpcSubnetPort]
 	macPool                    *mp_model.MacPool
+
+	targetNamespace string // For selective cleanup - only clean resources for this namespace
+	targetVPC       string // For selective cleanup - only clean this specific VPC
 }
 
 // InitializeSubnetPort sync NSX resources.

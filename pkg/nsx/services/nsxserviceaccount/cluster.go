@@ -62,6 +62,9 @@ type NSXServiceAccountService struct {
 	common.Service
 	PrincipalIdentityStore   *PrincipalIdentityStore
 	ClusterControlPlaneStore *ClusterControlPlaneStore
+
+	targetNamespace string // For selective cleanup - only clean resources for this namespace
+	targetVPC       string // For selective cleanup - only clean this specific VPC
 }
 
 // InitializeNSXServiceAccount sync NSX resources
@@ -616,6 +619,12 @@ func (s *NSXServiceAccountService) UpdateProxyEndpointsIfNeeded(ctx context.Cont
 		return s.Client.Status().Update(ctx, obj)
 	}
 	return nil
+}
+
+// SetCleanupFilters sets the targetNamespace and targetVPC filters for selective cleanup
+func (s *NSXServiceAccountService) SetCleanupFilters(targetNamespace, targetVPC string) {
+	s.targetNamespace = targetNamespace
+	s.targetVPC = targetVPC
 }
 
 func (s *NSXServiceAccountService) CleanupBeforeVPCDeletion(ctx context.Context) error {
