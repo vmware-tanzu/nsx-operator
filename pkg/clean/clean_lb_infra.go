@@ -53,16 +53,26 @@ func keyFunc(obj interface{}) (string, error) {
 	}
 }
 
+// CleanupBeforeVPCDeletion cleans up LB-related shares before VPC deletion
+func (s *LBInfraCleaner) CleanupBeforeVPCDeletion(ctx context.Context) error {
+	s.log.Info("Cleaning up LB infra shares before VPC deletion")
+
+	// Clean up shares
+	if err := s.cleanupInfraShares(ctx); err != nil {
+		s.log.Error(err, "Failed to clean up infra shares")
+		return err
+	}
+
+	s.log.Info("Successfully cleaned up LB infra shares")
+	return nil
+}
+
 // CleanupInfraResources is to clean up the LB related resources created under path /infra, including,
-// group/share/cert/LBAppProfile/LBPersistentProfile/dlb virtual servers/dlb services/dlb groups/dlb pools
+// cert/LBAppProfile/LBPersistentProfile/dlb virtual servers/dlb services/dlb groups/dlb pools
 func (s *LBInfraCleaner) CleanupInfraResources(ctx context.Context) error {
 	// LB virtual server has dependencies on LB pool, so we can't delete vs and pool in parallel.
 	if err := s.cleanupInfraDLBVirtualServers(ctx); err != nil {
 		s.log.Error(err, "Failed to clean up DLB virtual servers")
-		return err
-	}
-	if err := s.cleanupInfraShares(ctx); err != nil {
-		s.log.Error(err, "Failed to clean up infra Shareds")
 		return err
 	}
 
