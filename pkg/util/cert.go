@@ -146,7 +146,9 @@ func GenerateWebhookCerts() error {
 		Bytes: x509.MarshalPKCS1PrivateKey(serverKey),
 	})
 
-	kubeClient := kubernetes.NewForConfigOrDie(ctrl.GetConfigOrDie())
+	cfg := ctrl.GetConfigOrDie()
+	cfg.Timeout = TCPReadTimeout
+	kubeClient := kubernetes.NewForConfigOrDie(cfg)
 	certSecret := &corev1.Secret{
 		TypeMeta: v1.TypeMeta{},
 		ObjectMeta: v1.ObjectMeta{
