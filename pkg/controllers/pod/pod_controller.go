@@ -8,14 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"reflect"
 	"strings"
 	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -54,82 +52,6 @@ type PodReconciler struct {
 	restoreMode       bool
 }
 
-func setPodReadyStatusFalse(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, err error, args ...interface{}) {
-	pod := obj.(*v1.Pod)
-	newConditions := []v1.PodCondition{
-		{
-			Type:   v1.PodReady,
-			Status: v1.ConditionFalse,
-			Message: fmt.Sprintf(
-				"error occurred while processing the Pod. Error: %v",
-				err,
-			),
-			Reason:             "PodNotReady",
-			LastTransitionTime: transitionTime,
-		},
-	}
-	updatePodStatusConditions(client, ctx, pod, newConditions)
-}
-
-func setPodReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, args ...interface{}) {
-	pod := obj.(*v1.Pod)
-	newConditions := []v1.PodCondition{
-		{
-			Type:               v1.PodReady,
-			Status:             v1.ConditionTrue,
-			Message:            "Pod has been successfully created/updated",
-			Reason:             "PodReady",
-			LastTransitionTime: transitionTime,
-		},
-	}
-	updatePodStatusConditions(client, ctx, pod, newConditions)
-}
-
-func updatePodStatusConditions(client client.Client, ctx context.Context, pod *v1.Pod, newConditions []v1.PodCondition) {
-	conditionsUpdated := false
-	for i := range newConditions {
-		if mergePodStatusCondition(pod, &newConditions[i]) {
-			conditionsUpdated = true
-		}
-	}
-
-	if conditionsUpdated {
-		err := client.Status().Update(ctx, pod)
-		if err != nil {
-			log.Error(err, "Failed to update Pod status", "Name", pod.Name, "Namespace", pod.Namespace)
-		}
-		log.Trace("Updated pod", "Name", pod.Name, "Namespace", pod.Namespace,
-			"New Conditions", newConditions)
-	}
-}
-
-func mergePodStatusCondition(pod *v1.Pod, newCondition *v1.PodCondition) bool {
-	matchedCondition := getExistingConditionOfType(newCondition.Type, pod.Status.Conditions)
-
-	if reflect.DeepEqual(matchedCondition, newCondition) {
-		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
-		return false
-	}
-
-	if matchedCondition != nil {
-		matchedCondition.Reason = newCondition.Reason
-		matchedCondition.Message = newCondition.Message
-		matchedCondition.Status = newCondition.Status
-	} else {
-		pod.Status.Conditions = append(pod.Status.Conditions, *newCondition)
-	}
-	return true
-}
-
-func getExistingConditionOfType(conditionType v1.PodConditionType, existingConditions []v1.PodCondition) *v1.PodCondition {
-	for i := range existingConditions {
-		if existingConditions[i].Type == conditionType {
-			return &existingConditions[i]
-		}
-	}
-	return nil
-}
-
 func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log.Info("Reconciling Pod", "Pod", req.NamespacedName)
 	startTime := time.Now()
@@ -162,7 +84,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		isExisting, nsxSubnetPath, err := r.GetSubnetPathForPod(ctx, pod)
 		if err != nil {
 			log.Error(err, "Failed to get NSX resource path from Subnet", "pod.Name", pod.Name, "pod.UID", pod.UID)
-			r.StatusUpdater.UpdateFail(ctx, pod, err, "", setPodReadyStatusFalse)
+			r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
 			return common.ResultRequeue, err
 		}
 		if !isExisting {
@@ -178,12 +100,12 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		contextID := *node.UniqueId
 		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath, false)
 		if err != nil {
-			r.StatusUpdater.UpdateFail(ctx, pod, err, "", setPodReadyStatusFalse)
+			r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
 			return common.ResultRequeue, err
 		}
 		nsxSubnetPortState, _, err := r.SubnetPortService.CreateOrUpdateSubnetPort(pod, nsxSubnet, contextID, &pod.ObjectMeta.Labels, false, r.restoreMode)
 		if err != nil {
-			r.StatusUpdater.UpdateFail(ctx, pod, err, "", setPodReadyStatusFalse)
+			r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
 			return common.ResultRequeue, err
 		}
 		if nsxSubnetPortState != nil && len(nsxSubnetPortState.RealizedBindings) > 0 &&
@@ -198,7 +120,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				return common.ResultNormal, err
 			}
 		}
-		r.StatusUpdater.UpdateSuccess(ctx, pod, setPodReadyStatusTrue)
+		r.StatusUpdater.UpdateSuccess(ctx, pod, nil)
 		if r.restoreMode {
 			// Add restore annotation on Pod to notify Spherelet
 			retry.OnError(util.K8sClientRetry, func(err error) bool {
