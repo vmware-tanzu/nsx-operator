@@ -715,7 +715,7 @@ func Test_BuildPeerTags(t *testing.T) {
 	defer patches.Reset()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.ElementsMatch(t, tt.expectedTags, service.buildPeerTags(tt.inputPolicy, &tt.inputPolicy.Spec.Rules[0], tt.inputIndex, true, false, false, common.ResourceTypeSecurityPolicy))
+			assert.ElementsMatch(t, tt.expectedTags, service.buildPeerTags(tt.inputPolicy, &tt.inputPolicy.Spec.Rules[0], tt.inputIndex, true, VPCScopeGroup, common.ResourceTypeSecurityPolicy))
 		})
 	}
 }
@@ -1665,7 +1665,7 @@ func Test_BuildGroupName(t *testing.T) {
 				svc.NSXConfig.EnableVPCNetwork = tc.enableVPC
 				dispName := svc.buildRulePeerGroupName(obj, tc.ruleIdx, tc.isSource)
 				assert.Equal(t, tc.expName, dispName)
-				groupID := svc.buildRulePeerGroupID(obj, tc.ruleIdx, tc.isSource)
+				groupID := svc.buildRulePeerGroupID(obj, tc.ruleIdx, tc.isSource, VPCScopeGroup)
 				assert.Equal(t, tc.expId, groupID)
 			})
 		}
@@ -1923,6 +1923,229 @@ func Test_dedupBlocks(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			actual := svc.dedupBlocks(tt.input)
 			assert.Equal(t, tt.expected, actual)
+		})
+	}
+}
+
+func Test_getAppliedGroupByRuleId(t *testing.T) {
+	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
+	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
+
+	fakeService := fakeSecurityPolicyService()
+	fakeService.NSXConfig.EnableVPCNetwork = true
+	mockVPCService := mock.MockVPCServiceProvider{}
+	fakeService.vpcService = &mockVPCService
+	fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
+
+	group1 := model.Group{}
+	uuid := "11"
+	id := "11"
+	group1.Id = &id
+	group1.UniqueId = &uuid
+	ruleId := "rule-1"
+	group1.Tags = []model.Tag{
+		{
+			Scope: String(common.TagScopeGroupType),
+			Tag:   String(common.TagValueGroupScope),
+		},
+		{
+			Scope: String(common.TagValueScopeSecurityPolicyUID),
+			Tag:   &spID,
+		},
+		{
+			Scope: String(common.TagScopeRuleID),
+			Tag:   &ruleId,
+		},
+	}
+	err := fakeService.groupStore.Add(&group1)
+	if err != nil {
+		t.Fatalf("Failed to add group to store: %v", err)
+	}
+
+	group2 := model.Group{}
+	uuid = "22"
+	id = "22"
+	group2.Id = &id
+	group2.UniqueId = &uuid
+	group2.Tags = []model.Tag{
+		{
+			Scope: String(common.TagScopeGroupType),
+			Tag:   String(common.TagValueGroupScope),
+		},
+		{
+			Scope: String(common.TagValueScopeSecurityPolicyUID),
+			Tag:   &spID,
+		},
+	}
+	err = fakeService.groupStore.Add(&group2)
+	if err != nil {
+		t.Fatalf("Failed to add group to store: %v", err)
+	}
+
+	type args struct {
+		createdFor string
+		spUID      string
+		ruleId     string
+	}
+	tests := []struct {
+		name        string
+		args        args
+		wantGroupId string
+	}{
+		{
+			name: "Get Policy scope group",
+			args: args{
+				createdFor: common.ResourceTypeSecurityPolicy,
+				spUID:      spID,
+				ruleId:     "",
+			},
+			wantGroupId: *group2.Id,
+		},
+		{
+			name: "Get Rule scope group",
+			args: args{
+				createdFor: common.ResourceTypeSecurityPolicy,
+				spUID:      spID,
+				ruleId:     "rule-1",
+			},
+			wantGroupId: *group1.Id,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			get := fakeService.getAppliedGroupByRuleId(tt.args.createdFor, tt.args.spUID, tt.args.ruleId)
+			assert.Equal(t, tt.wantGroupId, *get.Id)
+		})
+	}
+}
+
+func Test_getPeerGroupByRuleId(t *testing.T) {
+	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
+	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
+
+	fakeService := fakeSecurityPolicyService()
+	fakeService.NSXConfig.EnableVPCNetwork = true
+	mockVPCService := mock.MockVPCServiceProvider{}
+	fakeService.vpcService = &mockVPCService
+	fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
+
+	group1 := model.Group{}
+	uuid := "11"
+	id := "11"
+	group1.Id = &id
+	group1.UniqueId = &uuid
+	ruleId := "rule-1"
+	group1.Tags = []model.Tag{
+		{
+			Scope: String(common.TagScopeGroupType),
+			Tag:   String(common.TagValueGroupSource),
+		},
+		{
+			Scope: String(common.TagValueScopeSecurityPolicyUID),
+			Tag:   &spID,
+		},
+		{
+			Scope: String(common.TagScopeRuleID),
+			Tag:   &ruleId,
+		},
+	}
+	err := fakeService.groupStore.Add(&group1)
+	if err != nil {
+		t.Fatalf("Failed to add group to store: %v", err)
+	}
+
+	group2 := model.Group{}
+	uuid = "22"
+	id = "22"
+	group2.Id = &id
+	group2.UniqueId = &uuid
+	group2.Tags = []model.Tag{
+		{
+			Scope: String(common.TagScopeGroupType),
+			Tag:   String(common.TagValueGroupDestination),
+		},
+		{
+			Scope: String(common.TagValueScopeSecurityPolicyUID),
+			Tag:   &spID,
+		},
+		{
+			Scope: String(common.TagScopeRuleID),
+			Tag:   &ruleId,
+		},
+	}
+	err = fakeService.infraGroupStore.Add(&group2)
+	if err != nil {
+		t.Fatalf("Failed to add group to store: %v", err)
+	}
+
+	group3 := model.Group{}
+	uuid = "33"
+	id = "33"
+	group3.Id = &id
+	group3.UniqueId = &uuid
+	group3.Tags = []model.Tag{
+		{
+			Scope: String(common.TagScopeGroupType),
+			Tag:   String(common.TagValueGroupSource),
+		},
+		{
+			Scope: String(common.TagValueScopeSecurityPolicyUID),
+			Tag:   &spID,
+		},
+		{
+			Scope: String(common.TagScopeRuleID),
+			Tag:   &ruleId,
+		},
+	}
+	err = fakeService.projectGroupStore.Add(&group3)
+	if err != nil {
+		t.Fatalf("Failed to add group to store: %v", err)
+	}
+
+	type args struct {
+		ruleId     string
+		isSource   bool
+		groupScope GroupScope
+	}
+	tests := []struct {
+		name        string
+		args        args
+		wantGroupId string
+	}{
+		{
+			name: "Get VPC source group",
+			args: args{
+				ruleId:     "rule-1",
+				isSource:   true,
+				groupScope: VPCScopeGroup,
+			},
+			wantGroupId: *group1.Id,
+		},
+		{
+			name: "Get infra destination group",
+			args: args{
+				ruleId:     "rule-1",
+				isSource:   false,
+				groupScope: InfraScopeGroup,
+			},
+			wantGroupId: *group2.Id,
+		},
+		{
+			name: "Get project infra source group",
+			args: args{
+				ruleId:     "rule-1",
+				isSource:   true,
+				groupScope: ProjectInfraScopeGroup,
+			},
+			wantGroupId: *group2.Id,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			get := fakeService.getPeerGroupByRuleId(tt.args.ruleId, tt.args.isSource, tt.args.groupScope)
+			assert.Equal(t, tt.wantGroupId, *get.Id)
 		})
 	}
 }

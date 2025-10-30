@@ -197,6 +197,7 @@ func (s *SecurityPolicyService) setUpStore(indexScope string, indexWithVPCPath b
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
 			indexScope:                      indexBySecurityPolicyUID,
 			common.TagScopeNetworkPolicyUID: indexByNetworkPolicyUID,
+			common.TagScopeRuleID:           indexGroupFunc,
 		}),
 		BindingType: model.GroupBindingType(),
 	}}
@@ -211,6 +212,7 @@ func (s *SecurityPolicyService) setUpStore(indexScope string, indexWithVPCPath b
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
 			indexScope:                      indexBySecurityPolicyUID,
 			common.TagScopeNetworkPolicyUID: indexByNetworkPolicyUID,
+			common.TagScopeRuleID:           indexGroupFunc,
 		}),
 		BindingType: model.GroupBindingType(),
 	}}
