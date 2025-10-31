@@ -72,10 +72,10 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 	}
 	existingIPAddressAllocation, err := service.indexedIPAddressAllocation(obj.UID)
 	if err != nil {
-		log.Error(err, "Failed to get ipaddressallocation", "UID", obj.UID)
+		log.Error(err, "Failed to get IPAddressAllocation", "UID", obj.UID)
 		return false, err
 	}
-	log.Debug("Existing ipaddressallocation", "ipaddressallocation", existingIPAddressAllocation)
+	log.Debug("Existing IPAddressAllocation", "ipaddressallocation", existingIPAddressAllocation)
 
 	if existingIPAddressAllocation != nil {
 		if existingIPAddressAllocation.AllocationIps != nil && existingIPAddressAllocation.AllocationSize == nil {
@@ -106,12 +106,12 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 
 	createdIPAddressAllocation, err := service.indexedIPAddressAllocation(obj.UID)
 	if err != nil {
-		log.Error(err, "Failed to get created ipaddressallocation", "UID", obj.UID)
+		log.Error(err, "Failed to get created IPAddressAllocation", "UID", obj.UID)
 		return false, err
 	}
 	allocation_ips := createdIPAddressAllocation.AllocationIps
 	if allocation_ips == nil {
-		return false, fmt.Errorf("ipaddressallocation %s didn't realize available allocation_ips", obj.UID)
+		return false, fmt.Errorf("IPAddressAllocation %s didn't realize available allocation_ips", obj.UID)
 	}
 	if restoreMode {
 		if obj.Status.AllocationIPs == *allocation_ips {
@@ -194,8 +194,8 @@ func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.V
 	ns := service.GetIPAddressAllocationNamespace(nsxIPAddressAllocation)
 	VPCInfo := service.VPCService.ListVPCInfo(ns)
 	if len(VPCInfo) == 0 {
-		err := nsxutil.NoEffectiveOption{Desc: "no valid org and project for ipaddressallocation"}
-		log.Error(err, "Failed to list VPCInfo for IPAddressAllocation")
+		err := nsxutil.NoEffectiveOption{Desc: "no valid org and project for IPAddressAllocation, will retry later"}
+		log.Warn("No VPC found for IPAddressAllocation, will retry later", "Namespace", ns)
 		return err
 	}
 	errPatch := service.NSXClient.IPAddressAllocationClient.Patch(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, VPCInfo[0].ID, *nsxIPAddressAllocation.Id, *nsxIPAddressAllocation)
@@ -203,7 +203,7 @@ func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.V
 	if errPatch != nil {
 		// not return err, try to get it from nsx, in case if cidr not realized at the first time
 		// so it can be patched in the next time and reacquire cidr
-		log.Error(errPatch, "Patch failed, try to get it from nsx", "nsxIPAddressAllocation", nsxIPAddressAllocation)
+		log.Error(errPatch, "Patch failed, try to get it from NSX", "nsxIPAddressAllocation", nsxIPAddressAllocation)
 	}
 	// get back from nsx, it contains path which is used to parse vpc info when deleting
 	nsxIPAddressAllocationNew, errGet := service.NSXClient.IPAddressAllocationClient.Get(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, VPCInfo[0].ID, *nsxIPAddressAllocation.Id)
@@ -222,7 +222,7 @@ func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.V
 	if err != nil {
 		return err
 	}
-	log.Debug("Successfully created or updated ipaddressallocation", "nsxIPAddressAllocation", nsxIPAddressAllocation)
+	log.Debug("Successfully created or updated IPAddressAllocation", "nsxIPAddressAllocation", nsxIPAddressAllocation)
 	return nil
 }
 
@@ -233,25 +233,25 @@ func (service *IPAddressAllocationService) DeleteIPAddressAllocation(obj interfa
 	case *v1alpha1.IPAddressAllocation:
 		nsxIPAddressAllocation, err = service.indexedIPAddressAllocation(o.UID)
 		if err != nil {
-			log.Error(err, "Failed to get ipaddressallocation", "IPAddressAllocation", o)
+			log.Error(err, "Failed to get IPAddressAllocation", "IPAddressAllocation", o)
 		}
 	case types.UID:
 		nsxIPAddressAllocation, err = service.indexedIPAddressAllocation(o)
 		if err != nil {
-			log.Error(err, "Failed to get ipaddressallocation by UID", "UID", o)
+			log.Error(err, "Failed to get IPAddressAllocation by UID", "UID", o)
 		}
 	case string:
 		ok := false
 		obj = service.ipAddressAllocationStore.GetByKey(o)
 		nsxIPAddressAllocation, ok = obj.(*model.VpcIpAddressAllocation)
 		if !ok {
-			log.Error(err, "Failed to get ipaddressallocation by key", "key", o)
+			log.Error(err, "Failed to get IPAddressAllocation by key", "key", o)
 		}
 	case model.VpcIpAddressAllocation:
 		nsxIPAddressAllocation = &o
 	}
 	if nsxIPAddressAllocation == nil {
-		log.Error(nil, "Failed to get ipaddressallocation from store, skip")
+		log.Error(nil, "Failed to get IPAddressAllocation from store, skip")
 		return nil
 	}
 	err = service.DeleteIPAddressAllocationByNSXResource(nsxIPAddressAllocation)

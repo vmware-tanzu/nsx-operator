@@ -390,7 +390,7 @@ func (nsxConfig *NsxConfig) validateCert() error {
 		configLog.Infof("Validate thumbprint: %d", tpCount)
 		if tpCount > 1 && tpCount != mCount {
 			err := errors.New("thumbprint count not match manager count")
-			configLog.Error(err, "validate NsxConfig failed", "thumbprint count", tpCount, "manager count", mCount)
+			configLog.Error(err, "Validate NsxConfig failed", "thumbprint count", tpCount, "manager count", mCount)
 			return err
 		}
 	}

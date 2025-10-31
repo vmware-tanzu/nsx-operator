@@ -36,8 +36,8 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 	case *v1alpha1.IPAddressAllocation:
 		VPCInfo := service.VPCService.ListVPCInfo(o.Namespace)
 		if len(VPCInfo) == 0 {
-			log.Error(nil, "Failed to find VPCInfo for IPAddressAllocation CR", "IPAddressAllocation", o.Name, "Namespace", o.Namespace)
-			return nil, fmt.Errorf("failed to find VPCInfo for IPAddressAllocation CR %s in Namespace %s", o.Name, o.Namespace)
+			log.Warn("No VPC found for IPAddressAllocation, will retry later", "Namespace", o.Namespace)
+			return nil, fmt.Errorf("failed to find VPCInfo for IPAddressAllocation CR %s in Namespace %s, will retry later", o.Name, o.Namespace)
 		}
 		ipAddressBlockVisibility = convertIpAddressBlockVisibility(o.Spec.IPAddressBlockVisibility)
 		if len(o.Spec.AllocationIPs) > 0 {
