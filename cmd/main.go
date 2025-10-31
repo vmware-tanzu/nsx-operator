@@ -304,7 +304,9 @@ func electMaster(mgr manager.Manager, nsxClient *nsx.Client) {
 
 func main() {
 	log.Info("Starting NSX Operator")
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	cfg := ctrl.GetConfigOrDie()
+	cfg.Timeout = pkgutil.TCPReadTimeout
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                  scheme,
 		HealthProbeBindAddress:  config.ProbeAddr,
 		Metrics:                 metricsserver.Options{BindAddress: config.MetricsAddr},

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"time"
 
 	mapset "github.com/deckarep/golang-set"
 	"github.com/google/uuid"
@@ -29,6 +30,7 @@ import (
 const (
 	wcpSystemResource = "vmware-system-shared-t1"
 	HashCharset       = "0123456789abcdefghijklmnopqrstuvwxyz"
+	TCPReadTimeout    = 30 * time.Second
 )
 
 var (
