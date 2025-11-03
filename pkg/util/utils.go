@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"sync"
 	"time"
 
 	mapset "github.com/deckarep/golang-set"
@@ -34,8 +35,7 @@ const (
 )
 
 var (
-	String      = common.String
-	clusterUUID uuid.UUID
+	String = common.String
 )
 
 var log = logger.Log
@@ -434,11 +434,33 @@ func IsPowerOfTwo(n int) bool {
 	return n > 0 && (n&(n-1)) == 0
 }
 
+// NOTE: this snippet requires adding "sync" to the imports.
+var (
+	clusterUUIDs = make(map[string]uuid.UUID)
+	clusterMu    sync.RWMutex
+)
+
 func GetClusterUUID(clusterID string) uuid.UUID {
-	if clusterUUID == uuid.Nil {
-		clusterUUID = uuid.NewSHA1(uuid.NameSpaceX500, []byte(clusterID))
+	// Fast path: read lock
+	clusterMu.RLock()
+	if u, ok := clusterUUIDs[clusterID]; ok {
+		clusterMu.RUnlock()
+		return u
 	}
-	return clusterUUID
+	clusterMu.RUnlock()
+
+	// Create new UUID
+	newUUID := uuid.NewSHA1(uuid.NameSpaceX500, []byte(clusterID))
+
+	// Write lock and double-check
+	clusterMu.Lock()
+	if existing, ok := clusterUUIDs[clusterID]; ok {
+		newUUID = existing
+	} else {
+		clusterUUIDs[clusterID] = newUUID
+	}
+	clusterMu.Unlock()
+	return newUUID
 }
 
 func NSXSubnetDHCPEnabled(nsxSubnet *model.VpcSubnet) bool {
