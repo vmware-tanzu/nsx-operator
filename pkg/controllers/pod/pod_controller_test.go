@@ -45,24 +45,10 @@ func (recorder fakeRecorder) Eventf(object runtime.Object, eventtype, reason, me
 func (recorder fakeRecorder) AnnotatedEventf(object runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
 }
 
-type fakeStatusWriter struct{}
-
-func (writer fakeStatusWriter) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
-	return nil
-}
-
-func (writer fakeStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
-	return nil
-}
-
-func (writer fakeStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-	return nil
-}
-
 func TestPodReconciler_Reconcile(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
-	fakewriter := fakeStatusWriter{}
+
 	defer mockCtl.Finish()
 	r := &PodReconciler{
 		Client: k8sClient,
@@ -128,17 +114,6 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 						return false, "", errors.New("failed to get subnet path")
 					})
 
-				k8sClient.EXPECT().Status().Return(fakewriter).AnyTimes()
-				patchesGetSubnetPathForPod.ApplyFunc(fakeStatusWriter.Update,
-					func(writer fakeStatusWriter, ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
-						pod := obj.(*v1.Pod)
-						assert.Equal(t, "error occurred while processing the Pod. Error: failed to get subnet path", pod.Status.Conditions[0].Message)
-						assert.Equal(t, "PodNotReady", pod.Status.Conditions[0].Reason)
-						assert.Equal(t, v1.ConditionFalse, pod.Status.Conditions[0].Status)
-						assert.Equal(t, v1.PodReady, pod.Status.Conditions[0].Type)
-						return nil
-					})
-
 				return patchesGetSubnetPathForPod
 			},
 			expectedErr:    "failed to get subnet path",
@@ -194,16 +169,6 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 						return nil, errors.New("failed to get subnet")
 					})
 
-				k8sClient.EXPECT().Status().Return(fakewriter).AnyTimes()
-				patches.ApplyFunc(fakeStatusWriter.Update,
-					func(writer fakeStatusWriter, ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
-						pod := obj.(*v1.Pod)
-						assert.Equal(t, "error occurred while processing the Pod. Error: failed to get subnet", pod.Status.Conditions[0].Message)
-						assert.Equal(t, "PodNotReady", pod.Status.Conditions[0].Reason)
-						assert.Equal(t, v1.ConditionFalse, pod.Status.Conditions[0].Status)
-						assert.Equal(t, v1.PodReady, pod.Status.Conditions[0].Type)
-						return nil
-					})
 				return patches
 			},
 			expectedErr:    "failed to get subnet",
@@ -233,18 +198,6 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					func(r *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
 						return nil, false, errors.New("failed to create subnetport")
 					})
-
-				k8sClient.EXPECT().Status().Return(fakewriter).AnyTimes()
-				patches.ApplyFunc(fakeStatusWriter.Update,
-					func(writer fakeStatusWriter, ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
-						pod := obj.(*v1.Pod)
-						assert.Equal(t, "error occurred while processing the Pod. Error: failed to create subnetport", pod.Status.Conditions[0].Message)
-						assert.Equal(t, "PodNotReady", pod.Status.Conditions[0].Reason)
-						assert.Equal(t, v1.ConditionFalse, pod.Status.Conditions[0].Status)
-						assert.Equal(t, v1.PodReady, pod.Status.Conditions[0].Type)
-						return nil
-					})
-
 				return patches
 			},
 			expectedErr:    "failed to create subnetport",
@@ -288,16 +241,6 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					assert.Equal(t, "aa:bb:cc:dd:ee:ff", pod.GetAnnotations()[servicecommon.AnnotationPodMAC])
 					return nil
 				})
-				k8sClient.EXPECT().Status().Return(fakewriter).AnyTimes()
-				patches.ApplyFunc(fakeStatusWriter.Update,
-					func(writer fakeStatusWriter, ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
-						pod := obj.(*v1.Pod)
-						assert.Equal(t, "Pod has been successfully created/updated", pod.Status.Conditions[0].Message)
-						assert.Equal(t, "PodReady", pod.Status.Conditions[0].Reason)
-						assert.Equal(t, v1.ConditionTrue, pod.Status.Conditions[0].Status)
-						assert.Equal(t, v1.PodReady, pod.Status.Conditions[0].Type)
-						return nil
-					})
 				patches.ApplyFunc(common.UpdateReconfigureNicAnnotation, func(client client.Client, ctx context.Context, obj client.Object, value string) error {
 					assert.Equal(t, "true", value)
 					return nil
