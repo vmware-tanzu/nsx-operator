@@ -52,7 +52,7 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig, log *logr.Logger, 
 		logg := logger.ZapCustomLogger(debug, logLevel).Logger
 		log = &logg
 	}
-
+	logger.InitLog(log)
 	log.Info("Starting NSX cleanup")
 	if err := cf.ValidateConfigFromCmd(); err != nil {
 		return errors.Join(nsxutil.ValidationFailed, err)
