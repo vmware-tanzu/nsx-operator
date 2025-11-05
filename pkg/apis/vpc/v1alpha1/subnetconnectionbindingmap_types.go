@@ -19,8 +19,8 @@ type SubnetConnectionBindingMapSpec struct {
 	TargetSubnetName string `json:"targetSubnetName,omitempty"`
 	// VLANTrafficTag is the VLAN tag configured in the binding. Note, the value of VLANTrafficTag should be
 	// unique on the target Subnet or SubnetSet.
-	// +kubebuilder:validation:Maximum:=4095
-	// +kubebuilder:validation:Minimum:=1
+	// +kubebuilder:validation:Maximum:=4094
+	// +kubebuilder:validation:Minimum:=0
 	// +kubebuilder:validation:Required
 	VLANTrafficTag int64 `json:"vlanTrafficTag"`
 }

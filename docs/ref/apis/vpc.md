@@ -745,7 +745,7 @@ _Appears in:_
 | `subnetName` _string_ | SubnetName is the Subnet name which this SubnetConnectionBindingMap is associated. |  |  |
 | `targetSubnetSetName` _string_ | TargetSubnetSetName specifies the target SubnetSet which a Subnet is connected to. |  | Optional: \{\} <br /> |
 | `targetSubnetName` _string_ | TargetSubnetName specifies the target Subnet which a Subnet is connected to. |  | Optional: \{\} <br /> |
-| `vlanTrafficTag` _integer_ | VLANTrafficTag is the VLAN tag configured in the binding. Note, the value of VLANTrafficTag should be<br />unique on the target Subnet or SubnetSet. |  | Maximum: 4095 <br />Minimum: 1 <br />Required: \{\} <br /> |
+| `vlanTrafficTag` _integer_ | VLANTrafficTag is the VLAN tag configured in the binding. Note, the value of VLANTrafficTag should be<br />unique on the target Subnet or SubnetSet. |  | Maximum: 4094 <br />Minimum: 0 <br />Required: \{\} <br /> |
 
 
 #### SubnetConnectionBindingMapStatus

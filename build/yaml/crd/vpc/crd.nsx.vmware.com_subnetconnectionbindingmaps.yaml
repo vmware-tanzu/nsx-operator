@@ -85,8 +85,8 @@ spec:
                   VLANTrafficTag is the VLAN tag configured in the binding. Note, the value of VLANTrafficTag should be
                   unique on the target Subnet or SubnetSet.
                 format: int64
-                maximum: 4095
-                minimum: 1
+                maximum: 4094
+                minimum: 0
                 type: integer
             required:
             - subnetName
