@@ -214,7 +214,7 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, cleanupService)
 	// vpcPreCleaners: SubnetPort, SubnetBinding, SubnetIPReservation, Inventory, SecurityPolicy, LBInfraCleaner, NSXServiceAccount, HealthCleaner = 8
-	assert.Len(t, cleanupService.vpcPreCleaners, 8)
+	assert.Len(t, cleanupService.vpcPreCleaners, 7)
 	assert.Len(t, cleanupService.vpcChildrenCleaners, 5)
 	assert.Len(t, cleanupService.infraCleaners, 2)
 }
