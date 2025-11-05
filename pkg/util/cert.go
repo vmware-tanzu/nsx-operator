@@ -21,7 +21,6 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 )
@@ -146,8 +145,11 @@ func GenerateWebhookCerts() error {
 		Bytes: x509.MarshalPKCS1PrivateKey(serverKey),
 	})
 
-	cfg := ctrl.GetConfigOrDie()
-	cfg.Timeout = TCPReadTimeout
+	cfg, err := GetConfig()
+	if err != nil {
+		log.Error(err, "Failed to get rest config for manager")
+		return err
+	}
 	kubeClient := kubernetes.NewForConfigOrDie(cfg)
 	certSecret := &corev1.Secret{
 		TypeMeta: v1.TypeMeta{},
