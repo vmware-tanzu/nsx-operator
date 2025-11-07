@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"time"
 
+	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -416,7 +417,7 @@ func (r *SubnetReconciler) RestoreReconcile() error {
 		}
 	}
 	if len(errorList) > 0 {
-		return errors.Join(errorList...)
+		return fmt.Errorf("errors found in Subnet restore: %v", errorList)
 	}
 	return nil
 }
@@ -428,11 +429,30 @@ func (r *SubnetReconciler) getRestoreList() ([]types.NamespacedName, error) {
 		return restoreList, err
 	}
 	for _, subnetCR := range subnetList.Items {
-		// Restore a Subnet if it has NetworkAddresses
-		// Not filter the Subnet in cache as it might be updated
-		if len(subnetCR.Status.NetworkAddresses) > 0 {
-			restoreList = append(restoreList, types.NamespacedName{Namespace: subnetCR.Namespace, Name: subnetCR.Name})
+		// Not restore a Subnet if it does not have NetworkAddresses
+		if len(subnetCR.Status.NetworkAddresses) == 0 {
+			continue
 		}
+		// For shared Subnet, if the NSX Subnet does not exist, update the Subnet CR status to show the warning
+		if servicecommon.IsSharedSubnet(&subnetCR) {
+			associatedResource := subnetCR.Annotations[servicecommon.AnnotationAssociatedResource]
+			_, err := r.SubnetService.GetNSXSubnetFromCacheOrAPI(associatedResource, false)
+			if err != nil {
+				if nsxErr, ok := err.(*nsxutil.NSXApiError); ok {
+					if nsxErr.Type() == stderrors.ErrorType_NOT_FOUND {
+						log.Warn("Precreated Subnet does not exist in NSX", "associatedResource", associatedResource)
+						r.StatusUpdater.UpdateFail(context.TODO(), &subnetCR, err, "NSX Subnet does not exists", setSubnetReadyStatusFalse)
+						continue
+					}
+				}
+				// For other error, retry the restore
+				log.Error(err, "Failed to get Subnet from NSX", "Namespace", subnetCR.Namespace, "Subnet", subnetCR.Name)
+				return restoreList, err
+			}
+			log.Debug("Skip handling the Shared Subnet", "Namespace", subnetCR.Namespace, "Subnet", subnetCR.Name)
+			continue
+		}
+		restoreList = append(restoreList, types.NamespacedName{Namespace: subnetCR.Namespace, Name: subnetCR.Name})
 	}
 	return restoreList, nil
 }

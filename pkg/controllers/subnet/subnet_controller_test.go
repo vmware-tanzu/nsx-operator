@@ -13,6 +13,7 @@ import (
 	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -26,8 +27,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -1188,6 +1187,88 @@ func TestSubnetReconciler_RestoreReconcile(t *testing.T) {
 	defer patches.Reset()
 	err = r.RestoreReconcile()
 	assert.ErrorContains(t, err, "failed to restore Subnet ns-1/subnet-1")
+
+	// Shared Subnet
+	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+		subnetList := list.(*v1alpha1.SubnetList)
+		subnetList.Items = []v1alpha1.Subnet{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "subnet-1",
+					Namespace:   "ns-1",
+					UID:         "subnet-1",
+					Annotations: map[string]string{common.AnnotationAssociatedResource: ":vpc-1:subnet-1"},
+				},
+				Status: v1alpha1.SubnetStatus{
+					NetworkAddresses: []string{"10.0.0.0/28"},
+					GatewayAddresses: []string{"10.0.0.0"},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "subnet-2",
+					Namespace:   "ns-1",
+					UID:         "subnet-2",
+					Annotations: map[string]string{common.AnnotationAssociatedResource: ":vpc-1:subnet-2"},
+				},
+				Status: v1alpha1.SubnetStatus{
+					NetworkAddresses: []string{"10.0.0.32/28"},
+					GatewayAddresses: []string{"10.0.0.32"},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnet-3",
+					Namespace: "ns-1",
+				},
+			},
+		}
+		return nil
+	})
+
+	patches = gomonkey.ApplyFunc((*subnet.SubnetService).GetNSXSubnetFromCacheOrAPI, func(s *subnet.SubnetService, associatedResource string, forceAPI bool) (*model.VpcSubnet, error) {
+		switch associatedResource {
+		case ":vpc-1:subnet-1":
+			return &model.VpcSubnet{Id: common.String("subnet-1")}, nil
+		case ":vpc-1:subnet-2":
+			return nil, nsxutil.NewNSXApiError(&model.ApiError{}, apierrors.ErrorType_NOT_FOUND)
+		}
+		return nil, nil
+	})
+	patches.ApplyFunc((*common2.StatusUpdater).UpdateFail, func(_ *common2.StatusUpdater, ctx context.Context, obj client.Object, err error, msg string, setStatusFn common2.UpdateFailStatusFn, args ...interface{}) {
+	})
+
+	defer patches.Reset()
+	err = r.RestoreReconcile()
+	assert.Nil(t, err)
+
+	// Shared Subnet with get error
+	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+		subnetList := list.(*v1alpha1.SubnetList)
+		subnetList.Items = []v1alpha1.Subnet{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "subnet-1",
+					Namespace:   "ns-1",
+					UID:         "subnet-1",
+					Annotations: map[string]string{common.AnnotationAssociatedResource: ":vpc-1:subnet-1"},
+				},
+				Status: v1alpha1.SubnetStatus{
+					NetworkAddresses: []string{"10.0.0.0/28"},
+					GatewayAddresses: []string{"10.0.0.0"},
+				},
+			},
+		}
+		return nil
+	})
+
+	patches = gomonkey.ApplyFunc((*subnet.SubnetService).GetNSXSubnetFromCacheOrAPI, func(s *subnet.SubnetService, associatedResource string, forceAPI bool) (*model.VpcSubnet, error) {
+		return nil, errors.New("mocked get NSX Subnet error")
+	})
+
+	defer patches.Reset()
+	err = r.RestoreReconcile()
+	assert.ErrorContains(t, err, "mocked get NSX Subnet error")
 }
 
 func TestHandleSharedSubnet(t *testing.T) {

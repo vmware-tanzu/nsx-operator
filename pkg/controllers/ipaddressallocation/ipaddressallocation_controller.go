@@ -5,7 +5,6 @@ package ipaddressallocation
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
@@ -189,7 +188,7 @@ func (r *IPAddressAllocationReconciler) RestoreReconcile() error {
 		}
 	}
 	if len(errorList) > 0 {
-		return errors.Join(errorList...)
+		return fmt.Errorf("errors found in IPAddressAllocation restore: %v", errorList)
 	}
 	return nil
 }

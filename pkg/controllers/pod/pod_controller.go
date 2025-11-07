@@ -5,7 +5,6 @@ package pod
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"reflect"
@@ -253,7 +252,7 @@ func (r *PodReconciler) RestoreReconcile() error {
 		}
 	}
 	if len(errorList) > 0 {
-		return errors.Join(errorList...)
+		return fmt.Errorf("errors found in Pod restore: %v", errorList)
 	}
 	return nil
 }
