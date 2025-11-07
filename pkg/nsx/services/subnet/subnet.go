@@ -555,6 +555,7 @@ func (service *SubnetService) GetNSXSubnetByAssociatedResource(associatedResourc
 	subnetID := parts[2]
 
 	nsxSubnet, err := service.NSXClient.SubnetsClient.Get(orgID, projectID, vpcID, subnetID)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "Failed to get NSX Subnet", "SubnetName", subnetID)
 		return nil, err
