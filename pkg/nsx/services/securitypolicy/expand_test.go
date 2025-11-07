@@ -90,7 +90,7 @@ func TestSecurityPolicyService_buildRuleIPGroup(t *testing.T) {
 		DisplayName: &policyGroupName,
 		Expression:  []*data.StructValue{blockExpression},
 		// build ipset group tags from input securitypolicy and securitypolicy rule
-		Tags: service.buildPeerTags(sp, &sp.Spec.Rules[0], 0, false, false, false, common.ResourceTypeSecurityPolicy),
+		Tags: service.buildPeerTags(sp, &sp.Spec.Rules[0], 0, false, VPCScopeGroup, common.ResourceTypeSecurityPolicy),
 	}
 
 	type args struct {

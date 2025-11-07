@@ -253,7 +253,7 @@ func (service *SecurityPolicyService) buildRuleIPSetGroup(obj *v1alpha1.Security
 	ipSetGroup.DisplayName = &ipSetGroupName
 
 	// IPSetGroup is always destination group for named port
-	peerTags := service.buildPeerTags(obj, rule, ruleIdx, false, false, false, createdFor)
+	peerTags := service.buildPeerTags(obj, rule, ruleIdx, false, VPCScopeGroup, createdFor)
 	ipSetGroup.Tags = peerTags
 
 	addresses := data.NewListValue()
