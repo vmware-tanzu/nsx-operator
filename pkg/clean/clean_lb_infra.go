@@ -53,29 +53,19 @@ func keyFunc(obj interface{}) (string, error) {
 	}
 }
 
-// CleanupBeforeVPCDeletion cleans up LB-related resources that can block VPC deletion
-func (s *LBInfraCleaner) CleanupBeforeVPCDeletion(ctx context.Context) error {
-	// First delete DLB Virtual Servers so they stop referencing app profiles and other shared objects
-	s.log.Info("Cleaning up LB infra DLB virtual servers before VPC deletion")
+// CleanupInfraResources is to clean up the LB related resources created under path /infra, including,
+// group/share/cert/LBAppProfile/LBPersistentProfile/dlb virtual servers/dlb services/dlb groups/dlb pools
+func (s *LBInfraCleaner) CleanupInfraResources(ctx context.Context) error {
+	// LB virtual server has dependencies on LB pool, so we can't delete vs and pool in parallel.
 	if err := s.cleanupInfraDLBVirtualServers(ctx); err != nil {
 		s.log.Error(err, "Failed to clean up DLB virtual servers")
 		return err
 	}
-
-	// Then clean up shares which may still be referenced by the above
-	s.log.Info("Cleaning up LB infra shares before VPC deletion")
 	if err := s.cleanupInfraShares(ctx); err != nil {
-		s.log.Error(err, "Failed to clean up infra shares")
+		s.log.Error(err, "Failed to clean up infra Shares")
 		return err
 	}
 
-	s.log.Info("Successfully cleaned up pre-VPC LB infra resources (DLB VS + Shares)")
-	return nil
-}
-
-// CleanupInfraResources is to clean up the LB related resources created under path /infra, including,
-// cert/LBAppProfile/LBPersistentProfile/dlb services/dlb groups/dlb pools (DLB virtual servers are cleaned pre-VPC deletion)
-func (s *LBInfraCleaner) CleanupInfraResources(ctx context.Context) error {
 	parallelCleaners := []func(ctx context.Context) error{
 		s.cleanupInfraDLBPools,
 		s.cleanupInfraDLBServices,

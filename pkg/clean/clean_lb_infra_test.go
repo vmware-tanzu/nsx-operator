@@ -743,30 +743,87 @@ func TestCleanupInfraResources(t *testing.T) {
 		{
 			name: "success to clean up infra resources",
 			mockFn: func(cleaner *LBInfraCleaner) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDLBPools", func(_ *LBInfraCleaner, ctx context.Context) error { return nil })
-				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDLBServices", func(_ *LBInfraCleaner, ctx context.Context) error { return nil })
-				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDLBGroups", func(_ *LBInfraCleaner, ctx context.Context) error { return nil })
-				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraCerts", func(_ *LBInfraCleaner, ctx context.Context) error { return nil })
-				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupLBAppProfiles", func(_ *LBInfraCleaner, ctx context.Context) error { return nil })
-				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupLBPersistenceProfiles", func(_ *LBInfraCleaner, ctx context.Context) error { return nil })
-				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupLBMonitorProfiles", func(_ *LBInfraCleaner, ctx context.Context) error { return nil })
-				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDomain", func(_ *LBInfraCleaner, ctx context.Context) error { return nil })
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDLBVirtualServers", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraSharedResources", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraShares", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDLBPools", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDLBServices", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDLBGroups", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraCerts", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupLBAppProfiles", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupLBPersistenceProfiles", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupLBMonitorProfiles", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDomain", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
 				return patches
 			},
+		}, {
+			name: "failed with LB virtual server clean up",
+			mockFn: func(cleaner *LBInfraCleaner) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDLBVirtualServers", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return fmt.Errorf("failure in cleanupInfraDLBVirtualServers")
+				})
+				return patches
+			},
+			expErrStr: "failure in cleanupInfraDLBVirtualServers",
 		},
 		{
 			name: "failed with parallel clean up",
 			mockFn: func(cleaner *LBInfraCleaner) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDLBPools", func(_ *LBInfraCleaner, ctx context.Context) error {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDLBVirtualServers", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraSharedResources", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraShares", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDLBPools", func(_ *LBInfraCleaner, ctx context.Context) error {
 					return fmt.Errorf("failure in cleanupInfraDLBPools")
 				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDLBServices", func(_ *LBInfraCleaner, ctx context.Context) error { return nil })
-				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDLBGroups", func(_ *LBInfraCleaner, ctx context.Context) error { return nil })
-				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraCerts", func(_ *LBInfraCleaner, ctx context.Context) error { return nil })
-				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupLBAppProfiles", func(_ *LBInfraCleaner, ctx context.Context) error { return nil })
-				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupLBPersistenceProfiles", func(_ *LBInfraCleaner, ctx context.Context) error { return nil })
-				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupLBMonitorProfiles", func(_ *LBInfraCleaner, ctx context.Context) error { return nil })
-				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDomain", func(_ *LBInfraCleaner, ctx context.Context) error { return nil })
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDLBServices", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDLBGroups", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraCerts", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupLBAppProfiles", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupLBPersistenceProfiles", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupLBMonitorProfiles", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(cleaner), "cleanupInfraDomain", func(_ *LBInfraCleaner, ctx context.Context) error {
+					return nil
+				})
 				return patches
 			},
 			expErrStr: "failure in cleanupInfraDLBPools",
