@@ -219,6 +219,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 					log.Error(err, "Failed to parse cpvm label", "label", cpvmValue)
 				} else if isCPVM {
 					retry.OnError(util.K8sClientRetry, func(err error) bool {
+						log.Error(err, "Failed to update restore annotation on SubnetPort", "Namespace", subnetPort.Namespace, "SubnetPort", subnetPort.Name)
 						return err != nil
 					}, func() error {
 						return common.UpdateReconfigureNicAnnotation(r.Client, ctx, subnetPort, "cpvm")
@@ -227,6 +228,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			}
 			if vm != nil {
 				retry.OnError(util.K8sClientRetry, func(err error) bool {
+					log.Error(err, "Failed to update restore annotation on VM", "Namespace", subnetPort.Namespace, "SubnetPort", subnetPort.Name, "VM", vm.Name)
 					return err != nil
 				}, func() error {
 					return common.UpdateReconfigureNicAnnotation(r.Client, ctx, vm, nicName)

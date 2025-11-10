@@ -261,9 +261,16 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 	}
 
 	nsxSubnetPort := model.VpcSubnetPort{
-		Id:         &subnetPortId1,
-		Path:       &subnetPortPath1,
-		Attachment: &model.PortAttachment{},
+		Id:          &subnetPortId1,
+		Path:        &subnetPortPath1,
+		DisplayName: &subnetPortId1,
+		Attachment:  &model.PortAttachment{},
+		Tags: []model.Tag{
+			{
+				Scope: common.String(common.TagScopeSubnetPortCRUID),
+				Tag:   common.String(string(subnetPortCR.UID)),
+			},
+		},
 	}
 
 	tests := []struct {

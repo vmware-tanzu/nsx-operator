@@ -124,6 +124,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		if r.restoreMode {
 			// Add restore annotation on Pod to notify Spherelet
 			retry.OnError(util.K8sClientRetry, func(err error) bool {
+				log.Error(err, "Failed to update restore annotation on Pod", "Namespace", pod.Namespace, "Pod", pod.Name)
 				return err != nil
 			}, func() error {
 				return common.UpdateReconfigureNicAnnotation(r.Client, ctx, pod, "true")
