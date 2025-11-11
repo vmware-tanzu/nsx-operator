@@ -193,6 +193,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			}
 			if (!enableDHCP || len(subnetPort.Spec.AddressBindings) > 0) && len(nsxSubnetPortState.RealizedBindings) > 0 {
 				subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress = *nsxSubnetPortState.RealizedBindings[0].Binding.IpAddress
+				// The MAC address is updated here when the SubnetPort's DHCP is disabled or spec.AddressBindings is specific. For the other cases, the MAC address will be updated in the VIF polling.
 				subnetPort.Status.NetworkInterfaceConfig.MACAddress = strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\"")
 			}
 			err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnet)
@@ -326,6 +327,18 @@ func subnetPortSubnetIndexFunc(obj client.Object) []string {
 	}
 }
 
+func subnetPortMACInNeedIndexFunc(obj client.Object) []string {
+	if subnetPort, ok := obj.(*v1alpha1.SubnetPort); !ok {
+		log.Info("Invalid object", "type", reflect.TypeOf(obj))
+		return []string{}
+	} else {
+		if len(subnetPort.Status.Attachment.ID) > 0 && len(subnetPort.Status.NetworkInterfaceConfig.MACAddress) == 0 {
+			return []string{"true"}
+		}
+		return []string{"false"}
+	}
+}
+
 func (r *SubnetPortReconciler) deleteSubnetPortByName(ctx context.Context, ns string, name string) error {
 	// NamespacedName is a unique identity in store as only one worker can deal with the NamespacedName at a time
 	nsxSubnetPorts := r.SubnetPortService.ListSubnetPortByName(ns, name)
@@ -378,7 +391,9 @@ func (r *SubnetPortReconciler) SetupFieldIndexers(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.SubnetPort{}, "spec.subnet", subnetPortSubnetIndexFunc); err != nil {
 		return err
 	}
-
+	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.SubnetPort{}, util.SubnetPortMACInNeed, subnetPortMACInNeedIndexFunc); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -523,7 +538,25 @@ func (r *SubnetPortReconciler) Start(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
+	go r.pollVIFsPeriodically(make(chan bool))
 	return nil
+}
+
+// The polling can be stopped by sending a value to the stopCh channel.
+func (r *SubnetPortReconciler) pollVIFsPeriodically(stopCh chan bool) {
+	var ticker = time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+	r.pollAllVIFs()
+	for {
+		select {
+		case <-ticker.C:
+			r.pollAllVIFs()
+		case <-stopCh:
+			log.Info("Stopping VIF polling")
+			return
+		}
+	}
+
 }
 
 // CollectGarbage collect SubnetPort which has been removed from crd.
@@ -1033,4 +1066,49 @@ func mergeCondition(existingConditions []v1alpha1.Condition, newCondition *v1alp
 		existingConditions = append(existingConditions, *newCondition)
 	}
 	return existingConditions, true
+}
+
+func (r *SubnetPortReconciler) pollAllVIFs() {
+	log.Info("Starting VIF polling")
+	subnetPortList := &v1alpha1.SubnetPortList{}
+	// Only list the SubnetPorts which needs to update MAC address in status.
+	listOptions := []client.ListOption{
+		client.MatchingFields{util.SubnetPortMACInNeed: "true"},
+	}
+	err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+		return err != nil
+	}, func() error {
+		err := r.Client.List(context.TODO(), subnetPortList, listOptions...)
+		return err
+	})
+	if err != nil {
+		log.Error(err, "Failed to list SubnetPort in VIF polling")
+		return
+	}
+	log.Info("Got subnetPortList in VIF polling", "count", len(subnetPortList.Items), "subnetPortList", subnetPortList)
+	if len(subnetPortList.Items) == 0 {
+		return
+	}
+	vifStore, err := r.SubnetPortService.GetAllVIFs()
+	if err != nil {
+		log.Error(err, "Failed to list VIFs in VIF polling")
+		return
+	}
+	for _, subnetPort := range subnetPortList.Items {
+		attachmentID := subnetPort.Status.Attachment.ID
+		macAddress, err := vifStore.GetMACByAttachmentID(attachmentID)
+		if err != nil {
+			log.Warn("Failed to get MAC by attachment ID in VIF polling", "AttachmentID", attachmentID, "error", err)
+			continue
+		}
+		log.Info("Got MAC by attachment ID in VIF polling, updating the SubnetPort CR status", "AttachmentID", attachmentID, "MACAddress", macAddress, "SubnetPort.Namespace", subnetPort.Namespace, "SubnetPort.Name", subnetPort.Name, "SubnetPort.Status", subnetPort.Status)
+		subnetPort := subnetPort.DeepCopy()
+		subnetPort.Status.NetworkInterfaceConfig.MACAddress = macAddress
+		err = r.Client.Status().Update(context.TODO(), subnetPort)
+		if err != nil {
+			log.Error(err, "Failed to update SubnetPort CR status in VIF polling", "SubnetPort.Namespace", subnetPort.Namespace, "SubnetPort.Name", subnetPort.Name)
+			continue
+		}
+		log.Info("Successfully updated SubnetPort CR status in VIF polling", "SubnetPort.Namespace", subnetPort.Namespace, "SubnetPort.Name", subnetPort.Name, "MACAddress", macAddress)
+	}
 }

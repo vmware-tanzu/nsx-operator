@@ -629,6 +629,42 @@ func TestSubnetPortReconciler_subnetPortSubnetIndexFunc(t *testing.T) {
 	}
 }
 
+func TestSubnetPortReconciler_subnetPortMACInNeedIndexFunc(t *testing.T) {
+	tests := []struct {
+		name           string
+		expectedResult []string
+		obj            client.Object
+	}{
+		{
+			name:           "InvalidObject",
+			expectedResult: []string{},
+			obj:            &v1alpha1.Subnet{},
+		},
+		{
+			name:           "empty",
+			expectedResult: []string{"false"},
+			obj:            &v1alpha1.SubnetPort{},
+		},
+		{
+			name:           "nonempty",
+			expectedResult: []string{"true"},
+			obj: &v1alpha1.SubnetPort{
+				Status: v1alpha1.SubnetPortStatus{
+					Attachment: v1alpha1.PortAttachment{
+						ID: "VIF-1234",
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := subnetPortMACInNeedIndexFunc(tt.obj)
+			assert.Equal(t, tt.expectedResult, result)
+		})
+	}
+}
+
 func TestSubnetPortReconciler_vmMapFunc(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
@@ -1907,7 +1943,10 @@ func TestSubnetPortReconciler_StartController(t *testing.T) {
 		SubnetPortStore:            nil,
 		IpAddressAllocationService: &mockIPAddressAllocationService,
 	}
-	mockMgr := &MockManager{scheme: runtime.NewScheme()}
+	mockMgr := &MockManager{
+		scheme: runtime.NewScheme(),
+		client: fakeClient,
+	}
 	patches := gomonkey.ApplyFunc((*SubnetPortReconciler).setupWithManager, func(r *SubnetPortReconciler, mgr manager.Manager) error {
 		return nil
 	})
@@ -1947,4 +1986,200 @@ func (m *MockManager) Add(runnable manager.Runnable) error {
 
 func (m *MockManager) Start(context.Context) error {
 	return nil
+}
+
+func TestSubnetPortReconciler_pollAllVIFs(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	fakewriter := fakeStatusWriter{}
+	subnetPortService := &subnetport.SubnetPortService{
+		Service: servicecommon.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+				},
+			},
+		},
+		SubnetPortStore: &subnetport.SubnetPortStore{},
+	}
+	defer mockCtl.Finish()
+
+	r := &SubnetPortReconciler{
+		Client:            k8sClient,
+		SubnetPortService: subnetPortService,
+	}
+	test := []struct {
+		name        string
+		prepareFunc func(*testing.T, *SubnetPortReconciler) *gomonkey.Patches
+	}{
+		{
+			name: "ListSubnetPortError",
+			prepareFunc: func(t *testing.T, r *SubnetPortReconciler) *gomonkey.Patches {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("mock error")).Times(5)
+				// / Expect that the function r.NSXClient.VifsClient.List wont' be called
+				patches := gomonkey.ApplyFunc(
+					(*subnetport.SubnetPortService).GetAllVIFs,
+					func(_ *subnetport.SubnetPortService) (*subnetport.VifStore, error) {
+						assert.Fail(t, "GetAllVIFs should not be called")
+						return nil, nil
+					},
+				)
+				return patches
+			},
+		},
+		{
+			name: "ListSubnetPortEmpty",
+			prepareFunc: func(t *testing.T, r *SubnetPortReconciler) *gomonkey.Patches {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					subnetportList := list.(*v1alpha1.SubnetPortList)
+					subnetportList.Items = []v1alpha1.SubnetPort{}
+					return nil
+				})
+				// / Expect that the function r.NSXClient.VifsClient.List wont' be called
+				patches := gomonkey.ApplyFunc(
+					(*subnetport.SubnetPortService).GetAllVIFs,
+					func(_ *subnetport.SubnetPortService) (*subnetport.VifStore, error) {
+						assert.Fail(t, "GetAllVIFs should not be called")
+						return nil, nil
+					},
+				)
+				return patches
+			},
+		},
+		{
+			name: "GetAllVIFsError",
+			prepareFunc: func(t *testing.T, r *SubnetPortReconciler) *gomonkey.Patches {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					subnetportList := list.(*v1alpha1.SubnetPortList)
+					subnetportList.Items = []v1alpha1.SubnetPort{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "test-subnetport",
+								Namespace: "test-namespace",
+							},
+							Status: v1alpha1.SubnetPortStatus{
+								Attachment: v1alpha1.PortAttachment{
+									ID: "test-attachment-id",
+								},
+							},
+						},
+					}
+					return nil
+				})
+				patches := gomonkey.ApplyFunc(
+					(*subnetport.SubnetPortService).GetAllVIFs,
+					func(_ *subnetport.SubnetPortService) (*subnetport.VifStore, error) {
+						return nil, fmt.Errorf("mock error")
+					},
+				)
+				patches.ApplyFunc(
+					(*subnetport.VifStore).GetMACByAttachmentID,
+					func(_ *subnetport.VifStore, _ string) (string, error) {
+						assert.Fail(t, "GetMACByAttachmentID should not be called")
+						return "", nil
+					},
+				)
+				return patches
+			},
+		},
+		{
+			name: "GetMACByAttachmentIDError",
+			prepareFunc: func(t *testing.T, r *SubnetPortReconciler) *gomonkey.Patches {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					subnetportList := list.(*v1alpha1.SubnetPortList)
+					subnetportList.Items = []v1alpha1.SubnetPort{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "test-subnetport",
+								Namespace: "test-namespace",
+							},
+							Status: v1alpha1.SubnetPortStatus{
+								Attachment: v1alpha1.PortAttachment{
+									ID: "test-attachment-id",
+								},
+							},
+						},
+					}
+					return nil
+				})
+				patches := gomonkey.ApplyFunc(
+					(*subnetport.SubnetPortService).GetAllVIFs,
+					func(_ *subnetport.SubnetPortService) (*subnetport.VifStore, error) {
+						vifStore := subnetport.NewVifStore()
+						return &vifStore, nil
+					},
+				)
+				patches.ApplyFunc(
+					(*subnetport.VifStore).GetMACByAttachmentID,
+					func(_ *subnetport.VifStore, _ string) (string, error) {
+						return "", fmt.Errorf("mock error")
+					},
+				)
+				k8sClient.EXPECT().Status().Times(0)
+				return patches
+			},
+		},
+		{
+			name: "Success",
+			prepareFunc: func(t *testing.T, r *SubnetPortReconciler) *gomonkey.Patches {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					subnetportList := list.(*v1alpha1.SubnetPortList)
+					subnetportList.Items = []v1alpha1.SubnetPort{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "test-subnetport",
+								Namespace: "test-namespace",
+							},
+							Status: v1alpha1.SubnetPortStatus{
+								Attachment: v1alpha1.PortAttachment{
+									ID: "test-attachment-id",
+								},
+							},
+						},
+					}
+					return nil
+				})
+				patches := gomonkey.ApplyFunc(
+					(*subnetport.SubnetPortService).GetAllVIFs,
+					func(_ *subnetport.SubnetPortService) (*subnetport.VifStore, error) {
+						vifStore := subnetport.NewVifStore()
+						return &vifStore, nil
+					},
+				)
+				patches.ApplyFunc(
+					(*subnetport.VifStore).GetMACByAttachmentID,
+					func(_ *subnetport.VifStore, _ string) (string, error) {
+						return "test-mac-id", nil
+					},
+				)
+				fakewriter = fakeStatusWriter{
+					t:           t,
+					validateObj: true,
+					expectObj: &v1alpha1.SubnetPort{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "test-subnetport",
+							Namespace: "test-namespace",
+						},
+						Status: v1alpha1.SubnetPortStatus{
+							Attachment: v1alpha1.PortAttachment{
+								ID: "test-attachment-id",
+							},
+							NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+								MACAddress: "test-mac-id",
+							},
+						},
+					},
+				}
+				k8sClient.EXPECT().Status().Times(1).Return(&fakewriter)
+				return patches
+			},
+		},
+	}
+	for _, tt := range test {
+		t.Run(tt.name, func(t *testing.T) {
+			patches := tt.prepareFunc(t, r)
+			defer patches.Reset()
+			r.pollAllVIFs()
+		})
+	}
 }
