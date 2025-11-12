@@ -231,7 +231,10 @@ func NewNSXOpertorConfig() *NSXOperatorConfig {
 	defaultNSXOperatorConfig := &NSXOperatorConfig{
 		&DefaultConfig{},
 		&CoeConfig{EnableSha: true},
-		&NsxConfig{},
+		&NsxConfig{
+			InventoryBatchPeriod: 5,
+			InventoryBatchSize:   50,
+		},
 		&K8sConfig{},
 		&VCConfig{},
 		&HAConfig{},
