@@ -17,7 +17,6 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	core_v1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/cache"
@@ -587,10 +586,9 @@ func Test_ResolveNamespace(t *testing.T) {
 		},
 	}
 
-	// Convert LabelSelector to map and to Selector
-	labelMap, err := v1.LabelSelectorAsMap(labelSelector)
+	selector, err := v1.LabelSelectorAsSelector(labelSelector)
 	assert.NoError(t, err)
-	expectedSelector := labels.SelectorFromSet(labelMap)
+	expectedSelector := selector
 
 	// Set up the mock to expect a List call with the correct options
 	k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf(&client.ListOptions{})).
@@ -612,6 +610,54 @@ func Test_ResolveNamespace(t *testing.T) {
 	}
 
 	nsList, err := service.ResolveNamespace(labelSelector)
+
+	// Verify results
+	assert.NoError(t, err)
+	assert.Equal(t, expectedNamespaceList, nsList)
+}
+
+func Test_ResolveNamespaceForNsSelectorMatchExpression(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+
+	// Create a mock client
+	k8sClient := mock_client.NewMockClient(mockCtl)
+
+	// With matchExpression Exists/NotExist operator
+	nsLabelSelector := &v1.LabelSelector{
+		MatchExpressions: nsSelectorMatchExpression,
+	}
+
+	expectedNamespaceList := &core_v1.NamespaceList{
+		Items: []core_v1.Namespace{
+			{ObjectMeta: v1.ObjectMeta{Name: "test-namespace"}},
+		},
+	}
+
+	selector, err := v1.LabelSelectorAsSelector(nsLabelSelector)
+	assert.NoError(t, err)
+	expectedSelector := selector
+
+	// Set up the mock to expect a List call with the correct options
+	k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf(&client.ListOptions{})).
+		DoAndReturn(func(ctx context.Context, list *core_v1.NamespaceList, opts ...client.ListOption) error {
+			// Verify the selector matches
+			listOpts := opts[0].(*client.ListOptions)
+			assert.Equal(t, expectedSelector.String(), listOpts.LabelSelector.String())
+
+			// Return the expected namespace list
+			*list = *expectedNamespaceList
+			return nil
+		})
+
+	// Create the service and call the function
+	service := &SecurityPolicyService{
+		Service: common.Service{
+			Client: k8sClient,
+		},
+	}
+
+	nsList, err := service.ResolveNamespace(nsLabelSelector)
 
 	// Verify results
 	assert.NoError(t, err)
