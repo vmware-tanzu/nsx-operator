@@ -147,7 +147,7 @@ func (r *SubnetReconciler) updateSubnetIfNeeded(ctx context.Context, subnetCR *v
 	if specChanged {
 		// Update the CR spec if there are changes
 		if err := r.Client.Update(ctx, subnetCR); err != nil {
-			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to update shared Subnet spec", setSubnetReadyStatusFalse)
+			log.Error(err, "Failed to update Subnet spec", "Name", subnetCR.Name, "Namespace", subnetCR.Namespace)
 			return fmt.Errorf("failed to update shared Subnet spec: %v", err)
 		}
 		log.Info("Successfully updated shared subnet spec during polling or reconciling", "Subnet", namespacedName)
@@ -155,7 +155,7 @@ func (r *SubnetReconciler) updateSubnetIfNeeded(ctx context.Context, subnetCR *v
 	if statusChanged {
 		// Update the CR status only if there are changes
 		if err := r.Client.Status().Update(ctx, subnetCR); err != nil {
-			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to update shared Subnet status", setSubnetReadyStatusFalse)
+			log.Error(err, "Failed to update Subnet status", "Name", subnetCR.Name, "Namespace", subnetCR.Namespace)
 			return fmt.Errorf("failed to update shared Subnet status: %v", err)
 		}
 		log.Info("Successfully updated shared Subnet status during polling", "Subnet", namespacedName)

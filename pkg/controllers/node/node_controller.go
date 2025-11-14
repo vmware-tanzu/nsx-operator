@@ -5,7 +5,6 @@ package node
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -41,35 +40,35 @@ type NodeReconciler struct {
 func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	node := &v1.Node{}
 	deleted := false
-	log.Info("reconciling node", "node", req.NamespacedName)
+	log.Info("Reconciling node", "node", req.NamespacedName)
 
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerSyncTotal, MetricResTypeNode)
 
 	if err := r.Client.Get(ctx, req.NamespacedName, node); err != nil {
 		if apierrors.IsNotFound(err) {
-			log.Info("node not found", "req", req.NamespacedName)
+			log.Info("Node not found", "req", req.NamespacedName)
 			deleted = true
 			if err := r.Service.SyncNodeStore(req.NamespacedName.Name, deleted); err != nil {
-				log.Error(err, "failed to sync node store", "req", req.NamespacedName)
+				log.Error(err, "Failed to sync node store", "req", req.NamespacedName)
 				return common.ResultNormal, err
 			}
 		} else {
-			log.Error(err, "unable to fetch node", "req", req.NamespacedName)
+			log.Error(err, "Unable to fetch node", "req", req.NamespacedName)
 		}
 		return common.ResultNormal, client.IgnoreNotFound(err)
 	}
 	if common.NodeIsMaster(node) {
 		// For WCP supervisor cluster, the master node isn't a transport node.
-		log.Info("skipping handling master node", "node", req.NamespacedName)
+		log.Info("Skipping handling master node", "node", req.NamespacedName)
 		return common.ResultNormal, nil
 	}
 	if !node.ObjectMeta.DeletionTimestamp.IsZero() {
-		log.Info("node is being deleted", "node", req.NamespacedName)
+		log.Info("Node is being deleted", "node", req.NamespacedName)
 		deleted = true
 	}
 
 	if err := r.Service.SyncNodeStore(node.Name, deleted); err != nil {
-		log.Error(err, "failed to sync node store", "req", req.NamespacedName)
+		log.Error(err, "Failed to sync node store", "req", req.NamespacedName)
 		return common.ResultNormal, err
 	}
 	return common.ResultNormal, nil
@@ -92,7 +91,7 @@ func StartNodeController(mgr ctrl.Manager, nodeService *node.NodeService) {
 	nodePortReconciler.Service = nodeService
 
 	if err := nodePortReconciler.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "Node")
+		log.Error(err, "Failed to create controller", "controller", "Node")
 		os.Exit(1)
 	}
 }
@@ -113,7 +112,7 @@ func (r *NodeReconciler) RestoreReconcile() error {
 		}
 	}
 	if len(errorList) > 0 {
-		return errors.Join(errorList...)
+		return fmt.Errorf("errors found in Node restore: %v", errorList)
 	}
 	return nil
 }
@@ -124,7 +123,7 @@ func (r *NodeReconciler) CollectGarbage(_ context.Context) error {
 
 func (r *NodeReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
 	if err := r.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "Node")
+		log.Error(err, "Failed to create controller", "controller", "Node")
 		return err
 	}
 	return nil

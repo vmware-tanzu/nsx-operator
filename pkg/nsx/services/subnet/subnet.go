@@ -129,7 +129,7 @@ func (service *SubnetService) RestoreSubnetSet(obj *v1alpha1.SubnetSet, vpcInfo 
 		}
 	}
 	if len(errList) > 0 {
-		return errors.Join(errList...)
+		return fmt.Errorf("errors found in SubnetSet restore: %s", errList)
 	}
 	return nil
 }
@@ -352,6 +352,7 @@ func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) err
 		log.Error(err, "Failed to update SubnetSet status")
 		return err
 	}
+	log.Debug("Updated SubnetSet", "Name", obj.Name, "Namespace", obj.Namespace, "Status", obj.Status)
 	return nil
 }
 
