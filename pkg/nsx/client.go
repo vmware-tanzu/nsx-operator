@@ -15,7 +15,6 @@ import (
 	nsx_policy "github.com/vmware/vsphere-automation-sdk-go/services/nsxt"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/cluster/restore"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/fabric"
-	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/pools"
 	mpsearch "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/search"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management/principal_identities"
@@ -112,7 +111,6 @@ type Client struct {
 	SubnetConnectionBindingMapsClient subnets.SubnetConnectionBindingMapsClient
 	DynamicIPReservationsClient       subnets.DynamicIpReservationsClient
 	NsxApiClient                      *nsxt.APIClient
-	MacPoolsClient                    pools.MacPoolsClient
 	VifsClient                        fabric.VifsClient
 
 	NSXChecker    NSXHealthChecker
@@ -224,7 +222,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	DynamicIPReservationsClient := subnets.NewDynamicIpReservationsClient(connector)
 
 	nsxApiClient, _ := CreateNsxtApiClient(cf, cluster.client)
-	macPoolsClient := pools.NewMacPoolsClient(connector)
 	vifsClient := fabric.NewVifsClient(connector)
 
 	nsxChecker := &NSXHealthChecker{
@@ -289,7 +286,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		LbPersistenceProfilesClient:       lbPersistenceProfilesClient,
 		LbMonitorProfilesClient:           lbMonitorProfilesClient,
 		NsxApiClient:                      nsxApiClient,
-		MacPoolsClient:                    macPoolsClient,
 		VifsClient:                        vifsClient,
 	}
 	// NSX version check will be restarted during SecurityPolicy reconcile

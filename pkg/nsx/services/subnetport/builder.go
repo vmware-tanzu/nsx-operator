@@ -23,28 +23,8 @@ import (
 )
 
 var (
-	String                      = common.String
-	defaultContainerMacPoolName = "DefaultContainersMacPool"
+	String = common.String
 )
-
-func (service *SubnetPortService) isInNSXMacPool(mac string) (*bool, error) {
-	mac = strings.ToLower(mac)
-	if service.macPool == nil {
-		return nil, fmt.Errorf("default NSX MAC Pool not initialized")
-	}
-	for _, macRange := range service.macPool.Ranges {
-		if macRange.Start != nil && macRange.End != nil {
-			start := strings.ToLower(*macRange.Start)
-			end := strings.ToLower(*macRange.End)
-			if mac >= start && mac <= end {
-				return common.Bool(true), nil
-			}
-		} else {
-			return nil, fmt.Errorf("invalid MAC range: %v", macRange)
-		}
-	}
-	return common.Bool(false), nil
-}
 
 func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labelTags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.VpcSubnetPort, error) {
 	var objNamespace, appId, allocateAddresses string
@@ -59,7 +39,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	var externalAddressBinding *model.ExternalAddressBinding
 	var err error
 	var addressBindings []model.PortAddressBindingEntry
-	var inNSXMacPool *bool // nil means no or invalid NSX MAC Pool
+	var hasMacSpecified bool
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
 		externalAddressBinding, err = service.buildExternalAddressBinding(o, restoreMode)
@@ -75,24 +55,17 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 					MacAddress: &o.Status.NetworkInterfaceConfig.MACAddress,
 				},
 			}
-			// Check if the specified MAC is in NSX MAC Pool to determine the allocateAddresses
-			inNSXMacPool, err = service.isInNSXMacPool(o.Status.NetworkInterfaceConfig.MACAddress)
-			if err != nil {
-				return nil, fmt.Errorf("failed to check NSX MAC Pool: %w", err)
+			if len(o.Status.NetworkInterfaceConfig.MACAddress) > 0 {
+				hasMacSpecified = true
 			}
 		} else if len(o.Spec.AddressBindings) > 0 {
-			addressBindings = []model.PortAddressBindingEntry{
-				{
-					IpAddress: &o.Spec.AddressBindings[0].IPAddress,
-				},
+			addressBindings = []model.PortAddressBindingEntry{{}}
+			if len(o.Spec.AddressBindings[0].IPAddress) > 0 {
+				addressBindings[0].IpAddress = &o.Spec.AddressBindings[0].IPAddress
 			}
 			if len(o.Spec.AddressBindings[0].MACAddress) > 0 {
 				addressBindings[0].MacAddress = &o.Spec.AddressBindings[0].MACAddress
-				// Check if the specified MAC is in NSX MAC Pool to determine the allocateAddresses
-				inNSXMacPool, err = service.isInNSXMacPool(o.Spec.AddressBindings[0].MACAddress)
-				if err != nil {
-					return nil, fmt.Errorf("failed to check NSX MAC Pool: %w", err)
-				}
+				hasMacSpecified = true
 			}
 		}
 	case *corev1.Pod:
@@ -103,36 +76,24 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 			mac, ok := o.GetAnnotations()[common.AnnotationPodMAC]
 			if ok && mac != "" {
 				addressBindings[0].MacAddress = &mac
+				hasMacSpecified = true
 			} else {
 				log.Error(nil, "MAC address annotation not found in Pod", "Pod", o)
 			}
 		}
 	}
 
-	if util.NSXSubnetDHCPEnabled(nsxSubnet) {
-		// Subnet with DHCPServer/DHCPRelay.
-		if inNSXMacPool != nil && *inNSXMacPool {
-			allocateAddresses = "MAC_POOL"
+	if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) {
+		// Subnet with Static IPAM.
+		if hasMacSpecified {
+			allocateAddresses = "IP_POOL"
 		} else {
-			// DHCP was never implemented for SubnetPort. Subnet's DHCP config is the only place to identify if port has DHCP config.
-			allocateAddresses = "NONE"
+			allocateAddresses = "BOTH"
 		}
 	} else {
-		if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) {
-			// Subnet with Static IPAM.
-			if inNSXMacPool != nil && !*inNSXMacPool {
-				allocateAddresses = "IP_POOL"
-			} else {
-				allocateAddresses = "BOTH"
-			}
-		} else {
-			// Subnet with no IP.
-			if inNSXMacPool != nil && *inNSXMacPool {
-				allocateAddresses = "MAC_POOL"
-			} else {
-				allocateAddresses = "NONE"
-			}
-		}
+		// For Subnet with DHCPServer/DHCPRelay or Subnet with no IP, we use NONE
+		// DHCP was never implemented for SubnetPort. Subnet's DHCP config is the only place to identify if port has DHCP config.
+		allocateAddresses = "NONE"
 	}
 
 	// Generate attachment uid by adding randomness to SubnetPort CR UID
