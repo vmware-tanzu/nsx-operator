@@ -10,7 +10,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	meta1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -334,6 +333,8 @@ func (service *SecurityPolicyService) getPodSelectors(obj *v1alpha1.SecurityPoli
 					if err != nil {
 						return nil, err
 					}
+					// If there is no namespaces selected yet, the resolved Namespaces list could be empty.
+					// And the namespaceSelector could be empty as well.
 					for _, nsItem := range ns.Items {
 						namespaceSelector.Namespace = nsItem.Name
 						namespaceSelectors = append(namespaceSelectors, namespaceSelector)
@@ -358,10 +359,9 @@ func (service *SecurityPolicyService) getPodSelectors(obj *v1alpha1.SecurityPoli
 			}
 		}
 	}
+
 	if len(finalSelectors) == 0 {
-		return nil, nsxutil.NoEffectiveOption{
-			Desc: "no effective options filtered by the rule and security policy",
-		}
+		log.Info("No selector populated for rule with the named port", "rule", rule.Ports)
 	}
 	return finalSelectors, nil
 }
@@ -382,11 +382,13 @@ func (service *SecurityPolicyService) ResolveNamespace(lbs *meta1.LabelSelector)
 	ctx := context.Background()
 	nsList := &v1.NamespaceList{}
 	nsOptions := &client.ListOptions{}
-	labelMap, err := meta1.LabelSelectorAsMap(lbs)
+	// Use LabelSelectorAsSelector to support Exists/NotExist operators.
+	selector, err := meta1.LabelSelectorAsSelector(lbs)
 	if err != nil {
 		return nil, err
 	}
-	nsOptions.LabelSelector = labels.SelectorFromSet(labelMap)
+
+	nsOptions.LabelSelector = selector
 	err = service.Client.List(ctx, nsList, nsOptions)
 	if err != nil {
 		return nil, err
