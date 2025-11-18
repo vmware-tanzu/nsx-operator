@@ -91,7 +91,7 @@ func (r *ServiceLbReconciler) setServiceLbStatus(ctx context.Context, lbService 
 	ipMode := v1.LoadBalancerIPModeProxy
 	statusUpdated := false
 	// If nsx.vmware.com/ingress-ip-mode label with values proxy or vip,
-	// the LoadBalancer serivice ipMode status would be set to whatever the label is set to,
+	// the LoadBalancer service ipMode status would be set to whatever the label is set to,
 	// Otherwise, it's set to Proxy by default when unset or other invalid values.
 	if labelIpMode, ok := lbService.Labels[servicecommon.LabelLbIngressIpMode]; ok {
 		if labelIpMode == servicecommon.LabelLbIngressIpModeVipValue {
