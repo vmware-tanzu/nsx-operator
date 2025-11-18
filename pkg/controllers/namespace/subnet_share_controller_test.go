@@ -466,7 +466,7 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 			existingSubnets: []client.Object{},
 			vpcNetConfig: &v1alpha1.VPCNetworkConfiguration{
 				Spec: v1alpha1.VPCNetworkConfigurationSpec{
-					Subnets: []string{},
+					Subnets: []v1alpha1.SharedSubnet{},
 				},
 			},
 			expectedUnusedCount: 0,
@@ -479,7 +479,11 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 			existingSubnets: []client.Object{},
 			vpcNetConfig: &v1alpha1.VPCNetworkConfiguration{
 				Spec: v1alpha1.VPCNetworkConfigurationSpec{
-					Subnets: []string{"/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1"},
+					Subnets: []v1alpha1.SharedSubnet{
+						{
+							Path: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
+						},
+					},
 				},
 			},
 			expectedUnusedCount: 0,
@@ -510,8 +514,10 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 			},
 			vpcNetConfig: &v1alpha1.VPCNetworkConfiguration{
 				Spec: v1alpha1.VPCNetworkConfigurationSpec{
-					Subnets: []string{
-						"/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
+					Subnets: []v1alpha1.SharedSubnet{
+						{
+							Path: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
+						},
 					},
 				},
 			},
@@ -543,8 +549,10 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 			},
 			vpcNetConfig: &v1alpha1.VPCNetworkConfiguration{
 				Spec: v1alpha1.VPCNetworkConfigurationSpec{
-					Subnets: []string{
-						"/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
+					Subnets: []v1alpha1.SharedSubnet{
+						{
+							Path: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
+						},
 					},
 				},
 			},
@@ -572,8 +580,10 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 			},
 			vpcNetConfig: &v1alpha1.VPCNetworkConfiguration{
 				Spec: v1alpha1.VPCNetworkConfigurationSpec{
-					Subnets: []string{
-						"/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/existing-subnet",
+					Subnets: []v1alpha1.SharedSubnet{
+						{
+							Path: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/existing-subnet",
+						},
 					},
 				},
 			},
@@ -838,7 +848,11 @@ func TestSyncSharedSubnets(t *testing.T) {
 			existingSubnets: []client.Object{},
 			vpcNetConfig: &v1alpha1.VPCNetworkConfiguration{
 				Spec: v1alpha1.VPCNetworkConfigurationSpec{
-					Subnets: []string{"/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1"},
+					Subnets: []v1alpha1.SharedSubnet{
+						{
+							Path: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
+						},
+					},
 				},
 			},
 			expectedError: false,
