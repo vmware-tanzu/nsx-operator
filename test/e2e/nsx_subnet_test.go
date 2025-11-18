@@ -1257,7 +1257,7 @@ func PrecreatedSharedSubnetDeleteFail(t *testing.T) {
 	log.Info("Verified that shared subnet cannot be deleted", "subnet", subnet2.Name)
 }
 
-// PrecreatedSharedSubnetUpdateFail tests that attempting to update vpcName or enableVlanExtension in a shared subnet fails
+// PrecreatedSharedSubnetUpdateFail tests that attempting to update vpcName or vlanConnection in a shared subnet fails
 func PrecreatedSharedSubnetUpdateFail(t *testing.T) {
 	// Find the shared subnets in precreatedSubnetNs2
 	sharedSubnets := verifyMultipleSharedSubnets(t, precreatedSubnetNs2, 2, "shared-subnet")
@@ -1272,7 +1272,7 @@ func PrecreatedSharedSubnetUpdateFail(t *testing.T) {
 
 	// Save original values for verification later
 	originalVPCName := subnet2.Spec.VPCName
-	originalEnableVLANExtension := subnet2.Spec.AdvancedConfig.EnableVLANExtension
+	originalVLANConnection := subnet2.Spec.VLANConnection
 
 	log.Info("Attempting to update VPCName in shared subnet", "subnet", subnet2.Name)
 
@@ -1285,15 +1285,15 @@ func PrecreatedSharedSubnetUpdateFail(t *testing.T) {
 	require.Error(t, err, "Updating VPCName in shared subnet %s should fail", subnet2.Name)
 	require.Contains(t, err.Error(), "vpcName is immutable", "Error message should indicate that VPCName is immutable")
 
-	// Now try to update EnableVLANExtension
-	log.Info("Attempting to update EnableVLANExtension in shared subnet", "subnet", subnet2.Name)
+	// Now try to update VLANConnection
+	log.Info("Attempting to update VLANConnection in shared subnet", "subnet", subnet2.Name)
 
 	// Get the latest version of the subnet
 	latestSubnet, err := testData.crdClientset.CrdV1alpha1().Subnets(precreatedSubnetNs2).Get(context.TODO(), subnet2.Name, v1.GetOptions{})
 	require.NoError(t, err, "Failed to get latest version of subnet %s", subnet2.Name)
 
 	updatedSubnet = latestSubnet.DeepCopy()
-	updatedSubnet.Spec.AdvancedConfig.EnableVLANExtension = !originalEnableVLANExtension
+	updatedSubnet.Spec.VLANConnection = "faked-vlan-connection-path"
 	_, err = testData.crdClientset.CrdV1alpha1().Subnets(precreatedSubnetNs2).Update(context.TODO(), updatedSubnet, v1.UpdateOptions{})
 
 	// Verify that the update fails or is denied
@@ -1303,8 +1303,8 @@ func PrecreatedSharedSubnetUpdateFail(t *testing.T) {
 	finalSubnet, err := testData.crdClientset.CrdV1alpha1().Subnets(precreatedSubnetNs2).Get(context.TODO(), subnet2.Name, v1.GetOptions{})
 	require.NoError(t, err, "Failed to get final subnet %s", subnet2.Name)
 	require.Equal(t, originalVPCName, finalSubnet.Spec.VPCName, "VPCName should remain unchanged")
-	require.Equal(t, originalEnableVLANExtension, finalSubnet.Spec.AdvancedConfig.EnableVLANExtension,
-		"EnableVLANExtension should remain unchanged")
+	require.Equal(t, originalVLANConnection, finalSubnet.Spec.VLANConnection,
+		"VLANConnection should remain unchanged")
 
 	log.Info("Verified that shared subnet properties cannot be updated", "subnet", subnet2.Name)
 }

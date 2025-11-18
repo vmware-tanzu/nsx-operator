@@ -15,13 +15,14 @@ require (
 	github.com/apparentlymart/go-cidr v1.1.0
 	github.com/deckarep/golang-set v1.8.0
 	github.com/go-logr/logr v1.4.2
-	github.com/go-logr/zapr v1.3.0
+	github.com/go-logr/zerologr v1.2.3
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/golang/mock v1.6.0
 	github.com/google/uuid v1.6.0
 	github.com/kevinburke/ssh_config v1.2.0
 	github.com/openlyinc/pointy v1.1.2
 	github.com/prometheus/client_golang v1.19.1
+	github.com/rs/zerolog v1.34.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.9.0
 	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-20241113082223-673d2e7ca974
@@ -31,7 +32,7 @@ require (
 	github.com/vmware/govmomi v0.27.4
 	github.com/vmware/vsphere-automation-sdk-go/lib v0.7.0
 	github.com/vmware/vsphere-automation-sdk-go/runtime v0.7.0
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.0.0-20250815063518-10626e9639f6
+	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.0.0-20251118052650-f28a4281be50
 	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp v0.0.0-20241118070432-460aadb3b866
 	go.uber.org/automaxprocs v1.5.3
 	go.uber.org/zap v1.26.0
@@ -58,7 +59,7 @@ require (
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/gibson042/canonicaljson-go v1.0.3 // indirect
-	github.com/go-logr/zerologr v1.2.3 // indirect
+	github.com/go-logr/zapr v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v0.19.6 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
 	github.com/go-openapi/swag v0.22.4 // indirect
@@ -86,7 +87,6 @@ require (
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.55.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
-	github.com/rs/zerolog v1.34.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect

@@ -82,12 +82,6 @@ spec:
                       type: string
                     maxItems: 1
                     type: array
-                  enableVLANExtension:
-                    default: false
-                    description: |-
-                      Whether this Subnet enabled VLAN extension.
-                      Default value is false.
-                    type: boolean
                   gatewayAddresses:
                     description: GatewayAddresses specifies custom gateway IP addresses
                       for the Subnet.
@@ -156,6 +150,9 @@ spec:
                     ) && (!has(self.dhcpServerAdditionalConfig) || !has(self.dhcpServerAdditionalConfig.reservedIPRanges)
                     || size(self.dhcpServerAdditionalConfig.reservedIPRanges)==0)
                     || has(self.mode) && self.mode=='DHCPServer'
+              vlanConnection:
+                description: Distributed VLAN connection path.
+                type: string
               vpcName:
                 description: VPC name of the Subnet.
                 type: string

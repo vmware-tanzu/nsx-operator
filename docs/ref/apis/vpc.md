@@ -704,7 +704,6 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `connectivityState` _[ConnectivityState](#connectivitystate)_ | Connectivity status of the Subnet from other Subnets of the VPC.<br />The default value is "Connected". | Connected | Enum: [Connected Disconnected] <br /> |
-| `enableVLANExtension` _boolean_ | Whether this Subnet enabled VLAN extension.<br />Default value is false. | false |  |
 | `staticIPAllocation` _[StaticIPAllocation](#staticipallocation)_ | Static IP allocation for VPC Subnet Ports. |  |  |
 | `gatewayAddresses` _string array_ | GatewayAddresses specifies custom gateway IP addresses for the Subnet. |  | MaxItems: 1 <br /> |
 | `dhcpServerAddresses` _string array_ | DHCPServerAddresses specifies custom DHCP server IP addresses for the Subnet. |  | MaxItems: 1 <br /> |
@@ -981,6 +980,7 @@ _Appears in:_
 | `ipAddresses` _string array_ | Subnet CIDRS. |  | MaxItems: 2 <br />MinItems: 0 <br /> |
 | `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | DHCP configuration for Subnet. |  |  |
 | `advancedConfig` _[SubnetAdvancedConfig](#subnetadvancedconfig)_ | VPC Subnet advanced configuration. |  |  |
+| `vlanConnection` _string_ | Distributed VLAN connection path. |  |  |
 
 
 #### SubnetStatus

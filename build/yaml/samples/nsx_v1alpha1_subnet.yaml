@@ -36,14 +36,13 @@ spec:
     mode: DHCPDeactivated
   advancedConfig:
     connectivityState: Disconnected
-    enableVLANExtension: true
+  vlanExtension: /infra/distributed-vlan-connections/gatewayconnection-103
 status:
   gatewayAddresses:
   - 172.26.0.1/28
   networkAddresses:
   - 172.26.0.0/28
   shared: true
-  vlanExtension: {
-    vpcGatewayConnectionEnable: true,
+  vlanExtension:
+    vpcGatewayConnectionEnable: true
     vlanId: 192
-  }

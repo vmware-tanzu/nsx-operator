@@ -81,7 +81,7 @@ func TestSubnetValidator_Handle(t *testing.T) {
 		},
 	})
 
-	// Subnet with EnableVLANExtension set
+	// Subnet with VLANConnection set
 	subnetWithVLANExt, _ := json.Marshal(&v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "ns-5",
@@ -89,9 +89,7 @@ func TestSubnetValidator_Handle(t *testing.T) {
 		},
 		Spec: v1alpha1.SubnetSpec{
 			IPv4SubnetSize: 16,
-			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
-				EnableVLANExtension: true,
-			},
+			VLANConnection: "/infra/distributed-vlan-connections/gatewayconnection-103",
 		},
 	})
 
@@ -120,7 +118,7 @@ func TestSubnetValidator_Handle(t *testing.T) {
 		},
 	})
 
-	// Updated subnet with changed EnableVLANExtension
+	// Updated subnet with changed VLANConnection
 	updatedSubnetVLAN, _ := json.Marshal(&v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "ns-6",
@@ -128,10 +126,8 @@ func TestSubnetValidator_Handle(t *testing.T) {
 		},
 		Spec: v1alpha1.SubnetSpec{
 			IPv4SubnetSize: 16,
-			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
-				EnableVLANExtension: true,
-			},
-			IPAddresses: []string{"192.168.1.0/24"},
+			VLANConnection: "/infra/distributed-vlan-connections/gatewayconnection-103",
+			IPAddresses:    []string{"192.168.1.0/24"},
 		},
 	})
 
@@ -280,14 +276,14 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			want:      admission.Allowed(""),
 		},
 		{
-			name:      "Create subnet with EnableVLANExtension by non-NSX Operator",
+			name:      "Create subnet with VLANConnection by non-NSX Operator",
 			operation: admissionv1.Create,
 			object:    subnetWithVLANExt,
 			user:      "non-nsx-operator",
-			want:      admission.Denied("Subnet ns-5/subnet-with-vlan: spec.enableVLANExtension can only be set by NSX Operator"),
+			want:      admission.Denied("Subnet ns-5/subnet-with-vlan: spec.vlanConnection can only be set by NSX Operator"),
 		},
 		{
-			name:      "Create subnet with EnableVLANExtension by NSX Operator",
+			name:      "Create subnet with VLANConnection by NSX Operator",
 			operation: admissionv1.Create,
 			object:    subnetWithVLANExt,
 			user:      NSXOperatorSA,
@@ -310,15 +306,15 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			want:      admission.Allowed(""),
 		},
 		{
-			name:      "Update subnet with changed EnableVLANExtension by non-NSX Operator",
+			name:      "Update subnet with changed VLANConnection by non-NSX Operator",
 			operation: admissionv1.Update,
 			object:    updatedSubnetVLAN,
 			oldObject: oldSubnet,
 			user:      "non-nsx-operator",
-			want:      admission.Denied("Subnet ns-6/subnet-to-update: spec.enableVLANExtension can only be updated by NSX Operator"),
+			want:      admission.Denied("Subnet ns-6/subnet-to-update: spec.vlanConnection can only be updated by NSX Operator"),
 		},
 		{
-			name:      "Update subnet with changed EnableVLANExtension by NSX Operator",
+			name:      "Update subnet with changed VLANConnection by NSX Operator",
 			operation: admissionv1.Update,
 			object:    updatedSubnetVLAN,
 			oldObject: oldSubnet,

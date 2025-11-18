@@ -36,8 +36,8 @@ func (c *fakeDynamicIPReservationsClient) List(orgIdParam string, projectIdParam
 	return model.DynamicIpAddressReservationListResult{}, nil
 }
 
-func (c *fakeDynamicIPReservationsClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, dynamicIpReservationIdParam string, dynamicIpAddressReservationParam model.DynamicIpAddressReservation) (model.DynamicIpAddressReservation, error) {
-	return model.DynamicIpAddressReservation{}, nil
+func (c *fakeDynamicIPReservationsClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, dynamicIpReservationIdParam string, dynamicIpAddressReservationParam model.DynamicIpAddressReservation) error {
+	return nil
 }
 
 func (c *fakeDynamicIPReservationsClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, dynamicIpReservationIdParam string, dynamicIpAddressReservationParam model.DynamicIpAddressReservation) (model.DynamicIpAddressReservation, error) {
@@ -137,8 +137,8 @@ func TestGetOrCreateSubnetIPReservation(t *testing.T) {
 		{
 			name: "PatchFailure",
 			prepareFunc: func() *gomonkey.Patches {
-				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.DynamicIPReservationsClient), "Patch", func(c *fakeDynamicIPReservationsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, dynamicIpReservationIdParam string, dynamicIpAddressReservationParam model.DynamicIpAddressReservation) (model.DynamicIpAddressReservation, error) {
-					return model.DynamicIpAddressReservation{}, fmt.Errorf("mocked patch error")
+				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.DynamicIPReservationsClient), "Patch", func(c *fakeDynamicIPReservationsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, dynamicIpReservationIdParam string, dynamicIpAddressReservationParam model.DynamicIpAddressReservation) error {
+					return fmt.Errorf("mocked patch error")
 				})
 			},
 			ipReservation: &v1alpha1.SubnetIPReservation{
@@ -158,8 +158,8 @@ func TestGetOrCreateSubnetIPReservation(t *testing.T) {
 		{
 			name: "GetFailure",
 			prepareFunc: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.DynamicIPReservationsClient), "Patch", func(c *fakeDynamicIPReservationsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, dynamicIpReservationIdParam string, dynamicIpAddressReservationParam model.DynamicIpAddressReservation) (model.DynamicIpAddressReservation, error) {
-					return model.DynamicIpAddressReservation{}, nil
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.DynamicIPReservationsClient), "Patch", func(c *fakeDynamicIPReservationsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, dynamicIpReservationIdParam string, dynamicIpAddressReservationParam model.DynamicIpAddressReservation) error {
+					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(service.NSXClient.DynamicIPReservationsClient), "Get", func(c *fakeDynamicIPReservationsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, anyIpReservationIdParam string) (model.DynamicIpAddressReservation, error) {
 					return model.DynamicIpAddressReservation{}, fmt.Errorf("mocked get error")
@@ -183,8 +183,8 @@ func TestGetOrCreateSubnetIPReservation(t *testing.T) {
 		{
 			name: "Success",
 			prepareFunc: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.DynamicIPReservationsClient), "Patch", func(c *fakeDynamicIPReservationsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, dynamicIpReservationIdParam string, dynamicIpAddressReservationParam model.DynamicIpAddressReservation) (model.DynamicIpAddressReservation, error) {
-					return model.DynamicIpAddressReservation{}, nil
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.DynamicIPReservationsClient), "Patch", func(c *fakeDynamicIPReservationsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, dynamicIpReservationIdParam string, dynamicIpAddressReservationParam model.DynamicIpAddressReservation) error {
+					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(service.NSXClient.DynamicIPReservationsClient), "Get", func(c *fakeDynamicIPReservationsClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, anyIpReservationIdParam string) (model.DynamicIpAddressReservation, error) {
 					return *ipr2, nil
