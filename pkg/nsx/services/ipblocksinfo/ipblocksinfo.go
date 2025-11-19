@@ -242,7 +242,7 @@ func (s *IPBlocksInfoService) getSharedSubnetsCIDRs(vpcConfigList []v1alpha1.VPC
 	sharedSubnet := sets.New[string]()
 	for _, vpcConfigCR := range vpcConfigList {
 		for _, subnet := range vpcConfigCR.Spec.Subnets {
-			sharedSubnet.Insert(subnet.Path)
+			sharedSubnet.Insert(subnet)
 		}
 	}
 	for _, subnetPath := range sharedSubnet.UnsortedList() {
