@@ -39,7 +39,6 @@ type SubnetPortService struct {
 	VPCService                 servicecommon.VPCServiceProvider
 	IpAddressAllocationService servicecommon.IPAddressAllocationServiceProvider
 	builder                    *servicecommon.PolicyTreeBuilder[*model.VpcSubnetPort]
-	macPool                    *mpmodel.MacPool
 }
 
 // InitializeSubnetPort sync NSX resources.
@@ -60,10 +59,6 @@ func InitializeSubnetPort(service servicecommon.Service, vpcService servicecommo
 	}
 
 	subnetPortService.SubnetPortStore = setupStore()
-
-	if err := subnetPortService.loadNSXMacPool(); err != nil {
-		return subnetPortService, err
-	}
 
 	go subnetPortService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSubnetPort, nil, subnetPortService.SubnetPortStore)
 	go func() {
@@ -97,21 +92,6 @@ func setupStore() *SubnetPortStore {
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}}
-}
-
-func (service *SubnetPortService) loadNSXMacPool() error {
-	pageSize := int64(1000)
-	macPools, err := service.NSXClient.MacPoolsClient.List(nil, nil, &pageSize, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to get NSX MAC Pools: %w", err)
-	}
-	for _, macPool := range macPools.Results {
-		if macPool.DisplayName != nil && *macPool.DisplayName == defaultContainerMacPoolName {
-			service.macPool = &macPool
-			log.Debug("Get NSX MAC Pool", "MacPool", macPool)
-		}
-	}
-	return nil
 }
 
 func (service *SubnetPortService) portAlreadyRealized(obj interface{}, nsxSubnetPort *model.VpcSubnetPort) bool {
