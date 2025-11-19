@@ -129,17 +129,17 @@ func (r *NamespaceReconciler) processNewSharedSubnets(ctx context.Context, ns st
 	unusedSubnets := make(map[string]*v1alpha1.Subnet)
 	processedSubnets := make(map[string]bool)
 
-	for _, sharedSubnetPath := range vpcNetConfig.Spec.Subnets {
-		associatedResource, err := servicecommon.ConvertSubnetPathToAssociatedResource(sharedSubnetPath)
+	for _, sharedSubnet := range vpcNetConfig.Spec.Subnets {
+		associatedResource, err := servicecommon.ConvertSubnetPathToAssociatedResource(sharedSubnet.Path)
 		if err != nil {
-			log.Error(err, "Failed to convert Subnet path to associated resource", "Namespace", ns, "SharedSubnet", sharedSubnetPath)
+			log.Error(err, "Failed to convert Subnet path to associated resource", "Namespace", ns, "SharedSubnet", sharedSubnet.Path)
 			return unusedSubnets, err
 		}
 
 		if _, exists := existingSharedSubnets[associatedResource]; !exists {
-			err := r.createSharedSubnetCR(ctx, ns, sharedSubnetPath)
+			err := r.createSharedSubnetCR(ctx, ns, sharedSubnet.Path)
 			if err != nil {
-				log.Error(err, "Failed to create Subnet CR for shared Subnet", "Namespace", ns, "SharedSubnet", sharedSubnetPath)
+				log.Error(err, "Failed to create Subnet CR for shared Subnet", "Namespace", ns, "SharedSubnet", sharedSubnet.Path)
 				return unusedSubnets, err
 			}
 		} else {
