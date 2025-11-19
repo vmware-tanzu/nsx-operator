@@ -189,7 +189,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	nsxSubnet, err := r.SubnetService.GetSubnetByCR(subnetCR)
 	if err != nil {
-		log.Error(err, "failed to get NSX Subnet", "Namespace", subnetCR.Namespace, "Subnet", subnetCR.Name)
+		log.Error(err, "Failed to get NSX Subnet", "Namespace", subnetCR.Namespace, "Subnet", subnetCR.Name)
 		r.StatusUpdater.UpdateFail(ctx, ipReservationCR, err, "failed to get NSX Subnet", setReadyStatusFalse)
 		return common.ResultRequeue, nil
 	}
@@ -293,7 +293,7 @@ func updateStatusConditions(client client.Client, ctx context.Context, ipReserva
 		if err := client.Status().Update(ctx, ipReservation); err != nil {
 			log.Error(err, "Failed to update SubnetIPReservation status", "Name", ipReservation.Name, "Namespace", ipReservation.Namespace)
 		} else {
-			log.Info("Updated SubnetIPReservation", "Name", ipReservation.Name, "Namespace", ipReservation.Namespace, "New Conditions", newConditions)
+			log.Debug("Updated SubnetIPReservation", "Name", ipReservation.Name, "Namespace", ipReservation.Namespace, "New Conditions", newConditions)
 		}
 	}
 }

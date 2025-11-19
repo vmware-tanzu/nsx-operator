@@ -22,7 +22,9 @@ func GetPodIDsFromEndpoint(ctx context.Context, c client.Client, name string, na
 	}, endpoint)
 
 	if err != nil {
-		log.Error(err, "Failed to get endpoints for Service", "Service", name, "Namespace", namespace)
+		// This is expected for Service without selector
+		// or Service just created as Endpoints created after Service
+		log.Warn("Failed to get endpoints for Service", "Service", name, "Namespace", namespace, "error", err)
 		return
 	}
 

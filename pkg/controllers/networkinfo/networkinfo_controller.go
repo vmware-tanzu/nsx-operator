@@ -5,7 +5,6 @@ package networkinfo
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -666,7 +665,7 @@ func (r *NetworkInfoReconciler) RestoreReconcile() error {
 		}
 	}
 	if len(errorList) > 0 {
-		return errors.Join(errorList...)
+		return fmt.Errorf("errors found in NetworkInfo restore: %v", errorList)
 	}
 	return nil
 }
