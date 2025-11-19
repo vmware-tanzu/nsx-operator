@@ -19,9 +19,9 @@ type VPCNetworkConfigurationSpec struct {
 	// +optional
 	VPC string `json:"vpc,omitempty"`
 
-	// Shared Subnets the Namespace is associated with.
+	// NSX path of the shared Subnets the Namespace is associated with.
 	// +optional
-	Subnets []SharedSubnet `json:"subnets,omitempty"`
+	Subnets []string `json:"subnets,omitempty"`
 
 	// NSX Project the Namespace is associated with.
 	NSXProject string `json:"nsxProject,omitempty"`
@@ -38,12 +38,6 @@ type VPCNetworkConfigurationSpec struct {
 	// +kubebuilder:validation:Maximum:=65536
 	// +kubebuilder:validation:Minimum:=16
 	DefaultSubnetSize int `json:"defaultSubnetSize,omitempty"`
-}
-
-// SharedSubnet defines the information for a Subnet shared with vSphere Namespace.
-type SharedSubnet struct {
-	// NSX path of Subnets created outside of the Supervisor to be associated with this vSphere Namespace
-	Path string `json:"path"`
 }
 
 // VPCNetworkConfigurationStatus defines the observed state of VPCNetworkConfiguration

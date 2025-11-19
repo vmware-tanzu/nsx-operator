@@ -23,19 +23,12 @@ import (
 
 // Helper function to create a test VPCNetworkConfiguration
 func createTestVPCNetworkConfiguration(name string, subnets []string) *v1alpha1.VPCNetworkConfiguration {
-	length := len(subnets)
-	sharedSubnets := make([]v1alpha1.SharedSubnet, length)
-	for i, path := range subnets {
-		sharedSubnets[i] = v1alpha1.SharedSubnet{
-			Path: path,
-		}
-	}
 	return &v1alpha1.VPCNetworkConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
 		Spec: v1alpha1.VPCNetworkConfigurationSpec{
-			Subnets: sharedSubnets,
+			Subnets: subnets,
 		},
 	}
 }

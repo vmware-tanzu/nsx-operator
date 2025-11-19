@@ -938,24 +938,13 @@ func createSharedSubnet(t *testing.T, subnetName string) string {
 	return subnetPath
 }
 
-func createSharedSubnets(subnetPaths []string) []v1alpha1.SharedSubnet {
-	length := len(subnetPaths)
-	sharedSubnets := make([]v1alpha1.SharedSubnet, length)
-	for i, path := range subnetPaths {
-		sharedSubnets[i] = v1alpha1.SharedSubnet{
-			Path: path,
-		}
-	}
-	return sharedSubnets
-}
-
 // updateVPCNetworkConfigSubnets is a helper function that updates VPC network configuration subnets
 // Parameters:
 // - t: testing.T instance
 // - namespace: namespace containing the VPC network config
 // - subnetPaths: list of subnet paths to set or append
 // - appendMode: if true, append to existing subnets; if false, replace all subnets
-func updateVPCNetworkConfigSubnets(t *testing.T, namespace string, subnetPaths []v1alpha1.SharedSubnet, appendMode bool) {
+func updateVPCNetworkConfigSubnets(t *testing.T, namespace string, subnetPaths []string, appendMode bool) {
 	// Get the vpc_network_config annotation from the namespace
 	nsObj, err := testData.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, v1.GetOptions{})
 	require.NoError(t, err)
@@ -1096,9 +1085,9 @@ func PrecreatedSharedSubnetBasic(t *testing.T) {
 	subnetName := "shared-subnet"
 	subnetPath := createSharedSubnet(t, subnetName)
 	// Update precreatedSubnetNs1 VPC networkconfig CR with shared subnet
-	updateVPCNetworkConfigSubnets(t, precreatedSubnetNs1, createSharedSubnets([]string{subnetPath}), false)
+	updateVPCNetworkConfigSubnets(t, precreatedSubnetNs1, []string{subnetPath}, false)
 	// Update precreatedSubnetNs2 VPC networkconfig CR with shared subnet
-	updateVPCNetworkConfigSubnets(t, precreatedSubnetNs2, createSharedSubnets([]string{subnetPath}), false)
+	updateVPCNetworkConfigSubnets(t, precreatedSubnetNs2, []string{subnetPath}, false)
 	// Verify the shared subnets exist in precreatedSubnetNs1 and precreatedSubnetNs2 with correct properties
 	sharedSubnet1 := verifySharedSubnet(t, precreatedSubnetNs1, subnetName)
 	sharedSubnet2 := verifySharedSubnet(t, precreatedSubnetNs2, subnetName)
@@ -1109,7 +1098,7 @@ func PrecreatedSharedSubnetBasic(t *testing.T) {
 func PrecreatedSharedSubnetRemovePath(t *testing.T) {
 	// Remove the shared subnet path from precreatedSubnetNs1 vpcNetworkConfig
 	// precreatedSubnetNs1 should not have the shared subnet anymore, but precreatedSubnetNs2 should still have it
-	updateVPCNetworkConfigSubnets(t, precreatedSubnetNs1, createSharedSubnets([]string{}), false)
+	updateVPCNetworkConfigSubnets(t, precreatedSubnetNs1, []string{}, false)
 	// Verify the shared subnet is removed from precreatedSubnetNs1
 	verifyNoSharedSubnet(t, precreatedSubnetNs1)
 	// Verify precreatedSubnetNs2 still has the shared subnet with correct properties
@@ -1156,7 +1145,7 @@ func PrecreatedSharedSubnetAddPath(t *testing.T) {
 	subnetName := "shared-subnet-2"
 	subnetPath := createSharedSubnet(t, subnetName)
 	// Add the new subnet path to the existing paths in precreatedSubnetNs2 VPC network config
-	updateVPCNetworkConfigSubnets(t, precreatedSubnetNs2, createSharedSubnets([]string{subnetPath}), true)
+	updateVPCNetworkConfigSubnets(t, precreatedSubnetNs2, []string{subnetPath}, true)
 	// Verify precreatedSubnetNs2 has two shared subnets with correct properties
 	sharedSubnets := verifyMultipleSharedSubnets(t, precreatedSubnetNs2, 2, "shared-subnet", "shared-subnet-2")
 	log.Info("Multiple shared subnet verification complete", "ns2_subnet1", sharedSubnets[0].Name, "ns2_subnet2", sharedSubnets[1].Name)
