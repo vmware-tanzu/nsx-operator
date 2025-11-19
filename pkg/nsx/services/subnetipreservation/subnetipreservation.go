@@ -66,7 +66,7 @@ func (s *IPReservationService) GetOrCreateSubnetIPReservation(ipReservation *v1a
 	if err != nil {
 		return nil, err
 	}
-	_, err = s.NSXClient.DynamicIPReservationsClient.Patch(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *nsxIPReservation.Id, *nsxIPReservation)
+	err = s.NSXClient.DynamicIPReservationsClient.Patch(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *nsxIPReservation.Id, *nsxIPReservation)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to create NSX Subnet IPReservation", "NSXSubnetIPReservation", nsxIPReservation.Path)

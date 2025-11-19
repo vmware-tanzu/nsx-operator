@@ -27,8 +27,6 @@ func TestSubnetToComparable(t *testing.T) {
 	id2 := "fakeSubnetID2"
 	connectivityStateConnected := "Connected"
 	connectivityStateDisconnected := "Disconnected"
-	enableVlanTrue := true
-	enableVlanFalse := false
 	gatewayAddr1 := "192.168.1.1"
 	gatewayAddr2 := "192.168.1.2"
 	dhcpAddr1 := "192.168.1.100"
@@ -75,18 +73,13 @@ func TestSubnetToComparable(t *testing.T) {
 			expectChanged: true,
 		},
 		{
-			name: "AdvancedConfig with different EnableVlanExtension should not cause change",
+			name: "different VLANConnection should not cause change",
 			nsxSubnet: &model.VpcSubnet{
 				Id: &id1,
-				AdvancedConfig: &model.SubnetAdvancedConfig{
-					EnableVlanExtension: &enableVlanTrue,
-				},
 			},
 			existingSubnet: &model.VpcSubnet{
-				Id: &id2,
-				AdvancedConfig: &model.SubnetAdvancedConfig{
-					EnableVlanExtension: &enableVlanFalse,
-				},
+				Id:             &id2,
+				VlanConnection: common.String("/infra/distributed-vlan-connections/gatewayconnection-103"),
 			},
 			expectChanged: false,
 		},
@@ -159,17 +152,15 @@ func TestSubnetToComparable(t *testing.T) {
 			nsxSubnet: &model.VpcSubnet{
 				Id: &id1,
 				AdvancedConfig: &model.SubnetAdvancedConfig{
-					ConnectivityState:   &connectivityStateConnected,
-					GatewayAddresses:    []string{gatewayAddr1},
-					EnableVlanExtension: &enableVlanTrue,
+					ConnectivityState: &connectivityStateConnected,
+					GatewayAddresses:  []string{gatewayAddr1},
 				},
 			},
 			existingSubnet: &model.VpcSubnet{
 				Id: &id2,
 				AdvancedConfig: &model.SubnetAdvancedConfig{
-					ConnectivityState:   &connectivityStateDisconnected,
-					GatewayAddresses:    []string{gatewayAddr1},
-					EnableVlanExtension: &enableVlanFalse,
+					ConnectivityState: &connectivityStateDisconnected,
+					GatewayAddresses:  []string{gatewayAddr1},
 				},
 			},
 			expectChanged: true,

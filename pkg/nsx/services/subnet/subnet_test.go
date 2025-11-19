@@ -1009,9 +1009,6 @@ func TestBuildSubnetCR(t *testing.T) {
 				},
 				Spec: v1alpha1.SubnetSpec{
 					VPCName: "proj-1:vpc-1",
-					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
-						EnableVLANExtension: false,
-					},
 				},
 			},
 		},

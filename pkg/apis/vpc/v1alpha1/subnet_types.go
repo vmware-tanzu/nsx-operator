@@ -66,6 +66,8 @@ type SubnetSpec struct {
 	SubnetDHCPConfig SubnetDHCPConfig `json:"subnetDHCPConfig,omitempty"`
 	// VPC Subnet advanced configuration.
 	AdvancedConfig SubnetAdvancedConfig `json:"advancedConfig,omitempty"`
+	// Distributed VLAN connection path.
+	VLANConnection string `json:"vlanConnection,omitempty"`
 }
 
 // SubnetStatus defines the observed state of Subnet.
@@ -117,10 +119,6 @@ type SubnetAdvancedConfig struct {
 	// +kubebuilder:validation:Enum=Connected;Disconnected
 	// +kubebuilder:default=Connected
 	ConnectivityState ConnectivityState `json:"connectivityState,omitempty"`
-	// Whether this Subnet enabled VLAN extension.
-	// Default value is false.
-	// +kubebuilder:default=false
-	EnableVLANExtension bool `json:"enableVLANExtension,omitempty"`
 	// Static IP allocation for VPC Subnet Ports.
 	StaticIPAllocation StaticIPAllocation `json:"staticIPAllocation,omitempty"`
 	// GatewayAddresses specifies custom gateway IP addresses for the Subnet.
