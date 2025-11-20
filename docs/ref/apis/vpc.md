@@ -581,6 +581,22 @@ _Appears in:_
 | `podSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#labelselector-v1-meta)_ | PodSelector uses label selector to select Pods. |  |  |
 
 
+#### SharedSubnet
+
+
+
+SharedSubnet defines the information for a Subnet shared with vSphere Namespace.
+
+
+
+_Appears in:_
+- [VPCNetworkConfigurationSpec](#vpcnetworkconfigurationspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `path` _string_ | NSX path of Subnets created outside of the Supervisor to be associated with this vSphere Namespace |  |  |
+
+
 #### StaticIPAllocation
 
 
@@ -1077,7 +1093,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `vpc` _string_ | NSX path of the VPC the Namespace is associated with.<br />If vpc is set, only defaultSubnetSize takes effect, other fields are ignored. |  |  |
-| `subnets` _string array_ | NSX path of the shared Subnets the Namespace is associated with. |  |  |
+| `subnets` _[SharedSubnet](#sharedsubnet) array_ | Shared Subnets the Namespace is associated with. |  |  |
 | `nsxProject` _string_ | NSX Project the Namespace is associated with. |  |  |
 | `vpcConnectivityProfile` _string_ | VPCConnectivityProfile Path. This profile has configuration related to creating VPC transit gateway attachment. |  |  |
 | `privateIPs` _string array_ | Private IPs. |  |  |

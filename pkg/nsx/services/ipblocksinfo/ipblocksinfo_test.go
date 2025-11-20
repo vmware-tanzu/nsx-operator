@@ -537,7 +537,11 @@ func TestIPBlocksInfoService_getSharedSubnetsCIDRs(t *testing.T) {
 	vpcConfigList := []v1alpha1.VPCNetworkConfiguration{
 		{
 			Spec: v1alpha1.VPCNetworkConfigurationSpec{
-				Subnets: []string{publicSubnetPath, privateTgwSubnetPath},
+				Subnets: []v1alpha1.SharedSubnet{{
+					Path: publicSubnetPath,
+				}, {
+					Path: privateTgwSubnetPath,
+				}},
 			},
 		},
 	}
@@ -550,7 +554,9 @@ func TestIPBlocksInfoService_getSharedSubnetsCIDRs(t *testing.T) {
 	vpcConfigList = []v1alpha1.VPCNetworkConfiguration{
 		{
 			Spec: v1alpha1.VPCNetworkConfigurationSpec{
-				Subnets: []string{privateTgwSubnetPath1},
+				Subnets: []v1alpha1.SharedSubnet{{
+					Path: privateTgwSubnetPath1,
+				}},
 			},
 		},
 	}
@@ -563,7 +569,9 @@ func TestIPBlocksInfoService_getSharedSubnetsCIDRs(t *testing.T) {
 	vpcConfigList = []v1alpha1.VPCNetworkConfiguration{
 		{
 			Spec: v1alpha1.VPCNetworkConfigurationSpec{
-				Subnets: []string{"/infra/vpc-subnets/non-existent"},
+				Subnets: []v1alpha1.SharedSubnet{{
+					Path: "/infra/vpc-subnets/non-existent",
+				}},
 			},
 		},
 	}
@@ -581,7 +589,9 @@ func TestIPBlocksInfoService_getSharedSubnetsCIDRs(t *testing.T) {
 	vpcConfigList = []v1alpha1.VPCNetworkConfiguration{
 		{
 			Spec: v1alpha1.VPCNetworkConfigurationSpec{
-				Subnets: []string{privateTgwSubnetPath1},
+				Subnets: []v1alpha1.SharedSubnet{{
+					Path: privateTgwSubnetPath1,
+				}},
 			},
 		},
 	}
