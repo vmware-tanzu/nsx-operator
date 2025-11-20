@@ -67,10 +67,18 @@ spec:
                   type: string
                 type: array
               subnets:
-                description: NSX path of the shared Subnets the Namespace is associated
-                  with.
+                description: Shared Subnets the Namespace is associated with.
                 items:
-                  type: string
+                  description: SharedSubnet defines the information for a Subnet shared
+                    with vSphere Namespace.
+                  properties:
+                    path:
+                      description: NSX path of Subnets created outside of the Supervisor
+                        to be associated with this vSphere Namespace
+                      type: string
+                  required:
+                  - path
+                  type: object
                 type: array
               vpc:
                 description: |-
