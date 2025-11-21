@@ -1118,5 +1118,6 @@ _Appears in:_
 | `defaultSNATIP` _string_ | Default SNAT IP for Private Subnets. |  |  |
 | `loadBalancerIPAddresses` _string_ | LoadBalancerIPAddresses (AVI SE Subnet CIDR or NSX LB SNAT IPs). |  |  |
 | `privateIPs` _string array_ | Private CIDRs used for the VPC. |  |  |
+| `tep-less` _boolean_ | TepLess indicates whether the VPC is in TEP-less mode. |  |  |
 
 
