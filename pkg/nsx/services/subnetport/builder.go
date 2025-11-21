@@ -55,17 +55,22 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 					MacAddress: &o.Status.NetworkInterfaceConfig.MACAddress,
 				},
 			}
-			if len(o.Status.NetworkInterfaceConfig.MACAddress) > 0 {
+			if len(o.Spec.AddressBindings) > 0 && len(o.Spec.AddressBindings[0].MACAddress) > 0 {
 				hasMacSpecified = true
 			}
 		} else if len(o.Spec.AddressBindings) > 0 {
-			addressBindings = []model.PortAddressBindingEntry{{}}
+			addressBinding := model.PortAddressBindingEntry{}
 			if len(o.Spec.AddressBindings[0].IPAddress) > 0 {
-				addressBindings[0].IpAddress = &o.Spec.AddressBindings[0].IPAddress
+				addressBinding.IpAddress = &o.Spec.AddressBindings[0].IPAddress
 			}
-			if len(o.Spec.AddressBindings[0].MACAddress) > 0 {
-				addressBindings[0].MacAddress = &o.Spec.AddressBindings[0].MACAddress
+			// If StaticIPAllocation is disabled and no IP is specified, we do not specify the MAC in the NSX SubnetPort AddressBinding
+			if (util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) || len(o.Spec.AddressBindings[0].IPAddress) > 0) &&
+				len(o.Spec.AddressBindings[0].MACAddress) > 0 {
+				addressBinding.MacAddress = &o.Spec.AddressBindings[0].MACAddress
 				hasMacSpecified = true
+			}
+			if addressBinding.IpAddress != nil || addressBinding.MacAddress != nil {
+				addressBindings = []model.PortAddressBindingEntry{addressBinding}
 			}
 		}
 	case *corev1.Pod:
