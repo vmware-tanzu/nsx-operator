@@ -58,20 +58,20 @@ func TestHasSubnetSpecChanged(t *testing.T) {
 		{
 			name: "VLANConnection no changed",
 			originalSpec: &v1alpha1.SubnetSpec{
-				VLANConnection: "/infra/distributed-vlan-connections/gatewayconnection-103",
+				VLANConnectionName: "gatewayconnection-103",
 			},
 			newSpec: &v1alpha1.SubnetSpec{
-				VLANConnection: "/infra/distributed-vlan-connections/gatewayconnection-103",
+				VLANConnectionName: "gatewayconnection-103",
 			},
 			expected: false,
 		},
 		{
 			name: "VLANConnection changed",
 			originalSpec: &v1alpha1.SubnetSpec{
-				VLANConnection: "",
+				VLANConnectionName: "",
 			},
 			newSpec: &v1alpha1.SubnetSpec{
-				VLANConnection: "/infra/distributed-vlan-connections/gatewayconnection-103",
+				VLANConnectionName: "gatewayconnection-103",
 			},
 			expected: true,
 		},

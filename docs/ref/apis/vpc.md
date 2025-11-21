@@ -992,11 +992,11 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `vpcName` _string_ | VPC name of the Subnet. |  |  |
 | `ipv4SubnetSize` _integer_ | Size of Subnet based upon estimated workload count. |  | Maximum: 65536 <br />Minimum: 16 <br /> |
-| `accessMode` _[AccessMode](#accessmode)_ | Access mode of Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW] <br /> |
+| `accessMode` _[AccessMode](#accessmode)_ | Access mode of Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW L2Only] <br /> |
 | `ipAddresses` _string array_ | Subnet CIDRS. |  | MaxItems: 2 <br />MinItems: 0 <br /> |
 | `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | DHCP configuration for Subnet. |  |  |
 | `advancedConfig` _[SubnetAdvancedConfig](#subnetadvancedconfig)_ | VPC Subnet advanced configuration. |  |  |
-| `vlanConnection` _string_ | Distributed VLAN connection path. |  |  |
+| `vlanConnectionName` _string_ | Distributed VLAN Connection name. |  |  |
 
 
 #### SubnetStatus
