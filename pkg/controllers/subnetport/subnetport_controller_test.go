@@ -97,8 +97,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	r.StatusUpdater = common.NewStatusUpdater(k8sClient, service.NSXConfig, r.Recorder, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
 	ctx := context.Background()
 	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
-	patchesGetSubnetByPath := gomonkey.ApplyFunc((*subnet.SubnetService).GetSubnetByPath,
-		func(s *subnet.SubnetService, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
+	patchesGetSubnetByPath := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
+		func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
 			nsxSubnet := &model.VpcSubnet{
 				Id:            ptr.To("subnet-1"),
 				RealizationId: ptr.To("realization-1"),
@@ -296,6 +296,46 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		defer patchesUpdateSubnetStatusOnSubnetPort.Reset()
 		k8sClient.EXPECT().Status().Return(fakewriter)
 		_, ret := r.Reconcile(ctx, req)
+		assert.Equal(t, nil, ret)
+
+		// happy path - dhcp subnetport with mac only
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Spec.Subnet = "subnet1"
+				v1sp.Spec.AddressBindings = []v1alpha1.PortAddressBinding{
+					{
+						MACAddress: "00:11:22:33:44:55",
+					},
+				}
+				return nil
+			})
+		portState2 := &model.SegmentPortState{
+			RealizedBindings: []model.AddressBindingEntry{},
+			Attachment: &model.SegmentPortAttachmentState{
+				Id: &attachmentID,
+			},
+		}
+		patchesGetSubnetByPath.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
+			func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
+				nsxSubnet := &model.VpcSubnet{
+					Id:            ptr.To("subnet-1"),
+					RealizationId: ptr.To("realization-1"),
+					AdvancedConfig: &model.SubnetAdvancedConfig{
+						StaticIpAllocation: &model.StaticIpAllocation{
+							Enabled: servicecommon.Bool(false),
+						},
+					},
+				}
+				return nsxSubnet, nil
+			})
+		defer patchesGetSubnetByPath.Reset()
+		patchesCreateOrUpdateSubnetPort.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
+				return portState2, false, nil
+			})
+		k8sClient.EXPECT().Status().Return(fakewriter)
+		_, ret = r.Reconcile(ctx, req)
 		assert.Equal(t, nil, ret)
 	})
 
