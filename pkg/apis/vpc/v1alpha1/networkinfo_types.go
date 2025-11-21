@@ -39,6 +39,8 @@ type VPCState struct {
 	LoadBalancerIPAddresses string `json:"loadBalancerIPAddresses,omitempty"`
 	// Private CIDRs used for the VPC.
 	PrivateIPs []string `json:"privateIPs,omitempty"`
+	// TepLess indicates whether the VPC is in TEP-less mode.
+	TepLess bool `json:"tep-less,omitempty"`
 }
 
 func init() {
