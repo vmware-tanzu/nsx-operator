@@ -132,11 +132,11 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 	case *v1.Pod:
 		uid = string(o.UID)
 	}
-	log.Info("Creating or updating subnetport", "nsxSubnetPort.Id", uid, "nsxSubnetPath", *nsxSubnet.Path)
+	log.Info("Creating or updating SubnetPort", "nsxSubnetPort.Id", uid, "nsxSubnetPath", *nsxSubnet.Path)
 	enableDHCP := util.NSXSubnetDHCPEnabled(nsxSubnet)
 	nsxSubnetPort, err := service.buildSubnetPort(obj, nsxSubnet, contextID, tags, isVmSubnetPort, restoreMode)
 	if err != nil {
-		log.Error(err, "failed to build NSX subnet port", "nsxSubnetPort.Id", uid, "*nsxSubnet.Path", *nsxSubnet.Path, "contextID", contextID)
+		log.Error(err, "Failed to build NSX SubnetPort", "nsxSubnetPort.Id", uid, "*nsxSubnet.Path", *nsxSubnet.Path, "contextID", contextID)
 		return nil, false, err
 	}
 	existingSubnetPort := service.SubnetPortStore.GetByKey(*nsxSubnetPort.Id)
@@ -153,17 +153,17 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		return nil, false, err
 	}
 	if !isChanged {
-		log.Info("NSX subnet port not changed, skipping the update", "nsxSubnetPort.Id", nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
+		log.Info("NSX SubnetPort not changed, skipping the update", "nsxSubnetPort.Id", nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
 		if !restoreMode && service.portAlreadyRealized(obj, nsxSubnetPort) {
-			log.Debug("The subnet port is already realized, skip checking the state", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
+			log.Debug("The SubnetPort is already realized, skip checking the state", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
 			return nil, enableDHCP, nil
 		}
 	} else {
-		log.Info("Updating the NSX subnet port", "existingSubnetPort", existingSubnetPort, "desiredSubnetPort", nsxSubnetPort)
+		log.Info("Updating the NSX SubnetPort", "existingSubnetPort", existingSubnetPort, "desiredSubnetPort", nsxSubnetPort)
 		err = service.NSXClient.PortClient.Patch(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *nsxSubnetPort.Id, *nsxSubnetPort)
 		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
-			log.Error(err, "failed to create or update subnet port", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
+			log.Error(err, "failed to create or update SubnetPort", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
 			return nil, false, err
 		}
 		err = service.SubnetPortStore.Apply(nsxSubnetPort)
@@ -171,19 +171,19 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 			return nil, false, err
 		}
 		if existingSubnetPort != nil {
-			log.Info("Updated NSX subnet port", "nsxSubnetPort.Path", *nsxSubnetPort.Path)
+			log.Info("Updated NSX SubnetPort", "nsxSubnetPort.Path", *nsxSubnetPort.Path)
 		} else {
-			log.Info("Created NSX subnet port", "nsxSubnetPort.Path", *nsxSubnetPort.Path)
+			log.Info("Created NSX SubnetPort", "nsxSubnetPort.Path", *nsxSubnetPort.Path)
 		}
 	}
 	nsxSubnetPortState, err := service.CheckSubnetPortState(obj, *nsxSubnet.Path)
 	if err != nil {
-		log.Error(err, "check and update NSX subnet port state failed, would retry exponentially", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
+		log.Error(err, "Check and update NSX SubnetPort state failed, would retry exponentially", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
 		return nil, false, err
 	}
 	createdNSXSubnetPort, err := service.NSXClient.PortClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *nsxSubnetPort.Id)
 	if err != nil {
-		log.Error(err, "check and update NSX subnet port failed, would retry exponentially", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
+		log.Error(err, "Check and update NSX subnet port failed, would retry exponentially", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
 		return nil, false, err
 	}
 	err = service.SubnetPortStore.Apply(&createdNSXSubnetPort)
@@ -191,9 +191,9 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		return nil, false, err
 	}
 	if isChanged {
-		log.Info("Successfully created or updated subnetport", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPortState", nsxSubnetPortState)
+		log.Info("Successfully created or updated SubnetPort", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPortState", nsxSubnetPortState)
 	} else {
-		log.Info("Subnetport already existed", "subnetport", *nsxSubnetPort.Id, "nsxSubnetPortState", nsxSubnetPortState)
+		log.Info("SubnetPort already existed", "subnetport", *nsxSubnetPort.Id, "nsxSubnetPortState", nsxSubnetPortState)
 	}
 	return nsxSubnetPortState, enableDHCP, nil
 }
@@ -249,7 +249,7 @@ func (service *SubnetPortService) GetSubnetPortState(nsxSubnetPortID string, nsx
 	nsxSubnetPortState, err := service.NSXClient.PortStateClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, nsxSubnetPortID, nil, nil)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
-		log.Error(err, "failed to get subnet port state", "nsxSubnetPortID", nsxSubnetPortID, "nsxSubnetPath", nsxSubnetPath)
+		log.Error(err, "Failed to get SubnetPort state", "nsxSubnetPortID", nsxSubnetPortID, "nsxSubnetPath", nsxSubnetPath)
 		return nil, err
 	}
 	return &nsxSubnetPortState, nil
@@ -260,7 +260,7 @@ func (service *SubnetPortService) DeleteSubnetPort(nsxSubnetPort *model.VpcSubne
 	err := service.NSXClient.PortClient.Delete(subnetPortInfo.OrgID, subnetPortInfo.ProjectID, subnetPortInfo.VPCID, subnetPortInfo.ParentID, *nsxSubnetPort.Id)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
-		log.Error(err, "failed to delete nsxSubnetPort", "nsxSubnetPort.Path", *nsxSubnetPort.Path)
+		log.Error(err, "Failed to delete nsxSubnetPort", "nsxSubnetPort.Path", *nsxSubnetPort.Path)
 		return err
 	}
 	if err = service.SubnetPortStore.Delete(*nsxSubnetPort.Id); err != nil {
@@ -273,14 +273,14 @@ func (service *SubnetPortService) DeleteSubnetPort(nsxSubnetPort *model.VpcSubne
 func (service *SubnetPortService) DeleteSubnetPortById(portID string) error {
 	nsxSubnetPort := service.SubnetPortStore.GetByKey(portID)
 	if nsxSubnetPort == nil || nsxSubnetPort.Id == nil {
-		log.Info("NSX subnet port is not found in store, skip deleting it", "id", portID)
+		log.Info("NSX SubnetPort is not found in store, skip deleting it", "id", portID)
 		return nil
 	}
 	return service.DeleteSubnetPort(nsxSubnetPort)
 }
 
 func (service *SubnetPortService) ListNSXSubnetPortIDForCR() sets.Set[string] {
-	log.Trace("Listing subnet port CR UIDs")
+	log.Trace("Listing SubnetPort CR UIDs")
 	subnetPortSet := sets.New[string]()
 	for _, subnetPortCRUid := range service.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopeSubnetPortCRUID).UnsortedList() {
 		subnetPortIDs, _ := service.SubnetPortStore.IndexKeys(servicecommon.TagScopeSubnetPortCRUID, subnetPortCRUid)
@@ -325,7 +325,7 @@ func (service *SubnetPortService) ListSubnetPortIDsFromCRs(ctx context.Context) 
 	subnetPortList := &v1alpha1.SubnetPortList{}
 	err := service.Client.List(ctx, subnetPortList)
 	if err != nil {
-		log.Error(err, "failed to list SubnetPort CR")
+		log.Error(err, "Failed to list SubnetPort CR")
 		return nil, err
 	}
 
@@ -460,13 +460,13 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 func (service *SubnetPortService) updateExhaustedSubnet(path string) {
 	obj, ok := service.SubnetPortStore.PortCountInfo.Load(path)
 	if !ok {
-		log.Error(nil, "No SubnetPort created on the exhausted Subnet", "nsxSubnetPath", path)
+		log.Warn("No SubnetPort created on the exhausted Subnet", "nsxSubnetPath", path)
 		return
 	}
 	info := obj.(*CountInfo)
 	info.lock.Lock()
 	defer info.lock.Unlock()
-	log.Trace("Mark Subnet as exhausted", "Subnet", path)
+	log.Debug("Mark Subnet as exhausted", "Subnet", path)
 	info.exhaustedCheckTime = time.Now()
 }
 
@@ -474,18 +474,18 @@ func (service *SubnetPortService) updateExhaustedSubnet(path string) {
 func (service *SubnetPortService) ReleasePortInSubnet(path string) {
 	obj, ok := service.SubnetPortStore.PortCountInfo.Load(path)
 	if !ok {
-		log.Error(nil, "Subnet does not have Subnetport to remove", "Subnet", path)
+		log.Warn("Subnet does not have Subnetport to remove", "Subnet", path)
 		return
 	}
 	info := obj.(*CountInfo)
 	info.lock.Lock()
 	defer info.lock.Unlock()
 	if info.dirtyCount < 1 {
-		log.Error(nil, "Subnet does not have Subnetport to remove", "Subnet", path)
+		log.Warn("Subnet does not have Subnetport to remove", "Subnet", path)
 		return
 	}
 	info.dirtyCount -= 1
-	log.Trace("Release Subnetport from Subnet", "Subnet", path, "dirtyPortCount", info.dirtyCount)
+	log.Debug("Release Subnetport from Subnet", "Subnet", path, "dirtyPortCount", info.dirtyCount)
 }
 
 // IsEmptySubnet check if there is any SubnetPort created or being creating on the Subnet.

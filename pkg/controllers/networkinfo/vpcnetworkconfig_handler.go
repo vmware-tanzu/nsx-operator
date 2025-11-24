@@ -39,7 +39,7 @@ func (h *VPCNetworkConfigurationHandler) Create(ctx context.Context, e event.Cre
 func (h *VPCNetworkConfigurationHandler) Delete(ctx context.Context, e event.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	vpcConfigCR := e.Object.(*v1alpha1.VPCNetworkConfiguration)
 	if err := h.ipBlocksInfoService.SyncIPBlocksInfo(ctx); err != nil {
-		log.Error(err, "failed to synchronize IPBlocksInfo when deleting %s", vpcConfigCR.Name)
+		log.Error(err, "Failed to synchronize IPBlocksInfo when deleting %s", vpcConfigCR.Name)
 	} else {
 		h.ipBlocksInfoService.ResetPeriodicSync()
 	}

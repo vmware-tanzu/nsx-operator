@@ -30,7 +30,9 @@ func setNetworkInfoVPCStatus(client client.Client, ctx context.Context, obj clie
 	if args[0] == nil {
 		// if createdVPC is empty, remove the VPC from networkInfo
 		networkInfo.VPCs = []v1alpha1.VPCState{}
-		client.Update(ctx, networkInfo)
+		if err := client.Update(ctx, networkInfo); err != nil {
+			log.Error(err, "Failed to update NetworkInfo CR", "NetworkInfo", networkInfo)
+		}
 		return
 	} else {
 		createdVPC = args[0].(*v1alpha1.VPCState)
@@ -45,7 +47,9 @@ func setNetworkInfoVPCStatus(client client.Client, ctx context.Context, obj clie
 		return
 	}
 	networkInfo.VPCs = []v1alpha1.VPCState{*createdVPC}
-	client.Update(ctx, networkInfo)
+	if err := client.Update(ctx, networkInfo); err != nil {
+		log.Error(err, "Failed to update NetworkInfo CR", "NetworkInfo", networkInfo)
+	}
 	return
 }
 
@@ -71,7 +75,7 @@ func setVPCNetworkConfigurationStatusWithLBS(ctx context.Context, client client.
 		log.Error(err, "Update VPCNetworkConfiguration status failed", "ncName", ncName, "vpcName", vpcName, "nc.Status.VPCs", nc.Status.VPCs)
 		return
 	}
-	log.Info("Updated VPCNetworkConfiguration status", "ncName", ncName, "vpcName", vpcName, "nc.Status.VPCs", nc.Status.VPCs)
+	log.Debug("Updated VPCNetworkConfiguration status", "ncName", ncName, "vpcName", vpcName, "nc.Status.VPCs", nc.Status.VPCs)
 }
 
 func setVPCNetworkConfigurationStatusWithGatewayConnection(ctx context.Context, client client.Client, nc *v1alpha1.VPCNetworkConfiguration, connectionStatus *common.VPCConnectionStatus) {
@@ -102,8 +106,12 @@ func setVPCNetworkConfigurationStatusWithGatewayConnection(ctx context.Context, 
 		}
 	}
 	if conditionsUpdated {
-		client.Status().Update(ctx, nc)
-		log.Info("Set VPCNetworkConfiguration status", "ncName", nc.Name, "condition", newConditions)
+		err := client.Status().Update(ctx, nc)
+		if err != nil {
+			log.Error(err, "Failed to update VPCNetworkConfiguration status", "Name", nc.Name)
+			return
+		}
+		log.Debug("Updated VPCNetworkConfiguration", "Name", nc.Name, "New Conditions", newConditions)
 	}
 }
 
@@ -125,7 +133,12 @@ func setVPCNetworkConfigurationStatusWithSnatEnabled(ctx context.Context, client
 		}
 	}
 	if conditionsUpdated {
-		client.Status().Update(ctx, nc)
+		err := client.Status().Update(ctx, nc)
+		if err != nil {
+			log.Error(err, "Failed to update VPCNetworkConfiguration status", "Name", nc.Name)
+			return
+		}
+		log.Debug("Updated VPCNetworkConfiguration", "Name", nc.Name, "New Conditions", newConditions)
 	}
 }
 
@@ -147,7 +160,7 @@ func setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx context.Context, 
 			return
 		}
 	}
-	log.Info("Updated VPCNetworkConfiguration status", "VPCNetworkConfiguration", nc.Name, "status", newCondition)
+	log.Debug("Updated VPCNetworkConfiguration status", "VPCNetworkConfiguration", nc.Name, "status", newCondition)
 }
 
 // TODO: abstract the logic of merging condition for common, which can be used by the other controller, e.g. security policy
@@ -252,7 +265,7 @@ func updateVPCNetworkConfigurationStatusWithAliveVPCs(ctx context.Context, clien
 			log.Error(err, "Failed to update VPCNetworkConfiguration status", "Name", ncName, "nc.Status.VPCs", nc.Status.VPCs)
 			return
 		}
-		log.Info("Updated VPCNetworkConfiguration status", "Name", ncName, "nc.Status.VPCs", nc.Status.VPCs)
+		log.Debug("Updated VPCNetworkConfiguration status", "Name", ncName, "nc.Status.VPCs", nc.Status.VPCs)
 	}
 }
 
@@ -301,7 +314,7 @@ func setNSNetworkReadyCondition(ctx context.Context, kubeClient client.Client, n
 		log.Error(err, "Failed to update Namespace status", "Namespace", nsName)
 		return
 	}
-	log.Info("Updated Namespace network condition", "Namespace", nsName, "status", condition.Status, "reason", condition.Reason, "message", condition.Message)
+	log.Debug("Updated Namespace network condition", "Namespace", nsName, "status", condition.Status, "reason", condition.Reason, "message", condition.Message)
 }
 
 // nsConditionEquals compares the old and new Namespace condition. The compare ignores the differences in field

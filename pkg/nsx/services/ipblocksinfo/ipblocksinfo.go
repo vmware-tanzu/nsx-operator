@@ -73,7 +73,7 @@ func (s *IPBlocksInfoService) StartPeriodicSync() {
 		case <-time.After(timeTowait):
 			var interval time.Duration
 			if err := s.SyncIPBlocksInfo(context.TODO()); err != nil {
-				log.Error(err, "failed to synchronize IPBlocksInfo")
+				log.Error(err, "Failed to synchronize IPBlocksInfo")
 				interval = s.SyncTask.retryInterval
 			} else {
 				interval = s.SyncTask.syncInterval
@@ -108,7 +108,7 @@ func (s *IPBlocksInfoService) mergeIPCidrs(source []string, target []string) []s
 	for _, cidr := range source {
 		_, net, err := net.ParseCIDR(cidr)
 		if err != nil {
-			log.Error(err, "failed to parse CIDR", "cidr", cidr)
+			log.Error(err, "Failed to parse CIDR", "cidr", cidr)
 			continue
 		}
 		sourceNets = append(sourceNets, net)
@@ -118,7 +118,7 @@ func (s *IPBlocksInfoService) mergeIPCidrs(source []string, target []string) []s
 	for _, t := range target {
 		ip, tNet, err := net.ParseCIDR(t)
 		if err != nil {
-			log.Error(err, "failed to parse CIDR", "cidr", t)
+			log.Error(err, "Failed to parse CIDR", "cidr", t)
 			continue
 		}
 		covered := false
@@ -150,7 +150,7 @@ func maskContains(sMask, tMask net.IPMask) bool {
 }
 
 func (s *IPBlocksInfoService) UpdateIPBlocksInfo(ctx context.Context, vpcConfigCR *v1alpha1.VPCNetworkConfiguration) error {
-	log.Debug("update IPBlocksInfo for VPCNetworkConfiguration", "name", vpcConfigCR.Name)
+	log.Debug("Update IPBlocksInfo for VPCNetworkConfiguration", "name", vpcConfigCR.Name)
 	return s.updateIPBlocksInfo(ctx, []v1alpha1.VPCNetworkConfiguration{*vpcConfigCR}, true)
 }
 
@@ -179,12 +179,12 @@ func (s *IPBlocksInfoService) updateIPBlocksInfo(ctx context.Context, vpcConfigL
 }
 
 func (s *IPBlocksInfoService) SyncIPBlocksInfo(ctx context.Context) error {
-	log.Debug("start to synchronize IPBlocksInfo")
+	log.Debug("Start to synchronize IPBlocksInfo")
 	// List all VpcNetworkConfiguration CRs
 	crdVpcNetworkConfigurationList := &v1alpha1.VPCNetworkConfigurationList{}
 	err := s.Client.List(ctx, crdVpcNetworkConfigurationList)
 	if err != nil {
-		log.Error(err, "failed to list VpcnetworkConfiguration CR")
+		log.Error(err, "Failed to list VpcnetworkConfiguration CR")
 		return err
 	}
 	return s.updateIPBlocksInfo(ctx, crdVpcNetworkConfigurationList.Items, false)
@@ -198,16 +198,16 @@ func (s *IPBlocksInfoService) createOrUpdateIPBlocksInfo(ctx context.Context, ip
 	err := s.Client.Get(ctx, namespacedName, ipBlocksInfoOld)
 	if err != nil {
 		if !api_errors.IsNotFound(err) {
-			log.Error(err, "failed to get IPBlocksInfo CR", "name", ipBlocksInfo.Name)
+			log.Error(err, "Failed to get IPBlocksInfo CR", "name", ipBlocksInfo.Name)
 			return err
 		} else {
 			err = s.Client.Create(ctx, ipBlocksInfo)
 			if err != nil {
-				log.Error(err, "failed to create IPBlocksInfo CR", "name", ipBlocksInfo.Name)
+				log.Error(err, "Failed to create IPBlocksInfo CR", "name", ipBlocksInfo.Name)
 				return err
 			}
 			log.Debug("Successfully created IPBlocksInfo CR", "IPBlocksInfo", ipBlocksInfo)
-			return err
+			return nil
 		}
 	}
 	if incremental {
@@ -231,7 +231,7 @@ func (s *IPBlocksInfoService) createOrUpdateIPBlocksInfo(ctx context.Context, ip
 
 	err = s.Client.Update(ctx, ipBlocksInfoOld)
 	if err != nil {
-		log.Error(err, "failed to update IPBlocksInfo CR", "name", ipBlocksInfoOld.Name)
+		log.Error(err, "Failed to update IPBlocksInfo CR", "name", ipBlocksInfoOld.Name)
 		return err
 	}
 	log.Debug("Successfully updated IPBlocksInfo CR", "IPBlocksInfo", ipBlocksInfoOld)
@@ -248,13 +248,13 @@ func (s *IPBlocksInfoService) getSharedSubnetsCIDRs(vpcConfigList []v1alpha1.VPC
 	for _, subnetPath := range sharedSubnet.UnsortedList() {
 		vpcInfo, err := common.ParseVPCResourcePath(subnetPath)
 		if err != nil {
-			log.Warn("failed to parse VPC resource path: err", err, "path", subnetPath)
+			log.Warn("Failed to parse VPC resource path: err", err, "path", subnetPath)
 			continue
 		}
 		associate := fmt.Sprintf("%s:%s:%s", vpcInfo.ProjectID, vpcInfo.VPCID, vpcInfo.ID)
 		subnet, err := s.subnetService.GetNSXSubnetFromCacheOrAPI(associate, false)
 		if err != nil {
-			log.Warn("failed to get nsx subnet: err", err, "subnetPath", associate)
+			log.Warn("Failed to get nsx Subnet: err", err, "subnetPath", associate)
 			continue
 		}
 
@@ -305,7 +305,15 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha
 	}
 	// Skip the IPBlocksInfo updating before the default project is found
 	if s.defaultProject == "" {
-		err = fmt.Errorf("default project not found, try later")
+		if len(vpcConfigList) == 1 {
+			// When update IPBlockInfo with non-default VPCNetworkConfiguration before full sync,
+			// we will find the default project is not found.
+			// This will be recovered when the full sync is done
+			log.Warn("default project not found, will retry later")
+		} else {
+			// Log this as error only for full sync
+			err = fmt.Errorf("default project not found")
+		}
 		return
 	}
 
@@ -314,16 +322,16 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha
 	queryParam := fmt.Sprintf("%s:%s", common.ResourceType, common.ResourceTypeVpcAttachment)
 	count, err = s.SearchResource(common.ResourceTypeVpcAttachment, queryParam, vpcAttachmentStore, nil)
 	if err != nil {
-		log.Error(err, "failed to query VPC attachment")
+		log.Error(err, "Failed to query VPC attachment")
 		return
 	}
-	log.Trace("successfully fetch all VPC Attachment from NSX", "count", count)
+	log.Trace("Successfully fetch all VPC Attachment from NSX", "count", count)
 
 	for vpcPath := range vpcs {
 		var vpcResInfo common.VPCResourceInfo
 		vpcResInfo, err = common.ParseVPCResourcePath(vpcPath)
 		if err != nil {
-			log.Error(err, "failed to parse VPC resource path")
+			log.Error(err, "Failed to parse VPC resource path")
 			return
 		}
 		// for pre-created VPC, mark as default for those under default project
@@ -413,7 +421,7 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsAndRangesFromStore(pathSet sets.Set
 		obj := ipBlockStore.GetByKey(path)
 		if obj == nil {
 			err := fmt.Errorf("failed to get IPBlock %s from NSX", path)
-			log.Error(err, "get CIDRs/Ranges from ipblock")
+			log.Error(err, "Get CIDRs/Ranges from ipblock")
 			return nil, nil, err
 		}
 		ipblock := obj.(*model.IpAddressBlock)
