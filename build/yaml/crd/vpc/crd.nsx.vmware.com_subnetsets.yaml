@@ -102,6 +102,10 @@ spec:
                     ) && (!has(self.dhcpServerAdditionalConfig) || !has(self.dhcpServerAdditionalConfig.reservedIPRanges)
                     || size(self.dhcpServerAdditionalConfig.reservedIPRanges)==0)
                     || has(self.mode) && self.mode=='DHCPServer'
+              subnets:
+                items:
+                  type: string
+                type: array
             type: object
             x-kubernetes-validations:
             - message: accessMode is required once set

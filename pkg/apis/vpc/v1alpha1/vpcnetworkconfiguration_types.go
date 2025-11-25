@@ -44,6 +44,12 @@ type VPCNetworkConfigurationSpec struct {
 type SharedSubnet struct {
 	// NSX path of Subnets created outside of the Supervisor to be associated with this vSphere Namespace
 	Path string `json:"path"`
+	// Indicates if this subnet is the default subnet for pods.
+	PodDefault bool `json:"pod-default,omitempty"`
+	// Indicates if this subnet is the default subnet for VMs.
+	VMDefault bool `json:"vm-default,omitempty"`
+	// Name of the subnet. If the name is empty, it will be derived from the shared subnet path.
+	Name string `json:"name,omitempty"`
 }
 
 // VPCNetworkConfigurationStatus defines the observed state of VPCNetworkConfiguration

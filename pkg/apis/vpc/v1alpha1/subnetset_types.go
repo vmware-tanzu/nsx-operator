@@ -35,6 +35,7 @@ type SubnetSetSpec struct {
 
 	// Subnet DHCP configuration.
 	SubnetDHCPConfig SubnetDHCPConfig `json:"subnetDHCPConfig,omitempty"`
+	Subnets          []string         `json:"subnets,omitempty"`
 }
 
 // SubnetInfo defines the observed state of a single Subnet of a SubnetSet.

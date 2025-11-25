@@ -595,6 +595,9 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `path` _string_ | NSX path of Subnets created outside of the Supervisor to be associated with this vSphere Namespace |  |  |
+| `pod-default` _boolean_ | Indicates if this subnet is the default subnet for pods. |  |  |
+| `vm-default` _boolean_ | Indicates if this subnet is the default subnet for VMs. |  |  |
+| `name` _string_ | Name of the subnet. If the name is empty, it will be derived from the shared subnet path. |  |  |
 
 
 #### StaticIPAllocation
@@ -958,6 +961,7 @@ _Appears in:_
 | `ipv4SubnetSize` _integer_ | Size of Subnet based upon estimated workload count. |  | Maximum: 65536 <br />Minimum: 16 <br /> |
 | `accessMode` _[AccessMode](#accessmode)_ | Access mode of Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW] <br /> |
 | `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | Subnet DHCP configuration. |  |  |
+| `subnets` _string array_ |  |  |  |
 
 
 #### SubnetSetStatus
@@ -1134,5 +1138,6 @@ _Appears in:_
 | `defaultSNATIP` _string_ | Default SNAT IP for Private Subnets. |  |  |
 | `loadBalancerIPAddresses` _string_ | LoadBalancerIPAddresses (AVI SE Subnet CIDR or NSX LB SNAT IPs). |  |  |
 | `privateIPs` _string array_ | Private CIDRs used for the VPC. |  |  |
+| `tep-less` _boolean_ | TepLess indicates whether the VPC is in TEP-less mode. |  |  |
 
 
