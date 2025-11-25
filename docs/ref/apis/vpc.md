@@ -365,6 +365,23 @@ _Appears in:_
 | `gateway` _string_ | Gateway address of the Subnet. |  |  |
 
 
+#### NetworkStackType
+
+_Underlying type:_ _string_
+
+
+
+
+
+_Appears in:_
+- [VPCState](#vpcstate)
+
+| Field | Description |
+| --- | --- |
+| `FullStackVPC` |  |
+| `VLANBackedVPC` |  |
+
+
 #### NextHop
 
 
@@ -595,6 +612,9 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `path` _string_ | NSX path of Subnets created outside of the Supervisor to be associated with this vSphere Namespace |  |  |
+| `podDefault` _boolean_ | Indicates if this Subnet is used for the Pod default network. |  |  |
+| `vmDefault` _boolean_ | Indicates if this Subnet is used for the VM default network. |  |  |
+| `name` _string_ | Name of the Subnet. If the name is empty, it will be derived from the shared Subnet path.<br />This field is immutable. |  |  |
 
 
 #### StaticIPAllocation
@@ -958,6 +978,7 @@ _Appears in:_
 | `ipv4SubnetSize` _integer_ | Size of Subnet based upon estimated workload count. |  | Maximum: 65536 <br />Minimum: 16 <br /> |
 | `accessMode` _[AccessMode](#accessmode)_ | Access mode of Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW] <br /> |
 | `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | Subnet DHCP configuration. |  |  |
+| `subnetNames` _string array_ | The names of the Subnets that have been created in advance.<br />It is mutually exclusive with the other fields like IPv4SubnetSize, AccessMode, and SubnetDHCPConfig.<br />Once this field is set, the other fields cannot be set. |  |  |
 
 
 #### SubnetSetStatus
@@ -1134,5 +1155,6 @@ _Appears in:_
 | `defaultSNATIP` _string_ | Default SNAT IP for Private Subnets. |  |  |
 | `loadBalancerIPAddresses` _string_ | LoadBalancerIPAddresses (AVI SE Subnet CIDR or NSX LB SNAT IPs). |  |  |
 | `privateIPs` _string array_ | Private CIDRs used for the VPC. |  |  |
+| `networkStack` _[NetworkStackType](#networkstacktype)_ | NetworkStack indicates the networking stack for the VPC.<br />Valid values: FullStackVPC, VLANBackedVPC |  | Enum: [FullStackVPC VLANBackedVPC] <br /> |
 
 

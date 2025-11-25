@@ -50,6 +50,14 @@ spec:
                 name:
                   description: VPC name.
                   type: string
+                networkStack:
+                  description: |-
+                    NetworkStack indicates the networking stack for the VPC.
+                    Valid values: FullStackVPC, VLANBackedVPC
+                  enum:
+                  - FullStackVPC
+                  - VLANBackedVPC
+                  type: string
                 privateIPs:
                   description: Private CIDRs used for the VPC.
                   items:
