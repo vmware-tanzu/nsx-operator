@@ -35,6 +35,10 @@ type SubnetSetSpec struct {
 
 	// Subnet DHCP configuration.
 	SubnetDHCPConfig SubnetDHCPConfig `json:"subnetDHCPConfig,omitempty"`
+	// The user specified Subnets names which Subnets could be pre-created or auto created NSX Subnets.
+	// It's exclusive to other fields like IPv4SubnetSize, AccessMode, and SubnetDHCPConfig.
+	// Once this field is set, the other fields cannot be set.
+	SubnetNames []string `json:"subnetNames,omitempty"`
 }
 
 // SubnetInfo defines the observed state of a single Subnet of a SubnetSet.

@@ -29,6 +29,13 @@ type NetworkInfoList struct {
 	Items           []NetworkInfo `json:"items"`
 }
 
+type NetworkStackType string
+
+const (
+	FULL_STACK_VPC  NetworkStackType = "FULL_STACK_VPC"
+	VLAN_BACKED_VPC NetworkStackType = "VLAN_BACKED_VPC"
+)
+
 // VPCState defines information for VPC.
 type VPCState struct {
 	// VPC name.
@@ -39,6 +46,10 @@ type VPCState struct {
 	LoadBalancerIPAddresses string `json:"loadBalancerIPAddresses,omitempty"`
 	// Private CIDRs used for the VPC.
 	PrivateIPs []string `json:"privateIPs,omitempty"`
+	// NetworkStack indicates the networking stack for the VPC.
+	// Valid values: FULL_STACK_VPC, VLAN_BACKED_VPC
+	// +kubebuilder:validation:Enum=FULL_STACK_VPC;VLAN_BACKED_VPC
+	NetworkStack NetworkStackType `json:"networkStack,omitempty"`
 }
 
 func init() {

@@ -72,10 +72,23 @@ spec:
                   description: SharedSubnet defines the information for a Subnet shared
                     with vSphere Namespace.
                   properties:
+                    name:
+                      description: |-
+                        Name of the Subnet. If the name is empty, it will be derived from the shared Subnet path.
+                        This field is immutable once set.
+                      type: string
                     path:
                       description: NSX path of Subnets created outside of the Supervisor
                         to be associated with this vSphere Namespace
                       type: string
+                    podDefault:
+                      description: Indicates if this subnet is used as the Pod default
+                        network.
+                      type: boolean
+                    vmDefault:
+                      description: Indicates if this subnet is used as the VM default
+                        network.
+                      type: boolean
                   required:
                   - path
                   type: object
