@@ -955,7 +955,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `ipv4SubnetSize` _integer_ | Size of Subnet based upon estimated workload count. |  | Maximum: 65536 <br />Minimum: 16 <br /> |
+| `ipv4SubnetSize` _integer_ | Size of Subnet based upon estimated workload count. |  | Maximum: 65536 <br />Minimum: 8 <br /> |
 | `accessMode` _[AccessMode](#accessmode)_ | Access mode of Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW] <br /> |
 | `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | Subnet DHCP configuration. |  |  |
 
@@ -991,7 +991,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `vpcName` _string_ | VPC name of the Subnet. |  |  |
-| `ipv4SubnetSize` _integer_ | Size of Subnet based upon estimated workload count. |  | Maximum: 65536 <br />Minimum: 16 <br /> |
+| `ipv4SubnetSize` _integer_ | Size of Subnet based upon estimated workload count. |  | Maximum: 65536 <br />Minimum: 8 <br /> |
 | `accessMode` _[AccessMode](#accessmode)_ | Access mode of Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW] <br /> |
 | `ipAddresses` _string array_ | Subnet CIDRS. |  | MaxItems: 2 <br />MinItems: 0 <br /> |
 | `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | DHCP configuration for Subnet. |  |  |
