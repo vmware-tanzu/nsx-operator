@@ -37,7 +37,7 @@ type SubnetSpec struct {
 	VPCName string `json:"vpcName,omitempty"`
 	// Size of Subnet based upon estimated workload count.
 	// +kubebuilder:validation:Maximum:=65536
-	// +kubebuilder:validation:Minimum:=16
+	// +kubebuilder:validation:Minimum:=8
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPv4SubnetSize int `json:"ipv4SubnetSize,omitempty"`
 	// Access mode of Subnet, accessible only from within VPC or from outside VPC.

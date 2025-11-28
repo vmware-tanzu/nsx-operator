@@ -114,7 +114,7 @@ spec:
               ipv4SubnetSize:
                 description: Size of Subnet based upon estimated workload count.
                 maximum: 65536
-                minimum: 16
+                minimum: 8
                 type: integer
                 x-kubernetes-validations:
                 - message: Value is immutable
