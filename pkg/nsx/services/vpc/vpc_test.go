@@ -7,13 +7,16 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unsafe"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
+	nsx_client "github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs"
 	v1 "k8s.io/api/core/v1"
 	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -2650,4 +2653,89 @@ func Test_isNamespaceReady(t *testing.T) {
 		},
 	}
 	assert.False(t, isNamespaceReady(nsUnready))
+}
+
+func SetProjectDefault(p *model.Project, b bool) {
+	v := reflect.ValueOf(p).Elem()
+	f := v.FieldByName("_Default")
+	if !f.IsValid() {
+		return
+	}
+
+	val := b // bool value
+	ptr := unsafe.Pointer(f.UnsafeAddr())
+	realPtr := (*unsafe.Pointer)(ptr)
+	*realPtr = unsafe.Pointer(&val)
+}
+
+func TestIsDefaultNSXProject(t *testing.T) {
+	connector := nsx_client.NewConnector("localhost")
+	projectClient := orgs.NewProjectsClient(connector)
+	tests := []struct {
+		name           string
+		orgID          string
+		projectID      string
+		prepareFunc    func(*VPCService) *gomonkey.Patches
+		expectedResult bool
+		expectedErrStr string
+	}{
+		{
+			name:      "Project is default",
+			orgID:     "default",
+			projectID: "project-1",
+			prepareFunc: func(service *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(projectClient), "Get", func(_ orgs.ProjectsClient, _ string, _ string, _ *bool) (model.Project, error) {
+					pro := model.Project{}
+					SetProjectDefault(&pro, true)
+					return pro, nil
+				})
+				return patches
+			},
+			expectedResult: true,
+		},
+		{
+			name:      "Project is not default",
+			orgID:     "default",
+			projectID: "project-2",
+			prepareFunc: func(service *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(projectClient), "Get", func(_ orgs.ProjectsClient, _ string, _ string, _ *bool) (model.Project, error) {
+					pro := model.Project{}
+					return pro, nil
+				})
+				return patches
+			},
+			expectedResult: false,
+		},
+		{
+			name:      "Get project error",
+			orgID:     "default",
+			projectID: "project-3",
+			prepareFunc: func(service *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(projectClient), "Get", func(_ orgs.ProjectsClient, _ string, _ string, _ *bool) (model.Project, error) {
+					return model.Project{}, fmt.Errorf("failed to get project")
+				})
+				return patches
+			},
+			expectedErrStr: "failed to get project",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service, _, _, _ := createService(t)
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc(service)
+				defer patches.Reset()
+			}
+			service.NSXClient.ProjectClient = projectClient
+			result, err := service.IsDefaultNSXProject(tt.orgID, tt.projectID)
+
+			if tt.expectedErrStr != "" {
+				assert.ErrorContains(t, err, tt.expectedErrStr)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedResult, result)
+			}
+		})
+	}
 }

@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
+	"unsafe"
 
 	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -1033,6 +1035,17 @@ func IsPreCreatedVPC(nc *v1alpha1.VPCNetworkConfiguration) bool {
 	return nc.Spec.VPC != ""
 }
 
+func getProjectDefault(p *model.Project) *bool {
+	v := reflect.ValueOf(p).Elem()
+	f := v.FieldByName("_Default")
+	if !f.IsValid() {
+		return nil
+	}
+
+	ptr := unsafe.Pointer(f.UnsafeAddr())
+	return *(**bool)(ptr) // read *bool safely
+}
+
 // IsDefaultNSXProject checks if the given project is a default project
 func (s *VPCService) IsDefaultNSXProject(orgID, projectID string) (bool, error) {
 	proj, err := s.NSXClient.ProjectClient.Get(orgID, projectID, nil)
@@ -1040,7 +1053,8 @@ func (s *VPCService) IsDefaultNSXProject(orgID, projectID string) (bool, error) 
 		log.Error(err, "Failed to get project", "ProjectID", projectID)
 		return false, err
 	}
-	if proj.Default != nil && *proj.Default {
+	defaultVal := getProjectDefault(&proj)
+	if defaultVal != nil && *defaultVal {
 		return true, nil
 	}
 	return false, nil
