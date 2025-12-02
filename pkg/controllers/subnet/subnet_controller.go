@@ -473,8 +473,9 @@ func (r *SubnetReconciler) start(mgr ctrl.Manager, hookServer webhook.Server) er
 		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-subnet",
 			&webhook.Admission{
 				Handler: &SubnetValidator{
-					Client:  mgr.GetClient(),
-					decoder: admission.NewDecoder(mgr.GetScheme()),
+					Client:    mgr.GetClient(),
+					decoder:   admission.NewDecoder(mgr.GetScheme()),
+					nsxClient: r.SubnetService.NSXClient,
 				},
 			})
 	}

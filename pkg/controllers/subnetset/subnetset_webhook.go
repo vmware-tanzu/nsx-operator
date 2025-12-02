@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -27,8 +28,9 @@ var NSXOperatorSA = "system:serviceaccount:vmware-system-nsx:ncp-svc-account"
 // name=subnetset.validating.crd.nsx.vmware.com,admissionReviewVersions=v1
 
 type SubnetSetValidator struct {
-	Client  client.Client
-	decoder admission.Decoder
+	Client    client.Client
+	decoder   admission.Decoder
+	nsxClient *nsx.Client
 }
 
 func defaultSubnetSetLabelChanged(oldSubnetSet, subnetSet *v1alpha1.SubnetSet) bool {
@@ -64,8 +66,9 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 	log.Debug("Handling request", "user", req.UserInfo.Username, "operation", req.Operation)
 	switch req.Operation {
 	case admissionv1.Create:
-		if subnetSet.Spec.IPv4SubnetSize != 0 && !util.IsPowerOfTwo(subnetSet.Spec.IPv4SubnetSize) {
-			return admission.Denied(fmt.Sprintf("SubnetSet %s/%s has invalid size %d, which must be power of 2", subnetSet.Namespace, subnetSet.Name, subnetSet.Spec.IPv4SubnetSize))
+		valid, msg := util.ValidateSubnetSize(v.nsxClient, subnetSet.Spec.IPv4SubnetSize)
+		if !valid {
+			return admission.Denied(fmt.Sprintf("SubnetSet %s/%s has invalid size %d: %s", subnetSet.Namespace, subnetSet.Name, subnetSet.Spec.IPv4SubnetSize, msg))
 		}
 		if isDefaultSubnetSet(subnetSet) && req.UserInfo.Username != NSXOperatorSA {
 			return admission.Denied("default SubnetSet only can be created by nsx-operator")

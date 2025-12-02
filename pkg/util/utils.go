@@ -24,6 +24,7 @@ import (
 	t1v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
@@ -32,6 +33,11 @@ const (
 	wcpSystemResource = "vmware-system-shared-t1"
 	HashCharset       = "0123456789abcdefghijklmnopqrstuvwxyz"
 	TCPReadTimeout    = 30 * time.Second
+	NSXVersion90      = "9.0"
+	// MinSubnetSizeV90 defines the minimum allowed subnet size for NSX version 9.0 and before.
+	MinSubnetSizeV90 = 16
+	// MinSubnetSizeV91 defines the minimum allowed subnet size for NSX version 9.1 and above.
+	MinSubnetSizeV91 = 8
 )
 
 var (
@@ -471,4 +477,24 @@ func CRSubnetDHCPEnabled(obj client.Object) bool {
 		mode = string(o.Spec.SubnetDHCPConfig.Mode)
 	}
 	return mode == v1alpha1.DHCPConfigModeServer || mode == v1alpha1.DHCPConfigModeRelay
+}
+
+// ValidateSubnetSize checks if the given subnet size is valid based on NSX version.
+func ValidateSubnetSize(client *nsx.Client, subnetSize int) (bool, string) {
+	if subnetSize == 0 {
+		return true, ""
+	}
+	if !IsPowerOfTwo(subnetSize) {
+		return false, "Subnet size must be a power of 2"
+	}
+	if client.NSXCheckVersion(nsx.SubnetMinimalSize8) {
+		if subnetSize < MinSubnetSizeV91 {
+			return false, fmt.Sprintf("Subnet size must be greater than or equal to %d", MinSubnetSizeV91)
+		}
+	} else {
+		if subnetSize < MinSubnetSizeV90 {
+			return false, fmt.Sprintf("Subnet size must be greater than or equal to %d", MinSubnetSizeV90)
+		}
+	}
+	return true, ""
 }

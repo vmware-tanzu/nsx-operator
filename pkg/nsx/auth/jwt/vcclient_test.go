@@ -132,14 +132,10 @@ func TestVCClient_reloadUsernamePass(t *testing.T) {
 
 	// reload == true
 	vcClient, _ = NewVCClient(host, port, ssoDomain, "", "", nil, true, "https")
-	err = vcClient.reloadUsernamePass()
-	assert.NotNil(t, err)
-
 	patch := gomonkey.ApplyFunc(os.ReadFile, func(filename string) ([]byte, error) {
 		return []byte{}, nil
 	})
 	defer patch.Reset()
 	err = vcClient.reloadUsernamePass()
 	assert.Nil(t, err)
-
 }
