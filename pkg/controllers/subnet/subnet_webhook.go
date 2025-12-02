@@ -23,8 +23,9 @@ var NSXOperatorSA = "system:serviceaccount:vmware-system-nsx:ncp-svc-account"
 // +kubebuilder:webhook:path=/validate-crd-nsx-vmware-com-v1alpha1-subnet,mutating=false,failurePolicy=fail,sideEffects=None,groups=crd.nsx.vmware.com,resources=subnets,verbs=create;update;delete,versions=v1alpha1,name=subnet.validating.crd.nsx.vmware.com,admissionReviewVersions=v1
 
 type SubnetValidator struct {
-	Client  client.Client
-	decoder admission.Decoder
+	Client     client.Client
+	decoder    admission.Decoder
+	nsxVersion string
 }
 
 // Handle handles admission requests.
@@ -44,10 +45,10 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 	}
 	switch req.Operation {
 	case admissionv1.Create:
-		if subnet.Spec.IPv4SubnetSize != 0 && !util.IsPowerOfTwo(subnet.Spec.IPv4SubnetSize) {
-			return admission.Denied(fmt.Sprintf("Subnet %s/%s has invalid size %d, which must be power of 2", subnet.Namespace, subnet.Name, subnet.Spec.IPv4SubnetSize))
+		valid, msg := util.ValidateSubnetSize(v.nsxVersion, subnet.Spec.IPv4SubnetSize)
+		if !valid {
+			return admission.Denied(fmt.Sprintf("Subnet %s/%s has invalid size %d: %s", subnet.Namespace, subnet.Name, subnet.Spec.IPv4SubnetSize, msg))
 		}
-
 		// Shared Subnet can only be updated by NSX Operator
 		if (common.IsSharedSubnet(subnet)) && req.UserInfo.Username != NSXOperatorSA {
 			return admission.Denied(fmt.Sprintf("Shared Subnet %s/%s can only be created by NSX Operator", subnet.Namespace, subnet.Name))

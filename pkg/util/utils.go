@@ -484,3 +484,29 @@ func CRSubnetDHCPEnabled(obj client.Object) bool {
 	}
 	return mode == v1alpha1.DHCPConfigModeServer || mode == v1alpha1.DHCPConfigModeRelay
 }
+
+const (
+	NSXVersion90     = "9.0"
+	MinSubnetSizeV90 = 16
+	MinSubnetSizeV91 = 8
+)
+
+// ValidateSubnetSize checks if the given subnet size is valid based on NSX version.
+func ValidateSubnetSize(nsxVersion string, subnetSize int) (bool, string) {
+	if subnetSize == 0 {
+		return true, ""
+	}
+	if !IsPowerOfTwo(subnetSize) {
+		return false, "Subnet size must be power of 2"
+	}
+	if strings.HasPrefix(nsxVersion, NSXVersion90) {
+		if subnetSize < MinSubnetSizeV90 {
+			return false, fmt.Sprintf("Subnet size must be greater than or equal to %d for NSX version %s", MinSubnetSizeV90, nsxVersion)
+		}
+		return true, ""
+	}
+	if subnetSize < MinSubnetSizeV91 {
+		return false, fmt.Sprintf("Subnet size must be greater than or equal to %d for NSX version %s", MinSubnetSizeV91, nsxVersion)
+	}
+	return true, ""
+}

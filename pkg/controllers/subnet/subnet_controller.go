@@ -469,12 +469,18 @@ func (r *SubnetReconciler) start(mgr ctrl.Manager, hookServer webhook.Server) er
 	if err != nil {
 		return err
 	}
+	nsxVersion, err := r.SubnetService.NSXClient.Cluster.GetVersion()
+	if err != nil {
+		log.Error(err, "Failed to get NSX version")
+		return err
+	}
 	if hookServer != nil {
 		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-subnet",
 			&webhook.Admission{
 				Handler: &SubnetValidator{
-					Client:  mgr.GetClient(),
-					decoder: admission.NewDecoder(mgr.GetScheme()),
+					Client:          mgr.GetClient(),
+					decoder:         admission.NewDecoder(mgr.GetScheme()),
+					nsxVersion:      nsxVersion.NodeVersion,
 				},
 			})
 	}
