@@ -420,6 +420,8 @@ func SubnetCIDR(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create another Subnet with the same IPAddresses
+	// Temporary solution for NSX race on creating Subnet with the same cidr after deletion
+	time.Sleep(30 * time.Second)
 	subnet.Spec.IPAddresses = []string{targetCIDR}
 	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), subnet, v1.CreateOptions{})
 	if err != nil && errors.IsAlreadyExists(err) {
@@ -839,6 +841,8 @@ func SubnetPortWithDHCP(t *testing.T) {
 		return false, err
 	})
 	require.NoError(t, err)
+	// Temporary solution for NSX race on creating Subnet with the same cidr after deletion
+	time.Sleep(30 * time.Second)
 	subnetCreated = createSubnetWithCheck(t, dhcpSubnet)
 	log.Info("DHCP Subnet with reserved IP ranges created", "Subnet", subnetCreated)
 	require.Equal(t, 1, len(subnetCreated.Status.NetworkAddresses))
