@@ -55,6 +55,17 @@ func TestSubnetValidator_Handle(t *testing.T) {
 		},
 	})
 
+	// Subnet with l2 only access mode
+	req3, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-3",
+			Name:      "subnet-3",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModeL2Only),
+		},
+	})
+
 	// Shared subnet with annotation
 	sharedSubnet, _ := json.Marshal(&v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -81,15 +92,15 @@ func TestSubnetValidator_Handle(t *testing.T) {
 		},
 	})
 
-	// Subnet with VLANConnection set
+	// Subnet with VLANConnectionName set
 	subnetWithVLANExt, _ := json.Marshal(&v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "ns-5",
 			Name:      "subnet-with-vlan",
 		},
 		Spec: v1alpha1.SubnetSpec{
-			IPv4SubnetSize: 16,
-			VLANConnection: "/infra/distributed-vlan-connections/gatewayconnection-103",
+			IPv4SubnetSize:     16,
+			VLANConnectionName: "gatewayconnection-103",
 		},
 	})
 
@@ -118,16 +129,16 @@ func TestSubnetValidator_Handle(t *testing.T) {
 		},
 	})
 
-	// Updated subnet with changed VLANConnection
+	// Updated subnet with changed VLANConnectionName
 	updatedSubnetVLAN, _ := json.Marshal(&v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "ns-6",
 			Name:      "subnet-to-update",
 		},
 		Spec: v1alpha1.SubnetSpec{
-			IPv4SubnetSize: 16,
-			VLANConnection: "/infra/distributed-vlan-connections/gatewayconnection-103",
-			IPAddresses:    []string{"192.168.1.0/24"},
+			IPv4SubnetSize:     16,
+			VLANConnectionName: "gatewayconnection-103",
+			IPAddresses:        []string{"192.168.1.0/24"},
 		},
 	})
 
@@ -242,6 +253,12 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			want:      admission.Denied("Subnet ns-2/subnet-2 has invalid size 24, which must be power of 2"),
 		},
 		{
+			name:      "CreateSubnet with invalid AccessMode",
+			operation: admissionv1.Create,
+			object:    req3,
+			want:      admission.Denied("Subnet ns-3/subnet-3: spec.accessMode L2Only is not supported"),
+		},
+		{
 			name:      "CreateSubnet",
 			operation: admissionv1.Create,
 			object:    req1,
@@ -276,14 +293,14 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			want:      admission.Allowed(""),
 		},
 		{
-			name:      "Create subnet with VLANConnection by non-NSX Operator",
+			name:      "Create subnet with VLANConnectionName non-NSX Operator",
 			operation: admissionv1.Create,
 			object:    subnetWithVLANExt,
 			user:      "non-nsx-operator",
-			want:      admission.Denied("Subnet ns-5/subnet-with-vlan: spec.vlanConnection can only be set by NSX Operator"),
+			want:      admission.Denied("Subnet ns-5/subnet-with-vlan: spec.vlanConnectionName can only be set by NSX Operator"),
 		},
 		{
-			name:      "Create subnet with VLANConnection by NSX Operator",
+			name:      "Create subnet with VLANConnectionName by NSX Operator",
 			operation: admissionv1.Create,
 			object:    subnetWithVLANExt,
 			user:      NSXOperatorSA,
@@ -306,15 +323,15 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			want:      admission.Allowed(""),
 		},
 		{
-			name:      "Update subnet with changed VLANConnection by non-NSX Operator",
+			name:      "Update subnet with changed VLANConnectionName by non-NSX Operator",
 			operation: admissionv1.Update,
 			object:    updatedSubnetVLAN,
 			oldObject: oldSubnet,
 			user:      "non-nsx-operator",
-			want:      admission.Denied("Subnet ns-6/subnet-to-update: spec.vlanConnection can only be updated by NSX Operator"),
+			want:      admission.Denied("Subnet ns-6/subnet-to-update: spec.vlanConnectionName can only be updated by NSX Operator"),
 		},
 		{
-			name:      "Update subnet with changed VLANConnection by NSX Operator",
+			name:      "Update subnet with changed VLANConnectionName by NSX Operator",
 			operation: admissionv1.Update,
 			object:    updatedSubnetVLAN,
 			oldObject: oldSubnet,

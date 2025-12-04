@@ -36,7 +36,7 @@ spec:
     mode: DHCPDeactivated
   advancedConfig:
     connectivityState: Disconnected
-  vlanExtension: /infra/distributed-vlan-connections/gatewayconnection-103
+  vlanConnectionName: gatewayconnection-103
 status:
   gatewayAddresses:
   - 172.26.0.1/28
