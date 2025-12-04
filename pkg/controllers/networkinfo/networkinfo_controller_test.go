@@ -2070,6 +2070,65 @@ func TestNetworkInfoReconciler_RestoreReconcile(t *testing.T) {
 	}
 }
 
+func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
+	subnetSet := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pod-default",
+			Namespace: "ns-1",
+			Labels:    map[string]string{servicecommon.LabelDefaultNetwork: "pod"},
+		},
+		Spec: v1alpha1.SubnetSetSpec{
+			AccessMode:     "Public",
+			IPv4SubnetSize: 32,
+		},
+	}
+	testCases := []struct {
+		name                string
+		hasCIDR             bool
+		hasPrecreatedSubnet bool
+		subnetSetList       []client.Object
+		expectErrStr        string
+	}{
+		{
+			name:                "Create default SubnetSet",
+			hasCIDR:             true,
+			hasPrecreatedSubnet: false,
+		},
+		{
+			name:                "Delete default SubnetSet 1",
+			hasCIDR:             false,
+			hasPrecreatedSubnet: false,
+			subnetSetList:       []client.Object{subnetSet},
+		},
+		{
+			name:                "Delete default SubnetSet 2",
+			hasCIDR:             false,
+			hasPrecreatedSubnet: true,
+			subnetSetList:       []client.Object{subnetSet},
+		},
+		{
+			name:                "Existing default SubnetSet",
+			hasCIDR:             true,
+			hasPrecreatedSubnet: false,
+			subnetSetList:       []client.Object{subnetSet},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := createNetworkInfoReconciler(tc.subnetSetList)
+			ctx := context.TODO()
+
+			err := r.updateDefaultSubnetSet(ctx, "pod", "ns-1", 32, tc.hasCIDR, tc.hasPrecreatedSubnet)
+			if tc.expectErrStr != "" {
+				assert.ErrorContains(t, err, tc.expectErrStr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 type MockManager struct {
 	controllerruntime.Manager
 	client client.Client

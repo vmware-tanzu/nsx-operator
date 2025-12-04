@@ -148,42 +148,6 @@ func (r *NamespaceReconciler) getNamespaceType(ns *v1.Namespace, vnc *v1alpha1.V
 	return NormalNs
 }
 
-func listSubnetSet(ctx context.Context, k8sClient client.Client, ns string, label client.MatchingLabels) (*v1alpha1.SubnetSet, error) {
-	var oldObj *v1alpha1.SubnetSet
-	list := &v1alpha1.SubnetSetList{}
-	if err := k8sClient.List(ctx, list, label, client.InNamespace(ns)); err != nil {
-		return nil, err
-	}
-	if len(list.Items) > 0 {
-		log.Info("Default SubnetSet already exists", "label", label, "Namespace", ns)
-		oldObj = &list.Items[0]
-	}
-	return oldObj, nil
-}
-
-func listDefaultSubnetSet(ctx context.Context, k8sClient client.Client, ns string, subnetSetType string) (*v1alpha1.SubnetSet, error) {
-	networkSubnetSetNameMap := map[string]string{
-		types.DefaultPodNetwork: types.LabelDefaultPodSubnetSet,
-		types.DefaultVMNetwork:  types.LabelDefaultVMSubnetSet,
-	}
-	label := client.MatchingLabels{
-		types.LabelDefaultNetwork: subnetSetType,
-	}
-	oldObj, err := listSubnetSet(ctx, k8sClient, ns, label)
-	if err != nil {
-		return nil, err
-	}
-	// check the old formatted default subnetset
-	if oldObj == nil {
-		newType, _ := networkSubnetSetNameMap[subnetSetType]
-		label = client.MatchingLabels{
-			types.LabelDefaultSubnetSet: newType,
-		}
-		return listSubnetSet(ctx, k8sClient, ns, label)
-	}
-	return oldObj, nil
-}
-
 func (r *NamespaceReconciler) getSystemNsDefaultSize() int {
 	defaultSubnetSize := util.MinSubnetSizeV90
 	if r.SubnetService.NSXClient.NSXCheckVersion(nsx.SubnetMinimalSize8) {
@@ -238,7 +202,7 @@ func (r *NamespaceReconciler) createDefaultSubnetSet(ctx context.Context, ns str
 		if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
 			return err != nil
 		}, func() error {
-			oldObj, err := listDefaultSubnetSet(ctx, r.Client, ns, subnetSetType)
+			oldObj, err := common.ListDefaultSubnetSet(ctx, r.Client, ns, subnetSetType)
 			if err != nil {
 				return err
 			}
@@ -373,10 +337,14 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			log.Error(err, "Failed to get Network Stack from VPCNetworkConfiguration", "VPCNetworkConfiguration", nc.Name)
 			return common.ResultNormal, err
 		}
-
 		namespaceType := r.getNamespaceType(obj, nc)
-		if err := r.createDefaultSubnetSet(ctx, ns, nc.Spec.DefaultSubnetSize, nc.Spec.Subnets, namespaceType, networkStack); err != nil {
-			return common.ResultNormal, err
+
+		// Default SubnetSet lifecycle for Pre-created VPC will be handled in
+		// Shared Subnet sync and NetworkInfo controller
+		if nc.Spec.VPC == "" {
+			if err := r.createDefaultSubnetSet(ctx, ns, nc.Spec.DefaultSubnetSize, nc.Spec.Subnets, namespaceType, networkStack); err != nil {
+				return common.ResultNormal, err
+			}
 		}
 
 		// Sync shared subnets, look into shared subnets in vpcnetworkconfigurations,

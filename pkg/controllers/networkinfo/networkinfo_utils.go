@@ -311,3 +311,25 @@ func nsConditionEquals(old, new v1.NamespaceCondition) bool {
 	return old.Type == new.Type && old.Status == new.Status &&
 		old.Reason == new.Reason && old.Message == new.Message
 }
+
+func hasPodDefaultSubnets(subnets []v1alpha1.SharedSubnet) bool {
+	hasPodDefaultSubnets := false
+	for _, subnet := range subnets {
+		if subnet.PodDefault {
+			hasPodDefaultSubnets = true
+			break
+		}
+	}
+	return hasPodDefaultSubnets
+}
+
+func hasVMDefaultSubnets(subnets []v1alpha1.SharedSubnet) bool {
+	hasVMDefaultSubnets := false
+	for _, subnet := range subnets {
+		if subnet.VMDefault {
+			hasVMDefaultSubnets = true
+			break
+		}
+	}
+	return hasVMDefaultSubnets
+}

@@ -202,16 +202,34 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			operation: admissionv1.Delete,
 			oldObject: req1,
 			prepareFunc: func(t *testing.T) {
-				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
-				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(3)
 			},
 			want: admission.Allowed(""),
+		},
+		{
+			name:      "HasStaleSubnetSet",
+			operation: admissionv1.Delete,
+			oldObject: req1,
+			prepareFunc: func(t *testing.T) {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					a := list.(*v1alpha1.SubnetSetList)
+					a.Items = append(a.Items, v1alpha1.SubnetSet{
+						ObjectMeta: metav1.ObjectMeta{Name: "subnetport-1", Namespace: "ns-1"},
+						Spec: v1alpha1.SubnetSetSpec{
+							SubnetNames: []string{"subnet-1"},
+						},
+					})
+					return nil
+				})
+			},
+			want: admission.Denied("Subnet ns-1/subnet-1 used by SubnetSet cannot be deleted"),
 		},
 		{
 			name:      "HasStaleSubnetPort",
 			operation: admissionv1.Delete,
 			oldObject: req1,
 			prepareFunc: func(t *testing.T) {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					a := list.(*v1alpha1.SubnetPortList)
 					a.Items = append(a.Items, v1alpha1.SubnetPort{
@@ -230,6 +248,7 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			operation: admissionv1.Delete,
 			oldObject: req1,
 			prepareFunc: func(t *testing.T) {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					a := list.(*v1alpha1.SubnetIPReservationList)
@@ -250,9 +269,19 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			operation: admissionv1.Delete,
 			oldObject: req1,
 			prepareFunc: func(t *testing.T) {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("list failure"))
 			},
 			want: admission.Errored(http.StatusBadRequest, errors.New("failed to list SubnetPort: list failure")),
+		},
+		{
+			name:      "ListSubnetSetFailure",
+			operation: admissionv1.Delete,
+			oldObject: req1,
+			prepareFunc: func(t *testing.T) {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("list failure"))
+			},
+			want: admission.Errored(http.StatusBadRequest, errors.New("failed to list SubnetSet: list failure")),
 		},
 		{
 			name:      "DecodeOldSubnetFailure",
@@ -397,8 +426,11 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			name:      "Delete shared subnet by NSX Operator",
 			operation: admissionv1.Delete,
 			oldObject: oldSharedSubnet,
-			user:      NSXOperatorSA,
-			want:      admission.Allowed(""),
+			prepareFunc: func(t *testing.T) {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+			},
+			user: NSXOperatorSA,
+			want: admission.Allowed(""),
 		},
 	}
 	for _, tt := range tests {
