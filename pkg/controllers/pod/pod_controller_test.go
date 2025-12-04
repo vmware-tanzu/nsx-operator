@@ -45,9 +45,24 @@ func (recorder fakeRecorder) Eventf(object runtime.Object, eventtype, reason, me
 func (recorder fakeRecorder) AnnotatedEventf(object runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
 }
 
+type fakeStatusWriter struct{}
+
+func (writer fakeStatusWriter) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
+	return nil
+}
+
+func (writer fakeStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	return nil
+}
+
+func (writer fakeStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+	return nil
+}
+
 func TestPodReconciler_Reconcile(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
+	fakewriter := fakeStatusWriter{}
 
 	defer mockCtl.Finish()
 	r := &PodReconciler{
@@ -206,6 +221,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 		{
 			name: "CreateSubnetPortSuccess",
 			prepareFunc: func(t *testing.T, r *PodReconciler) *gomonkey.Patches {
+				k8sClient.EXPECT().Status().Return(fakewriter).AnyTimes()
 				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 					podCR := obj.(*v1.Pod)
 					podCR.Spec.NodeName = "node-1"
