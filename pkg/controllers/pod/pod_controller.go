@@ -8,12 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"reflect"
 	"strings"
 	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -127,7 +129,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				log.Error(err, "Failed to update restore annotation on Pod", "Namespace", pod.Namespace, "Pod", pod.Name)
 				return err != nil
 			}, func() error {
-				return common.UpdateReconfigureNicAnnotation(r.Client, ctx, pod, "true")
+				return setReconfigureNicStatus(r.Client, ctx, pod)
 			})
 		}
 	} else {
@@ -146,6 +148,67 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		r.StatusUpdater.DeleteSuccess(req.NamespacedName, pod)
 	}
 	return common.ResultNormal, nil
+}
+
+// Set PodNetworkRestore condition to false in Pod to inform spherelet the SubnetPort is restored with another vif ID
+func setReconfigureNicStatus(client client.Client, ctx context.Context, obj client.Object) error {
+	pod := obj.(*v1.Pod)
+	newConditions := []v1.PodCondition{
+		{
+			Type:               v1.PodConditionType("PodNetworkRestore"),
+			Status:             v1.ConditionFalse,
+			Reason:             "ReconfigureNic",
+			LastTransitionTime: metav1.Now(),
+		},
+	}
+	return updatePodStatusConditions(client, ctx, pod, newConditions)
+}
+
+func updatePodStatusConditions(client client.Client, ctx context.Context, pod *v1.Pod, newConditions []v1.PodCondition) error {
+	conditionsUpdated := false
+	for i := range newConditions {
+		if mergePodStatusCondition(pod, &newConditions[i]) {
+			conditionsUpdated = true
+		}
+	}
+
+	if conditionsUpdated {
+		err := client.Status().Update(ctx, pod)
+		if err != nil {
+			log.Error(err, "Failed to update Pod status", "Name", pod.Name, "Namespace", pod.Namespace)
+			return err
+		}
+		log.Trace("Updated pod", "Name", pod.Name, "Namespace", pod.Namespace,
+			"New Conditions", newConditions)
+	}
+	return nil
+}
+
+func mergePodStatusCondition(pod *v1.Pod, newCondition *v1.PodCondition) bool {
+	matchedCondition := getExistingConditionOfType(newCondition.Type, pod.Status.Conditions)
+
+	if reflect.DeepEqual(matchedCondition, newCondition) {
+		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+		return false
+	}
+
+	if matchedCondition != nil {
+		matchedCondition.Reason = newCondition.Reason
+		matchedCondition.Message = newCondition.Message
+		matchedCondition.Status = newCondition.Status
+	} else {
+		pod.Status.Conditions = append(pod.Status.Conditions, *newCondition)
+	}
+	return true
+}
+
+func getExistingConditionOfType(conditionType v1.PodConditionType, existingConditions []v1.PodCondition) *v1.PodCondition {
+	for i := range existingConditions {
+		if existingConditions[i].Type == conditionType {
+			return &existingConditions[i]
+		}
+	}
+	return nil
 }
 
 func (r *PodReconciler) GetNodeByName(nodeName string) (*model.HostTransportNode, error) {
