@@ -59,6 +59,7 @@ spec:
                 - Private
                 - Public
                 - PrivateTGW
+                - L2Only
                 type: string
                 x-kubernetes-validations:
                 - message: Value is immutable
@@ -150,8 +151,8 @@ spec:
                     ) && (!has(self.dhcpServerAdditionalConfig) || !has(self.dhcpServerAdditionalConfig.reservedIPRanges)
                     || size(self.dhcpServerAdditionalConfig.reservedIPRanges)==0)
                     || has(self.mode) && self.mode=='DHCPServer'
-              vlanConnection:
-                description: Distributed VLAN connection path.
+              vlanConnectionName:
+                description: Distributed VLAN Connection name.
                 type: string
               vpcName:
                 description: VPC name of the Subnet.
