@@ -75,6 +75,11 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ResultRequeue, err
 	}
 
+	if len(subnetsetCR.Spec.SubnetNames) > 0 {
+		// No need to reconcile SubnetSet with pre-created Subnet
+		return ResultNormal, nil
+	}
+
 	bindingCRs := r.getSubnetBindingCRsBySubnetSet(ctx, subnetsetCR)
 	if len(bindingCRs) > 0 {
 		if !controllerutil.ContainsFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName) {
@@ -330,6 +335,10 @@ func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) error {
 	var errList []error
 	crdSubnetSetIDsSet := sets.New[string]()
 	for _, subnetSet := range crdSubnetSetList.Items {
+		// No need to gc SubnetSet with pre-created Subnet
+		if len(subnetSet.Spec.SubnetNames) > 0 {
+			continue
+		}
 		crdSubnetSetIDsSet.Insert(string(subnetSet.UID))
 		if err := r.deleteSubnetForSubnetSet(subnetSet, true, true); err != nil {
 			errList = append(errList, err)
@@ -533,9 +542,10 @@ func (r *SubnetSetReconciler) Start(mgr ctrl.Manager, hookServer webhook.Server)
 		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-subnetset",
 			&webhook.Admission{
 				Handler: &SubnetSetValidator{
-					Client:    mgr.GetClient(),
-					decoder:   admission.NewDecoder(mgr.GetScheme()),
-					nsxClient: r.SubnetService.NSXClient,
+					Client:     mgr.GetClient(),
+					decoder:    admission.NewDecoder(mgr.GetScheme()),
+					nsxClient:  r.SubnetService.NSXClient,
+					vpcService: r.VPCService,
 				},
 			})
 	}
