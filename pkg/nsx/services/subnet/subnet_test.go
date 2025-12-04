@@ -1109,6 +1109,25 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			},
 		},
 		{
+			name: "Map NSX Subnet with L2_Only AccessMode",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:     common.String("L2_Only"),
+				VlanConnection: common.String("/infra/distributed-vlan-connections/vlan-subnet-connection-l2"),
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModeL2Only),
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+					VLANConnectionName: "vlan-subnet-connection-l2",
+				},
+			},
+		},
+		{
 			name: "Map NSX Subnet with nil AccessMode",
 			subnetCR: &v1alpha1.Subnet{
 				Spec: v1alpha1.SubnetSpec{},
@@ -1439,6 +1458,110 @@ func TestGetNSXSubnetFromCacheOrAPI(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expectedSubnet, subnet)
+			}
+		})
+	}
+}
+
+func TestGetSubnetStatus(t *testing.T) {
+	tests := []struct {
+		name           string
+		nsxSubnet      *model.VpcSubnet
+		prepareFunc    func() *gomonkey.Patches
+		expectedResult *model.VpcSubnetStatus
+		expectedErr    string
+	}{
+		{
+			name: "normal Subnet success",
+			nsxSubnet: &model.VpcSubnet{
+				Path: common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1"),
+				Id:   common.String("subnet-1"),
+			},
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(fakeSubnetStatusClient.List,
+					func(_ fakeSubnetStatusClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnetStatusListResult, error) {
+						return model.VpcSubnetStatusListResult{
+							Results: []model.VpcSubnetStatus{
+								{
+									NetworkAddress:    common.String("10.0.0.0/28"),
+									GatewayAddress:    common.String("10.0.0.1/28"),
+									DhcpServerAddress: common.String("10.0.0.2/28"),
+								},
+							},
+						}, nil
+					})
+				return patches
+			},
+			expectedResult: &model.VpcSubnetStatus{
+				NetworkAddress:    common.String("10.0.0.0/28"),
+				GatewayAddress:    common.String("10.0.0.1/28"),
+				DhcpServerAddress: common.String("10.0.0.2/28"),
+			},
+		},
+		{
+			name: "l2only Subnet",
+			nsxSubnet: &model.VpcSubnet{
+				Path:       common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1"),
+				Id:         common.String("subnet-1"),
+				AccessMode: common.String("L2_Only"),
+			},
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(fakeSubnetStatusClient.List,
+					func(_ fakeSubnetStatusClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnetStatusListResult, error) {
+						return model.VpcSubnetStatusListResult{
+							Results: []model.VpcSubnetStatus{{
+								VlanExtension: &model.VpcSubnetVlanExtensionStatus{
+									VlanId: common.Int64(1200),
+								},
+							}},
+						}, nil
+					})
+				return patches
+			},
+			expectedResult: &model.VpcSubnetStatus{
+				VlanExtension: &model.VpcSubnetVlanExtensionStatus{
+					VlanId: common.Int64(1200),
+				},
+			},
+		},
+		{
+			name: "unready Subnet",
+			nsxSubnet: &model.VpcSubnet{
+				Path: common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1"),
+				Id:   common.String("subnet-1"),
+			},
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(fakeSubnetStatusClient.List,
+					func(_ fakeSubnetStatusClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnetStatusListResult, error) {
+						return model.VpcSubnetStatusListResult{
+							Results: []model.VpcSubnetStatus{{}},
+						}, nil
+					})
+				return patches
+			},
+			expectedErr: "invalid status result",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &SubnetService{
+				Service: common.Service{
+					NSXClient: &nsx.Client{
+						SubnetsClient:      &fakeSubnetsClient{},
+						SubnetStatusClient: &fakeSubnetStatusClient{},
+					},
+				},
+			}
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc()
+				defer patches.Reset()
+			}
+			result, err := service.GetSubnetStatus(tt.nsxSubnet)
+			if tt.expectedErr != "" {
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			} else {
+				assert.Nil(t, err)
+				assert.Equal(t, *tt.expectedResult, result[0])
 			}
 		})
 	}

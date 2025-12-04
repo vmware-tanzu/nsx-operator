@@ -1287,7 +1287,7 @@ func PrecreatedSharedSubnetUpdateFail(t *testing.T) {
 
 	// Save original values for verification later
 	originalVPCName := subnet2.Spec.VPCName
-	originalVLANConnection := subnet2.Spec.VLANConnection
+	originalVLANConnectionName := subnet2.Spec.VLANConnectionName
 
 	log.Info("Attempting to update VPCName in shared subnet", "subnet", subnet2.Name)
 
@@ -1308,7 +1308,7 @@ func PrecreatedSharedSubnetUpdateFail(t *testing.T) {
 	require.NoError(t, err, "Failed to get latest version of subnet %s", subnet2.Name)
 
 	updatedSubnet = latestSubnet.DeepCopy()
-	updatedSubnet.Spec.VLANConnection = "faked-vlan-connection-path"
+	updatedSubnet.Spec.VLANConnectionName = "faked-vlan-connection-path"
 	_, err = testData.crdClientset.CrdV1alpha1().Subnets(precreatedSubnetNs2).Update(context.TODO(), updatedSubnet, v1.UpdateOptions{})
 
 	// Verify that the update fails or is denied
@@ -1318,7 +1318,7 @@ func PrecreatedSharedSubnetUpdateFail(t *testing.T) {
 	finalSubnet, err := testData.crdClientset.CrdV1alpha1().Subnets(precreatedSubnetNs2).Get(context.TODO(), subnet2.Name, v1.GetOptions{})
 	require.NoError(t, err, "Failed to get final subnet %s", subnet2.Name)
 	require.Equal(t, originalVPCName, finalSubnet.Spec.VPCName, "VPCName should remain unchanged")
-	require.Equal(t, originalVLANConnection, finalSubnet.Spec.VLANConnection,
+	require.Equal(t, originalVLANConnectionName, finalSubnet.Spec.VLANConnectionName,
 		"VLANConnection should remain unchanged")
 
 	log.Info("Verified that shared subnet properties cannot be updated", "subnet", subnet2.Name)

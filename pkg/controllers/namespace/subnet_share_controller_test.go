@@ -112,8 +112,8 @@ func TestCreateSubnetCRInK8s(t *testing.T) {
 			Namespace: "test-ns",
 		},
 		Spec: v1alpha1.SubnetSpec{
-			VPCName:        "proj-1:vpc-1",
-			VLANConnection: "/infra/distributed-vlan-connections/gatewayconnection-103",
+			VPCName:            "proj-1:vpc-1",
+			VLANConnectionName: "gatewayconnection-103",
 		},
 	}
 

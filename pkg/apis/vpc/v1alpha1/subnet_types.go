@@ -15,6 +15,7 @@ const (
 	AccessModePublic              string            = "Public"
 	AccessModePrivate             string            = "Private"
 	AccessModeProject             string            = "PrivateTGW"
+	AccessModeL2Only              string            = "L2Only"
 	DHCPConfigModeDeactivated     string            = "DHCPDeactivated"
 	DHCPConfigModeServer          string            = "DHCPServer"
 	DHCPConfigModeRelay           string            = "DHCPRelay"
@@ -41,7 +42,7 @@ type SubnetSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPv4SubnetSize int `json:"ipv4SubnetSize,omitempty"`
 	// Access mode of Subnet, accessible only from within VPC or from outside VPC.
-	// +kubebuilder:validation:Enum=Private;Public;PrivateTGW
+	// +kubebuilder:validation:Enum=Private;Public;PrivateTGW;L2Only
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	AccessMode AccessMode `json:"accessMode,omitempty"`
 	// Subnet CIDRS.
@@ -66,8 +67,8 @@ type SubnetSpec struct {
 	SubnetDHCPConfig SubnetDHCPConfig `json:"subnetDHCPConfig,omitempty"`
 	// VPC Subnet advanced configuration.
 	AdvancedConfig SubnetAdvancedConfig `json:"advancedConfig,omitempty"`
-	// Distributed VLAN connection path.
-	VLANConnection string `json:"vlanConnection,omitempty"`
+	// Distributed VLAN Connection name.
+	VLANConnectionName string `json:"vlanConnectionName,omitempty"`
 }
 
 // SubnetStatus defines the observed state of Subnet.

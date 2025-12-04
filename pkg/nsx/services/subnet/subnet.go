@@ -319,9 +319,11 @@ func (service *SubnetService) GetSubnetStatus(subnet *model.VpcSubnet) ([]model.
 		log.Error(err, "No subnet status found")
 		return nil, err
 	}
-	if statusList.Results[0].NetworkAddress == nil || statusList.Results[0].GatewayAddress == nil {
+	// L2_Only Subnet does not have network address
+	if (statusList.Results[0].NetworkAddress == nil || statusList.Results[0].GatewayAddress == nil) &&
+		(subnet.AccessMode == nil || *subnet.AccessMode != "L2_Only") {
 		err := fmt.Errorf("invalid status result: %+v", statusList.Results[0])
-		log.Error(err, "Subnet status does not have network address or gateway address", "subnet.Id", subnet.Id)
+		log.Error(err, "Subnet is not L2Only Subnet, and status does not have network address or gateway address", "subnet.Id", subnet.Id)
 		return nil, err
 	}
 	return statusList.Results, nil
@@ -567,9 +569,12 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 	if nsxSubnet.AccessMode != nil {
 		accessMode := *nsxSubnet.AccessMode
 		// Convert from NSX format to v1alpha1 format
-		if accessMode == "Private_TGW" {
+		switch accessMode {
+		case "Private_TGW":
 			subnetCR.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModeProject)
-		} else {
+		case "L2_Only":
+			subnetCR.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModeL2Only)
+		default:
 			subnetCR.Spec.AccessMode = v1alpha1.AccessMode(accessMode)
 		}
 	} else {
@@ -607,9 +612,11 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 	// Map AdvancedConfig
 	enabled := false
 	subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = &enabled
-	// Map VlanConnection from NSX Subnet
+	// Map VlanConnectionName from NSX Subnet
+	// Display the Id of VlanConnection as the VlanConnectionName in CR
 	if nsxSubnet.VlanConnection != nil {
-		subnetCR.Spec.VLANConnection = *nsxSubnet.VlanConnection
+		parts := strings.Split(*nsxSubnet.VlanConnection, "/")
+		subnetCR.Spec.VLANConnectionName = parts[len(parts)-1]
 	}
 	if nsxSubnet.AdvancedConfig != nil {
 		if nsxSubnet.AdvancedConfig.ConnectivityState != nil {

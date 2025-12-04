@@ -53,13 +53,16 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 			return admission.Denied(fmt.Sprintf("Shared Subnet %s/%s can only be created by NSX Operator", subnet.Namespace, subnet.Name))
 		}
 
-		// Prevent users from setting spec.vpcName and spec.VLANConnection
+		// Prevent users from setting spec.vpcName and spec.vlanConnectionName
 		if req.UserInfo.Username != NSXOperatorSA {
 			if subnet.Spec.VPCName != "" {
 				return admission.Denied(fmt.Sprintf("Subnet %s/%s: spec.vpcName can only be set by NSX Operator", subnet.Namespace, subnet.Name))
 			}
-			if subnet.Spec.VLANConnection != "" {
-				return admission.Denied(fmt.Sprintf("Subnet %s/%s: spec.vlanConnection can only be set by NSX Operator", subnet.Namespace, subnet.Name))
+			if subnet.Spec.VLANConnectionName != "" {
+				return admission.Denied(fmt.Sprintf("Subnet %s/%s: spec.vlanConnectionName can only be set by NSX Operator", subnet.Namespace, subnet.Name))
+			}
+			if subnet.Spec.AccessMode == v1alpha1.AccessMode(v1alpha1.AccessModeL2Only) {
+				return admission.Denied(fmt.Sprintf("Subnet %s/%s: spec.accessMode L2Only is not supported", subnet.Namespace, subnet.Name))
 			}
 		}
 	case admissionv1.Update:
@@ -79,15 +82,15 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 			return admission.Denied(fmt.Sprintf("Shared Subnet %s/%s can only be updated by NSX Operator", subnet.Namespace, subnet.Name))
 		}
 
-		// Prevent users from updating spec.vpcName and spec.VLANConnection
+		// Prevent users from updating spec.vpcName and spec.vlanConnectionName
 		if req.UserInfo.Username != NSXOperatorSA {
 			// Check if vpcName is being added or changed
 			if oldSubnet.Spec.VPCName != subnet.Spec.VPCName {
 				log.Trace("Denying update to vpcName", "oldVPCName", oldSubnet.Spec.VPCName, "newVPCName", subnet.Spec.VPCName)
 				return admission.Denied(fmt.Sprintf("Subnet %s/%s: spec.vpcName can only be updated by NSX Operator", subnet.Namespace, subnet.Name))
 			}
-			if oldSubnet.Spec.VLANConnection != subnet.Spec.VLANConnection {
-				return admission.Denied(fmt.Sprintf("Subnet %s/%s: spec.vlanConnection can only be updated by NSX Operator", subnet.Namespace, subnet.Name))
+			if oldSubnet.Spec.VLANConnectionName != subnet.Spec.VLANConnectionName {
+				return admission.Denied(fmt.Sprintf("Subnet %s/%s: spec.vlanConnectionName can only be updated by NSX Operator", subnet.Namespace, subnet.Name))
 			}
 			if !nsxutil.CompareArraysWithoutOrder(oldSubnet.Spec.IPAddresses, subnet.Spec.IPAddresses) {
 				return admission.Denied("ipAddresses is immutable")
