@@ -281,10 +281,6 @@ func UpdateK8sResourceAnnotation(client client.Client, ctx context.Context, k8sO
 	return nil
 }
 
-func truncateNameOrIDHash(data string) string {
-	return Sha1WithCustomizedCharset(data)[:common.Base62HashLength]
-}
-
 func TruncateUIDHash(uid string) string {
 	return Sha1WithCustomizedCharset(uid)[:common.UUIDHashLength]
 }
@@ -304,14 +300,6 @@ func GenerateIDByObject(obj metav1.Object) string {
 		desiredName = connectStrings(common.ConnectorUnderline, obj.GetName()[:valueLen], suffix)
 	}
 	return desiredName
-}
-
-// GenerateIDByObjectWithSuffix is only used to generate the NSX Security Rule id for now.
-// TODO: remove this function after Security Rule id switch to `GenerateIDByObject`.
-func GenerateIDByObjectWithSuffix(obj metav1.Object, suffix string) string {
-	limit := common.MaxIdLength
-	limit -= len(suffix) + 1
-	return connectStrings(common.ConnectorUnderline, normalizeNameByLimit(obj.GetName(), string(obj.GetUID()), limit, truncateNameOrIDHash), suffix)
 }
 
 // GenerateID generate id for NSX resource, some resources has complex index, so set its type to string.

@@ -2367,8 +2367,8 @@ func Test_createOrUpdateT1SecurityPolicy(t *testing.T) {
 	fakeService := fakeSecurityPolicyService()
 	fakeService.NSXConfig.EnableVPCNetwork = false
 
-	podSelectorRule0IDPort000 := fakeService.buildExpandedRuleID(&spWithPodSelector, 0, common.ResourceTypeSecurityPolicy, nil)
-	podSelectorRule1IDPort000 := fakeService.buildExpandedRuleID(&spWithPodSelector, 1, common.ResourceTypeSecurityPolicy, nil)
+	podSelectorRule0IDPort000 := fakeService.buildExpandedRuleID(&spWithPodSelector, 0, "", nil)
+	podSelectorRule1IDPort000 := fakeService.buildExpandedRuleID(&spWithPodSelector, 1, "", nil)
 
 	podSelectorRule0Name00, _ := fakeService.buildRuleDisplayName(&spWithPodSelector.Spec.Rules[0], common.ResourceTypeSecurityPolicy, nil)
 	podSelectorRule1Name00, _ := fakeService.buildRuleDisplayName(&spWithPodSelector.Spec.Rules[1], common.ResourceTypeSecurityPolicy, nil)
@@ -2518,8 +2518,8 @@ func Test_createOrUpdateVPCSecurityPolicy(t *testing.T) {
 	mockVPCService := mock.MockVPCServiceProvider{}
 	fakeService.vpcService = &mockVPCService
 
-	podSelectorRule0IDPort000 := fakeService.buildExpandedRuleID(&spWithPodSelector, 0, common.ResourceTypeSecurityPolicy, nil)
-	podSelectorRule1IDPort000 := fakeService.buildExpandedRuleID(&spWithPodSelector, 1, common.ResourceTypeSecurityPolicy, nil)
+	podSelectorRule0IDPort000 := fakeService.buildExpandedRuleID(&spWithPodSelector, 0, "", nil)
+	podSelectorRule1IDPort000 := fakeService.buildExpandedRuleID(&spWithPodSelector, 1, "", nil)
 
 	podSelectorRule0Name00, _ := fakeService.buildRuleDisplayName(&spWithPodSelector.Spec.Rules[0], common.ResourceTypeSecurityPolicy, nil)
 	podSelectorRule1Name00, _ := fakeService.buildRuleDisplayName(&spWithPodSelector.Spec.Rules[1], common.ResourceTypeSecurityPolicy, nil)
@@ -2689,8 +2689,8 @@ func Test_createOrUpdateVPCSecurityPolicyInDefaultProject(t *testing.T) {
 	mockVPCService := mock.MockVPCServiceProvider{}
 	fakeService.vpcService = &mockVPCService
 
-	podSelectorRule0IDPort000 := fakeService.buildExpandedRuleID(&spWithPodSelector, 0, common.ResourceTypeSecurityPolicy, nil)
-	podSelectorRule1IDPort000 := fakeService.buildExpandedRuleID(&spWithPodSelector, 1, common.ResourceTypeSecurityPolicy, nil)
+	podSelectorRule0IDPort000 := fakeService.buildExpandedRuleID(&spWithPodSelector, 0, "", nil)
+	podSelectorRule1IDPort000 := fakeService.buildExpandedRuleID(&spWithPodSelector, 1, "", nil)
 
 	podSelectorRule0Name00, _ := fakeService.buildRuleDisplayName(&spWithPodSelector.Spec.Rules[0], common.ResourceTypeSecurityPolicy, nil)
 	podSelectorRule1Name00, _ := fakeService.buildRuleDisplayName(&spWithPodSelector.Spec.Rules[1], common.ResourceTypeSecurityPolicy, nil)
@@ -2959,6 +2959,9 @@ func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
 
 	serviceEntry := getRuleServiceEntries(53, 0, "UDP")
 
+	ruleTags1 := appendRuleIDAndHashTags(vpcBasicTags, "2c822e90", "spA-2c822e90_re0bz")
+	ruleTags2 := appendRuleIDAndHashTags(vpcBasicTags, "2a4595d0", "spA-2a4595d0_re0bz")
+
 	type args struct {
 		spObj      *v1alpha1.SecurityPolicy
 		createdFor string
@@ -3002,7 +3005,7 @@ func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
 				Rules: []model.Rule{
 					{
 						DisplayName:       common.String("rule-with-pod-ns-selector_ingress_allow"),
-						Id:                common.String("spA_uidA_2c822e90_all"),
+						Id:                common.String("spA-2c822e90_re0bz_all"),
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionIn,
 						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA-2c822e90-scope_re0bz"},
@@ -3010,11 +3013,11 @@ func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-2c822e90-src_re0bz"},
 						Action:            &nsxRuleActionAllow,
-						Tags:              vpcBasicTags,
+						Tags:              ruleTags1,
 					},
 					{
 						DisplayName:       common.String("rule-with-ns-selector_ingress_allow"),
-						Id:                common.String("spA_uidA_2a4595d0_53"),
+						Id:                common.String("spA-2a4595d0_re0bz_53"),
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionIn,
 						Scope:             []string{"ANY"},
@@ -3023,7 +3026,7 @@ func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
 						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-2a4595d0-src_re0bz"},
 						Action:            &nsxRuleActionAllow,
 						ServiceEntries:    []*data.StructValue{serviceEntry},
-						Tags:              vpcBasicTags,
+						Tags:              ruleTags2,
 					},
 				},
 				Tags: vpcBasicTags,
@@ -3213,6 +3216,12 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 	ingressServiceEntry := getRuleServiceEntries(6001, 0, "TCP")
 	egressServiceEntry := getRuleServiceEntries(3366, 0, "TCP")
 
+	allowRuleTags1 := appendRuleIDAndHashTags(npAllowBasicTags, "6c2a026c", "np-app-access-allow-6c2a026c_aoqj8")
+	allowRuleTags2 := appendRuleIDAndHashTags(npAllowBasicTags, "025d37a6", "np-app-access-allow-025d37a6_aoqj8")
+
+	isolationRuleTags1 := appendRuleIDAndHashTags(npIsolationBasicTags, "114fed10", "np-app-access-isolation-114fed10_aoqj8")
+	isolationRuleTags2 := appendRuleIDAndHashTags(npIsolationBasicTags, "8cae63ab", "np-app-access-isolation-8cae63ab_aoqj8")
+
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeService.Service), "GetNamespaceUID",
 		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
@@ -3246,7 +3255,7 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 				Rules: []model.Rule{
 					{
 						DisplayName:       common.String("TCP.6001_ingress_allow"),
-						Id:                common.String("np-app-access_uidNP_allow_6c2a026c_6001"),
+						Id:                common.String("np-app-access-allow-6c2a026c_aoqj8_6001"),
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionIn,
 						Scope:             []string{"ANY"},
@@ -3255,11 +3264,11 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/np-app-access-allow-6c2a026c-src_aoqj8"},
 						Action:            &nsxRuleActionAllow,
 						ServiceEntries:    []*data.StructValue{ingressServiceEntry},
-						Tags:              npAllowBasicTags,
+						Tags:              allowRuleTags1,
 					},
 					{
 						DisplayName:       common.String("TCP.3366_egress_allow"),
-						Id:                common.String("np-app-access_uidNP_allow_025d37a6_3366"),
+						Id:                common.String("np-app-access-allow-025d37a6_aoqj8_3366"),
 						DestinationGroups: []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/np-app-access-allow-025d37a6-dst_aoqj8"},
 						Direction:         &nsxRuleDirectionOut,
 						Scope:             []string{"ANY"},
@@ -3268,7 +3277,7 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 						SourceGroups:      []string{"ANY"},
 						Action:            &nsxRuleActionAllow,
 						ServiceEntries:    []*data.StructValue{egressServiceEntry},
-						Tags:              npAllowBasicTags,
+						Tags:              allowRuleTags2,
 					},
 				},
 				Tags: npAllowBasicTags,
@@ -3281,7 +3290,7 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 				Rules: []model.Rule{
 					{
 						DisplayName:       common.String("ingress_isolation"),
-						Id:                common.String("np-app-access_uidNP_isolation_114fed10_all"),
+						Id:                common.String("np-app-access-isolation-114fed10_aoqj8_all"),
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionIn,
 						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access-isolation-scope_aoqj8"},
@@ -3289,11 +3298,11 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
 						Action:            &nsxRuleActionDrop,
-						Tags:              npIsolationBasicTags,
+						Tags:              isolationRuleTags1,
 					},
 					{
 						DisplayName:       common.String("egress_isolation"),
-						Id:                common.String("np-app-access_uidNP_isolation_8cae63ab_all"),
+						Id:                common.String("np-app-access-isolation-8cae63ab_aoqj8_all"),
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionOut,
 						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access-isolation-scope_aoqj8"},
@@ -3301,7 +3310,7 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
 						Action:            &nsxRuleActionDrop,
-						Tags:              npIsolationBasicTags,
+						Tags:              isolationRuleTags2,
 					},
 				},
 				Tags: npIsolationBasicTags,

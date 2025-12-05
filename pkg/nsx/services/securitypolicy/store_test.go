@@ -11,6 +11,7 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -434,6 +435,297 @@ func Test_ShareStore_Apply(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.wantErr(t, shareStore.Apply(tt.args.i), fmt.Sprintf("Apply(%v)", tt.args.i))
+		})
+	}
+}
+
+func Test_filterRuleHash(t *testing.T) {
+	tests := []struct {
+		name        string
+		tags        []model.Tag
+		tagScope    string
+		expected    []string
+		expectedLen int
+	}{
+		{
+			name: "both SP uid and hash present",
+			tags: []model.Tag{
+				{
+					Scope: String(common.TagValueScopeSecurityPolicyUID),
+					Tag:   String("sp-policy-uid-123"),
+				},
+				{
+					Scope: String(common.TagScopeRuleHash),
+					Tag:   String("rule-hash-abc"),
+				},
+			},
+			tagScope:    common.TagValueScopeSecurityPolicyUID,
+			expected:    []string{"sp-policy-uid-123:rule-hash-abc"},
+			expectedLen: 1,
+		},
+		{
+			name: "both NP uid and hash present",
+			tags: []model.Tag{
+				{
+					Scope: String(common.TagScopeNetworkPolicyUID),
+					Tag:   String("np-policy-uid-123"),
+				},
+				{
+					Scope: String(common.TagScopeRuleHash),
+					Tag:   String("rule-hash-abc"),
+				},
+			},
+			tagScope:    common.TagScopeNetworkPolicyUID,
+			expected:    []string{"np-policy-uid-123:rule-hash-abc"},
+			expectedLen: 1,
+		},
+		{
+			name: "only uid present",
+			tags: []model.Tag{
+				{
+					Scope: String(common.TagValueScopeSecurityPolicyUID),
+					Tag:   String("sp-policy-uid-123"),
+				},
+			},
+			tagScope:    common.TagValueScopeSecurityPolicyUID,
+			expected:    []string(nil),
+			expectedLen: 0,
+		},
+		{
+			name: "only hash present",
+			tags: []model.Tag{
+				{
+					Scope: String(common.TagScopeRuleHash),
+					Tag:   String("rule-hash-def"),
+				},
+			},
+			tagScope:    common.TagValueScopeSecurityPolicyUID,
+			expected:    []string(nil),
+			expectedLen: 0,
+		},
+		{
+			name: "multiple tags with matching uid and hash",
+			tags: []model.Tag{
+				{
+					Scope: String("other-scope"),
+					Tag:   String("other-value"),
+				},
+				{
+					Scope: String(common.TagValueScopeSecurityPolicyUID),
+					Tag:   String("policy-uid-789"),
+				},
+				{
+					Scope: String(common.TagScopeRuleHash),
+					Tag:   String("rule-hash-xyz"),
+				},
+				{
+					Scope: String("another-scope"),
+					Tag:   String("another-value"),
+				},
+			},
+			tagScope:    common.TagValueScopeSecurityPolicyUID,
+			expected:    []string{"policy-uid-789:rule-hash-xyz"},
+			expectedLen: 1,
+		},
+		{
+			name:        "empty tag slice",
+			tags:        []model.Tag{},
+			tagScope:    common.TagValueScopeSecurityPolicyUID,
+			expected:    []string(nil),
+			expectedLen: 0,
+		},
+		{
+			name: "hash nil scope and tag values",
+			tags: []model.Tag{
+				{
+					Scope: nil,
+					Tag:   String("other-value"),
+				},
+				{
+					Scope: String(common.TagValueScopeSecurityPolicyUID),
+					Tag:   String("policy-uid-789"),
+				},
+				{
+					Scope: String(common.TagScopeRuleHash),
+					Tag:   String("rule-hash-xyz"),
+				},
+				{
+					Scope: String("another-scope"),
+					Tag:   nil,
+				},
+			},
+			tagScope:    common.TagValueScopeSecurityPolicyUID,
+			expected:    []string{"policy-uid-789:rule-hash-xyz"},
+			expectedLen: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			result := filterRuleHash(tt.tags, tt.tagScope)
+			assert.Equal(t, tt.expected, result)
+			assert.Equal(t, tt.expectedLen, len(result))
+		})
+	}
+}
+
+func Test_indexRuleFunc(t *testing.T) {
+	tests := []struct {
+		name        string
+		obj         interface{}
+		expected    []string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "rule with rule ID tag",
+			obj: &model.Rule{
+				Id: String("rule-1"),
+				Tags: []model.Tag{
+					{
+						Scope: String(common.TagScopeRuleID),
+						Tag:   String("rule-id-value-1"),
+					},
+				},
+			},
+			expected: []string{"rule-id-value-1"},
+			wantErr:  false,
+		},
+		{
+			name: "rule with no rule ID tags",
+			obj: &model.Rule{
+				Id: String("rule-2"),
+				Tags: []model.Tag{
+					{
+						Scope: String(common.TagScopeRuleHash),
+						Tag:   String("hash-value"),
+					},
+					{
+						Scope: String(common.TagValueScopeSecurityPolicyUID),
+						Tag:   String("policy-uid"),
+					},
+				},
+			},
+			expected: []string{},
+			wantErr:  false,
+		},
+		{
+			name:        "non-rule object",
+			obj:         &model.Group{},
+			expected:    nil,
+			wantErr:     true,
+			errContains: "indexRuleFunc doesn't support unknown type",
+		},
+		{
+			name:        "nil object",
+			obj:         nil,
+			expected:    nil,
+			wantErr:     true,
+			errContains: "indexRuleFunc doesn't support unknown type",
+		},
+		{
+			name:        "string object",
+			obj:         "not-a-rule",
+			expected:    nil,
+			wantErr:     true,
+			errContains: "indexRuleFunc doesn't support unknown type",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := indexRuleFunc(tt.obj)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestRuleStore_getByIndexUUIDAndHash(t *testing.T) {
+	ruleCacheIndexer := cache.NewIndexer(keyFunc,
+		cache.Indexers{
+			SPIndexByUUIDAndRuleHashFuncKey: indexSPByUUIDAndRuleHash,
+			NPIndexByUUIDAndRuleHashFuncKey: indexNPByUUIDAndRuleHash,
+			common.TagScopeRuleID:           indexRuleFunc,
+		})
+	resourceStore := common.ResourceStore{
+		Indexer:     ruleCacheIndexer,
+		BindingType: model.RuleBindingType(),
+	}
+	ruleStore := &RuleStore{ResourceStore: resourceStore}
+
+	spRuleTags := appendRuleIDAndHashTags(vpcBasicTags, "2c822e90", "spA-2c822e90_re0bz")
+	npRuleTags := appendRuleIDAndHashTags(npAllowBasicTags, "67410606", "npB-67410606_9u8w9")
+	rules := []model.Rule{
+		{
+			Id:   String("rule-1-80"),
+			Tags: spRuleTags,
+		},
+		{
+			Id:   String("rule-2-80"),
+			Tags: npRuleTags,
+		},
+		{
+			Id:   String("rule-3-88"),
+			Tags: spRuleTags,
+		},
+	}
+	ruleStore.Apply(&rules)
+
+	tests := []struct {
+		name              string
+		indexKey          string
+		uuid              string
+		hash              string
+		expectedRuleCount int
+		expectedRuleIDs   []string
+	}{
+		{
+			name:              "SecurityPolicy Key index",
+			indexKey:          SPIndexByUUIDAndRuleHashFuncKey,
+			uuid:              tagValuePolicyCRUID,
+			hash:              "2c822e90",
+			expectedRuleCount: 2,
+			expectedRuleIDs:   []string{"rule-1-80", "rule-3-88"},
+		},
+		{
+			name:              "NetworkPolicy Key index",
+			indexKey:          NPIndexByUUIDAndRuleHashFuncKey,
+			uuid:              string(npWithNsSelecotr.UID + "_allow"),
+			hash:              "67410606",
+			expectedRuleCount: 1,
+			expectedRuleIDs:   []string{"rule-2-80"},
+		},
+		{
+			name:              "no matching rules with invalid key",
+			indexKey:          "spUUIDAndRuleHash",
+			uuid:              tagValuePolicyCRUID,
+			hash:              "2c822e90",
+			expectedRuleCount: 0,
+			expectedRuleIDs:   []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			result := ruleStore.GetByIndexUUIDAndHash(tt.indexKey, tt.uuid, tt.hash)
+
+			assert.Equal(t, tt.expectedRuleCount, len(result))
+			if tt.expectedRuleCount > 0 {
+				resultIDs := make([]string, 0, len(result))
+				for _, rule := range result {
+					resultIDs = append(resultIDs, *rule.Id)
+				}
+				assert.ElementsMatch(t, tt.expectedRuleIDs, resultIDs)
+			}
 		})
 	}
 }
