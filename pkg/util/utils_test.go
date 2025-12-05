@@ -634,3 +634,81 @@ func TestGetClusterUUID(t *testing.T) {
 	uuid3 := GetClusterUUID(clusterID)
 	assert.Equal(t, uuid1, uuid3, "UUID should be deterministic for the same clusterID")
 }
+
+func TestValidateSubnetSize(t *testing.T) {
+	assert := assert.New(t)
+
+	tests := []struct {
+		name            string
+		nsxVersion      string
+		subnetSize      int
+		wantOK          bool
+		wantMsgContains string
+	}{
+		{
+			name:       "zero size allowed",
+			nsxVersion: "9.0.0",
+			subnetSize: 0,
+			wantOK:     true,
+		},
+		{
+			name:            "not power of two",
+			nsxVersion:      "9.0.0",
+			subnetSize:      3,
+			wantOK:          false,
+			wantMsgContains: "Subnet size must be power of 2",
+		},
+		{
+			name:            "nsx 9.0.0 too small",
+			nsxVersion:      NSXVersion90,
+			subnetSize:      8, // less than MinSubnetSizeV90 (16)
+			wantOK:          false,
+			wantMsgContains: fmt.Sprintf("%d", MinSubnetSizeV90),
+		},
+		{
+			name:       "nsx 9.0.0 ok at boundary",
+			nsxVersion: NSXVersion90,
+			subnetSize: MinSubnetSizeV90,
+			wantOK:     true,
+		},
+		{
+			name:            "nsx 9.0.0 with suffix still treated as 9.0.0",
+			nsxVersion:      "9.0.0-rc1",
+			subnetSize:      8,
+			wantOK:          false,
+			wantMsgContains: fmt.Sprintf("%d", MinSubnetSizeV90),
+		},
+		{
+			name:            "other nsx versions too small",
+			nsxVersion:      "9.1.0",
+			subnetSize:      4, // less than MinSubnetSizeV91 (8)
+			wantOK:          false,
+			wantMsgContains: fmt.Sprintf("%d", MinSubnetSizeV91),
+		},
+		{
+			name:       "other nsx versions ok at boundary",
+			nsxVersion: "10.0.0",
+			subnetSize: MinSubnetSizeV91,
+			wantOK:     true,
+		},
+		{
+			name:            "non power of two takes precedence over size limit",
+			nsxVersion:      "9.1.0",
+			subnetSize:      12, // not power of two and also < 16 but main check is power-of-two
+			wantOK:          false,
+			wantMsgContains: "Subnet size must be power of 2",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ok, msg := ValidateSubnetSize(tc.nsxVersion, tc.subnetSize)
+			assert.Equal(tc.wantOK, ok, "ok mismatch for %s", tc.name)
+			if tc.wantMsgContains == "" {
+				assert.Equal("", msg, "expected empty message for %s", tc.name)
+			} else {
+				assert.Contains(msg, tc.wantMsgContains, "message content mismatch for %s", tc.name)
+			}
+		})
+	}
+}
