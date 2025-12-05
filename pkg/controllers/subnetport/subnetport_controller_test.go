@@ -1311,18 +1311,8 @@ func TestSubnetPortReconciler_getSubnetBySubnetPort(t *testing.T) {
 	r := &SubnetPortReconciler{
 		SubnetService: &subnet.SubnetService{},
 	}
-	// SubnetPort with Subnet in spec
-	patches := gomonkey.ApplyFunc((*subnet.SubnetService).ListSubnetByName, func(s *subnet.SubnetService, ns string, name string) []*model.VpcSubnet {
-		return []*model.VpcSubnet{
-			{
-				Path:        servicecommon.String("/subnet-1"),
-				IpAddresses: []string{"10.0.0.0/28"},
-			},
-		}
-	})
-
 	// SubnetPort with SubnetSet in spec
-	patches.ApplyFunc((*subnet.SubnetService).ListSubnetBySubnetSetName, func(s *subnet.SubnetService, ns string, subnetSetName string) []*model.VpcSubnet {
+	patches := gomonkey.ApplyFunc((*subnet.SubnetService).ListSubnetBySubnetSetName, func(s *subnet.SubnetService, ns string, subnetSetName string) []*model.VpcSubnet {
 		return []*model.VpcSubnet{
 			{
 				Path:        servicecommon.String("/subnet-2"),
@@ -1353,7 +1343,20 @@ func TestSubnetPortReconciler_getSubnetBySubnetPort(t *testing.T) {
 			},
 		}
 	})
+	patches.ApplyFunc((*subnet.SubnetService).GetSubnetByCR, func(s *subnet.SubnetService, subnet *v1alpha1.Subnet) (*model.VpcSubnet, error) {
+		return &model.VpcSubnet{
+			Path:        servicecommon.String("/subnet-1"),
+			IpAddresses: []string{"10.0.0.0/28"},
+		}, nil
+	})
 	defer patches.Reset()
+
+	subnetCR := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "subnet-1",
+			Namespace: "ns-1",
+		},
+	}
 
 	subnetPath, err := r.getSubnetBySubnetPort(&v1alpha1.SubnetPort{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1370,7 +1373,7 @@ func TestSubnetPortReconciler_getSubnetBySubnetPort(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, subnetCR)
 	assert.Nil(t, err)
 	assert.Equal(t, "/subnet-1", subnetPath)
 
@@ -1389,7 +1392,7 @@ func TestSubnetPortReconciler_getSubnetBySubnetPort(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, subnetCR)
 	assert.Contains(t, err.Error(), "failed to find Subnet matching")
 
 	subnetPath, err = r.getSubnetBySubnetPort(&v1alpha1.SubnetPort{
@@ -1407,7 +1410,7 @@ func TestSubnetPortReconciler_getSubnetBySubnetPort(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, nil)
 	assert.Nil(t, err)
 	assert.Equal(t, "/subnet-3", subnetPath)
 
@@ -1423,7 +1426,7 @@ func TestSubnetPortReconciler_getSubnetBySubnetPort(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, nil)
 	assert.Nil(t, err)
 	assert.Equal(t, "/subnet-4", subnetPath)
 }

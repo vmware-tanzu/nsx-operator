@@ -115,8 +115,10 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 	}
 	if restoreMode {
 		if obj.Status.AllocationIPs == *allocation_ips {
+			// The status may be updated with error by the previous restore process,
+			// return updated as true to make sure the condition will be updated to ready
 			log.Info("Successfully restored IPAddressAllocation CR", "Name", obj.Name, "Namespace", obj.Namespace)
-			return false, nil
+			return true, nil
 		} else {
 			err = fmt.Errorf("IP mismatches for the restored IPAddressAllocation CR %s: got %s, expecting %s", obj.GetUID(), *allocation_ips, obj.Status.AllocationIPs)
 			return false, err

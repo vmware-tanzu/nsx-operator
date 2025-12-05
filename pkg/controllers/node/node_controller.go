@@ -5,7 +5,6 @@ package node
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -113,7 +112,7 @@ func (r *NodeReconciler) RestoreReconcile() error {
 		}
 	}
 	if len(errorList) > 0 {
-		return errors.Join(errorList...)
+		return fmt.Errorf("errors found in Node restore: %v", errorList)
 	}
 	return nil
 }
