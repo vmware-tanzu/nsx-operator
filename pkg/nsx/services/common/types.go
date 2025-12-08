@@ -17,7 +17,6 @@ import (
 
 const (
 	HashLength                         int    = 8
-	Base62HashLength                   int    = 6
 	UUIDHashLength                     int    = 5
 	MaxTagsCount                       int    = 26
 	MaxTagScopeLength                  int    = 128
@@ -48,6 +47,7 @@ const (
 	TagScopeStaticRouteCRName          string = "nsx-op/static_route_name"
 	TagScopeStaticRouteCRUID           string = "nsx-op/static_route_uid"
 	TagScopeRuleID                     string = "nsx-op/rule_id"
+	TagScopeRuleHash                   string = "nsx-op/rule_hash"
 	TagScopeGroupType                  string = "nsx-op/group_type"
 	TagScopeSelectorHash               string = "nsx-op/selector_hash"
 	TagScopeNSXServiceAccountCRName    string = "nsx-op/nsx_service_account_name"

@@ -190,7 +190,11 @@ func (s *SecurityPolicyService) setUpStore(indexScope string, indexWithVPCPath b
 		BindingType: model.GroupBindingType(),
 	}}
 	s.ruleStore = &RuleStore{ResourceStore: common.ResourceStore{
-		Indexer:     cache.NewIndexer(keyFunc, vpcResourceIndexWrapper(cache.Indexers{})),
+		Indexer: cache.NewIndexer(keyFunc, vpcResourceIndexWrapper(cache.Indexers{
+			SPIndexByUUIDAndRuleHashFuncKey: indexSPByUUIDAndRuleHash,
+			NPIndexByUUIDAndRuleHashFuncKey: indexNPByUUIDAndRuleHash,
+			common.TagScopeRuleID:           indexRuleFunc,
+		})),
 		BindingType: model.RuleBindingType(),
 	}}
 	s.infraGroupStore = &GroupStore{ResourceStore: common.ResourceStore{
