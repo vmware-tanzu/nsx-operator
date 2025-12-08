@@ -180,6 +180,11 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 	VPCInfo[0].ProjectID = "projectQuality"
 	VPCInfo[0].VPCID = "vpc1"
 
+	VPCInfo1 := make([]common.VPCResourceInfo, 1)
+	VPCInfo1[0].OrgID = "default"
+	VPCInfo1[0].ProjectID = "default"
+	VPCInfo1[0].VPCID = "vpc1"
+
 	fakeService := fakeSecurityPolicyService()
 	fakeService.NSXConfig.EnableVPCNetwork = true
 	mockVPCService := mock.MockVPCServiceProvider{}
@@ -211,28 +216,37 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 	defer patches.Reset()
 
 	podSelectorRule0Name00 := "rule-with-pod-ns-selector_ingress_allow"
-	podSelectorRule0IDPort000 := "spA_uidA_2c822e90_all"
+	podSelectorRule0IDPort000 := "spA-2c822e90_re0bz_all"
 
 	podSelectorRule1Name00 := "rule-with-ns-selector_ingress_allow"
-	podSelectorRule1IDPort000 := "spA_uidA_2a4595d0_53"
+	podSelectorRule1IDPort000 := "spA-2a4595d0_re0bz_53"
 
 	vmSelectorRule0Name00 := "rule-with-VM-selector_egress_isolation"
-	vmSelectorRule0IDPort000 := "spB_uidB_67410606_all"
+	vmSelectorRule0IDPort000 := "spB-67410606_9u8w9_all"
 
 	vmSelectorRule1Name00 := "rule-with-ns-selector_egress_isolation"
-	vmSelectorRule1IDPort000 := "spB_uidB_7d721f08_all"
+	vmSelectorRule1IDPort000 := "spB-7d721f08_9u8w9_all"
 
 	vmSelectorRule2Name00 := "all_egress_isolation"
-	vmSelectorRule2IDPort000 := "spB_uidB_a40c8139_all"
+	vmSelectorRule2IDPort000 := "spB-a40c8139_9u8w9_all"
+
+	vpcRuleTags1 := appendRuleIDAndHashTags(vpcBasicTags, "2c822e90", "spA-2c822e90_re0bz")
+	vpcRuleTags2 := appendRuleIDAndHashTags(vpcBasicTags, "2a4595d0", "spA-2a4595d0_re0bz")
+	vpcRuleTags3 := appendRuleIDAndHashTags(vpcBasicTagsForSpWithVMSelector, "67410606", "spB-67410606_9u8w9")
+	vpcRuleTags4 := appendRuleIDAndHashTags(vpcBasicTagsForSpWithVMSelector, "7d721f08", "spB-7d721f08_9u8w9")
+	vpcRuleTags5 := appendRuleIDAndHashTags(vpcBasicTagsForSpWithVMSelector, "a40c8139", "spB-a40c8139_9u8w9")
 
 	tests := []struct {
-		name           string
-		inputPolicy    *v1alpha1.SecurityPolicy
-		expectedPolicy *model.SecurityPolicy
+		name             string
+		inputPolicy      *v1alpha1.SecurityPolicy
+		vpcInfo          *common.VPCResourceInfo
+		isDefaultProject bool
+		expectedPolicy   *model.SecurityPolicy
 	}{
 		{
 			name:        "security-policy-with-pod-selector For VPC",
 			inputPolicy: &spWithPodSelector,
+			vpcInfo:     &VPCInfo[0],
 			expectedPolicy: &model.SecurityPolicy{
 				DisplayName:    common.String("spA"),
 				Id:             common.String("spA_re0bz"),
@@ -249,7 +263,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-2c822e90-src_re0bz"},
 						Action:            &nsxRuleActionAllow,
-						Tags:              vpcBasicTags,
+						Tags:              vpcRuleTags1,
 					},
 					{
 						DisplayName:       &podSelectorRule1Name00,
@@ -262,7 +276,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-2a4595d0-src_re0bz"},
 						Action:            &nsxRuleActionAllow,
 						ServiceEntries:    []*data.StructValue{serviceEntry},
-						Tags:              vpcBasicTags,
+						Tags:              vpcRuleTags2,
 					},
 				},
 				Tags: vpcBasicTags,
@@ -271,6 +285,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 		{
 			name:        "security-policy-with-VM-selector For VPC",
 			inputPolicy: &spWithVMSelector,
+			vpcInfo:     &VPCInfo[0],
 			expectedPolicy: &model.SecurityPolicy{
 				DisplayName:    common.String("spB"),
 				Id:             common.String("spB_9u8w9"),
@@ -287,7 +302,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
 						Action:            &nsxRuleActionDrop,
-						Tags:              vpcBasicTagsForSpWithVMSelector,
+						Tags:              vpcRuleTags3,
 					},
 					{
 						DisplayName:       &vmSelectorRule1Name00,
@@ -299,7 +314,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
 						Action:            &nsxRuleActionDrop,
-						Tags:              vpcBasicTagsForSpWithVMSelector,
+						Tags:              vpcRuleTags4,
 					},
 
 					{
@@ -312,81 +327,17 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
 						Action:            &nsxRuleActionDrop,
-						Tags:              vpcBasicTagsForSpWithVMSelector,
+						Tags:              vpcRuleTags5,
 					},
 				},
 				Tags: vpcBasicTagsForSpWithVMSelector,
 			},
 		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			observedPolicy, _, _, _ := fakeService.buildSecurityPolicy(tt.inputPolicy, common.ResourceTypeSecurityPolicy, &VPCInfo[0], false)
-			assert.Equal(t, tt.expectedPolicy, observedPolicy)
-		})
-	}
-}
-
-func Test_BuildSecurityPolicyForVPCInDefaultProject(t *testing.T) {
-	VPCInfo := make([]common.VPCResourceInfo, 1)
-	VPCInfo[0].OrgID = "default"
-	VPCInfo[0].ProjectID = "default"
-	VPCInfo[0].VPCID = "vpc1"
-
-	fakeService := fakeSecurityPolicyService()
-	fakeService.NSXConfig.EnableVPCNetwork = true
-	mockVPCService := mock.MockVPCServiceProvider{}
-	fakeService.vpcService = &mockVPCService
-	fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
-
-	// For VPC mode
-	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
-	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
-
-	destinationPorts := data.NewListValue()
-	destinationPorts.Add(data.NewStringValue("53"))
-	serviceEntry := data.NewStructValue(
-		"",
-		map[string]data.DataValue{
-			"source_ports":      data.NewListValue(),
-			"destination_ports": destinationPorts,
-			"l4_protocol":       data.NewStringValue("UDP"),
-			"resource_type":     data.NewStringValue("L4PortSetServiceEntry"),
-			"marked_for_delete": data.NewBooleanValue(false),
-			"overridden":        data.NewBooleanValue(false),
-		},
-	)
-
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeService.Service), "GetNamespaceUID",
-		func(s *common.Service, ns string) types.UID {
-			return types.UID(tagValueNSUID)
-		})
-	defer patches.Reset()
-
-	podSelectorRule0Name00 := "rule-with-pod-ns-selector_ingress_allow"
-	podSelectorRule0IDPort000 := "spA_uidA_2c822e90_all"
-
-	podSelectorRule1Name00 := "rule-with-ns-selector_ingress_allow"
-	podSelectorRule1IDPort000 := "spA_uidA_2a4595d0_53"
-
-	vmSelectorRule0Name00 := "rule-with-VM-selector_egress_isolation"
-	vmSelectorRule0IDPort000 := "spB_uidB_67410606_all"
-
-	vmSelectorRule1Name00 := "rule-with-ns-selector_egress_isolation"
-	vmSelectorRule1IDPort000 := "spB_uidB_7d721f08_all"
-
-	vmSelectorRule2Name00 := "all_egress_isolation"
-	vmSelectorRule2IDPort000 := "spB_uidB_a40c8139_all"
-
-	tests := []struct {
-		name           string
-		inputPolicy    *v1alpha1.SecurityPolicy
-		expectedPolicy *model.SecurityPolicy
-	}{
 		{
-			name:        "security-policy-with-pod-selector For VPC",
-			inputPolicy: &spWithPodSelector,
+			name:             "security-policy-with-pod-selector For VPC in default project",
+			inputPolicy:      &spWithPodSelector,
+			vpcInfo:          &VPCInfo1[0],
+			isDefaultProject: true,
 			expectedPolicy: &model.SecurityPolicy{
 				DisplayName:    common.String("spA"),
 				Id:             common.String("spA_re0bz"),
@@ -403,7 +354,7 @@ func Test_BuildSecurityPolicyForVPCInDefaultProject(t *testing.T) {
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"/infra/domains/default/groups/spA-2c822e90-src_re0bz"},
 						Action:            &nsxRuleActionAllow,
-						Tags:              vpcBasicTags,
+						Tags:              vpcRuleTags1,
 					},
 					{
 						DisplayName:       &podSelectorRule1Name00,
@@ -416,15 +367,17 @@ func Test_BuildSecurityPolicyForVPCInDefaultProject(t *testing.T) {
 						SourceGroups:      []string{"/infra/domains/default/groups/spA-2a4595d0-src_re0bz"},
 						Action:            &nsxRuleActionAllow,
 						ServiceEntries:    []*data.StructValue{serviceEntry},
-						Tags:              vpcBasicTags,
+						Tags:              vpcRuleTags2,
 					},
 				},
 				Tags: vpcBasicTags,
 			},
 		},
 		{
-			name:        "security-policy-with-VM-selector For VPC",
-			inputPolicy: &spWithVMSelector,
+			name:             "security-policy-with-VM-selector For VPC in default project",
+			inputPolicy:      &spWithVMSelector,
+			vpcInfo:          &VPCInfo1[0],
+			isDefaultProject: true,
 			expectedPolicy: &model.SecurityPolicy{
 				DisplayName:    common.String("spB"),
 				Id:             common.String("spB_9u8w9"),
@@ -441,7 +394,7 @@ func Test_BuildSecurityPolicyForVPCInDefaultProject(t *testing.T) {
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
 						Action:            &nsxRuleActionDrop,
-						Tags:              vpcBasicTagsForSpWithVMSelector,
+						Tags:              vpcRuleTags3,
 					},
 					{
 						DisplayName:       &vmSelectorRule1Name00,
@@ -453,7 +406,7 @@ func Test_BuildSecurityPolicyForVPCInDefaultProject(t *testing.T) {
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
 						Action:            &nsxRuleActionDrop,
-						Tags:              vpcBasicTagsForSpWithVMSelector,
+						Tags:              vpcRuleTags4,
 					},
 
 					{
@@ -466,7 +419,7 @@ func Test_BuildSecurityPolicyForVPCInDefaultProject(t *testing.T) {
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
 						Action:            &nsxRuleActionDrop,
-						Tags:              vpcBasicTagsForSpWithVMSelector,
+						Tags:              vpcRuleTags5,
 					},
 				},
 				Tags: vpcBasicTagsForSpWithVMSelector,
@@ -476,7 +429,7 @@ func Test_BuildSecurityPolicyForVPCInDefaultProject(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observedPolicy, _, _, _ := fakeService.buildSecurityPolicy(tt.inputPolicy, common.ResourceTypeSecurityPolicy, &VPCInfo[0], true)
+			observedPolicy, _, _, _ := fakeService.buildSecurityPolicy(tt.inputPolicy, common.ResourceTypeSecurityPolicy, tt.vpcInfo, tt.isDefaultProject)
 			assert.Equal(t, tt.expectedPolicy, observedPolicy)
 		})
 	}
@@ -568,7 +521,7 @@ func Test_BuildTargetTags(t *testing.T) {
 	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyCRName
 	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyCRUID
 
-	ruleTagID0 := service.buildRuleID(&spWithPodSelector, 0)
+	ruleTagID0 := service.buildRuleID(&spWithPodSelector, 0, common.ResourceTypeSecurityPolicy)
 	tests := []struct {
 		name         string
 		inputPolicy  *v1alpha1.SecurityPolicy
@@ -647,24 +600,22 @@ func Test_BuildTargetTags(t *testing.T) {
 	defer patches.Reset()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ruleBaseID := service.buildRuleID(tt.inputPolicy, tt.inputIndex)
+			ruleBaseID := service.buildRuleID(tt.inputPolicy, tt.inputIndex, common.ResourceTypeSecurityPolicy)
 			assert.ElementsMatch(t, tt.expectedTags, service.buildTargetTags(tt.inputPolicy, tt.inputTargets, ruleBaseID, common.ResourceTypeSecurityPolicy))
 		})
 	}
 }
 
 func Test_BuildPeerTags(t *testing.T) {
-	ruleTagID0 := service.buildRuleID(&spWithPodSelector, 0)
+	ruleTagID0 := service.buildRuleID(&spWithPodSelector, 0, common.ResourceTypeSecurityPolicy)
 	tests := []struct {
 		name         string
 		inputPolicy  *v1alpha1.SecurityPolicy
-		inputIndex   int
 		expectedTags []model.Tag
 	}{
 		{
 			name:        "policy-src-peer-tags-with-pod-selector",
 			inputPolicy: &spWithPodSelector,
-			inputIndex:  0,
 			expectedTags: []model.Tag{
 				{
 					Scope: &tagScopeVersion,
@@ -715,7 +666,7 @@ func Test_BuildPeerTags(t *testing.T) {
 	defer patches.Reset()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.ElementsMatch(t, tt.expectedTags, service.buildPeerTags(tt.inputPolicy, &tt.inputPolicy.Spec.Rules[0], tt.inputIndex, true, VPCScopeGroup, common.ResourceTypeSecurityPolicy))
+			assert.ElementsMatch(t, tt.expectedTags, service.buildPeerTags(tt.inputPolicy, &tt.inputPolicy.Spec.Rules[0], ruleTagID0, true, VPCScopeGroup, common.ResourceTypeSecurityPolicy))
 		})
 	}
 }
@@ -1346,13 +1297,14 @@ func Test_BuildExpandedRuleID(t *testing.T) {
 		},
 	}
 
+	svc.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
+
 	tests := []struct {
 		name                string
 		vpcEnabled          bool
 		inputSecurityPolicy *v1alpha1.SecurityPolicy
 		inputRule           *v1alpha1.SecurityPolicyRule
 		ruleIdx             int
-		createdFor          string
 		namedPort           *portInfo
 		expectedRuleID      string
 	}{
@@ -1362,9 +1314,8 @@ func Test_BuildExpandedRuleID(t *testing.T) {
 			inputSecurityPolicy: &securityPolicyWithMultipleNormalPorts,
 			inputRule:           &securityPolicyWithMultipleNormalPorts.Spec.Rules[0],
 			ruleIdx:             0,
-			createdFor:          common.ResourceTypeSecurityPolicy,
 			namedPort:           nil,
-			expectedRuleID:      "spMulPorts_spMulPortsuidA_d0b8e36c_80_1234.1235",
+			expectedRuleID:      "spMulPorts-d0b8e36c_auwh3_80_1234.1235",
 		},
 		{
 			name:                "build-ruleID-for-multiple-ports-0-for-T1",
@@ -1372,19 +1323,17 @@ func Test_BuildExpandedRuleID(t *testing.T) {
 			inputSecurityPolicy: &securityPolicyWithMultipleNormalPorts,
 			inputRule:           &securityPolicyWithMultipleNormalPorts.Spec.Rules[0],
 			ruleIdx:             0,
-			createdFor:          common.ResourceTypeSecurityPolicy,
 			namedPort:           nil,
 			expectedRuleID:      "sp_spMulPortsuidA_d0b8e36cf858e76624b9706c3c8e77b6006c0e10_0_0_0",
 		},
 		{
-			name:                "build-ruleID-for-multiple-ports-1-for-vpc-NP",
+			name:                "build-ruleID-for-multiple-ports-1-for-vpc",
 			vpcEnabled:          true,
 			inputSecurityPolicy: &securityPolicyWithMultipleNormalPorts,
 			inputRule:           &securityPolicyWithMultipleNormalPorts.Spec.Rules[1],
 			ruleIdx:             1,
-			createdFor:          common.ResourceTypeNetworkPolicy,
 			namedPort:           nil,
-			expectedRuleID:      "spMulPorts_spMulPortsuidA_555356be_88_1236.1237",
+			expectedRuleID:      "spMulPorts-555356be_auwh3_88_1236.1237",
 		},
 		{
 			name:                "build-ruleID-for-multiple-ports-with-one-named-port-for-VPC",
@@ -1392,9 +1341,8 @@ func Test_BuildExpandedRuleID(t *testing.T) {
 			inputSecurityPolicy: &securityPolicyWithOneNamedPort,
 			inputRule:           &securityPolicyWithOneNamedPort.Spec.Rules[0],
 			ruleIdx:             0,
-			createdFor:          common.ResourceTypeSecurityPolicy,
 			namedPort:           newPortInfoForNamedPort(nsxutil.PortAddress{Port: 80}, "TCP"),
-			expectedRuleID:      "spNamedPorts_spNamedPortsuidA_3f7c7d8c_80",
+			expectedRuleID:      "spNamedPorts-3f7c7d8c_364p1_80",
 		},
 		{
 			name:                "build-ruleID-for-multiple-ports-with-one-named-port-for-T1",
@@ -1402,7 +1350,6 @@ func Test_BuildExpandedRuleID(t *testing.T) {
 			inputSecurityPolicy: &securityPolicyWithOneNamedPort,
 			inputRule:           &securityPolicyWithOneNamedPort.Spec.Rules[0],
 			ruleIdx:             0,
-			createdFor:          common.ResourceTypeSecurityPolicy,
 			namedPort:           newPortInfoForNamedPort(nsxutil.PortAddress{Port: 80}, "TCP"),
 			expectedRuleID:      "sp_spNamedPortsuidA_3f7c7d8c8449687178002f23599add04bf0c3250_0_0_0",
 		},
@@ -1411,13 +1358,14 @@ func Test_BuildExpandedRuleID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc.NSXConfig.EnableVPCNetwork = tt.vpcEnabled
-			observedRuleID := svc.buildExpandedRuleID(tt.inputSecurityPolicy, tt.ruleIdx, tt.createdFor, tt.namedPort)
+			ruleBaseID := svc.buildRuleID(tt.inputSecurityPolicy, tt.ruleIdx, common.ResourceTypeSecurityPolicy)
+			observedRuleID := svc.buildExpandedRuleID(tt.inputSecurityPolicy, tt.ruleIdx, ruleBaseID, tt.namedPort)
 			assert.Equal(t, tt.expectedRuleID, observedRuleID)
 		})
 	}
 }
 
-func Test_BuildSecurityPolicyName(t *testing.T) {
+func Test_BuildSecurityPolicyIDAndName(t *testing.T) {
 	svc := &SecurityPolicyService{
 		Service: common.Service{
 			NSXConfig: &config.NSXOperatorConfig{
@@ -1580,7 +1528,7 @@ func Test_BuildSecurityPolicyName(t *testing.T) {
 	}
 }
 
-func Test_BuildGroupName(t *testing.T) {
+func Test_BuildGroupIDAndName(t *testing.T) {
 	svc := &SecurityPolicyService{
 		Service: common.Service{
 			NSXConfig: &config.NSXOperatorConfig{
@@ -1605,12 +1553,13 @@ func Test_BuildGroupName(t *testing.T) {
 
 	t.Run("build rule peer group name", func(t *testing.T) {
 		for _, tc := range []struct {
-			name      string
-			ruleIdx   int
-			isSource  bool
-			enableVPC bool
-			expName   string
-			expId     string
+			name        string
+			ruleIdx     int
+			ruleBasedID string
+			isSource    bool
+			enableVPC   bool
+			expName     string
+			expId       string
 		}{
 			{
 				name:      "src peer group for rule without user-defined name",
@@ -1665,7 +1614,7 @@ func Test_BuildGroupName(t *testing.T) {
 				svc.NSXConfig.EnableVPCNetwork = tc.enableVPC
 				dispName := svc.buildRulePeerGroupName(obj, tc.ruleIdx, tc.isSource)
 				assert.Equal(t, tc.expName, dispName)
-				groupID := svc.buildRulePeerGroupID(obj, tc.ruleIdx, tc.isSource, VPCScopeGroup)
+				groupID := svc.buildRulePeerGroupID(obj, tc.ruleIdx, tc.ruleBasedID, tc.isSource, VPCScopeGroup)
 				assert.Equal(t, tc.expId, groupID)
 			})
 		}
@@ -1673,11 +1622,12 @@ func Test_BuildGroupName(t *testing.T) {
 
 	t.Run("build applied group name", func(t *testing.T) {
 		for _, tc := range []struct {
-			name      string
-			ruleIdx   int
-			enableVPC bool
-			expName   string
-			expId     string
+			name        string
+			ruleIdx     int
+			ruleBasedID string
+			enableVPC   bool
+			expName     string
+			expId       string
 		}{
 			{
 				name:      "applied group for rule without user-defined name",
@@ -1724,7 +1674,7 @@ func Test_BuildGroupName(t *testing.T) {
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				svc.NSXConfig.EnableVPCNetwork = tc.enableVPC
-				id, dispName := svc.buildAppliedGroupIDAndName(obj, tc.ruleIdx, common.ResourceTypeNetworkPolicy)
+				id, dispName := svc.buildAppliedGroupIDAndName(obj, tc.ruleIdx, tc.ruleBasedID, common.ResourceTypeNetworkPolicy)
 				assert.Equal(t, tc.expId, id)
 				assert.Equal(t, dispName, tc.expName)
 			})
@@ -1927,7 +1877,7 @@ func Test_dedupBlocks(t *testing.T) {
 	}
 }
 
-func Test_getAppliedGroupByRuleId(t *testing.T) {
+func Test_getAppliedGroupByRuleID(t *testing.T) {
 	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
 	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 
@@ -2014,13 +1964,13 @@ func Test_getAppliedGroupByRuleId(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			get := fakeService.getAppliedGroupByRuleId(tt.args.createdFor, tt.args.spUID, tt.args.ruleId)
+			get := fakeService.getAppliedGroupByRuleID(tt.args.createdFor, tt.args.spUID, tt.args.ruleId)
 			assert.Equal(t, tt.wantGroupId, *get.Id)
 		})
 	}
 }
 
-func Test_getPeerGroupByRuleId(t *testing.T) {
+func Test_getPeerGroupByRuleID(t *testing.T) {
 	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
 	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 
@@ -2144,8 +2094,266 @@ func Test_getPeerGroupByRuleId(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			get := fakeService.getPeerGroupByRuleId(tt.args.ruleId, tt.args.isSource, tt.args.groupScope)
+			get := fakeService.getPeerGroupByRuleID(tt.args.ruleId, tt.args.isSource, tt.args.groupScope)
 			assert.Equal(t, tt.wantGroupId, *get.Id)
 		})
 	}
+}
+
+func Test_getRuleIDByUUIDAndRuleHash(t *testing.T) {
+	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
+	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
+
+	fakeService := fakeSecurityPolicyService()
+	fakeService.NSXConfig.EnableVPCNetwork = true
+	mockVPCService := mock.MockVPCServiceProvider{}
+	fakeService.vpcService = &mockVPCService
+	fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
+
+	spRuleTags := appendRuleIDAndHashTags(vpcBasicTags, "2c822e90", "spA-2c822e90_re0bz")
+	npRuleTags := appendRuleIDAndHashTags(npAllowBasicTags, "67410606", "npB-67410606_9u8w9")
+	rules := []model.Rule{
+		{
+			Id:   String("rule-1-80"),
+			Tags: spRuleTags,
+		},
+		{
+			Id:   String("rule-2-80"),
+			Tags: npRuleTags,
+		},
+		{
+			Id:   String("rule-3-88"),
+			Tags: spRuleTags,
+		},
+	}
+
+	_, ruleStore, _ := fakeService.getSecurityPolicyResourceStores()
+	ruleStore.Apply(&rules)
+
+	tests := []struct {
+		name           string
+		uuid           string
+		hash           string
+		createdFor     string
+		expectedRuleID *string
+	}{
+		{
+			name:           "get SecurityPolicy rule by UUID and Rule Hash",
+			uuid:           tagValuePolicyCRUID,
+			hash:           "2c822e90",
+			createdFor:     common.ResourceTypeSecurityPolicy,
+			expectedRuleID: String("spA-2c822e90_re0bz"),
+		},
+		{
+			name:           "get NetworkPolicy rule by UUID and Rule Hash",
+			uuid:           string(npWithNsSelecotr.UID + "_allow"),
+			hash:           "67410606",
+			createdFor:     common.ResourceTypeNetworkPolicy,
+			expectedRuleID: String("npB-67410606_9u8w9"),
+		},
+		{
+			name:           "no matching rules with invalid uuid",
+			uuid:           "invaliduid",
+			hash:           "2c822e90",
+			createdFor:     common.ResourceTypeSecurityPolicy,
+			expectedRuleID: nil,
+		},
+		{
+			name:           "no matching rules with invalid hash",
+			uuid:           tagValuePolicyCRUID,
+			hash:           "invalidhash",
+			createdFor:     common.ResourceTypeSecurityPolicy,
+			expectedRuleID: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			result := fakeService.getRuleIDByUUIDAndRuleHash(types.UID(tt.uuid), tt.hash, tt.createdFor)
+			if tt.expectedRuleID == nil {
+				assert.Nil(t, result)
+			} else {
+				assert.Equal(t, *(tt.expectedRuleID), *result)
+			}
+		})
+	}
+}
+
+func Test_buildRuleID(t *testing.T) {
+	npAllowSec := v1alpha1.SecurityPolicy{
+		ObjectMeta: v1.ObjectMeta{Namespace: "ns1", Name: "np-app-access", UID: "uidNP_allow"},
+		Spec: v1alpha1.SecurityPolicySpec{
+			Rules: []v1alpha1.SecurityPolicyRule{
+				{
+					Action:    &allowAction,
+					Direction: &directionIn,
+					Sources: []v1alpha1.SecurityPolicyPeer{
+						{
+							PodSelector: &v1.LabelSelector{
+								MatchLabels: map[string]string{"app": "coffee"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		name           string
+		obj            *v1alpha1.SecurityPolicy
+		ruleIdx        int
+		createdFor     string
+		enableVPC      bool
+		existingRuleID *string
+		rebuildRuleID  bool
+		checkFunc      func(t *testing.T, result string)
+	}{
+		{
+			name:       "T1 mode - SecurityPolicy with first rule",
+			obj:        &spWithPodSelector,
+			ruleIdx:    0,
+			createdFor: common.ResourceTypeSecurityPolicy,
+			enableVPC:  false,
+			checkFunc: func(t *testing.T, result string) {
+				assert.Equal(t, "sp_uidA_2c822e90b1377b346014adfa583f08a99dee52a8_0", result)
+			},
+		},
+		{
+			name:           "VPC mode - SecurityPolicy without existing rule ID",
+			obj:            &spWithPodSelector,
+			ruleIdx:        0,
+			createdFor:     common.ResourceTypeSecurityPolicy,
+			enableVPC:      true,
+			existingRuleID: nil,
+			checkFunc: func(t *testing.T, result string) {
+				assert.NotEmpty(t, result)
+				assert.Equal(t, "spA-2c822e90_re0bz", result)
+			},
+		},
+		{
+			name:           "VPC mode - SecurityPolicy with existing rule ID",
+			obj:            &spWithPodSelector,
+			ruleIdx:        0,
+			createdFor:     common.ResourceTypeSecurityPolicy,
+			enableVPC:      true,
+			existingRuleID: String("existing-rule-id-123"),
+			checkFunc: func(t *testing.T, result string) {
+				assert.Equal(t, "existing-rule-id-123", result)
+			},
+		},
+		{
+			name:           "VPC mode - SecurityPolicy with rebuilding ID exists",
+			obj:            &spWithPodSelector,
+			ruleIdx:        0,
+			createdFor:     common.ResourceTypeSecurityPolicy,
+			enableVPC:      true,
+			existingRuleID: nil,
+			rebuildRuleID:  true,
+			checkFunc: func(t *testing.T, result string) {
+				assert.NotEqual(t, "spA-2c822e90_re0bz", result)
+				parts := strings.Split(result, common.ConnectorUnderline)
+				assert.Equal(t, 2, len(parts))
+				assert.Equal(t, "spA-2c822e90", parts[0])
+				assert.NotEqual(t, "re0bz", parts[1])
+			},
+		},
+		{
+			name:           "VPC mode - NetworkPolicy without existing rule ID",
+			obj:            &npAllowSec,
+			ruleIdx:        0,
+			createdFor:     common.ResourceTypeNetworkPolicy,
+			enableVPC:      true,
+			existingRuleID: nil,
+			checkFunc: func(t *testing.T, result string) {
+				assert.NotEmpty(t, result)
+				assert.Equal(t, "np-app-access-allow-a6f6b3bc_aoqj8", result)
+			},
+		},
+		{
+			name:           "VPC mode - NetworkPolicy with existing rule ID",
+			obj:            &npAllowSec,
+			ruleIdx:        0,
+			createdFor:     common.ResourceTypeNetworkPolicy,
+			enableVPC:      true,
+			existingRuleID: String("existing-rule-id-123"),
+			checkFunc: func(t *testing.T, result string) {
+				assert.Equal(t, "existing-rule-id-123", result)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			service := fakeSecurityPolicyService()
+			service.NSXConfig.EnableVPCNetwork = tt.enableVPC
+
+			if tt.enableVPC {
+				mockVPCService := mock.MockVPCServiceProvider{}
+				service.vpcService = &mockVPCService
+				service.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
+
+				// Set up rule store if we need to test existing rule ID lookup
+				if tt.existingRuleID != nil {
+					ruleHash := service.buildLimitedRuleHashString(&(tt.obj.Spec.Rules[tt.ruleIdx]))
+					var ruleTags []model.Tag
+					if tt.createdFor == common.ResourceTypeSecurityPolicy {
+						ruleTags = appendRuleIDAndHashTags(vpcBasicTags, ruleHash, *tt.existingRuleID)
+					} else {
+						ruleTags = appendRuleIDAndHashTags(npAllowBasicTags, ruleHash, *tt.existingRuleID)
+					}
+					nsxRuleID := String(*tt.existingRuleID + "portSuffix")
+					rules := []model.Rule{
+						{
+							Id:   nsxRuleID,
+							Tags: ruleTags,
+						},
+					}
+					_, ruleStore, _ := service.getSecurityPolicyResourceStores()
+					ruleStore.Apply(&rules)
+				} else if tt.rebuildRuleID {
+					// Set up rule store with existing ruleID for rebuild testing
+					// "spA-2c822e90_re0bz" should be the same with spWithPodSelector's first rule generated ID,
+					// so that it will rebuilt it
+					ruleTags := appendRuleIDAndHashTags(vpcBasicTags, "hash", "spA-2c822e90_re0bz")
+					nsxRuleID := String("spA-2c822e90_re0bz" + "portSuffix")
+					rules := []model.Rule{
+						{
+							Id:   nsxRuleID,
+							Tags: ruleTags,
+						},
+					}
+					_, ruleStore, _ := service.getSecurityPolicyResourceStores()
+					ruleStore.Apply(&rules)
+				}
+			} else {
+				service.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
+			}
+
+			result := service.buildRuleID(tt.obj, tt.ruleIdx, tt.createdFor)
+
+			assert.NotEmpty(t, result)
+			if tt.checkFunc != nil {
+				tt.checkFunc(t, result)
+			}
+		})
+	}
+}
+
+// Help function: appendRuleIDAndHashTags appends the rule ID and hash tags to the provided base tags.
+// It returns a new slice containing the combined tags.
+func appendRuleIDAndHashTags(baseTags []model.Tag, ruleHash, ruleID string) []model.Tag {
+	return append(baseTags,
+		[]model.Tag{
+			{
+				Scope: String(common.TagScopeRuleHash),
+				Tag:   String(ruleHash),
+			},
+			{
+				Scope: String(common.TagScopeRuleID),
+				Tag:   String(ruleID),
+			},
+		}...)
 }
