@@ -7,6 +7,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+type NetworkStackType string
+
+const (
+	FullStackVPC  NetworkStackType = "FullStackVPC"
+	VLANBackedVPC NetworkStackType = "VLANBackedVPC"
+)
+
 // +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
@@ -39,6 +46,10 @@ type VPCState struct {
 	LoadBalancerIPAddresses string `json:"loadBalancerIPAddresses,omitempty"`
 	// Private CIDRs used for the VPC.
 	PrivateIPs []string `json:"privateIPs,omitempty"`
+	// NetworkStack indicates the networking stack for the VPC.
+	// Valid values: FullStackVPC, VLANBackedVPC
+	// +kubebuilder:validation:Enum=FullStackVPC;VLANBackedVPC
+	NetworkStack NetworkStackType `json:"networkStack,omitempty"`
 }
 
 func init() {

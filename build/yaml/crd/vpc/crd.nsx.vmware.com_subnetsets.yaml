@@ -102,6 +102,14 @@ spec:
                     ) && (!has(self.dhcpServerAdditionalConfig) || !has(self.dhcpServerAdditionalConfig.reservedIPRanges)
                     || size(self.dhcpServerAdditionalConfig.reservedIPRanges)==0)
                     || has(self.mode) && self.mode=='DHCPServer'
+              subnetNames:
+                description: |-
+                  The names of the Subnets that have been created in advance.
+                  It is mutually exclusive with the other fields like IPv4SubnetSize, AccessMode, and SubnetDHCPConfig.
+                  Once this field is set, the other fields cannot be set.
+                items:
+                  type: string
+                type: array
             type: object
             x-kubernetes-validations:
             - message: accessMode is required once set
