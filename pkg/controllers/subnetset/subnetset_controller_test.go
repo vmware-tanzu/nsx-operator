@@ -1320,3 +1320,75 @@ func TestSubnetSetReconciler_RestoreReconcile(t *testing.T) {
 	err = r.RestoreReconcile()
 	assert.Contains(t, err.Error(), "failed to restore SubnetSet ns-1/subnetset-1")
 }
+func TestUpdateLabels(t *testing.T) {
+	// nil labels should not change anything
+	t.Run("nil labels", func(t *testing.T) {
+		ss := &v1alpha1.SubnetSet{}
+		changed := updateLabels(ss, false)
+		assert.False(t, changed)
+		assert.Nil(t, ss.Labels)
+	})
+
+	t.Run("maps pod-subnetset to default-network", func(t *testing.T) {
+		ss := &v1alpha1.SubnetSet{
+			ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{
+				common.LabelDefaultSubnetSet: common.LabelDefaultPodSubnetSet,
+			}},
+		}
+		changed := updateLabels(ss, false)
+		assert.True(t, changed)
+		// old key removed
+		_, existsOld := ss.Labels[common.LabelDefaultSubnetSet]
+		assert.True(t, existsOld)
+		// new key present with pod network value
+		val, exists := ss.Labels[common.LabelDefaultNetwork]
+		assert.True(t, exists)
+		assert.Equal(t, common.DefaultPodNetwork, val)
+	})
+
+	t.Run("maps vm-subnetset to default-network", func(t *testing.T) {
+		ss := &v1alpha1.SubnetSet{
+			ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{
+				common.LabelDefaultSubnetSet: common.LabelDefaultVMSubnetSet,
+			}},
+		}
+		changed := updateLabels(ss, false)
+		assert.True(t, changed)
+		_, existsOld := ss.Labels[common.LabelDefaultSubnetSet]
+		assert.False(t, existsOld)
+		val, exists := ss.Labels[common.LabelDefaultNetwork]
+		assert.True(t, exists)
+		assert.Equal(t, common.DefaultVMNetwork, val)
+	})
+
+	t.Run("no maps vm-subnetset to default-network for systemns", func(t *testing.T) {
+		ss := &v1alpha1.SubnetSet{
+			ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{
+				common.LabelDefaultSubnetSet: common.LabelDefaultVMSubnetSet,
+			}},
+		}
+		changed := updateLabels(ss, true)
+		assert.True(t, changed)
+		_, existsOld := ss.Labels[common.LabelDefaultSubnetSet]
+		assert.True(t, existsOld)
+		val, exists := ss.Labels[common.LabelDefaultNetwork]
+		assert.True(t, exists)
+		assert.Equal(t, common.DefaultVMNetwork, val)
+	})
+
+	t.Run("preserves custom value to default-network", func(t *testing.T) {
+		custom := "custom-network"
+		ss := &v1alpha1.SubnetSet{
+			ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{
+				common.LabelDefaultSubnetSet: custom,
+			}},
+		}
+		changed := updateLabels(ss, false)
+		assert.True(t, changed)
+		_, existsOld := ss.Labels[common.LabelDefaultSubnetSet]
+		assert.False(t, existsOld)
+		val, exists := ss.Labels[common.LabelDefaultNetwork]
+		assert.True(t, exists)
+		assert.Equal(t, custom, val)
+	})
+}

@@ -38,14 +38,21 @@ func TestSubnetSetValidator(t *testing.T) {
 	defaultSubnetSet := &v1alpha1.SubnetSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   common.DefaultVMSubnetSet,
-			Labels: map[string]string{common.LabelDefaultSubnetSet: "true"},
+			Labels: map[string]string{common.LabelDefaultNetwork: common.DefaultVMNetwork},
 		},
 	}
 
 	defaultSubnetSet1 := &v1alpha1.SubnetSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "fake-subnetset",
-			Labels: map[string]string{common.LabelDefaultSubnetSet: "true"},
+			Labels: map[string]string{common.LabelDefaultNetwork: "true"},
+		},
+	}
+
+	oldDefaultSubnetSet := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   common.LabelDefaultSubnetSet,
+			Labels: map[string]string{common.LabelDefaultSubnetSet: common.DefaultVMSubnetSet},
 		},
 	}
 
@@ -65,6 +72,17 @@ func TestSubnetSetValidator(t *testing.T) {
 		},
 		Spec: v1alpha1.SubnetSetSpec{
 			IPv4SubnetSize: 32,
+		},
+	}
+
+	conflictSubnetSet := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "fake-subnetset",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSetSpec{
+			IPv4SubnetSize: 32,
+			SubnetNames:    []string{"subnet1", "subnet2"},
 		},
 	}
 
@@ -187,6 +205,61 @@ func TestSubnetSetValidator(t *testing.T) {
 			subnetSet:    subnetSet,
 			user:         "fake-user",
 			isAllowed:    false,
+		},
+		{
+			name:         "Update conflict SubnetSet",
+			op:           admissionv1.Update,
+			oldSubnetSet: defaultSubnetSet,
+			subnetSet:    conflictSubnetSet,
+			user:         "fake-user",
+			isAllowed:    false,
+		},
+		{
+			name:         "Create conflict SubnetSet",
+			op:           admissionv1.Create,
+			oldSubnetSet: defaultSubnetSet,
+			subnetSet:    conflictSubnetSet,
+			user:         "fake-user",
+			isAllowed:    false,
+		},
+		{
+			name:         "Update default SubnetSet without NSXOperatorSA user",
+			op:           admissionv1.Update,
+			oldSubnetSet: defaultSubnetSet,
+			subnetSet:    conflictSubnetSet,
+			user:         "fake-user",
+			isAllowed:    false,
+		},
+		{
+			name:         "Update old format default SubnetSet without NSXOperatorSA user",
+			op:           admissionv1.Update,
+			oldSubnetSet: oldDefaultSubnetSet,
+			subnetSet:    conflictSubnetSet,
+			user:         "fake-user",
+			isAllowed:    false,
+		},
+		{
+			name:         "Change to old format default SubnetSet without NSXOperatorSA user",
+			op:           admissionv1.Update,
+			oldSubnetSet: subnetSet,
+			subnetSet:    oldDefaultSubnetSet,
+			user:         "fake-user",
+			isAllowed:    false,
+		},
+		{
+			name:         "Delete old default SubnetSet without NSXOperatorSA user",
+			op:           admissionv1.Delete,
+			oldSubnetSet: oldDefaultSubnetSet,
+			user:         "fake-user",
+			isAllowed:    false,
+			msg:          "default SubnetSet only can be deleted by nsx-operator",
+		},
+		{
+			name:         "Delete old default SubnetSet with NSXOperatorSA user",
+			op:           admissionv1.Delete,
+			oldSubnetSet: oldDefaultSubnetSet,
+			user:         NSXOperatorSA,
+			isAllowed:    true,
 		},
 	}
 	for _, testCase := range testcases {
