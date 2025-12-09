@@ -23,13 +23,31 @@ var (
 	ipBlocksInfoCRDName = "ip-blocks-info"
 	defaultOrg          = "default"
 	defaultProject      = "project-quality"
-	defaultVPCProfile   = "default"
+	defaultVPCProfile   = ""
 	enableIPRangesCIDRs = false
 )
 
 func TestIPBlocksInfo(t *testing.T) {
+	// initialize vpc profile id
+	getDefaultVPCProfileID(t)
 	t.Run("case=InitialIPBlocksInfo", InitialIPBlocksInfo)
 	t.Run("case=CustomIPBlocksInfo", CustomIPBlocksInfo)
+}
+
+func getDefaultVPCProfileID(t *testing.T) {
+	if defaultVPCProfile != "" {
+		return
+	}
+	result, err := testData.nsxClient.VPCConnectivityProfilesClient.List(defaultOrg, defaultProject, nil, common.Bool(false), nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	for _, vpcProfile := range result.Results {
+		if vpcProfile.IsDefault != nil && *vpcProfile.IsDefault {
+			defaultVPCProfile = *vpcProfile.Id
+			break
+		}
+	}
+	require.NotEqual(t, "", defaultVPCProfile, "No default VPC Profile is found for default Project")
 }
 
 func InitialIPBlocksInfo(t *testing.T) {

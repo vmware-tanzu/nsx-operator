@@ -41,6 +41,8 @@ var (
 )
 
 func TestPreCreatedVPC(t *testing.T) {
+	// initialize vpc profile id
+	getDefaultVPCProfileID(t)
 	tests := []struct {
 		name                 string
 		enableNat            bool
