@@ -6,11 +6,13 @@ package util
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
@@ -603,4 +606,83 @@ func TestGetClusterUUID(t *testing.T) {
 	// Test that the UUID is deterministic for the same clusterID if cache is reset
 	uuid3 := GetClusterUUID(clusterID)
 	assert.Equal(t, uuid1, uuid3, "UUID should be deterministic for the same clusterID")
+}
+
+func TestValidateSubnetSize(t *testing.T) {
+	assert := assert.New(t)
+	nsxClient := &nsx.Client{}
+	cluster, _ := nsx.NewCluster(&nsx.Config{})
+	nsxClient.Cluster = cluster
+	tests := []struct {
+		name             string
+		featureSupported bool
+		subnetSize       int
+		wantOK           bool
+		wantMsgContains  string
+	}{
+		{
+			name:             "zero size allowed",
+			featureSupported: false,
+			subnetSize:       0,
+			wantOK:           true,
+		},
+		{
+			name:             "not power of two",
+			featureSupported: false,
+			subnetSize:       3,
+			wantOK:           false,
+			wantMsgContains:  "Subnet size must be a power of 2",
+		},
+		{
+			name:             "nsx 9.0.0 too small",
+			featureSupported: false,
+			subnetSize:       8, // less than MinSubnetSizeV90 (16)
+			wantOK:           false,
+			wantMsgContains:  fmt.Sprintf("%d", MinSubnetSizeV90),
+		},
+		{
+			name:             "nsx 9.0.0 ok at boundary",
+			featureSupported: false,
+			subnetSize:       MinSubnetSizeV90,
+			wantOK:           true,
+		},
+		{
+			name:             "nsx 9.0.0 with suffix still treated as 9.0.0",
+			featureSupported: false,
+			subnetSize:       8,
+			wantOK:           false,
+			wantMsgContains:  fmt.Sprintf("%d", MinSubnetSizeV90),
+		},
+		{
+			name:             "other nsx versions too small",
+			featureSupported: true,
+			subnetSize:       4, // less than MinSubnetSizeV91 (8)
+			wantOK:           false,
+			wantMsgContains:  fmt.Sprintf("%d", MinSubnetSizeV91),
+		},
+
+		{
+			name:             "non power of two takes precedence over size limit",
+			featureSupported: true,
+			subnetSize:       12, // not power of two and also < 16 but main check is power-of-two
+			wantOK:           false,
+			wantMsgContains:  "Subnet size must be a power of 2",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+				return tc.featureSupported
+			})
+			defer patches.Reset()
+			ok, msg := ValidateSubnetSize(nsxClient, tc.subnetSize)
+			assert.Equal(tc.wantOK, ok, "ok mismatch for %s", tc.name)
+			if tc.wantMsgContains == "" {
+				assert.Equal("", msg, "expected empty message for %s", tc.name)
+			} else {
+				assert.Contains(msg, tc.wantMsgContains, "message content mismatch for %s", tc.name)
+			}
+		})
+	}
 }

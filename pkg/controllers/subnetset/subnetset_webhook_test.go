@@ -3,8 +3,10 @@ package subnetset
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
@@ -23,10 +26,13 @@ func TestSubnetSetValidator(t *testing.T) {
 	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
 	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
 	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).Build()
-
+	nsxClient := &nsx.Client{}
+	cluster, _ := nsx.NewCluster(&nsx.Config{})
+	nsxClient.Cluster = cluster
 	validator := &SubnetSetValidator{
-		Client:  fakeClient,
-		decoder: admission.NewDecoder(newScheme),
+		Client:    fakeClient,
+		decoder:   admission.NewDecoder(newScheme),
+		nsxClient: nsxClient,
 	}
 
 	defaultSubnetSet := &v1alpha1.SubnetSet{
@@ -113,7 +119,7 @@ func TestSubnetSetValidator(t *testing.T) {
 			subnetSet: invalidSubnetSet,
 			user:      NSXOperatorSA,
 			isAllowed: false,
-			msg:       "SubnetSet ns-1/fake-subnetset has invalid size 24, which must be power of 2",
+			msg:       "SubnetSet ns-1/fake-subnetset has invalid size 24: Subnet size must be a power of 2",
 		},
 		{
 			name:      "Create normal SubnetSet",
@@ -193,7 +199,12 @@ func TestSubnetSetValidator(t *testing.T) {
 			oldJsonData, err := json.Marshal(testCase.oldSubnetSet)
 			assert.NoError(t, err)
 			req.OldObject.Raw = oldJsonData
-
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(validator.nsxClient.Cluster), "GetVersion", func(_ *nsx.Cluster) (*nsx.NsxVersion, error) {
+				return &nsx.NsxVersion{
+					NodeVersion: "9.0.0.0.12345",
+				}, nil
+			})
+			defer patches.Reset()
 			req.Operation = testCase.op
 			req.UserInfo.Username = testCase.user
 			response := validator.Handle(context.TODO(), req)

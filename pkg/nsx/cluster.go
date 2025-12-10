@@ -47,8 +47,8 @@ const (
 )
 
 const (
-	maxNSXGetRetries = 10
-	NSXGetDelay      = 2 * time.Second
+	NSXGetDelay           = 2 * time.Second
+	GetNsxVersionInterval = 30 * time.Minute
 )
 
 // Cluster consists of endpoint and provides http.Client used to send http requests.
@@ -59,16 +59,17 @@ type Cluster struct {
 	client           *http.Client
 	noBalancerClient *http.Client
 	sync.Mutex
+	nsxVersion         *NsxVersion
+	lastTimeGetVersion time.Time
 }
 type NsxVersion struct {
 	NodeVersion string `json:"node_version"`
 }
 
 var (
-	jarCache   = NewJar()
-	nsxVersion = &NsxVersion{}
-	log        = logger.Log
-	once       sync.Once
+	jarCache = NewJar()
+	log      = logger.Log
+	once     sync.Once
 )
 
 // NewCluster creates a cluster based on nsx Config.
@@ -76,6 +77,7 @@ func NewCluster(config *Config) (*Cluster, error) {
 	log.Info("Creating cluster")
 	cluster := &Cluster{}
 	cluster.config = config
+	cluster.nsxVersion = &NsxVersion{}
 	cluster.transport = cluster.createTransport(time.Duration(config.ConnIdleTimeout))
 	cluster.client = cluster.createHTTPClient(cluster.transport, time.Duration(config.HTTPTimeout))
 	cluster.noBalancerClient = cluster.createNoBalancerClient(time.Duration(config.HTTPTimeout), time.Duration(config.ConnIdleTimeout))
@@ -355,6 +357,11 @@ func (cluster *Cluster) Health() ClusterHealth {
 }
 
 func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
+	if cluster.nsxVersion != nil && len(cluster.nsxVersion.NodeVersion) > 0 && time.Since(cluster.lastTimeGetVersion) < GetNsxVersionInterval {
+		log.Debug("Get version from cache", "version", cluster.nsxVersion.NodeVersion)
+		return cluster.nsxVersion, nil
+	}
+
 	ep := cluster.endpoints[0]
 	serverUrl := cluster.CreateServerUrl(cluster.endpoints[0].Host(), cluster.endpoints[0].Scheme())
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/v1/node/version", serverUrl), nil)
@@ -374,8 +381,13 @@ func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 		log.Error(err, "Failed to get NSX version")
 		return nil, err
 	}
-	err, _ = util.HandleHTTPResponse(resp, nsxVersion, true)
-	return nsxVersion, err
+	err, _ = util.HandleHTTPResponse(resp, cluster.nsxVersion, true)
+	if err == nil {
+		cluster.lastTimeGetVersion = time.Now()
+	} else {
+		cluster.nsxVersion = &NsxVersion{}
+	}
+	return cluster.nsxVersion, err
 }
 
 // HttpGet sends an http GET request to the cluster, exported for use
@@ -511,6 +523,9 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 		minVersion = nsx910Version
 		validFeature = true
 	case SubnetIPReservation:
+		minVersion = nsx910Version
+		validFeature = true
+	case SubnetMinimalSize8:
 		minVersion = nsx910Version
 		validFeature = true
 	}

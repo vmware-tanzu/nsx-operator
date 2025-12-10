@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	admissionv1 "k8s.io/api/admission/v1"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	mockClient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 )
 
 func TestSubnetValidator_Handle(t *testing.T) {
@@ -28,9 +31,13 @@ func TestSubnetValidator_Handle(t *testing.T) {
 	err := v1alpha1.AddToScheme(scheme)
 	assert.NoError(t, err, "Failed to add v1alpha1 scheme")
 	decoder := admission.NewDecoder(scheme)
+	nsxClient := &nsx.Client{}
+	cluster, _ := nsx.NewCluster(&nsx.Config{})
+	nsxClient.Cluster = cluster
 	v := &SubnetValidator{
-		Client:  k8sClient,
-		decoder: decoder,
+		Client:    k8sClient,
+		decoder:   decoder,
+		nsxClient: nsxClient,
 	}
 
 	// Regular subnet
@@ -168,6 +175,17 @@ func TestSubnetValidator_Handle(t *testing.T) {
 		},
 	})
 
+	// Subnet with invalid IPv4SubnetSize
+	req8, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-8",
+			Name:      "subnet-with-min-size",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPv4SubnetSize: 8,
+		},
+	})
+
 	type testCase struct {
 		name        string
 		operation   admissionv1.Operation
@@ -250,7 +268,13 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			name:      "CreateSubnet with invalid IPv4SubnetSize",
 			operation: admissionv1.Create,
 			object:    req2,
-			want:      admission.Denied("Subnet ns-2/subnet-2 has invalid size 24, which must be power of 2"),
+			want:      admission.Denied("Subnet ns-2/subnet-2 has invalid size 24: Subnet size must be a power of 2"),
+		},
+		{
+			name:      "CreateSubnet with invalid IPv4SubnetSize 8",
+			operation: admissionv1.Create,
+			object:    req8,
+			want:      admission.Denied("Subnet ns-8/subnet-with-min-size has invalid size 8: Subnet size must be greater than or equal to 16"),
 		},
 		{
 			name:      "CreateSubnet with invalid AccessMode",
@@ -382,7 +406,12 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			if tt.prepareFunc != nil {
 				tt.prepareFunc(t)
 			}
-
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(v.nsxClient.Cluster), "GetVersion", func(_ *nsx.Cluster) (*nsx.NsxVersion, error) {
+				return &nsx.NsxVersion{
+					NodeVersion: "9.0.0.0.12345",
+				}, nil
+			})
+			defer patches.Reset()
 			// Create a new request for each test
 			req := admission.Request{}
 
