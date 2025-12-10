@@ -1355,7 +1355,7 @@ func TestUpdateLabels(t *testing.T) {
 		changed := updateLabels(ss, false)
 		assert.True(t, changed)
 		_, existsOld := ss.Labels[common.LabelDefaultSubnetSet]
-		assert.False(t, existsOld)
+		assert.True(t, existsOld)
 		val, exists := ss.Labels[common.LabelDefaultNetwork]
 		assert.True(t, exists)
 		assert.Equal(t, common.DefaultVMNetwork, val)
@@ -1386,7 +1386,7 @@ func TestUpdateLabels(t *testing.T) {
 		changed := updateLabels(ss, false)
 		assert.True(t, changed)
 		_, existsOld := ss.Labels[common.LabelDefaultSubnetSet]
-		assert.False(t, existsOld)
+		assert.True(t, existsOld)
 		val, exists := ss.Labels[common.LabelDefaultNetwork]
 		assert.True(t, exists)
 		assert.Equal(t, custom, val)

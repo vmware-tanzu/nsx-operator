@@ -138,7 +138,17 @@ func (s *VPCService) ValidateNetworkConfig(nc *v1alpha1.VPCNetworkConfiguration)
 		// if network config is using a pre-created VPC, skip the check on PrivateIPs.
 		return nil
 	}
-	if nc.Spec.PrivateIPs != nil && len(nc.Spec.PrivateIPs) != 0 {
+	// skip the check on PrivateIPs is TEP-less is true
+	networkStack, err := s.GetNetworkStackFromNC(nc)
+	if err != nil {
+		log.Error(err, "Failed to get Network Stack", "VpcNetworkConfig", nc.Name)
+		return err
+	}
+	if networkStack == v1alpha1.VLANBackedVPC {
+		return nil
+	}
+
+	if len(nc.Spec.PrivateIPs) != 0 {
 		return nil
 	}
 	return fmt.Errorf("missing private cidr")
@@ -735,6 +745,47 @@ func (s *VPCService) GetConnectionTypeFromConnectionPath(connectionPath string) 
 	return parts[2], nil
 }
 
+func (s *VPCService) GetVpcConnectivityProfilePathByVpcPath(vpcPath string) (string, error) {
+	// TODO, if needs to add a cache for it
+	VPCResourceInfo, err := common.ParseVPCResourcePath(vpcPath)
+	if err != nil {
+		log.Error(err, "Failed to parse VPC path", "VPC Path", vpcPath)
+		return "", err
+	}
+	// pre created VPC may have more than one attachment, list all the attachment and select the first one
+	vpcAttachmentsListResult, err := s.Service.NSXClient.VpcAttachmentClient.List(VPCResourceInfo.OrgID, VPCResourceInfo.ProjectID, VPCResourceInfo.VPCID, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		log.Error(err, "Failed to list VPC attachment", "VPC Path", vpcPath)
+		return "", err
+	}
+	vpcAttachments := vpcAttachmentsListResult.Results
+	if len(vpcAttachments) > 0 {
+		log.Debug("Found VPC attachment", "VPC Path", vpcPath, "VPC connectivity profile", vpcAttachments[0].VpcConnectivityProfile)
+		return *vpcAttachments[0].VpcConnectivityProfile, nil
+	} else {
+		log.Debug("No VPC attachment", "VPC Path", vpcPath)
+		return "", nil
+	}
+}
+
+// GetNetworkStackFromNC checks the transit gateway state to determine the network stack type.
+func (s *VPCService) GetNetworkStackFromNC(nc *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+	if !s.NSXClient.NSXCheckVersion(nsx.VTEPLessMode) {
+		return v1alpha1.FullStackVPC, nil
+	}
+	var vpcPath string
+	if IsPreCreatedVPC(nc) {
+		vpcPath = nc.Spec.VPC
+	} else {
+		if len(nc.Status.VPCs) == 0 {
+			log.Error(fmt.Errorf("no VPC found in NetworkConfig status"), "Failed to get VPC path from NetworkConfig", "NetworkConfig", nc.Name)
+			return v1alpha1.FullStackVPC, fmt.Errorf("no VPC found in NetworkConfig status")
+		}
+		vpcPath = nc.Status.VPCs[0].VPCPath
+	}
+	return s.GetNetworkStackFromVPCPath(vpcPath)
+}
+
 func (s *VPCService) ValidateConnectionStatus(nc *v1alpha1.VPCNetworkConfiguration, profilePath string) (*common.VPCConnectionStatus, error) {
 	org, project, err := common.NSXProjectPathToId(nc.Spec.NSXProject)
 	if err != nil {
@@ -779,10 +830,11 @@ func (s *VPCService) ValidateConnectionStatus(nc *v1alpha1.VPCNetworkConfigurati
 		if err != nil {
 			return status, err
 		}
-		if connectionType == TypeGatewayConnection {
+		switch connectionType {
+		case TypeGatewayConnection:
 			status.GatewayConnectionReady = true
 			status.GatewayConnectionReason = ""
-		} else if connectionType == TypeDistributedVlanConnection {
+		case TypeDistributedVlanConnection:
 			status.ServiceClusterReady = true
 			status.ServiceClusterReason = ""
 		}
@@ -932,6 +984,30 @@ func (s *VPCService) getLBProvider(edgeEnable bool) LBProvider {
 		return NSXLB
 	}
 	return NoneLB
+}
+
+func (s *VPCService) GetNetworkStackFromVPCPath(vpcPath string) (v1alpha1.NetworkStackType, error) {
+	networkStack := v1alpha1.FullStackVPC
+	vpcResInfo, err := common.ParseVPCResourcePath(vpcPath)
+	if err != nil {
+		log.Error(err, "Failed to parse VPCResourceInfo from the given VPC path", "VPC", vpcPath)
+		return networkStack, err
+	}
+	vpcState, err := s.NSXClient.VPCStateClient.Get(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID, nil)
+	err = nsxutil.TransNSXApiError(err)
+	if err != nil {
+		log.Error(err, "Failed to read VPC object from NSX", "VPC", vpcPath)
+		return networkStack, err
+	}
+	if vpcState.NetworkStack != nil {
+		switch *vpcState.NetworkStack {
+		case model.TransitGatewayState_NETWORK_STACK_FULL_STACK_VPC:
+			networkStack = v1alpha1.FullStackVPC
+		case model.TransitGatewayState_NETWORK_STACK_VLAN_BACKED_VPC:
+			networkStack = v1alpha1.VLANBackedVPC
+		}
+	}
+	return networkStack, nil
 }
 
 func (s *VPCService) GetVPCFromNSXByPath(vpcPath string) (*model.Vpc, error) {

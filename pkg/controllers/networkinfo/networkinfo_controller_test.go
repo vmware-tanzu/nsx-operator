@@ -214,6 +214,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
 					return vpc.NSXLB, nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) (string, error) {
 					return "100.64.0.3", nil
 				})
@@ -272,6 +275,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						Path:        servicecommon.String("/orgs/default/projects/project-quality/vpcs/fake-vpc"),
 						Id:          servicecommon.String("vpc-id"),
 					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "IsSharedVPCNamespaceByNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (bool, error) {
 					return false, nil
@@ -361,6 +367,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
 				})
 				patches.ApplyFunc(setNSNetworkReadyCondition,
 					func(ctx context.Context, client client.Client, nsName string, condition *corev1.NamespaceCondition) {
@@ -497,6 +506,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
 					return "snat-ip", nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
 					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
 						if !autoSnatEnabled {
@@ -575,6 +587,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
 					assert.FailNow(t, "should not be called")
 					return "", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
 				})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
 					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
@@ -665,6 +680,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
 					return "snat-ip", nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
 					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
 						assert.FailNow(t, "should not be called")
@@ -745,6 +763,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
 					return "snat-ip", nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
 					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
 						if autoSnatEnabled {
@@ -805,6 +826,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBSsFromNSXByVPC", func(_ *vpc.VPCService, _ string) (string, error) {
 					return "/orgs/default/projects/project-quality/vpcs/fake-vpc/vpc-lbs/lbs", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
 				})
 				patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{model.VpcConnectivityProfile{
@@ -883,6 +907,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, interfaceID string) (string, error) {
 					assert.Equal(t, "gateway-interface", interfaceID)
 					return "100.64.0.3", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
 				})
 				patches.ApplyFunc(setNSNetworkReadyCondition,
 					func(ctx context.Context, client client.Client, nsName string, condition *corev1.NamespaceCondition) {
@@ -1022,6 +1049,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) (string, error) {
 					return "", fmt.Errorf("tier1 uplink port IP not found")
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
 				})
 				patches.ApplyFunc(setNSNetworkReadyCondition,
 					func(ctx context.Context, client client.Client, nsName string, condition *corev1.NamespaceCondition) {

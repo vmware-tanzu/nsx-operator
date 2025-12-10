@@ -37,8 +37,6 @@ func defaultSubnetSetLabelChanged(oldSubnetSet, subnetSet *v1alpha1.SubnetSet) b
 	var oldValue, value string
 	oldValue, oldExists := oldSubnetSet.ObjectMeta.Labels[common.LabelDefaultNetwork]
 	value, exists := subnetSet.ObjectMeta.Labels[common.LabelDefaultNetwork]
-	// add or remove "default-network" label
-	// update "default-network" label
 	return oldExists != exists || oldValue != value
 }
 
@@ -50,7 +48,7 @@ func isDefaultSubnetSet(s *v1alpha1.SubnetSet) bool {
 	if _, ok := s.Labels[common.LabelDefaultSubnetSet]; ok {
 		return true
 	}
-	return false
+	return s.Name == common.DefaultVMSubnetSet || s.Name == common.DefaultPodSubnetSet
 }
 
 func hasExclusiveFields(s *v1alpha1.SubnetSet) bool {
