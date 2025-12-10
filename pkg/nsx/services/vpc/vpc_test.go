@@ -1090,40 +1090,55 @@ func TestGetLBSsFromNSXByVPC(t *testing.T) {
 
 func TestVPCService_ValidateNetworkConfig(t *testing.T) {
 	service, _, _, _ := createService(t)
-
 	tests := []struct {
 		name          string
 		nc            v1alpha1.VPCNetworkConfiguration
 		expectedError string
+		networkStack  v1alpha1.NetworkStackType
 	}{
 		{
 			name:          "is pre-created vpc",
 			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project", VPC: "fake-path"}},
 			expectedError: "",
+			networkStack:  v1alpha1.FullStackVPC,
 		},
 		{
 			name:          "auto-created vpc with nil private ips",
 			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project", VPC: "", PrivateIPs: nil}},
 			expectedError: "missing private cidr",
+			networkStack:  v1alpha1.FullStackVPC,
 		},
 		{
 			name:          "auto-created vpc with empty private ips",
 			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project", VPC: "", PrivateIPs: []string{}}},
 			expectedError: "missing private cidr",
+			networkStack:  v1alpha1.FullStackVPC,
 		},
 		{
 			name:          "auto-created vpc with valid private ips",
 			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project", VPC: "", PrivateIPs: []string{"1.1.1.1/16"}}},
 			expectedError: "",
+			networkStack:  v1alpha1.FullStackVPC,
 		},
 		{
 			name:          "invalid nsx project",
 			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "project", VPC: "", PrivateIPs: []string{"1.1.1.1/16"}}},
 			expectedError: "invalid NSXProject",
+			networkStack:  v1alpha1.FullStackVPC,
+		},
+		{
+			name:          "auto-created vpc with empty private ips and tepLess true",
+			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project", VPC: "", PrivateIPs: []string{}}},
+			expectedError: "",
+			networkStack:  v1alpha1.VLANBackedVPC,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			patches := gomonkey.ApplyFunc((*VPCService).GetNetworkStackFromNC, func(s *VPCService, nc *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+				return tt.networkStack, nil
+			})
+			defer patches.Reset()
 			err := service.ValidateNetworkConfig(&tt.nc)
 			if tt.expectedError != "" {
 				assert.Contains(t, err.Error(), tt.expectedError)

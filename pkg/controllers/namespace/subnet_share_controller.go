@@ -51,13 +51,12 @@ func (r *NamespaceReconciler) createSubnetCRInK8s(ctx context.Context, subnetCR 
 }
 
 // createSharedSubnetCR creates a Subnet CR for a shared subnet
-func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns string, sharedSubnetPath string) error {
+func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns string, sharedSubnetPath string, realName string) error {
 	// Extract the org id, project id, VPC id, and subnet id
 	orgID, projectID, vpcID, subnetID, err := servicecommon.ExtractSubnetPath(sharedSubnetPath)
 	if err != nil {
 		return err
 	}
-
 	vpcFullID, err := servicecommon.GetVPCFullID(orgID, projectID, vpcID, r.VPCService)
 	if err != nil {
 		return err
@@ -76,6 +75,9 @@ func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns strin
 
 	// Generate a valid Kubernetes name from the subnet ID
 	// If subnet ID meets Kubernetes standards, use it; otherwise hash it
+	if realName != "" {
+		subnetID = realName
+	}
 	subnetName := generateValidSubnetName(subnetID)
 
 	// Create the Subnet CR object
@@ -137,7 +139,7 @@ func (r *NamespaceReconciler) processNewSharedSubnets(ctx context.Context, ns st
 		}
 
 		if _, exists := existingSharedSubnets[associatedResource]; !exists {
-			err := r.createSharedSubnetCR(ctx, ns, sharedSubnet.Path)
+			err := r.createSharedSubnetCR(ctx, ns, sharedSubnet.Path, sharedSubnet.Name)
 			if err != nil {
 				log.Error(err, "Failed to create Subnet CR for shared Subnet", "Namespace", ns, "SharedSubnet", sharedSubnet.Path)
 				return unusedSubnets, err

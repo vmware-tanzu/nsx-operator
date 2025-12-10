@@ -234,9 +234,12 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 					return nil, nil
 				})
 				// Mock createDefaultSubnetSet to return nil (no error)
-				patches.ApplyPrivateMethod(reflect.TypeOf(r), "createDefaultSubnetSet", func(_ *NamespaceReconciler, _ context.Context, _ string,
-					_ int) error {
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "createOrUpdateDefaultSubnetSet", func(_ *NamespaceReconciler, _ context.Context, _ string,
+					_ int, _ []v1alpha1.SharedSubnet, _ NameSpaceType, _ bool) error {
 					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
 				})
 				return patches
 			},
@@ -404,7 +407,7 @@ func TestCreateDefaultSubnetSet(t *testing.T) {
 			}
 
 			// Call the function being tested
-			err := r.createDefaultSubnetSet(context.Background(), tt.namespace, tt.defaultSubnetSize)
+			err := r.createOrUpdateDefaultSubnetSet(context.Background(), tt.namespace, tt.defaultSubnetSize, []v1alpha1.SharedSubnet{}, NormalNs, v1alpha1.FullStackVPC)
 
 			// Check the result
 			if tt.expectedError {
@@ -421,9 +424,10 @@ func TestCreateDefaultSubnetSet(t *testing.T) {
 				// Check that the SubnetSets have the correct properties
 				if len(subnetSetList.Items) > 0 {
 					for _, subnetSet := range subnetSetList.Items {
-						if subnetSet.Name == servicetypes.DefaultVMSubnetSet {
+						switch subnetSet.Name {
+						case servicetypes.DefaultVMSubnetSet:
 							assert.Equal(t, v1alpha1.AccessMode(v1alpha1.AccessModePrivate), subnetSet.Spec.AccessMode)
-						} else if subnetSet.Name == servicetypes.DefaultPodSubnetSet {
+						case servicetypes.DefaultPodSubnetSet:
 							assert.Equal(t, v1alpha1.AccessMode(v1alpha1.AccessModeProject), subnetSet.Spec.AccessMode)
 						}
 						assert.Equal(t, tt.defaultSubnetSize, subnetSet.Spec.IPv4SubnetSize)
@@ -478,6 +482,149 @@ func TestDeleteDefaultSubnetSet(t *testing.T) {
 					assert.True(t, apierrors.IsNotFound(err), "SubnetSet should be deleted")
 				}
 			}
+		})
+	}
+}
+
+func TestGetVMPodSubnet(t *testing.T) {
+	tests := []struct {
+		name               string
+		sharedSubnets      []v1alpha1.SharedSubnet
+		expectedVMSubnets  []string
+		expectedPodSubnets []string
+	}{
+		{
+			name:               "Empty shared subnets",
+			sharedSubnets:      []v1alpha1.SharedSubnet{},
+			expectedVMSubnets:  nil,
+			expectedPodSubnets: nil,
+		},
+		{
+			name: "Single VM subnet with name",
+			sharedSubnets: []v1alpha1.SharedSubnet{
+				{
+					Name:       "vm-subnet-1",
+					VMDefault:  true,
+					PodDefault: false,
+				},
+			},
+			expectedVMSubnets:  []string{"vm-subnet-1"},
+			expectedPodSubnets: nil,
+		},
+		{
+			name: "Single Pod subnet with name",
+			sharedSubnets: []v1alpha1.SharedSubnet{
+				{
+					Name:       "pod-subnet-1",
+					VMDefault:  false,
+					PodDefault: true,
+				},
+			},
+			expectedVMSubnets:  nil,
+			expectedPodSubnets: []string{"pod-subnet-1"},
+		},
+		{
+			name: "VM subnet with path instead of name",
+			sharedSubnets: []v1alpha1.SharedSubnet{
+				{
+					Name:       "",
+					Path:       "/orgs/org/projects/project/subnets/vm-subnet-from-path",
+					VMDefault:  true,
+					PodDefault: false,
+				},
+			},
+			expectedVMSubnets:  []string{"vm-subnet-from-path"},
+			expectedPodSubnets: nil,
+		},
+		{
+			name: "Pod subnet with path instead of name",
+			sharedSubnets: []v1alpha1.SharedSubnet{
+				{
+					Name:       "",
+					Path:       "/orgs/org/projects/project/subnets/pod-subnet-from-path",
+					VMDefault:  false,
+					PodDefault: true,
+				},
+			},
+			expectedVMSubnets:  nil,
+			expectedPodSubnets: []string{"pod-subnet-from-path"},
+		},
+		{
+			name: "Multiple VM and Pod subnets",
+			sharedSubnets: []v1alpha1.SharedSubnet{
+				{
+					Name:       "vm-subnet-1",
+					VMDefault:  true,
+					PodDefault: false,
+				},
+				{
+					Name:       "vm-subnet-2",
+					VMDefault:  true,
+					PodDefault: false,
+				},
+				{
+					Name:       "pod-subnet-1",
+					VMDefault:  false,
+					PodDefault: true,
+				},
+				{
+					Name:       "pod-subnet-2",
+					VMDefault:  false,
+					PodDefault: true,
+				},
+			},
+			expectedVMSubnets:  []string{"vm-subnet-1", "vm-subnet-2"},
+			expectedPodSubnets: []string{"pod-subnet-1", "pod-subnet-2"},
+		},
+		{
+			name: "Subnet with neither VM nor Pod default",
+			sharedSubnets: []v1alpha1.SharedSubnet{
+				{
+					Name:       "other-subnet",
+					VMDefault:  false,
+					PodDefault: false,
+				},
+			},
+			expectedVMSubnets:  nil,
+			expectedPodSubnets: nil,
+		},
+		{
+			name: "Mixed subnets with paths and names",
+			sharedSubnets: []v1alpha1.SharedSubnet{
+				{
+					Name:       "vm-subnet-named",
+					VMDefault:  true,
+					PodDefault: false,
+				},
+				{
+					Name:       "",
+					Path:       "/orgs/org/projects/project/subnets/vm-subnet-path",
+					VMDefault:  true,
+					PodDefault: false,
+				},
+				{
+					Name:       "pod-subnet-named",
+					VMDefault:  false,
+					PodDefault: true,
+				},
+				{
+					Name:       "",
+					Path:       "/orgs/org/projects/project/subnets/pod-subnet-path",
+					VMDefault:  false,
+					PodDefault: true,
+				},
+			},
+			expectedVMSubnets:  []string{"vm-subnet-named", "vm-subnet-path"},
+			expectedPodSubnets: []string{"pod-subnet-named", "pod-subnet-path"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := createNameSpaceReconciler(nil)
+			vmSubnets, podSubnets := r.getVMPodSubnet(tt.sharedSubnets)
+			assert.Equal(t, tt.expectedVMSubnets, vmSubnets)
+			assert.Equal(t, tt.expectedPodSubnets, podSubnets)
 		})
 	}
 }
