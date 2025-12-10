@@ -198,12 +198,9 @@ func updateLabels(subnetSet *v1alpha1.SubnetSet, systemNs bool) bool {
 		return metadataChanged
 	}
 	if value, exists := subnetSet.Labels[servicecommon.LabelDefaultSubnetSet]; exists {
-		log.Debug("Updating default-subnetset-for label to default-network label", "SubnetSet", subnetSet.Name)
-		// reserve the label in system namespace
-		// reserve the "Pod" label for image-fetcher compatibility
-		if !systemNs && value != servicecommon.LabelDefaultPodSubnetSet {
-			delete(subnetSet.Labels, servicecommon.LabelDefaultSubnetSet)
-		}
+		log.Debug("Adding default-network label", "SubnetSet", subnetSet.Name)
+		// reserve the old label for other controllers compatibility
+		// TODO: using systemNs to determine if the old label will be kept after other controllers compatibility are resolved
 		switch value {
 		case servicecommon.LabelDefaultPodSubnetSet:
 			value = servicecommon.DefaultPodNetwork

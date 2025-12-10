@@ -32,6 +32,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	mock_stateclient "github.com/vmware-tanzu/nsx-operator/pkg/mock/transitgatewaysstateclient"
 	mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/vpcclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
@@ -55,7 +56,7 @@ var (
 	tagScopeNamespaceUID = common.TagScopeNamespaceUID
 )
 
-func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVpcsClient, *mock_client.MockClient) {
+func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVpcsClient, *mock_client.MockClient, *mock_stateclient.MockStateClient) {
 	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 
 	cluster, _ := nsx.NewCluster(config2)
@@ -63,6 +64,7 @@ func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVp
 
 	mockCtrl := gomock.NewController(t)
 	mockVpcclient := mocks.NewMockVpcsClient(mockCtrl)
+	mockTransitStateClient := mock_stateclient.NewMockStateClient(mockCtrl)
 	k8sClient := mock_client.NewMockClient(mockCtrl)
 
 	vpcStore := &VPCStore{ResourceStore: common.ResourceStore{
@@ -91,6 +93,7 @@ func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVp
 						Cluster: "k8scl-one:test",
 					},
 				},
+				TransitGatewayStateClient: mockTransitStateClient,
 			},
 			NSXConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
@@ -101,7 +104,7 @@ func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVp
 		VpcStore: vpcStore,
 		LbsStore: lbsStore,
 	}
-	return service, mockCtrl, mockVpcclient, k8sClient
+	return service, mockCtrl, mockVpcclient, k8sClient, mockTransitStateClient
 }
 
 type fakeVPCConnectivityProfilesClient struct{}
@@ -168,6 +171,12 @@ func (c fakeVPCLBSClient) Patch(orgIdParam string, projectIdParam string, vpcIdP
 
 func (c fakeVPCLBSClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, vpcLbIdParam string, lbServiceParam model.LBService, actionParam *string) (model.LBService, error) {
 	return model.LBService{}, nil
+}
+
+type fakeStateClient struct{}
+
+func (c fakeStateClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, sourceParam *string) (model.VpcState, error) {
+	return model.VpcState{}, nil
 }
 
 type fakeVPCAttachmentsClient struct{}
@@ -251,7 +260,7 @@ func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service, _, _, _ := createService(t)
+			service, _, _, _, _ := createService(t)
 			newScheme := runtime.NewScheme()
 			utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
 			fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects().Build()
@@ -739,7 +748,7 @@ func TestGetGatewayConnectionTypeFromConnectionPath(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service, _, _, _ := createService(t)
+			service, _, _, _, _ := createService(t)
 			observedType, observedError := service.GetConnectionTypeFromConnectionPath(tt.path)
 			assert.Equal(t, tt.expectedType, observedType)
 			assert.Equal(t, tt.expectedError, observedError)
@@ -865,7 +874,7 @@ func TestValidateConnectionStatus(t *testing.T) {
 		},
 	}
 
-	service, _, _, _ := createService(t)
+	service, _, _, _, _ := createService(t)
 	service.NSXClient.VPCConnectivityProfilesClient = fakeVPCConnectivityProfilesClient{}
 	service.NSXClient.TransitGatewayAttachmentClient = fakeTransitGatewayAttachmentClient{}
 	for _, tt := range tests {
@@ -981,6 +990,187 @@ func TestIsLBProviderChanged(t *testing.T) {
 	}
 }
 
+type mockStateClientSetup func(client *mock_stateclient.MockStateClient)
+
+func TestGetNetworkStackFromProfile(t *testing.T) {
+	service, _, _, _, mockStateClient := createService(t)
+
+	full := "FULL_STACK_VPC"
+	vlan := "VLAN_BACKED_VPC"
+
+	tests := []struct {
+		name             string
+		mockExpectations mockStateClientSetup
+		expectStack      v1alpha1.NetworkStackType
+		expectErrLike    string
+		profile          *model.VpcConnectivityProfile
+	}{
+		{
+			name: "full stack returned",
+			mockExpectations: func(client *mock_stateclient.MockStateClient) {
+				// Use EXPECT() to set up the method call and return value
+				client.EXPECT().
+					Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()). // Expect a call to the 'Get' method
+					Return(model.TransitGatewayState{NetworkStack: &full}, nil). // Return a mock response model and no error
+					Times(1)                                                     // Expect this call exactly once
+			},
+			expectStack: v1alpha1.FullStackVPC,
+			profile: &model.VpcConnectivityProfile{
+				ParentPath:         common.String("/orgs/default/projects/project"),
+				TransitGatewayPath: common.String("/infra/transit-gateways/tg1"),
+			},
+		},
+		{
+			name: "vlan backed returned",
+			mockExpectations: func(client *mock_stateclient.MockStateClient) {
+				// Use EXPECT() to set up the method call and return value
+				client.EXPECT().
+					Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()). // Expect a call to the 'Get' method
+					Return(model.TransitGatewayState{NetworkStack: &vlan}, nil). // Return a mock response model and no error
+					Times(1)                                                     // Expect this call exactly once
+			},
+			expectStack: v1alpha1.VLANBackedVPC,
+			profile: &model.VpcConnectivityProfile{
+				ParentPath:         common.String("/orgs/default/projects/project"),
+				TransitGatewayPath: common.String("/infra/transit-gateways/tg1"),
+			},
+		},
+		{
+			name: "nsx client error propagated",
+			mockExpectations: func(client *mock_stateclient.MockStateClient) {
+				// Use EXPECT() to set up the method call and return value
+				client.EXPECT().
+					Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).        // Expect a call to the 'Get' method
+					Return(model.TransitGatewayState{}, fmt.Errorf("backend failure")). // Return a mock response model and no error
+					Times(1)                                                            // Expect this call exactly once
+			},
+			expectErrLike: "backend failure",
+			profile: &model.VpcConnectivityProfile{
+				ParentPath:         common.String("/orgs/default/projects/project"),
+				TransitGatewayPath: common.String("/infra/transit-gateways/tg1"),
+			},
+		},
+		{
+			name:             "profile is nil",
+			expectErrLike:    "profile or its parent path is nil",
+			mockExpectations: func(client *mock_stateclient.MockStateClient) {},
+			profile:          nil,
+		},
+		{
+			name:             "profile path is bad format",
+			expectErrLike:    "invalid NSX project path",
+			mockExpectations: func(client *mock_stateclient.MockStateClient) {},
+			profile: &model.VpcConnectivityProfile{
+				ParentPath:         common.String("/orgs/default/"),
+				TransitGatewayPath: common.String("/infra/transit-gateways/tg1"),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// set the fake client
+			tc.mockExpectations(mockStateClient)
+			stack, err := service.GetNetworkStackFromProfile(tc.profile)
+			if tc.expectErrLike != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expectErrLike)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.expectStack, stack)
+			}
+		})
+	}
+}
+
+func TestGetNetworkStackFromVPCPath(t *testing.T) {
+	vpcService := &VPCService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				Cluster:        &nsx.Cluster{},
+				VPCStateClient: &fakeStateClient{},
+			},
+		},
+	}
+
+	tests := []struct {
+		name                string
+		prepareFunc         func(*testing.T, *VPCService) *gomonkey.Patches
+		expectErr           bool
+		vpcPath             string
+		expectNetworkStatck v1alpha1.NetworkStackType
+	}{
+		{
+			name:      "error when parse the path",
+			vpcPath:   "/orgs/default/projects",
+			expectErr: true,
+		},
+		{
+			name: "fail to get the state",
+			prepareFunc: func(t *testing.T, service *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(&fakeStateClient{}), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.VpcState{},
+						errors.New("failed to get the state"),
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			vpcPath:   "/orgs/default/projects/project-quality/vpcs/vpc-12345",
+			expectErr: true,
+		},
+		{
+			name: "full stack vpc",
+			prepareFunc: func(t *testing.T, service *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(&fakeStateClient{}), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.VpcState{NetworkStack: common.String(model.TransitGatewayState_NETWORK_STACK_FULL_STACK_VPC)},
+						nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			vpcPath:             "/orgs/default/projects/project-quality/vpcs/vpc-12345",
+			expectErr:           false,
+			expectNetworkStatck: v1alpha1.FullStackVPC,
+		},
+		{
+			name: "vlan back vpc",
+			prepareFunc: func(t *testing.T, service *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(&fakeStateClient{}), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.VpcState{NetworkStack: common.String(model.TransitGatewayState_NETWORK_STACK_VLAN_BACKED_VPC)},
+						nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			vpcPath:             "/orgs/default/projects/project-quality/vpcs/vpc-12345",
+			expectErr:           false,
+			expectNetworkStatck: v1alpha1.VLANBackedVPC,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc(t, vpcService)
+				defer patches.Reset()
+			}
+			networkStack, err := vpcService.GetNetworkStackFromVPCPath(tt.vpcPath)
+			if tt.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectNetworkStatck, networkStack)
+			}
+		})
+	}
+}
+
 func TestGetLBSsFromNSXByVPC(t *testing.T) {
 	vpcService := &VPCService{
 		Service: common.Service{
@@ -1089,41 +1279,62 @@ func TestGetLBSsFromNSXByVPC(t *testing.T) {
 }
 
 func TestVPCService_ValidateNetworkConfig(t *testing.T) {
-	service, _, _, _ := createService(t)
-
+	service, _, _, _, _ := createService(t)
 	tests := []struct {
 		name          string
 		nc            v1alpha1.VPCNetworkConfiguration
 		expectedError string
+		networkStack  v1alpha1.NetworkStackType
 	}{
 		{
 			name:          "is pre-created vpc",
 			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project", VPC: "fake-path"}},
 			expectedError: "",
+			networkStack:  v1alpha1.FullStackVPC,
 		},
 		{
 			name:          "auto-created vpc with nil private ips",
 			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project", VPC: "", PrivateIPs: nil}},
 			expectedError: "missing private cidr",
+			networkStack:  v1alpha1.FullStackVPC,
 		},
 		{
 			name:          "auto-created vpc with empty private ips",
 			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project", VPC: "", PrivateIPs: []string{}}},
 			expectedError: "missing private cidr",
+			networkStack:  v1alpha1.FullStackVPC,
 		},
 		{
 			name:          "auto-created vpc with valid private ips",
 			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project", VPC: "", PrivateIPs: []string{"1.1.1.1/16"}}},
 			expectedError: "",
+			networkStack:  v1alpha1.FullStackVPC,
 		},
 		{
 			name:          "invalid nsx project",
 			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "project", VPC: "", PrivateIPs: []string{"1.1.1.1/16"}}},
 			expectedError: "invalid NSXProject",
+			networkStack:  v1alpha1.FullStackVPC,
+		},
+		{
+			name:          "auto-created vpc with empty private ips and tepLess true",
+			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project", VPC: "", PrivateIPs: []string{}}},
+			expectedError: "",
+			networkStack:  v1alpha1.VLANBackedVPC,
+		},
+		{
+			name:          "pre-created vpc with empty private ips and tepLess true",
+			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project", VPC: "/orgs/org/projects/project/vpcs/test-vpc-12345", PrivateIPs: []string{}}},
+			expectedError: "",
+			networkStack:  v1alpha1.FullStackVPC,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			patches := gomonkey.ApplyFunc((*VPCService).GetNetworkStackFromNC, func(s *VPCService, nc *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+				return tt.networkStack, nil
+			})
+			defer patches.Reset()
 			err := service.ValidateNetworkConfig(&tt.nc)
 			if tt.expectedError != "" {
 				assert.Contains(t, err.Error(), tt.expectedError)
@@ -1135,7 +1346,7 @@ func TestVPCService_ValidateNetworkConfig(t *testing.T) {
 }
 
 func TestGetVPCNetworkConfigByNamespace(t *testing.T) {
-	service, _, _, k8sClient := createService(t)
+	service, _, _, k8sClient, _ := createService(t)
 	tests := []struct {
 		name           string
 		prepareFunc    func() *gomonkey.Patches
@@ -1205,7 +1416,7 @@ func TestGetVPCNetworkConfigByNamespace(t *testing.T) {
 }
 
 func TestVPCService_ListVPCInfo(t *testing.T) {
-	service, _, _, k8sClient := createService(t)
+	service, _, _, k8sClient, _ := createService(t)
 	tests := []struct {
 		name            string
 		prepareFunc     func() *gomonkey.Patches
@@ -1307,7 +1518,7 @@ func TestVPCService_ListVPCInfo(t *testing.T) {
 }
 
 func TestVPCService_GetNamespacesByNetworkconfigName(t *testing.T) {
-	service, _, _, k8sClient := createService(t)
+	service, _, _, k8sClient, _ := createService(t)
 
 	ns1 := v1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1421,7 +1632,7 @@ func TestVPCService_DeleteVPC(t *testing.T) {
 	mockLb := "mockLb"
 	mockConnectityPath := fmt.Sprintf("/org/default/projects/proj1/vpcs/%s/connectivity", mockVpc)
 	mockLBKey := combineVPCIDAndLBSID(mockVpc, mockLb)
-	service, _, _, _ := createService(t)
+	service, _, _, _, _ := createService(t)
 	fakeErr := errors.New("fake-errors")
 	tests := []struct {
 		name          string
@@ -2722,7 +2933,7 @@ func TestIsDefaultNSXProject(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service, _, _, _ := createService(t)
+			service, _, _, _, _ := createService(t)
 			if tt.prepareFunc != nil {
 				patches := tt.prepareFunc(service)
 				defer patches.Reset()
@@ -2736,6 +2947,98 @@ func TestIsDefaultNSXProject(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expectedResult, result)
 			}
+		})
+	}
+}
+
+func TestGetNetworkStackFromNC(t *testing.T) {
+	service, _, _, _, _ := createService(t)
+
+	// 2. Define test cases
+	tests := []struct {
+		name string
+		// Function to setup mock expectations before running the test
+		expectStackType  v1alpha1.NetworkStackType
+		prepareFunc      func(service *VPCService) *gomonkey.Patches
+		expectError      bool
+		expectErrMessage string
+		preCreatedVPC    bool
+	}{
+		{
+			name: "Success_ReturnsStackFromProfile",
+			prepareFunc: func(service *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "GetVpcConnectivityProfile", func(s *VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(service), "GetNetworkStackFromProfile", func(s *VPCService, _ *model.VpcConnectivityProfile) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return true
+				})
+				return patches
+			},
+			expectStackType: v1alpha1.FullStackVPC,
+			expectError:     false,
+			preCreatedVPC:   false,
+		},
+		{
+			name: "Failure_GetProfileError",
+			prepareFunc: func(service *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "GetVpcConnectivityProfile", func(s *VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{}, errors.New("get profile error")
+				})
+				patches.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return true
+				})
+				return patches
+			},
+			expectStackType: v1alpha1.FullStackVPC,
+			expectError:     true,
+			preCreatedVPC:   false,
+		},
+		{
+			name: "Success_ReturnsStackFromProfile for pre-created vpc",
+			prepareFunc: func(service *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "GetNetworkStackFromVPCPath", func(_ *VPCService, _ string) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return true
+				})
+				return patches
+			},
+			expectStackType: v1alpha1.FullStackVPC,
+			expectError:     false,
+			preCreatedVPC:   true,
+		},
+	}
+
+	// 3. Run the tests
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup the specific mock expectations for this test case
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc(service)
+				defer patches.Reset()
+			}
+			nc := &v1alpha1.VPCNetworkConfiguration{}
+			if tt.preCreatedVPC {
+				nc.Spec.VPC = "/orgs/default/projects/project-quality/vpcs/vpc-1"
+			} else {
+				nc.Spec.VPCConnectivityProfile = "/orgs/default/projects/project-quality/vpc-connectivity-profiles/profile-1"
+			}
+			// Run the actual function under test using the mock service instance
+			resultStack, err := service.GetNetworkStackFromNC(nc)
+
+			// Assertions
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectErrMessage)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, tt.expectStackType, resultStack)
 		})
 	}
 }

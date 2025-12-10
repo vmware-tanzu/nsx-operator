@@ -735,7 +735,7 @@ func (r *SubnetPortReconciler) getSubnetBySubnetPort(subnetPort *v1alpha1.Subnet
 	} else if len(subnetPort.Spec.SubnetSet) > 0 {
 		subnets = r.SubnetService.ListSubnetBySubnetSetName(subnetPort.Namespace, subnetPort.Spec.SubnetSet)
 	} else {
-		subnetSet, err := common.GetDefaultSubnetSetByNamespace(r.Client, subnetPort.Namespace, servicecommon.LabelDefaultVMSubnetSet)
+		subnetSet, err := common.GetDefaultSubnetSetByNamespace(r.Client, subnetPort.Namespace, servicecommon.DefaultVMNetwork)
 		if err != nil {
 			return "", err
 		}
@@ -814,7 +814,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		}
 	} else {
 		subnetSet := &v1alpha1.SubnetSet{}
-		subnetSet, err = common.GetDefaultSubnetSetByNamespace(r.Client, subnetPort.Namespace, servicecommon.LabelDefaultVMSubnetSet)
+		subnetSet, err = common.GetDefaultSubnetSetByNamespace(r.Client, subnetPort.Namespace, servicecommon.DefaultVMNetwork)
 		if err != nil {
 			return
 		}

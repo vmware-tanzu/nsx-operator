@@ -110,26 +110,7 @@ type NetworkInfoReconciler struct {
 }
 
 func (r *NetworkInfoReconciler) GetVpcConnectivityProfilePathByVpcPath(vpcPath string) (string, error) {
-	// TODO, if needs to add a cache for it
-	VPCResourceInfo, err := commonservice.ParseVPCResourcePath(vpcPath)
-	if err != nil {
-		log.Error(err, "Failed to parse VPC path", "VPC Path", vpcPath)
-		return "", err
-	}
-	// pre created VPC may have more than one attachment, list all the attachment and select the first one
-	vpcAttachmentsListResult, err := r.Service.NSXClient.VpcAttachmentClient.List(VPCResourceInfo.OrgID, VPCResourceInfo.ProjectID, VPCResourceInfo.VPCID, nil, nil, nil, nil, nil, nil)
-	if err != nil {
-		log.Error(err, "Failed to list VPC attachment", "VPC Path", vpcPath)
-		return "", err
-	}
-	vpcAttachments := vpcAttachmentsListResult.Results
-	if len(vpcAttachments) > 0 {
-		log.Debug("Found VPC attachment", "VPC Path", vpcPath, "VPC connectivity profile", vpcAttachments[0].VpcConnectivityProfile)
-		return *vpcAttachments[0].VpcConnectivityProfile, nil
-	} else {
-		log.Debug("No VPC attachment", "VPC Path", vpcPath)
-		return "", nil
-	}
+	return r.Service.GetVpcConnectivityProfilePathByVpcPath(vpcPath)
 }
 
 func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -281,6 +262,12 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCGetExtIPBlockError.getNSNetworkCondition(err))
 		return common.ResultRequeueAfter10sec, err
 	}
+	networkStack, err := r.Service.GetNetworkStackFromNC(nc)
+	if err != nil {
+		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to get Network Stack", setNetworkInfoVPCStatusWithError, nil)
+		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCGetExtIPBlockError.getNSNetworkCondition(err))
+		return common.ResultRequeueAfter10sec, err
+	}
 	// Check external IP blocks on system VPC network config.
 	if ncName == commonservice.SystemVPCNetworkConfigurationName {
 		hasExternalIPs := len(vpcConnectivityProfile.ExternalIpBlocks) > 0
@@ -360,6 +347,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		DefaultSNATIP:           snatIP,
 		LoadBalancerIPAddresses: lbIP,
 		PrivateIPs:              privateIPs,
+		NetworkStack:            networkStack,
 	}
 
 	// AKO needs to know the AVI subnet path created by NSX

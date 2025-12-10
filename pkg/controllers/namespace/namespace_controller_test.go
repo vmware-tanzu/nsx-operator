@@ -235,8 +235,11 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 				})
 				// Mock createDefaultSubnetSet to return nil (no error)
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "createDefaultSubnetSet", func(_ *NamespaceReconciler, _ context.Context, _ string,
-					_ int) error {
+					_ int, _ []v1alpha1.SharedSubnet, _ NameSpaceType, _ bool) error {
 					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
 				})
 				return patches
 			},
@@ -329,7 +332,7 @@ func TestGetAccessMode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := getAccessMode(tt.subnetSetName)
+			result := getDefaultAccessMode(tt.subnetSetName)
 			assert.Equal(t, tt.expectedResult, result)
 		})
 	}
@@ -341,23 +344,85 @@ func TestCreateDefaultSubnetSet(t *testing.T) {
 		namespace          string
 		defaultSubnetSize  int
 		existingResources  []client.Object
+		sharedSubnet       []v1alpha1.SharedSubnet
 		expectedError      bool
+		networkStack       v1alpha1.NetworkStackType
+		nameSpaceType      NameSpaceType
 		expectedSubnetSets int
 		setupMocks         func(r *NamespaceReconciler) *gomonkey.Patches
 	}{
 		{
-			name:               "Success case - create new SubnetSets",
+			name:               "Skip case -default shared subnet exists",
 			namespace:          "test-ns",
 			defaultSubnetSize:  24,
 			existingResources:  []client.Object{},
+			sharedSubnet:       []v1alpha1.SharedSubnet{{Name: "existing-subnet", PodDefault: true}},
+			expectedError:      false,
+			expectedSubnetSets: 1,
+			networkStack:       v1alpha1.FullStackVPC,
+			nameSpaceType:      NormalNs,
+			setupMocks:         func(r *NamespaceReconciler) *gomonkey.Patches { return nil },
+		},
+		{
+			name:               "Success case -non-default shared subnet exists",
+			namespace:          "test-ns",
+			defaultSubnetSize:  24,
+			existingResources:  []client.Object{},
+			sharedSubnet:       []v1alpha1.SharedSubnet{{Name: "existing-subnet"}},
+			expectedError:      false,
+			expectedSubnetSets: 2,
+			networkStack:       v1alpha1.FullStackVPC,
+			nameSpaceType:      NormalNs,
+			setupMocks:         func(r *NamespaceReconciler) *gomonkey.Patches { return nil },
+		},
+		{
+			name:               "Success case - create new SubnetSets for normal namespace",
+			namespace:          "test-ns",
+			defaultSubnetSize:  24,
+			sharedSubnet:       []v1alpha1.SharedSubnet{},
+			existingResources:  []client.Object{},
 			expectedError:      false,
 			expectedSubnetSets: 2, // VM and Pod subnet sets
+			networkStack:       v1alpha1.FullStackVPC,
+			nameSpaceType:      NormalNs,
+			setupMocks:         func(r *NamespaceReconciler) *gomonkey.Patches { return nil },
+		},
+		{
+			name:               "Success case - create new SubnetSets for cpvm namespace",
+			namespace:          "test-ns",
+			defaultSubnetSize:  8,
+			sharedSubnet:       []v1alpha1.SharedSubnet{},
+			existingResources:  []client.Object{},
+			expectedError:      false,
+			expectedSubnetSets: 1, // VM
+			networkStack:       v1alpha1.FullStackVPC,
+			nameSpaceType:      SystemNs,
+			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSystemNsDefaultSize", func(_ *NamespaceReconciler) int {
+					return 8
+				})
+				return patches
+			},
+		},
+		{
+			name:               "Success case - create new SubnetSets for system svc namespace",
+			namespace:          "test-ns",
+			defaultSubnetSize:  24,
+			sharedSubnet:       []v1alpha1.SharedSubnet{},
+			existingResources:  []client.Object{},
+			expectedError:      false,
+			expectedSubnetSets: 1, // Pod
+			networkStack:       v1alpha1.FullStackVPC,
+			nameSpaceType:      SVServiceNs,
 			setupMocks:         func(r *NamespaceReconciler) *gomonkey.Patches { return nil },
 		},
 		{
 			name:              "Success case - SubnetSets already exist",
 			namespace:         "test-ns",
 			defaultSubnetSize: 24,
+			networkStack:      v1alpha1.FullStackVPC,
+			nameSpaceType:     NormalNs,
+			sharedSubnet:      []v1alpha1.SharedSubnet{},
 			existingResources: []client.Object{
 				&v1alpha1.SubnetSet{
 					ObjectMeta: metav1.ObjectMeta{
@@ -390,6 +455,18 @@ func TestCreateDefaultSubnetSet(t *testing.T) {
 			expectedSubnetSets: 2, // VM and Pod subnet sets
 			setupMocks:         func(r *NamespaceReconciler) *gomonkey.Patches { return nil },
 		},
+		{
+			name:               "Success case - create new SubnetSets for normal namespace tepless",
+			namespace:          "test-ns",
+			defaultSubnetSize:  24,
+			sharedSubnet:       []v1alpha1.SharedSubnet{},
+			existingResources:  []client.Object{},
+			expectedError:      false,
+			expectedSubnetSets: 0,
+			networkStack:       v1alpha1.VLANBackedVPC,
+			nameSpaceType:      NormalNs,
+			setupMocks:         func(r *NamespaceReconciler) *gomonkey.Patches { return nil },
+		},
 	}
 
 	for _, tt := range tests {
@@ -404,7 +481,7 @@ func TestCreateDefaultSubnetSet(t *testing.T) {
 			}
 
 			// Call the function being tested
-			err := r.createDefaultSubnetSet(context.Background(), tt.namespace, tt.defaultSubnetSize)
+			err := r.createDefaultSubnetSet(context.Background(), tt.namespace, tt.defaultSubnetSize, tt.sharedSubnet, tt.nameSpaceType, tt.networkStack)
 
 			// Check the result
 			if tt.expectedError {
@@ -421,15 +498,185 @@ func TestCreateDefaultSubnetSet(t *testing.T) {
 				// Check that the SubnetSets have the correct properties
 				if len(subnetSetList.Items) > 0 {
 					for _, subnetSet := range subnetSetList.Items {
-						if subnetSet.Name == servicetypes.DefaultVMSubnetSet {
+						switch subnetSet.Name {
+						case servicetypes.DefaultVMSubnetSet:
 							assert.Equal(t, v1alpha1.AccessMode(v1alpha1.AccessModePrivate), subnetSet.Spec.AccessMode)
-						} else if subnetSet.Name == servicetypes.DefaultPodSubnetSet {
+						case servicetypes.DefaultPodSubnetSet:
 							assert.Equal(t, v1alpha1.AccessMode(v1alpha1.AccessModeProject), subnetSet.Spec.AccessMode)
 						}
 						assert.Equal(t, tt.defaultSubnetSize, subnetSet.Spec.IPv4SubnetSize)
 					}
 				}
 			}
+		})
+	}
+}
+
+func TestGetDefaultSubnetsets(t *testing.T) {
+	tests := []struct {
+		name         string
+		nsType       NameSpaceType
+		vmSubnets    bool
+		podSubnets   bool
+		networkStack v1alpha1.NetworkStackType
+		want         map[string]string
+	}{
+		{
+			name:   "SystemNs: always returns VM default",
+			nsType: SystemNs,
+			want:   map[string]string{servicetypes.DefaultVMSubnetSet: servicetypes.DefaultVMNetwork},
+		},
+		{
+			name:   "SVServiceNs: always returns Pod default",
+			nsType: SVServiceNs,
+			want:   map[string]string{servicetypes.DefaultPodSubnetSet: servicetypes.DefaultPodNetwork},
+		},
+		{
+			name:         "NormalNs: both subnets exist -> do nothing",
+			nsType:       NormalNs,
+			vmSubnets:    true,
+			podSubnets:   true,
+			networkStack: v1alpha1.VLANBackedVPC,
+			want:         map[string]string{},
+		},
+		{
+			name:         "NormalNs: only Pod exists -> set VM default",
+			nsType:       NormalNs,
+			podSubnets:   true,
+			networkStack: v1alpha1.VLANBackedVPC,
+			want:         map[string]string{servicetypes.DefaultVMSubnetSet: servicetypes.DefaultVMNetwork},
+		},
+		{
+			name:         "NormalNs: only VM exists -> set Pod default",
+			nsType:       NormalNs,
+			vmSubnets:    true,
+			networkStack: v1alpha1.VLANBackedVPC,
+			want:         map[string]string{servicetypes.DefaultPodSubnetSet: servicetypes.DefaultPodNetwork},
+		},
+		{
+			name:         "NormalNs: both empty + FullStackVPC -> set both",
+			nsType:       NormalNs,
+			networkStack: v1alpha1.FullStackVPC,
+			want: map[string]string{
+				servicetypes.DefaultVMSubnetSet:  servicetypes.DefaultVMNetwork,
+				servicetypes.DefaultPodSubnetSet: servicetypes.DefaultPodNetwork,
+			},
+		},
+		{
+			name:         "NormalNs: both empty + StandardStack -> set nothing",
+			nsType:       NormalNs,
+			networkStack: v1alpha1.VLANBackedVPC,
+			want:         map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getDefaultSubnetsets(tt.nsType, tt.vmSubnets, tt.podSubnets, tt.networkStack)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("getDefaultSubnetsets() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetVMPodSubnet(t *testing.T) {
+	r := &NamespaceReconciler{}
+
+	tests := []struct {
+		name          string
+		sharedSubnets []v1alpha1.SharedSubnet
+		wantVM        bool
+		wantPod       bool
+	}{
+		{
+			name:          "No subnets provided",
+			sharedSubnets: []v1alpha1.SharedSubnet{},
+			wantVM:        false,
+			wantPod:       false,
+		},
+		{
+			name: "Only VM default is set",
+			sharedSubnets: []v1alpha1.SharedSubnet{
+				{VMDefault: true, PodDefault: false},
+			},
+			wantVM:  true,
+			wantPod: false,
+		},
+		{
+			name: "Only Pod default is set",
+			sharedSubnets: []v1alpha1.SharedSubnet{
+				{VMDefault: false, PodDefault: true},
+			},
+			wantVM:  false,
+			wantPod: true,
+		},
+		{
+			name: "Separate entries setting different defaults",
+			sharedSubnets: []v1alpha1.SharedSubnet{
+				{VMDefault: true, PodDefault: false},
+				{VMDefault: false, PodDefault: true},
+			},
+			wantVM:  true,
+			wantPod: true,
+		},
+		{
+			name: "Single entry setting both defaults (Verification of Fix)",
+			sharedSubnets: []v1alpha1.SharedSubnet{
+				{VMDefault: true, PodDefault: true},
+			},
+			wantVM:  true,
+			wantPod: true,
+		},
+		{
+			name: "Multiple entries with no defaults set",
+			sharedSubnets: []v1alpha1.SharedSubnet{
+				{VMDefault: false, PodDefault: false},
+				{VMDefault: false, PodDefault: false},
+			},
+			wantVM:  false,
+			wantPod: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotVM, gotPod := r.getVMPodSubnet(tt.sharedSubnets)
+			if gotVM != tt.wantVM || gotPod != tt.wantPod {
+				t.Errorf("%s: getVMPodSubnet() got (VM:%v, Pod:%v), want (VM:%v, Pod:%v)",
+					tt.name, gotVM, gotPod, tt.wantVM, tt.wantPod)
+			}
+		})
+	}
+}
+
+func TestGetDefaultSize(t *testing.T) {
+	reconciler := createNameSpaceReconciler([]client.Object{})
+	tests := []struct {
+		name         string
+		mockReturn   bool
+		expectedSize int
+	}{
+		{
+			name:         "Version meets threshold",
+			mockReturn:   true,
+			expectedSize: util.MinSubnetSizeV91,
+		},
+		{
+			name:         "Version below threshold",
+			mockReturn:   false,
+			expectedSize: util.MinSubnetSizeV90,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(reconciler.SubnetService.NSXClient), "NSXCheckVersion",
+				func(_ *nsx.Client, feature int) bool {
+					return tt.mockReturn
+				})
+			defer patches.Reset()
+			result := reconciler.getSystemNsDefaultSize()
+			assert.Equal(t, tt.expectedSize, result)
 		})
 	}
 }
@@ -597,6 +844,63 @@ func TestNamespaceReconciler_createNetworkInfoCR(t *testing.T) {
 		VPCs: []v1alpha1.VPCState{},
 	})
 	patches.Reset()
+}
+
+func TestGetNamespaceType(t *testing.T) {
+	r := createNameSpaceReconciler(nil)
+
+	tests := []struct {
+		name     string
+		ns       *v1.Namespace
+		vnc      *v1alpha1.VPCNetworkConfiguration
+		expected NameSpaceType
+	}{
+		{
+			name: "annotation system returns SystemNs",
+			ns: &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "ns-system",
+					Annotations: map[string]string{servicetypes.AnnotationVPCNetworkConfig: "system"},
+				},
+			},
+			vnc: &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{VPC: "irrelevant"},
+			},
+			expected: SystemNs,
+		},
+		{
+			name: "lablel present  returns SVServiceNs",
+			ns: &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "ns-anno-nonsystem",
+					Labels: map[string]string{"appplatform.vmware.com/serviceId": "custom-nc", "managedBy": "vSphere-AppPlatform"},
+				},
+			},
+			vnc: &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{VPC: "vmware-system-supervisor-services"},
+			},
+			expected: SVServiceNs,
+		},
+		{
+			name: "no special annotation and vnc does not contain supervisor returns NormalNs",
+			ns: &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "ns-normal",
+				},
+			},
+			vnc: &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{VPC: "some-other-vpc"},
+			},
+			expected: NormalNs,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := r.getNamespaceType(tc.ns, tc.vnc)
+			assert.Equal(t, tc.expected, got)
+		})
+	}
 }
 
 type MockManager struct {
