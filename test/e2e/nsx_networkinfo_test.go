@@ -3,7 +3,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -57,8 +56,25 @@ func TestNetworkInfo(t *testing.T) {
 // Test Customized NetworkInfo
 func testCustomizedNetworkInfo(t *testing.T) {
 	// Create customized networkconfig
-	ncPath, _ := filepath.Abs("./manifest/testVPC/customize_networkconfig.yaml")
-	require.NoError(t, applyYAML(ncPath, ""))
+	customizeNetworkconfig := &v1alpha1.VPCNetworkConfiguration{
+		ObjectMeta: v1.ObjectMeta{
+			Name: testCustomizedNetworkConfigName,
+		},
+		Spec: v1alpha1.VPCNetworkConfigurationSpec{
+			DefaultSubnetSize: 32,
+			NSXProject:        "/orgs/default/projects/project-quality",
+			PrivateIPs: []string{
+				"172.29.0.0/16",
+				"172.39.0.0/16",
+			},
+			VPCConnectivityProfile: fmt.Sprintf("/orgs/default/projects/project-quality/vpc-connectivity-profiles/%s", defaultVPCProfile),
+		},
+	}
+	_, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Create(context.TODO(), customizeNetworkconfig, v1.CreateOptions{})
+	if errors.IsAlreadyExists(err) {
+		err = nil
+	}
+	require.NoError(t, err)
 
 	ns := fmt.Sprintf("customized-ns-%s", getRandomString())
 	namespace := &v12.Namespace{
@@ -69,7 +85,7 @@ func testCustomizedNetworkInfo(t *testing.T) {
 			},
 		},
 	}
-	_, err := testData.clientset.CoreV1().Namespaces().Create(context.TODO(), namespace, v1.CreateOptions{})
+	_, err = testData.clientset.CoreV1().Namespaces().Create(context.TODO(), namespace, v1.CreateOptions{})
 	require.NoError(t, err)
 	defer func() {
 		_ = testData.clientset.CoreV1().Namespaces().Delete(context.TODO(), ns, v1.DeleteOptions{})
@@ -201,8 +217,25 @@ func testUpdateVPCNetworkconfigNetworkInfo(t *testing.T) {
 		_ = testData.clientset.CoreV1().Namespaces().Delete(context.TODO(), ns, v1.DeleteOptions{})
 	}()
 
-	vncPathOriginal, _ := filepath.Abs("./manifest/testVPC/customize_networkconfig.yaml")
-	defer applyYAML(vncPathOriginal, "")
+	customizeNetworkconfig := &v1alpha1.VPCNetworkConfiguration{
+		ObjectMeta: v1.ObjectMeta{
+			Name: testCustomizedNetworkConfigName,
+		},
+		Spec: v1alpha1.VPCNetworkConfigurationSpec{
+			DefaultSubnetSize: 32,
+			NSXProject:        "/orgs/default/projects/project-quality",
+			PrivateIPs: []string{
+				"172.29.0.0/16",
+				"172.39.0.0/16",
+			},
+			VPCConnectivityProfile: fmt.Sprintf("/orgs/default/projects/project-quality/vpc-connectivity-profiles/%s", defaultVPCProfile),
+		},
+	}
+	_, err = testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Create(context.TODO(), customizeNetworkconfig, v1.CreateOptions{})
+	if errors.IsAlreadyExists(err) {
+		err = nil
+	}
+	require.NoError(t, err)
 
 	// Check namespace cr existence
 	assureNamespace(t, ns)
@@ -221,8 +254,11 @@ func testUpdateVPCNetworkconfigNetworkInfo(t *testing.T) {
 	assert.Contains(t, privateIPs, customizedPrivateCIDR1, "privateIPs %s should contain %s", privateIPs, customizedPrivateCIDR1)
 	assert.Contains(t, privateIPs, customizedPrivateCIDR2, "privateIPs %s should contain %s", privateIPs, customizedPrivateCIDR1)
 
-	vncPath, _ := filepath.Abs("./manifest/testVPC/customize_networkconfig_updated.yaml")
-	require.NoError(t, applyYAML(vncPath, ""))
+	customizeNetworkconfig, err = testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(context.TODO(), testCustomizedNetworkConfigName, v1.GetOptions{})
+	require.NoError(t, err)
+	customizeNetworkconfig.Spec.PrivateIPs = append(customizeNetworkconfig.Spec.PrivateIPs, "172.49.0.0/16")
+	_, err = testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Update(context.TODO(), customizeNetworkconfig, v1.UpdateOptions{})
+	require.NoError(t, err)
 
 	networkInfoNew = getNetworkInfoWithCondition(t, ns, networkInfo.Name, func(networkInfo *v1alpha1.NetworkInfo) (bool, error) {
 		if len(networkInfo.VPCs) > 0 && len(networkInfo.VPCs[0].PrivateIPs) > 0 {
