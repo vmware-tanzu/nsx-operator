@@ -77,9 +77,6 @@ spec:
                         Name of the Subnet. If the name is empty, it will be derived from the shared Subnet path.
                         This field is immutable.
                       type: string
-                      x-kubernetes-validations:
-                      - message: Name is immutable
-                        rule: self == oldSelf
                     path:
                       description: NSX path of Subnets created outside of the Supervisor
                         to be associated with this vSphere Namespace

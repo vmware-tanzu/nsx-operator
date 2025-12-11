@@ -50,7 +50,6 @@ type SharedSubnet struct {
 	VMDefault bool `json:"vmDefault,omitempty"`
 	// Name of the Subnet. If the name is empty, it will be derived from the shared Subnet path.
 	// This field is immutable.
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Name is immutable"
 	Name string `json:"name,omitempty"`
 }
 
