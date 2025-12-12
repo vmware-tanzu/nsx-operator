@@ -35,18 +35,26 @@ type SubnetSetValidator struct {
 
 func defaultSubnetSetLabelChanged(oldSubnetSet, subnetSet *v1alpha1.SubnetSet) bool {
 	var oldValue, value string
-	oldValue, oldExists := oldSubnetSet.ObjectMeta.Labels[common.LabelDefaultSubnetSet]
-	value, exists := subnetSet.ObjectMeta.Labels[common.LabelDefaultSubnetSet]
-	// add or remove "default-subnetset-for" label
-	// update "default-subnetset-for" label
+	oldValue, oldExists := oldSubnetSet.ObjectMeta.Labels[common.LabelDefaultNetwork]
+	value, exists := subnetSet.ObjectMeta.Labels[common.LabelDefaultNetwork]
+	// add or remove "default-network" label
+	// update "default-network" label
 	return oldExists != exists || oldValue != value
 }
 
 func isDefaultSubnetSet(s *v1alpha1.SubnetSet) bool {
+	if _, ok := s.Labels[common.LabelDefaultNetwork]; ok {
+		return true
+	}
+	// keep the old logic for backward compatibility
 	if _, ok := s.Labels[common.LabelDefaultSubnetSet]; ok {
 		return true
 	}
-	return s.Name == common.DefaultVMSubnetSet || s.Name == common.DefaultPodSubnetSet
+	return false
+}
+
+func hasExclusiveFields(s *v1alpha1.SubnetSet) bool {
+	return len(s.Spec.SubnetNames) != 0 && (s.Spec.IPv4SubnetSize != 0 || s.Spec.AccessMode != "" || s.Spec.SubnetDHCPConfig.Mode != "")
 }
 
 // Handle handles admission requests.
@@ -73,14 +81,24 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		if isDefaultSubnetSet(subnetSet) && req.UserInfo.Username != NSXOperatorSA {
 			return admission.Denied("default SubnetSet only can be created by nsx-operator")
 		}
+		if hasExclusiveFields(subnetSet) {
+			return admission.Denied("SubnetSet spec.subnetNames is exclusive with spec.ipv4SubnetSize, spec.accessMode and spec.subnetDHCPConfig")
+		}
 	case admissionv1.Update:
 		oldSubnetSet := &v1alpha1.SubnetSet{}
 		if err := v.decoder.DecodeRaw(req.OldObject, oldSubnetSet); err != nil {
 			log.Error(err, "Failed to decode old SubnetSet", "SubnetSet", req.Namespace+"/"+req.Name)
 			return admission.Errored(http.StatusBadRequest, err)
 		}
-		if defaultSubnetSetLabelChanged(oldSubnetSet, subnetSet) {
-			return admission.Denied(fmt.Sprintf("SubnetSet label %s only can't be updated", common.LabelDefaultSubnetSet))
+		if (isDefaultSubnetSet(subnetSet) || isDefaultSubnetSet(oldSubnetSet)) && req.UserInfo.Username != NSXOperatorSA {
+			return admission.Denied("default SubnetSet only can be updated by nsx-operator")
+		}
+		if defaultSubnetSetLabelChanged(oldSubnetSet, subnetSet) && req.UserInfo.Username != NSXOperatorSA {
+			log.Debug("Default SubnetSet label change detected", "oldLabels", oldSubnetSet.ObjectMeta.Labels, "newLabels", subnetSet.ObjectMeta.Labels, "username", req.UserInfo.Username)
+			return admission.Denied(fmt.Sprintf("SubnetSet label %s can only be updated by NSX Operator", common.LabelDefaultNetwork))
+		}
+		if hasExclusiveFields(subnetSet) {
+			return admission.Denied("SubnetSet spec.subnetNames is exclusive with spec.ipv4SubnetSize, spec.accessMode and spec.subnetDHCPConfig")
 		}
 	case admissionv1.Delete:
 		if isDefaultSubnetSet(subnetSet) && req.UserInfo.Username != NSXOperatorSA {

@@ -30,6 +30,7 @@ import (
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetbinding"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -141,8 +142,13 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		subnetsetCR.Spec.IPv4SubnetSize = vpcNetworkConfig.Spec.DefaultSubnetSize
 		specChanged = true
 	}
-
-	if specChanged {
+	isSystemNs, err := util.IsVPCSystemNamespace(r.Client, subnetsetCR.Namespace, nil)
+	if err != nil {
+		r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
+		return ResultRequeue, err
+	}
+	metadataChanged := updateLabels(subnetsetCR, isSystemNs)
+	if specChanged || metadataChanged {
 		err := r.Client.Update(ctx, subnetsetCR)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
@@ -184,6 +190,32 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	r.StatusUpdater.UpdateSuccess(ctx, subnetsetCR, setSubnetSetReadyStatusTrue)
 
 	return ctrl.Result{}, nil
+}
+
+func updateLabels(subnetSet *v1alpha1.SubnetSet, systemNs bool) bool {
+	metadataChanged := false
+	if subnetSet.Labels == nil {
+		return metadataChanged
+	}
+	if value, exists := subnetSet.Labels[servicecommon.LabelDefaultSubnetSet]; exists {
+		log.Debug("Updating default-subnetset-for label to default-network label", "SubnetSet", subnetSet.Name)
+		// reserve the label in system namespace
+		// reserve the "Pod" label for image-fetcher compatibility
+		if !systemNs && value != servicecommon.LabelDefaultPodSubnetSet {
+			delete(subnetSet.Labels, servicecommon.LabelDefaultSubnetSet)
+		}
+		switch value {
+		case servicecommon.LabelDefaultPodSubnetSet:
+			value = servicecommon.DefaultPodNetwork
+		case servicecommon.LabelDefaultVMSubnetSet:
+			value = servicecommon.DefaultVMNetwork
+		default:
+			log.Error(errors.New("Unknown value"), "Update labels", "Label values", value)
+		}
+		subnetSet.Labels[servicecommon.LabelDefaultNetwork] = value
+		metadataChanged = true
+	}
+	return metadataChanged
 }
 
 func setSubnetSetReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {
