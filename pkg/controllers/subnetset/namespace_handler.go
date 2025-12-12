@@ -41,7 +41,7 @@ func (e *EnqueueRequestForNamespace) Update(_ context.Context, updateEvent event
 	obj := updateEvent.ObjectNew.(*v1.Namespace)
 	err := requeueSubnetSet(e.Client, obj.Name, l)
 	if err != nil {
-		log.Error(err, "Failed to requeue subnet")
+		log.Error(err, "Failed to requeue Subnet")
 	}
 }
 

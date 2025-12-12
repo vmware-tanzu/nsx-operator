@@ -104,7 +104,7 @@ func (ipAddressAllocationStore *IPAddressAllocationStore) GetByUID(uid types.UID
 	for _, index := range indicies {
 		indexResult, err := ipAddressAllocationStore.ResourceStore.ByIndex(index, string(uid))
 		if err != nil {
-			log.Error(err, "Failed to get ipaddressallocation", index, string(uid))
+			log.Error(err, "Failed to get IPAddressAllocation", index, string(uid))
 			return nil, err
 		}
 		indexResults = append(indexResults, indexResult...)
@@ -114,7 +114,7 @@ func (ipAddressAllocationStore *IPAddressAllocationStore) GetByUID(uid types.UID
 		t := indexResults[0].(*model.VpcIpAddressAllocation)
 		nsxIPAddressAllocation = t
 	} else {
-		log.Info("did not get ipaddressallocation with index", "UID", string(uid))
+		log.Info("did not get IPAddressAllocation with index", "UID", string(uid))
 		return nil, nil
 	}
 	return nsxIPAddressAllocation, nil

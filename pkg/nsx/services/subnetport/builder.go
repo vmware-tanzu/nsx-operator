@@ -83,7 +83,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 				addressBindings[0].MacAddress = &mac
 				hasMacSpecified = true
 			} else {
-				log.Error(nil, "MAC address annotation not found in Pod", "Pod", o)
+				log.Warn("MAC address annotation not found in Pod", "Pod", o)
 			}
 		}
 	}
@@ -236,7 +236,7 @@ func (service *SubnetPortService) buildExternalAddressBinding(sp *v1alpha1.Subne
 		ns := sp.Namespace
 		VPCInfo := service.VPCService.ListVPCInfo(ns)
 		if len(VPCInfo) == 0 {
-			return nil, fmt.Errorf("failed to listVPCInfo for AddressBinding")
+			return nil, fmt.Errorf("failed to listVPCInfo for AddressBinding, will retry later")
 		}
 		vpcPath := VPCInfo[0].GetVPCPath()
 		existingAddressAllocation, err := service.IpAddressAllocationService.GetIPAddressAllocationByOwner(addressBinding)

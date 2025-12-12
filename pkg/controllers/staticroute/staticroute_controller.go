@@ -61,7 +61,7 @@ func (r *StaticRouteReconciler) deleteStaticRouteByName(ns, name string) error {
 
 func (r *StaticRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	obj := &v1alpha1.StaticRoute{}
-	log.Info("reconciling staticroute CR", "staticroute", req.NamespacedName)
+	log.Info("Reconciling staticroute CR", "staticroute", req.NamespacedName)
 	r.StatusUpdater.IncreaseSyncTotal()
 
 	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
@@ -73,7 +73,7 @@ func (r *StaticRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 			return ResultNormal, nil
 		}
-		log.Error(err, "unable to fetch static route CR", "req", req.NamespacedName)
+		log.Error(err, "Unable to fetch static route CR", "req", req.NamespacedName)
 		return ResultRequeue, err
 	}
 
@@ -84,7 +84,7 @@ func (r *StaticRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			// TODO: if error is not retriable, not requeue
 			apierror, errortype := util.DumpAPIError(err)
 			if apierror != nil {
-				log.Info("create or update static route failed", "error", apierror, "error type", errortype)
+				log.Info("Create or update static route failed", "error", apierror, "error type", errortype)
 			}
 			return ResultRequeue, err
 		}
@@ -136,8 +136,11 @@ func updateStaticRouteStatusConditions(client client.Client, ctx context.Context
 		}
 	}
 	if conditionsUpdated {
-		client.Status().Update(ctx, staticRoute)
-		log.Debug("Updated Static Route CRD", "Name", staticRoute.Name, "Namespace", staticRoute.Namespace, "New Conditions", newConditions)
+		if err := client.Status().Update(ctx, staticRoute); err != nil {
+			log.Error(err, "Failed to update Static Route status", "Name", staticRoute.Name, "Namespace", staticRoute.Namespace)
+			return
+		}
+		log.Debug("Updated Static Route CR", "Name", staticRoute.Name, "Namespace", staticRoute.Namespace, "New Conditions", newConditions)
 	}
 }
 
@@ -190,7 +193,7 @@ func (r *StaticRouteReconciler) Start(mgr ctrl.Manager) error {
 // CollectGarbage collect staticroute which has been removed from crd.
 // it implements the interface GarbageCollector method.
 func (r *StaticRouteReconciler) CollectGarbage(ctx context.Context) error {
-	log.Info("static route garbage collector started")
+	log.Info("Static route garbage collector started")
 	nsxStaticRouteList := r.Service.ListStaticRoute()
 	if len(nsxStaticRouteList) == 0 {
 		return nil
@@ -199,7 +202,7 @@ func (r *StaticRouteReconciler) CollectGarbage(ctx context.Context) error {
 	crdStaticRouteList := &v1alpha1.StaticRouteList{}
 	err := r.Client.List(ctx, crdStaticRouteList)
 	if err != nil {
-		log.Error(err, "failed to list static route CR")
+		log.Error(err, "Failed to list static route CR")
 		return err
 	}
 

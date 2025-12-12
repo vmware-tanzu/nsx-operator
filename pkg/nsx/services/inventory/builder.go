@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 
 	ctrcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -41,14 +42,22 @@ func (s *InventoryService) BuildPod(pod *corev1.Pod) (retry bool) {
 		log.Error(err, "Failed to build Pod", "Pod", pod)
 		return
 	}
+	if namespace == nil {
+		retry = true
+		log.Warn("Namespace for Pod does not exist", "Pod", pod)
+		return
+	}
 	node := &corev1.Node{}
 	err = s.Client.Get(context.TODO(), types.NamespacedName{Name: pod.Spec.NodeName}, node)
 	if err != nil {
 		if pod.Spec.NodeName != "" {
 			// retry when pod has Node but Node is missing in NodeInformer
 			retry = true
+			log.Error(err, "Cannot find node for Pod", "Pod", pod.Name, "Namespace", pod.Namespace, "Node", pod.Spec.NodeName, "retry", retry)
+		} else {
+			log.Warn("Pod does not have Node specified", "Pod", pod.Name, "Namespace", pod.Namespace, "Node", pod.Spec.NodeName, "retry", retry, "error", err)
 		}
-		log.Error(err, "Cannot find node for Pod", "Pod", pod.Name, "Namespace", pod.Namespace, "Node", pod.Spec.NodeName, "retry", retry)
+		return
 	}
 
 	status := InventoryStatusDown
@@ -134,8 +143,13 @@ func (s *InventoryService) GetNamespace(namespace string) (*corev1.Namespace, er
 	ns := &corev1.Namespace{}
 	err := s.Client.Get(context.TODO(), types.NamespacedName{Name: namespace}, ns)
 	if err != nil {
-		log.Error(err, "Failed to find namespace", namespace)
-		return nil, err
+		if apierrors.IsNotFound(err) {
+			log.Warn("Namespace is not found", "Namespace", namespace)
+			return nil, nil
+		} else {
+			log.Error(err, "Failed to find Namespace", "Namespace", namespace)
+			return nil, err
+		}
 	}
 	return ns, nil
 }
@@ -145,7 +159,11 @@ func (s *InventoryService) BuildIngress(ingress *networkingv1.Ingress) (retry bo
 	namespace, err := s.GetNamespace(ingress.Namespace)
 	retry = true
 	if err != nil {
-		log.Error(err, "Cannot find namespace for Ingress", "Ingress", ingress)
+		log.Error(err, "Cannot find Namespace for Ingress", "Ingress", ingress)
+		return
+	}
+	if namespace == nil {
+		log.Warn("Namespace for Ingress does not exist", "Ingress", ingress)
 		return
 	}
 	spec, err := yaml.Marshal(ingress.Spec)

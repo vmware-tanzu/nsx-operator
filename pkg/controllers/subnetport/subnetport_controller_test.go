@@ -1091,7 +1091,7 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 				})
 				return patches
 			},
-			expectedErr:     "subnetset ns-1/subnetset-1 is being deleted, cannot operate subnetport subnetport-1",
+			expectedErr:     "SubnetSet ns-1/subnetset-1 is being deleted, cannot operate SubnetPort subnetport-1",
 			expectedIsStale: true,
 			subnetport: &v1alpha1.SubnetPort{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1149,7 +1149,7 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 					})
 				return patches
 			},
-			expectedErr:     "default subnetset default-subnetset is being deleted, cannot operate subnetport subnetport-1",
+			expectedErr:     "default SubnetSet default-subnetset is being deleted, cannot operate SubnetPort subnetport-1",
 			expectedIsStale: true,
 			subnetport: &v1alpha1.SubnetPort{
 				ObjectMeta: metav1.ObjectMeta{

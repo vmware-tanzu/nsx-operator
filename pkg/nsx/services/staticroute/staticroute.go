@@ -92,7 +92,7 @@ func (service *StaticRouteService) CreateOrUpdateStaticRoute(namespace string, o
 
 	vpc := service.VPCService.ListVPCInfo(namespace)
 	if len(vpc) == 0 {
-		return fmt.Errorf("no vpc found for ns %s", namespace)
+		return fmt.Errorf("no vpc found for namespace %s, will retry later", namespace)
 	}
 	err = service.patch(vpc[0].OrgID, vpc[0].ProjectID, vpc[0].ID, nsxStaticRoute)
 	if err != nil {

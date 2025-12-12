@@ -5,7 +5,6 @@ package pod
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"reflect"
@@ -96,7 +95,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		node, err := r.GetNodeByName(pod.Spec.NodeName)
 		if err != nil {
 			// The error at the very beginning of the operator startup is expected because at that time the node may be not cached yet. We can expect the retry to become normal.
-			log.Error(err, "Failed to get Node ID for Pod", "pod.Name", req.NamespacedName, "pod.UID", pod.UID, "node", pod.Spec.NodeName)
+			log.Warn("Failed to get Node ID for Pod", "pod.Name", req.NamespacedName, "pod.UID", pod.UID, "node", pod.Spec.NodeName, "error", err)
 			return common.ResultRequeue, err
 		}
 		contextID := *node.UniqueId
@@ -253,7 +252,7 @@ func (r *PodReconciler) RestoreReconcile() error {
 		}
 	}
 	if len(errorList) > 0 {
-		return errors.Join(errorList...)
+		return fmt.Errorf("errors found in Pod restore: %v", errorList)
 	}
 	return nil
 }
@@ -277,7 +276,7 @@ func (r *PodReconciler) getRestoreList() ([]types.NamespacedName, error) {
 
 func (r *PodReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
 	if err := r.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "Pod")
+		log.Error(err, "Failed to create controller", "controller", "Pod")
 		return err
 	}
 	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.CollectGarbage)
@@ -309,7 +308,7 @@ func (r *PodReconciler) Start(mgr ctrl.Manager) error {
 
 // CollectGarbage  collect Pod which has been removed from crd.
 func (r *PodReconciler) CollectGarbage(ctx context.Context) error {
-	log.Info("pod garbage collector started")
+	log.Info("Pod garbage collector started")
 	nsxSubnetPortSet := r.SubnetPortService.ListNSXSubnetPortIDForPod()
 	if len(nsxSubnetPortSet) == 0 {
 		return nil
@@ -317,7 +316,7 @@ func (r *PodReconciler) CollectGarbage(ctx context.Context) error {
 	podList := &v1.PodList{}
 	err := r.Client.List(ctx, podList)
 	if err != nil {
-		log.Error(err, "failed to list Pod")
+		log.Error(err, "Failed to list Pod")
 		return err
 	}
 

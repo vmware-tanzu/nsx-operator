@@ -1332,7 +1332,7 @@ func (service *SecurityPolicyService) getGCSecurityPolicyIDSet(indexScope string
 func (service *SecurityPolicyService) getVPCInfo(spNameSpace string) (*common.VPCResourceInfo, error) {
 	vpcInfo := service.vpcService.ListVPCInfo(spNameSpace)
 	if len(vpcInfo) == 0 {
-		errorMsg := fmt.Sprintf("there is no VPC info found for namespace %s", spNameSpace)
+		errorMsg := fmt.Sprintf("no VPC info found for namespace %s, will retry later", spNameSpace)
 		err := errors.New(errorMsg)
 		return nil, err
 	}

@@ -367,11 +367,12 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 	}
 
 	if len(subnetPaths) == 0 {
-		log.Info("NSX VpcSubnets by Subnet CR do not exist", "Subnet", subnetKey.String())
+		err = fmt.Errorf("not found NSX VpcSubnets created by Subnet CR '%s/%s'", namespace, name)
+		log.Error(err, "NSX VpcSubnets by Subnet CR do not exist", "Subnet", subnetKey.String())
 		return nil, subnetCR, &errorWithRetry{
 			message: fmt.Sprintf("Subnet CR %s is not realized on NSX", name),
 			retry:   false,
-			error:   fmt.Errorf("not found NSX VpcSubnets created by Subnet CR '%s/%s'", namespace, name),
+			error:   err,
 		}
 	}
 
@@ -393,10 +394,11 @@ func (r *Reconciler) validateVpcSubnetsBySubnetSetCR(ctx context.Context, namesp
 
 	subnets := r.SubnetService.ListSubnetCreatedBySubnetSet(string(subnetSetCR.UID))
 	if len(subnets) == 0 {
-		log.Info("NSX VpcSubnets by SubnetSet CR do not exist", "SubnetSet", subnetSetKey.String())
+		err = fmt.Errorf("no existing NSX VpcSubnet created by SubnetSet CR '%s/%s'", namespace, name)
+		log.Error(err, "NSX VpcSubnets by SubnetSet CR do not exist", "SubnetSet", subnetSetKey.String())
 		return nil, &errorWithRetry{
 			message: fmt.Sprintf("SubnetSet CR %s is not realized on NSX", name),
-			error:   fmt.Errorf("no existing NSX VpcSubnet created by SubnetSet CR '%s/%s'", namespace, name),
+			error:   err,
 			retry:   false,
 		}
 	}
@@ -471,6 +473,7 @@ func updateBindingMapCondition(c client.Client, ctx context.Context, bindingMap 
 	err := c.Status().Update(ctx, bindingMap)
 	if err != nil {
 		log.Error(err, "Failed to update SubnetConnectionBindingMap status", "Namespace", bindingMap.Namespace, "Name", bindingMap.Name)
+		return
 	}
 	log.Debug("Updated SubnetConnectionBindingMap status", "Namespace", bindingMap.Namespace, "Name", bindingMap.Name)
 }

@@ -49,9 +49,8 @@ func AllocateSubnetFromSubnetSet(subnetSet *v1alpha1.SubnetSet, vpcService servi
 	log.Info("The existing subnets are not available, creating new subnet", "subnetList", subnetList, "subnetSet.Name", subnetSet.Name, "subnetSet.Namespace", subnetSet.Namespace)
 	vpcInfoList := vpcService.ListVPCInfo(subnetSet.Namespace)
 	if len(vpcInfoList) == 0 {
-		err := errors.New("no VPC found")
-		log.Error(err, "Failed to allocate Subnet")
-		return "", err
+		log.Warn("No VPC found for SubnetSet, will retry later", "Namespace", subnetSet.Namespace)
+		return "", errors.New("no VPC found, will retry later")
 	}
 	nsxSubnet, err := subnetService.CreateOrUpdateSubnet(subnetSet, vpcInfoList[0], tags)
 	if err != nil {

@@ -372,7 +372,7 @@ func (ep *Endpoint) UpdateHttpRequestAuth(request *http.Request) error {
 			ep.Unlock()
 			for _, cookie := range cookies {
 				if cookie == nil {
-					log.Error(errors.New("cookie is nil"), "update authentication info failed")
+					log.Error(errors.New("cookie is nil"), "Update authentication info failed")
 				}
 				request.Header.Set("Cookie", cookie.String())
 			}
