@@ -15,6 +15,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,6 +40,7 @@ import (
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 type fakeVPCConnectivityProfilesClient struct{}
@@ -1832,6 +1834,80 @@ func TestNetworkInfoReconciler_RestoreReconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetCurrentVPCsByNamespace", func(_ *vpc.VPCService, _ context.Context, _ string) []*model.Vpc {
 					assert.FailNow(t, "should not be called")
 					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCFromNSXByPath", func(_ *vpc.VPCService, vpcPath string) (*model.Vpc, error) {
+					return &model.Vpc{}, nil
+				})
+				return patches
+			},
+		},
+		{
+			name:         "Pre-created VPC not exists",
+			expectErrStr: "",
+			expectReq:    defaultReq,
+			existingNetworkInfo: &v1alpha1.NetworkInfo{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns1",
+					Name:      "networkinfo1",
+				},
+				VPCs: []v1alpha1.VPCState{
+					{
+						Name: "vpc1",
+					},
+				},
+			},
+			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNamespacesWithPreCreatedVPCs", func(_ *vpc.VPCService) (map[string]string, error) {
+					return map[string]string{
+						"ns1": "vpc1",
+					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetCurrentVPCsByNamespace", func(_ *vpc.VPCService, _ context.Context, _ string) []*model.Vpc {
+					assert.FailNow(t, "should not be called")
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCFromNSXByPath", func(_ *vpc.VPCService, vpcPath string) (*model.Vpc, error) {
+					return nil, nsxutil.NewNSXApiError(&model.ApiError{}, stderrors.ErrorType_NOT_FOUND)
+				})
+				patches.ApplyFunc(setNSNetworkReadyCondition,
+					func(ctx context.Context, client client.Client, nsName string, condition *corev1.NamespaceCondition) {
+						require.True(t, nsConditionEquals(*condition, *nsMsgVPCCreateUpdateError.getNSNetworkCondition(fmt.Errorf("pre-created VPC is not found in NSX: vpc1"))))
+					})
+				return patches
+			},
+		},
+		{
+			name:         "Pre-created VPC get failure",
+			expectErrStr: "mock GetVPCFromNSXByPath error",
+			existingNetworkInfo: &v1alpha1.NetworkInfo{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns1",
+					Name:      "networkinfo1",
+				},
+				VPCs: []v1alpha1.VPCState{
+					{
+						Name: "vpc1",
+					},
+				},
+			},
+			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNamespacesWithPreCreatedVPCs", func(_ *vpc.VPCService) (map[string]string, error) {
+					return map[string]string{
+						"ns1": "vpc1",
+					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetCurrentVPCsByNamespace", func(_ *vpc.VPCService, _ context.Context, _ string) []*model.Vpc {
+					assert.FailNow(t, "should not be called")
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCFromNSXByPath", func(_ *vpc.VPCService, vpcPath string) (*model.Vpc, error) {
+					return nil, errors.New("mock GetVPCFromNSXByPath error")
 				})
 				return patches
 			},
