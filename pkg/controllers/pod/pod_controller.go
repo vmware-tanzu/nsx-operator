@@ -150,13 +150,13 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	return common.ResultNormal, nil
 }
 
-// Set PodNetworkRestore condition to false in Pod to inform spherelet the SubnetPort is restored with another vif ID
+// Set PodNetworkReconfigRequired condition to true in Pod to inform spherelet the SubnetPort is restored with another vif ID
 func setReconfigureNicStatus(client client.Client, ctx context.Context, obj client.Object) error {
 	pod := obj.(*v1.Pod)
 	newConditions := []v1.PodCondition{
 		{
-			Type:               v1.PodConditionType("PodNetworkRestore"),
-			Status:             v1.ConditionFalse,
+			Type:               v1.PodConditionType("PodNetworkReconfigRequired"),
+			Status:             v1.ConditionTrue,
 			Reason:             "ReconfigureNic",
 			LastTransitionTime: metav1.Now(),
 		},
