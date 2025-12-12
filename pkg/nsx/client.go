@@ -105,6 +105,7 @@ type Client struct {
 	ProjectClient                     orgs.ProjectsClient
 	TransitGatewayClient              projects.TransitGatewaysClient
 	TransitGatewayAttachmentClient    transit_gateways.AttachmentsClient
+	TransitGatewayStateClient         transit_gateways.StateClient
 	ShareClient                       infra.SharesClient
 	LbAppProfileClient                infra.LbAppProfilesClient
 	LbPersistenceProfilesClient       infra.LbPersistenceProfilesClient
@@ -218,6 +219,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 
 	transitGatewayClient := projects.NewTransitGatewaysClient(connector)
 	transitGatewayAttachmentClient := transit_gateways.NewAttachmentsClient(connector)
+	transitGatewayStateClient := transit_gateways.NewStateClient(connector)
 
 	subnetConnectionBindingMapsClient := subnets.NewSubnetConnectionBindingMapsClient(connector)
 	DynamicIPReservationsClient := subnets.NewDynamicIpReservationsClient(connector)
@@ -281,6 +283,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		IPAddressAllocationClient:         ipAddressAllocationClient,
 		TransitGatewayClient:              transitGatewayClient,
 		TransitGatewayAttachmentClient:    transitGatewayAttachmentClient,
+		TransitGatewayStateClient:         transitGatewayStateClient,
 		SubnetConnectionBindingMapsClient: subnetConnectionBindingMapsClient,
 		DynamicIPReservationsClient:       DynamicIPReservationsClient,
 		LbAppProfileClient:                lbAppProfileClient,

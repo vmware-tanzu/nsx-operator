@@ -1202,7 +1202,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			}
 
 			// Call the function being tested
-			err := r.createSharedSubnetCR(context.Background(), "test-ns", tt.sharedSubnetPath)
+			err := r.createSharedSubnetCR(context.Background(), "test-ns", tt.sharedSubnetPath, "")
 
 			// Check the result
 			if tt.expectedErrString != "" {
