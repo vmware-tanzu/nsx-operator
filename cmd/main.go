@@ -116,9 +116,9 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	if cf.CoeConfig.EnableVPCNetwork {
 		if err := pkgutil.GenerateWebhookCerts(); err != nil {
 			log.Error(err, "Failed to generate webhook certificates")
-		} else {
-			log.Info("Successfully generated webhook certificates")
+			os.Exit(1)
 		}
+		log.Info("Successfully generated webhook certificates")
 		go refreshCertPeriodically()
 	}
 
