@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -20,10 +21,18 @@ const (
 func GetConfig() (*rest.Config, error) {
 	cfg := ctrl.GetConfigOrDie()
 	cfg.Timeout = TCPReadTimeout
-	healthy, err := getHealth(cfg)
-	if err != nil {
+	var healthy bool
+	var getHealthErr error
+
+	if err := retry.OnError(K8sClientRetry, func(err error) bool {
+		return err != nil
+	}, func() error {
+		healthy, getHealthErr = getHealth(cfg)
+		return getHealthErr
+	}); err != nil {
 		return nil, err
-	} else if !healthy {
+	}
+	if !healthy {
 		var localhostPort string
 		if os.Getenv(K8sServicePortEnv) != "" {
 			localhostPort = os.Getenv(K8sServicePortEnv)
