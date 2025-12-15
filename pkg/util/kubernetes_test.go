@@ -10,10 +10,16 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 func TestGetConfig(t *testing.T) {
+	originalK8sClientRetry := K8sClientRetry
+	K8sClientRetry = retry.DefaultRetry
+	defer func() {
+		K8sClientRetry = originalK8sClientRetry
+	}()
 	patches := gomonkey.ApplyFunc(ctrl.GetConfigOrDie, func() *rest.Config {
 		return &rest.Config{
 			Host: "https://10.0.0.1:443",
