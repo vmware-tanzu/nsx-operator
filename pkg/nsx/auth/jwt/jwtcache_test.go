@@ -1,4 +1,4 @@
-/* Copyright © 2021 VMware, Inc. All Rights Reserved.
+/* Copyright © 2025 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package jwt
@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/govmomi/sts"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -98,7 +98,7 @@ func TestJwtcache_GetJWTFailed(t *testing.T) {
 }
 
 type TestClaims struct {
-	*jwt.StandardClaims
+	*jwt.RegisteredClaims
 	aud      string
 	username string
 	domain   string
@@ -107,8 +107,8 @@ type TestClaims struct {
 func createToken(user string) (string, error) {
 	t := jwt.New(jwt.GetSigningMethod("RS256"))
 	t.Claims = &TestClaims{
-		&jwt.StandardClaims{
-			ExpiresAt: time.Now().Add(time.Minute * 1).Unix(),
+		&jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute * 1)),
 		},
 		"vmware-tes:vc:nsxd-v2:nsx",
 		user, "vsphere.local"}

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	gojwt "github.com/golang-jwt/jwt"
+	gojwt "github.com/golang-jwt/jwt/v4"
 )
 
 const (
