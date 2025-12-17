@@ -183,7 +183,7 @@ var (
 					Ports: []v1alpha1.SecurityPolicyPort{
 						{
 							Protocol: corev1.ProtocolUDP,
-							Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 53},
+							Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 53}),
 						},
 					},
 					Sources: []v1alpha1.SecurityPolicyPeer{
@@ -2957,7 +2957,7 @@ func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
 	mockVPCService := mock.MockVPCServiceProvider{}
 	fakeService.vpcService = &mockVPCService
 
-	serviceEntry := getRuleServiceEntries(53, 0, "UDP")
+	serviceEntry := getRuleServiceEntries(ptr.To(53), nil, "UDP")
 
 	ruleTags1 := appendRuleIDAndHashTags(vpcBasicTags, "2c822e90", "spA-2c822e90_re0bz")
 	ruleTags2 := appendRuleIDAndHashTags(vpcBasicTags, "2a4595d0", "spA-2a4595d0_re0bz")
@@ -3130,7 +3130,7 @@ func Test_ConvertNetworkPolicyToInternalSecurityPolicies(t *testing.T) {
 							Ports: []v1alpha1.SecurityPolicyPort{
 								{
 									Protocol: corev1.ProtocolTCP,
-									Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 6001},
+									Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 6001}),
 								},
 							},
 						},
@@ -3155,7 +3155,7 @@ func Test_ConvertNetworkPolicyToInternalSecurityPolicies(t *testing.T) {
 							Ports: []v1alpha1.SecurityPolicyPort{
 								{
 									Protocol: corev1.ProtocolTCP,
-									Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 3366},
+									Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 3366}),
 								},
 							},
 						},
@@ -3213,8 +3213,8 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 	mockVPCService := mock.MockVPCServiceProvider{}
 	fakeService.vpcService = &mockVPCService
 
-	ingressServiceEntry := getRuleServiceEntries(6001, 0, "TCP")
-	egressServiceEntry := getRuleServiceEntries(3366, 0, "TCP")
+	ingressServiceEntry := getRuleServiceEntries(ptr.To(6001), nil, "TCP")
+	egressServiceEntry := getRuleServiceEntries(ptr.To(3366), nil, "TCP")
 
 	allowRuleTags1 := appendRuleIDAndHashTags(npAllowBasicTags, "6c2a026c", "np-app-access-allow-6c2a026c_aoqj8")
 	allowRuleTags2 := appendRuleIDAndHashTags(npAllowBasicTags, "025d37a6", "np-app-access-allow-025d37a6_aoqj8")
@@ -3732,11 +3732,11 @@ func Test_convertNetworkPolicyPortToSecurityPolicyPort(t *testing.T) {
 					proto := corev1.ProtocolTCP
 					return &proto
 				}(),
-				Port: &intstr.IntOrString{Type: intstr.Int, IntVal: 80},
+				Port: ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 80}),
 			},
 			want: &v1alpha1.SecurityPolicyPort{
 				Protocol: corev1.ProtocolTCP,
-				Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 80},
+				Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 80}),
 			},
 			wantErr: false,
 		},
@@ -3756,10 +3756,10 @@ func Test_convertNetworkPolicyPortToSecurityPolicyPort(t *testing.T) {
 		{
 			name: "with port only",
 			npPort: &networkingv1.NetworkPolicyPort{
-				Port: &intstr.IntOrString{Type: intstr.Int, IntVal: 80},
+				Port: ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 80}),
 			},
 			want: &v1alpha1.SecurityPolicyPort{
-				Port: intstr.IntOrString{Type: intstr.Int, IntVal: 80},
+				Port: ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 80}),
 			},
 			wantErr: false,
 		},

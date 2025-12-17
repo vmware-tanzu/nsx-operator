@@ -44,6 +44,11 @@ func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, r
 		}
 		var ruleServiceEntries []*data.StructValue
 		for _, port := range rule.Ports {
+			// endPort can only be defined if port is also defined. Both ports must be numeric.
+			// This is also behaviour enforced by NetworkPolicy.
+			if port.Port == nil && port.EndPort != nil {
+				return nil, nil, nsxutil.RestrictionError{Desc: "endPort can only be defined when 'port' is not specified."}
+			}
 			serviceEntry := buildRuleServiceEntries(port)
 			ruleServiceEntries = append(ruleServiceEntries, serviceEntry)
 		}
@@ -73,13 +78,13 @@ func (service *SecurityPolicyService) expandRuleByPort(obj *v1alpha1.SecurityPol
 
 	// Use PortAddress to handle normal port and named port, if it only contains int value Port,
 	// then it is a normal port. If it contains a list of IPs, it is a named port.
-	if port.Port.Type == intstr.Int {
+	if port.Port != nil && port.Port.Type == intstr.Int {
 		portInfo := newPortInfo(port)
 		portInfo.idSuffix = fmt.Sprintf("%d%s0", portIdx, common.ConnectorUnderline)
 		portInfos = append(portInfos, portInfo)
 	} else {
 		// endPort can only be defined if port is also defined. Both ports must be numeric.
-		if port.EndPort != 0 {
+		if port.EndPort != nil {
 			return nil, nil, nsxutil.RestrictionError{Desc: "endPort can only be defined if port is also numeric."}
 		}
 		startPort, err := service.resolveNamedPort(obj, rule, port)
@@ -369,7 +374,7 @@ func (service *SecurityPolicyService) getPodSelectors(obj *v1alpha1.SecurityPoli
 func (service *SecurityPolicyService) hasNamedPort(rule *v1alpha1.SecurityPolicyRule) bool {
 	hasNamedPort := false
 	for _, port := range rule.Ports {
-		if port.Port.Type == intstr.String {
+		if port.Port != nil && port.Port.Type == intstr.String {
 			hasNamedPort = true
 			break
 		}
