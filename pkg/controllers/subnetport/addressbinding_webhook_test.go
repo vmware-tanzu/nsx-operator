@@ -2,8 +2,10 @@ package subnetport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -88,12 +90,20 @@ func TestAddressBindingValidator_Handle(t *testing.T) {
 	tests := []struct {
 		name        string
 		args        args
-		prepareFunc func(*testing.T, client.Client, context.Context) *gomonkey.Patches
+		prepareFunc func(t *testing.T, client client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches
 		want        admission.Response
 	}{
+
 		{
 			name: "delete",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Delete}}},
+			prepareFunc: func(t *testing.T, client client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(client, "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				return patches
+			},
 			want: admission.Allowed(""),
 		},
 		{
@@ -104,49 +114,103 @@ func TestAddressBindingValidator_Handle(t *testing.T) {
 		{
 			name: "create",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req1}}}},
+			prepareFunc: func(t *testing.T, k8sclient client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(v), "CheckNetworkStack",
+					func(_ *AddressBindingValidator, _ context.Context, _ string) error {
+						return nil
+					})
+				patches.ApplyMethodSeq(k8sclient, "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				return patches
+			},
 			want: admission.Allowed(""),
 		},
 		{
 			name: "create list error",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req1}}}},
-			prepareFunc: func(t *testing.T, client client.Client, ctx context.Context) *gomonkey.Patches {
-				return gomonkey.ApplyMethodSeq(client, "List", []gomonkey.OutputCell{{
+			prepareFunc: func(t *testing.T, k8sclient client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(v), "CheckNetworkStack",
+					func(_ *AddressBindingValidator, _ context.Context, _ string) error {
+						return nil
+					})
+				patches.ApplyMethodSeq(k8sclient, "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{fmt.Errorf("mock error")},
-					Times:  1,
 				}})
+				return patches
 			},
 			want: admission.Errored(http.StatusInternalServerError, fmt.Errorf("mock error")),
 		},
 		{
 			name: "create dup",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req2}}}},
+			prepareFunc: func(t *testing.T, k8sclient client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(v), "CheckNetworkStack",
+					func(_ *AddressBindingValidator, _ context.Context, _ string) error {
+						return nil
+					})
+				return patches
+			},
 			want: admission.Denied("interface already has AddressBinding"),
 		},
 		{
 			name: "create dup with default",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req2d}}}},
+			prepareFunc: func(t *testing.T, k8sclient client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(v), "CheckNetworkStack",
+					func(_ *AddressBindingValidator, _ context.Context, _ string) error {
+						return nil
+					})
+				return patches
+			},
 			want: admission.Denied("interface already has AddressBinding"),
 		},
 		{
 			name: "create dup with existing default",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req4}}}},
+			prepareFunc: func(t *testing.T, k8sclient client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(v), "CheckNetworkStack",
+					func(_ *AddressBindingValidator, _ context.Context, _ string) error {
+						return nil
+					})
+				return patches
+			},
 			want: admission.Denied("interface already has AddressBinding"),
 		},
 		{
 			name: "update decode error",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Update, Object: runtime.RawExtension{Raw: req1}}}},
+			prepareFunc: func(t *testing.T, k8sclient client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(v), "CheckNetworkStack",
+					func(_ *AddressBindingValidator, _ context.Context, _ string) error {
+						return nil
+					})
+				return patches
+			},
 			want: admission.Errored(http.StatusBadRequest, fmt.Errorf("there is no content to decode")),
 		},
 		{
 			name: "update changed",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Update, Object: runtime.RawExtension{Raw: req1New}, OldObject: runtime.RawExtension{Raw: req1}}}},
+			prepareFunc: func(t *testing.T, k8sclient client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(v), "CheckNetworkStack",
+					func(_ *AddressBindingValidator, _ context.Context, _ string) error {
+						return nil
+					})
+				return patches
+			},
 			want: admission.Denied("update AddressBinding vmName/interfaceName is not allowed"),
 		},
 		{
 			name: "create with valid ip allocation 1",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
-			prepareFunc: func(t *testing.T, c client.Client, ctx context.Context) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
+			prepareFunc: func(t *testing.T, c client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(v), "CheckNetworkStack",
+					func(_ *AddressBindingValidator, _ context.Context, _ string) error {
+						return nil
+					})
+				patches.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
@@ -163,8 +227,12 @@ func TestAddressBindingValidator_Handle(t *testing.T) {
 		{
 			name: "create with valid ip allocation 2",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
-			prepareFunc: func(t *testing.T, c client.Client, ctx context.Context) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
+			prepareFunc: func(t *testing.T, c client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(v), "CheckNetworkStack",
+					func(_ *AddressBindingValidator, _ context.Context, _ string) error {
+						return nil
+					})
+				patches.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
@@ -181,8 +249,12 @@ func TestAddressBindingValidator_Handle(t *testing.T) {
 		{
 			name: "create with invalid ip allocation",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
-			prepareFunc: func(t *testing.T, client client.Client, ctx context.Context) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(client, "List", []gomonkey.OutputCell{{
+			prepareFunc: func(t *testing.T, client client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(v), "CheckNetworkStack",
+					func(_ *AddressBindingValidator, _ context.Context, _ string) error {
+						return nil
+					})
+				patches.ApplyMethodSeq(client, "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
@@ -193,8 +265,12 @@ func TestAddressBindingValidator_Handle(t *testing.T) {
 		{
 			name: "create with invalid visibility",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
-			prepareFunc: func(t *testing.T, c client.Client, ctx context.Context) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
+			prepareFunc: func(t *testing.T, c client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(v), "CheckNetworkStack",
+					func(_ *AddressBindingValidator, _ context.Context, _ string) error {
+						return nil
+					})
+				patches.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
@@ -211,8 +287,12 @@ func TestAddressBindingValidator_Handle(t *testing.T) {
 		{
 			name: "create with specified ip cidr",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
-			prepareFunc: func(t *testing.T, c client.Client, ctx context.Context) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
+			prepareFunc: func(t *testing.T, c client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(v), "CheckNetworkStack",
+					func(_ *AddressBindingValidator, _ context.Context, _ string) error {
+						return nil
+					})
+				patches.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
@@ -228,8 +308,12 @@ func TestAddressBindingValidator_Handle(t *testing.T) {
 		{
 			name: "create with specified ip cidr",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
-			prepareFunc: func(t *testing.T, c client.Client, ctx context.Context) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
+			prepareFunc: func(t *testing.T, c client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(v), "CheckNetworkStack",
+					func(_ *AddressBindingValidator, _ context.Context, _ string) error {
+						return nil
+					})
+				patches.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
@@ -245,8 +329,12 @@ func TestAddressBindingValidator_Handle(t *testing.T) {
 		{
 			name: "create with specified /32 ip cidr",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
-			prepareFunc: func(t *testing.T, c client.Client, ctx context.Context) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
+			prepareFunc: func(t *testing.T, c client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(v), "CheckNetworkStack",
+					func(_ *AddressBindingValidator, _ context.Context, _ string) error {
+						return nil
+					})
+				patches.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
@@ -262,8 +350,12 @@ func TestAddressBindingValidator_Handle(t *testing.T) {
 		{
 			name: "create with invalid ip allocation size",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
-			prepareFunc: func(t *testing.T, c client.Client, ctx context.Context) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
+			prepareFunc: func(t *testing.T, c client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(v), "CheckNetworkStack",
+					func(_ *AddressBindingValidator, _ context.Context, _ string) error {
+						return nil
+					})
+				patches.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
@@ -275,6 +367,18 @@ func TestAddressBindingValidator_Handle(t *testing.T) {
 				return patches
 			},
 			want: admission.Denied("IPAddressAllocation must be a single IP"),
+		},
+		{
+			name: "create with networkStack VLANBackedVPC",
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
+			prepareFunc: func(t *testing.T, c client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(v), "CheckNetworkStack",
+					func(_ *AddressBindingValidator, _ context.Context, _ string) error {
+						return errors.New("")
+					})
+				return patches
+			},
+			want: admission.Denied("AddressBinding is not supported in VLANBackedVPC VPC"),
 		},
 	}
 	for _, tt := range tests {
@@ -303,15 +407,79 @@ func TestAddressBindingValidator_Handle(t *testing.T) {
 					VMName: "vm2",
 				},
 			})
-			if tt.prepareFunc != nil {
-				patches := tt.prepareFunc(t, client, ctx)
-				defer patches.Reset()
-			}
 			v := &AddressBindingValidator{
 				Client:  client,
 				decoder: decoder,
 			}
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc(t, client, v, ctx)
+				defer patches.Reset()
+			}
+
 			assert.Equalf(t, tt.want, v.Handle(ctx, tt.args.req), "Handle()")
+		})
+	}
+}
+
+func TestCheckNetworkStack(t *testing.T) {
+	tests := []struct {
+		name      string
+		namespace string
+		objects   []client.Object
+		wantErr   bool
+		errMsg    string
+	}{
+		{
+			name:      "no NetworkInfo found",
+			namespace: "default",
+			objects:   []client.Object{},
+			wantErr:   true,
+			errMsg:    "no NetworkInfo found in namespace default",
+		},
+		{
+			name:      "VLANBackedVPC not supported",
+			namespace: "default",
+			objects: []client.Object{
+				&v1alpha1.NetworkInfo{
+					ObjectMeta: v1.ObjectMeta{Name: "test", Namespace: "default"},
+					VPCs: []v1alpha1.VPCState{
+						{NetworkStack: "VLANBackedVPC"},
+					},
+				},
+			},
+			wantErr: true,
+			errMsg:  "AddressBinding is not supported in VLANBackedVPC VPC",
+		},
+		{
+			name:      "valid FullStackVPC VPC",
+			namespace: "default",
+			objects: []client.Object{
+				&v1alpha1.NetworkInfo{
+					ObjectMeta: v1.ObjectMeta{Name: "test", Namespace: "default"},
+					VPCs: []v1alpha1.VPCState{
+						{NetworkStack: "FullStackVPC"},
+					},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			v1alpha1.AddToScheme(scheme)
+			client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tt.objects...).Build()
+
+			validator := &AddressBindingValidator{Client: client}
+			err := validator.CheckNetworkStack(context.Background(), tt.namespace)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("CheckNetworkStack() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr && err.Error() != tt.errMsg {
+				t.Errorf("CheckNetworkStack() error = %v, want %v", err.Error(), tt.errMsg)
+			}
 		})
 	}
 }
