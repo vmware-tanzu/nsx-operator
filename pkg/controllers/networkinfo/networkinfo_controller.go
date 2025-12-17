@@ -5,10 +5,10 @@ package networkinfo
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
+	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -34,6 +34,7 @@ import (
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -666,7 +667,7 @@ func (r *NetworkInfoReconciler) RestoreReconcile() error {
 		}
 	}
 	if len(errorList) > 0 {
-		return errors.Join(errorList...)
+		return fmt.Errorf("errors found in NetworkInfo restore: %v", errorList)
 	}
 	return nil
 }
@@ -688,8 +689,22 @@ func (r *NetworkInfoReconciler) getRestoreList() ([]types.NamespacedName, error)
 		if len(networkInfo.VPCs) == 0 {
 			continue
 		}
-		_, ok := nsPreCreatedVpcMap[networkInfo.Namespace]
+		precreatedVPCPath, ok := nsPreCreatedVpcMap[networkInfo.Namespace]
 		if ok {
+			// For precreated VPC, if the NSX VPC does not exist, update the Namespace CR status to show the warning
+			_, err = r.Service.GetVPCFromNSXByPath(precreatedVPCPath)
+			if err != nil {
+				if nsxErr, ok := err.(*nsxutil.NSXApiError); ok {
+					if nsxErr.Type() == stderrors.ErrorType_NOT_FOUND {
+						log.Warn("Precreated VPC does not exist in NSX", "VPC", precreatedVPCPath)
+						// update namespace status
+						setNSNetworkReadyCondition(context.TODO(), r.Client, networkInfo.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(fmt.Errorf("pre-created VPC is not found in NSX: %s", precreatedVPCPath)))
+						continue
+					}
+				}
+				log.Error(err, "Failed to get VPC from NSX", "VPC", precreatedVPCPath)
+				return restoreList, err
+			}
 			log.Debug("Skip handling the NetworkInfo with pre-created VPC", "NetworkInfo.Name", networkInfo.Name)
 			continue
 		}
