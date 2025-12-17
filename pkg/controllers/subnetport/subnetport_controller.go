@@ -449,7 +449,7 @@ func (r *SubnetPortReconciler) RestoreReconcile() error {
 		}
 	}
 	if len(errorList) > 0 {
-		return errors.Join(errorList...)
+		return fmt.Errorf("errors found in SubnetPort restore: %v", errorList)
 	}
 	return nil
 }
@@ -462,7 +462,7 @@ func (r *SubnetPortReconciler) getRestoreList() ([]types.NamespacedName, error) 
 		return restoreList, err
 	}
 	for _, subnetport := range subnetPortList.Items {
-		// Restore a SubnetPort if SubnetPort CR has status updated but no corresponding NSX Subnetport in cache
+		// Restore a SubnetPort if SubnetPort CR has status updated but no corresponding NSX SubnetPort in cache
 		if len(subnetport.Status.NetworkInterfaceConfig.IPAddresses) > 0 && !nsxSubnetPortCRIDs.Has(string(subnetport.GetUID())) {
 			restoreList = append(restoreList, types.NamespacedName{Namespace: subnetport.Namespace, Name: subnetport.Name})
 			continue
@@ -716,10 +716,22 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 	return nil
 }
 
-func (r *SubnetPortReconciler) getSubnetBySubnetPort(subnetPort *v1alpha1.SubnetPort) (string, error) {
+// getSubnetBySubnetPort is only used in restore mode to find the Subnet by comparing the desired GatewayIP of the SubnetPort with the target NSX Subnet
+// For SubnetPort on Subnet, subnetCR is required to find NSX Subnet for shared Subnet or auto-created Subnet
+// For SubnetPort on SubnetSet, NSX Subnets are find from cache based on SubnetSet Name
+func (r *SubnetPortReconciler) getSubnetBySubnetPort(subnetPort *v1alpha1.SubnetPort, subnetCR *v1alpha1.Subnet) (string, error) {
 	var subnets []*model.VpcSubnet
 	if len(subnetPort.Spec.Subnet) > 0 {
-		subnets = r.SubnetService.ListSubnetByName(subnetPort.Namespace, subnetPort.Spec.Subnet)
+		// Use GetSubnetByCR to get NSX Subnet for shared Subnet or auto-created Subnet based on SubnetCR annotation
+		if subnetCR == nil {
+			err := fmt.Errorf("Subnet CR %s/%s not provided", subnetPort.Namespace, subnetPort.Spec.Subnet)
+			return "", err
+		}
+		nsxSubnet, err := r.SubnetService.GetSubnetByCR(subnetCR)
+		if err != nil {
+			return "", err
+		}
+		subnets = append(subnets, nsxSubnet)
 	} else if len(subnetPort.Spec.SubnetSet) > 0 {
 		subnets = r.SubnetService.ListSubnetBySubnetSetName(subnetPort.Namespace, subnetPort.Spec.SubnetSet)
 	} else {
@@ -749,7 +761,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 	if r.restoreMode {
 		// For restore case, SubnetPort will be created on the Subnet with matching CIDR
 		if subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway != "" {
-			subnetPath, err = r.getSubnetBySubnetPort(subnetPort)
+			subnetPath, err = r.getSubnetBySubnetPort(subnetPort, subnetCR)
 			if err != nil {
 				log.Error(err, "Failed to find Subnet for restored SubnetPort", "SubnetPort", subnetPort)
 				return
