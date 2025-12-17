@@ -156,13 +156,14 @@ func TestReconcile(t *testing.T) {
 	}{
 		{
 			name:      "Create a SubnetSet with find VPCNetworkConfig error",
-			expectRes: ResultRequeue,
+			expectRes: ResultNormal,
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
 					return []v1alpha1.SubnetConnectionBindingMap{}
 				})
 				return patches
 			},
+			expectErrStr: "failed to locate default NetworkConfig",
 		},
 		{
 			name:      "Create a SubnetSet",
@@ -190,8 +191,8 @@ func TestReconcile(t *testing.T) {
 		{
 			// return nil and requeue when UpdateSubnetSet failed
 			name:         "Create a SubnetSet failed to UpdateSubnetSet",
-			expectRes:    ResultRequeue,
-			expectErrStr: "",
+			expectRes:    ResultNormal,
+			expectErrStr: "failed to get SubnetSet",
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
 				vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 32}}
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {

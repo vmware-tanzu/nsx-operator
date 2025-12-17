@@ -131,12 +131,12 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		vpcNetworkConfig, err := r.VPCService.GetVPCNetworkConfigByNamespace(subnetsetCR.Namespace)
 		if err != nil {
 			log.Error(err, "Failed to get VPCNetworkConfig", "Namespace", subnetsetCR.Namespace)
-			return ResultRequeue, nil
+			return ResultNormal, err
 		}
 		if vpcNetworkConfig == nil {
 			err := fmt.Errorf("failed to find VPCNetworkConfig for Namespace %s", subnetsetCR.Namespace)
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "", setSubnetSetReadyStatusFalse)
-			return ResultRequeue, nil
+			return ResultNormal, err
 		}
 		subnetsetCR.Spec.IPv4SubnetSize = vpcNetworkConfig.Spec.DefaultSubnetSize
 		specChanged = true
@@ -172,18 +172,18 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			}
 			if err := r.SubnetService.RestoreSubnetSet(subnetsetCR, vpcInfoList[0], tags); err != nil {
 				r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to restore SubnetSet", setSubnetSetReadyStatusFalse)
-				return ResultRequeue, nil
+				return ResultNormal, err
 			}
 			r.StatusUpdater.UpdateSuccess(ctx, subnetsetCR, setSubnetSetReadyStatusTrue)
 		}
 		if err := r.SubnetService.UpdateSubnetSet(subnetsetCR.Namespace, nsxSubnets, tags, string(subnetsetCR.Spec.SubnetDHCPConfig.Mode)); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
-			return ResultRequeue, nil
+			return ResultNormal, err
 		}
 	}
 	r.StatusUpdater.UpdateSuccess(ctx, subnetsetCR, setSubnetSetReadyStatusTrue)
 
-	return ctrl.Result{}, nil
+	return ResultNormal, nil
 }
 
 func setSubnetSetReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {
@@ -477,7 +477,7 @@ func (r *SubnetSetReconciler) RestoreReconcile() error {
 		}
 	}
 	if len(errorList) > 0 {
-		return errors.Join(errorList...)
+		return fmt.Errorf("errors found in SubnetSet restore: %v", errorList)
 	}
 	return nil
 }
