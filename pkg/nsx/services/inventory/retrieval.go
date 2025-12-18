@@ -59,7 +59,7 @@ func GetPodByUID(ctx context.Context, c client.Client, uid types.UID, namespace 
 		}
 	}
 
-	return nil, fmt.Errorf("pod with UID %s not found in namespace %s", uid, namespace)
+	return nil, nil
 }
 
 func GetServicesUIDByPodUID(ctx context.Context, c client.Client, podUID types.UID, namespace string) ([]string, error) {
