@@ -112,6 +112,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Attachment: &model.PortAttachment{
 					AllocateAddresses: common.String("NONE"),
 					Type_:             common.String(model.PortAttachment_TYPE_INDEPENDENT),
+					Id:                common.String("32636365-6333-4239-ad37-3534362d3466"),
 					TrafficTag:        common.Int64(0),
 				},
 			},
@@ -180,6 +181,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Attachment: &model.PortAttachment{
 					AllocateAddresses: common.String("NONE"),
 					Type_:             common.String(model.PortAttachment_TYPE_INDEPENDENT),
+					Id:                common.String("32636365-6333-4239-ad37-3534362d3466"),
 					TrafficTag:        common.Int64(0),
 				},
 				AddressBindings: []model.PortAddressBindingEntry{
@@ -491,6 +493,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Attachment: &model.PortAttachment{
 					AllocateAddresses: common.String("IP_POOL"),
 					Type_:             common.String(model.PortAttachment_TYPE_INDEPENDENT),
+					Id:                common.String("32636365-6333-4239-ad37-3534362d3466"),
 					TrafficTag:        common.Int64(0),
 				},
 				AddressBindings: []model.PortAddressBindingEntry{
@@ -572,6 +575,7 @@ func TestBuildSubnetPort(t *testing.T) {
 					AllocateAddresses: common.String("BOTH"),
 					Type_:             common.String(model.PortAttachment_TYPE_INDEPENDENT),
 					TrafficTag:        common.Int64(0),
+					Id:                common.String("63356462-3138-4030-ad63-6534632d3131"),
 					AppId:             common.String("c5db1800-ce4c-11de-a935-8105ba7ace78"),
 					ContextId:         common.String("fake_context_id"),
 				},
@@ -723,6 +727,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Attachment: &model.PortAttachment{
 					AllocateAddresses: common.String("NONE"),
 					Type_:             common.String(model.PortAttachment_TYPE_INDEPENDENT),
+					Id:                common.String("32636365-6333-4239-ad37-3534362d3466"),
 					TrafficTag:        common.Int64(0),
 				},
 			},
@@ -784,6 +789,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Attachment: &model.PortAttachment{
 					AllocateAddresses: common.String("NONE"),
 					Type_:             common.String(model.PortAttachment_TYPE_INDEPENDENT),
+					Id:                common.String("32636365-6333-4239-ad37-3534362d3466"),
 					TrafficTag:        common.Int64(0),
 				},
 			},
@@ -852,6 +858,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Attachment: &model.PortAttachment{
 					AllocateAddresses: common.String("NONE"),
 					Type_:             common.String(model.PortAttachment_TYPE_INDEPENDENT),
+					Id:                common.String("32636365-6333-4239-ad37-3534362d3466"),
 					TrafficTag:        common.Int64(0),
 				},
 				AddressBindings: []model.PortAddressBindingEntry{
@@ -868,12 +875,14 @@ func TestBuildSubnetPort(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			observedPort, err := service.buildSubnetPort(tt.obj, tt.nsxSubnet, tt.contextID, tt.labelTags, false, tt.restore)
-			// Ignore attachment id as it is random
 			if tt.expectedError != nil {
 				assert.Equal(t, tt.expectedError, err)
 			} else {
 				assert.Nil(t, err)
-				tt.expectedPort.Attachment.Id = observedPort.Attachment.Id
+				// Ignore attachment id for restore mode as it is random
+				if tt.restore {
+					tt.expectedPort.Attachment.Id = observedPort.Attachment.Id
+				}
 				assert.Equal(t, tt.expectedPort, observedPort)
 				assert.Equal(t, common.CompareResource(SubnetPortToComparable(tt.expectedPort), SubnetPortToComparable(observedPort)), false)
 			}
