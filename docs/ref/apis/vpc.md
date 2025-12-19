@@ -1097,7 +1097,7 @@ _Appears in:_
 | `nsxProject` _string_ | NSX Project the Namespace is associated with. |  |  |
 | `vpcConnectivityProfile` _string_ | VPCConnectivityProfile Path. This profile has configuration related to creating VPC transit gateway attachment. |  |  |
 | `privateIPs` _string array_ | Private IPs. |  |  |
-| `defaultSubnetSize` _integer_ | Default size of Subnets.<br />Defaults to 32. | 32 | Maximum: 65536 <br />Minimum: 16 <br /> |
+| `defaultSubnetSize` _integer_ | Default size of Subnets.<br />Defaults to 32. | 32 | Maximum: 65536 <br /> |
 
 
 #### VPCNetworkConfigurationStatus

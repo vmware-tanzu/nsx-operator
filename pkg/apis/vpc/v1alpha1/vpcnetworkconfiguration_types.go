@@ -36,7 +36,6 @@ type VPCNetworkConfigurationSpec struct {
 	// Defaults to 32.
 	// +kubebuilder:default=32
 	// +kubebuilder:validation:Maximum:=65536
-	// +kubebuilder:validation:Minimum:=16
 	DefaultSubnetSize int `json:"defaultSubnetSize,omitempty"`
 }
 
