@@ -230,10 +230,11 @@ func (s *SecurityPolicyService) setUpStore(indexScope string, indexWithVPCPath b
 }
 
 func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj interface{}) error {
-	if !nsxutil.IsLicensed(nsxutil.FeatureDFW) {
-		log.Info("No DFW license, skip creating SecurityPolicy.")
+	if !nsxutil.GetDFWLicense() {
+		log.Warn("No DFW license, skip creating SecurityPolicy.")
 		return nsxutil.RestrictionError{Desc: "no DFW license"}
 	}
+
 	var err error
 	switch obj.(type) {
 	case *networkingv1.NetworkPolicy:

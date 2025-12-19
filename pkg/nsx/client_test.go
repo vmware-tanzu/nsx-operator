@@ -20,6 +20,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 func TestNSXHealthChecker_CheckNSXHealth(t *testing.T) {
@@ -218,4 +219,144 @@ func TestRestConnectorAllowOverwrite(t *testing.T) {
 
 	client := search.NewQueryClient(cluster.NewRestConnectorAllowOverwrite())
 	client.List("search", nil, nil, nil, nil, nil)
+}
+func TestValidateLicense(t *testing.T) {
+	pkg_log.SetLogger(zap.New(zap.UseDevMode(true)))
+	cf := config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{NsxApiUser: "admin", NsxApiPassword: "Admin!23Admin", NsxApiManagers: []string{"10.0.0.1"}}}
+	cf.VCConfig = &config.VCConfig{}
+	cf.NsxConfig = &config.NsxConfig{}
+	cf.CoeConfig = &config.CoeConfig{EnableVPCNetwork: true}
+
+	cluster := &Cluster{}
+
+	tests := []struct {
+		name             string
+		init             bool
+		fetchLicenseErr  error
+		isLicensedBefore bool
+		isLicensedAfter  bool
+		dfwLicenseBefore bool
+		dfwLicenseAfter  bool
+		wantErr          bool
+		expectedErrMsg   string
+	}{
+		{
+			name:             "init mode, container license supported",
+			init:             true,
+			fetchLicenseErr:  nil,
+			isLicensedBefore: true,
+			isLicensedAfter:  true,
+			dfwLicenseBefore: true,
+			dfwLicenseAfter:  true,
+			wantErr:          false,
+		},
+		{
+			name:             "init mode, container license not supported",
+			init:             true,
+			fetchLicenseErr:  nil,
+			isLicensedBefore: false,
+			isLicensedAfter:  false,
+			dfwLicenseBefore: false,
+			dfwLicenseAfter:  false,
+			wantErr:          true,
+			expectedErrMsg:   "NSX license check failed",
+		},
+		{
+			name:             "init mode, VPC license not supported",
+			init:             true,
+			fetchLicenseErr:  nil,
+			isLicensedBefore: true,
+			isLicensedAfter:  false,
+			dfwLicenseBefore: false,
+			dfwLicenseAfter:  false,
+			wantErr:          true,
+			expectedErrMsg:   "NSX license check failed",
+		},
+		{
+			name:            "fetch license error",
+			init:            true,
+			fetchLicenseErr: fmt.Errorf("license fetch failed"),
+			wantErr:         true,
+			expectedErrMsg:  "license fetch failed",
+		},
+		{
+			name:             "non-init mode, license unchanged",
+			init:             false,
+			fetchLicenseErr:  nil,
+			isLicensedBefore: true,
+			isLicensedAfter:  true,
+			dfwLicenseBefore: true,
+			dfwLicenseAfter:  true,
+			wantErr:          false,
+		},
+		{
+			name:             "non-init mode, container license changed",
+			init:             false,
+			fetchLicenseErr:  nil,
+			isLicensedBefore: true,
+			isLicensedAfter:  true,
+			dfwLicenseBefore: true,
+			dfwLicenseAfter:  false,
+			wantErr:          true,
+			expectedErrMsg:   "license updated",
+		},
+		{
+			name:             "non-init mode, dfw license changed",
+			init:             false,
+			fetchLicenseErr:  nil,
+			isLicensedBefore: true,
+			isLicensedAfter:  true,
+			dfwLicenseBefore: true,
+			dfwLicenseAfter:  false,
+			wantErr:          true,
+			expectedErrMsg:   "license updated",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patchFetch := gomonkey.ApplyMethod(reflect.TypeOf(cluster), "FetchLicense", func(_ *Cluster) error {
+				return tt.fetchLicenseErr
+			})
+			defer patchFetch.Reset()
+
+			callCount := 0
+			patchIsLicensed := gomonkey.ApplyFunc(util.IsLicensed, func(feature string) bool {
+				callCount++
+				if callCount == 1 {
+					return tt.isLicensedBefore
+				}
+				return tt.isLicensedAfter
+			})
+			defer patchIsLicensed.Reset()
+
+			dfwCallCount := 0
+			patchDfw := gomonkey.ApplyFunc(util.GetDFWLicense, func() bool {
+				dfwCallCount++
+				if dfwCallCount == 1 {
+					return tt.dfwLicenseBefore
+				}
+				return tt.dfwLicenseAfter
+			})
+			defer patchDfw.Reset()
+
+			patchSetVpc := gomonkey.ApplyFunc(util.SetEnableVpcNetwork, func(enable bool) {})
+			defer patchSetVpc.Reset()
+
+			client := &Client{
+				NsxConfig: &cf,
+				NSXChecker: NSXHealthChecker{
+					cluster: cluster,
+				},
+			}
+
+			err := client.ValidateLicense(tt.init)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateLicense() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil && err.Error() != tt.expectedErrMsg {
+				t.Errorf("ValidateLicense() error message = %v, expected %v", err.Error(), tt.expectedErrMsg)
+			}
+		})
+	}
 }
