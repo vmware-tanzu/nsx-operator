@@ -386,7 +386,7 @@ func checkLicense(nsxClient *nsx.Client, interval int) {
 	// if there is no dfw license enabled, check the license more frequently
 	// if the customer set it in config, use it, else use licenseTimeoutNoDFW
 	if interval == 0 {
-		if !util.IsLicensed(util.FeatureDFW) {
+		if !util.GetDFWLicense() {
 			interval = config.LicenseIntervalForDFW
 		} else {
 			interval = config.LicenseInterval

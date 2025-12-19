@@ -752,7 +752,7 @@ func IsInvalidLicense(err error) bool {
 			errorMessage = *apiErr.ErrorMessage
 		}
 		if invalidLicense {
-			UpdateLicense(FeatureDFW, false)
+			UpdateDFWLicense(false)
 			log.Error(err, "Invalid license, nsx-operator will restart", "error message", errorMessage)
 		}
 	}
