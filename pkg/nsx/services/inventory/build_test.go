@@ -751,6 +751,16 @@ func TestSynchronizeServiceIDsWithApplicationInstances(t *testing.T) {
 		inventoryService.ApplicationInstanceStore.Add(staleInstance)
 
 		podUIDs := []string{"pod-uid-123"}
+		patches := gomonkey.ApplyFunc(GetPodByUID,
+			func(ctx context.Context, client client.Client, uid types.UID, namespace string) (*corev1.Pod, error) {
+				return &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						UID: uid,
+					},
+				}, nil
+			},
+		)
+		defer patches.Reset()
 		inventoryService.removeStaleServiceIDsFromApplicationInstances(podUIDs, service)
 
 		updatedInstance := inventoryService.ApplicationInstanceStore.GetByKey("stale-pod-uid").(*containerinventory.ContainerApplicationInstance)
@@ -844,8 +854,29 @@ func TestRemoveStaleServiceIDsFromApplicationInstances(t *testing.T) {
 	// Simulate the list of pod UIDs that are currently valid
 	podUIDs := []string{"pod-uid-456"}
 
-	inventoryService.removeStaleServiceIDsFromApplicationInstances(podUIDs, service)
+	// List Pod failure
+	patches := gomonkey.ApplyFunc(GetPodByUID,
+		func(ctx context.Context, client client.Client, uid types.UID, namespace string) (*corev1.Pod, error) {
+			return nil, fmt.Errorf("mocked error")
+		},
+	)
+	result := inventoryService.removeStaleServiceIDsFromApplicationInstances(podUIDs, service)
+	assert.True(t, result)
+	patches.Reset()
 
+	// Happy path
+	patches = gomonkey.ApplyFunc(GetPodByUID,
+		func(ctx context.Context, client client.Client, uid types.UID, namespace string) (*corev1.Pod, error) {
+			return &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					UID: uid,
+				},
+			}, nil
+		},
+	)
+
+	result = inventoryService.removeStaleServiceIDsFromApplicationInstances(podUIDs, service)
+	assert.False(t, result)
 	// Verify that the stale UID is removed from the first instance
 	updatedInstanceWithStaleID := inventoryService.ApplicationInstanceStore.GetByKey("pod-uid-123").(*containerinventory.ContainerApplicationInstance)
 	assert.NotContains(t, updatedInstanceWithStaleID.ContainerApplicationIds, "service-uid-789")
@@ -854,6 +885,17 @@ func TestRemoveStaleServiceIDsFromApplicationInstances(t *testing.T) {
 	// Verify that the instance with valid IDs remains unchanged
 	updatedInstanceWithValidID := inventoryService.ApplicationInstanceStore.GetByKey("pod-uid-456").(*containerinventory.ContainerApplicationInstance)
 	assert.Contains(t, updatedInstanceWithValidID.ContainerApplicationIds, "service-uid-456")
+	patches.Reset()
+
+	// Pod does not exist
+	patches = gomonkey.ApplyFunc(GetPodByUID,
+		func(ctx context.Context, client client.Client, uid types.UID, namespace string) (*corev1.Pod, error) {
+			return nil, nil
+		},
+	)
+	result = inventoryService.removeStaleServiceIDsFromApplicationInstances(podUIDs, service)
+	assert.False(t, result)
+	patches.Reset()
 }
 
 func TestBuildIngress(t *testing.T) {

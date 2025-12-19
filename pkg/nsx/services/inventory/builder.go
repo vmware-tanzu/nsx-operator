@@ -448,8 +448,7 @@ func (s *InventoryService) synchronizeServiceIDsWithApplicationInstances(podUIDs
 			return true
 		}
 	}
-	s.removeStaleServiceIDsFromApplicationInstances(podUIDs, service)
-	return false
+	return s.removeStaleServiceIDsFromApplicationInstances(podUIDs, service)
 }
 
 func (s *InventoryService) applyServiceIDUpdates(instance *containerinventory.ContainerApplicationInstance, serviceUIDs []string) {
@@ -476,7 +475,7 @@ func (s *InventoryService) updateServiceIDsForApplicationInstance(podUID string,
 
 	ctx := context.TODO()
 	pod, err := GetPodByUID(ctx, s.Client, types.UID(podUID), service.Namespace)
-	if err != nil {
+	if err != nil || pod == nil {
 		log.Error(err, "Failed to get Pod by UID", "PodUID", podUID, "Namespace", service.Namespace)
 		return true
 	}
@@ -491,7 +490,7 @@ func (s *InventoryService) updateServiceIDsForApplicationInstance(podUID string,
 	return false
 }
 
-func (s *InventoryService) removeStaleServiceIDsFromApplicationInstances(podUIDs []string, service *corev1.Service) {
+func (s *InventoryService) removeStaleServiceIDsFromApplicationInstances(podUIDs []string, service *corev1.Service) (retry bool) {
 	allInstances := s.ApplicationInstanceStore.List()
 	for _, instObj := range allInstances {
 		inst := instObj.(*containerinventory.ContainerApplicationInstance)
@@ -502,10 +501,19 @@ func (s *InventoryService) removeStaleServiceIDsFromApplicationInstances(podUIDs
 		if !util.Contains(inst.ContainerApplicationIds, string(service.UID)) {
 			continue
 		}
-		// Filter out the service UID from the list
-		newIds := util.FilterOut(inst.ContainerApplicationIds, string(service.UID))
-		s.applyServiceIDUpdates(inst, newIds)
+		pod, err := GetPodByUID(context.TODO(), s.Client, types.UID(inst.ExternalId), service.Namespace)
+		if err != nil {
+			log.Error(err, "Failed to remove stale Service id", "PodUID", inst.ExternalId, "Namespace", service.Namespace)
+			return true
+		}
+		if pod != nil {
+			// Only update the ServiceID for Pods not deleted
+			// Filter out the service UID from the list
+			newIds := util.FilterOut(inst.ContainerApplicationIds, string(service.UID))
+			s.applyServiceIDUpdates(inst, newIds)
+		}
 	}
+	return false
 }
 
 func (s *InventoryService) BuildNode(node *corev1.Node) (retry bool) {
