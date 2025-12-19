@@ -158,7 +158,9 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	// Set log level for vsphere-automation-sdk-go
 	logger := logrus.New()
 	vspherelog.SetLogger(logger)
-	defaultHttpTimeout := 20
+	// This is the overall timeout for NSX client
+	// NSX server does not have timeout, some of the request may take over one minute.
+	defaultHttpTimeout := 180
 	if cf.HttpTimeout > 0 {
 		defaultHttpTimeout = cf.HttpTimeout
 	}
