@@ -1,6 +1,7 @@
 package subnetport
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"slices"
@@ -101,15 +102,22 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		allocateAddresses = "NONE"
 	}
 
-	// Generate attachment uid by adding randomness to SubnetPort CR UID
-	// In restore mode we need a different attachment uid for the same SubnetPort CR
-	// to make sure hostd will not ignore the vm network reconfigure
-	salt := []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
-	parsedUUID, err := uuid.Parse(string(objMeta.UID))
-	if err != nil {
-		return nil, err
+	var nsxCIFID uuid.UUID
+	if restoreMode {
+		// In restore mode we need a different attachment uid for the same SubnetPort CR
+		// to make sure hostd will not ignore the vm network reconfigure
+		salt := []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
+		var parsedUUID uuid.UUID
+		if parsedUUID, err = uuid.Parse(string(objMeta.UID)); err != nil {
+			return nil, err
+		}
+		nsxCIFID = uuid.NewSHA1(parsedUUID, salt)
+	} else {
+		// use the subnetPort CR UID as the attachment uid generation to ensure the latter stable
+		if nsxCIFID, err = uuid.NewRandomFromReader(bytes.NewReader([]byte(string(objMeta.UID)))); err != nil {
+			return nil, err
+		}
 	}
-	nsxCIFID := uuid.NewSHA1(parsedUUID, salt)
 
 	namespace := &corev1.Namespace{}
 	namespacedName := types.NamespacedName{
