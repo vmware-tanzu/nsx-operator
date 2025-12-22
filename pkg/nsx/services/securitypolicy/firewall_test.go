@@ -2190,6 +2190,36 @@ func Test_CreateOrUpdateSecurityPolicy(t *testing.T) {
 			wantInfraGroupStoreCount:     0,
 			wantInfraShareStoreCount:     0,
 		},
+		{
+			name: "Skip to create security policy since no license ",
+			prepareFunc: func(t *testing.T, s *SecurityPolicyService) *gomonkey.Patches {
+				patches := gomonkey.ApplyFuncSeq(nsxutil.GetDFWLicense, []gomonkey.OutputCell{{
+					Values: gomonkey.Params{false},
+					Times:  1,
+				}})
+				return patches
+			},
+			args: args{
+				createdFor: common.ResourceTypeSecurityPolicy,
+				spObj:      &spWithPodSelector,
+			},
+			expectedPolicy: &model.SecurityPolicy{
+				DisplayName:    &spName,
+				Id:             &spID,
+				SequenceNumber: &seq0,
+				Rules:          []model.Rule{},
+				Tags:           vpcBasicTags,
+				Path:           ptr.To("/orgs/default/projects/projectQuality/vpcs/vpc1/security-policies/sp_uidA"),
+			},
+			wantErr:                      true,
+			wantSecurityPolicyStoreCount: 0,
+			wantRuleStoreCount:           0,
+			wantGroupStoreCount:          0,
+			wantProjectGroupStoreCount:   0,
+			wantProjectShareStoreCount:   0,
+			wantInfraGroupStoreCount:     0,
+			wantInfraShareStoreCount:     0,
+		},
 	}
 
 	for _, tt := range tests {

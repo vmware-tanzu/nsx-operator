@@ -385,9 +385,12 @@ func (client *Client) FeatureEnabled(feature int) bool {
 // once license updated, operator will restart
 // if FeatureContainer license is false, operatore will restart
 func (client *Client) ValidateLicense(init bool) error {
+	if init {
+		util.SetEnableVpcNetwork(client.NsxConfig.EnableVPCNetwork)
+	}
 	log.Info("Checking NSX license")
 	oldContainerLicense := util.IsLicensed(util.FeatureContainer)
-	oldDfwLicense := util.IsLicensed(util.FeatureDFW)
+	oldDfwLicense := util.GetDFWLicense()
 	err := client.NSXChecker.cluster.FetchLicense()
 	if err != nil {
 		return err
@@ -397,9 +400,16 @@ func (client *Client) ValidateLicense(init bool) error {
 		log.Error(err, "Container license is not supported")
 		return err
 	}
+	if client.NsxConfig.EnableVPCNetwork {
+		if !util.IsLicensed(util.FeatureVPC) {
+			err = errors.New("NSX license check failed")
+			log.Error(err, "VPC license is not supported")
+			return err
+		}
+	}
 	if !init {
 		newContainerLicense := util.IsLicensed(util.FeatureContainer)
-		newDfwLicense := util.IsLicensed(util.FeatureDFW)
+		newDfwLicense := util.GetDFWLicense()
 		if newContainerLicense != oldContainerLicense || newDfwLicense != oldDfwLicense {
 			log.Info("License updated, reset", "container license new value", newContainerLicense, "DFW license new value", newDfwLicense, "container license old value", oldContainerLicense, "DFW license old value", oldDfwLicense)
 			return errors.New("license updated")
