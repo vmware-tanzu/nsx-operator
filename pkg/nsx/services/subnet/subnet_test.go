@@ -1196,6 +1196,42 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "Map NSX Subnet with vlanextention disabled",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					VLANConnectionName: "vlan-connection-name",
+					IPv4SubnetSize:     64,
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation:  v1alpha1.StaticIPAllocation{},
+						GatewayAddresses:    []string{"10.0.0.1/24"},
+						DHCPServerAddresses: []string{"10.0.0.2/24"},
+					},
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:  common.String("Public"),
+				IpAddresses: []string{"10.0.1.3/24"},
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					GatewayAddresses: []string{"10.0.1.1/24"},
+				},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:  v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddresses: []string{"10.0.1.3/24"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: common.Bool(false),
+						},
+						GatewayAddresses: []string{"10.0.1.1/24"},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1341,6 +1377,33 @@ func TestMapNSXSubnetStatusToSubnetCRStatus(t *testing.T) {
 					VPCGatewayConnectionEnable: true,
 				},
 				Shared: false,
+			},
+		},
+		{
+			name: "Map NSX Subnet Status with nil VLAN Extension",
+			subnetCR: &v1alpha1.Subnet{
+				Status: v1alpha1.SubnetStatus{
+					NetworkAddresses:    []string{"old-network"},
+					GatewayAddresses:    []string{"old-gateway"},
+					DHCPServerAddresses: []string{"old-dhcp"},
+					VLANExtension: v1alpha1.VLANExtension{
+						VLANID:                     1234,
+						VPCGatewayConnectionEnable: true,
+					},
+					Shared: true,
+				},
+			},
+			statusList: []model.VpcSubnetStatus{
+				{
+					NetworkAddress: common.String("10.0.0.0/24"),
+					GatewayAddress: common.String("10.0.0.1"),
+				},
+			},
+			expectedStatus: v1alpha1.SubnetStatus{
+				NetworkAddresses:    []string{"10.0.0.0/24"},
+				GatewayAddresses:    []string{"10.0.0.1"},
+				DHCPServerAddresses: []string{},
+				Shared:              true,
 			},
 		},
 	}
