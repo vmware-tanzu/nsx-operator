@@ -339,7 +339,7 @@ func TestStaticRouteReconciler_Start(t *testing.T) {
 		Scheme:  nil,
 		Service: service,
 	}
-	err := r.Start(mgr)
+	err := r.Start(mgr, nil)
 	assert.NotEqual(t, err, nil)
 }
 

@@ -25,6 +25,25 @@ type AddressBindingValidator struct {
 	decoder admission.Decoder
 }
 
+func (v *AddressBindingValidator) CheckNetworkStack(ctx context.Context, ns string) error {
+	networkInfoList := &v1alpha1.NetworkInfoList{}
+	err := v.Client.List(context.TODO(), networkInfoList, client.InNamespace(ns))
+	if err != nil {
+		return fmt.Errorf("failed to list NetworkInfo in namespace %s: %v", ns, err)
+	}
+	if len(networkInfoList.Items) == 0 {
+		return fmt.Errorf("no NetworkInfo found in namespace %s", ns)
+	}
+
+	for _, vpc := range networkInfoList.Items[0].VPCs {
+		log.Debug("Check network statck", "networkstack", vpc.NetworkStack)
+		if vpc.NetworkStack == v1alpha1.VLANBackedVPC {
+			return fmt.Errorf("AddressBinding is not supported in VLANBackedVPC VPC")
+		}
+	}
+	return nil
+}
+
 // Handle handles admission requests.
 func (v *AddressBindingValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	ab := &v1alpha1.AddressBinding{}
@@ -37,6 +56,13 @@ func (v *AddressBindingValidator) Handle(ctx context.Context, req admission.Requ
 			return admission.Errored(http.StatusBadRequest, err)
 		}
 	}
+	if req.Operation != admissionv1.Delete {
+		if err := v.CheckNetworkStack(ctx, req.Namespace); err != nil {
+			log.Error(err, "AddressBinding validation failed", "AddressBinding", req.Namespace+"/"+req.Name)
+			return admission.Denied("AddressBinding is not supported in VLANBackedVPC VPC")
+		}
+	}
+
 	switch req.Operation {
 	case admissionv1.Create:
 		existingAddressBindingList := &v1alpha1.AddressBindingList{}
