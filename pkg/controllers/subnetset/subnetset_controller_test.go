@@ -90,7 +90,7 @@ func createFakeSubnetSetReconciler(objs []client.Object) *SubnetSetReconciler {
 	newScheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
 	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
-	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objs...).Build()
+	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithStatusSubresource(&v1alpha1.SubnetSet{}).WithObjects(objs...).Build()
 	vpcService := &vpc.VPCService{
 		Service: common.Service{
 			Client:    fakeClient,
@@ -359,6 +359,104 @@ func TestReconcile(t *testing.T) {
 				assert.NoError(t, err)
 			}
 			assert.Equal(t, testCase.expectRes, res)
+		})
+	}
+}
+
+func TestUpdateSubnetSetForSubnetNames(t *testing.T) {
+	testCases := []struct {
+		name        string
+		subnetset   *v1alpha1.SubnetSet
+		subnets     []*v1alpha1.Subnet
+		expectedErr string
+	}{
+		{
+			name: "UpdateSubnetSetSuccess",
+			subnetset: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: []string{"subnet-1", "subnet-2"},
+				},
+			},
+			subnets: []*v1alpha1.Subnet{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "subnet-1",
+						Namespace: "ns-1",
+					},
+					Status: v1alpha1.SubnetStatus{
+						Conditions:       []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: v12.ConditionTrue}},
+						GatewayAddresses: []string{"10.0.0.1/28"},
+						NetworkAddresses: []string{"10.0.0.0/28"},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "subnet-2",
+						Namespace: "ns-1",
+					},
+					Status: v1alpha1.SubnetStatus{
+						Conditions:          []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: v12.ConditionTrue}},
+						GatewayAddresses:    []string{"10.0.0.1/28"},
+						NetworkAddresses:    []string{"10.0.0.0/28"},
+						DHCPServerAddresses: []string{"10.0.0.2/28"},
+					},
+				},
+			},
+		},
+		{
+			name: "UnrealizedSubnet",
+			subnetset: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: []string{"subnet-1", "subnet-2"},
+				},
+			},
+			subnets: []*v1alpha1.Subnet{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "subnet-1",
+						Namespace: "ns-1",
+					},
+					Status: v1alpha1.SubnetStatus{
+						Conditions:       []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: v12.ConditionTrue}},
+						GatewayAddresses: []string{"10.0.0.1/28"},
+						NetworkAddresses: []string{"10.0.0.0/28"},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "subnet-2",
+						Namespace: "ns-1",
+					},
+					Status: v1alpha1.SubnetStatus{},
+				},
+			},
+			expectedErr: "Subnet ns-1/subnet-2 is not realized",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.TODO()
+			objs := []client.Object{tc.subnetset}
+			for _, subnet := range tc.subnets {
+				objs = append(objs, subnet)
+			}
+			r := createFakeSubnetSetReconciler(objs)
+			err := r.UpdateSubnetSetForSubnetNames(ctx, tc.subnetset)
+
+			if tc.expectedErr != "" {
+				assert.Contains(t, err.Error(), tc.expectedErr)
+			} else {
+				assert.Nil(t, err)
+			}
 		})
 	}
 }

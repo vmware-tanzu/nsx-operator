@@ -5,8 +5,10 @@ import (
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -51,7 +53,7 @@ func (r *NamespaceReconciler) createSubnetCRInK8s(ctx context.Context, subnetCR 
 }
 
 // createSharedSubnetCR creates a Subnet CR for a shared subnet
-func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns string, sharedSubnetPath string) error {
+func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns string, sharedSubnetPath string, preferredName string, existingSharedSubnets map[string]*v1alpha1.Subnet) error {
 	// Extract the org id, project id, VPC id, and subnet id
 	orgID, projectID, vpcID, subnetID, err := servicecommon.ExtractSubnetPath(sharedSubnetPath)
 	if err != nil {
@@ -74,9 +76,13 @@ func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns strin
 		return err
 	}
 
-	// Generate a valid Kubernetes name from the subnet ID
+	// Generate a valid Kubernetes name from preferredName or the subnet ID
+	// If the preferredName meets Kubernetes standards, use it; otherwise check subnet ID.
+	if preferredName == "" || len(validation.IsDNS1123Subdomain(preferredName)) > 0 {
+		preferredName = subnetID
+	}
 	// If subnet ID meets Kubernetes standards, use it; otherwise hash it
-	subnetName := generateValidSubnetName(subnetID)
+	subnetName := generateValidSubnetName(preferredName)
 
 	// Create the Subnet CR object
 	subnetCR := r.SubnetService.BuildSubnetCR(ns, subnetName, vpcFullID, associatedName)
@@ -86,7 +92,7 @@ func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns strin
 	if err != nil {
 		return err
 	}
-
+	existingSharedSubnets[associatedName] = subnetCR
 	namespacedName := types.NamespacedName{
 		Namespace: subnetCR.Namespace,
 		Name:      subnetCR.Name,
@@ -122,6 +128,97 @@ func (r *NamespaceReconciler) getExistingSharedSubnetCRs(ctx context.Context, ns
 	return existingSharedSubnets, nil
 }
 
+func (r *NamespaceReconciler) updateDefaultSubnetSetWithSubnets(name string, subnetSetType string, ns string, subnetNames []string) error {
+	ctx := context.TODO()
+	if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+		return err != nil
+	}, func() error {
+		list := &v1alpha1.SubnetSetList{}
+		label := client.MatchingLabels{
+			servicecommon.LabelDefaultNetwork: subnetSetType,
+		}
+		if err := r.Client.List(context.Background(), list, label, client.InNamespace(ns)); err != nil {
+			return err
+		}
+		if len(list.Items) > 1 {
+			// Should not reach here
+			return fmt.Errorf("multiple default SubnetSet found, subnetSetType: %s, SubnetSets: %v", subnetSetType, list.Items)
+		}
+		if len(list.Items) == 1 {
+			subnetSetCR := &list.Items[0]
+			if len(subnetNames) == 0 {
+				// When there is no pre-created Subnets for this default network,
+				// Delete the default SubnetSet if it is created with pre-created Subnets
+				if len(subnetSetCR.Spec.SubnetNames) > 0 {
+					log.Debug("Delete default SubnetSet", "Name", name, "Namespace", ns)
+					return r.Client.Delete(ctx, subnetSetCR)
+				}
+				// Do nothing if the default SubnetSet is created with auto-created Subnets
+				log.Debug("Default SubnetSet with auto-created Subnets exists", "Name", name, "Namespace", ns)
+				return nil
+			}
+			// If the existing SubnetSet is auto-created, it is not deleted by NetworkInfo controller yet, need to retry
+			if len(subnetSetCR.Spec.SubnetNames) == 0 {
+				return fmt.Errorf("SubnetSet %s/%s with shared Subnets cannot be created as the old default SubnetSet still exists, will retry later", ns, name)
+			}
+			// Update the default SubnetSet with the pre-created Subnets
+			subnetSetCR.Spec.SubnetNames = subnetNames
+			log.Debug("Update default SubnetSet with shared Subnets", "Name", name, "Namespace", ns, "subnetNames", subnetNames)
+			return r.Client.Update(ctx, subnetSetCR)
+		}
+		// Create the default SubnetSet with the pre-created Subnets
+		if len(subnetNames) > 0 {
+			obj := &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: ns,
+					Name:      name,
+					Labels:    map[string]string{servicecommon.LabelDefaultNetwork: subnetSetType},
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: subnetNames,
+				},
+			}
+			return r.Client.Create(ctx, obj)
+		}
+		return nil
+	}); err != nil {
+		log.Error(err, "Failed to update SubnetSet with shared Subnets", "Namespace", ns, "Name", name)
+		return err
+	}
+	return nil
+}
+
+func (r *NamespaceReconciler) updateDefaultSubnetSetWithSpecifiedSubnets(sharedSubnets []v1alpha1.SharedSubnet, existingSharedSubnets map[string]*v1alpha1.Subnet, ns string) error {
+	var podDefaultSubnets, vmDefaultSubnets []string
+	for _, sharedSubnet := range sharedSubnets {
+		associatedResource, err := servicecommon.ConvertSubnetPathToAssociatedResource(sharedSubnet.Path)
+		if err != nil {
+			log.Error(err, "Failed to convert Subnet path to associated resource", "SharedSubnet", sharedSubnet.Path)
+			return err
+		}
+		sharedSubnetCR, ok := existingSharedSubnets[associatedResource]
+		if !ok {
+			err := fmt.Errorf("failed to create default Network SubnetSet with Subnets: shared Subnet CR for %s is not created", sharedSubnet.Path)
+			log.Error(err, "Shared Subnet CR should be created before updating Default SubnetSet")
+			return err
+		}
+		if sharedSubnet.PodDefault {
+			podDefaultSubnets = append(podDefaultSubnets, sharedSubnetCR.Name)
+		}
+		if sharedSubnet.VMDefault {
+			vmDefaultSubnets = append(vmDefaultSubnets, sharedSubnetCR.Name)
+		}
+	}
+	// create or update subnetset
+	if err := r.updateDefaultSubnetSetWithSubnets(servicecommon.DefaultPodSubnetSet, servicecommon.DefaultPodNetwork, ns, podDefaultSubnets); err != nil {
+		return err
+	}
+	if err := r.updateDefaultSubnetSetWithSubnets(servicecommon.DefaultVMSubnetSet, servicecommon.DefaultVMNetwork, ns, vmDefaultSubnets); err != nil {
+		return err
+	}
+	return nil
+}
+
 // processNewSharedSubnets creates Subnet CRs for new shared subnets
 func (r *NamespaceReconciler) processNewSharedSubnets(ctx context.Context, ns string,
 	vpcNetConfig *v1alpha1.VPCNetworkConfiguration, existingSharedSubnets map[string]*v1alpha1.Subnet) (map[string]*v1alpha1.Subnet, error) {
@@ -137,7 +234,7 @@ func (r *NamespaceReconciler) processNewSharedSubnets(ctx context.Context, ns st
 		}
 
 		if _, exists := existingSharedSubnets[associatedResource]; !exists {
-			err := r.createSharedSubnetCR(ctx, ns, sharedSubnet.Path)
+			err := r.createSharedSubnetCR(ctx, ns, sharedSubnet.Path, sharedSubnet.Name, existingSharedSubnets)
 			if err != nil {
 				log.Error(err, "Failed to create Subnet CR for shared Subnet", "Namespace", ns, "SharedSubnet", sharedSubnet.Path)
 				return unusedSubnets, err
@@ -273,6 +370,12 @@ func (r *NamespaceReconciler) syncSharedSubnets(ctx context.Context, ns string, 
 
 	// Delete unused Subnet CRs
 	err = r.deleteUnusedSharedSubnets(ctx, ns, unusedSubnets)
+	if err != nil {
+		return err
+	}
+
+	// Update default SubnetSet based on shared Subnets
+	err = r.updateDefaultSubnetSetWithSpecifiedSubnets(vpcNetConfig.Spec.Subnets, existingSharedSubnets, ns)
 	if err != nil {
 		return err
 	}

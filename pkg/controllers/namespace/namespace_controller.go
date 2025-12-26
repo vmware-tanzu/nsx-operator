@@ -243,8 +243,13 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if _, err := r.createNetworkInfoCR(ctx, obj, ns); err != nil {
 			return common.ResultRequeueAfter10sec, err
 		}
-		if err := r.createDefaultSubnetSet(ctx, ns, nc.Spec.DefaultSubnetSize); err != nil {
-			return common.ResultRequeueAfter10sec, err
+		// Default SubnetSet lifecycle for Pre-created VPC will be handled in
+		// Shared Subnet sync and NetworkInfo controller
+		if nc.Spec.VPC == "" {
+			// TODO: default SubnetSet on auto-created VPC will depend on VPC NetworkStack
+			if err := r.createDefaultSubnetSet(ctx, ns, nc.Spec.DefaultSubnetSize); err != nil {
+				return common.ResultRequeueAfter10sec, err
+			}
 		}
 
 		// Sync shared subnets, look into shared subnets in vpcnetworkconfigurations,
