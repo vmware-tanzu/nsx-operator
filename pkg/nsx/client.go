@@ -52,10 +52,11 @@ const (
 	VPCPreferredDefaultSNATIP
 	SubnetIPReservation
 	SubnetMinimalSize8
+	VTEPLessMode
 	AllFeatures
 )
 
-var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_PREFERRED_DEFAULT_SNAT_IP", "SUBNET_IP_RESERVATION", "SUBNET_MINIMAL_SIZE_8"}
+var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_PREFERRED_DEFAULT_SNAT_IP", "SUBNET_IP_RESERVATION", "SUBNET_MINIMAL_SIZE_8", "VTEP_LESS_MODE"}
 
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
@@ -86,6 +87,7 @@ type Client struct {
 	OrgRootClient                     nsx_policy.OrgRootClient
 	ProjectInfraClient                projects.InfraClient
 	VPCClient                         projects.VpcsClient
+	VPCStateClient                    vpcs.StateClient
 	VPCConnectivityProfilesClient     projects.VpcConnectivityProfilesClient
 	IPBlockClient                     project_infra.IpBlocksClient
 	StaticRouteClient                 vpcs.StaticRoutesClient
@@ -105,6 +107,7 @@ type Client struct {
 	ProjectClient                     orgs.ProjectsClient
 	TransitGatewayClient              projects.TransitGatewaysClient
 	TransitGatewayAttachmentClient    transit_gateways.AttachmentsClient
+	TransitGatewayStateClient         transit_gateways.StateClient
 	ShareClient                       infra.SharesClient
 	LbAppProfileClient                infra.LbAppProfilesClient
 	LbPersistenceProfilesClient       infra.LbPersistenceProfilesClient
@@ -197,6 +200,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	projectInfraClient := projects.NewInfraClient(connector)
 	projectClient := orgs.NewProjectsClient(connector)
 	vpcClient := projects.NewVpcsClient(connector)
+	vpcStateClient := vpcs.NewStateClient(connector)
 	vpcConnectivityProfilesClient := projects.NewVpcConnectivityProfilesClient(connector)
 	ipBlockClient := project_infra.NewIpBlocksClient(connector)
 	staticRouteClient := vpcs.NewStaticRoutesClient(connector)
@@ -220,6 +224,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 
 	transitGatewayClient := projects.NewTransitGatewaysClient(connector)
 	transitGatewayAttachmentClient := transit_gateways.NewAttachmentsClient(connector)
+	transitGatewayStateClient := transit_gateways.NewStateClient(connector)
 
 	subnetConnectionBindingMapsClient := subnets.NewSubnetConnectionBindingMapsClient(connector)
 	DynamicIPReservationsClient := subnets.NewDynamicIpReservationsClient(connector)
@@ -259,6 +264,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		OrgRootClient:                     orgRootClient,
 		ProjectInfraClient:                projectInfraClient,
 		VPCClient:                         vpcClient,
+		VPCStateClient:                    vpcStateClient,
 		VPCConnectivityProfilesClient:     vpcConnectivityProfilesClient,
 		IPBlockClient:                     ipBlockClient,
 		StaticRouteClient:                 staticRouteClient,
@@ -283,6 +289,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		IPAddressAllocationClient:         ipAddressAllocationClient,
 		TransitGatewayClient:              transitGatewayClient,
 		TransitGatewayAttachmentClient:    transitGatewayAttachmentClient,
+		TransitGatewayStateClient:         transitGatewayStateClient,
 		SubnetConnectionBindingMapsClient: subnetConnectionBindingMapsClient,
 		DynamicIPReservationsClient:       DynamicIPReservationsClient,
 		LbAppProfileClient:                lbAppProfileClient,

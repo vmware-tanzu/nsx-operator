@@ -456,7 +456,13 @@ func (service *SubnetService) GenerateSubnetNSTags(obj client.Object) []model.Ta
 			model.Tag{Scope: common.String(common.TagScopeVMNamespaceUID), Tag: common.String(nsUID)},
 			model.Tag{Scope: common.String(common.TagScopeVMNamespace), Tag: common.String(obj.GetNamespace())})
 	case *v1alpha1.SubnetSet:
-		isDefaultPodSubnetSet := o.Labels[common.LabelDefaultSubnetSet] == common.LabelDefaultPodSubnetSet
+		isDefaultPodSubnetSet := false
+		if value, exist := o.Labels[common.LabelDefaultSubnetSet]; exist {
+			isDefaultPodSubnetSet = (value == common.LabelDefaultPodSubnetSet)
+		}
+		if value, exist := o.Labels[common.LabelDefaultNetwork]; exist {
+			isDefaultPodSubnetSet = (value == common.DefaultPodNetwork)
+		}
 		if isDefaultPodSubnetSet {
 			tags = append(tags,
 				model.Tag{Scope: common.String(common.TagScopeNamespaceUID), Tag: common.String(nsUID)},
