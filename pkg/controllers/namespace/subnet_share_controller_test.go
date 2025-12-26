@@ -875,8 +875,8 @@ func TestSyncSharedSubnets(t *testing.T) {
 						return nil
 					})
 
-				// Mock updateDefaultSubnetSet
-				patches.ApplyPrivateMethod(reflect.TypeOf(r), "updateDefaultSubnetSet",
+				// Mock updateDefaultSubnetSetWithSpecifiedSubnets
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "updateDefaultSubnetSetWithSpecifiedSubnets",
 					func(_ *NamespaceReconciler, _ []v1alpha1.SharedSubnet, _ map[string]*v1alpha1.Subnet, _ string) error {
 						return nil
 					})
@@ -1210,7 +1210,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			}
 
 			// Call the function being tested
-			err := r.createSharedSubnetCR(context.Background(), "test-ns", tt.sharedSubnetPath, "")
+			err := r.createSharedSubnetCR(context.Background(), "test-ns", tt.sharedSubnetPath, "", map[string]*v1alpha1.Subnet{})
 
 			// Check the result
 			if tt.expectedErrString != "" {
@@ -1381,7 +1381,7 @@ func TestGenerateValidSubnetName(t *testing.T) {
 	}
 }
 
-func TestUpdateDefaultSubnetSet(t *testing.T) {
+func TestUpdateDefaultSubnetSetWithSpecifiedSubnets(t *testing.T) {
 	tests := []struct {
 		name                  string
 		sharedSubnets         []v1alpha1.SharedSubnet
@@ -1468,7 +1468,7 @@ func TestUpdateDefaultSubnetSet(t *testing.T) {
 					defer patches.Reset()
 				}
 			}
-			err := r.updateDefaultSubnetSet(tt.sharedSubnets, tt.existingSharedSubnets, "test")
+			err := r.updateDefaultSubnetSetWithSpecifiedSubnets(tt.sharedSubnets, tt.existingSharedSubnets, "test")
 
 			if tt.expectedErr != "" {
 				assert.Error(t, err)
