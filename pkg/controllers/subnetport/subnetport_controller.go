@@ -214,6 +214,18 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		r.StatusUpdater.UpdateSuccess(ctx, subnetPort, setReadyStatusTrue, r.SubnetPortService)
 		if r.restoreMode {
+			// UpdateSuccess may fail due to k8s connection or update conflicts.
+			// In restore mode, we need to ensure the SubnetPort attachment Id is updated to the new SubnetPort before adding the annotation
+			// Otherwise VM operator will fail to get the new attachment ID.
+			updatedSubnetPort := &v1alpha1.SubnetPort{}
+			err := r.Client.Get(ctx, req.NamespacedName, updatedSubnetPort)
+			if err != nil {
+				return common.ResultNormal, err
+			}
+			if updatedSubnetPort.Status.Attachment.ID != subnetPort.Status.Attachment.ID {
+				log.Error(nil, "SubnetPort attachment ID is not updated, will retry later")
+				return common.ResultNormal, fmt.Errorf("SubnetPort Attachment ID is not updated")
+			}
 			// For restored SubnetPort,
 			// add restore annotation on SubnetPort CR for cpVM;
 			// add restore annotation on VM for VM service VM
@@ -462,10 +474,26 @@ func (r *SubnetPortReconciler) getRestoreList() ([]types.NamespacedName, error) 
 		return restoreList, err
 	}
 	for _, subnetport := range subnetPortList.Items {
-		// Restore a SubnetPort if SubnetPort CR has status updated but no corresponding NSX SubnetPort in cache
-		if len(subnetport.Status.NetworkInterfaceConfig.IPAddresses) > 0 && !nsxSubnetPortCRIDs.Has(string(subnetport.GetUID())) {
-			restoreList = append(restoreList, types.NamespacedName{Namespace: subnetport.Namespace, Name: subnetport.Name})
-			continue
+		if len(subnetport.Status.NetworkInterfaceConfig.IPAddresses) > 0 {
+			// Restore a SubnetPort if SubnetPort CR has status updated but no corresponding NSX SubnetPort in cache
+			if !nsxSubnetPortCRIDs.Has(string(subnetport.GetUID())) {
+				restoreList = append(restoreList, types.NamespacedName{Namespace: subnetport.Namespace, Name: subnetport.Name})
+				continue
+			}
+			existingSubnetPorts := r.SubnetPortService.SubnetPortStore.GetByIndex(servicecommon.TagScopeSubnetPortCRUID, string(subnetport.UID))
+			if len(existingSubnetPorts) == 0 {
+				// Should not reach here
+				log.Warn("NSX SubnetPort does not exist in store", "Namespace", subnetport.Namespace, "SubnetPort", subnetport.Name)
+				restoreList = append(restoreList, types.NamespacedName{Namespace: subnetport.Namespace, Name: subnetport.Name})
+				continue
+			}
+			if existingSubnetPorts[0] != nil && existingSubnetPorts[0].Attachment != nil && existingSubnetPorts[0].Attachment.Id != nil &&
+				*existingSubnetPorts[0].Attachment.Id != subnetport.Status.Attachment.ID {
+				log.Debug("Restore SubnetPort as the attachment ID is not updated")
+				// Restore the SubnetPort to update Status if it does not save the correct attachment ID
+				restoreList = append(restoreList, types.NamespacedName{Namespace: subnetport.Namespace, Name: subnetport.Name})
+				continue
+			}
 		}
 
 		ab := r.SubnetPortService.GetAddressBindingBySubnetPort(&subnetport)
@@ -683,7 +711,12 @@ func updateSubnetPortStatusConditions(client client.Client, ctx context.Context,
 		}
 	}
 	if conditionsUpdated {
-		client.Status().Update(ctx, subnetPort)
+		retry.OnError(util.K8sClientRetry, func(err error) bool {
+			log.Error(err, "Failed to update SubnetPort Status, will retry", "Namespace", subnetPort.Namespace, "SubnetPort", subnetPort.Name)
+			return err != nil
+		}, func() error {
+			return client.Status().Update(ctx, subnetPort)
+		})
 		log.Debug("Updated SubnetPort CR", "Name", subnetPort.Name, "Namespace", subnetPort.Namespace,
 			"New Conditions", newConditions)
 	}
