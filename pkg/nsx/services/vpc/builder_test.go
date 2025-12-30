@@ -278,7 +278,7 @@ func TestBuildNSXVPC(t *testing.T) {
 			if tc.netInfoObj != nil {
 				netInfoObj = tc.netInfoObj
 			}
-			vpcSvc, _, _, _ := createService(t)
+			vpcSvc, _, _, _, _ := createService(t)
 			got, err := vpcSvc.buildNSXVPC(netInfoObj, tc.nsObj, nc, clusterStr, tc.existingVPC, tc.useAVILB, tc.lbProviderChanged, tc.serviceClusterReady)
 			assert.Nil(t, err)
 			assert.Equal(t, tc.expVPC, got)

@@ -1002,9 +1002,10 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 		sharedSubnetPath  string
 		setupMocks        func(r *NamespaceReconciler) *gomonkey.Patches
 		expectedErrString string
+		realname          string
 	}{
 		{
-			name:             "Success case",
+			name:             "Success case without real name",
 			sharedSubnetPath: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				// Mock ExtractSubnetPath
@@ -1058,6 +1059,65 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 
 				return patches
 			},
+			realname:          "",
+			expectedErrString: "",
+		},
+		{
+			name:             "Success case with real name",
+			sharedSubnetPath: "/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1",
+			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
+				// Mock ExtractSubnetPath
+				patches := gomonkey.ApplyFunc(servicecommon.ExtractSubnetPath,
+					func(path string) (string, string, string, string, error) {
+						return "default", "proj-1", "vpc-1", "subnet-1", nil
+					})
+
+				// Mock IsDefaultNSXProject
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "IsDefaultNSXProject",
+					func(_ servicecommon.VPCServiceProvider, orgID, projectID string) (bool, error) {
+						return false, nil
+					})
+
+				// Mock ConvertSubnetPathToAssociatedResource
+				patches.ApplyFunc(servicecommon.ConvertSubnetPathToAssociatedResource,
+					func(path string) (string, error) {
+						return "proj-1:vpc-1:subnet-1", nil
+					})
+
+				// Mock GetNSXSubnetByAssociatedResource
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetNSXSubnetByAssociatedResource",
+					func(_ *subnet.SubnetService, associatedResource string) (*model.VpcSubnet, error) {
+						id := "subnet-1"
+						displayName := "subnet-1"
+						return &model.VpcSubnet{Id: &id, DisplayName: &displayName}, nil
+					})
+
+				// Mock BuildSubnetCR
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "BuildSubnetCR",
+					func(_ *subnet.SubnetService, ns, subnetName, vpcFullID, associatedName string) *v1alpha1.Subnet {
+						return &v1alpha1.Subnet{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      subnetName,
+								Namespace: ns,
+								Annotations: map[string]string{
+									servicecommon.AnnotationAssociatedResource: associatedName,
+								},
+							},
+							Spec: v1alpha1.SubnetSpec{
+								VPCName: vpcFullID,
+							},
+						}
+					})
+
+				// Mock createSubnetCRInK8s
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "createSubnetCRInK8s",
+					func(_ *NamespaceReconciler, _ context.Context, _ *v1alpha1.Subnet, _ string) error {
+						return nil
+					})
+
+				return patches
+			},
+			realname:          "subnetam",
 			expectedErrString: "",
 		},
 		{
@@ -1092,6 +1152,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 				return patches
 			},
 			expectedErrString: "failed to check if project is default",
+			realname:          "",
 		},
 		{
 			name:             "Error converting subnet path to associated resource",
@@ -1117,6 +1178,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 
 				return patches
 			},
+			realname:          "",
 			expectedErrString: "failed to convert subnet path to associated resource",
 		},
 		{
@@ -1174,6 +1236,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 
 				return patches
 			},
+			realname:          "",
 			expectedErrString: "failed to create Subnet CR",
 		},
 	}
@@ -1202,7 +1265,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			}
 
 			// Call the function being tested
-			err := r.createSharedSubnetCR(context.Background(), "test-ns", tt.sharedSubnetPath)
+			err := r.createSharedSubnetCR(context.Background(), "test-ns", tt.sharedSubnetPath, tt.realname)
 
 			// Check the result
 			if tt.expectedErrString != "" {

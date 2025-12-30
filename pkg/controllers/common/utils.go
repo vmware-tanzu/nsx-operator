@@ -71,7 +71,7 @@ func GetDefaultSubnetSetByNamespace(client k8sclient.Client, namespace string, r
 	subnetSetList := &v1alpha1.SubnetSetList{}
 	subnetSetSelector := &metav1.LabelSelector{
 		MatchLabels: map[string]string{
-			servicecommon.LabelDefaultSubnetSet: resourceType,
+			servicecommon.LabelDefaultNetwork: resourceType,
 		},
 	}
 	labelSelector, _ := metav1.LabelSelectorAsSelector(subnetSetSelector)

@@ -528,6 +528,9 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 	case SubnetMinimalSize8:
 		minVersion = nsx910Version
 		validFeature = true
+	case VTEPLessMode:
+		minVersion = nsx910Version
+		validFeature = true
 	}
 
 	if validFeature {
