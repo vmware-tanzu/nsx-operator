@@ -155,7 +155,6 @@ func InitializeSecurityPolicy(service common.Service, vpcService common.VPCServi
 	case <-wgDone:
 		break
 	case err := <-fatalErrors:
-		close(fatalErrors)
 		return securityPolicyService, err
 	}
 

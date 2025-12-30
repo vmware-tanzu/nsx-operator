@@ -179,7 +179,6 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	case <-wgDone:
 		break
 	case err := <-fatalErrors:
-		close(fatalErrors)
 		return VPCService, err
 	}
 
