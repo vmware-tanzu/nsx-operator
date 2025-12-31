@@ -571,6 +571,11 @@ func (service *SubnetService) GetNSXSubnetByAssociatedResource(associatedResourc
 
 // MapNSXSubnetToSubnetCR maps NSX subnet properties to Subnet CR properties
 func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, nsxSubnet *model.VpcSubnet) {
+	// Clear existing spec fields
+	subnetCR.Spec.IPv4SubnetSize = 0
+	subnetCR.Spec.VLANConnectionName = ""
+	subnetCR.Spec.AdvancedConfig = v1alpha1.SubnetAdvancedConfig{}
+
 	// Map AccessMode
 	if nsxSubnet.AccessMode != nil {
 		accessMode := *nsxSubnet.AccessMode
@@ -615,15 +620,16 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 		subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
 	}
 
-	// Map AdvancedConfig
-	enabled := false
-	subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = &enabled
 	// Map VlanConnectionName from NSX Subnet
 	// Display the Id of VlanConnection as the VlanConnectionName in CR
 	if nsxSubnet.VlanConnection != nil {
 		parts := strings.Split(*nsxSubnet.VlanConnection, "/")
 		subnetCR.Spec.VLANConnectionName = parts[len(parts)-1]
 	}
+
+	// Map AdvancedConfig
+	enabled := false
+	subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = &enabled
 	if nsxSubnet.AdvancedConfig != nil {
 		if nsxSubnet.AdvancedConfig.ConnectivityState != nil {
 			connectivityState := *nsxSubnet.AdvancedConfig.ConnectivityState
@@ -658,6 +664,7 @@ func (service *SubnetService) MapNSXSubnetStatusToSubnetCRStatus(subnetCR *v1alp
 	subnetCR.Status.NetworkAddresses = subnetCR.Status.NetworkAddresses[:0]
 	subnetCR.Status.GatewayAddresses = subnetCR.Status.GatewayAddresses[:0]
 	subnetCR.Status.DHCPServerAddresses = subnetCR.Status.DHCPServerAddresses[:0]
+	subnetCR.Status.VLANExtension = v1alpha1.VLANExtension{}
 
 	// Set the shared flag to true for shared subnets
 	if _, ok := subnetCR.Annotations[common.AnnotationAssociatedResource]; ok {
