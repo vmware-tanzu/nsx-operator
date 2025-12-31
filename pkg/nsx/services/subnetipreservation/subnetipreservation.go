@@ -32,7 +32,6 @@ func InitializeService(service common.Service) (*IPReservationService, error) {
 	builder, _ := common.PolicyPathVpcSubnetDynamicIPReservation.NewPolicyTreeBuilder()
 	wg := sync.WaitGroup{}
 	fatalErrors := make(chan error, 1)
-	defer close(fatalErrors)
 
 	ipReservationService := &IPReservationService{
 		Service:            service,

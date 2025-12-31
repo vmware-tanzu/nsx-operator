@@ -70,8 +70,6 @@ func InitializeSubnetPort(service servicecommon.Service, vpcService servicecommo
 	case <-wgDone:
 		break
 	case err := <-fatalErrors:
-		wg.Wait()
-		close(fatalErrors)
 		return subnetPortService, err
 	}
 
