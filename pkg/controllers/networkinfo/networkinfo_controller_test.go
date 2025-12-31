@@ -1067,7 +1067,10 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := createNetworkInfoReconciler(nil)
+			ns1 := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: "ns1"},
+			}
+			r := createNetworkInfoReconciler([]client.Object{ns1})
 			v1alpha1.AddToScheme(r.Scheme)
 			ctx := context.TODO()
 			if tt.prepareFunc != nil {

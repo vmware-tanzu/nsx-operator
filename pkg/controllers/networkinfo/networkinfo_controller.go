@@ -118,16 +118,13 @@ func (r *NetworkInfoReconciler) updateDefaultSubnetSet(ctx context.Context, subn
 	var name string
 	var accessMode v1alpha1.AccessMode
 	// TODO: remove this old Label when all other dependencies consume the new label
-	var oldLabelValue string
 	switch subnetSetType {
 	case commonservice.DefaultPodNetwork:
 		name = commonservice.DefaultPodSubnetSet
 		accessMode = v1alpha1.AccessMode(v1alpha1.AccessModeProject)
-		oldLabelValue = commonservice.LabelDefaultPodSubnetSet
 	case commonservice.DefaultVMNetwork:
 		name = commonservice.DefaultVMSubnetSet
 		accessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
-		oldLabelValue = commonservice.LabelDefaultVMSubnetSet
 	}
 
 	if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
@@ -157,7 +154,7 @@ func (r *NetworkInfoReconciler) updateDefaultSubnetSet(ctx context.Context, subn
 					Labels: map[string]string{
 						commonservice.LabelDefaultNetwork: subnetSetType,
 						// TODO: remove this old Label when all other dependencies consume the new label
-						commonservice.LabelDefaultSubnetSet: oldLabelValue,
+						commonservice.LabelDefaultSubnetSet: common.NetworkSubnetSetNameMap[subnetSetType],
 					},
 				},
 				Spec: v1alpha1.SubnetSetSpec{
@@ -221,6 +218,14 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	ncName := nc.Name
 	log.Info("Fetched NetworkConfig from store", "NetworkConfig", ncName)
 
+	ns := &corev1.Namespace{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: req.Namespace}, ns); err != nil {
+		log.Error(err, "Unable to fetch Namespace", "Namespace", req.Namespace)
+		return common.ResultNormal, err
+	}
+	namespaceType := common.GetNamespaceType(ns, nc)
+	log.Debug("Fetch Namespace for NetworkInfo", "Namespace", ns, "type", namespaceType)
+
 	systemVpcNetCfg := &v1alpha1.VPCNetworkConfiguration{}
 	err = r.Client.Get(ctx, types.NamespacedName{Name: commonservice.SystemVPCNetworkConfigurationName}, systemVpcNetCfg)
 	if err != nil {
@@ -282,14 +287,6 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	isPreCreatedVPC := vpc.IsPreCreatedVPC(nc)
 	if isPreCreatedVPC {
 		privateIPs = createdVpc.PrivateIps
-		// Check private cidr on precreated VPC to determine if create default SubnetSet for VM
-		hasPrivateCidr := len(privateIPs) > 0
-		if err := r.updateDefaultSubnetSet(ctx, commonservice.DefaultVMNetwork, req.Namespace, nc.Spec.DefaultSubnetSize, hasPrivateCidr, hasVMDefaultSubnets(nc.Spec.Subnets)); err != nil {
-			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to create or update default SubnetSet for VM", setNetworkInfoVPCStatusWithError, nil)
-			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
-			return common.ResultNormal, err
-		}
-
 		vpcPath := *createdVpc.Path
 		vpcConnectivityProfilePath, err = r.GetVpcConnectivityProfilePathByVpcPath(vpcPath)
 		if err != nil {
@@ -325,6 +322,16 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		nsxLBSPath = r.Service.GetDefaultNSXLBSPathByVPC(*createdVpc.Id)
 	}
 
+	// Check private cidr to determine if create default SubnetSet for VM
+	if namespaceType == common.NormalNs {
+		hasPrivateCidr := len(privateIPs) > 0
+		if err := r.updateDefaultSubnetSet(ctx, commonservice.DefaultVMNetwork, req.Namespace, nc.Spec.DefaultSubnetSize, hasPrivateCidr, hasVMDefaultSubnets(nc.Spec.Subnets)); err != nil {
+			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to create or update default SubnetSet for VM", setNetworkInfoVPCStatusWithError, nil)
+			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
+			return common.ResultNormal, err
+		}
+	}
+
 	snatIP, aviSubnetPath, aviSECIDR, nsxLBSNATIP, lbIP := "", "", "", "", ""
 
 	vpcConnectivityProfile, err := r.Service.GetVpcConnectivityProfile(nc, vpcConnectivityProfilePath)
@@ -339,15 +346,16 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCGetExtIPBlockError.getNSNetworkCondition(err))
 		return common.ResultRequeueAfter10sec, err
 	}
-	// Check privatetgw IP blocks on precreated VPC to determine if create default SubnetSet for Pod
-	if isPreCreatedVPC {
-		hasPrivageTgwCidr := len(vpcConnectivityProfile.PrivateTgwIpBlocks) > 0
-		if err := r.updateDefaultSubnetSet(ctx, commonservice.DefaultPodNetwork, req.Namespace, nc.Spec.DefaultSubnetSize, hasPrivageTgwCidr, hasPodDefaultSubnets(nc.Spec.Subnets)); err != nil {
+	// Check privatetgw IP blocks to determine if create default SubnetSet for Pod
+	if namespaceType == common.NormalNs {
+		hasPrivateTgwCidr := len(vpcConnectivityProfile.PrivateTgwIpBlocks) > 0
+		if err := r.updateDefaultSubnetSet(ctx, commonservice.DefaultPodNetwork, req.Namespace, nc.Spec.DefaultSubnetSize, hasPrivateTgwCidr, hasPodDefaultSubnets(nc.Spec.Subnets)); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to create or update default SubnetSet for Pod", setNetworkInfoVPCStatusWithError, nil)
 			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
 			return common.ResultNormal, err
 		}
 	}
+
 	// Check external IP blocks on system VPC network config.
 	if ncName == commonservice.SystemVPCNetworkConfigurationName {
 		hasExternalIPs := len(vpcConnectivityProfile.ExternalIpBlocks) > 0

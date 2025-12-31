@@ -14,6 +14,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -91,6 +92,8 @@ func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns strin
 	if err != nil {
 		return err
 	}
+	// Update existingSharedSubnets as it will be used to check the mapping between
+	// vm/pod default Subnet path and Subnet CR when update default SubnetSet with shared Subnets
 	existingSharedSubnets[associatedName] = subnetCR
 	namespacedName := types.NamespacedName{
 		Namespace: subnetCR.Namespace,
@@ -153,9 +156,11 @@ func (r *NamespaceReconciler) updateDefaultSubnetSetWithSubnets(name string, sub
 				return fmt.Errorf("SubnetSet %s/%s with shared Subnets cannot be created as the old default SubnetSet still exists, will retry later", ns, name)
 			}
 			// Update the default SubnetSet with the pre-created Subnets
-			subnetSetCR.Spec.SubnetNames = subnetNames
-			log.Debug("Update default SubnetSet with shared Subnets", "Name", name, "Namespace", ns, "subnetNames", subnetNames)
-			return r.Client.Update(ctx, subnetSetCR)
+			if !nsxutil.CompareArraysWithoutOrder(subnetSetCR.Spec.SubnetNames, subnetNames) {
+				subnetSetCR.Spec.SubnetNames = subnetNames
+				log.Debug("Update default SubnetSet with shared Subnets", "Name", name, "Namespace", ns, "subnetNames", subnetNames)
+				return r.Client.Update(ctx, subnetSetCR)
+			}
 		}
 		// Create the default SubnetSet with the pre-created Subnets
 		if len(subnetNames) > 0 {
@@ -363,14 +368,14 @@ func (r *NamespaceReconciler) syncSharedSubnets(ctx context.Context, ns string, 
 	}
 	log.Trace("Unused shared Subnet CRs", "Namespace", ns, "Subnets", unusedSubnets)
 
-	// Delete unused Subnet CRs
-	err = r.deleteUnusedSharedSubnets(ctx, ns, unusedSubnets)
+	// Update default SubnetSet based on shared Subnets
+	err = r.updateDefaultSubnetSetWithSpecifiedSubnets(vpcNetConfig.Spec.Subnets, existingSharedSubnets, ns)
 	if err != nil {
 		return err
 	}
 
-	// Update default SubnetSet based on shared Subnets
-	err = r.updateDefaultSubnetSetWithSpecifiedSubnets(vpcNetConfig.Spec.Subnets, existingSharedSubnets, ns)
+	// Delete unused Subnet CRs
+	err = r.deleteUnusedSharedSubnets(ctx, ns, unusedSubnets)
 	if err != nil {
 		return err
 	}

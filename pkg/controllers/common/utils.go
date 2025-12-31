@@ -310,3 +310,24 @@ func ListDefaultSubnetSet(ctx context.Context, client k8sclient.Client, ns strin
 	}
 	return oldObj, nil
 }
+
+// GetNamespaceType determines the type of the namespace based on the VPCNetworkConfiguration
+func GetNamespaceType(ns *v1.Namespace, vnc *v1alpha1.VPCNetworkConfiguration) NameSpaceType {
+	anno := ns.Annotations
+	if len(anno) > 0 {
+		if ncName, exist := anno[servicecommon.AnnotationVPCNetworkConfig]; exist {
+			if ncName == "system" {
+				return SystemNs
+			}
+		}
+	}
+	label := ns.Labels
+	if len(label) > 0 {
+		if _, exist := label[SupervisorServiceIDLabel]; exist {
+			if value, exist := label["managedBy"]; exist && value == VsphereAppPlatformLabel {
+				return SVServiceNs
+			}
+		}
+	}
+	return NormalNs
+}
