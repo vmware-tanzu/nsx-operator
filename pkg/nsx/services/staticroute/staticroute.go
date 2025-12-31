@@ -52,7 +52,6 @@ func InitializeStaticRoute(commonService common.Service, vpcService common.VPCSe
 	case <-wgDone:
 		break
 	case err := <-fatalErrors:
-		close(fatalErrors)
 		return staticRouteService, err
 	}
 

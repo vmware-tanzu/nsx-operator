@@ -90,7 +90,6 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 	case <-wgDone:
 		break
 	case err := <-fatalErrors:
-		close(fatalErrors)
 		return subnetService, err
 	}
 	return subnetService, nil
