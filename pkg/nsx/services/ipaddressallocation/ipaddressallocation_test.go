@@ -2,9 +2,11 @@ package ipaddressallocation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -73,20 +75,38 @@ func createIPAddressAllocationService(t *testing.T) (*IPAddressAllocationService
 func Test_InitializeIPAddressAllocationStore(t *testing.T) {
 	service, mockController, _ := createService(t)
 	defer mockController.Finish()
+
+	// Init successfully
 	commonService := service.Service
 	patch := gomonkey.ApplyMethod(reflect.TypeOf(&commonService), "InitializeResourceStore", func(_ *common.Service, wg *sync.WaitGroup,
 		fatalErrors chan error, resourceTypeValue string, tags []model.Tag, store common.Store,
 	) {
 		wg.Done()
-		return
 	})
-	defer patch.Reset()
 
 	vpcService := &vpc.VPCService{}
 
 	_, err := InitializeIPAddressAllocation(commonService, vpcService, false)
+	assert.NoError(t, err)
+
+	// Init failed
+	patch.Reset()
+	var callCount int32
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(&commonService), "InitializeResourceStore", func(_ *common.Service, wg *sync.WaitGroup,
+		fatalErrors chan error, resourceTypeValue string, tags []model.Tag, store common.Store,
+	) {
+		defer wg.Done()
+		if atomic.AddInt32(&callCount, 1) > 1 {
+			fatalErrors <- errors.New("init failed")
+		} else {
+			return
+		}
+	})
+	defer patch.Reset()
+
+	_, err = InitializeIPAddressAllocation(commonService, vpcService, true)
 	if err != nil {
-		t.Error(err)
+		assert.EqualError(t, err, "init failed")
 	}
 }
 

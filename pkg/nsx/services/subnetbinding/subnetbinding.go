@@ -31,7 +31,6 @@ func InitializeService(service servicecommon.Service) (*BindingService, error) {
 	builder, _ := servicecommon.PolicyPathVpcSubnetConnectionBindingMap.NewPolicyTreeBuilder()
 	wg := sync.WaitGroup{}
 	fatalErrors := make(chan error, 1)
-	defer close(fatalErrors)
 
 	bindingService := &BindingService{
 		Service:      service,

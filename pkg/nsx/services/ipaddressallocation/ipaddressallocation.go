@@ -59,7 +59,6 @@ func InitializeIPAddressAllocation(service common.Service, vpcService common.VPC
 	case <-wgDone:
 		break
 	case err := <-fatalErrors:
-		close(fatalErrors)
 		return ipAddressAllocationService, err
 	}
 	return ipAddressAllocationService, nil

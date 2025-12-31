@@ -56,7 +56,6 @@ func InitializeNode(service servicecommon.Service) (*NodeService, error) {
 	case <-wgDone:
 		break
 	case err := <-fatalErrors:
-		close(fatalErrors)
 		return nodeService, err
 	}
 
