@@ -47,6 +47,8 @@ const (
 const (
 	SupervisorServiceIDLabel = "appplatform.vmware.com/serviceId"
 	VsphereAppPlatformLabel  = "vSphere-AppPlatform"
+	ManagedByLabel           = "managedBy"
+	SystemNC                 = "system"
 )
 
 // NamespaceReconciler process Namespace create/delete event
@@ -132,7 +134,7 @@ func (r *NamespaceReconciler) getNamespaceType(ns *v1.Namespace, vnc *v1alpha1.V
 	anno := ns.Annotations
 	if len(anno) > 0 {
 		if ncName, exist := anno[types.AnnotationVPCNetworkConfig]; exist {
-			if ncName == "system" {
+			if ncName == SystemNC {
 				return SystemNs
 			}
 		}
@@ -140,7 +142,7 @@ func (r *NamespaceReconciler) getNamespaceType(ns *v1.Namespace, vnc *v1alpha1.V
 	label := ns.Labels
 	if len(label) > 0 {
 		if _, exist := label[SupervisorServiceIDLabel]; exist {
-			if value, exist := label["managedBy"]; exist && value == VsphereAppPlatformLabel {
+			if value, exist := label[ManagedByLabel]; exist && value == VsphereAppPlatformLabel {
 				return SVServiceNs
 			}
 		}
