@@ -33,6 +33,15 @@ type SubnetSetValidator struct {
 	nsxClient *nsx.Client
 }
 
+type SubnetSetType string
+
+const (
+	SubnetSetTypePreCreated  SubnetSetType = "PreCreated"
+	SubnetSetTypeAutoCreated SubnetSetType = "AutoCreated"
+	// Subnetset without Spec.SubnetNames or Spec.IPv4SubnetSize/AccessMode/SubnetDHCPConfig
+	SubnetSetTypeNone SubnetSetType = "None"
+)
+
 func defaultSubnetSetLabelChanged(oldSubnetSet, subnetSet *v1alpha1.SubnetSet) bool {
 	var oldValue, value string
 	oldValue, oldExists := oldSubnetSet.ObjectMeta.Labels[common.LabelDefaultNetwork]
@@ -53,6 +62,28 @@ func isDefaultSubnetSet(s *v1alpha1.SubnetSet) bool {
 
 func hasExclusiveFields(s *v1alpha1.SubnetSet) bool {
 	return len(s.Spec.SubnetNames) != 0 && (s.Spec.IPv4SubnetSize != 0 || s.Spec.AccessMode != "" || s.Spec.SubnetDHCPConfig.Mode != "")
+}
+
+func subnetSetType(s *v1alpha1.SubnetSet) SubnetSetType {
+	if len(s.Spec.SubnetNames) != 0 {
+		return SubnetSetTypePreCreated
+	}
+	if s.Spec.IPv4SubnetSize != 0 || s.Spec.AccessMode != "" || s.Spec.SubnetDHCPConfig.Mode != "" {
+		return SubnetSetTypeAutoCreated
+	}
+	return SubnetSetTypeNone
+}
+
+// switchSubnetSetType check whether the SubnetSet type is switched between
+// Pre-created and Auto-created.
+// It returns true if the type is switched, otherwise false.
+func switchSubnetSetType(old *v1alpha1.SubnetSet, new *v1alpha1.SubnetSet) bool {
+	typeOld := subnetSetType(old)
+	typeNew := subnetSetType(new)
+	if typeOld != typeNew && typeOld != SubnetSetTypeNone && typeNew != SubnetSetTypeNone {
+		return true
+	}
+	return false
 }
 
 // Handle handles admission requests.
@@ -97,6 +128,9 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		}
 		if hasExclusiveFields(subnetSet) {
 			return admission.Denied("SubnetSet spec.subnetNames is exclusive with spec.ipv4SubnetSize, spec.accessMode and spec.subnetDHCPConfig")
+		}
+		if switchSubnetSetType(oldSubnetSet, subnetSet) {
+			return admission.Denied("SubnetSet type cannot be switched between Pre-created and Auto-created")
 		}
 	case admissionv1.Delete:
 		if isDefaultSubnetSet(subnetSet) && req.UserInfo.Username != NSXOperatorSA {
