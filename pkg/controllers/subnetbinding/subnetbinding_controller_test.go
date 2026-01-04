@@ -655,7 +655,7 @@ func TestValidateVpcSubnetsBySubnetSetCR(t *testing.T) {
 			UID:       "subnetset-uuid-1",
 		},
 		Spec: v1alpha1.SubnetSetSpec{
-			SubnetNames: []string{"subnet-1"},
+			SubnetNames: &[]string{"subnet-1"},
 		},
 	}
 	for _, tc := range []struct {

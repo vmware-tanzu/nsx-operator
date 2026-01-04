@@ -1576,14 +1576,14 @@ func TestUpdateDefaultSubnetSetWithSubnets(t *testing.T) {
 							Labels:    map[string]string{servicecommon.LabelDefaultNetwork: "pod"},
 						},
 						Spec: v1alpha1.SubnetSetSpec{
-							SubnetNames: []string{"subnet-1", "subnet-2"},
+							SubnetNames: &[]string{"subnet-1", "subnet-2"},
 						},
 					})
 					return nil
 				})
 				k8sClient.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
 					subnetSet := obj.(*v1alpha1.SubnetSet)
-					assert.Equal(t, []string{"subnet-2", "subnet-3"}, subnetSet.Spec.SubnetNames)
+					assert.Equal(t, []string{"subnet-2", "subnet-3"}, *subnetSet.Spec.SubnetNames)
 					return nil
 				})
 			},
@@ -1601,7 +1601,7 @@ func TestUpdateDefaultSubnetSetWithSubnets(t *testing.T) {
 							Labels:    map[string]string{servicecommon.LabelDefaultNetwork: "pod"},
 						},
 						Spec: v1alpha1.SubnetSetSpec{
-							SubnetNames: []string{"subnet-1", "subnet-2"},
+							SubnetNames: &[]string{"subnet-1", "subnet-2"},
 						},
 					})
 					return nil
@@ -1622,8 +1622,7 @@ func TestUpdateDefaultSubnetSetWithSubnets(t *testing.T) {
 							Labels:    map[string]string{servicecommon.LabelDefaultNetwork: "pod"},
 						},
 						Spec: v1alpha1.SubnetSetSpec{
-							AccessMode:     "Public",
-							IPv4SubnetSize: 32,
+							SubnetNames: nil,
 						},
 					})
 					return nil

@@ -56,7 +56,7 @@ type SubnetSetReconciler struct {
 
 func (r *SubnetSetReconciler) UpdateSubnetSetForSubnetNames(ctx context.Context, subnetsetCR *v1alpha1.SubnetSet) error {
 	var subnetInfoList []v1alpha1.SubnetInfo
-	for _, subnetName := range subnetsetCR.Spec.SubnetNames {
+	for _, subnetName := range *subnetsetCR.Spec.SubnetNames {
 		subnet := &v1alpha1.Subnet{}
 		if err := r.Client.Get(ctx, types.NamespacedName{Namespace: subnetsetCR.Namespace, Name: subnetName}, subnet); err != nil {
 			return err
@@ -100,7 +100,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ResultRequeue, err
 	}
 
-	if len(subnetsetCR.Spec.SubnetNames) > 0 {
+	if subnetsetCR.Spec.SubnetNames != nil {
 		// For SubnetSet with pre-created Subnet, update the Status from Subnet CR
 		if err := r.UpdateSubnetSetForSubnetNames(ctx, subnetsetCR); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
@@ -394,7 +394,7 @@ func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) error {
 	crdSubnetSetIDsSet := sets.New[string]()
 	for _, subnetSet := range crdSubnetSetList.Items {
 		// No need to gc SubnetSet with pre-created Subnet
-		if len(subnetSet.Spec.SubnetNames) > 0 {
+		if subnetSet.Spec.SubnetNames != nil {
 			continue
 		}
 		crdSubnetSetIDsSet.Insert(string(subnetSet.UID))

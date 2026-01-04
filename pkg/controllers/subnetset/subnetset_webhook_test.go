@@ -59,6 +59,15 @@ func TestSubnetSetValidator(t *testing.T) {
 			Labels: map[string]string{common.LabelDefaultSubnetSet: common.DefaultVMSubnetSet},
 		},
 	}
+	precreatedSubnetSet := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   common.LabelDefaultSubnetSet,
+			Labels: map[string]string{common.LabelDefaultSubnetSet: common.DefaultVMSubnetSet},
+		},
+		Spec: v1alpha1.SubnetSetSpec{
+			SubnetNames: &[]string{"subnet-1"},
+		},
+	}
 
 	invalidSubnetSet := &v1alpha1.SubnetSet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -86,7 +95,7 @@ func TestSubnetSetValidator(t *testing.T) {
 		},
 		Spec: v1alpha1.SubnetSetSpec{
 			IPv4SubnetSize: 32,
-			SubnetNames:    []string{"subnet1", "subnet2"},
+			SubnetNames:    &[]string{"subnet1", "subnet2"},
 		},
 	}
 
@@ -177,7 +186,7 @@ func TestSubnetSetValidator(t *testing.T) {
 					Namespace: "ns-1",
 				},
 				Spec: v1alpha1.SubnetSetSpec{
-					SubnetNames: []string{"subnet-1", "subnet-3"},
+					SubnetNames: &[]string{"subnet-1", "subnet-3"},
 				},
 			},
 			user:      "fake-user",
@@ -192,7 +201,7 @@ func TestSubnetSetValidator(t *testing.T) {
 					Namespace: "ns-1",
 				},
 				Spec: v1alpha1.SubnetSetSpec{
-					SubnetNames: []string{"subnet-1", "subnet-2"},
+					SubnetNames: &[]string{"subnet-1", "subnet-2"},
 				},
 			},
 			user:      "fake-user",
@@ -207,7 +216,7 @@ func TestSubnetSetValidator(t *testing.T) {
 					Namespace: "ns-1",
 				},
 				Spec: v1alpha1.SubnetSetSpec{
-					SubnetNames: []string{"subnet-1", "subnet-3"},
+					SubnetNames: &[]string{"subnet-1", "subnet-3"},
 				},
 			},
 			subnetSet: &v1alpha1.SubnetSet{
@@ -216,7 +225,7 @@ func TestSubnetSetValidator(t *testing.T) {
 					Namespace: "ns-1",
 				},
 				Spec: v1alpha1.SubnetSetSpec{
-					SubnetNames: []string{"subnet-1", "subnet-2", "subnet-3"},
+					SubnetNames: &[]string{"subnet-1", "subnet-2", "subnet-3"},
 				},
 			},
 			user:      "fake-user",
@@ -344,6 +353,14 @@ func TestSubnetSetValidator(t *testing.T) {
 			user:         NSXOperatorSA,
 			isAllowed:    true,
 		},
+		{
+			name:         "Not allow SubnetSet switch",
+			op:           admissionv1.Update,
+			oldSubnetSet: precreatedSubnetSet,
+			subnetSet:    subnetSet,
+			user:         NSXOperatorSA,
+			isAllowed:    false,
+		},
 	}
 	for _, testCase := range testcases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -368,6 +385,132 @@ func TestSubnetSetValidator(t *testing.T) {
 			if testCase.msg != "" {
 				assert.Contains(t, response.Result.Message, testCase.msg)
 			}
+		})
+	}
+}
+
+func TestSubnetSetType(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    *v1alpha1.SubnetSet
+		expected SubnetSetType
+	}{
+		{
+			name: "PreCreated: populated SubnetNames",
+			input: &v1alpha1.SubnetSet{
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: &[]string{"subnet-1"},
+				},
+			},
+			expected: SubnetSetTypePreCreated,
+		},
+		{
+			name: "AutoCreated: IPv4SubnetSize set",
+			input: &v1alpha1.SubnetSet{
+				Spec: v1alpha1.SubnetSetSpec{
+					IPv4SubnetSize: 24,
+				},
+			},
+			expected: SubnetSetTypeAutoCreated,
+		},
+		{
+			name: "AutoCreated: AccessMode set",
+			input: &v1alpha1.SubnetSet{
+				Spec: v1alpha1.SubnetSetSpec{
+					AccessMode: "Shared",
+				},
+			},
+			expected: SubnetSetTypeAutoCreated,
+		},
+		{
+			name: "AutoCreated: DHCP Mode set",
+			input: &v1alpha1.SubnetSet{
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{Mode: v1alpha1.DHCPConfigMode("DHCP-Server")},
+				},
+			},
+			expected: SubnetSetTypeAutoCreated,
+		},
+		{
+			name: "None: Empty spec",
+			input: &v1alpha1.SubnetSet{
+				Spec: v1alpha1.SubnetSetSpec{},
+			},
+			expected: SubnetSetTypeNone,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := subnetSetType(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestSwitchSubnetSetType(t *testing.T) {
+	tests := []struct {
+		name     string
+		old      *v1alpha1.SubnetSet
+		new      *v1alpha1.SubnetSet
+		expected bool
+	}{
+		{
+			name: "Switch from PreCreated to AutoCreated",
+			old: &v1alpha1.SubnetSet{
+				Spec: v1alpha1.SubnetSetSpec{SubnetNames: &[]string{"s1"}},
+			},
+			new: &v1alpha1.SubnetSet{
+				Spec: v1alpha1.SubnetSetSpec{IPv4SubnetSize: 24},
+			},
+			expected: true,
+		},
+		{
+			name: "Switch from AutoCreated to PreCreated",
+			old: &v1alpha1.SubnetSet{
+				Spec: v1alpha1.SubnetSetSpec{AccessMode: "Shared"},
+			},
+			new: &v1alpha1.SubnetSet{
+				Spec: v1alpha1.SubnetSetSpec{SubnetNames: &[]string{"s1"}},
+			},
+			expected: true,
+		},
+		{
+			name: "No Switch: Both PreCreated",
+			old: &v1alpha1.SubnetSet{
+				Spec: v1alpha1.SubnetSetSpec{SubnetNames: &[]string{"s1"}},
+			},
+			new: &v1alpha1.SubnetSet{
+				Spec: v1alpha1.SubnetSetSpec{SubnetNames: &[]string{"s1", "s2"}},
+			},
+			expected: false,
+		},
+		{
+			name: "No Switch: From None to AutoCreated (valid transition, not a switch)",
+			old: &v1alpha1.SubnetSet{
+				Spec: v1alpha1.SubnetSetSpec{},
+			},
+			new: &v1alpha1.SubnetSet{
+				Spec: v1alpha1.SubnetSetSpec{IPv4SubnetSize: 24},
+			},
+			expected: false,
+		},
+		{
+			name: "Switch: From PreCreated to None (removing SubnetNames not allowed)",
+			old: &v1alpha1.SubnetSet{
+				Spec: v1alpha1.SubnetSetSpec{SubnetNames: &[]string{"s1"}},
+			},
+			new: &v1alpha1.SubnetSet{
+				Spec: v1alpha1.SubnetSetSpec{},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, _ := switchSubnetSetType(tt.old, tt.new)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }

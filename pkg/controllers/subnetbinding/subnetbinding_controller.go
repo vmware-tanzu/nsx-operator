@@ -391,7 +391,7 @@ func (r *Reconciler) validateVpcSubnetsBySubnetSetCR(ctx context.Context, namesp
 			retry:   false,
 		}
 	}
-	if len(subnetSetCR.Spec.SubnetNames) > 0 {
+	if subnetSetCR.Spec.SubnetNames != nil {
 		return nil, &errorWithRetry{
 			message: fmt.Sprintf("Target SubnetSet %s/%s is a SubnetSet with pre-created Subnets", namespace, name),
 			error:   fmt.Errorf("SubnetSet with pre-created Subnets %s/%s cannot be a target SubnetSet", namespace, name),

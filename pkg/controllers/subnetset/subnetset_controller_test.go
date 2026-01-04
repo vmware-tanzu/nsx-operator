@@ -378,7 +378,7 @@ func TestUpdateSubnetSetForSubnetNames(t *testing.T) {
 					Namespace: "ns-1",
 				},
 				Spec: v1alpha1.SubnetSetSpec{
-					SubnetNames: []string{"subnet-1", "subnet-2"},
+					SubnetNames: &[]string{"subnet-1", "subnet-2"},
 				},
 			},
 			subnets: []*v1alpha1.Subnet{
@@ -415,7 +415,7 @@ func TestUpdateSubnetSetForSubnetNames(t *testing.T) {
 					Namespace: "ns-1",
 				},
 				Spec: v1alpha1.SubnetSetSpec{
-					SubnetNames: []string{"subnet-1", "subnet-2"},
+					SubnetNames: &[]string{"subnet-1", "subnet-2"},
 				},
 			},
 			subnets: []*v1alpha1.Subnet{

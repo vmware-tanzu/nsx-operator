@@ -143,7 +143,7 @@ func (r *NamespaceReconciler) updateDefaultSubnetSetWithSubnets(name string, sub
 			if len(subnetNames) == 0 {
 				// When there is no pre-created Subnets for this default network,
 				// Delete the default SubnetSet if it is created with pre-created Subnets
-				if len(subnetSetCR.Spec.SubnetNames) > 0 {
+				if subnetSetCR.Spec.SubnetNames != nil {
 					log.Debug("Delete default SubnetSet", "Name", name, "Namespace", ns)
 					return r.Client.Delete(ctx, subnetSetCR)
 				}
@@ -152,15 +152,16 @@ func (r *NamespaceReconciler) updateDefaultSubnetSetWithSubnets(name string, sub
 				return nil
 			}
 			// If the existing SubnetSet is auto-created, it is not deleted by NetworkInfo controller yet, need to retry
-			if len(subnetSetCR.Spec.SubnetNames) == 0 {
+			if subnetSetCR.Spec.SubnetNames == nil {
 				return fmt.Errorf("SubnetSet %s/%s with shared Subnets cannot be created as the old default SubnetSet still exists, will retry later", ns, name)
 			}
 			// Update the default SubnetSet with the pre-created Subnets
-			if !nsxutil.CompareArraysWithoutOrder(subnetSetCR.Spec.SubnetNames, subnetNames) {
-				subnetSetCR.Spec.SubnetNames = subnetNames
+			if !nsxutil.CompareArraysWithoutOrder(*subnetSetCR.Spec.SubnetNames, subnetNames) {
+				subnetSetCR.Spec.SubnetNames = &subnetNames
 				log.Debug("Update default SubnetSet with shared Subnets", "Name", name, "Namespace", ns, "subnetNames", subnetNames)
 				return r.Client.Update(ctx, subnetSetCR)
 			}
+
 		}
 		// Create the default SubnetSet with the pre-created Subnets
 		if len(subnetNames) > 0 {
@@ -175,7 +176,7 @@ func (r *NamespaceReconciler) updateDefaultSubnetSetWithSubnets(name string, sub
 					},
 				},
 				Spec: v1alpha1.SubnetSetSpec{
-					SubnetNames: subnetNames,
+					SubnetNames: &subnetNames,
 				},
 			}
 			return r.Client.Create(ctx, obj)
