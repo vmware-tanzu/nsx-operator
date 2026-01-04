@@ -213,6 +213,7 @@ var (
 	ReasonGatewayConnectionNotSet                    = "GatewayConnectionNotSet"
 	ReasonServiceClusterNotSet                       = "ServiceClusterNotSet"
 	ReasonNoExternalIPBlocksInVPCConnectivityProfile = "ExternalIPBlockMissingInProfile"
+	ReasonSNATNotSupportedInTEPLess                  = "SNAT not supported in TEP-less mode"
 )
 
 type Service struct {

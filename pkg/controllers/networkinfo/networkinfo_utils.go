@@ -107,7 +107,7 @@ func setVPCNetworkConfigurationStatusWithGatewayConnection(ctx context.Context, 
 	}
 }
 
-func setVPCNetworkConfigurationStatusWithSnatEnabled(ctx context.Context, client client.Client, nc *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
+func setVPCNetworkConfigurationStatusWithSnatEnabled(ctx context.Context, client client.Client, nc *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool, networkStack v1alpha1.NetworkStackType) {
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:               v1alpha1.AutoSnatEnabled,
@@ -117,6 +117,9 @@ func setVPCNetworkConfigurationStatusWithSnatEnabled(ctx context.Context, client
 	}
 	if autoSnatEnabled {
 		newConditions[0].Status = v1.ConditionTrue
+	} else if networkStack == v1alpha1.VLANBackedVPC {
+		newConditions[0].Status = v1.ConditionFalse
+		newConditions[0].Reason = common.ReasonSNATNotSupportedInTEPLess
 	}
 	conditionsUpdated := false
 	for i := range newConditions {

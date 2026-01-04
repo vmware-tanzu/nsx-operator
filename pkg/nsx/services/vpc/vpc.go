@@ -941,17 +941,21 @@ func GetAlbEndpoint(cluster *nsx.Cluster) error {
 	return err
 }
 
-func IsEnableAutoSNAT(vpcConnectivityProfile *model.VpcConnectivityProfile) bool {
+func IsServiceGatewayEnabled(vpcConnectivityProfile *model.VpcConnectivityProfile) bool {
 	if vpcConnectivityProfile.ServiceGateway == nil || vpcConnectivityProfile.ServiceGateway.Enable == nil {
 		return false
 	}
-	if *vpcConnectivityProfile.ServiceGateway.Enable {
-		if vpcConnectivityProfile.ServiceGateway.NatConfig == nil || vpcConnectivityProfile.ServiceGateway.NatConfig.EnableDefaultSnat == nil {
-			return false
-		}
-		return *vpcConnectivityProfile.ServiceGateway.NatConfig.EnableDefaultSnat
+	return *vpcConnectivityProfile.ServiceGateway.Enable
+}
+
+func IsEnableAutoSNAT(vpcConnectivityProfile *model.VpcConnectivityProfile) bool {
+	if !IsServiceGatewayEnabled(vpcConnectivityProfile) {
+		return false
 	}
-	return false
+	if vpcConnectivityProfile.ServiceGateway.NatConfig == nil || vpcConnectivityProfile.ServiceGateway.NatConfig.EnableDefaultSnat == nil {
+		return false
+	}
+	return *vpcConnectivityProfile.ServiceGateway.NatConfig.EnableDefaultSnat
 }
 
 func (s *VPCService) GetLBProvider() (LBProvider, error) {
@@ -977,8 +981,8 @@ func (s *VPCService) GetLBProvider() (LBProvider, error) {
 		return "", err
 	}
 
-	// We check EnableAutoSNAT because it is the last step when enabling the service gateway
-	serviceGatewayEnable := IsEnableAutoSNAT(vpcConnectivityProfile)
+	// NSX LB can work when Service gateway is enabled
+	serviceGatewayEnable := IsServiceGatewayEnabled(vpcConnectivityProfile)
 	globalLbProvider = s.getLBProvider(serviceGatewayEnable)
 	log.Info("Get LB provider", "provider", globalLbProvider)
 	return globalLbProvider, nil
