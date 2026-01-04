@@ -7,8 +7,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -28,9 +30,10 @@ var NSXOperatorSA = "system:serviceaccount:vmware-system-nsx:ncp-svc-account"
 // name=subnetset.validating.crd.nsx.vmware.com,admissionReviewVersions=v1
 
 type SubnetSetValidator struct {
-	Client    client.Client
-	decoder   admission.Decoder
-	nsxClient *nsx.Client
+	Client     client.Client
+	decoder    admission.Decoder
+	nsxClient  *nsx.Client
+	vpcService common.VPCServiceProvider
 }
 
 func defaultSubnetSetLabelChanged(oldSubnetSet, subnetSet *v1alpha1.SubnetSet) bool {
@@ -82,6 +85,13 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		if hasExclusiveFields(subnetSet) {
 			return admission.Denied("SubnetSet spec.subnetNames is exclusive with spec.ipv4SubnetSize, spec.accessMode and spec.subnetDHCPConfig")
 		}
+		valid, err = v.validateSubnetNames(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames)
+		if err != nil {
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+		if !valid {
+			return admission.Denied(fmt.Sprintf("Subnets under SubnetSet %s/%s should belong to the same VPC", subnetSet.Namespace, subnetSet.Name))
+		}
 	case admissionv1.Update:
 		oldSubnetSet := &v1alpha1.SubnetSet{}
 		if err := v.decoder.DecodeRaw(req.OldObject, oldSubnetSet); err != nil {
@@ -97,6 +107,13 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		}
 		if hasExclusiveFields(subnetSet) {
 			return admission.Denied("SubnetSet spec.subnetNames is exclusive with spec.ipv4SubnetSize, spec.accessMode and spec.subnetDHCPConfig")
+		}
+		valid, err := v.validateSubnetNames(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames)
+		if err != nil {
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+		if !valid {
+			return admission.Denied(fmt.Sprintf("Subnets under SubnetSet %s/%s should belong to the same VPC", subnetSet.Namespace, subnetSet.Name))
 		}
 	case admissionv1.Delete:
 		if isDefaultSubnetSet(subnetSet) && req.UserInfo.Username != NSXOperatorSA {
@@ -127,4 +144,50 @@ func (v *SubnetSetValidator) checkSubnetPort(ctx context.Context, ns string, sub
 		}
 	}
 	return false, nil
+}
+
+func (v *SubnetSetValidator) getVPCPath(ns string) (string, error) {
+	vpcInfoList := v.vpcService.ListVPCInfo(ns)
+	if len(vpcInfoList) == 0 {
+		return "", fmt.Errorf("failed to get VPC Info %s", ns)
+	}
+	return fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s", vpcInfoList[0].OrgID, vpcInfoList[0].ProjectID, vpcInfoList[0].VPCID), nil
+}
+
+// Check all Subnet CRs are created and associated NSX Subnet belongs to the same VPC.
+func (v *SubnetSetValidator) validateSubnetNames(ctx context.Context, ns string, subnetNames []string) (bool, error) {
+	var namespaceVpc string
+	var existingVPC string
+	for _, subnetName := range subnetNames {
+		crdSubnet := &v1alpha1.Subnet{}
+		err := v.Client.Get(ctx, types.NamespacedName{Name: subnetName, Namespace: ns}, crdSubnet)
+		if err != nil {
+			return false, fmt.Errorf("failed to get Subnet %s/%s: %v", ns, subnetName, err)
+		}
+		var subnetVPC string
+		associatedResource, exists := crdSubnet.Annotations[common.AnnotationAssociatedResource]
+		if exists {
+			subnetPath, err := common.GetSubnetPathFromAssociatedResource(associatedResource)
+			if err != nil {
+				return false, err
+			}
+			subnetVPC = strings.Split(subnetPath, "/subnets/")[0]
+		} else {
+			if namespaceVpc == "" {
+				namespaceVpc, err = v.getVPCPath(ns)
+				if err != nil {
+					return false, err
+				}
+			}
+			subnetVPC = namespaceVpc
+		}
+		if existingVPC == "" {
+			existingVPC = subnetVPC
+		}
+		if existingVPC != subnetVPC {
+			log.Warn("Subnets under SubnetSet is from different VPCs", "vpc1", existingVPC, "vpc2", subnetVPC)
+			return false, nil
+		}
+	}
+	return true, nil
 }

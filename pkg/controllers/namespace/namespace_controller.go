@@ -37,18 +37,6 @@ var (
 	MetricResTypeSubnet = common.MetricResTypeSubnet
 )
 
-type NameSpaceType int
-
-const (
-	SystemNs NameSpaceType = iota
-	SVServiceNs
-	NormalNs
-)
-const (
-	SupervisorServiceIDLabel = "appplatform.vmware.com/serviceId"
-	VsphereAppPlatformLabel  = "vSphere-AppPlatform"
-)
-
 // NamespaceReconciler process Namespace create/delete event
 // Using vpcservice provider instead of vpc service to prevent
 // invoking method that should be exposed to other module.
@@ -127,63 +115,6 @@ func getDefaultAccessMode(name string) v1alpha1.AccessMode {
 	}
 }
 
-// GetNamespaceType determines the type of the namespace based on the VPCNetworkConfiguration
-func (r *NamespaceReconciler) getNamespaceType(ns *v1.Namespace, vnc *v1alpha1.VPCNetworkConfiguration) NameSpaceType {
-	anno := ns.Annotations
-	if len(anno) > 0 {
-		if ncName, exist := anno[types.AnnotationVPCNetworkConfig]; exist {
-			if ncName == "system" {
-				return SystemNs
-			}
-		}
-	}
-	label := ns.Labels
-	if len(label) > 0 {
-		if _, exist := label[SupervisorServiceIDLabel]; exist {
-			if value, exist := label["managedBy"]; exist && value == VsphereAppPlatformLabel {
-				return SVServiceNs
-			}
-		}
-	}
-	return NormalNs
-}
-
-func listSubnetSet(ctx context.Context, k8sClient client.Client, ns string, label client.MatchingLabels) (*v1alpha1.SubnetSet, error) {
-	var oldObj *v1alpha1.SubnetSet
-	list := &v1alpha1.SubnetSetList{}
-	if err := k8sClient.List(ctx, list, label, client.InNamespace(ns)); err != nil {
-		return nil, err
-	}
-	if len(list.Items) > 0 {
-		log.Info("Default SubnetSet already exists", "label", label, "Namespace", ns)
-		oldObj = &list.Items[0]
-	}
-	return oldObj, nil
-}
-
-func listDefaultSubnetSet(ctx context.Context, k8sClient client.Client, ns string, subnetSetType string) (*v1alpha1.SubnetSet, error) {
-	networkSubnetSetNameMap := map[string]string{
-		types.DefaultPodNetwork: types.LabelDefaultPodSubnetSet,
-		types.DefaultVMNetwork:  types.LabelDefaultVMSubnetSet,
-	}
-	label := client.MatchingLabels{
-		types.LabelDefaultNetwork: subnetSetType,
-	}
-	oldObj, err := listSubnetSet(ctx, k8sClient, ns, label)
-	if err != nil {
-		return nil, err
-	}
-	// check the old formatted default subnetset
-	if oldObj == nil {
-		newType, _ := networkSubnetSetNameMap[subnetSetType]
-		label = client.MatchingLabels{
-			types.LabelDefaultSubnetSet: newType,
-		}
-		return listSubnetSet(ctx, k8sClient, ns, label)
-	}
-	return oldObj, nil
-}
-
 func (r *NamespaceReconciler) getSystemNsDefaultSize() int {
 	defaultSubnetSize := util.MinSubnetSizeV90
 	if r.SubnetService.NSXClient.NSXCheckVersion(nsx.SubnetMinimalSize8) {
@@ -206,39 +137,25 @@ func (r *NamespaceReconciler) getVMPodSubnet(sharedSubnet []v1alpha1.SharedSubne
 	return vmSubnets, podSubnets
 }
 
-func getDefaultSubnetsets(namespaceType NameSpaceType, hasVM, hasPod bool, networkStack v1alpha1.NetworkStackType) map[string]string {
+func getDefaultSubnetsets(namespaceType common.NameSpaceType) map[string]string {
 	defaultSubnetSets := make(map[string]string)
 	switch namespaceType {
-	case SystemNs:
+	case common.SystemNs:
 		defaultSubnetSets[types.DefaultVMSubnetSet] = types.DefaultVMNetwork
-	case SVServiceNs:
+	case common.SVServiceNs:
 		defaultSubnetSets[types.DefaultPodSubnetSet] = types.DefaultPodNetwork
-	case NormalNs:
-		switch {
-		case hasVM && hasPod:
-		case !hasVM && !hasPod:
-			if networkStack == v1alpha1.FullStackVPC {
-				defaultSubnetSets[types.DefaultVMSubnetSet] = types.DefaultVMNetwork
-				defaultSubnetSets[types.DefaultPodSubnetSet] = types.DefaultPodNetwork
-			}
-		case hasPod:
-			defaultSubnetSets[types.DefaultVMSubnetSet] = types.DefaultVMNetwork
-		case hasVM:
-			defaultSubnetSets[types.DefaultPodSubnetSet] = types.DefaultPodNetwork
-		}
 	}
 	return defaultSubnetSets
 }
 
-// createDefaultSubnetSet only create default subnetset when sharedSubnet is empty for auto created vpc
-func (r *NamespaceReconciler) createDefaultSubnetSet(ctx context.Context, ns string, defaultSubnetSize int, sharedSubnet []v1alpha1.SharedSubnet, namespaceType NameSpaceType, networkStack v1alpha1.NetworkStackType) error {
-	vmSubnet, podSubnet := r.getVMPodSubnet(sharedSubnet)
-	defaultSubnetSets := getDefaultSubnetsets(namespaceType, vmSubnet, podSubnet, networkStack)
+// createDefaultSubnetSet only create default subnetset for system Namespace or SVService Namespace
+func (r *NamespaceReconciler) createDefaultSubnetSet(ctx context.Context, ns string, defaultSubnetSize int, namespaceType common.NameSpaceType, networkStack v1alpha1.NetworkStackType) error {
+	defaultSubnetSets := getDefaultSubnetsets(namespaceType)
 	for name, subnetSetType := range defaultSubnetSets {
 		if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
 			return err != nil
 		}, func() error {
-			oldObj, err := listDefaultSubnetSet(ctx, r.Client, ns, subnetSetType)
+			oldObj, err := common.ListDefaultSubnetSet(ctx, r.Client, ns, subnetSetType)
 			if err != nil {
 				return err
 			}
@@ -250,7 +167,7 @@ func (r *NamespaceReconciler) createDefaultSubnetSet(ctx context.Context, ns str
 			if networkStack == v1alpha1.FullStackVPC {
 				accessMode = getDefaultAccessMode(name)
 			}
-			if namespaceType == SystemNs {
+			if namespaceType == common.SystemNs {
 				defaultSubnetSize = r.getSystemNsDefaultSize()
 			}
 			obj := &v1alpha1.SubnetSet{
@@ -373,9 +290,10 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			log.Error(err, "Failed to get Network Stack from VPCNetworkConfiguration", "VPCNetworkConfiguration", nc.Name)
 			return common.ResultNormal, err
 		}
+		namespaceType := common.GetNamespaceType(obj, nc)
 
-		namespaceType := r.getNamespaceType(obj, nc)
-		if err := r.createDefaultSubnetSet(ctx, ns, nc.Spec.DefaultSubnetSize, nc.Spec.Subnets, namespaceType, networkStack); err != nil {
+		// create default SubnetSet for system Namespace or SVService Namespace
+		if err := r.createDefaultSubnetSet(ctx, ns, nc.Spec.DefaultSubnetSize, namespaceType, networkStack); err != nil {
 			return common.ResultNormal, err
 		}
 

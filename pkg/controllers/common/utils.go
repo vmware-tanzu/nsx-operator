@@ -24,8 +24,12 @@ import (
 )
 
 var (
-	log            = logger.Log
-	SubnetSetLocks sync.Map
+	log                     = logger.Log
+	SubnetSetLocks          sync.Map
+	NetworkSubnetSetNameMap = map[string]string{
+		servicecommon.DefaultPodNetwork: servicecommon.LabelDefaultPodSubnetSet,
+		servicecommon.DefaultVMNetwork:  servicecommon.LabelDefaultVMSubnetSet,
+	}
 )
 
 func AllocateSubnetFromSubnetSet(subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, error) {
@@ -273,4 +277,57 @@ func GetSubnetByIP(subnets []*model.VpcSubnet, ip net.IP) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("failed to find Subnet matching IP %s", ip)
+}
+
+func listSubnetSet(ctx context.Context, client k8sclient.Client, ns string, label k8sclient.MatchingLabels) (*v1alpha1.SubnetSet, error) {
+	var oldObj *v1alpha1.SubnetSet
+	list := &v1alpha1.SubnetSetList{}
+	if err := client.List(ctx, list, label, k8sclient.InNamespace(ns)); err != nil {
+		return nil, err
+	}
+	if len(list.Items) > 0 {
+		log.Info("Default SubnetSet already exists", "label", label, "Namespace", ns)
+		oldObj = &list.Items[0]
+	}
+	return oldObj, nil
+}
+
+func ListDefaultSubnetSet(ctx context.Context, client k8sclient.Client, ns string, subnetSetType string) (*v1alpha1.SubnetSet, error) {
+	label := k8sclient.MatchingLabels{
+		servicecommon.LabelDefaultNetwork: subnetSetType,
+	}
+	oldObj, err := listSubnetSet(ctx, client, ns, label)
+	if err != nil {
+		return nil, err
+	}
+	// check the old formatted default subnetset
+	if oldObj == nil {
+		newType, _ := NetworkSubnetSetNameMap[subnetSetType]
+		label = k8sclient.MatchingLabels{
+			servicecommon.LabelDefaultSubnetSet: newType,
+		}
+		return listSubnetSet(ctx, client, ns, label)
+	}
+	return oldObj, nil
+}
+
+// GetNamespaceType determines the type of the namespace based on the VPCNetworkConfiguration
+func GetNamespaceType(ns *v1.Namespace, vnc *v1alpha1.VPCNetworkConfiguration) NameSpaceType {
+	anno := ns.Annotations
+	if len(anno) > 0 {
+		if ncName, exist := anno[servicecommon.AnnotationVPCNetworkConfig]; exist {
+			if ncName == "system" {
+				return SystemNs
+			}
+		}
+	}
+	label := ns.Labels
+	if len(label) > 0 {
+		if _, exist := label[SupervisorServiceIDLabel]; exist {
+			if value, exist := label["managedBy"]; exist && value == VsphereAppPlatformLabel {
+				return SVServiceNs
+			}
+		}
+	}
+	return NormalNs
 }

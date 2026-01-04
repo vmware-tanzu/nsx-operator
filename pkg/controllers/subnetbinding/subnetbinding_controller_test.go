@@ -645,7 +645,17 @@ func TestValidateVpcSubnetsBySubnetSetCR(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			UID:       "subnetset-uuid",
+			UID:       "subnetset-uuid-1",
+		},
+	}
+	sharedSubnetSetCR := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			UID:       "subnetset-uuid-1",
+		},
+		Spec: v1alpha1.SubnetSetSpec{
+			SubnetNames: []string{"subnet-1"},
 		},
 	}
 	for _, tc := range []struct {
@@ -689,13 +699,20 @@ func TestValidateVpcSubnetsBySubnetSetCR(t *testing.T) {
 			expMsg:  "",
 			expErr:  "",
 			paths:   []string{"/subnet-1"},
+		}, {
+			name:    "SubnetSet CR with shared Subnet",
+			objects: []client.Object{sharedSubnetSetCR},
+			expMsg:  "Target SubnetSet default/net1 is a SubnetSet with pre-created Subnets",
+			expErr:  "SubnetSet with pre-created Subnets default/net1 cannot be a target SubnetSet",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.TODO()
 			r := createFakeReconciler(tc.objects...)
-			patches := tc.patches(t, r)
-			defer patches.Reset()
+			if tc.patches != nil {
+				patches := tc.patches(t, r)
+				defer patches.Reset()
+			}
 
 			paths, err := r.validateVpcSubnetsBySubnetSetCR(ctx, namespace, name)
 			if tc.expErr != "" {

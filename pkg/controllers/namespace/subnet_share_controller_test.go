@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -24,6 +25,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
@@ -873,6 +875,12 @@ func TestSyncSharedSubnets(t *testing.T) {
 						return nil
 					})
 
+				// Mock updateDefaultSubnetSetWithSpecifiedSubnets
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "updateDefaultSubnetSetWithSpecifiedSubnets",
+					func(_ *NamespaceReconciler, _ []v1alpha1.SharedSubnet, _ map[string]*v1alpha1.Subnet, _ string) error {
+						return nil
+					})
+
 				return patches
 			},
 		},
@@ -1265,7 +1273,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			}
 
 			// Call the function being tested
-			err := r.createSharedSubnetCR(context.Background(), "test-ns", tt.sharedSubnetPath, tt.realname)
+			err := r.createSharedSubnetCR(context.Background(), "test-ns", tt.sharedSubnetPath, tt.realname, map[string]*v1alpha1.Subnet{})
 
 			// Check the result
 			if tt.expectedErrString != "" {
@@ -1434,4 +1442,231 @@ func TestGenerateValidSubnetName(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUpdateDefaultSubnetSetWithSpecifiedSubnets(t *testing.T) {
+	tests := []struct {
+		name                  string
+		sharedSubnets         []v1alpha1.SharedSubnet
+		existingSharedSubnets map[string]*v1alpha1.Subnet
+		expectedErr           string
+		preparedFunc          func(r *NamespaceReconciler) *gomonkey.Patches
+	}{
+		{
+			name: "Update default SubnetSet success",
+			sharedSubnets: []v1alpha1.SharedSubnet{
+				{
+					Path:       "/orgs/default/projects/default/vpcs/test/subnets/test-pod",
+					PodDefault: true,
+				},
+				{
+					Path:      "/orgs/default/projects/default/vpcs/test/subnets/test-vm",
+					VMDefault: true,
+				},
+				{
+					Path:       "/orgs/default/projects/default/vpcs/test/subnets/test-both",
+					PodDefault: true,
+					VMDefault:  true,
+				},
+			},
+			existingSharedSubnets: map[string]*v1alpha1.Subnet{
+				"default:test:test-pod":  {ObjectMeta: metav1.ObjectMeta{Name: "test-pod"}},
+				"default:test:test-vm":   {ObjectMeta: metav1.ObjectMeta{Name: "test-vm"}},
+				"default:test:test-both": {ObjectMeta: metav1.ObjectMeta{Name: "test-both"}},
+			},
+			preparedFunc: func(r *NamespaceReconciler) *gomonkey.Patches {
+				return gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "updateDefaultSubnetSetWithSubnets",
+					func(_ *NamespaceReconciler, name string, subnetSetType string, ns string, subnetNames []string) error {
+						return nil
+					})
+			},
+		},
+		{
+			name: "Invalid Subnet Path",
+			sharedSubnets: []v1alpha1.SharedSubnet{
+				{
+					Path:       "invalid path",
+					PodDefault: true,
+				},
+			},
+			expectedErr: "invalid subnet path format: invalid path",
+		},
+		{
+			name: "Subnet CR not created",
+			sharedSubnets: []v1alpha1.SharedSubnet{
+				{
+					Path:       "/orgs/default/projects/default/vpcs/test/subnets/test-pod",
+					PodDefault: true,
+				},
+			},
+			expectedErr: "failed to create default Network SubnetSet with Subnets: shared Subnet CR for /orgs/default/projects/default/vpcs/test/subnets/test-pod is not created",
+		},
+		{
+			name: "Update default SubnetSet success",
+			sharedSubnets: []v1alpha1.SharedSubnet{
+				{
+					Path:       "/orgs/default/projects/default/vpcs/test/subnets/test-both",
+					PodDefault: true,
+					VMDefault:  true,
+				},
+			},
+			existingSharedSubnets: map[string]*v1alpha1.Subnet{
+				"default:test:test-both": {ObjectMeta: metav1.ObjectMeta{Name: "test-both"}},
+			},
+			preparedFunc: func(r *NamespaceReconciler) *gomonkey.Patches {
+				return gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "updateDefaultSubnetSetWithSubnets",
+					func(_ *NamespaceReconciler, name string, subnetSetType string, ns string, subnetNames []string) error {
+						return fmt.Errorf("mocked error")
+					})
+			},
+			expectedErr: "mocked error",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := createTestNamespaceReconciler(nil)
+			if tt.preparedFunc != nil {
+				patches := tt.preparedFunc(r)
+				if patches != nil {
+					defer patches.Reset()
+				}
+			}
+			err := r.updateDefaultSubnetSetWithSpecifiedSubnets(tt.sharedSubnets, tt.existingSharedSubnets, "test")
+
+			if tt.expectedErr != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestUpdateDefaultSubnetSetWithSubnets(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	tests := []struct {
+		name         string
+		subnetNames  []string
+		expectedErr  string
+		preparedFunc func()
+	}{
+		{
+			name:        "Create default SubnetSet",
+			subnetNames: []string{"subnet-1", "subnet-2"},
+			preparedFunc: func() {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+				k8sClient.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
+			},
+		},
+		{
+			name:        "Update default SubnetSet",
+			subnetNames: []string{"subnet-2", "subnet-3"},
+			preparedFunc: func() {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+					subnetSetList := list.(*v1alpha1.SubnetSetList)
+					subnetSetList.Items = append(subnetSetList.Items, v1alpha1.SubnetSet{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pod-default",
+							Namespace: "ns-1",
+							Labels:    map[string]string{servicecommon.LabelDefaultNetwork: "pod"},
+						},
+						Spec: v1alpha1.SubnetSetSpec{
+							SubnetNames: []string{"subnet-1", "subnet-2"},
+						},
+					})
+					return nil
+				})
+				k8sClient.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+					subnetSet := obj.(*v1alpha1.SubnetSet)
+					assert.Equal(t, []string{"subnet-2", "subnet-3"}, subnetSet.Spec.SubnetNames)
+					return nil
+				})
+			},
+		},
+		{
+			name:        "Delete default SubnetSet",
+			subnetNames: []string{},
+			preparedFunc: func() {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+					subnetSetList := list.(*v1alpha1.SubnetSetList)
+					subnetSetList.Items = append(subnetSetList.Items, v1alpha1.SubnetSet{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pod-default",
+							Namespace: "ns-1",
+							Labels:    map[string]string{servicecommon.LabelDefaultNetwork: "pod"},
+						},
+						Spec: v1alpha1.SubnetSetSpec{
+							SubnetNames: []string{"subnet-1", "subnet-2"},
+						},
+					})
+					return nil
+				})
+				k8sClient.EXPECT().Delete(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+			},
+		},
+		{
+			name:        "Existing default SubnetSet with shared Subnets",
+			subnetNames: []string{"subnet-1"},
+			preparedFunc: func() {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+					subnetSetList := list.(*v1alpha1.SubnetSetList)
+					subnetSetList.Items = append(subnetSetList.Items, v1alpha1.SubnetSet{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pod-default",
+							Namespace: "ns-1",
+							Labels:    map[string]string{servicecommon.LabelDefaultNetwork: "pod"},
+						},
+						Spec: v1alpha1.SubnetSetSpec{
+							AccessMode:     "Public",
+							IPv4SubnetSize: 32,
+						},
+					})
+					return nil
+				}).Times(5)
+			},
+			expectedErr: "SubnetSet ns-1/pod-default with shared Subnets cannot be created as the old default SubnetSet still exists, will retry later",
+		},
+		{
+			name:        "Existing default SubnetSet with no shared Subnet",
+			subnetNames: []string{},
+			preparedFunc: func() {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+					subnetSetList := list.(*v1alpha1.SubnetSetList)
+					subnetSetList.Items = append(subnetSetList.Items, v1alpha1.SubnetSet{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pod-default",
+							Namespace: "ns-1",
+							Labels:    map[string]string{servicecommon.LabelDefaultNetwork: "pod"},
+						},
+						Spec: v1alpha1.SubnetSetSpec{
+							AccessMode:     "Public",
+							IPv4SubnetSize: 32,
+						},
+					})
+					return nil
+				})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := createTestNamespaceReconciler(nil)
+			r.Client = k8sClient
+			tt.preparedFunc()
+			err := r.updateDefaultSubnetSetWithSubnets("pod-default", "pod", "ns-1", tt.subnetNames)
+			if tt.expectedErr != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+
 }

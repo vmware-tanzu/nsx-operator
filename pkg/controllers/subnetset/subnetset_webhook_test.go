@@ -19,6 +19,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
 func TestSubnetSetValidator(t *testing.T) {
@@ -33,6 +34,9 @@ func TestSubnetSetValidator(t *testing.T) {
 		Client:    fakeClient,
 		decoder:   admission.NewDecoder(newScheme),
 		nsxClient: nsxClient,
+		vpcService: &vpc.VPCService{
+			Service: common.Service{},
+		},
 	}
 
 	defaultSubnetSet := &v1alpha1.SubnetSet{
@@ -99,6 +103,31 @@ func TestSubnetSetValidator(t *testing.T) {
 			SubnetSet: "subnetset-1",
 		},
 	})
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "subnet-1",
+			Namespace:   "ns-1",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-1:subnet-1"},
+		},
+	})
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "subnet-2",
+			Namespace:   "ns-1",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-2:subnet-2"},
+		},
+	})
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "subnet-3",
+			Namespace: "ns-1",
+		},
+	})
+
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(validator.vpcService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
+		return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "default", VPCID: "ns-1"}}
+	})
+	defer patches.Reset()
 
 	testcases := []struct {
 		name         string
@@ -138,6 +167,60 @@ func TestSubnetSetValidator(t *testing.T) {
 			user:      NSXOperatorSA,
 			isAllowed: false,
 			msg:       "SubnetSet ns-1/fake-subnetset has invalid size 24: Subnet size must be a power of 2",
+		},
+		{
+			name: "Create SubnetSet with Subnets belong to the same VPC",
+			op:   admissionv1.Create,
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "fake-subnetset",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: []string{"subnet-1", "subnet-3"},
+				},
+			},
+			user:      "fake-user",
+			isAllowed: true,
+		},
+		{
+			name: "Create SubnetSet with Subnets belong to 2 VPCs",
+			op:   admissionv1.Create,
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "fake-subnetset",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: []string{"subnet-1", "subnet-2"},
+				},
+			},
+			user:      "fake-user",
+			isAllowed: false,
+		},
+		{
+			name: "Update SubnetSet with Subnets belong to 2 VPCs",
+			op:   admissionv1.Update,
+			oldSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "fake-subnetset",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: []string{"subnet-1", "subnet-3"},
+				},
+			},
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "fake-subnetset",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: []string{"subnet-1", "subnet-2", "subnet-3"},
+				},
+			},
+			user:      "fake-user",
+			isAllowed: false,
 		},
 		{
 			name:      "Create normal SubnetSet",

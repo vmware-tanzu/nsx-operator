@@ -54,6 +54,30 @@ type SubnetSetReconciler struct {
 	restoreMode       bool
 }
 
+func (r *SubnetSetReconciler) UpdateSubnetSetForSubnetNames(ctx context.Context, subnetsetCR *v1alpha1.SubnetSet) error {
+	var subnetInfoList []v1alpha1.SubnetInfo
+	for _, subnetName := range subnetsetCR.Spec.SubnetNames {
+		subnet := &v1alpha1.Subnet{}
+		if err := r.Client.Get(ctx, types.NamespacedName{Namespace: subnetsetCR.Namespace, Name: subnetName}, subnet); err != nil {
+			return err
+		}
+		if !common.IsObjectReady(subnet.Status.Conditions) {
+			return fmt.Errorf("Subnet %s/%s is not realized", subnet.Namespace, subnet.Name)
+		}
+		subnetInfo := v1alpha1.SubnetInfo{}
+		subnetInfo.NetworkAddresses = subnet.Status.NetworkAddresses
+		subnetInfo.GatewayAddresses = subnet.Status.GatewayAddresses
+		subnetInfo.DHCPServerAddresses = subnet.Status.DHCPServerAddresses
+		subnetInfoList = append(subnetInfoList, subnetInfo)
+	}
+	subnetsetCR.Status.Subnets = subnetInfoList
+	if err := r.Client.Status().Update(ctx, subnetsetCR); err != nil {
+		log.Error(err, "Failed to update SubnetSet status for SubnetNames")
+		return err
+	}
+	return nil
+}
+
 func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	startTime := time.Now()
 	defer func() {
@@ -74,6 +98,16 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 		log.Error(err, "Unable to fetch SubnetSet CR", "SubnetSet", req.NamespacedName)
 		return ResultRequeue, err
+	}
+
+	if len(subnetsetCR.Spec.SubnetNames) > 0 {
+		// For SubnetSet with pre-created Subnet, update the Status from Subnet CR
+		if err := r.UpdateSubnetSetForSubnetNames(ctx, subnetsetCR); err != nil {
+			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
+			return ResultNormal, err
+		}
+		r.StatusUpdater.UpdateSuccess(ctx, subnetsetCR, setSubnetSetReadyStatusTrue)
+		return ResultNormal, nil
 	}
 
 	bindingCRs := r.getSubnetBindingCRsBySubnetSet(ctx, subnetsetCR)
@@ -359,6 +393,10 @@ func (r *SubnetSetReconciler) CollectGarbage(ctx context.Context) error {
 	var errList []error
 	crdSubnetSetIDsSet := sets.New[string]()
 	for _, subnetSet := range crdSubnetSetList.Items {
+		// No need to gc SubnetSet with pre-created Subnet
+		if len(subnetSet.Spec.SubnetNames) > 0 {
+			continue
+		}
 		crdSubnetSetIDsSet.Insert(string(subnetSet.UID))
 		if err := r.deleteSubnetForSubnetSet(subnetSet, true, true); err != nil {
 			errList = append(errList, err)
@@ -562,9 +600,10 @@ func (r *SubnetSetReconciler) Start(mgr ctrl.Manager, hookServer webhook.Server)
 		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-subnetset",
 			&webhook.Admission{
 				Handler: &SubnetSetValidator{
-					Client:    mgr.GetClient(),
-					decoder:   admission.NewDecoder(mgr.GetScheme()),
-					nsxClient: r.SubnetService.NSXClient,
+					Client:     mgr.GetClient(),
+					decoder:    admission.NewDecoder(mgr.GetScheme()),
+					nsxClient:  r.SubnetService.NSXClient,
+					vpcService: r.VPCService,
 				},
 			})
 	}

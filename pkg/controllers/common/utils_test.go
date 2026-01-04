@@ -276,3 +276,58 @@ func TestStatusUpdater_DeleteFail(t *testing.T) {
 
 	statusUpdater.DeleteFail(types.NamespacedName{Name: "name", Namespace: "ns"}, &v1alpha1.Subnet{}, fmt.Errorf("mock error"))
 }
+
+func TestGetNamespaceType(t *testing.T) {
+	tests := []struct {
+		name     string
+		ns       *v1.Namespace
+		vnc      *v1alpha1.VPCNetworkConfiguration
+		expected NameSpaceType
+	}{
+		{
+			name: "annotation system returns SystemNs",
+			ns: &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "ns-system",
+					Annotations: map[string]string{servicecommon.AnnotationVPCNetworkConfig: "system"},
+				},
+			},
+			vnc: &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{VPC: "irrelevant"},
+			},
+			expected: SystemNs,
+		},
+		{
+			name: "lablel present  returns SVServiceNs",
+			ns: &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "ns-anno-nonsystem",
+					Labels: map[string]string{"appplatform.vmware.com/serviceId": "custom-nc", "managedBy": "vSphere-AppPlatform"},
+				},
+			},
+			vnc: &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{VPC: "vmware-system-supervisor-services"},
+			},
+			expected: SVServiceNs,
+		},
+		{
+			name: "no special annotation and vnc does not contain supervisor returns NormalNs",
+			ns: &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "ns-normal",
+				},
+			},
+			vnc: &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{VPC: "some-other-vpc"},
+			},
+			expected: NormalNs,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := GetNamespaceType(tc.ns, tc.vnc)
+			assert.Equal(t, tc.expected, got)
+		})
+	}
+}
