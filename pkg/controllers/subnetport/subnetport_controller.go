@@ -62,6 +62,7 @@ var (
 // SubnetPortReconciler reconciles a SubnetPort object
 type SubnetPortReconciler struct {
 	client.Client
+	APIReader                  client.Reader
 	Scheme                     *apimachineryruntime.Scheme
 	SubnetPortService          *subnetport.SubnetPortService
 	SubnetService              servicecommon.SubnetServiceProvider
@@ -200,6 +201,11 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 					// If StaticIPAllocation is disabled, propagate the MAC from spec.addressBinding to status
 					subnetPort.Status.NetworkInterfaceConfig.MACAddress = subnetPort.Spec.AddressBindings[0].MACAddress
 				}
+			} else if r.restoreMode && enableDHCP {
+				// For SubnetPort under DHCP Subnet, we should keep the MACAddress in the status for restore
+				if subnetPort.Status.NetworkInterfaceConfig.MACAddress == "" && old_status.NetworkInterfaceConfig.MACAddress != "" {
+					subnetPort.Status.NetworkInterfaceConfig.MACAddress = old_status.NetworkInterfaceConfig.MACAddress
+				}
 			}
 			err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnet)
 			if err != nil {
@@ -218,7 +224,8 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			// In restore mode, we need to ensure the SubnetPort attachment Id is updated to the new SubnetPort before adding the annotation
 			// Otherwise VM operator will fail to get the new attachment ID.
 			updatedSubnetPort := &v1alpha1.SubnetPort{}
-			err := r.Client.Get(ctx, req.NamespacedName, updatedSubnetPort)
+			// Use APIReader to avoid cache not update
+			err := r.APIReader.Get(ctx, req.NamespacedName, updatedSubnetPort)
 			if err != nil {
 				return common.ResultNormal, err
 			}
@@ -550,6 +557,7 @@ func NewSubnetPortReconciler(mgr ctrl.Manager, subnetPortService *subnetport.Sub
 	subnetPortReconciler := &SubnetPortReconciler{
 		Client:                     mgr.GetClient(),
 		Scheme:                     mgr.GetScheme(),
+		APIReader:                  mgr.GetAPIReader(),
 		SubnetService:              subnetService,
 		SubnetPortService:          subnetPortService,
 		VPCService:                 vpcService,

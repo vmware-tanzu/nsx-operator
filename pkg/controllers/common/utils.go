@@ -261,7 +261,11 @@ func UpdateReconfigureNicAnnotation(client k8sclient.Client, ctx context.Context
 	}
 	anno[servicecommon.AnnotationReconfigureNic] = restoreValue
 	obj.SetAnnotations(anno)
-	return client.Update(ctx, obj)
+	if err = client.Update(ctx, obj); err != nil {
+		return err
+	}
+	log.Info("Update workload restore annotation", "kind", obj.GetObjectKind(), "key", key, "annotation", restoreValue)
+	return nil
 }
 
 func GetSubnetByIP(subnets []*model.VpcSubnet, ip net.IP) (string, error) {
