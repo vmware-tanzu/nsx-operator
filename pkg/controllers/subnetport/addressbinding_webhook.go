@@ -2,6 +2,7 @@ package subnetport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -30,13 +32,21 @@ func (v *AddressBindingValidator) Handle(ctx context.Context, req admission.Requ
 	ab := &v1alpha1.AddressBinding{}
 	if req.Operation == admissionv1.Delete {
 		return admission.Allowed("")
-	} else {
-		err := v.decoder.Decode(req, ab)
-		if err != nil {
-			log.Error(err, "error while decoding AddressBinding", "AddressBinding", req.Namespace+"/"+req.Name)
-			return admission.Errored(http.StatusBadRequest, err)
-		}
 	}
+	err := v.decoder.Decode(req, ab)
+	if err != nil {
+		log.Error(err, "error while decoding AddressBinding", "AddressBinding", req.Namespace+"/"+req.Name)
+		return admission.Errored(http.StatusBadRequest, err)
+	}
+
+	if err := common.CheckNetworkStack(v.Client, ctx, req.Namespace, "AddressBinding"); err != nil {
+		log.Error(err, "AddressBinding validation failed", "AddressBinding", req.Namespace+"/"+req.Name)
+		if errors.Is(err, common.ErrFailedToListNetworkInfo) {
+			return admission.Errored(http.StatusServiceUnavailable, err)
+		}
+		return admission.Denied(err.Error())
+	}
+
 	switch req.Operation {
 	case admissionv1.Create:
 		existingAddressBindingList := &v1alpha1.AddressBindingList{}

@@ -5,6 +5,7 @@ package ipaddressallocation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -15,6 +16,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -41,6 +44,16 @@ func (v *IPAddressAllocationValidator) Handle(ctx context.Context, req admission
 	if err != nil {
 		log.Error(err, "error while decoding IPAddressAllocation", "IPAddressAllocation", req.Namespace+"/"+req.Name)
 		return admission.Errored(http.StatusBadRequest, err)
+	}
+	if req.Operation != admissionv1.Delete {
+		err := common.CheckAccessModeOrVisibility(v.Client, ctx, ipAddressAllocation.Namespace, string(ipAddressAllocation.Spec.IPAddressBlockVisibility), servicecommon.ResourceTypeIPAddressAllocation)
+		if err != nil {
+			log.Error(err, "IPAddressVisibility not supported", "IPAddressVisibility", ipAddressAllocation.Spec.IPAddressBlockVisibility, "namespace", ipAddressAllocation.Namespace)
+			if errors.Is(err, common.ErrFailedToListNetworkInfo) {
+				return admission.Errored(http.StatusServiceUnavailable, err)
+			}
+			return admission.Denied(err.Error())
+		}
 	}
 	switch req.Operation {
 	case admissionv1.Delete:

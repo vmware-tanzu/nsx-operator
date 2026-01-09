@@ -24,6 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 
@@ -339,7 +340,12 @@ func TestStaticRouteReconciler_Start(t *testing.T) {
 		Scheme:  nil,
 		Service: service,
 	}
-	err := r.Start(mgr)
+	err := r.Start(mgr, nil)
+	assert.NotEqual(t, err, nil)
+
+	// hook server
+	hookServer := webhook.NewServer(webhook.Options{})
+	err = r.Start(mgr, hookServer)
 	assert.NotEqual(t, err, nil)
 }
 
@@ -355,11 +361,33 @@ func TestStaticRouteReconciler_StartController(t *testing.T) {
 		return nil
 	})
 	patches.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-		return
 	})
-	defer patches.Reset()
 	r := NewStaticRouteReconciler(mockMgr, staticRouteService)
 	err := r.StartController(mockMgr, nil)
+	assert.Nil(t, err)
+	patches.Reset()
+
+	// start error
+	patches.ApplyFunc((*StaticRouteReconciler).setupWithManager, func(r *StaticRouteReconciler, mgr manager.Manager) error {
+		return errors.New("setupWithManager error")
+	})
+	patches.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
+	})
+	defer patches.Reset()
+	r = NewStaticRouteReconciler(mockMgr, staticRouteService)
+	err = r.StartController(mockMgr, nil)
+	assert.Equal(t, "setupWithManager error", err.Error())
+
+	// start with webhook server
+	patches.ApplyFunc((*StaticRouteReconciler).setupWithManager, func(r *StaticRouteReconciler, mgr manager.Manager) error {
+		return nil
+	})
+	patches.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
+	})
+	defer patches.Reset()
+	hookServer := webhook.NewServer(webhook.Options{})
+	r = NewStaticRouteReconciler(mockMgr, staticRouteService)
+	err = r.StartController(mockMgr, hookServer)
 	assert.Nil(t, err)
 }
 

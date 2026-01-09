@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 
@@ -179,10 +180,19 @@ func (r *StaticRouteReconciler) setupWithManager(mgr ctrl.Manager) error {
 }
 
 // Start setup manager and launch GC
-func (r *StaticRouteReconciler) Start(mgr ctrl.Manager) error {
+func (r *StaticRouteReconciler) Start(mgr ctrl.Manager, hookServer webhook.Server) error {
 	err := r.setupWithManager(mgr)
 	if err != nil {
 		return err
+	}
+	if hookServer != nil {
+		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-staticroute",
+			&webhook.Admission{
+				Handler: &StaticRouteValidator{
+					Client:  mgr.GetClient(),
+					decoder: admission.NewDecoder(mgr.GetScheme()),
+				},
+			})
 	}
 	return nil
 }
@@ -239,11 +249,12 @@ func (r *StaticRouteReconciler) RestoreReconcile() error {
 	return nil
 }
 
-func (r *StaticRouteReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
-	if err := r.Start(mgr); err != nil {
+func (r *StaticRouteReconciler) StartController(mgr ctrl.Manager, webhook webhook.Server) error {
+	if err := r.Start(mgr, webhook); err != nil {
 		log.Error(err, "failed to create controller", "controller", "StaticRoute")
 		return err
 	}
+
 	go common.GenericGarbageCollector(make(chan bool), commonservice.GCInterval, r.CollectGarbage)
 	return nil
 }

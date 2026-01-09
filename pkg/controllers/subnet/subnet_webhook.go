@@ -2,6 +2,7 @@ package subnet
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -10,6 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
@@ -67,6 +69,7 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 				return admission.Denied(fmt.Sprintf("Subnet %s/%s: spec.accessMode L2Only is not supported", subnet.Namespace, subnet.Name))
 			}
 		}
+
 	case admissionv1.Update:
 		oldSubnet := &v1alpha1.Subnet{}
 		if err := v.decoder.DecodeRaw(req.OldObject, oldSubnet); err != nil {
@@ -98,7 +101,6 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 				return admission.Denied("ipAddresses is immutable")
 			}
 		}
-
 	case admissionv1.Delete:
 		oldSubnet := &v1alpha1.Subnet{}
 		if err := v.decoder.DecodeRaw(req.OldObject, oldSubnet); err != nil {
@@ -134,6 +136,16 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 			if hasSubnetIPReservation {
 				return admission.Denied(fmt.Sprintf("Subnet %s/%s with stale SubnetIPReservations cannot be deleted", subnet.Namespace, subnet.Name))
 			}
+		}
+	}
+	if req.Operation != admissionv1.Delete {
+		err := controllercommon.CheckAccessModeOrVisibility(v.Client, ctx, subnet.Namespace, string(subnet.Spec.AccessMode), "subnet")
+		if err != nil {
+			if errors.Is(err, controllercommon.ErrFailedToListNetworkInfo) {
+				return admission.Errored(http.StatusServiceUnavailable, err)
+			}
+			log.Error(err, "AccessMode not supported", "AccessMode", subnet.Spec.AccessMode, "namespace", subnet.Namespace)
+			return admission.Denied(err.Error())
 		}
 	}
 	return admission.Allowed("")

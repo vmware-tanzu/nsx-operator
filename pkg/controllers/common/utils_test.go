@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	gomonkey "github.com/agiledragon/gomonkey/v2"
@@ -275,6 +276,154 @@ func TestStatusUpdater_DeleteFail(t *testing.T) {
 	defer patchesRecordEvent.Reset()
 
 	statusUpdater.DeleteFail(types.NamespacedName{Name: "name", Namespace: "ns"}, &v1alpha1.Subnet{}, fmt.Errorf("mock error"))
+}
+
+func TestCheckNetworkStack(t *testing.T) {
+	tests := []struct {
+		name          string
+		namespace     string
+		objects       []client.Object
+		wantErr       bool
+		errMsg        string
+		expectedErrIs error
+	}{
+		{
+			name:      "no NetworkInfo found",
+			namespace: "default",
+			objects:   []client.Object{},
+			wantErr:   false,
+		},
+		{
+			name:      "VLANBackedVPC not supported",
+			namespace: "default",
+			objects: []client.Object{
+				&v1alpha1.NetworkInfo{
+					ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+					VPCs: []v1alpha1.VPCState{
+						{NetworkStack: "VLANBackedVPC"},
+					},
+				},
+			},
+			wantErr: true,
+			errMsg:  "StaticRoute is not supported in VLANBackedVPC VPC",
+		},
+		{
+			name:      "valid FullStackVPC VPC",
+			namespace: "default",
+			objects: []client.Object{
+				&v1alpha1.NetworkInfo{
+					ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+					VPCs: []v1alpha1.VPCState{
+						{NetworkStack: "FullStackVPC"},
+					},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			v1alpha1.AddToScheme(scheme)
+			client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tt.objects...).Build()
+
+			err := CheckNetworkStack(client, context.Background(), tt.namespace, "StaticRoute")
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("CheckNetworkStack() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				if tt.expectedErrIs != nil {
+					if !errors.Is(err, tt.expectedErrIs) {
+						t.Errorf("expected error to be %v, got %v", tt.expectedErrIs, err)
+					}
+				} else if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("CheckNetworkStack() error = %v, want %v", err.Error(), tt.errMsg)
+				}
+			}
+		})
+	}
+}
+
+func TestCheckAccessModeOrVisibility(t *testing.T) {
+	ctx := context.TODO()
+	fakeClient := fake.NewClientBuilder().Build()
+	ns := "test-ns"
+
+	tests := []struct {
+		name         string
+		tepLess      bool
+		tepLessErr   error
+		accessMode   string
+		resourceType string
+		wantErr      bool
+		expectedErr  string
+	}{
+		{
+			name:         "TepLess is true, IPAddressAllocation, AccessMode External - Success",
+			tepLess:      true,
+			accessMode:   string(v1alpha1.IPAddressVisibilityExternal),
+			resourceType: servicecommon.ResourceTypeIPAddressAllocation,
+			wantErr:      false,
+		},
+		{
+			name:         "TepLess is true, IPAddressAllocation, AccessMode Private - Failure",
+			tepLess:      true,
+			accessMode:   "Private",
+			resourceType: servicecommon.ResourceTypeIPAddressAllocation,
+			wantErr:      true,
+			expectedErr:  "IPAddressVisibility other than External is not supported for VLANBackedVPC",
+		},
+		{
+			name:         "TepLess is true, Other resource, AccessMode Public - Success",
+			tepLess:      true,
+			accessMode:   string(v1alpha1.AccessModePublic),
+			resourceType: "VPCSubnet",
+			wantErr:      false,
+		},
+		{
+			name:         "TepLess is true, Other resource, AccessMode Private - Failure",
+			tepLess:      true,
+			accessMode:   string(v1alpha1.AccessModePrivate),
+			resourceType: "SubnetSet",
+			wantErr:      true,
+			expectedErr:  "AccessMode other than Public is not supported for VLANBackedVPC",
+		},
+		{
+			name:         "TepLess is false, Any AccessMode - Success",
+			tepLess:      false,
+			accessMode:   "AnyMode",
+			resourceType: "AnyResource",
+			wantErr:      false,
+		},
+		{
+			name:        "IsTepLessMode returns error",
+			tepLessErr:  fmt.Errorf("internal error"),
+			wantErr:     true,
+			expectedErr: "internal error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Mock the IsTepLessMode function
+			// Note: Replace 'IsTepLessMode' with the actual package-qualified name if it's external
+			patches := gomonkey.ApplyFunc(IsTepLessMode, func(_ client.Client, _ context.Context, _ string) (bool, error) {
+				return tt.tepLess, tt.tepLessErr
+			})
+			defer patches.Reset()
+
+			err := CheckAccessModeOrVisibility(fakeClient, ctx, ns, tt.accessMode, tt.resourceType)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestGetNamespaceType(t *testing.T) {

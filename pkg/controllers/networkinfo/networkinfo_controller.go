@@ -173,6 +173,7 @@ func (r *NetworkInfoReconciler) updateDefaultSubnetSet(ctx context.Context, subn
 
 	return nil
 }
+
 func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	startTime := time.Now()
 	defer func() {
@@ -288,7 +289,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if isPreCreatedVPC {
 		privateIPs = createdVpc.PrivateIps
 		vpcPath := *createdVpc.Path
-		vpcConnectivityProfilePath, err = r.GetVpcConnectivityProfilePathByVpcPath(vpcPath)
+		vpcConnectivityProfilePath, err = r.Service.GetVpcConnectivityProfilePathByVpcPath(vpcPath)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to get VPC connectivity profile path %s", vpcPath), setNetworkInfoVPCStatusWithError, nil)
 			return common.ResultRequeueAfter10sec, err

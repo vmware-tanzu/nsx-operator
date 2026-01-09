@@ -5,6 +5,7 @@ package subnetset
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
@@ -82,9 +84,6 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		if isDefaultSubnetSet(subnetSet) && req.UserInfo.Username != NSXOperatorSA {
 			return admission.Denied("default SubnetSet only can be created by nsx-operator")
 		}
-		if hasExclusiveFields(subnetSet) {
-			return admission.Denied("SubnetSet spec.subnetNames is exclusive with spec.ipv4SubnetSize, spec.accessMode and spec.subnetDHCPConfig")
-		}
 		valid, err = v.validateSubnetNames(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames)
 		if err != nil {
 			return admission.Errored(http.StatusBadRequest, err)
@@ -105,9 +104,6 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 			log.Debug("Default SubnetSet label change detected", "oldLabels", oldSubnetSet.ObjectMeta.Labels, "newLabels", subnetSet.ObjectMeta.Labels, "username", req.UserInfo.Username)
 			return admission.Denied(fmt.Sprintf("SubnetSet label %s can only be updated by NSX Operator", common.LabelDefaultNetwork))
 		}
-		if hasExclusiveFields(subnetSet) {
-			return admission.Denied("SubnetSet spec.subnetNames is exclusive with spec.ipv4SubnetSize, spec.accessMode and spec.subnetDHCPConfig")
-		}
 		valid, err := v.validateSubnetNames(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames)
 		if err != nil {
 			return admission.Errored(http.StatusBadRequest, err)
@@ -127,6 +123,19 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 			if hasSubnetPort {
 				return admission.Denied(fmt.Sprintf("SubnetSet %s/%s with stale SubnetPorts cannot be deleted", subnetSet.Namespace, subnetSet.Name))
 			}
+		}
+	}
+	if req.Operation != admissionv1.Delete {
+		if hasExclusiveFields(subnetSet) {
+			return admission.Denied("SubnetSet spec.subnetNames is exclusive with spec.ipv4SubnetSize, spec.accessMode and spec.subnetDHCPConfig")
+		}
+		err := controllercommon.CheckAccessModeOrVisibility(v.Client, ctx, subnetSet.Namespace, string(subnetSet.Spec.AccessMode), "subnetset")
+		if err != nil {
+			if errors.Is(err, controllercommon.ErrFailedToListNetworkInfo) {
+				return admission.Errored(http.StatusServiceUnavailable, err)
+			}
+			log.Error(err, "AccessMode not supported", "AccessMode", subnetSet.Spec.AccessMode, "namespace", subnetSet.Namespace)
+			return admission.Denied(err.Error())
 		}
 	}
 	return admission.Allowed("")
