@@ -293,23 +293,37 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to get VPC connectivity profile path %s", vpcPath), setNetworkInfoVPCStatusWithError, nil)
 			return common.ResultRequeueAfter10sec, err
 		}
+		var aviSubnetPath, nsxLBSPath, lbIP string
 		// Update NetworkConfig and NetworkInfo if no vpcConnectivityProfile
 		// to allow Namespace created without LB and SNAT
 		if len(vpcConnectivityProfilePath) == 0 {
 			state := &v1alpha1.VPCState{
 				Name:                    *createdVpc.DisplayName,
 				DefaultSNATIP:           "",
-				LoadBalancerIPAddresses: "",
+				LoadBalancerIPAddresses: lbIP,
 				PrivateIPs:              privateIPs,
 			}
-			setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, "", "", *createdVpc.Path)
+			// Even without vpcConnectivityProfile, AVI LB subnet information should still be populated
+			// if LoadBalancerVpcEndpoint is enabled on the VPC
+			if lbProvider == vpc.AVILB && createdVpc.LoadBalancerVpcEndpoint != nil && createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
+				var err error
+				aviSubnetPath, lbIP, err = r.Service.GetAVISubnetInfo(*createdVpc)
+				if err != nil {
+					log.Error(err, "Failed to read AVI LB Subnet path and CIDR", "VPC", createdVpc.Id)
+					r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to read AVI LB Subnet path and CIDR, VPC: %s", *createdVpc.Id), setNetworkInfoVPCStatusWithError, state)
+					return common.ResultRequeueAfter10sec, err
+				}
+				state.LoadBalancerIPAddresses = lbIP
+			}
+
+			setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, aviSubnetPath, nsxLBSPath, *createdVpc.Path)
 			r.StatusUpdater.UpdateSuccess(ctx, networkInfoCR, setNetworkInfoVPCStatus, state)
 			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCIsReady.getNSNetworkCondition())
 			return common.ResultNormal, nil
 		}
 		// Retrieve NSX lbs path if Supervisor is configuring with NSX LB.
 		if lbProvider == vpc.NSXLB {
-			nsxLBSPath, err = r.Service.GetLBSsFromNSXByVPC(vpcPath)
+			_, err = r.Service.GetLBSsFromNSXByVPC(vpcPath)
 			if err != nil {
 				r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to get NSX LBS path with pre-created VPC %s", vpcPath), setNetworkInfoVPCStatusWithError, nil)
 				setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCNsxLBSNotReady.getNSNetworkCondition(err))
