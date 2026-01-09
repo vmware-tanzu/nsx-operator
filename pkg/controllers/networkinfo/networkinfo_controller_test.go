@@ -1067,7 +1067,10 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := createNetworkInfoReconciler(nil)
+			ns1 := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: "ns1"},
+			}
+			r := createNetworkInfoReconciler([]client.Object{ns1})
 			v1alpha1.AddToScheme(r.Scheme)
 			ctx := context.TODO()
 			if tt.prepareFunc != nil {
@@ -2065,6 +2068,65 @@ func TestNetworkInfoReconciler_RestoreReconcile(t *testing.T) {
 				assert.ErrorContains(t, err, testCase.expectErrStr)
 			} else {
 				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
+	subnetSet := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pod-default",
+			Namespace: "ns-1",
+			Labels:    map[string]string{servicecommon.LabelDefaultNetwork: "pod"},
+		},
+		Spec: v1alpha1.SubnetSetSpec{
+			AccessMode:     "Public",
+			IPv4SubnetSize: 32,
+		},
+	}
+	testCases := []struct {
+		name                string
+		hasCIDR             bool
+		hasPrecreatedSubnet bool
+		subnetSetList       []client.Object
+		expectErrStr        string
+	}{
+		{
+			name:                "Create default SubnetSet",
+			hasCIDR:             true,
+			hasPrecreatedSubnet: false,
+		},
+		{
+			name:                "Delete default SubnetSet 1",
+			hasCIDR:             false,
+			hasPrecreatedSubnet: false,
+			subnetSetList:       []client.Object{subnetSet},
+		},
+		{
+			name:                "Delete default SubnetSet 2",
+			hasCIDR:             false,
+			hasPrecreatedSubnet: true,
+			subnetSetList:       []client.Object{subnetSet},
+		},
+		{
+			name:                "Existing default SubnetSet",
+			hasCIDR:             true,
+			hasPrecreatedSubnet: false,
+			subnetSetList:       []client.Object{subnetSet},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := createNetworkInfoReconciler(tc.subnetSetList)
+			ctx := context.TODO()
+
+			err := r.updateDefaultSubnetSet(ctx, "pod", "ns-1", 32, tc.hasCIDR, tc.hasPrecreatedSubnet)
+			if tc.expectErrStr != "" {
+				assert.ErrorContains(t, err, tc.expectErrStr)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}

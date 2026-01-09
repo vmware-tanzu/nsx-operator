@@ -58,3 +58,15 @@ const (
 type GarbageCollector interface {
 	CollectGarbage(ctx context.Context) error
 }
+
+type NameSpaceType int
+
+const (
+	SystemNs NameSpaceType = iota
+	SVServiceNs
+	NormalNs
+)
+const (
+	SupervisorServiceIDLabel = "appplatform.vmware.com/serviceId"
+	VsphereAppPlatformLabel  = "vSphere-AppPlatform"
+)

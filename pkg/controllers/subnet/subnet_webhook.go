@@ -111,6 +111,14 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 			return admission.Denied(fmt.Sprintf("Shared Subnet %s/%s can only be deleted by NSX Operator", subnet.Namespace, subnet.Name))
 		}
 
+		referredBySubnetSet, err := v.checkSubnetSet(ctx, subnet.Namespace, subnet.Name)
+		if err != nil {
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+		if referredBySubnetSet {
+			return admission.Denied(fmt.Sprintf("Subnet %s/%s used by SubnetSet cannot be deleted", subnet.Namespace, subnet.Name))
+		}
+
 		if req.UserInfo.Username != NSXOperatorSA {
 			hasSubnetPort, err := v.checkSubnetPort(ctx, subnet.Namespace, subnet.Name)
 			if err != nil {
@@ -151,6 +159,22 @@ func (v *SubnetValidator) checkSubnetIPReservation(ctx context.Context, ns strin
 	}
 	if len(crdSubnetIPReservations.Items) > 0 {
 		return true, nil
+	}
+	return false, nil
+}
+
+func (v *SubnetValidator) checkSubnetSet(ctx context.Context, ns string, subnetName string) (bool, error) {
+	crdSubnetSets := &v1alpha1.SubnetSetList{}
+	err := v.Client.List(ctx, crdSubnetSets, client.InNamespace(ns))
+	if err != nil {
+		return false, fmt.Errorf("failed to list SubnetSet: %v", err)
+	}
+	for _, crdSubnetSet := range crdSubnetSets.Items {
+		for _, associatedSubnet := range crdSubnetSet.Spec.SubnetNames {
+			if associatedSubnet == subnetName {
+				return true, nil
+			}
+		}
 	}
 	return false, nil
 }

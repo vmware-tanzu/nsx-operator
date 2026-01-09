@@ -224,7 +224,8 @@ func getVpcPath(subnetPath string) (string, *errorWithRetry) {
 //     Subnet/SubnetSet readiness update will actively trigger a requeue event
 //  2. the associated Subnet is already used as a target Subnet in another SubnetConnectionBindingMap CR, or the target
 //     Subnet already has associated SubnetConnectionBindingMap CR. In this case, a retry error is returned.
-//  3. the target Subnet is a pre-created Subnet. In this case, a not-retry error is returned.
+//  3. the target Subnet is a pre-created Subnet or target SubnetSet is a pre-created SubnetSet.
+//     In this case, a not-retry error is returned.
 //  4. the associated Subnet is a pre-created Subnet in a VPC different from the target Subnet Namespace VPC
 //     In this case, not-retry error is returned.
 func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
@@ -387,6 +388,13 @@ func (r *Reconciler) validateVpcSubnetsBySubnetSetCR(ctx context.Context, namesp
 		return nil, &errorWithRetry{
 			message: fmt.Sprintf("Unable to get SubnetSet CR %s", name),
 			error:   fmt.Errorf("failed to get SubnetSet %s in Namespace %s with error: %v", name, namespace, err),
+			retry:   false,
+		}
+	}
+	if len(subnetSetCR.Spec.SubnetNames) > 0 {
+		return nil, &errorWithRetry{
+			message: fmt.Sprintf("Target SubnetSet %s/%s is a SubnetSet with pre-created Subnets", namespace, name),
+			error:   fmt.Errorf("SubnetSet with pre-created Subnets %s/%s cannot be a target SubnetSet", namespace, name),
 			retry:   false,
 		}
 	}

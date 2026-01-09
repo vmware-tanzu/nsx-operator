@@ -391,3 +391,31 @@ func TestGetNSNetworkCondition(t *testing.T) {
 	}
 	require.True(t, nsConditionEquals(vpcNotReadyCondition, *nsMsgVPCCreateUpdateError.getNSNetworkCondition(msgErr)))
 }
+
+func TestHasPodOrVMDefaultSubnets(t *testing.T) {
+	subnets := []v1alpha1.SharedSubnet{
+		{
+			Path:      "subnet-path",
+			VMDefault: true,
+		},
+	}
+	assert.False(t, hasPodDefaultSubnets(subnets))
+	assert.True(t, hasVMDefaultSubnets(subnets))
+
+	subnets = []v1alpha1.SharedSubnet{
+		{
+			Path:       "subnet-path",
+			PodDefault: true,
+		},
+	}
+	assert.True(t, hasPodDefaultSubnets(subnets))
+	assert.False(t, hasVMDefaultSubnets(subnets))
+
+	subnets = []v1alpha1.SharedSubnet{
+		{
+			Path: "subnet-path",
+		},
+	}
+	assert.False(t, hasPodDefaultSubnets(subnets))
+	assert.False(t, hasVMDefaultSubnets(subnets))
+}
