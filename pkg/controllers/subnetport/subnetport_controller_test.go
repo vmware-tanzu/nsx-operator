@@ -87,6 +87,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	subnetService := &mock.MockSubnetServiceProvider{}
 	r := &SubnetPortReconciler{
 		Client:                     k8sClient,
+		APIReader:                  k8sClient,
 		Scheme:                     nil,
 		SubnetPortService:          service,
 		SubnetService:              subnetService,
@@ -470,7 +471,6 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		defer patchesSetAddressBindingStatus.Reset()
 		patchesUpdateSubnetStatusOnSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetStatusOnSubnetPort,
 			func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) error {
-				fmt.Println(subnetPort)
 				return nil
 			})
 		defer patchesUpdateSubnetStatusOnSubnetPort.Reset()
@@ -485,6 +485,102 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			})
 		k8sClient.EXPECT().Update(gomock.Any(), gomock.Any()).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
 			assert.Equal(t, "cpvm", obj.GetAnnotations()[servicecommon.AnnotationReconfigureNic])
+			return nil
+		})
+		_, ret := r.Reconcile(ctx, req)
+		assert.Equal(t, nil, ret)
+	})
+
+	dhcpSubnetPort := &v1alpha1.SubnetPort{
+		Status: v1alpha1.SubnetPortStatus{
+			Attachment: v1alpha1.PortAttachment{
+				ID: attachmentID,
+			},
+			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+					{
+						Gateway: "10.0.0.1",
+					},
+				},
+				MACAddress: "04:50:56:00:74:00",
+			},
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "subnetport-1",
+			Namespace:   "ns-1",
+			Annotations: map[string]string{servicecommon.AnnotationAttachmentRef: "VirtualMachine/vm-1/eth0"},
+		},
+	}
+	dhcpPortState := &model.SegmentPortState{
+		Attachment: &model.SegmentPortAttachmentState{
+			Id: &attachmentIDAfterRestore,
+		},
+	}
+	// Restore case with dhcp SubnetPort
+	t.Run("restore dhcp", func(t *testing.T) {
+		sp := &v1alpha1.SubnetPort{}
+		vm := &vmv1alpha1.VirtualMachine{}
+		r.restoreMode = true
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Status = dhcpSubnetPort.Status
+				v1sp.ObjectMeta = dhcpSubnetPort.ObjectMeta
+				return nil
+			})
+		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
+			func(r *SubnetPortReconciler, ctx context.Context, obj *v1alpha1.SubnetPort) (bool, bool, string, error) {
+				return true, false, "", nil
+			})
+		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
+		patchesGetSubnetByIP := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetBySubnetPort, func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort) (string, error) {
+			return "subnet-path", nil
+		})
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), vm).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1vm := obj.(*vmv1alpha1.VirtualMachine)
+				v1vm.ObjectMeta = metav1.ObjectMeta{
+					Name:      "vm-1",
+					Namespace: "ns-1",
+				}
+				return nil
+			})
+		defer patchesGetSubnetByIP.Reset()
+		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
+				return dhcpPortState, true, nil
+			})
+		defer patchesCreateOrUpdateSubnetPort.Reset()
+		patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
+			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService) {
+			})
+		defer patchesSetAddressBindingStatus.Reset()
+		patchesUpdateSubnetStatusOnSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetStatusOnSubnetPort,
+			func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) error {
+				return nil
+			})
+		defer patchesUpdateSubnetStatusOnSubnetPort.Reset()
+
+		patchesGetAddressBindingBySubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetAddressBindingBySubnetPort, func(_ *subnetport.SubnetPortService, _ *v1alpha1.SubnetPort) *v1alpha1.AddressBinding {
+			return nil
+		})
+		defer patchesGetAddressBindingBySubnetPort.Reset()
+
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Status = dhcpSubnetPort.Status
+				v1sp.Status.Attachment.ID = attachmentIDAfterRestore
+				v1sp.ObjectMeta = dhcpSubnetPort.ObjectMeta
+				return nil
+			})
+		k8sClient.EXPECT().Status().Return(fakewriter)
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				return nil
+			})
+		k8sClient.EXPECT().Update(gomock.Any(), gomock.Any()).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+			assert.Equal(t, "eth0", obj.GetAnnotations()[servicecommon.AnnotationReconfigureNic])
 			return nil
 		})
 		_, ret := r.Reconcile(ctx, req)
@@ -1634,7 +1730,6 @@ func TestSubnetPortReconciler_RestoreReconcile(t *testing.T) {
 
 	reqList := []reconcile.Request{}
 	patches.ApplyFunc((*SubnetPortReconciler).Reconcile, func(r *SubnetPortReconciler, ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-		fmt.Println(req)
 		reqList = append(reqList, req)
 		return common.ResultNormal, nil
 	})
@@ -2165,6 +2260,10 @@ func (m *MockManager) GetClient() client.Client {
 
 func (m *MockManager) GetScheme() *runtime.Scheme {
 	return m.scheme
+}
+
+func (m *MockManager) GetAPIReader() client.Reader {
+	return m.client
 }
 
 func (m *MockManager) GetEventRecorderFor(name string) record.EventRecorder {
