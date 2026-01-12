@@ -1467,9 +1467,11 @@ func TestSubnetPortReconciler_updateSubnetStatusOnSubnetPort(t *testing.T) {
 func TestSubnetPortReconciler_getVirtualMachine(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
+	apiReader := mock_client.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
 	r := &SubnetPortReconciler{
-		Client: k8sClient,
+		Client:    k8sClient,
+		APIReader: apiReader,
 	}
 	patchesGetVirtualMachineNameForSubnetPort := gomonkey.ApplyFunc(common.GetVirtualMachineNameForSubnetPort,
 		func(subnetPort *v1alpha1.SubnetPort) (string, string, error) {
@@ -1489,7 +1491,17 @@ func TestSubnetPortReconciler_getVirtualMachine(t *testing.T) {
 			Namespace: "ns-1",
 		},
 	}
-	res, nic, err := r.getVirtualMachine(context.TODO(), sp)
+	res, nic, err := r.getVirtualMachine(context.TODO(), sp, false)
+	assert.Nil(t, err)
+	assert.Equal(t, labels, res.Labels)
+	assert.Equal(t, nic, "eth0")
+
+	apiReader.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+		vm := obj.(*vmv1alpha1.VirtualMachine)
+		vm.ObjectMeta.Labels = labels
+		return nil
+	})
+	res, nic, err = r.getVirtualMachine(context.TODO(), sp, true)
 	assert.Nil(t, err)
 	assert.Equal(t, labels, res.Labels)
 	assert.Equal(t, nic, "eth0")
